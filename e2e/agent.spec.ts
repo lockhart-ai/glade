@@ -1,10 +1,10 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { CommandName } from '../src/shared/bridge'
-import { TaskActivity, ToolCallState } from '../src/shared/domain'
+import { TaskActivity } from '../src/shared/domain'
 import { expect, test } from './fixtures'
-import { chat, firstRun, taskList } from './selectors'
-import { invoke, taskHeader, toolLog } from './task-view'
+import { chat, firstRun, taskList, taskPanel } from './selectors'
+import { invoke, taskHeader } from './task-view'
 
 test('new task, first message, scripted reply', async ({ launch, tempFolder }) => {
   const root = join(tempFolder(), 'acme-api')
@@ -34,29 +34,24 @@ test('new task, first message, scripted reply', async ({ launch, tempFolder }) =
   await expect(row).toContainText('Fix the flaky date test')
   await expect(row).toContainText('Fixed the timezone bug; the tests pass.')
 
-  // Until the task header and the tool log land (P1-11, P1-12), these read what they will show through the bridge.
+  // Until the task header lands, this reads what it will show through the bridge.
   expect(await taskHeader(window, workspaceId, taskId)).toEqual({
     title: 'Fix the flaky date test',
     objective: 'Make the date formatting test pass in every timezone.',
     status: 'Fixed the timezone bug; the tests pass.',
     activity: TaskActivity.Waiting,
   })
-  const done = ToolCallState.Done
-  expect(await toolLog(window, taskId)).toEqual([
-    { narration: "I'll find where the date is formatted, then fix the timezone bug and run the tests." },
-    { tool: 'mcp__glade__set_title', state: done, inside: null },
-    { tool: 'mcp__glade__set_objective', state: done, inside: null },
-    { tool: 'mcp__glade__set_status', state: done, inside: null },
-    { tool: 'Read', state: done, inside: null },
-    { tool: 'Grep', state: done, inside: null },
-    { tool: 'Agent', state: done, inside: null },
-    { tool: 'Grep', state: done, inside: 'Agent' },
-    { tool: 'Read', state: done, inside: 'Agent' },
-    { tool: 'Edit', state: done, inside: null },
-    { tool: 'mcp__glade__set_status', state: done, inside: null },
-    { tool: 'Bash', state: done, inside: null },
-    { tool: 'mcp__glade__set_status', state: done, inside: null },
-  ])
+
+  // The tool log shows every call the turn made, all done, with the subagent's calls under its Agent call.
+  const panel = taskPanel(window)
+  await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 12')
+  await expect(panel.log).toContainText(
+    "I'll find where the date is formatted, then fix the timezone bug and run the tests.",
+  )
+  await expect(panel.log.getByRole('button', { name: /^Done/ })).toHaveCount(12)
+  await expect(panel.call(/^Done\s*set_title/)).toBeVisible()
+  await expect(panel.call(/^Done\s*Read\s*src\/date\.ts/)).toBeVisible()
+  await expect(panel.subagentCalls('Agent').getByRole('button')).toHaveCount(2)
 })
 
 test('stop a running turn with ⌘., then carry on in the same session', async ({ launch, tempFolder }) => {
@@ -80,9 +75,8 @@ test('stop a running turn with ⌘., then carry on in the same session', async (
   await invoke(window, CommandName.TasksSend, { id: taskId, text: 'Run the e2e suite.' })
 
   // The agent works, with its command running, until it's stopped.
-  await expect
-    .poll(async () => (await toolLog(window, taskId)).at(-1))
-    .toEqual({ tool: 'Bash', state: ToolCallState.Running, inside: null })
+  const panel = taskPanel(window)
+  await expect(panel.call(/^Running\s*Bash/)).toBeVisible()
   expect(await activity()).toBe(TaskActivity.Working)
   const session = await sessionId()
   expect(session).toBeTruthy()
@@ -91,10 +85,9 @@ test('stop a running turn with ⌘., then carry on in the same session', async (
 
   // Back to waiting on you: the running command ended as an error, and the tool log says you stopped it.
   await expect.poll(activity).toBe(TaskActivity.Waiting)
-  expect((await toolLog(window, taskId)).slice(-2)).toEqual([
-    { tool: 'Bash', state: ToolCallState.Error, inside: null },
-    { narration: 'You stopped the agent.' },
-  ])
+  await expect(panel.call(/^Failed\s*Bash/)).toBeVisible()
+  await expect(panel.call(/^Running/)).toHaveCount(0)
+  await expect(panel.log.getByText(/^You stopped the agent\./)).toBeVisible()
   const { userMessages, agentReplies } = chat(window)
   await expect(agentReplies).toHaveCount(0)
 
