@@ -154,7 +154,8 @@ import {
   appendNarration,
   appendToolCall,
   failRunningCompactions,
-  failRunningToolCalls,
+  interruptPausedToolCalls,
+  interruptRunningToolCalls,
   listToolEvents,
   updateCompaction,
   updateToolCall,
@@ -370,7 +371,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const notifyReply = options.notifyReply ?? (() => undefined)
   const isOnline = options.isOnline ?? (() => true)
   const context = { db, emit }
-  const questions = options.questions ?? createQuestionBroker(context)
+  const questions = options.questions ?? createQuestionBroker(context, notifyReply)
   const sessions = new Map<string, LiveSession>()
   // Resumes a paused turn when its pause is due.
   const timers = createPauseTimers((taskId) => {
@@ -383,10 +384,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   /**
    * The agent is working on a new turn: whatever error stopped it or pause held it before is behind it, and so is any
-   * retry the app quit in the middle of.
+   * retry the app quit in the middle of. The calls a pause cut off now read as interrupted.
    */
   const startWorking = (taskId: string, through: TaskServiceContext = context): void => {
     timers.disarm(taskId)
+    for (const call of interruptPausedToolCalls(db, taskId)) emitToolEventUpdated(through.emit, call)
     const task = getTask(db, taskId)
     if (
       task?.activity !== TaskActivity.Working ||
@@ -487,10 +489,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (text !== '') emitToolEventAppended(emit, appendNarration(db, { taskId, turn: turn.number, text }))
   }
 
-  /** Marks the calls that never got a result as failed. */
-  const failRunning = (taskId: string, turn: Turn, output: string): void => {
+  /** Marks the calls that never got a result as failed, or as paused when the turn pauses. */
+  const failRunning = (taskId: string, turn: Turn, output: string, state = ToolCallState.Error): void => {
     for (const toolUseId of turn.running.keys()) {
-      emitToolEventUpdated(emit, updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Error, output }))
+      emitToolEventUpdated(emit, updateToolCall(db, { taskId, toolUseId, state, output }))
     }
     turn.running.clear()
   }
@@ -689,7 +691,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       live.limit,
     )
     if (pauseReason(error) !== null) {
-      failRunning(taskId, turn, PAUSED_TOOL_NOTE)
+      failRunning(taskId, turn, PAUSED_TOOL_NOTE, ToolCallState.Paused)
       pauseOnError(taskId, error, live.limit)
       return
     }
@@ -719,8 +721,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     failCompaction(turn)
     turn.pending.push(message)
     flushPreamble(taskId, turn)
-    failRunning(taskId, turn, message)
     const error = withRetries(turn, { source: TaskErrorSource.Session, status: null, code: null, details: message })
+    failRunning(taskId, turn, message, pauseReason(error) === null ? ToolCallState.Error : ToolCallState.Paused)
     if (!pauseOnError(taskId, error, live.limit)) stopOnError(taskId, error)
   }
 
@@ -836,7 +838,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const taskId = task.id
     // A task always has a turn by the time it works; the tool log's first turn is 1 regardless.
     const turn = Math.max(1, lastTurn(db, taskId))
-    for (const call of failRunningToolCalls(db, taskId, RESTARTED_TOOL_NOTE)) emitToolEventUpdated(emit, call)
+    for (const call of interruptRunningToolCalls(db, taskId, RESTARTED_TOOL_NOTE)) emitToolEventUpdated(emit, call)
     const compactions = failRunningCompactions(db, taskId)
     for (const compaction of compactions) emitToolEventUpdated(emit, compaction)
     // The turn was a compaction you asked for, not a turn of yours: it ends there, and the queue starts the next turn,
@@ -942,7 +944,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    * and so is its turn. Its task waits on you until you answer it.
    */
   const orphanQuestion = (set: QuestionSet): void => {
-    for (const call of failRunningToolCalls(db, set.taskId, ASK_RESTARTED_NOTE)) emitToolEventUpdated(emit, call)
+    for (const call of interruptRunningToolCalls(db, set.taskId, ASK_RESTARTED_NOTE)) emitToolEventUpdated(emit, call)
     setActivity(set.taskId, TaskActivity.Waiting)
   }
 

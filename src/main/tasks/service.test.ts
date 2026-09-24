@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
-import { Effort, TaskActivity, TaskState, type Task, type Workspace } from '../../shared/domain'
+import { Effort, TaskActivity, TaskState, ToolCallState, type Task, type Workspace } from '../../shared/domain'
 import { CommandFailure } from '../bridge/errors'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
+import { appendToolCall, listToolEvents, updateToolCall } from '../db/repositories/tool-events'
 import { DEFAULT_EFFORT, DEFAULT_MODEL } from './defaults'
 import {
   createTask,
@@ -110,6 +111,30 @@ describe('markTaskDone', () => {
     expect(done.status).toBe('Middleware written; tests passing.')
     expect(getTask(database.db, task.id)).toEqual(done)
     expect(events).toEqual([{ type: EventType.TaskUpdated, task: done }])
+  })
+
+  it('shows the calls a pause cut off as interrupted, and says so', () => {
+    const task = busyTask()
+    const call = { taskId: task.id, turn: 1, name: 'Bash', input: { command: 'python copy.py' }, parentToolUseId: null }
+    appendToolCall(database.db, { ...call, toolUseId: 'toolu_paused' })
+    updateToolCall(database.db, {
+      taskId: task.id,
+      toolUseId: 'toolu_paused',
+      state: ToolCallState.Paused,
+      output: 'The task paused.',
+    })
+    appendToolCall(database.db, { ...call, toolUseId: 'toolu_done' })
+    updateToolCall(database.db, { taskId: task.id, toolUseId: 'toolu_done', state: ToolCallState.Done, output: 'ok' })
+
+    const done = markTaskDone(context, task.id)
+
+    const [paused, finished] = listToolEvents(database.db, task.id)
+    expect(paused).toMatchObject({ state: ToolCallState.Interrupted, output: 'The task paused.' })
+    expect(finished).toMatchObject({ state: ToolCallState.Done })
+    expect(events).toEqual([
+      { type: EventType.TaskUpdated, task: done },
+      { type: EventType.ToolEventUpdated, toolEvent: paused },
+    ])
   })
 
   it('refuses a task that is already done, leaving it alone', () => {

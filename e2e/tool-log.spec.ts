@@ -49,3 +49,26 @@ test('tool log: rows, notes, dividers and subagent calls; a row expands; the cha
   await expect(relaunched.call(/Read api\/views\.py/)).toContainText('3 lines')
   await expect(relaunched.dividers).toHaveCount(1)
 })
+
+test('tool log: a call a quit cut off looks finished, a paused one purple, and notes show inline code', async ({
+  launch,
+}) => {
+  const panel = taskPanel((await launch({ seed: seedPath('interrupted-calls.json') })).window)
+
+  // Neither call failed: the interrupted one has a slate dot like a finished call, the paused one purple.
+  const interrupted = panel.call(/^Interrupted Bash python scripts\/copy_media_to_s3\.py \d\d:\d\d Interrupted$/)
+  await expect(interrupted.getByRole('img', { name: 'Interrupted' })).toHaveAttribute('data-state', 'done')
+  const paused = panel.call(/^Paused Bash python scripts\/copy_media_to_s3\.py --resume \d\d:\d\d Paused$/)
+  await expect(paused.getByRole('img', { name: 'Paused' })).toHaveAttribute('data-state', 'waiting')
+  await expect(panel.log.getByRole('button', { name: /^Failed/ })).toHaveCount(0)
+
+  // Opened, a row says why it stopped.
+  await interrupted.click()
+  await expect(panel.log.getByLabel('Bash output')).toHaveText('Glade quit before this tool call finished.')
+
+  // A note's inline code and emphasis are formatted; a link is just its text.
+  await expect(panel.log.locator('code', { hasText: 'django-storages' })).toBeVisible()
+  await expect(panel.log.locator('em', { hasText: 'static' })).toBeVisible()
+  await expect(panel.log).toContainText("so I'll add an S3 backend. See the docs.")
+  await expect(panel.log.locator('a')).toHaveCount(0)
+})

@@ -10,7 +10,8 @@ import { compactionMigration } from './0008-compaction'
 import { taskErrorMigration } from './0009-task-error'
 import { taskPauseMigration } from './0010-task-pause'
 import { questionSetsMigration } from './0011-question-sets'
-import { openFilesMigration } from './0012-open-files'
+import { toolCallInterruptedMigration } from './0012-tool-call-interrupted'
+import { openFilesMigration } from './0013-open-files'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -25,5 +26,6 @@ export const MIGRATIONS: readonly Migration[] = [
   taskErrorMigration,
   taskPauseMigration,
   questionSetsMigration,
+  toolCallInterruptedMigration,
   openFilesMigration,
 ]

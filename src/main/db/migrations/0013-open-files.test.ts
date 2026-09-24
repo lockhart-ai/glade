@@ -3,15 +3,15 @@ import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { getOpenFiles } from '../repositories/open-files'
 import { MIGRATIONS } from '.'
-import { openFilesMigration } from './0012-open-files'
+import { openFilesMigration } from './0013-open-files'
 
-it('is migration 12', () => {
-  expect(MIGRATIONS[11]).toBe(openFilesMigration)
+it('is migration 13', () => {
+  expect(MIGRATIONS[12]).toBe(openFilesMigration)
 })
 
 it('starts every existing task with no files open, dropped with its task, and checks the paths are an array', () => {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 11))
+  migrate(db, MIGRATIONS.slice(0, 12))
   db.prepare("INSERT INTO workspaces VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)").run()
   db.prepare(
     `INSERT INTO tasks (id, workspace_id, title, objective, status, state, activity, pinned, unread, model, effort,

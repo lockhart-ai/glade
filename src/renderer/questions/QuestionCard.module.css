@@ -1,0 +1,274 @@
+/*
+ * The question card, from docs/design/html/03-rich-question.html. The picked option's fill (#231f3d) and outline
+ * (#8c7bd9), and the empty radio's ring (#4e5468), aren't tokens: they're the design's own tints of --color-purple.
+ */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  background: var(--color-inner);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-nested);
+  box-shadow: var(--shadow-nested);
+}
+
+/* Open, it has the question highlight. */
+.open {
+  border-color: var(--color-question-border);
+}
+
+.withdrawn {
+  box-shadow: none;
+  opacity: 0.6;
+}
+
+.title,
+.closedTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-secondary);
+  font-weight: 600;
+  color: var(--color-purple);
+}
+
+.closedTitle {
+  color: var(--color-muted);
+}
+
+.question {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.prompt {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.number {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+.promptText {
+  font-size: var(--font-size-chat);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.optional {
+  font-size: 12px;
+  color: var(--color-faint);
+}
+
+.options {
+  display: flex;
+  gap: 10px;
+}
+
+.option {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-inner-border);
+  border-radius: 10px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.option:hover {
+  border-color: var(--color-strong);
+}
+
+.option.checked,
+.pill.checked {
+  background: #231f3d;
+  border-color: #8c7bd9;
+  color: var(--color-text);
+}
+
+.option:focus-visible,
+.pill:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 2px;
+}
+
+/* A sketch: the option's text lines, as is, in a small frame. */
+.sketch {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-height: 52px;
+  max-height: 120px;
+  padding: 8px 12px;
+  overflow: hidden;
+  background: var(--color-inner);
+  border: 1px solid var(--color-inner-border);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--color-faint);
+}
+
+.sketchLine {
+  overflow: hidden;
+  white-space: pre;
+  text-overflow: ellipsis;
+}
+
+.sketchHeading {
+  color: var(--color-blue-text);
+}
+
+.optionRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.radio,
+.box {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border: 2px solid #4e5468;
+}
+
+.radio {
+  border-radius: 8px;
+}
+
+.box {
+  border-radius: 4px;
+}
+
+.radio.on,
+.box.on {
+  border-color: var(--color-purple);
+}
+
+.radio.on::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-purple);
+}
+
+.box.on {
+  background: var(--color-purple);
+}
+
+.box.on::after {
+  content: '';
+  width: 3px;
+  height: 7px;
+  margin-top: -2px;
+  border: solid var(--color-bg);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.optionText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.optionLabel {
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.optionDetail {
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pill {
+  height: 32px;
+  padding: 0 14px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-inner-border);
+  border-radius: 16px;
+  font: inherit;
+  font-size: var(--font-size-secondary);
+  font-weight: 500;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.pill:hover {
+  border-color: var(--color-strong);
+  color: var(--color-text);
+}
+
+.text {
+  max-width: 480px;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.send {
+  height: 36px;
+}
+
+/* Send stays focusable while the answers are incomplete, so the keyboard can still reach it. */
+.sendOff {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-faint);
+}
+
+.answers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+
+.answer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.answerText {
+  margin: 0 0 0 20px;
+  font-size: var(--font-size-body);
+  color: var(--color-purple);
+}

@@ -145,7 +145,8 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
     'the task is done, it is the outcome.',
   [GladeTool.Ask]:
     'Ask the user one or more questions on a card in the chat, and wait for the answers. Each question is a choice ' +
-    '(option cards, each with an id, a label and optionally a detail line and a sketch), pills (short options) or text ' +
+    '(option cards, each with an id, a label and optionally a detail line and a sketch: a few short lines of plain ' +
+    'text shown monospaced, with # lines as headings), pills (short options) or text ' +
     '(a text box). Choices and pills take one pick unless `multiple` is set. Returns the answers as JSON keyed by ' +
     'question index from 0: a choice gives the option id, pills the pill text, text the text typed (an optional one ' +
     'left empty has no key), and `multiple` gives an array. The user can reply in their own words instead; then it ' +

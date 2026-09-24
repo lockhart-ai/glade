@@ -57,7 +57,7 @@
           "name": "Bash",
           "input": { "command": "python manage.py check" },
           "output": "SystemCheckError: api.E001 unknown throttle scope 'search'",
-          "failed": true,
+          "state": "error",
           "turn": 2,
           "minutesAgo": 8
         },

@@ -233,7 +233,7 @@ describe('AGENT_SCRIPTS', () => {
       ['mcp__glade__set_title', ToolCallState.Done],
       ['mcp__glade__set_objective', ToolCallState.Done],
       ['mcp__glade__set_status', ToolCallState.Done],
-      ['Bash', ToolCallState.Error],
+      ['Bash', ToolCallState.Interrupted],
       ['Bash', ToolCallState.Done],
       ['mcp__glade__set_status', ToolCallState.Done],
     ])
@@ -261,7 +261,7 @@ describe('AGENT_SCRIPTS', () => {
       calls()
         .filter(({ name }) => name === 'Bash')
         .map(({ state }) => state),
-    ).toEqual([ToolCallState.Error, ToolCallState.Done])
+    ).toEqual([ToolCallState.Interrupted, ToolCallState.Done])
     expect(getTask(database.db, task.id)).toMatchObject({
       activity: TaskActivity.Waiting,
       title: 'Build the release',
@@ -296,7 +296,7 @@ describe('AGENT_SCRIPTS', () => {
       ['mcp__glade__set_title', ToolCallState.Done],
       ['mcp__glade__set_objective', ToolCallState.Done],
       ['mcp__glade__set_status', ToolCallState.Done],
-      ['Bash', ToolCallState.Error],
+      ['Bash', ToolCallState.Interrupted],
       ['Bash', ToolCallState.Done],
       ['Bash', ToolCallState.Done],
       ['mcp__glade__set_status', ToolCallState.Done],
@@ -434,13 +434,13 @@ describe('AGENT_SCRIPTS', () => {
     expect(open?.questions).toEqual(RELEASE_NOTES_QUESTIONS)
     expect(getTask(database.db, task.id)).toMatchObject({
       title: 'Draft release notes for 2.4',
-      status: 'Waiting on three layout and credit questions.',
+      status: 'Waiting on layout, credit and upgrade guide questions.',
       activity: TaskActivity.Waiting,
       asking: true,
     })
     expect(reply()).toBeUndefined()
 
-    agent.answer(open?.id ?? '', { 0: 'by-type', 1: 'Internal changes', 2: 'GitHub handles' })
+    agent.answer(open?.id ?? '', { 0: 'by-type', 1: 'Internal changes', 2: 'GitHub handles', 3: ' Mention the 429s. ' })
     await vi.waitFor(() => {
       expect(activity()).toBe(TaskActivity.Waiting)
     })
@@ -448,7 +448,7 @@ describe('AGENT_SCRIPTS', () => {
     expect(reply()).toMatch(/^Thanks\. The release notes for 2\.4 are drafted/)
     expect(calls().find((call) => call.name === 'mcp__glade__ask')).toMatchObject({
       state: ToolCallState.Done,
-      output: '{"0":"by-type","1":"Internal changes","2":"GitHub handles"}',
+      output: '{"0":"by-type","1":"Internal changes","2":"GitHub handles","3":"Mention the 429s."}',
     })
     expect(getTask(database.db, task.id)?.status).toBe('Release notes drafted in docs/releases/2.4.md.')
   })

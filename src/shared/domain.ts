@@ -243,6 +243,14 @@ export enum ToolCallState {
   Running = 'running',
   Done = 'done',
   Error = 'error',
+  /**
+   * Cut off by a pause (a usage limit, or offline) while the task is still paused: its turn picks up again when the
+   * task resumes (`docs/design/html/17-usage-limit.html`). It becomes `Interrupted` once the task works again or is
+   * marked done.
+   */
+  Paused = 'paused',
+  /** Cut off by Glade quitting, or by a pause the task has since resumed from: not a failure (`18-relaunch.html`). */
+  Interrupted = 'interrupted',
 }
 
 /** What a divider in the tool log marks. */
@@ -374,7 +382,10 @@ export interface ChoiceOption {
   readonly label: string
   /** A line under the label. */
   readonly detail?: string
-  /** A small sketch of what the option would look like. */
+  /**
+   * A small sketch of what the option would look like: a few short lines of plain text, shown as is in a small
+   * monospace frame, with lines starting with `#` as headings (`docs/model-surface.md`).
+   */
   readonly sketch?: string
 }
 
