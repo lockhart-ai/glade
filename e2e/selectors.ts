@@ -77,16 +77,22 @@ export function taskHeader(page: Page) {
     pin: header.getByRole('button', { name: 'Pin task' }),
     unpin: header.getByRole('button', { name: 'Unpin task' }),
     markDone: header.getByRole('button', { name: 'Mark done' }),
+    /** Shows the right panel again; there only while it's collapsed. */
+    showSidePanel: header.getByRole('button', { name: 'Show side panel' }),
     /** A row's value, e.g. the objective. */
     field: (name: TaskHeaderField) => header.getByRole('group', { name }).getByRole('paragraph'),
   }
 }
 
-/** The task card's right panel: its tabs, and the Tool calls tab's log. */
+/** The task card's right panel: its tabs, its resize handle and collapse button, and the Tool calls tab's log. */
 export function taskPanel(page: Page) {
   const panel = regions(page).taskPanel
   const log = panel.getByRole('log', { name: 'Tool log' })
   return {
+    panel,
+    /** The drag handle on the panel's left edge, in the gap beside it. */
+    resizeHandle: regions(page).task.getByRole('separator', { name: 'Resize panel' }),
+    collapse: panel.getByRole('button', { name: 'Collapse side panel' }),
     tab: (name: string | RegExp) => panel.getByRole('tab', { name }),
     tabPanel: panel.getByRole('tabpanel'),
     log,

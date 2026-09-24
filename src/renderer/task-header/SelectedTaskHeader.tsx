@@ -1,9 +1,10 @@
-import { faCheck, faThumbtack } from '@fortawesome/free-solid-svg-icons'
+import { faCheck, faTableColumns, faThumbtack } from '@fortawesome/free-solid-svg-icons'
 import { useMemo, type ReactNode } from 'react'
-import { TaskState, type Task, type ToolEvent } from '../../shared/domain'
+import { TaskState, UiStateKey, type Task, type ToolEvent } from '../../shared/domain'
 import { taskIndicator } from '../../shared/taskIndicator'
 import { Button, ButtonVariant, Pill, useToast } from '../components'
 import { TaskHeader } from '../layout'
+import { isPanelCollapsed } from '../right-panel/panelModel'
 import { describeFailure } from '../store/hydrate'
 import { useGladeStore } from '../store/react'
 import { selectSelectedTask } from '../store/state'
@@ -59,6 +60,8 @@ function Header({ task }: HeaderProps): React.JSX.Element {
   const done = task.state === TaskState.Done
   const toolEvents = useGladeStore((state) => state.toolEvents[task.id]) ?? NO_TOOL_EVENTS
   const reopened = useMemo(() => reopening(toolEvents), [toolEvents])
+  const panelCollapsed = useGladeStore((state) => isPanelCollapsed(state.uiState[UiStateKey.RightPanelCollapsed]))
+  const setUiState = useGladeStore((state) => state.setUiState)
 
   const run = async (action: Promise<void>): Promise<void> => {
     try {
@@ -101,6 +104,15 @@ function Header({ task }: HeaderProps): React.JSX.Element {
             Mark done
           </Button>
         )}
+        {panelCollapsed && (
+          <Button
+            variant={ButtonVariant.Icon}
+            icon={faTableColumns}
+            aria-label="Show side panel"
+            title="Show side panel"
+            onClick={() => void setUiState({ key: UiStateKey.RightPanelCollapsed, value: 'false' })}
+          />
+        )}
       </div>
       <div className={styles.fields}>
         <FieldRow label="Objective" className={styles.objective}>
@@ -125,7 +137,8 @@ function Header({ task }: HeaderProps): React.JSX.Element {
 
 /**
  * The selected task's header card: its title and pin toggle, status pill and timing, Mark done while it's active (disabled while the agent works), and
- * its objective and status (its outcome once done). It follows the store, so it changes as the agent sets its fields.
+ * its objective and status (its outcome once done). While the right panel is collapsed, a button at the end of the top
+ * row shows it again. It follows the store, so it changes as the agent sets its fields.
  * Nothing shows while no task is selected.
  */
 export function SelectedTaskHeader(): React.JSX.Element | null {

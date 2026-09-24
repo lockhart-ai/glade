@@ -1,6 +1,7 @@
-import { render, screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../components'
+import { MIN_CHAT_WIDTH, MIN_PANEL_WIDTH } from '../right-panel/panelModel'
 import { sampleWorkspace } from '../store/test-bridge'
 import { AppShell, BottomBar, RightPanel, Sidebar, SidebarHeader, TaskCard, TaskHeader } from '.'
 
@@ -111,11 +112,56 @@ describe('TaskHeader', () => {
 
 describe('RightPanel', () => {
   it('is a complementary landmark with a tab row above its content', () => {
-    render(<RightPanel tabs={<span>Tab row</span>}>Panel content</RightPanel>)
+    render(
+      <RightPanel tabs={<span>Tab row</span>} width={440} onWidthChange={vi.fn()}>
+        Panel content
+      </RightPanel>,
+    )
 
     const panel = screen.getByRole('complementary', { name: 'Task panel' })
     expect(within(panel).getByTestId('right-panel-tabs')).toHaveTextContent('Tab row')
     expect(panel).toHaveTextContent('Panel content')
+  })
+
+  it('sets its width, and its limits, for the stylesheet to cap', () => {
+    render(<RightPanel width={612} onWidthChange={vi.fn()} />)
+
+    const slot = screen.getByTestId('right-panel')
+    expect(slot.style.getPropertyValue('--right-panel-width')).toBe('612px')
+    expect(slot.style.getPropertyValue('--right-panel-min-width')).toBe(`${String(MIN_PANEL_WIDTH)}px`)
+    expect(slot.style.getPropertyValue('--chat-min-width')).toBe(`${String(MIN_CHAT_WIDTH)}px`)
+  })
+
+  it('resizes as you drag its handle, leaving the chat its minimum, and hands on the width you let go at', () => {
+    Element.prototype.setPointerCapture = vi.fn()
+    const onWidthChange = vi.fn()
+    render(
+      <div data-testid="card" style={{ paddingLeft: '12px', paddingRight: '12px', columnGap: '12px' }}>
+        <RightPanel width={440} onWidthChange={onWidthChange} />
+      </div>,
+    )
+    // jsdom lays nothing out: the task card is 1200px wide, so the panel and chat share 1200 - 12 - 12 - 12.
+    Object.defineProperty(screen.getByTestId('card'), 'clientWidth', { configurable: true, value: 1200 })
+    const slot = screen.getByTestId('right-panel')
+    const handle = screen.getByRole('separator', { name: 'Resize panel' })
+
+    fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientX: 800 })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 700 })
+    expect(slot.style.getPropertyValue('--right-panel-width')).toBe('540px')
+    expect(onWidthChange).not.toHaveBeenCalled()
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 0 })
+    fireEvent.pointerUp(handle, { pointerId: 1 })
+
+    expect(onWidthChange).toHaveBeenCalledExactlyOnceWith(1164 - MIN_CHAT_WIDTH)
+  })
+
+  it('counts no padding or gap its card doesn’t set', () => {
+    const onWidthChange = vi.fn()
+    render(<RightPanel width={440} onWidthChange={onWidthChange} />)
+    // Unmeasured, there's only room for the minimum width.
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize panel' }), { key: 'ArrowLeft' })
+
+    expect(onWidthChange).toHaveBeenCalledExactlyOnceWith(MIN_PANEL_WIDTH)
   })
 })
 
