@@ -59,6 +59,8 @@ export interface Task {
   readonly objective: string
   /** The agent's status summary (`set_status`); empty until it first sets one. */
   readonly status: string
+  /** When the status last changed; null until the agent first sets one. */
+  readonly statusUpdatedAt: EpochMs | null
   readonly state: TaskState
   /** What the agent is doing. Set by the agent runner. */
   readonly activity: TaskActivity

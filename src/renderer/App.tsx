@@ -4,10 +4,11 @@ import { classNames } from './components/classNames'
 import { ToastProvider } from './components'
 import { FirstRun } from './first-run/FirstRun'
 import { InputBar } from './input-bar'
-import { AppShell, BottomBar, Sidebar, SidebarHeader, TaskCard, TaskHeader } from './layout'
+import { AppShell, BottomBar, Sidebar, SidebarHeader, TaskCard } from './layout'
 import styles from './App.module.css'
 import { HydrationStatus, selectSelectedWorkspace } from './store/state'
 import { useGladeStore } from './store/react'
+import { SelectedTaskHeader } from './task-header'
 import { TaskList, TaskListToolbar } from './task-list'
 import { useNewTaskShortcut } from './shortcuts/useNewTaskShortcut'
 import { useStopShortcut } from './shortcuts/useStopShortcut'
@@ -78,16 +79,7 @@ function Layout(): React.JSX.Element {
         </Sidebar>
       }
       task={
-        <TaskCard
-          header={
-            <TaskHeader>
-              <Placeholder label="Task header" className={styles.header} />
-            </TaskHeader>
-          }
-          chat={<Chat />}
-          inputBar={<InputBar />}
-          rightPanel={<TaskPanel />}
-        />
+        <TaskCard header={<SelectedTaskHeader />} chat={<Chat />} inputBar={<InputBar />} rightPanel={<TaskPanel />} />
       }
     />
   )

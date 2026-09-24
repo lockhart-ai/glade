@@ -154,6 +154,7 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
     title,
     objective: '',
     status: '',
+    statusUpdatedAt: null,
     state: TaskState.Active,
     activity: TaskActivity.Waiting,
     pinned: false,

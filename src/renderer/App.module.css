@@ -19,10 +19,6 @@
   margin: var(--space-outer);
 }
 
-.header {
-  height: 148px;
-}
-
 .tabs {
   flex-grow: 1;
   height: var(--touch-target-dense);
