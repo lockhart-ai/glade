@@ -57,7 +57,9 @@ spacing), `docs/keymap.md`, `docs/context-menus.md`.
   kind, …) and discriminated unions for values that come in variants (events, questions, results). Switch over them
   exhaustively so a new variant fails the typecheck.
 - **Tests:** unit and integration tests, with **100% line coverage** enforced in CI. Any exclusion from coverage is
-  explicit and has a comment saying why.
+  explicit and has a comment saying why. Tests never talk to the real Claude API: unit, integration and e2e tests all
+  mock the agent layer (a global Vitest guard enforces it, and the e2e and capture modes always use the scripted test
+  backend). Real API calls are only for quick probes of a response shape and for Jared's manual testing.
 
 ## Stack
 
