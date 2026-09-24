@@ -1,0 +1,89 @@
+.button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  box-sizing: border-box;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-button);
+  font: inherit;
+  font-size: var(--font-size-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 2px;
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.small {
+  height: 30px;
+}
+
+.medium {
+  height: 34px;
+}
+
+.large {
+  height: 42px;
+}
+
+.primary {
+  background: var(--color-blue);
+  border-color: var(--color-blue);
+  color: var(--color-bg);
+  font-weight: 600;
+}
+
+.primary:hover:enabled {
+  background: color-mix(in srgb, var(--color-blue) 85%, var(--color-text));
+  border-color: color-mix(in srgb, var(--color-blue) 85%, var(--color-text));
+}
+
+.dark {
+  background: var(--color-raised);
+  border-color: var(--color-strong);
+  color: var(--color-text);
+}
+
+.dark:hover:enabled {
+  background: var(--color-inner-2);
+}
+
+.ghost {
+  background: transparent;
+  border-color: var(--color-strong);
+  color: var(--color-text);
+}
+
+.ghost:hover:enabled {
+  background: var(--color-raised);
+}
+
+.icon {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  border-radius: var(--radius-button-sm);
+  color: var(--color-faint);
+}
+
+.icon:hover:enabled {
+  background: var(--color-raised);
+  color: var(--color-text);
+}
+
+/* A pressed icon toggle (e.g. a pinned task's pin). */
+.icon[aria-pressed='true'] {
+  color: var(--color-text);
+}

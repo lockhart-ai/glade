@@ -41,7 +41,7 @@ export default defineConfig({
         // Entry points that are pure wiring and can't run under Vitest; their logic lives in tested modules.
         // Main process entry: calls `startApp()` (src/main/app.ts) at load, which needs a running Electron.
         'src/main/index.ts',
-        // Renderer entry: mounts the app into the page's #root with `mountApp()` (src/renderer/mount.tsx).
+        // Renderer entry: mounts the app (or, in dev, the gallery) into #root with `mountApp()` (src/renderer/mount.tsx).
         'src/renderer/main.tsx',
       ],
       thresholds: { lines: 100 },

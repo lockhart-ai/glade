@@ -1,0 +1,31 @@
+.textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button);
+  outline: none;
+  resize: none;
+  font: inherit;
+  font-size: var(--font-size-chat);
+  line-height: 1.5;
+  color: var(--color-text);
+}
+
+.textarea::placeholder {
+  color: var(--color-faint);
+}
+
+.textarea:hover {
+  border-color: var(--color-inner-border);
+}
+
+.textarea:focus {
+  border-color: var(--color-strong);
+}
+
+.textarea:disabled {
+  opacity: 0.45;
+}
