@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { COMMAND_CHANNEL, CommandName, EVENT_CHANNEL, EventType } from '../shared/bridge'
 import { UiStateKey } from '../shared/domain'
+import { CAPTURE_ENV, type CaptureSpec } from './capture'
 import { MIGRATIONS } from './db/migrations'
 
 type Handler = (...args: unknown[]) => unknown
@@ -12,6 +13,14 @@ type Handler = (...args: unknown[]) => unknown
 const electron = vi.hoisted(() => {
   const appHandlers = new Map<string, Handler>()
   const windows: FakeWindow[] = []
+  // Every window's page captures as the same PNG; a test can make it fail.
+  const capturePage = vi.fn(() =>
+    Promise.resolve({
+      getSize: () => ({ width: 1100, height: 700 }),
+      resize: vi.fn(),
+      toPNG: () => Buffer.from('png'),
+    }),
+  )
 
   class FakeWindow {
     readonly options: unknown
@@ -20,8 +29,12 @@ const electron = vi.hoisted(() => {
     readonly show = vi.fn()
     readonly loadURL = vi.fn(() => Promise.resolve())
     readonly loadFile = vi.fn(() => Promise.resolve())
+    readonly setContentSize = vi.fn()
     readonly webContents = {
       send: vi.fn(),
+      // The page is always ready, at whatever size it was asked for.
+      executeJavaScript: vi.fn(() => Promise.resolve(true)),
+      capturePage,
       windowOpenHandler: undefined as Handler | undefined,
       setWindowOpenHandler: vi.fn((handler: Handler) => {
         this.webContents.windowOpenHandler = handler
@@ -45,10 +58,16 @@ const electron = vi.hoisted(() => {
   return {
     appHandlers,
     windows,
+    capturePage,
     FakeWindow,
     app: {
       isPackaged: false,
       userData: '',
+      setPath: vi.fn((name: string, path: string) => {
+        if (name !== 'userData') throw new Error(`unexpected setPath(${name})`)
+        electron.app.userData = path
+      }),
+      dock: { hide: vi.fn() },
       getPath: vi.fn((name: string): string => {
         if (name !== 'userData') throw new Error(`unexpected getPath(${name})`)
         return electron.app.userData
@@ -171,7 +190,7 @@ describe('startApp', () => {
     await startAndWaitUntilReady()
     const window = onlyWindow()
 
-    expect(window.loadFile).toHaveBeenCalledWith(expect.stringMatching(/[\\/]renderer[\\/]index\.html$/))
+    expect(window.loadFile).toHaveBeenCalledWith(expect.stringMatching(/[\\/]renderer[\\/]index\.html$/), { hash: '' })
     expect(window.loadURL).not.toHaveBeenCalled()
   })
 
@@ -302,5 +321,125 @@ describe('startApp', () => {
     Object.defineProperty(process, 'platform', { value: 'linux' })
     windowAllClosed()
     expect(electron.app.quit).toHaveBeenCalledOnce()
+  })
+})
+
+describe('startApp in capture mode', () => {
+  let outDir: string
+
+  beforeEach(() => {
+    outDir = mkdtempSync(join(tmpdir(), 'glade-app-shots-'))
+  })
+
+  afterEach(() => {
+    rmSync(outDir, { recursive: true, force: true })
+  })
+
+  function askForCapture(overrides: Partial<CaptureSpec> = {}): void {
+    const spec: CaptureSpec = {
+      outDir,
+      userData: electron.app.userData,
+      route: '#gallery',
+      shots: [{ width: 1100, height: 700, file: 'gallery-1100x700.png' }],
+      timeoutMs: 5000,
+      ...overrides,
+    }
+    vi.stubEnv(CAPTURE_ENV, JSON.stringify(spec))
+  }
+
+  async function waitForExit(): Promise<void> {
+    await vi.waitFor(() => {
+      expect(electron.app.exit).toHaveBeenCalled()
+    })
+  }
+
+  it('captures the page in a window that is never shown, then exits cleanly', async () => {
+    askForCapture()
+    const userData = electron.app.userData
+    const close = vi.spyOn(Database.prototype, 'close')
+
+    await startAndWaitUntilReady()
+    await waitForExit()
+
+    expect(electron.app.setPath).toHaveBeenCalledWith('userData', userData)
+    expect(electron.app.dock.hide).toHaveBeenCalledOnce()
+    const window = onlyWindow()
+    expect(window.options).toMatchObject({
+      show: false,
+      paintWhenInitiallyHidden: true,
+      webPreferences: WINDOW_WEB_PREFERENCES,
+    })
+    expect(window.onceHandlers.has('ready-to-show')).toBe(false)
+    expect(window.show).not.toHaveBeenCalled()
+    expect(window.loadFile).toHaveBeenCalledWith(expect.stringMatching(/index\.html$/), { hash: 'gallery' })
+    expect(readFileSync(join(outDir, 'gallery-1100x700.png'), 'utf8')).toBe('png')
+    expect(console.log).toHaveBeenCalledWith(`Captured ${join(outDir, 'gallery-1100x700.png')}`)
+    expect(close).toHaveBeenCalledOnce()
+    expect(electron.app.exit).toHaveBeenCalledWith(0)
+    expect(electron.appHandlers.has('activate')).toBe(false)
+    expect(electron.appHandlers.has('will-quit')).toBe(false)
+  })
+
+  it('opens the route on the dev server when there is one', async () => {
+    askForCapture()
+    vi.stubEnv('ELECTRON_RENDERER_URL', 'http://localhost:5173')
+
+    await startAndWaitUntilReady()
+    await waitForExit()
+
+    expect(onlyWindow().loadURL).toHaveBeenCalledWith('http://localhost:5173#gallery')
+  })
+
+  it('exits with an error when capturing fails', async () => {
+    askForCapture()
+    electron.capturePage.mockRejectedValueOnce(new Error('no page'))
+
+    await startAndWaitUntilReady()
+    await waitForExit()
+
+    expect(console.error).toHaveBeenCalledWith('Glade capture failed: no page')
+    expect(electron.app.exit).toHaveBeenCalledWith(1)
+    expect(existsSync(join(outDir, 'gallery-1100x700.png'))).toBe(false)
+  })
+
+  it('exits with an error, before Electron is ready, when the spec is invalid', () => {
+    vi.stubEnv(CAPTURE_ENV, '{')
+
+    startApp()
+
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringMatching(/^Glade capture failed: GLADE_CAPTURE is not JSON/),
+    )
+    expect(electron.app.exit).toHaveBeenCalledWith(1)
+    expect(electron.app.whenReady).not.toHaveBeenCalled()
+    expect(electron.app.setPath).not.toHaveBeenCalled()
+  })
+
+  it('refuses to start without a dialog when a security setting is off', async () => {
+    askForCapture()
+    WINDOW_WEB_PREFERENCES.sandbox = false
+    try {
+      await startAndWaitUntilReady()
+    } finally {
+      WINDOW_WEB_PREFERENCES.sandbox = true
+    }
+
+    expect(electron.windows).toHaveLength(0)
+    expect(electron.dialog.showErrorBox).not.toHaveBeenCalled()
+    expect(electron.app.exit).toHaveBeenCalledWith(1)
+  })
+
+  it('never captures in a packaged app', async () => {
+    electron.app.isPackaged = true
+    askForCapture()
+
+    await startAndWaitUntilReady()
+
+    expect(electron.app.setPath).not.toHaveBeenCalled()
+    expect(electron.app.dock.hide).not.toHaveBeenCalled()
+    const window = onlyWindow()
+    window.onceHandlers.get('ready-to-show')?.()
+    expect(window.show).toHaveBeenCalledOnce()
+    expect(window.webContents.capturePage).not.toHaveBeenCalled()
   })
 })
