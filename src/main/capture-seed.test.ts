@@ -81,6 +81,10 @@ describe('readSeed', () => {
     expect(readSeed(join(FIXTURES, 'agent-working.json')).tasks[0]?.activity).toBe(TaskActivity.Working)
   })
 
+  it('reads the needs you fixture', () => {
+    expect(readSeed(join(FIXTURES, 'needs-you.json')).tasks.filter((task) => task.unread)).toHaveLength(1)
+  })
+
   it('reads the e2e tool log fixture', () => {
     const seed = readSeed(join(import.meta.dirname, '..', '..', 'e2e', 'seeds', 'tool-log.json'))
     expect(seed.tasks[0]?.toolEvents).toHaveLength(11)
@@ -135,6 +139,7 @@ describe('applySeed', () => {
         activity: TaskActivity.Waiting,
         contextUsedTokens: 0,
         contextWindowTokens: 1_000_000,
+        sessionId: 'seed-session-0',
       },
       {
         title: 'Move uploads',
@@ -163,6 +168,14 @@ describe('applySeed', () => {
     applySeed(db, { ...SEED, tasks: [{ title: 'Only', minutesAgo: 0 }] })
 
     expect(getUiState(db, UiStateKey.SelectedTaskId)).toBeUndefined()
+  })
+
+  it('gives a titled task a session, since it has run, and a new, untitled one none', () => {
+    const { db } = database
+
+    applySeed(db, { ...SEED, tasks: [{ title: '', minutesAgo: 0 }] })
+
+    expect(listTasks(db, listWorkspaces(db)[0]?.id ?? '')[0]?.sessionId).toBeNull()
   })
 
   it("writes a task's chat log and tool log, the tool calls done when they have an output", () => {

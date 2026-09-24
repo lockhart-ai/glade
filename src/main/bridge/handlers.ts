@@ -9,6 +9,7 @@ import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state
 import { listWorkspaces } from '../db/repositories/workspaces'
 import { createWorkspaceAt, openWorkspace } from '../workspaces/workspaces'
 import { editQueuedMessage, removeQueuedMessage } from '../tasks/queue'
+import { noteUiStateSet } from '../tasks/attention'
 import { createTask, markTaskDone, reopenTask, updateTaskFromUser } from '../tasks/service'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
@@ -71,6 +72,7 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.UiStateSet]: (entry) => {
       setUiState(db, entry)
       emit({ type: EventType.UiStateChanged, entry })
+      noteUiStateSet(context, entry)
       return null
     },
   }

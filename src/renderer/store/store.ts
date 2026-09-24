@@ -124,6 +124,10 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.TasksUpdate, { id: taskId, patch })
       },
 
+      async markUnread(taskId) {
+        await bridge.invoke(CommandName.TasksUpdate, { id: taskId, patch: { unread: true } })
+      },
+
       async sendMessage(taskId, text) {
         await bridge.invoke(CommandName.TasksSend, { id: taskId, text })
       },

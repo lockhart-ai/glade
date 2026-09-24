@@ -12,6 +12,7 @@ import {
   ToolCallState,
   ToolEventKind,
   type QueuedMessage,
+  UiStateKey,
   type Task,
   type ToolEvent,
   type Workspace,
@@ -23,6 +24,7 @@ import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
+import { setUiState } from '../db/repositories/ui-state'
 import { FakeAgentBackend, settle, type FakeAgentSession } from './fake-backend'
 import { GLADE_SERVER } from './glade-tools'
 import {
@@ -49,6 +51,8 @@ beforeEach(() => {
   database = openTestDatabase()
   workspace = sampleWorkspace(database.db)
   task = sampleTask(database.db, workspace.id)
+  // The window is viewing the task, so its replies don't make it unread (see `../tasks/attention.test.ts`).
+  setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: task.id })
   backend = new FakeAgentBackend()
   const ipc = fakeIpcPair()
   ;({ runner } = registerBridge({
@@ -1570,6 +1574,8 @@ describe('several tasks at once', () => {
   /** Three tasks in the workspace, `task` first, and their sessions once each has been sent `text`. */
   async function startThree(text: (name: string) => string): Promise<{ ids: string[]; sessions: FakeAgentSession[] }> {
     const ids = [task.id, sampleTask(database.db, workspace.id).id, sampleTask(database.db, workspace.id).id]
+    // None of them is being viewed, so each one's reply makes it unread alike.
+    setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: '' })
     for (const [index, id] of ids.entries()) {
       await glade.invoke(CommandName.TasksSend, { id, text: text(NAMES[index] ?? '') })
     }

@@ -5,7 +5,7 @@ import { describeIssues, REQUEST_SCHEMAS } from './requests'
 
 const KEY = UiStateKey.ActiveWorkspaceId
 const BAD_KEY =
-  'key: Invalid option: expected one of "active_workspace_id"|"selected_task_id"|"pinned_section_collapsed"|"active_section_collapsed"|"done_section_collapsed"'
+  'key: Invalid option: expected one of "active_workspace_id"|"selected_task_id"|"pinned_section_collapsed"|"active_section_collapsed"|"done_section_collapsed"|"task_filter"'
 
 describe('REQUEST_SCHEMAS', () => {
   it('parses valid requests', () => {

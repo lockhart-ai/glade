@@ -91,3 +91,9 @@ export function updateTaskFromRunner(context: TaskServiceContext, id: string, pa
   const { activity, sessionId, contextUsedTokens, contextWindowTokens } = patch
   return write(context, id, { activity, sessionId, contextUsedTokens, contextWindowTokens })
 }
+
+/** Marks a task read or unread. This isn't a change to the task, so its `updatedAt` stays as it is. */
+export function setTaskUnread(context: TaskServiceContext, id: string, unread: boolean): Task {
+  existing(context.db, id)
+  return write(context, id, { unread })
+}

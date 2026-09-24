@@ -13,14 +13,16 @@ import {
   type FakeBridge,
   type FakeHandlers,
 } from '../store/test-bridge'
+import { TaskFilter } from '../../shared/attention'
 import { TaskList, TaskListToolbar } from '.'
 import { NOW_REFRESH_MS } from './useNow'
 
 const NOW = Date.UTC(2026, 8, 23, 11, 30)
 const MINUTE = 60_000
 
+/** A task that has run: its agent has a session. */
 function task(id: string, title: string, minutesAgo: number, change: Partial<Task> = {}): Task {
-  return { ...sampleTask(id, 'w1', title), updatedAt: NOW - minutesAgo * MINUTE, ...change }
+  return { ...sampleTask(id, 'w1', title), sessionId: `session-${id}`, updatedAt: NOW - minutesAgo * MINUTE, ...change }
 }
 
 const TASKS: Task[] = [
@@ -77,6 +79,12 @@ function rowTitles(name: string): string[] {
 function row(title: string): HTMLElement {
   // Anchored and followed by the time, so it doesn't match the New task button.
   return screen.getByRole('button', { name: new RegExp(`^${title}.+`) })
+}
+
+function chip(name: string): HTMLElement {
+  return within(screen.getByRole('group', { name: 'Filter tasks' })).getByRole('button', {
+    name: new RegExp(`^${name}`),
+  })
 }
 
 function pressAlt(key: 'ArrowUp' | 'ArrowDown', target: Element | Window = window): void {
@@ -287,6 +295,112 @@ describe('TaskListToolbar', () => {
       ['Needs you3', 'false'],
       ['Unread1', 'false'],
     ])
+  })
+
+  it('counts the tasks that need you: active, turn over (waiting or errored), and run at least once', async () => {
+    await renderList([
+      task('w', 'Waiting', 1),
+      task('e', 'Errored', 2, { activity: TaskActivity.Error }),
+      task('e0', 'Failed before its session started', 3, { activity: TaskActivity.Error, sessionId: null }),
+      task('k', 'Working', 4, { activity: TaskActivity.Working }),
+      task('n', 'Brand new', 5, { sessionId: null }),
+      task('d', 'Done', 6, { state: TaskState.Done, unread: true }),
+      task('p', 'Pinned', 7, { pinned: true, unread: true }),
+    ])
+
+    expect(chip('Needs you')).toHaveTextContent('Needs you4')
+    expect(chip('Unread')).toHaveTextContent('Unread2')
+  })
+
+  it('filters the list to the tasks that need you, or the unread ones, and remembers the choice', async () => {
+    const { fake } = await renderList(TASKS, [{ key: UiStateKey.DoneSectionCollapsed, value: 'false' }])
+
+    fireEvent.click(chip('Needs you'))
+
+    await vi.waitFor(() => {
+      expect(chip('Needs you')).toHaveAttribute('aria-pressed', 'true')
+    })
+    expect(chip('All')).toHaveAttribute('aria-pressed', 'false')
+    expect(fake.invoke).toHaveBeenCalledWith(CommandName.UiStateSet, {
+      key: UiStateKey.TaskFilter,
+      value: TaskFilter.NeedsYou,
+    })
+    expect(rowTitles('Pinned')).toEqual(['Draft release notes for 2.425m'])
+    expect(rowTitles('Active')).toEqual(['Add rate limiting to public API4m', 'Fix flaky login test9m'])
+    expect(rowTitles('Done')).toEqual([])
+    // Each section counts what it shows; the chips count the whole workspace.
+    expect(section('Active')).toHaveTextContent(/^Active2/)
+    expect(section('Done')).toHaveTextContent(/^Done0$/)
+    expect(chip('Unread')).toHaveTextContent('Unread1')
+
+    fireEvent.click(chip('Unread'))
+    await vi.waitFor(() => {
+      expect(rowTitles('Active')).toEqual(['Fix flaky login test9m'])
+    })
+    expect(rowTitles('Pinned')).toEqual([])
+
+    fireEvent.click(chip('All'))
+    await vi.waitFor(() => {
+      expect(rowTitles('Active')).toHaveLength(3)
+    })
+    expect(fake.invoke).toHaveBeenLastCalledWith(CommandName.UiStateSet, {
+      key: UiStateKey.TaskFilter,
+      value: TaskFilter.All,
+    })
+  })
+
+  it('does nothing when the chosen chip is clicked again', async () => {
+    const { fake } = await renderList()
+
+    fireEvent.click(chip('All'))
+
+    expect(fake.invoke).not.toHaveBeenCalledWith(CommandName.UiStateSet, expect.anything())
+  })
+
+  it('restores the chosen filter, and moves ⌥↓ through the rows it shows', async () => {
+    const { store } = await renderList(TASKS, [
+      { key: UiStateKey.TaskFilter, value: TaskFilter.NeedsYou },
+      { key: UiStateKey.SelectedTaskId, value: 'p1' },
+    ])
+
+    expect(chip('Needs you')).toHaveAttribute('aria-pressed', 'true')
+    expect(rowTitles('Active')).toEqual(['Add rate limiting to public API4m', 'Fix flaky login test9m'])
+
+    pressAlt('ArrowDown')
+    await vi.waitFor(() => {
+      expect(store.getState().selectedTaskId).toBe('a1')
+    })
+  })
+
+  it('shows All for a stored filter it does not know', async () => {
+    await renderList(TASKS, [{ key: UiStateKey.TaskFilter, value: 'starred' }])
+
+    expect(chip('All')).toHaveAttribute('aria-pressed', 'true')
+    expect(rowTitles('Active')).toHaveLength(3)
+  })
+
+  it('keeps the counts and the filtered rows live as tasks change', async () => {
+    const { fake } = await renderList(TASKS, [{ key: UiStateKey.TaskFilter, value: TaskFilter.Unread }])
+
+    act(() => {
+      fake.emit({
+        type: EventType.TaskUpdated,
+        task: task('a1', 'Add rate limiting to public API', 4, { unread: true }),
+      })
+    })
+    expect(chip('Unread')).toHaveTextContent('Unread2')
+    expect(rowTitles('Active')).toEqual(['Add rate limiting to public API4m', 'Fix flaky login test9m'])
+
+    act(() => {
+      fake.emit({ type: EventType.TaskUpdated, task: task('a3', 'Fix flaky login test', 9) })
+      fake.emit({
+        type: EventType.TaskUpdated,
+        task: task('a2', 'Move image uploads to S3', 0, { activity: TaskActivity.Waiting }),
+      })
+    })
+    expect(chip('Unread')).toHaveTextContent('Unread1')
+    expect(chip('Needs you')).toHaveTextContent('Needs you4')
+    expect(rowTitles('Active')).toEqual(['Add rate limiting to public API4m'])
   })
 
   it('creates a task in the workspace with +, and selects it', async () => {

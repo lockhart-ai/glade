@@ -273,6 +273,16 @@ describe('task actions', () => {
       [CommandName.TasksUpdate, { id: 't1', patch: { pinned: true, effort: Effort.Low } }],
     ])
   })
+
+  it('marks a task unread through main, leaving the selection alone', async () => {
+    const { store, invoke } = await hydrated(main([{ key: UiStateKey.SelectedTaskId, value: 't1' }]))
+
+    await store.getState().markUnread('t1')
+
+    expect(store.getState().tasks.t1?.unread).toBe(true)
+    expect(store.getState().selectedTaskId).toBe('t1')
+    expect(invoke.mock.calls.at(-1)).toEqual([CommandName.TasksUpdate, { id: 't1', patch: { unread: true } }])
+  })
 })
 
 describe("a task's logs", () => {

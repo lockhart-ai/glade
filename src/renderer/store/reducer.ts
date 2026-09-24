@@ -19,6 +19,7 @@ export function withUiState(state: GladeData, entry: UiStateEntry): GladeData {
     case UiStateKey.PinnedSectionCollapsed:
     case UiStateKey.ActiveSectionCollapsed:
     case UiStateKey.DoneSectionCollapsed:
+    case UiStateKey.TaskFilter:
       return next
   }
 }

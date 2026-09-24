@@ -208,7 +208,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
   db.transaction(() => {
     const workspace = createWorkspace(db, seed.workspace, now)
     setUiState(db, { key: UiStateKey.ActiveWorkspaceId, value: workspace.id })
-    for (const sample of seed.tasks) {
+    for (const [index, sample] of seed.tasks.entries()) {
       const at = now - sample.minutesAgo * MINUTE
       const createdAt = now - (sample.startedMinutesAgo ?? sample.minutesAgo) * MINUTE
       const newTask = { workspaceId: workspace.id, model: DEFAULT_MODEL, effort: DEFAULT_EFFORT }
@@ -226,6 +226,8 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
           unread: sample.unread ?? false,
           contextUsedTokens: sample.contextUsedTokens,
           contextWindowTokens: sample.contextWindowTokens,
+          // A titled task has run (its agent named it), so it has a session: e.g. it can need you.
+          sessionId: sample.title === '' ? null : `seed-session-${String(index)}`,
         },
         at,
       )
