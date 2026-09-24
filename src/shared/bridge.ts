@@ -282,6 +282,7 @@ export enum EventType {
   MessageAppended = 'message.appended',
   ToolEventAppended = 'toolEvent.appended',
   ToolEventUpdated = 'toolEvent.updated',
+  TaskOpenRequested = 'task.openRequested',
   QueueChanged = 'queue.changed',
 }
 
@@ -321,6 +322,15 @@ export interface ToolEventUpdatedEvent {
 }
 
 /**
+ * Main asks the window to open a task, as clicking its row does: selecting it (and its workspace), which reads it, and
+ * loading its logs. Sent when you click the task's notification.
+ */
+export interface TaskOpenRequestedEvent {
+  readonly type: EventType.TaskOpenRequested
+  readonly taskId: string
+}
+
+/**
  * A task's message queue changed: a message was added, edited or removed, or the queue was delivered. Carries the
  * whole queue as it now is, in order.
  */
@@ -338,6 +348,7 @@ export type GladeEvent =
   | MessageAppendedEvent
   | ToolEventAppendedEvent
   | ToolEventUpdatedEvent
+  | TaskOpenRequestedEvent
   | QueueChangedEvent
 
 export type EventListener = (event: GladeEvent) => void

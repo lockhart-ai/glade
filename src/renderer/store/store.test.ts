@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import {
   DividerKind,
@@ -222,6 +222,61 @@ describe('selectTask', () => {
     ])
     expect(selectSelectedTask(store.getState())).toBeUndefined()
     expect(selectSelectedWorkspace(store.getState())).toEqual(sampleWorkspace('w1'))
+  })
+})
+
+describe('a task main asks to open', () => {
+  it('is selected, with its workspace, as clicking its row would, and its logs load', async () => {
+    const message = sampleMessage('m1', 't2')
+    const { store, emit, data, invoke } = await hydrated({
+      ...main([{ key: UiStateKey.ActiveWorkspaceId, value: 'w1' }]),
+      messages: [message],
+    })
+
+    emit({ type: EventType.TaskOpenRequested, taskId: 't2' })
+
+    await vi.waitFor(() => {
+      expect(store.getState().messages).toEqual({ t2: [message] })
+    })
+    expect(selectSelectedTask(store.getState())).toEqual(sampleTask('t2', 'w2'))
+    expect(selectSelectedWorkspace(store.getState())).toEqual(sampleWorkspace('w2'))
+    expect(data.uiState).toEqual([
+      { key: UiStateKey.ActiveWorkspaceId, value: 'w2' },
+      { key: UiStateKey.SelectedTaskId, value: 't2' },
+    ])
+    expect(invoke).toHaveBeenCalledWith(CommandName.TasksHistory, { id: 't2' })
+  })
+
+  it('is opened once loaded when it is asked for while the store loads, in place of the restored task', async () => {
+    const message = sampleMessage('m1', 't2')
+    let emitDuringLoad = (): void => undefined
+    const fake = fakeBridge(
+      {
+        ...main([
+          { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+          { key: UiStateKey.SelectedTaskId, value: 't1' },
+        ]),
+        messages: [message],
+      },
+      {
+        [CommandName.WorkspacesList]: () => {
+          emitDuringLoad()
+          return { workspaces: [sampleWorkspace('w1'), sampleWorkspace('w2')] }
+        },
+      },
+    )
+    emitDuringLoad = () => {
+      fake.emit({ type: EventType.TaskOpenRequested, taskId: 't2' })
+    }
+    const store = createGladeStore(fake.bridge)
+
+    await store.getState().hydrate()
+
+    expect(selectSelectedTask(store.getState())).toEqual(sampleTask('t2', 'w2'))
+    expect(store.getState().messages).toEqual({ t2: [message] })
+    expect(fake.invoke.mock.calls.filter(([command]) => command === CommandName.TasksHistory)).toEqual([
+      [CommandName.TasksHistory, { id: 't2' }],
+    ])
   })
 })
 

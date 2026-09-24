@@ -3,13 +3,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createBridge } from '../../preload/bridge'
 import { CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
-import { TaskActivity, UiStateKey, type Task } from '../../shared/domain'
+import { TaskActivity, UiStateKey, type Task, type UiStateEntry } from '../../shared/domain'
 import { FakeAgentBackend, settle } from '../agent/fake-backend'
 import type { AgentRunner } from '../agent/runner'
 import * as sdk from '../agent/test-sdk-messages'
 import { registerBridge } from '../bridge'
 import { fakeIpcPair } from '../bridge/fake-ipc'
+import { openTaskWithoutWindow } from './attention'
 import { getTask } from '../db/repositories/tasks'
+import { getUiState, setUiState } from '../db/repositories/ui-state'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 
 let database: TestDatabase
@@ -19,6 +21,8 @@ let backend: FakeAgentBackend
 let glade: GladeBridge
 let runner: AgentRunner
 let events: GladeEvent[]
+/** Each reply the runner asked to notify, as its task's id and the reply. */
+let notified: [string, string][]
 
 /** Starts the app's main side on the test database, as a launch (or a relaunch) would. */
 function launch(): void {
@@ -30,9 +34,11 @@ function launch(): void {
     targets: () => [ipc.window],
     chooseFolder: () => Promise.resolve(null),
     agentBackend: backend,
+    notifyReply: (taskId, reply) => notified.push([taskId, reply]),
   }))
   glade = createBridge(ipc.renderer)
   events = []
+  notified = []
   glade.subscribe((event) => events.push(event))
 }
 
@@ -215,5 +221,96 @@ describe('unread', () => {
 
     expect(unreadUpdates()).toEqual([])
     expect(current(first).unread).toBe(true)
+  })
+})
+
+describe('notifications', () => {
+  it('notifies a reply in a task you are not viewing, once, with the reply', async () => {
+    await open(second)
+    await replyInFirst('It is a **race**.')
+
+    expect(notified).toEqual([[first.id, 'It is a **race**.']])
+  })
+
+  it('notifies a reply when nothing is selected', async () => {
+    await open(null)
+    await replyInFirst()
+
+    expect(notified).toHaveLength(1)
+  })
+
+  it('never notifies a reply in the task you are viewing', async () => {
+    await open(first)
+    await replyInFirst()
+
+    expect(notified).toEqual([])
+  })
+
+  it('notifies every reply in a task you are not viewing, even one that is already unread', async () => {
+    await open(second)
+    await replyInFirst('First.')
+    await replyInFirst('Second.')
+
+    expect(current(first).unread).toBe(true)
+    expect(notified).toEqual([
+      [first.id, 'First.'],
+      [first.id, 'Second.'],
+    ])
+  })
+
+  it('notifies nothing for a turn that ends without a reply, fails, or is stopped', async () => {
+    await open(second)
+
+    await glade.invoke(CommandName.TasksSend, { id: first.id, text: 'Start the dev server.' })
+    backend.session.emit(sdk.init(), sdk.result(''))
+    await settle()
+    await glade.invoke(CommandName.TasksSend, { id: first.id, text: 'Run the tests.' })
+    backend.session.emit(sdk.init(), sdk.apiErrorResult())
+    await settle()
+    await glade.invoke(CommandName.TasksSend, { id: first.id, text: 'Run them again.' })
+    backend.session.onInterrupt = () => {
+      backend.session.emit(sdk.abortedText('Running the'), sdk.abortedResult())
+      return Promise.resolve()
+    }
+    await glade.invoke(CommandName.TasksStop, { id: first.id })
+
+    expect(notified).toEqual([])
+  })
+})
+
+describe('openTaskWithoutWindow', () => {
+  it('selects the task and its workspace as clicking its row would, telling the windows, and reads it', async () => {
+    const other = sampleWorkspace(database.db, '/code/other-api')
+    const elsewhere = sampleTask(database.db, other.id, 3_000)
+    setUiState(database.db, { key: UiStateKey.ActiveWorkspaceId, value: first.workspaceId })
+    await open(second)
+    await glade.invoke(CommandName.TasksSend, { id: elsewhere.id, text: 'Why is the login test flaky?' })
+    backend.session.emit(sdk.init(), sdk.text('A race.'), sdk.result('A race.'))
+    await settle()
+    expect(current(elsewhere).unread).toBe(true)
+    events.splice(0)
+
+    openTaskWithoutWindow({ db: database.db, emit: (event) => events.push(event) }, elsewhere.id)
+
+    expect(getUiState(database.db, UiStateKey.ActiveWorkspaceId)).toBe(other.id)
+    expect(getUiState(database.db, UiStateKey.SelectedTaskId)).toBe(elsewhere.id)
+    expect(current(elsewhere).unread).toBe(false)
+    const changed = events.flatMap((event): UiStateEntry[] =>
+      event.type === EventType.UiStateChanged ? [event.entry] : [],
+    )
+    expect(changed).toEqual([
+      { key: UiStateKey.ActiveWorkspaceId, value: other.id },
+      { key: UiStateKey.SelectedTaskId, value: elsewhere.id },
+    ])
+  })
+
+  it('does nothing for a task that does not exist', async () => {
+    await open(second)
+    events.splice(0)
+
+    openTaskWithoutWindow({ db: database.db, emit: (event) => events.push(event) }, 'missing')
+
+    expect(getUiState(database.db, UiStateKey.SelectedTaskId)).toBe(second.id)
+    expect(events).toEqual([])
   })
 })

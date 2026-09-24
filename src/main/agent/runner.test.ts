@@ -146,6 +146,7 @@ function drainEvents(): (readonly unknown[])[] {
         return [event.type, event.queuedMessages.map(({ body }) => body)]
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
+      case EventType.TaskOpenRequested:
         return [event.type]
     }
   })
@@ -1845,6 +1846,7 @@ describe('several tasks at once', () => {
         return event.toolEvent.taskId
       case EventType.TaskUpdated:
         return event.task.id
+      case EventType.TaskOpenRequested:
       case EventType.QueueChanged:
         return event.taskId
       case EventType.UiStateChanged:
@@ -1867,6 +1869,7 @@ describe('several tasks at once', () => {
         return [event.type, event.queuedMessages.length]
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
+      case EventType.TaskOpenRequested:
         return [event.type]
     }
   }

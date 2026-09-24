@@ -260,6 +260,9 @@ describe('events', () => {
         case EventType.ToolEventUpdated:
           expectTypeOf(event.toolEvent).toEqualTypeOf<ToolEvent>()
           break
+        case EventType.TaskOpenRequested:
+          expectTypeOf(event.taskId).toEqualTypeOf<string>()
+          break
         case EventType.QueueChanged:
           expectTypeOf(event.queuedMessages).toEqualTypeOf<readonly QueuedMessage[]>()
           break
