@@ -12,6 +12,7 @@ import {
   type ToolCallEvent,
   type ToolEvent,
 } from '../../shared/domain'
+import { noOpenFiles } from '../../shared/files'
 import { applyEvent, idFromUiState, withHistory, withOpenedWorkspace } from './reducer'
 import { INITIAL_DATA, type GladeData } from './state'
 import { sampleMessage, sampleQuestionSet, sampleQueuedMessage, sampleTask, sampleWorkspace } from './test-bridge'
@@ -134,6 +135,7 @@ describe("a task's logs", () => {
       toolEvents: [divider, call],
       queuedMessages: [],
       questionSets: [],
+      openFiles: noOpenFiles('t1'),
       todos: null,
     })
 
@@ -158,14 +160,21 @@ describe("a task's logs", () => {
       toolEvents: [divider, call],
       queuedMessages: [],
       questionSets: [],
+      openFiles: noOpenFiles('t1'),
       todos: null,
     })
 
     expect(next.messages.t1).toEqual([early, late])
     expect(next.toolEvents.t1).toEqual([divider, call])
     expect(
-      withHistory(state, 't2', { messages: [], toolEvents: [], queuedMessages: [], questionSets: [], todos: null })
-        .messages,
+      withHistory(state, 't2', {
+        messages: [],
+        toolEvents: [],
+        queuedMessages: [],
+        questionSets: [],
+        openFiles: noOpenFiles('t2'),
+        todos: null,
+      }).messages,
     ).toEqual({ t2: [] })
   })
 })
@@ -186,6 +195,7 @@ describe("a task's queue", () => {
       toolEvents: [],
       queuedMessages: [second],
       questionSets: [],
+      openFiles: noOpenFiles('t1'),
       todos: null,
     })
     expect(loaded.queuedMessages).toEqual({ t1: [second] })
@@ -217,8 +227,32 @@ describe("a task's questions", () => {
     ] as const
     expect(closed.reduce(applyEvent, asked).questionSets.t1).toEqual([answered, withdrawn])
 
-    const empty = { messages: [], toolEvents: [], queuedMessages: [], todos: null }
+    const empty = { messages: [], toolEvents: [], queuedMessages: [], openFiles: noOpenFiles('t1'), todos: null }
     expect(withHistory(state, 't1', { ...empty, questionSets: [answered] }).questionSets).toEqual({ t1: [answered] })
+  })
+})
+
+describe("a task's open files", () => {
+  it('takes them from each change, whole, and from a history load', () => {
+    const openFiles = { taskId: 't1', paths: ['docs/rate-limits.md'], activePath: 'docs/rate-limits.md' }
+
+    const changed = applyEvent(state, { type: EventType.OpenFilesChanged, openFiles })
+    expect(changed.openFiles).toEqual({ t1: openFiles })
+
+    const empty = { messages: [], toolEvents: [], queuedMessages: [], questionSets: [], todos: null }
+    expect(withHistory(changed, 't1', { ...empty, openFiles: noOpenFiles('t1') }).openFiles).toEqual({
+      t1: noOpenFiles('t1'),
+    })
+  })
+
+  it('records each request to show a file as a new one, even for the same line', () => {
+    const shown = { type: EventType.FileShown, taskId: 't1', path: 'docs/rate-limits.md', line: 8 } as const
+
+    const first = applyEvent(state, shown)
+    const second = applyEvent(first, shown)
+
+    expect(first.fileFocus).toEqual({ taskId: 't1', path: 'docs/rate-limits.md', line: 8, request: 1 })
+    expect(second.fileFocus?.request).toBe(2)
   })
 })
 
@@ -232,6 +266,7 @@ describe("a task's todo list", () => {
     toolEvents: [],
     queuedMessages: [],
     questionSets: [],
+    openFiles: noOpenFiles('t1'),
     todos,
   })
 

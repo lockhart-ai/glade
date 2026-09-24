@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { CommandName, EventType, type GladeEvent } from '../../shared/bridge'
-import { UiStateKey } from '../../shared/domain'
+import { FileContentKind, UiStateKey } from '../../shared/domain'
 import { FakeAgentBackend } from '../agent/fake-backend'
 import { createAgentRunner } from '../agent/runner'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
@@ -14,6 +14,7 @@ let database: TestDatabase
 let root: string
 let emit: Mock<(event: GladeEvent) => void>
 let chooseFolder: Mock<() => Promise<string | null>>
+let openPath: Mock<(path: string) => Promise<string>>
 let handlers: Handlers
 
 beforeEach(() => {
@@ -21,8 +22,9 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'glade-handlers-'))
   emit = vi.fn()
   chooseFolder = vi.fn(() => Promise.resolve(root))
+  openPath = vi.fn(() => Promise.resolve(''))
   const runner = createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() })
-  handlers = createHandlers({ db: database.db, emit, chooseFolder, runner })
+  handlers = createHandlers({ db: database.db, emit, chooseFolder, openPath, runner })
 })
 
 afterEach(() => {
@@ -61,6 +63,47 @@ describe('workspaces.open', () => {
       { type: EventType.UiStateChanged, entry: { key: UiStateKey.ActiveWorkspaceId, value: workspace.id } },
       { type: EventType.UiStateChanged, entry: { key: UiStateKey.SelectedTaskId, value: '' } },
     ])
+  })
+})
+
+describe('the files commands', () => {
+  function taskInRoot(): string {
+    mkdirSync(join(root, 'docs'))
+    writeFileSync(join(root, 'docs', 'rate-limits.md'), '# Rate limits\n')
+    return sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+  }
+
+  it('read a file of the task’s workspace', async () => {
+    const taskId = taskInRoot()
+
+    await expect(handlers[CommandName.FilesRead]({ taskId, path: 'docs/rate-limits.md' })).resolves.toEqual({
+      content: { kind: FileContentKind.Text, text: '# Rate limits\n', truncated: false, size: 14 },
+    })
+  })
+
+  it('open and close files, broadcasting each change, and the history carries them', async () => {
+    const taskId = taskInRoot()
+
+    const opened = await handlers[CommandName.FilesOpen]({ taskId, path: 'docs/rate-limits.md' })
+    const again = await handlers[CommandName.FilesOpen]({ taskId, path: 'src/throttles.py' })
+    const closed = await handlers[CommandName.FilesClose]({ taskId, path: 'src/throttles.py' })
+
+    expect(opened).toEqual({ openFiles: { taskId, paths: ['docs/rate-limits.md'], activePath: 'docs/rate-limits.md' } })
+    expect(again.openFiles.activePath).toBe('src/throttles.py')
+    expect(emit.mock.calls.map(([event]) => event)).toEqual([
+      { type: EventType.OpenFilesChanged, openFiles: opened.openFiles },
+      { type: EventType.OpenFilesChanged, openFiles: again.openFiles },
+      { type: EventType.OpenFilesChanged, openFiles: closed.openFiles },
+    ])
+    const history = await handlers[CommandName.TasksHistory]({ id: taskId })
+    expect(history.openFiles).toEqual(opened.openFiles)
+  })
+
+  it('open a file in the editor by its real path', async () => {
+    const taskId = taskInRoot()
+
+    await expect(handlers[CommandName.FilesOpenInEditor]({ taskId, path: 'docs/rate-limits.md' })).resolves.toBeNull()
+    expect(openPath).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/\/docs\/rate-limits\.md$/))
   })
 })
 

@@ -24,7 +24,8 @@ export const PANEL_TAB_DEFINITIONS: readonly PanelTabDefinition[] = [
     label: 'Tool calls',
     count: (state, taskId) => toolCallCount(state.toolEvents[taskId] ?? []),
   },
-  { tab: PanelTab.Files, label: 'Files', count: NOTHING_YET },
+  // The files open in the tab, as in 08-open-file.png: "Files 3" over three open files.
+  { tab: PanelTab.Files, label: 'Files', count: (state, taskId) => state.openFiles[taskId]?.paths.length ?? 0 },
   {
     tab: PanelTab.Todos,
     label: 'Todos',

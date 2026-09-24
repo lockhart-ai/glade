@@ -65,6 +65,16 @@
   color: var(--color-faint);
 }
 
+/* A label over a group of items, like the task list's section headers. */
+.heading {
+  padding: 8px 10px 4px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
 .separator {
   height: 1px;
   margin: 5px 6px;

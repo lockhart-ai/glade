@@ -78,6 +78,7 @@ beforeEach(() => {
     db: database.db,
     targets: () => [ipc.window],
     chooseFolder: () => Promise.resolve(null),
+    openPath: () => Promise.resolve(''),
     agentBackend: backend,
   }))
   glade = createBridge(ipc.renderer)
@@ -101,6 +102,7 @@ function relaunch(): void {
     db: database.db,
     targets: () => [ipc.window],
     chooseFolder: () => Promise.resolve(null),
+    openPath: () => Promise.resolve(''),
     agentBackend: backend,
   }))
   glade = createBridge(ipc.renderer)
@@ -174,6 +176,8 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
       case EventType.TaskOpenRequested:
+      case EventType.OpenFilesChanged:
+      case EventType.FileShown:
         return [event.type]
     }
   })
@@ -322,6 +326,7 @@ describe('a turn', () => {
       toolEvents: listToolEvents(database.db, task.id),
       queuedMessages: [],
       questionSets: [],
+      openFiles: { taskId: task.id, paths: [], activePath: null },
       todos: null,
     })
   })
@@ -2322,8 +2327,11 @@ describe('several tasks at once', () => {
         return event.task.id
       case EventType.TaskOpenRequested:
       case EventType.QueueChanged:
+      case EventType.FileShown:
       case EventType.TodosChanged:
         return event.taskId
+      case EventType.OpenFilesChanged:
+        return event.openFiles.taskId
       case EventType.QuestionOpened:
       case EventType.QuestionAnswered:
       case EventType.QuestionWithdrawn:
@@ -2353,6 +2361,8 @@ describe('several tasks at once', () => {
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
       case EventType.TaskOpenRequested:
+      case EventType.OpenFilesChanged:
+      case EventType.FileShown:
       case EventType.TodosChanged:
         return [event.type]
     }

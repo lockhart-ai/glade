@@ -1,0 +1,79 @@
+/* The file viewer, from docs/design/html/08-open-file.html: a header over the file's source. */
+.viewer {
+  flex-grow: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-inner-border);
+}
+
+.path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-secondary);
+  color: var(--color-text);
+}
+
+.touched {
+  flex-shrink: 0;
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-faint);
+  white-space: nowrap;
+}
+
+.spacer {
+  flex-grow: 1;
+}
+
+/* Source / Preview: the design's toggle is a size smaller than Settings' segmented controls. */
+.mode > button {
+  height: 26px;
+  padding: 0 10px;
+  font-size: var(--font-size-secondary-sm);
+}
+
+.body {
+  flex-grow: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.body:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+}
+
+.notice {
+  margin: 0;
+  padding: 40px 24px;
+  text-align: center;
+  font-size: var(--font-size-secondary);
+  color: var(--color-faint);
+}
+
+.truncated {
+  position: sticky;
+  left: 0;
+  margin: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-inner-border);
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-muted);
+}
+
+.preview {
+  padding: 16px 20px;
+  font-size: var(--font-size-body);
+  line-height: 1.6;
+}

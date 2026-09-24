@@ -4,6 +4,7 @@
  * Only the test modes use it.
  */
 import { readFileSync } from 'node:fs'
+import { dirname, isAbsolute, resolve } from 'node:path'
 import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
 import {
@@ -25,6 +26,7 @@ import {
 } from '../shared/domain'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
 import { appendMessage } from './db/repositories/messages'
+import { setOpenFiles } from './db/repositories/open-files'
 import { appendQueuedMessage } from './db/repositories/queued-messages'
 import { createTask, updateTask } from './db/repositories/tasks'
 import {
@@ -142,6 +144,15 @@ export interface SeedTask {
   readonly pause?: SeedPause | undefined
   /** Whether the relaunch notice names it, as a task Glade picked up again after it crashed. */
   readonly resumedAfterCrash?: boolean | undefined
+  /** The files open in its Files tab, relative to the workspace root, and the one showing; none unless given. */
+  readonly openFiles?: SeedOpenFiles | undefined
+}
+
+/** A task's open files (`OpenFiles`). */
+export interface SeedOpenFiles {
+  readonly paths: readonly string[]
+  /** The one showing; the first unless given. */
+  readonly activePath?: string | undefined
 }
 
 /** A sample pause (`TaskPause`), with its times relative to the capture. */
@@ -154,10 +165,16 @@ export interface SeedPause {
 
 /** A fixture: one workspace, opened, and its tasks. */
 export interface CaptureSeed {
+  /**
+   * The workspace. Its root is usually made up (the Files tab then finds no files); a relative root is a folder beside
+   * the fixture, for a capture that shows files.
+   */
   readonly workspace: { readonly name: string; readonly rootPath: string }
   readonly tasks: readonly SeedTask[]
   /** The right panel's tab to open on (`PanelTab`, e.g. `subagents`); Tool calls unless given. */
   readonly panelTab?: string | undefined
+  /** The right panel's width, in CSS pixels; the default unless given. */
+  readonly panelWidth?: number | undefined
 }
 
 const turn = z.int().positive()
@@ -223,6 +240,7 @@ const seedPauseSchema = z.strictObject({
 const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
   workspace: z.strictObject({ name: z.string(), rootPath: z.string() }),
   panelTab: z.string().optional(),
+  panelWidth: z.int().positive().optional(),
   tasks: z.array(
     z.strictObject({
       title: z.string(),
@@ -253,6 +271,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       error: seedErrorSchema.optional(),
       pause: seedPauseSchema.optional(),
       resumedAfterCrash: z.boolean().optional(),
+      openFiles: z.strictObject({ paths: z.array(z.string()), activePath: z.string().optional() }).optional(),
     }),
   ),
 })
@@ -267,7 +286,10 @@ export function readSeed(path: string): CaptureSeed {
   }
   const parsed = seedSchema.safeParse(json)
   if (!parsed.success) throw new Error(`the seed ${path} is invalid: ${z.prettifyError(parsed.error)}`)
-  return parsed.data
+  const { workspace } = parsed.data
+  return isAbsolute(workspace.rootPath)
+    ? parsed.data
+    : { ...parsed.data, workspace: { ...workspace, rootPath: resolve(dirname(path), workspace.rootPath) } }
 }
 
 function seedToolEvent(db: Database, taskId: string, event: SeedToolEvent, now: EpochMs, seedId: string): void {
@@ -306,6 +328,9 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
     const workspace = createWorkspace(db, seed.workspace, now)
     setUiState(db, { key: UiStateKey.ActiveWorkspaceId, value: workspace.id })
     if (seed.panelTab !== undefined) setUiState(db, { key: UiStateKey.RightPanelTab, value: seed.panelTab })
+    if (seed.panelWidth !== undefined) {
+      setUiState(db, { key: UiStateKey.RightPanelWidth, value: String(seed.panelWidth) })
+    }
     const resumed: string[] = []
     for (const [index, sample] of seed.tasks.entries()) {
       const at = now - sample.minutesAgo * MINUTE
@@ -354,6 +379,10 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         seedToolEvent(db, task.id, event, now, `seed-${String(index)}`)
       }
       for (const body of sample.queuedMessages ?? []) appendQueuedMessage(db, { taskId: task.id, body }, now)
+      if (sample.openFiles !== undefined) {
+        const { paths, activePath } = sample.openFiles
+        setOpenFiles(db, { taskId: task.id, paths, activePath: activePath ?? paths[0] ?? null })
+      }
       if (sample.resumedAfterCrash === true) resumed.push(task.id)
     }
     if (resumed.length > 0) {

@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 // Each library script, played through the real agent runner into a database: what the chat, tool log and task end up
 // with is what an e2e spec or a capture sees.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -20,6 +23,7 @@ import { autoCompactThreshold } from '../../shared/contextWindow'
 import { listMessages } from '../db/repositories/messages'
 import { getOpenQuestionSet } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
+import { getOpenFiles } from '../db/repositories/open-files'
 import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
@@ -122,6 +126,34 @@ describe('AGENT_SCRIPTS', () => {
     ])
     expect(activity()).toBe(TaskActivity.Waiting)
     expect(getTask(database.db, task.id)?.sessionId).toMatch(/^[0-9a-f-]{36}$/)
+  })
+
+  it('shows-a-file: reads and edits a doc, then shows it in the Files tab at the line to check', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'glade-shows-a-file-'))
+    try {
+      mkdirSync(join(root, 'docs'))
+      writeFileSync(join(root, 'docs', 'rate-limits.md'), '# Rate limits\n')
+      task = sampleTask(database.db, sampleWorkspace(database.db, root).id)
+      // Real timers: \`show_file\` reads the disk, which fake timers would race with the tool call's timeout.
+      vi.useRealTimers()
+      const agent = start('shows-a-file')
+      agent.send(task.id, 'Document the rate limits.')
+      await backend.whenIdle()
+
+      expect(calls().map((call) => [call.name, call.state])).toEqual([
+        ['mcp__glade__set_title', ToolCallState.Done],
+        ['mcp__glade__set_objective', ToolCallState.Done],
+        ['mcp__glade__set_status', ToolCallState.Done],
+        ['Read', ToolCallState.Done],
+        ['Edit', ToolCallState.Done],
+        ['mcp__glade__show_file', ToolCallState.Done],
+        ['mcp__glade__set_status', ToolCallState.Done],
+      ])
+      expect(getOpenFiles(database.db, task.id)).toMatchObject({ activePath: 'docs/rate-limits.md' })
+      expect(reply()).toMatch(/Line 8 has the tighter \/search limit/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('multi-tool-turn: narrates, works through file, search, subagent, edit and shell tools, then replies', async () => {

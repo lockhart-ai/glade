@@ -15,6 +15,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import type { Question } from '../../shared/domain'
 import { getTask } from '../db/repositories/tasks'
+import { showTaskFile } from '../files/files'
 import { toolResultFor, type QuestionBroker } from '../questions/questions'
 import { questionsSchema } from '../questions/schema'
 import { updateTaskFromAgent, type TaskServiceContext } from '../tasks/service'
@@ -28,6 +29,7 @@ export enum GladeTool {
   SetObjective = 'set_objective',
   SetStatus = 'set_status',
   Ask = 'ask',
+  ShowFile = 'show_file',
 }
 
 export interface SetTitleInput {
@@ -44,6 +46,11 @@ export interface SetStatusInput {
 
 export interface AskInput {
   readonly questions: readonly Question[]
+}
+
+export interface ShowFileInput {
+  readonly path: string
+  readonly line?: number | undefined
 }
 
 /** Text the model sends: trimmed, and never empty. */
@@ -64,6 +71,11 @@ const setStatusInput = z.object({
 const askInput = z.object({
   questions: questionsSchema.describe('The questions, shown together on one card, in this order.'),
 }) satisfies z.ZodType<AskInput>
+
+const showFileInput = z.object({
+  path: text('path').describe("The file's path: absolute, or relative to the workspace root."),
+  line: z.int().positive().optional().describe('A line to scroll to and mark, from 1.'),
+}) satisfies z.ZodType<ShowFileInput>
 
 /** A tool's reply to the model: MCP's own result type. */
 export type GladeToolResult = CallToolResult
@@ -87,6 +99,8 @@ export interface GladeToolHandlers {
   setStatus(input: SetStatusInput): GladeToolResult
   /** Waits until the questions are answered; `signal` is the SDK cancelling the call. */
   ask(input: AskInput, signal?: AbortSignal): Promise<GladeToolResult>
+  /** Opens a file in the task's Files tab; an error result when it isn't a file in the workspace. */
+  showFile(input: ShowFileInput): Promise<GladeToolResult>
 }
 
 export function createGladeToolHandlers(context: GladeToolContext, taskId: string): GladeToolHandlers {
@@ -110,6 +124,14 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
       const answered = await context.questions.ask(taskId, questions, signal)
       return answered === null ? { ...reply(QUESTIONS_WITHDRAWN), isError: true } : reply(toolResultFor(answered))
     },
+    async showFile({ path, line }) {
+      try {
+        const shown = await showTaskFile(context, taskId, path, line ?? null)
+        return reply(line === undefined ? `Showing ${shown}.` : `Showing ${shown} at line ${String(line)}.`)
+      } catch (error) {
+        return { ...reply((error as Error).message), isError: true }
+      }
+    },
   }
 }
 
@@ -129,6 +151,9 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
     'question index from 0: a choice gives the option id, pills the pill text, text the text typed (an optional one ' +
     'left empty has no key), and `multiple` gives an array. The user can reply in their own words instead; then it ' +
     'returns {"freeText": "…"}.',
+  [GladeTool.ShowFile]:
+    "Open a file in the user's Files tab, next to the chat, to point them at it: a change to review, say. Give a line " +
+    'to scroll to and mark it. The file must be in the workspace.',
 }
 
 /** The signal an MCP tool call is cancelled by, from the handler's `extra` (MCP's `RequestHandlerExtra`). */
@@ -156,6 +181,9 @@ export function createGladeMcpServer(context: GladeToolContext, taskId: string):
       ),
       tool(GladeTool.Ask, DESCRIPTIONS[GladeTool.Ask], askInput.shape, (input, extra) =>
         handlers.ask(input, signalOf(extra)),
+      ),
+      tool(GladeTool.ShowFile, DESCRIPTIONS[GladeTool.ShowFile], showFileInput.shape, (input) =>
+        handlers.showFile(input),
       ),
     ],
   })

@@ -118,6 +118,32 @@ describe('Menu', () => {
     expect(screen.getByRole('menuitem', { name: 'Rename…' })).not.toHaveClass(cls('destructive'))
   })
 
+  it('labels groups of items with headings, which the arrow keys skip', async () => {
+    const choose = vi.fn()
+    render(
+      <Menu
+        label="Files"
+        entries={[
+          { kind: MenuEntryKind.Heading, label: 'Changed' },
+          { kind: MenuEntryKind.Item, label: 'docs/rate-limits.md', onSelect: choose },
+          { kind: MenuEntryKind.Heading, label: 'Read' },
+          { kind: MenuEntryKind.Item, label: 'api/views.py', onSelect: choose },
+        ]}
+        anchor={{ kind: MenuAnchorKind.Point, x: 0, y: 0 }}
+        open
+        onClose={() => undefined}
+      />,
+    )
+    await settleFloating()
+
+    expect(screen.getByRole('menu', { name: 'Files' })).toHaveTextContent('Changeddocs/rate-limits.mdReadapi/views.py')
+    expect(screen.getByText('Changed')).toHaveClass(cls('heading'))
+    expect(screen.getAllByRole('menuitem')).toHaveLength(2)
+    key('ArrowDown')
+    key('ArrowDown')
+    expect(screen.getByRole('menuitem', { name: 'api/views.py' })).toHaveFocus()
+  })
+
   it('takes focus when it opens', async () => {
     await openFromButton()
 
