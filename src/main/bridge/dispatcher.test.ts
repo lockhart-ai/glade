@@ -29,6 +29,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.TasksMarkDone]: () => ({ task: {} as Task }),
     [CommandName.TasksReopen]: () => ({ task: {} as Task }),
     [CommandName.TasksUpdate]: () => ({ task: {} as Task }),
+    [CommandName.TasksDelete]: () => null,
     [CommandName.TasksSend]: () => ({ message: {} as Message }),
     [CommandName.TasksStop]: () => ({ task: {} as Task }),
     [CommandName.TasksRetry]: () => ({ task: {} as Task }),

@@ -71,7 +71,8 @@ export interface FakeBridge {
 /**
  * Handlers answering from `main`, which `uiState.set` and the task commands write to (and broadcast through `emit`)
  * like main does. The task commands don't check transitions, `tasks.send` only saves and broadcasts the message, and
- * `tasks.stop` only sets the task back to waiting, and `tasks.compact` only sets it working; main's own tests cover the rest. `workspaces.create` adds a
+ * `tasks.stop` only sets the task back to waiting, `tasks.compact` only sets it working, and `tasks.delete` only
+ * removes the task and broadcasts it, without deselecting it; main's own tests cover the rest. `workspaces.create` adds a
  * workspace and `workspaces.open` answers with it opened at 5,000, neither broadcasting.
  */
 export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void): FakeHandlers {
@@ -130,6 +131,13 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     [CommandName.TasksMarkDone]: ({ id }) => writeTask(id, { state: TaskState.Done, doneAt: 3_000 }),
     [CommandName.TasksReopen]: ({ id }) => writeTask(id, { state: TaskState.Active, doneAt: null }),
     [CommandName.TasksUpdate]: ({ id, patch }) => writeTask(id, patch),
+    [CommandName.TasksDelete]: ({ id }) => {
+      const index = main.tasks.findIndex((task) => task.id === id)
+      if (index === -1) return refuse(bridgeError(BridgeErrorCode.NotFound, `No task ${id}`))
+      main.tasks.splice(index, 1)
+      emit({ type: EventType.TaskDeleted, taskId: id })
+      return null
+    },
     [CommandName.TasksSend]: ({ id, text }) => {
       sent += 1
       const message = sampleMessage(`sent-${String(sent)}`, id, text)

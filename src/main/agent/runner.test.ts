@@ -173,6 +173,8 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.QuestionAnswered:
       case EventType.QuestionWithdrawn:
         return [event.type, event.questionSet.state]
+      case EventType.TaskDeleted:
+        return [event.type, event.taskId]
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
       case EventType.TaskOpenRequested:
@@ -1517,6 +1519,54 @@ describe('tasks.stop', () => {
   })
 })
 
+describe('tasks.delete', () => {
+  it('closes the session of a task mid-turn before its rows go, and ignores what the session says after', async () => {
+    await send('Copy the existing uploads to S3.')
+    await glade.invoke(CommandName.QueueAdd, { taskId: task.id, text: 'Keep the originals.' })
+    backend.session.emit(
+      sdk.init(),
+      sdk.text('Copying the existing files.'),
+      sdk.toolUse('toolu_01', 'Bash', { command: 'python scripts/copy.py' }),
+    )
+    await settle()
+    const session = backend.session
+    events.splice(0)
+
+    await glade.invoke(CommandName.TasksDelete, { id: task.id })
+
+    expect(session.closed).toBe(true)
+    expect(session.interrupts).toBe(0)
+    expect(getTask(database.db, task.id)).toBeUndefined()
+    expect(listMessages(database.db, task.id)).toEqual([])
+    expect(listToolEvents(database.db, task.id)).toEqual([])
+    expect(listQueuedMessages(database.db, task.id)).toEqual([])
+    expect(drainEvents()).toEqual([[EventType.UiStateChanged], [EventType.TaskDeleted, task.id]])
+
+    session.emit(sdk.toolResult('toolu_01', 'copied 3,900 files'), sdk.text('Done.'), sdk.result('Done.'))
+    await settle()
+    expect(drainEvents()).toEqual([])
+    expect(console.warn).not.toHaveBeenCalled()
+  })
+
+  it('deletes a task whose agent never started, and leaves the other tasks and their sessions alone', async () => {
+    await send('Copy the existing uploads to S3.')
+    const session = backend.session
+    const idle = sampleTask(database.db, workspace.id)
+
+    await glade.invoke(CommandName.TasksDelete, { id: idle.id })
+
+    expect(getTask(database.db, idle.id)).toBeUndefined()
+    expect(session.closed).toBe(false)
+    expect(current().activity).toBe(TaskActivity.Working)
+  })
+
+  it('refuses a task that does not exist', async () => {
+    await expect(glade.invoke(CommandName.TasksDelete, { id: 'missing' })).rejects.toMatchObject({
+      code: BridgeErrorCode.NotFound,
+    })
+  })
+})
+
 describe('the message queue', () => {
   async function queue(text: string, taskId = task.id): Promise<QueuedMessage> {
     return (await glade.invoke(CommandName.QueueAdd, { taskId, text })).queuedMessage
@@ -2112,6 +2162,18 @@ describe('questions', () => {
     expect(drainEvents()).toContainEqual([EventType.QuestionWithdrawn, QuestionSetState.Withdrawn])
   })
 
+  it('lets the call waiting on the questions go when the task is deleted, and closes its session', async () => {
+    const { returned } = await ask()
+
+    await glade.invoke(CommandName.TasksDelete, { id: task.id })
+    await returned
+
+    expect(backend.session.closed).toBe(true)
+    expect(getTask(database.db, task.id)).toBeUndefined()
+    expect(listQuestionSets(database.db, task.id)).toEqual([])
+    expect(drainEvents().at(-1)).toEqual([EventType.TaskDeleted, task.id])
+  })
+
   it('withdraws the questions when the session fails', async () => {
     const { returned } = await ask()
 
@@ -2326,6 +2388,7 @@ describe('several tasks at once', () => {
       case EventType.TaskUpdated:
         return event.task.id
       case EventType.TaskOpenRequested:
+      case EventType.TaskDeleted:
       case EventType.QueueChanged:
       case EventType.FileShown:
       case EventType.TodosChanged:
@@ -2361,6 +2424,7 @@ describe('several tasks at once', () => {
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
       case EventType.TaskOpenRequested:
+      case EventType.TaskDeleted:
       case EventType.OpenFilesChanged:
       case EventType.FileShown:
       case EventType.TodosChanged:
