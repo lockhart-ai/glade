@@ -7,6 +7,7 @@ import { classNames } from '../components/classNames'
 import { SidebarHeader } from '../layout/SidebarHeader'
 import { shortenHomePath } from '../paths'
 import { useGladeStore } from '../store/react'
+import { SettingsSection } from '../settings/sections'
 import { selectSelectedWorkspace } from '../store/state'
 import { badgeTone, describeStatus, workspaceStatus, WorkspaceStatusKind } from './switcherModel'
 import { useWorkspaceActions } from './useWorkspaceActions'
@@ -56,7 +57,7 @@ export function WorkspaceSwitcher({ collapseButton }: WorkspaceSwitcherProps): R
   const workspace = useGladeStore(selectSelectedWorkspace)
   const workspaces = useGladeStore((state) => state.workspaces)
   const tasks = useGladeStore((state) => state.tasks)
-  const openWorkspaceSettings = useGladeStore((state) => state.openWorkspaceSettings)
+  const openSettings = useGladeStore((state) => state.openSettings)
   const { add, open: switchTo, reveal } = useWorkspaceActions()
   // The header's button while the switcher is open; null while it's closed.
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
@@ -97,7 +98,9 @@ export function WorkspaceSwitcher({ collapseButton }: WorkspaceSwitcherProps): R
       label: 'Workspace settings…',
       shortcut: commandHint(WorkspaceCommandId.Settings),
       className: styles.action,
-      onSelect: openWorkspaceSettings,
+      onSelect: () => {
+        openSettings(SettingsSection.Workspace)
+      },
     },
     {
       kind: MenuEntryKind.Item,

@@ -49,4 +49,16 @@ describe('systemPromptAppend', () => {
     expect(both).not.toContain("the user's first message")
     expect(both).toContain('call set_status')
   })
+
+  it('leaves out the title and the status when Settings has them off', () => {
+    const untitled = systemPromptAppend(task, { statusSummary: true, taskTitles: false })
+    expect(untitled).toContain('call set_objective with its objective.')
+    expect(untitled).not.toContain('set_title')
+    expect(untitled).toContain('call set_status')
+
+    const quiet = systemPromptAppend(task, { statusSummary: false, taskTitles: true })
+    expect(quiet).toContain('call set_title with a short name for the task and set_objective with its objective.')
+    expect(quiet).not.toContain('set_status')
+    expect(quiet).toContain('call ask instead')
+  })
 })

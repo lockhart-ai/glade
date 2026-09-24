@@ -12,6 +12,7 @@ import {
 import { useMenuCommands } from '../context-menus/useMenuCommands'
 import { requestClose } from './closeRequest'
 import { Panel, toggledEntry } from '../panels'
+import { SettingsSection } from '../settings/sections'
 import { useGladeStore, useGladeStoreApi } from '../store/react'
 import { useNewTask } from '../task-list/useNewTask'
 import { useTaskActions } from '../task-list/useTaskActions'
@@ -32,7 +33,7 @@ const TOGGLED_PANELS = {
 export function useCommandRunner(): (command: Command) => void {
   const store = useGladeStoreApi()
   const shownWorkspaceId = useGladeStore((state) => state.selectedWorkspaceId)
-  const openWorkspaceSettings = useGladeStore((state) => state.openWorkspaceSettings)
+  const openSettings = useGladeStore((state) => state.openSettings)
   const closeWorkspace = useGladeStore((state) => state.closeWorkspace)
   const requestRemoveWorkspace = useGladeStore((state) => state.requestRemoveWorkspace)
   const closeWindow = useGladeStore((state) => state.closeWindow)
@@ -44,9 +45,9 @@ export function useCommandRunner(): (command: Command) => void {
   const runApp = useCallback(
     ({ id }: AppCommand): void => {
       switch (id) {
-        // The settings modal (P7-03) opens at General for Settings…; until it lands, both open the workspace's.
+        // Settings… opens Settings at its first section; while it's open, it stays on the section it shows.
         case AppCommandId.Settings:
-          openWorkspaceSettings()
+          if (store.getState().settingsSection === null) openSettings()
           return
         case AppCommandId.NewTask:
           void newTask()
@@ -67,7 +68,7 @@ export function useCommandRunner(): (command: Command) => void {
         }
       }
     },
-    [openWorkspaceSettings, newTask, closeWindow, workspaces, store, run],
+    [openSettings, newTask, closeWindow, workspaces, store, run],
   )
 
   const runWorkspace = useCallback(
@@ -77,11 +78,11 @@ export function useCommandRunner(): (command: Command) => void {
         case WorkspaceCommandId.Switch:
           workspaces.open(workspaceId)
           return
-        // Renaming a workspace and moving its root are done in its settings (P7-03).
+        // Renaming a workspace and moving its root are done in Settings › Workspace, for the workspace shown.
         case WorkspaceCommandId.Rename:
         case WorkspaceCommandId.ChangeRoot:
         case WorkspaceCommandId.Settings:
-          openWorkspaceSettings()
+          openSettings(SettingsSection.Workspace)
           return
         case WorkspaceCommandId.RevealRoot:
           workspaces.reveal(workspaceId)
@@ -94,7 +95,7 @@ export function useCommandRunner(): (command: Command) => void {
           return
       }
     },
-    [store, workspaces, openWorkspaceSettings, closeWorkspace, requestRemoveWorkspace, run],
+    [store, workspaces, openSettings, closeWorkspace, requestRemoveWorkspace, run],
   )
 
   const runTask = useCallback(

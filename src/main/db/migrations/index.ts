@@ -16,6 +16,7 @@ import { openFilesMigration } from './0014-open-files'
 import { artifactsMigration } from './0015-artifacts'
 import { searchIndexMigration } from './0016-search-index'
 import { workspaceSelectionsMigration } from './0017-workspace-selections'
+import { settingsMigration } from './0018-settings'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -36,4 +37,5 @@ export const MIGRATIONS: readonly Migration[] = [
   artifactsMigration,
   searchIndexMigration,
   workspaceSelectionsMigration,
+  settingsMigration,
 ]

@@ -14,12 +14,23 @@ import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import type { Question } from '../../shared/domain'
+import type { Settings } from '../../shared/settings'
 import { addTaskArtifact } from '../artifacts/artifacts'
 import { getTask } from '../db/repositories/tasks'
 import { showTaskFile } from '../files/files'
 import { toolResultFor, type QuestionBroker } from '../questions/questions'
 import { questionsSchema } from '../questions/schema'
 import { updateTaskFromAgent, type TaskServiceContext } from '../tasks/service'
+
+/**
+ * What Settings › Agent has the agent keep current besides the objective: the status every turn (`set_status`), and
+ * the title from your first message (`set_title`). A session gets neither the tool nor the prompt's ask for one that's
+ * off; it's read when the session starts.
+ */
+export type AgentUpkeep = Pick<Settings, 'statusSummary' | 'taskTitles'>
+
+/** Both kinds of upkeep on, as they are until you change them. */
+export const ALL_UPKEEP: AgentUpkeep = { statusSummary: true, taskTitles: true }
 
 /** The server's name: the `glade` in `mcp__glade__set_title`. */
 export const GLADE_SERVER = 'glade'
@@ -192,23 +203,35 @@ function signalOf(extra: unknown): AbortSignal | undefined {
   return signal instanceof AbortSignal ? signal : undefined
 }
 
-/** The Glade MCP server for one task's session. */
-export function createGladeMcpServer(context: GladeToolContext, taskId: string): McpSdkServerConfigWithInstance {
+/** The Glade MCP server for one task's session, without the tools for any `upkeep` that's off. */
+export function createGladeMcpServer(
+  context: GladeToolContext,
+  taskId: string,
+  upkeep: AgentUpkeep = ALL_UPKEEP,
+): McpSdkServerConfigWithInstance {
   const handlers = createGladeToolHandlers(context, taskId)
   // The SDK's handlers are async; ours write SQLite synchronously, so they only need wrapping.
   return createSdkMcpServer({
     name: GLADE_SERVER,
     alwaysLoad: true,
     tools: [
-      tool(GladeTool.SetTitle, DESCRIPTIONS[GladeTool.SetTitle], setTitleInput.shape, (input) =>
-        Promise.resolve(handlers.setTitle(input)),
-      ),
+      ...(upkeep.taskTitles
+        ? [
+            tool(GladeTool.SetTitle, DESCRIPTIONS[GladeTool.SetTitle], setTitleInput.shape, (input) =>
+              Promise.resolve(handlers.setTitle(input)),
+            ),
+          ]
+        : []),
       tool(GladeTool.SetObjective, DESCRIPTIONS[GladeTool.SetObjective], setObjectiveInput.shape, (input) =>
         Promise.resolve(handlers.setObjective(input)),
       ),
-      tool(GladeTool.SetStatus, DESCRIPTIONS[GladeTool.SetStatus], setStatusInput.shape, (input) =>
-        Promise.resolve(handlers.setStatus(input)),
-      ),
+      ...(upkeep.statusSummary
+        ? [
+            tool(GladeTool.SetStatus, DESCRIPTIONS[GladeTool.SetStatus], setStatusInput.shape, (input) =>
+              Promise.resolve(handlers.setStatus(input)),
+            ),
+          ]
+        : []),
       tool(GladeTool.Ask, DESCRIPTIONS[GladeTool.Ask], askInput.shape, (input, extra) =>
         handlers.ask(input, signalOf(extra)),
       ),

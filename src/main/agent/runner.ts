@@ -149,6 +149,7 @@ import {
 import { appendMessage, lastTurn, listMessages, turnStartedAt } from '../db/repositories/messages'
 import { getOpenQuestionSet, getQuestionSet, listOpenQuestionSets } from '../db/repositories/question-sets'
 import { listQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
+import { getSettings } from '../db/repositories/settings'
 import { getTask, listPausedTasks, listWorkingTasks } from '../db/repositories/tasks'
 import {
   appendCompaction,
@@ -844,7 +845,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       model: task.model,
       effort: task.effort,
       resumeSessionId: task.sessionId,
-      systemPromptAppend: systemPromptAppend(task),
+      systemPromptAppend: systemPromptAppend(task, getSettings(db)),
       mcpServers: mcpServers(task),
     })
     const live: LiveSession = {

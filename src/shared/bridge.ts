@@ -27,6 +27,7 @@ import type {
   Workspace,
 } from './domain'
 import type { Command, MenuState } from './commands'
+import type { Settings, SettingsPatch } from './settings'
 import type { SearchResult } from './search'
 
 /** The name the bridge is exposed under on `window`. */
@@ -44,6 +45,7 @@ export enum CommandName {
   WorkspacesList = 'workspaces.list',
   WorkspacesCreate = 'workspaces.create',
   WorkspacesOpen = 'workspaces.open',
+  WorkspacesUpdate = 'workspaces.update',
   WorkspacesReveal = 'workspaces.reveal',
   WorkspacesRemove = 'workspaces.remove',
   DialogChooseFolder = 'dialog.chooseFolder',
@@ -75,6 +77,8 @@ export enum CommandName {
   UiStateGet = 'uiState.get',
   UiStateGetAll = 'uiState.getAll',
   UiStateSet = 'uiState.set',
+  SettingsGet = 'settings.get',
+  SettingsUpdate = 'settings.update',
   SearchQuery = 'search.query',
   MenuUpdate = 'menu.update',
   WindowClose = 'window.close',
@@ -133,6 +137,29 @@ export interface WorkspacesRevealRequest {
  */
 export interface WorkspacesRemoveRequest {
   readonly id: string
+}
+
+/** The workspace fields you can change, in Settings › Workspace. */
+export interface WorkspaceUserPatch {
+  /** Not blank; saved trimmed. */
+  readonly name?: string
+  /** An absolute path to an existing directory, which no other workspace has as its root. */
+  readonly rootPath?: string
+}
+
+/**
+ * Renames a workspace or moves it to another root folder. Nothing on disk changes: the folders stay as they are, and no
+ * starter `CLAUDE.md` is written. A task's agent session started before the move keeps running in the old root until it
+ * ends; sessions started after it run in the new one. Broadcasts `workspace.updated`. Fails with `not_found` for an
+ * unknown id, and `invalid_root_path` when the root isn't an existing directory or is another workspace's root.
+ */
+export interface WorkspacesUpdateRequest {
+  readonly id: string
+  readonly patch: WorkspaceUserPatch
+}
+
+export interface WorkspacesUpdateResponse {
+  readonly workspace: Workspace
 }
 
 /** Shows the native open-folder dialog, which can also create a new folder. */
@@ -449,6 +476,16 @@ export interface UiStateGetAllResponse {
 /** Sets one UI state value. Broadcasts `uiState.changed`. */
 export type UiStateSetRequest = UiStateEntry
 
+/** `settings.get` and `settings.update` answer with the settings as they now are. */
+export interface SettingsResponse {
+  readonly settings: Settings
+}
+
+/** Changes the settings in `patch` (Settings saves each change at once). Broadcasts `settings.changed`. */
+export interface SettingsUpdateRequest {
+  readonly patch: SettingsPatch
+}
+
 /**
  * Searches a workspace's tasks: their titles, objectives, statuses (outcomes once done) and chat messages, yours and
  * the agent's. What you type is plain text, never query syntax (see `src/shared/search.ts`): every word must appear
@@ -487,6 +524,7 @@ export interface CommandMap {
   [CommandName.WorkspacesList]: CommandSpec<EmptyRequest, WorkspacesListResponse>
   [CommandName.WorkspacesCreate]: CommandSpec<WorkspacesCreateRequest, WorkspacesCreateResponse>
   [CommandName.WorkspacesOpen]: CommandSpec<WorkspacesOpenRequest, WorkspacesOpenResponse>
+  [CommandName.WorkspacesUpdate]: CommandSpec<WorkspacesUpdateRequest, WorkspacesUpdateResponse>
   [CommandName.WorkspacesReveal]: CommandSpec<WorkspacesRevealRequest, null>
   [CommandName.WorkspacesRemove]: CommandSpec<WorkspacesRemoveRequest, null>
   [CommandName.DialogChooseFolder]: CommandSpec<EmptyRequest, DialogChooseFolderResponse>
@@ -518,6 +556,8 @@ export interface CommandMap {
   [CommandName.UiStateGet]: CommandSpec<UiStateGetRequest, UiStateGetResponse>
   [CommandName.UiStateGetAll]: CommandSpec<EmptyRequest, UiStateGetAllResponse>
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>
+  [CommandName.SettingsGet]: CommandSpec<EmptyRequest, SettingsResponse>
+  [CommandName.SettingsUpdate]: CommandSpec<SettingsUpdateRequest, SettingsResponse>
   [CommandName.SearchQuery]: CommandSpec<SearchQueryRequest, SearchQueryResponse>
   [CommandName.MenuUpdate]: CommandSpec<MenuUpdateRequest, null>
   [CommandName.WindowClose]: CommandSpec<EmptyRequest, null>
@@ -547,6 +587,7 @@ export enum EventType {
   TodosChanged = 'todos.changed',
   ArtifactsChanged = 'artifacts.changed',
   MenuCommand = 'menu.command',
+  SettingsChanged = 'settings.changed',
 }
 
 export interface UiStateChangedEvent {
@@ -672,6 +713,12 @@ export interface MenuCommandEvent {
   readonly command: Command
 }
 
+/** The settings changed. Carries them all as they now are. */
+export interface SettingsChangedEvent {
+  readonly type: EventType.SettingsChanged
+  readonly settings: Settings
+}
+
 /** Everything main broadcasts to the windows. */
 export type GladeEvent =
   | UiStateChangedEvent
@@ -692,6 +739,7 @@ export type GladeEvent =
   | TodosChangedEvent
   | ArtifactsChangedEvent
   | MenuCommandEvent
+  | SettingsChangedEvent
 
 export type EventListener = (event: GladeEvent) => void
 

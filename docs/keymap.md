@@ -14,7 +14,6 @@ for the rest. ![Keymap](design/screens/22-keymap.png)
 | | Open folder as workspace | ⌘O |
 | | Switch workspace | ⌘1 – ⌘9 |
 | | Close workspace | ⌘⇧W |
-| | Close the focused file or terminal tab, else the window | ⌘W |
 | Task list | Next / previous task | ⌥↓ / ⌥↑ |
 | | Next task that needs you | ⌘⌥↓ |
 | | Rename | F2 |
@@ -32,6 +31,7 @@ for the rest. ![Keymap](design/screens/22-keymap.png)
 | | Toggle right panel | ⌘⌥B |
 | | Toggle bottom bar | ⌘J |
 | | Tool calls · Files · Todos · Artifacts · Subagents | ⌘⌥1 – ⌘⌥5 |
+| | Close file tab (the window, when no tab has the focus) | ⌘W |
 | | Open file in editor | ⌘⇧E |
 | Terminal | Focus terminal | ⌃` |
 | | New terminal tab | ⌘T |

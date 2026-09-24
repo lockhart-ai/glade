@@ -4,9 +4,13 @@
  * the workspace's CLAUDE.md, not from here (`docs/model-surface.md`).
  */
 import type { Task } from '../../shared/domain'
-import { GladeTool } from './glade-tools'
+import { ALL_UPKEEP, GladeTool, type AgentUpkeep } from './glade-tools'
 
-export function systemPromptAppend(task: Task): string {
+/**
+ * The prompt for `task`'s session. With `upkeep` turned off in Settings, it leaves out asking for a title or a status,
+ * as the session's Glade tools leave out the tools for them.
+ */
+export function systemPromptAppend(task: Task, upkeep: AgentUpkeep = ALL_UPKEEP): string {
   const named = task.title !== ''
   const lines = [
     'You are running inside Glade, a desktop app that runs Claude agent sessions as tasks.',
@@ -17,7 +21,7 @@ export function systemPromptAppend(task: Task): string {
   ]
   // Only what isn't set yet: a title the user chose, or an objective already recorded, stays as it is.
   const unset = [
-    ...(named ? [] : [`${GladeTool.SetTitle} with a short name for the task`]),
+    ...(named || !upkeep.taskTitles ? [] : [`${GladeTool.SetTitle} with a short name for the task`]),
     ...(task.objective === '' ? [`${GladeTool.SetObjective} with its objective`] : []),
   ]
   if (unset.length > 0) {
@@ -25,9 +29,13 @@ export function systemPromptAppend(task: Task): string {
       `- After the user's first message, before anything else, even for a quick question, call ${unset.join(' and ')}.`,
     )
   }
+  if (upkeep.statusSummary) {
+    lines.push(
+      `- Every turn, call ${GladeTool.SetStatus} with one line on where the work stands, and again before you end ` +
+        'the turn if that changed. When the task is done, the status is its outcome.',
+    )
+  }
   lines.push(
-    `- Every turn, call ${GladeTool.SetStatus} with one line on where the work stands, and again before you end ` +
-      'the turn if that changed. When the task is done, the status is its outcome.',
     '',
     `When you need the user to decide something before you can go on, call ${GladeTool.Ask} instead of asking in ` +
       'your reply: it shows your questions on a card and waits for the answers. Ask everything you need at once, ' +

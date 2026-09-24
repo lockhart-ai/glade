@@ -137,6 +137,24 @@ describe('the server', () => {
     await client.close()
   })
 
+  it('leaves out set_title and set_status when Settings has titles or status summaries off', async () => {
+    const server = createGladeMcpServer(context, task.id, { statusSummary: false, taskTitles: false })
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
+    await server.instance.connect(serverSide)
+    const client = new Client({ name: 'test', version: '1.0.0' })
+    await client.connect(clientSide)
+
+    const { tools } = await client.listTools()
+
+    expect(tools.map((listed) => listed.name)).toEqual([
+      GladeTool.SetObjective,
+      GladeTool.Ask,
+      GladeTool.ShowFile,
+      GladeTool.AddArtifact,
+    ])
+    await client.close()
+  })
+
   it('runs the handlers for valid calls, trimming what the model sends', async () => {
     await expect(caller.call('mcp__glade__set_title', { title: '  Fix the flaky login test\n' })).resolves.toEqual({
       output: 'Title set to "Fix the flaky login test".',

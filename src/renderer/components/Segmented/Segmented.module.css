@@ -46,3 +46,8 @@
 .option:disabled {
   cursor: default;
 }
+
+/* One option that can't be chosen, in a group that can (a disabled group is dimmed as a whole). */
+.group:not([aria-disabled='true']) .option:disabled {
+  opacity: 0.45;
+}

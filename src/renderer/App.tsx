@@ -17,6 +17,7 @@ import { SearchResults } from './search/SearchResults'
 import { useStopShortcut } from './shortcuts/useStopShortcut'
 import { useCompactShortcut } from './shortcuts/useCompactShortcut'
 import { useRightPanelShortcuts } from './shortcuts/useRightPanelShortcuts'
+import { SettingsDialog } from './settings/SettingsDialog'
 import { useSearchShortcut } from './shortcuts/useSearchShortcut'
 import { MenuBar } from './commands/MenuBar'
 import { RemoveWorkspaceDialog } from './commands/RemoveWorkspaceDialog'
@@ -82,6 +83,7 @@ function FirstRunLayout(): React.JSX.Element {
         </Sidebar>
       }
       task={<FirstRun />}
+      overlay={<SettingsDialog />}
     />
   )
 }
@@ -131,6 +133,7 @@ function Layout(): React.JSX.Element {
           <RelaunchNotice />
           <DeleteTaskDialog />
           <RemoveWorkspaceDialog />
+          <SettingsDialog />
         </>
       }
     />

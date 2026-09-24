@@ -11,8 +11,15 @@ import { searchTasks } from '../db/repositories/search'
 import { getTask, listTasks } from '../db/repositories/tasks'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
+import { getSettings, updateSettings } from '../db/repositories/settings'
 import { getWorkspace, listWorkspaces } from '../db/repositories/workspaces'
-import { createWorkspaceAt, noteSelection, openWorkspace, removeWorkspace } from '../workspaces/workspaces'
+import {
+  changeWorkspace,
+  createWorkspaceAt,
+  noteSelection,
+  openWorkspace,
+  removeWorkspace,
+} from '../workspaces/workspaces'
 import { editQueuedMessage, removeQueuedMessage } from '../tasks/queue'
 import { noteUiStateSet } from '../tasks/attention'
 import { createTask, deleteTask, markTaskDone, reopenTask, updateTaskFromUser } from '../tasks/service'
@@ -88,6 +95,11 @@ export function createHandlers(context: HandlerContext): Handlers {
       removeWorkspace(context, id)
       return null
     },
+    [CommandName.WorkspacesUpdate]: ({ id, patch }) => {
+      const workspace = changeWorkspace(db, id, patch)
+      emit({ type: EventType.WorkspaceUpdated, workspace })
+      return { workspace }
+    },
     [CommandName.DialogChooseFolder]: async () => ({ path: await chooseFolder() }),
     [CommandName.TasksList]: ({ workspaceId }) => ({ tasks: listTasks(db, workspaceId) }),
     [CommandName.TasksCreate]: ({ workspaceId }) => ({ task: createTask(context, workspaceId) }),
@@ -157,6 +169,12 @@ export function createHandlers(context: HandlerContext): Handlers {
       emit({ type: EventType.UiStateChanged, entry })
       noteUiStateSet(context, entry)
       return null
+    },
+    [CommandName.SettingsGet]: () => ({ settings: getSettings(db) }),
+    [CommandName.SettingsUpdate]: ({ patch }) => {
+      const settings = updateSettings(db, patch)
+      emit({ type: EventType.SettingsChanged, settings })
+      return { settings }
     },
     [CommandName.SearchQuery]: ({ workspaceId, text }) => ({ results: searchTasks(db, workspaceId, text) }),
     [CommandName.MenuUpdate]: (state) => {

@@ -3,6 +3,10 @@
 //
 //   npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <file base name>]
 //                         [--seed <fixture.json>] [--agent-script <name> [--message <first message>]]
+//                         [--press <key> ...]
+//
+// With --press (e.g. `--press Meta+,` for the Settings modal), the app presses each key in the page, in order, once it's
+// ready and before capturing: a key name as KeyboardEvent.key has it, after any of Meta+, Shift+, Alt+ and Control+.
 //
 // With --agent-script, the capture shows a live task: the app makes a workspace and a task, sends it the first
 // message, and lets the named agent script (src/main/agent/scripts.ts: simple-reply, multi-tool-turn, long-running,
@@ -29,9 +33,27 @@ function fail(message) {
   console.error(`screenshot: ${message}`)
   console.error(
     'usage: npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <name>] ' +
-      '[--seed <fixture>] [--agent-script <name> [--message <text>]]',
+      '[--seed <fixture>] [--agent-script <name> [--message <text>]] [--press <key> ...]',
   )
   process.exit(2)
+}
+
+/** `Meta+Shift+K` as the key press the app dispatches: the key, and which modifiers are held. */
+function parsePress(press) {
+  const parts = press.split('+')
+  const key = parts.pop()
+  const modifiers = new Set(parts)
+  const known = new Set(['Meta', 'Shift', 'Alt', 'Control'])
+  if (key === undefined || key === '' || [...modifiers].some((modifier) => !known.has(modifier))) {
+    fail(`--press must look like Meta+, or Escape (got ${press})`)
+  }
+  return {
+    key,
+    metaKey: modifiers.has('Meta'),
+    shiftKey: modifiers.has('Shift'),
+    altKey: modifiers.has('Alt'),
+    ctrlKey: modifiers.has('Control'),
+  }
 }
 
 function parseSize(size) {
@@ -51,6 +73,7 @@ try {
       'agent-script': { type: 'string' },
       message: { type: 'string', default: DEFAULT_MESSAGE },
       seed: { type: 'string' },
+      press: { type: 'string', multiple: true },
     },
   }))
 } catch (error) {
@@ -72,6 +95,7 @@ const spec = {
   timeoutMs: TIMEOUT_MS,
   ...(agentScript === undefined ? {} : { conversation: { agentScript, message: values.message } }),
   ...(values.seed === undefined ? {} : { seed: resolve(values.seed) }),
+  ...(values.press === undefined ? {} : { presses: values.press.map(parsePress) }),
 }
 
 if (!buildForTests()) {

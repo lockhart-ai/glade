@@ -54,6 +54,9 @@ import { seedConversation } from './capture-conversation'
 /** The `bg` design token, so the window never flashes white before the renderer paints. */
 const WINDOW_BACKGROUND = '#0A0B0F'
 
+/** The app's name, as its menu bar says it (About, Hide and Quit). `app.name` is the package's, `glade`, outside a build. */
+const APP_NAME = 'Glade'
+
 /** The smallest the window can be made. */
 const WINDOW_MIN_SIZE: MinimumSize = { width: 1100, height: 700 }
 
@@ -386,7 +389,7 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
     // The menu bar's items run in the window: each sends its command there, once the bridge is registered.
     const appMenu = installAppMenu({
       menu: Menu,
-      appName: app.name,
+      appName: APP_NAME,
       developer: !app.isPackaged,
       send: (command) => {
         bridge.emit({ type: EventType.MenuCommand, command })

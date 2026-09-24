@@ -61,6 +61,8 @@ describe('readCaptureSpec', () => {
     expect(readCaptureSpec(env(spec({ seed: '/code/fixture.json' })), false, MINIMUM)).toEqual(
       spec({ seed: '/code/fixture.json' }),
     )
+    const presses = [{ key: ',', metaKey: true, shiftKey: false, altKey: false, ctrlKey: false }]
+    expect(readCaptureSpec(env(spec({ presses })), false, MINIMUM)).toEqual(spec({ presses }))
   })
 
   it('rejects a spec that is not JSON', () => {
@@ -85,6 +87,10 @@ describe('readCaptureSpec', () => {
     ['an unknown field', { ...spec(), show: true }],
     ['an unknown agent script', { ...spec(), conversation: { agentScript: 'nope', message: 'Hi' } }],
     ['an empty first message', { ...spec(), conversation: { agentScript: 'simple-reply', message: ' ' } }],
+    [
+      'a key press with no key',
+      { ...spec(), presses: [{ key: '', metaKey: true, shiftKey: false, altKey: false, ctrlKey: false }] },
+    ],
   ])('rejects %s', (_, value) => {
     expect(() => readCaptureSpec(env(value), false, MINIMUM)).toThrow(/^GLADE_CAPTURE is invalid: /)
   })
@@ -158,7 +164,9 @@ describe('captureShots', () => {
       webContents: {
         executeJavaScript: vi.fn((code: string) => {
           scripts.push(code)
-          calls.push(code.includes(READY_ATTRIBUTE) ? 'wait until ready' : 'wait for size')
+          calls.push(
+            code.includes(READY_ATTRIBUTE) ? 'wait until ready' : code.includes('keydown') ? 'press' : 'wait for size',
+          )
           return Promise.resolve(true)
         }),
         capturePage: vi.fn(() => {
@@ -191,6 +199,20 @@ describe('captureShots', () => {
     expect(files).toEqual([join(folder, 'shots', 'app-1920x1200.png'), join(folder, 'shots', 'app-1100x700.png')])
     expect(readFileSync(files[0] ?? '', 'utf8')).toBe('png 1920x1200')
     expect(readFileSync(files[1] ?? '', 'utf8')).toBe('png 1100x700')
+  })
+
+  it('presses the keys asked for, in order, once the page is ready and before capturing', async () => {
+    const window = fakeWindow(1)
+    const presses = [
+      { key: ',', metaKey: true, shiftKey: false, altKey: false, ctrlKey: false },
+      { key: 'Escape', metaKey: false, shiftKey: false, altKey: false, ctrlKey: false },
+    ]
+
+    await captureShots(window, spec({ shots: [{ width: 1100, height: 700, file: 'a.png' }], presses }))
+
+    expect(window.calls).toEqual(['wait until ready', 'press', 'press', 'resize 1100x700', 'wait for size', 'capture'])
+    expect(window.scripts[1]).toContain(`new KeyboardEvent('keydown', { ...${JSON.stringify(presses[0])}`)
+    expect(window.scripts[2]).toContain('"key":"Escape"')
   })
 
   it('scales a Retina capture down to the requested size', async () => {

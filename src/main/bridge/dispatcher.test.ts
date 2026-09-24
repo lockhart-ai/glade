@@ -10,6 +10,7 @@ import {
   type QueuedMessage,
   type Task,
 } from '../../shared/domain'
+import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { createBroadcast, createDispatcher } from './dispatcher'
 import { CommandFailure } from './errors'
 import type { Handlers } from './handlers'
@@ -66,6 +67,11 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.UiStateGetAll]: () => ({ entries: [] }),
     [CommandName.SearchQuery]: () => ({ results: [] }),
     [CommandName.UiStateSet]: () => null,
+    [CommandName.WorkspacesUpdate]: () => {
+      throw new Error('not in these tests')
+    },
+    [CommandName.SettingsGet]: () => ({ settings: DEFAULT_SETTINGS }),
+    [CommandName.SettingsUpdate]: () => ({ settings: DEFAULT_SETTINGS }),
     ...overrides,
   }
 }

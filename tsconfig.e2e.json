@@ -18,6 +18,8 @@
     "src/shared/bridge.ts",
     "src/shared/commands.ts",
     "src/shared/domain.ts",
+    "src/shared/models.ts",
+    "src/shared/settings.ts",
     "src/shared/ready.ts",
     "src/shared/search.ts"
   ]

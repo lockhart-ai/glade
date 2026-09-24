@@ -14,6 +14,7 @@ import {
   type FakeBridge,
   type FakeHandlers,
 } from '../store/test-bridge'
+import { SettingsSection } from '../settings/sections'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 
 interface Rendered extends FakeBridge {
@@ -173,12 +174,12 @@ describe('WorkspaceSwitcher', () => {
     },
   )
 
-  it('asks for the workspace settings', async () => {
+  it('opens Settings at the workspace', async () => {
     const { store } = await renderSwitcher()
 
     await choose('Workspace settings…')
 
-    expect(store.getState().workspaceSettingsRequest).toBe(1)
+    expect(store.getState().settingsSection).toBe(SettingsSection.Workspace)
   })
 
   it('reveals the shown workspace’s root in Finder', async () => {

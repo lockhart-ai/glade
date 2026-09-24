@@ -203,5 +203,7 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
     case EventType.MenuCommand:
       // Running a command is an action, not a change of state: the window runs it (see `./store`).
       return state
+    case EventType.SettingsChanged:
+      return { ...state, settings: event.settings }
   }
 }

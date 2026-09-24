@@ -30,6 +30,7 @@ import {
   type FakeHandlers,
   type FakeMain,
 } from '../store/test-bridge'
+import { DEFAULT_SETTINGS_SECTION, SettingsSection } from '../settings/sections'
 import { removeWorkspaceMessage } from './RemoveWorkspaceDialog'
 
 interface Rendered extends FakeBridge {
@@ -180,12 +181,20 @@ describe('the menu bar’s commands', () => {
   it('open the settings for Settings…, Workspace settings…, Rename workspace… and Change root folder…', async () => {
     const rendered = await renderApp()
 
-    choose(rendered, appCommand(AppCommandId.Settings))
-    for (const id of [WorkspaceCommandId.Settings, WorkspaceCommandId.Rename, WorkspaceCommandId.ChangeRoot]) {
-      choose(rendered, workspaceCommand(id, 'w1'))
-    }
+    const section = (): SettingsSection | null => rendered.store.getState().settingsSection
 
-    expect(rendered.store.getState().workspaceSettingsRequest).toBe(4)
+    choose(rendered, appCommand(AppCommandId.Settings))
+    expect(section()).toBe(DEFAULT_SETTINGS_SECTION)
+    for (const id of [WorkspaceCommandId.Settings, WorkspaceCommandId.Rename, WorkspaceCommandId.ChangeRoot]) {
+      act(() => {
+        rendered.store.getState().closeSettings()
+      })
+      choose(rendered, workspaceCommand(id, 'w1'))
+      expect(section()).toBe(SettingsSection.Workspace)
+    }
+    // While it's open, Settings… (⌘,) leaves it on the section it shows.
+    choose(rendered, appCommand(AppCommandId.Settings))
+    expect(section()).toBe(SettingsSection.Workspace)
   })
 
   it('switch workspaces, restoring each one’s selection, and reveal the root in Finder', async () => {
@@ -203,16 +212,13 @@ describe('the menu bar’s commands', () => {
 
   it('do nothing for a workspace or task that’s gone', async () => {
     const rendered = await renderApp()
+    const before = commandsInvoked(rendered)
 
     choose(rendered, workspaceCommand(WorkspaceCommandId.Switch, 'gone'))
     choose(rendered, taskCommand(TaskCommandId.Delete, 'gone'))
     await act(() => Promise.resolve())
 
-    expect(commandsInvoked(rendered)).toEqual([
-      CommandName.WorkspacesList,
-      CommandName.UiStateGetAll,
-      ...listsAndHistory(),
-    ])
+    expect(commandsInvoked(rendered)).toEqual(before)
     expect(rendered.store.getState().deletingTaskId).toBeNull()
   })
 
@@ -408,7 +414,7 @@ describe('the menu bar’s commands', () => {
 
     choose(rendered, appCommand(AppCommandId.Settings))
 
-    expect(rendered.store.getState().workspaceSettingsRequest).toBe(0)
+    expect(rendered.store.getState().settingsSection).toBeNull()
   })
 })
 
@@ -469,11 +475,6 @@ describe('the menu bar’s keys', () => {
     expect(MENU_KEYS.filter((accelerator) => accelerator.endsWith('+K'))).toEqual([])
   })
 })
-
-/** What hydrating the three workspaces and loading t1's history invokes. */
-function listsAndHistory(): CommandName[] {
-  return [CommandName.TasksList, CommandName.TasksList, CommandName.TasksList, CommandName.TasksHistory]
-}
 
 // A working task can't be marked done: the menu bar reports it, as the header does.
 it('reports that a working task can’t be marked done', async () => {
