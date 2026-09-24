@@ -70,6 +70,7 @@ const TASK_HANDLERS = {
   [CommandName.FilesCopy]: () => null,
   [CommandName.FilesReveal]: () => null,
   [CommandName.ArtifactsRemove]: () => null,
+  [CommandName.SearchQuery]: () => ({ results: [] }),
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
   [CommandName.TasksCreate]: REQUEST_SCHEMAS[CommandName.TasksCreate],
@@ -95,6 +96,7 @@ const TASK_SCHEMAS = {
   [CommandName.FilesCopy]: REQUEST_SCHEMAS[CommandName.FilesCopy],
   [CommandName.FilesReveal]: REQUEST_SCHEMAS[CommandName.FilesReveal],
   [CommandName.ArtifactsRemove]: REQUEST_SCHEMAS[CommandName.ArtifactsRemove],
+  [CommandName.SearchQuery]: REQUEST_SCHEMAS[CommandName.SearchQuery],
 } satisfies Partial<RequestSchemas>
 
 describe('the command map', () => {

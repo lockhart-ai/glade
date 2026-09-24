@@ -96,6 +96,24 @@
   text-overflow: ellipsis;
 }
 
+/* A search result, from 07-search.html. */
+.result {
+  gap: 6px;
+}
+
+/* A search result's snippet (07-search.html): up to three lines, where the status line is one. */
+.snippet {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  padding-left: 16px;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
 .unread .title {
   font-weight: 600;
   color: var(--color-text);
