@@ -30,6 +30,7 @@ spacing), `docs/keymap.md`, `docs/context-menus.md`.
 - Keep the Electron security defaults: `contextIsolation: true`, `nodeIntegration: false`, a typed preload bridge,
   no remote content in the renderer.
 - All app state lives in SQLite so the app can crash and resume. Don't keep important state only in memory.
+- Each issue lands as its own branch and PR, which closes the issue. Don't merge your own PR; it's reviewed first.
 - Commit messages: imperative subject, reference the ticket id (e.g. `P1-05: stream agent events into the chat`).
 - PR descriptions are brief, in this shape:
 
@@ -58,8 +59,9 @@ spacing), `docs/keymap.md`, `docs/context-menus.md`.
 ## Stack
 
 Electron, TypeScript, SQLite, the Claude Agent SDK (TypeScript), electron-vite, React, CSS Modules, Zustand,
-better-sqlite3, Vitest + Testing Library, ESLint + Prettier, electron-builder, xterm.js + node-pty. See `docs/decisions.md`.
-Prefer well-established, widely adopted libraries and idiomatic use of them; don't pull in small or obscure packages.
+better-sqlite3, Vitest + Testing Library, ESLint + Prettier, electron-builder, xterm.js + node-pty. See
+`docs/decisions.md`. Prefer well-established, widely adopted libraries and idiomatic use of them; don't pull in small
+or obscure packages.
 
 ## Open source: what gets committed
 
@@ -74,4 +76,3 @@ This repo is public (MIT). Anything committed is public forever, even if deleted
 - **Do commit:** source, tests, docs, design screenshots and markup, icons, the lockfile.
 - **Third-party code and assets** only under a licence compatible with MIT, with the licence file included.
 - **Binaries:** keep them small. Ask before adding anything over ~1 MB.
-- Pushing straight to `main` is fine for now.
