@@ -21,6 +21,7 @@ import {
   type ToolInput,
   type TurnSummary,
 } from '../shared/domain'
+import { serializeRelaunchNotice } from '../shared/relaunchNotice'
 import { appendMessage } from './db/repositories/messages'
 import { appendQueuedMessage } from './db/repositories/queued-messages'
 import { createTask, updateTask } from './db/repositories/tasks'
@@ -106,6 +107,8 @@ export interface SeedTask {
   readonly queuedMessages?: readonly string[] | undefined
   /** What stopped its agent, with `activity: "error"`; none unless given. */
   readonly error?: TaskError | undefined
+  /** Whether the relaunch notice names it, as a task Glade picked up again after it crashed. */
+  readonly resumedAfterCrash?: boolean | undefined
 }
 
 /** A fixture: one workspace, opened, and its tasks. */
@@ -181,6 +184,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       toolEvents: z.array(seedToolEventSchema).optional(),
       queuedMessages: z.array(z.string()).optional(),
       error: seedErrorSchema.optional(),
+      resumedAfterCrash: z.boolean().optional(),
     }),
   ),
 })
@@ -224,6 +228,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
   db.transaction(() => {
     const workspace = createWorkspace(db, seed.workspace, now)
     setUiState(db, { key: UiStateKey.ActiveWorkspaceId, value: workspace.id })
+    const resumed: string[] = []
     for (const [index, sample] of seed.tasks.entries()) {
       const at = now - sample.minutesAgo * MINUTE
       const createdAt = now - (sample.startedMinutesAgo ?? sample.minutesAgo) * MINUTE
@@ -261,6 +266,10 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         seedToolEvent(db, task.id, event, ago(event.minutesAgo), `seed-${String(index)}`)
       }
       for (const body of sample.queuedMessages ?? []) appendQueuedMessage(db, { taskId: task.id, body }, now)
+      if (sample.resumedAfterCrash === true) resumed.push(task.id)
+    }
+    if (resumed.length > 0) {
+      setUiState(db, { key: UiStateKey.RelaunchNotice, value: serializeRelaunchNotice({ taskIds: resumed }) })
     }
   })()
 }

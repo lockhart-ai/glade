@@ -4,6 +4,8 @@
  *
  * A test mode's spec picks an agent script (`./scripts`) by name, and every session plays it (`./scripted-session`).
  * An e2e spec can also pick a script by a task's first message, so tasks run side by side can play different scripts.
+ * A session resumed on launch is first sent `RESUME_PROMPT`, not the task's first message, so it picks its script by
+ * the first message of the task it resumes (`firstMessageOf`), and a relaunched task plays the script it played before.
  * With no script at all, starting a session fails loudly; with none for a session's first message, the session dies.
  */
 import type { AgentBackend, AgentSession, AgentSessionOptions } from './backend'
@@ -27,6 +29,11 @@ export interface TestModeScripts {
   readonly script: AgentScript | null
   /** The script a session plays when its first message is exactly the key. */
   readonly byFirstMessage?: ReadonlyMap<string, AgentScript>
+  /**
+   * The first message of the task whose SDK session is the one given, if there is one: what a resumed session picks
+   * its script by, in place of the first message it's sent.
+   */
+  readonly firstMessageOf?: (sessionId: string) => string | undefined
 }
 
 /** Picks a session's script by its first message, falling back on the default. */
@@ -67,7 +74,11 @@ export function createTestModeAgentBackend(scripts: TestModeScripts): TestModeAg
         console.error(`Glade test mode: ${error.message}`)
         throw error
       }
-      const session = new ScriptedSession({ script: chooser(scripts), session: options, onIdle: settle })
+      const choose = chooser(scripts)
+      const { resumeSessionId } = options
+      const resumedFirst = resumeSessionId === null ? undefined : scripts.firstMessageOf?.(resumeSessionId)
+      const script: ScriptChooser = resumedFirst === undefined ? choose : () => choose(resumedFirst)
+      const session = new ScriptedSession({ script, session: options, onIdle: settle })
       return {
         messages: session.messages,
         send(text, uuid) {
