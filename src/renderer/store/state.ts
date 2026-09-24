@@ -4,7 +4,9 @@
  */
 import type { TaskUserPatch } from '../../shared/bridge'
 import type {
+  Artifact,
   FileContent,
+  FileInfo,
   Message,
   OpenFiles,
   QuestionAnswers,
@@ -89,6 +91,8 @@ export interface GladeData {
   readonly questionSets: Readonly<Record<string, readonly QuestionSet[]>>
   /** The files open in each task's Files tab, by task id: loaded with its logs, then kept current by events. */
   readonly openFiles: Readonly<Record<string, OpenFiles>>
+  /** Each task's artifacts (the Artifacts tab), by task id: loaded with its logs, then kept current by events. */
+  readonly artifacts: Readonly<Record<string, readonly Artifact[]>>
   /**
    * Each task's todo list (the Todos tab), by task id, null when the agent has kept none: loaded with its logs, then
    * kept current by events.
@@ -226,6 +230,12 @@ export interface GladeActions {
   readFile: (taskId: string, path: string) => Promise<FileContent>
   /** Opens a file of a task's workspace in the app macOS opens its kind of file with (`files.openInEditor`). */
   openInEditor: (taskId: string, path: string) => Promise<void>
+  /** Describes a file of a task's workspace for its artifact card (`files.info`). Not kept in the store. */
+  fileInfo: (taskId: string, path: string) => Promise<FileInfo>
+  /** Copies a text file of a task's workspace to the clipboard (`files.copy`). */
+  copyFile: (taskId: string, path: string) => Promise<void>
+  /** Shows a file of a task's workspace in Finder (`files.reveal`). */
+  revealFile: (taskId: string, path: string) => Promise<void>
 }
 
 export interface GladeState extends GladeData, GladeActions {}
@@ -241,6 +251,7 @@ export const INITIAL_DATA: GladeData = {
   queuedMessages: {},
   questionSets: {},
   openFiles: {},
+  artifacts: {},
   todos: {},
   uiState: {},
   toolLogFocus: null,

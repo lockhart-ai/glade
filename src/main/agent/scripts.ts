@@ -1127,6 +1127,42 @@ const showsAFile: AgentScript = {
   ],
 }
 
+/**
+ * A turn that writes release notes and an upgrade guide and declares both as artifacts with `add_artifact`. The files
+ * must be in the workspace (a spec makes them: the scripted writes don't) for the Glade tool to declare them.
+ */
+const declaresArtifacts: AgentScript = {
+  name: 'declares-artifacts',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Draft release notes for 2.4',
+        'Draft release notes for 2.4 from the PRs merged since the 2.3 tag, with a short upgrade guide.',
+        'Drafting the release notes.',
+      ),
+      ...tool(
+        'write-notes',
+        'Write',
+        { file_path: 'docs/releases/2.4.md', content: '# Release notes 2.4\n' },
+        'File created successfully at: docs/releases/2.4.md',
+      ),
+      ...tool(
+        'write-guide',
+        'Write',
+        { file_path: 'docs/releases/2.4-upgrade.md', content: '# Upgrading to 2.4\n' },
+        'File created successfully at: docs/releases/2.4-upgrade.md',
+      ),
+      gladeTool('add-notes', 'add_artifact', { path: 'docs/releases/2.4.md', title: 'Release notes 2.4' }),
+      gladeTool('add-guide', 'add_artifact', { path: 'docs/releases/2.4-upgrade.md', title: 'Upgrade guide' }),
+      gladeTool('status-done', 'set_status', { status: 'Release notes and an upgrade guide are drafted.' }),
+      say('The release notes and an upgrade guide are ready in Artifacts.'),
+      result(),
+    ],
+  ],
+}
+
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
   'simple-reply',
@@ -1141,6 +1177,7 @@ export const AGENT_SCRIPT_NAMES = [
   'asks-a-question',
   'parallel-subagents',
   'shows-a-file',
+  'declares-artifacts',
   'usage-limit',
   'usage-limit-hour',
   'offline',
@@ -1164,6 +1201,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'asks-a-question': asksAQuestion,
   'parallel-subagents': parallelSubagents,
   'shows-a-file': showsAFile,
+  'declares-artifacts': declaresArtifacts,
   'usage-limit': usageLimit,
   'usage-limit-hour': usageLimitHour,
   offline,

@@ -1,6 +1,7 @@
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, CommandName, EventType, type CommandRequest, type CommandResponse } from '../../shared/bridge'
 import type { AgentRunner } from '../agent/runner'
+import { listArtifacts } from '../db/repositories/artifacts'
 import { listMessages } from '../db/repositories/messages'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { listQuestionSets } from '../db/repositories/question-sets'
@@ -13,7 +14,18 @@ import { createWorkspaceAt, openWorkspace } from '../workspaces/workspaces'
 import { editQueuedMessage, removeQueuedMessage } from '../tasks/queue'
 import { noteUiStateSet } from '../tasks/attention'
 import { createTask, deleteTask, markTaskDone, reopenTask, updateTaskFromUser } from '../tasks/service'
-import { closeTaskFile, openTaskFile, openTaskFileInEditor, readTaskFile, type OpenPath } from '../files/files'
+import {
+  closeTaskFile,
+  copyTaskFile,
+  infoOfTaskFile,
+  openTaskFile,
+  openTaskFileInEditor,
+  readTaskFile,
+  revealTaskFile,
+  type OpenPath,
+  type RevealPath,
+  type WriteClipboard,
+} from '../files/files'
 import { todoListFor } from '../todos/todos'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
@@ -34,6 +46,10 @@ export interface HandlerContext {
   readonly runner: AgentRunner
   /** Opens a file in the app macOS opens its kind of file with (Electron's `shell.openPath`). */
   readonly openPath: OpenPath
+  /** Shows a file in Finder, selected (Electron's `shell.showItemInFolder`). */
+  readonly revealPath: RevealPath
+  /** Puts text on the clipboard (Electron's `clipboard.writeText`). */
+  readonly writeClipboard: WriteClipboard
 }
 
 export function createHandlers(context: HandlerContext): Handlers {
@@ -74,6 +90,7 @@ export function createHandlers(context: HandlerContext): Handlers {
         questionSets: listQuestionSets(db, id),
         openFiles: getOpenFiles(db, id),
         todos: todoListFor(db, id),
+        artifacts: listArtifacts(db, id),
       }
     },
     [CommandName.QueueAdd]: ({ taskId, text }) => ({ queuedMessage: runner.queue(taskId, text) }),
@@ -88,6 +105,15 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.FilesClose]: ({ taskId, path }) => ({ openFiles: closeTaskFile(context, taskId, path) }),
     [CommandName.FilesOpenInEditor]: async ({ taskId, path }) => {
       await openTaskFileInEditor(context, taskId, path)
+      return null
+    },
+    [CommandName.FilesInfo]: async ({ taskId, path }) => ({ info: await infoOfTaskFile(context, taskId, path) }),
+    [CommandName.FilesCopy]: async ({ taskId, path }) => {
+      await copyTaskFile(context, taskId, path)
+      return null
+    },
+    [CommandName.FilesReveal]: async ({ taskId, path }) => {
+      await revealTaskFile(context, taskId, path)
       return null
     },
     [CommandName.UiStateGet]: ({ key }) => ({ value: getUiState(db, key) ?? null }),

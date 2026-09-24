@@ -14,9 +14,11 @@ import {
 import {
   Effort,
   FileContentKind,
+  FileInfoKind,
   TaskState,
   UiStateKey,
   type Message,
+  type Artifact,
   type OpenFiles,
   type QuestionSet,
   type TodoList,
@@ -52,6 +54,7 @@ const TASK_HANDLERS = {
     questionSets: [],
     openFiles: { taskId: 't', paths: [], activePath: null },
     todos: null,
+    artifacts: [],
   }),
   [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
@@ -61,6 +64,9 @@ const TASK_HANDLERS = {
   [CommandName.FilesOpen]: () => ({ openFiles: {} as OpenFiles }),
   [CommandName.FilesClose]: () => ({ openFiles: {} as OpenFiles }),
   [CommandName.FilesOpenInEditor]: () => null,
+  [CommandName.FilesInfo]: () => ({ info: { kind: FileInfoKind.Missing } }),
+  [CommandName.FilesCopy]: () => null,
+  [CommandName.FilesReveal]: () => null,
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
   [CommandName.TasksCreate]: REQUEST_SCHEMAS[CommandName.TasksCreate],
@@ -80,6 +86,9 @@ const TASK_SCHEMAS = {
   [CommandName.FilesOpen]: REQUEST_SCHEMAS[CommandName.FilesOpen],
   [CommandName.FilesClose]: REQUEST_SCHEMAS[CommandName.FilesClose],
   [CommandName.FilesOpenInEditor]: REQUEST_SCHEMAS[CommandName.FilesOpenInEditor],
+  [CommandName.FilesInfo]: REQUEST_SCHEMAS[CommandName.FilesInfo],
+  [CommandName.FilesCopy]: REQUEST_SCHEMAS[CommandName.FilesCopy],
+  [CommandName.FilesReveal]: REQUEST_SCHEMAS[CommandName.FilesReveal],
 } satisfies Partial<RequestSchemas>
 
 describe('the command map', () => {
@@ -124,6 +133,7 @@ describe('the command map', () => {
       readonly questionSets: readonly QuestionSet[]
       readonly openFiles: OpenFiles
       readonly todos: TodoList | null
+      readonly artifacts: readonly Artifact[]
     }>()
     expectTypeOf(glade.invoke(CommandName.QueueAdd, { taskId: 't', text: 'Hi' })).resolves.toEqualTypeOf<{
       readonly queuedMessage: QueuedMessage
@@ -312,6 +322,9 @@ describe('events', () => {
           break
         case EventType.TodosChanged:
           expectTypeOf(event.todos).toEqualTypeOf<TodoList | null>()
+          break
+        case EventType.ArtifactsChanged:
+          expectTypeOf(event.artifacts).toEqualTypeOf<readonly Artifact[]>()
           break
       }
     })

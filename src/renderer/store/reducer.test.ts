@@ -8,6 +8,7 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  type Artifact,
   type TodoList,
   type ToolCallEvent,
   type ToolEvent,
@@ -122,6 +123,7 @@ describe('a deleted task', () => {
       questionSets: { t1: [sampleQuestionSet('s1', 't1')] },
       todos: { t1: null },
       openFiles: { t1: { taskId: 't1', paths: ['README.md'], activePath: 'README.md' } },
+      artifacts: { t1: [{ taskId: 't1', path: 'README.md', title: 'Readme', addedAt: 1, updatedAt: 1 }] },
       toolLogFocus: { taskId: 't1', turn: 1, request: 1 },
       fileFocus: { taskId: 't1', path: 'README.md', line: null, request: 1 },
       renamingTaskId: 't1',
@@ -139,6 +141,7 @@ describe('a deleted task', () => {
       questionSets: {},
       todos: {},
       openFiles: {},
+      artifacts: {},
       toolLogFocus: null,
       fileFocus: null,
       renamingTaskId: null,
@@ -188,6 +191,7 @@ describe("a task's logs", () => {
       questionSets: [],
       openFiles: noOpenFiles('t1'),
       todos: null,
+      artifacts: [],
     })
 
     expect(applyEvent(loaded, { type: EventType.ToolEventUpdated, toolEvent: done }).toolEvents).toEqual({
@@ -213,6 +217,7 @@ describe("a task's logs", () => {
       questionSets: [],
       openFiles: noOpenFiles('t1'),
       todos: null,
+      artifacts: [],
     })
 
     expect(next.messages.t1).toEqual([early, late])
@@ -225,6 +230,7 @@ describe("a task's logs", () => {
         questionSets: [],
         openFiles: noOpenFiles('t2'),
         todos: null,
+        artifacts: [],
       }).messages,
     ).toEqual({ t2: [] })
   })
@@ -248,6 +254,7 @@ describe("a task's queue", () => {
       questionSets: [],
       openFiles: noOpenFiles('t1'),
       todos: null,
+      artifacts: [],
     })
     expect(loaded.queuedMessages).toEqual({ t1: [second] })
   })
@@ -278,7 +285,14 @@ describe("a task's questions", () => {
     ] as const
     expect(closed.reduce(applyEvent, asked).questionSets.t1).toEqual([answered, withdrawn])
 
-    const empty = { messages: [], toolEvents: [], queuedMessages: [], openFiles: noOpenFiles('t1'), todos: null }
+    const empty = {
+      messages: [],
+      toolEvents: [],
+      queuedMessages: [],
+      openFiles: noOpenFiles('t1'),
+      todos: null,
+      artifacts: [],
+    }
     expect(withHistory(state, 't1', { ...empty, questionSets: [answered] }).questionSets).toEqual({ t1: [answered] })
   })
 })
@@ -290,7 +304,7 @@ describe("a task's open files", () => {
     const changed = applyEvent(state, { type: EventType.OpenFilesChanged, openFiles })
     expect(changed.openFiles).toEqual({ t1: openFiles })
 
-    const empty = { messages: [], toolEvents: [], queuedMessages: [], questionSets: [], todos: null }
+    const empty = { messages: [], toolEvents: [], queuedMessages: [], questionSets: [], todos: null, artifacts: [] }
     expect(withHistory(changed, 't1', { ...empty, openFiles: noOpenFiles('t1') }).openFiles).toEqual({
       t1: noOpenFiles('t1'),
     })
@@ -307,6 +321,38 @@ describe("a task's open files", () => {
   })
 })
 
+describe("a task's artifacts", () => {
+  const artifact = (path: string, updatedAt: number): Artifact => ({
+    taskId: 't1',
+    path,
+    title: path,
+    addedAt: 1,
+    updatedAt,
+  })
+  const history = (artifacts: readonly Artifact[]) => ({
+    messages: [],
+    toolEvents: [],
+    queuedMessages: [],
+    questionSets: [],
+    openFiles: noOpenFiles('t1'),
+    todos: null,
+    artifacts,
+  })
+
+  it('takes the whole list from each change, and from a history load unless a change brought a newer one', () => {
+    const changed = applyEvent(state, {
+      type: EventType.ArtifactsChanged,
+      taskId: 't1',
+      artifacts: [artifact('a.md', 5), artifact('b.md', 9)],
+    })
+    expect(changed.artifacts.t1?.map(({ path }) => path)).toEqual(['a.md', 'b.md'])
+
+    expect(withHistory(changed, 't1', history([artifact('a.md', 5)])).artifacts.t1).toHaveLength(2)
+    expect(withHistory(changed, 't1', history([artifact('a.md', 12)])).artifacts.t1).toEqual([artifact('a.md', 12)])
+    expect(withHistory(state, 't1', history([])).artifacts).toEqual({ t1: [] })
+  })
+})
+
 describe("a task's todo list", () => {
   const list = (text: string, updatedAt: number): TodoList => ({
     items: [{ text, state: TodoState.Todo, note: null }],
@@ -319,6 +365,7 @@ describe("a task's todo list", () => {
     questionSets: [],
     openFiles: noOpenFiles('t1'),
     todos,
+    artifacts: [],
   })
 
   it('takes the list from each change, whole', () => {
