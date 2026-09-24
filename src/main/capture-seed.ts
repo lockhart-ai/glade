@@ -16,6 +16,7 @@ import {
   UiStateKey,
   type EpochMs,
   type ToolInput,
+  type TurnSummary,
 } from '../shared/domain'
 import { appendMessage } from './db/repositories/messages'
 import { createTask, updateTask } from './db/repositories/tasks'
@@ -34,6 +35,8 @@ export interface SeedMessage {
   readonly turn: number
   /** How long before the capture it was sent. */
   readonly minutesAgo: number
+  /** An agent reply's turn summary; none unless given. */
+  readonly summary?: TurnSummary | undefined
 }
 
 /** A sample note from the agent in the tool log. */
@@ -105,6 +108,14 @@ export interface CaptureSeed {
 
 const turn = z.int().positive()
 const minutesAgo = z.number().nonnegative()
+const count = z.int().nonnegative()
+
+const seedSummarySchema = z.strictObject({
+  durationMs: count.nullable(),
+  filesChanged: count,
+  linesAdded: count,
+  linesRemoved: count,
+})
 
 const seedToolEventSchema: z.ZodType<SeedToolEvent> = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal(ToolEventKind.Narration), text: z.string(), turn, minutesAgo }),
@@ -138,7 +149,17 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       minutesAgo,
       startedMinutesAgo: minutesAgo.optional(),
       selected: z.boolean().optional(),
-      messages: z.array(z.strictObject({ role: z.enum(MessageRole), body: z.string(), turn, minutesAgo })).optional(),
+      messages: z
+        .array(
+          z.strictObject({
+            role: z.enum(MessageRole),
+            body: z.string(),
+            turn,
+            minutesAgo,
+            summary: seedSummarySchema.optional(),
+          }),
+        )
+        .optional(),
       toolEvents: z.array(seedToolEventSchema).optional(),
     }),
   ),
@@ -209,7 +230,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       for (const message of sample.messages ?? []) {
         appendMessage(
           db,
-          { taskId: task.id, role: message.role, body: message.body, turn: message.turn },
+          { taskId: task.id, role: message.role, body: message.body, turn: message.turn, summary: message.summary },
           ago(message.minutesAgo),
         )
       }

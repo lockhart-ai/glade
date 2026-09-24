@@ -94,6 +94,8 @@ export function chat(page: Page) {
     log,
     userMessages: log.getByRole('article', { name: 'You' }),
     agentReplies: log.getByRole('article', { name: 'Agent' }),
+    /** The summary under each finished turn's reply: "Finished in 24m 10s · 4 files +61 −3". */
+    turnSummaries: log.getByRole('note', { name: 'Turn summary' }),
     /** Where Glade restarted and resumed a turn. */
     restarts: log.getByRole('separator', { name: 'Glade restarted' }),
     /** Where a done task was marked done, before the message that reopened it. */

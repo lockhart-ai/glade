@@ -194,7 +194,15 @@ describe('InputBar', () => {
             new Promise((resolve) => {
               answer = () => {
                 resolve({
-                  message: { id: 'm1', taskId: id, role: MessageRole.User, body: text, turn: 1, createdAt: 1 },
+                  message: {
+                    id: 'm1',
+                    taskId: id,
+                    role: MessageRole.User,
+                    body: text,
+                    turn: 1,
+                    createdAt: 1,
+                    summary: null,
+                  },
                 })
               }
             }),
