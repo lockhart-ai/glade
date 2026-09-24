@@ -54,12 +54,13 @@ import {
   type ToolResultEvent,
   type TurnFinishedEvent,
 } from './events'
+import { systemPromptAppend } from './system-prompt'
 
 export interface AgentRunnerOptions {
   readonly db: Database
   readonly emit: Emit
   readonly backend: AgentBackend
-  /** The in-process MCP servers to give a task's session. The seam for the Glade tools (P1-09). None by default. */
+  /** The in-process MCP servers to give a task's session, such as the Glade tools (`./glade-tools`). None by default. */
   readonly mcpServers?: (task: Task) => AgentMcpServers
   readonly log?: AgentLog
 }
@@ -98,16 +99,6 @@ interface LiveSession {
   turn: Turn | null
   /** Closed by the runner: whatever it still emits is ignored, and a turn cut short stays working for P1-17. */
   closed: boolean
-}
-
-/** Appended to Claude Code's system prompt: which task this is and where it runs. */
-export function systemPromptAppend(task: Task): string {
-  const title = task.title === '' ? 'not set yet' : `"${task.title}"`
-  return [
-    'You are running inside Glade, a desktop app that runs Claude agent sessions as tasks.',
-    'This session is one Glade task, with one objective.',
-    `Its task id is ${task.id}. Its title is ${title}.`,
-  ].join('\n')
 }
 
 /** What the tool log says when the user stopped a turn, and what its unfinished tool calls say. */

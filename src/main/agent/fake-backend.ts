@@ -2,6 +2,8 @@
 // asks of them. Nothing runs a model.
 import { AsyncQueue } from './async-queue'
 import type { AgentBackend, AgentSession, AgentSessionOptions } from './backend'
+import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
+import { toolResult, toolUse } from './test-sdk-messages'
 
 /** A message the runner sent a session. */
 export interface SentMessage {
@@ -15,8 +17,11 @@ export class FakeAgentSession implements AgentSession {
   closed = false
   private readonly stream = new AsyncQueue<unknown>()
   readonly messages: AsyncIterable<unknown> = this.stream
+  private readonly tools: McpToolCaller
 
-  constructor(readonly options: AgentSessionOptions) {}
+  constructor(readonly options: AgentSessionOptions) {
+    this.tools = createMcpToolCaller(options.mcpServers)
+  }
 
   send(text: string, uuid: string): void {
     this.sent.push({ text, uuid })
@@ -33,11 +38,22 @@ export class FakeAgentSession implements AgentSession {
   close(): void {
     this.closed = true
     this.stream.end()
+    void this.tools.close()
   }
 
   /** Streams SDK messages to the runner, as the agent would. */
   emit(...messages: readonly unknown[]): void {
     for (const message of messages) this.stream.push(message)
+  }
+
+  /**
+   * Calls one of the session's in-process MCP tools, as the agent would: streams the `tool_use`, runs the tool's real
+   * handler through its MCP server, then streams the `tool_result` it gave. Resolves once the result is streamed.
+   */
+  async callTool(toolUseId: string, name: string, input: Record<string, unknown>): Promise<void> {
+    this.emit(toolUse(toolUseId, name, input))
+    const { output, isError } = await this.tools.call(name, input)
+    this.emit(toolResult(toolUseId, [{ type: 'text', text: output }], isError))
   }
 
   /** Ends the stream, as a session whose process exited would. */
