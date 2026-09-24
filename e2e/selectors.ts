@@ -55,3 +55,25 @@ export function gallery(page: Page) {
     section: (name: string) => page.getByRole('region', { name }),
   }
 }
+
+/** A setting in the input bar. */
+export type InputBarSetting = 'Model' | 'Effort' | 'Permissions'
+
+/** The selected task's input bar: its settings, the message field, and Send and Stop. */
+export function inputBar(page: Page) {
+  const bar = regions(page).inputBar
+  return {
+    /** A setting's button, e.g. `setting('Model')`. */
+    setting: (name: InputBarSetting) => bar.getByRole('button', { name: new RegExp(`^${name}: `) }),
+    /** An option in the open setting's menu. */
+    option: (name: string) => page.getByRole('menuitemradio', { name, exact: true }),
+    field: bar.getByRole('textbox', { name: 'Message the agent' }),
+    send: bar.getByRole('button', { name: 'Send', exact: true }),
+    stop: bar.getByRole('button', { name: 'Stop', exact: true }),
+  }
+}
+
+/** The toasts at the bottom of the window. */
+export function notifications(page: Page) {
+  return page.getByRole('region', { name: 'Notifications' })
+}

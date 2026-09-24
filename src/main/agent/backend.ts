@@ -13,13 +13,17 @@ import type { Effort } from '../../shared/domain'
  */
 export type AgentMcpServers = Readonly<Record<string, McpServerConfig>>
 
-/** How to start one task's agent session. */
-export interface AgentSessionOptions {
-  /** The folder the agent runs in: the workspace's root. */
-  readonly cwd: string
+/** The settings a task can change between turns (`docs/sdk-notes.md` §4). */
+export interface AgentSessionSettings {
   /** The model id, as the SDK names it. */
   readonly model: string
   readonly effort: Effort
+}
+
+/** How to start one task's agent session. */
+export interface AgentSessionOptions extends AgentSessionSettings {
+  /** The folder the agent runs in: the workspace's root. */
+  readonly cwd: string
   /** The SDK session to resume, or null to start a new one. */
   readonly resumeSessionId: string | null
   /** Appended to Claude Code's own system prompt. */
@@ -36,6 +40,11 @@ export interface AgentSession {
   readonly messages: AsyncIterable<unknown>
   /** Gives the agent the user's next message. `uuid` comes back on the turn's messages. */
   send(text: string, uuid: string): void
+  /**
+   * Changes the model and effort for the turns after it: every message sent after this call runs with them. Call it
+   * between turns, never mid-turn.
+   */
+  configure(settings: AgentSessionSettings): void
   /** Interrupts the running turn; the session stays alive. The seam for Stop (P1-08). */
   interrupt(): Promise<void>
   /** Ends the session and its agent process. */

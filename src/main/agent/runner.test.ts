@@ -155,7 +155,14 @@ describe('a turn', () => {
       mcpServers: { [GLADE_SERVER]: expect.objectContaining({ type: 'sdk', name: GLADE_SERVER }) as unknown },
     })
     const [userMessage] = listMessages(database.db, task.id)
-    expect(backend.session.sent).toEqual([{ text: 'Find out why the login test is flaky.', uuid: userMessage?.id }])
+    expect(backend.session.sent).toEqual([
+      {
+        text: 'Find out why the login test is flaky.',
+        uuid: userMessage?.id,
+        settings: { model: task.model, effort: task.effort },
+      },
+    ])
+    expect(backend.session.configured).toEqual([])
     expect(current().activity).toBe(TaskActivity.Working)
 
     backend.session.emit(...scriptedTurn())
@@ -495,6 +502,40 @@ describe('tasks.send', () => {
       effort: Effort.Max,
       resumeSessionId: 'session-9',
     })
+  })
+
+  it('applies a model or effort change made between turns to the live session, from the next turn on', async () => {
+    await send('Find out why the login test is flaky.')
+    backend.session.emit(...scriptedTurn())
+    await settle()
+
+    // The pickers change the task through tasks.update; the session doesn't hear of it until the next message.
+    await glade.invoke(CommandName.TasksUpdate, { id: task.id, patch: { model: 'claude-sample-2' } })
+    expect(backend.session.configured).toEqual([])
+
+    await send('Fix it.')
+    backend.session.emit(sdk.result('Fixed.'))
+    await settle()
+    await glade.invoke(CommandName.TasksUpdate, { id: task.id, patch: { effort: Effort.Low } })
+    await send('Now add a test.')
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(backend.session.sent.map(({ text, settings }) => [text, settings])).toEqual([
+      ['Find out why the login test is flaky.', { model: task.model, effort: task.effort }],
+      ['Fix it.', { model: 'claude-sample-2', effort: task.effort }],
+      ['Now add a test.', { model: 'claude-sample-2', effort: Effort.Low }],
+    ])
+    expect(backend.session.configured).toHaveLength(2)
+  })
+
+  it('leaves the session alone when the model and effort are unchanged', async () => {
+    await send('Hi')
+    backend.session.emit(sdk.result('Hello.'))
+    await settle()
+    await glade.invoke(CommandName.TasksUpdate, { id: task.id, patch: { model: task.model, effort: task.effort } })
+    await send('Again')
+
+    expect(backend.session.configured).toEqual([])
   })
 })
 

@@ -4,9 +4,10 @@
  * **Session model.** Each task gets one long-lived SDK session in streaming input mode, started by its first message
  * and kept alive between turns; each message the user sends is pushed into it as the next turn. This is what
  * `docs/sdk-notes.md` recommends: the process stays warm between turns, and interrupt (Stop, P1-08) and the per-turn
- * model and effort changes (P1-13) only work in this mode. The SDK session id is saved on the task from `system/init`,
- * so a session that's gone (the app restarted, or its process failed) is started again with `resume` on the next
- * message, and P1-17 can resume it on launch.
+ * model and effort changes only work in this mode. The task's current model and effort are applied to its session just
+ * before each message is delivered, so a change made with the input bar's pickers applies from the next turn. The SDK
+ * session id is saved on the task from `system/init`, so a session that's gone (the app restarted, or its process
+ * failed) is started again with `resume` on the next message, and P1-17 can resume it on launch.
  *
  * **A turn**, from `send` to the SDK's `result`:
  * - The user's message goes to the chat log with the next turn number, and a turn divider to the tool log.
@@ -37,7 +38,7 @@ import { getTask } from '../db/repositories/tasks'
 import { appendDivider, appendNarration, appendToolCall, updateToolCall } from '../db/repositories/tool-events'
 import { getWorkspace } from '../db/repositories/workspaces'
 import { updateTaskFromRunner } from '../tasks/service'
-import type { AgentBackend, AgentMcpServers, AgentSession } from './backend'
+import type { AgentBackend, AgentMcpServers, AgentSession, AgentSessionSettings } from './backend'
 import {
   AgentEventKind,
   createSdkMessageParser,
@@ -83,6 +84,8 @@ interface Turn {
 interface LiveSession {
   readonly session: AgentSession
   turn: Turn | null
+  /** The model and effort the session runs with now. */
+  settings: AgentSessionSettings
   /** Closed by the runner: whatever it still emits is ignored, and a turn cut short stays working for P1-17. */
   closed: boolean
 }
@@ -236,7 +239,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       systemPromptAppend: systemPromptAppend(task),
       mcpServers: mcpServers(task),
     })
-    const live: LiveSession = { session, turn: null, closed: false }
+    const live: LiveSession = {
+      session,
+      turn: null,
+      settings: { model: task.model, effort: task.effort },
+      closed: false,
+    }
     sessions.set(task.id, live)
     void pump(task.id, live)
     return live
@@ -253,6 +261,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working; wait for it to finish its turn')
       }
       const live = sessions.get(taskId) ?? start(task)
+      // The pickers change the task, not the session: its current model and effort apply from this turn on.
+      if (live.settings.model !== task.model || live.settings.effort !== task.effort) {
+        live.settings = { model: task.model, effort: task.effort }
+        live.session.configure(live.settings)
+      }
 
       const turn = lastTurn(db, taskId) + 1
       const { message, divider } = db.transaction(() => ({

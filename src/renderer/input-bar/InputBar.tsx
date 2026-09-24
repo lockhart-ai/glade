@@ -1,0 +1,207 @@
+import { faSquare } from '@fortawesome/free-regular-svg-icons'
+import { faArrowUp } from '@fortawesome/free-solid-svg-icons'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { BridgeErrorCode, isBridgeError } from '../../shared/bridge'
+import { Effort, TaskActivity, TaskState, type Task } from '../../shared/domain'
+import { MODEL_OPTIONS, modelName } from '../../shared/models'
+import { Icon, IconSize, Textarea, useToast } from '../components'
+import { describeFailure } from '../store/hydrate'
+import { selectSelectedTask } from '../store/state'
+import { useGladeStore } from '../store/react'
+import { SettingPicker, type SettingOption } from './SettingPicker'
+import styles from './InputBar.module.css'
+
+/** What the effort picker calls each level. */
+const EFFORT_NAMES: Readonly<Record<Effort, string>> = {
+  [Effort.Low]: 'Low',
+  [Effort.Medium]: 'Medium',
+  [Effort.High]: 'High',
+  [Effort.Max]: 'Max',
+}
+
+/** The effort picker's options, lowest first. */
+const EFFORT_OPTIONS: readonly SettingOption[] = Object.values(Effort).map((effort) => ({
+  id: effort,
+  name: EFFORT_NAMES[effort],
+}))
+
+/** Permissions are fixed for now: the one option is Allow all (`docs/decisions.md`). */
+const ALLOW_ALL = 'allow_all'
+const PERMISSION_OPTIONS: readonly SettingOption[] = [{ id: ALLOW_ALL, name: 'Allow all' }]
+
+export const REPLY_PLACEHOLDER = 'Reply…'
+export const DONE_PLACEHOLDER = 'Send a message to reopen this task…'
+
+function isEffort(value: string): value is Effort {
+  return Object.values<string>(Effort).includes(value)
+}
+
+/** What the toast says when a message couldn't be sent. */
+export function sendFailureMessage(error: unknown): string {
+  if (isBridgeError(error) && error.code === BridgeErrorCode.InvalidTransition) {
+    return 'This task is done, so it can’t take a message yet.'
+  }
+  if (isBridgeError(error) && error.code === BridgeErrorCode.Busy) {
+    return 'The agent is still working. Send your message when it finishes.'
+  }
+  return `Couldn’t send your message: ${describeFailure(error)}`
+}
+
+/** ⌘L, which focuses the input from anywhere in the window. */
+function isFocusShortcut(event: globalThis.KeyboardEvent): boolean {
+  return event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === 'l'
+}
+
+/**
+ * Placeholder for Stop until P1-08 adds the store's `stopTask(id)` action, which interrupts the running turn. Wire the
+ * Stop button to that action then, and remove this.
+ */
+function stopTaskPlaceholder(taskId: string): void {
+  console.info(`Stop isn’t wired up yet (P1-08); task ${taskId} keeps working.`)
+}
+
+export interface InputBarProps {
+  /** The context meter (P1-14), at the right of the settings row. Empty until then. */
+  readonly contextMeter?: ReactNode
+}
+
+/** The selected task's input bar, or nothing when no task is selected. */
+export function InputBar({ contextMeter }: InputBarProps): React.JSX.Element | null {
+  const task = useGladeStore(selectSelectedTask)
+  if (task === undefined) return null
+  // A fresh draft for each task.
+  return <TaskInputBar key={task.id} task={task} contextMeter={contextMeter} />
+}
+
+interface TaskInputBarProps extends InputBarProps {
+  readonly task: Task
+}
+
+/**
+ * Where you talk to the task's agent: the model, effort and permissions settings above a message field. ↵ sends and
+ * ⇧↵ adds a line. While the agent works you can keep typing, but sending waits for it to finish (the queue comes
+ * later) and Stop shows beside Send.
+ */
+function TaskInputBar({ task, contextMeter }: TaskInputBarProps): React.JSX.Element {
+  const updateTask = useGladeStore((state) => state.updateTask)
+  const sendMessage = useGladeStore((state) => state.sendMessage)
+  const toast = useToast()
+  const field = useRef<HTMLTextAreaElement>(null)
+  const [draft, setDraft] = useState('')
+  const [sending, setSending] = useState(false)
+
+  const working = task.state === TaskState.Active && task.activity === TaskActivity.Working
+  // An empty draft doesn't disable Send (the design shows it ready); sending one just does nothing.
+  const canSend = !working && !sending
+
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (!isFocusShortcut(event)) return
+      event.preventDefault()
+      field.current?.focus()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [])
+
+  const send = async (): Promise<void> => {
+    const text = draft.trim()
+    if (!canSend || text === '') return
+    setSending(true)
+    try {
+      await sendMessage(task.id, text)
+      setDraft('')
+    } catch (error) {
+      toast.show({ message: sendFailureMessage(error) })
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const change = async (setting: string, patch: Parameters<typeof updateTask>[1]): Promise<void> => {
+    try {
+      await updateTask(task.id, patch)
+    } catch (error) {
+      toast.show({ message: `Couldn’t change the ${setting}: ${describeFailure(error)}` })
+    }
+  }
+
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+    event.preventDefault()
+    void send()
+  }
+
+  return (
+    <div className={styles.bar}>
+      <div className={styles.settings}>
+        <SettingPicker
+          label="Model"
+          value={modelName(task.model)}
+          options={MODEL_OPTIONS}
+          selectedId={task.model}
+          onChoose={(model) => {
+            if (model !== task.model) void change('model', { model })
+          }}
+        />
+        <SettingPicker
+          label="Effort"
+          value={EFFORT_NAMES[task.effort]}
+          options={EFFORT_OPTIONS}
+          selectedId={task.effort}
+          onChoose={(effort) => {
+            if (isEffort(effort) && effort !== task.effort) void change('effort', { effort })
+          }}
+        />
+        <SettingPicker
+          label="Permissions"
+          value="Allow all"
+          options={PERMISSION_OPTIONS}
+          selectedId={ALLOW_ALL}
+          onChoose={() => undefined}
+        />
+        <div className={styles.meter} data-testid="context-meter-slot">
+          {contextMeter}
+        </div>
+      </div>
+      <div className={styles.compose}>
+        <Textarea
+          ref={field}
+          label="Message the agent"
+          placeholder={task.state === TaskState.Done ? DONE_PLACEHOLDER : REPLY_PLACEHOLDER}
+          className={styles.field}
+          value={draft}
+          onChange={(event) => {
+            setDraft(event.target.value)
+          }}
+          onKeyDown={onKeyDown}
+        />
+        {working && (
+          <button
+            type="button"
+            className={styles.stop}
+            onClick={() => {
+              stopTaskPlaceholder(task.id)
+            }}
+          >
+            <Icon icon={faSquare} size={IconSize.Medium} />
+            Stop
+          </button>
+        )}
+        <button
+          type="button"
+          aria-label="Send"
+          className={styles.send}
+          disabled={!canSend}
+          onClick={() => {
+            void send()
+          }}
+        >
+          <Icon icon={faArrowUp} size={IconSize.Large} />
+        </button>
+      </div>
+    </div>
+  )
+}

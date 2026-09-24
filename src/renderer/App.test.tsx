@@ -69,7 +69,8 @@ it('renders the window layout with the workspace, the chat, and a placeholder in
   expect(
     within(within(main).getByRole('region', { name: 'Chat' })).getByRole('log', { name: 'Conversation' }),
   ).toBeInTheDocument()
-  expect(within(main).getByTestId('input-bar')).toHaveTextContent('Input bar')
+  // No task is selected, so the input bar is empty.
+  expect(within(main).getByTestId('input-bar')).toBeEmptyDOMElement()
 
   const panel = within(main).getByRole('complementary', { name: 'Task panel' })
   expect(panel).toHaveTextContent('Tabs')
