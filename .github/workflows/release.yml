@@ -44,9 +44,8 @@ jobs:
           fi
           test -f "docs/releases/v$version.md" || { echo "::error::docs/releases/v$version.md is missing"; exit 1; }
 
+      # npm ci also fetches the Electron binary (the root postinstall).
       - run: npm ci
-      # npm ci doesn't fetch the Electron binary yet (being fixed separately); run Electron's installer until it does.
-      - run: node node_modules/electron/install.js
       - run: npm run typecheck
       - run: npm test
       # --publish never: the release is created below with gh, not by electron-builder.
