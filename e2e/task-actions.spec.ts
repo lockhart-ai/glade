@@ -1,9 +1,10 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { desktop, expect, test } from './fixtures'
+import { chooseMenuItem } from './menu'
 import { contextMenu, deleteTaskDialog, firstRun, inputBar, taskHeader, taskList } from './selectors'
 
-test('task actions: F2 renames a task inline, ⌘⇧P pins and unpins it, ⌘⇧U marks it unread, and all of it persists', async ({
+test('task actions: Rename… (F2) renames a task inline, Pin (⌘⇧P) pins and unpins it, Mark as unread (⌘⇧U) marks it unread, and all of it persists', async ({
   launch,
   tempFolder,
 }) => {
@@ -21,8 +22,8 @@ test('task actions: F2 renames a task inline, ⌘⇧P pins and unpins it, ⌘⇧
   await expect(list.rows('Active')).toHaveCount(2)
   await expect(inputBar(window).field).toBeFocused()
 
-  // F2 turns the selected row's title into a field, even from the input bar. ↵ saves the new title.
-  await window.keyboard.press('F2')
+  // Task › Rename… (F2) turns the selected row's title into a field, even from the input bar. ↵ saves the new title.
+  await chooseMenuItem(glade, 'Task', 'Rename…')
   await expect(list.renameField).toBeFocused()
   await expect(list.renameField).toHaveValue('')
   await list.renameField.fill('Add rate limiting to public API')
@@ -32,7 +33,7 @@ test('task actions: F2 renames a task inline, ⌘⇧P pins and unpins it, ⌘⇧
   await expect(header.title).toHaveText('Add rate limiting to public API')
 
   // A blank title is refused: the field stays. Esc cancels, keeping the title.
-  await window.keyboard.press('F2')
+  await chooseMenuItem(glade, 'Task', 'Rename…')
   await expect(list.renameField).toHaveValue('Add rate limiting to public API')
   await list.renameField.fill('   ')
   await window.keyboard.press('Enter')
@@ -42,19 +43,20 @@ test('task actions: F2 renames a task inline, ⌘⇧P pins and unpins it, ⌘⇧
   await expect(list.renameField).toHaveCount(0)
   await expect(list.rows('Active').first()).toContainText('Add rate limiting to public API')
 
-  // ⌘⇧P pins the selected task: it moves under Pinned, and the header's pin shows it. ⌘⇧P again unpins it.
-  await window.keyboard.press('Meta+Shift+P')
+  // Task › Pin to top (⌘⇧P) pins the selected task: it moves under Pinned, and the header's pin shows it. Task › Unpin
+  // unpins it.
+  await chooseMenuItem(glade, 'Task', 'Pin to top')
   await expect(list.rows('Pinned')).toHaveCount(1)
   await expect(list.rows('Pinned').first()).toContainText('Add rate limiting to public API')
   await expect(header.unpin).toHaveAttribute('aria-pressed', 'true')
-  await window.keyboard.press('Meta+Shift+P')
+  await chooseMenuItem(glade, 'Task', 'Unpin')
   await expect(list.rows('Pinned')).toHaveCount(0)
   await expect(header.pin).toHaveAttribute('aria-pressed', 'false')
 
-  // Pin it again to keep across the relaunch, then mark it unread with ⌘⇧U: it stays selected, bold with the dot.
-  await window.keyboard.press('Meta+Shift+P')
+  // Pin it again to keep across the relaunch, then mark it unread (⌘⇧U): it stays selected, bold with the dot.
+  await chooseMenuItem(glade, 'Task', 'Pin to top')
   await expect(list.rows('Pinned')).toHaveCount(1)
-  await window.keyboard.press('Meta+Shift+U')
+  await chooseMenuItem(glade, 'Task', 'Mark as unread')
   const renamed = list.row('Pinned', 'Add rate limiting to public API')
   await expect(renamed.getByRole('img', { name: 'Unread' })).toBeVisible()
   await expect(renamed).toHaveAttribute('aria-current', 'true')

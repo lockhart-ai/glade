@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { CommandId } from '../../shared/keymap'
+import { AppCommandId, WorkspaceCommandId, WindowCommandId } from '../../shared/commands'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import { fakeBridge } from '../store/test-bridge'
@@ -26,39 +26,50 @@ function renderWith(store: GladeStore, handlers: CommandHandlers) {
   )
 }
 
-const TOGGLE_TASK_LIST = { key: 'b', code: 'KeyB', metaKey: true }
+const SEARCH_TASKS = { key: 'f', code: 'KeyF', metaKey: true }
+const STOP = { key: '.', code: 'Period', metaKey: true }
 
 describe('the command registry', () => {
   it('runs a command on its binding as it now is, once you rebind it', async () => {
     const store = await setup()
-    const toggle = vi.fn()
-    renderWith(store, { [CommandId.ToggleTaskList]: toggle })
+    const search = vi.fn()
+    renderWith(store, { [WindowCommandId.SearchTasks]: search })
 
-    expect(fireEvent.keyDown(window, TOGGLE_TASK_LIST)).toBe(false)
-    expect(toggle).toHaveBeenCalledOnce()
+    expect(fireEvent.keyDown(window, SEARCH_TASKS)).toBe(false)
+    expect(search).toHaveBeenCalledOnce()
 
-    await act(() => store.getState().updateSettings({ keyBindings: { [CommandId.ToggleTaskList]: 'Ctrl+Alt+T' } }))
+    await act(() => store.getState().updateSettings({ keyBindings: { [WindowCommandId.SearchTasks]: 'Ctrl+Alt+T' } }))
 
     // The old keys are nobody's now, so they're left alone.
-    expect(fireEvent.keyDown(window, TOGGLE_TASK_LIST)).toBe(true)
+    expect(fireEvent.keyDown(window, SEARCH_TASKS)).toBe(true)
     expect(fireEvent.keyDown(window, { key: '†', code: 'KeyT', ctrlKey: true, altKey: true })).toBe(false)
-    expect(toggle).toHaveBeenCalledTimes(2)
+    expect(search).toHaveBeenCalledTimes(2)
   })
 
   it('gives a digit range’s handler the digit pressed', async () => {
     const store = await setup()
-    const switchTo = vi.fn()
-    renderWith(store, { [CommandId.SwitchWorkspace]: switchTo })
+    const showTab = vi.fn()
+    renderWith(store, { [WindowCommandId.ShowPanelTab]: showTab })
 
-    fireEvent.keyDown(window, { key: '4', code: 'Digit4', metaKey: true })
+    fireEvent.keyDown(window, { key: '¢', code: 'Digit4', metaKey: true, altKey: true })
 
-    expect(switchTo).toHaveBeenCalledWith({ digit: 4 })
+    expect(showTab).toHaveBeenCalledWith({ digit: 4 })
+  })
+
+  it('leaves the menu bar’s keys to the menu bar, which answers them itself', async () => {
+    const store = await setup()
+    const newTask = vi.fn()
+    renderWith(store, { [AppCommandId.NewTask]: newTask, [WorkspaceCommandId.Switch]: newTask })
+
+    expect(fireEvent.keyDown(window, { key: 'n', code: 'KeyN', metaKey: true })).toBe(true)
+    expect(fireEvent.keyDown(window, { key: '2', code: 'Digit2', metaKey: true })).toBe(true)
+    expect(newTask).not.toHaveBeenCalled()
   })
 
   it('leaves a shortcut kept out of text fields to the field', async () => {
     const store = await setup()
     const next = vi.fn()
-    renderWith(store, { [CommandId.NextTask]: next })
+    renderWith(store, { [WindowCommandId.NextTask]: next })
 
     expect(fireEvent.keyDown(screen.getByRole('textbox'), { key: 'ArrowDown', altKey: true })).toBe(true)
     expect(next).not.toHaveBeenCalled()
@@ -70,15 +81,15 @@ describe('the command registry', () => {
     const store = await setup()
     const first = vi.fn()
     const second = vi.fn()
-    renderWith(store, { [CommandId.NewTask]: first })
-    const later = renderWith(store, { [CommandId.NewTask]: second })
+    renderWith(store, { [WindowCommandId.StopAgent]: first })
+    const later = renderWith(store, { [WindowCommandId.StopAgent]: second })
 
-    fireEvent.keyDown(window, { key: 'n', code: 'KeyN', metaKey: true })
+    fireEvent.keyDown(window, STOP)
     expect(second).toHaveBeenCalledOnce()
     expect(first).not.toHaveBeenCalled()
 
     later.unmount()
-    fireEvent.keyDown(window, { key: 'n', code: 'KeyN', metaKey: true })
+    fireEvent.keyDown(window, STOP)
     expect(first).toHaveBeenCalledOnce()
   })
 
@@ -86,42 +97,42 @@ describe('the command registry', () => {
     const store = await setup()
     const first = vi.fn()
     const second = vi.fn()
-    const view = renderWith(store, { [CommandId.NewTask]: first, [CommandId.MarkDone]: null })
+    const view = renderWith(store, { [WindowCommandId.StopAgent]: first, [WindowCommandId.CompactContext]: null })
 
-    expect(commandRegistry(store).has(CommandId.NewTask)).toBe(true)
-    expect(commandRegistry(store).has(CommandId.MarkDone)).toBe(false)
-    expect(fireEvent.keyDown(window, { key: 'D', code: 'KeyD', metaKey: true, shiftKey: true })).toBe(true)
+    expect(commandRegistry(store).has(WindowCommandId.StopAgent)).toBe(true)
+    expect(commandRegistry(store).has(WindowCommandId.CompactContext)).toBe(false)
+    expect(fireEvent.keyDown(window, { key: 'K', code: 'KeyK', metaKey: true, shiftKey: true })).toBe(true)
 
     view.rerender(
       <GladeStoreProvider store={store}>
-        <Harness handlers={{ [CommandId.NewTask]: second }} />
+        <Harness handlers={{ [WindowCommandId.StopAgent]: second }} />
       </GladeStoreProvider>,
     )
-    fireEvent.keyDown(window, { key: 'n', code: 'KeyN', metaKey: true })
+    fireEvent.keyDown(window, STOP)
     expect(second).toHaveBeenCalledOnce()
     expect(first).not.toHaveBeenCalled()
   })
 
-  it('runs a command without its keys, as a menu would, and says when nothing can', async () => {
+  it('runs a command without its keys, and says when nothing can', async () => {
     const store = await setup()
     const settings = vi.fn()
-    const view = renderWith(store, { [CommandId.OpenSettings]: settings })
+    const view = renderWith(store, { [WindowCommandId.FocusInput]: settings })
     const registry = commandRegistry(store)
 
-    expect(registry.run(CommandId.OpenSettings)).toBe(true)
+    expect(registry.run(WindowCommandId.FocusInput)).toBe(true)
     expect(settings).toHaveBeenCalledWith({ digit: null })
-    expect(registry.run(CommandId.MarkDone)).toBe(false)
+    expect(registry.run(WindowCommandId.CompactContext)).toBe(false)
 
     view.unmount()
-    expect(registry.run(CommandId.OpenSettings)).toBe(false)
+    expect(registry.run(WindowCommandId.FocusInput)).toBe(false)
     // With nothing registered, the window isn't listened to at all.
-    expect(fireEvent.keyDown(window, { key: ',', code: 'Comma', metaKey: true })).toBe(true)
+    expect(fireEvent.keyDown(window, { key: 'l', code: 'KeyL', metaKey: true })).toBe(true)
   })
 
   it('ignores modifiers pressed alone', async () => {
     const store = await setup()
     const toggle = vi.fn()
-    renderWith(store, { [CommandId.ToggleTaskList]: toggle })
+    renderWith(store, { [WindowCommandId.SearchTasks]: toggle })
 
     expect(fireEvent.keyDown(window, { key: 'Meta', code: 'MetaLeft', metaKey: true })).toBe(true)
     expect(toggle).not.toHaveBeenCalled()

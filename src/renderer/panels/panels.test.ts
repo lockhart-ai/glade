@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { UiStateKey } from '../../shared/domain'
-import { CommandId } from '../../shared/keymap'
+import { AppCommandId } from '../../shared/commands'
 import { bottomBarIcon, panelIconPath, rightPanelIcon, sidebarIcon } from './panelIcons'
 import { collapsedEntry, isCollapsed, Panel, panelDefinition, PANELS, toggledEntry, toggleTitle } from './panels'
 
@@ -11,21 +11,21 @@ describe('panelDefinition', () => {
         key: UiStateKey.SidebarCollapsed,
         collapseLabel: 'Collapse task list',
         showLabel: 'Show task list',
-        command: CommandId.ToggleTaskList,
+        command: AppCommandId.ToggleSidebar,
         icon: sidebarIcon,
       },
       {
         key: UiStateKey.RightPanelCollapsed,
         collapseLabel: 'Collapse side panel',
         showLabel: 'Show side panel',
-        command: CommandId.ToggleRightPanel,
+        command: AppCommandId.ToggleRightPanel,
         icon: rightPanelIcon,
       },
       {
         key: UiStateKey.BottomBarCollapsed,
         collapseLabel: 'Collapse bottom panel',
         showLabel: 'Show bottom panel',
-        command: CommandId.ToggleBottomBar,
+        command: AppCommandId.ToggleBottomBar,
         icon: bottomBarIcon,
       },
     ])

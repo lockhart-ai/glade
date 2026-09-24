@@ -6,7 +6,7 @@ import { Markdown } from '../chat/Markdown'
 import { clockTime } from '../chat/chatModel'
 import { Button, ButtonSize, ButtonVariant, Segmented, type SegmentedOption } from '../components'
 import { useGladeStore } from '../store/react'
-import { CommandId } from '../../shared/keymap'
+import { WindowCommandId } from '../../shared/commands'
 import { useBinding } from '../commands/hooks'
 import { FileTouch, formatSize, isMarkdown, type TouchedFile } from './filesModel'
 import { highlight, languageOf, sourceLines } from './highlight'
@@ -79,7 +79,7 @@ function Notice({ children }: { children: React.ReactNode }): React.JSX.Element 
 export function FileViewer({ taskId, path, touched, focusLine, focusRequest }: FileViewerProps): React.JSX.Element {
   const readFile = useGladeStore((state) => state.readFile)
   const openInEditor = useGladeStore((state) => state.openInEditor)
-  const openInEditorKeys = useBinding(CommandId.OpenInEditor)
+  const openInEditorKeys = useBinding(WindowCommandId.OpenInEditor)
   const [loaded, setLoaded] = useState<Loaded>({ state: 'loading' })
   const [mode, setMode] = useState(MarkdownMode.Source)
   const [colored, setColored] = useState<Colored>({ lines: [], blocks: [] })

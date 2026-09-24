@@ -2,8 +2,9 @@
 // collapsed, as it's stored in UI state. Every toggle (a panel's button, its shortcut, a reopen button) goes through
 // here, so they all read and write the same persisted state.
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
+import { AppCommandId } from '../../shared/commands'
+import type { ShortcutId } from '../../shared/keymap'
 import { UiStateKey, type UiStateEntry } from '../../shared/domain'
-import { CommandId } from '../../shared/keymap'
 import type { UiStateValues } from '../store/state'
 import { bottomBarIcon, rightPanelIcon, sidebarIcon } from './panelIcons'
 
@@ -29,7 +30,7 @@ export interface PanelDefinition {
   readonly showLabel: string
   /** The shortcut that toggles it, as the tooltip shows it (docs/keymap.md). */
   /** The command that toggles it, whose keys its tooltip shows. */
-  readonly command: CommandId
+  readonly command: ShortcutId
   readonly icon: IconDefinition
 }
 
@@ -41,7 +42,7 @@ export function panelDefinition(panel: Panel): PanelDefinition {
         key: UiStateKey.SidebarCollapsed,
         collapseLabel: 'Collapse task list',
         showLabel: 'Show task list',
-        command: CommandId.ToggleTaskList,
+        command: AppCommandId.ToggleSidebar,
         icon: sidebarIcon,
       }
     case Panel.RightPanel:
@@ -49,7 +50,7 @@ export function panelDefinition(panel: Panel): PanelDefinition {
         key: UiStateKey.RightPanelCollapsed,
         collapseLabel: 'Collapse side panel',
         showLabel: 'Show side panel',
-        command: CommandId.ToggleRightPanel,
+        command: AppCommandId.ToggleRightPanel,
         icon: rightPanelIcon,
       }
     case Panel.BottomBar:
@@ -57,7 +58,7 @@ export function panelDefinition(panel: Panel): PanelDefinition {
         key: UiStateKey.BottomBarCollapsed,
         collapseLabel: 'Collapse bottom panel',
         showLabel: 'Show bottom panel',
-        command: CommandId.ToggleBottomBar,
+        command: AppCommandId.ToggleBottomBar,
         icon: bottomBarIcon,
       }
   }

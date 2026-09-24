@@ -3,7 +3,7 @@ import { faArrowUp } from '@fortawesome/free-solid-svg-icons'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { BridgeErrorCode, isBridgeError } from '../../shared/bridge'
 import { Effort, TaskActivity, TaskState, type QueuedMessage, type Task } from '../../shared/domain'
-import { CommandId } from '../../shared/keymap'
+import { WindowCommandId } from '../../shared/commands'
 import { EFFORT_NAMES, MODEL_OPTIONS, modelName } from '../../shared/models'
 import { isCommandKey, useCommand, useKeymap } from '../commands/hooks'
 import { Icon, IconSize, Textarea, useToast } from '../components'
@@ -92,7 +92,7 @@ export function InputBar({ contextMeter }: InputBarProps): React.JSX.Element | n
   const answeredRef = useRef(focusRequest)
 
   // Focus input (⌘L) asks for the focus the same way + and ⌘N do.
-  useCommand(CommandId.FocusInput, focusInput)
+  useCommand(WindowCommandId.FocusInput, focusInput)
 
   if (task === undefined) return null
   // A fresh draft for each task.
@@ -224,12 +224,12 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     const last = queue.at(-1)
-    if (draft === '' && last !== undefined && isCommandKey(CommandId.EditLastQueued, keymap, event)) {
+    if (draft === '' && last !== undefined && isCommandKey(WindowCommandId.EditLastQueued, keymap, event)) {
       event.preventDefault()
       setEditingId(last.id)
       return
     }
-    if (!isCommandKey(CommandId.Send, keymap, event) || event.nativeEvent.isComposing) return
+    if (!isCommandKey(WindowCommandId.Send, keymap, event) || event.nativeEvent.isComposing) return
     event.preventDefault()
     void send()
   }

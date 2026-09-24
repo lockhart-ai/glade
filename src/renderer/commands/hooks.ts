@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import {
-  CommandId,
+  type ShortcutId,
   DEFAULT_KEYMAP,
   formatBinding,
   matchCommand,
@@ -17,7 +17,7 @@ import { commandRegistry, type CommandHandler } from './registry'
 export type { CommandHandler } from './registry'
 
 /** The handlers a component registers: null (or left out) for a command it can't run just now. */
-export type CommandHandlers = Partial<Record<CommandId, CommandHandler | null>>
+export type CommandHandlers = Partial<Record<ShortcutId, CommandHandler | null>>
 
 /**
  * Registers commands with the window's key dispatcher (`CommandRegistry`) while the component is mounted: pressing a
@@ -31,12 +31,13 @@ export function useCommands(handlers: CommandHandlers): void {
   useEffect(() => {
     latest.current = handlers
   })
-  const ids = Object.values(CommandId)
+  const ids = (Object.keys(handlers) as ShortcutId[])
     .filter((id) => handlers[id] != null)
+    .sort()
     .join(' ')
   useEffect(() => {
     const registry = commandRegistry(store)
-    const removals = (ids === '' ? [] : (ids.split(' ') as CommandId[])).map((id) =>
+    const removals = (ids === '' ? [] : (ids.split(' ') as ShortcutId[])).map((id) =>
       registry.register(id, (match) => {
         latest.current[id]?.(match)
       }),
@@ -48,7 +49,7 @@ export function useCommands(handlers: CommandHandlers): void {
 }
 
 /** Registers one command's handler (see `useCommands`). */
-export function useCommand(id: CommandId, handler: CommandHandler | null): void {
+export function useCommand(id: ShortcutId, handler: CommandHandler | null): void {
   useCommands({ [id]: handler })
 }
 
@@ -67,12 +68,12 @@ export interface BindingHint {
 }
 
 /** A command's binding in a keymap (the defaults, unless you pass another), for a hint. */
-export function bindingHint(id: CommandId, keymap: Keymap = DEFAULT_KEYMAP): BindingHint {
+export function bindingHint(id: ShortcutId, keymap: Keymap = DEFAULT_KEYMAP): BindingHint {
   return { label: formatBinding(id, keymap), ariaKeyShortcuts: keymap[id].map(serializeChord).join(' ') }
 }
 
 /** A command's current binding, for a hint beside a button or menu item. */
-export function useBinding(id: CommandId): BindingHint {
+export function useBinding(id: ShortcutId): BindingHint {
   return bindingHint(id, useKeymap())
 }
 
@@ -80,7 +81,7 @@ export function useBinding(id: CommandId): BindingHint {
  * Whether a key press is a command's current binding, for the commands the focused element handles itself (the
  * message field's ↵, a row's ⇧F10).
  */
-export function isCommandKey(id: CommandId, keymap: Keymap, event: KeyPress): boolean {
+export function isCommandKey(id: ShortcutId, keymap: Keymap, event: KeyPress): boolean {
   const pressed = chordFromEvent(event)
   return pressed !== null && matchCommand(commandDefinition(id), keymap[id], pressed) !== null
 }

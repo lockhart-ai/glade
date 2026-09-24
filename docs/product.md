@@ -8,7 +8,9 @@
 `CLAUDE.md` (your conventions and personal context) applies to every task. Task records live only in the app's SQLite
 database. How tasks organise files on disk (a folder per task, worktrees inside it) is a convention written in that
 `CLAUDE.md`, not something Glade enforces; Glade seeds a starter `CLAUDE.md` for a new workspace that has none. You can
-have several workspaces and switch between them from the sidebar or the menu bar (⌘1–9).
+have several workspaces and switch between them from the sidebar or the menu bar (⌘1–9). Close workspace (⌘⇧W) shows
+the most recently opened other workspace, or the welcome screen when there's none; the workspace stays in the list.
+Remove from list… asks first, then forgets the workspace and deletes its tasks from Glade; its folder is never touched.
 
 **Task.** One agent session with one objective. A task has exactly two states:
 

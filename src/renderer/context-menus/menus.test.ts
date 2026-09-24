@@ -14,7 +14,8 @@ import {
   toolCallMenu,
   type MenuAction,
 } from './menus'
-import { CommandId, resolveKeymap } from '../../shared/keymap'
+import { TaskCommandId, WindowCommandId } from '../../shared/commands'
+import { resolveKeymap } from '../../shared/keymap'
 import { SHORTCUT_HINTS, ShortcutAction, shortcutHints } from './shortcutHints'
 
 /** The items the reference (`docs/context-menus.md`) lists for a target, as `label shortcut` strings, with `—` for each separator. */
@@ -168,8 +169,8 @@ describe('the context menus', () => {
 describe('shortcutHints', () => {
   it('shows each command’s current binding, and ⌘C for Copy', () => {
     const keymap = resolveKeymap({
-      [CommandId.TogglePin]: 'Meta+Alt+P',
-      [CommandId.OpenInEditor]: 'Ctrl+E',
+      [TaskCommandId.TogglePin]: 'Meta+Alt+P',
+      [WindowCommandId.OpenInEditor]: 'Ctrl+E',
     })
     const hints = shortcutHints(keymap)
 

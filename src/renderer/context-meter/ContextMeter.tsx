@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Task } from '../../shared/domain'
-import { CommandId } from '../../shared/keymap'
+import { WindowCommandId } from '../../shared/commands'
 import { bindingHint, useBinding, type BindingHint } from '../commands/hooks'
 import { Button, ButtonSize, Popover } from '../components'
 import { classNames } from '../components/classNames'
@@ -79,7 +79,7 @@ export function ContextDetails({
   windowTokens,
   compactable,
   onCompact,
-  shortcut = bindingHint(CommandId.CompactContext),
+  shortcut = bindingHint(WindowCommandId.CompactContext),
 }: ContextDetailsProps): React.JSX.Element {
   const reading = contextReading(usedTokens, windowTokens)
   const threshold = `${String(reading.thresholdPercent)}%`
@@ -123,7 +123,7 @@ interface TaskContextMeterProps {
 }
 
 function TaskContextMeter({ task }: TaskContextMeterProps): React.JSX.Element {
-  const shortcut = useBinding(CommandId.CompactContext)
+  const shortcut = useBinding(WindowCommandId.CompactContext)
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null)
   const [open, setOpen] = useState(false)
   const compact = useCompact()

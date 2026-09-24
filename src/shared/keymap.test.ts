@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { AppCommandId, WorkspaceCommandId, TaskCommandId, WindowCommandId } from './commands'
 import {
   bindingProblem,
   BindingProblemKind,
   chordFromEvent,
-  CommandId,
   COMMANDS,
   commandDefinition,
   DEFAULT_KEYMAP,
@@ -24,7 +24,20 @@ import {
   withDefault,
   type KeyChord,
   type KeyPress,
+  type ShortcutId,
 } from './keymap'
+
+/** Every command with a shortcut: the menu bar's that have one, and all the window's own. */
+const SHORTCUT_IDS: readonly ShortcutId[] = [
+  ...Object.values(AppCommandId),
+  WorkspaceCommandId.Switch,
+  WorkspaceCommandId.Close,
+  TaskCommandId.TogglePin,
+  TaskCommandId.Rename,
+  TaskCommandId.MarkUnread,
+  TaskCommandId.MarkDone,
+  ...Object.values(WindowCommandId),
+]
 
 /** A chord from how it's stored, failing the test if it doesn't parse. */
 function chord(text: string): KeyChord {
@@ -39,21 +52,21 @@ function pressed(init: Partial<KeyPress>): KeyPress {
 
 describe('chords', () => {
   it.each([
-    ['Meta+Shift+P', '⌘⇧P', 'Command+Shift+P'],
-    ['Meta+Alt+ArrowDown', '⌘⌥↓', 'Command+Alt+Down'],
-    ['Ctrl+Shift+Tab', '⌃⇧⇥', 'Control+Shift+Tab'],
-    ['Ctrl+`', '⌃`', 'Control+`'],
+    ['Meta+Shift+P', '⌘⇧P', 'CmdOrCtrl+Shift+P'],
+    ['Meta+Alt+ArrowDown', '⌘⌥↓', 'CmdOrCtrl+Alt+Down'],
+    ['Ctrl+Shift+Tab', '⌃⇧⇥', 'Ctrl+Shift+Tab'],
+    ['Ctrl+`', '⌃`', 'Ctrl+`'],
     ['Shift+F10', '⇧F10', 'Shift+F10'],
     ['Enter', '↵', 'Enter'],
     ['Escape', 'Esc', 'Escape'],
     ['Alt+ArrowUp', '⌥↑', 'Alt+Up'],
-    ['Meta+ArrowLeft', '⌘←', 'Command+Left'],
-    ['Meta+ArrowRight', '⌘→', 'Command+Right'],
-    ['Meta+Backspace', '⌘⌫', 'Command+Backspace'],
-    ['Meta+Delete', '⌘⌦', 'Command+Delete'],
-    ['Ctrl+Space', '⌃Space', 'Control+Space'],
-    ['Meta++', '⌘+', 'Command+Plus'],
-    ['Meta+,', '⌘,', 'Command+,'],
+    ['Meta+ArrowLeft', '⌘←', 'CmdOrCtrl+Left'],
+    ['Meta+ArrowRight', '⌘→', 'CmdOrCtrl+Right'],
+    ['Meta+Backspace', '⌘⌫', 'CmdOrCtrl+Backspace'],
+    ['Meta+Delete', '⌘⌦', 'CmdOrCtrl+Delete'],
+    ['Ctrl+Space', '⌃Space', 'Ctrl+Space'],
+    ['Meta++', '⌘+', 'CmdOrCtrl+Plus'],
+    ['Meta+,', '⌘,', 'CmdOrCtrl+,'],
   ])('%s shows as %s, is the menu bar’s %s, and stores as it was', (stored, shown, accelerator) => {
     const parsed = chord(stored)
 
@@ -119,9 +132,9 @@ describe('chordFromEvent', () => {
 
 describe('the commands', () => {
   it('each have one definition, and the keymap’s layout shows each of them', () => {
-    expect(COMMANDS.map(({ id }) => id).sort()).toEqual(Object.values(CommandId).sort())
+    expect(COMMANDS.map(({ id }) => id).sort()).toEqual([...SHORTCUT_IDS].sort())
     const shown = KEYMAP_LAYOUT.flatMap(({ rows }) => rows.flatMap(({ keys }) => keys.map(({ command }) => command)))
-    expect([...new Set(shown)].sort()).toEqual(Object.values(CommandId).sort())
+    expect([...new Set(shown)].sort()).toEqual([...SHORTCUT_IDS].sort())
     for (const group of KEYMAP_LAYOUT) {
       for (const row of group.rows) {
         for (const { command } of row.keys) expect(commandDefinition(command).area).toBe(group.area)
@@ -132,13 +145,13 @@ describe('the commands', () => {
   it('each take one binding you can change, but for the few fixed ones', () => {
     const fixed = COMMANDS.filter(({ id }) => !isRebindable(id)).map(({ id, fixed: reason }) => [id, reason])
     expect(fixed).toEqual([
-      [CommandId.NewLine, FixedReason.TextField],
-      [CommandId.CloseFileTab, FixedReason.Window],
-      [CommandId.KillProcess, FixedReason.Shell],
-      [CommandId.MenuMove, FixedReason.Menus],
-      [CommandId.MenuChoose, FixedReason.Menus],
-      [CommandId.MenuClose, FixedReason.Menus],
-      [CommandId.SelectAnswer, FixedReason.Menus],
+      [WindowCommandId.NewLine, FixedReason.TextField],
+      [AppCommandId.Close, FixedReason.Window],
+      [WindowCommandId.KillProcess, FixedReason.Shell],
+      [WindowCommandId.MenuMove, FixedReason.Menus],
+      [WindowCommandId.MenuChoose, FixedReason.Menus],
+      [WindowCommandId.MenuClose, FixedReason.Menus],
+      [WindowCommandId.SelectAnswer, FixedReason.Menus],
     ])
     for (const { id, defaults } of COMMANDS) if (isRebindable(id)) expect(defaults).toHaveLength(1)
   })
@@ -155,164 +168,166 @@ describe('the commands', () => {
 
 describe('resolveKeymap', () => {
   it('takes the bindings you’ve changed, and the defaults for the rest', () => {
-    const keymap = resolveKeymap({ [CommandId.NewTask]: 'Meta+Shift+T' })
+    const keymap = resolveKeymap({ [AppCommandId.NewTask]: 'Meta+Shift+T' })
 
-    expect(keymap[CommandId.NewTask]).toEqual([chord('Meta+Shift+T')])
-    expect(keymap[CommandId.MarkDone]).toEqual([chord('Meta+Shift+D')])
+    expect(keymap[AppCommandId.NewTask]).toEqual([chord('Meta+Shift+T')])
+    expect(keymap[TaskCommandId.MarkDone]).toEqual([chord('Meta+Shift+D')])
     expect(resolveKeymap({})).toEqual(DEFAULT_KEYMAP)
   })
 
   it('ignores a change that doesn’t parse, or is to a fixed command', () => {
-    const keymap = resolveKeymap({ [CommandId.NewTask]: 'Meta+', [CommandId.CloseFileTab]: 'Meta+Shift+W' })
+    const keymap = resolveKeymap({ [AppCommandId.NewTask]: 'Meta+', [AppCommandId.Close]: 'Meta+Shift+W' })
 
     expect(keymap).toEqual(DEFAULT_KEYMAP)
   })
 })
 
 describe('matchCommand', () => {
-  const match = (id: CommandId, stored: string) =>
+  const match = (id: ShortcutId, stored: string) =>
     matchCommand(commandDefinition(id), DEFAULT_KEYMAP[id], chord(stored))
 
   it('matches a command’s own chord, exactly', () => {
-    expect(match(CommandId.MarkDone, 'Meta+Shift+D')).toEqual({ digit: null })
-    expect(match(CommandId.MarkDone, 'Meta+D')).toBeNull()
-    expect(match(CommandId.MarkDone, 'Meta+Alt+Shift+D')).toBeNull()
+    expect(match(TaskCommandId.MarkDone, 'Meta+Shift+D')).toEqual({ digit: null })
+    expect(match(TaskCommandId.MarkDone, 'Meta+D')).toBeNull()
+    expect(match(TaskCommandId.MarkDone, 'Meta+Alt+Shift+D')).toBeNull()
   })
 
   it('matches any digit of a range with its modifiers, and says which', () => {
-    expect(match(CommandId.SwitchWorkspace, 'Meta+7')).toEqual({ digit: 7 })
-    expect(match(CommandId.ShowPanelTab, 'Meta+Alt+5')).toEqual({ digit: 5 })
-    expect(match(CommandId.ShowPanelTab, 'Meta+Alt+6')).toBeNull()
-    expect(match(CommandId.SwitchWorkspace, 'Meta+0')).toBeNull()
-    expect(match(CommandId.SwitchWorkspace, 'Meta+Shift+1')).toBeNull()
-    expect(match(CommandId.SwitchWorkspace, 'Meta+K')).toBeNull()
+    expect(match(WorkspaceCommandId.Switch, 'Meta+7')).toEqual({ digit: 7 })
+    expect(match(WindowCommandId.ShowPanelTab, 'Meta+Alt+5')).toEqual({ digit: 5 })
+    expect(match(WindowCommandId.ShowPanelTab, 'Meta+Alt+6')).toBeNull()
+    expect(match(WorkspaceCommandId.Switch, 'Meta+0')).toBeNull()
+    expect(match(WorkspaceCommandId.Switch, 'Meta+Shift+1')).toBeNull()
+    expect(match(WorkspaceCommandId.Switch, 'Meta+K')).toBeNull()
   })
 
   it('matches either key of a command with two', () => {
-    expect(match(CommandId.MenuMove, 'ArrowUp')).toEqual({ digit: null })
-    expect(match(CommandId.MenuMove, 'ArrowDown')).toEqual({ digit: null })
+    expect(match(WindowCommandId.MenuMove, 'ArrowUp')).toEqual({ digit: null })
+    expect(match(WindowCommandId.MenuMove, 'ArrowDown')).toEqual({ digit: null })
   })
 })
 
 describe('bindingProblem', () => {
-  const problem = (id: CommandId, stored: string) => bindingProblem(id, chord(stored), DEFAULT_KEYMAP)
+  const problem = (id: ShortcutId, stored: string) => bindingProblem(id, chord(stored), DEFAULT_KEYMAP)
 
   it.each(
     RESERVED_CHORDS.map(({ chord: reserved, owner }) => [formatChord(reserved), owner, serializeChord(reserved)]),
   )('refuses %s, which is %s’s', (_, owner, stored) => {
-    expect(problem(CommandId.NewTask, stored)).toEqual({ kind: BindingProblemKind.Reserved, owner })
+    expect(problem(AppCommandId.NewTask, stored)).toEqual({ kind: BindingProblemKind.Reserved, owner })
   })
 
   it('lets a range take its own digits, with other modifiers too', () => {
-    expect(problem(CommandId.SwitchWorkspace, 'Meta+Shift+5')).toBeNull()
-    expect(bindingProblem(CommandId.SwitchWorkspace, chord('Meta+1'), resolveKeymap({}))).toBeNull()
+    expect(problem(WorkspaceCommandId.Switch, 'Meta+Shift+5')).toBeNull()
+    expect(bindingProblem(WorkspaceCommandId.Switch, chord('Meta+1'), resolveKeymap({}))).toBeNull()
   })
 
   it('refuses keys another command has where both apply, a range’s digits included', () => {
-    expect(problem(CommandId.NewTask, 'Meta+B')).toEqual({
+    expect(problem(AppCommandId.NewTask, 'Meta+B')).toEqual({
       kind: BindingProblemKind.Conflict,
-      command: CommandId.ToggleTaskList,
+      command: AppCommandId.ToggleSidebar,
     })
-    expect(problem(CommandId.NewTask, 'Meta+4')).toEqual({
+    expect(problem(AppCommandId.NewTask, 'Meta+4')).toEqual({
       kind: BindingProblemKind.Conflict,
-      command: CommandId.SwitchWorkspace,
+      command: WorkspaceCommandId.Switch,
     })
-    expect(problem(CommandId.SwitchWorkspace, 'Meta+Shift+1')).toBeNull()
-    expect(problem(CommandId.SwitchWorkspace, 'Meta+Alt+9')).toEqual({
+    expect(problem(WorkspaceCommandId.Switch, 'Meta+Shift+1')).toBeNull()
+    expect(problem(WorkspaceCommandId.Switch, 'Meta+Alt+9')).toEqual({
       kind: BindingProblemKind.Conflict,
-      command: CommandId.ShowPanelTab,
+      command: WindowCommandId.ShowPanelTab,
     })
     // The window's shortcuts reach the terminal, and the focused row.
-    expect(problem(CommandId.NewTask, 'Ctrl+C')).toEqual({
+    expect(problem(AppCommandId.NewTask, 'Ctrl+C')).toEqual({
       kind: BindingProblemKind.Conflict,
-      command: CommandId.KillProcess,
+      command: WindowCommandId.KillProcess,
     })
-    expect(problem(CommandId.ContextMenu, 'Meta+J')).toEqual({
+    expect(problem(WindowCommandId.ContextMenu, 'Meta+J')).toEqual({
       kind: BindingProblemKind.Conflict,
-      command: CommandId.ToggleBottomBar,
+      command: AppCommandId.ToggleBottomBar,
     })
     // The message field's own keys.
-    expect(problem(CommandId.Send, 'Shift+Enter')).toEqual({
+    expect(problem(WindowCommandId.Send, 'Shift+Enter')).toEqual({
       kind: BindingProblemKind.Conflict,
-      command: CommandId.NewLine,
+      command: WindowCommandId.NewLine,
     })
-    expect(problem(CommandId.NextTask, 'Alt+ArrowUp')).toEqual({
+    expect(problem(WindowCommandId.NextTask, 'Alt+ArrowUp')).toEqual({
       kind: BindingProblemKind.Conflict,
-      command: CommandId.PreviousTask,
+      command: WindowCommandId.PreviousTask,
     })
   })
 
   it('lets keys be shared where they can’t both apply', () => {
     // The message field is a text field, where the task list's ⌥↑ / ⌥↓ don't reach.
-    expect(problem(CommandId.Send, 'Alt+ArrowDown')).toBeNull()
-    expect(problem(CommandId.NextTask, 'Alt+Enter')).toBeNull()
-    expect(problem(CommandId.EditLastQueued, 'ArrowDown')).toBeNull()
-    expect(problem(CommandId.ContextMenu, 'Meta+K')).toBeNull()
-    expect(problem(CommandId.ClearTerminal, 'Ctrl+Tab')).toEqual({
+    expect(problem(WindowCommandId.Send, 'Alt+ArrowDown')).toBeNull()
+    expect(problem(WindowCommandId.NextTask, 'Alt+Enter')).toBeNull()
+    expect(problem(WindowCommandId.EditLastQueued, 'ArrowDown')).toBeNull()
+    expect(problem(WindowCommandId.ContextMenu, 'Meta+K')).toBeNull()
+    expect(problem(WindowCommandId.ClearTerminal, 'Ctrl+Tab')).toEqual({
       kind: BindingProblemKind.Conflict,
-      command: CommandId.NextTerminalTab,
+      command: WindowCommandId.NextTerminalTab,
     })
   })
 
   it('refuses keys that would type, for a shortcut that works in text fields too', () => {
-    expect(problem(CommandId.NewTask, 'N')).toEqual({ kind: BindingProblemKind.NeedsModifier })
-    expect(problem(CommandId.NewTask, 'Shift+N')).toEqual({ kind: BindingProblemKind.NeedsModifier })
-    expect(problem(CommandId.NextTask, 'ArrowDown')).toEqual({ kind: BindingProblemKind.NeedsModifier })
-    expect(problem(CommandId.NewTask, 'F4')).toBeNull()
-    expect(problem(CommandId.NewTask, 'Alt+N')).toBeNull()
-    expect(problem(CommandId.NewTask, 'Ctrl+N')).toBeNull()
+    expect(problem(AppCommandId.NewTask, 'N')).toEqual({ kind: BindingProblemKind.NeedsModifier })
+    expect(problem(AppCommandId.NewTask, 'Shift+N')).toEqual({ kind: BindingProblemKind.NeedsModifier })
+    expect(problem(WindowCommandId.NextTask, 'ArrowDown')).toEqual({ kind: BindingProblemKind.NeedsModifier })
+    expect(problem(AppCommandId.NewTask, 'F4')).toBeNull()
+    expect(problem(AppCommandId.NewTask, 'Alt+N')).toBeNull()
+    expect(problem(AppCommandId.NewTask, 'Ctrl+N')).toBeNull()
     // The message field's own keys can be anything it doesn't already take.
-    expect(problem(CommandId.Send, 'Ctrl+Enter')).toBeNull()
-    expect(problem(CommandId.ContextMenu, 'F9')).toBeNull()
+    expect(problem(WindowCommandId.Send, 'Ctrl+Enter')).toBeNull()
+    expect(problem(WindowCommandId.ContextMenu, 'F9')).toBeNull()
   })
 
   it('refuses a range bound to anything but a digit', () => {
-    expect(problem(CommandId.SwitchWorkspace, 'Ctrl+A')).toEqual({
+    expect(problem(WorkspaceCommandId.Switch, 'Ctrl+A')).toEqual({
       kind: BindingProblemKind.NeedsDigit,
       digits: { from: 1, to: 9 },
     })
   })
 
   it('says why, as Settings › Keyboard shows it', () => {
-    const say = (id: CommandId, stored: string): string => {
+    const say = (id: ShortcutId, stored: string): string => {
       const found = problem(id, stored)
       return found === null ? '' : describeBindingProblem(chord(stored), found)
     }
-    expect(say(CommandId.NewTask, 'Meta+Q')).toBe('⌘Q is reserved for Quit Glade.')
-    expect(say(CommandId.NewTask, 'Meta+Shift+P')).toBe('⌘⇧P is already used by Pin / unpin.')
-    expect(say(CommandId.NewTask, 'Shift+N')).toBe('⇧N would type into text fields. Hold ⌘, ⌃ or ⌥ with it.')
-    expect(say(CommandId.ShowPanelTab, 'Meta+Alt+P')).toBe('Press a number key with the modifiers to use for 1 – 5.')
+    expect(say(AppCommandId.NewTask, 'Meta+Q')).toBe('⌘Q is reserved for Quit Glade.')
+    expect(say(AppCommandId.NewTask, 'Meta+Shift+P')).toBe('⌘⇧P is already used by Pin / unpin.')
+    expect(say(AppCommandId.NewTask, 'Shift+N')).toBe('⇧N would type into text fields. Hold ⌘, ⌃ or ⌥ with it.')
+    expect(say(WindowCommandId.ShowPanelTab, 'Meta+Alt+P')).toBe(
+      'Press a number key with the modifiers to use for 1 – 5.',
+    )
   })
 })
 
 describe('withBinding and withDefault', () => {
   it('store a changed binding, and drop it once it’s back at the default', () => {
-    const changed = withBinding({}, CommandId.NewTask, chord('Meta+Shift+T'))
-    expect(changed).toEqual({ [CommandId.NewTask]: 'Meta+Shift+T' })
+    const changed = withBinding({}, AppCommandId.NewTask, chord('Meta+Shift+T'))
+    expect(changed).toEqual({ [AppCommandId.NewTask]: 'Meta+Shift+T' })
 
-    const both = withBinding(changed, CommandId.MarkDone, chord('Ctrl+D'))
-    expect(both).toEqual({ [CommandId.NewTask]: 'Meta+Shift+T', [CommandId.MarkDone]: 'Ctrl+D' })
+    const both = withBinding(changed, TaskCommandId.MarkDone, chord('Ctrl+D'))
+    expect(both).toEqual({ [AppCommandId.NewTask]: 'Meta+Shift+T', [TaskCommandId.MarkDone]: 'Ctrl+D' })
 
-    expect(withBinding(both, CommandId.NewTask, chord('Meta+N'))).toEqual({ [CommandId.MarkDone]: 'Ctrl+D' })
-    expect(withDefault(both, CommandId.MarkDone)).toEqual({ [CommandId.NewTask]: 'Meta+Shift+T' })
+    expect(withBinding(both, AppCommandId.NewTask, chord('Meta+N'))).toEqual({ [TaskCommandId.MarkDone]: 'Ctrl+D' })
+    expect(withDefault(both, TaskCommandId.MarkDone)).toEqual({ [AppCommandId.NewTask]: 'Meta+Shift+T' })
   })
 
   it('store a range by its modifiers, with its first digit', () => {
-    expect(withBinding({}, CommandId.SwitchWorkspace, chord('Ctrl+6'))).toEqual({
-      [CommandId.SwitchWorkspace]: 'Ctrl+1',
+    expect(withBinding({}, WorkspaceCommandId.Switch, chord('Ctrl+6'))).toEqual({
+      [WorkspaceCommandId.Switch]: 'Ctrl+1',
     })
-    expect(withBinding({}, CommandId.SwitchWorkspace, chord('Meta+6'))).toEqual({})
+    expect(withBinding({}, WorkspaceCommandId.Switch, chord('Meta+6'))).toEqual({})
   })
 })
 
 describe('formatBinding', () => {
   it('shows a chord, a range, part of a range, and a fixed command’s keys', () => {
-    expect(formatBinding(CommandId.TogglePin, DEFAULT_KEYMAP)).toBe('⌘⇧P')
-    expect(formatBinding(CommandId.SwitchWorkspace, DEFAULT_KEYMAP)).toBe('⌘1 – ⌘9')
-    expect(formatBinding(CommandId.ShowPanelTab, DEFAULT_KEYMAP, { from: 4, to: 5 })).toBe('⌘⌥4–5')
-    expect(formatBinding(CommandId.SelectAnswer, DEFAULT_KEYMAP)).toBe('1 – 9')
-    expect(formatBinding(CommandId.MenuMove, DEFAULT_KEYMAP)).toBe('↑↓')
-    expect(formatBinding(CommandId.SwitchWorkspace, resolveKeymap({ [CommandId.SwitchWorkspace]: 'Ctrl+Alt+1' }))).toBe(
+    expect(formatBinding(TaskCommandId.TogglePin, DEFAULT_KEYMAP)).toBe('⌘⇧P')
+    expect(formatBinding(WorkspaceCommandId.Switch, DEFAULT_KEYMAP)).toBe('⌘1 – ⌘9')
+    expect(formatBinding(WindowCommandId.ShowPanelTab, DEFAULT_KEYMAP, { from: 4, to: 5 })).toBe('⌘⌥4–5')
+    expect(formatBinding(WindowCommandId.SelectAnswer, DEFAULT_KEYMAP)).toBe('1 – 9')
+    expect(formatBinding(WindowCommandId.MenuMove, DEFAULT_KEYMAP)).toBe('↑↓')
+    expect(formatBinding(WorkspaceCommandId.Switch, resolveKeymap({ [WorkspaceCommandId.Switch]: 'Ctrl+Alt+1' }))).toBe(
       '⌃⌥1 – ⌃⌥9',
     )
   })

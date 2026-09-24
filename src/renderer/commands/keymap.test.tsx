@@ -5,8 +5,8 @@ import { act, render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import KEYMAP_DOC from '../../../docs/keymap.md?raw'
 import { UiStateKey } from '../../shared/domain'
+import { AppCommandId, TaskCommandId, WindowCommandId, WorkspaceCommandId } from '../../shared/commands'
 import {
-  CommandId,
   COMMANDS,
   DEFAULT_KEYMAP,
   DISPATCHED_SCOPES,
@@ -14,6 +14,7 @@ import {
   KeymapArea,
   KeyScope,
   type CommandDefinition,
+  type ShortcutId,
 } from '../../shared/keymap'
 import { App } from '../App'
 import { PanelTab } from '../right-panel/panelModel'
@@ -41,6 +42,18 @@ function docRows(): DocRow[] {
     })
 }
 
+/** Every command with a shortcut: the menu bar's that have one, and all the window's own. */
+const SHORTCUT_IDS: readonly ShortcutId[] = [
+  ...Object.values(AppCommandId),
+  WorkspaceCommandId.Switch,
+  WorkspaceCommandId.Close,
+  TaskCommandId.TogglePin,
+  TaskCommandId.Rename,
+  TaskCommandId.MarkUnread,
+  TaskCommandId.MarkDone,
+  ...Object.values(WindowCommandId),
+]
+
 /** The commands in an area whose default binding shows as `keys`. */
 function commandsFor(area: string, keys: string): CommandDefinition[] {
   return COMMANDS.filter(
@@ -48,18 +61,19 @@ function commandsFor(area: string, keys: string): CommandDefinition[] {
   )
 }
 
-/** Where each command the dispatcher doesn't run is handled: the element with the focus, tested with it. */
+/** Where each command the dispatcher doesn't run is handled: the menu bar, or the element with the focus. */
 const HANDLED_BY_FOCUS: Readonly<Record<Exclude<KeyScope, KeyScope.Window | KeyScope.OutsideTextFields>, string>> = {
   [KeyScope.FocusedItem]: 'useContextMenu',
   [KeyScope.MessageField]: 'InputBar',
   [KeyScope.RightPanel]: 'TaskPanel',
   [KeyScope.Terminal]: 'the terminal (P8)',
-  [KeyScope.Menu]: 'Menu (Floating UI’s list navigation)',
+  [KeyScope.OpenMenu]: 'Menu (Floating UI’s list navigation)',
+  [KeyScope.MenuBar]: 'the menu bar (src/main/menu/template.ts, which template.test.ts checks)',
   [KeyScope.QuestionCard]: 'QuestionCard',
 }
 
 /** The window's commands that nothing runs yet: the terminal's, until the terminal (P8) is built. */
-const NOT_YET_BUILT: readonly CommandId[] = [CommandId.FocusTerminal, CommandId.NewTerminalTab]
+const NOT_YET_BUILT: readonly ShortcutId[] = [WindowCommandId.FocusTerminal, WindowCommandId.NewTerminalTab]
 
 describe('docs/keymap.md', () => {
   const rows = docRows()
@@ -77,7 +91,7 @@ describe('docs/keymap.md', () => {
 
   it('lists every command in the registry', () => {
     const listed = rows.flatMap((row) => row.keys.flatMap((keys) => commandsFor(row.area, keys).map(({ id }) => id)))
-    expect([...listed].sort()).toEqual(Object.values(CommandId).sort())
+    expect([...listed].sort()).toEqual([...SHORTCUT_IDS].sort())
   })
 
   it('has each command handled: by the window’s dispatcher once the app is up, or by the element with the focus', async () => {

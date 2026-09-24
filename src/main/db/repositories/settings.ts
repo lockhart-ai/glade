@@ -1,7 +1,7 @@
 import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
 import { Effort } from '../../../shared/domain'
-import { CommandId, parseChord, type KeyBindingOverrides } from '../../../shared/keymap'
+import { hasShortcut, parseChord, type KeyBindingOverrides } from '../../../shared/keymap'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../../shared/settings'
 import { Row } from './rows'
 
@@ -12,11 +12,7 @@ import { Row } from './rows'
 const keyBindingsSchema = z
   .record(z.string(), z.string())
   .transform((bindings): KeyBindingOverrides =>
-    Object.fromEntries(
-      Object.entries(bindings).filter(
-        ([id, chord]) => Object.values<string>(CommandId).includes(id) && parseChord(chord) !== null,
-      ),
-    ),
+    Object.fromEntries(Object.entries(bindings).filter(([id, chord]) => hasShortcut(id) && parseChord(chord) !== null)),
   )
 
 /** How each setting's JSON value parses. A key missing here fails the typecheck. */

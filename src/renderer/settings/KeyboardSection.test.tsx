@@ -2,7 +2,8 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { CommandName } from '../../shared/bridge'
 import { UiStateKey } from '../../shared/domain'
-import { CommandId, DEFAULT_KEYMAP, formatBinding, KEYMAP_LAYOUT, type KeyBindingOverrides } from '../../shared/keymap'
+import { WindowCommandId, WorkspaceCommandId } from '../../shared/commands'
+import { DEFAULT_KEYMAP, formatBinding, KEYMAP_LAYOUT, type KeyBindingOverrides } from '../../shared/keymap'
 import { useCommand } from '../commands/hooks'
 import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
@@ -14,12 +15,12 @@ import { SettingsDialog } from './SettingsDialog'
 
 interface Rendered extends FakeBridge {
   readonly store: GladeStore
-  /** Called when the window's dispatcher runs Toggle task list (⌘B). */
+  /** Called when the window's dispatcher runs Search tasks (⌘F). */
   readonly toggled: ReturnType<typeof vi.fn>
 }
 
 function Dispatched({ onToggle }: { readonly onToggle: () => void }): null {
-  useCommand(CommandId.ToggleTaskList, onToggle)
+  useCommand(WindowCommandId.SearchTasks, onToggle)
   return null
 }
 
@@ -109,9 +110,9 @@ describe('KeyboardSection', () => {
   it('records the keys you press as the new binding, saves it, and resets it to the default', async () => {
     const { invoke, store, toggled } = await renderKeyboard()
 
-    const button = startRecording('Toggle task list: ⌘B')
+    const button = startRecording('Search tasks: ⌘F')
     expect(button).toHaveAttribute('aria-pressed', 'true')
-    expect(button).toHaveAccessibleName('Toggle task list: press the new keys')
+    expect(button).toHaveAccessibleName('Search tasks: press the new keys')
     expect(button).toHaveTextContent(RECORDING_PROMPT)
     // A modifier alone isn't a shortcut yet.
     expect(press({ key: 'Meta', metaKey: true })).toBe(false)
@@ -119,32 +120,32 @@ describe('KeyboardSection', () => {
     expect(press({ key: 'L', code: 'KeyL', metaKey: true, shiftKey: true })).toBe(false)
     await act(() => Promise.resolve())
 
-    expect(keyBindingUpdates(invoke)).toEqual([{ [CommandId.ToggleTaskList]: 'Meta+Shift+L' }])
-    expect(store.getState().settings.keyBindings).toEqual({ [CommandId.ToggleTaskList]: 'Meta+Shift+L' })
-    expect(keycap('Toggle task list: ⌘⇧L')).toHaveAttribute('aria-pressed', 'false')
+    expect(keyBindingUpdates(invoke)).toEqual([{ [WindowCommandId.SearchTasks]: 'Meta+Shift+L' }])
+    expect(store.getState().settings.keyBindings).toEqual({ [WindowCommandId.SearchTasks]: 'Meta+Shift+L' })
+    expect(keycap('Search tasks: ⌘⇧L')).toHaveAttribute('aria-pressed', 'false')
     expect(toggled).not.toHaveBeenCalled()
 
-    fireEvent.click(keycap('Reset Toggle task list to ⌘B'))
+    fireEvent.click(keycap('Reset Search tasks to ⌘F'))
     await act(() => Promise.resolve())
 
-    expect(keyBindingUpdates(invoke)).toEqual([{ [CommandId.ToggleTaskList]: 'Meta+Shift+L' }, {}])
-    expect(keycap('Toggle task list: ⌘B')).toBeInTheDocument()
+    expect(keyBindingUpdates(invoke)).toEqual([{ [WindowCommandId.SearchTasks]: 'Meta+Shift+L' }, {}])
+    expect(keycap('Search tasks: ⌘F')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Reset/ })).not.toBeInTheDocument()
   })
 
   it('keeps the recorded keys from the window’s shortcuts, and a binding back at its default isn’t stored', async () => {
-    const { invoke, toggled } = await renderKeyboard({ [CommandId.ToggleTaskList]: 'Meta+Shift+L' })
+    const { invoke, toggled } = await renderKeyboard({ [WindowCommandId.SearchTasks]: 'Meta+Shift+L' })
 
-    startRecording('Toggle task list: ⌘⇧L')
-    expect(press({ key: 'b', code: 'KeyB', metaKey: true })).toBe(false)
+    startRecording('Search tasks: ⌘⇧L')
+    expect(press({ key: 'f', code: 'KeyF', metaKey: true })).toBe(false)
     await act(() => Promise.resolve())
 
     expect(toggled).not.toHaveBeenCalled()
     expect(keyBindingUpdates(invoke)).toEqual([{}])
-    expect(keycap('Toggle task list: ⌘B')).toBeInTheDocument()
+    expect(keycap('Search tasks: ⌘F')).toBeInTheDocument()
 
-    // Once it's recorded, ⌘B is the window's again.
-    fireEvent.keyDown(window, { key: 'b', code: 'KeyB', metaKey: true })
+    // Once it's recorded, ⌘F is the window's again.
+    fireEvent.keyDown(window, { key: 'f', code: 'KeyF', metaKey: true })
     expect(toggled).toHaveBeenCalledOnce()
   })
 
@@ -218,8 +219,8 @@ describe('KeyboardSection', () => {
     await act(() => Promise.resolve())
 
     expect(store.getState().settings.keyBindings).toEqual({
-      [CommandId.SwitchWorkspace]: 'Ctrl+1',
-      [CommandId.ShowPanelTab]: 'Ctrl+Alt+1',
+      [WorkspaceCommandId.Switch]: 'Ctrl+1',
+      [WindowCommandId.ShowPanelTab]: 'Ctrl+Alt+1',
     })
     expect(keycap('Switch workspace: ⌃1 – ⌃9')).toBeInTheDocument()
     expect(keycap('Tool calls · Files · Todos: ⌃⌥1–3')).toBeInTheDocument()
@@ -227,7 +228,7 @@ describe('KeyboardSection', () => {
     // One Reset on each row the range shows on.
     expect(screen.getAllByRole('button', { name: /^Reset Tool calls|^Reset Artifacts/ })).toHaveLength(2)
     expect(
-      keycap(`Reset Switch workspace to ${formatBinding(CommandId.SwitchWorkspace, DEFAULT_KEYMAP)}`),
+      keycap(`Reset Switch workspace to ${formatBinding(WorkspaceCommandId.Switch, DEFAULT_KEYMAP)}`),
     ).toBeInTheDocument()
   })
 

@@ -1,12 +1,14 @@
 /**
- * The keymap (`docs/keymap.md`, `docs/design/screens/22-keymap.png`): every command that has a shortcut, its default
- * binding, where it applies, and whether you can rebind it (Settings › Keyboard). Main reads it for the menu bar's
- * accelerators and the renderer for its key dispatcher, Settings › Keyboard and the context menus' hints, so each
- * shortcut is defined once and shows the same binding everywhere.
+ * The keymap (`docs/keymap.md`, `docs/design/screens/22-keymap.png`): the one table of every command that has a
+ * shortcut (the commands are in `commands.ts`), its default binding, where it applies, who answers it and whether you
+ * can rebind it (Settings › Keyboard). The menu bar's accelerators (main), the window's key dispatcher, Settings ›
+ * Keyboard and every hint the window shows read it, so each shortcut is defined once and shows the same keys
+ * everywhere.
  *
  * A binding is a chord: one key and the modifiers held with it. Bindings you change are stored as the `keyBindings`
  * setting, a chord string per command (`Meta+Shift+P`); the rest keep their defaults.
  */
+import { AppCommandId, TaskCommandId, WindowCommandId, WorkspaceCommandId } from './commands'
 
 /** One key and the modifiers held with it, e.g. ⌘⇧P. */
 export interface KeyChord {
@@ -20,8 +22,8 @@ export interface KeyChord {
 
 /** The modifiers, in the order a chord shows and stores them: ⌃⌘⌥⇧, the order `docs/keymap.md` writes them in. */
 const MODIFIERS = [
-  { flag: 'ctrl', name: 'Ctrl', glyph: '⌃', accelerator: 'Control' },
-  { flag: 'meta', name: 'Meta', glyph: '⌘', accelerator: 'Command' },
+  { flag: 'ctrl', name: 'Ctrl', glyph: '⌃', accelerator: 'Ctrl' },
+  { flag: 'meta', name: 'Meta', glyph: '⌘', accelerator: 'CmdOrCtrl' },
   { flag: 'alt', name: 'Alt', glyph: '⌥', accelerator: 'Alt' },
   { flag: 'shift', name: 'Shift', glyph: '⇧', accelerator: 'Shift' },
 ] as const
@@ -67,8 +69,8 @@ export function serializeChord(chord: KeyChord): string {
   return [...MODIFIERS.filter(({ flag }) => chord[flag]).map(({ name }) => name), chord.key].join('+')
 }
 
-/** A chord as the menu bar's accelerator names it, e.g. `Command+Shift+P`. */
-export function toAccelerator(chord: KeyChord): string {
+/** A chord as the menu bar's accelerator names it, e.g. `CmdOrCtrl+Shift+P`. */
+export function toAccelerator(chord: KeyChord): Accelerator {
   return [
     ...MODIFIERS.filter(({ flag }) => chord[flag]).map(({ accelerator }) => accelerator),
     ACCELERATOR_KEYS[chord.key] ?? chord.key,
@@ -155,52 +157,26 @@ export enum KeymapArea {
   MenusAndDialogs = 'Menus and dialogs',
 }
 
-/** Every command that has a shortcut. */
-export enum CommandId {
-  NewTask = 'new_task',
-  JumpToTask = 'jump_to_task',
-  SearchTasks = 'search_tasks',
-  OpenSettings = 'open_settings',
-  NewWorkspace = 'new_workspace',
-  OpenFolderAsWorkspace = 'open_folder_as_workspace',
-  SwitchWorkspace = 'switch_workspace',
-  NextTask = 'next_task',
-  PreviousTask = 'previous_task',
-  NextTaskNeedingYou = 'next_task_needing_you',
-  RenameTask = 'rename_task',
-  TogglePin = 'toggle_pin',
-  MarkUnread = 'mark_unread',
-  MarkDone = 'mark_done',
-  ContextMenu = 'context_menu',
-  Send = 'send',
-  NewLine = 'new_line',
-  StopAgent = 'stop_agent',
-  CompactContext = 'compact_context',
-  EditLastQueued = 'edit_last_queued',
-  FocusInput = 'focus_input',
-  ToggleTaskList = 'toggle_task_list',
-  ToggleRightPanel = 'toggle_right_panel',
-  ToggleBottomBar = 'toggle_bottom_bar',
-  ShowPanelTab = 'show_panel_tab',
-  CloseFileTab = 'close_file_tab',
-  OpenInEditor = 'open_in_editor',
-  FocusTerminal = 'focus_terminal',
-  NewTerminalTab = 'new_terminal_tab',
-  NextTerminalTab = 'next_terminal_tab',
-  PreviousTerminalTab = 'previous_terminal_tab',
-  ClearTerminal = 'clear_terminal',
-  KillProcess = 'kill_process',
-  MenuMove = 'menu_move',
-  MenuChoose = 'menu_choose',
-  MenuClose = 'menu_close',
-  SelectAnswer = 'select_answer',
-}
+/** Every command that has a shortcut: the menu bar's that do, and the window's own. */
+export type ShortcutId =
+  | AppCommandId
+  | WorkspaceCommandId.Switch
+  | WorkspaceCommandId.Close
+  | TaskCommandId.TogglePin
+  | TaskCommandId.Rename
+  | TaskCommandId.MarkUnread
+  | TaskCommandId.MarkDone
+  | WindowCommandId
 
 /**
- * Where a command's shortcut applies: its "when". Window and OutsideTextFields shortcuts go through the window's one
- * key dispatcher; the others belong to the element that has the focus, which reads the binding from here.
+ * Where a command's shortcut applies, and who answers it: its "when". The menu bar answers its items' keys itself
+ * (main builds its accelerators from this keymap), so the window never sees them; Window and OutsideTextFields
+ * shortcuts go through the window's one key dispatcher; the others belong to the element that has the focus, which
+ * reads the binding from here.
  */
 export enum KeyScope {
+  /** Anywhere in the window: the menu bar's item for the command answers it. */
+  MenuBar = 'menu_bar',
   /** Anywhere in the window, typing in a text field included. */
   Window = 'window',
   /** Anywhere but a text field, where the keys edit the text instead (⌥↑ moves the caret). */
@@ -214,7 +190,7 @@ export enum KeyScope {
   /** The terminal, with the focus in it. */
   Terminal = 'terminal',
   /** An open menu or dialog. */
-  Menu = 'menu',
+  OpenMenu = 'open_menu',
   /** A question card, with the focus in it. */
   QuestionCard = 'question_card',
 }
@@ -222,9 +198,12 @@ export enum KeyScope {
 /** The scopes the window's key dispatcher runs. */
 export const DISPATCHED_SCOPES: readonly KeyScope[] = [KeyScope.Window, KeyScope.OutsideTextFields]
 
+/** The scopes whose keys work wherever the focus is, so they mustn't type (see `bindingProblem`). */
+const GLOBAL_SCOPES: readonly KeyScope[] = [KeyScope.MenuBar, ...DISPATCHED_SCOPES]
+
 /** Why a command's binding can't be changed. */
 export enum FixedReason {
-  /** ⌘W closes the window anywhere else, which macOS handles before a shortcut could be recorded. */
+  /** ⌘W is the menu bar's Close, which closes the window when no tab has the focus. */
   Window = 'window',
   /** The text field's own key. */
   TextField = 'text_field',
@@ -250,7 +229,7 @@ export interface DigitRange {
 
 /** A command: its name, where it applies and its default binding. */
 export interface CommandDefinition {
-  readonly id: CommandId
+  readonly id: ShortcutId
   readonly area: KeymapArea
   /** What Settings › Keyboard and the menus call it. */
   readonly label: string
@@ -267,7 +246,7 @@ export interface CommandDefinition {
 }
 
 function command(
-  id: CommandId,
+  id: ShortcutId,
   area: KeymapArea,
   label: string,
   scope: KeyScope,
@@ -286,80 +265,108 @@ function command(
 
 const NINE: DigitRange = { from: 1, to: 9 }
 const { Global, TaskList, Chat, Panels, Terminal, MenusAndDialogs } = KeymapArea
-const { Window, OutsideTextFields } = KeyScope
+const { MenuBar, Window, OutsideTextFields } = KeyScope
 
 /** Every command, in `docs/keymap.md`'s order. */
 export const COMMANDS: readonly CommandDefinition[] = [
-  command(CommandId.NewTask, Global, 'New task', Window, 'Meta+N'),
-  command(CommandId.JumpToTask, Global, 'Jump to task', Window, 'Meta+P'),
-  command(CommandId.SearchTasks, Global, 'Search tasks', Window, 'Meta+F'),
-  command(CommandId.OpenSettings, Global, 'Settings', Window, 'Meta+,'),
-  command(CommandId.NewWorkspace, Global, 'New workspace', Window, 'Meta+Shift+N'),
-  command(CommandId.OpenFolderAsWorkspace, Global, 'Open folder as workspace', Window, 'Meta+O'),
-  command(CommandId.SwitchWorkspace, Global, 'Switch workspace', Window, 'Meta+1', { digits: NINE }),
-  command(CommandId.NextTask, TaskList, 'Next task', OutsideTextFields, 'Alt+ArrowDown'),
-  command(CommandId.PreviousTask, TaskList, 'Previous task', OutsideTextFields, 'Alt+ArrowUp'),
-  command(CommandId.NextTaskNeedingYou, TaskList, 'Next task that needs you', Window, 'Meta+Alt+ArrowDown'),
-  command(CommandId.RenameTask, TaskList, 'Rename', Window, 'F2'),
-  command(CommandId.TogglePin, TaskList, 'Pin / unpin', Window, 'Meta+Shift+P'),
-  command(CommandId.MarkUnread, TaskList, 'Mark as unread', Window, 'Meta+Shift+U'),
-  command(CommandId.MarkDone, TaskList, 'Mark done', Window, 'Meta+Shift+D'),
-  command(CommandId.ContextMenu, TaskList, 'Context menu', KeyScope.FocusedItem, 'Shift+F10'),
-  command(CommandId.Send, Chat, 'Send (queues while working)', KeyScope.MessageField, 'Enter'),
-  command(CommandId.NewLine, Chat, 'New line', KeyScope.MessageField, 'Shift+Enter', { fixed: FixedReason.TextField }),
-  command(CommandId.StopAgent, Chat, 'Stop the agent', Window, 'Meta+.'),
-  command(CommandId.CompactContext, Chat, 'Compact context', Window, 'Meta+Shift+K'),
-  command(CommandId.EditLastQueued, Chat, 'Edit last queued message', KeyScope.MessageField, 'ArrowUp'),
-  command(CommandId.FocusInput, Chat, 'Focus input', Window, 'Meta+L'),
-  command(CommandId.ToggleTaskList, Panels, 'Toggle task list', Window, 'Meta+B'),
-  command(CommandId.ToggleRightPanel, Panels, 'Toggle right panel', Window, 'Meta+Alt+B'),
-  command(CommandId.ToggleBottomBar, Panels, 'Toggle bottom bar', Window, 'Meta+J'),
-  command(CommandId.ShowPanelTab, Panels, 'Tool calls · Files · Todos · Artifacts · Subagents', Window, 'Meta+Alt+1', {
-    digits: { from: 1, to: 5 },
+  command(AppCommandId.NewTask, Global, 'New task', MenuBar, 'Meta+N'),
+  command(WindowCommandId.JumpToTask, Global, 'Jump to task', Window, 'Meta+P'),
+  command(WindowCommandId.SearchTasks, Global, 'Search tasks', Window, 'Meta+F'),
+  command(AppCommandId.Settings, Global, 'Settings', MenuBar, 'Meta+,'),
+  command(AppCommandId.NewWorkspace, Global, 'New workspace', MenuBar, 'Meta+Shift+N'),
+  command(AppCommandId.OpenFolder, Global, 'Open folder as workspace', MenuBar, 'Meta+O'),
+  command(WorkspaceCommandId.Switch, Global, 'Switch workspace', MenuBar, 'Meta+1', { digits: NINE }),
+  command(WorkspaceCommandId.Close, Global, 'Close workspace', MenuBar, 'Meta+Shift+W'),
+  command(WindowCommandId.NextTask, TaskList, 'Next task', OutsideTextFields, 'Alt+ArrowDown'),
+  command(WindowCommandId.PreviousTask, TaskList, 'Previous task', OutsideTextFields, 'Alt+ArrowUp'),
+  command(WindowCommandId.NextTaskNeedingYou, TaskList, 'Next task that needs you', Window, 'Meta+Alt+ArrowDown'),
+  command(TaskCommandId.Rename, TaskList, 'Rename', MenuBar, 'F2'),
+  command(TaskCommandId.TogglePin, TaskList, 'Pin / unpin', MenuBar, 'Meta+Shift+P'),
+  command(TaskCommandId.MarkUnread, TaskList, 'Mark as unread', MenuBar, 'Meta+Shift+U'),
+  command(TaskCommandId.MarkDone, TaskList, 'Mark done', MenuBar, 'Meta+Shift+D'),
+  command(WindowCommandId.ContextMenu, TaskList, 'Context menu', KeyScope.FocusedItem, 'Shift+F10'),
+  command(WindowCommandId.Send, Chat, 'Send (queues while working)', KeyScope.MessageField, 'Enter'),
+  command(WindowCommandId.NewLine, Chat, 'New line', KeyScope.MessageField, 'Shift+Enter', {
+    fixed: FixedReason.TextField,
   }),
-  command(CommandId.CloseFileTab, Panels, 'Close file tab', KeyScope.RightPanel, 'Meta+W', {
+  command(WindowCommandId.StopAgent, Chat, 'Stop the agent', Window, 'Meta+.'),
+  command(WindowCommandId.CompactContext, Chat, 'Compact context', Window, 'Meta+Shift+K'),
+  command(WindowCommandId.EditLastQueued, Chat, 'Edit last queued message', KeyScope.MessageField, 'ArrowUp'),
+  command(WindowCommandId.FocusInput, Chat, 'Focus input', Window, 'Meta+L'),
+  command(AppCommandId.ToggleSidebar, Panels, 'Toggle task list', MenuBar, 'Meta+B'),
+  command(AppCommandId.ToggleRightPanel, Panels, 'Toggle right panel', MenuBar, 'Meta+Alt+B'),
+  command(AppCommandId.ToggleBottomBar, Panels, 'Toggle bottom bar', MenuBar, 'Meta+J'),
+  command(
+    WindowCommandId.ShowPanelTab,
+    Panels,
+    'Tool calls · Files · Todos · Artifacts · Subagents',
+    Window,
+    'Meta+Alt+1',
+    {
+      digits: { from: 1, to: 5 },
+    },
+  ),
+  command(AppCommandId.Close, Panels, 'Close file tab', MenuBar, 'Meta+W', {
     fixed: FixedReason.Window,
   }),
-  command(CommandId.OpenInEditor, Panels, 'Open file in editor', Window, 'Meta+Shift+E'),
-  command(CommandId.FocusTerminal, Terminal, 'Focus terminal', Window, 'Ctrl+`'),
-  command(CommandId.NewTerminalTab, Terminal, 'New terminal tab', Window, 'Meta+T'),
-  command(CommandId.NextTerminalTab, Terminal, 'Next tab', KeyScope.Terminal, 'Ctrl+Tab'),
-  command(CommandId.PreviousTerminalTab, Terminal, 'Previous tab', KeyScope.Terminal, 'Ctrl+Shift+Tab'),
-  command(CommandId.ClearTerminal, Terminal, 'Clear', KeyScope.Terminal, 'Meta+K'),
-  command(CommandId.KillProcess, Terminal, 'Kill process', KeyScope.Terminal, 'Ctrl+C', { fixed: FixedReason.Shell }),
-  command(CommandId.MenuMove, MenusAndDialogs, 'Move', KeyScope.Menu, ['ArrowUp', 'ArrowDown'], {
+  command(WindowCommandId.OpenInEditor, Panels, 'Open file in editor', Window, 'Meta+Shift+E'),
+  command(WindowCommandId.FocusTerminal, Terminal, 'Focus terminal', Window, 'Ctrl+`'),
+  command(WindowCommandId.NewTerminalTab, Terminal, 'New terminal tab', Window, 'Meta+T'),
+  command(WindowCommandId.NextTerminalTab, Terminal, 'Next tab', KeyScope.Terminal, 'Ctrl+Tab'),
+  command(WindowCommandId.PreviousTerminalTab, Terminal, 'Previous tab', KeyScope.Terminal, 'Ctrl+Shift+Tab'),
+  command(WindowCommandId.ClearTerminal, Terminal, 'Clear', KeyScope.Terminal, 'Meta+K'),
+  command(WindowCommandId.KillProcess, Terminal, 'Kill process', KeyScope.Terminal, 'Ctrl+C', {
+    fixed: FixedReason.Shell,
+  }),
+  command(WindowCommandId.MenuMove, MenusAndDialogs, 'Move', KeyScope.OpenMenu, ['ArrowUp', 'ArrowDown'], {
     fixed: FixedReason.Menus,
   }),
-  command(CommandId.MenuChoose, MenusAndDialogs, 'Choose', KeyScope.Menu, 'Enter', { fixed: FixedReason.Menus }),
-  command(CommandId.MenuClose, MenusAndDialogs, 'Close', KeyScope.Menu, 'Escape', { fixed: FixedReason.Menus }),
-  command(CommandId.SelectAnswer, MenusAndDialogs, 'Select an answer in a question card', KeyScope.QuestionCard, '1', {
-    digits: NINE,
+  command(WindowCommandId.MenuChoose, MenusAndDialogs, 'Choose', KeyScope.OpenMenu, 'Enter', {
     fixed: FixedReason.Menus,
   }),
+  command(WindowCommandId.MenuClose, MenusAndDialogs, 'Close', KeyScope.OpenMenu, 'Escape', {
+    fixed: FixedReason.Menus,
+  }),
+  command(
+    WindowCommandId.SelectAnswer,
+    MenusAndDialogs,
+    'Select an answer in a question card',
+    KeyScope.QuestionCard,
+    '1',
+    {
+      digits: NINE,
+      fixed: FixedReason.Menus,
+    },
+  ),
 ]
 
-const BY_ID = new Map(COMMANDS.map((definition) => [definition.id, definition]))
+const BY_ID = new Map<string, CommandDefinition>(COMMANDS.map((definition) => [definition.id, definition]))
+
+/** Whether a command has a shortcut: the menu bar's Reopen, say, has none. */
+export function hasShortcut(id: string): id is ShortcutId {
+  return BY_ID.has(id)
+}
 
 /** A command's definition. */
-export function commandDefinition(id: CommandId): CommandDefinition {
+export function commandDefinition(id: ShortcutId): CommandDefinition {
   const definition = BY_ID.get(id)
-  /* v8 ignore next -- every CommandId has a definition; keymap.test.ts checks it */
+  /* v8 ignore next -- every ShortcutId has a definition; keymap.test.ts checks it */
   if (definition === undefined) throw new Error(`No command ${id}`)
   return definition
 }
 
 /** The commands you can rebind: all but the fixed ones. */
-export function isRebindable(id: CommandId): boolean {
+export function isRebindable(id: ShortcutId): boolean {
   return commandDefinition(id).fixed === undefined
 }
 
 /**
- * Chords that are taken before a shortcut could have them: macOS's own (⌘Tab, ⌘Space), the app menu's (⌘Q, ⌘H, ⌘M)
- * and the window's (⌘W), and the Edit menu's, which every text field relies on. No command can be bound to one.
+ * Chords that are taken before a shortcut could have them: macOS's own (⌘Tab, ⌘Space), the app and Window menus' (⌘Q,
+ * ⌘H, ⌘M), the Edit menu's, which every text field relies on, and the View menu's zoom and full screen. No command can
+ * be bound to one. (⌘W is Close, a fixed command of the keymap's own.)
  */
 export const RESERVED_CHORDS: readonly { readonly chord: KeyChord; readonly owner: string }[] = [
   { chord: chord('Meta+Q'), owner: 'Quit Glade' },
-  { chord: chord('Meta+W'), owner: 'Close window' },
   { chord: chord('Meta+H'), owner: 'Hide Glade' },
   { chord: chord('Meta+Alt+H'), owner: 'Hide others' },
   { chord: chord('Meta+M'), owner: 'Minimize' },
@@ -372,13 +379,18 @@ export const RESERVED_CHORDS: readonly { readonly chord: KeyChord; readonly owne
   { chord: chord('Meta+C'), owner: 'Copy' },
   { chord: chord('Meta+V'), owner: 'Paste' },
   { chord: chord('Meta+A'), owner: 'Select all' },
+  { chord: chord('Meta+0'), owner: 'Actual size' },
+  { chord: chord('Meta++'), owner: 'Zoom in' },
+  { chord: chord('Meta+='), owner: 'Zoom in' },
+  { chord: chord('Meta+-'), owner: 'Zoom out' },
+  { chord: chord('Ctrl+Meta+F'), owner: 'Enter full screen' },
 ]
 
 /** The bindings you've changed: a stored chord (`serializeChord`) for each command you've rebound. */
-export type KeyBindingOverrides = Readonly<Partial<Record<CommandId, string>>>
+export type KeyBindingOverrides = Readonly<Partial<Record<ShortcutId, string>>>
 
 /** Each command's binding as it now is: its override if you've rebound it, else its default. */
-export type Keymap = Readonly<Record<CommandId, readonly KeyChord[]>>
+export type Keymap = Readonly<Record<ShortcutId, readonly KeyChord[]>>
 
 /** The keymap with every command at its default. */
 export const DEFAULT_KEYMAP: Keymap = resolveKeymap({})
@@ -418,6 +430,20 @@ export function matchCommand(
   return null
 }
 
+/** An accelerator, as the menu bar takes it (`CmdOrCtrl+Shift+P`). */
+export type Accelerator = string
+
+/** The key of a command in `keymap`, as the menu bar's accelerator; for one over digits (⌘1 – ⌘9), with the nth digit. */
+export function acceleratorOf(keymap: Keymap, id: ShortcutId, digit?: number): Accelerator | undefined {
+  const [binding] = keymap[id]
+  /* v8 ignore next -- every command in the keymap has a binding */
+  if (binding === undefined) return undefined
+  const range = commandDefinition(id).digits
+  if (range === undefined) return toAccelerator(binding)
+  if (digit === undefined || digit < range.from || digit > range.to) return undefined
+  return toAccelerator({ ...binding, key: String(digit) })
+}
+
 /** Every chord a command takes: each of its bindings, or for a digit range, each digit with the range's modifiers. */
 function expandedChords(definition: CommandDefinition, bindings: readonly KeyChord[]): KeyChord[] {
   const { digits } = definition
@@ -431,11 +457,13 @@ function expandedChords(definition: CommandDefinition, bindings: readonly KeyCho
 }
 
 /**
- * Whether one key press could reach both scopes. The window's shortcuts reach the focus wherever it is, except that
- * one outside text fields doesn't reach the message field; the others each apply only to their own element.
+ * Whether one key press could reach both scopes. The menu bar's and the window's shortcuts reach the focus wherever it
+ * is, except that one outside text fields doesn't reach the message field; the others each apply only to their own
+ * element.
  */
 function scopesOverlap(a: KeyScope, b: KeyScope): boolean {
-  if (a === b || a === KeyScope.Window || b === KeyScope.Window) return true
+  const anywhere: readonly KeyScope[] = [KeyScope.MenuBar, KeyScope.Window]
+  if (a === b || anywhere.includes(a) || anywhere.includes(b)) return true
   if (a === KeyScope.OutsideTextFields) return b !== KeyScope.MessageField
   if (b === KeyScope.OutsideTextFields) return a !== KeyScope.MessageField
   return false
@@ -455,7 +483,7 @@ export enum BindingProblemKind {
 
 export type BindingProblem =
   | { readonly kind: BindingProblemKind.Reserved; readonly owner: string }
-  | { readonly kind: BindingProblemKind.Conflict; readonly command: CommandId }
+  | { readonly kind: BindingProblemKind.Conflict; readonly command: ShortcutId }
   | { readonly kind: BindingProblemKind.NeedsModifier }
   | { readonly kind: BindingProblemKind.NeedsDigit; readonly digits: DigitRange }
 
@@ -463,7 +491,7 @@ export type BindingProblem =
  * Why `chord` can't be the binding of command `id` in `keymap`, or null when it can. For a command over a run of
  * digits, `chord` is one of them pressed with the modifiers to use.
  */
-export function bindingProblem(id: CommandId, chord: KeyChord, keymap: Keymap): BindingProblem | null {
+export function bindingProblem(id: ShortcutId, chord: KeyChord, keymap: Keymap): BindingProblem | null {
   const definition = commandDefinition(id)
   const { digits } = definition
   if (digits !== undefined && !/^\d$/.test(chord.key)) return { kind: BindingProblemKind.NeedsDigit, digits }
@@ -471,7 +499,7 @@ export function bindingProblem(id: CommandId, chord: KeyChord, keymap: Keymap): 
   const chords = expandedChords(definition, bindings)
   const reserved = RESERVED_CHORDS.find((entry) => chords.some((candidate) => sameChord(candidate, entry.chord)))
   if (reserved !== undefined) return { kind: BindingProblemKind.Reserved, owner: reserved.owner }
-  if (DISPATCHED_SCOPES.includes(definition.scope) && !chord.meta && !chord.ctrl && !chord.alt && !isFunctionKey(chord))
+  if (GLOBAL_SCOPES.includes(definition.scope) && !chord.meta && !chord.ctrl && !chord.alt && !isFunctionKey(chord))
     return { kind: BindingProblemKind.NeedsModifier }
   const other = COMMANDS.find(
     (candidate) =>
@@ -498,7 +526,7 @@ export function describeBindingProblem(chord: KeyChord, problem: BindingProblem)
 }
 
 /** The overrides once command `id` is bound to `chord`: none for it when that's its default. */
-export function withBinding(overrides: KeyBindingOverrides, id: CommandId, chord: KeyChord): KeyBindingOverrides {
+export function withBinding(overrides: KeyBindingOverrides, id: ShortcutId, chord: KeyChord): KeyBindingOverrides {
   const definition = commandDefinition(id)
   const { digits } = definition
   const binding = digits === undefined ? chord : { ...chord, key: String(digits.from) }
@@ -507,15 +535,15 @@ export function withBinding(overrides: KeyBindingOverrides, id: CommandId, chord
 }
 
 /** The overrides once command `id` is back at its default. */
-export function withDefault(overrides: KeyBindingOverrides, id: CommandId): KeyBindingOverrides {
-  return Object.fromEntries((Object.entries(overrides) as [CommandId, string][]).filter(([key]) => key !== id))
+export function withDefault(overrides: KeyBindingOverrides, id: ShortcutId): KeyBindingOverrides {
+  return Object.fromEntries((Object.entries(overrides) as [ShortcutId, string][]).filter(([key]) => key !== id))
 }
 
 /**
  * How a command's binding shows: `⌘⇧P`; a digit range as `⌘1 – ⌘9`, or with `digits`, part of it as `⌘⌥1–3`; a
  * fixed command's keys run together (`↑↓`).
  */
-export function formatBinding(id: CommandId, keymap: Keymap, digits?: DigitRange): string {
+export function formatBinding(id: ShortcutId, keymap: Keymap, digits?: DigitRange): string {
   const definition = commandDefinition(id)
   const bindings = keymap[id]
   const range = definition.digits
@@ -530,7 +558,7 @@ export function formatBinding(id: CommandId, keymap: Keymap, digits?: DigitRange
 
 /** One keycap of a row in Settings › Keyboard: a command, or for a digit range, the part of it the row is about. */
 export interface KeymapKey {
-  readonly command: CommandId
+  readonly command: ShortcutId
   readonly digits?: DigitRange
 }
 
@@ -547,7 +575,7 @@ export interface KeymapGroup {
 }
 
 /** A row with one keycap per command. */
-function row(action: string, ...commands: CommandId[]): KeymapRow {
+function row(action: string, ...commands: ShortcutId[]): KeymapRow {
   return { action, keys: commands.map((id) => ({ command: id })) }
 }
 
@@ -559,67 +587,74 @@ export const KEYMAP_LAYOUT: readonly KeymapGroup[] = [
   {
     area: Global,
     rows: [
-      row('New task', CommandId.NewTask),
-      row('Jump to task', CommandId.JumpToTask),
-      row('Search tasks', CommandId.SearchTasks),
-      row('Settings', CommandId.OpenSettings),
-      row('New workspace', CommandId.NewWorkspace),
-      row('Open folder as workspace', CommandId.OpenFolderAsWorkspace),
-      row('Switch workspace', CommandId.SwitchWorkspace),
+      row('New task', AppCommandId.NewTask),
+      row('Jump to task', WindowCommandId.JumpToTask),
+      row('Search tasks', WindowCommandId.SearchTasks),
+      row('Settings', AppCommandId.Settings),
+      row('New workspace', AppCommandId.NewWorkspace),
+      row('Open folder as workspace', AppCommandId.OpenFolder),
+      row('Switch workspace', WorkspaceCommandId.Switch),
+      row('Close workspace', WorkspaceCommandId.Close),
     ],
   },
   {
     area: TaskList,
     rows: [
-      row('Next / previous task', CommandId.NextTask, CommandId.PreviousTask),
-      row('Next task that needs you', CommandId.NextTaskNeedingYou),
-      row('Rename', CommandId.RenameTask),
-      row('Pin / unpin', CommandId.TogglePin),
-      row('Mark as unread', CommandId.MarkUnread),
-      row('Mark done', CommandId.MarkDone),
-      row('Context menu', CommandId.ContextMenu),
+      row('Next / previous task', WindowCommandId.NextTask, WindowCommandId.PreviousTask),
+      row('Next task that needs you', WindowCommandId.NextTaskNeedingYou),
+      row('Rename', TaskCommandId.Rename),
+      row('Pin / unpin', TaskCommandId.TogglePin),
+      row('Mark as unread', TaskCommandId.MarkUnread),
+      row('Mark done', TaskCommandId.MarkDone),
+      row('Context menu', WindowCommandId.ContextMenu),
     ],
   },
   {
     area: Chat,
     rows: [
-      row('Send (queues while working)', CommandId.Send),
-      row('New line', CommandId.NewLine),
-      row('Stop the agent', CommandId.StopAgent),
-      row('Compact context', CommandId.CompactContext),
-      row('Edit last queued message', CommandId.EditLastQueued),
-      row('Focus input', CommandId.FocusInput),
+      row('Send (queues while working)', WindowCommandId.Send),
+      row('New line', WindowCommandId.NewLine),
+      row('Stop the agent', WindowCommandId.StopAgent),
+      row('Compact context', WindowCommandId.CompactContext),
+      row('Edit last queued message', WindowCommandId.EditLastQueued),
+      row('Focus input', WindowCommandId.FocusInput),
     ],
   },
   {
     area: Panels,
     rows: [
-      row('Toggle task list', CommandId.ToggleTaskList),
-      row('Toggle right panel', CommandId.ToggleRightPanel),
-      row('Toggle bottom bar', CommandId.ToggleBottomBar),
-      { action: 'Tool calls · Files · Todos', keys: [{ command: CommandId.ShowPanelTab, digits: { from: 1, to: 3 } }] },
-      { action: 'Artifacts · Subagents', keys: [{ command: CommandId.ShowPanelTab, digits: { from: 4, to: 5 } }] },
-      row('Close file tab', CommandId.CloseFileTab),
-      row('Open file in editor', CommandId.OpenInEditor),
+      row('Toggle task list', AppCommandId.ToggleSidebar),
+      row('Toggle right panel', AppCommandId.ToggleRightPanel),
+      row('Toggle bottom bar', AppCommandId.ToggleBottomBar),
+      {
+        action: 'Tool calls · Files · Todos',
+        keys: [{ command: WindowCommandId.ShowPanelTab, digits: { from: 1, to: 3 } }],
+      },
+      {
+        action: 'Artifacts · Subagents',
+        keys: [{ command: WindowCommandId.ShowPanelTab, digits: { from: 4, to: 5 } }],
+      },
+      row('Close file tab', AppCommandId.Close),
+      row('Open file in editor', WindowCommandId.OpenInEditor),
     ],
   },
   {
     area: Terminal,
     rows: [
-      row('Focus terminal', CommandId.FocusTerminal),
-      row('New terminal tab', CommandId.NewTerminalTab),
-      row('Next / previous tab', CommandId.NextTerminalTab, CommandId.PreviousTerminalTab),
-      row('Clear', CommandId.ClearTerminal),
-      row('Kill process', CommandId.KillProcess),
+      row('Focus terminal', WindowCommandId.FocusTerminal),
+      row('New terminal tab', WindowCommandId.NewTerminalTab),
+      row('Next / previous tab', WindowCommandId.NextTerminalTab, WindowCommandId.PreviousTerminalTab),
+      row('Clear', WindowCommandId.ClearTerminal),
+      row('Kill process', WindowCommandId.KillProcess),
     ],
   },
   {
     area: MenusAndDialogs,
     rows: [
-      row('Move', CommandId.MenuMove),
-      row('Choose', CommandId.MenuChoose),
-      row('Close', CommandId.MenuClose),
-      row('Select an answer in a question card', CommandId.SelectAnswer),
+      row('Move', WindowCommandId.MenuMove),
+      row('Choose', WindowCommandId.MenuChoose),
+      row('Close', WindowCommandId.MenuClose),
+      row('Select an answer in a question card', WindowCommandId.SelectAnswer),
     ],
   },
 ]

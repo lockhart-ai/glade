@@ -2,7 +2,7 @@ import { faChevronDown, faListUl, faXmark } from '@fortawesome/free-solid-svg-ic
 import { useMemo, useState } from 'react'
 import type { ToolEvent } from '../../shared/domain'
 import { fileName } from '../../shared/files'
-import { CommandId } from '../../shared/keymap'
+import { WindowCommandId } from '../../shared/commands'
 import { useCommand } from '../commands/hooks'
 import { Icon, IconSize, Menu, MenuAnchorKind, MenuEntryKind, type MenuEntry, type MenuItem } from '../components'
 import { classNames } from '../components/classNames'
@@ -77,7 +77,7 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
 
   useCommand(
-    CommandId.OpenInEditor,
+    WindowCommandId.OpenInEditor,
     activePath === null
       ? null
       : () => {

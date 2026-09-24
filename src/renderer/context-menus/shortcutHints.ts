@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
-import { CommandId, DEFAULT_KEYMAP, formatBinding, type Keymap } from '../../shared/keymap'
+import { AppCommandId, TaskCommandId, WindowCommandId } from '../../shared/commands'
+import { DEFAULT_KEYMAP, formatBinding, type Keymap, type ShortcutId } from '../../shared/keymap'
 import { useKeymap } from '../commands/hooks'
 
 /** The keys the context menus show beside their items. */
@@ -16,14 +17,14 @@ export enum ShortcutAction {
 }
 
 /** The command whose binding each hint shows. Copy is the Edit menu's ⌘C, which no command has. */
-const HINT_COMMANDS: Readonly<Record<Exclude<ShortcutAction, ShortcutAction.Copy>, CommandId>> = {
-  [ShortcutAction.Open]: CommandId.MenuChoose,
-  [ShortcutAction.TogglePin]: CommandId.TogglePin,
-  [ShortcutAction.Rename]: CommandId.RenameTask,
-  [ShortcutAction.MarkUnread]: CommandId.MarkUnread,
-  [ShortcutAction.MarkDone]: CommandId.MarkDone,
-  [ShortcutAction.CloseFileTab]: CommandId.CloseFileTab,
-  [ShortcutAction.OpenInEditor]: CommandId.OpenInEditor,
+const HINT_COMMANDS: Readonly<Record<Exclude<ShortcutAction, ShortcutAction.Copy>, ShortcutId>> = {
+  [ShortcutAction.Open]: WindowCommandId.MenuChoose,
+  [ShortcutAction.TogglePin]: TaskCommandId.TogglePin,
+  [ShortcutAction.Rename]: TaskCommandId.Rename,
+  [ShortcutAction.MarkUnread]: TaskCommandId.MarkUnread,
+  [ShortcutAction.MarkDone]: TaskCommandId.MarkDone,
+  [ShortcutAction.CloseFileTab]: AppCommandId.Close,
+  [ShortcutAction.OpenInEditor]: WindowCommandId.OpenInEditor,
 }
 
 /** What each hint shows. */

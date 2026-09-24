@@ -1,5 +1,6 @@
 import { useCallback, useState, type KeyboardEvent, type MouseEvent } from 'react'
-import { CommandId, DEFAULT_KEYMAP, type Keymap, type KeyPress } from '../../shared/keymap'
+import { WindowCommandId } from '../../shared/commands'
+import { DEFAULT_KEYMAP, type Keymap, type KeyPress } from '../../shared/keymap'
 import { isCommandKey, useKeymap } from '../commands/hooks'
 import { Menu, MenuAnchorKind, type MenuAnchor, type MenuEntry } from '../components'
 
@@ -9,7 +10,7 @@ import { Menu, MenuAnchorKind, type MenuAnchor, type MenuEntry } from '../compon
  */
 export function isContextMenuKey(event: KeyPress, keymap: Keymap = DEFAULT_KEYMAP): boolean {
   if (event.key === 'ContextMenu') return !event.metaKey && !event.altKey && !event.ctrlKey
-  return isCommandKey(CommandId.ContextMenu, keymap, event)
+  return isCommandKey(WindowCommandId.ContextMenu, keymap, event)
 }
 
 /** A context menu that's open: what it's for, and where. */

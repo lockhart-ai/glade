@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import { Effort, MessageRole, TaskActivity, TaskState, UiStateKey, type Task } from '../../shared/domain'
-import { CommandId } from '../../shared/keymap'
+import { WindowCommandId } from '../../shared/commands'
 import { ToastProvider } from '../components'
 import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
@@ -209,7 +209,7 @@ describe('InputBar', () => {
 
     it('sends on Send’s keys once you rebind it, leaving ↵ to the field', async () => {
       const fake = await renderBar()
-      await act(() => fake.store.getState().updateSettings({ keyBindings: { [CommandId.Send]: 'Meta+Enter' } }))
+      await act(() => fake.store.getState().updateSettings({ keyBindings: { [WindowCommandId.Send]: 'Meta+Enter' } }))
       type('Add a Retry-After header.')
 
       expect(await press('Enter')).toBe(true)

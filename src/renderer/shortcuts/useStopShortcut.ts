@@ -1,5 +1,5 @@
 import { TaskActivity } from '../../shared/domain'
-import { CommandId } from '../../shared/keymap'
+import { WindowCommandId } from '../../shared/commands'
 import { useCommand } from '../commands/hooks'
 import { useToast } from '../components'
 import { describeFailure } from '../store/hydrate'
@@ -15,7 +15,7 @@ export function useStopShortcut(): void {
   const stopTask = useGladeStore((state) => state.stopTask)
   const toast = useToast()
   const workingTaskId = task?.activity === TaskActivity.Working ? task.id : null
-  useCommand(CommandId.StopAgent, () => {
+  useCommand(WindowCommandId.StopAgent, () => {
     if (workingTaskId === null) return
     stopTask(workingTaskId).catch((error: unknown) => {
       toast.show({ message: describeFailure(error) })

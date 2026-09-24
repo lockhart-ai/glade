@@ -5,7 +5,7 @@ import {
   KeyScope,
   matchCommand,
   resolveKeymap,
-  type CommandId,
+  type ShortcutId,
   type CommandMatch,
   type KeyBindingOverrides,
   type Keymap,
@@ -34,7 +34,7 @@ export function isTextField(target: EventTarget | null): boolean {
  * task selected). The same command registered twice runs where it was registered last.
  */
 export class CommandRegistry {
-  private readonly handlers = new Map<CommandId, CommandHandler[]>()
+  private readonly handlers = new Map<ShortcutId, CommandHandler[]>()
   private cached: { readonly overrides: KeyBindingOverrides; readonly keymap: Keymap } | null = null
 
   constructor(private readonly store: GladeStore) {}
@@ -47,7 +47,7 @@ export class CommandRegistry {
   }
 
   /** Registers a handler for a command, until the returned function is called. */
-  register(id: CommandId, handler: CommandHandler): () => void {
+  register(id: ShortcutId, handler: CommandHandler): () => void {
     if (this.handlers.size === 0) window.addEventListener('keydown', this.onKeyDown)
     this.handlers.set(id, [...(this.handlers.get(id) ?? []), handler])
     return () => {
@@ -59,12 +59,12 @@ export class CommandRegistry {
   }
 
   /** Whether something mounted can run the command just now. */
-  has(id: CommandId): boolean {
+  has(id: ShortcutId): boolean {
     return this.handlers.has(id)
   }
 
   /** Runs a command as its keys would (a menu item's click, say); false when nothing registered can run it. */
-  run(id: CommandId, match: CommandMatch = NO_DIGIT): boolean {
+  run(id: ShortcutId, match: CommandMatch = NO_DIGIT): boolean {
     const handler = this.handlers.get(id)?.at(-1)
     if (handler === undefined) return false
     handler(match)

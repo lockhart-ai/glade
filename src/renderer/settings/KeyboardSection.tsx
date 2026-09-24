@@ -10,7 +10,7 @@ import {
   KEYMAP_LAYOUT,
   withBinding,
   withDefault,
-  type CommandId,
+  type ShortcutId,
   type KeymapKey,
   type KeymapRow,
 } from '../../shared/keymap'
@@ -27,7 +27,7 @@ export const RECORDING_PROMPT = 'Press keys…'
 interface KeyFocus {
   /** The row, by its action. */
   readonly row: string
-  readonly command: CommandId
+  readonly command: ShortcutId
 }
 
 /** The name a keycap goes by: its command's, or the row's for a row of one command (the right panel's tabs split in two). */
@@ -66,7 +66,7 @@ export function KeyboardSection(): React.JSX.Element {
     void updateSettings({ keyBindings: withBinding(overrides, focus.command, chord) })
   }
 
-  const reset = (command: CommandId): void => {
+  const reset = (command: ShortcutId): void => {
     setProblem(null)
     void updateSettings({ keyBindings: withDefault(overrides, command) })
   }

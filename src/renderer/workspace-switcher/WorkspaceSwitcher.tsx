@@ -1,7 +1,8 @@
 import { faCheck } from '@fortawesome/free-solid-svg-icons'
 import { useState, type ReactNode } from 'react'
+import { AppCommandId } from '../../shared/commands'
 import type { Task, Workspace } from '../../shared/domain'
-import { CommandId, formatBinding } from '../../shared/keymap'
+import { formatBinding } from '../../shared/keymap'
 import { useKeymap } from '../commands/hooks'
 import { Icon, IconSize, Menu, MenuAnchorKind, MenuEntryKind, type MenuEntry } from '../components'
 import { classNames } from '../components/classNames'
@@ -83,14 +84,14 @@ export function WorkspaceSwitcher({ collapseButton }: WorkspaceSwitcherProps): R
     {
       kind: MenuEntryKind.Item,
       label: 'New workspace…',
-      shortcut: formatBinding(CommandId.NewWorkspace, keymap),
+      shortcut: formatBinding(AppCommandId.NewWorkspace, keymap),
       className: styles.action,
       onSelect: add,
     },
     {
       kind: MenuEntryKind.Item,
       label: 'Open folder as workspace…',
-      shortcut: formatBinding(CommandId.OpenFolderAsWorkspace, keymap),
+      shortcut: formatBinding(AppCommandId.OpenFolder, keymap),
       className: styles.action,
       onSelect: add,
     },
@@ -98,7 +99,7 @@ export function WorkspaceSwitcher({ collapseButton }: WorkspaceSwitcherProps): R
     {
       kind: MenuEntryKind.Item,
       label: 'Workspace settings…',
-      shortcut: formatBinding(CommandId.OpenSettings, keymap),
+      shortcut: formatBinding(AppCommandId.Settings, keymap),
       className: styles.action,
       onSelect: () => {
         openSettings(SettingsSection.Workspace)

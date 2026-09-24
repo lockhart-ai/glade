@@ -1,5 +1,5 @@
 import { UiStateKey, type UiStateEntry } from '../../shared/domain'
-import { CommandId } from '../../shared/keymap'
+import { WindowCommandId } from '../../shared/commands'
 import { useCommand } from '../commands/hooks'
 import { collapsedEntry, isCollapsed, Panel } from '../panels'
 import { tabForDigit } from '../right-panel/panelModel'
@@ -21,7 +21,7 @@ export function panelTabEntries(digit: number, uiState: UiStateValues): UiStateE
 /** Tool calls · Files · Todos · Artifacts · Subagents (⌘⌥1–5) pick the right panel's tab, wherever the focus is. */
 export function useRightPanelShortcuts(): void {
   const store = useGladeStoreApi()
-  useCommand(CommandId.ShowPanelTab, ({ digit }) => {
+  useCommand(WindowCommandId.ShowPanelTab, ({ digit }) => {
     const { uiState, setUiState } = store.getState()
     for (const entry of panelTabEntries(digit ?? 0, uiState) ?? []) void setUiState(entry)
   })

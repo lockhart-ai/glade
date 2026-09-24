@@ -1,17 +1,25 @@
 import { statSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import type { Database } from 'better-sqlite3'
-import { BridgeErrorCode, type WorkspaceUserPatch } from '../../shared/bridge'
+import { BridgeErrorCode, EventType, type WorkspaceUserPatch } from '../../shared/bridge'
 import { UiStateKey, type EpochMs, type UiStateEntry, type Workspace } from '../../shared/domain'
+import type { AgentRunner } from '../agent/runner'
 import { CommandFailure } from '../bridge/errors'
-import { getTask } from '../db/repositories/tasks'
+import type { Emit } from '../bridge/events'
+import { getTask, listTasks } from '../db/repositories/tasks'
 import { getUiState, setUiState } from '../db/repositories/ui-state'
 import {
   clearWorkspaceSelection,
   getWorkspaceSelection,
   setWorkspaceSelection,
 } from '../db/repositories/workspace-selections'
-import { createWorkspace, getWorkspace, getWorkspaceByRoot, updateWorkspace } from '../db/repositories/workspaces'
+import {
+  createWorkspace,
+  deleteWorkspace,
+  getWorkspace,
+  getWorkspaceByRoot,
+  updateWorkspace,
+} from '../db/repositories/workspaces'
 import { seedClaudeMd } from './starter-claude-md'
 
 export interface WorkspaceCreation {
@@ -114,4 +122,38 @@ export function noteSelection(db: Database, entry: UiStateEntry): void {
   }
   const task = getTask(db, entry.value)
   if (task !== undefined) setWorkspaceSelection(db, task.workspaceId, task.id)
+}
+
+/** What removing a workspace needs: the database, the windows to tell, and the runner whose sessions it closes. */
+export interface WorkspaceRemovalContext {
+  readonly db: Database
+  readonly emit: Emit
+  readonly runner: Pick<AgentRunner, 'discard'>
+}
+
+/**
+ * Removes a workspace from the list (`workspaces.remove`): closes its tasks' live agent sessions, then deletes the
+ * workspace, which takes its tasks and everything of theirs with it. Nothing on disk is touched. When the window shows
+ * it, the window is left showing no workspace and no task.
+ *
+ * @throws CommandFailure `not_found` when there's no such workspace.
+ */
+export function removeWorkspace({ db, emit, runner }: WorkspaceRemovalContext, id: string): void {
+  if (getWorkspace(db, id) === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${id}`)
+  const tasks = listTasks(db, id)
+  for (const task of tasks) runner.discard(task.id)
+  const cleared: UiStateEntry[] =
+    getUiState(db, UiStateKey.ActiveWorkspaceId) === id
+      ? [
+          { key: UiStateKey.ActiveWorkspaceId, value: '' },
+          { key: UiStateKey.SelectedTaskId, value: '' },
+        ]
+      : []
+  db.transaction(() => {
+    deleteWorkspace(db, id)
+    for (const entry of cleared) setUiState(db, entry)
+  })()
+  for (const entry of cleared) emit({ type: EventType.UiStateChanged, entry })
+  for (const task of tasks) emit({ type: EventType.TaskDeleted, taskId: task.id })
+  emit({ type: EventType.WorkspaceRemoved, workspaceId: id })
 }

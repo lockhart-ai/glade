@@ -5,7 +5,7 @@ import { UiStateKey, type Task } from '../../shared/domain'
 import { classNames } from '../components/classNames'
 import { Button, ButtonVariant, Input } from '../components'
 import { useGladeStore } from '../store/react'
-import { CommandId } from '../../shared/keymap'
+import { AppCommandId } from '../../shared/commands'
 import { useBinding } from '../commands/hooks'
 import { useNewTask } from './useNewTask'
 import styles from './TaskListToolbar.module.css'
@@ -69,7 +69,7 @@ function Chip({ filter, chosen, onChoose, children }: ChipProps): React.JSX.Elem
 export function TaskListToolbar({ workspaceId }: TaskListToolbarProps): React.JSX.Element {
   const tasks = useGladeStore((state) => state.tasks)
   const newTask = useNewTask(workspaceId)
-  const newTaskKeys = useBinding(CommandId.NewTask)
+  const newTaskKeys = useBinding(AppCommandId.NewTask)
   const counts = useMemo(() => countChips(Object.values(tasks), workspaceId), [tasks, workspaceId])
   const chosen = useGladeStore((state) => parseTaskFilter(state.uiState[UiStateKey.TaskFilter]))
   const setUiState = useGladeStore((state) => state.setUiState)

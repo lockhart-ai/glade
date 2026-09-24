@@ -1,4 +1,4 @@
-import { CommandId } from '../../shared/keymap'
+import { WindowCommandId } from '../../shared/commands'
 import { useCommand } from '../commands/hooks'
 import { canCompact, useCompact } from '../context-meter/compact'
 import { useGladeStore } from '../store/react'
@@ -13,7 +13,7 @@ export function useCompactShortcut(): void {
   const task = useGladeStore(selectSelectedTask)
   const compact = useCompact()
   const taskId = task !== undefined && canCompact(task) ? task.id : null
-  useCommand(CommandId.CompactContext, () => {
+  useCommand(WindowCommandId.CompactContext, () => {
     if (taskId !== null) void compact(taskId)
   })
 }

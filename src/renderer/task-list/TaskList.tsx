@@ -2,7 +2,7 @@ import { faChevronDown, faChevronRight, faThumbtack } from '@fortawesome/free-so
 import { useId, useMemo } from 'react'
 import { parseTaskFilter, TaskFilter } from '../../shared/attention'
 import { UiStateKey } from '../../shared/domain'
-import { CommandId } from '../../shared/keymap'
+import { WindowCommandId } from '../../shared/commands'
 import { useCommands } from '../commands/hooks'
 import { Icon, IconSize } from '../components'
 import { ContextMenu, useContextMenu } from '../context-menus'
@@ -69,13 +69,13 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
     if (next !== null && next !== selectedTaskId) void selectTask(next)
   }
   useCommands({
-    [CommandId.NextTask]: () => {
+    [WindowCommandId.NextTask]: () => {
       step(Step.Next)
     },
-    [CommandId.PreviousTask]: () => {
+    [WindowCommandId.PreviousTask]: () => {
       step(Step.Previous)
     },
-    [CommandId.NextTaskNeedingYou]: () => {
+    [WindowCommandId.NextTaskNeedingYou]: () => {
       const next = nextNeedingYou(sectionTasks(Object.values(tasks), workspaceId, TaskFilter.All), selectedTaskId)
       if (next !== null) void selectTask(next)
     },

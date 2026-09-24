@@ -3,6 +3,7 @@
  * destructive items last, in pink. Each builder takes what its target is like and the actions to run, so the menus can
  * be checked against the reference without rendering anything.
  */
+import { pinLabel } from '../../shared/commands'
 import { TaskState, type Task } from '../../shared/domain'
 import { MenuEntryKind, MenuItemVariant, type MenuEntry, type MenuItem } from '../components'
 import { SHORTCUT_HINTS, ShortcutAction, type ShortcutHints } from './shortcutHints'
@@ -51,10 +52,7 @@ export interface TaskMenuActions {
   readonly delete: MenuAction
 }
 
-/** The label of the item that pins a task, or unpins a pinned one. */
-export function pinLabel(pinned: boolean): string {
-  return pinned ? 'Unpin' : 'Pin to top'
-}
+export { pinLabel }
 
 /**
  * A task's menu, on its row in the task list: an active task's can mark it unread or done, a done task's can reopen it

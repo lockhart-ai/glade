@@ -1,5 +1,5 @@
 import { flushSync } from 'react-dom'
-import { CommandId } from '../../shared/keymap'
+import { WindowCommandId } from '../../shared/commands'
 import { useCommands } from '../commands/hooks'
 import { collapsedEntry, isCollapsed, Panel } from '../panels'
 import { useGladeStoreApi } from '../store/react'
@@ -21,5 +21,5 @@ export function useSearchShortcut(): void {
     }
     focus()
   }
-  useCommands({ [CommandId.SearchTasks]: focusSearch, [CommandId.JumpToTask]: focusSearch })
+  useCommands({ [WindowCommandId.SearchTasks]: focusSearch, [WindowCommandId.JumpToTask]: focusSearch })
 }

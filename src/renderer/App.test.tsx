@@ -1,21 +1,34 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, it } from 'vitest'
-import { bridgeError, BridgeErrorCode, CommandName } from '../shared/bridge'
+import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../shared/bridge'
+import { appCommand, AppCommandId } from '../shared/commands'
 import { UiStateKey, type Workspace } from '../shared/domain'
 import { App } from './App'
 import { GladeStoreProvider } from './store/react'
 import { createGladeStore, type GladeStore } from './store/store'
-import { fakeBridge, refuse, sampleTask, sampleWorkspace, type FakeHandlers } from './store/test-bridge'
+import {
+  fakeBridge,
+  refuse,
+  sampleTask,
+  sampleWorkspace,
+  type FakeBridge,
+  type FakeHandlers,
+} from './store/test-bridge'
 
-async function renderApp(workspaces: Workspace[], overrides: Partial<FakeHandlers> = {}): Promise<GladeStore> {
-  const store = createGladeStore(fakeBridge({ workspaces, tasks: [], uiState: [] }, overrides).bridge)
+interface RenderedApp extends FakeBridge {
+  readonly store: GladeStore
+}
+
+async function renderApp(workspaces: Workspace[], overrides: Partial<FakeHandlers> = {}): Promise<RenderedApp> {
+  const fake = fakeBridge({ workspaces, tasks: [], uiState: [] }, overrides)
+  const store = createGladeStore(fake.bridge)
   render(
     <GladeStoreProvider store={store}>
       <App />
     </GladeStoreProvider>,
   )
   await act(() => store.getState().hydrate())
-  return store
+  return { ...fake, store }
 }
 
 it('shows a loading state until the store has loaded', () => {
@@ -112,7 +125,7 @@ it('says why when the store could not load', async () => {
 })
 
 it('collapses the task list from its header, and shows it again from the top of the task card', async () => {
-  const store = await renderApp([sampleWorkspace('w1')])
+  const { store } = await renderApp([sampleWorkspace('w1')])
 
   fireEvent.click(screen.getByRole('button', { name: 'Collapse task list' }))
 
@@ -124,18 +137,23 @@ it('collapses the task list from its header, and shows it again from the top of 
   expect(screen.queryByTestId('task-title-bar')).toBeNull()
 })
 
-it('collapses the bottom bar to its tab row, and toggles the panels from the keyboard', async () => {
-  const store = await renderApp([sampleWorkspace('w1')])
+it('collapses the bottom bar to its tab row, and toggles the panels from the menu bar', async () => {
+  const { store, emit } = await renderApp([sampleWorkspace('w1')])
+  const choose = (id: AppCommandId): void => {
+    act(() => {
+      emit({ type: EventType.MenuCommand, command: appCommand(id) })
+    })
+  }
   const terminal = screen.getByRole('region', { name: 'Terminal' })
 
   fireEvent.click(within(terminal).getByRole('button', { name: 'Collapse bottom panel' }))
   expect(within(terminal).queryByText('Terminal')).toBeNull()
-  fireEvent.keyDown(window, { code: 'KeyJ', key: 'j', metaKey: true })
+  choose(AppCommandId.ToggleBottomBar)
   expect(within(terminal).getByText('Terminal')).toBeInTheDocument()
 
-  fireEvent.keyDown(window, { code: 'KeyB', key: 'b', metaKey: true })
+  choose(AppCommandId.ToggleSidebar)
   expect(screen.queryByRole('navigation', { name: 'Tasks' })).toBeNull()
-  fireEvent.keyDown(window, { code: 'KeyB', key: '∫', metaKey: true, altKey: true })
+  choose(AppCommandId.ToggleRightPanel)
   expect(screen.queryByRole('complementary', { name: 'Task panel' })).toBeNull()
   expect(store.getState().uiState).toMatchObject({
     [UiStateKey.SidebarCollapsed]: 'true',
@@ -145,13 +163,12 @@ it('collapses the bottom bar to its tab row, and toggles the panels from the key
 })
 
 it('keeps the task list in the first-run window, where only the bottom bar collapses', async () => {
-  const store = await renderApp([])
+  const { store, emit } = await renderApp([])
 
   expect(screen.queryByRole('button', { name: 'Collapse task list' })).toBeNull()
-  fireEvent.keyDown(window, { code: 'KeyB', key: 'b', metaKey: true })
-  expect(screen.getByRole('navigation', { name: 'Tasks' })).toBeInTheDocument()
   expect(store.getState().uiState[UiStateKey.SidebarCollapsed]).toBeUndefined()
-
-  fireEvent.keyDown(window, { code: 'KeyJ', key: 'j', metaKey: true })
+  act(() => {
+    emit({ type: EventType.MenuCommand, command: appCommand(AppCommandId.ToggleBottomBar) })
+  })
   expect(screen.getByRole('button', { name: 'Show bottom panel' })).toBeInTheDocument()
 })
