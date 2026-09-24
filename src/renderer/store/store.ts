@@ -1,7 +1,8 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
 import { UiStateKey, type OpenFiles, type UiStateEntry, type Workspace } from '../../shared/domain'
-import { isPanelCollapsed, PanelTab, parsePanelTab } from '../right-panel/panelModel'
+import { collapsedEntry, isCollapsed, Panel } from '../panels/panels'
+import { PanelTab, parsePanelTab } from '../right-panel/panelModel'
 import { listedTaskIds, selectionAfterDeleting } from '../task-list/sections'
 import { describeFailure, loadSnapshot } from './hydrate'
 import { applyEvent, withHistory, withOpenedWorkspace } from './reducer'
@@ -49,9 +50,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       if (parsePanelTab(uiState[UiStateKey.RightPanelTab]) !== tab) {
         void setUiState({ key: UiStateKey.RightPanelTab, value: tab })
       }
-      if (isPanelCollapsed(uiState[UiStateKey.RightPanelCollapsed])) {
-        void setUiState({ key: UiStateKey.RightPanelCollapsed, value: 'false' })
-      }
+      if (isCollapsed(uiState, Panel.RightPanel)) void setUiState(collapsedEntry(Panel.RightPanel, false))
     }
 
     const applyOpenFiles = ({ openFiles }: { openFiles: OpenFiles }): void => {

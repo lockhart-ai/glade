@@ -21,6 +21,21 @@ export function regions(page: Page) {
   }
 }
 
+/**
+ * The buttons that collapse the task list and the bottom bar, and show them again. (The right panel's are with it, in
+ * `taskPanel` and `taskHeader`.)
+ */
+export function panelToggles(page: Page) {
+  const { sidebar, task, terminal } = regions(page)
+  return {
+    collapseTaskList: sidebar.getByRole('button', { name: 'Collapse task list' }),
+    /** At the top of the task card while the task list is collapsed. */
+    showTaskList: task.getByRole('button', { name: 'Show task list' }),
+    collapseBottomBar: terminal.getByRole('button', { name: 'Collapse bottom panel' }),
+    showBottomBar: terminal.getByRole('button', { name: 'Show bottom panel' }),
+  }
+}
+
 /** The first-run welcome's controls. */
 export function firstRun(page: Page) {
   const welcome = regions(page).welcome

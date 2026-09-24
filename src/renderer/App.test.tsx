@@ -110,3 +110,48 @@ it('says why when the store could not load', async () => {
   expect(screen.getByRole('main')).toHaveTextContent('Glade couldn’t load: disk full')
   expect(screen.queryByRole('navigation')).toBeNull()
 })
+
+it('collapses the task list from its header, and shows it again from the top of the task card', async () => {
+  const store = await renderApp([sampleWorkspace('w1')])
+
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse task list' }))
+
+  expect(store.getState().uiState[UiStateKey.SidebarCollapsed]).toBe('true')
+  expect(screen.queryByRole('navigation', { name: 'Tasks' })).toBeNull()
+  const titleBar = within(screen.getByRole('main', { name: 'Task' })).getByTestId('task-title-bar')
+  fireEvent.click(within(titleBar).getByRole('button', { name: 'Show task list' }))
+  expect(screen.getByRole('navigation', { name: 'Tasks' })).toBeInTheDocument()
+  expect(screen.queryByTestId('task-title-bar')).toBeNull()
+})
+
+it('collapses the bottom bar to its tab row, and toggles the panels from the keyboard', async () => {
+  const store = await renderApp([sampleWorkspace('w1')])
+  const terminal = screen.getByRole('region', { name: 'Terminal' })
+
+  fireEvent.click(within(terminal).getByRole('button', { name: 'Collapse bottom panel' }))
+  expect(within(terminal).queryByText('Terminal')).toBeNull()
+  fireEvent.keyDown(window, { code: 'KeyJ', key: 'j', metaKey: true })
+  expect(within(terminal).getByText('Terminal')).toBeInTheDocument()
+
+  fireEvent.keyDown(window, { code: 'KeyB', key: 'b', metaKey: true })
+  expect(screen.queryByRole('navigation', { name: 'Tasks' })).toBeNull()
+  fireEvent.keyDown(window, { code: 'KeyB', key: '∫', metaKey: true, altKey: true })
+  expect(screen.queryByRole('complementary', { name: 'Task panel' })).toBeNull()
+  expect(store.getState().uiState).toMatchObject({
+    [UiStateKey.SidebarCollapsed]: 'true',
+    [UiStateKey.RightPanelCollapsed]: 'true',
+    [UiStateKey.BottomBarCollapsed]: 'false',
+  })
+})
+
+it('keeps the task list in the first-run window, where only the bottom bar collapses', async () => {
+  const store = await renderApp([])
+
+  expect(screen.queryByRole('button', { name: 'Collapse task list' })).toBeNull()
+  fireEvent.keyDown(window, { code: 'KeyB', key: 'b', metaKey: true })
+  expect(screen.getByRole('navigation', { name: 'Tasks' })).toBeInTheDocument()
+  expect(store.getState().uiState[UiStateKey.SidebarCollapsed]).toBeUndefined()
+
+  fireEvent.keyDown(window, { code: 'KeyJ', key: 'j', metaKey: true })
+  expect(screen.getByRole('button', { name: 'Show bottom panel' })).toBeInTheDocument()
+})

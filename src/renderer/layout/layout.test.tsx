@@ -1,9 +1,13 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../components'
+import { moduleClass } from '../components/moduleClass'
 import { MIN_CHAT_WIDTH, MIN_PANEL_WIDTH } from '../right-panel/panelModel'
 import { sampleWorkspace } from '../store/test-bridge'
 import { AppShell, BottomBar, RightPanel, Sidebar, SidebarHeader, TaskCard, TaskHeader } from '.'
+import appShellStyles from './AppShell.module.css'
+import bottomBarStyles from './BottomBar.module.css'
+import taskCardStyles from './TaskCard.module.css'
 
 describe('AppShell', () => {
   it('renders the sidebar, task card and bottom bar slots', () => {
@@ -13,6 +17,15 @@ describe('AppShell', () => {
     expect(screen.getByText('Task slot')).toBeInTheDocument()
     expect(screen.getByText('Bottom slot')).toBeInTheDocument()
     expect(screen.getByTestId('window-drag-strip')).toBeEmptyDOMElement()
+    expect(screen.getByText('Task slot').parentElement).not.toHaveClass(moduleClass(appShellStyles, 'full'))
+    expect(screen.getByText('Bottom slot').parentElement).not.toHaveClass(moduleClass(appShellStyles, 'collapsed'))
+  })
+
+  it('gives the task card the whole width without a sidebar, and the bottom bar only its height when collapsed', () => {
+    render(<AppShell task={<p>Task slot</p>} bottomBar={<p>Bottom slot</p>} bottomBarCollapsed />)
+
+    expect(screen.getByText('Task slot').parentElement).toHaveClass(moduleClass(appShellStyles, 'full'))
+    expect(screen.getByText('Bottom slot').parentElement).toHaveClass(moduleClass(appShellStyles, 'collapsed'))
   })
 
   it('shows the banner above the rest when there is one', () => {
@@ -49,12 +62,12 @@ describe('SidebarHeader', () => {
     expect(header).toHaveTextContent('Aacme API~/code/api')
   })
 
-  it('shows the switcher chevron and the collapse button, which do nothing yet', () => {
-    render(<SidebarHeader workspace={sampleWorkspace('w1')} />)
+  it('shows the switcher chevron, and the collapse button it is given', () => {
+    render(<SidebarHeader workspace={sampleWorkspace('w1')} collapseButton={<button type="button">Collapse</button>} />)
 
     const header = screen.getByRole('region', { name: 'Workspace' })
-    expect(header.querySelectorAll('svg')).toHaveLength(2)
-    expect(within(header).getByRole('button', { name: 'Collapse task list' })).toBeEnabled()
+    expect(header.querySelectorAll('svg')).toHaveLength(1)
+    expect(within(header).getByRole('button', { name: 'Collapse' })).toBeInTheDocument()
   })
 
   it('says to open a folder when there is no workspace', () => {
@@ -88,6 +101,30 @@ describe('TaskCard', () => {
     expect(within(main).getByRole('region', { name: 'Chat' })).toHaveTextContent('Chat slot')
     expect(within(main).getByTestId('input-bar')).toHaveTextContent('Input slot')
     expect(within(main).getByText('Panel slot')).toBeInTheDocument()
+    expect(within(main).queryByTestId('task-title-bar')).toBeNull()
+    expect(within(main).getByText('Header slot').parentElement).not.toHaveClass(
+      moduleClass(taskCardStyles, 'belowTrafficLights'),
+    )
+  })
+
+  it('shows a title row above the header while it is given one', () => {
+    render(
+      <ToastProvider>
+        <TaskCard
+          titleBar={<button type="button">Show task list</button>}
+          clearTrafficLights
+          header={<p>Header slot</p>}
+          chat={null}
+          inputBar={null}
+          rightPanel={null}
+        />
+      </ToastProvider>,
+    )
+
+    const titleBar = screen.getByTestId('task-title-bar')
+    expect(within(titleBar).getByRole('button', { name: 'Show task list' })).toBeInTheDocument()
+    expect(titleBar.compareDocumentPosition(screen.getByText('Header slot'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(titleBar.parentElement).toHaveClass(moduleClass(taskCardStyles, 'belowTrafficLights'))
   })
 
   it('shows toasts above the input bar', () => {
@@ -172,5 +209,22 @@ describe('BottomBar', () => {
     const terminal = screen.getByRole('region', { name: 'Terminal' })
     expect(within(terminal).getByTestId('terminal-tabs')).toHaveTextContent('Shells')
     expect(within(terminal).getByText('Prompt')).toBeInTheDocument()
+    expect(within(terminal).getByTestId('terminal-tabs')).not.toHaveClass(moduleClass(bottomBarStyles, 'alone'))
+  })
+
+  it('keeps only its tab row, with the toggle at its end, while collapsed', () => {
+    render(
+      <BottomBar
+        collapsed
+        terminalTabs={<span>Shells</span>}
+        terminal={<pre>Prompt</pre>}
+        toggle={<button type="button">Show bottom panel</button>}
+      />,
+    )
+
+    const tabs = within(screen.getByRole('region', { name: 'Terminal' })).getByTestId('terminal-tabs')
+    expect(tabs).toHaveTextContent('ShellsShow bottom panel')
+    expect(tabs).toHaveClass(moduleClass(bottomBarStyles, 'alone'))
+    expect(screen.queryByText('Prompt')).toBeNull()
   })
 })
