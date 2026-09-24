@@ -51,6 +51,13 @@
   gap: 8px;
 }
 
+/* A reply takes the focus for its context menu (⇧F10). */
+.agent:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 6px;
+  border-radius: 4px;
+}
+
 .reply {
   font-size: var(--font-size-chat);
   line-height: var(--line-height-chat);

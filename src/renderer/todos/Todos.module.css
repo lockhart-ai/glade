@@ -85,6 +85,12 @@
   border-radius: 8px;
 }
 
+/* An item takes the focus for its context menu (⇧F10). */
+.item:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+}
+
 .icon {
   flex-shrink: 0;
   width: 18px;

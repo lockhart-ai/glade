@@ -27,6 +27,7 @@ import {
   type WriteClipboard,
 } from '../files/files'
 import { todoListFor } from '../todos/todos'
+import { removeTaskArtifact } from '../artifacts/artifacts'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
 
@@ -53,7 +54,7 @@ export interface HandlerContext {
 }
 
 export function createHandlers(context: HandlerContext): Handlers {
-  const { db, emit, chooseFolder, runner } = context
+  const { db, emit, chooseFolder, runner, writeClipboard } = context
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
     [CommandName.WorkspacesCreate]: ({ rootPath }) => {
@@ -81,6 +82,10 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.TasksStop]: async ({ id }) => ({ task: await runner.stop(id) }),
     [CommandName.TasksRetry]: ({ id, model }) => ({ task: runner.retry(id, model) }),
     [CommandName.TasksCompact]: ({ id }) => ({ task: runner.compact(id) }),
+    [CommandName.SubagentsStop]: async ({ taskId, toolUseId }) => {
+      await runner.stopSubagent(taskId, toolUseId)
+      return null
+    },
     [CommandName.TasksHistory]: ({ id }) => {
       if (getTask(db, id) === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${id}`)
       return {
@@ -114,6 +119,14 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.FilesReveal]: async ({ taskId, path }) => {
       await revealTaskFile(context, taskId, path)
+      return null
+    },
+    [CommandName.ArtifactsRemove]: ({ taskId, path }) => {
+      removeTaskArtifact(context, taskId, path)
+      return null
+    },
+    [CommandName.ClipboardWriteText]: async ({ text }) => {
+      await writeClipboard(text)
       return null
     },
     [CommandName.UiStateGet]: ({ key }) => ({ value: getUiState(db, key) ?? null }),
