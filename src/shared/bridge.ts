@@ -9,7 +9,18 @@
  *   rejecting with a `BridgeError`. `BridgeError` is a plain object, not an `Error`: `contextBridge` copies an `Error`
  *   thrown into the renderer's world but drops its extra properties, so `code` wouldn't survive.
  */
-import type { Effort, Message, QueuedMessage, Task, ToolEvent, UiStateEntry, UiStateKey, Workspace } from './domain'
+import type {
+  Effort,
+  Message,
+  QuestionAnswers,
+  QuestionSet,
+  QueuedMessage,
+  Task,
+  ToolEvent,
+  UiStateEntry,
+  UiStateKey,
+  Workspace,
+} from './domain'
 
 /** The name the bridge is exposed under on `window`. */
 export const BRIDGE_KEY = 'glade'
@@ -40,6 +51,7 @@ export enum CommandName {
   QueueAdd = 'queue.add',
   QueueEdit = 'queue.edit',
   QueueRemove = 'queue.remove',
+  QuestionsAnswer = 'questions.answer',
   UiStateGet = 'uiState.get',
   UiStateGetAll = 'uiState.getAll',
   UiStateSet = 'uiState.set',
@@ -146,6 +158,10 @@ export interface TaskResponse {
  * Messages waiting in the task's queue (a turn that was stopped or failed leaves them there) go first, in order, then
  * this one: all of them start the turn, and each is saved to the chat log.
  *
+ * While the agent waits on answers to questions it asked (`task.asking`), the message answers them instead, in your own
+ * words: it's saved to the chat log as your reply, in the turn that asked, and the agent gets it as the answer
+ * (`{ "freeText": … }`). It starts no turn, and the queue stays as it is. Broadcasts `question.answered`.
+ *
  * Fails with `busy` while the agent is working on a turn or the task is paused (queue the message with `queue.add`
  * instead), and `not_found` when there's no such task.
  */
@@ -198,12 +214,14 @@ export interface TasksRetryRequest {
  */
 export type TasksCompactRequest = TaskIdRequest
 
-/** A task's chat log and tool log, each in the order they were appended, and its message queue. */
+/** A task's chat log and tool log, each in the order they were appended, its message queue, and its questions. */
 export interface TasksHistoryResponse {
   readonly messages: readonly Message[]
   readonly toolEvents: readonly ToolEvent[]
   /** The messages waiting to be delivered, in the order they will be. */
   readonly queuedMessages: readonly QueuedMessage[]
+  /** Every question set the agent asked, open or closed, in the order it asked them. */
+  readonly questionSets: readonly QuestionSet[]
 }
 
 /**
@@ -237,6 +255,30 @@ export interface QueueRemoveRequest {
  */
 export interface QueuedMessageResponse {
   readonly queuedMessage: QueuedMessage
+}
+
+/**
+ * Answers the open question set the agent asked (`ask`) with the card: an answer for each question, keyed by its index
+ * from 0 (see `checkAnswers` in `./questions` for what each kind of question takes). The agent's turn carries on with
+ * the answers as the tool's result, and the task is working again. Broadcasts `question.answered` and `task.updated`.
+ *
+ * If the app quit while the question was open, the agent's call is gone: its session is resumed, and the answers go to
+ * it as a message, with a resumed divider in the tool log (see the runner).
+ *
+ * Replying in words instead is `tasks.send`: a message sent while a question is open answers it.
+ *
+ * Fails with `invalid_request` for answers that don't fit the questions, `not_found` when there's no such set, and
+ * `invalid_transition` for one that isn't open any more.
+ */
+export interface QuestionsAnswerRequest {
+  /** The question set's id. */
+  readonly id: string
+  readonly answers: QuestionAnswers
+}
+
+export interface QuestionSetResponse {
+  /** The question set as it now is: answered, with its answers tidied (text trimmed, empty optional text dropped). */
+  readonly questionSet: QuestionSet
 }
 
 export interface UiStateGetRequest {
@@ -281,6 +323,7 @@ export interface CommandMap {
   [CommandName.QueueAdd]: CommandSpec<QueueAddRequest, QueuedMessageResponse>
   [CommandName.QueueEdit]: CommandSpec<QueueEditRequest, QueuedMessageResponse>
   [CommandName.QueueRemove]: CommandSpec<QueueRemoveRequest, null>
+  [CommandName.QuestionsAnswer]: CommandSpec<QuestionsAnswerRequest, QuestionSetResponse>
   [CommandName.UiStateGet]: CommandSpec<UiStateGetRequest, UiStateGetResponse>
   [CommandName.UiStateGetAll]: CommandSpec<EmptyRequest, UiStateGetAllResponse>
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>
@@ -300,6 +343,9 @@ export enum EventType {
   ToolEventUpdated = 'toolEvent.updated',
   TaskOpenRequested = 'task.openRequested',
   QueueChanged = 'queue.changed',
+  QuestionOpened = 'question.opened',
+  QuestionAnswered = 'question.answered',
+  QuestionWithdrawn = 'question.withdrawn',
 }
 
 export interface UiStateChangedEvent {
@@ -356,6 +402,24 @@ export interface QueueChangedEvent {
   readonly queuedMessages: readonly QueuedMessage[]
 }
 
+/** The agent asked questions (`ask`) and waits on the answers: the chat shows the open set's card. */
+export interface QuestionOpenedEvent {
+  readonly type: EventType.QuestionOpened
+  readonly questionSet: QuestionSet
+}
+
+/** You answered a question set, with the card or in words. Carries the set as it now is, with its reply. */
+export interface QuestionAnsweredEvent {
+  readonly type: EventType.QuestionAnswered
+  readonly questionSet: QuestionSet
+}
+
+/** The turn that asked a question set ended without an answer (it was stopped, or failed): the card closes. */
+export interface QuestionWithdrawnEvent {
+  readonly type: EventType.QuestionWithdrawn
+  readonly questionSet: QuestionSet
+}
+
 /** Everything main broadcasts to the windows. */
 export type GladeEvent =
   | UiStateChangedEvent
@@ -366,6 +430,9 @@ export type GladeEvent =
   | ToolEventUpdatedEvent
   | TaskOpenRequestedEvent
   | QueueChangedEvent
+  | QuestionOpenedEvent
+  | QuestionAnsweredEvent
+  | QuestionWithdrawnEvent
 
 export type EventListener = (event: GladeEvent) => void
 

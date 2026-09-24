@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { EventType } from '../../shared/bridge'
 import {
   DividerKind,
+  QuestionReplyKind,
+  QuestionSetState,
   ToolCallState,
   ToolEventKind,
   UiStateKey,
@@ -10,7 +12,7 @@ import {
 } from '../../shared/domain'
 import { applyEvent, idFromUiState, withHistory, withOpenedWorkspace } from './reducer'
 import { INITIAL_DATA, type GladeData } from './state'
-import { sampleMessage, sampleQueuedMessage, sampleTask, sampleWorkspace } from './test-bridge'
+import { sampleMessage, sampleQuestionSet, sampleQueuedMessage, sampleTask, sampleWorkspace } from './test-bridge'
 
 const state: GladeData = Object.freeze({
   ...INITIAL_DATA,
@@ -124,7 +126,12 @@ describe("a task's logs", () => {
 
   it('replaces an updated tool event in place, and leaves one it has not seen to the next load', () => {
     const done = { ...call, state: ToolCallState.Done, output: '12 passed' }
-    const loaded = withHistory(state, 't1', { messages: [], toolEvents: [divider, call], queuedMessages: [] })
+    const loaded = withHistory(state, 't1', {
+      messages: [],
+      toolEvents: [divider, call],
+      queuedMessages: [],
+      questionSets: [],
+    })
 
     expect(applyEvent(loaded, { type: EventType.ToolEventUpdated, toolEvent: done }).toolEvents).toEqual({
       t1: [divider, done],
@@ -142,11 +149,18 @@ describe("a task's logs", () => {
     ] as const
     const current = withEvents.reduce(applyEvent, state)
 
-    const next = withHistory(current, 't1', { messages: [early], toolEvents: [divider, call], queuedMessages: [] })
+    const next = withHistory(current, 't1', {
+      messages: [early],
+      toolEvents: [divider, call],
+      queuedMessages: [],
+      questionSets: [],
+    })
 
     expect(next.messages.t1).toEqual([early, late])
     expect(next.toolEvents.t1).toEqual([divider, call])
-    expect(withHistory(state, 't2', { messages: [], toolEvents: [], queuedMessages: [] }).messages).toEqual({ t2: [] })
+    expect(
+      withHistory(state, 't2', { messages: [], toolEvents: [], queuedMessages: [], questionSets: [] }).messages,
+    ).toEqual({ t2: [] })
   })
 })
 
@@ -161,8 +175,43 @@ describe("a task's queue", () => {
       applyEvent(changed, { type: EventType.QueueChanged, taskId: 't1', queuedMessages: [] }).queuedMessages,
     ).toEqual({ t1: [] })
 
-    const loaded = withHistory(changed, 't1', { messages: [], toolEvents: [], queuedMessages: [second] })
+    const loaded = withHistory(changed, 't1', {
+      messages: [],
+      toolEvents: [],
+      queuedMessages: [second],
+      questionSets: [],
+    })
     expect(loaded.queuedMessages).toEqual({ t1: [second] })
+  })
+})
+
+describe("a task's questions", () => {
+  it('appends an opened set, replaces it when answered or withdrawn, and loads them with the history', () => {
+    const open = sampleQuestionSet('s1', 't1')
+    const answered = {
+      ...open,
+      state: QuestionSetState.Answered,
+      reply: { kind: QuestionReplyKind.Answers, answers: { 0: 'by-type' } },
+      closedAt: 4_000,
+    } as const
+    const withdrawn = { ...sampleQuestionSet('s2', 't1'), state: QuestionSetState.Withdrawn } as const
+
+    const opened = [
+      { type: EventType.QuestionOpened, questionSet: open },
+      { type: EventType.QuestionOpened, questionSet: open },
+      { type: EventType.QuestionOpened, questionSet: sampleQuestionSet('s2', 't1') },
+    ] as const
+    const asked = opened.reduce(applyEvent, state)
+    expect(asked.questionSets.t1?.map(({ id }) => id)).toEqual(['s1', 's2'])
+
+    const closed = [
+      { type: EventType.QuestionAnswered, questionSet: answered },
+      { type: EventType.QuestionWithdrawn, questionSet: withdrawn },
+    ] as const
+    expect(closed.reduce(applyEvent, asked).questionSets.t1).toEqual([answered, withdrawn])
+
+    const empty = { messages: [], toolEvents: [], queuedMessages: [] }
+    expect(withHistory(state, 't1', { ...empty, questionSets: [answered] }).questionSets).toEqual({ t1: [answered] })
   })
 })
 

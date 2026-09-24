@@ -4,6 +4,7 @@ import type { AgentBackend } from '../agent/backend'
 import { createGladeMcpServer, GLADE_SERVER } from '../agent/glade-tools'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
 import type { NotifyReply } from '../notifications/notifications'
+import { createQuestionBroker } from '../questions/questions'
 import { createBroadcast, createDispatcher, type EventTarget } from './dispatcher'
 import type { Emit } from './events'
 import { createHandlers } from './handlers'
@@ -50,14 +51,17 @@ export function registerBridge({
   isOnline,
 }: BridgeOptions): RegisteredBridge {
   const emit = createBroadcast(EVENT_CHANNEL, targets)
+  // One broker for the agent's questions: the Glade tools' `ask` waits on it, and the runner answers through it.
+  const questions = createQuestionBroker({ db, emit })
   const runner = createAgentRunner({
     db,
     emit,
     backend: agentBackend,
     notifyReply,
+    questions,
     isOnline,
     // Each session gets its own Glade tools, built for its task.
-    mcpServers: (task) => ({ [GLADE_SERVER]: createGladeMcpServer({ db, emit }, task.id) }),
+    mcpServers: (task) => ({ [GLADE_SERVER]: createGladeMcpServer({ db, emit, questions }, task.id) }),
   })
   const dispatch = createDispatcher(createHandlers({ db, emit, chooseFolder, runner }), REQUEST_SCHEMAS)
   ipc.handle(COMMAND_CHANNEL, (_event, command, request) => dispatch(command, request))

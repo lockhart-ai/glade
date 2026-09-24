@@ -1,6 +1,13 @@
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import type { TasksHistoryResponse } from '../../shared/bridge'
-import { UiStateKey, type Message, type ToolEvent, type UiStateEntry, type Workspace } from '../../shared/domain'
+import {
+  UiStateKey,
+  type Message,
+  type QuestionSet,
+  type ToolEvent,
+  type UiStateEntry,
+  type Workspace,
+} from '../../shared/domain'
 import type { GladeData } from './state'
 
 /** A stored selection id: the empty string means nothing is selected. */
@@ -66,6 +73,10 @@ export function withHistory(state: GladeData, taskId: string, history: TasksHist
     toolEvents: { ...state.toolEvents, [taskId]: merged<ToolEvent>(history.toolEvents, state.toolEvents[taskId]) },
     // The queue changes in place, so events can't be merged into it: the loaded one is as new as any event before it.
     queuedMessages: { ...state.queuedMessages, [taskId]: history.queuedMessages },
+    questionSets: {
+      ...state.questionSets,
+      [taskId]: merged<QuestionSet>(history.questionSets, state.questionSets[taskId]),
+    },
   }
 }
 
@@ -104,5 +115,10 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return state
     case EventType.QueueChanged:
       return { ...state, queuedMessages: { ...state.queuedMessages, [event.taskId]: event.queuedMessages } }
+    case EventType.QuestionOpened:
+      return { ...state, questionSets: withAppended(state.questionSets, event.questionSet) }
+    case EventType.QuestionAnswered:
+    case EventType.QuestionWithdrawn:
+      return { ...state, questionSets: withReplaced(state.questionSets, event.questionSet) }
   }
 }

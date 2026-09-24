@@ -25,6 +25,8 @@ describe('REQUEST_SCHEMAS', () => {
     const send = { id: 't', text: ' Fix the **flaky** test.\n' }
     expect(REQUEST_SCHEMAS[CommandName.TasksSend].parse(send)).toEqual(send)
     expect(REQUEST_SCHEMAS[CommandName.TasksHistory].parse({ id: 't' })).toEqual({ id: 't' })
+    const answer = { id: 's', answers: { 0: 'by-type', 1: ['Features', 'Fixes'], 2: '' } }
+    expect(REQUEST_SCHEMAS[CommandName.QuestionsAnswer].parse(answer)).toEqual(answer)
     expect(REQUEST_SCHEMAS[CommandName.UiStateGet].parse({ key: KEY })).toEqual({ key: KEY })
     expect(REQUEST_SCHEMAS[CommandName.UiStateGetAll].parse({})).toEqual({})
     expect(REQUEST_SCHEMAS[CommandName.UiStateSet].parse({ key: KEY, value: '' })).toEqual({ key: KEY, value: '' })
@@ -106,6 +108,18 @@ describe('REQUEST_SCHEMAS', () => {
       CommandName.TasksSend,
       { id: 't' },
       'text: Invalid input: expected string, received undefined',
+    ],
+    [
+      'answers that are neither text nor a list of text',
+      CommandName.QuestionsAnswer,
+      { id: 's', answers: { 0: 1 } },
+      'answers.0: Invalid input',
+    ],
+    [
+      'answers as a list',
+      CommandName.QuestionsAnswer,
+      { id: 's', answers: ['by-type'] },
+      'answers: Invalid input: expected record, received array',
     ],
     ['arguments to uiState.getAll', CommandName.UiStateGetAll, { key: KEY }, 'Unrecognized key: "key"'],
     ['an unknown key', CommandName.UiStateSet, { key: 'theme', value: 'dark' }, BAD_KEY],

@@ -8,6 +8,7 @@ import {
   type QueueAddRequest,
   type QueueEditRequest,
   type QueueRemoveRequest,
+  type QuestionsAnswerRequest,
   type TaskIdRequest,
   type TasksCreateRequest,
   type TasksRetryRequest,
@@ -20,6 +21,7 @@ import {
   type WorkspacesOpenRequest,
 } from '../../shared/bridge'
 import { Effort, UiStateKey } from '../../shared/domain'
+import { questionAnswersSchema } from '../questions/schema'
 
 /**
  * A zod schema for each command's request, which arrives from the renderer as `unknown`. The named interfaces in
@@ -69,6 +71,11 @@ const queueEditRequest = z.strictObject({ id: z.string(), text: messageText }) s
 
 const queueRemoveRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<QueueRemoveRequest>
 
+const questionsAnswerRequest = z.strictObject({
+  id: z.string(),
+  answers: questionAnswersSchema,
+}) satisfies z.ZodType<QuestionsAnswerRequest>
+
 const uiStateGetRequest = z.strictObject({ key: z.enum(UiStateKey) }) satisfies z.ZodType<UiStateGetRequest>
 
 const uiStateSetRequest = z.strictObject({
@@ -94,6 +101,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.QueueAdd]: queueAddRequest,
   [CommandName.QueueEdit]: queueEditRequest,
   [CommandName.QueueRemove]: queueRemoveRequest,
+  [CommandName.QuestionsAnswer]: questionsAnswerRequest,
   [CommandName.UiStateGet]: uiStateGetRequest,
   [CommandName.UiStateGetAll]: emptyRequest,
   [CommandName.UiStateSet]: uiStateSetRequest,

@@ -54,10 +54,12 @@ describe('Row', () => {
     )
   })
 
-  it('reads JSON objects', () => {
+  it('reads JSON values and objects', () => {
     expect(row({ input: '{"command":"npm test"}' }).jsonObject('input')).toEqual({ command: 'npm test' })
     expect(() => row({ input: '{' }).jsonObject('input')).toThrow('things.input: expected JSON, got "{"')
     expect(() => row({ input: '[1]' }).jsonObject('input')).toThrow('expected a JSON object, got [1]')
     expect(() => row({ input: 'null' }).jsonObject('input')).toThrow('expected a JSON object, got null')
+    expect(row({ input: '[1]' }).json('input')).toEqual([1])
+    expect(() => row({ input: '[' }).json('input')).toThrow('things.input: expected JSON, got "["')
   })
 })

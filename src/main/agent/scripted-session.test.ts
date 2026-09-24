@@ -1,12 +1,13 @@
 import { createSdkMcpServer, tool as mcpTool } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import { CompactionTrigger, Effort } from '../../shared/domain'
+import { CompactionTrigger, Effort, QuestionKind, QuestionReplyKind } from '../../shared/domain'
 import type { AgentSessionOptions } from './backend'
 import { AgentEventKind, createSdkMessageParser, type AgentEvent } from './events'
-import { COMPACT_COMMAND, RESUME_PROMPT } from './runner'
+import { answeredAfterRestart, COMPACT_COMMAND, RESUME_PROMPT } from './runner'
 import { gladeToolName, REJECTED_TOOL_OUTPUT, ScriptedSession, type ScriptedSessionOptions } from './scripted-session'
 import {
+  ask,
   compact,
   delay,
   emit,
@@ -27,6 +28,9 @@ import {
 /** The titles the fake Glade server's `set_title` was given. */
 let titles: string[] = []
 
+/** The `ask` call the fake Glade server is waiting on: answer it with its answers' JSON; null when none waits. */
+let asked: { readonly answer: (json: string) => void; readonly signal: AbortSignal } | null = null
+
 /** A stand-in for the Glade server, with the real server's name and a `set_title` tool. */
 function gladeServer() {
   return createSdkMcpServer({
@@ -35,6 +39,17 @@ function gladeServer() {
       mcpTool('set_title', 'Name the task.', { title: z.string() }, ({ title }) => {
         titles.push(title)
         return Promise.resolve({ content: [{ type: 'text', text: 'Title set.' }] })
+      }),
+      mcpTool('ask', 'Ask the user.', { questions: z.array(z.unknown()) }, (_input, extra) => {
+        const { signal } = extra as { signal: AbortSignal }
+        return new Promise((resolve) => {
+          asked = {
+            answer: (json) => {
+              resolve({ content: [{ type: 'text', text: json }] })
+            },
+            signal,
+          }
+        })
       }),
     ],
   })
@@ -109,6 +124,7 @@ async function flush(): Promise<void> {
 beforeEach(() => {
   ids = 0
   titles = []
+  asked = null
   vi.useFakeTimers()
   vi.setSystemTime(10_000)
 })
@@ -285,6 +301,75 @@ describe('ScriptedSession', () => {
     expect(gladeToolName('set_status')).toBe('mcp__glade__set_status')
   })
 
+  describe('an ask step', () => {
+    const QUESTIONS = [{ kind: QuestionKind.Text, prompt: 'Anything else?' }] as const
+
+    it('asks through the glade server, goes idle while it waits, then streams the answers and plays on', async () => {
+      const played = play([[init(), ask('questions', QUESTIONS), say('Thanks.'), result()]])
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      expect(played.events.slice(1)).toEqual([
+        expect.objectContaining({
+          kind: AgentEventKind.ToolCallStarted,
+          name: 'mcp__glade__ask',
+          input: { questions: QUESTIONS },
+        }),
+      ])
+      expect(played.idles()).toBe(1)
+
+      asked?.answer('{"0":"No."}')
+      await flush()
+
+      expect(played.events.slice(2)).toEqual([
+        expect.objectContaining({ kind: AgentEventKind.ToolResult, output: '{"0":"No."}', isError: false }),
+        expect.objectContaining({ kind: AgentEventKind.Text, text: 'Thanks.' }),
+        expect.objectContaining({ kind: AgentEventKind.TurnFinished, result: 'Thanks.' }),
+      ])
+      expect(played.idles()).toBe(1)
+      played.session.close()
+    })
+
+    it('cancels the call on an interrupt, and ends the turn as interrupted during a tool', async () => {
+      const played = play([[init(), ask('questions', QUESTIONS), say('Never.')]])
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      await played.session.interrupt()
+      await flush()
+
+      expect(asked?.signal.aborted).toBe(true)
+      expect(played.events.slice(2)).toEqual([
+        expect.objectContaining({ kind: AgentEventKind.ToolResult, output: REJECTED_TOOL_OUTPUT, isError: true }),
+        expect.objectContaining({ kind: AgentEventKind.TurnFinished, terminalReason: 'aborted_tools' }),
+      ])
+    })
+
+    it('streams no result for a call answered after its turn was interrupted', async () => {
+      const played = play([[init(), ask('questions', QUESTIONS), say('Never.')]])
+      played.session.send('Go', 'user-1')
+      await flush()
+      const pending = asked
+
+      // The answer and the interrupt cross: the answer is on its way when the turn is interrupted.
+      pending?.answer('{"0":"No."}')
+      await played.session.interrupt()
+      await flush()
+
+      expect(played.events.filter((event) => event.kind === AgentEventKind.ToolResult)).toEqual([
+        expect.objectContaining({ output: REJECTED_TOOL_OUTPUT, isError: true }),
+      ])
+    })
+
+    it('kills the session, loudly, when it has no Glade server to ask through', async () => {
+      const played = play([[ask('questions', QUESTIONS), say('Never.')]], { session: { ...SESSION, mcpServers: {} } })
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      expect((await played.ended)?.message).toBe('No in-process MCP server named glade')
+    })
+  })
+
   it('passes an emit step’s message through as is', async () => {
     const played = play([[emit({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } })]])
     played.session.send('Go', 'user-1')
@@ -367,13 +452,14 @@ describe('ScriptedSession', () => {
     const resumed = play([], { script })
     resumed.session.send(RESUME_PROMPT, 'resume-1')
     resumed.session.send('a', 'user-1')
+    resumed.session.send(answeredAfterRestart({ kind: QuestionReplyKind.FreeText, text: 'By type.' }), 'answer-1')
     const plain = play([[say('One.'), result()]])
     plain.session.send(RESUME_PROMPT, 'resume-1')
     await flush()
 
     const results = ({ raw }: Played) =>
       raw.filter((message) => message.type === 'result').map((message) => message.result)
-    expect(results(resumed)).toEqual(['Again.', 'One.'])
+    expect(results(resumed)).toEqual(['Again.', 'One.', 'Again.'])
     expect(results(plain)).toEqual(['One.'])
   })
 

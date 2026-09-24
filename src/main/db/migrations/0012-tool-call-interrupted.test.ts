@@ -7,7 +7,7 @@ import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { listToolEvents } from '../repositories/tool-events'
 import { MIGRATIONS } from '.'
-import { toolCallInterruptedMigration } from './0011-tool-call-interrupted'
+import { toolCallInterruptedMigration } from './0012-tool-call-interrupted'
 
 let dir: string
 
@@ -19,13 +19,13 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-it('is migration 11', () => {
-  expect(MIGRATIONS[10]).toBe(toolCallInterruptedMigration)
+it('is migration 12', () => {
+  expect(MIGRATIONS[11]).toBe(toolCallInterruptedMigration)
 })
 
 it('keeps every tool log entry, and lets a tool call be paused or interrupted', () => {
   const db = openDatabase(join(dir, 'glade.db'))
-  migrate(db, MIGRATIONS.slice(0, 10))
+  migrate(db, MIGRATIONS.slice(0, 11))
   db.prepare("INSERT INTO workspaces VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)").run()
   db.prepare(
     `INSERT INTO tasks (id, workspace_id, title, objective, status, state, activity, pinned, unread, model, effort,

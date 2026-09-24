@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { hasRun, matchesFilter, needsYou, parseTaskFilter, TaskFilter } from './attention'
 import { TaskActivity, TaskState, type Task } from './domain'
 
-type Attention = Pick<Task, 'state' | 'activity' | 'sessionId' | 'unread'>
+type Attention = Pick<Task, 'state' | 'activity' | 'sessionId' | 'asking' | 'unread'>
 
 const RAN: Attention = {
   state: TaskState.Active,
   activity: TaskActivity.Waiting,
   sessionId: 'session-1',
+  asking: false,
   unread: false,
 }
 
@@ -27,6 +28,13 @@ describe('needsYou', () => {
     ['paused, since it resumes on its own', { ...RAN, activity: TaskActivity.Paused }, false],
     ['done', { ...RAN, state: TaskState.Done }, false],
     ['brand new, never run', { ...RAN, sessionId: null }, false],
+    ['asking you questions', { ...RAN, asking: true }, true],
+    [
+      'asking you questions, whatever its activity says',
+      { ...RAN, activity: TaskActivity.Working, asking: true },
+      true,
+    ],
+    ['done, with a question still open', { ...RAN, state: TaskState.Done, asking: true }, false],
   ])('is %s → %s', (_, task, expected) => {
     expect(needsYou(task)).toBe(expected)
   })

@@ -173,7 +173,8 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     if (!canSend || text === '') return
     setSending(true)
     try {
-      if (working || paused) await queueMessage(task.id, text)
+      // A message to an agent waiting on answers to its questions answers them, so it's sent, whatever else holds the task.
+      if ((working || paused) && !task.asking) await queueMessage(task.id, text)
       else {
         // The agent may have started working since the bar last heard: then the message waits in the queue.
         await sendMessage(task.id, text).catch((error: unknown) => {

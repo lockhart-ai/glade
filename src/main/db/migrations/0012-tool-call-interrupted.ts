@@ -7,7 +7,7 @@ import type { Migration } from '../migrate'
  * `tool_events`, so dropping the old one is safe. Existing calls keep their states.
  */
 export const toolCallInterruptedMigration: Migration = {
-  version: 11,
+  version: 12,
   name: 'Add the paused and interrupted tool call states',
   up(db) {
     db.exec(`

@@ -4,6 +4,7 @@ import {
   DividerKind,
   Effort,
   MessageRole,
+  QuestionSetState,
   TaskActivity,
   TaskState,
   ToolEventKind,
@@ -15,6 +16,7 @@ import {
   fakeBridge,
   refuse,
   sampleMessage,
+  sampleQuestionSet,
   sampleQueuedMessage,
   sampleTask,
   sampleWorkspace,
@@ -435,6 +437,22 @@ describe("a task's logs", () => {
     expect(invoke).toHaveBeenLastCalledWith(CommandName.QueueRemove, { id: second?.id })
 
     expect(store.getState().queuedMessages.t1?.map(({ body }) => body)).toEqual(['Keep the original filenames.'])
+  })
+
+  it("answers a task's questions through main, and the store follows its event", async () => {
+    const data = { ...main(), questionSets: [sampleQuestionSet('s1', 't1')] }
+    const { store, invoke } = await hydrated(data)
+    await store.getState().loadHistory('t1')
+
+    await store.getState().answerQuestions('s1', { 0: 'by-type' })
+
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.QuestionsAnswer, { id: 's1', answers: { 0: 'by-type' } })
+    expect(store.getState().questionSets.t1).toEqual([
+      expect.objectContaining({ id: 's1', state: QuestionSetState.Answered }),
+    ])
+    await expect(store.getState().answerQuestions('gone', {})).rejects.toMatchObject({
+      code: BridgeErrorCode.NotFound,
+    })
   })
 
   it("rejects with main's error when a queued message is gone", async () => {

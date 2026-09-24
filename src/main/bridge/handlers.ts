@@ -2,6 +2,7 @@ import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, CommandName, EventType, type CommandRequest, type CommandResponse } from '../../shared/bridge'
 import type { AgentRunner } from '../agent/runner'
 import { listMessages } from '../db/repositories/messages'
+import { listQuestionSets } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { getTask, listTasks } from '../db/repositories/tasks'
 import { listToolEvents } from '../db/repositories/tool-events'
@@ -61,6 +62,7 @@ export function createHandlers(context: HandlerContext): Handlers {
         messages: listMessages(db, id),
         toolEvents: listToolEvents(db, id),
         queuedMessages: listQueuedMessages(db, id),
+        questionSets: listQuestionSets(db, id),
       }
     },
     [CommandName.QueueAdd]: ({ taskId, text }) => ({ queuedMessage: runner.queue(taskId, text) }),
@@ -69,6 +71,7 @@ export function createHandlers(context: HandlerContext): Handlers {
       removeQueuedMessage(context, id)
       return null
     },
+    [CommandName.QuestionsAnswer]: ({ id, answers }) => ({ questionSet: runner.answer(id, answers) }),
     [CommandName.UiStateGet]: ({ key }) => ({ value: getUiState(db, key) ?? null }),
     [CommandName.UiStateGetAll]: () => ({ entries: listUiState(db) }),
     [CommandName.UiStateSet]: (entry) => {

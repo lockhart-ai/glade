@@ -77,6 +77,19 @@
  * row (automatic) when the SDK says it's compacting, filled in the same way; the turn then carries on to its reply. A
  * compaction the SDK says failed ends its row as an error straight away.
  *
+ * **Questions** (`ask`, `../questions/questions`). The agent's `ask` call blocks its turn until you answer. Meanwhile
+ * the task waits on you (its activity is waiting, and `asking` is true), though its turn is still running:
+ * - `answer` answers with the card: the answers are checked against the questions, and the call returns them.
+ * - Sending a message answers in your own words: it goes to the chat log as your reply, in the turn that asked, and the
+ *   call returns it as `{ freeText }`. It starts no turn and isn't queued, since the turn it would wait for is waiting
+ *   on it. A message queued before the question opened stays queued until the call returns.
+ * - A turn that ends some other way (stopped, failed, its session gone) withdraws the question; Stop withdraws it
+ *   first, so the call isn't left holding the turn up.
+ * If the app quits with a question open, its call and turn are gone, but the question isn't: on launch it's still
+ * open, its task waits on you, and its `ask` call ends as an error saying so. Answering it (either way) resumes the
+ * task's session, with a resumed divider, and hands the agent the answer as a message (`answeredAfterRestart`) that
+ * carries on the turn that asked; the agent never has to ask again.
+ *
  * **Resume on launch.** A turn the app quit or crashed in is left working in the database: a turn's user messages and
  * its working activity are saved together, so none is left unanswered. On launch, `resumeInterrupted` carries each
  * one on: it resumes the task's SDK session by its saved id (`docs/sdk-notes.md` §8), adds a resumed divider to the
@@ -110,12 +123,18 @@ import {
   TaskErrorSource,
   TaskState,
   ToolCallState,
+  QuestionReplyKind,
+  QuestionSetState,
   type ApiRetry,
   type Message,
+  type QuestionAnswers,
+  type QuestionReply,
+  type QuestionSet,
   type QueuedMessage,
   type Task,
   type TaskError,
 } from '../../shared/domain'
+import { checkAnswers } from '../../shared/questions'
 import { apiRowArgument, apiRowResult } from '../../shared/taskError'
 import { CommandFailure } from '../bridge/errors'
 import {
@@ -126,6 +145,7 @@ import {
   type Emit,
 } from '../bridge/events'
 import { appendMessage, lastTurn, listMessages, turnStartedAt } from '../db/repositories/messages'
+import { getOpenQuestionSet, getQuestionSet, listOpenQuestionSets } from '../db/repositories/question-sets'
 import { listQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
 import { getTask, listPausedTasks, listWorkingTasks } from '../db/repositories/tasks'
 import {
@@ -142,6 +162,7 @@ import {
 } from '../db/repositories/tool-events'
 import { getWorkspace } from '../db/repositories/workspaces'
 import type { NotifyReply } from '../notifications/notifications'
+import { createQuestionBroker, toolResultFor, type QuestionBroker } from '../questions/questions'
 import { addQueuedMessage } from '../tasks/queue'
 import { noteAgentReply } from '../tasks/attention'
 import { reopenTask, updateTaskFromRunner, updateTaskFromUser, type TaskServiceContext } from '../tasks/service'
@@ -169,6 +190,11 @@ export interface AgentRunnerOptions {
   readonly db: Database
   readonly emit: Emit
   readonly backend: AgentBackend
+  /**
+   * The questions the agent asks (`ask`): the same broker the sessions' Glade tools wait on, so the runner can answer
+   * them. A broker of its own by default.
+   */
+  readonly questions?: QuestionBroker
   /** The in-process MCP servers to give a task's session, such as the Glade tools (`./glade-tools`). None by default. */
   readonly mcpServers?: (task: Task) => AgentMcpServers
   readonly log?: AgentLog
@@ -190,6 +216,13 @@ export interface AgentRunner {
    * a `CommandFailure`: `not_found` for no such task, `busy` while a turn is running or the task is paused.
    */
   send(taskId: string, text: string): Message
+  /**
+   * Answers the task's open question set with the card's answers (see the module comment), once they're checked against
+   * its questions. Answers with the set, answered. Throws a `CommandFailure`: `not_found` for no such set,
+   * `invalid_transition` for one that isn't open, `invalid_request` for answers that don't fit, and `busy` for a set
+   * the app quit on while its task's agent is working on something else.
+   */
+  answer(id: string, answers: QuestionAnswers): QuestionSet
   /**
    * Adds the user's message to the task's queue, for the agent to get after its current step (see the module comment).
    * When no turn is running, the queue is delivered at once, starting one, unless the task is paused: then it waits for
@@ -279,6 +312,22 @@ export const NOT_RESUMED_NOTE = "Glade quit before the agent's session started, 
 /** What a tool call cut short by an error says. */
 export const STOPPED_BY_ERROR_NOTE = 'The agent stopped on an error before this tool call finished.'
 
+/** What the `ask` call the app quit on says: its question stays open, and its answer goes to the agent as a message. */
+export const ASK_RESTARTED_NOTE = 'Glade quit while this question was open. Its answer goes to the agent in a message.'
+
+/**
+ * What Glade sends a session it resumes to hand it the answer to a question the app quit on, before the answer itself
+ * (`answeredAfterRestart`).
+ */
+export const ANSWERED_AFTER_RESTART_PROMPT =
+  'Glade restarted while you were waiting on answers to your questions, so your ask call ended without them. The ' +
+  'user has answered them now. Carry on from there.'
+
+/** The message that hands the agent the answer to a question the app quit on. */
+export function answeredAfterRestart(reply: QuestionReply): string {
+  return `${ANSWERED_AFTER_RESTART_PROMPT}\n\nTheir answers, as ask would have returned them:\n${toolResultFor(reply)}`
+}
+
 /** What a tool call cut short by a pause says. */
 export const PAUSED_TOOL_NOTE = 'The task paused before this tool call finished.'
 
@@ -322,6 +371,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const notifyReply = options.notifyReply ?? (() => undefined)
   const isOnline = options.isOnline ?? (() => true)
   const context = { db, emit }
+  const questions = options.questions ?? createQuestionBroker(context)
   const sessions = new Map<string, LiveSession>()
   // Resumes a paused turn when its pause is due.
   const timers = createPauseTimers((taskId) => {
@@ -498,10 +548,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (parent === null && !turn.stopping && stepFinished(turn)) deliverQueue(taskId, live, turn)
   }
 
-  /** Forgets the session's turn, and lets whoever waits on it know it has ended. */
-  const endTurn = (live: LiveSession, turn: Turn): void => {
+  /**
+   * Forgets the session's turn, and lets whoever waits on it know it has ended. A question it asked that's still open
+   * is withdrawn: nothing is waiting on its answer any more.
+   */
+  const endTurn = (taskId: string, live: LiveSession, turn: Turn): void => {
     live.turn = null
     turn.end()
+    questions.withdraw(taskId)
   }
 
   const onTurnStopped = (taskId: string, turn: Turn): void => {
@@ -567,12 +621,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const onTurnFinished = (taskId: string, live: LiveSession, turn: Turn, event: TurnFinishedEvent): void => {
     failCompaction(turn)
     if (event.isError && (turn.stopping || isAborted(event.terminalReason))) {
-      endTurn(live, turn)
+      endTurn(taskId, live, turn)
       onTurnStopped(taskId, turn)
       return
     }
     if (event.isError) {
-      endTurn(live, turn)
+      endTurn(taskId, live, turn)
       onTurnFailed(taskId, live, turn, event)
       return
     }
@@ -600,7 +654,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       for (const uuid of answered) turn.awaiting.delete(uuid)
       if (turn.awaiting.size > 0) return
     }
-    endTurn(live, turn)
+    endTurn(taskId, live, turn)
     const task = getTask(db, taskId)
     if (task?.state === TaskState.Active && listQueuedMessages(db, taskId).length > 0) {
       startTurn(task, live, null)
@@ -663,7 +717,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (sessions.get(taskId) === live) sessions.delete(taskId)
     const { turn } = live
     if (turn === null) return
-    endTurn(live, turn)
+    endTurn(taskId, live, turn)
     failCompaction(turn)
     turn.pending.push(message)
     flushPreamble(taskId, turn)
@@ -885,10 +939,77 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     return messages
   }
 
+  /**
+   * A question the app quit on is still open, with nothing waiting on it (see the module comment): its call is gone,
+   * and so is its turn. Its task waits on you until you answer it.
+   */
+  const orphanQuestion = (set: QuestionSet): void => {
+    for (const call of interruptRunningToolCalls(db, set.taskId, ASK_RESTARTED_NOTE)) emitToolEventUpdated(emit, call)
+    setActivity(set.taskId, TaskActivity.Waiting)
+  }
+
+  /**
+   * Hands the agent the answer to a question the app quit on: its session is resumed, and the answer goes to it as a
+   * message that carries on the turn that asked.
+   */
+  const continueAfterRestart = (task: Task, set: QuestionSet, reply: QuestionReply): void => {
+    const live = sessions.get(task.id) ?? start(task)
+    applySettings(task, live)
+    startWorking(task.id)
+    emitToolEventAppended(
+      emit,
+      appendDivider(db, { taskId: task.id, turn: set.turn, dividerKind: DividerKind.Resumed }),
+    )
+    const uuid = randomUUID()
+    live.turn = newTurn(set.turn)
+    live.turn.awaiting.add(uuid)
+    live.session.send(answeredAfterRestart(reply), uuid)
+  }
+
+  /**
+   * Checks an open question set's answer can go to the agent now: a call waits on it, or, for a question the app quit
+   * on, the agent isn't busy with something else (a compaction, say), so its session can take it. Answers with its
+   * task.
+   */
+  const answerable = (set: QuestionSet): Task => {
+    const task = getTask(db, set.taskId)
+    if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${set.taskId}`)
+    if (!questions.isWaiting(set.id) && (sessions.get(task.id)?.turn ?? null) !== null) {
+      throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working; answer once it has finished')
+    }
+    return task
+  }
+
+  /**
+   * Answers an open question set with your reply: the call waiting on it gets it, or, for a question the app quit on,
+   * the resumed session does. Check it's `answerable` first.
+   */
+  const replyTo = (task: Task, set: QuestionSet, reply: QuestionReply): QuestionSet => {
+    const waiting = questions.isWaiting(set.id)
+    const answered = questions.answer(set.id, reply)
+    if (!waiting) continueAfterRestart(task, answered, reply)
+    return answered
+  }
+
+  /**
+   * Answers the open question set in your own words: the message goes to the chat log as your reply, in the turn that
+   * asked, and the agent gets it as the answer.
+   */
+  const answerInWords = (set: QuestionSet, text: string): Message => {
+    const task = answerable(set)
+    const message = appendMessage(db, { taskId: task.id, role: MessageRole.User, body: text, turn: set.turn })
+    emitMessageAppended(emit, message)
+    replyTo(task, set, { kind: QuestionReplyKind.FreeText, text })
+    return message
+  }
+
   const runner: AgentRunner = {
     send(taskId, text) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
+      // The agent waits on answers to its questions: the message answers them, rather than starting a turn.
+      const open = getOpenQuestionSet(db, taskId)
+      if (open !== undefined) return answerInWords(open, text)
       if ((sessions.get(taskId)?.turn ?? null) !== null) {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working; queue the message instead')
       }
@@ -899,6 +1020,17 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const message = startTurn(task, sessions.get(taskId) ?? start(task), text).at(-1)
       if (message === undefined) throw new Error(`The turn for task ${taskId} started without its message`)
       return message
+    },
+
+    answer(id, answers) {
+      const set = getQuestionSet(db, id)
+      if (set === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No question set ${id}`)
+      if (set.state !== QuestionSetState.Open) {
+        throw new CommandFailure(BridgeErrorCode.InvalidTransition, 'The questions are not open any more')
+      }
+      const checked = checkAnswers(set.questions, answers)
+      if (!checked.ok) throw new CommandFailure(BridgeErrorCode.InvalidRequest, checked.problems.join('; '))
+      return replyTo(answerable(set), set, { kind: QuestionReplyKind.Answers, answers: checked.answers })
     },
 
     queue(taskId, text) {
@@ -920,6 +1052,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const turn = live?.turn ?? null
       if (live === undefined || turn === null) return task
       turn.stopping = true
+      // An `ask` waiting on you would hold the turn up: it's withdrawn first, so its call returns.
+      questions.withdraw(taskId)
       await live.session.interrupt()
       await turn.ended
       return getTask(db, taskId) ?? task
@@ -986,6 +1120,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     },
 
     resumeInterrupted() {
+      // A question the app quit on waits on you, not the agent: its turn carries on once you answer it.
+      for (const set of listOpenQuestionSets(db)) orphanQuestion(set)
       const resumed: string[] = []
       for (const task of listWorkingTasks(db)) {
         try {
@@ -1006,6 +1142,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     },
 
     close() {
+      // A question still open stays open for the next launch, though closing its session cancels the call.
+      questions.close()
       timers.close()
       for (const live of sessions.values()) {
         live.closed = true

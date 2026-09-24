@@ -72,6 +72,7 @@ it('keeps every task and what references it, and lets a task pause', () => {
     error: expect.objectContaining({ kind: AgentErrorKind.Transient, retries: 3 }) as unknown,
     retrying: null,
     pause: null,
+    asking: false,
   })
   expect(listMessages(db, 't')).toHaveLength(1)
   expect(listToolEvents(db, 't')).toHaveLength(1)

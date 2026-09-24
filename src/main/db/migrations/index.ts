@@ -9,7 +9,8 @@ import { messageQueueMigration } from './0007-message-queue'
 import { compactionMigration } from './0008-compaction'
 import { taskErrorMigration } from './0009-task-error'
 import { taskPauseMigration } from './0010-task-pause'
-import { toolCallInterruptedMigration } from './0011-tool-call-interrupted'
+import { questionSetsMigration } from './0011-question-sets'
+import { toolCallInterruptedMigration } from './0012-tool-call-interrupted'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -23,5 +24,6 @@ export const MIGRATIONS: readonly Migration[] = [
   compactionMigration,
   taskErrorMigration,
   taskPauseMigration,
+  questionSetsMigration,
   toolCallInterruptedMigration,
 ]

@@ -66,15 +66,19 @@ export class Row {
     return values.find((candidate) => candidate === value) ?? this.fail(column, `one of ${values.join(', ')}`, value)
   }
 
-  /** A JSON object stored as text. */
-  jsonObject(column: string): Readonly<Record<string, unknown>> {
+  /** Any JSON value stored as text, unparsed beyond JSON: the caller checks its shape. */
+  json(column: string): unknown {
     const text = this.text(column)
-    let parsed: unknown
     try {
-      parsed = JSON.parse(text)
+      return JSON.parse(text) as unknown
     } catch {
       return this.fail(column, 'JSON', text)
     }
+  }
+
+  /** A JSON object stored as text. */
+  jsonObject(column: string): Readonly<Record<string, unknown>> {
+    const parsed = this.json(column)
     return isRecord(parsed) ? parsed : this.fail(column, 'a JSON object', parsed)
   }
 }

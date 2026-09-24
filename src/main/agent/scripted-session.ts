@@ -3,8 +3,8 @@
  * steps become the SDK messages a real session would stream (shapes from `docs/sdk-notes.md` §2). Nothing runs a
  * model. The test modes' agent backend (`./test-mode-backend`) starts these.
  *
- * - Turns run one after another, in the order their messages were sent. The runner's `RESUME_PROMPT` runs the
- *   script's resume turn, if it has one. `/compact` runs its compact turn (by default `DEFAULT_COMPACT_TURN`), which
+ * - Turns run one after another, in the order their messages were sent. The runner's `RESUME_PROMPT`, and its message
+ *   answering a question the app quit on, run the script's resume turn, if it has one. `/compact` runs its compact turn (by default `DEFAULT_COMPACT_TURN`), which
  *   isn't one of the script's turns: the message after it runs the next of those.
  * - Each assistant message reports the context the session has used: 22,846 tokens unless a step fills it, and what
  *   a compaction left after one.
@@ -23,13 +23,14 @@ import { contextWindowFor } from '../../shared/contextWindow'
 import type { ToolInput } from '../../shared/domain'
 import { AsyncQueue } from './async-queue'
 import type { AgentSession, AgentSessionOptions, AgentSessionSettings } from './backend'
-import { GLADE_SERVER } from './glade-tools'
-import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
-import { COMPACT_COMMAND, RESUME_PROMPT } from './runner'
+import { GLADE_SERVER, GladeTool } from './glade-tools'
+import { createMcpToolCaller, type McpToolCaller, type McpToolOutcome } from './mcp-tool-caller'
+import { ANSWERED_AFTER_RESTART_PROMPT, COMPACT_COMMAND, RESUME_PROMPT } from './runner'
 import {
   DEFAULT_COMPACT_TURN,
   ScriptStepKind,
   type AgentScript,
+  type AskStep,
   type CompactStep,
   type ScriptStep,
   type ScriptTurn,
@@ -158,7 +159,8 @@ export class ScriptedSession implements AgentSession {
   private turnFor(script: AgentScript, text: string): ScriptTurn {
     if (text === COMPACT_COMMAND) return script.compactTurn ?? DEFAULT_COMPACT_TURN
     this.turnsRun += 1
-    if (text === RESUME_PROMPT && script.resumeTurn !== undefined) return script.resumeTurn
+    const resuming = text === RESUME_PROMPT || text.startsWith(ANSWERED_AFTER_RESTART_PROMPT)
+    if (resuming && script.resumeTurn !== undefined) return script.resumeTurn
     return script.turns[Math.min(this.turnsRun - 1, script.turns.length - 1)] ?? []
   }
 
@@ -310,6 +312,9 @@ export class ScriptedSession implements AgentSession {
       case ScriptStepKind.Compact:
         await this.compact(turn, step)
         return
+      case ScriptStepKind.Ask:
+        await this.ask(turn, step, uuid)
+        return
       case ScriptStepKind.LimitReached:
         this.push({
           type: 'rate_limit_event',
@@ -322,6 +327,31 @@ export class ScriptedSession implements AgentSession {
         })
         return
     }
+  }
+
+  /**
+   * Calls `ask` through the session's Glade server and waits for the answers: the turn is waiting on the user, so the
+   * session goes idle until they answer. An interrupt cancels the call, as the SDK does, and the turn then ends as an
+   * interrupted one.
+   */
+  private async ask(turn: TurnState, step: AskStep, uuid: string): Promise<void> {
+    const name = gladeToolName(GladeTool.Ask)
+    const input = { questions: step.questions }
+    this.toolUse(turn, step.id, name, input, null, uuid)
+    this.idle(turn)
+    const cancel = new AbortController()
+    void turn.interrupted.then(() => {
+      cancel.abort()
+    })
+    let outcome: McpToolOutcome
+    try {
+      outcome = await this.tools.call(name, input, cancel.signal)
+    } catch (error) {
+      // Cancelled by the interrupt: the turn ends as an interrupted one, with the call rejected.
+      if (turn.isInterrupted) return
+      throw error
+    }
+    if (!turn.isInterrupted) this.toolResult(turn, step.id, outcome.output, outcome.isError)
   }
 
   /**
