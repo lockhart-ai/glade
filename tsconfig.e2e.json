@@ -11,6 +11,7 @@
     "playwright.config.ts",
     "e2e/**/*",
     "src/main/e2e.ts",
+    "src/main/desktop.ts",
     "src/main/isolation.ts",
     "src/main/agent/scripts.ts",
     "src/main/notifications/notifier.ts",

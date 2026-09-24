@@ -56,6 +56,12 @@ export interface FakeMain {
   readonly files?: Readonly<Record<string, FileContent>>
   /** The paths `files.openInEditor` opened, oldest first. */
   readonly openedInEditor?: string[]
+  /** The paths `files.reveal` showed in Finder, oldest first. */
+  readonly revealed?: string[]
+  /** The text `clipboard.writeText` copied, oldest first. */
+  readonly copied?: string[]
+  /** The subagents `subagents.stop` stopped, by their `Agent` calls' tool_use ids, oldest first. */
+  readonly stoppedSubagents?: string[]
   /** Each task's todo list, by task id; none when left out. */
   readonly todos?: Readonly<Record<string, TodoList>>
 }
@@ -205,6 +211,18 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     [CommandName.FilesClose]: ({ taskId, path }) => changeOpenFiles(taskId, (open) => withClosedFile(open, path)),
     [CommandName.FilesOpenInEditor]: ({ path }) => {
       main.openedInEditor?.push(path)
+      return null
+    },
+    [CommandName.SubagentsStop]: ({ toolUseId }) => {
+      main.stoppedSubagents?.push(toolUseId)
+      return null
+    },
+    [CommandName.FilesReveal]: ({ path }) => {
+      main.revealed?.push(path)
+      return null
+    },
+    [CommandName.ClipboardWriteText]: ({ text }) => {
+      main.copied?.push(text)
       return null
     },
     [CommandName.UiStateGet]: ({ key }) => ({ value: main.uiState.find((entry) => entry.key === key)?.value ?? null }),

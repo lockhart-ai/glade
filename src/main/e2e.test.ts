@@ -3,9 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  createE2eDesktop,
   createE2eEditor,
   createE2eNetwork,
   E2E_CHOSEN_FOLDER_ENV,
+  E2E_DESKTOP_GLOBAL,
   E2E_EDITOR_GLOBAL,
   E2E_ENV,
   E2E_NETWORK_GLOBAL,
@@ -133,6 +135,24 @@ describe('createE2eNetwork', () => {
     expect(isOnline()).toBe(false)
     network.online = true
     expect(isOnline()).toBe(true)
+  })
+})
+
+describe('createE2eDesktop', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, E2E_DESKTOP_GLOBAL)
+  })
+
+  it('records what it copies and reveals on the global object', async () => {
+    const desktop = createE2eDesktop()
+
+    await desktop.writeClipboard('glade://task/t1')
+    desktop.showItemInFolder('/code/acme-api/README.md')
+
+    expect(Reflect.get(globalThis, E2E_DESKTOP_GLOBAL)).toEqual({
+      copied: ['glade://task/t1'],
+      revealed: ['/code/acme-api/README.md'],
+    })
   })
 })
 

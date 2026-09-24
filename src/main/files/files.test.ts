@@ -15,6 +15,7 @@ import {
   readTaskFile,
   readWorkspaceFile,
   resolveWorkspaceFile,
+  revealTaskFile,
   showTaskFile,
   type FilesContext,
 } from './files'
@@ -215,6 +216,21 @@ describe('the task commands', () => {
     await expect(openTaskFileInEditor(context, taskId, 'README.md')).rejects.toThrow(
       "Couldn't open README.md: No application knows how to open it",
     )
+  })
+})
+
+describe('revealTaskFile', () => {
+  it('shows a file in Finder by its real path, or fails when it is missing', async () => {
+    write('docs/rate-limits.md', '# Rate limits\n')
+    const showItemInFolder = vi.fn()
+
+    await revealTaskFile(context, taskId, 'docs/rate-limits.md', showItemInFolder)
+    expect(showItemInFolder).toHaveBeenCalledExactlyOnceWith(realpathSync(join(root, 'docs', 'rate-limits.md')))
+
+    expect((await failure(revealTaskFile(context, taskId, 'gone.md', showItemInFolder))).code).toBe(
+      BridgeErrorCode.NotFound,
+    )
+    expect(showItemInFolder).toHaveBeenCalledOnce()
   })
 })
 

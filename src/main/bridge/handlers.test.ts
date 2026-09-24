@@ -15,6 +15,7 @@ let root: string
 let emit: Mock<(event: GladeEvent) => void>
 let chooseFolder: Mock<() => Promise<string | null>>
 let openPath: Mock<(path: string) => Promise<string>>
+let desktop: { writeClipboard: Mock<(text: string) => Promise<void>>; showItemInFolder: Mock<(path: string) => void> }
 let handlers: Handlers
 
 beforeEach(() => {
@@ -23,8 +24,9 @@ beforeEach(() => {
   emit = vi.fn()
   chooseFolder = vi.fn(() => Promise.resolve(root))
   openPath = vi.fn(() => Promise.resolve(''))
+  desktop = { writeClipboard: vi.fn(() => Promise.resolve()), showItemInFolder: vi.fn() }
   const runner = createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() })
-  handlers = createHandlers({ db: database.db, emit, chooseFolder, openPath, runner })
+  handlers = createHandlers({ db: database.db, emit, chooseFolder, openPath, desktop, runner })
 })
 
 afterEach(() => {
@@ -104,6 +106,27 @@ describe('the files commands', () => {
 
     await expect(handlers[CommandName.FilesOpenInEditor]({ taskId, path: 'docs/rate-limits.md' })).resolves.toBeNull()
     expect(openPath).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/\/docs\/rate-limits\.md$/))
+  })
+
+  it('reveal a file in Finder by its real path', async () => {
+    const taskId = taskInRoot()
+
+    await expect(handlers[CommandName.FilesReveal]({ taskId, path: 'docs/rate-limits.md' })).resolves.toBeNull()
+    expect(desktop.showItemInFolder).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/\/docs\/rate-limits\.md$/))
+  })
+})
+
+describe('clipboard.writeText', () => {
+  it('puts the text on the clipboard', async () => {
+    await expect(handlers[CommandName.ClipboardWriteText]({ text: 'glade://task/t1' })).resolves.toBeNull()
+    expect(desktop.writeClipboard).toHaveBeenCalledExactlyOnceWith('glade://task/t1')
+  })
+
+  it('does nothing without a desktop, as in a capture', async () => {
+    const runner = createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() })
+    const bare = createHandlers({ db: database.db, emit, chooseFolder, openPath, runner })
+
+    await expect(bare[CommandName.ClipboardWriteText]({ text: 'copied' })).resolves.toBeNull()
   })
 })
 

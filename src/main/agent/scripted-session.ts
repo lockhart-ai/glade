@@ -187,6 +187,11 @@ export class ScriptedSession implements AgentSession {
     return Promise.resolve()
   }
 
+  /** A script's subagents play out whatever happens: there's no stopping one on its own. */
+  stopTask(): Promise<void> {
+    return Promise.resolve()
+  }
+
   close(): void {
     this.stopped = true
     this.turn?.interrupt()

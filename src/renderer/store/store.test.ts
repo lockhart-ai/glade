@@ -675,6 +675,48 @@ describe("a task's logs", () => {
   })
 })
 
+describe('context menu actions', () => {
+  it('copies text and reveals a file through main', async () => {
+    const data: FakeMain = { ...main(), copied: [], revealed: [] }
+    const { store } = await hydrated(data)
+
+    await store.getState().copyText('glade://task/t1')
+    await store.getState().revealFile('t1', 'docs/rate-limits.md')
+
+    expect(data.copied).toEqual(['glade://task/t1'])
+    expect(data.revealed).toEqual(['docs/rate-limits.md'])
+  })
+
+  it('asks the input bar to add text, as a new request each time, without calling main', async () => {
+    const { store, invoke } = await hydrated()
+    const calls = invoke.mock.calls.length
+    expect(store.getState().inputInsertion).toBeNull()
+
+    store.getState().insertIntoInput('t1', '> Quoted')
+    expect(store.getState().inputInsertion).toEqual({ taskId: 't1', text: '> Quoted', request: 1 })
+    store.getState().insertIntoInput('t1', '> Quoted')
+    expect(store.getState().inputInsertion).toEqual({ taskId: 't1', text: '> Quoted', request: 2 })
+    expect(invoke.mock.calls).toHaveLength(calls)
+  })
+
+  it('shows a file of the selected task in the Files tab, opening the right panel there', async () => {
+    const { store } = await hydrated(
+      main([
+        { key: UiStateKey.SelectedTaskId, value: 't1' },
+        { key: UiStateKey.RightPanelCollapsed, value: 'true' },
+      ]),
+    )
+
+    await store.getState().showFile('t1', 'src/date.ts')
+
+    expect(store.getState().openFiles.t1?.activePath).toBe('src/date.ts')
+    expect(store.getState().uiState).toMatchObject({
+      [UiStateKey.RightPanelTab]: 'files',
+      [UiStateKey.RightPanelCollapsed]: 'false',
+    })
+  })
+})
+
 describe('files', () => {
   it('opens and closes files through main, applying its answer, and reads a file without keeping it', async () => {
     const data: FakeMain = {

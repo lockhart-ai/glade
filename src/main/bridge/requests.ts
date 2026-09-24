@@ -3,6 +3,7 @@ import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import {
   CommandName,
+  type ClipboardWriteTextRequest,
   type CommandRequest,
   type EmptyRequest,
   type FileRequest,
@@ -10,6 +11,7 @@ import {
   type QueueEditRequest,
   type QueueRemoveRequest,
   type QuestionsAnswerRequest,
+  type SubagentsStopRequest,
   type TaskIdRequest,
   type TasksCreateRequest,
   type TasksRetryRequest,
@@ -72,6 +74,11 @@ const tasksRetryRequest = z.strictObject({
   model: z.string().min(1).optional(),
 }) satisfies z.ZodType<TasksRetryRequest>
 
+const subagentsStopRequest = z.strictObject({
+  taskId: z.string(),
+  toolUseId: z.string(),
+}) satisfies z.ZodType<SubagentsStopRequest>
+
 const queueAddRequest = z.strictObject({ taskId: z.string(), text: messageText }) satisfies z.ZodType<QueueAddRequest>
 
 const queueEditRequest = z.strictObject({ id: z.string(), text: messageText }) satisfies z.ZodType<QueueEditRequest>
@@ -89,6 +96,8 @@ const fileRequest = z.strictObject({
     .string()
     .refine(isWorkspaceRelativePath, 'Expected a normalized path relative to the workspace root, inside it'),
 }) satisfies z.ZodType<FileRequest>
+
+const clipboardWriteTextRequest = z.strictObject({ text: z.string() }) satisfies z.ZodType<ClipboardWriteTextRequest>
 
 const uiStateGetRequest = z.strictObject({ key: z.enum(UiStateKey) }) satisfies z.ZodType<UiStateGetRequest>
 
@@ -112,6 +121,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.TasksStop]: taskIdRequest,
   [CommandName.TasksRetry]: tasksRetryRequest,
   [CommandName.TasksCompact]: taskIdRequest,
+  [CommandName.SubagentsStop]: subagentsStopRequest,
   [CommandName.TasksHistory]: taskIdRequest,
   [CommandName.QueueAdd]: queueAddRequest,
   [CommandName.QueueEdit]: queueEditRequest,
@@ -121,6 +131,8 @@ export const REQUEST_SCHEMAS = {
   [CommandName.FilesOpen]: fileRequest,
   [CommandName.FilesClose]: fileRequest,
   [CommandName.FilesOpenInEditor]: fileRequest,
+  [CommandName.FilesReveal]: fileRequest,
+  [CommandName.ClipboardWriteText]: clipboardWriteTextRequest,
   [CommandName.UiStateGet]: uiStateGetRequest,
   [CommandName.UiStateGetAll]: emptyRequest,
   [CommandName.UiStateSet]: uiStateSetRequest,

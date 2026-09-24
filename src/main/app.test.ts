@@ -128,6 +128,8 @@ vi.mock('electron', () => ({
   ipcMain: electron.ipcMain,
   Notification: electron.FakeNotification,
   net: { isOnline: () => true },
+  clipboard: { writeText: vi.fn() },
+  shell: { openPath: vi.fn(), showItemInFolder: vi.fn() },
 }))
 
 // The real agent backend, watched: a test mode must never make one.

@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test } from './fixtures'
-import { firstRun, inputBar, taskHeader, taskList } from './selectors'
+import { desktop, expect, test } from './fixtures'
+import { contextMenu, deleteTaskDialog, firstRun, inputBar, taskHeader, taskList } from './selectors'
 
 test('task actions: F2 renames a task inline, ⌘⇧P pins and unpins it, ⌘⇧U marks it unread, and all of it persists', async ({
   launch,
@@ -67,4 +67,81 @@ test('task actions: F2 renames a task inline, ⌘⇧P pins and unpins it, ⌘⇧
   await expect(kept).toBeVisible()
   await expect(kept.getByRole('img', { name: 'Unread' })).toBeVisible()
   await expect(relaunched.rows('Active')).toHaveCount(1)
+})
+
+test('task context menu: the items per the reference, rename, copy a link, and delete with confirm → cancel → confirm', async ({
+  launch,
+  tempFolder,
+}) => {
+  const root = join(tempFolder(), 'acme-api')
+  mkdirSync(root)
+  const glade = await launch({ chosenFolder: root })
+  const { window } = glade
+  await firstRun(window).openFolder.click()
+  const list = taskList(window)
+  const menu = contextMenu(window, 'Task actions')
+
+  await list.newTask.click()
+  await list.newTask.click()
+  await expect(list.rows('Active')).toHaveCount(2)
+
+  // Right-clicking an active task's row opens its menu, with the items and keys of docs/context-menus.md.
+  await list.rows('Active').first().click({ button: 'right' })
+  await expect(menu.items).toHaveText([
+    'Open↵',
+    'Pin to top⌘⇧P',
+    'Rename…F2',
+    'Mark as unread⌘⇧U',
+    'Mark done⌘⇧D',
+    'Copy link to task',
+    'Delete task…',
+  ])
+
+  // Rename… turns the row's title into a field, as F2 does.
+  await menu.item('Rename…').click()
+  await expect(menu.menu).toHaveCount(0)
+  await expect(list.renameField).toBeFocused()
+  await list.renameField.fill('Add rate limiting to public API')
+  await window.keyboard.press('Enter')
+  await expect(list.rows('Active').first()).toContainText('Add rate limiting to public API')
+
+  // ⇧F10 opens the focused row's menu; Copy link to task copies its glade:// link.
+  await list.rows('Active').first().focus()
+  await window.keyboard.press('Shift+F10')
+  await expect(menu.menu).toBeVisible()
+  await menu.item('Copy link to task').click()
+  await expect.poll(async () => (await desktop(glade)).copied).toEqual([expect.stringMatching(/^glade:\/\/task\/.+/)])
+
+  // Delete task… asks first: Cancel keeps the task.
+  const dialog = deleteTaskDialog(window)
+  await list.rows('Active').first().click({ button: 'right' })
+  await menu.item('Delete task…').click()
+  await expect(dialog.dialog).toContainText('Delete “Add rate limiting to public API”?')
+  await dialog.cancel.click()
+  await expect(dialog.dialog).toHaveCount(0)
+  await expect(list.rows('Active')).toHaveCount(2)
+
+  // Asked again, Delete deletes it.
+  await list.rows('Active').first().click({ button: 'right' })
+  await menu.item('Delete task…').click()
+  await dialog.confirm.click()
+  await expect(list.rows('Active')).toHaveCount(1)
+  await expect(list.taskRow('Add rate limiting to public API')).toHaveCount(0)
+
+  // A done task's menu reopens it and copies its outcome instead.
+  await list.rows('Active').first().click({ button: 'right' })
+  await menu.item('Mark done').click()
+  await expect(list.rows('Done')).toHaveCount(1)
+  await list.rows('Done').first().click({ button: 'right' })
+  await expect(menu.items).toHaveText([
+    'Open↵',
+    'Pin to top',
+    'Rename…',
+    'Reopen',
+    'Copy link to task',
+    'Copy outcome',
+    'Delete task…',
+  ])
+  await menu.item('Reopen').click()
+  await expect(list.rows('Active')).toHaveCount(1)
 })

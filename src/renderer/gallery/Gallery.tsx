@@ -367,7 +367,6 @@ function taskMenu(onChoose: (label: string) => void): MenuEntry[] {
     { ...item('Mark done', '⌘⇧D'), icon: faCheck },
     { kind: MenuEntryKind.Separator },
     item('Copy link to task'),
-    item('Reveal folder in Finder'),
     { kind: MenuEntryKind.Separator },
     item('Delete task…', undefined, MenuItemVariant.Destructive),
   ]

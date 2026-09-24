@@ -11,6 +11,7 @@ import {
   type ToolCallEvent,
   type ToolEvent,
 } from '../../shared/domain'
+import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import {
@@ -105,7 +106,9 @@ async function renderTab({ toolEvents = EVENTS, openFiles, files = FILES, overri
   await act(() => store.getState().hydrate())
   render(
     <GladeStoreProvider store={store}>
-      <FilesTab taskId="t1" rootPath={ROOT} focus={focus ?? null} />
+      <ToastProvider>
+        <FilesTab taskId="t1" rootPath={ROOT} focus={focus ?? null} />
+      </ToastProvider>
     </GladeStoreProvider>,
   )
   return { ...fake, store, opened }

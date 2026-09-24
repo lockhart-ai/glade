@@ -40,14 +40,21 @@ export interface TouchedFiles {
   readonly read: readonly TouchedFile[]
 }
 
+/**
+ * The file a tool call reads or changes (Read, Write, Edit, MultiEdit, NotebookEdit), relative to the workspace root;
+ * null for any other call, or a file outside the workspace.
+ */
+export function fileOfCall(call: Pick<ToolCallEvent, 'name' | 'input'>, rootPath: string): string | null {
+  const field = CHANGING_TOOLS[call.name] ?? READING_TOOLS[call.name]
+  const value = field === undefined ? undefined : call.input[field]
+  return typeof value === 'string' ? workspaceRelativePath(value, rootPath) : null
+}
+
 /** The file a tool call touched, relative to the workspace root, and how; undefined for any other call. */
 function touchOf(call: ToolCallEvent, rootPath: string): { path: string; touch: FileTouch } | undefined {
-  const changing = CHANGING_TOOLS[call.name]
-  const field = changing ?? READING_TOOLS[call.name]
-  if (field === undefined) return undefined
-  const value = call.input[field]
-  const path = typeof value === 'string' ? workspaceRelativePath(value, rootPath) : null
-  return path === null ? undefined : { path, touch: changing === undefined ? FileTouch.Read : FileTouch.Changed }
+  const path = fileOfCall(call, rootPath)
+  if (path === null) return undefined
+  return { path, touch: call.name in CHANGING_TOOLS ? FileTouch.Changed : FileTouch.Read }
 }
 
 function byPath(a: TouchedFile, b: TouchedFile): number {

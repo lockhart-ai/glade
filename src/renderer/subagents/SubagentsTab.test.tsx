@@ -1,7 +1,13 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render as renderUnwrapped, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ToolCallState, ToolEventKind, type NarrationEvent, type ToolCallEvent } from '../../shared/domain'
+import { storeWrapper } from '../store/test-wrapper'
 import { ELAPSED_REFRESH_MS, SubagentsTab } from './SubagentsTab'
+
+/** Renders under a store, which the tab's context menus act through. */
+function render(ui: React.ReactElement) {
+  return renderUnwrapped(ui, { wrapper: storeWrapper().wrapper })
+}
 
 const AT = new Date(2026, 8, 23, 13, 8).getTime()
 const ROOT = '/Users/sample/code/api'
@@ -76,13 +82,13 @@ afterEach(() => {
 
 describe('SubagentsTab', () => {
   it('says when there are no subagents', () => {
-    render(<SubagentsTab events={[call('bash')]} />)
+    render(<SubagentsTab taskId="t1" events={[call('bash')]} />)
     expect(screen.getByText('No subagents yet.')).toBeInTheDocument()
   })
 
   it('tallies the subagents by status and lists them, running ones first', () => {
     vi.useFakeTimers({ now: AT + 252_000 })
-    render(<SubagentsTab events={EVENTS} rootPath={ROOT} />)
+    render(<SubagentsTab taskId="t1" events={EVENTS} rootPath={ROOT} />)
 
     expect(screen.getByRole('group', { name: 'Subagents by status' })).toHaveTextContent('3 running1 done')
     expect(screen.getAllByRole('group', { name: /changes|links/ }).map((element) => element.dataset.status)).toEqual([
@@ -104,13 +110,18 @@ describe('SubagentsTab', () => {
   })
 
   it('shows a failed subagent with its error', () => {
-    render(<SubagentsTab events={[agent('api', 'API changes', { state: ToolCallState.Error, output: 'Stopped.' })]} />)
+    render(
+      <SubagentsTab
+        taskId="t1"
+        events={[agent('api', 'API changes', { state: ToolCallState.Error, output: 'Stopped.' })]}
+      />,
+    )
     expect(screen.getByRole('group', { name: 'Subagents by status' })).toHaveTextContent('1 failed')
     expect(header('API changes')).toHaveTextContent('API changesFailedStopped.0 tool calls')
   })
 
   it('opens a row’s log inline, in the tool log’s style, and closes it again', () => {
-    render(<SubagentsTab events={EVENTS} rootPath={ROOT} />)
+    render(<SubagentsTab taskId="t1" events={EVENTS} rootPath={ROOT} />)
     const api = header('API changes')
     expect(api).toHaveAttribute('aria-expanded', 'false')
 
@@ -139,14 +150,14 @@ describe('SubagentsTab', () => {
   })
 
   it('says when an open subagent hasn’t done anything yet', () => {
-    render(<SubagentsTab events={[agent('api', 'API changes')]} />)
+    render(<SubagentsTab taskId="t1" events={[agent('api', 'API changes')]} />)
     fireEvent.click(header('API changes'))
     expect(screen.getByRole('log', { name: 'API changes log' })).toHaveTextContent('Nothing yet.')
   })
 
   it('ticks a running subagent’s elapsed time, and stops ticking once none is running', () => {
     vi.useFakeTimers({ now: AT + 60_000 })
-    const { rerender } = render(<SubagentsTab events={[agent('api', 'API changes')]} />)
+    const { rerender } = render(<SubagentsTab taskId="t1" events={[agent('api', 'API changes')]} />)
     expect(header('API changes')).toHaveTextContent('1m 00s')
 
     act(() => {
@@ -156,6 +167,7 @@ describe('SubagentsTab', () => {
 
     rerender(
       <SubagentsTab
+        taskId="t1"
         events={[agent('api', 'API changes', { state: ToolCallState.Done, output: 'Done.', finishedAt: AT + 66_000 })]}
       />,
     )

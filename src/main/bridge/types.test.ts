@@ -61,6 +61,9 @@ const TASK_HANDLERS = {
   [CommandName.FilesOpen]: () => ({ openFiles: {} as OpenFiles }),
   [CommandName.FilesClose]: () => ({ openFiles: {} as OpenFiles }),
   [CommandName.FilesOpenInEditor]: () => null,
+  [CommandName.FilesReveal]: () => null,
+  [CommandName.SubagentsStop]: () => null,
+  [CommandName.ClipboardWriteText]: () => null,
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
   [CommandName.TasksCreate]: REQUEST_SCHEMAS[CommandName.TasksCreate],
@@ -80,6 +83,9 @@ const TASK_SCHEMAS = {
   [CommandName.FilesOpen]: REQUEST_SCHEMAS[CommandName.FilesOpen],
   [CommandName.FilesClose]: REQUEST_SCHEMAS[CommandName.FilesClose],
   [CommandName.FilesOpenInEditor]: REQUEST_SCHEMAS[CommandName.FilesOpenInEditor],
+  [CommandName.FilesReveal]: REQUEST_SCHEMAS[CommandName.FilesReveal],
+  [CommandName.SubagentsStop]: REQUEST_SCHEMAS[CommandName.SubagentsStop],
+  [CommandName.ClipboardWriteText]: REQUEST_SCHEMAS[CommandName.ClipboardWriteText],
 } satisfies Partial<RequestSchemas>
 
 describe('the command map', () => {

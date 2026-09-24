@@ -22,6 +22,7 @@ import {
   type SubagentRow,
   type ToolLogRow,
 } from './toolLogModel'
+import { ToolCallMenu, useToolCallMenuTarget } from './ToolCallMenu'
 import styles from './ToolLog.module.css'
 
 /** How long the start of a turn the chat asked to see stays highlighted. */
@@ -63,14 +64,22 @@ interface CallProps extends TurnStartProps, DensityProps {
   readonly rootPath: string | undefined
 }
 
-/** One tool call: its name, argument, time and short result. Click it to see its full output. */
+/**
+ * One tool call: its name, argument, time and short result. Click it to see its full output; right-click it, or ⇧F10 on
+ * it, for its context menu.
+ */
 function Call({ row, rootPath, turnStart, compact = false }: CallProps): React.JSX.Element {
   const { call, name, children } = row
   const [expanded, setExpanded] = useState(false)
+  const menuTarget = useToolCallMenuTarget(call)
 
   return (
     <div className={styles.callGroup} {...{ [TURN_START]: turnStart }}>
-      <div className={classNames(styles.call, styles[call.state], compact && styles.compact)} data-state={call.state}>
+      <div
+        className={classNames(styles.call, styles[call.state], compact && styles.compact)}
+        data-state={call.state}
+        {...menuTarget}
+      >
         <button
           type="button"
           className={styles.callButton}
@@ -238,24 +247,26 @@ export function ToolLog({ taskId, events, rootPath, focus, onFocusShown }: ToolL
 
   const seen = new Set<number>()
   return (
-    <div ref={ref} onScroll={onScroll} role="log" aria-label="Tool log" className={styles.scroller}>
-      <div className={styles.log}>
-        {rows.map((row) => {
-          const event = rowEvent(row)
-          const turnStart = seen.has(event.turn) ? undefined : event.turn
-          seen.add(event.turn)
-          switch (row.kind) {
-            case ToolEventKind.ToolCall:
-              return <Call key={event.id} row={row} rootPath={rootPath} turnStart={turnStart} />
-            case ToolEventKind.Narration:
-              return <Narration key={event.id} {...row} turnStart={turnStart} />
-            case ToolEventKind.Divider:
-              return <Divider key={event.id} {...row} turnStart={turnStart} />
-            case ToolEventKind.Compaction:
-              return <Compaction key={event.id} {...row} turnStart={turnStart} />
-          }
-        })}
+    <ToolCallMenu taskId={taskId} rootPath={rootPath}>
+      <div ref={ref} onScroll={onScroll} role="log" aria-label="Tool log" className={styles.scroller}>
+        <div className={styles.log}>
+          {rows.map((row) => {
+            const event = rowEvent(row)
+            const turnStart = seen.has(event.turn) ? undefined : event.turn
+            seen.add(event.turn)
+            switch (row.kind) {
+              case ToolEventKind.ToolCall:
+                return <Call key={event.id} row={row} rootPath={rootPath} turnStart={turnStart} />
+              case ToolEventKind.Narration:
+                return <Narration key={event.id} {...row} turnStart={turnStart} />
+              case ToolEventKind.Divider:
+                return <Divider key={event.id} {...row} turnStart={turnStart} />
+              case ToolEventKind.Compaction:
+                return <Compaction key={event.id} {...row} turnStart={turnStart} />
+            }
+          })}
+        </div>
       </div>
-    </div>
+    </ToolCallMenu>
   )
 }

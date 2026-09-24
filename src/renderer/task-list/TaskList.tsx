@@ -3,6 +3,7 @@ import { useEffect, useId, useMemo } from 'react'
 import { parseTaskFilter } from '../../shared/attention'
 import { UiStateKey } from '../../shared/domain'
 import { Icon, IconSize, useToast } from '../components'
+import { ContextMenu, useContextMenu } from '../context-menus'
 import { describeFailure } from '../store/hydrate'
 import { useGladeStore } from '../store/react'
 import {
@@ -17,6 +18,7 @@ import {
   type TaskSection,
 } from './sections'
 import { TaskRow } from './TaskRow'
+import { useTaskMenu } from './useTaskMenu'
 import styles from './TaskList.module.css'
 import { useNow } from './useNow'
 
@@ -61,7 +63,8 @@ function stepFor(event: KeyboardEvent): Step | null {
  * A workspace's tasks in the Pinned, Active and Done sections, kept live from the store, narrowed to the filter chosen
  * with the chips above (`TaskListToolbar`); each section counts the tasks it shows. Each section collapses, and
  * remembers it. Clicking a row selects its task; ⌥↑ / ⌥↓ move the selection through the expanded sections. The task
- * being renamed (F2) shows a text field for its title in its row.
+ * being renamed (F2) shows a text field for its title in its row. Right-clicking a row, or ⇧F10 on it, opens the task's
+ * context menu.
  */
 export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
   const tasks = useGladeStore((state) => state.tasks)
@@ -74,6 +77,8 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
   const toast = useToast()
   const setUiState = useGladeStore((state) => state.setUiState)
   const now = useNow()
+  const menu = useContextMenu<string>()
+  const taskMenu = useTaskMenu()
 
   const filter = parseTaskFilter(uiState[UiStateKey.TaskFilter])
   const sections = useMemo(() => sectionTasks(Object.values(tasks), workspaceId, filter), [tasks, workspaceId, filter])
@@ -127,11 +132,13 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
                 renaming={task.id === renamingTaskId}
                 onRename={rename}
                 onCancelRename={cancelRename}
+                menuTarget={menu.targetProps(task.id)}
               />
             </li>
           ))}
         </Section>
       ))}
+      <ContextMenu label="Task actions" state={menu} entries={taskMenu} />
     </div>
   )
 }

@@ -13,7 +13,15 @@ import { createWorkspaceAt, openWorkspace } from '../workspaces/workspaces'
 import { editQueuedMessage, removeQueuedMessage } from '../tasks/queue'
 import { noteUiStateSet } from '../tasks/attention'
 import { createTask, deleteTask, markTaskDone, reopenTask, updateTaskFromUser } from '../tasks/service'
-import { closeTaskFile, openTaskFile, openTaskFileInEditor, readTaskFile, type OpenPath } from '../files/files'
+import {
+  closeTaskFile,
+  openTaskFile,
+  openTaskFileInEditor,
+  readTaskFile,
+  revealTaskFile,
+  type OpenPath,
+} from '../files/files'
+import { NO_DESKTOP, type Desktop } from '../desktop'
 import { todoListFor } from '../todos/todos'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
@@ -34,10 +42,12 @@ export interface HandlerContext {
   readonly runner: AgentRunner
   /** Opens a file in the app macOS opens its kind of file with (Electron's `shell.openPath`). */
   readonly openPath: OpenPath
+  /** The clipboard and Finder, for the context menus. Does nothing by default. */
+  readonly desktop?: Desktop
 }
 
 export function createHandlers(context: HandlerContext): Handlers {
-  const { db, emit, chooseFolder, runner } = context
+  const { db, emit, chooseFolder, runner, desktop = NO_DESKTOP } = context
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
     [CommandName.WorkspacesCreate]: ({ rootPath }) => {
@@ -65,6 +75,10 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.TasksStop]: async ({ id }) => ({ task: await runner.stop(id) }),
     [CommandName.TasksRetry]: ({ id, model }) => ({ task: runner.retry(id, model) }),
     [CommandName.TasksCompact]: ({ id }) => ({ task: runner.compact(id) }),
+    [CommandName.SubagentsStop]: async ({ taskId, toolUseId }) => {
+      await runner.stopSubagent(taskId, toolUseId)
+      return null
+    },
     [CommandName.TasksHistory]: ({ id }) => {
       if (getTask(db, id) === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${id}`)
       return {
@@ -88,6 +102,14 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.FilesClose]: ({ taskId, path }) => ({ openFiles: closeTaskFile(context, taskId, path) }),
     [CommandName.FilesOpenInEditor]: async ({ taskId, path }) => {
       await openTaskFileInEditor(context, taskId, path)
+      return null
+    },
+    [CommandName.FilesReveal]: async ({ taskId, path }) => {
+      await revealTaskFile(context, taskId, path, desktop.showItemInFolder)
+      return null
+    },
+    [CommandName.ClipboardWriteText]: async ({ text }) => {
+      await desktop.writeClipboard(text)
       return null
     },
     [CommandName.UiStateGet]: ({ key }) => ({ value: getUiState(db, key) ?? null }),

@@ -80,6 +80,9 @@ export function createSdkBackend(log: SdkBackendLog = console): AgentBackend {
         async interrupt() {
           await session.interrupt()
         },
+        async stopTask(sdkTaskId) {
+          await session.stopTask(sdkTaskId)
+        },
         close() {
           then(() => {
             input.end()

@@ -12,11 +12,13 @@ import { _electron as electron, test as base, type ElectronApplication, type Pag
 import type { AgentScriptName } from '../src/main/agent/scripts'
 import {
   E2E_CHOSEN_FOLDER_ENV,
+  E2E_DESKTOP_GLOBAL,
   E2E_EDITOR_GLOBAL,
   E2E_ENV,
   E2E_NETWORK_GLOBAL,
   E2E_NOTIFIER_GLOBAL,
   E2E_WINDOW_SIZE,
+  type E2eDesktop,
   type E2eEditor,
   type E2eNetwork,
   type E2eSpec,
@@ -230,6 +232,17 @@ export async function replyToNotification({ app }: Glade, index: number, text: s
  */
 export async function openedInEditor({ app }: Glade): Promise<string[]> {
   return app.evaluate((_, name) => [...(Reflect.get(globalThis, name) as E2eEditor).opened], E2E_EDITOR_GLOBAL)
+}
+
+/**
+ * What the context menus have copied to the clipboard and shown in Finder so far, oldest first. An e2e run never
+ * touches the real clipboard or Finder: main records them in its place (`E2E_DESKTOP_GLOBAL`).
+ */
+export async function desktop({ app }: Glade): Promise<E2eDesktop> {
+  return app.evaluate((_, name) => {
+    const { copied, revealed } = Reflect.get(globalThis, name) as E2eDesktop
+    return { copied: [...copied], revealed: [...revealed] }
+  }, E2E_DESKTOP_GLOBAL)
 }
 
 /**

@@ -158,6 +158,18 @@ export async function openTaskFileInEditor(context: FilesContext, taskId: string
   if (failure !== '') throw new Error(`Couldn't open ${path}: ${failure}`)
 }
 
+/** `files.reveal`: shows a file of the task's workspace in Finder, selected in its folder. */
+export async function revealTaskFile(
+  context: TaskServiceContext,
+  taskId: string,
+  path: string,
+  showItemInFolder: (path: string) => void,
+): Promise<void> {
+  const real = await resolveWorkspaceFile(workspaceRoot(context, taskId), path)
+  if (real === null) throw new CommandFailure(BridgeErrorCode.NotFound, `No file at ${path}`)
+  showItemInFolder(real)
+}
+
 /**
  * The agent's `show_file`: opens a file of the task's workspace in its Files tab, and asks the window to show it there,
  * at `line`. `path` is absolute, or relative to the workspace root. Answers with the path relative to the root. Throws

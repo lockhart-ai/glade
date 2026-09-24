@@ -7,6 +7,7 @@
 import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import { AGENT_SCRIPT_NAMES, type AgentScriptName } from './agent/scripts'
+import type { Desktop } from './desktop'
 import { isInTempFolder, isolateApp, type IsolatedApp } from './isolation'
 
 /** The environment variable that carries the e2e spec, as JSON. */
@@ -53,6 +54,38 @@ export function createE2eEditor(): (path: string) => Promise<string> {
   return (path) => {
     editor.opened.push(path)
     return Promise.resolve('')
+  }
+}
+
+/**
+ * Where e2e mode puts what the context menus copied and revealed on the main process's global object: an `E2eDesktop`,
+ * since an e2e run never touches the real clipboard or Finder. A spec reads it through Playwright's `app.evaluate`.
+ */
+export const E2E_DESKTOP_GLOBAL = '__gladeE2eDesktop'
+
+/** What the context menus copied and revealed in e2e mode (`E2E_DESKTOP_GLOBAL`), oldest first. */
+export interface E2eDesktop {
+  /** The text each Copy put on the clipboard. */
+  readonly copied: string[]
+  /** The real path of each file Reveal in Finder showed. */
+  readonly revealed: string[]
+}
+
+/**
+ * Puts an empty `E2eDesktop` on the global object for a spec to read (`E2E_DESKTOP_GLOBAL`), and answers with the
+ * `Desktop` that records into it in place of Electron's clipboard and Finder.
+ */
+export function createE2eDesktop(): Desktop {
+  const desktop: E2eDesktop = { copied: [], revealed: [] }
+  Reflect.set(globalThis, E2E_DESKTOP_GLOBAL, desktop)
+  return {
+    writeClipboard: (text) => {
+      desktop.copied.push(text)
+      return Promise.resolve()
+    },
+    showItemInFolder: (path) => {
+      desktop.revealed.push(path)
+    },
   }
 }
 
