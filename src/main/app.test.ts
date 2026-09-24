@@ -475,6 +475,7 @@ describe('startApp in capture mode', () => {
     const close = vi.spyOn(Database.prototype, 'close')
 
     await startAndWaitUntilReady()
+    await waitForExit()
 
     expect(console.error).toHaveBeenCalledWith(
       expect.stringMatching(/^Glade capture failed: the seed .* can't be read/),
@@ -509,6 +510,31 @@ describe('startApp in capture mode', () => {
     expect(electron.windows).toHaveLength(0)
     expect(electron.dialog.showErrorBox).not.toHaveBeenCalled()
     expect(electron.app.exit).toHaveBeenCalledWith(1)
+  })
+
+  it('seeds a conversation played by the agent script, then captures the task', async () => {
+    askForCapture({ route: '', conversation: { agentScript: 'simple-reply', message: 'How does it retry?' } })
+    const userData = electron.app.userData
+
+    await startAndWaitUntilReady()
+    await waitForExit()
+
+    expect(electron.app.exit).toHaveBeenCalledWith(0)
+    expect(createSdkBackend).not.toHaveBeenCalled()
+    const db = new Database(join(userData, 'glade.db'), { readonly: true })
+    try {
+      const messages = db.prepare('SELECT role, body FROM messages ORDER BY turn, role DESC').all()
+      expect(messages).toEqual([
+        { role: 'user', body: 'How does it retry?' },
+        { role: 'agent', body: expect.stringMatching(/^The client retries/) as unknown },
+      ])
+      const selected = db.prepare('SELECT value FROM ui_state WHERE key = ?').get(UiStateKey.SelectedTaskId)
+      const task = db.prepare('SELECT id FROM tasks').get()
+      expect(selected).toEqual({ value: (task as { id: string }).id })
+    } finally {
+      db.close()
+    }
+    expect(readFileSync(join(outDir, 'gallery-1100x700.png'), 'utf8')).toBe('png')
   })
 
   it('never captures in a packaged app', async () => {
@@ -588,6 +614,24 @@ describe('startApp in e2e mode', () => {
     expect(createAgentBackend).not.toHaveBeenCalled()
     expect(createSdkBackend).not.toHaveBeenCalled()
     expect(backend.sessions).toHaveLength(0)
+  })
+
+  it('runs the agent script the spec names', async () => {
+    askForE2e({ agentScript: 'simple-reply' })
+    await startAndWaitUntilReady()
+    const db = new Database(join(electron.app.userData, 'glade.db'))
+    const task = sampleTask(db, sampleWorkspace(db, electron.app.userData).id)
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    await expect(handler?.({}, CommandName.TasksSend, { id: task.id, text: 'Hi' })).resolves.toMatchObject({ ok: true })
+
+    await vi.waitFor(() => {
+      expect(db.prepare("SELECT body FROM messages WHERE role = 'agent'").all()).toEqual([
+        { body: expect.stringMatching(/^The client retries/) as unknown },
+      ])
+    })
+    db.close()
+    expect(createSdkBackend).not.toHaveBeenCalled()
   })
 
   it('never makes the real agent backend by default either', async () => {

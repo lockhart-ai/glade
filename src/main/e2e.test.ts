@@ -42,6 +42,9 @@ describe('readE2eSpec', () => {
   it('reads a valid spec', () => {
     expect(readE2eSpec(env(spec()), false)).toEqual(spec())
     expect(readE2eSpec(env(spec({ route: '#gallery' })), false)).toEqual(spec({ route: '#gallery' }))
+    expect(readE2eSpec(env(spec({ agentScript: 'long-running' })), false)).toEqual(
+      spec({ agentScript: 'long-running' }),
+    )
     expect(readE2eSpec(env(spec({ seed: '/repo/e2e/seeds/a.json' })), false)).toEqual(
       spec({ seed: '/repo/e2e/seeds/a.json' }),
     )
@@ -58,6 +61,7 @@ describe('readE2eSpec', () => {
     ['a route that is not a hash', spec({ route: 'gallery' })],
     ['a seed that is not an absolute path', spec({ seed: 'e2e/seeds/a.json' })],
     ['an unknown field', { ...spec(), show: true }],
+    ['an unknown agent script', { ...spec(), agentScript: 'nope' }],
   ])('rejects %s', (_, value) => {
     expect(() => readE2eSpec(env(value), false)).toThrow(/^GLADE_E2E is invalid: /)
   })

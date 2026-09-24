@@ -56,6 +56,8 @@ describe('readCaptureSpec', () => {
   it('reads a valid spec', () => {
     expect(readCaptureSpec(env(spec()), false, MINIMUM)).toEqual(spec())
     expect(readCaptureSpec(env(spec({ route: '' })), false, MINIMUM)).toEqual(spec({ route: '' }))
+    const conversation = { agentScript: 'multi-tool-turn', message: 'Fix the flaky test.' } as const
+    expect(readCaptureSpec(env(spec({ conversation })), false, MINIMUM)).toEqual(spec({ conversation }))
     expect(readCaptureSpec(env(spec({ seed: '/code/fixture.json' })), false, MINIMUM)).toEqual(
       spec({ seed: '/code/fixture.json' }),
     )
@@ -81,6 +83,8 @@ describe('readCaptureSpec', () => {
     ['no timeout', spec({ timeoutMs: 0 })],
     ['a relative seed path', spec({ seed: 'fixture.json' })],
     ['an unknown field', { ...spec(), show: true }],
+    ['an unknown agent script', { ...spec(), conversation: { agentScript: 'nope', message: 'Hi' } }],
+    ['an empty first message', { ...spec(), conversation: { agentScript: 'simple-reply', message: ' ' } }],
   ])('rejects %s', (_, value) => {
     expect(() => readCaptureSpec(env(value), false, MINIMUM)).toThrow(/^GLADE_CAPTURE is invalid: /)
   })

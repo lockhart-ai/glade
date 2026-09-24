@@ -9,6 +9,7 @@ import { mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { _electron as electron, test as base, type ElectronApplication, type Page } from '@playwright/test'
+import type { AgentScriptName } from '../src/main/agent/scripts'
 import { E2E_CHOSEN_FOLDER_ENV, E2E_ENV, E2E_WINDOW_SIZE, type E2eSpec } from '../src/main/e2e'
 import { READY_ATTRIBUTE } from '../src/shared/ready'
 
@@ -29,6 +30,11 @@ export interface LaunchOptions {
   readonly route?: string
   /** What the folder dialog answers with, until `chooseFolder` changes it. Cancelled by default. */
   readonly chosenFolder?: string
+  /**
+   * The agent script every task's agent plays (see `src/main/agent/scripts.ts`). None by default, and then sending a
+   * task a message fails: no e2e run ever reaches the real agent.
+   */
+  readonly agentScript?: AgentScriptName
   /**
    * A sample-data fixture (a JSON file in `e2e/seeds/`, see `src/main/capture-seed.ts`) to fill the database with
    * before the window opens. Pass it on a test's first launch only.
@@ -115,10 +121,16 @@ export const test = base.extend<Fixtures>({
       }
     }
 
-    await use(async ({ route = '', chosenFolder, seed } = {}) => {
+    await use(async ({ route = '', chosenFolder, agentScript, seed } = {}) => {
+      const spec: E2eSpec = {
+        userData,
+        route,
+        ...(agentScript === undefined ? {} : { agentScript }),
+        ...(seed === undefined ? {} : { seed }),
+      }
       const app = await electron.launch({
         args: [MAIN],
-        env: appEnv({ userData, route, ...(seed === undefined ? {} : { seed }) }, chosenFolder),
+        env: appEnv(spec, chosenFolder),
         ...(RECORD_DIR === undefined
           ? {}
           : { recordVideo: { dir: testInfo.outputPath('video'), size: E2E_WINDOW_SIZE, showActions: {} } }),

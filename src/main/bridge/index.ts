@@ -1,8 +1,10 @@
 import type { Database } from 'better-sqlite3'
 import { COMMAND_CHANNEL, EVENT_CHANNEL } from '../../shared/bridge'
 import type { AgentBackend } from '../agent/backend'
+import { createGladeMcpServer, GLADE_SERVER } from '../agent/glade-tools'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
 import { createBroadcast, createDispatcher, type EventTarget } from './dispatcher'
+import type { Emit } from './events'
 import { createHandlers } from './handlers'
 import { REQUEST_SCHEMAS } from './requests'
 
@@ -25,6 +27,8 @@ export interface BridgeOptions {
 /** What the bridge started, for the app to shut down. */
 export interface RegisteredBridge {
   readonly runner: AgentRunner
+  /** Broadcasts an event to the windows. */
+  readonly emit: Emit
 }
 
 /**
@@ -33,8 +37,14 @@ export interface RegisteredBridge {
  */
 export function registerBridge({ ipc, db, targets, chooseFolder, agentBackend }: BridgeOptions): RegisteredBridge {
   const emit = createBroadcast(EVENT_CHANNEL, targets)
-  const runner = createAgentRunner({ db, emit, backend: agentBackend })
+  const runner = createAgentRunner({
+    db,
+    emit,
+    backend: agentBackend,
+    // Each session gets its own Glade tools, built for its task.
+    mcpServers: (task) => ({ [GLADE_SERVER]: createGladeMcpServer({ db, emit }, task.id) }),
+  })
   const dispatch = createDispatcher(createHandlers({ db, emit, chooseFolder, runner }), REQUEST_SCHEMAS)
   ipc.handle(COMMAND_CHANNEL, (_event, command, request) => dispatch(command, request))
-  return { runner }
+  return { runner, emit }
 }

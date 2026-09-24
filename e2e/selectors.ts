@@ -64,6 +64,16 @@ export function taskPanel(page: Page) {
   }
 }
 
+/** The chat view:the user's messages and the agent's replies, oldest first. */
+export function chat(page: Page) {
+  const log = regions(page).chat.getByRole('log', { name: 'Conversation' })
+  return {
+    log,
+    userMessages: log.getByRole('article', { name: 'You' }),
+    agentReplies: log.getByRole('article', { name: 'Agent' }),
+  }
+}
+
 /** The component gallery (`#gallery`, dev and e2e builds only). */
 export function gallery(page: Page) {
   return {
