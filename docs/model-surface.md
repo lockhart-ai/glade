@@ -31,7 +31,7 @@ it too.
 Tool calls and preamble (tool log), subagents (Subagents tab), files touched (Files tab list), context usage (meter),
 compaction, errors, turn duration and file/line counts (turn summary).
 
-## Plain file edits
+## System prompt
 
-The agent keeps its notes by editing `.glade/tasks/<task>/CLAUDE.md` directly. The app's system prompt tells it to:
-update the notes as it works, write them before compaction, and read them when resuming.
+The app's system prompt tells the agent its task id and title and how to use the tools above. Anything about files on
+disk (task folders, notes) comes from the workspace `CLAUDE.md`, not from Glade.

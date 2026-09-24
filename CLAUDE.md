@@ -10,8 +10,9 @@ Nimbalyst: the whole product is the lifecycle of a task plus the panels around i
 2. `docs/decisions.md` — everything already decided. Don't reopen these without asking Jared.
 3. `docs/design/README.md` — every screen, with screenshots. Build to these.
 4. `docs/plan.md` — the phases, in order.
-5. `docs/tickets/` — one markdown file per ticket, grouped by phase. Pick the lowest-numbered open ticket in the
-   earliest unfinished phase unless told otherwise.
+5. GitHub issues — work is tracked there, and they are canonical. Each phase has a meta issue with its "done when"
+   criteria and its child issues. Pick the lowest-numbered open child issue in the earliest unfinished phase unless told
+   otherwise.
 
 Reference docs: `docs/model-surface.md` (the tools the app gives the model), `docs/design/tokens.md` (colours, type,
 spacing), `docs/keymap.md`, `docs/context-menus.md`.

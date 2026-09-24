@@ -5,8 +5,8 @@ items sit last, in pink. ![Context menus](design/screens/13-context-menus.png)
 
 | Target | Items |
 |---|---|
-| Task (active), sidebar row | Open ↵ · — · Pin to top ⌘⇧P · Rename… F2 · Mark as unread ⌘⇧U · — · Mark done ⌘⇧D · — · Copy link to task · Reveal folder in Finder · — · Delete task… |
-| Task (done), row or search result | Open ↵ · — · Pin to top · Rename… · — · Reopen · — · Copy link to task · Copy outcome · Reveal folder in Finder · — · Delete task… |
+| Task (active), sidebar row | Open ↵ · — · Pin to top ⌘⇧P · Rename… F2 · Mark as unread ⌘⇧U · — · Mark done ⌘⇧D · — · Copy link to task · — · Delete task… |
+| Task (done), row or search result | Open ↵ · — · Pin to top · Rename… · — · Reopen · — · Copy link to task · Copy outcome · — · Delete task… |
 | Chat message (agent reply) | Copy ⌘C · Copy as Markdown · Quote in reply · — · Show this turn's tool calls |
 | Queued message | Edit · — · Remove |
 | Tool call | Copy command · Copy output · Open file · — · Run again in terminal |

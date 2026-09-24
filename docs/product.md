@@ -4,11 +4,11 @@
 
 ## Concepts
 
-**Workspace.** The top level: a name and a root folder. Task records live in the app's SQLite database; each task
-also gets its own folder at `.glade/tasks/<task>/` in the workspace root. That folder is the task's working directory:
-the agent runs there and keeps the task's files there, including a `CLAUDE.md` that is its running notes. If a task
-needs a git worktree, it makes one inside its folder. You can have several workspaces and switch between them from the
-sidebar or the menu bar (⌘1–9).
+**Workspace.** The top level: a name and a root folder. Every task's agent runs in the workspace root, so the root's
+`CLAUDE.md` (your conventions and personal context) applies to every task. Task records live only in the app's SQLite
+database. How tasks organise files on disk (a folder per task, worktrees inside it) is a convention written in that
+`CLAUDE.md`, not something Glade enforces; Glade seeds a starter `CLAUDE.md` for a new workspace that has none. You can
+have several workspaces and switch between them from the sidebar or the menu bar (⌘1–9).
 
 **Task.** One agent session with one objective. A task has exactly two states:
 
@@ -30,7 +30,6 @@ There are no follow-up tasks. One task can refer to another through its folder o
 | Status summary | Rewritten by the agent as work moves (`set_status`). Becomes the outcome when done. |
 | Chat log | Append-only. Your messages and the agent's **final reply per turn** only. |
 | Tool log | Append-only. Every tool call, plus the agent's working notes ("preamble") between them. |
-| Notes | `.glade/tasks/<task>/CLAUDE.md`, maintained by the agent. Saved before compaction; context resumes from it. |
 
 ## The window
 

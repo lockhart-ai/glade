@@ -11,10 +11,16 @@
   fallback. Confirm in P1-05.
 - **State:** everything in SQLite — workspaces, tasks, chat, tool log, todos, artifacts, queue, UI state. Reopening
   after a crash resumes from the database.
-- **Task folders:** `.glade/tasks/<task>/` inside the workspace root. The folder is the task's working directory (the
-  SDK session's `cwd`); the task's files live there, and any git worktree it needs goes there too.
-- **Task CLAUDE.md:** the agent's running notes. It updates the file as it works, saves notes there before
-  compaction, and context resumes from it.
+- **Agent sessions run in the workspace root** (the SDK session's `cwd`), so the workspace's own `CLAUDE.md` (the
+  user's conventions and personal context) loads for every task.
+- **Task metadata lives only in SQLite.** Glade keeps nothing of its own on disk in the workspace.
+- **On-disk layout is convention, not app logic.** Where a task keeps its files (e.g. a folder per task, worktrees
+  inside it) is described in the workspace `CLAUDE.md`. When Glade creates a workspace whose root has no `CLAUDE.md`,
+  it writes a starter one describing a task-folder convention; it never modifies an existing one. The system prompt
+  gives the agent its task's id and title so conventions can use them.
+- **Compaction** relies on the SDK's own summary. Any note-keeping before compaction is up to the workspace
+  conventions, not Glade.
+- **Deleting a task** removes its database rows only; it never touches files on disk.
 - **Model ↔ app surface:** the app exposes tools the model uses to drive the UI (see `model-surface.md`). The agent
   sets the title and objective from your first message and keeps the status current.
 - **Two task states:** Active and Done. Done stays chat-able; a message reopens it. No follow-up tasks.

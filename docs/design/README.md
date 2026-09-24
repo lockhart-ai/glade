@@ -18,14 +18,14 @@ illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
 | 9 · Todos | The agent's checklist with progress. | ![9 · Todos](screens/09-todos.png) |
 | 10 · Artifacts | Deliverables with Open / Copy / Reveal. | ![10 · Artifacts](screens/10-artifacts.png) |
 | 11 · Subagents | Status and latest line per subagent; one expanded inline to its log. | ![11 · Subagents](screens/11-subagents.png) |
-| 12 · Right-click a task | Task context menu in place. | ![12 · Right-click a task](screens/12-right-click-task.png) |
-| 13 · Context menus | Every context menu. Also in `../context-menus.md`. | ![13 · Context menus](screens/13-context-menus.png) |
+| 12 · Right-click a task | Task context menu in place. ("Reveal folder in Finder" was removed; see `../context-menus.md`.) | ![12 · Right-click a task](screens/12-right-click-task.png) |
+| 13 · Context menus | Every context menu. `../context-menus.md` is authoritative ("Reveal folder in Finder" was removed). | ![13 · Context menus](screens/13-context-menus.png) |
 | 14 · Workspace switcher | Sidebar dropdown with per-workspace counts. | ![14 · Workspace switcher](screens/14-workspace-switcher.png) |
 | 15 · Workspace menu | The macOS menu bar's Workspace menu. | ![15 · Workspace menu](screens/15-workspace-menu.png) |
 | 16 · Error in a task | Agent stopped after retries; Retry / Retry with another model / Show details. | ![16 · Error in a task](screens/16-error.png) |
 | 17 · Usage limit or offline | App-wide banner; tasks pause and resume on their own. | ![17 · Usage limit or offline](screens/17-usage-limit.png) |
 | 18 · Relaunch after a crash | Mid-turn tasks resume; notice and dividers. | ![18 · Relaunch after a crash](screens/18-relaunch.png) |
-| 19 · Compaction | Context popover at 97%, Compact now; notes saved to CLAUDE.md first. | ![19 · Compaction](screens/19-compaction.png) |
+| 19 · Compaction | Context popover at 97%, Compact now. (The "notes saved to CLAUDE.md" line is superseded: Glade doesn't manage notes.) | ![19 · Compaction](screens/19-compaction.png) |
 | 20 · First run | No workspace yet: Open folder / Create a new folder. | ![20 · First run](screens/20-first-run.png) |
 | 21 · Settings | Modal; Agent section shown. | ![21 · Settings](screens/21-settings.png) |
 | 22 · Keymap | Every shortcut. Also in `../keymap.md`. | ![22 · Keymap](screens/22-keymap.png) |
