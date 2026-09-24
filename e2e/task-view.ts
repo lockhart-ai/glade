@@ -1,12 +1,11 @@
 /**
- * What a spec reads off a task: its header, its chat and its tool log. Each reader gives plain data, so specs assert on
- * what a task shows, not on how it's read.
+ * What a spec reads off a task that the app doesn't show yet: its header and its tool log. Each reader gives plain
+ * data, so specs assert on what a task shows, not on how it's read.
  *
- * Until the task screens are built, the readers ask main through the renderer's own bridge (`window.glade`), which is
- * what the store and the screens render from. As each screen lands, its reader switches to reading the screen through
- * locators in `./selectors`, and the specs don't change:
- * - `taskHeader`: the task header (title, objective, status) and the sidebar row (P1-05, P1-11).
- * - `chat`: the chat view (P1-10).
+ * Until those screens are built, the readers ask main through the renderer's own bridge (`window.glade`), which is
+ * what the store and the screens render from. When a screen lands, its reader goes and the spec reads the screen
+ * through locators in `./selectors`, as it already does for the chat and the task list:
+ * - `taskHeader`: the task header (P1-11).
  * - `toolLog`: the tool log panel (P1-12).
  */
 import type { Page } from '@playwright/test'
@@ -17,7 +16,7 @@ import {
   type CommandResponse,
   type GladeBridge,
 } from '../src/shared/bridge'
-import { ToolEventKind, type MessageRole, type TaskActivity, type ToolCallState } from '../src/shared/domain'
+import { ToolEventKind, type TaskActivity, type ToolCallState } from '../src/shared/domain'
 
 /** Runs a bridge command in the page, as the renderer would. */
 export function invoke<C extends CommandName>(
@@ -42,11 +41,6 @@ export interface TaskHeader {
   readonly activity: TaskActivity
 }
 
-export interface ChatMessage {
-  readonly role: MessageRole
-  readonly body: string
-}
-
 /** A tool log entry: a narration's text, or a tool call's name, state and the name of the subagent call it's inside. */
 export type ToolLogEntry =
   | { readonly narration: string }
@@ -58,11 +52,6 @@ export async function taskHeader(page: Page, workspaceId: string, taskId: string
   return task === undefined
     ? undefined
     : { title: task.title, objective: task.objective, status: task.status, activity: task.activity }
-}
-
-export async function chat(page: Page, taskId: string): Promise<ChatMessage[]> {
-  const { messages } = await invoke(page, CommandName.TasksHistory, { id: taskId })
-  return messages.map(({ role, body }) => ({ role, body }))
 }
 
 export async function toolLog(page: Page, taskId: string): Promise<ToolLogEntry[]> {

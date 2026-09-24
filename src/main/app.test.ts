@@ -475,6 +475,7 @@ describe('startApp in capture mode', () => {
     const close = vi.spyOn(Database.prototype, 'close')
 
     await startAndWaitUntilReady()
+    await waitForExit()
 
     expect(console.error).toHaveBeenCalledWith(
       expect.stringMatching(/^Glade capture failed: the seed .* can't be read/),
