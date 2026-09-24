@@ -62,13 +62,14 @@ function toolCall(id: string, turn: number): ToolEvent {
     input: { file_path: 'api/views.py' },
     output: TOOL_OUTPUT,
     state: ToolCallState.Done,
+    finishedAt: null,
     toolUseId: `use-${id}`,
     parentToolUseId: null,
   }
 }
 
 function narration(id: string, turn: number, text: string): ToolEvent {
-  return { id, taskId: 't1', turn, createdAt: ASKED_AT, kind: ToolEventKind.Narration, text }
+  return { id, taskId: 't1', turn, createdAt: ASKED_AT, kind: ToolEventKind.Narration, text, parentToolUseId: null }
 }
 
 const TURN_ONE: ToolEvent[] = [narration('n1', 1, PREAMBLE), toolCall('c1', 1), toolCall('c2', 1), toolCall('c3', 1)]

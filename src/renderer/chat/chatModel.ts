@@ -307,9 +307,9 @@ export function compactedLabel({ compaction }: CompactedEntry): string {
 export const COMPACTING_NARRATION = 'Compacting the context'
 
 /**
- * What the working line says while a turn runs: the latest narration of the current turn, or null when the task isn't
- * working. The narration is empty until the agent's first note of the turn arrives. While the context is being
- * compacted, it says so.
+ * What the working line says while a turn runs: the agent's latest narration of the current turn (not a subagent's),
+ * or null when the task isn't working. The narration is empty until the agent's first note of the turn arrives. While
+ * the context is being compacted, it says so.
  */
 export function workingNarration(
   task: Task,
@@ -321,7 +321,8 @@ export function workingNarration(
   if (last?.kind === ToolEventKind.Compaction && last.state === ToolCallState.Running) return COMPACTING_NARRATION
   const turn = currentTurn(messages)
   const latest = toolEvents.findLast(
-    (event): event is NarrationEvent => event.kind === ToolEventKind.Narration && event.turn === turn,
+    (event): event is NarrationEvent =>
+      event.kind === ToolEventKind.Narration && event.turn === turn && event.parentToolUseId === null,
   )
   return latest?.text ?? ''
 }

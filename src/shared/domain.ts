@@ -277,6 +277,8 @@ export type ToolInput = Readonly<Record<string, unknown>>
 export interface NarrationEvent extends ToolEventBase {
   readonly kind: ToolEventKind.Narration
   readonly text: string
+  /** The `Agent` tool call's `tool_use` id when a subagent wrote it; null for the agent's own notes. */
+  readonly parentToolUseId: string | null
 }
 
 export interface ToolCallEvent extends ToolEventBase {
@@ -287,6 +289,8 @@ export interface ToolCallEvent extends ToolEventBase {
   /** The result's text; null until the result arrives. */
   readonly output: string | null
   readonly state: ToolCallState
+  /** When its result arrived; null while it runs, and for calls logged before Glade recorded it. */
+  readonly finishedAt: EpochMs | null
   /** The SDK's `tool_use` id, which pairs the call with its result. */
   readonly toolUseId: string
   /** The `Agent` tool call's `tool_use` id when the call was made inside a subagent; null at the top level. */

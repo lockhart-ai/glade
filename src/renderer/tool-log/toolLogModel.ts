@@ -204,20 +204,23 @@ export function dividerLabel(divider: Pick<DividerEvent, 'dividerKind' | 'turn'>
   }
 }
 
-/** One tool call in the log, with the calls its subagent made. */
+/** One tool call in the log, with what its subagent did. */
 export interface CallRow {
   readonly kind: ToolEventKind.ToolCall
   readonly call: ToolCallEvent
   /** The tool's name as the log shows it. */
   readonly name: string
-  /** The calls made by the subagent this call started, in order; empty for any other call. */
-  readonly children: readonly CallRow[]
+  /** The calls made and the notes written by the subagent this call started, in order; empty for any other call. */
+  readonly children: readonly SubagentRow[]
 }
 
 export interface NarrationRow {
   readonly kind: ToolEventKind.Narration
   readonly narration: NarrationEvent
 }
+
+/** One row of what a subagent did, nested under the call that started it: a tool call or a note. */
+export type SubagentRow = CallRow | NarrationRow
 
 export interface DividerRow {
   readonly kind: ToolEventKind.Divider
@@ -262,19 +265,24 @@ export function compactionResult({ state, trigger }: CompactionEvent): string {
 }
 
 /**
- * The tool log's rows, in order. A subagent's calls sit under the call that started it (the one whose `toolUseId` is
- * their `parentToolUseId`); a call whose parent isn't in the log stays at the top level. Turn 1's divider is left out,
- * since nothing comes before it to divide from.
+ * The tool log's rows, in order. A subagent's calls and notes sit under the call that started it (the one whose
+ * `toolUseId` is their `parentToolUseId`); one whose parent isn't in the log stays at the top level. Turn 1's divider is
+ * left out, since nothing comes before it to divide from.
  */
 export function toolLogRows(events: readonly ToolEvent[]): ToolLogRow[] {
-  // Each call's list of subagent calls, by its tool_use id. A subagent's calls always come after the call that started it.
-  const childrenOf = new Map<string, CallRow[]>()
+  // Each call's list of what its subagent did, by its tool_use id. A subagent's rows always come after its call.
+  const childrenOf = new Map<string, SubagentRow[]>()
   const rows: ToolLogRow[] = []
+  const nest = (parentToolUseId: string | null, row: SubagentRow): void => {
+    const siblings = parentToolUseId === null ? undefined : childrenOf.get(parentToolUseId)
+    if (siblings === undefined) rows.push(row)
+    else siblings.push(row)
+  }
   let previous: EpochMs | undefined
   for (const event of events) {
     switch (event.kind) {
       case ToolEventKind.Narration:
-        rows.push({ kind: ToolEventKind.Narration, narration: event })
+        nest(event.parentToolUseId, { kind: ToolEventKind.Narration, narration: event })
         break
       case ToolEventKind.Divider:
         if (event.dividerKind !== DividerKind.Turn || event.turn > 1) {
@@ -286,11 +294,13 @@ export function toolLogRows(events: readonly ToolEvent[]): ToolLogRow[] {
         rows.push({ kind: ToolEventKind.Compaction, compaction: event })
         break
       case ToolEventKind.ToolCall: {
-        const children: CallRow[] = []
-        const row: CallRow = { kind: ToolEventKind.ToolCall, call: event, name: toolDisplayName(event.name), children }
-        const siblings = event.parentToolUseId === null ? undefined : childrenOf.get(event.parentToolUseId)
-        if (siblings === undefined) rows.push(row)
-        else siblings.push(row)
+        const children: SubagentRow[] = []
+        nest(event.parentToolUseId, {
+          kind: ToolEventKind.ToolCall,
+          call: event,
+          name: toolDisplayName(event.name),
+          children,
+        })
         childrenOf.set(event.toolUseId, children)
         break
       }
