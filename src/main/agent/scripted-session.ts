@@ -3,7 +3,8 @@
  * steps become the SDK messages a real session would stream (shapes from `docs/sdk-notes.md` §2). Nothing runs a
  * model. The test modes' agent backend (`./test-mode-backend`) starts these.
  *
- * - Turns run one after another, in the order their messages were sent.
+ * - Turns run one after another, in the order their messages were sent. The runner's `RESUME_PROMPT` runs the
+ *   script's resume turn, if it has one.
  * - An interrupt ends the running turn the way the SDK does: tool calls still running get a "rejected" result, then an
  *   interrupt marker and an `error_during_execution` result (`aborted_tools` if a call was running, else
  *   `aborted_streaming`).
@@ -15,6 +16,7 @@ import { AsyncQueue } from './async-queue'
 import type { AgentSession, AgentSessionOptions } from './backend'
 import { GLADE_SERVER } from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
+import { RESUME_PROMPT } from './runner'
 import { ScriptStepKind, type AgentScript, type ScriptStep, type ScriptTurn } from './scripts'
 
 export interface ScriptedSessionOptions {
@@ -98,9 +100,12 @@ export class ScriptedSession implements AgentSession {
     this.tools = createMcpToolCaller(options.session.mcpServers)
   }
 
-  send(_text: string, uuid: string): void {
-    const { turns } = this.options.script
-    const turn = turns[Math.min(this.turnsRun, turns.length - 1)] ?? []
+  send(text: string, uuid: string): void {
+    const { turns, resumeTurn } = this.options.script
+    const turn =
+      text === RESUME_PROMPT && resumeTurn !== undefined
+        ? resumeTurn
+        : (turns[Math.min(this.turnsRun, turns.length - 1)] ?? [])
     this.turnsRun += 1
     const number = this.turnsRun
     this.queue = this.queue.then(() => this.play(turn, number, uuid))

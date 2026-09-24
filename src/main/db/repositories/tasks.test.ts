@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Effort, TaskActivity, TaskState, type Workspace } from '../../../shared/domain'
-import { createTask, getTask, listTasks, updateTask } from './tasks'
+import { createTask, getTask, listTasks, listWorkingTasks, updateTask } from './tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 
 let test: TestDatabase
@@ -91,6 +91,21 @@ describe('listTasks', () => {
     expect(listTasks(test.db, workspace.id)).toEqual([newer, older])
     const touched = updateTask(test.db, older.id, { unread: true }, 4_000)
     expect(listTasks(test.db, workspace.id)).toEqual([touched, newer])
+  })
+})
+
+describe('listWorkingTasks', () => {
+  it("lists every workspace's active, working tasks, oldest first", () => {
+    const other = sampleWorkspace(test.db, '/code/billing')
+    const working = (workspaceId: string, now: number) =>
+      updateTask(test.db, sampleTask(test.db, workspaceId, now).id, { activity: TaskActivity.Working }, now)
+    const newer = working(workspace.id, 3_000)
+    const older = working(other.id, 2_000)
+    sampleTask(test.db, workspace.id)
+    updateTask(test.db, sampleTask(test.db, workspace.id).id, { activity: TaskActivity.Error })
+    updateTask(test.db, working(workspace.id, 1_000).id, { state: TaskState.Done })
+
+    expect(listWorkingTasks(test.db)).toEqual([older, newer])
   })
 })
 

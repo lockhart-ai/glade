@@ -1,17 +1,20 @@
 import { faWrench } from '@fortawesome/free-solid-svg-icons'
 import { useMemo } from 'react'
-import { MessageRole, type Message, type ToolEvent } from '../../shared/domain'
+import type { Message, ToolEvent } from '../../shared/domain'
 import { classNames } from '../components/classNames'
 import { Icon, IconSize } from '../components'
 import { selectSelectedTask } from '../store/state'
 import { useGladeStore } from '../store/react'
 import {
+  ChatEntryKind,
   chatEntries,
   clockTime,
   ReplyStyle,
+  restartLabel,
   toolCallLabel,
   workingNarration,
   type AgentEntry,
+  type RestartedEntry,
   type UserEntry,
 } from './chatModel'
 import { Markdown } from './Markdown'
@@ -62,6 +65,15 @@ function AgentReply({ entry: { message, style, toolCalls }, onShowTurn }: AgentR
   )
 }
 
+/** Where the app restarted and resumed a turn. */
+function RestartDivider(entry: RestartedEntry): React.JSX.Element {
+  return (
+    <div role="separator" aria-label="Glade restarted" className={styles.restart}>
+      {restartLabel(entry)}
+    </div>
+  )
+}
+
 interface WorkingLineProps {
   /** The turn's latest narration; empty before the first. */
   readonly narration: string
@@ -107,10 +119,12 @@ export function Chat(): React.JSX.Element {
           <p className={styles.empty}>No messages yet.</p>
         )}
         {entries.map((entry) => {
-          switch (entry.role) {
-            case MessageRole.User:
+          switch (entry.kind) {
+            case ChatEntryKind.User:
               return <UserMessage key={entry.message.id} {...entry} />
-            case MessageRole.Agent:
+            case ChatEntryKind.Restarted:
+              return <RestartDivider key={entry.divider.id} {...entry} />
+            case ChatEntryKind.Agent:
               return (
                 <AgentReply
                   key={entry.message.id}

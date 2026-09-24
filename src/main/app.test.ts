@@ -4,11 +4,15 @@ import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { COMMAND_CHANNEL, CommandName, EVENT_CHANNEL, EventType } from '../shared/bridge'
-import { UiStateKey } from '../shared/domain'
+import { MessageRole, TaskActivity, UiStateKey } from '../shared/domain'
 import { CAPTURE_ENV, type CaptureSpec } from './capture'
 import { FakeAgentBackend } from './agent/fake-backend'
+import { RESUME_PROMPT } from './agent/runner'
 import { E2E_CHOSEN_FOLDER_ENV, E2E_ENV, E2E_WINDOW_SIZE, type E2eSpec } from './e2e'
+import { openAppDatabase } from './db/database'
 import { MIGRATIONS } from './db/migrations'
+import { appendMessage } from './db/repositories/messages'
+import { updateTask } from './db/repositories/tasks'
 import { sampleTask, sampleWorkspace } from './db/repositories/test-database'
 import { CHOOSE_FOLDER_OPTIONS } from './dialogs'
 
@@ -295,6 +299,22 @@ describe('startApp', () => {
 
     expect(backend.session.sent.map(({ text }) => text)).toEqual(['Hi'])
     expect(backend.session.closed).toBe(true)
+  })
+
+  it('resumes the turns it last quit in before opening the window', async () => {
+    const { db } = openAppDatabase(electron.app.userData)
+    const task = sampleTask(db, sampleWorkspace(db).id)
+    appendMessage(db, { taskId: task.id, role: MessageRole.User, body: 'Run the suite.', turn: 1 })
+    updateTask(db, task.id, { activity: TaskActivity.Working, sessionId: 'session-1' })
+    db.close()
+    const backend = new FakeAgentBackend()
+    startApp({ createAgentBackend: () => backend })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(backend.session.options.resumeSessionId).toBe('session-1')
+    expect(backend.session.sent.map(({ text }) => text)).toEqual([RESUME_PROMPT])
+    expect(onlyWindow()).toBeDefined()
   })
 
   it('runs the agents on the Claude Agent SDK by default', async () => {

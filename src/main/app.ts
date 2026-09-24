@@ -264,6 +264,8 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
       database.db.close()
     })
 
+    // Carry on the turns the app last quit or crashed in. The window loads what they save from the database.
+    runner.resumeInterrupted()
     createWindow(testMode)
 
     app.on('activate', () => {
