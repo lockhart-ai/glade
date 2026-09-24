@@ -2,7 +2,7 @@
  * Locators for the app's regions and controls, shared by the specs. Prefer roles and accessible names, as a user (and
  * a screen reader) would find them; fall back to test ids only for regions without one.
  */
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
 /** The window's regions (see src/renderer/layout and src/renderer/App.tsx). */
 export function regions(page: Page) {
@@ -45,6 +45,11 @@ export function taskList(page: Page) {
     sectionHeader: (name: TaskSectionName) => section(name).getByRole('button').first(),
     /** A section's task rows, top to bottom. */
     rows: (name: TaskSectionName) => section(name).getByRole('listitem').getByRole('button'),
+    /** A section's row for the task with this title. */
+    row: (name: TaskSectionName, title: string) =>
+      section(name).getByRole('listitem').getByRole('button').filter({ hasText: title }),
+    /** A row's state dot, whose `data-state` is the task's indicator (working, waiting, done or error). */
+    dot: (row: Locator) => row.locator('[data-state]'),
   }
 }
 
