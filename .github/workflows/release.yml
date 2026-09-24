@@ -50,6 +50,8 @@ jobs:
       - run: npm test
       # --publish never: the release is created below with gh, not by electron-builder.
       - run: npm run package -- --publish never
+      - name: Check the app's ad-hoc signature
+        run: codesign --verify --deep --strict --verbose=2 release/mac-arm64/Glade.app
 
       - name: Upload the packages (dry run)
         if: env.PUBLISH != 'true'

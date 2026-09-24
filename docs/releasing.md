@@ -48,9 +48,12 @@ a release.
 `Glade-X.Y.Z-arm64.dmg` and `Glade-X.Y.Z-arm64.zip`, for Apple silicon only (`electron-builder.yml`). An Intel build
 would need the Claude Agent SDK's x64 binary package installed alongside, so it's left out for now.
 
-## Unsigned builds
+## Signing
 
-Builds aren't signed or notarized yet (`identity: null`; signing is L-04, #69). On first launch, macOS blocks the app:
-right-click it and choose Open, or on newer macOS try to open it once and then click Open Anyway in System Settings →
-Privacy & Security. If macOS says the app is damaged, clear the quarantine flag:
+Builds are ad-hoc signed (`identity: '-'` in `electron-builder.yml`): a sealed signature with no certificate, not
+notarised. Developer ID signing and notarisation are L-04 (#69). Check a local build with
+`codesign --verify --deep --strict release/mac-arm64/Glade.app`.
+
+On first launch, right-click Glade in Applications and choose Open (on newer macOS, if there's no Open button, click
+Open Anyway in System Settings → Privacy & Security). If macOS still refuses, clear the quarantine flag:
 `xattr -dr com.apple.quarantine /Applications/Glade.app`. Each release's notes repeat this for users.
