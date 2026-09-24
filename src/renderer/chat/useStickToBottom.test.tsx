@@ -125,6 +125,29 @@ describe('useStickToBottom', () => {
       expect(scroller.scrollTop).toBe(100)
     })
 
+    it('stays stuck when a scroll event arrives after a resize the observer has yet to report', () => {
+      vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+      render(<Scroller content="a" resetKey="t1" />)
+      const scroller = screen.getByTestId('scroller')
+      layOut(scroller, 1000)
+      observers[0]?.resize()
+      expect(scroller.scrollTop).toBe(1000)
+
+      // The window shrinks before the event for that scroll to the bottom is dispatched: the event finds the old
+      // scroll position short of the new bottom, but it's layout moving, not the user scrolling up.
+      Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 100 })
+      Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 1500 })
+      scrollTo(scroller, 600)
+      expect(scroller.scrollTop).toBe(1500)
+
+      // Once the observer has seen the new size, scrolling up unsticks it as usual.
+      observers[0]?.resize()
+      scrollTo(scroller, 200)
+      layOut(scroller, 1600)
+      observers[0]?.resize()
+      expect(scroller.scrollTop).toBe(200)
+    })
+
     it('stops watching when it unmounts', () => {
       vi.stubGlobal('ResizeObserver', FakeResizeObserver)
       const { unmount } = render(<Scroller content="a" resetKey="t1" />)
