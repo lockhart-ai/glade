@@ -5,6 +5,9 @@ import {
   CommandName,
   type CommandRequest,
   type EmptyRequest,
+  type QueueAddRequest,
+  type QueueEditRequest,
+  type QueueRemoveRequest,
   type TaskIdRequest,
   type TasksCreateRequest,
   type TasksSendRequest,
@@ -49,10 +52,17 @@ const tasksUpdateRequest = z.strictObject({
   }),
 }) satisfies z.ZodType<TasksUpdateRequest>
 
-const tasksSendRequest = z.strictObject({
-  id: z.string(),
-  text: z.string().refine((text) => text.trim() !== '', 'Expected a message that is not blank'),
-}) satisfies z.ZodType<TasksSendRequest>
+/** A message's text, which mustn't be blank. */
+const messageText = z.string().refine((text) => text.trim() !== '', 'Expected a message that is not blank')
+
+const tasksSendRequest = z.strictObject({ id: z.string(), text: messageText }) satisfies z.ZodType<TasksSendRequest>
+
+const queueAddRequest = z.strictObject({ taskId: z.string(), text: messageText }) satisfies z.ZodType<QueueAddRequest>
+
+const queueEditRequest = z.strictObject({ id: z.string(), text: messageText }) satisfies z.ZodType<QueueEditRequest>
+
+const queueRemoveRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<QueueRemoveRequest>
+
 const uiStateGetRequest = z.strictObject({ key: z.enum(UiStateKey) }) satisfies z.ZodType<UiStateGetRequest>
 
 const uiStateSetRequest = z.strictObject({
@@ -73,6 +83,9 @@ export const REQUEST_SCHEMAS = {
   [CommandName.TasksSend]: tasksSendRequest,
   [CommandName.TasksStop]: taskIdRequest,
   [CommandName.TasksHistory]: taskIdRequest,
+  [CommandName.QueueAdd]: queueAddRequest,
+  [CommandName.QueueEdit]: queueEditRequest,
+  [CommandName.QueueRemove]: queueRemoveRequest,
   [CommandName.UiStateGet]: uiStateGetRequest,
   [CommandName.UiStateGetAll]: emptyRequest,
   [CommandName.UiStateSet]: uiStateSetRequest,

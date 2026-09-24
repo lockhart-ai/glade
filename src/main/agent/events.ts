@@ -87,6 +87,11 @@ export interface TurnFinishedEvent {
   readonly totalCostUsd: number | null
   /** The context window of each model the session has used, in tokens, by the model id the SDK reports. */
   readonly contextWindows: Readonly<Record<string, number>>
+  /**
+   * The uuids of the user messages the turn answered: the one that started it and any folded into it. Null when the
+   * SDK doesn't say.
+   */
+  readonly userMessageUuids: readonly string[] | null
 }
 
 export interface SessionFailedEvent {
@@ -181,6 +186,7 @@ const resultMessage = z.looseObject({
   usage: usage.nullable().catch(null),
   total_cost_usd: z.number().nullable().catch(null),
   modelUsage: z.record(z.string(), z.unknown()).catch({}),
+  user_message_uuids: z.array(z.string()).nullable().optional().catch(null),
 })
 
 const modelUsage = z.looseObject({ contextWindow: z.number().int().positive() })
@@ -277,6 +283,7 @@ function fromResult(message: z.infer<typeof resultMessage>): AgentEvent[] {
       durationMs: message.duration_ms,
       totalCostUsd: message.total_cost_usd,
       contextWindows: contextWindows(message.modelUsage),
+      userMessageUuids: message.user_message_uuids ?? null,
       usage:
         turnUsage === null
           ? null

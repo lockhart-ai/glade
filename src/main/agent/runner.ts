@@ -25,6 +25,18 @@
  * of the last turn, then a reopened divider and the turn divider for the new turn. Marking done itself adds no divider,
  * so Undo leaves nothing behind.
  *
+ * **The message queue** (`docs/decisions.md`): a message sent while the agent works waits in the task's queue, in
+ * SQLite, where it can still be edited or removed, and is only handed to the session when the agent finishes its
+ * current step (`docs/sdk-notes.md` §2: once pushed, the SDK can't take it back):
+ * - when the running turn's top-level tool calls all have their results, the queue goes to the session, which folds it
+ *   into the running turn. Each message goes to the chat log as a user message of that turn, after the one that
+ *   started it and before the turn's reply, which answers them all.
+ * - when a turn ends with messages still queued, they start the next turn, together.
+ * - a stopped or failed turn leaves the queue alone: it stays queued until you send again, and then goes first, before
+ *   what you sent. So does a turn that ends on a done task.
+ * If the SDK answers a message handed to it mid-turn with a turn of its own (its result doesn't list the message), the
+ * runner's turn carries on until a result does, saving each reply on the way.
+ *
  * **Stop** interrupts the running turn (`docs/sdk-notes.md` §7): the SDK ends it within tens of milliseconds with an
  * aborted result, and the session stays alive for the next message. A stopped turn isn't a failure: its activity goes
  * back to waiting on you. What it already saved stays. Its held-back text, including the partial text the SDK flushes
@@ -53,11 +65,19 @@ import {
   TaskState,
   ToolCallState,
   type Message,
+  type QueuedMessage,
   type Task,
 } from '../../shared/domain'
 import { CommandFailure } from '../bridge/errors'
-import { emitMessageAppended, emitToolEventAppended, emitToolEventUpdated, type Emit } from '../bridge/events'
+import {
+  emitMessageAppended,
+  emitQueueChanged,
+  emitToolEventAppended,
+  emitToolEventUpdated,
+  type Emit,
+} from '../bridge/events'
 import { appendMessage, lastTurn } from '../db/repositories/messages'
+import { listQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
 import { getTask, listWorkingTasks } from '../db/repositories/tasks'
 import {
   appendDivider,
@@ -67,6 +87,7 @@ import {
   updateToolCall,
 } from '../db/repositories/tool-events'
 import { getWorkspace } from '../db/repositories/workspaces'
+import { addQueuedMessage } from '../tasks/queue'
 import { reopenTask, updateTaskFromRunner } from '../tasks/service'
 import type { AgentBackend, AgentMcpServers, AgentSession, AgentSessionSettings } from './backend'
 import {
@@ -97,6 +118,12 @@ export interface AgentRunner {
    */
   send(taskId: string, text: string): Message
   /**
+   * Adds the user's message to the task's queue, for the agent to get after its current step (see the module comment).
+   * When no turn is running, the queue is delivered at once, starting one. Throws a `CommandFailure` `not_found` for no
+   * such task.
+   */
+  queue(taskId: string, text: string): QueuedMessage
+  /**
    * Stops the task's running turn, and resolves with the task once the turn has ended. Does nothing for a task whose
    * agent isn't working. Throws a `CommandFailure` `not_found` for no such task.
    */
@@ -112,8 +139,10 @@ interface Turn {
   readonly number: number
   /** Top-level text since the last tool call: preamble if a tool call follows, else the final reply. */
   readonly pending: string[]
-  /** The tool calls waiting on their results. */
-  readonly running: Set<string>
+  /** The tool calls waiting on their results, with the `Agent` call each was made in (null at the top level). */
+  readonly running: Map<string, string | null>
+  /** The uuids of the messages handed to the session in this turn that no result has answered yet. */
+  readonly awaiting: Set<string>
   /** Whether the user asked to stop the turn. */
   stopping: boolean
   /** Resolves once the turn has ended, however it ended. */
@@ -157,7 +186,7 @@ function newTurn(number: number): Turn {
   const ended = new Promise<void>((resolve) => {
     end = resolve
   })
-  return { number, pending: [], running: new Set(), stopping: false, ended, end }
+  return { number, pending: [], running: new Map(), awaiting: new Set(), stopping: false, ended, end }
 }
 
 function describeError(error: unknown): string {
@@ -183,7 +212,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   /** Marks the calls that never got a result as failed. */
   const failRunning = (taskId: string, turn: Turn, output: string): void => {
-    for (const toolUseId of turn.running) {
+    for (const toolUseId of turn.running.keys()) {
       emitToolEventUpdated(emit, updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Error, output }))
     }
     turn.running.clear()
@@ -201,10 +230,33 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       emit,
       appendToolCall(db, { taskId, turn: turn.number, name, input, toolUseId, parentToolUseId }),
     )
-    turn.running.add(toolUseId)
+    turn.running.set(toolUseId, parentToolUseId)
   }
 
-  const onToolResult = (taskId: string, turn: Turn, event: ToolResultEvent): void => {
+  /**
+   * Hands the task's queue to the session mid-turn, which folds it into the running turn (see the module comment). Each
+   * message goes to the chat log as a user message of the turn.
+   */
+  const deliverQueue = (taskId: string, live: LiveSession, turn: Turn): void => {
+    const delivered = db.transaction(() =>
+      takeQueuedMessages(db, taskId).map(({ body }) =>
+        appendMessage(db, { taskId, role: MessageRole.User, body, turn: turn.number }),
+      ),
+    )()
+    if (delivered.length === 0) return
+    emitQueueChanged(emit, taskId, [])
+    for (const message of delivered) {
+      emitMessageAppended(emit, message)
+      turn.awaiting.add(message.id)
+      live.session.send(message.body, message.id)
+    }
+  }
+
+  /** Whether the turn's top-level tool calls all have their results: the agent has finished its current step. */
+  const stepFinished = (turn: Turn): boolean => ![...turn.running.values()].includes(null)
+
+  const onToolResult = (taskId: string, live: LiveSession, turn: Turn, event: ToolResultEvent): void => {
+    const parent = turn.running.get(event.toolUseId)
     if (!turn.running.delete(event.toolUseId)) {
       log.warn(`Ignored a result for tool call ${event.toolUseId}, which isn't running`)
       return
@@ -214,6 +266,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const output = event.isError && turn.stopping ? STOPPED_NOTE : event.output
     const call = updateToolCall(db, { taskId, toolUseId: event.toolUseId, state, output })
     emitToolEventUpdated(emit, call)
+    if (parent === null && !turn.stopping && stepFinished(turn)) deliverQueue(taskId, live, turn)
   }
 
   /** Forgets the session's turn, and lets whoever waits on it know it has ended. */
@@ -230,12 +283,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   const onTurnFinished = (taskId: string, live: LiveSession, turn: Turn, event: TurnFinishedEvent): void => {
-    endTurn(live, turn)
     if (event.isError && (turn.stopping || isAborted(event.terminalReason))) {
+      endTurn(live, turn)
       onTurnStopped(taskId, turn)
       return
     }
     if (event.isError) {
+      endTurn(live, turn)
       const why =
         event.errors.length > 0 ? event.errors.join('\n') : `The turn failed (${event.terminalReason ?? 'unknown'}).`
       turn.pending.push(why)
@@ -244,13 +298,26 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       setActivity(taskId, TaskActivity.Error)
       return
     }
-    const held = turn.pending.join('\n\n').trim()
+    const held = turn.pending.splice(0).join('\n\n').trim()
     const reply = held === '' ? event.result.trim() : held
     if (reply !== '') {
       const message = appendMessage(db, { taskId, role: MessageRole.Agent, body: reply, turn: turn.number })
       emitMessageAppended(emit, message)
     }
     failRunning(taskId, turn, 'The turn ended before this tool call finished.')
+    // A message handed over mid-turn that this result didn't answer gets a turn of its own from the SDK: wait for it.
+    // Only when the result names at least one of the turn's messages, though: one that names none can't be matched up.
+    const answered = event.userMessageUuids ?? []
+    if (answered.some((uuid) => turn.awaiting.has(uuid))) {
+      for (const uuid of answered) turn.awaiting.delete(uuid)
+      if (turn.awaiting.size > 0) return
+    }
+    endTurn(live, turn)
+    const task = getTask(db, taskId)
+    if (task?.state === TaskState.Active && listQueuedMessages(db, taskId).length > 0) {
+      startTurn(task, live, null)
+      return
+    }
     setActivity(taskId, TaskActivity.Waiting)
   }
 
@@ -298,7 +365,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         onToolCall(taskId, turn, event)
         return
       case AgentEventKind.ToolResult:
-        onToolResult(taskId, turn, event)
+        onToolResult(taskId, live, turn, event)
         return
       case AgentEventKind.ContextUsed:
         if (getTask(db, taskId)?.contextUsedTokens !== event.tokens) {
@@ -366,8 +433,60 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
     const live = start(task)
     emitToolEventAppended(emit, appendDivider(db, { taskId: task.id, turn, dividerKind: DividerKind.Resumed }))
+    const uuid = randomUUID()
     live.turn = newTurn(turn)
-    live.session.send(RESUME_PROMPT, randomUUID())
+    live.turn.awaiting.add(uuid)
+    live.session.send(RESUME_PROMPT, uuid)
+  }
+
+  /**
+   * Starts a turn with the task's queued messages, in order, then `text` if there is one: each is saved to the chat log
+   * as a user message of the new turn and handed to the session. A done task is reopened first (see the module
+   * comment). Answers with the messages, in order.
+   */
+  const startTurn = (task: Task, live: LiveSession, text: string | null): Message[] => {
+    const taskId = task.id
+    // The pickers change the task, not the session: its current model and effort apply from this turn on.
+    if (live.settings.model !== task.model || live.settings.effort !== task.effort) {
+      live.settings = { model: task.model, effort: task.effort }
+      live.session.configure(live.settings)
+    }
+
+    const turn = lastTurn(db, taskId) + 1
+    const reopening = task.state === TaskState.Done
+    // Reopening's own events wait for the transaction to commit, so the windows never hear of a reopen that didn't.
+    const reopenEvents: GladeEvent[] = []
+    const { queued, messages, dividers } = db.transaction(() => {
+      // Reopening clears `doneAt`, so the marked done divider keeps it: it's the time the chat and header show.
+      const markedDone = reopening
+        ? [
+            appendDivider(
+              db,
+              { taskId, turn: turn - 1, dividerKind: DividerKind.MarkedDone },
+              task.doneAt ?? task.updatedAt,
+            ),
+          ]
+        : []
+      if (reopening) reopenTask({ db, emit: (event) => reopenEvents.push(event) }, taskId)
+      const queued = takeQueuedMessages(db, taskId)
+      const bodies = [...queued.map(({ body }) => body), ...(text === null ? [] : [text])]
+      const messages = bodies.map((body) => appendMessage(db, { taskId, role: MessageRole.User, body, turn }))
+      const reopened = reopening ? [appendDivider(db, { taskId, turn, dividerKind: DividerKind.Reopened })] : []
+      const divider = appendDivider(db, { taskId, turn, dividerKind: DividerKind.Turn })
+      return { queued, messages, dividers: [...markedDone, ...reopened, divider] }
+    })()
+    for (const event of reopenEvents) emit(event)
+    if (queued.length > 0) emitQueueChanged(emit, taskId, [])
+    for (const message of messages) emitMessageAppended(emit, message)
+    for (const divider of dividers) emitToolEventAppended(emit, divider)
+    setActivity(taskId, TaskActivity.Working)
+
+    live.turn = newTurn(turn)
+    for (const message of messages) {
+      live.turn.awaiting.add(message.id)
+      live.session.send(message.body, message.id)
+    }
+    return messages
   }
 
   return {
@@ -375,50 +494,22 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
       if ((sessions.get(taskId)?.turn ?? null) !== null) {
-        throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working; wait for it to finish its turn')
+        throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working; queue the message instead')
       }
-      const live = sessions.get(taskId) ?? start(task)
-      // The pickers change the task, not the session: its current model and effort apply from this turn on.
-      if (live.settings.model !== task.model || live.settings.effort !== task.effort) {
-        live.settings = { model: task.model, effort: task.effort }
-        live.session.configure(live.settings)
+      const messages = startTurn(task, sessions.get(taskId) ?? start(task), text)
+      // The message sent is the last of the turn's: any queued ones go before it.
+      return messages[messages.length - 1] as Message
+    },
+
+    queue(taskId, text) {
+      const queued = addQueuedMessage(context, taskId, text)
+      const live = sessions.get(taskId)
+      // The turn ended just before the message arrived: nothing will deliver the queue, so it starts a turn now.
+      if ((live?.turn ?? null) === null) {
+        const task = getTask(db, taskId) as Task
+        startTurn(task, live ?? start(task), null)
       }
-
-      const turn = lastTurn(db, taskId) + 1
-      const reopening = task.state === TaskState.Done
-      // Reopening's own events wait for the transaction to commit, so the windows never hear of a reopen that didn't.
-      const reopenEvents: GladeEvent[] = []
-      const { message, dividers } = db.transaction(() => {
-        if (!reopening) {
-          return {
-            message: appendMessage(db, { taskId, role: MessageRole.User, body: text, turn }),
-            dividers: [appendDivider(db, { taskId, turn, dividerKind: DividerKind.Turn })],
-          }
-        }
-        // Reopening clears `doneAt`, so the marked done divider keeps it: it's the time the chat and header show.
-        const markedDone = appendDivider(
-          db,
-          { taskId, turn: turn - 1, dividerKind: DividerKind.MarkedDone },
-          task.doneAt ?? task.updatedAt,
-        )
-        reopenTask({ db, emit: (event) => reopenEvents.push(event) }, taskId)
-        return {
-          message: appendMessage(db, { taskId, role: MessageRole.User, body: text, turn }),
-          dividers: [
-            markedDone,
-            appendDivider(db, { taskId, turn, dividerKind: DividerKind.Reopened }),
-            appendDivider(db, { taskId, turn, dividerKind: DividerKind.Turn }),
-          ],
-        }
-      })()
-      for (const event of reopenEvents) emit(event)
-      emitMessageAppended(emit, message)
-      for (const divider of dividers) emitToolEventAppended(emit, divider)
-      setActivity(taskId, TaskActivity.Working)
-
-      live.turn = newTurn(turn)
-      live.session.send(text, message.id)
-      return message
+      return queued
     },
 
     async stop(taskId) {

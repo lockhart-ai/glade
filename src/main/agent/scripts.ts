@@ -352,8 +352,70 @@ const failingTurn: AgentScript = {
   ],
 }
 
+/**
+ * A long copy, for the message queue: its first turn keeps copying, with the command still running, until it's stopped
+ * or the app quits, so messages sent meanwhile stay queued. Resumed after a quit, it copies the rest; a message still
+ * queued is delivered when that command finishes, folded into the turn, and the agent answers it (its second turn)
+ * before it ends the turn.
+ */
+const copyInBatches: AgentScript = {
+  name: 'copy-in-batches',
+  turns: [
+    [
+      ...turnStart(),
+      say("I'll copy the existing uploads to the bucket, then check a sample."),
+      ...describeTask(
+        'Move image uploads to S3',
+        'Move user image uploads from local disk to S3, and copy the existing files over.',
+        'Copying existing files: 1,240 of 3,900 done.',
+      ),
+      toolUse('copy', 'Bash', {
+        command: 'python scripts/copy_media_to_s3.py',
+        description: 'Copy the existing uploads to S3',
+      }),
+      waitForInterrupt(),
+    ],
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      say('Noted: the bucket keys keep the original filenames. Checking a sample.'),
+      ...tool(
+        'sample',
+        'Bash',
+        { command: 'aws s3 ls s3://acme-uploads/uploads/2025/11/', description: 'List a sample of the bucket' },
+        'a7f3.jpg\na7f4.png\na801.jpg',
+      ),
+      delay(BEAT_MS),
+      gladeTool('status-copied', 'set_status', {
+        status: 'All 3,900 files copied to S3, keeping their original filenames.',
+      }),
+      say('All 3,900 files are in the bucket, and their keys keep the original filenames.'),
+      result(),
+    ],
+  ],
+  resumeTurn: [
+    ...turnStart(),
+    say('Glade restarted mid-copy, so I am copying the rest.'),
+    ...tool(
+      'copy-rest',
+      'Bash',
+      { command: 'python scripts/copy_media_to_s3.py --resume', description: 'Copy the rest of the uploads to S3' },
+      'copied 3,900 of 3,900',
+    ),
+    delay(BEAT_MS),
+    say('The copy finished: all 3,900 files are in the bucket.'),
+    result(),
+  ],
+}
+
 /** The names a spec can ask for. */
-export const AGENT_SCRIPT_NAMES = ['simple-reply', 'multi-tool-turn', 'long-running', 'failing-turn'] as const
+export const AGENT_SCRIPT_NAMES = [
+  'simple-reply',
+  'multi-tool-turn',
+  'long-running',
+  'failing-turn',
+  'copy-in-batches',
+] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
 
@@ -363,4 +425,5 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'multi-tool-turn': multiToolTurn,
   'long-running': longRunning,
   'failing-turn': failingTurn,
+  'copy-in-batches': copyInBatches,
 }
