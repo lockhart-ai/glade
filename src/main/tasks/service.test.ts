@@ -81,6 +81,7 @@ describe('createTask', () => {
       contextWindowTokens: 1_000_000,
       error: null,
       retrying: null,
+      asking: false,
     })
     expect(DEFAULT_EFFORT).toBe(Effort.High)
     expect(getTask(database.db, task.id)).toEqual(task)

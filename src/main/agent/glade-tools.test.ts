@@ -1,25 +1,42 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
-import type { Task } from '../../shared/domain'
+import {
+  QuestionKind,
+  QuestionReplyKind,
+  QuestionSetState,
+  TaskActivity,
+  type Question,
+  type QuestionSet,
+  type Task,
+} from '../../shared/domain'
+import { getOpenQuestionSet, listQuestionSets } from '../db/repositories/question-sets'
 import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
-import type { TaskServiceContext } from '../tasks/service'
-import { createGladeMcpServer, createGladeToolHandlers, GLADE_SERVER, GladeTool } from './glade-tools'
+import { createQuestionBroker } from '../questions/questions'
+import {
+  createGladeMcpServer,
+  createGladeToolHandlers,
+  GLADE_SERVER,
+  GladeTool,
+  QUESTIONS_WITHDRAWN,
+  type GladeToolContext,
+} from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
 
 let database: TestDatabase
 let task: Task
 let events: GladeEvent[]
-let context: TaskServiceContext
+let context: GladeToolContext
 let caller: McpToolCaller
 
 beforeEach(() => {
   database = openTestDatabase()
   task = sampleTask(database.db, sampleWorkspace(database.db).id)
   events = []
-  context = { db: database.db, emit: (event) => events.push(event) }
+  const base = { db: database.db, emit: (event: GladeEvent) => events.push(event) }
+  context = { ...base, questions: createQuestionBroker(base) }
   caller = createMcpToolCaller({ [GLADE_SERVER]: createGladeMcpServer(context, task.id) })
 })
 
@@ -99,9 +116,15 @@ describe('the server', () => {
       GladeTool.SetTitle,
       GladeTool.SetObjective,
       GladeTool.SetStatus,
+      GladeTool.Ask,
     ])
     for (const listed of tools) expect(listed._meta).toEqual({ 'anthropic/alwaysLoad': true })
-    expect(tools.map((listed) => listed.inputSchema.required)).toEqual([['title'], ['objective'], ['status']])
+    expect(tools.map((listed) => listed.inputSchema.required)).toEqual([
+      ['title'],
+      ['objective'],
+      ['status'],
+      ['questions'],
+    ])
     await client.close()
   })
 
@@ -153,5 +176,141 @@ describe('the server', () => {
     expect(outcome).toEqual({ output: 'No task gone', isError: true })
     expect(events).toEqual([])
     await orphan.close()
+  })
+})
+
+describe('ask', () => {
+  const QUESTIONS: Question[] = [
+    {
+      kind: QuestionKind.Choice,
+      prompt: 'How should the notes be laid out?',
+      options: [
+        { id: 'by-type', label: 'By type', detail: 'Features, fixes, internal.', sketch: '## Features\n- …' },
+        { id: 'by-area', label: 'By area' },
+      ],
+    },
+    { kind: QuestionKind.Pills, prompt: 'Credit contributors?', options: ['GitHub handles', 'No credits'] },
+    { kind: QuestionKind.Text, prompt: 'Anything else?', placeholder: 'e.g. a known issue', optional: true },
+  ]
+
+  /** Calls `ask` over MCP, and resolves once its questions are open. */
+  async function ask(input: Record<string, unknown>, signal?: AbortSignal) {
+    const outcome = caller.call('mcp__glade__ask', input, signal)
+    const open = await vi.waitFor(() => {
+      const set = getOpenQuestionSet(database.db, task.id)
+      if (set === undefined) throw new Error('No question is open yet')
+      return set
+    })
+    return { outcome, open }
+  }
+
+  /** The question events since the last call, as each one's type and the set's state. */
+  function drainQuestionEvents(): unknown[] {
+    return events.splice(0).flatMap((event) => ('questionSet' in event ? [[event.type, event.questionSet.state]] : []))
+  }
+
+  it('opens the questions, blocks until they are answered, and returns the answers keyed by question index', async () => {
+    const { outcome, open } = await ask({ questions: QUESTIONS })
+
+    expect(open).toMatchObject({ taskId: task.id, turn: 1, questions: QUESTIONS, state: QuestionSetState.Open })
+    expect(current()).toMatchObject({ asking: true, activity: TaskActivity.Waiting })
+    expect(drainQuestionEvents()).toEqual([[EventType.QuestionOpened, QuestionSetState.Open]])
+    let returned = false
+    void outcome.then(() => {
+      returned = true
+    })
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(returned).toBe(false)
+
+    const answers = { 0: 'by-type', 1: 'No credits' }
+    context.questions.answer(open.id, { kind: QuestionReplyKind.Answers, answers })
+
+    await expect(outcome).resolves.toEqual({ output: '{"0":"by-type","1":"No credits"}', isError: false })
+    expect(current()).toMatchObject({ asking: false, activity: TaskActivity.Working })
+    expect(drainQuestionEvents()).toEqual([[EventType.QuestionAnswered, QuestionSetState.Answered]])
+  })
+
+  it('returns an answer in words as free text', async () => {
+    const { outcome, open } = await ask({ questions: QUESTIONS })
+
+    context.questions.answer(open.id, { kind: QuestionReplyKind.FreeText, text: 'By type, and no credits.' })
+
+    await expect(outcome).resolves.toEqual({ output: '{"freeText":"By type, and no credits."}', isError: false })
+  })
+
+  it('tells the model when the questions are withdrawn', async () => {
+    const { outcome } = await ask({ questions: QUESTIONS })
+
+    context.questions.withdraw(task.id)
+
+    await expect(outcome).resolves.toEqual({ output: QUESTIONS_WITHDRAWN, isError: true })
+    expect(current().asking).toBe(false)
+    expect(listQuestionSets(database.db, task.id).map(({ state }) => state)).toEqual([QuestionSetState.Withdrawn])
+  })
+
+  it('withdraws the questions when the SDK cancels the call', async () => {
+    const cancel = new AbortController()
+    const { outcome } = await ask({ questions: QUESTIONS }, cancel.signal)
+
+    cancel.abort()
+
+    await expect(outcome).rejects.toThrow()
+    await vi.waitFor(() => {
+      expect(listQuestionSets(database.db, task.id).map(({ state }) => state)).toEqual([QuestionSetState.Withdrawn])
+    })
+    expect(current().asking).toBe(false)
+  })
+
+  it('withdraws the questions at once for a call cancelled before it ran', async () => {
+    const handlers = createGladeToolHandlers(context, task.id)
+
+    const outcome = await handlers.ask({ questions: QUESTIONS }, AbortSignal.abort())
+
+    expect(outcome).toEqual({ content: [{ type: 'text', text: QUESTIONS_WITHDRAWN }], isError: true })
+    expect(listQuestionSets(database.db, task.id).map(({ state }) => state)).toEqual([QuestionSetState.Withdrawn])
+  })
+
+  it('refuses questions that are not well formed, and opens nothing', async () => {
+    const choice = QUESTIONS[0]
+    const inputs: Record<string, unknown>[] = [
+      {},
+      { questions: [] },
+      { questions: [{ kind: 'slider', prompt: 'How much?' }] },
+      { questions: [{ kind: QuestionKind.Text, prompt: '  ' }] },
+      { questions: [{ kind: QuestionKind.Pills, prompt: 'Credit?', options: ['Yes'] }] },
+      { questions: [{ kind: QuestionKind.Pills, prompt: 'Credit?', options: ['Yes', 'Yes'] }] },
+      { questions: [{ ...choice, options: [{ id: 'a', label: 'A' }] }] },
+      {
+        questions: [
+          {
+            ...choice,
+            options: [
+              { id: 'a', label: 'A' },
+              { id: 'a', label: 'B' },
+            ],
+          },
+        ],
+      },
+      { questions: [{ kind: QuestionKind.Choice, prompt: 'Which?', options: [{ id: 'a' }, { id: 'b' }] }] },
+    ]
+    for (const input of inputs) {
+      const outcome = await caller.call('mcp__glade__ask', input)
+      expect(outcome.isError).toBe(true)
+    }
+
+    expect(listQuestionSets(database.db, task.id)).toEqual([])
+    expect(events).toEqual([])
+  })
+
+  it('stores the questions as the model sent them, trimmed', async () => {
+    const { outcome, open } = await ask({
+      questions: [{ kind: QuestionKind.Pills, prompt: ' Credit contributors? ', options: [' Yes', 'No '] }],
+    })
+
+    expect(open.questions).toEqual<QuestionSet['questions']>([
+      { kind: QuestionKind.Pills, prompt: 'Credit contributors?', options: ['Yes', 'No'] },
+    ])
+    context.questions.withdraw(task.id)
+    await outcome
   })
 })

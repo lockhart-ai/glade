@@ -17,14 +17,14 @@ export function hasRun(task: Pick<Task, 'sessionId' | 'activity'>): boolean {
 }
 
 /**
- * Whether a task needs you: it's active and its agent's turn has ended, so it's waiting on you or hit an error. A
- * brand-new task that has never run doesn't count: it has nothing to show you yet.
- *
- * P4 (questions): an active task with an open question from the agent needs you too. Add that case here, so the Needs
- * you filter, its count and whatever else asks this all follow.
+ * Whether a task needs you: it's active and its agent's turn has ended, so it's waiting on you or hit an error, or its
+ * agent is waiting on your answers to questions it asked. A brand-new task that has never run doesn't count: it has
+ * nothing to show you yet.
  */
-export function needsYou(task: Pick<Task, 'state' | 'activity' | 'sessionId'>): boolean {
+export function needsYou(task: Pick<Task, 'state' | 'activity' | 'sessionId' | 'asking'>): boolean {
   if (task.state !== TaskState.Active || !hasRun(task)) return false
+  // The agent's turn waits on the answers, whatever its activity says.
+  if (task.asking) return true
   switch (task.activity) {
     case TaskActivity.Waiting:
     case TaskActivity.Error:
@@ -48,7 +48,7 @@ export function parseTaskFilter(value: string | undefined): TaskFilter {
 
 /** Whether a task shows in the task list under a filter. */
 export function matchesFilter(
-  task: Pick<Task, 'state' | 'activity' | 'sessionId' | 'unread'>,
+  task: Pick<Task, 'state' | 'activity' | 'sessionId' | 'asking' | 'unread'>,
   filter: TaskFilter,
 ): boolean {
   switch (filter) {

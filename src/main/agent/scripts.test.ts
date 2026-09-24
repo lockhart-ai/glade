@@ -15,13 +15,15 @@ import {
 } from '../../shared/domain'
 import { autoCompactThreshold } from '../../shared/contextWindow'
 import { listMessages } from '../db/repositories/messages'
+import { getOpenQuestionSet } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
+import { createQuestionBroker } from '../questions/questions'
 import { createAgentRunner, STOPPED_NOTE, type AgentRunner } from './runner'
 import { createGladeMcpServer, GLADE_SERVER } from './glade-tools'
-import { AGENT_SCRIPT_NAMES, AGENT_SCRIPTS, type AgentScriptName } from './scripts'
+import { AGENT_SCRIPT_NAMES, AGENT_SCRIPTS, RELEASE_NOTES_QUESTIONS, type AgentScriptName } from './scripts'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
 
 let database: TestDatabase
@@ -31,7 +33,9 @@ let backend: TestModeAgentBackend
 
 function start(name: AgentScriptName): AgentRunner {
   backend = createTestModeAgentBackend({ script: AGENT_SCRIPTS[name] })
-  const context = { db: database.db, emit: () => undefined }
+  const base = { db: database.db, emit: () => undefined }
+  const questions = createQuestionBroker(base)
+  const context = { ...base, questions }
   runner = createAgentRunner({
     ...context,
     backend,
@@ -47,6 +51,15 @@ async function send(on: AgentRunner, text: string): Promise<void> {
   const idle = backend.whenIdle()
   await vi.runAllTimersAsync()
   await idle
+}
+
+/**
+ * Sends a message and lets an hour pass, for a script that waits on the user: running every timer would also run out
+ * the scripted agent's (practically endless) tool call timeout.
+ */
+async function sendAndWaitAnHour(on: AgentRunner, text: string): Promise<void> {
+  on.send(task.id, text)
+  await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
 }
 
 function reply(): string | undefined {
@@ -300,5 +313,54 @@ describe('AGENT_SCRIPTS', () => {
     expect(reply()).toBe('The test passes 200 times in a row against Postgres, so the race is fixed.')
     expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, error: null, retrying: null })
     expect(listMessages(database.db, task.id).map((message) => message.turn)).toEqual([1, 1])
+  })
+
+  it('asks-a-question: asks its questions and waits, however long, then drafts the notes from the answers', async () => {
+    const agent = start('asks-a-question')
+    await sendAndWaitAnHour(agent, 'Draft the release notes for 2.4.')
+
+    const open = getOpenQuestionSet(database.db, task.id)
+    expect(open?.questions).toEqual(RELEASE_NOTES_QUESTIONS)
+    expect(getTask(database.db, task.id)).toMatchObject({
+      title: 'Draft release notes for 2.4',
+      status: 'Waiting on three layout and credit questions.',
+      activity: TaskActivity.Waiting,
+      asking: true,
+    })
+    expect(reply()).toBeUndefined()
+
+    agent.answer(open?.id ?? '', { 0: 'by-type', 1: 'Internal changes', 2: 'GitHub handles' })
+    await vi.waitFor(() => {
+      expect(activity()).toBe(TaskActivity.Waiting)
+    })
+
+    expect(reply()).toMatch(/^Thanks\. The release notes for 2\.4 are drafted/)
+    expect(calls().find((call) => call.name === 'mcp__glade__ask')).toMatchObject({
+      state: ToolCallState.Done,
+      output: '{"0":"by-type","1":"Internal changes","2":"GitHub handles"}',
+    })
+    expect(getTask(database.db, task.id)?.status).toBe('Release notes drafted in docs/releases/2.4.md.')
+  })
+
+  it('asks-a-question: carries on from the answers when they come after the app quit', async () => {
+    await sendAndWaitAnHour(start('asks-a-question'), 'Draft the release notes for 2.4.')
+    runner?.close()
+    const resumed = start('asks-a-question')
+    resumed.resumeInterrupted()
+    const open = getOpenQuestionSet(database.db, task.id)
+
+    resumed.send(task.id, 'By type, internal changes, and GitHub handles.')
+    const idle = backend.whenIdle()
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+    await idle
+
+    expect(open).toBeDefined()
+    expect(reply()).toMatch(/^Got your answers after the restart/)
+    expect(listMessages(database.db, task.id).map(({ role, turn }) => [role, turn])).toEqual([
+      [MessageRole.User, 1],
+      [MessageRole.User, 1],
+      [MessageRole.Agent, 1],
+    ])
+    expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, asking: false })
   })
 })

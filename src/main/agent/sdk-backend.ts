@@ -23,6 +23,8 @@ export function sdkOptions(options: AgentSessionOptions): Options {
     settingSources: ['user', 'project', 'local'],
     systemPrompt: { type: 'preset', preset: 'claude_code', append: options.systemPromptAppend },
     mcpServers: { ...options.mcpServers },
+    // Questions go through Glade's own `ask`, which shows them on a card; Claude Code's own asking tool has no UI here.
+    disallowedTools: ['AskUserQuestion'],
     // No `env` and no credentials: the bundled Claude Code binary finds the user's own login itself.
   }
 }

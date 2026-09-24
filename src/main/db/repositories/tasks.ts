@@ -6,6 +6,7 @@ import {
   Effort,
   TaskActivity,
   TaskErrorSource,
+  QuestionSetState,
   TaskState,
   type ApiRetry,
   type EpochMs,
@@ -48,6 +49,10 @@ export interface TaskPatch {
 
 const COLUMNS = `id, workspace_id, title, objective, status, status_updated_at, state, activity, pinned, unread, model,
   effort, created_at, updated_at, done_at, session_id, context_used_tokens, context_window_tokens, error, retrying`
+
+/** What a task is read with: its columns, and whether it has an open question set. */
+const SELECTED = `${COLUMNS}, EXISTS (SELECT 1 FROM question_sets WHERE question_sets.task_id = tasks.id
+  AND question_sets.state = '${QuestionSetState.Open}') AS asking`
 
 const TASK_STATES = Object.values(TaskState)
 const TASK_ACTIVITIES = Object.values(TaskActivity)
@@ -104,13 +109,15 @@ function parseTask(raw: unknown): Task {
     contextWindowTokens: row.nullableInteger('context_window_tokens') ?? contextWindowFor(model),
     error: jsonColumn(row, 'tasks', 'error', taskErrorSchema),
     retrying: jsonColumn(row, 'tasks', 'retrying', apiRetrySchema),
+    asking: row.flag('asking'),
   }
 }
 
-/** The named parameters for a task's columns. */
+/** The named parameters for a task's columns (and `asking`, which no statement uses: it's derived from the question sets). */
 function toParams(task: Task): Record<string, string | number | null> {
   return {
     ...task,
+    asking: task.asking ? 1 : 0,
     pinned: task.pinned ? 1 : 0,
     unread: task.unread ? 1 : 0,
     error: task.error === null ? null : JSON.stringify(task.error),
@@ -142,6 +149,7 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     contextWindowTokens: contextWindowFor(input.model),
     error: null,
     retrying: null,
+    asking: false,
   }
   db.prepare(
     `INSERT INTO tasks (${COLUMNS}) VALUES (@id, @workspaceId, @title, @objective, @status, @statusUpdatedAt, @state,
@@ -152,14 +160,14 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
 }
 
 export function getTask(db: Database, id: string): Task | undefined {
-  const row: unknown = db.prepare(`SELECT ${COLUMNS} FROM tasks WHERE id = ?`).get(id)
+  const row: unknown = db.prepare(`SELECT ${SELECTED} FROM tasks WHERE id = ?`).get(id)
   return row === undefined ? undefined : parseTask(row)
 }
 
 /** A workspace's tasks, most recently updated first. */
 export function listTasks(db: Database, workspaceId: string): Task[] {
   return db
-    .prepare(`SELECT ${COLUMNS} FROM tasks WHERE workspace_id = ? ORDER BY updated_at DESC, id`)
+    .prepare(`SELECT ${SELECTED} FROM tasks WHERE workspace_id = ? ORDER BY updated_at DESC, id`)
     .all(workspaceId)
     .map(parseTask)
 }
@@ -167,7 +175,7 @@ export function listTasks(db: Database, workspaceId: string): Task[] {
 /** Every workspace's active tasks whose agent is working, oldest first. On launch, these are the turns the app died in. */
 export function listWorkingTasks(db: Database): Task[] {
   return db
-    .prepare(`SELECT ${COLUMNS} FROM tasks WHERE state = ? AND activity = ? ORDER BY created_at, id`)
+    .prepare(`SELECT ${SELECTED} FROM tasks WHERE state = ? AND activity = ? ORDER BY created_at, id`)
     .all(TaskState.Active, TaskActivity.Working)
     .map(parseTask)
 }

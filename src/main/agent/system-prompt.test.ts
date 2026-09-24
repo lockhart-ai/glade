@@ -24,6 +24,10 @@ describe('systemPromptAppend', () => {
           'and set_objective with its objective.',
         '- Every turn, call set_status with one line on where the work stands, and again before you end the turn if ' +
           'that changed. When the task is done, the status is its outcome.',
+        '',
+        'When you need the user to decide something before you can go on, call ask instead of asking in your reply: ' +
+          'it shows your questions on a card and waits for the answers. Ask everything you need at once, with ' +
+          'choices or pills when the likely answers are known.',
       ].join('\n'),
     )
   })

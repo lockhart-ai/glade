@@ -6,7 +6,7 @@
  *
  * The e2e and capture specs pick a script from `AGENT_SCRIPTS` by name, e.g. `agentScript: 'multi-tool-turn'`.
  */
-import type { ToolInput } from '../../shared/domain'
+import { QuestionKind, type Question, type ToolInput } from '../../shared/domain'
 
 export enum ScriptStepKind {
   /** `system/init` for the session, which the SDK sends at the start of every turn. */
@@ -43,6 +43,12 @@ export enum ScriptStepKind {
    * continues from. Assistant messages report `postTokens` from here on.
    */
   Compact = 'compact',
+  /**
+   * A call to Glade's `ask` (`mcp__glade__ask`), run through its real handler like a `GladeTool` step, so the questions
+   * really open: the turn waits on the answers (the session goes idle meanwhile), then streams the tool's result, the
+   * answers as JSON, and plays on. Stop withdraws the questions and cuts the call short.
+   */
+  Ask = 'ask',
 }
 
 export interface InitStep {
@@ -127,6 +133,12 @@ export interface CompactStep {
   readonly ms?: number
 }
 
+export interface AskStep {
+  readonly kind: ScriptStepKind.Ask
+  readonly id: string
+  readonly questions: readonly Question[]
+}
+
 export type ScriptStep =
   | InitStep
   | TextStep
@@ -140,6 +152,7 @@ export type ScriptStep =
   | WaitForInterruptStep
   | FillContextStep
   | CompactStep
+  | AskStep
 
 export type ScriptTurn = readonly ScriptStep[]
 
@@ -148,8 +161,9 @@ export interface AgentScript {
   /** At least one. */
   readonly turns: readonly ScriptTurn[]
   /**
-   * What the agent does when Glade resumes its session on launch to carry on a turn the app quit in (the runner's
-   * `RESUME_PROMPT`). Without one, that message runs the next turn like any other.
+   * What the agent does when Glade resumes its session to carry on a turn the app quit in: on launch (the runner's
+   * `RESUME_PROMPT`), or once you answer a question the app quit on (its `answeredAfterRestart` message). Without one,
+   * that message runs the next turn like any other.
    */
   readonly resumeTurn?: ScriptTurn
   /**
@@ -218,6 +232,12 @@ export const fillContext = (fraction: number): FillContextStep => ({ kind: Scrip
 export const compact = (options: Omit<CompactStep, 'kind'> = {}): CompactStep => ({
   kind: ScriptStepKind.Compact,
   ...options,
+})
+
+export const ask = (id: string, questions: readonly Question[]): AskStep => ({
+  kind: ScriptStepKind.Ask,
+  id,
+  questions,
 })
 
 /** How long a step "takes" in the library's scripts: long enough to see in a recording, short enough for a test. */
@@ -607,6 +627,68 @@ const copyInBatches: AgentScript = {
   ],
 }
 
+/** The questions `asks-a-question` asks before it drafts the release notes: a choice with sketches, and two pills. */
+export const RELEASE_NOTES_QUESTIONS: readonly Question[] = [
+  {
+    kind: QuestionKind.Choice,
+    prompt: 'How should the notes be laid out?',
+    options: [
+      {
+        id: 'by-type',
+        label: 'By type',
+        detail: 'Features, fixes, internal. Matches the 2.3 notes.',
+        sketch: '## Features\n- …\n## Fixes\n- …\n## Internal\n- …',
+      },
+      {
+        id: 'by-area',
+        label: 'By area',
+        detail: 'API, dashboard, admin. Easier for integrators to scan.',
+        sketch: '## API\n- …\n## Dashboard\n- …\n## Admin\n- …',
+      },
+    ],
+  },
+  {
+    kind: QuestionKind.Pills,
+    prompt: 'Where does the Django 5.2 upgrade go?',
+    options: ['Features', 'Internal changes', 'Leave it out'],
+  },
+  { kind: QuestionKind.Pills, prompt: 'Credit contributors?', options: ['GitHub handles', 'Full names', 'No credits'] },
+]
+
+/**
+ * A turn that asks questions (`ask`) and waits for the answers, however long that takes, then drafts the release notes
+ * from them. If the app quits while they're open, answering them after the relaunch carries the turn on (its resume
+ * turn).
+ */
+const asksAQuestion: AgentScript = {
+  name: 'asks-a-question',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      say('41 PRs since v2.3.0. Before I draft the notes, a few questions.'),
+      ...describeTask(
+        'Draft release notes for 2.4',
+        'Draft release notes for 2.4 from the PRs merged since the 2.3 tag, grouped into features, fixes and ' +
+          'internal changes.',
+        'Waiting on three layout and credit questions.',
+      ),
+      ask('questions', RELEASE_NOTES_QUESTIONS),
+      delay(BEAT_MS),
+      gladeTool('status-drafted', 'set_status', { status: 'Release notes drafted in docs/releases/2.4.md.' }),
+      say('Thanks. The release notes for 2.4 are drafted in `docs/releases/2.4.md`, laid out the way you picked.'),
+      result(),
+    ],
+  ],
+  resumeTurn: [
+    ...turnStart(),
+    delay(BEAT_MS),
+    gladeTool('status-resumed', 'set_status', { status: 'Release notes drafted in docs/releases/2.4.md.' }),
+    say('Got your answers after the restart. The release notes for 2.4 are drafted in `docs/releases/2.4.md`.'),
+    result(),
+  ],
+}
+
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
   'simple-reply',
@@ -617,6 +699,7 @@ export const AGENT_SCRIPT_NAMES = [
   'copy-in-batches',
   'long-context',
   'auto-compaction',
+  'asks-a-question',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -631,4 +714,5 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'copy-in-batches': copyInBatches,
   'long-context': longContext,
   'auto-compaction': autoCompaction,
+  'asks-a-question': asksAQuestion,
 }

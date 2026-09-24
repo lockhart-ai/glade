@@ -16,6 +16,7 @@ import {
   TaskState,
   UiStateKey,
   type Message,
+  type QuestionSet,
   type QueuedMessage,
   type Task,
   type ToolEvent,
@@ -40,10 +41,11 @@ const TASK_HANDLERS = {
   [CommandName.TasksStop]: () => ({ task: {} as Task }),
   [CommandName.TasksRetry]: () => ({ task: {} as Task }),
   [CommandName.TasksCompact]: () => ({ task: {} as Task }),
-  [CommandName.TasksHistory]: () => ({ messages: [], toolEvents: [], queuedMessages: [] }),
+  [CommandName.TasksHistory]: () => ({ messages: [], toolEvents: [], queuedMessages: [], questionSets: [] }),
   [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueRemove]: () => null,
+  [CommandName.QuestionsAnswer]: () => ({ questionSet: {} as QuestionSet }),
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
   [CommandName.TasksCreate]: REQUEST_SCHEMAS[CommandName.TasksCreate],
@@ -58,6 +60,7 @@ const TASK_SCHEMAS = {
   [CommandName.QueueAdd]: REQUEST_SCHEMAS[CommandName.QueueAdd],
   [CommandName.QueueEdit]: REQUEST_SCHEMAS[CommandName.QueueEdit],
   [CommandName.QueueRemove]: REQUEST_SCHEMAS[CommandName.QueueRemove],
+  [CommandName.QuestionsAnswer]: REQUEST_SCHEMAS[CommandName.QuestionsAnswer],
 } satisfies Partial<RequestSchemas>
 
 describe('the command map', () => {
@@ -99,6 +102,7 @@ describe('the command map', () => {
       readonly messages: readonly Message[]
       readonly toolEvents: readonly ToolEvent[]
       readonly queuedMessages: readonly QueuedMessage[]
+      readonly questionSets: readonly QuestionSet[]
     }>()
     expectTypeOf(glade.invoke(CommandName.QueueAdd, { taskId: 't', text: 'Hi' })).resolves.toEqualTypeOf<{
       readonly queuedMessage: QueuedMessage
@@ -107,6 +111,11 @@ describe('the command map', () => {
       readonly queuedMessage: QueuedMessage
     }>()
     expectTypeOf(glade.invoke(CommandName.QueueRemove, { id: 'q' })).resolves.toBeNull()
+    expectTypeOf(
+      glade.invoke(CommandName.QuestionsAnswer, { id: 's', answers: { 0: 'by-type' } }),
+    ).resolves.toEqualTypeOf<{
+      readonly questionSet: QuestionSet
+    }>()
     expectTypeOf<CommandRequest<CommandName.UiStateSet>>().toEqualTypeOf<UiStateEntry>()
     expectTypeOf(
       glade.invoke(CommandName.UiStateSet, { key: UiStateKey.ActiveWorkspaceId, value: '' }),
@@ -267,6 +276,11 @@ describe('events', () => {
           break
         case EventType.QueueChanged:
           expectTypeOf(event.queuedMessages).toEqualTypeOf<readonly QueuedMessage[]>()
+          break
+        case EventType.QuestionOpened:
+        case EventType.QuestionAnswered:
+        case EventType.QuestionWithdrawn:
+          expectTypeOf(event.questionSet).toEqualTypeOf<QuestionSet>()
           break
       }
     })

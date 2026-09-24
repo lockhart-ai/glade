@@ -15,9 +15,13 @@ import {
 import {
   Effort,
   MessageRole,
+  QuestionKind,
+  QuestionReplyKind,
+  QuestionSetState,
   TaskActivity,
   TaskState,
   type Message,
+  type QuestionSet,
   type QueuedMessage,
   type Task,
   type ToolEvent,
@@ -39,6 +43,8 @@ export interface FakeMain {
   readonly toolEvents?: ToolEvent[]
   /** Every task's queued messages; none when left out. */
   readonly queuedMessages?: QueuedMessage[]
+  /** Every task's question sets; none when left out. `questions.answer` answers one, without checking the answers. */
+  readonly questionSets?: QuestionSet[]
 }
 
 export interface FakeBridge {
@@ -115,6 +121,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       messages: (main.messages ?? []).filter((message) => message.taskId === id),
       toolEvents: (main.toolEvents ?? []).filter((event) => event.taskId === id),
       queuedMessages: queueOf(id),
+      questionSets: (main.questionSets ?? []).filter((set) => set.taskId === id),
     }),
     [CommandName.QueueAdd]: ({ taskId, text }) => {
       queued += 1
@@ -138,6 +145,21 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       if (removed === undefined) return notQueued(id)
       queueChanged(removed.taskId)
       return null
+    },
+    [CommandName.QuestionsAnswer]: ({ id, answers }) => {
+      const sets = main.questionSets ?? []
+      const index = sets.findIndex((set) => set.id === id)
+      const current = sets[index]
+      if (current === undefined) return refuse(bridgeError(BridgeErrorCode.NotFound, `No question set ${id}`))
+      const questionSet: QuestionSet = {
+        ...current,
+        state: QuestionSetState.Answered,
+        reply: { kind: QuestionReplyKind.Answers, answers },
+        closedAt: 3_000,
+      }
+      sets[index] = questionSet
+      emit({ type: EventType.QuestionAnswered, questionSet })
+      return { questionSet }
     },
     [CommandName.UiStateGet]: ({ key }) => ({ value: main.uiState.find((entry) => entry.key === key)?.value ?? null }),
     [CommandName.UiStateGetAll]: () => ({ entries: [...main.uiState] }),
@@ -207,6 +229,7 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
     contextWindowTokens: 200_000,
     error: null,
     retrying: null,
+    asking: false,
   }
 }
 
@@ -216,4 +239,28 @@ export function sampleMessage(id: string, taskId: string, body = 'Add rate limit
 
 export function sampleQueuedMessage(id: string, taskId: string, body = 'Keep the original filenames.'): QueuedMessage {
   return { id, taskId, body, createdAt: 4_000 }
+}
+
+/** An open question set: a choice and a text question. */
+export function sampleQuestionSet(id: string, taskId: string): QuestionSet {
+  return {
+    id,
+    taskId,
+    turn: 1,
+    questions: [
+      {
+        kind: QuestionKind.Choice,
+        prompt: 'How should the notes be laid out?',
+        options: [
+          { id: 'by-type', label: 'By type' },
+          { id: 'by-area', label: 'By area' },
+        ],
+      },
+      { kind: QuestionKind.Text, prompt: 'Anything else?', optional: true },
+    ],
+    state: QuestionSetState.Open,
+    reply: null,
+    createdAt: 3_000,
+    closedAt: null,
+  }
 }

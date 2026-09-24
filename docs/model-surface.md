@@ -20,6 +20,31 @@ knows its task. It sets `alwaysLoad: true`, so the tools are never deferred behi
 Each field is trimmed and must not be empty. Input that fails its schema, or a task that is gone, comes back to the
 model as a tool error and changes nothing. Each write goes through `updateTaskFromAgent`, which emits `task.updated`.
 
+## Implemented: `ask` (P4-01, names unconfirmed)
+
+`mcp__glade__ask` takes `{ questions: Question[] }`, with `Question` exactly as drafted below (`QuestionKind` and the
+question interfaces in `src/shared/domain.ts`; the zod schema in `src/main/questions/schema.ts`). Beyond the draft:
+every text is trimmed and must not be empty, there is at least one question, a choice or pills question has at least
+two options, and a choice's option ids and a question's pills are each unique. The format of `sketch` is open: a short
+text sketch for now.
+
+- **It blocks.** The handler saves an open question set (`QuestionSet`, table `question_sets`) and waits until it's
+  answered, however long that takes (`src/main/questions/questions.ts`). Meanwhile the task waits on you: its activity
+  is waiting, `task.asking` is true, and it counts under Needs you (`needsYou`). The windows hear `question.opened`,
+  then `question.answered` or `question.withdrawn`.
+- **Answering with the card:** `questions.answer { id, answers }`, with answers keyed by question index from 0. A
+  choice takes an option id, pills a pill's text, text the text typed; `multiple` takes an array of at least one, each
+  once. Every question needs an answer except an optional text one, which is dropped when empty
+  (`src/shared/questions.ts`). The tool returns the answers as JSON, e.g. `{"0":"by-type","1":"Internal changes"}`.
+- **Answering in words:** a message sent (`tasks.send`) while a question is open answers it. It's saved to the chat as
+  your reply, in the turn that asked; it isn't queued and starts no turn. The tool returns `{"freeText":"…"}`.
+- **Stopped or failed:** a turn that ends while its question is open withdraws it; Stop withdraws it first. The tool
+  returns an error saying the questions were withdrawn.
+- **Relaunch:** a question the app quit on stays open, and its task waits on you; its `ask` call ends as an error. When
+  you answer it, the task's session is resumed and the answer goes to the agent as a message (the runner's
+  `answeredAfterRestart`), carrying on the same turn.
+- Claude Code's own `AskUserQuestion` tool is disallowed, so questions always come through `ask`.
+
 | Tool | Input (draft) | Effect |
 |---|---|---|
 | `set_title` | `{ title: string }` | Names the task. Called once from the first message; the user can rename later. |
@@ -62,6 +87,8 @@ Its task id is <id>. Its title is not set yet.
 The user sees the task through its title, objective and status. Keep them current with the Glade tools:
 - After the user's first message, before anything else, even for a quick question, call set_title with a short name for the task and set_objective with its objective.
 - Every turn, call set_status with one line on where the work stands, and again before you end the turn if that changed. When the task is done, the status is its outcome.
+
+When you need the user to decide something before you can go on, call ask instead of asking in your reply: it shows your questions on a card and waits for the answers. Ask everything you need at once, with choices or pills when the likely answers are known.
 ```
 
 The "after the user's first message" line asks only for what isn't set yet, so a resumed session never renames a task

@@ -3,7 +3,17 @@
  * Main (and SQLite behind it) stays the source of truth; nothing here is kept only in memory.
  */
 import type { TaskUserPatch } from '../../shared/bridge'
-import type { Message, QueuedMessage, Task, ToolEvent, UiStateEntry, UiStateKey, Workspace } from '../../shared/domain'
+import type {
+  Message,
+  QuestionAnswers,
+  QuestionSet,
+  QueuedMessage,
+  Task,
+  ToolEvent,
+  UiStateEntry,
+  UiStateKey,
+  Workspace,
+} from '../../shared/domain'
 
 export enum HydrationStatus {
   Loading = 'loading',
@@ -56,6 +66,11 @@ export interface GladeData {
   readonly toolEvents: Readonly<Record<string, readonly ToolEvent[]>>
   /** Each task's message queue, in order, by task id: loaded with its logs, then kept current by events. */
   readonly queuedMessages: Readonly<Record<string, readonly QueuedMessage[]>>
+  /**
+   * Each task's question sets (`ask`), in the order the agent asked them, by task id: loaded with its logs, then kept
+   * current by events.
+   */
+  readonly questionSets: Readonly<Record<string, readonly QuestionSet[]>>
   readonly uiState: UiStateValues
   /**
    * The latest request to show a turn in the tool log; null until one is made. A one-off UI intent, so it's the one
@@ -119,6 +134,11 @@ export interface GladeActions {
    * saved it; the queue arrives as an event.
    */
   queueMessage: (taskId: string, text: string) => Promise<void>
+  /**
+   * Answers an open question set with the card's answers, keyed by question index (`questions.answer`). Resolves once
+   * main has them; the answered set arrives as an event. Rejects with `invalid_request` for answers that don't fit.
+   */
+  answerQuestions: (id: string, answers: QuestionAnswers) => Promise<void>
   /** Changes a queued message's text. Rejects with `not_found` once it has been delivered or removed. */
   editQueuedMessage: (id: string, text: string) => Promise<void>
   /** Removes a queued message. Rejects with `not_found` once it has been delivered or removed. */
@@ -152,6 +172,7 @@ export const INITIAL_DATA: GladeData = {
   messages: {},
   toolEvents: {},
   queuedMessages: {},
+  questionSets: {},
   uiState: {},
   toolLogFocus: null,
   inputFocusRequest: 0,

@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { EventType } from '../../shared/bridge'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
-import { MessageRole } from '../../shared/domain'
+import { MessageRole, QuestionKind, QuestionReplyKind, QuestionSetState } from '../../shared/domain'
+import { appendQuestionSet } from '../db/repositories/question-sets'
 import { appendMessage } from '../db/repositories/messages'
 import { appendNarration } from '../db/repositories/tool-events'
 import { appendQueuedMessage } from '../db/repositories/queued-messages'
 import {
   emitMessageAppended,
+  emitQuestionSet,
   emitQueueChanged,
   emitTaskUpdated,
   emitToolEventAppended,
@@ -61,4 +63,25 @@ it("emits a task's whole queue as a queue.changed event", () => {
     taskId: task.id,
     queuedMessages: [queued],
   })
+})
+
+it('emits a question set as opened, answered or withdrawn, by its state', () => {
+  const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+  const questions = [{ kind: QuestionKind.Text, prompt: 'Anything else?' }] as const
+  const open = appendQuestionSet(database.db, { taskId: task.id, turn: 1, questions })
+  const answered = {
+    ...open,
+    state: QuestionSetState.Answered,
+    reply: { kind: QuestionReplyKind.FreeText, text: 'No.' },
+  } as const
+  const withdrawn = { ...open, state: QuestionSetState.Withdrawn } as const
+  const emit = vi.fn()
+
+  for (const questionSet of [open, answered, withdrawn]) emitQuestionSet(emit, questionSet)
+
+  expect(emit.mock.calls).toEqual([
+    [{ type: EventType.QuestionOpened, questionSet: open }],
+    [{ type: EventType.QuestionAnswered, questionSet: answered }],
+    [{ type: EventType.QuestionWithdrawn, questionSet: withdrawn }],
+  ])
 })
