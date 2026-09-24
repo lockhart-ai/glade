@@ -17,6 +17,7 @@ function call(name: string, input: ToolInput, state = ToolCallState.Done, parent
     input,
     output: state === ToolCallState.Running ? null : 'ok',
     state,
+    finishedAt: null,
     toolUseId: id,
     parentToolUseId,
   } satisfies ToolEvent
@@ -42,7 +43,15 @@ describe('summarizeTurn', () => {
   it('is the duration and no changes for a turn without edits', () => {
     const events: ToolEvent[] = [
       { kind: ToolEventKind.Divider, id: 'd', taskId: 't1', turn: 1, createdAt: 1, dividerKind: DividerKind.Turn },
-      { kind: ToolEventKind.Narration, id: 'n', taskId: 't1', turn: 1, createdAt: 1, text: 'Reading.' },
+      {
+        kind: ToolEventKind.Narration,
+        id: 'n',
+        taskId: 't1',
+        turn: 1,
+        createdAt: 1,
+        text: 'Reading.',
+        parentToolUseId: null,
+      },
       call('Read', { file_path: 'src/date.ts' }),
       call('Bash', { command: 'npm test' }),
     ]

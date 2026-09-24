@@ -24,6 +24,8 @@ export interface NewToolEventBase {
 
 export interface NewNarration extends NewToolEventBase {
   readonly text: string
+  /** The `Agent` call whose subagent wrote it; the agent's own note when not given. */
+  readonly parentToolUseId?: string | null | undefined
 }
 
 /** A tool call as its `tool_use` arrives: it starts running, with no output yet. */
@@ -74,6 +76,7 @@ interface ToolEventParams {
   readonly toolName: string | null
   readonly toolInput: string | null
   readonly toolOutput: string | null
+  readonly finishedAt: EpochMs | null
   readonly toolState: ToolCallState | null
   readonly toolUseId: string | null
   readonly parentToolUseId: string | null
@@ -84,8 +87,8 @@ interface ToolEventParams {
   readonly windowTokens: number | null
 }
 
-const COLUMNS = `id, task_id, kind, turn, created_at, text, tool_name, tool_input, tool_output, tool_state, tool_use_id,
-  parent_tool_use_id, divider_kind, compact_trigger, pre_tokens, post_tokens, window_tokens`
+const COLUMNS = `id, task_id, kind, turn, created_at, text, tool_name, tool_input, tool_output, finished_at, tool_state,
+  tool_use_id, parent_tool_use_id, divider_kind, compact_trigger, pre_tokens, post_tokens, window_tokens`
 
 const KINDS = Object.values(ToolEventKind)
 const TOOL_CALL_STATES = Object.values(ToolCallState)
@@ -103,6 +106,7 @@ function toParams(event: ToolEvent): ToolEventParams {
     toolName: null,
     toolInput: null,
     toolOutput: null,
+    finishedAt: null,
     toolState: null,
     toolUseId: null,
     parentToolUseId: null,
@@ -114,13 +118,14 @@ function toParams(event: ToolEvent): ToolEventParams {
   }
   switch (event.kind) {
     case ToolEventKind.Narration:
-      return { ...base, text: event.text }
+      return { ...base, text: event.text, parentToolUseId: event.parentToolUseId }
     case ToolEventKind.ToolCall:
       return {
         ...base,
         toolName: event.name,
         toolInput: JSON.stringify(event.input),
         toolOutput: event.output,
+        finishedAt: event.finishedAt,
         toolState: event.state,
         toolUseId: event.toolUseId,
         parentToolUseId: event.parentToolUseId,
@@ -156,6 +161,7 @@ function parseToolCall(row: Row): ToolCallEvent {
     input: row.jsonObject('tool_input'),
     output: row.nullableText('tool_output'),
     state: row.oneOf('tool_state', TOOL_CALL_STATES),
+    finishedAt: row.nullableInteger('finished_at'),
     toolUseId: row.text('tool_use_id'),
     parentToolUseId: row.nullableText('parent_tool_use_id'),
   }
@@ -178,7 +184,12 @@ function parseToolEvent(raw: unknown): ToolEvent {
   const kind = row.oneOf('kind', KINDS)
   switch (kind) {
     case ToolEventKind.Narration:
-      return { ...parseBase(row), kind, text: row.text('text') }
+      return {
+        ...parseBase(row),
+        kind,
+        text: row.text('text'),
+        parentToolUseId: row.nullableText('parent_tool_use_id'),
+      }
     case ToolEventKind.ToolCall:
       return parseToolCall(row)
     case ToolEventKind.Divider:
@@ -193,7 +204,7 @@ function append(db: Database, event: ToolEvent): void {
   db.prepare(
     `INSERT INTO tool_events (seq, ${COLUMNS})
     VALUES ((SELECT COALESCE(MAX(seq), 0) + 1 FROM tool_events WHERE task_id = @taskId), @id, @taskId, @kind, @turn,
-      @createdAt, @text, @toolName, @toolInput, @toolOutput, @toolState, @toolUseId, @parentToolUseId, @dividerKind,
+      @createdAt, @text, @toolName, @toolInput, @toolOutput, @finishedAt, @toolState, @toolUseId, @parentToolUseId, @dividerKind,
       @compactTrigger, @preTokens, @postTokens, @windowTokens)`,
   ).run(toParams(event))
 }
@@ -206,6 +217,7 @@ export function appendNarration(db: Database, input: NewNarration, now: EpochMs 
     turn: input.turn,
     createdAt: now,
     text: input.text,
+    parentToolUseId: input.parentToolUseId ?? null,
   }
   append(db, event)
   return event
@@ -222,6 +234,7 @@ export function appendToolCall(db: Database, input: NewToolCall, now: EpochMs = 
     input: input.input,
     output: null,
     state: ToolCallState.Running,
+    finishedAt: null,
     toolUseId: input.toolUseId,
     parentToolUseId: input.parentToolUseId,
   }
@@ -291,29 +304,37 @@ export function listToolEvents(db: Database, taskId: string): ToolEvent[] {
   return db.prepare(`SELECT ${COLUMNS} FROM tool_events WHERE task_id = ? ORDER BY seq`).all(taskId).map(parseToolEvent)
 }
 
-/** Records a tool call's result, and returns the call updated. Throws if the task has no call with that id. */
-export function updateToolCall(db: Database, result: ToolCallResult): ToolCallEvent {
+/**
+ * Records a tool call's result, arrived at `now`, and returns the call updated. Throws if the task has no call with
+ * that id.
+ */
+export function updateToolCall(db: Database, result: ToolCallResult, now: EpochMs = Date.now()): ToolCallEvent {
   const row: unknown = db
     .prepare(
-      `UPDATE tool_events SET tool_state = @state, tool_output = @output
+      `UPDATE tool_events SET tool_state = @state, tool_output = @output, finished_at = @finishedAt
       WHERE task_id = @taskId AND tool_use_id = @toolUseId AND kind = 'tool_call'
       RETURNING ${COLUMNS}`,
     )
-    .get(result)
+    .get({ ...result, finishedAt: now })
   if (row === undefined) throw new Error(`No tool call ${result.toolUseId} in task ${result.taskId}`)
   return parseToolCall(new Row('tool_events', row))
 }
 
 /**
- * Records every tool call of a task that is still running as an error, e.g. the calls of a turn the app died in, and
- * returns them updated, in log order.
+ * Records every tool call of a task that is still running as an error at `now`, e.g. the calls of a turn the app died
+ * in, and returns them updated, in log order.
  */
-export function failRunningToolCalls(db: Database, taskId: string, output: string): ToolCallEvent[] {
+export function failRunningToolCalls(
+  db: Database,
+  taskId: string,
+  output: string,
+  now: EpochMs = Date.now(),
+): ToolCallEvent[] {
   const running = db
     .prepare(
       `SELECT tool_use_id FROM tool_events WHERE task_id = ? AND kind = 'tool_call' AND tool_state = ? ORDER BY seq`,
     )
     .all(taskId, ToolCallState.Running)
     .map((raw) => new Row('tool_events', raw).text('tool_use_id'))
-  return running.map((toolUseId) => updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Error, output }))
+  return running.map((toolUseId) => updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Error, output }, now))
 }

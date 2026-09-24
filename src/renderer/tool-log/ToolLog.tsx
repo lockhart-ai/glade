@@ -18,6 +18,7 @@ import {
   type CompactionRow,
   type DividerRow,
   type NarrationRow,
+  type SubagentRow,
   type ToolLogRow,
 } from './toolLogModel'
 import styles from './ToolLog.module.css'
@@ -48,19 +49,27 @@ interface TurnStartProps {
   readonly turnStart?: number | undefined
 }
 
-interface CallProps extends TurnStartProps {
+/**
+ * How a row is laid out: `compact` puts a call on one line, without its result, and tightens a note, as a subagent's
+ * log in the Subagents tab does (docs/design/html/11-subagents.html).
+ */
+interface DensityProps {
+  readonly compact?: boolean | undefined
+}
+
+interface CallProps extends TurnStartProps, DensityProps {
   readonly row: CallRow
   readonly rootPath: string | undefined
 }
 
 /** One tool call: its name, argument, time and short result. Click it to see its full output. */
-function Call({ row, rootPath, turnStart }: CallProps): React.JSX.Element {
+function Call({ row, rootPath, turnStart, compact = false }: CallProps): React.JSX.Element {
   const { call, name, children } = row
   const [expanded, setExpanded] = useState(false)
 
   return (
     <div className={styles.callGroup} {...{ [TURN_START]: turnStart }}>
-      <div className={classNames(styles.call, styles[call.state])} data-state={call.state}>
+      <div className={classNames(styles.call, styles[call.state], compact && styles.compact)} data-state={call.state}>
         <button
           type="button"
           className={styles.callButton}
@@ -70,12 +79,16 @@ function Call({ row, rootPath, turnStart }: CallProps): React.JSX.Element {
           }}
         >
           <span className={styles.callLine}>
-            <Dot state={callIndicator(call.state)} label={callStateLabel(call.state)} />
+            <Dot
+              state={callIndicator(call.state)}
+              label={callStateLabel(call.state)}
+              className={compact ? styles.smallDot : undefined}
+            />
             <span className={styles.name}>{name}</span>
             <span className={styles.argument}>{argumentSummary(call, rootPath)}</span>
             <span className={styles.time}>{clockTime(call.createdAt)}</span>
           </span>
-          <span className={styles.result}>{resultSummary(call)}</span>
+          {!compact && <span className={styles.result}>{resultSummary(call)}</span>}
         </button>
         {expanded && (
           <pre className={styles.output} aria-label={`${name} output`}>
@@ -85,9 +98,7 @@ function Call({ row, rootPath, turnStart }: CallProps): React.JSX.Element {
       </div>
       {children.length > 0 && (
         <div role="group" aria-label={`${name} subagent calls`} className={styles.children}>
-          {children.map((child) => (
-            <Call key={child.call.id} row={child} rootPath={rootPath} />
-          ))}
+          <SubagentRows rows={children} rootPath={rootPath} compact={compact} />
         </div>
       )}
     </div>
@@ -118,9 +129,13 @@ function Compaction({ compaction, turnStart }: CompactionRow & TurnStartProps): 
 }
 
 /** One of the agent's working notes between tool calls. */
-function Narration({ narration, turnStart }: NarrationRow & TurnStartProps): React.JSX.Element {
+function Narration({
+  narration,
+  turnStart,
+  compact = false,
+}: NarrationRow & TurnStartProps & DensityProps): React.JSX.Element {
   return (
-    <p className={styles.narration} {...{ [TURN_START]: turnStart }}>
+    <p className={classNames(styles.narration, compact && styles.compact)} {...{ [TURN_START]: turnStart }}>
       {narration.text} <span className={styles.narrationTime}>{clockTime(narration.createdAt)}</span>
     </p>
   )
@@ -134,6 +149,27 @@ function Divider({ label, turnStart }: DividerRow & TurnStartProps): React.JSX.E
       {label}
       <span className={styles.rule} />
     </div>
+  )
+}
+
+export interface SubagentRowsProps extends DensityProps {
+  readonly rows: readonly SubagentRow[]
+  /** The workspace root, so file arguments show relative to it. */
+  readonly rootPath: string | undefined
+}
+
+/** What a subagent did, in order: its tool calls (each opens its output) and its notes, laid out as the tool log's. */
+export function SubagentRows({ rows, rootPath, compact }: SubagentRowsProps): React.JSX.Element {
+  return (
+    <>
+      {rows.map((row) =>
+        row.kind === ToolEventKind.ToolCall ? (
+          <Call key={row.call.id} row={row} rootPath={rootPath} compact={compact} />
+        ) : (
+          <Narration key={row.narration.id} {...row} compact={compact} />
+        ),
+      )}
+    </>
   )
 }
 

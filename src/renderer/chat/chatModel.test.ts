@@ -58,13 +58,14 @@ function toolCall(id: string, turn: number, parentToolUseId: string | null = nul
     input: {},
     output: null,
     state: ToolCallState.Done,
+    finishedAt: null,
     toolUseId: `use-${id}`,
     parentToolUseId,
   }
 }
 
 function narration(id: string, turn: number, text: string): ToolEvent {
-  return { id, taskId: 't1', turn, createdAt: 1_000, kind: ToolEventKind.Narration, text }
+  return { id, taskId: 't1', turn, createdAt: 1_000, kind: ToolEventKind.Narration, text, parentToolUseId: null }
 }
 
 const divider: ToolEvent = {
@@ -310,6 +311,14 @@ describe('workingNarration', () => {
     expect(workingNarration(working, next, [...events, narration('d', 2, 'Running the tests')])).toBe(
       'Running the tests',
     )
+  })
+
+  it("leaves out a subagent's notes", () => {
+    const events = [
+      narration('a', 1, 'Splitting the work'),
+      { ...narration('b', 1, 'Reading the API PRs'), parentToolUseId: 'use-agent' },
+    ]
+    expect(workingNarration(working, messages, events)).toBe('Splitting the work')
   })
 
   it('is empty before the turn has any narration', () => {

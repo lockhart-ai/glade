@@ -1,4 +1,5 @@
 import type { GladeData } from '../store/state'
+import { subagentCount } from '../subagents/subagentsModel'
 import { toolCallCount } from '../tool-log/toolLogModel'
 import { PanelTab, type PanelCount } from './panelModel'
 
@@ -25,5 +26,9 @@ export const PANEL_TAB_DEFINITIONS: readonly PanelTabDefinition[] = [
   { tab: PanelTab.Files, label: 'Files', count: NOTHING_YET },
   { tab: PanelTab.Todos, label: 'Todos', count: NOTHING_YET },
   { tab: PanelTab.Artifacts, label: 'Artifacts', count: NOTHING_YET },
-  { tab: PanelTab.Subagents, label: 'Subagents', count: NOTHING_YET },
+  {
+    tab: PanelTab.Subagents,
+    label: 'Subagents',
+    count: (state, taskId) => subagentCount(state.toolEvents[taskId] ?? []),
+  },
 ]

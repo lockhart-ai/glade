@@ -254,6 +254,16 @@ The tool is named `Agent` in `tool_use` (the init `tools` list shows `Task`). A 
 - Background Bash commands use the same `task_*` events with `task_type: "local_bash"`, plus
   `system/background_tasks_changed` [verified].
 
+**Implications for Glade (P5-05)**
+
+- The Subagents tab derives each subagent from the tool log: an `Agent` (or `Task`) call, with the calls and notes
+  tagged with its id under it. Glade doesn't read the `task_*` events.
+- Glade sets `forwardSubagentText: true`, so the tab can show the last thing a subagent said. The runner logs a
+  subagent's text as a note carrying its `Agent` call's id; it never goes to the chat.
+- There is no "queued" subagent. In the verified run a subagent started (`task_started`) as soon as its call arrived;
+  the SDK's types allow a `pending` status on `task_updated`, but it wasn't seen, and the tool log can't tell a call
+  waiting for a slot from one just started. So a subagent is running, done or failed.
+
 ### Compaction [verified]
 
 This is what a manual `/compact` produced:

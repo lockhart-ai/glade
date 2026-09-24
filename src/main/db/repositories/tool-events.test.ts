@@ -49,7 +49,19 @@ describe('appendNarration', () => {
       turn: 1,
       createdAt: 3_000,
       text: "I'll check the test config.",
+      parentToolUseId: null,
     })
+    expect(listToolEvents(test.db, task.id)).toEqual([event])
+  })
+
+  it("round-trips a subagent's note with its parent", () => {
+    const event = appendNarration(test.db, {
+      taskId: task.id,
+      turn: 1,
+      text: 'Reading the API PRs.',
+      parentToolUseId: 'toolu_agent',
+    })
+    expect(event.parentToolUseId).toBe('toolu_agent')
     expect(listToolEvents(test.db, task.id)).toEqual([event])
   })
 })
@@ -68,6 +80,7 @@ describe('appendToolCall', () => {
       input: { command: 'npm test', description: 'Run the test suite', options: { watch: false } },
       output: null,
       state: ToolCallState.Running,
+      finishedAt: null,
       toolUseId: 'toolu_bash',
       parentToolUseId: null,
     })
@@ -140,14 +153,13 @@ describe('updateToolCall', () => {
   it("fills in a call's result", () => {
     const call = appendToolCall(test.db, bashCall())
 
-    const done = updateToolCall(test.db, {
-      taskId: task.id,
-      toolUseId: 'toolu_bash',
-      state: ToolCallState.Done,
-      output: '12 passed',
-    })
+    const done = updateToolCall(
+      test.db,
+      { taskId: task.id, toolUseId: 'toolu_bash', state: ToolCallState.Done, output: '12 passed' },
+      5_000,
+    )
 
-    expect(done).toEqual({ ...call, state: ToolCallState.Done, output: '12 passed' })
+    expect(done).toEqual({ ...call, state: ToolCallState.Done, output: '12 passed', finishedAt: 5_000 })
     expect(listToolEvents(test.db, task.id)).toEqual([done])
   })
 
@@ -181,9 +193,9 @@ describe('failRunningToolCalls', () => {
     const other = sampleTask(test.db, task.workspaceId)
     appendToolCall(test.db, { ...bashCall('toolu_other'), taskId: other.id })
 
-    const failed = failRunningToolCalls(test.db, task.id, 'Glade quit.')
+    const failed = failRunningToolCalls(test.db, task.id, 'Glade quit.', 9_000)
 
-    const error = { state: ToolCallState.Error, output: 'Glade quit.' }
+    const error = { state: ToolCallState.Error, output: 'Glade quit.', finishedAt: 9_000 }
     expect(failed).toEqual([
       { ...first, ...error },
       { ...second, ...error },

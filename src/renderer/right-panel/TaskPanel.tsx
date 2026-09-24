@@ -6,6 +6,7 @@ import { Button, ButtonVariant, TabPanel, Tabs, type TabItem } from '../componen
 import { RightPanel } from '../layout'
 import { selectSelectedTask, selectSelectedWorkspace } from '../store/state'
 import { useGladeStore } from '../store/react'
+import { SubagentsTab } from '../subagents'
 import { ToolLog, type TurnFocus } from '../tool-log'
 import { formatCount, isPanelCollapsed, PanelTab, parsePanelTab, parsePanelWidth } from './panelModel'
 import { PANEL_TAB_DEFINITIONS } from './panelTabs'
@@ -14,19 +15,19 @@ import styles from './TaskPanel.module.css'
 const TABS_ID = 'task-panel'
 
 /** What each tab not built yet shows. */
-const EMPTY_STATES: Readonly<Record<Exclude<PanelTab, PanelTab.ToolCalls>, string>> = {
+const EMPTY_STATES: Readonly<Record<Exclude<PanelTab, PanelTab.ToolCalls | PanelTab.Subagents>, string>> = {
   [PanelTab.Files]: 'No files yet.',
   [PanelTab.Todos]: 'No todos yet.',
   [PanelTab.Artifacts]: 'No artifacts yet.',
-  [PanelTab.Subagents]: 'No subagents yet.',
 }
 
 const NO_TOOL_EVENTS: readonly ToolEvent[] = []
 
 /**
  * The right panel of the task card: the tab bar (Tool calls, Files, Todos, Artifacts, Subagents, each with its count)
- * and the selected tab. Only Tool calls is built so far; the others show an empty state. The selected tab, the width
- * and whether the panel is collapsed are kept in UI state, for the whole window; collapsed, the panel shows nothing.
+ * and the selected tab. Tool calls and Subagents are built so far; the others show an empty state. The selected tab,
+ * the width and whether the panel is collapsed are kept in UI state, for the whole window; collapsed, the panel shows
+ * nothing.
  * When the chat asks to show a turn of the selected task (its tool-call chip), the store opens Tool calls and the log
  * scrolls to that turn.
  */
@@ -70,6 +71,30 @@ export function TaskPanel(): React.JSX.Element | null {
 
   if (collapsed) return null
 
+  const tabContent = (): React.ReactNode => {
+    switch (tab) {
+      case PanelTab.ToolCalls:
+        return (
+          task !== undefined && (
+            <ToolLog
+              key={task.id}
+              taskId={task.id}
+              events={events}
+              rootPath={rootPath}
+              focus={focus}
+              onFocusShown={clearFocus}
+            />
+          )
+        )
+      case PanelTab.Subagents:
+        return task !== undefined && <SubagentsTab key={task.id} events={events} rootPath={rootPath} />
+      case PanelTab.Files:
+      case PanelTab.Todos:
+      case PanelTab.Artifacts:
+        return <p className={styles.empty}>{EMPTY_STATES[tab]}</p>
+    }
+  }
+
   const tabs: readonly TabItem<PanelTab>[] = PANEL_TAB_DEFINITIONS.map(({ tab: value, label }, index) => ({
     value,
     label,
@@ -96,20 +121,7 @@ export function TaskPanel(): React.JSX.Element | null {
       }
     >
       <TabPanel tabsId={TABS_ID} value={tab} className={styles.panel}>
-        {tab === PanelTab.ToolCalls ? (
-          task !== undefined && (
-            <ToolLog
-              key={task.id}
-              taskId={task.id}
-              events={events}
-              rootPath={rootPath}
-              focus={focus}
-              onFocusShown={clearFocus}
-            />
-          )
-        ) : (
-          <p className={styles.empty}>{EMPTY_STATES[tab]}</p>
-        )}
+        {tabContent()}
       </TabPanel>
     </RightPanel>
   )

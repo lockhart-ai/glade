@@ -119,6 +119,7 @@ describe('reopening', () => {
     createdAt: REOPENED,
     kind: ToolEventKind.Narration,
     text: 'Reading',
+    parentToolUseId: null,
   })
   const firstReopen = [
     at(DividerKind.Turn, 1, STARTED),
