@@ -399,7 +399,49 @@ const longContext: AgentScript = {
   compactTurn: [init(), delay(BEAT_MS * 4), compact(), result({ text: '' })],
 }
 
-/** A turn that fails on an API error after it has started working. */
+/** What the API says when it's overloaded, as the SDK words it. */
+const OVERLOADED_ERROR =
+  'API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_011Sample"}'
+
+/** The notice the SDK sends before it retries an overloaded API request (`docs/sdk-notes.md`, "Errors and retries"). */
+const overloadedRetry = (attempt: number, maxRetries: number, delayMs = BEAT_MS): EmitStep =>
+  emit({
+    type: 'system',
+    subtype: 'api_retry',
+    attempt,
+    max_retries: maxRetries,
+    retry_delay_ms: delayMs,
+    error_status: 529,
+    error: 'overloaded',
+  })
+
+/**
+ * How long each retry of an overloaded request waits in `flaky-api`: long enough for a spec polling the working line to
+ * see "Retrying (n of 3)…", which three short beats could slip past.
+ */
+const RETRY_WAIT_MS = 1000
+
+/**
+ * An overloaded API, as Claude Code handles it: it retries the request `retries` times, `waitMs` apart, then gives up,
+ * and the turn ends on the API error.
+ */
+const overloaded = (retries: number, waitMs = BEAT_MS): ScriptStep[] => [
+  ...Array.from({ length: retries }, (_, index) => [overloadedRetry(index + 1, retries, waitMs), delay(waitMs)]).flat(),
+  emit({
+    type: 'assistant',
+    parent_tool_use_id: null,
+    error: 'overloaded',
+    message: { id: 'msg_api_error', role: 'assistant', content: [{ type: 'text', text: OVERLOADED_ERROR }] },
+  }),
+  result({
+    text: OVERLOADED_ERROR,
+    isError: true,
+    terminalReason: 'api_error',
+    extra: { api_error_status: 529 },
+  }),
+]
+
+/** A turn that fails on an API error after it has started working, however often it's retried. */
 const failingTurn: AgentScript = {
   name: 'failing-turn',
   turns: [
@@ -408,13 +450,53 @@ const failingTurn: AgentScript = {
       say("I'll check the build first."),
       ...tool('build', 'Bash', { command: 'npm run build', description: 'Build the app' }, 'Built in 2.1s'),
       delay(BEAT_MS),
-      result({
-        text: '',
-        isError: true,
-        terminalReason: 'api_error',
-        errors: ['API Error: 529 Overloaded. Try again in a moment.'],
-        extra: { api_error_status: 529 },
+      ...overloaded(3),
+    ],
+  ],
+}
+
+/**
+ * A turn that fails on an overloaded API after it has started working, and a retry of it that gets through: the API
+ * is still overloaded at first, but the request goes through on the first retry this time, and the turn finishes.
+ */
+const flakyApi: AgentScript = {
+  name: 'flaky-api',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      say("I'll reproduce the failure against Postgres first."),
+      ...describeTask(
+        'Fix flaky login test',
+        'test_login_redirect fails about one run in ten on CI. Find out why and fix it, without just adding retries.',
+        'Reproducing the failure against Postgres.',
+      ),
+      ...tool(
+        'db',
+        'Bash',
+        { command: 'docker compose up -d db', description: 'Start Postgres' },
+        'Container api-db-1  Started',
+      ),
+      delay(BEAT_MS),
+      ...overloaded(3, RETRY_WAIT_MS),
+    ],
+    [
+      ...turnStart(),
+      overloadedRetry(1, 3),
+      delay(BEAT_MS),
+      say('Running the test 200 times against Postgres.'),
+      ...tool(
+        'repeat',
+        'Bash',
+        { command: 'pytest -x --count 200 tests/test_auth.py', description: 'Run the login test 200 times' },
+        '200 passed in 41.2s',
+      ),
+      delay(BEAT_MS),
+      gladeTool('status-fixed', 'set_status', {
+        status: 'Fixed the race in the test; it passes 200 times on Postgres.',
       }),
+      say('The test passes 200 times in a row against Postgres, so the race is fixed.'),
+      result(),
     ],
   ],
 }
@@ -481,6 +563,7 @@ export const AGENT_SCRIPT_NAMES = [
   'multi-tool-turn',
   'long-running',
   'failing-turn',
+  'flaky-api',
   'copy-in-batches',
   'long-context',
 ] as const
@@ -493,6 +576,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'multi-tool-turn': multiToolTurn,
   'long-running': longRunning,
   'failing-turn': failingTurn,
+  'flaky-api': flakyApi,
   'copy-in-batches': copyInBatches,
   'long-context': longContext,
 }

@@ -3,9 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  AgentErrorKind,
   DividerKind,
   MessageRole,
   TaskActivity,
+  TaskErrorSource,
   TaskState,
   ToolCallState,
   ToolEventKind,
@@ -83,6 +85,11 @@ describe('readSeed', () => {
 
   it('reads the needs you fixture', () => {
     expect(readSeed(join(FIXTURES, 'needs-you.json')).tasks.filter((task) => task.unread)).toHaveLength(1)
+  })
+
+  it('reads the error fixture', () => {
+    const selected = readSeed(join(FIXTURES, 'error.json')).tasks.find((task) => task.selected)
+    expect(selected).toMatchObject({ activity: TaskActivity.Error, error: { status: 529, code: 'overloaded' } })
   })
 
   it('reads the e2e tool log fixture', () => {
@@ -245,6 +252,26 @@ describe('applySeed', () => {
       ['Keep the limits per key.', NOW],
       ['Then update the docs.', NOW],
     ])
+  })
+
+  it('writes what stopped a task’s agent', () => {
+    const { db } = database
+    const error = {
+      kind: AgentErrorKind.Transient,
+      source: TaskErrorSource.Api,
+      status: 529,
+      code: 'overloaded',
+      details: 'API Error: 529 Overloaded',
+      retries: 3,
+      retryingMs: 120_000,
+    }
+
+    applySeed(db, {
+      ...SEED,
+      tasks: [{ title: 'Fix flaky login test', minutesAgo: 0, activity: TaskActivity.Error, error }],
+    })
+
+    expect(listTasks(db, listWorkspaces(db)[0]?.id ?? '')).toMatchObject([{ activity: TaskActivity.Error, error }])
   })
 
   it('writes dividers, failed calls, and a subagent’s calls under their parent', () => {

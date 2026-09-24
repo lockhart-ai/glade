@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createBridge } from '../../preload/bridge'
 import { BridgeErrorCode, CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
 import {
+  AgentErrorKind,
+  API_TOOL_NAME,
   CompactionTrigger,
   DividerKind,
   Effort,
@@ -15,6 +17,8 @@ import {
   type QueuedMessage,
   UiStateKey,
   type Task,
+  TaskErrorSource,
+  type TaskError,
   type ToolEvent,
   type Workspace,
 } from '../../shared/domain'
@@ -34,6 +38,7 @@ import {
   NOT_RESUMED_NOTE,
   RESTARTED_TOOL_NOTE,
   RESUME_PROMPT,
+  STOPPED_BY_ERROR_NOTE,
   STOPPED_NOTE,
   type AgentRunner,
 } from './runner'
@@ -544,23 +549,135 @@ describe('the turn summary', () => {
   })
 })
 
+/** The error an overloaded API stopped the task on, after `retries` retries over `retryingMs`. */
+function overloadedError(retries: number, retryingMs: number): TaskError {
+  return {
+    kind: AgentErrorKind.Transient,
+    source: TaskErrorSource.Api,
+    status: 529,
+    code: 'overloaded',
+    details: sdk.OVERLOADED_ERROR,
+    retries,
+    retryingMs,
+  }
+}
+
+/** Fails the running turn on an overloaded API, after the SDK retried it `retries` times, 40 seconds apart. */
+async function failOverloaded(retries: number): Promise<void> {
+  const now = vi.spyOn(Date, 'now')
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    now.mockReturnValue(1_000_000 + (attempt - 1) * 40_000)
+    backend.session.emit(sdk.apiRetry(attempt, retries))
+    await settle()
+  }
+  now.mockReturnValue(1_000_000 + retries * 40_000)
+  backend.session.emit(sdk.apiErrorMessage(), sdk.apiErrorResult())
+  await settle()
+  now.mockRestore()
+}
+
 describe('an error turn', () => {
-  it("records why in the tool log, fails the running calls, and marks the task's activity as error", async () => {
+  it('says which retry is running while the SDK retries a failed API request, and forgets it once through', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    await send('Find out why the login test is flaky.')
+    backend.session.emit(sdk.init(), sdk.apiRetry(1, 10))
+    await settle()
+    expect(current().retrying).toEqual({ attempt: 1, maxRetries: 10, since: 1_000_000 })
+
+    now.mockReturnValue(1_002_000)
+    backend.session.emit(sdk.apiRetry(2, 10))
+    await settle()
+    expect(current().retrying).toEqual({ attempt: 2, maxRetries: 10, since: 1_000_000 })
+    now.mockRestore()
+
+    backend.session.emit(sdk.text('Checking.'))
+    await settle()
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, retrying: null, error: null })
+  })
+
+  it.each([
+    ['a tool call', sdk.toolUse('toolu_01', 'Bash', { command: 'npm test' })],
+    ['its usage', sdk.thinking()],
+  ])('forgets the retry once the agent moves on with %s', async (_, message) => {
+    await send('Hi')
+    backend.session.emit(sdk.init(), sdk.apiRetry(1, 10))
+    await settle()
+    backend.session.emit(message)
+    await settle()
+    expect(current().retrying).toBeNull()
+  })
+
+  it('forgets the retry when the turn ends, finished or stopped', async () => {
+    await send('Hi')
+    backend.session.emit(sdk.init(), sdk.apiRetry(1, 10), sdk.result('Hello.'))
+    await settle()
+    expect(current()).toMatchObject({ activity: TaskActivity.Waiting, retrying: null })
+
+    await send('Again')
+    backend.session.onInterrupt = () => {
+      backend.session.emit(sdk.abortedResult())
+      return Promise.resolve()
+    }
+    backend.session.emit(sdk.init(), sdk.apiRetry(1, 10))
+    await settle()
+    await glade.invoke(CommandName.TasksStop, { id: task.id })
+    expect(current()).toMatchObject({ activity: TaskActivity.Waiting, retrying: null })
+  })
+
+  it('stops the task on an API error once the retries are spent, with a failed API row in the tool log', async () => {
     await send('Find out why the login test is flaky.')
     backend.session.emit(
       sdk.init(),
+      sdk.text("I'll run the tests."),
       sdk.toolUse('toolu_01', 'Bash', { command: 'npm test' }),
-      sdk.text('API Error: 529 overloaded'),
-      sdk.apiErrorResult(),
     )
     await settle()
+    await failOverloaded(3)
 
     expect(chat()).toHaveLength(1)
     expect(toolLog().slice(1)).toEqual([
-      expect.objectContaining({ call: 'Bash', state: ToolCallState.Error, output: 'The turn failed (api_error).' }),
-      { narration: 'API Error: 529 overloaded\n\nThe turn failed (api_error).', turn: 1 },
+      { narration: "I'll run the tests.", turn: 1 },
+      expect.objectContaining({ call: 'Bash', state: ToolCallState.Error, output: STOPPED_BY_ERROR_NOTE }),
+      {
+        call: API_TOOL_NAME,
+        input: { request: 'request 4 of 4' },
+        state: ToolCallState.Error,
+        output: `529 overloaded · task paused\n\n${sdk.OVERLOADED_ERROR}`,
+        toolUseId: expect.stringMatching(/^glade-api-error-/) as unknown,
+        parentToolUseId: null,
+        turn: 1,
+      },
     ])
-    expect(current().activity).toBe(TaskActivity.Error)
+    expect(current()).toMatchObject({
+      activity: TaskActivity.Error,
+      retrying: null,
+      error: overloadedError(3, 120_000),
+    })
+  })
+
+  it('describes an API error the SDK gave no message or status for', async () => {
+    await send('Hi')
+    backend.session.emit(sdk.init(), sdk.apiErrorResult('', null))
+    await settle()
+
+    expect(current().error).toEqual({
+      kind: AgentErrorKind.Permanent,
+      source: TaskErrorSource.Api,
+      status: null,
+      code: null,
+      details: 'The API request failed (api_error).',
+      retries: 0,
+      retryingMs: 0,
+    })
+    expect(toolLog()[1]).toMatchObject({ call: API_TOOL_NAME, input: { request: 'request 1 of 1' } })
+  })
+
+  it('takes the error from the result when the SDK sends no error message', async () => {
+    await send('Hi')
+    backend.session.emit(sdk.init(), sdk.result('', { is_error: true, api_error_status: 404, errors: ['No model'] }))
+    await settle()
+
+    expect(current().error).toMatchObject({ source: TaskErrorSource.Api, status: 404, details: 'No model' })
   })
 
   it("gives the SDK's reasons when it has them, and takes the next message as a new turn", async () => {
@@ -571,9 +688,14 @@ describe('an error turn', () => {
     )
     await settle()
     expect(toolLog()[1]).toEqual({ narration: 'Reached the maximum number of turns', turn: 1 })
+    expect(current().error).toMatchObject({
+      kind: AgentErrorKind.Permanent,
+      source: TaskErrorSource.Turn,
+      details: 'Reached the maximum number of turns',
+    })
 
     await send('Just the auth module, then.')
-    expect(current().activity).toBe(TaskActivity.Working)
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, error: null })
     expect(backend.sessions).toHaveLength(1)
   })
 
@@ -600,7 +722,10 @@ describe('the session', () => {
       expect.objectContaining({ state: ToolCallState.Error, output: 'The agent stopped: spawn claude ENOENT' }),
       { narration: 'The agent stopped: spawn claude ENOENT', turn: 1 },
     ])
-    expect(current().activity).toBe(TaskActivity.Error)
+    expect(current()).toMatchObject({
+      activity: TaskActivity.Error,
+      error: { source: TaskErrorSource.Session, details: 'The agent stopped: spawn claude ENOENT', retries: 0 },
+    })
 
     await send('Try again.')
     expect(backend.sessions).toHaveLength(2)
@@ -702,6 +827,18 @@ describe('the session', () => {
 })
 
 describe('resuming on launch', () => {
+  it('forgets a retry the app quit in the middle of', async () => {
+    await send('Run the e2e suite.')
+    backend.session.emit(sdk.init(), sdk.apiRetry(2, 10))
+    await settle()
+    expect(current().retrying).not.toBeNull()
+
+    relaunch()
+    runner.resumeInterrupted()
+
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, retrying: null })
+  })
+
   it('carries on a turn the app quit in, in the same session, and ends it like any other', async () => {
     await send('Run the e2e suite.')
     backend.session.emit(
@@ -878,6 +1015,122 @@ describe('tasks.send', () => {
     await send('Again')
 
     expect(backend.session.configured).toEqual([])
+  })
+})
+
+describe('tasks.retry', () => {
+  async function retry(model?: string): Promise<Task> {
+    const request = model === undefined ? { id: task.id } : { id: task.id, model }
+    return (await glade.invoke(CommandName.TasksRetry, request)).task
+  }
+
+  /** Sends a message whose turn fails on an overloaded API after one tool call. */
+  async function failedTurn(): Promise<void> {
+    await send('Find out why the login test is flaky.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_01', 'Bash', { command: 'npm test' }),
+      sdk.toolResult('toolu_01', '12 passed'),
+    )
+    await settle()
+    await failOverloaded(2)
+  }
+
+  it('resumes the same turn in the same session: its last message goes again, and nothing new goes to the chat', async () => {
+    await failedTurn()
+    events.splice(0)
+
+    const retried = await retry()
+
+    expect(retried).toMatchObject({ activity: TaskActivity.Working, error: null })
+    expect(backend.sessions).toHaveLength(1)
+    const sent = backend.session.sent
+    expect(sent.map(({ text }) => text)).toEqual([
+      'Find out why the login test is flaky.',
+      'Find out why the login test is flaky.',
+    ])
+    expect(sent[1]?.uuid).not.toBe(sent[0]?.uuid)
+    expect(chat()).toHaveLength(1)
+    expect(drainEvents()).toEqual([[EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED]])
+
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_02', 'Bash', { command: 'npm test -- login' }),
+      sdk.toolResult('toolu_02', '3 passed'),
+      sdk.text('The login tests pass.', null, 'msg_02'),
+      sdk.result('The login tests pass.', { user_message_uuids: [sent[1]?.uuid] }),
+    )
+    await settle()
+
+    expect(chat()).toEqual([
+      { role: MessageRole.User, body: 'Find out why the login test is flaky.', turn: 1 },
+      { role: MessageRole.Agent, body: 'The login tests pass.', turn: 1 },
+    ])
+    expect(toolLog().filter((entry) => (entry as { turn: number }).turn !== 1)).toEqual([])
+    expect(current()).toMatchObject({ activity: TaskActivity.Waiting, error: null, retrying: null })
+  })
+
+  it('retries on another model, which becomes the task’s', async () => {
+    await failedTurn()
+
+    const retried = await retry('claude-sonnet-5')
+
+    expect(retried).toMatchObject({ model: 'claude-sonnet-5', activity: TaskActivity.Working, error: null })
+    expect(backend.session.configured).toEqual([{ model: 'claude-sonnet-5', effort: current().effort }])
+    expect(backend.session.sent.at(-1)).toMatchObject({
+      text: 'Find out why the login test is flaky.',
+      settings: { model: 'claude-sonnet-5' },
+    })
+  })
+
+  it('stops the task on the new error when the retry fails too', async () => {
+    await failedTurn()
+    await retry()
+    backend.session.emit(sdk.init())
+    await settle()
+    await failOverloaded(1)
+
+    expect(current()).toMatchObject({ activity: TaskActivity.Error, error: overloadedError(1, 40_000) })
+    expect(toolLog().filter((entry) => (entry as { call?: string }).call === API_TOOL_NAME)).toHaveLength(2)
+  })
+
+  it('starts the session again, resumed, when the error was the session failing', async () => {
+    await send('Hi')
+    backend.session.emit(sdk.init())
+    await settle()
+    backend.session.fail(new Error('spawn claude ENOENT'))
+    await settle()
+
+    await retry()
+
+    expect(backend.sessions).toHaveLength(2)
+    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
+    expect(backend.session.sent.map(({ text }) => text)).toEqual(['Hi'])
+  })
+
+  it('refuses a task that is not stopped by an error, one that is working, and one that does not exist', async () => {
+    await expect(retry()).rejects.toMatchObject({ code: BridgeErrorCode.InvalidTransition })
+
+    updateTask(database.db, task.id, { activity: TaskActivity.Error })
+    // Stopped by an error, but with no message to retry.
+    await expect(retry()).rejects.toMatchObject({ code: BridgeErrorCode.InvalidTransition })
+
+    await send('Hi')
+    await expect(retry()).rejects.toMatchObject({ code: BridgeErrorCode.Busy })
+
+    await expect(glade.invoke(CommandName.TasksRetry, { id: 'gone' })).rejects.toMatchObject({
+      code: BridgeErrorCode.NotFound,
+    })
+    await expect(glade.invoke(CommandName.TasksRetry, { id: task.id, model: '' })).rejects.toMatchObject({
+      code: BridgeErrorCode.InvalidRequest,
+    })
+  })
+
+  it('refuses a done task, even one an error stopped', async () => {
+    await failedTurn()
+    await glade.invoke(CommandName.TasksMarkDone, { id: task.id })
+
+    await expect(retry()).rejects.toMatchObject({ code: BridgeErrorCode.InvalidTransition })
   })
 })
 

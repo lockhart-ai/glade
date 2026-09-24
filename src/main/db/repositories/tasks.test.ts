@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { Effort, TaskActivity, TaskState, type Workspace } from '../../../shared/domain'
+import {
+  AgentErrorKind,
+  Effort,
+  TaskActivity,
+  TaskErrorSource,
+  TaskState,
+  type TaskError,
+  type Workspace,
+} from '../../../shared/domain'
 import { createTask, getTask, listTasks, listWorkingTasks, updateTask } from './tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 
@@ -42,6 +50,8 @@ describe('createTask', () => {
       sessionId: null,
       contextUsedTokens: 0,
       contextWindowTokens: 200_000,
+      error: null,
+      retrying: null,
     })
     expect(getTask(test.db, task.id)).toEqual(task)
   })
@@ -215,5 +225,34 @@ describe('updateTask', () => {
 
   it('throws for an unknown id', () => {
     expect(() => updateTask(test.db, 'missing', { pinned: true })).toThrow('No task missing')
+  })
+
+  it('keeps the error and the API retry until a patch clears them', () => {
+    const task = sampleTask(test.db, workspace.id)
+    const error: TaskError = {
+      kind: AgentErrorKind.Transient,
+      source: TaskErrorSource.Api,
+      status: 529,
+      code: 'overloaded',
+      details: 'API Error: 529 Overloaded',
+      retries: 3,
+      retryingMs: 120_000,
+    }
+    const retrying = { attempt: 2, maxRetries: 10, since: 1_000 }
+
+    const stopped = updateTask(test.db, task.id, { error, retrying })
+    expect(stopped).toMatchObject({ error, retrying })
+    expect(getTask(test.db, task.id)).toEqual(stopped)
+    expect(updateTask(test.db, task.id, { pinned: true })).toMatchObject({ error, retrying })
+
+    const cleared = updateTask(test.db, task.id, { error: null, retrying: null })
+    expect(cleared).toMatchObject({ error: null, retrying: null })
+    expect(getTask(test.db, task.id)).toEqual(cleared)
+  })
+
+  it('refuses an error that is not what the schema promises', () => {
+    const task = sampleTask(test.db, workspace.id)
+    test.db.prepare(`UPDATE tasks SET error = '{"kind":"odd"}' WHERE id = ?`).run(task.id)
+    expect(() => getTask(test.db, task.id)).toThrow(/tasks\.error/)
   })
 })

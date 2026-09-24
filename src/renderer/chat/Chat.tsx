@@ -15,7 +15,9 @@ import {
   ReplyStyle,
   restartLabel,
   summaryLine,
+  isStoppedByError,
   toolCallLabel,
+  workingLabel,
   workingNarration,
   type AgentEntry,
   type MarkedDoneEntry,
@@ -24,6 +26,7 @@ import {
   type UserEntry,
 } from './chatModel'
 import { shortenHomePath } from '../paths'
+import { ErrorCard } from './ErrorCard'
 import { Markdown } from './Markdown'
 import { useStickToBottom } from './useStickToBottom'
 import styles from './Chat.module.css'
@@ -122,12 +125,12 @@ function MarkedDoneDivider(entry: MarkedDoneEntry): React.JSX.Element {
 }
 
 interface WorkingLineProps {
-  /** The turn's latest narration; empty before the first. */
-  readonly narration: string
+  /** What it says (`workingLabel`). */
+  readonly label: string
 }
 
 /** The live line while a turn runs. */
-function WorkingLine({ narration }: WorkingLineProps): React.JSX.Element {
+function WorkingLine({ label }: WorkingLineProps): React.JSX.Element {
   return (
     <div role="status" className={styles.working}>
       <span className={styles.dots} aria-hidden>
@@ -135,7 +138,7 @@ function WorkingLine({ narration }: WorkingLineProps): React.JSX.Element {
         <span />
         <span />
       </span>
-      <span className={styles.workingText}>{narration === '' ? 'Working' : `Working · ${narration}`}</span>
+      <span className={styles.workingText}>{label}</span>
     </div>
   )
 }
@@ -160,7 +163,8 @@ function NewTaskPrompt({ root }: NewTaskPromptProps): React.JSX.Element {
 
 /**
  * The selected task's conversation: your messages and the agent's final reply per turn, never anything from within a
- * turn. While a turn runs, a working line shows the agent's latest narration. It keeps to the bottom as the
+ * turn. While a turn runs, a working line shows the agent's latest narration, or which retry of a failed API request
+ * is running; when an error stops the agent, its error card ends the conversation. It keeps to the bottom as the
  * conversation grows, unless you've scrolled up.
  */
 export function Chat(): React.JSX.Element {
@@ -178,7 +182,9 @@ export function Chat(): React.JSX.Element {
     [task, messages, toolEvents],
   )
   const narration = task === undefined ? null : workingNarration(task, messages, toolEvents)
-  const { ref, onScroll } = useStickToBottom(`${String(entries.length)}:${narration ?? ''}`, task?.id)
+  const working = task === undefined || narration === null ? null : workingLabel(task, narration)
+  const stopped = task !== undefined && isStoppedByError(task)
+  const { ref, onScroll } = useStickToBottom(`${String(entries.length)}:${working ?? ''}:${String(stopped)}`, task?.id)
   const isNew = task !== undefined && entries.length === 0 && narration === null
 
   return (
@@ -217,7 +223,8 @@ export function Chat(): React.JSX.Element {
               )
           }
         })}
-        {narration !== null && <WorkingLine narration={narration} />}
+        {working !== null && <WorkingLine label={working} />}
+        {stopped && <ErrorCard key={task.id} task={task} />}
       </div>
     </div>
   )

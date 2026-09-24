@@ -280,6 +280,10 @@ receives `compact_summary`. See §5.
     `max_output_tokens`, and more (`SDKAssistantMessageError`).
 - **[docs] Retries:** `{type:"system", subtype:"api_retry", attempt, max_retries, retry_delay_ms, error_status, error}`
   is emitted before each automatic retry. We didn't trigger this one.
+  - The bundled Claude Code retries failed API requests itself (overloaded, 5xx, 429, connection errors), with backoff,
+    up to `CLAUDE_CODE_MAX_RETRIES` times; the result's error only arrives once those are spent. So Glade never retries
+    on top (P3-03): it shows each `api_retry` on the working line, and the error card once the turn fails.
+    (From the SDK's types and the bundled binary's strings, not a live run.)
 - **[docs] Usage limits:** the SDK exports `USAGE_LIMIT_ERROR_PREFIXES` ("You've hit your…") and
   `USAGE_WARNING_PREFIXES` for recognising limit messages.
 - **[verified]** `rate_limit_event.rate_limit_info` gives `status`, `resetsAt` and per-window `utilization`. This is

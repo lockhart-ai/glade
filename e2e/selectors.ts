@@ -121,6 +121,13 @@ export function chat(page: Page) {
     working: log.getByRole('status'),
     /** What a task with no messages yet asks. */
     newTaskPrompt: log.getByRole('heading', { name: 'What should the agent do?' }),
+    /** The live line while a turn runs: "Working · …", or "Retrying (2 of 3)…". */
+    workingLine: log.getByRole('status'),
+    /** The pink card when an error stopped the agent, and its buttons. */
+    errorCard: log.getByRole('alert'),
+    errorButton: (name: 'Retry' | 'Retry with another model' | 'Show details' | 'Hide details') =>
+      log.getByRole('alert').getByRole('button', { name, exact: true }),
+    errorDetails: log.getByRole('alert').getByLabel('Error details'),
   }
 }
 
