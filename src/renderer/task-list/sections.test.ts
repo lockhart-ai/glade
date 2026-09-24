@@ -5,6 +5,7 @@ import {
   collapsedValue,
   collapseKey,
   isCollapsed,
+  revealDone,
   SectionId,
   sectionTasks,
   Step,
@@ -88,6 +89,21 @@ describe('collapse state', () => {
     ])
     expect(collapsedValue(true)).toBe('true')
     expect(collapsedValue(false)).toBe('false')
+  })
+})
+
+describe('revealDone', () => {
+  const task = sampleTask('t1', 'w1')
+
+  it('expands Done while it is collapsed, by default or by the user', () => {
+    const expand = { key: UiStateKey.DoneSectionCollapsed, value: 'false' }
+    expect(revealDone(task, {})).toEqual(expand)
+    expect(revealDone(task, { [UiStateKey.DoneSectionCollapsed]: 'true' })).toEqual(expand)
+  })
+
+  it('does nothing when Done is already open or the task stays under Pinned', () => {
+    expect(revealDone(task, { [UiStateKey.DoneSectionCollapsed]: 'false' })).toBeNull()
+    expect(revealDone({ ...task, pinned: true }, {})).toBeNull()
   })
 })
 

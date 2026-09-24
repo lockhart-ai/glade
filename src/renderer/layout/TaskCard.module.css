@@ -24,6 +24,12 @@
 }
 
 .inputBar {
+  position: relative;
   flex-shrink: 0;
   padding: 0 8px 8px;
+}
+
+/* Toasts stand clear of the input bar, over the end of the chat (docs/design/html/05-mark-done.html). */
+.toastAnchor {
+  top: -58px;
 }

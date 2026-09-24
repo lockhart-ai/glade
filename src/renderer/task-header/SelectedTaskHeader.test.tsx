@@ -166,6 +166,32 @@ describe('SelectedTaskHeader', () => {
     expect(within(header()).queryByRole('button', { name: 'Mark done' })).toBeNull()
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(await within(toasts()).findByText(MARKED_DONE_MESSAGE)).toBeInTheDocument()
+    await vi.waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(CommandName.UiStateSet, {
+        key: UiStateKey.DoneSectionCollapsed,
+        value: 'false',
+      })
+    })
+  })
+
+  it('leaves Done as it is when the task stays under Pinned', async () => {
+    const { invoke } = await renderHeader({ task: { pinned: true } })
+
+    fireEvent.click(within(header()).getByRole('button', { name: 'Mark done' }))
+
+    expect(await within(toasts()).findByText(MARKED_DONE_MESSAGE)).toBeInTheDocument()
+    expect(invoke).not.toHaveBeenCalledWith(CommandName.UiStateSet, expect.anything())
+  })
+
+  it('still offers Undo when Done can’t be expanded, and says why', async () => {
+    await renderHeader({
+      overrides: { [CommandName.UiStateSet]: () => refuse(bridgeError(BridgeErrorCode.Internal, 'Disk full')) },
+    })
+
+    fireEvent.click(within(header()).getByRole('button', { name: 'Mark done' }))
+
+    expect(await screen.findByText('Disk full')).toBeInTheDocument()
+    expect(within(toasts()).getByRole('button', { name: 'Undo' })).toBeInTheDocument()
   })
 
   it('puts the task back exactly as it was on Undo, and takes the toast away', async () => {
