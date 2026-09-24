@@ -56,6 +56,8 @@ describe('readCaptureSpec', () => {
   it('reads a valid spec', () => {
     expect(readCaptureSpec(env(spec()), false, MINIMUM)).toEqual(spec())
     expect(readCaptureSpec(env(spec({ route: '' })), false, MINIMUM)).toEqual(spec({ route: '' }))
+    const conversation = { agentScript: 'multi-tool-turn', message: 'Fix the flaky test.' } as const
+    expect(readCaptureSpec(env(spec({ conversation })), false, MINIMUM)).toEqual(spec({ conversation }))
   })
 
   it('rejects a spec that is not JSON', () => {
@@ -77,6 +79,8 @@ describe('readCaptureSpec', () => {
     ['no shots', spec({ shots: [] })],
     ['no timeout', spec({ timeoutMs: 0 })],
     ['an unknown field', { ...spec(), show: true }],
+    ['an unknown agent script', { ...spec(), conversation: { agentScript: 'nope', message: 'Hi' } }],
+    ['an empty first message', { ...spec(), conversation: { agentScript: 'simple-reply', message: ' ' } }],
   ])('rejects %s', (_, value) => {
     expect(() => readCaptureSpec(env(value), false, MINIMUM)).toThrow(/^GLADE_CAPTURE is invalid: /)
   })

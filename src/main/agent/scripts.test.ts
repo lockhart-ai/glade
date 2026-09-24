@@ -1,0 +1,155 @@
+// Each library script, played through the real agent runner into a database: what the chat, tool log and task end up
+// with is what an e2e spec or a capture sees.
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  MessageRole,
+  TaskActivity,
+  ToolCallState,
+  ToolEventKind,
+  type Task,
+  type ToolCallEvent,
+} from '../../shared/domain'
+import { listMessages } from '../db/repositories/messages'
+import { getTask } from '../db/repositories/tasks'
+import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
+import { listToolEvents } from '../db/repositories/tool-events'
+import { createAgentRunner, type AgentRunner } from './runner'
+import type { GladeToolCaller } from './scripted-session'
+import { AGENT_SCRIPT_NAMES, AGENT_SCRIPTS, type AgentScriptName } from './scripts'
+import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
+
+let database: TestDatabase
+let task: Task
+let runner: AgentRunner | undefined
+let backend: TestModeAgentBackend
+let gladeCalls: [string, unknown][]
+
+const callGladeTool: GladeToolCaller = (_servers, tool, input) => {
+  gladeCalls.push([tool, input])
+  return Promise.resolve({ output: 'Done.', isError: false })
+}
+
+function start(name: AgentScriptName): AgentRunner {
+  backend = createTestModeAgentBackend({ script: AGENT_SCRIPTS[name], callGladeTool })
+  runner = createAgentRunner({ db: database.db, emit: () => undefined, backend })
+  return runner
+}
+
+/** Sends a message and lets the script play it out, however long its delays are. */
+async function send(on: AgentRunner, text: string): Promise<void> {
+  on.send(task.id, text)
+  const idle = backend.whenIdle()
+  await vi.runAllTimersAsync()
+  await idle
+}
+
+function reply(): string | undefined {
+  return listMessages(database.db, task.id).find((message) => message.role === MessageRole.Agent)?.body
+}
+
+function calls(): ToolCallEvent[] {
+  return listToolEvents(database.db, task.id).filter((event) => event.kind === ToolEventKind.ToolCall)
+}
+
+function activity(): TaskActivity | undefined {
+  return getTask(database.db, task.id)?.activity
+}
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  database = openTestDatabase()
+  task = sampleTask(database.db, sampleWorkspace(database.db).id)
+  gladeCalls = []
+})
+
+afterEach(() => {
+  runner?.close()
+  runner = undefined
+  database.close()
+  vi.useRealTimers()
+})
+
+describe('AGENT_SCRIPTS', () => {
+  it('names each script by its key', () => {
+    expect(Object.keys(AGENT_SCRIPTS)).toEqual(AGENT_SCRIPT_NAMES)
+    for (const name of AGENT_SCRIPT_NAMES) expect(AGENT_SCRIPTS[name].name).toBe(name)
+  })
+
+  it('simple-reply: sets the title, objective and status, then replies', async () => {
+    const agent = start('simple-reply')
+    await send(agent, 'How does the client retry?')
+
+    expect(gladeCalls.map(([tool]) => tool)).toEqual(['set_title', 'set_objective', 'set_status'])
+    expect(reply()).toMatch(/^The client retries idempotent requests/)
+    expect(calls().map((call) => [call.name, call.state])).toEqual([
+      ['mcp__glade__set_title', ToolCallState.Done],
+      ['mcp__glade__set_objective', ToolCallState.Done],
+      ['mcp__glade__set_status', ToolCallState.Done],
+    ])
+    expect(activity()).toBe(TaskActivity.Waiting)
+    expect(getTask(database.db, task.id)?.sessionId).toMatch(/^[0-9a-f-]{36}$/)
+  })
+
+  it('multi-tool-turn: narrates, works through file, search, subagent, edit and shell tools, then replies', async () => {
+    const agent = start('multi-tool-turn')
+    await send(agent, 'The date test is flaky.')
+
+    const events = listToolEvents(database.db, task.id)
+    expect(events.find((event) => event.kind === ToolEventKind.Narration)).toMatchObject({
+      text: "I'll find where the date is formatted, then fix the timezone bug and run the tests.",
+    })
+    const subagent = calls().find((call) => call.name === 'Agent')
+    expect(calls().map((call) => call.name)).toEqual([
+      'mcp__glade__set_title',
+      'mcp__glade__set_objective',
+      'mcp__glade__set_status',
+      'Read',
+      'Grep',
+      'Agent',
+      'Grep',
+      'Read',
+      'Edit',
+      'mcp__glade__set_status',
+      'Bash',
+      'mcp__glade__set_status',
+    ])
+    expect(
+      calls()
+        .filter((call) => call.parentToolUseId === subagent?.toolUseId)
+        .map((call) => call.name),
+    ).toEqual(['Grep', 'Read'])
+    expect(calls().every((call) => call.state === ToolCallState.Done)).toBe(true)
+    expect(reply()).toMatch(/^The failing test was a timezone bug/)
+    expect(activity()).toBe(TaskActivity.Waiting)
+  })
+
+  it('long-running: keeps working, with its command running, until stopped', async () => {
+    const agent = start('long-running')
+    await send(agent, 'Run the e2e suite.')
+
+    expect(activity()).toBe(TaskActivity.Working)
+    expect(calls().at(-1)).toMatchObject({ name: 'Bash', state: ToolCallState.Running })
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+    expect(activity()).toBe(TaskActivity.Working)
+
+    await agent.interrupt(task.id)
+    await vi.runAllTimersAsync()
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(calls().at(-1)).toMatchObject({ name: 'Bash', state: ToolCallState.Error })
+    expect(activity()).toBe(TaskActivity.Error)
+    expect(reply()).toBeUndefined()
+  })
+
+  it('failing-turn: fails on an API error after its first tool call', async () => {
+    const agent = start('failing-turn')
+    await send(agent, 'Build it.')
+
+    expect(calls().map((call) => [call.name, call.state])).toEqual([['Bash', ToolCallState.Done]])
+    expect(listToolEvents(database.db, task.id).at(-1)).toMatchObject({
+      kind: ToolEventKind.Narration,
+      text: 'API Error: 529 Overloaded. Try again in a moment.',
+    })
+    expect(activity()).toBe(TaskActivity.Error)
+    expect(reply()).toBeUndefined()
+  })
+})

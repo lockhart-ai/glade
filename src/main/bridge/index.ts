@@ -3,6 +3,7 @@ import { COMMAND_CHANNEL, EVENT_CHANNEL } from '../../shared/bridge'
 import type { AgentBackend } from '../agent/backend'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
 import { createBroadcast, createDispatcher, type EventTarget } from './dispatcher'
+import type { Emit } from './events'
 import { createHandlers } from './handlers'
 import { REQUEST_SCHEMAS } from './requests'
 
@@ -25,6 +26,8 @@ export interface BridgeOptions {
 /** What the bridge started, for the app to shut down. */
 export interface RegisteredBridge {
   readonly runner: AgentRunner
+  /** Broadcasts an event to the windows. */
+  readonly emit: Emit
 }
 
 /**
@@ -36,5 +39,5 @@ export function registerBridge({ ipc, db, targets, chooseFolder, agentBackend }:
   const runner = createAgentRunner({ db, emit, backend: agentBackend })
   const dispatch = createDispatcher(createHandlers({ db, emit, chooseFolder, runner }), REQUEST_SCHEMAS)
   ipc.handle(COMMAND_CHANNEL, (_event, command, request) => dispatch(command, request))
-  return { runner }
+  return { runner, emit }
 }

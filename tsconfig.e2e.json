@@ -7,5 +7,14 @@
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.e2e.tsbuildinfo"
   },
   // The specs share the e2e mode's constants with the main process.
-  "include": ["playwright.config.ts", "e2e/**/*", "src/main/e2e.ts", "src/main/isolation.ts", "src/shared/ready.ts"]
+  "include": [
+    "playwright.config.ts",
+    "e2e/**/*",
+    "src/main/e2e.ts",
+    "src/main/isolation.ts",
+    "src/main/agent/scripts.ts",
+    "src/shared/bridge.ts",
+    "src/shared/domain.ts",
+    "src/shared/ready.ts"
+  ]
 }

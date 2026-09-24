@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { z } from 'zod'
 import { READY_ATTRIBUTE } from '../shared/ready'
+import { AGENT_SCRIPT_NAMES, type AgentScriptName } from './agent/scripts'
 import { isInTempFolder, isolateApp, type IsolatedApp } from './isolation'
 
 /** The environment variable that carries the capture spec, as JSON. */
@@ -34,6 +35,17 @@ export interface CaptureSpec {
   readonly shots: readonly CaptureShot[]
   /** How long the whole capture may take before it gives up. */
   readonly timeoutMs: number
+  /**
+   * A conversation to seed before capturing, so the capture shows a populated task: a first message, answered by the
+   * named agent script (see `src/main/agent/scripts.ts`). None by default.
+   */
+  readonly conversation?: CaptureConversation
+}
+
+export interface CaptureConversation {
+  readonly agentScript: AgentScriptName
+  /** The user's first message. */
+  readonly message: string
 }
 
 /** The largest window side, in pixels, a capture may ask for. */
@@ -60,6 +72,9 @@ function captureSpecSchema(minimum: MinimumSize): z.ZodType<CaptureSpec> {
       )
       .min(1),
     timeoutMs: z.int().positive(),
+    conversation: z
+      .strictObject({ agentScript: z.enum(AGENT_SCRIPT_NAMES), message: z.string().trim().min(1) })
+      .optional(),
   })
 }
 
