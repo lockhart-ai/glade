@@ -1519,6 +1519,49 @@ describe('tasks.stop', () => {
   })
 })
 
+describe('subagents.stop', () => {
+  async function stopSubagent(toolUseId: string, taskId = task.id): Promise<null> {
+    return glade.invoke(CommandName.SubagentsStop, { taskId, toolUseId })
+  }
+
+  /** A turn running a subagent the SDK started as a task it can stop, and a command that isn't one. */
+  async function startSubagent(): Promise<void> {
+    await send('Find the flaky tests.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_01', 'Agent', { description: 'Find flaky tests', prompt: 'Run each test 50 times.' }),
+      { type: 'system', subtype: 'task_started', task_id: 'b7f3', tool_use_id: 'toolu_01', session_id: sdk.SESSION_ID },
+      sdk.toolUse('toolu_02', 'Bash', { command: 'npm test' }),
+    )
+    await settle()
+  }
+
+  it('stops a running subagent by its SDK task, leaving the turn running', async () => {
+    await startSubagent()
+
+    await expect(stopSubagent('toolu_01')).resolves.toBeNull()
+
+    expect(backend.session.stoppedTasks).toEqual(['b7f3'])
+    expect(backend.session.interrupts).toBe(0)
+    expect(current().activity).toBe(TaskActivity.Working)
+  })
+
+  it('refuses a subagent that has finished, one the SDK never started as a task, and a task that is gone', async () => {
+    await startSubagent()
+    backend.session.emit(sdk.toolResult('toolu_01', 'Two tests are flaky.'))
+    await settle()
+
+    await expect(stopSubagent('toolu_01')).rejects.toMatchObject({ code: BridgeErrorCode.InvalidTransition })
+    await expect(stopSubagent('toolu_02')).rejects.toMatchObject({ code: BridgeErrorCode.InvalidTransition })
+    await expect(stopSubagent('toolu_01', 'gone')).rejects.toMatchObject({ code: BridgeErrorCode.NotFound })
+    expect(backend.session.stoppedTasks).toEqual([])
+  })
+
+  it('refuses a subagent of a task with no live session', async () => {
+    await expect(stopSubagent('toolu_01')).rejects.toMatchObject({ code: BridgeErrorCode.InvalidTransition })
+  })
+})
+
 describe('tasks.delete', () => {
   it('closes the session of a task mid-turn before its rows go, and ignores what the session says after', async () => {
     await send('Copy the existing uploads to S3.')

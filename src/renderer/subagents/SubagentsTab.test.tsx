@@ -1,12 +1,14 @@
 import { act, fireEvent, render as renderUnwrapped, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { bridgeError, BridgeErrorCode, CommandName } from '../../shared/bridge'
 import { ToolCallState, ToolEventKind, type NarrationEvent, type ToolCallEvent } from '../../shared/domain'
+import { refuse } from '../store/test-bridge'
 import { storeWrapper } from '../store/test-wrapper'
 import { ELAPSED_REFRESH_MS, SubagentsTab } from './SubagentsTab'
 
 /** Renders under a store, which the tab's context menus act through. */
-function render(ui: React.ReactElement) {
-  return renderUnwrapped(ui, { wrapper: storeWrapper().wrapper })
+function render(ui: React.ReactElement, wrapper = storeWrapper()) {
+  return renderUnwrapped(ui, { wrapper: wrapper.wrapper })
 }
 
 const AT = new Date(2026, 8, 23, 13, 8).getTime()
@@ -173,5 +175,72 @@ describe('SubagentsTab', () => {
     )
     expect(header('API changes')).toHaveTextContent('1m 06s')
     expect(vi.getTimerCount()).toBe(0)
+  })
+})
+
+describe('a subagent’s context menu', () => {
+  async function open(name: string): Promise<string[]> {
+    fireEvent.contextMenu(header(name))
+    await act(() => Promise.resolve())
+    return screen.getAllByRole('menuitem').map((item) => item.textContent)
+  }
+
+  async function choose(name: string, label: string): Promise<void> {
+    await open(name)
+    fireEvent.click(screen.getByRole('menuitem', { name: new RegExp(`^${label}`) }))
+    await act(() => Promise.resolve())
+  }
+
+  it('opens and closes the log, copies it, and stops a running subagent', async () => {
+    const copied: string[] = []
+    const stoppedSubagents: string[] = []
+    render(<SubagentsTab taskId="t1" events={EVENTS} rootPath={ROOT} />, storeWrapper({ copied, stoppedSubagents }))
+
+    expect(await open('API changes')).toEqual(['Expand log↵', 'Copy log', 'Stop subagent'])
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Expand log/ }))
+    expect(screen.getByRole('log', { name: 'API changes log' })).toBeInTheDocument()
+    expect(await open('API changes')).toContain('Collapse log↵')
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Collapse log/ }))
+    expect(screen.queryByRole('log', { name: 'API changes log' })).toBeNull()
+
+    await choose('API changes', 'Copy log')
+    expect(copied).toEqual([
+      expect.stringMatching(/^API changes\nReading the API PRs, newest first\.\nBash gh pr list/),
+    ])
+
+    await choose('API changes', 'Stop subagent')
+    expect(stoppedSubagents).toEqual(['use-api'])
+  })
+
+  it('can’t stop a subagent that has finished', async () => {
+    render(<SubagentsTab taskId="t1" events={EVENTS} rootPath={ROOT} />)
+
+    expect(await open('Check links in the 2.3 notes')).toEqual(['Expand log↵', 'Copy log'])
+  })
+
+  it('shows a toast when the subagent can’t be stopped', async () => {
+    const wrapper = storeWrapper(
+      {},
+      {
+        [CommandName.SubagentsStop]: () =>
+          refuse(bridgeError(BridgeErrorCode.InvalidTransition, "The subagent isn't running")),
+      },
+    )
+    render(<SubagentsTab taskId="t1" events={EVENTS} rootPath={ROOT} />, wrapper)
+
+    await choose('API changes', 'Stop subagent')
+
+    expect(await screen.findByText("The subagent isn't running")).toBeInTheDocument()
+  })
+
+  it('leaves a tool call in an open log its own menu', async () => {
+    render(<SubagentsTab taskId="t1" events={EVENTS} rootPath={ROOT} />)
+    fireEvent.click(header('API changes'))
+
+    const log = screen.getByRole('log', { name: 'API changes log' })
+    fireEvent.contextMenu(within(log).getAllByRole('button')[0]?.parentElement ?? log)
+    await act(() => Promise.resolve())
+
+    expect(screen.getByRole('menu', { name: 'Tool call actions' })).toBeInTheDocument()
   })
 })

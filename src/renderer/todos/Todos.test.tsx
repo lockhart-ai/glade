@@ -1,12 +1,12 @@
-import { render as renderUnwrapped, screen, within } from '@testing-library/react'
+import { act, fireEvent, render as renderUnwrapped, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { TodoState, type TodoList } from '../../shared/domain'
 import { storeWrapper } from '../store/test-wrapper'
-import { NO_TODOS, Todos, TODOS_EXPLAINER } from './Todos'
+import { askAboutTodo, NO_TODOS, Todos, TODOS_EXPLAINER } from './Todos'
 
 /** Renders under a store, which the items' context menus act through. */
-function render(ui: React.ReactElement) {
-  return renderUnwrapped(ui, { wrapper: storeWrapper().wrapper })
+function render(ui: React.ReactElement, wrapper = storeWrapper()) {
+  return renderUnwrapped(ui, { wrapper: wrapper.wrapper })
 }
 
 const NOW = new Date(2026, 8, 23, 14, 30).getTime()
@@ -80,5 +80,47 @@ describe('Todos', () => {
     rerender(<Todos taskId="t1" list={{ items: [], updatedAt: NOW }} now={NOW} />)
     expect(screen.getByText(NO_TODOS)).toBeInTheDocument()
     expect(screen.queryByRole('list')).toBeNull()
+  })
+})
+
+describe('a todo’s context menu', () => {
+  function item(text: string): HTMLElement {
+    const found = screen.getAllByRole('listitem').find((element) => element.textContent.includes(text))
+    if (found === undefined) throw new Error(`No todo ${text}`)
+    return found
+  }
+
+  it('copies the todo, and asks the agent about it in the message field', async () => {
+    const copied: string[] = []
+    const wrapper = storeWrapper({ copied })
+    render(<Todos taskId="t1" list={LIST} now={NOW} />, wrapper)
+
+    fireEvent.contextMenu(item('Add an S3 backend'))
+    await act(() => Promise.resolve())
+    expect(screen.getAllByRole('menuitem').map((menuItem) => menuItem.textContent)).toEqual([
+      'Copy',
+      'Ask agent about this',
+    ])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Copy' }))
+    await act(() => Promise.resolve())
+    expect(copied).toEqual(['Add an S3 backend for media files'])
+
+    item('Add an S3 backend').focus()
+    fireEvent.keyDown(item('Add an S3 backend'), { key: 'F10', shiftKey: true })
+    await act(() => Promise.resolve())
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Ask agent about this' }))
+    expect(wrapper.store.getState().inputInsertion).toEqual({
+      taskId: 't1',
+      text: 'About the todo “Add an S3 backend for media files”: ',
+      request: 1,
+    })
+  })
+})
+
+describe('askAboutTodo', () => {
+  it('names the todo, for you to finish with your question', () => {
+    expect(askAboutTodo({ text: 'Run the tests', state: TodoState.Todo, note: null })).toBe(
+      'About the todo “Run the tests”: ',
+    )
   })
 })

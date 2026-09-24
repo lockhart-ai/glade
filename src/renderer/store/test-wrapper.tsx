@@ -3,7 +3,14 @@ import type { ReactNode } from 'react'
 import { ToastProvider } from '../components'
 import { GladeStoreProvider } from './react'
 import { createGladeStore, type GladeStore } from './store'
-import { fakeBridge, sampleTask, sampleWorkspace, type FakeBridge, type FakeMain } from './test-bridge'
+import {
+  fakeBridge,
+  sampleTask,
+  sampleWorkspace,
+  type FakeBridge,
+  type FakeHandlers,
+  type FakeMain,
+} from './test-bridge'
 
 export interface StoreWrapper {
   /** For `render`'s `wrapper` option. */
@@ -12,14 +19,15 @@ export interface StoreWrapper {
   readonly fake: FakeBridge
 }
 
-/** A workspace `w1` with a task `t1`, and nothing else, unless `main` says otherwise. Hydrate `store` to load it. */
-export function storeWrapper(main: Partial<FakeMain> = {}): StoreWrapper {
-  const fake = fakeBridge({
-    workspaces: [sampleWorkspace('w1')],
-    tasks: [sampleTask('t1', 'w1')],
-    uiState: [],
-    ...main,
-  })
+/**
+ * A workspace `w1` with a task `t1`, and nothing else, unless `main` says otherwise; `overrides` replace some of the
+ * fake main's handlers. Hydrate `store` to load it.
+ */
+export function storeWrapper(main: Partial<FakeMain> = {}, overrides: Partial<FakeHandlers> = {}): StoreWrapper {
+  const fake = fakeBridge(
+    { workspaces: [sampleWorkspace('w1')], tasks: [sampleTask('t1', 'w1')], uiState: [], ...main },
+    overrides,
+  )
   const store = createGladeStore(fake.bridge)
   const wrapper = ({ children }: { readonly children: ReactNode }) => (
     <GladeStoreProvider store={store}>
