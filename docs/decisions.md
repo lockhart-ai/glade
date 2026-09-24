@@ -7,8 +7,11 @@
 - **Desktop shell:** Electron. macOS first.
 - **Agent runtime:** Claude Agent SDK (TypeScript), running in Electron's main process. It streams typed events, takes
   custom tools in-process, resumes sessions and reads CLAUDE.md files. (Recommended over driving the Claude Code CLI.)
-- **Auth:** use the user's Claude subscription (their Claude Code login) if the Agent SDK allows it; API key as the
-  fallback. Confirm in P1-05.
+- **Auth:** Glade never handles credentials itself: no claude.ai login screen, no reading or storing OAuth tokens. It
+  runs the SDK's unmodified bundled Claude Code binary, which picks the credential by its usual precedence. That means
+  `ANTHROPIC_API_KEY` if set, otherwise the user's own `claude` login. Reason: Anthropic forbids third-party apps
+  from offering claude.ai login or intermediating tokens (see `sdk-notes.md` §1). Whether Glade may run on a
+  subscription login at all is still open (below).
 - **State:** everything in SQLite — workspaces, tasks, chat, tool log, todos, artifacts, queue, UI state. Reopening
   after a crash resumes from the database.
 - **Agent sessions run in the workspace root** (the SDK session's `cwd`), so the workspace's own `CLAUDE.md` (the
@@ -44,6 +47,12 @@
 ## Open
 
 - Exact names and schemas for the model surface tools (a draft is in `model-surface.md`).
+- **Subscription auth. Needs Jared.** The P1-01 spike confirmed it works technically: the SDK ran on the existing
+  Claude Code login with no API key. But Anthropic's docs say developers building on the Agent SDK "should use API key
+  authentication". They do not clearly cover one person running an open-source tool on their own login (quotes in
+  `sdk-notes.md` §1). So the choice is between API-key-only, or also allowing the user's own login.
+- **Auto-compaction at 99%. Needs Jared.** The SDK's auto-compact threshold can only be lowered, not raised. It is
+  capped at about the window minus 13k tokens, and defaults to about 83% on a 200k window. See `sdk-notes.md` §5.
 
 ## Later
 
