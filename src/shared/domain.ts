@@ -134,7 +134,7 @@ export interface NarrationEvent extends ToolEventBase {
 
 export interface ToolCallEvent extends ToolEventBase {
   readonly kind: ToolEventKind.ToolCall
-  /** The tool's name as the SDK reports it (MCP tools arrive as `mcp__<server>__<tool>`). */
+  /** The tool's name as the SDK reports it (MCP tools arrive as `mcp__<server>__<tool>`); see `toolDisplayName`. */
   readonly name: string
   readonly input: ToolInput
   /** The result's text; null until the result arrives. */

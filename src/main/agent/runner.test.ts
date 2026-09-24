@@ -22,7 +22,9 @@ import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { FakeAgentBackend, settle } from './fake-backend'
-import { createAgentRunner, systemPromptAppend, type AgentRunner } from './runner'
+import { GLADE_SERVER } from './glade-tools'
+import { createAgentRunner, type AgentRunner } from './runner'
+import { systemPromptAppend } from './system-prompt'
 import * as sdk from './test-sdk-messages'
 
 let database: TestDatabase
@@ -150,7 +152,7 @@ describe('a turn', () => {
       effort: task.effort,
       resumeSessionId: null,
       systemPromptAppend: systemPromptAppend(task),
-      mcpServers: {},
+      mcpServers: { [GLADE_SERVER]: expect.objectContaining({ type: 'sdk', name: GLADE_SERVER }) as unknown },
     })
     const [userMessage] = listMessages(database.db, task.id)
     expect(backend.session.sent).toEqual([{ text: 'Find out why the login test is flaky.', uuid: userMessage?.id }])
@@ -504,17 +506,80 @@ describe('tasks.history', () => {
   })
 })
 
-describe('systemPromptAppend', () => {
-  it("says the agent runs inside Glade, and gives the task's id and title", () => {
-    expect(systemPromptAppend(task)).toBe(
-      [
-        'You are running inside Glade, a desktop app that runs Claude agent sessions as tasks.',
-        'This session is one Glade task, with one objective.',
-        `Its task id is ${task.id}. Its title is not set yet.`,
-      ].join('\n'),
+describe('the Glade tools', () => {
+  it("set the task's title, objective and status from a turn, and show in the tool log like any other call", async () => {
+    await send('The login test fails now and then. Find out why and fix it.')
+    const session = backend.session
+    session.emit(sdk.init())
+    await session.callTool('toolu_01', 'mcp__glade__set_title', { title: 'Fix the flaky login test' })
+    await session.callTool('toolu_02', 'mcp__glade__set_objective', {
+      objective: 'Make the login test pass every run.',
+    })
+    await session.callTool('toolu_03', 'mcp__glade__set_status', { status: '' })
+    await session.callTool('toolu_04', 'mcp__glade__set_status', { status: 'Reproducing the flake.' })
+    session.emit(sdk.result('Found it: a race on the session save.'))
+    await settle()
+
+    expect(current()).toMatchObject({
+      title: 'Fix the flaky login test',
+      objective: 'Make the login test pass every run.',
+      status: 'Reproducing the flake.',
+      activity: TaskActivity.Waiting,
+    })
+    const updates = events.flatMap((event) =>
+      event.type === EventType.TaskUpdated
+        ? [{ title: event.task.title, objective: event.task.objective, status: event.task.status }]
+        : [],
     )
-    expect(systemPromptAppend({ ...task, title: 'Fix the flaky login test' })).toContain(
-      'Its title is "Fix the flaky login test".',
-    )
+    // Working, then the session id, then the three tools' writes, then waiting on you.
+    expect(updates.slice(2, 5)).toEqual([
+      { title: 'Fix the flaky login test', objective: '', status: '' },
+      { title: 'Fix the flaky login test', objective: 'Make the login test pass every run.', status: '' },
+      {
+        title: 'Fix the flaky login test',
+        objective: 'Make the login test pass every run.',
+        status: 'Reproducing the flake.',
+      },
+    ])
+    expect(updates).toHaveLength(6)
+    expect(toolLog()).toEqual([
+      { divider: DividerKind.Turn, turn: 1 },
+      {
+        call: 'mcp__glade__set_title',
+        input: { title: 'Fix the flaky login test' },
+        state: ToolCallState.Done,
+        output: 'Title set to "Fix the flaky login test".',
+        toolUseId: 'toolu_01',
+        parentToolUseId: null,
+        turn: 1,
+      },
+      {
+        call: 'mcp__glade__set_objective',
+        input: { objective: 'Make the login test pass every run.' },
+        state: ToolCallState.Done,
+        output: 'Objective set.',
+        toolUseId: 'toolu_02',
+        parentToolUseId: null,
+        turn: 1,
+      },
+      {
+        call: 'mcp__glade__set_status',
+        input: { status: '' },
+        state: ToolCallState.Error,
+        output: expect.stringContaining('The status is empty.') as unknown,
+        toolUseId: 'toolu_03',
+        parentToolUseId: null,
+        turn: 1,
+      },
+      {
+        call: 'mcp__glade__set_status',
+        input: { status: 'Reproducing the flake.' },
+        state: ToolCallState.Done,
+        output: 'Status updated.',
+        toolUseId: 'toolu_04',
+        parentToolUseId: null,
+        turn: 1,
+      },
+    ])
   })
 })
