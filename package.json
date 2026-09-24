@@ -5,6 +5,9 @@
   "description": "A calm macOS app for running Claude agent sessions as tasks.",
   "license": "MIT",
   "main": "./out/main/index.js",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "electron-vite dev --watch",
     "build": "electron-vite build",
