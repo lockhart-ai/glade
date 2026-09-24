@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { Effort } from '../../shared/domain'
 import type { AgentSessionOptions } from './backend'
 import { AgentEventKind, createSdkMessageParser, type AgentEvent } from './events'
+import { RESUME_PROMPT } from './runner'
 import { gladeToolName, REJECTED_TOOL_OUTPUT, ScriptedSession, type ScriptedSessionOptions } from './scripted-session'
 import {
   delay,
@@ -301,6 +302,25 @@ describe('ScriptedSession', () => {
     const texts = played.raw.filter((message) => message.type === 'result').map((message) => message.result)
     expect(texts).toEqual(['One.', 'Two.', 'Two.'])
     expect(played.idles()).toBe(3)
+  })
+
+  it('plays the resume turn for the prompt Glade resumes a session with, and the next turn without one', async () => {
+    const script: AgentScript = {
+      name: 'test',
+      turns: [[say('One.'), result()]],
+      resumeTurn: [say('Again.'), result()],
+    }
+    const resumed = play([], { script })
+    resumed.session.send(RESUME_PROMPT, 'resume-1')
+    resumed.session.send('a', 'user-1')
+    const plain = play([[say('One.'), result()]])
+    plain.session.send(RESUME_PROMPT, 'resume-1')
+    await flush()
+
+    const results = ({ raw }: Played) =>
+      raw.filter((message) => message.type === 'result').map((message) => message.result)
+    expect(results(resumed)).toEqual(['Again.', 'One.'])
+    expect(results(plain)).toEqual(['One.'])
   })
 
   it('plays nothing for a script with no turns', async () => {

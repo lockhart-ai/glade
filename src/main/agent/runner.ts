@@ -6,7 +6,7 @@
  * `docs/sdk-notes.md` recommends: the process stays warm between turns, and interrupt (Stop, P1-08) and the per-turn
  * model and effort changes (P1-13) only work in this mode. The SDK session id is saved on the task from `system/init`,
  * so a session that's gone (the app restarted, or its process failed) is started again with `resume` on the next
- * message, and P1-17 can resume it on launch.
+ * message, or on launch if the app died mid-turn.
  *
  * **A turn**, from `send` to the SDK's `result`:
  * - The user's message goes to the chat log with the next turn number, and a turn divider to the tool log.
@@ -24,9 +24,19 @@
  * when it aborts, goes to the tool log as narration rather than the chat, since it isn't a finished reply; its
  * unfinished tool calls end as errors; and a narration notes that you stopped it.
  *
+ * **Resume on launch.** A turn the app quit or crashed in is left working in the database. On launch,
+ * `resumeInterrupted` carries each one on: it resumes the task's SDK session by its saved id (`docs/sdk-notes.md` §8),
+ * adds a resumed divider to the tool log, and sends the session `RESUME_PROMPT`. A resumed session waits for a message
+ * like any other in streaming input mode, so it needs one to carry on; the prompt isn't saved to the chat, since you
+ * didn't write it. The turn keeps its number and ends like any other. What the dead turn had only in memory is gone:
+ * its held-back text (the model still has it in its transcript) and the calls that never got a result, which end as
+ * errors. A working task with no session id never got as far as starting its session, so there's nothing to resume:
+ * it goes back to waiting on you, with a note.
+ *
  * Every write is broadcast to the windows as it happens. Only the in-flight turn's bookkeeping (its held-back text and
- * running calls) is kept in memory; P1-17 recovers a turn the app died in from the database.
+ * running calls) is kept in memory.
  */
+import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode } from '../../shared/bridge'
 import {
@@ -41,8 +51,14 @@ import {
 import { CommandFailure } from '../bridge/errors'
 import { emitMessageAppended, emitToolEventAppended, emitToolEventUpdated, type Emit } from '../bridge/events'
 import { appendMessage, lastTurn } from '../db/repositories/messages'
-import { getTask } from '../db/repositories/tasks'
-import { appendDivider, appendNarration, appendToolCall, updateToolCall } from '../db/repositories/tool-events'
+import { getTask, listWorkingTasks } from '../db/repositories/tasks'
+import {
+  appendDivider,
+  appendNarration,
+  appendToolCall,
+  failRunningToolCalls,
+  updateToolCall,
+} from '../db/repositories/tool-events'
 import { getWorkspace } from '../db/repositories/workspaces'
 import { updateTaskFromRunner } from '../tasks/service'
 import type { AgentBackend, AgentMcpServers, AgentSession } from './backend'
@@ -78,6 +94,8 @@ export interface AgentRunner {
    * agent isn't working. Throws a `CommandFailure` `not_found` for no such task.
    */
   stop(taskId: string): Promise<Task>
+  /** Carries on the turns the app quit or crashed in (see the module comment). Call it once, on launch. */
+  resumeInterrupted(): void
   /** Closes every live session, e.g. when the app quits. */
   close(): void
 }
@@ -101,12 +119,21 @@ interface LiveSession {
   turn: Turn | null
   /** The model the session last said it runs on (`system/init`), to find its context window in a turn's result. */
   model: string | null
-  /** Closed by the runner: whatever it still emits is ignored, and a turn cut short stays working for P1-17. */
+  /** Closed by the runner: whatever it still emits is ignored, and a turn cut short stays working, for the next launch to resume. */
   closed: boolean
 }
 
 /** What the tool log says when the user stopped a turn, and what its unfinished tool calls say. */
 export const STOPPED_NOTE = 'You stopped the agent.'
+
+/** What Glade sends a session it resumed on launch, so the agent carries on with the turn the app died in. */
+export const RESUME_PROMPT = 'Glade restarted while you were working. Continue where you left off.'
+
+/** What a tool call cut off by the app quitting says. */
+export const RESTARTED_TOOL_NOTE = 'Glade quit before this tool call finished.'
+
+/** What the tool log says for a working task that had no session to resume. */
+export const NOT_RESUMED_NOTE = "Glade quit before the agent's session started, so there was nothing to resume."
 
 /** Whether a turn ended because it was interrupted: the SDK's `aborted_streaming` or `aborted_tools`. */
 function isAborted(terminalReason: string | null): boolean {
@@ -308,6 +335,21 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     return live
   }
 
+  /** Carries on the turn a working task was in when the app quit (see the module comment). */
+  const resume = (task: Task): void => {
+    const turn = lastTurn(db, task.id)
+    for (const call of failRunningToolCalls(db, task.id, RESTARTED_TOOL_NOTE)) emitToolEventUpdated(emit, call)
+    if (task.sessionId === null) {
+      emitToolEventAppended(emit, appendNarration(db, { taskId: task.id, turn, text: NOT_RESUMED_NOTE }))
+      setActivity(task.id, TaskActivity.Waiting)
+      return
+    }
+    const live = start(task)
+    emitToolEventAppended(emit, appendDivider(db, { taskId: task.id, turn, dividerKind: DividerKind.Resumed }))
+    live.turn = newTurn(turn)
+    live.session.send(RESUME_PROMPT, randomUUID())
+  }
+
   return {
     send(taskId, text) {
       const task = getTask(db, taskId)
@@ -344,6 +386,19 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       await live.session.interrupt()
       await turn.ended
       return getTask(db, taskId) ?? task
+    },
+
+    resumeInterrupted() {
+      for (const task of listWorkingTasks(db)) {
+        try {
+          resume(task)
+        } catch (error) {
+          log.warn(`Failed to resume task ${task.id}`, error)
+          const text = `Glade couldn't resume the agent: ${describeError(error)}`
+          emitToolEventAppended(emit, appendNarration(db, { taskId: task.id, turn: lastTurn(db, task.id), text }))
+          setActivity(task.id, TaskActivity.Error)
+        }
+      }
     },
 
     close() {

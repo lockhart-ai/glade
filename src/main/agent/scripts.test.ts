@@ -156,6 +156,31 @@ describe('AGENT_SCRIPTS', () => {
     expect(activity()).toBe(TaskActivity.Waiting)
   })
 
+  it('long-running: runs the suite again and finishes the turn when resumed after the app quit', async () => {
+    await send(start('long-running'), 'Run the e2e suite.')
+    runner?.close()
+
+    const resumed = start('long-running')
+    resumed.resumeInterrupted()
+    const idle = backend.whenIdle()
+    await vi.runAllTimersAsync()
+    await idle
+
+    expect(reply()).toBe('The end-to-end suite passes: all 41 tests.')
+    expect(calls().map(({ name, state }) => [name, state])).toEqual([
+      ['mcp__glade__set_title', ToolCallState.Done],
+      ['mcp__glade__set_objective', ToolCallState.Done],
+      ['mcp__glade__set_status', ToolCallState.Done],
+      ['Bash', ToolCallState.Error],
+      ['Bash', ToolCallState.Done],
+      ['mcp__glade__set_status', ToolCallState.Done],
+    ])
+    expect(getTask(database.db, task.id)).toMatchObject({
+      activity: TaskActivity.Waiting,
+      status: 'The e2e suite passes.',
+    })
+  })
+
   it('failing-turn: fails on an API error after its first tool call', async () => {
     const agent = start('failing-turn')
     await send(agent, 'Build it.')

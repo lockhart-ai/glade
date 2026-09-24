@@ -23,7 +23,14 @@ import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from
 import { listToolEvents } from '../db/repositories/tool-events'
 import { FakeAgentBackend, settle } from './fake-backend'
 import { GLADE_SERVER } from './glade-tools'
-import { createAgentRunner, STOPPED_NOTE, type AgentRunner } from './runner'
+import {
+  createAgentRunner,
+  NOT_RESUMED_NOTE,
+  RESTARTED_TOOL_NOTE,
+  RESUME_PROMPT,
+  STOPPED_NOTE,
+  type AgentRunner,
+} from './runner'
 import { systemPromptAppend } from './system-prompt'
 import * as sdk from './test-sdk-messages'
 
@@ -522,6 +529,121 @@ describe('the session', () => {
     await settle()
 
     expect(console.warn).toHaveBeenCalledWith('Ignored SDK messages of the unknown type brand_new_thing')
+  })
+})
+
+describe('resuming on launch', () => {
+  /** Quits the app mid-turn, as a crash or force-quit would leave it, then starts a new runner on the same database. */
+  function relaunch(): void {
+    runner.close()
+    backend = new FakeAgentBackend()
+    const ipc = fakeIpcPair()
+    ;({ runner } = registerBridge({
+      ipc: ipc.main,
+      db: database.db,
+      targets: () => [ipc.window],
+      chooseFolder: () => Promise.resolve(null),
+      agentBackend: backend,
+    }))
+    events = []
+    createBridge(ipc.renderer).subscribe((event) => events.push(event))
+  }
+
+  it('carries on a turn the app quit in, in the same session, and ends it like any other', async () => {
+    await send('Run the e2e suite.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.text("I'll run the whole suite."),
+      sdk.toolUse('toolu_01', 'Bash', { command: 'npm run test:e2e' }),
+    )
+    await settle()
+
+    relaunch()
+    runner.resumeInterrupted()
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(backend.session.options).toMatchObject({ cwd: workspace.rootPath, resumeSessionId: sdk.SESSION_ID })
+    expect(backend.session.sent).toEqual([{ text: RESUME_PROMPT, uuid: expect.any(String) as unknown }])
+    expect(current().activity).toBe(TaskActivity.Working)
+    expect(toolLog()).toEqual([
+      { divider: DividerKind.Turn, turn: 1 },
+      { narration: "I'll run the whole suite.", turn: 1 },
+      expect.objectContaining({ call: 'Bash', state: ToolCallState.Error, output: RESTARTED_TOOL_NOTE, turn: 1 }),
+      { divider: DividerKind.Resumed, turn: 1 },
+    ])
+    expect(drainEvents()).toEqual([
+      [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Error],
+      [EventType.ToolEventAppended, ToolEventKind.Divider, null],
+    ])
+
+    backend.session.emit(
+      sdk.init(),
+      sdk.text('Glade restarted mid-suite, so I ran it again.'),
+      sdk.toolUse('toolu_02', 'Bash', { command: 'npm run test:e2e' }),
+      sdk.toolResult('toolu_02', '41 passed'),
+      sdk.text('All 41 end-to-end tests pass.', null, 'msg_02'),
+      sdk.result('All 41 end-to-end tests pass.'),
+    )
+    await settle()
+
+    expect(chat()).toEqual([
+      { role: MessageRole.User, body: 'Run the e2e suite.', turn: 1 },
+      { role: MessageRole.Agent, body: 'All 41 end-to-end tests pass.', turn: 1 },
+    ])
+    expect(toolLog().slice(4)).toEqual([
+      { narration: 'Glade restarted mid-suite, so I ran it again.', turn: 1 },
+      expect.objectContaining({ call: 'Bash', state: ToolCallState.Done, output: '41 passed', turn: 1 }),
+    ])
+    expect(current()).toMatchObject({ activity: TaskActivity.Waiting, sessionId: sdk.SESSION_ID })
+
+    // The next message is the next turn, in the resumed session.
+    await send('Thanks.')
+    expect(backend.sessions).toHaveLength(1)
+    expect(chat().at(-1)).toEqual({ role: MessageRole.User, body: 'Thanks.', turn: 2 })
+  })
+
+  it('puts a working task with no session back to waiting on you, with a note, and starts nothing', async () => {
+    await send('Hi')
+    relaunch()
+    runner.resumeInterrupted()
+
+    expect(backend.sessions).toHaveLength(0)
+    expect(toolLog()).toEqual([
+      { divider: DividerKind.Turn, turn: 1 },
+      { narration: NOT_RESUMED_NOTE, turn: 1 },
+    ])
+    expect(current().activity).toBe(TaskActivity.Waiting)
+  })
+
+  it('leaves tasks that were waiting, errored or done alone', () => {
+    const others = [TaskActivity.Waiting, TaskActivity.Error].map((activity) =>
+      updateTask(database.db, sampleTask(database.db, workspace.id).id, { activity, sessionId: 's' }),
+    )
+    updateTask(database.db, task.id, { state: TaskState.Done, activity: TaskActivity.Working, sessionId: 's' })
+
+    runner.resumeInterrupted()
+
+    expect(backend.sessions).toHaveLength(0)
+    expect(events).toEqual([])
+    for (const other of others) expect(getTask(database.db, other.id)).toEqual(other)
+  })
+
+  it('marks a task it cannot resume as errored, and says why', async () => {
+    await send('Hi')
+    updateTask(database.db, task.id, { sessionId: 's' })
+    relaunch()
+    vi.spyOn(backend, 'start').mockImplementation(() => {
+      throw new Error('spawn claude ENOENT')
+    })
+
+    runner.resumeInterrupted()
+
+    expect(console.warn).toHaveBeenCalledWith(`Failed to resume task ${task.id}`, expect.any(Error))
+    expect(toolLog()).toEqual([
+      { divider: DividerKind.Turn, turn: 1 },
+      { narration: "Glade couldn't resume the agent: spawn claude ENOENT", turn: 1 },
+    ])
+    expect(current().activity).toBe(TaskActivity.Error)
   })
 })
 

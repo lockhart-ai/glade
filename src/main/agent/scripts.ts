@@ -118,6 +118,11 @@ export interface AgentScript {
   readonly name: string
   /** At least one. */
   readonly turns: readonly ScriptTurn[]
+  /**
+   * What the agent does when Glade resumes its session on launch to carry on a turn the app quit in (the runner's
+   * `RESUME_PROMPT`). Without one, that message runs the next turn like any other.
+   */
+  readonly resumeTurn?: ScriptTurn
 }
 
 // Step builders, so scripts read as a turn would.
@@ -274,7 +279,8 @@ const multiToolTurn: AgentScript = {
 
 /**
  * A turn that keeps working, with a command still running, until it's stopped; then a short reply to the message sent
- * after the stop, so a spec can see the stopped task carry on.
+ * after the stop, so a spec can see the stopped task carry on. If the app quits mid-turn instead, the resumed session
+ * runs the suite again and finishes the turn.
  */
 const longRunning: AgentScript = {
   name: 'long-running',
@@ -292,6 +298,20 @@ const longRunning: AgentScript = {
       say('Understood. I stopped the suite and will only run the unit tests.'),
       result(),
     ],
+  ],
+  resumeTurn: [
+    ...turnStart(),
+    say('Glade restarted mid-run, so I am running the suite again.'),
+    ...tool(
+      'suite-again',
+      'Bash',
+      { command: 'npm run test:e2e', description: 'Run the end-to-end suite' },
+      '41 passed (41)',
+    ),
+    delay(BEAT_MS),
+    gladeTool('status-resumed', 'set_status', { status: 'The e2e suite passes.' }),
+    say('The end-to-end suite passes: all 41 tests.'),
+    result(),
   ],
 }
 

@@ -6,15 +6,19 @@ import {
   TaskState,
   ToolCallState,
   ToolEventKind,
+  type DividerEvent,
   type Message,
   type ToolEvent,
 } from '../../shared/domain'
 import { sampleTask } from '../store/test-bridge'
 import {
+  ChatEntryKind,
   chatEntries,
   clockTime,
   currentTurn,
   ReplyStyle,
+  restartLabel,
+  type ChatEntry,
   toolCallLabel,
   toolCallsByTurn,
   workingNarration,
@@ -90,16 +94,21 @@ describe('chatEntries', () => {
 
   it('keeps every message in order, with each reply’s tool calls', () => {
     const entries = chatEntries(task, messages, toolEvents)
-    expect(entries.map((entry) => entry.message.id)).toEqual(['ask', 'reply-1', 'follow-up', 'reply-2'])
-    expect(entries[1]).toMatchObject({ role: MessageRole.Agent, toolCalls: 2, style: ReplyStyle.Plain })
-    expect(entries[3]).toMatchObject({ role: MessageRole.Agent, toolCalls: 0 })
-    expect(entries[0]).toEqual({ role: MessageRole.User, message: messages[0] })
+    expect(entries.map((entry) => 'message' in entry && entry.message.id)).toEqual([
+      'ask',
+      'reply-1',
+      'follow-up',
+      'reply-2',
+    ])
+    expect(entries[1]).toMatchObject({ kind: ChatEntryKind.Agent, toolCalls: 2, style: ReplyStyle.Plain })
+    expect(entries[3]).toMatchObject({ kind: ChatEntryKind.Agent, toolCalls: 0 })
+    expect(entries[0]).toEqual({ kind: ChatEntryKind.User, message: messages[0] })
   })
 
   it('styles the latest reply as a question only while the active task waits on you', () => {
     const style = (activity: TaskActivity, state = TaskState.Active): unknown =>
       chatEntries({ ...task, activity, state }, messages, toolEvents).map((entry) =>
-        entry.role === MessageRole.Agent ? entry.style : null,
+        entry.kind === ChatEntryKind.Agent ? entry.style : null,
       )
 
     expect(style(TaskActivity.Waiting)).toEqual([null, ReplyStyle.Plain, null, ReplyStyle.Question])
@@ -110,7 +119,39 @@ describe('chatEntries', () => {
   it('has no question once you have answered', () => {
     const answered = [...messages, message('answer', MessageRole.User, 3)]
     const entries = chatEntries(task, answered, toolEvents)
-    expect(entries.some((entry) => entry.role === MessageRole.Agent && entry.style === ReplyStyle.Question)).toBe(false)
+    expect(entries.some((entry) => entry.kind === ChatEntryKind.Agent && entry.style === ReplyStyle.Question)).toBe(
+      false,
+    )
+  })
+
+  describe('after a restart', () => {
+    const resumed = (id: string, turn: number): DividerEvent => ({
+      id,
+      taskId: 't1',
+      turn,
+      createdAt: new Date(2026, 8, 23, 14, 26).getTime(),
+      kind: ToolEventKind.Divider,
+      dividerKind: DividerKind.Resumed,
+    })
+    const kinds = (entries: readonly ChatEntry[]): unknown[] =>
+      entries.map((entry) => (entry.kind === ChatEntryKind.Restarted ? entry.divider.id : entry.message.id))
+
+    it("shows a divider for each resumed turn, after the turn's message and before its reply", () => {
+      const events = [...toolEvents, divider, resumed('r1', 1), resumed('r2', 2)]
+      expect(kinds(chatEntries(task, messages, events))).toEqual(['ask', 'r1', 'reply-1', 'follow-up', 'r2', 'reply-2'])
+    })
+
+    it('keeps a divider for a turn with no reply yet at the end, saying it is resuming while the turn runs', () => {
+      const running = messages.slice(0, 3)
+      const events = [resumed('r1', 1), resumed('r2', 2)]
+      const working = chatEntries({ ...task, activity: TaskActivity.Working }, running, events)
+      expect(kinds(working)).toEqual(['ask', 'r1', 'reply-1', 'follow-up', 'r2'])
+
+      const labels = (entries: readonly ChatEntry[]): string[] =>
+        entries.flatMap((entry) => (entry.kind === ChatEntryKind.Restarted ? [restartLabel(entry)] : []))
+      expect(labels(working)).toEqual(['Glade restarted · 14:26', 'Glade restarted · 14:26 · resuming'])
+      expect(labels(chatEntries(task, running, events))).toEqual(['Glade restarted · 14:26', 'Glade restarted · 14:26'])
+    })
   })
 })
 
