@@ -66,6 +66,22 @@ export function taskHeader(page: Page) {
   }
 }
 
+/** The task card's right panel: its tabs, and the Tool calls tab's log. */
+export function taskPanel(page: Page) {
+  const panel = regions(page).taskPanel
+  const log = panel.getByRole('log', { name: 'Tool log' })
+  return {
+    tab: (name: string | RegExp) => panel.getByRole('tab', { name }),
+    tabPanel: panel.getByRole('tabpanel'),
+    log,
+    /** A tool call's row, by its accessible name: its state, name, argument, time and result. */
+    call: (name: string | RegExp) => log.getByRole('button', { name }),
+    /** A subagent's calls, under the call that started it (by its name). */
+    subagentCalls: (name: string) => log.getByRole('group', { name: `${name} subagent calls` }),
+    dividers: log.getByRole('separator'),
+  }
+}
+
 /** The chat view: the user's messages and the agent's replies, oldest first. */
 export function chat(page: Page) {
   const log = regions(page).chat.getByRole('log', { name: 'Conversation' })

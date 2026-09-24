@@ -3,13 +3,14 @@ import { Chat } from './chat'
 import { classNames } from './components/classNames'
 import { ToastProvider } from './components'
 import { FirstRun } from './first-run/FirstRun'
-import { AppShell, BottomBar, RightPanel, Sidebar, SidebarHeader, TaskCard } from './layout'
+import { AppShell, BottomBar, Sidebar, SidebarHeader, TaskCard } from './layout'
 import styles from './App.module.css'
 import { HydrationStatus, selectSelectedWorkspace } from './store/state'
 import { useGladeStore } from './store/react'
 import { SelectedTaskHeader } from './task-header'
 import { TaskList, TaskListToolbar } from './task-list'
 import { useStopShortcut } from './shortcuts/useStopShortcut'
+import { TaskPanel } from './tool-log'
 
 interface PlaceholderProps {
   label: string
@@ -79,11 +80,7 @@ function Layout(): React.JSX.Element {
           header={<SelectedTaskHeader />}
           chat={<Chat />}
           inputBar={<Placeholder label="Input bar" className={styles.inputBar} />}
-          rightPanel={
-            <RightPanel tabs={<Placeholder label="Tabs" className={styles.tabs} />}>
-              <Placeholder label="Right panel" className={styles.fill} />
-            </RightPanel>
-          }
+          rightPanel={<TaskPanel />}
         />
       }
     />

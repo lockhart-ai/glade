@@ -1,11 +1,13 @@
 /**
- * Sample data for screenshots: `npm run screenshot -- --seed <fixture>` fills the capture's throwaway database from a
- * JSON fixture before the window opens, so a capture can show a populated app. Only capture mode uses it.
+ * Sample data for screenshots and e2e specs: `npm run screenshot -- --seed <fixture>` (or an e2e spec's `seed`) fills
+ * the throwaway database from a JSON fixture before the window opens, so a capture or a spec can show a populated app.
+ * Only the test modes use it.
  */
 import { readFileSync } from 'node:fs'
 import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
 import {
+  DividerKind,
   MessageRole,
   TaskActivity,
   TaskState,
@@ -17,7 +19,7 @@ import {
 } from '../shared/domain'
 import { appendMessage } from './db/repositories/messages'
 import { createTask, updateTask } from './db/repositories/tasks'
-import { appendNarration, appendToolCall, updateToolCall } from './db/repositories/tool-events'
+import { appendDivider, appendNarration, appendToolCall, updateToolCall } from './db/repositories/tool-events'
 import { setUiState } from './db/repositories/ui-state'
 import { createWorkspace } from './db/repositories/workspaces'
 import { DEFAULT_EFFORT, DEFAULT_MODEL } from './tasks/defaults'
@@ -42,18 +44,32 @@ export interface SeedNarration {
   readonly minutesAgo: number
 }
 
-/** A sample top-level tool call; it's still running unless it has an output. */
+/** A sample tool call. It's still running unless it has an output, and done with it unless it `failed`. */
 export interface SeedToolCall {
   readonly kind: ToolEventKind.ToolCall
   readonly name: string
   readonly input: ToolInput
   readonly output?: string | undefined
+  /** Whether the call failed; its output is then the error. */
+  readonly failed?: boolean | undefined
+  /** Its `tool_use` id, for a subagent's calls to name as their parent; generated when not given. */
+  readonly toolUseId?: string | undefined
+  /** The `toolUseId` of the `Agent` call whose subagent made this call; top level when not given. */
+  readonly parentToolUseId?: string | undefined
+  readonly turn: number
+  readonly minutesAgo: number
+}
+
+/** A sample divider in the tool log. */
+export interface SeedDivider {
+  readonly kind: ToolEventKind.Divider
+  readonly dividerKind: DividerKind
   readonly turn: number
   readonly minutesAgo: number
 }
 
 /** One sample tool log entry. */
-export type SeedToolEvent = SeedNarration | SeedToolCall
+export type SeedToolEvent = SeedNarration | SeedToolCall | SeedDivider
 
 /** One sample task. Its times are relative to the capture, so relative times read the same on every run. */
 export interface SeedTask {
@@ -93,9 +109,13 @@ const seedToolEventSchema: z.ZodType<SeedToolEvent> = z.discriminatedUnion('kind
     name: z.string(),
     input: z.record(z.string(), z.unknown()),
     output: z.string().optional(),
+    failed: z.boolean().optional(),
+    toolUseId: z.string().optional(),
+    parentToolUseId: z.string().optional(),
     turn,
     minutesAgo,
   }),
+  z.strictObject({ kind: z.literal(ToolEventKind.Divider), dividerKind: z.enum(DividerKind), turn, minutesAgo }),
 ])
 
 const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
@@ -131,15 +151,22 @@ export function readSeed(path: string): CaptureSeed {
   return parsed.data
 }
 
-function seedToolEvent(db: Database, taskId: string, event: SeedToolEvent, at: EpochMs, toolUseId: string): void {
+function seedToolEvent(db: Database, taskId: string, event: SeedToolEvent, at: EpochMs, seedId: string): void {
   switch (event.kind) {
     case ToolEventKind.Narration:
       appendNarration(db, { taskId, turn: event.turn, text: event.text }, at)
       return
+    case ToolEventKind.Divider:
+      appendDivider(db, { taskId, turn: event.turn, dividerKind: event.dividerKind }, at)
+      return
     case ToolEventKind.ToolCall: {
       const { name, input, output, turn } = event
-      appendToolCall(db, { taskId, turn, name, input, toolUseId, parentToolUseId: null }, at)
-      if (output !== undefined) updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Done, output })
+      const toolUseId = event.toolUseId ?? seedId
+      appendToolCall(db, { taskId, turn, name, input, toolUseId, parentToolUseId: event.parentToolUseId ?? null }, at)
+      if (output !== undefined) {
+        const state = event.failed === true ? ToolCallState.Error : ToolCallState.Done
+        updateToolCall(db, { taskId, toolUseId, state, output })
+      }
       return
     }
   }

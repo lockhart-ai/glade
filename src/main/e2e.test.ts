@@ -45,6 +45,9 @@ describe('readE2eSpec', () => {
     expect(readE2eSpec(env(spec({ agentScript: 'long-running' })), false)).toEqual(
       spec({ agentScript: 'long-running' }),
     )
+    expect(readE2eSpec(env(spec({ seed: '/repo/e2e/seeds/a.json' })), false)).toEqual(
+      spec({ seed: '/repo/e2e/seeds/a.json' }),
+    )
   })
 
   it('rejects a spec that is not JSON', () => {
@@ -56,6 +59,7 @@ describe('readE2eSpec', () => {
     ['a data folder outside the temp folder', spec({ userData: '/Users/someone/Library/Application Support/glade' })],
     ['the temp folder itself as the data folder', spec({ userData: tmpdir() })],
     ['a route that is not a hash', spec({ route: 'gallery' })],
+    ['a seed that is not an absolute path', spec({ seed: 'e2e/seeds/a.json' })],
     ['an unknown field', { ...spec(), show: true }],
     ['an unknown agent script', { ...spec(), agentScript: 'nope' }],
   ])('rejects %s', (_, value) => {
