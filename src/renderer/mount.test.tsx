@@ -6,11 +6,11 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-it('renders the app into the root element', async () => {
+it('renders the app into the root element', () => {
   const root = document.createElement('div')
   document.body.append(root)
 
-  await act(async () => {
+  act(() => {
     mountApp(root)
   })
 
@@ -18,5 +18,7 @@ it('renders the app into the root element', async () => {
 })
 
 it('throws when there is no root element', () => {
-  expect(() => mountApp(null)).toThrow('Missing #root element')
+  expect(() => {
+    mountApp(null)
+  }).toThrow('Missing #root element')
 })

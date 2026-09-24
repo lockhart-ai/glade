@@ -19,8 +19,7 @@ export interface SecurityViolation {
 }
 
 export type SecurityCheck =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly violations: readonly SecurityViolation[] }
+  { readonly ok: true } | { readonly ok: false; readonly violations: readonly SecurityViolation[] }
 
 const ALL_SETTINGS: readonly SecuritySetting[] = Object.values(SecuritySetting)
 

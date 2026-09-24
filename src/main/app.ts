@@ -33,12 +33,16 @@ function createWindow(): void {
 
   // The renderer only ever shows the app's own page: no popups, no navigating away.
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  window.webContents.on('will-navigate', (event) => event.preventDefault())
+  window.webContents.on('will-navigate', (event) => {
+    event.preventDefault()
+  })
 
-  window.once('ready-to-show', () => window.show())
+  window.once('ready-to-show', () => {
+    window.show()
+  })
 
   // In development electron-vite serves the renderer with hot reload; otherwise load the built file.
-  const devServerUrl = process.env['ELECTRON_RENDERER_URL']
+  const devServerUrl = process.env.ELECTRON_RENDERER_URL
   if (!app.isPackaged && devServerUrl !== undefined) {
     void window.loadURL(devServerUrl)
   } else {
