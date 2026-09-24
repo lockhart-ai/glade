@@ -143,6 +143,8 @@ export type ToolEvent = NarrationEvent | ToolCallEvent | DividerEvent
 export enum UiStateKey {
   /** The id of the workspace the window shows. */
   ActiveWorkspaceId = 'active_workspace_id',
+  /** The id of the selected task. An empty string means no task is selected. */
+  SelectedTaskId = 'selected_task_id',
 }
 
 export interface UiStateEntry {

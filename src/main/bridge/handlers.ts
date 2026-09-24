@@ -1,6 +1,8 @@
 import type { Database } from 'better-sqlite3'
 import { CommandName, EventType, type CommandRequest, type CommandResponse, type GladeEvent } from '../../shared/bridge'
-import { getUiState, setUiState } from '../db/repositories/ui-state'
+import type { Task } from '../../shared/domain'
+import { listTasks } from '../db/repositories/tasks'
+import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
 import { listWorkspaces } from '../db/repositories/workspaces'
 
 /**
@@ -22,11 +24,18 @@ export interface HandlerContext {
 export function createHandlers({ db, emit }: HandlerContext): Handlers {
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
+    [CommandName.TasksList]: ({ workspaceId }) => ({ tasks: listTasks(db, workspaceId) }),
     [CommandName.UiStateGet]: ({ key }) => ({ value: getUiState(db, key) ?? null }),
+    [CommandName.UiStateGetAll]: () => ({ entries: listUiState(db) }),
     [CommandName.UiStateSet]: (entry) => {
       setUiState(db, entry)
       emit({ type: EventType.UiStateChanged, entry })
       return null
     },
   }
+}
+
+/** Tells every window a task was created or changed. Whatever writes a task (P1's task commands) calls this after. */
+export function emitTaskUpdated(emit: Emit, task: Task): void {
+  emit({ type: EventType.TaskUpdated, task })
 }

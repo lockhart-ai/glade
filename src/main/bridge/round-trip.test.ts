@@ -1,7 +1,7 @@
 // The bridge end to end: the preload's `window.glade` over a fake IPC pair standing in for Electron's, against the real
 // main-side registry, handlers and repositories on a temporary database.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createBridge, type IpcListener, type RendererIpc } from '../../preload/bridge'
+import { createBridge } from '../../preload/bridge'
 import {
   bridgeError,
   BridgeErrorCode,
@@ -12,49 +12,9 @@ import {
 } from '../../shared/bridge'
 import { UiStateKey } from '../../shared/domain'
 import { getUiState } from '../db/repositories/ui-state'
-import { openTestDatabase, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
-import { registerBridge, type MainIpc } from '.'
-import type { EventTarget } from './dispatcher'
-
-type MainListener = (event: unknown, ...args: unknown[]) => unknown
-
-/** `ipcMain.handle`/`ipcRenderer.invoke` and `webContents.send`/`ipcRenderer.on`, wired to each other in memory. */
-function fakeIpcPair(): { main: MainIpc; renderer: RendererIpc; window: EventTarget } {
-  const handlers = new Map<string, MainListener>()
-  const listeners = new Map<string, Set<IpcListener>>()
-  const ipcEvent = { sender: 'renderer' }
-  const listenersOn = (channel: string): Set<IpcListener> => {
-    const set = listeners.get(channel) ?? new Set()
-    listeners.set(channel, set)
-    return set
-  }
-  // IPC copies every payload with the structured clone algorithm; so does the fake.
-  return {
-    main: {
-      handle(channel, listener) {
-        handlers.set(channel, listener)
-      },
-    },
-    renderer: {
-      async invoke(channel, ...args) {
-        const handler = handlers.get(channel)
-        if (handler === undefined) throw new Error(`No handler for ${channel}`)
-        return structuredClone(await handler(ipcEvent, ...structuredClone(args)))
-      },
-      on(channel, listener) {
-        listenersOn(channel).add(listener)
-      },
-      removeListener(channel, listener) {
-        listenersOn(channel).delete(listener)
-      },
-    },
-    window: {
-      send(channel, event) {
-        for (const listener of listenersOn(channel)) listener(ipcEvent, structuredClone(event))
-      },
-    },
-  }
-}
+import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
+import { registerBridge } from '.'
+import { fakeIpcPair } from './fake-ipc'
 
 let database: TestDatabase
 let glade: GladeBridge
@@ -108,6 +68,20 @@ describe('the bridge', () => {
     await expect(glade.invoke(CommandName.WorkspacesList, {})).resolves.toEqual({ workspaces: [workspace] })
   })
 
+  it("lists a workspace's tasks", async () => {
+    const workspace = sampleWorkspace(database.db)
+    const task = sampleTask(database.db, workspace.id)
+
+    await expect(glade.invoke(CommandName.TasksList, { workspaceId: workspace.id })).resolves.toEqual({ tasks: [task] })
+  })
+
+  it('gets every UI state value', async () => {
+    const entry = { key: UiStateKey.SelectedTaskId, value: 'task-1' }
+    await glade.invoke(CommandName.UiStateSet, entry)
+
+    await expect(glade.invoke(CommandName.UiStateGetAll, {})).resolves.toEqual({ entries: [entry] })
+  })
+
   it('rejects an invalid request with a typed error, leaving the database alone', async () => {
     const events: GladeEvent[] = []
     glade.subscribe((event) => events.push(event))
@@ -117,7 +91,7 @@ describe('the bridge', () => {
     await expect(glade.invoke(CommandName.UiStateSet, request)).rejects.toEqual(
       bridgeError(
         BridgeErrorCode.InvalidRequest,
-        'uiState.set: key: Invalid input: expected "active_workspace_id"; value: Invalid input: expected string, received number',
+        'uiState.set: key: Invalid option: expected one of "active_workspace_id"|"selected_task_id"; value: Invalid input: expected string, received number',
       ),
     )
     expect(events).toEqual([])

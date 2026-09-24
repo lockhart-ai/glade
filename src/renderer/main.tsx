@@ -1,4 +1,4 @@
-import { mountApp } from './mount'
+import { appPage, mountApp } from './mount'
 import './global.css'
 
 const root = document.getElementById('root')
@@ -10,5 +10,5 @@ if (import.meta.env.DEV && window.location.hash === '#gallery') {
     mountApp(root, <Gallery />)
   })
 } else {
-  mountApp(root)
+  mountApp(root, appPage(window.glade))
 }
