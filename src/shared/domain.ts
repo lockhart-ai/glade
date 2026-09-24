@@ -466,3 +466,47 @@ export interface QuestionSet {
   /** When it was answered or withdrawn; null while it's open. */
   readonly closedAt: EpochMs | null
 }
+
+/**
+ * The files open in a task's Files tab, as tabs in the order they were opened, and the one showing. Each path is
+ * relative to the task's workspace root, with `/` between its parts (`src/date.ts`).
+ */
+export interface OpenFiles {
+  readonly taskId: string
+  readonly paths: readonly string[]
+  /** The tab showing: one of `paths`, or null when no file is open. */
+  readonly activePath: string | null
+}
+
+/** What reading a file for the viewer found. */
+export enum FileContentKind {
+  /** Text, shown as source. */
+  Text = 'text',
+  /** Not text (it has a NUL byte): the viewer says so instead of showing it. */
+  Binary = 'binary',
+  /** There's no file at that path (any more), e.g. the agent deleted it. */
+  Missing = 'missing',
+}
+
+export interface TextFileContent {
+  readonly kind: FileContentKind.Text
+  /** The file's text, or only its first lines when `truncated`. */
+  readonly text: string
+  /** Whether the file is too large to show whole. */
+  readonly truncated: boolean
+  /** The whole file's size, in bytes. */
+  readonly size: number
+}
+
+export interface BinaryFileContent {
+  readonly kind: FileContentKind.Binary
+  /** The file's size, in bytes. */
+  readonly size: number
+}
+
+export interface MissingFileContent {
+  readonly kind: FileContentKind.Missing
+}
+
+/** A file as the viewer shows it (`files.read`). */
+export type FileContent = TextFileContent | BinaryFileContent | MissingFileContent

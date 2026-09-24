@@ -11,7 +11,9 @@
  */
 import type {
   Effort,
+  FileContent,
   Message,
+  OpenFiles,
   QuestionAnswers,
   QuestionSet,
   QueuedMessage,
@@ -52,6 +54,10 @@ export enum CommandName {
   QueueEdit = 'queue.edit',
   QueueRemove = 'queue.remove',
   QuestionsAnswer = 'questions.answer',
+  FilesRead = 'files.read',
+  FilesOpen = 'files.open',
+  FilesClose = 'files.close',
+  FilesOpenInEditor = 'files.openInEditor',
   UiStateGet = 'uiState.get',
   UiStateGetAll = 'uiState.getAll',
   UiStateSet = 'uiState.set',
@@ -222,6 +228,8 @@ export interface TasksHistoryResponse {
   readonly queuedMessages: readonly QueuedMessage[]
   /** Every question set the agent asked, open or closed, in the order it asked them. */
   readonly questionSets: readonly QuestionSet[]
+  /** The files open in its Files tab. */
+  readonly openFiles: OpenFiles
 }
 
 /**
@@ -281,6 +289,52 @@ export interface QuestionSetResponse {
   readonly questionSet: QuestionSet
 }
 
+/**
+ * Names a file in a task's workspace, by its path relative to the workspace root (`src/date.ts`). Every `files.*`
+ * command only reaches files inside the root: a path that isn't relative and normalized (`../secrets`, `/etc/hosts`)
+ * fails with `invalid_request`, and one that a symlink takes outside the root with `outside_workspace`. Each fails with
+ * `not_found` when there's no such task.
+ */
+export interface FileRequest {
+  readonly taskId: string
+  /** Relative to the task's workspace root, normalized: no `.` or `..` parts, no leading or trailing `/`. */
+  readonly path: string
+}
+
+/**
+ * Reads a file for the Files tab's viewer. A file larger than the viewer shows (`MAX_FILE_BYTES` or `MAX_FILE_LINES` in
+ * `./files`) comes back truncated to its first lines; a binary one, or one that isn't there, comes back as such rather
+ * than failing.
+ */
+export type FilesReadRequest = FileRequest
+
+export interface FilesReadResponse {
+  readonly content: FileContent
+}
+
+/**
+ * Opens a file in the task's Files tab, as a new tab at the end (or the tab it already has), and shows it. The file
+ * needn't exist. Broadcasts `openFiles.changed`.
+ */
+export type FilesOpenRequest = FileRequest
+
+/**
+ * Closes a file's tab in the task's Files tab. Closing the tab showing shows the next one (or the one before, if it was
+ * last). Closing a file that isn't open does nothing. Broadcasts `openFiles.changed`.
+ */
+export type FilesCloseRequest = FileRequest
+
+/** `files.open` and `files.close` answer with the task's open files as they now are. */
+export interface OpenFilesResponse {
+  readonly openFiles: OpenFiles
+}
+
+/**
+ * Opens a file in the app macOS opens its kind of file with (Open in editor, ⌘⇧E). Fails with `not_found` when there's
+ * no such file, and `internal` when macOS can't open it.
+ */
+export type FilesOpenInEditorRequest = FileRequest
+
 export interface UiStateGetRequest {
   readonly key: UiStateKey
 }
@@ -324,6 +378,10 @@ export interface CommandMap {
   [CommandName.QueueEdit]: CommandSpec<QueueEditRequest, QueuedMessageResponse>
   [CommandName.QueueRemove]: CommandSpec<QueueRemoveRequest, null>
   [CommandName.QuestionsAnswer]: CommandSpec<QuestionsAnswerRequest, QuestionSetResponse>
+  [CommandName.FilesRead]: CommandSpec<FilesReadRequest, FilesReadResponse>
+  [CommandName.FilesOpen]: CommandSpec<FilesOpenRequest, OpenFilesResponse>
+  [CommandName.FilesClose]: CommandSpec<FilesCloseRequest, OpenFilesResponse>
+  [CommandName.FilesOpenInEditor]: CommandSpec<FilesOpenInEditorRequest, null>
   [CommandName.UiStateGet]: CommandSpec<UiStateGetRequest, UiStateGetResponse>
   [CommandName.UiStateGetAll]: CommandSpec<EmptyRequest, UiStateGetAllResponse>
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>
@@ -346,6 +404,8 @@ export enum EventType {
   QuestionOpened = 'question.opened',
   QuestionAnswered = 'question.answered',
   QuestionWithdrawn = 'question.withdrawn',
+  OpenFilesChanged = 'openFiles.changed',
+  FileShown = 'file.shown',
 }
 
 export interface UiStateChangedEvent {
@@ -420,6 +480,25 @@ export interface QuestionWithdrawnEvent {
   readonly questionSet: QuestionSet
 }
 
+/** A task's open files changed: a file was opened or closed. Carries them as they now are. */
+export interface OpenFilesChangedEvent {
+  readonly type: EventType.OpenFilesChanged
+  readonly openFiles: OpenFiles
+}
+
+/**
+ * The agent asked to show you a file (`show_file`): it's open in its task's Files tab, and the window shows it there,
+ * at `line`, if that task is the one you're viewing. Sent after the `openFiles.changed` that opened it.
+ */
+export interface FileShownEvent {
+  readonly type: EventType.FileShown
+  readonly taskId: string
+  /** Relative to the task's workspace root. */
+  readonly path: string
+  /** The line to scroll to and mark, from 1; null for the top of the file. */
+  readonly line: number | null
+}
+
 /** Everything main broadcasts to the windows. */
 export type GladeEvent =
   | UiStateChangedEvent
@@ -433,6 +512,8 @@ export type GladeEvent =
   | QuestionOpenedEvent
   | QuestionAnsweredEvent
   | QuestionWithdrawnEvent
+  | OpenFilesChangedEvent
+  | FileShownEvent
 
 export type EventListener = (event: GladeEvent) => void
 
@@ -454,6 +535,8 @@ export enum BridgeErrorCode {
   Busy = 'busy',
   /** A workspace root that isn't an existing directory. */
   InvalidRootPath = 'invalid_root_path',
+  /** A file path outside the task's workspace root, or one a symlink takes outside it. */
+  OutsideWorkspace = 'outside_workspace',
   /** The handler threw. */
   Internal = 'internal',
 }

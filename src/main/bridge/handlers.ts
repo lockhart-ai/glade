@@ -2,6 +2,7 @@ import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, CommandName, EventType, type CommandRequest, type CommandResponse } from '../../shared/bridge'
 import type { AgentRunner } from '../agent/runner'
 import { listMessages } from '../db/repositories/messages'
+import { getOpenFiles } from '../db/repositories/open-files'
 import { listQuestionSets } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { getTask, listTasks } from '../db/repositories/tasks'
@@ -12,6 +13,7 @@ import { createWorkspaceAt, openWorkspace } from '../workspaces/workspaces'
 import { editQueuedMessage, removeQueuedMessage } from '../tasks/queue'
 import { noteUiStateSet } from '../tasks/attention'
 import { createTask, markTaskDone, reopenTask, updateTaskFromUser } from '../tasks/service'
+import { closeTaskFile, openTaskFile, openTaskFileInEditor, readTaskFile, type OpenPath } from '../files/files'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
 
@@ -29,6 +31,8 @@ export interface HandlerContext {
   /** Shows the native open-folder dialog; resolves with the chosen path, or null when cancelled. */
   readonly chooseFolder: () => Promise<string | null>
   readonly runner: AgentRunner
+  /** Opens a file in the app macOS opens its kind of file with (Electron's `shell.openPath`). */
+  readonly openPath: OpenPath
 }
 
 export function createHandlers(context: HandlerContext): Handlers {
@@ -63,6 +67,7 @@ export function createHandlers(context: HandlerContext): Handlers {
         toolEvents: listToolEvents(db, id),
         queuedMessages: listQueuedMessages(db, id),
         questionSets: listQuestionSets(db, id),
+        openFiles: getOpenFiles(db, id),
       }
     },
     [CommandName.QueueAdd]: ({ taskId, text }) => ({ queuedMessage: runner.queue(taskId, text) }),
@@ -72,6 +77,13 @@ export function createHandlers(context: HandlerContext): Handlers {
       return null
     },
     [CommandName.QuestionsAnswer]: ({ id, answers }) => ({ questionSet: runner.answer(id, answers) }),
+    [CommandName.FilesRead]: async ({ taskId, path }) => ({ content: await readTaskFile(context, taskId, path) }),
+    [CommandName.FilesOpen]: ({ taskId, path }) => ({ openFiles: openTaskFile(context, taskId, path) }),
+    [CommandName.FilesClose]: ({ taskId, path }) => ({ openFiles: closeTaskFile(context, taskId, path) }),
+    [CommandName.FilesOpenInEditor]: async ({ taskId, path }) => {
+      await openTaskFileInEditor(context, taskId, path)
+      return null
+    },
     [CommandName.UiStateGet]: ({ key }) => ({ value: getUiState(db, key) ?? null }),
     [CommandName.UiStateGetAll]: () => ({ entries: listUiState(db) }),
     [CommandName.UiStateSet]: (entry) => {

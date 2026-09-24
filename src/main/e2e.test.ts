@@ -3,14 +3,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  createE2eEditor,
   createE2eNetwork,
   E2E_CHOSEN_FOLDER_ENV,
+  E2E_EDITOR_GLOBAL,
   E2E_ENV,
   E2E_NETWORK_GLOBAL,
   e2eChosenFolder,
   E2eSpecError,
   prepareE2e,
   readE2eSpec,
+  type E2eEditor,
   type E2eNetwork,
   type E2eSpec,
 } from './e2e'
@@ -130,5 +133,19 @@ describe('createE2eNetwork', () => {
     expect(isOnline()).toBe(false)
     network.online = true
     expect(isOnline()).toBe(true)
+  })
+})
+
+describe('createE2eEditor', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, E2E_EDITOR_GLOBAL)
+  })
+
+  it('records each file it opens on the global object, and succeeds', async () => {
+    const openPath = createE2eEditor()
+
+    await expect(openPath('/code/acme-api/README.md')).resolves.toBe('')
+
+    expect((Reflect.get(globalThis, E2E_EDITOR_GLOBAL) as E2eEditor).opened).toEqual(['/code/acme-api/README.md'])
   })
 })

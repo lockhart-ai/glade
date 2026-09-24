@@ -4,6 +4,7 @@
  * Only the test modes use it.
  */
 import { readFileSync } from 'node:fs'
+import { dirname, isAbsolute, resolve } from 'node:path'
 import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
 import {
@@ -24,6 +25,7 @@ import {
 } from '../shared/domain'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
 import { appendMessage } from './db/repositories/messages'
+import { setOpenFiles } from './db/repositories/open-files'
 import { appendQueuedMessage } from './db/repositories/queued-messages'
 import { createTask, updateTask } from './db/repositories/tasks'
 import { appendDivider, appendNarration, appendToolCall, updateToolCall } from './db/repositories/tool-events'
@@ -112,6 +114,15 @@ export interface SeedTask {
   readonly pause?: SeedPause | undefined
   /** Whether the relaunch notice names it, as a task Glade picked up again after it crashed. */
   readonly resumedAfterCrash?: boolean | undefined
+  /** The files open in its Files tab, relative to the workspace root, and the one showing; none unless given. */
+  readonly openFiles?: SeedOpenFiles | undefined
+}
+
+/** A task's open files (`OpenFiles`). */
+export interface SeedOpenFiles {
+  readonly paths: readonly string[]
+  /** The one showing; the first unless given. */
+  readonly activePath?: string | undefined
 }
 
 /** A sample pause (`TaskPause`), with its times relative to the capture. */
@@ -124,8 +135,14 @@ export interface SeedPause {
 
 /** A fixture: one workspace, opened, and its tasks. */
 export interface CaptureSeed {
+  /**
+   * The workspace. Its root is usually made up (the Files tab then finds no files); a relative root is a folder beside
+   * the fixture, for a capture that shows files.
+   */
   readonly workspace: { readonly name: string; readonly rootPath: string }
   readonly tasks: readonly SeedTask[]
+  /** More UI state, e.g. the right panel's tab and width. */
+  readonly uiState?: Readonly<Partial<Record<UiStateKey, string>>> | undefined
 }
 
 const turn = z.int().positive()
@@ -203,8 +220,10 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       error: seedErrorSchema.optional(),
       pause: seedPauseSchema.optional(),
       resumedAfterCrash: z.boolean().optional(),
+      openFiles: z.strictObject({ paths: z.array(z.string()), activePath: z.string().optional() }).optional(),
     }),
   ),
+  uiState: z.partialRecord(z.enum(UiStateKey), z.string()).optional(),
 })
 
 /** Reads and checks a seed fixture. Throws when it can't be read or isn't a valid fixture. */
@@ -217,7 +236,10 @@ export function readSeed(path: string): CaptureSeed {
   }
   const parsed = seedSchema.safeParse(json)
   if (!parsed.success) throw new Error(`the seed ${path} is invalid: ${z.prettifyError(parsed.error)}`)
-  return parsed.data
+  const { workspace } = parsed.data
+  return isAbsolute(workspace.rootPath)
+    ? parsed.data
+    : { ...parsed.data, workspace: { ...workspace, rootPath: resolve(dirname(path), workspace.rootPath) } }
 }
 
 function seedToolEvent(db: Database, taskId: string, event: SeedToolEvent, at: EpochMs, seedId: string): void {
@@ -294,10 +316,18 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         seedToolEvent(db, task.id, event, ago(event.minutesAgo), `seed-${String(index)}`)
       }
       for (const body of sample.queuedMessages ?? []) appendQueuedMessage(db, { taskId: task.id, body }, now)
+      if (sample.openFiles !== undefined) {
+        const { paths, activePath } = sample.openFiles
+        setOpenFiles(db, { taskId: task.id, paths, activePath: activePath ?? paths[0] ?? null })
+      }
       if (sample.resumedAfterCrash === true) resumed.push(task.id)
     }
     if (resumed.length > 0) {
       setUiState(db, { key: UiStateKey.RelaunchNotice, value: serializeRelaunchNotice({ taskIds: resumed }) })
+    }
+    for (const [key, value] of Object.entries(seed.uiState ?? {})) {
+      // The schema only lets UI state keys in.
+      setUiState(db, { key: key as UiStateKey, value })
     }
   })()
 }

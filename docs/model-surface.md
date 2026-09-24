@@ -45,6 +45,16 @@ text sketch for now.
   `answeredAfterRestart`), carrying on the same turn.
 - Claude Code's own `AskUserQuestion` tool is disallowed, so questions always come through `ask`.
 
+## Implemented: `show_file` (P5-02, names unconfirmed)
+
+`mcp__glade__show_file` takes `{ path: string, line?: number }`: the path absolute or relative to the workspace root,
+the line a whole number from 1. The handler (`showTaskFile` in `src/main/files/files.ts`) opens the file as a tab in
+the task's Files tab (kept in the `open_files` table, so it survives a relaunch) and broadcasts `file.shown`. If that
+task is the one you're viewing, the right panel switches to Files, opening if it was collapsed, and the viewer marks
+the line and scrolls to it. For another task, only its tabs change. The reply is `Showing <path>.` or
+`Showing <path> at line <n>.`; a path outside the workspace (a symlink out of it included), or one with no file, is a
+tool error and opens nothing.
+
 | Tool | Input (draft) | Effect |
 |---|---|---|
 | `set_title` | `{ title: string }` | Names the task. Called once from the first message; the user can rename later. |

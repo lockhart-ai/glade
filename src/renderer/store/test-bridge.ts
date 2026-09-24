@@ -14,13 +14,16 @@ import {
 } from '../../shared/bridge'
 import {
   Effort,
+  FileContentKind,
   MessageRole,
   QuestionKind,
   QuestionReplyKind,
   QuestionSetState,
   TaskActivity,
   TaskState,
+  type FileContent,
   type Message,
+  type OpenFiles,
   type QuestionSet,
   type QueuedMessage,
   type Task,
@@ -28,6 +31,7 @@ import {
   type UiStateEntry,
   type Workspace,
 } from '../../shared/domain'
+import { noOpenFiles, withClosedFile, withOpenedFile } from '../../shared/files'
 
 export type FakeHandlers = {
   readonly [C in CommandName]: (request: CommandRequest<C>) => CommandResponse<C> | Promise<CommandResponse<C>>
@@ -45,6 +49,12 @@ export interface FakeMain {
   readonly queuedMessages?: QueuedMessage[]
   /** Every task's question sets; none when left out. `questions.answer` answers one, without checking the answers. */
   readonly questionSets?: QuestionSet[]
+  /** Every task's open files; none when left out. `files.open` and `files.close` change them. */
+  readonly openFiles?: OpenFiles[]
+  /** What `files.read` answers with, by path, for any task; missing when left out. */
+  readonly files?: Readonly<Record<string, FileContent>>
+  /** The paths `files.openInEditor` opened, oldest first. */
+  readonly openedInEditor?: string[]
 }
 
 export interface FakeBridge {
@@ -71,6 +81,17 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
   }
   const notQueued = (id: string): Promise<never> =>
     refuse(bridgeError(BridgeErrorCode.NotFound, `No queued message ${id}`))
+  const openFiles = main.openFiles ?? []
+  const openFilesOf = (taskId: string): OpenFiles =>
+    openFiles.find((open) => open.taskId === taskId) ?? noOpenFiles(taskId)
+  const changeOpenFiles = (taskId: string, change: (open: OpenFiles) => OpenFiles): { openFiles: OpenFiles } => {
+    const changed = change(openFilesOf(taskId))
+    const index = openFiles.findIndex((open) => open.taskId === taskId)
+    if (index === -1) openFiles.push(changed)
+    else openFiles[index] = changed
+    emit({ type: EventType.OpenFilesChanged, openFiles: changed })
+    return { openFiles: changed }
+  }
   const writeTask = (id: string, change: Partial<Task>): { task: Task } => {
     const index = main.tasks.findIndex((task) => task.id === id)
     const current = main.tasks[index]
@@ -127,6 +148,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       toolEvents: (main.toolEvents ?? []).filter((event) => event.taskId === id),
       queuedMessages: queueOf(id),
       questionSets: (main.questionSets ?? []).filter((set) => set.taskId === id),
+      openFiles: openFilesOf(id),
     }),
     [CommandName.QueueAdd]: ({ taskId, text }) => {
       queued += 1
@@ -165,6 +187,13 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       sets[index] = questionSet
       emit({ type: EventType.QuestionAnswered, questionSet })
       return { questionSet }
+    },
+    [CommandName.FilesRead]: ({ path }) => ({ content: main.files?.[path] ?? { kind: FileContentKind.Missing } }),
+    [CommandName.FilesOpen]: ({ taskId, path }) => changeOpenFiles(taskId, (open) => withOpenedFile(open, path)),
+    [CommandName.FilesClose]: ({ taskId, path }) => changeOpenFiles(taskId, (open) => withClosedFile(open, path)),
+    [CommandName.FilesOpenInEditor]: ({ path }) => {
+      main.openedInEditor?.push(path)
+      return null
     },
     [CommandName.UiStateGet]: ({ key }) => ({ value: main.uiState.find((entry) => entry.key === key)?.value ?? null }),
     [CommandName.UiStateGetAll]: () => ({ entries: [...main.uiState] }),

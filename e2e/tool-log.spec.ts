@@ -35,9 +35,9 @@ test('tool log: rows, notes, dividers and subagent calls; a row expands; the cha
   await pytest.click()
   await expect(panel.log.getByLabel('Bash output')).toHaveCount(0)
 
-  // Other tabs are empty for now. The chat's tool-call chip brings back Tool calls, at that turn.
+  // The chat's tool-call chip brings back Tool calls, at that turn, from any other tab.
   await panel.tab('Files').click()
-  await expect(panel.tabPanel).toHaveText('No files yet.')
+  await expect(panel.tabPanel).toContainText('No file open.')
   await regions(glade.window).chat.getByRole('button', { name: '3 tool calls' }).click()
   await expect(panel.tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
   await expect(panel.log.locator('[data-turn-start="1"]')).toBeInViewport()

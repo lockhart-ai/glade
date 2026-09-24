@@ -3,6 +3,7 @@ import { COMMAND_CHANNEL, EVENT_CHANNEL } from '../../shared/bridge'
 import type { AgentBackend } from '../agent/backend'
 import { createGladeMcpServer, GLADE_SERVER } from '../agent/glade-tools'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
+import type { OpenPath } from '../files/files'
 import type { NotifyReply } from '../notifications/notifications'
 import { createQuestionBroker } from '../questions/questions'
 import { createBroadcast, createDispatcher, type EventTarget } from './dispatcher'
@@ -22,6 +23,8 @@ export interface BridgeOptions {
   readonly targets: () => readonly EventTarget[]
   /** Shows the native open-folder dialog; resolves with the chosen path, or null when cancelled. */
   readonly chooseFolder: () => Promise<string | null>
+  /** Opens a file in the app macOS opens its kind of file with (Electron's `shell.openPath`): Open in editor. */
+  readonly openPath: OpenPath
   /** What runs the tasks' agents: the Claude Agent SDK in the app, a scripted stand-in in tests. */
   readonly agentBackend: AgentBackend
   /** Notifies an agent reply in a task you aren't viewing (`../notifications`). Nothing by default. */
@@ -46,6 +49,7 @@ export function registerBridge({
   db,
   targets,
   chooseFolder,
+  openPath,
   agentBackend,
   notifyReply,
   isOnline,
@@ -63,7 +67,7 @@ export function registerBridge({
     // Each session gets its own Glade tools, built for its task.
     mcpServers: (task) => ({ [GLADE_SERVER]: createGladeMcpServer({ db, emit, questions }, task.id) }),
   })
-  const dispatch = createDispatcher(createHandlers({ db, emit, chooseFolder, runner }), REQUEST_SCHEMAS)
+  const dispatch = createDispatcher(createHandlers({ db, emit, chooseFolder, openPath, runner }), REQUEST_SCHEMAS)
   ipc.handle(COMMAND_CHANNEL, (_event, command, request) => dispatch(command, request))
   return { runner, emit }
 }

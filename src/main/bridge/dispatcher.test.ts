@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { UiStateKey, type Message, type QuestionSet, type QueuedMessage, type Task } from '../../shared/domain'
+import {
+  FileContentKind,
+  UiStateKey,
+  type Message,
+  type OpenFiles,
+  type QuestionSet,
+  type QueuedMessage,
+  type Task,
+} from '../../shared/domain'
 import { createBroadcast, createDispatcher } from './dispatcher'
 import { CommandFailure } from './errors'
 import type { Handlers } from './handlers'
@@ -25,11 +33,21 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.TasksStop]: () => ({ task: {} as Task }),
     [CommandName.TasksRetry]: () => ({ task: {} as Task }),
     [CommandName.TasksCompact]: () => ({ task: {} as Task }),
-    [CommandName.TasksHistory]: () => ({ messages: [], toolEvents: [], queuedMessages: [], questionSets: [] }),
+    [CommandName.TasksHistory]: () => ({
+      messages: [],
+      toolEvents: [],
+      queuedMessages: [],
+      questionSets: [],
+      openFiles: { taskId: 't', paths: [], activePath: null },
+    }),
     [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
     [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
     [CommandName.QueueRemove]: () => null,
     [CommandName.QuestionsAnswer]: () => ({ questionSet: {} as QuestionSet }),
+    [CommandName.FilesRead]: () => ({ content: { kind: FileContentKind.Missing } }),
+    [CommandName.FilesOpen]: () => ({ openFiles: {} as OpenFiles }),
+    [CommandName.FilesClose]: () => ({ openFiles: {} as OpenFiles }),
+    [CommandName.FilesOpenInEditor]: () => null,
     [CommandName.UiStateGet]: () => Promise.resolve({ value: 'async' }),
     [CommandName.UiStateGetAll]: () => ({ entries: [] }),
     [CommandName.UiStateSet]: () => null,

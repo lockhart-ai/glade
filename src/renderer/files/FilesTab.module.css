@@ -1,0 +1,137 @@
+/* The Files tab, from docs/design/html/08-open-file.html: the row of open files over the file showing. */
+.files {
+  flex-grow: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  background: var(--color-panel);
+  border-bottom: 1px solid var(--color-inner-border);
+}
+
+/* The list of the task's files: "☰ 6 ⌄". */
+.list {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin-right: 4px;
+  padding: 0 8px;
+  background: transparent;
+  border: 1px solid var(--color-inner-border);
+  border-radius: var(--radius-button-sm);
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.list:hover:enabled {
+  color: var(--color-text);
+}
+
+.list:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Many open files scroll sideways rather than wrap. */
+.tabs {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tab {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  height: 28px;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-button-sm);
+  color: var(--color-muted);
+}
+
+.tab:hover {
+  color: var(--color-text);
+}
+
+.active {
+  background: var(--color-inner-2);
+  border-color: var(--color-inner-border);
+  color: var(--color-text);
+}
+
+.select,
+.close {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.select {
+  gap: 7px;
+  padding: 0 0 0 10px;
+  white-space: nowrap;
+}
+
+.close {
+  padding: 0 8px 0 7px;
+  color: var(--color-faint);
+}
+
+/* The design's close cross is a touch smaller than a small icon. */
+.close svg {
+  font-size: 10px;
+}
+
+.close:hover {
+  color: var(--color-text);
+}
+
+.select:focus-visible,
+.close:focus-visible,
+.list:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+  border-radius: var(--radius-button-sm);
+}
+
+/* The blue dot on a file the agent changed. */
+.changed {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-blue);
+}
+
+.name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.empty {
+  margin: auto 0;
+  padding: 10px 8px;
+  text-align: center;
+  font-size: var(--font-size-secondary);
+  color: var(--color-faint);
+}

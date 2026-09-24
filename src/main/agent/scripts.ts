@@ -833,6 +833,45 @@ const asksAQuestion: AgentScript = {
   ],
 }
 
+/**
+ * A turn that writes up a doc and shows it to you with `show_file`, at the line to check. The doc must be in the
+ * workspace (a spec makes it) for the Glade tool to open it.
+ */
+const showsAFile: AgentScript = {
+  name: 'shows-a-file',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Document the rate limits',
+        'Write up the public API rate limits for clients.',
+        'Writing up the rate limits.',
+      ),
+      ...tool(
+        'read-limits',
+        'Read',
+        { file_path: 'docs/rate-limits.md' },
+        '# Rate limits\n\nEvery request counts against the key that made it.',
+      ),
+      ...tool(
+        'edit-limits',
+        'Edit',
+        {
+          file_path: 'docs/rate-limits.md',
+          old_string: '| /search | 120 per minute |',
+          new_string: '| /search | 60 per minute |',
+        },
+        'The file docs/rate-limits.md has been updated.',
+      ),
+      gladeTool('show-limits', 'show_file', { path: 'docs/rate-limits.md', line: 8 }),
+      gladeTool('status-done', 'set_status', { status: 'Documented the limits; /search gets 60 a minute.' }),
+      say('The limits are in `docs/rate-limits.md`. Line 8 has the tighter /search limit for you to check.'),
+      result(),
+    ],
+  ],
+}
+
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
   'simple-reply',
@@ -845,6 +884,7 @@ export const AGENT_SCRIPT_NAMES = [
   'long-context',
   'auto-compaction',
   'asks-a-question',
+  'shows-a-file',
   'usage-limit',
   'usage-limit-hour',
   'offline',
@@ -864,6 +904,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'long-context': longContext,
   'auto-compaction': autoCompaction,
   'asks-a-question': asksAQuestion,
+  'shows-a-file': showsAFile,
   'usage-limit': usageLimit,
   'usage-limit-hour': usageLimitHour,
   offline,

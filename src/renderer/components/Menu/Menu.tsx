@@ -23,6 +23,7 @@ import styles from './Menu.module.css'
 export enum MenuEntryKind {
   Item = 'item',
   Separator = 'separator',
+  Heading = 'heading',
 }
 
 export enum MenuItemVariant {
@@ -54,7 +55,13 @@ export interface MenuSeparator {
   kind: MenuEntryKind.Separator
 }
 
-export type MenuEntry = MenuItem | MenuSeparator
+/** A small label over a group of items, e.g. "Changed" over the files the agent changed. It can't be chosen. */
+export interface MenuHeading {
+  kind: MenuEntryKind.Heading
+  label: string
+}
+
+export type MenuEntry = MenuItem | MenuSeparator | MenuHeading
 
 export enum MenuAnchorKind {
   /** At a point in the window, e.g. where a right-click happened. */
@@ -110,7 +117,7 @@ export function Menu({ label, entries, anchor, open, onClose, className }: MenuP
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
   const listRef = useRef<(HTMLElement | null)[]>([])
   const labelsRef = useRef<(string | null)[]>([])
-  // Where each item falls in the entries, so an item's position in the list skips the separators.
+  // Where each item falls in the entries, so an item's position in the list skips the separators and headings.
   const itemEntries = entries.flatMap((entry, index) => (entry.kind === MenuEntryKind.Item ? [index] : []))
 
   const isPoint = anchor.kind === MenuAnchorKind.Point
@@ -181,6 +188,12 @@ export function Menu({ label, entries, anchor, open, onClose, className }: MenuP
             switch (entry.kind) {
               case MenuEntryKind.Separator:
                 return <div key={entryIndex} role="separator" className={styles.separator} />
+              case MenuEntryKind.Heading:
+                return (
+                  <div key={entryIndex} role="presentation" className={styles.heading}>
+                    {entry.label}
+                  </div>
+                )
               case MenuEntryKind.Item: {
                 const index = itemEntries.indexOf(entryIndex)
                 return (

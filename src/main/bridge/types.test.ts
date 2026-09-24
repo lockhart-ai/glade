@@ -13,9 +13,11 @@ import {
 } from '../../shared/bridge'
 import {
   Effort,
+  FileContentKind,
   TaskState,
   UiStateKey,
   type Message,
+  type OpenFiles,
   type QuestionSet,
   type QueuedMessage,
   type Task,
@@ -41,11 +43,21 @@ const TASK_HANDLERS = {
   [CommandName.TasksStop]: () => ({ task: {} as Task }),
   [CommandName.TasksRetry]: () => ({ task: {} as Task }),
   [CommandName.TasksCompact]: () => ({ task: {} as Task }),
-  [CommandName.TasksHistory]: () => ({ messages: [], toolEvents: [], queuedMessages: [], questionSets: [] }),
+  [CommandName.TasksHistory]: () => ({
+    messages: [],
+    toolEvents: [],
+    queuedMessages: [],
+    questionSets: [],
+    openFiles: { taskId: 't', paths: [], activePath: null },
+  }),
   [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueRemove]: () => null,
   [CommandName.QuestionsAnswer]: () => ({ questionSet: {} as QuestionSet }),
+  [CommandName.FilesRead]: () => ({ content: { kind: FileContentKind.Missing } }),
+  [CommandName.FilesOpen]: () => ({ openFiles: {} as OpenFiles }),
+  [CommandName.FilesClose]: () => ({ openFiles: {} as OpenFiles }),
+  [CommandName.FilesOpenInEditor]: () => null,
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
   [CommandName.TasksCreate]: REQUEST_SCHEMAS[CommandName.TasksCreate],
@@ -61,6 +73,10 @@ const TASK_SCHEMAS = {
   [CommandName.QueueEdit]: REQUEST_SCHEMAS[CommandName.QueueEdit],
   [CommandName.QueueRemove]: REQUEST_SCHEMAS[CommandName.QueueRemove],
   [CommandName.QuestionsAnswer]: REQUEST_SCHEMAS[CommandName.QuestionsAnswer],
+  [CommandName.FilesRead]: REQUEST_SCHEMAS[CommandName.FilesRead],
+  [CommandName.FilesOpen]: REQUEST_SCHEMAS[CommandName.FilesOpen],
+  [CommandName.FilesClose]: REQUEST_SCHEMAS[CommandName.FilesClose],
+  [CommandName.FilesOpenInEditor]: REQUEST_SCHEMAS[CommandName.FilesOpenInEditor],
 } satisfies Partial<RequestSchemas>
 
 describe('the command map', () => {
@@ -103,6 +119,7 @@ describe('the command map', () => {
       readonly toolEvents: readonly ToolEvent[]
       readonly queuedMessages: readonly QueuedMessage[]
       readonly questionSets: readonly QuestionSet[]
+      readonly openFiles: OpenFiles
     }>()
     expectTypeOf(glade.invoke(CommandName.QueueAdd, { taskId: 't', text: 'Hi' })).resolves.toEqualTypeOf<{
       readonly queuedMessage: QueuedMessage
@@ -281,6 +298,12 @@ describe('events', () => {
         case EventType.QuestionAnswered:
         case EventType.QuestionWithdrawn:
           expectTypeOf(event.questionSet).toEqualTypeOf<QuestionSet>()
+          break
+        case EventType.OpenFilesChanged:
+          expectTypeOf(event.openFiles).toEqualTypeOf<OpenFiles>()
+          break
+        case EventType.FileShown:
+          expectTypeOf(event.line).toEqualTypeOf<number | null>()
           break
       }
     })
