@@ -87,17 +87,42 @@ it('restores the selected workspace and task after a restart', async () => {
   const second = await launch()
   // Nothing selected yet, so the most recently opened workspace is shown.
   expect(second.store.getState()).toMatchObject({ selectedWorkspaceId: workspaces[1]?.id, selectedTaskId: null })
-  await second.store.getState().selectWorkspace(workspaces[0]?.id ?? null)
+  await second.store.getState().openWorkspace(workspaces[0]?.id ?? '')
   await second.store.getState().selectTask(tasks[1]?.id ?? null)
   quit(second.database)
 
   const third = await launch()
   const restored = third.store.getState()
   expect(restored.hydration).toEqual({ status: HydrationStatus.Ready })
-  expect(restored.workspaces).toEqual(workspaces)
+  expect(restored.workspaces.map(({ id }) => id)).toEqual(workspaces.map(({ id }) => id))
   expect(Object.values(restored.tasks)).toEqual(tasks)
   expect(restored.selectedWorkspaceId).toBe(workspaces[1]?.id)
   expect(restored.selectedTaskId).toBe(tasks[1]?.id)
+})
+
+it("restores each workspace's own selection when switching, across a restart", async () => {
+  const first = await launch()
+  const api = createWorkspace(first.database.db, { name: 'Acme API', rootPath: '/code/acme-api' }, 1_000)
+  const web = createWorkspace(first.database.db, { name: 'Acme Web', rootPath: '/code/acme-web' }, 2_000)
+  const inApi = sampleTask(first.database.db, api.id)
+  const inWeb = sampleTask(first.database.db, web.id)
+  quit(first.database)
+
+  const second = await launch()
+  await second.store.getState().openWorkspace(api.id)
+  await second.store.getState().selectTask(inApi.id)
+  await second.store.getState().openWorkspace(web.id)
+  expect(second.store.getState().selectedTaskId).toBeNull()
+  await second.store.getState().selectTask(inWeb.id)
+  await second.store.getState().openWorkspace(api.id)
+  expect(second.store.getState()).toMatchObject({ selectedWorkspaceId: api.id, selectedTaskId: inApi.id })
+  quit(second.database)
+
+  const third = await launch()
+  expect(third.store.getState()).toMatchObject({ selectedWorkspaceId: api.id, selectedTaskId: inApi.id })
+  await third.store.getState().openWorkspace(web.id)
+  expect(third.store.getState()).toMatchObject({ selectedWorkspaceId: web.id, selectedTaskId: inWeb.id })
+  expect(third.store.getState().messages[inWeb.id]).toEqual([])
 })
 
 it('restores a cleared task selection as none', async () => {

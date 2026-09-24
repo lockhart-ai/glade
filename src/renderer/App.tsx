@@ -24,6 +24,8 @@ import { useCompactShortcut } from './shortcuts/useCompactShortcut'
 import { usePanelShortcuts } from './shortcuts/usePanelShortcuts'
 import { useRightPanelShortcuts } from './shortcuts/useRightPanelShortcuts'
 import { useSearchShortcut } from './shortcuts/useSearchShortcut'
+import { useWorkspaceShortcuts } from './shortcuts/useWorkspaceShortcuts'
+import { WorkspaceSwitcher } from './workspace-switcher/WorkspaceSwitcher'
 import { TaskPanel } from './right-panel'
 import { RelaunchNotice } from './relaunch-notice'
 
@@ -80,6 +82,7 @@ const LAYOUT_PANELS: readonly Panel[] = [Panel.Sidebar, Panel.RightPanel, Panel.
 /** What shows before there is any workspace: no workspace in the sidebar and the welcome in the task card. */
 function FirstRunLayout(): React.JSX.Element {
   usePanelShortcuts(FIRST_RUN_PANELS)
+  useWorkspaceShortcuts()
   return (
     <Window
       sidebar={
@@ -112,13 +115,14 @@ function Layout(): React.JSX.Element {
   usePinShortcut()
   useRenameShortcut()
   useRightPanelShortcuts()
+  useWorkspaceShortcuts()
   return (
     <Window
       banner={<PauseBanner />}
       sidebar={
         sidebar.collapsed ? undefined : (
           <Sidebar>
-            <SidebarHeader workspace={workspace} collapseButton={<PanelToggle panel={Panel.Sidebar} />} />
+            <WorkspaceSwitcher collapseButton={<PanelToggle panel={Panel.Sidebar} />} />
             {workspace !== undefined && (
               <>
                 <TaskListToolbar workspaceId={workspace.id} />

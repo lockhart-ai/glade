@@ -30,7 +30,7 @@ it('reads the store through a selector and re-renders when the selected value ch
   )
   expect(screen.getByRole('paragraph')).toHaveTextContent('Acme API')
 
-  await act(() => store.getState().selectWorkspace('w2'))
+  await act(() => store.getState().openWorkspace('w2'))
   expect(screen.getByRole('paragraph')).toHaveTextContent('Acme Web')
 
   act(() => {

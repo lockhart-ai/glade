@@ -16,6 +16,7 @@ import { EventType } from '../../shared/bridge'
 import { UiStateKey, type UiStateEntry } from '../../shared/domain'
 import { getTask } from '../db/repositories/tasks'
 import { getUiState, setUiState } from '../db/repositories/ui-state'
+import { noteSelection } from '../workspaces/workspaces'
 import { setTaskUnread, type TaskServiceContext } from './service'
 
 /**
@@ -47,6 +48,7 @@ export function openTaskWithoutWindow(context: TaskServiceContext, taskId: strin
     { key: UiStateKey.SelectedTaskId, value: task.id },
   ]
   for (const entry of entries) {
+    noteSelection(context.db, entry)
     setUiState(context.db, entry)
     context.emit({ type: EventType.UiStateChanged, entry })
     noteUiStateSet(context, entry)
