@@ -74,6 +74,10 @@ export interface FakeMain {
   readonly copied?: string[]
   /** The paths `files.reveal` revealed, oldest first. */
   readonly revealed?: string[]
+  /** The task last selected in each workspace, by workspace id, which `workspaces.open` selects; none when left out. */
+  readonly workspaceSelections?: Readonly<Record<string, string>>
+  /** The workspaces `workspaces.reveal` revealed, by id, oldest first. */
+  readonly revealedWorkspaces?: string[]
   /**
    * The terminal tabs, in order; none when left out. `terminal.create` adds `term-1`, `term-2`… at the end (starting in
    * the workspace's root, or `/Users/sample`), `terminal.duplicate` after the tab, and `terminal.rename` and
@@ -102,7 +106,8 @@ export interface FakeBridge {
  * like main does. The task commands don't check transitions, `tasks.send` only saves and broadcasts the message, and
  * `tasks.stop` only sets the task back to waiting, `tasks.compact` only sets it working, and `tasks.delete` only
  * removes the task and broadcasts it, without deselecting it; main's own tests cover the rest. `workspaces.create` adds a
- * workspace and `workspaces.open` answers with it opened at 5,000, neither broadcasting.
+ * workspace and `workspaces.open` answers with it opened at 5,000 and its selection from `workspaceSelections`, neither
+ * broadcasting.
  */
 export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void): FakeHandlers {
   let sent = 0
@@ -165,7 +170,14 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     [CommandName.WorkspacesOpen]: ({ id }) => {
       const current = main.workspaces.find((workspace) => workspace.id === id)
       if (current === undefined) return refuse(bridgeError(BridgeErrorCode.NotFound, `No workspace ${id}`))
-      return { workspace: { ...current, lastOpenedAt: 5_000 } }
+      return { workspace: { ...current, lastOpenedAt: 5_000 }, selectedTaskId: main.workspaceSelections?.[id] ?? null }
+    },
+    [CommandName.WorkspacesReveal]: ({ id }) => {
+      if (!main.workspaces.some((workspace) => workspace.id === id)) {
+        return refuse(bridgeError(BridgeErrorCode.NotFound, `No workspace ${id}`))
+      }
+      main.revealedWorkspaces?.push(id)
+      return null
     },
     [CommandName.DialogChooseFolder]: () => ({ path: null }),
     [CommandName.TasksList]: ({ workspaceId }) => ({

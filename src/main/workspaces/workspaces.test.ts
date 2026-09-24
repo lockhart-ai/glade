@@ -7,9 +7,10 @@ import { UiStateKey } from '../../shared/domain'
 import { CommandFailure } from '../bridge/errors'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
+import { getWorkspaceSelection } from '../db/repositories/workspace-selections'
 import { getWorkspace, listWorkspaces } from '../db/repositories/workspaces'
 import { STARTER_CLAUDE_MD } from './starter-claude-md'
-import { createWorkspaceAt, openWorkspace } from './workspaces'
+import { createWorkspaceAt, noteSelection, openWorkspace } from './workspaces'
 
 let database: TestDatabase
 let dir: string
@@ -93,19 +94,21 @@ describe('openWorkspace', () => {
 
     expect(opening).toEqual({
       workspace: { ...workspace, lastOpenedAt: 9_000 },
+      selectedTaskId: null,
       uiState: [{ key: UiStateKey.ActiveWorkspaceId, value: workspace.id }],
     })
     expect(getWorkspace(database.db, workspace.id)?.lastOpenedAt).toBe(9_000)
     expect(getUiState(database.db, UiStateKey.ActiveWorkspaceId)).toBe(workspace.id)
   })
 
-  it("deselects the selected task when it's in another workspace", () => {
+  it("deselects the selected task when it's in another workspace and this one has no selection", () => {
     const other = sampleWorkspace(database.db, '/code/acme-web')
     const workspace = sampleWorkspace(database.db)
     setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: sampleTask(database.db, other.id).id })
 
-    const { uiState } = openWorkspace(database.db, workspace.id)
+    const { uiState, selectedTaskId } = openWorkspace(database.db, workspace.id)
 
+    expect(selectedTaskId).toBeNull()
     expect(uiState).toEqual([
       { key: UiStateKey.ActiveWorkspaceId, value: workspace.id },
       { key: UiStateKey.SelectedTaskId, value: '' },
@@ -113,14 +116,44 @@ describe('openWorkspace', () => {
     expect(getUiState(database.db, UiStateKey.SelectedTaskId)).toBe('')
   })
 
-  it('keeps a selected task in the same workspace, or one that is gone', () => {
+  it('selects the task last selected in the workspace', () => {
+    const acme = sampleWorkspace(database.db)
+    const web = sampleWorkspace(database.db, '/code/acme-web')
+    const inAcme = sampleTask(database.db, acme.id)
+    const inWeb = sampleTask(database.db, web.id)
+    select(acme.id, inAcme.id)
+    select(web.id, inWeb.id)
+
+    const { uiState, selectedTaskId } = openWorkspace(database.db, acme.id)
+
+    expect(selectedTaskId).toBe(inAcme.id)
+    expect(uiState).toEqual([
+      { key: UiStateKey.ActiveWorkspaceId, value: acme.id },
+      { key: UiStateKey.SelectedTaskId, value: inAcme.id },
+    ])
+    expect(openWorkspace(database.db, web.id).selectedTaskId).toBe(inWeb.id)
+    expect(getUiState(database.db, UiStateKey.SelectedTaskId)).toBe(inWeb.id)
+  })
+
+  it('keeps a selected task in the same workspace', () => {
     const workspace = sampleWorkspace(database.db)
     const task = sampleTask(database.db, workspace.id)
     setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: task.id })
 
-    expect(openWorkspace(database.db, workspace.id).uiState).toHaveLength(1)
+    expect(openWorkspace(database.db, workspace.id)).toMatchObject({
+      selectedTaskId: task.id,
+      uiState: [{ key: UiStateKey.ActiveWorkspaceId, value: workspace.id }],
+    })
+  })
+
+  it('drops a selected task that is gone', () => {
+    const workspace = sampleWorkspace(database.db)
     setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: 'gone' })
-    expect(openWorkspace(database.db, workspace.id).uiState).toHaveLength(1)
+
+    expect(openWorkspace(database.db, workspace.id).uiState).toEqual([
+      { key: UiStateKey.ActiveWorkspaceId, value: workspace.id },
+      { key: UiStateKey.SelectedTaskId, value: '' },
+    ])
   })
 
   it('refuses an unknown workspace, changing nothing', () => {
@@ -130,3 +163,45 @@ describe('openWorkspace', () => {
     expect(listUiState(database.db)).toEqual([])
   })
 })
+
+describe('noteSelection', () => {
+  it("records a selected task as its workspace's selection", () => {
+    const acme = sampleWorkspace(database.db)
+    const task = sampleTask(database.db, acme.id)
+
+    noteSelection(database.db, { key: UiStateKey.SelectedTaskId, value: task.id })
+
+    expect(getWorkspaceSelection(database.db, acme.id)).toBe(task.id)
+  })
+
+  it("clears the shown workspace's selection when no task is selected", () => {
+    const acme = sampleWorkspace(database.db)
+    const web = sampleWorkspace(database.db, '/code/acme-web')
+    const inAcme = sampleTask(database.db, acme.id)
+    select(acme.id, inAcme.id)
+    select(web.id, sampleTask(database.db, web.id).id)
+
+    noteSelection(database.db, { key: UiStateKey.SelectedTaskId, value: '' })
+
+    expect(getWorkspaceSelection(database.db, web.id)).toBeUndefined()
+    expect(getWorkspaceSelection(database.db, acme.id)).toBe(inAcme.id)
+  })
+
+  it('ignores other keys, a missing task, and no selection with no workspace shown', () => {
+    const acme = sampleWorkspace(database.db)
+
+    noteSelection(database.db, { key: UiStateKey.TaskFilter, value: 'unread' })
+    noteSelection(database.db, { key: UiStateKey.SelectedTaskId, value: 'gone' })
+    noteSelection(database.db, { key: UiStateKey.SelectedTaskId, value: '' })
+
+    expect(getWorkspaceSelection(database.db, acme.id)).toBeUndefined()
+  })
+})
+
+/** Shows a workspace and selects a task in it, as the window does. */
+function select(workspaceId: string, taskId: string): void {
+  setUiState(database.db, { key: UiStateKey.ActiveWorkspaceId, value: workspaceId })
+  const entry = { key: UiStateKey.SelectedTaskId, value: taskId }
+  noteSelection(database.db, entry)
+  setUiState(database.db, entry)
+}

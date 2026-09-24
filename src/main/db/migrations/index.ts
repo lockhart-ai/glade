@@ -15,7 +15,8 @@ import { subagentLogMigration } from './0013-subagent-log'
 import { openFilesMigration } from './0014-open-files'
 import { artifactsMigration } from './0015-artifacts'
 import { searchIndexMigration } from './0016-search-index'
-import { terminalTabsMigration } from './0017-terminal-tabs'
+import { workspaceSelectionsMigration } from './0017-workspace-selections'
+import { terminalTabsMigration } from './0018-terminal-tabs'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -35,5 +36,6 @@ export const MIGRATIONS: readonly Migration[] = [
   openFilesMigration,
   artifactsMigration,
   searchIndexMigration,
+  workspaceSelectionsMigration,
   terminalTabsMigration,
 ]

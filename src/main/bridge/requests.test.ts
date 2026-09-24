@@ -14,6 +14,7 @@ describe('REQUEST_SCHEMAS', () => {
       rootPath: '/code/acme-api',
     })
     expect(REQUEST_SCHEMAS[CommandName.WorkspacesOpen].parse({ id: 'w' })).toEqual({ id: 'w' })
+    expect(REQUEST_SCHEMAS[CommandName.WorkspacesReveal].parse({ id: 'w' })).toEqual({ id: 'w' })
     expect(REQUEST_SCHEMAS[CommandName.DialogChooseFolder].parse({})).toEqual({})
     expect(REQUEST_SCHEMAS[CommandName.TasksList].parse({ workspaceId: 'w' })).toEqual({ workspaceId: 'w' })
     expect(REQUEST_SCHEMAS[CommandName.TasksCreate].parse({ workspaceId: 'w' })).toEqual({ workspaceId: 'w' })

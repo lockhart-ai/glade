@@ -2,15 +2,15 @@ import { expect, it } from 'vitest'
 import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { MIGRATIONS } from '.'
-import { terminalTabsMigration } from './0017-terminal-tabs'
+import { terminalTabsMigration } from './0018-terminal-tabs'
 
-it('is migration 17', () => {
-  expect(MIGRATIONS[16]).toBe(terminalTabsMigration)
+it('is migration 18', () => {
+  expect(MIGRATIONS[17]).toBe(terminalTabsMigration)
 })
 
 it('starts with no terminal tabs, each with no output until it has some', () => {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 16))
+  migrate(db, MIGRATIONS.slice(0, 17))
 
   migrate(db, MIGRATIONS)
 

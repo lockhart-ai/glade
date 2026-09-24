@@ -1,0 +1,64 @@
+/* From docs/design/html/14-workspace-switcher.html. */
+.menu {
+  width: 360px;
+  max-width: calc(100vw - 16px);
+  gap: 2px;
+  border-radius: var(--radius-nested);
+}
+
+/* A workspace: taller than a plain item, with its badge, name and root. The chosen one stays highlighted. */
+.menu .row {
+  height: auto;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--radius-button);
+}
+
+.menu .row[aria-checked='true'] {
+  background: var(--color-inner-2);
+}
+
+/* The actions line up with the design's empty icon column. */
+.menu .action {
+  height: 30px;
+  padding: 0 10px 0 28px;
+}
+
+.text {
+  flex-grow: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.root {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status {
+  font-size: 12px;
+  color: var(--color-faint);
+}
+
+.needsYou {
+  color: var(--color-purple);
+}
+
+.check {
+  display: flex;
+  width: 14px;
+  color: var(--color-text);
+}

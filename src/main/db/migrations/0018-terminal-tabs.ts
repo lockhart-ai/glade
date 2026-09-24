@@ -6,7 +6,7 @@ import type { Migration } from '../migrate'
  * relaunch can show it again above a new shell. Processes don't survive a restart; the output does.
  */
 export const terminalTabsMigration: Migration = {
-  version: 17,
+  version: 18,
   name: 'Add the terminal tabs',
   up(db) {
     db.exec(`

@@ -160,6 +160,12 @@ export interface GladeData {
   readonly renamingTaskId: string | null
   /** The task Delete task… asks you to confirm deleting; null when it isn't asking. A one-off UI intent. */
   readonly deletingTaskId: string | null
+  /**
+   * How many times Workspace settings… has asked for the shown workspace's settings; 0 until the first. The settings
+   * modal (P7-03) opens at the workspace's section each time this changes. A one-off UI intent, like
+   * `inputFocusRequest`.
+   */
+  readonly workspaceSettingsRequest: number
   /** The latest request to add text to a task's message field; null until one is made. A one-off UI intent. */
   readonly inputInsertion: InputInsertion | null
   /**
@@ -203,10 +209,20 @@ export interface GladeActions {
   createWorkspace: (rootPath: string) => Promise<Workspace>
   /** Asks for a folder with the native dialog, which can also create one. Resolves with its path, or null if cancelled. */
   chooseFolder: () => Promise<string | null>
-  /** Opens a workspace: records it as last opened and shows it, deselecting a task in another workspace. */
+  /**
+   * Asks for a folder with the native dialog and adds it as a workspace (or finds the one already there) and opens it:
+   * New workspace… and Open folder as workspace…. Resolves with the workspace, or null if the dialog was cancelled.
+   */
+  addWorkspace: () => Promise<Workspace | null>
+  /**
+   * Opens a workspace: records it as last opened and shows it, with the task last selected in it (whose logs it loads),
+   * or none. This is how you switch workspaces.
+   */
   openWorkspace: (workspaceId: string) => Promise<void>
-  /** Shows a workspace, or none. Deselects the selected task if it's in another workspace. */
-  selectWorkspace: (workspaceId: string | null) => Promise<void>
+  /** Shows a workspace's root folder in Finder (Reveal root in Finder). */
+  revealWorkspace: (workspaceId: string) => Promise<void>
+  /** Asks for the shown workspace's settings (Workspace settings…): see `workspaceSettingsRequest`. */
+  openWorkspaceSettings: () => void
   /**
    * Selects a task, or none, and loads its chat log and tool log. Selecting a task in another workspace shows that
    * workspace too.
@@ -387,6 +403,7 @@ export const INITIAL_DATA: GladeData = {
   fileFocus: null,
   renamingTaskId: null,
   deletingTaskId: null,
+  workspaceSettingsRequest: 0,
   inputInsertion: null,
   searchText: '',
   searchFocusRequest: 0,

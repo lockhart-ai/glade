@@ -127,7 +127,9 @@ describe('the command map', () => {
     }>()
     expectTypeOf(glade.invoke(CommandName.WorkspacesOpen, { id: 'w' })).resolves.toEqualTypeOf<{
       readonly workspace: Workspace
+      readonly selectedTaskId: string | null
     }>()
+    expectTypeOf(glade.invoke(CommandName.WorkspacesReveal, { id: 'w' })).resolves.toEqualTypeOf<null>()
     expectTypeOf(glade.invoke(CommandName.DialogChooseFolder, {})).resolves.toEqualTypeOf<{
       readonly path: string | null
     }>()
@@ -244,7 +246,8 @@ describe('the command map', () => {
       ...TASK_HANDLERS,
       [CommandName.WorkspacesList]: () => ({ workspaces: [] }),
       [CommandName.WorkspacesCreate]: () => ({ workspace: WORKSPACE, created: true }),
-      [CommandName.WorkspacesOpen]: () => ({ workspace: WORKSPACE }),
+      [CommandName.WorkspacesOpen]: () => ({ workspace: WORKSPACE, selectedTaskId: null }),
+      [CommandName.WorkspacesReveal]: () => null,
       [CommandName.DialogChooseFolder]: () => ({ path: null }),
       [CommandName.TasksList]: () => ({ tasks: [] }),
       [CommandName.UiStateGet]: () => ({ value: null }),
@@ -258,7 +261,8 @@ describe('the command map', () => {
       ...TASK_HANDLERS,
       [CommandName.WorkspacesList]: () => ({ workspaces: [] }),
       [CommandName.WorkspacesCreate]: () => ({ workspace: WORKSPACE, created: true }),
-      [CommandName.WorkspacesOpen]: () => ({ workspace: WORKSPACE }),
+      [CommandName.WorkspacesOpen]: () => ({ workspace: WORKSPACE, selectedTaskId: null }),
+      [CommandName.WorkspacesReveal]: () => null,
       [CommandName.DialogChooseFolder]: () => ({ path: null }),
       [CommandName.TasksList]: () => ({ tasks: [] }),
       [CommandName.UiStateGetAll]: () => ({ entries: [] }),
@@ -274,7 +278,8 @@ describe('the command map', () => {
       ...TASK_HANDLERS,
       [CommandName.WorkspacesList]: () => ({ workspaces: [] }),
       [CommandName.WorkspacesCreate]: () => ({ workspace: WORKSPACE, created: true }),
-      [CommandName.WorkspacesOpen]: () => ({ workspace: WORKSPACE }),
+      [CommandName.WorkspacesOpen]: () => ({ workspace: WORKSPACE, selectedTaskId: null }),
+      [CommandName.WorkspacesReveal]: () => null,
       [CommandName.DialogChooseFolder]: () => ({ path: null }),
       [CommandName.TasksList]: () => ({ tasks: [] }),
       [CommandName.UiStateGetAll]: () => ({ entries: [] }),

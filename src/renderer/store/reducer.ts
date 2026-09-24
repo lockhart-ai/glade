@@ -111,18 +111,17 @@ function newerArtifacts(loaded: readonly Artifact[], current: readonly Artifact[
 }
 
 /**
- * What `workspaces.open` does, as main broadcasts it: the workspace as it now is, shown, and the selected task
- * deselected if it's in another workspace.
+ * What `workspaces.open` does, as main broadcasts it: the workspace as it now is, shown, with the task main selected
+ * in it (the one last selected there), or none.
  */
-export function withOpenedWorkspace(state: GladeData, workspace: Workspace): GladeData {
+export function withOpenedWorkspace(state: GladeData, workspace: Workspace, selectedTaskId: string | null): GladeData {
   const shown = withUiState(
     { ...state, workspaces: withWorkspace(state.workspaces, workspace) },
     { key: UiStateKey.ActiveWorkspaceId, value: workspace.id },
   )
-  const task = shown.selectedTaskId === null ? undefined : shown.tasks[shown.selectedTaskId]
-  return task !== undefined && task.workspaceId !== workspace.id
-    ? withUiState(shown, { key: UiStateKey.SelectedTaskId, value: '' })
-    : shown
+  return shown.selectedTaskId === selectedTaskId
+    ? shown
+    : withUiState(shown, { key: UiStateKey.SelectedTaskId, value: selectedTaskId ?? '' })
 }
 
 /** Drops what the store keeps for one task. */
