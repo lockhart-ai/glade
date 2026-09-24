@@ -1,0 +1,82 @@
+{
+  "workspace": { "name": "Acme API", "rootPath": "/Users/sample/code/api" },
+  "tasks": [
+    {
+      "title": "Add rate limiting to public API",
+      "objective": "Add per-key rate limiting to the public API.",
+      "status": "Giving /search its own limit",
+      "activity": "working",
+      "minutesAgo": 0,
+      "selected": true,
+      "messages": [
+        { "role": "user", "body": "Add per-key rate limiting to the public API.", "turn": 1, "minutesAgo": 30 },
+        { "role": "agent", "body": "Tests pass. Should /search get a tighter limit?", "turn": 1, "minutesAgo": 20 },
+        { "role": "user", "body": "Give /search 60 a minute.", "turn": 2, "minutesAgo": 10 }
+      ],
+      "toolEvents": [
+        { "kind": "divider", "dividerKind": "turn", "turn": 1, "minutesAgo": 30 },
+        { "kind": "narration", "text": "Looking at how the API views are set up.", "turn": 1, "minutesAgo": 29 },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": { "file_path": "/Users/sample/code/api/api/views.py" },
+          "output": "     1\tfrom rest_framework import viewsets\n     2\t\n     3\tclass ItemViewSet(viewsets.ModelViewSet):",
+          "turn": 1,
+          "minutesAgo": 28
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": { "description": "Find the throttling settings", "prompt": "Find where DRF throttling is set." },
+          "output": "Throttling is configured in config/settings.py.",
+          "toolUseId": "agent-1",
+          "turn": 1,
+          "minutesAgo": 27
+        },
+        {
+          "kind": "tool_call",
+          "name": "Grep",
+          "input": { "pattern": "THROTTLE" },
+          "output": "Found 1 file\nconfig/settings.py",
+          "parentToolUseId": "agent-1",
+          "turn": 1,
+          "minutesAgo": 26
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": { "command": "pytest api/tests -q" },
+          "output": "..............  [100%]\n14 passed in 3.2s",
+          "turn": 1,
+          "minutesAgo": 22
+        },
+        { "kind": "divider", "dividerKind": "turn", "turn": 2, "minutesAgo": 10 },
+        { "kind": "narration", "text": "Giving /search its own throttle scope.", "turn": 2, "minutesAgo": 9 },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": { "command": "python manage.py check" },
+          "output": "SystemCheckError: api.E001 unknown throttle scope 'search'",
+          "failed": true,
+          "turn": 2,
+          "minutesAgo": 8
+        },
+        {
+          "kind": "tool_call",
+          "name": "mcp__glade__set_status",
+          "input": { "status": "Giving /search its own limit" },
+          "output": "Status updated.",
+          "turn": 2,
+          "minutesAgo": 7
+        },
+        {
+          "kind": "tool_call",
+          "name": "Edit",
+          "input": { "file_path": "/Users/sample/code/api/config/settings.py", "old_string": "", "new_string": "" },
+          "turn": 2,
+          "minutesAgo": 6
+        }
+      ]
+    }
+  ]
+}
