@@ -2,7 +2,15 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { MessageRole, TaskActivity, TaskState, ToolCallState, ToolEventKind, UiStateKey } from '../shared/domain'
+import {
+  DividerKind,
+  MessageRole,
+  TaskActivity,
+  TaskState,
+  ToolCallState,
+  ToolEventKind,
+  UiStateKey,
+} from '../shared/domain'
 import { applySeed, readSeed, type CaptureSeed } from './capture-seed'
 import { listMessages } from './db/repositories/messages'
 import { listToolEvents } from './db/repositories/tool-events'
@@ -60,6 +68,11 @@ describe('readSeed', () => {
 
   it('reads the agent working fixture', () => {
     expect(readSeed(join(FIXTURES, 'agent-working.json')).tasks[0]?.activity).toBe(TaskActivity.Working)
+  })
+
+  it('reads the e2e tool log fixture', () => {
+    const seed = readSeed(join(import.meta.dirname, '..', '..', 'e2e', 'seeds', 'tool-log.json'))
+    expect(seed.tasks[0]?.toolEvents).toHaveLength(11)
   })
 
   it('refuses a fixture that is missing or not JSON', () => {
@@ -180,6 +193,53 @@ describe('applySeed', () => {
         parentToolUseId: null,
       },
       { kind: ToolEventKind.ToolCall, name: 'Bash', output: null, state: ToolCallState.Running },
+    ])
+  })
+
+  it('writes dividers, failed calls, and a subagent’s calls under their parent', () => {
+    const { db } = database
+
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          {
+            title: 'Add rate limiting',
+            minutesAgo: 0,
+            toolEvents: [
+              { kind: ToolEventKind.Divider, dividerKind: DividerKind.Turn, turn: 2, minutesAgo: 9 },
+              {
+                kind: ToolEventKind.ToolCall,
+                name: 'Agent',
+                input: { description: 'Look' },
+                output: 'Found it.',
+                toolUseId: 'agent-1',
+                turn: 2,
+                minutesAgo: 8,
+              },
+              {
+                kind: ToolEventKind.ToolCall,
+                name: 'Bash',
+                input: { command: 'make' },
+                output: 'Exit 2',
+                failed: true,
+                parentToolUseId: 'agent-1',
+                turn: 2,
+                minutesAgo: 7,
+              },
+            ],
+          },
+        ],
+      },
+      NOW,
+    )
+
+    const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    expect(listToolEvents(db, task?.id ?? '')).toMatchObject([
+      { kind: ToolEventKind.Divider, dividerKind: DividerKind.Turn, turn: 2, createdAt: NOW - 9 * MINUTE },
+      { kind: ToolEventKind.ToolCall, toolUseId: 'agent-1', state: ToolCallState.Done, parentToolUseId: null },
+      { kind: ToolEventKind.ToolCall, output: 'Exit 2', state: ToolCallState.Error, parentToolUseId: 'agent-1' },
     ])
   })
 })

@@ -4,6 +4,7 @@
  * shown (Playwright drives and records it over the DevTools protocol), and native dialogs, which a test can't click,
  * answer with what the test asked for. It never runs in a packaged app.
  */
+import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import { AGENT_SCRIPT_NAMES, type AgentScriptName } from './agent/scripts'
 import { isInTempFolder, isolateApp, type IsolatedApp } from './isolation'
@@ -31,12 +32,18 @@ export interface E2eSpec {
   readonly route: string
   /** The agent script every task's agent plays (see `src/main/agent/scripts.ts`). None by default: no agent runs. */
   readonly agentScript?: AgentScriptName
+  /**
+   * A JSON fixture of sample data (see `./capture-seed`) to fill the database with before the window opens, on top of
+   * whatever the data folder already holds. A test passes it on its first launch only.
+   */
+  readonly seed?: string
 }
 
 const e2eSpecSchema: z.ZodType<E2eSpec> = z.strictObject({
   userData: z.string().refine(isInTempFolder, 'must be a folder in the system temp folder'),
   route: z.string().regex(/^(#[\w\-/]*)?$/, 'must be empty or a hash like #gallery'),
   agentScript: z.enum(AGENT_SCRIPT_NAMES).optional(),
+  seed: z.string().refine(isAbsolute, 'must be an absolute path').optional(),
 })
 
 /** The e2e spec was set but isn't valid, or its data folder can't be used. */

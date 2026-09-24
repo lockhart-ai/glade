@@ -663,6 +663,33 @@ describe('startApp in e2e mode', () => {
     expect(createSdkBackend).not.toHaveBeenCalled()
   })
 
+  it('fills the database from the seed fixture before opening the window', async () => {
+    const seed = join(electron.app.userData, 'seed.json')
+    writeFileSync(seed, JSON.stringify({ workspace: { name: 'Acme API', rootPath: '/code/api' }, tasks: [] }))
+    askForE2e({ seed })
+
+    await startAndWaitUntilReady()
+
+    expect(electron.windows).toHaveLength(1)
+    expect(electron.app.exit).not.toHaveBeenCalled()
+    const db = new Database(join(electron.app.userData, 'glade.db'), { readonly: true })
+    try {
+      expect(db.prepare('SELECT name FROM workspaces').all()).toEqual([{ name: 'Acme API' }])
+    } finally {
+      db.close()
+    }
+  })
+
+  it('exits with an error, without opening a window, when the seed fixture is bad', async () => {
+    askForE2e({ seed: join(electron.app.userData, 'missing.json') })
+
+    await startAndWaitUntilReady()
+
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/^Glade e2e failed: the seed .* can't be read/))
+    expect(electron.windows).toHaveLength(0)
+    expect(electron.app.exit).toHaveBeenCalledWith(1)
+  })
+
   it('reopens a hidden window on activate', async () => {
     askForE2e()
     await startAndWaitUntilReady()

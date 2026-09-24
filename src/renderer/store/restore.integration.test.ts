@@ -15,7 +15,14 @@ import { createWorkspace, getWorkspace } from '../../main/db/repositories/worksp
 import { STARTER_CLAUDE_MD } from '../../main/workspaces/starter-claude-md'
 import { createBridge } from '../../preload/bridge'
 import { bridgeError, BridgeErrorCode, CommandName, type GladeBridge } from '../../shared/bridge'
-import type { Task, Workspace } from '../../shared/domain'
+import { DividerKind, ToolCallState, type Task, type Workspace } from '../../shared/domain'
+import {
+  appendDivider,
+  appendNarration,
+  appendToolCall,
+  listToolEvents,
+  updateToolCall,
+} from '../../main/db/repositories/tool-events'
 import { HydrationStatus } from './state'
 import { createGladeStore, type GladeStore } from './store'
 
@@ -95,6 +102,32 @@ it('restores a cleared task selection as none', async () => {
 
   const third = await launch()
   expect(third.store.getState()).toMatchObject({ selectedWorkspaceId: workspace.id, selectedTaskId: null })
+})
+
+it("restores the selected task's tool log after a restart", async () => {
+  const first = await launch()
+  const { db } = first.database
+  const workspace = sampleWorkspace(db)
+  const task = sampleTask(db, workspace.id)
+  appendDivider(db, { taskId: task.id, turn: 1, dividerKind: DividerKind.Turn })
+  appendNarration(db, { taskId: task.id, turn: 1, text: 'Looking around.' })
+  appendToolCall(db, {
+    taskId: task.id,
+    turn: 1,
+    name: 'Read',
+    input: { file_path: 'a.py' },
+    toolUseId: 'use-1',
+    parentToolUseId: null,
+  })
+  updateToolCall(db, { taskId: task.id, toolUseId: 'use-1', state: ToolCallState.Done, output: '1\ta' })
+  const events = listToolEvents(db, task.id)
+  await first.store.getState().selectTask(task.id)
+  quit(first.database)
+
+  const second = await launch()
+  expect(second.store.getState().selectedTaskId).toBe(task.id)
+  expect(second.store.getState().toolEvents[task.id]).toEqual(events)
+  expect(events).toHaveLength(3)
 })
 
 /** Makes a folder to be a workspace root. */

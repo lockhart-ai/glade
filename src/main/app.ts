@@ -167,6 +167,23 @@ async function runCapture(spec: CaptureSpec, context: CaptureContext): Promise<v
   app.exit(exitCode)
 }
 
+/**
+ * Fills an e2e run's database from its seed fixture, if it has one, as a capture does. Returns false, having closed
+ * the database and exited with an error, when the fixture can't be applied.
+ */
+function seedE2e(spec: E2eSpec, database: AppDatabase): boolean {
+  if (spec.seed === undefined) return true
+  try {
+    applySeed(database.db, readSeed(spec.seed))
+    return true
+  } catch (error) {
+    console.error(`Glade e2e failed: ${(error as Error).message}`)
+    database.db.close()
+    app.exit(1)
+    return false
+  }
+}
+
 /** The test mode asked for through the environment, set up before the app is ready; `null` in a normal run. */
 function startTestMode(): TestMode {
   const capture = readCaptureSpec(process.env, app.isPackaged, WINDOW_MIN_SIZE)
@@ -258,6 +275,7 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
       void runCapture(testMode.spec, { database, bridge, agent: testAgent })
       return
     }
+    if (testMode?.kind === TestModeKind.E2e && !seedE2e(testMode.spec, database)) return
 
     app.on('will-quit', () => {
       runner.close()
