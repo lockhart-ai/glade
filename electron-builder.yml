@@ -14,3 +14,6 @@ mac:
   category: public.app-category.developer-tools
   # Unsigned for now: skip looking for a signing identity.
   identity: null
+# Nothing to rebuild for Electron: better-sqlite3 is a Node-API addon with prebuilt binaries, which load under both
+# Node and Electron (see src/main/db/database.ts).
+npmRebuild: false
