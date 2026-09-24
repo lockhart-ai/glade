@@ -95,6 +95,8 @@ export function taskPanel(page: Page) {
     /** A subagent's calls, under the call that started it (by its name). */
     subagentCalls: (name: string) => log.getByRole('group', { name: `${name} subagent calls` }),
     dividers: log.getByRole('separator'),
+    /** Each compaction's Compact row: its name, the tokens before and after, its time and how it went. */
+    compactions: log.getByRole('group', { name: 'Compact' }),
   }
 }
 
@@ -113,6 +115,10 @@ export function chat(page: Page) {
     markedDone: log.getByRole('separator', { name: 'Marked done' }),
     /** Where your message reopened a done task. */
     reopened: log.getByRole('separator', { name: 'Reopened' }),
+    /** Where the context was compacted: "Compacted · 198k → 41k". */
+    compacted: log.getByRole('separator', { name: 'Compacted' }),
+    /** The live line while the agent works. */
+    working: log.getByRole('status'),
     /** What a task with no messages yet asks. */
     newTaskPrompt: log.getByRole('heading', { name: 'What should the agent do?' }),
   }
@@ -166,5 +172,17 @@ export function inputBar(page: Page) {
     queuedEditor: bar.getByRole('textbox', { name: 'Queued message' }),
     /** The context meter, at the right of the settings row. */
     contextMeter: bar.getByTestId('context-meter-slot').getByRole('meter', { name: 'Context used' }),
+    /** The button the context meter is, which opens its popover. */
+    contextButton: bar.getByTestId('context-meter-slot').getByRole('button', { name: 'Context' }),
+  }
+}
+
+/** The context meter's popover: how full the context is, where it compacts automatically, and Compact now. */
+export function contextPopover(page: Page) {
+  const popover = page.getByRole('dialog', { name: 'Context' })
+  return {
+    popover,
+    usage: popover.getByTestId('context-usage'),
+    compactNow: popover.getByRole('button', { name: 'Compact now' }),
   }
 }

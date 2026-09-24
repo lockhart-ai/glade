@@ -15,6 +15,7 @@ import { useNewTaskShortcut } from './shortcuts/useNewTaskShortcut'
 import { useMarkDoneShortcut } from './shortcuts/useMarkDoneShortcut'
 import { useMarkUnreadShortcut } from './shortcuts/useMarkUnreadShortcut'
 import { useStopShortcut } from './shortcuts/useStopShortcut'
+import { useCompactShortcut } from './shortcuts/useCompactShortcut'
 import { TaskPanel } from './tool-log'
 
 interface PlaceholderProps {
@@ -68,6 +69,7 @@ function Layout(): React.JSX.Element {
   const workspace = useGladeStore(selectSelectedWorkspace)
   useNewTaskShortcut()
   useStopShortcut()
+  useCompactShortcut()
   useMarkDoneShortcut()
   useMarkUnreadShortcut()
   return (

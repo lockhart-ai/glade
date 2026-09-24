@@ -45,6 +45,14 @@
  * when it aborts, goes to the tool log as narration rather than the chat, since it isn't a finished reply; its
  * unfinished tool calls end as errors; and a narration notes that you stopped it.
  *
+ * **Compaction** (`docs/sdk-notes.md` §5). Compact now and ⌘⇧K (`compact`) send an idle session `/compact`, which runs
+ * like a turn of its own: the agent works while it compacts, so messages sent meanwhile are queued, and Stop stops it.
+ * It isn't a user turn: `/compact` never reaches the chat, there's no turn divider, and it belongs to the task's last
+ * turn. The tool log gets a running Compact row at once, filled in when the SDK's `compact_boundary` reports the tokens
+ * before and after; if the turn ends without one, the row ends as an error. The context usage drops to the tokens after
+ * straight away (`getContextUsage()` is stale after a compaction), and follows the next assistant message from there.
+ * A compaction the SDK does on its own, at its auto-compact threshold, is logged when its boundary arrives.
+ *
  * **Resume on launch.** A turn the app quit or crashed in is left working in the database. On launch,
  * `resumeInterrupted` carries each one on: it resumes the task's SDK session by its saved id (`docs/sdk-notes.md` §8),
  * adds a resumed divider to the tool log, and sends the session `RESUME_PROMPT`. A resumed session waits for a message
@@ -61,6 +69,7 @@ import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, type GladeEvent } from '../../shared/bridge'
 import {
+  CompactionTrigger,
   DividerKind,
   MessageRole,
   TaskActivity,
@@ -82,11 +91,14 @@ import { appendMessage, lastTurn } from '../db/repositories/messages'
 import { listQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
 import { getTask, listWorkingTasks } from '../db/repositories/tasks'
 import {
+  appendCompaction,
   appendDivider,
   appendNarration,
   appendToolCall,
+  failRunningCompactions,
   failRunningToolCalls,
   listToolEvents,
+  updateCompaction,
   updateToolCall,
 } from '../db/repositories/tool-events'
 import { getWorkspace } from '../db/repositories/workspaces'
@@ -99,6 +111,7 @@ import {
   createSdkMessageParser,
   type AgentEvent,
   type AgentLog,
+  type CompactedEvent,
   type TextEvent,
   type ToolCallStartedEvent,
   type ToolResultEvent,
@@ -133,6 +146,12 @@ export interface AgentRunner {
    * agent isn't working. Throws a `CommandFailure` `not_found` for no such task.
    */
   stop(taskId: string): Promise<Task>
+  /**
+   * Compacts the task's context now: sends its session `/compact` (see the module comment), and answers with the task,
+   * now working. Throws a `CommandFailure`: `not_found` for no such task, `busy` while a turn is running, and
+   * `invalid_transition` for a done task or one whose agent has no session yet.
+   */
+  compact(taskId: string): Task
   /** Carries on the turns the app quit or crashed in (see the module comment). Call it once, on launch. */
   resumeInterrupted(): void
   /** Closes every live session, e.g. when the app quits. */
@@ -150,6 +169,8 @@ interface Turn {
   readonly awaiting: Set<string>
   /** Whether the user asked to stop the turn. */
   stopping: boolean
+  /** The id of the running Compact row of a compaction you asked for, until the SDK reports it; null otherwise. */
+  compaction: string | null
   /** Resolves once the turn has ended, however it ended. */
   readonly ended: Promise<void>
   readonly end: () => void
@@ -178,6 +199,9 @@ export const RESUME_PROMPT = 'Glade restarted while you were working. Continue w
 /** What a tool call cut off by the app quitting says. */
 export const RESTARTED_TOOL_NOTE = 'Glade quit before this tool call finished.'
 
+/** What Glade sends a session to compact it (`docs/sdk-notes.md` §5). */
+export const COMPACT_COMMAND = '/compact'
+
 /** What the tool log says for a working task that had no session to resume. */
 export const NOT_RESUMED_NOTE = "Glade quit before the agent's session started, so there was nothing to resume."
 
@@ -191,7 +215,16 @@ function newTurn(number: number): Turn {
   const ended = new Promise<void>((resolve) => {
     end = resolve
   })
-  return { number, pending: [], running: new Map(), awaiting: new Set(), stopping: false, ended, end }
+  return {
+    number,
+    pending: [],
+    running: new Map(),
+    awaiting: new Set(),
+    stopping: false,
+    compaction: null,
+    ended,
+    end,
+  }
 }
 
 function describeError(error: unknown): string {
@@ -287,7 +320,40 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     setActivity(taskId, TaskActivity.Waiting)
   }
 
+  /** Ends the compaction you asked for as an error, if the SDK never reported it. */
+  const failCompaction = (turn: Turn): void => {
+    if (turn.compaction === null) return
+    const id = turn.compaction
+    turn.compaction = null
+    emitToolEventUpdated(
+      emit,
+      updateCompaction(db, { id, state: ToolCallState.Error, preTokens: null, postTokens: null }),
+    )
+  }
+
+  /**
+   * Logs a compaction the SDK reports: fills in the one you asked for, or adds one it did on its own. The context usage
+   * drops to what it reports is left.
+   */
+  const onCompacted = (taskId: string, turn: Turn, event: CompactedEvent): void => {
+    const task = getTask(db, taskId)
+    if (task === undefined) return
+    const outcome = { state: ToolCallState.Done, preTokens: event.preTokens, postTokens: event.postTokens }
+    if (turn.compaction === null) {
+      const { trigger } = event
+      const compaction = { taskId, turn: turn.number, trigger, windowTokens: task.contextWindowTokens, ...outcome }
+      emitToolEventAppended(emit, appendCompaction(db, compaction))
+    } else {
+      emitToolEventUpdated(emit, updateCompaction(db, { id: turn.compaction, ...outcome }))
+      turn.compaction = null
+    }
+    if (event.postTokens !== null && task.contextUsedTokens !== event.postTokens) {
+      updateTaskFromRunner(context, taskId, { contextUsedTokens: event.postTokens })
+    }
+  }
+
   const onTurnFinished = (taskId: string, live: LiveSession, turn: Turn, event: TurnFinishedEvent): void => {
+    failCompaction(turn)
     if (event.isError && (turn.stopping || isAborted(event.terminalReason))) {
       endTurn(live, turn)
       onTurnStopped(taskId, turn)
@@ -343,6 +409,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const { turn } = live
     if (turn === null) return
     endTurn(live, turn)
+    failCompaction(turn)
     turn.pending.push(message)
     flushPreamble(taskId, turn)
     failRunning(taskId, turn, message)
@@ -379,6 +446,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         if (getTask(db, taskId)?.contextUsedTokens !== event.tokens) {
           updateTaskFromRunner(context, taskId, { contextUsedTokens: event.tokens })
         }
+        return
+      case AgentEventKind.Compacted:
+        onCompacted(taskId, turn, event)
         return
       case AgentEventKind.TurnFinished:
         recordContextWindow(taskId, live, event)
@@ -434,6 +504,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const resume = (task: Task): void => {
     const turn = lastTurn(db, task.id)
     for (const call of failRunningToolCalls(db, task.id, RESTARTED_TOOL_NOTE)) emitToolEventUpdated(emit, call)
+    for (const compaction of failRunningCompactions(db, task.id)) emitToolEventUpdated(emit, compaction)
     if (task.sessionId === null) {
       emitToolEventAppended(emit, appendNarration(db, { taskId: task.id, turn, text: NOT_RESUMED_NOTE }))
       setActivity(task.id, TaskActivity.Waiting)
@@ -529,6 +600,40 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       turn.stopping = true
       await live.session.interrupt()
       await turn.ended
+      return getTask(db, taskId) ?? task
+    },
+
+    compact(taskId) {
+      const task = getTask(db, taskId)
+      if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
+      const running = sessions.get(taskId)
+      if ((running?.turn ?? null) !== null) {
+        throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working; compact once it has finished')
+      }
+      if (task.state === TaskState.Done) {
+        throw new CommandFailure(BridgeErrorCode.InvalidTransition, 'A done task is not compacted')
+      }
+      if (task.sessionId === null) {
+        throw new CommandFailure(BridgeErrorCode.InvalidTransition, 'The agent has no context to compact yet')
+      }
+      const live = running ?? start(task)
+      const turn = Math.max(1, lastTurn(db, taskId))
+      const compaction = appendCompaction(db, {
+        taskId,
+        turn,
+        trigger: CompactionTrigger.Manual,
+        state: ToolCallState.Running,
+        preTokens: null,
+        postTokens: null,
+        windowTokens: task.contextWindowTokens,
+      })
+      emitToolEventAppended(emit, compaction)
+      setActivity(taskId, TaskActivity.Working)
+      live.turn = newTurn(turn)
+      live.turn.compaction = compaction.id
+      const uuid = randomUUID()
+      live.turn.awaiting.add(uuid)
+      live.session.send(COMPACT_COMMAND, uuid)
       return getTask(db, taskId) ?? task
     },
 

@@ -5,9 +5,11 @@
 import { TaskIndicator } from '../../shared/taskIndicator'
 import { toolDisplayName } from '../../shared/toolName'
 import {
+  CompactionTrigger,
   DividerKind,
   ToolCallState,
   ToolEventKind,
+  type CompactionEvent,
   type DividerEvent,
   type EpochMs,
   type NarrationEvent,
@@ -16,6 +18,7 @@ import {
   type ToolInput,
 } from '../../shared/domain'
 import { clockTime, dayAndTime } from '../chat/chatModel'
+import { formatTokens } from '../context-meter/format'
 
 /** How long the short JSON of an MCP tool's input may be before it's cut; the row's ellipsis shows the rest. */
 const MAX_JSON_SUMMARY = 200
@@ -209,8 +212,37 @@ export interface DividerRow {
   readonly label: string
 }
 
+/** A compaction, shown like a tool call named Compact (docs/design/html/19-compaction.html). */
+export interface CompactionRow {
+  readonly kind: ToolEventKind.Compaction
+  readonly compaction: CompactionEvent
+}
+
 /** One top-level row of the tool log. */
-export type ToolLogRow = CallRow | NarrationRow | DividerRow
+export type ToolLogRow = CallRow | NarrationRow | DividerRow | CompactionRow
+
+/** What a compaction row names it. */
+export const COMPACTION_NAME = 'Compact'
+
+/** The argument after a compaction's name: "198k → 41k tokens" once it's done, else nothing. */
+export function compactionArgument({ state, preTokens, postTokens }: CompactionEvent): string {
+  if (state !== ToolCallState.Done || preTokens === null) return ''
+  return postTokens === null
+    ? `from ${formatTokens(preTokens)} tokens`
+    : `${formatTokens(preTokens)} → ${formatTokens(postTokens)} tokens`
+}
+
+/** The short result line under a compaction. */
+export function compactionResult({ state, trigger }: CompactionEvent): string {
+  switch (state) {
+    case ToolCallState.Running:
+      return 'Compacting…'
+    case ToolCallState.Error:
+      return "Didn't finish"
+    case ToolCallState.Done:
+      return trigger === CompactionTrigger.Auto ? 'Automatic · resuming from a summary' : 'Resuming from a summary'
+  }
+}
 
 /**
  * The tool log's rows, in order. A subagent's calls sit under the call that started it (the one whose `toolUseId` is
@@ -232,6 +264,9 @@ export function toolLogRows(events: readonly ToolEvent[]): ToolLogRow[] {
           const label = `${dividerLabel(event)} · ${dividerTime(event.createdAt, previous)}`
           rows.push({ kind: ToolEventKind.Divider, divider: event, label })
         }
+        break
+      case ToolEventKind.Compaction:
+        rows.push({ kind: ToolEventKind.Compaction, compaction: event })
         break
       case ToolEventKind.ToolCall: {
         const children: CallRow[] = []

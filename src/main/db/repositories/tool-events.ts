@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
 import {
+  CompactionTrigger,
   DividerKind,
   ToolCallState,
   ToolEventKind,
+  type CompactionEvent,
   type DividerEvent,
   type EpochMs,
   type NarrationEvent,
@@ -36,6 +38,23 @@ export interface NewDivider extends NewToolEventBase {
   readonly dividerKind: DividerKind
 }
 
+/** A compaction as it starts (running, with no token counts yet) or as it's reported done. */
+export interface NewCompaction extends NewToolEventBase {
+  readonly trigger: CompactionTrigger
+  readonly state: ToolCallState
+  readonly preTokens: number | null
+  readonly postTokens: number | null
+  readonly windowTokens: number
+}
+
+/** How a compaction finished, to fill in on the compaction with the same `id`. */
+export interface CompactionOutcome {
+  readonly id: string
+  readonly state: ToolCallState
+  readonly preTokens: number | null
+  readonly postTokens: number | null
+}
+
 /** A tool call's result, to fill in on the call with the same `toolUseId`. */
 export interface ToolCallResult {
   readonly taskId: string
@@ -59,14 +78,19 @@ interface ToolEventParams {
   readonly toolUseId: string | null
   readonly parentToolUseId: string | null
   readonly dividerKind: DividerKind | null
+  readonly compactTrigger: CompactionTrigger | null
+  readonly preTokens: number | null
+  readonly postTokens: number | null
+  readonly windowTokens: number | null
 }
 
 const COLUMNS = `id, task_id, kind, turn, created_at, text, tool_name, tool_input, tool_output, tool_state, tool_use_id,
-  parent_tool_use_id, divider_kind`
+  parent_tool_use_id, divider_kind, compact_trigger, pre_tokens, post_tokens, window_tokens`
 
 const KINDS = Object.values(ToolEventKind)
 const TOOL_CALL_STATES = Object.values(ToolCallState)
 const DIVIDER_KINDS = Object.values(DividerKind)
+const COMPACTION_TRIGGERS = Object.values(CompactionTrigger)
 
 function toParams(event: ToolEvent): ToolEventParams {
   const base = {
@@ -83,6 +107,10 @@ function toParams(event: ToolEvent): ToolEventParams {
     toolUseId: null,
     parentToolUseId: null,
     dividerKind: null,
+    compactTrigger: null,
+    preTokens: null,
+    postTokens: null,
+    windowTokens: null,
   }
   switch (event.kind) {
     case ToolEventKind.Narration:
@@ -99,6 +127,15 @@ function toParams(event: ToolEvent): ToolEventParams {
       }
     case ToolEventKind.Divider:
       return { ...base, dividerKind: event.dividerKind }
+    case ToolEventKind.Compaction:
+      return {
+        ...base,
+        toolState: event.state,
+        compactTrigger: event.trigger,
+        preTokens: event.preTokens,
+        postTokens: event.postTokens,
+        windowTokens: event.windowTokens,
+      }
   }
 }
 
@@ -124,6 +161,18 @@ function parseToolCall(row: Row): ToolCallEvent {
   }
 }
 
+function parseCompaction(row: Row): CompactionEvent {
+  return {
+    ...parseBase(row),
+    kind: ToolEventKind.Compaction,
+    trigger: row.oneOf('compact_trigger', COMPACTION_TRIGGERS),
+    state: row.oneOf('tool_state', TOOL_CALL_STATES),
+    preTokens: row.nullableInteger('pre_tokens'),
+    postTokens: row.nullableInteger('post_tokens'),
+    windowTokens: row.integer('window_tokens'),
+  }
+}
+
 function parseToolEvent(raw: unknown): ToolEvent {
   const row = new Row('tool_events', raw)
   const kind = row.oneOf('kind', KINDS)
@@ -134,6 +183,8 @@ function parseToolEvent(raw: unknown): ToolEvent {
       return parseToolCall(row)
     case ToolEventKind.Divider:
       return { ...parseBase(row), kind, dividerKind: row.oneOf('divider_kind', DIVIDER_KINDS) }
+    case ToolEventKind.Compaction:
+      return parseCompaction(row)
   }
 }
 
@@ -142,7 +193,8 @@ function append(db: Database, event: ToolEvent): void {
   db.prepare(
     `INSERT INTO tool_events (seq, ${COLUMNS})
     VALUES ((SELECT COALESCE(MAX(seq), 0) + 1 FROM tool_events WHERE task_id = @taskId), @id, @taskId, @kind, @turn,
-      @createdAt, @text, @toolName, @toolInput, @toolOutput, @toolState, @toolUseId, @parentToolUseId, @dividerKind)`,
+      @createdAt, @text, @toolName, @toolInput, @toolOutput, @toolState, @toolUseId, @parentToolUseId, @dividerKind,
+      @compactTrigger, @preTokens, @postTokens, @windowTokens)`,
   ).run(toParams(event))
 }
 
@@ -188,6 +240,50 @@ export function appendDivider(db: Database, input: NewDivider, now: EpochMs = Da
   }
   append(db, event)
   return event
+}
+
+export function appendCompaction(db: Database, input: NewCompaction, now: EpochMs = Date.now()): CompactionEvent {
+  const event: CompactionEvent = {
+    kind: ToolEventKind.Compaction,
+    id: randomUUID(),
+    taskId: input.taskId,
+    turn: input.turn,
+    createdAt: now,
+    trigger: input.trigger,
+    state: input.state,
+    preTokens: input.preTokens,
+    postTokens: input.postTokens,
+    windowTokens: input.windowTokens,
+  }
+  append(db, event)
+  return event
+}
+
+/** Records how a compaction finished, and returns it updated. Throws if there's no compaction with that id. */
+export function updateCompaction(db: Database, outcome: CompactionOutcome): CompactionEvent {
+  const row: unknown = db
+    .prepare(
+      `UPDATE tool_events SET tool_state = @state, pre_tokens = @preTokens, post_tokens = @postTokens
+      WHERE id = @id AND kind = 'compaction'
+      RETURNING ${COLUMNS}`,
+    )
+    .get(outcome)
+  if (row === undefined) throw new Error(`No compaction ${outcome.id}`)
+  return parseCompaction(new Row('tool_events', row))
+}
+
+/**
+ * Records every compaction of a task that is still running as an error, e.g. one the app died in, and returns them
+ * updated, in log order.
+ */
+export function failRunningCompactions(db: Database, taskId: string): CompactionEvent[] {
+  const running = db
+    .prepare(`SELECT id FROM tool_events WHERE task_id = ? AND kind = 'compaction' AND tool_state = ? ORDER BY seq`)
+    .all(taskId, ToolCallState.Running)
+    .map((raw) => new Row('tool_events', raw).text('id'))
+  return running.map((id) =>
+    updateCompaction(db, { id, state: ToolCallState.Error, preTokens: null, postTokens: null }),
+  )
 }
 
 /** A task's tool log, in the order it was appended. */

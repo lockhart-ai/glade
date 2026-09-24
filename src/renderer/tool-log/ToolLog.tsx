@@ -9,9 +9,13 @@ import {
   argumentSummary,
   callIndicator,
   callStateLabel,
+  COMPACTION_NAME,
+  compactionArgument,
+  compactionResult,
   resultSummary,
   toolLogRows,
   type CallRow,
+  type CompactionRow,
   type DividerRow,
   type NarrationRow,
   type ToolLogRow,
@@ -90,6 +94,29 @@ function Call({ row, rootPath, turnStart }: CallProps): React.JSX.Element {
   )
 }
 
+/** A compaction of the context, laid out like a tool call: "Compact  198k → 41k tokens". */
+function Compaction({ compaction, turnStart }: CompactionRow & TurnStartProps): React.JSX.Element {
+  const { state } = compaction
+  return (
+    <div className={styles.callGroup} {...{ [TURN_START]: turnStart }}>
+      <div
+        role="group"
+        aria-label={COMPACTION_NAME}
+        className={classNames(styles.call, styles.compaction, styles[state])}
+        data-state={state}
+      >
+        <span className={styles.callLine}>
+          <Dot state={callIndicator(state)} label={callStateLabel(state)} />
+          <span className={styles.name}>{COMPACTION_NAME}</span>
+          <span className={styles.argument}>{compactionArgument(compaction)}</span>
+          <span className={styles.time}>{clockTime(compaction.createdAt)}</span>
+        </span>
+        <span className={styles.result}>{compactionResult(compaction)}</span>
+      </div>
+    </div>
+  )
+}
+
 /** One of the agent's working notes between tool calls. */
 function Narration({ narration, turnStart }: NarrationRow & TurnStartProps): React.JSX.Element {
   return (
@@ -118,6 +145,8 @@ function rowEvent(row: ToolLogRow): ToolEvent {
       return row.narration
     case ToolEventKind.Divider:
       return row.divider
+    case ToolEventKind.Compaction:
+      return row.compaction
   }
 }
 
@@ -184,6 +213,8 @@ export function ToolLog({ taskId, events, rootPath, focus, onFocusShown }: ToolL
               return <Narration key={event.id} {...row} turnStart={turnStart} />
             case ToolEventKind.Divider:
               return <Divider key={event.id} {...row} turnStart={turnStart} />
+            case ToolEventKind.Compaction:
+              return <Compaction key={event.id} {...row} turnStart={turnStart} />
           }
         })}
       </div>

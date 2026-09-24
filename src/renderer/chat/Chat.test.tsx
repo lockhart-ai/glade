@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { EventType } from '../../shared/bridge'
 import {
+  CompactionTrigger,
   DividerKind,
   MessageRole,
   TaskActivity,
@@ -229,6 +230,46 @@ describe('Chat', () => {
     expect(within(conversation()).getByRole('separator', { name: 'Reopened' })).toHaveTextContent(
       /^Reopened by your message$/,
     )
+  })
+
+  it('says it is compacting while it compacts, then marks where it compacted, and never shows /compact', async () => {
+    const running = {
+      id: 'k1',
+      taskId: 't1',
+      turn: 1,
+      createdAt: REPLIED_AT + 60_000,
+      kind: ToolEventKind.Compaction,
+      trigger: CompactionTrigger.Manual,
+      state: ToolCallState.Running,
+      preTokens: null,
+      postTokens: null,
+      windowTokens: 200_000,
+    } as const
+    const { emit } = await renderChat({
+      task: { activity: TaskActivity.Working },
+      messages: [ASK, REPLY],
+      toolEvents: [...TURN_ONE, running],
+    })
+
+    expect(screen.getByRole('status')).toHaveTextContent('Working · Compacting the context')
+    expect(within(conversation()).queryByRole('separator')).toBeNull()
+
+    act(() => {
+      emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: { ...running, state: ToolCallState.Done, preTokens: 198_000, postTokens: 41_000 },
+      })
+      emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), activity: TaskActivity.Waiting } })
+    })
+
+    const items = [...conversation().querySelectorAll('article, [role="separator"]')].map((item) =>
+      item.getAttribute('aria-label'),
+    )
+    expect(items).toEqual(['You', 'Agent', 'Compacted'])
+    expect(within(conversation()).getByRole('separator', { name: 'Compacted' })).toHaveTextContent(
+      /^Compacted · 198k → 41k$/,
+    )
+    expect(conversation()).not.toHaveTextContent('/compact')
   })
 
   it('highlights the latest reply as a question while the agent waits on you', async () => {
