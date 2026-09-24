@@ -373,6 +373,12 @@ export function settings(page: Page) {
       dialog.getByRole('radiogroup', { name: group }).getByRole('radio', { name, exact: true }),
     /** An on/off setting, e.g. `toggle('Notifications')`. */
     toggle: (name: string) => dialog.getByRole('switch', { name, exact: true }),
+    /** A shortcut's keycap in Keyboard, by its action and keys, e.g. `keycap('Pin / unpin: ⌘⇧P')`; click to rebind. */
+    keycap: (name: string) => dialog.getByRole('button', { name, exact: true }),
+    /** The Reset beside a rebound shortcut, e.g. `reset('Pin / unpin', '⌘⇧P')`. */
+    reset: (action: string, keys: string) => dialog.getByRole('button', { name: `Reset ${action} to ${keys}` }),
+    /** Why the keys you pressed for a shortcut were refused. */
+    keyProblem: dialog.getByRole('alert'),
   }
 }
 

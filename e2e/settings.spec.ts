@@ -43,7 +43,7 @@ test('settings save as you change them: new tasks take the defaults, notificatio
   await modal.toggle('Notifications').click()
   await expect(modal.toggle('Notifications')).not.toBeChecked()
 
-  // Keyboard lists the shortcuts, read-only.
+  // Keyboard lists the shortcuts.
   await modal.section('Keyboard').click()
   await expect(modal.dialog.getByRole('region', { name: 'Global' })).toContainText('Settings⌘,')
   await window.keyboard.press('Escape')
