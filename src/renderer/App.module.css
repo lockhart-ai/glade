@@ -32,6 +32,16 @@
   height: var(--touch-target-dense);
 }
 
+/* The sidebar's note before there is any workspace, from docs/design/html/20-first-run.html. */
+.sidebarNote {
+  margin: 4px 8px;
+  padding: 24px 16px;
+  font-size: var(--font-size-secondary);
+  line-height: 1.5;
+  color: var(--color-faint);
+  text-align: center;
+}
+
 /* The whole window while the store loads, or when it couldn't. */
 .status {
   display: flex;

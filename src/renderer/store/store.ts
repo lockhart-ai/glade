@@ -43,6 +43,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         return open(workspace.id)
       },
 
+      async chooseFolder() {
+        const { path } = await bridge.invoke(CommandName.DialogChooseFolder, {})
+        return path
+      },
+
       async openWorkspace(workspaceId) {
         await open(workspaceId)
       },

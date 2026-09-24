@@ -30,7 +30,7 @@ it('marks the app ready once its store has loaded', async () => {
   await waitFor(() => {
     expect(document.documentElement).toHaveAttribute(READY_ATTRIBUTE)
   })
-  expect(screen.getByRole('main', { name: 'Task' })).toBeInTheDocument()
+  expect(screen.getByRole('main', { name: 'Welcome' })).toBeInTheDocument()
   document.documentElement.removeAttribute(READY_ATTRIBUTE)
 })
 

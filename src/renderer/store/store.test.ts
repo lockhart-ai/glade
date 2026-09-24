@@ -109,6 +109,21 @@ describe('createWorkspace', () => {
   })
 })
 
+describe('chooseFolder', () => {
+  it('answers with the chosen folder', async () => {
+    const { bridge, invoke } = fakeBridge(main(), { [CommandName.DialogChooseFolder]: () => ({ path: '/code/new' }) })
+
+    await expect(createGladeStore(bridge).getState().chooseFolder()).resolves.toBe('/code/new')
+    expect(invoke).toHaveBeenCalledWith(CommandName.DialogChooseFolder, {})
+  })
+
+  it('answers null when the dialog is cancelled', async () => {
+    const { store } = await hydrated()
+
+    await expect(store.getState().chooseFolder()).resolves.toBeNull()
+  })
+})
+
 describe('openWorkspace', () => {
   it('records the workspace as opened and shows it', async () => {
     const { store, invoke } = await hydrated()

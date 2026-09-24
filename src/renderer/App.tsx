@@ -1,7 +1,10 @@
+import type { ReactNode } from 'react'
 import { classNames } from './components/classNames'
-import { AppShell, BottomBar, RightPanel, Sidebar, TaskCard, TaskHeader } from './layout'
+import { ToastProvider } from './components'
+import { FirstRun } from './first-run/FirstRun'
+import { AppShell, BottomBar, RightPanel, Sidebar, SidebarHeader, TaskCard, TaskHeader } from './layout'
 import styles from './App.module.css'
-import { HydrationStatus } from './store/state'
+import { HydrationStatus, selectSelectedWorkspace } from './store/state'
 import { useGladeStore } from './store/react'
 
 interface PlaceholderProps {
@@ -14,13 +17,50 @@ function Placeholder({ label, className }: PlaceholderProps): React.JSX.Element 
   return <div className={classNames(styles.placeholder, className)}>{label}</div>
 }
 
-/** The window layout, with a labelled placeholder in each region until the P1 tickets fill them. */
-function Layout(): React.JSX.Element {
+interface WindowProps {
+  sidebar: ReactNode
+  task: ReactNode
+}
+
+/** The window frame, with the bottom bar's placeholder until the terminal ticket fills it. */
+function Window({ sidebar, task }: WindowProps): React.JSX.Element {
   return (
     <AppShell
+      sidebar={sidebar}
+      task={task}
+      bottomBar={
+        <BottomBar
+          terminalTabs={<Placeholder label="Terminal tabs" className={styles.tabs} />}
+          terminal={<Placeholder label="Terminal" className={styles.fill} />}
+        />
+      }
+    />
+  )
+}
+
+/** What shows before there is any workspace: no workspace in the sidebar and the welcome in the task card. */
+function FirstRunLayout(): React.JSX.Element {
+  return (
+    <Window
       sidebar={
         <Sidebar>
-          <Placeholder label="Sidebar" className={styles.fill} />
+          <SidebarHeader />
+          <p className={styles.sidebarNote}>Tasks will appear here once you open a workspace.</p>
+        </Sidebar>
+      }
+      task={<FirstRun />}
+    />
+  )
+}
+
+/** The window layout, with a labelled placeholder in each region until the P1 tickets fill them. */
+function Layout(): React.JSX.Element {
+  const workspace = useGladeStore(selectSelectedWorkspace)
+  return (
+    <Window
+      sidebar={
+        <Sidebar>
+          <SidebarHeader workspace={workspace} />
         </Sidebar>
       }
       task={
@@ -39,18 +79,13 @@ function Layout(): React.JSX.Element {
           }
         />
       }
-      bottomBar={
-        <BottomBar
-          terminalTabs={<Placeholder label="Terminal tabs" className={styles.tabs} />}
-          terminal={<Placeholder label="Terminal" className={styles.fill} />}
-        />
-      }
     />
   )
 }
 
 export function App(): React.JSX.Element {
   const hydration = useGladeStore((state) => state.hydration)
+  const hasWorkspace = useGladeStore((state) => state.workspaces.length > 0)
   switch (hydration.status) {
     case HydrationStatus.Loading:
       return (
@@ -61,6 +96,6 @@ export function App(): React.JSX.Element {
     case HydrationStatus.Failed:
       return <main className={styles.status}>Glade couldn’t load: {hydration.message}</main>
     case HydrationStatus.Ready:
-      return <Layout />
+      return <ToastProvider>{hasWorkspace ? <Layout /> : <FirstRunLayout />}</ToastProvider>
   }
 }
