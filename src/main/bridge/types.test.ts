@@ -36,6 +36,7 @@ const TASK_HANDLERS = {
   [CommandName.TasksReopen]: () => ({ task: {} as Task }),
   [CommandName.TasksUpdate]: () => ({ task: {} as Task }),
   [CommandName.TasksSend]: () => ({ message: {} as Message }),
+  [CommandName.TasksStop]: () => ({ task: {} as Task }),
   [CommandName.TasksHistory]: () => ({ messages: [], toolEvents: [] }),
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
@@ -44,6 +45,7 @@ const TASK_SCHEMAS = {
   [CommandName.TasksReopen]: REQUEST_SCHEMAS[CommandName.TasksReopen],
   [CommandName.TasksUpdate]: REQUEST_SCHEMAS[CommandName.TasksUpdate],
   [CommandName.TasksSend]: REQUEST_SCHEMAS[CommandName.TasksSend],
+  [CommandName.TasksStop]: REQUEST_SCHEMAS[CommandName.TasksStop],
   [CommandName.TasksHistory]: REQUEST_SCHEMAS[CommandName.TasksHistory],
 } satisfies Partial<RequestSchemas>
 
