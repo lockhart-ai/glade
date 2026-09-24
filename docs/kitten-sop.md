@@ -22,6 +22,10 @@ its PR, and sends back fixes. Jared approves and merges. This SOP starts simple 
    Then arm auto-merge (squash) on it, using the glade-team identity described in `CLAUDE.md`: `gh pr merge <N> --auto
    --squash`. It merges once Jared approves and checks pass.
 
+   Before reporting back, run `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test` and `npm run
+   build` locally, and wait for the required `ci` check to go green on the PR (`node scripts/gh-team.mjs pr checks <N>
+   --watch`). If it goes red, fix it with new commits.
+
    Never merge directly. Report back to the supervisor with the PR link, how you checked each acceptance criterion,
    and any decisions or open questions.
 
