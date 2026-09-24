@@ -74,6 +74,17 @@ the line and scrolls to it. For another task, only its tabs change. The reply is
 `Showing <path> at line <n>.`; a path outside the workspace (a symlink out of it included), or one with no file, is a
 tool error and opens nothing.
 
+## Implemented: `add_artifact` (P5-04, names unconfirmed)
+
+`mcp__glade__add_artifact` takes `{ path: string, title: string }`: the path absolute or relative to the workspace
+root. The handler (`addTaskArtifact` in `src/main/artifacts/artifacts.ts`) checks the path as `show_file` does (a file
+inside the workspace, symlinks included), keeps the artifact in the `artifacts` table with its task (a done task keeps
+them; they go only when the task is deleted) and broadcasts `artifacts.changed` with the task's whole list. Declaring a
+path again renames it, keeping its place. The reply is `Added <path> to the artifacts as "<title>".` or
+`Renamed the artifact <path> to "<title>".`; a bad path is a tool error and adds nothing. The system prompt asks the
+agent to declare the deliverables the user asked for with it. The Artifacts tab shows a card per artifact, with its
+type (from the extension), lines (from a cheap read, `files.info`) and when the file last changed.
+
 | Tool | Input (draft) | Effect |
 |---|---|---|
 | `set_title` | `{ title: string }` | Names the task. Called once from the first message; the user can rename later. |

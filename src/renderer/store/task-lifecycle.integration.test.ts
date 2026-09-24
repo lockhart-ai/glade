@@ -28,6 +28,8 @@ beforeEach(async () => {
     targets: () => [ipc.window],
     chooseFolder: () => Promise.resolve(null),
     openPath: () => Promise.resolve(''),
+    revealPath: () => undefined,
+    writeClipboard: () => Promise.resolve(),
     agentBackend: new FakeAgentBackend(),
   })
   const bridge = createBridge(ipc.renderer)

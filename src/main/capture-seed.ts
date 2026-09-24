@@ -3,8 +3,8 @@
  * the throwaway database from a JSON fixture before the window opens, so a capture or a spec can show a populated app.
  * Only the test modes use it.
  */
-import { readFileSync } from 'node:fs'
-import { dirname, isAbsolute, resolve } from 'node:path'
+import { existsSync, readFileSync, utimesSync } from 'node:fs'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
 import {
@@ -25,6 +25,7 @@ import {
   type TurnSummary,
 } from '../shared/domain'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
+import { addArtifact } from './db/repositories/artifacts'
 import { appendMessage } from './db/repositories/messages'
 import { setOpenFiles } from './db/repositories/open-files'
 import { appendQueuedMessage } from './db/repositories/queued-messages'
@@ -146,6 +147,18 @@ export interface SeedTask {
   readonly resumedAfterCrash?: boolean | undefined
   /** The files open in its Files tab, relative to the workspace root, and the one showing; none unless given. */
   readonly openFiles?: SeedOpenFiles | undefined
+  /** The files the agent declared as its deliverables (the Artifacts tab), in the order it declared them. */
+  readonly artifacts?: readonly SeedArtifact[] | undefined
+}
+
+/**
+ * A sample artifact (`Artifact`), relative to the workspace root. Declared `minutesAgo`; its file, when the workspace
+ * has one there, is marked as last changed then too, which is the age its card shows.
+ */
+export interface SeedArtifact {
+  readonly path: string
+  readonly title: string
+  readonly minutesAgo: number
 }
 
 /** A task's open files (`OpenFiles`). */
@@ -272,6 +285,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       pause: seedPauseSchema.optional(),
       resumedAfterCrash: z.boolean().optional(),
       openFiles: z.strictObject({ paths: z.array(z.string()), activePath: z.string().optional() }).optional(),
+      artifacts: z.array(z.strictObject({ path: z.string(), title: z.string(), minutesAgo })).optional(),
     }),
   ),
 })
@@ -382,6 +396,12 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       if (sample.openFiles !== undefined) {
         const { paths, activePath } = sample.openFiles
         setOpenFiles(db, { taskId: task.id, paths, activePath: activePath ?? paths[0] ?? null })
+      }
+      for (const { path, title, minutesAgo } of sample.artifacts ?? []) {
+        const declaredAt = now - minutesAgo * MINUTE
+        addArtifact(db, { taskId: task.id, path, title }, declaredAt)
+        const file = join(seed.workspace.rootPath, path)
+        if (existsSync(file)) utimesSync(file, new Date(declaredAt), new Date(declaredAt))
       }
       if (sample.resumedAfterCrash === true) resumed.push(task.id)
     }

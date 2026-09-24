@@ -3,10 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { CommandName, EventType, type GladeEvent } from '../../shared/bridge'
-import { FileContentKind, UiStateKey } from '../../shared/domain'
+import { FileContentKind, FileInfoKind, UiStateKey } from '../../shared/domain'
 import { SearchField } from '../../shared/search'
 import { FakeAgentBackend } from '../agent/fake-backend'
 import { createAgentRunner } from '../agent/runner'
+import { addArtifact } from '../db/repositories/artifacts'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { updateTask } from '../db/repositories/tasks'
 import { setUiState } from '../db/repositories/ui-state'
@@ -17,6 +18,8 @@ let root: string
 let emit: Mock<(event: GladeEvent) => void>
 let chooseFolder: Mock<() => Promise<string | null>>
 let openPath: Mock<(path: string) => Promise<string>>
+let revealPath: Mock<(path: string) => void>
+let writeClipboard: Mock<(text: string) => Promise<void>>
 let handlers: Handlers
 
 beforeEach(() => {
@@ -25,8 +28,10 @@ beforeEach(() => {
   emit = vi.fn()
   chooseFolder = vi.fn(() => Promise.resolve(root))
   openPath = vi.fn(() => Promise.resolve(''))
+  revealPath = vi.fn()
+  writeClipboard = vi.fn(() => Promise.resolve())
   const runner = createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() })
-  handlers = createHandlers({ db: database.db, emit, chooseFolder, openPath, runner })
+  handlers = createHandlers({ db: database.db, emit, chooseFolder, openPath, revealPath, writeClipboard, runner })
 })
 
 afterEach(() => {
@@ -99,6 +104,24 @@ describe('the files commands', () => {
     ])
     const history = await handlers[CommandName.TasksHistory]({ id: taskId })
     expect(history.openFiles).toEqual(opened.openFiles)
+  })
+
+  it('describe, copy and reveal a file, and the history carries the task’s artifacts', async () => {
+    const taskId = taskInRoot()
+    addArtifact(database.db, { taskId, path: 'docs/rate-limits.md', title: 'Rate limits' }, 5)
+
+    await expect(handlers[CommandName.FilesInfo]({ taskId, path: 'docs/rate-limits.md' })).resolves.toMatchObject({
+      info: { kind: FileInfoKind.Text, lines: 1 },
+    })
+    await expect(handlers[CommandName.FilesCopy]({ taskId, path: 'docs/rate-limits.md' })).resolves.toBeNull()
+    await expect(handlers[CommandName.FilesReveal]({ taskId, path: 'docs/rate-limits.md' })).resolves.toBeNull()
+
+    expect(writeClipboard).toHaveBeenCalledExactlyOnceWith('# Rate limits\n')
+    expect(revealPath).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/\/docs\/rate-limits\.md$/))
+    const history = await handlers[CommandName.TasksHistory]({ id: taskId })
+    expect(history.artifacts).toEqual([
+      { taskId, path: 'docs/rate-limits.md', title: 'Rate limits', addedAt: 5, updatedAt: 5 },
+    ])
   })
 
   it('open a file in the editor by its real path', async () => {

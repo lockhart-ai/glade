@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, net, Notification, shell, type WebPreferences } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, net, Notification, shell, type WebPreferences } from 'electron'
 import { EventType } from '../shared/bridge'
 import type { AgentBackend } from './agent/backend'
 import { createSdkBackend } from './agent/sdk-backend'
@@ -19,6 +19,7 @@ import { firstUserMessageOfSession } from './db/repositories/messages'
 import { applySeed, readSeed } from './capture-seed'
 import { chooseFolder } from './dialogs'
 import {
+  createE2eDesktop,
   createE2eEditor,
   createE2eNetwork,
   E2E_NOTIFIER_GLOBAL,
@@ -28,7 +29,7 @@ import {
   readE2eSpec,
   type E2eSpec,
 } from './e2e'
-import type { OpenPath } from './files/files'
+import type { OpenPath, RevealPath, WriteClipboard } from './files/files'
 import { createElectronNotifier } from './notifications/electron-notifier'
 import { createReplyNotifications } from './notifications/notifications'
 import type { Notifier } from './notifications/notifier'
@@ -255,6 +256,31 @@ function createOpenPath(testMode: TestMode): OpenPath {
   return () => Promise.resolve('')
 }
 
+/** Showing a file in Finder, and the clipboard: the desktop an artifact's Reveal in folder and Copy use. */
+interface Desktop {
+  readonly revealPath: RevealPath
+  readonly writeClipboard: WriteClipboard
+}
+
+/**
+ * The real Finder and clipboard. A test mode never touches them: e2e mode records what they'd have done instead, for
+ * the spec to read (`E2E_DESKTOP_GLOBAL`), and a capture ignores it.
+ */
+function createDesktop(testMode: TestMode): Desktop {
+  if (testMode === null) {
+    return {
+      revealPath: (path) => {
+        shell.showItemInFolder(path)
+      },
+      writeClipboard: (text) => {
+        return clipboard.writeText(text)
+      },
+    }
+  }
+  if (testMode.kind === TestModeKind.E2e) return createE2eDesktop()
+  return { revealPath: () => undefined, writeClipboard: () => Promise.resolve() }
+}
+
 /** What opening a task from its notification needs from the running app. */
 interface OpenTaskContext {
   readonly testMode: TestMode
@@ -356,6 +382,7 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
           ? () => Promise.resolve(e2eChosenFolder(process.env))
           : () => chooseFolder(dialog, BrowserWindow.getFocusedWindow()),
       openPath: createOpenPath(testMode),
+      ...createDesktop(testMode),
       notifyReply,
       // Whether the network is up, for resuming a task paused offline. In e2e mode, the spec decides.
       isOnline: testMode?.kind === TestModeKind.E2e ? createE2eNetwork() : net.isOnline.bind(net),

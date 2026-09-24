@@ -4,6 +4,7 @@ import {
   DividerKind,
   Effort,
   FileContentKind,
+  FileInfoKind,
   MessageRole,
   QuestionSetState,
   TaskActivity,
@@ -694,6 +695,29 @@ describe("a task's logs", () => {
 
     expect(invoke).toHaveBeenLastCalledWith(CommandName.SearchQuery, { workspaceId: 'w1', text: 'rate' })
     expect(results.map(({ taskId }) => taskId)).toEqual(['t1'])
+  })
+})
+
+describe('artifact files', () => {
+  it('describes, copies and reveals a file through main', async () => {
+    const data: FakeMain = {
+      ...main(),
+      fileInfo: { 'README.md': { kind: FileInfoKind.Text, lines: 3, modifiedAt: 1 } },
+      copied: [],
+      revealed: [],
+    }
+    const { store, invoke } = await hydrated(data)
+
+    await expect(store.getState().fileInfo('t1', 'README.md')).resolves.toEqual({
+      kind: FileInfoKind.Text,
+      lines: 3,
+      modifiedAt: 1,
+    })
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.FilesInfo, { taskId: 't1', path: 'README.md' })
+    await store.getState().copyFile('t1', 'README.md')
+    await store.getState().revealFile('t1', 'README.md')
+    expect(data.copied).toEqual(['README.md'])
+    expect(data.revealed).toEqual(['README.md'])
   })
 })
 
