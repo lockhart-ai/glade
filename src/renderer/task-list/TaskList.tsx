@@ -2,9 +2,8 @@ import { faChevronDown, faChevronRight, faThumbtack } from '@fortawesome/free-so
 import { useEffect, useId, useMemo } from 'react'
 import { parseTaskFilter } from '../../shared/attention'
 import { UiStateKey } from '../../shared/domain'
-import { Icon, IconSize, useToast } from '../components'
+import { Icon, IconSize } from '../components'
 import { ContextMenu, useContextMenu } from '../context-menus'
-import { describeFailure } from '../store/hydrate'
 import { useGladeStore } from '../store/react'
 import {
   collapsedValue,
@@ -18,6 +17,7 @@ import {
   type TaskSection,
 } from './sections'
 import { TaskRow } from './TaskRow'
+import { useRenameTask } from './useRenameTask'
 import { useTaskMenu } from './useTaskMenu'
 import styles from './TaskList.module.css'
 import { useNow } from './useNow'
@@ -71,10 +71,7 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
   const uiState = useGladeStore((state) => state.uiState)
   const selectedTaskId = useGladeStore((state) => state.selectedTaskId)
   const selectTask = useGladeStore((state) => state.selectTask)
-  const renamingTaskId = useGladeStore((state) => state.renamingTaskId)
-  const renameTask = useGladeStore((state) => state.renameTask)
-  const cancelRename = useGladeStore((state) => state.cancelRename)
-  const toast = useToast()
+  const { renamingTaskId, rename, cancelRename } = useRenameTask()
   const setUiState = useGladeStore((state) => state.setUiState)
   const now = useNow()
   const menu = useContextMenu<string>()
@@ -100,15 +97,6 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
 
   const select = (taskId: string): void => {
     void selectTask(taskId)
-  }
-  const rename = async (taskId: string, title: string): Promise<boolean> => {
-    try {
-      return await renameTask(taskId, title)
-    } catch (error) {
-      toast.show({ message: describeFailure(error) })
-      cancelRename()
-      return true
-    }
   }
 
   return (

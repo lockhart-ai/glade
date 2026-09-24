@@ -65,7 +65,16 @@ function fillTask(db: Database, task: Task): void {
 }
 
 /** The tables `fillTask` writes to. A new table that belongs to a task fails the test below until it's added here. */
-const FILLED_TABLES = ['artifacts', 'messages', 'open_files', 'question_sets', 'queued_messages', 'tool_events']
+const FILLED_TABLES = [
+  'artifacts',
+  'messages',
+  'open_files',
+  'question_sets',
+  'queued_messages',
+  // The search index's rows for its fields and messages, which a new task and `fillTask`'s message make.
+  'search_documents',
+  'tool_events',
+]
 
 describe('deleteTask', () => {
   it('knows every table that belongs to a task', () => {

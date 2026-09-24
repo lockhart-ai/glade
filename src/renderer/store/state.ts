@@ -19,6 +19,7 @@ import type {
   UiStateKey,
   Workspace,
 } from '../../shared/domain'
+import type { SearchResult } from '../../shared/search'
 
 export enum HydrationStatus {
   Loading = 'loading',
@@ -134,6 +135,19 @@ export interface GladeData {
   readonly deletingTaskId: string | null
   /** The latest request to add text to a task's message field; null until one is made. A one-off UI intent. */
   readonly inputInsertion: InputInsertion | null
+  /**
+   * What's typed in the sidebar's search field; empty while not searching. While it isn't blank, the sidebar lists the
+   * search's results instead of the tasks, and the selected task's header and chat highlight its matches. Not mirrored
+   * from main, like `toolLogFocus`: a relaunch starts with no search.
+   */
+  readonly searchText: string
+  /** How many times something has asked for the search field to take the focus (⌘F); 0 until the first. */
+  readonly searchFocusRequest: number
+  /**
+   * How many times a search result has been opened; 0 until the first. The chat scrolls to its first marked match each
+   * time this changes, if it's off screen. A one-off UI intent, like `inputFocusRequest`.
+   */
+  readonly matchRevealRequest: number
 }
 
 /**
@@ -262,6 +276,14 @@ export interface GladeActions {
   copyText: (text: string) => Promise<void>
   /** Asks the input bar to add text to a task's message field and focus it (see `inputInsertion`). */
   insertIntoInput: (taskId: string, text: string) => void
+  /** Sets the sidebar's search text (see `searchText`); an empty string ends the search. */
+  setSearchText: (text: string) => void
+  /** Asks the sidebar's search field to take the focus (see `searchFocusRequest`). */
+  focusSearch: () => void
+  /** Searches a workspace's tasks (`search.query`): one result per matching task, best first. */
+  searchTasks: (workspaceId: string, text: string) => Promise<readonly SearchResult[]>
+  /** Opens a search result: selects its task, loads its logs, then asks the chat to show the first match. */
+  openSearchResult: (taskId: string) => Promise<void>
 }
 
 export interface GladeState extends GladeData, GladeActions {}
@@ -286,6 +308,9 @@ export const INITIAL_DATA: GladeData = {
   renamingTaskId: null,
   deletingTaskId: null,
   inputInsertion: null,
+  searchText: '',
+  searchFocusRequest: 0,
+  matchRevealRequest: 0,
 }
 
 export function selectSelectedWorkspace(state: GladeData): Workspace | undefined {

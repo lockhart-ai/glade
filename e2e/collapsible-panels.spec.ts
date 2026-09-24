@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 import { expect, seedPath, test } from './fixtures'
-import { chat, panelToggles, regions, taskHeader, taskPanel } from './selectors'
+import { chat, panelToggles, regions, taskHeader, taskList, taskPanel } from './selectors'
 import { boxOf, MIN_WINDOW, resize, type Box } from './window-layout'
 
 /** Which of the three panels are open. */
@@ -183,7 +183,7 @@ test('collapsible panels: every combination of the three reflows cleanly, in the
   }
 })
 
-test('collapsible panels: the buttons collapse and show each panel, named with their shortcuts, and a relaunch keeps them', async ({
+test('collapsible panels: the buttons collapse and show each panel, named with their shortcuts; a relaunch keeps them, and ⌘F shows the task list', async ({
   launch,
 }) => {
   const glade = await launch({ seed: seedPath('long-header.json') })
@@ -222,4 +222,11 @@ test('collapsible panels: the buttons collapse and show each panel, named with t
   await relaunched.close()
   const third = await launch()
   await expectPanels(third.window, mixed)
+
+  // ⌘F with the task list collapsed shows it again, with the search field focused.
+  await third.window.keyboard.press('Meta+KeyB')
+  await expectPanels(third.window, { ...mixed, sidebar: false })
+  await third.window.keyboard.press('Meta+KeyF')
+  await expectPanels(third.window, mixed)
+  await expect(taskList(third.window).search).toBeFocused()
 })

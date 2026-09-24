@@ -12,7 +12,8 @@ import styles from './App.module.css'
 import { HydrationStatus, selectSelectedTask, selectSelectedWorkspace } from './store/state'
 import { useGladeStore } from './store/react'
 import { SelectedTaskHeader } from './task-header'
-import { DeleteTaskDialog, TaskList, TaskListToolbar } from './task-list'
+import { DeleteTaskDialog, isSearching, TaskList, TaskListToolbar } from './task-list'
+import { SearchResults } from './search/SearchResults'
 import { useNewTaskShortcut } from './shortcuts/useNewTaskShortcut'
 import { useMarkDoneShortcut } from './shortcuts/useMarkDoneShortcut'
 import { useMarkUnreadShortcut } from './shortcuts/useMarkUnreadShortcut'
@@ -22,6 +23,7 @@ import { useStopShortcut } from './shortcuts/useStopShortcut'
 import { useCompactShortcut } from './shortcuts/useCompactShortcut'
 import { usePanelShortcuts } from './shortcuts/usePanelShortcuts'
 import { useRightPanelShortcuts } from './shortcuts/useRightPanelShortcuts'
+import { useSearchShortcut } from './shortcuts/useSearchShortcut'
 import { TaskPanel } from './right-panel'
 import { RelaunchNotice } from './relaunch-notice'
 
@@ -100,7 +102,9 @@ function Layout(): React.JSX.Element {
   const sidebar = usePanel(Panel.Sidebar)
   const hasTask = useGladeStore((state) => selectSelectedTask(state) !== undefined)
   usePanelShortcuts(LAYOUT_PANELS)
+  const searching = useGladeStore((state) => isSearching(state.searchText))
   useNewTaskShortcut()
+  useSearchShortcut()
   useStopShortcut()
   useCompactShortcut()
   useMarkDoneShortcut()
@@ -118,7 +122,7 @@ function Layout(): React.JSX.Element {
             {workspace !== undefined && (
               <>
                 <TaskListToolbar workspaceId={workspace.id} />
-                <TaskList workspaceId={workspace.id} />
+                {searching ? <SearchResults workspaceId={workspace.id} /> : <TaskList workspaceId={workspace.id} />}
               </>
             )}
           </Sidebar>

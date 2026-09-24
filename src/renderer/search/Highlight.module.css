@@ -1,0 +1,7 @@
+/* From docs/design/html/07-search.html: the design's match colour is the question card's border colour. */
+.mark {
+  background: var(--color-question-border);
+  color: var(--color-text);
+  border-radius: 3px;
+  padding: 0 2px;
+}
