@@ -70,3 +70,8 @@
   margin: 5px 6px;
   background: var(--color-inner-border);
 }
+
+/* The chosen option in a picker. */
+.check {
+  color: var(--color-blue-text);
+}

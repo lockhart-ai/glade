@@ -1,7 +1,7 @@
 // Test helper: an agent backend whose sessions stream whatever SDK messages a test scripts, and record what the runner
 // asks of them. Nothing runs a model.
 import { AsyncQueue } from './async-queue'
-import type { AgentBackend, AgentSession, AgentSessionOptions } from './backend'
+import type { AgentBackend, AgentSession, AgentSessionOptions, AgentSessionSettings } from './backend'
 import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
 import { toolResult, toolUse } from './test-sdk-messages'
 
@@ -9,22 +9,35 @@ import { toolResult, toolUse } from './test-sdk-messages'
 export interface SentMessage {
   readonly text: string
   readonly uuid: string
+  /** The model and effort the session had when the message was delivered: what its turn runs with. */
+  readonly settings: AgentSessionSettings
 }
 
 export class FakeAgentSession implements AgentSession {
   readonly sent: SentMessage[] = []
+  /** Every settings change the runner asked for, in order. */
+  readonly configured: AgentSessionSettings[] = []
   interrupts = 0
   closed = false
   private readonly stream = new AsyncQueue<unknown>()
   readonly messages: AsyncIterable<unknown> = this.stream
   private readonly tools: McpToolCaller
 
+  /** The model and effort the session runs with now. */
+  settings: AgentSessionSettings
+
   constructor(readonly options: AgentSessionOptions) {
     this.tools = createMcpToolCaller(options.mcpServers)
+    this.settings = { model: options.model, effort: options.effort }
   }
 
   send(text: string, uuid: string): void {
-    this.sent.push({ text, uuid })
+    this.sent.push({ text, uuid, settings: this.settings })
+  }
+
+  configure(settings: AgentSessionSettings): void {
+    this.configured.push(settings)
+    this.settings = settings
   }
 
   /** What the session does when interrupted, as the agent would: e.g. stream an aborted turn. Nothing by default. */

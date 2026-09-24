@@ -19,10 +19,6 @@
   margin: var(--space-outer);
 }
 
-.inputBar {
-  height: 110px;
-}
-
 .tabs {
   flex-grow: 1;
   height: var(--touch-target-dense);

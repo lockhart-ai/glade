@@ -234,4 +234,29 @@ describe('Menu', () => {
 
     expect(menu()).toBeInTheDocument()
   })
+
+  it('marks a picker’s options as choices, with a check on the chosen one', async () => {
+    const choose = vi.fn()
+    render(
+      <Menu
+        label="Effort"
+        open
+        onClose={() => undefined}
+        anchor={{ kind: MenuAnchorKind.Point, x: 0, y: 0 }}
+        entries={[
+          { kind: MenuEntryKind.Item, label: 'Low', checked: false, onSelect: choose },
+          { kind: MenuEntryKind.Item, label: 'High', checked: true, onSelect: choose },
+        ]}
+      />,
+    )
+    await settleFloating()
+
+    const low = screen.getByRole('menuitemradio', { name: 'Low' })
+    const high = screen.getByRole('menuitemradio', { name: 'High' })
+    expect(low).toHaveAttribute('aria-checked', 'false')
+    expect(high).toHaveAttribute('aria-checked', 'true')
+    expect(low.querySelector(`.${cls('check')}`)).toBeNull()
+    expect(high.querySelector(`.${cls('check')}`)).not.toBeNull()
+    expect(screen.queryByRole('menuitem')).toBeNull()
+  })
 })

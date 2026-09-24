@@ -13,7 +13,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ToolInput } from '../../shared/domain'
 import { AsyncQueue } from './async-queue'
-import type { AgentSession, AgentSessionOptions } from './backend'
+import type { AgentSession, AgentSessionOptions, AgentSessionSettings } from './backend'
 import { GLADE_SERVER } from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
 import { RESUME_PROMPT } from './runner'
@@ -92,8 +92,11 @@ export class ScriptedSession implements AgentSession {
   private costUsd = 0
   /** Runs the session's in-process MCP tools, as the Claude Code process would. */
   private readonly tools: McpToolCaller
+  /** The model the session runs on: its start's, until `configure` changes it for the turns after. */
+  private model: string
 
   constructor(private readonly options: ScriptedSessionOptions) {
+    this.model = options.session.model
     const newId = options.newId ?? randomUUID
     this.sessionId = options.session.resumeSessionId ?? newId()
     this.idPrefix = newId().replaceAll('-', '').slice(0, 8)
@@ -109,6 +112,12 @@ export class ScriptedSession implements AgentSession {
     this.turnsRun += 1
     const number = this.turnsRun
     this.queue = this.queue.then(() => this.play(turn, number, uuid))
+  }
+
+  configure({ model }: AgentSessionSettings): void {
+    this.queue = this.queue.then(() => {
+      this.model = model
+    })
   }
 
   interrupt(): Promise<void> {
@@ -248,12 +257,12 @@ export class ScriptedSession implements AgentSession {
   }
 
   private init(): void {
-    const { cwd, model, mcpServers } = this.options.session
+    const { cwd, mcpServers } = this.options.session
     this.push({
       type: 'system',
       subtype: 'init',
       cwd,
-      model,
+      model: this.model,
       permissionMode: 'bypassPermissions',
       apiKeySource: 'none',
       tools: [
@@ -285,7 +294,7 @@ export class ScriptedSession implements AgentSession {
       user_message_uuid: uuid,
       message: {
         id: `msg_${this.idPrefix}_${String(turn.number)}_${String(turn.messageId)}`,
-        model: this.options.session.model,
+        model: this.model,
         stop_reason: null,
         content: [block],
         usage: MESSAGE_USAGE,
