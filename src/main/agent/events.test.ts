@@ -107,8 +107,9 @@ describe('parsing SDK messages', () => {
     expect(parse({ type: 'user', message: { content: echo } })).toEqual([])
   })
 
-  it('reads a compaction from its boundary, and nothing from the messages around it', () => {
+  it('reads a compaction from its status and boundary, and nothing from the messages around it', () => {
     expect(sdk.compaction(198_000, 41_000).flatMap((message) => parse(message))).toEqual([
+      { kind: AgentEventKind.Compacting },
       { kind: AgentEventKind.Compacted, trigger: CompactionTrigger.Manual, preTokens: 198_000, postTokens: 41_000 },
     ])
     expect(parse(sdk.compactBoundary({ trigger: 'auto', pre_tokens: 167_500, post_tokens: 30_000 }))).toEqual([
@@ -223,11 +224,22 @@ describe('parsing SDK messages', () => {
       ...sdk.turnStartNoise(),
       { type: 'stream_event', event: {} },
       { type: 'tool_progress', elapsed_time_seconds: 3 },
-      { type: 'system', subtype: 'status', status: 'compacting' },
+      { type: 'system', subtype: 'status', status: 'requesting' },
+      { type: 'system', subtype: 'status', status: null, compact_result: 'success' },
+      { type: 'system', subtype: 'status' },
     ]) {
       expect(parseQuietly(message)).toEqual([])
     }
     expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('reads a compaction starting, and one failing, from the session status', () => {
+    expect(parse({ type: 'system', subtype: 'status', status: 'compacting' })).toEqual([
+      { kind: AgentEventKind.Compacting },
+    ])
+    expect(
+      parse({ type: 'system', subtype: 'status', status: null, compact_result: 'failed', compact_error: 'Too long' }),
+    ).toEqual([{ kind: AgentEventKind.CompactionFailed }])
   })
 
   it('drops an unknown message type, logging it once', () => {

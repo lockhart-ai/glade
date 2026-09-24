@@ -20,8 +20,15 @@ export enum AgentEventKind {
   ToolResult = 'tool_result',
   /** How full the context is: what the agent's latest top-level message used. */
   ContextUsed = 'context_used',
+  /**
+   * The session started compacting its context (`status: compacting`): the SDK doing it on its own at its threshold,
+   * or a `/compact` Glade sent.
+   */
+  Compacting = 'compacting',
   /** The session's context was compacted (`compact_boundary`), manually or automatically. */
   Compacted = 'compacted',
+  /** The session's compaction failed (`compact_result: failed`). */
+  CompactionFailed = 'compaction_failed',
   /** The turn ended, successfully or not. Exactly one per turn. */
   TurnFinished = 'turn_finished',
   /** The agent process failed, or its session ended while a turn was running. No `TurnFinished` follows. */
@@ -70,6 +77,14 @@ export interface ContextUsedEvent {
   readonly kind: AgentEventKind.ContextUsed
   /** The prompt the model just saw, in tokens: the message's input, cache read and cache creation tokens. */
   readonly tokens: number
+}
+
+export interface CompactingEvent {
+  readonly kind: AgentEventKind.Compacting
+}
+
+export interface CompactionFailedEvent {
+  readonly kind: AgentEventKind.CompactionFailed
 }
 
 export interface CompactedEvent {
@@ -149,7 +164,9 @@ export type AgentEvent =
   | ToolCallStartedEvent
   | ToolResultEvent
   | ContextUsedEvent
+  | CompactingEvent
   | CompactedEvent
+  | CompactionFailedEvent
   | TurnFinishedEvent
   | SessionFailedEvent
   | ApiRetryEvent
@@ -201,6 +218,15 @@ const compactBoundaryMessage = z.looseObject({
     // Optional in the SDK's types; a malformed one is as good as missing.
     post_tokens: tokenCount.optional().catch(undefined),
   }),
+})
+
+// `status` is null once a compaction ends, with `compact_result` saying how it went; `requesting` is ignored, as is
+// anything else, so a status Glade doesn't know never logs.
+const statusMessage = z.looseObject({
+  type: z.literal('system'),
+  subtype: z.literal('status'),
+  status: z.unknown().optional(),
+  compact_result: z.unknown().optional(),
 })
 
 const parentToolUseId = z.string().nullable().optional()
@@ -260,6 +286,12 @@ const resultMessage = z.looseObject({
   user_message_uuids: z.array(z.string()).nullable().optional().catch(null),
   api_error_status: z.int().nullable().optional().catch(null),
 })
+
+function fromStatus(message: z.infer<typeof statusMessage>): AgentEvent[] {
+  if (message.status === 'compacting') return [{ kind: AgentEventKind.Compacting }]
+  if (message.compact_result === 'failed') return [{ kind: AgentEventKind.CompactionFailed }]
+  return []
+}
 
 const modelUsage = z.looseObject({ contextWindow: z.number().int().positive() })
 
@@ -425,6 +457,7 @@ export function createSdkMessageParser(log: AgentLog): (raw: unknown) => AgentEv
     switch (type) {
       case 'system':
         if (subtype === 'init') return parsed(initMessage, raw, log, 'system/init', fromInit)
+        if (subtype === 'status') return parsed(statusMessage, raw, log, 'system/status', fromStatus)
         if (subtype === 'api_retry') return parsed(apiRetryMessage, raw, log, 'system/api_retry', fromApiRetry)
         if (subtype === 'compact_boundary') {
           return parsed(compactBoundaryMessage, raw, log, 'system/compact_boundary', fromCompactBoundary)

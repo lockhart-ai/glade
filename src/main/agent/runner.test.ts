@@ -2197,13 +2197,13 @@ describe('compaction', () => {
     expect(current().activity).toBe(TaskActivity.Error)
   })
 
-  it('logs a compaction the SDK does on its own in the middle of a turn', async () => {
+  it('logs a compaction the SDK reports without first saying it was compacting', async () => {
     await fullTurn(160_000)
     await send('Now update the stored paths.')
     backend.session.emit(
       sdk.init(),
       sdk.withContextUsed(sdk.text('Updating in batches.'), 167_500),
-      ...sdk.compaction(167_500, 30_000, 'auto'),
+      sdk.compactBoundary({ trigger: 'auto', pre_tokens: 167_500, post_tokens: 30_000 }),
     )
     await settle()
 
@@ -2216,6 +2216,98 @@ describe('compaction', () => {
     })
     expect(current()).toMatchObject({ activity: TaskActivity.Working, contextUsedTokens: 30_000 })
     expect(listToolEvents(database.db, task.id).at(-1)).toMatchObject({ windowTokens: sdk.CONTEXT_WINDOW })
+  })
+
+  it('carries a long turn on through a compaction the SDK does on its own at its threshold, and keeps it all', async () => {
+    const auto = { ...running, compaction: CompactionTrigger.Auto, turn: 2 }
+    await fullTurn(160_000)
+    await send('Now update the stored paths.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.text('Updating the stored paths in batches of 500.'),
+      sdk.withContextUsed(
+        sdk.toolUse('toolu_batch1', 'Bash', { command: 'python manage.py update_media_paths --batch 1' }),
+        168_000,
+      ),
+      sdk.toolResult('toolu_batch1', 'Updated 500 paths.'),
+    )
+    await settle()
+    expect(current().contextUsedTokens).toBe(168_000)
+    events.splice(0)
+
+    // Past the threshold, the SDK compacts on its own: the working line says so while it does.
+    backend.session.emit({ type: 'system', subtype: 'status', status: 'compacting', session_id: sdk.SESSION_ID })
+    await settle()
+    expect(toolLog().at(-1)).toEqual(auto)
+    expect(drainEvents()).toEqual([[EventType.ToolEventAppended, ToolEventKind.Compaction, ToolCallState.Running]])
+
+    backend.session.emit(...sdk.compaction(168_000, 41_000, 'auto').slice(1))
+    await settle()
+    expect(toolLog().at(-1)).toEqual({ ...auto, state: ToolCallState.Done, preTokens: 168_000, postTokens: 41_000 })
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, contextUsedTokens: 41_000 })
+    expect(drainEvents()).toEqual([
+      [EventType.ToolEventUpdated, ToolEventKind.Compaction, ToolCallState.Done],
+      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, 41_000],
+    ])
+
+    // The turn carries on from the summary, and its reply lands.
+    backend.session.emit(
+      sdk.withContextUsed(
+        sdk.toolUse(
+          'toolu_batch2',
+          'Bash',
+          { command: 'python manage.py update_media_paths --batch 2' },
+          null,
+          'msg_02',
+        ),
+        43_000,
+      ),
+      sdk.toolResult('toolu_batch2', 'Updated 500 paths.'),
+      sdk.withContextUsed(sdk.text('Updated the stored paths of all 3,900 files.', null, 'msg_03'), 43_500),
+      sdk.result('Updated the stored paths of all 3,900 files.'),
+    )
+    await settle()
+    const log = [
+      { narration: 'Updating the stored paths in batches of 500.', turn: 2 },
+      expect.objectContaining({ call: 'Bash', state: ToolCallState.Done, output: 'Updated 500 paths.', turn: 2 }),
+      { ...auto, state: ToolCallState.Done, preTokens: 168_000, postTokens: 41_000 },
+      expect.objectContaining({ call: 'Bash', state: ToolCallState.Done, output: 'Updated 500 paths.', turn: 2 }),
+    ]
+    const conversation = [
+      { role: MessageRole.User, body: 'Move the uploads to S3.', turn: 1 },
+      { role: MessageRole.Agent, body: 'All 3,900 files are copied.', turn: 1 },
+      { role: MessageRole.User, body: 'Now update the stored paths.', turn: 2 },
+      { role: MessageRole.Agent, body: 'Updated the stored paths of all 3,900 files.', turn: 2 },
+    ]
+    expect(toolLog().slice(-4)).toEqual(log)
+    expect(chat()).toEqual(conversation)
+    expect(current()).toMatchObject({ activity: TaskActivity.Waiting, contextUsedTokens: 43_500 })
+
+    // Nothing was dropped from Glade's own record, and it's all still there after a relaunch.
+    relaunch()
+    expect(toolLog().slice(-4)).toEqual(log)
+    expect(chat()).toEqual(conversation)
+    expect(current()).toMatchObject({ activity: TaskActivity.Waiting, contextUsedTokens: 43_500 })
+  })
+
+  it('ends an automatic Compact row as an error when the SDK says the compaction failed, and carries the turn on', async () => {
+    await fullTurn(160_000)
+    await send('Now update the stored paths.')
+    backend.session.emit(
+      sdk.init(),
+      { type: 'system', subtype: 'status', status: 'compacting', session_id: sdk.SESSION_ID },
+      { type: 'system', subtype: 'status', status: null, compact_result: 'failed', session_id: sdk.SESSION_ID },
+    )
+    await settle()
+
+    const failed = { ...running, compaction: CompactionTrigger.Auto, state: ToolCallState.Error, turn: 2 }
+    expect(toolLog().at(-1)).toEqual(failed)
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, contextUsedTokens: 160_000 })
+
+    backend.session.emit(sdk.text('Updated.'), sdk.result('Updated.'))
+    await settle()
+    expect(toolLog().at(-1)).toEqual(failed)
+    expect(chat().at(-1)).toEqual({ role: MessageRole.Agent, body: 'Updated.', turn: 2 })
   })
 
   it('refuses while the agent works, for a done task, before the agent has a session, and for no such task', async () => {
