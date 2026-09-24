@@ -15,6 +15,8 @@ export default defineConfig({
             // Integration tests of the renderer's store against the real main process, which needs Node.
             'src/renderer/**/*.integration.test.ts',
           ],
+          // No test may talk to the real Claude API; see src/shared/agent-sdk-guard.ts.
+          setupFiles: ['src/shared/agent-sdk-guard.ts'],
         },
       },
       {
@@ -24,7 +26,8 @@ export default defineConfig({
           environment: 'jsdom',
           include: ['src/renderer/**/*.test.{ts,tsx}'],
           exclude: ['src/renderer/**/*.integration.test.ts'],
-          setupFiles: ['src/renderer/test-setup.ts'],
+          // No test may talk to the real Claude API; see src/shared/agent-sdk-guard.ts.
+          setupFiles: ['src/shared/agent-sdk-guard.ts', 'src/renderer/test-setup.ts'],
           // Vitest blanks CSS by default; tokens.test.ts reads the token stylesheet's text to check it.
           css: { include: [/tokens\.css/] },
         },

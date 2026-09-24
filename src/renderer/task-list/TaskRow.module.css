@@ -1,0 +1,96 @@
+/* From docs/design/html/task-workspace.html (rows) and 04-needs-you.html (an unread row). */
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-button);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.row:hover {
+  background: color-mix(in srgb, var(--color-raised) 60%, transparent);
+}
+
+.row:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+}
+
+.row.selected {
+  background: var(--color-raised);
+  border-color: var(--color-border);
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.title {
+  flex-grow: 1;
+  min-width: 0;
+  font-size: var(--font-size-body);
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.done .title {
+  color: var(--color-muted);
+}
+
+.time {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+.status {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding-left: 16px;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.4;
+  color: var(--color-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.unread .title {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.unread .time {
+  color: var(--color-blue-text);
+}
+
+.unread .status {
+  color: var(--color-muted);
+}
+
+.unreadDot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 3px;
+  background: var(--color-blue-text);
+}

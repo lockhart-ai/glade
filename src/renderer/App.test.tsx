@@ -60,6 +60,9 @@ it('renders the window layout with the workspace, the chat, and a placeholder in
   await renderApp([sampleWorkspace('w1')])
 
   expect(screen.getByRole('region', { name: 'Workspace' })).toHaveTextContent('Acme API/code/w1')
+  const sidebar = screen.getByRole('navigation', { name: 'Tasks' })
+  expect(within(sidebar).getByRole('searchbox', { name: 'Search tasks' })).toBeInTheDocument()
+  expect(within(sidebar).getByRole('region', { name: 'Active' })).toHaveTextContent('Active0')
 
   const main = screen.getByRole('main', { name: 'Task' })
   expect(within(main).getByRole('region', { name: 'Task header' })).toHaveTextContent('Task header')

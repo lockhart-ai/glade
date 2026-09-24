@@ -1,8 +1,5 @@
 {
-  "workspace": {
-    "name": "Acme API",
-    "rootPath": "/Users/sample/code/api"
-  },
+  "workspace": { "name": "Acme API", "rootPath": "/Users/sample/code/api" },
   "tasks": [
     {
       "title": "Draft release notes for 2.4",
@@ -38,18 +35,11 @@
         }
       ],
       "toolEvents": [
-        {
-          "kind": "narration",
-          "text": "Looking at how the API views are set up.",
-          "turn": 1,
-          "minutesAgo": 27
-        },
+        { "kind": "narration", "text": "Looking at how the API views are set up.", "turn": 1, "minutesAgo": 27 },
         {
           "kind": "tool_call",
           "name": "Read",
-          "input": {
-            "file_path": "api/views.py"
-          },
+          "input": { "file_path": "api/views.py" },
           "output": "212 lines",
           "turn": 1,
           "minutesAgo": 26
@@ -57,9 +47,7 @@
         {
           "kind": "tool_call",
           "name": "Grep",
-          "input": {
-            "pattern": "throttle"
-          },
+          "input": { "pattern": "throttle" },
           "output": "No matches",
           "turn": 1,
           "minutesAgo": 25
@@ -67,9 +55,7 @@
         {
           "kind": "tool_call",
           "name": "Read",
-          "input": {
-            "file_path": "config/settings.py"
-          },
+          "input": { "file_path": "config/settings.py" },
           "output": "318 lines",
           "turn": 1,
           "minutesAgo": 24
@@ -83,9 +69,7 @@
         {
           "kind": "tool_call",
           "name": "Write",
-          "input": {
-            "file_path": "api/throttles.py"
-          },
+          "input": { "file_path": "api/throttles.py" },
           "output": "New file, 38 lines",
           "turn": 1,
           "minutesAgo": 21
@@ -93,9 +77,7 @@
         {
           "kind": "tool_call",
           "name": "Edit",
-          "input": {
-            "file_path": "api/views.py"
-          },
+          "input": { "file_path": "api/views.py" },
           "output": "+6 -0 across 3 viewsets",
           "turn": 1,
           "minutesAgo": 20
@@ -109,9 +91,7 @@
         {
           "kind": "tool_call",
           "name": "Bash",
-          "input": {
-            "command": "pytest api/tests -q"
-          },
+          "input": { "command": "pytest api/tests -q" },
           "output": "14 passed in 3.2s",
           "turn": 1,
           "minutesAgo": 7
@@ -125,9 +105,7 @@
         {
           "kind": "tool_call",
           "name": "Read",
-          "input": {
-            "file_path": "api/search.py"
-          },
+          "input": { "file_path": "api/search.py" },
           "output": "96 lines",
           "turn": 1,
           "minutesAgo": 5
@@ -146,18 +124,8 @@
       "activity": "working",
       "minutesAgo": 9
     },
-    {
-      "title": "Upgrade to Django 5.2",
-      "status": "Upgraded; all tests pass",
-      "state": "done",
-      "minutesAgo": 1440
-    },
-    {
-      "title": "Add OpenAPI docs",
-      "status": "Schema served at /api/schema",
-      "state": "done",
-      "minutesAgo": 2880
-    },
+    { "title": "Upgrade to Django 5.2", "status": "Upgraded; all tests pass", "state": "done", "minutesAgo": 1440 },
+    { "title": "Add OpenAPI docs", "status": "Schema served at /api/schema", "state": "done", "minutesAgo": 2880 },
     {
       "title": "Remove the legacy v1 endpoints",
       "status": "Removed; clients moved to v2",
