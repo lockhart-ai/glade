@@ -9,7 +9,6 @@ name: Release
 on:
   push:
     tags: ['v*.*.*']
-    branches: [release-process] # TEMP: dry-run test, reverted before merge
   workflow_dispatch:
     inputs:
       dry_run:
@@ -26,7 +25,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 30
     env:
-      PUBLISH: false # TEMP
+      PUBLISH: ${{ github.event_name == 'push' || !inputs.dry_run }}
     steps:
       - uses: actions/checkout@v7
 
