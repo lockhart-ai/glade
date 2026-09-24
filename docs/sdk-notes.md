@@ -18,7 +18,8 @@ is the most complete and current source.
 
 ## 1. Auth
 
-**Technically: yes. Policy: unclear for Glade, so this goes to Jared.**
+**Technically: yes. Policy: not clearly addressed by the docs. Decided (Jared): Glade runs on the user's own Claude Code
+login.** The policy risk is recorded below and under Open risks.
 
 **[verified]** With no `ANTHROPIC_API_KEY` in the environment, the SDK ran on the user's Claude Code login (macOS
 Keychain) and needed no configuration. `system/init` reported `apiKeySource: "none"`. A `rate_limit_event` arrived
@@ -77,7 +78,8 @@ the case of one person running an open-source tool on their own machine, where t
 that person's own existing `claude` login and Glade never touches the token. That case is closer to "an end user
 signing in to the unmodified Claude Code binary with their own Claude subscription". But the docs don't explicitly bless
 it for a third-party app, and "Anthropic reserves the right to take measures to enforce these restrictions … without
-prior notice." We can't call it clearly permitted, so it is **flagged for Jared** in `decisions.md`.
+prior notice." We can't call it clearly permitted. Jared has decided to go login-based anyway (see `decisions.md`), and
+the risk stays listed under Open risks.
 
 **API key fallback [docs].** Set `ANTHROPIC_API_KEY` in the SDK process's environment. The init message then reports
 `apiKeySource: "ANTHROPIC_API_KEY"`. Watch out: the `env` option *replaces* the child's environment rather than merging
@@ -88,8 +90,8 @@ vars. Not exercised in this spike, because no key was available.
 
 - Glade never shows a claude.ai login, never reads the Keychain, and never stores or forwards OAuth tokens. It runs the
   unmodified bundled binary, which resolves credentials the way it always does.
-- If Jared chooses API-key-only, Settings takes a key (stored in the macOS Keychain via `safeStorage`, not SQLite) and
-  passes it in `env`. Setting `ANTHROPIC_API_KEY` overrides a subscription login, per the precedence above.
+- Glade runs on the user's existing `claude` login and adds no key setting. If `ANTHROPIC_API_KEY` happens to be set in
+  the environment, the binary uses it instead, per the precedence above.
 - Show which credential is in use (from `system/init.apiKeySource`, and from `accountInfo()` or
   `initializationResult().account`) so the user is never surprised about billing.
 
@@ -405,14 +407,12 @@ mid-turn.
   both fired. The model still knew CLAUDE.md facts after compaction. The types list `compact` as a CLAUDE.md
   `load_reason`, which suggests CLAUDE.md is reloaded after compaction.
 
-**Implication:** this conflicts with `decisions.md` ("automatic at 99% (configurable)"). There are two options:
+**Decided (Jared):** Glade uses the SDK's default auto-compact threshold. Manual compaction (`/compact`) is triggered
+from the context meter or ⌘⇧K. A custom threshold is deferred to Later. If it is revisited: the setting can only lower
+the threshold, and disabling SDK auto-compaction so Glade compacts at a higher level risks the summarising request
+itself hitting prompt-too-long.
 
-- **(a)** Keep SDK auto-compaction. The setting can only lower the threshold, so the effective default is about 83%.
-- **(b)** Disable SDK auto-compaction and have Glade send `/compact` at its own threshold. But at 99% the summarising
-  request may itself hit prompt-too-long.
-
-This needs a decision from Jared before P3. The context meter should show `autoCompactThreshold` from
-`getContextUsage()`.
+The context meter should show `autoCompactThreshold` from `getContextUsage()`.
 
 ## 6. CLAUDE.md loading [verified + docs]
 
@@ -483,10 +483,10 @@ log or as a truncated reply, and show the turn as stopped rather than failed (`t
 
 ## Open risks
 
-- **Subscription auth policy.** It works, but it isn't clearly permitted for a third-party app, and Anthropic can
-  enforce "without prior notice". This needs Jared's decision (see `decisions.md`).
-- **99% auto-compaction isn't achievable** with SDK auto-compact (it is capped at about `window − 13k`). Doing it in
-  Glade risks prompt-too-long on the summary request. This needs a decision before P3.
+- **Subscription auth policy.** Glade is login-based by decision, but the docs don't clearly permit this for a
+  third-party app, and Anthropic can enforce "without prior notice". If that happens, Glade would need an API-key path.
+- **Auto-compact threshold.** Glade uses the SDK default (about 83% on 200k). A custom threshold is deferred; the SDK
+  caps it at about `window − 13k`.
 - **One CLI subprocess per live task.** Each `query()` spawns the ~220 MB native binary as a separate process. With many
   parallel tasks (P2), memory and startup cost need measuring. Idle tasks may need to `close()` and `resume` lazily.
 - **Blocking `ask` across a crash.** If Glade dies while `ask` is waiting, the resumed session has a `tool_use` with no

@@ -7,11 +7,10 @@
 - **Desktop shell:** Electron. macOS first.
 - **Agent runtime:** Claude Agent SDK (TypeScript), running in Electron's main process. It streams typed events, takes
   custom tools in-process, resumes sessions and reads CLAUDE.md files. (Recommended over driving the Claude Code CLI.)
-- **Auth:** Glade never handles credentials itself: no claude.ai login screen, no reading or storing OAuth tokens. It
-  runs the SDK's unmodified bundled Claude Code binary, which picks the credential by its usual precedence. That means
-  `ANTHROPIC_API_KEY` if set, otherwise the user's own `claude` login. Reason: Anthropic forbids third-party apps
-  from offering claude.ai login or intermediating tokens (see `sdk-notes.md` §1). Whether Glade may run on a
-  subscription login at all is still open (below).
+- **Auth:** login-based. Glade runs on the user's own Claude Code login. Glade never handles credentials itself: no
+  claude.ai login screen, no reading or storing OAuth tokens. It runs the SDK's unmodified bundled Claude Code binary,
+  which still uses `ANTHROPIC_API_KEY` if one happens to be set. Policy risk: Anthropic's docs don't clearly permit
+  subscription use by a third-party app (see `sdk-notes.md` §1 and Open risks).
 - **State:** everything in SQLite — workspaces, tasks, chat, tool log, todos, artifacts, queue, UI state. Reopening
   after a crash resumes from the database.
 - **Agent sessions run in the workspace root** (the SDK session's `cwd`), so the workspace's own `CLAUDE.md` (the
@@ -29,7 +28,7 @@
 - **Two task states:** Active and Done. Done stays chat-able; a message reopens it. No follow-up tasks.
 - **Workspace** = name + root folder, top level. Switcher in the sidebar and the macOS menu bar.
 - **Chat shows final replies only.** Preamble goes to the tool log.
-- **Compaction:** automatic at 99% (configurable), manual from the context meter or ⌘⇧K.
+- **Compaction:** automatic at the SDK's default auto-compact threshold; manual from the context meter or ⌘⇧K.
 - **Permissions:** default Allow all. No per-call review for now.
 - **Message queue:** messages sent while the agent works are queued and delivered after its current step. They can be
   edited or removed. No "send now", no reordering.
@@ -47,15 +46,10 @@
 ## Open
 
 - Exact names and schemas for the model surface tools (a draft is in `model-surface.md`).
-- **Subscription auth. Needs Jared.** The P1-01 spike confirmed it works technically: the SDK ran on the existing
-  Claude Code login with no API key. But Anthropic's docs say developers building on the Agent SDK "should use API key
-  authentication". They do not clearly cover one person running an open-source tool on their own login (quotes in
-  `sdk-notes.md` §1). So the choice is between API-key-only, or also allowing the user's own login.
-- **Auto-compaction at 99%. Needs Jared.** The SDK's auto-compact threshold can only be lowered, not raised. It is
-  capped at about the window minus 13k tokens, and defaults to about 83% on a 200k window. See `sdk-notes.md` §5.
 
 ## Later
 
 - Plugin API (Nekomata and others).
 - Handling hundreds of done tasks (pagination, archiving).
 - Per-call permission review.
+- Customising the auto-compact threshold (see `sdk-notes.md` §5 for the SDK's limits).
