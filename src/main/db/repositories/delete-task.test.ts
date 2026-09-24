@@ -9,6 +9,7 @@ import { appendQueuedMessage } from './queued-messages'
 import { deleteTask, getTask, listTasks } from './tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 import { appendDivider, appendNarration, appendToolCall } from './tool-events'
+import { setWorkspaceSelection } from './workspace-selections'
 import { getWorkspace } from './workspaces'
 
 let test: TestDatabase
@@ -57,6 +58,7 @@ function fillTask(db: Database, task: Task): void {
   appendQueuedMessage(db, { taskId, body: 'Also cover /search' })
   setOpenFiles(db, { taskId, paths: ['api/views.py'], activePath: 'api/views.py' })
   addArtifact(db, { taskId, path: 'docs/rate-limits.md', title: 'Rate limits' })
+  setWorkspaceSelection(db, task.workspaceId, taskId)
   appendQuestionSet(db, {
     taskId,
     turn: 1,
@@ -74,6 +76,7 @@ const FILLED_TABLES = [
   // The search index's rows for its fields and messages, which a new task and `fillTask`'s message make.
   'search_documents',
   'tool_events',
+  'workspace_selections',
 ]
 
 describe('deleteTask', () => {
@@ -82,8 +85,10 @@ describe('deleteTask', () => {
   })
 
   it('leaves no row in any table that belongs to the task, and every other task as it was', () => {
+    // In two workspaces, as a workspace has one selected task.
+    const other = sampleWorkspace(test.db, '/code/acme-web')
     const doomed = sampleTask(test.db, workspace.id)
-    const kept = sampleTask(test.db, workspace.id)
+    const kept = sampleTask(test.db, other.id)
     fillTask(test.db, doomed)
     fillTask(test.db, kept)
     for (const table of FILLED_TABLES) expect(rowsOf(test.db, table, doomed.id), table).toBeGreaterThan(0)
@@ -95,7 +100,8 @@ describe('deleteTask', () => {
       expect(rowsOf(test.db, table, doomed.id), table).toBe(0)
       expect(rowsOf(test.db, table, kept.id), table).toBeGreaterThan(0)
     }
-    expect(listTasks(test.db, workspace.id).map(({ id }) => id)).toEqual([kept.id])
+    expect(listTasks(test.db, workspace.id)).toEqual([])
+    expect(listTasks(test.db, other.id).map(({ id }) => id)).toEqual([kept.id])
     expect(getWorkspace(test.db, workspace.id)).toEqual(workspace)
   })
 

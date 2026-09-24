@@ -182,10 +182,18 @@ export interface GladeActions {
   openSettings: (section?: SettingsSection) => void
   /** Closes the Settings modal. */
   closeSettings: () => void
-  /** Opens a workspace: records it as last opened and shows it, deselecting a task in another workspace. */
+  /**
+   * Asks for a folder with the native dialog and adds it as a workspace (or finds the one already there) and opens it:
+   * New workspace… and Open folder as workspace…. Resolves with the workspace, or null if the dialog was cancelled.
+   */
+  addWorkspace: () => Promise<Workspace | null>
+  /**
+   * Opens a workspace: records it as last opened and shows it, with the task last selected in it (whose logs it loads),
+   * or none. This is how you switch workspaces.
+   */
   openWorkspace: (workspaceId: string) => Promise<void>
-  /** Shows a workspace, or none. Deselects the selected task if it's in another workspace. */
-  selectWorkspace: (workspaceId: string | null) => Promise<void>
+  /** Shows a workspace's root folder in Finder (Reveal root in Finder). */
+  revealWorkspace: (workspaceId: string) => Promise<void>
   /**
    * Selects a task, or none, and loads its chat log and tool log. Selecting a task in another workspace shows that
    * workspace too.

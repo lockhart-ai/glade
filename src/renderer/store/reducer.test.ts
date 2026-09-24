@@ -391,8 +391,8 @@ describe("a task's todo list", () => {
 describe('withOpenedWorkspace', () => {
   const opened = { ...sampleWorkspace('w2'), lastOpenedAt: 5_000 }
 
-  it('records the workspace as it now is and shows it, deselecting a task in another workspace', () => {
-    const next = withOpenedWorkspace({ ...state, selectedTaskId: 't1' }, opened)
+  it('records the workspace as it now is and shows it, with no task selected when main selected none', () => {
+    const next = withOpenedWorkspace({ ...state, selectedTaskId: 't1' }, opened, null)
 
     expect(next.workspaces).toEqual([sampleWorkspace('w1'), opened])
     expect(next.selectedWorkspaceId).toBe('w2')
@@ -400,9 +400,18 @@ describe('withOpenedWorkspace', () => {
     expect(next.uiState).toEqual({ [UiStateKey.ActiveWorkspaceId]: 'w2', [UiStateKey.SelectedTaskId]: '' })
   })
 
-  it('keeps a selected task in the same workspace, or none', () => {
-    expect(withOpenedWorkspace({ ...state, selectedTaskId: 't1' }, sampleWorkspace('w1')).selectedTaskId).toBe('t1')
-    expect(withOpenedWorkspace(state, opened).uiState).toEqual({ [UiStateKey.ActiveWorkspaceId]: 'w2' })
+  it('selects the task main restored', () => {
+    const next = withOpenedWorkspace({ ...state, selectedTaskId: 't1' }, opened, 't2')
+
+    expect(next.selectedTaskId).toBe('t2')
+    expect(next.uiState).toEqual({ [UiStateKey.ActiveWorkspaceId]: 'w2', [UiStateKey.SelectedTaskId]: 't2' })
+  })
+
+  it('leaves a selection that is already right alone', () => {
+    expect(withOpenedWorkspace({ ...state, selectedTaskId: 't1' }, sampleWorkspace('w1'), 't1').uiState).toEqual({
+      [UiStateKey.ActiveWorkspaceId]: 'w1',
+    })
+    expect(withOpenedWorkspace(state, opened, null).uiState).toEqual({ [UiStateKey.ActiveWorkspaceId]: 'w2' })
   })
 })
 

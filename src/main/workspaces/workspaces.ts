@@ -6,6 +6,11 @@ import { UiStateKey, type EpochMs, type UiStateEntry, type Workspace } from '../
 import { CommandFailure } from '../bridge/errors'
 import { getTask } from '../db/repositories/tasks'
 import { getUiState, setUiState } from '../db/repositories/ui-state'
+import {
+  clearWorkspaceSelection,
+  getWorkspaceSelection,
+  setWorkspaceSelection,
+} from '../db/repositories/workspace-selections'
 import { createWorkspace, getWorkspace, getWorkspaceByRoot, updateWorkspace } from '../db/repositories/workspaces'
 import { seedClaudeMd } from './starter-claude-md'
 
@@ -40,13 +45,15 @@ export function createWorkspaceAt(db: Database, rootPath: string, now: EpochMs =
 
 export interface WorkspaceOpening {
   readonly workspace: Workspace
+  /** The task selected now that the workspace shows: the one last selected in it, or null for none. */
+  readonly selectedTaskId: string | null
   /** The UI state values the opening changed, to broadcast. */
   readonly uiState: readonly UiStateEntry[]
 }
 
 /**
- * Opens a workspace: records it as last opened and makes it the window's workspace, deselecting the selected task if
- * it's in another workspace.
+ * Opens a workspace: records it as last opened and makes it the window's workspace, selecting the task last selected
+ * in it (none if it had none), so switching between workspaces restores each one's selection.
  *
  * @throws CommandFailure `not_found` when there's no such workspace.
  */
@@ -55,13 +62,13 @@ export function openWorkspace(db: Database, id: string, now: EpochMs = Date.now(
     if (getWorkspace(db, id) === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${id}`)
     const workspace = updateWorkspace(db, id, { lastOpenedAt: now })
     const uiState: UiStateEntry[] = [{ key: UiStateKey.ActiveWorkspaceId, value: id }]
-    const selectedTaskId = getUiState(db, UiStateKey.SelectedTaskId)
-    const selectedTask = selectedTaskId === undefined ? undefined : getTask(db, selectedTaskId)
-    if (selectedTask !== undefined && selectedTask.workspaceId !== id) {
-      uiState.push({ key: UiStateKey.SelectedTaskId, value: '' })
-    }
+    const current = getUiState(db, UiStateKey.SelectedTaskId) ?? ''
+    const currentTask = getTask(db, current)
+    // A task already selected in this workspace stays; otherwise the workspace's own selection comes back.
+    const selected = currentTask?.workspaceId === id ? currentTask.id : (getWorkspaceSelection(db, id) ?? '')
+    if (selected !== current) uiState.push({ key: UiStateKey.SelectedTaskId, value: selected })
     for (const entry of uiState) setUiState(db, entry)
-    return { workspace, uiState }
+    return { workspace, selectedTaskId: selected === '' ? null : selected, uiState }
   })()
 }
 
@@ -92,4 +99,19 @@ export function changeWorkspace(db: Database, id: string, patch: WorkspaceUserPa
       ...(rootPath === undefined ? {} : { rootPath }),
     })
   })()
+}
+
+/**
+ * Keeps each workspace's selection as UI state is stored (`uiState.set`, or main opening a task itself): selecting a
+ * task records it as its workspace's selection, and selecting none clears the shown workspace's.
+ */
+export function noteSelection(db: Database, entry: UiStateEntry): void {
+  if (entry.key !== UiStateKey.SelectedTaskId) return
+  if (entry.value === '') {
+    const shown = getUiState(db, UiStateKey.ActiveWorkspaceId)
+    if (shown !== undefined) clearWorkspaceSelection(db, shown)
+    return
+  }
+  const task = getTask(db, entry.value)
+  if (task !== undefined) setWorkspaceSelection(db, task.workspaceId, task.id)
 }

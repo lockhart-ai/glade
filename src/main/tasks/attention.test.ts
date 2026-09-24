@@ -12,6 +12,7 @@ import { fakeIpcPair } from '../bridge/fake-ipc'
 import { openTaskWithoutWindow } from './attention'
 import { getTask } from '../db/repositories/tasks'
 import { getUiState, setUiState } from '../db/repositories/ui-state'
+import { getWorkspaceSelection } from '../db/repositories/workspace-selections'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 
 let database: TestDatabase
@@ -297,6 +298,7 @@ describe('openTaskWithoutWindow', () => {
 
     expect(getUiState(database.db, UiStateKey.ActiveWorkspaceId)).toBe(other.id)
     expect(getUiState(database.db, UiStateKey.SelectedTaskId)).toBe(elsewhere.id)
+    expect(getWorkspaceSelection(database.db, other.id)).toBe(elsewhere.id)
     expect(current(elsewhere).unread).toBe(false)
     const changed = events.flatMap((event): UiStateEntry[] =>
       event.type === EventType.UiStateChanged ? [event.entry] : [],

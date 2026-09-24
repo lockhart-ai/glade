@@ -20,6 +20,11 @@
   grid-template-rows: minmax(0, 1fr);
 }
 
+/* Collapsed to its tab row, the bottom bar takes only that row's height and the task card the rest. */
+.bottom.collapsed {
+  height: auto;
+}
+
 /* The outer padding along the top edge drags the window (the title bar is hidden). */
 .dragStrip {
   position: absolute;
@@ -34,4 +39,9 @@
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   gap: var(--space-outer);
+}
+
+/* The sidebar is collapsed: the task card takes the whole width. */
+.shell > .top.full {
+  grid-template-columns: minmax(0, 1fr);
 }

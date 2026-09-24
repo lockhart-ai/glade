@@ -45,6 +45,7 @@ export enum CommandName {
   WorkspacesCreate = 'workspaces.create',
   WorkspacesOpen = 'workspaces.open',
   WorkspacesUpdate = 'workspaces.update',
+  WorkspacesReveal = 'workspaces.reveal',
   DialogChooseFolder = 'dialog.chooseFolder',
   TasksList = 'tasks.list',
   TasksCreate = 'tasks.create',
@@ -105,8 +106,8 @@ export interface WorkspacesCreateResponse {
 }
 
 /**
- * Opens a workspace: records it as last opened and makes it the window's workspace (deselecting a task in another
- * workspace). Broadcasts `workspace.updated` and `uiState.changed`. Fails with `not_found` for an unknown id.
+ * Opens a workspace: records it as last opened and makes it the window's workspace, selecting the task last selected
+ * in it (or none). Broadcasts `workspace.updated` and `uiState.changed`. Fails with `not_found` for an unknown id.
  */
 export interface WorkspacesOpenRequest {
   readonly id: string
@@ -114,6 +115,13 @@ export interface WorkspacesOpenRequest {
 
 export interface WorkspacesOpenResponse {
   readonly workspace: Workspace
+  /** The task selected now: the one last selected in the workspace, or null for none. */
+  readonly selectedTaskId: string | null
+}
+
+/** Shows a workspace's root folder in Finder (Reveal root in Finder). Fails with `not_found` for an unknown id. */
+export interface WorkspacesRevealRequest {
+  readonly id: string
 }
 
 /** The workspace fields you can change, in Settings › Workspace. */
@@ -490,6 +498,7 @@ export interface CommandMap {
   [CommandName.WorkspacesCreate]: CommandSpec<WorkspacesCreateRequest, WorkspacesCreateResponse>
   [CommandName.WorkspacesOpen]: CommandSpec<WorkspacesOpenRequest, WorkspacesOpenResponse>
   [CommandName.WorkspacesUpdate]: CommandSpec<WorkspacesUpdateRequest, WorkspacesUpdateResponse>
+  [CommandName.WorkspacesReveal]: CommandSpec<WorkspacesRevealRequest, null>
   [CommandName.DialogChooseFolder]: CommandSpec<EmptyRequest, DialogChooseFolderResponse>
   [CommandName.TasksList]: CommandSpec<TasksListRequest, TasksListResponse>
   [CommandName.TasksCreate]: CommandSpec<TasksCreateRequest, TaskResponse>

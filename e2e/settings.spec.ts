@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { chooseFolder, expect, notifications, test } from './fixtures'
-import { chat, firstRun, inputBar, settings, taskList } from './selectors'
+import { chat, firstRun, inputBar, settings, taskList, workspaceSwitcher } from './selectors'
 
 /** Task A's first message: it plays `multi-tool-turn`, which titles the task and replies after a dozen tool calls. */
 const FIX_DATE = 'The date test is flaky. Can you fix it?'
@@ -75,7 +75,10 @@ test('settings save as you change them: new tasks take the defaults, notificatio
   await expect(again.dialog).toBeHidden()
 })
 
-test('Settings › Workspace renames the workspace and moves its root folder', async ({ launch, tempFolder }) => {
+test('Workspace settings… opens Settings › Workspace, which renames the workspace and moves its root folder', async ({
+  launch,
+  tempFolder,
+}) => {
   const root = join(tempFolder(), 'acme-api')
   const moved = join(tempFolder(), 'acme')
   mkdirSync(root)
@@ -86,9 +89,12 @@ test('Settings › Workspace renames the workspace and moves its root folder', a
   const modal = settings(window)
   const sidebarWorkspace = window.getByRole('region', { name: 'Workspace' })
 
-  await window.keyboard.press('Meta+Comma')
-  await modal.section('acme-api').click()
+  // The switcher's Workspace settings… opens Settings at the workspace.
+  const switcher = workspaceSwitcher(window)
+  await switcher.trigger.click()
+  await switcher.action('Workspace settings…').click()
   await expect(modal.heading).toHaveText('acme-api')
+  await expect(modal.section('acme-api')).toHaveAttribute('aria-current', 'page')
 
   const name = modal.dialog.getByRole('textbox', { name: 'Workspace name' })
   await name.fill('Acme API')

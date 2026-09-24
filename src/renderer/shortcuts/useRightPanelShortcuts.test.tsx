@@ -57,15 +57,6 @@ describe('useRightPanelShortcuts', () => {
     expect(panel().collapsed).toBeUndefined()
   })
 
-  it('toggles the panel with ⌘⌥B', async () => {
-    const { panel } = await renderShortcuts()
-
-    expect(press('KeyB', '∫')).toBe(false)
-    expect(panel().collapsed).toBe('true')
-    press('KeyB', '∫')
-    expect(panel().collapsed).toBe('false')
-  })
-
   it('opens a collapsed panel at the tab ⌘⌥ and a digit picks', async () => {
     const { panel } = await renderShortcuts([{ key: UiStateKey.RightPanelCollapsed, value: 'true' }])
 
@@ -85,9 +76,9 @@ describe('useRightPanelShortcuts', () => {
       { code: 'ArrowDown', key: 'ArrowDown', metaKey: true, altKey: true },
       { code: 'Digit2', key: '2', metaKey: true },
       { code: 'Digit2', key: '™', altKey: true },
-      { code: 'KeyB', key: 'b', metaKey: true },
-      { code: 'KeyB', key: 'ı', metaKey: true, altKey: true, shiftKey: true },
-      { code: 'KeyB', key: '∫', metaKey: true, altKey: true, ctrlKey: true },
+      { code: 'KeyB', key: '∫', metaKey: true, altKey: true },
+      { code: 'Digit2', key: '™', metaKey: true, altKey: true, shiftKey: true },
+      { code: 'Digit2', key: '™', metaKey: true, altKey: true, ctrlKey: true },
     ]) {
       expect(fireEvent.keyDown(window, init)).toBe(true)
     }
@@ -99,8 +90,8 @@ describe('useRightPanelShortcuts', () => {
     const { panel, view } = await renderShortcuts()
     view.unmount()
 
-    press('KeyB', '∫')
+    press('Digit2', '™')
 
-    expect(panel().collapsed).toBeUndefined()
+    expect(panel().tab).toBeUndefined()
   })
 })

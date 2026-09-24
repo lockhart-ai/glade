@@ -76,6 +76,10 @@ export interface FakeMain {
   readonly revealed?: string[]
   /** The settings `settings.get` starts answering with; the defaults when left out. `settings.update` changes them. */
   readonly settings?: Settings
+  /** The task last selected in each workspace, by workspace id, which `workspaces.open` selects; none when left out. */
+  readonly workspaceSelections?: Readonly<Record<string, string>>
+  /** The workspaces `workspaces.reveal` revealed, by id, oldest first. */
+  readonly revealedWorkspaces?: string[]
 }
 
 export interface FakeBridge {
@@ -93,6 +97,8 @@ export interface FakeBridge {
  * removes the task and broadcasts it, without deselecting it; main's own tests cover the rest. `workspaces.create` adds a
  * workspace, `workspaces.open` answers with it opened at 5,000 and `workspaces.update` changes it, none broadcasting.
  * `settings.update` changes the settings and broadcasts them.
+ * workspace and `workspaces.open` answers with it opened at 5,000 and its selection from `workspaceSelections`, neither
+ * broadcasting.
  */
 export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void): FakeHandlers {
   let sent = 0
@@ -137,7 +143,14 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     [CommandName.WorkspacesOpen]: ({ id }) => {
       const current = main.workspaces.find((workspace) => workspace.id === id)
       if (current === undefined) return refuse(bridgeError(BridgeErrorCode.NotFound, `No workspace ${id}`))
-      return { workspace: { ...current, lastOpenedAt: 5_000 } }
+      return { workspace: { ...current, lastOpenedAt: 5_000 }, selectedTaskId: main.workspaceSelections?.[id] ?? null }
+    },
+    [CommandName.WorkspacesReveal]: ({ id }) => {
+      if (!main.workspaces.some((workspace) => workspace.id === id)) {
+        return refuse(bridgeError(BridgeErrorCode.NotFound, `No workspace ${id}`))
+      }
+      main.revealedWorkspaces?.push(id)
+      return null
     },
     [CommandName.WorkspacesUpdate]: ({ id, patch }) => {
       const index = main.workspaces.findIndex((workspace) => workspace.id === id)

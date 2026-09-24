@@ -26,6 +26,7 @@ import {
   type WorkspacesOpenRequest,
   type SettingsUpdateRequest,
   type WorkspacesUpdateRequest,
+  type WorkspacesRevealRequest,
 } from '../../shared/bridge'
 import { Effort, UiStateKey } from '../../shared/domain'
 import { isWorkspaceRelativePath } from '../../shared/files'
@@ -60,6 +61,7 @@ const workspacesUpdateRequest = z.strictObject({
     rootPath: absolutePath.optional(),
   }),
 }) satisfies z.ZodType<WorkspacesUpdateRequest>
+const workspacesRevealRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<WorkspacesRevealRequest>
 
 const tasksListRequest = z.strictObject({ workspaceId: z.string() }) satisfies z.ZodType<TasksListRequest>
 
@@ -143,6 +145,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.WorkspacesCreate]: workspacesCreateRequest,
   [CommandName.WorkspacesOpen]: workspacesOpenRequest,
   [CommandName.WorkspacesUpdate]: workspacesUpdateRequest,
+  [CommandName.WorkspacesReveal]: workspacesRevealRequest,
   [CommandName.DialogChooseFolder]: emptyRequest,
   [CommandName.TasksList]: tasksListRequest,
   [CommandName.TasksCreate]: tasksCreateRequest,

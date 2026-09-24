@@ -28,6 +28,14 @@ it('refuses to delete a task it does not have', async () => {
   })
 })
 
+it('refuses to reveal a workspace it does not have', async () => {
+  const fake = fakeBridge({ workspaces: [], tasks: [], uiState: [] })
+
+  await expect(fake.bridge.invoke(CommandName.WorkspacesReveal, { id: 'missing' })).rejects.toMatchObject({
+    code: BridgeErrorCode.NotFound,
+  })
+})
+
 it('answers dialog.chooseFolder as if cancelled', async () => {
   const fake = fakeBridge({ workspaces: [], tasks: [], uiState: [] })
 

@@ -15,6 +15,9 @@
     "src/renderer/store/*.ts",
     // The right panel's state, which the store reads; plain functions, like the store.
     "src/renderer/right-panel/panelModel.ts",
+    // Whether each panel is collapsed, which the store reads to open the right panel; plain functions and icon data.
+    "src/renderer/panels/panels.ts",
+    "src/renderer/panels/panelIcons.ts",
     // The task list's order, which the store reads to pick the task to select after a delete; plain functions too.
     "src/renderer/task-list/sections.ts",
     // The Settings modal's sections, which the store keeps the open one of.

@@ -10,9 +10,9 @@ import { searchTasks } from '../db/repositories/search'
 import { getTask, listTasks } from '../db/repositories/tasks'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
-import { listWorkspaces } from '../db/repositories/workspaces'
 import { getSettings, updateSettings } from '../db/repositories/settings'
-import { changeWorkspace, createWorkspaceAt, openWorkspace } from '../workspaces/workspaces'
+import { getWorkspace, listWorkspaces } from '../db/repositories/workspaces'
+import { changeWorkspace, createWorkspaceAt, noteSelection, openWorkspace } from '../workspaces/workspaces'
 import { editQueuedMessage, removeQueuedMessage } from '../tasks/queue'
 import { noteUiStateSet } from '../tasks/attention'
 import { createTask, deleteTask, markTaskDone, reopenTask, updateTaskFromUser } from '../tasks/service'
@@ -65,10 +65,20 @@ export function createHandlers(context: HandlerContext): Handlers {
       return creation
     },
     [CommandName.WorkspacesOpen]: ({ id }) => {
-      const { workspace, uiState } = openWorkspace(db, id)
+      const { workspace, selectedTaskId, uiState } = openWorkspace(db, id)
       emit({ type: EventType.WorkspaceUpdated, workspace })
-      for (const entry of uiState) emit({ type: EventType.UiStateChanged, entry })
-      return { workspace }
+      for (const entry of uiState) {
+        emit({ type: EventType.UiStateChanged, entry })
+        // The restored selection is the task you're now viewing, so it's read.
+        noteUiStateSet(context, entry)
+      }
+      return { workspace, selectedTaskId }
+    },
+    [CommandName.WorkspacesReveal]: ({ id }) => {
+      const workspace = getWorkspace(db, id)
+      if (workspace === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${id}`)
+      context.revealPath(workspace.rootPath)
+      return null
     },
     [CommandName.WorkspacesUpdate]: ({ id, patch }) => {
       const workspace = changeWorkspace(db, id, patch)
@@ -139,6 +149,7 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.UiStateGet]: ({ key }) => ({ value: getUiState(db, key) ?? null }),
     [CommandName.UiStateGetAll]: () => ({ entries: listUiState(db) }),
     [CommandName.UiStateSet]: (entry) => {
+      noteSelection(db, entry)
       setUiState(db, entry)
       emit({ type: EventType.UiStateChanged, entry })
       noteUiStateSet(context, entry)

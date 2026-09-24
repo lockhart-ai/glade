@@ -1,18 +1,18 @@
-import { faTableColumns } from '@fortawesome/free-solid-svg-icons'
 import { useCallback, useState, type KeyboardEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { UiStateKey, type ToolEvent } from '../../shared/domain'
 import { ArtifactsTab } from '../artifacts'
-import { Button, ButtonVariant, TabPanel, Tabs, type TabItem } from '../components'
+import { TabPanel, Tabs, type TabItem } from '../components'
 import { FilesTab, isCloseFileKey, type FileLineFocus } from '../files'
 import { RightPanel } from '../layout'
+import { Panel, PanelToggle, usePanel } from '../panels'
 import { selectSelectedTask, selectSelectedWorkspace } from '../store/state'
 import { useGladeStore } from '../store/react'
 import { SubagentsTab } from '../subagents'
 import { Todos } from '../todos'
 import { ToolLog, type TurnFocus } from '../tool-log'
 import { NOW_REFRESH_MS, useNow } from '../task-list/useNow'
-import { formatCount, isPanelCollapsed, PanelTab, parsePanelTab, parsePanelWidth } from './panelModel'
+import { formatCount, PanelTab, parsePanelTab, parsePanelWidth } from './panelModel'
 import { PANEL_TAB_DEFINITIONS } from './panelTabs'
 import styles from './TaskPanel.module.css'
 
@@ -42,7 +42,7 @@ export function TaskPanel(): React.JSX.Element | null {
   // Only the Todos and Artifacts tabs show relative times ("updated 4m ago", "12m ago").
   const now = useNow(tab === PanelTab.Todos || tab === PanelTab.Artifacts ? NOW_REFRESH_MS : null)
   const width = useGladeStore((state) => parsePanelWidth(state.uiState[UiStateKey.RightPanelWidth]))
-  const collapsed = useGladeStore((state) => isPanelCollapsed(state.uiState[UiStateKey.RightPanelCollapsed]))
+  const { collapsed } = usePanel(Panel.RightPanel)
   const setUiState = useGladeStore((state) => state.setUiState)
   const toolLogFocus = useGladeStore((state) => state.toolLogFocus)
   const activeFile = useGladeStore((state) =>
@@ -147,14 +147,7 @@ export function TaskPanel(): React.JSX.Element | null {
         <>
           <Tabs id={TABS_ID} label="Task panels" tabs={tabs} value={tab} onChange={selectTab} className={styles.tabs} />
           <span className={styles.spacer} />
-          <Button
-            variant={ButtonVariant.Icon}
-            icon={faTableColumns}
-            aria-label="Collapse side panel"
-            title="Collapse side panel"
-            className={styles.collapse}
-            onClick={() => void setUiState({ key: UiStateKey.RightPanelCollapsed, value: 'true' })}
-          />
+          <PanelToggle panel={Panel.RightPanel} className={styles.collapse} />
         </>
       }
     >

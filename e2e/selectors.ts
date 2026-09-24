@@ -21,6 +21,21 @@ export function regions(page: Page) {
   }
 }
 
+/**
+ * The buttons that collapse the task list and the bottom bar, and show them again. (The right panel's are with it, in
+ * `taskPanel` and `taskHeader`.)
+ */
+export function panelToggles(page: Page) {
+  const { sidebar, task, terminal } = regions(page)
+  return {
+    collapseTaskList: sidebar.getByRole('button', { name: 'Collapse task list' }),
+    /** At the top of the task card while the task list is collapsed. */
+    showTaskList: task.getByRole('button', { name: 'Show task list' }),
+    collapseBottomBar: terminal.getByRole('button', { name: 'Collapse bottom panel' }),
+    showBottomBar: terminal.getByRole('button', { name: 'Show bottom panel' }),
+  }
+}
+
 /** The first-run welcome's controls. */
 export function firstRun(page: Page) {
   const welcome = regions(page).welcome
@@ -146,6 +161,27 @@ export function subagentsTab(page: Page) {
     header: (name: string) => row(name).getByRole('button').first(),
     /** A row's log, while it's open. */
     log: (name: string) => panel.getByRole('log', { name: `${name} log` }),
+  }
+}
+
+/** A workspace switcher action's name. */
+export type WorkspaceActionName =
+  'New workspace…' | 'Open folder as workspace…' | 'Workspace settings…' | 'Reveal root in Finder'
+
+/**
+ * The workspace switcher: the sidebar header's button, and the menu it opens with a row per workspace (its badge,
+ * name, root and status, `aria-checked` on the one shown) and the workspace actions.
+ */
+export function workspaceSwitcher(page: Page) {
+  const menu = page.getByRole('menu', { name: 'Workspaces' })
+  return {
+    // While the menu is open it's modal, hiding the rest of the window from assistive technology.
+    trigger: regions(page).workspace.getByRole('button', { name: 'Switch workspace', includeHidden: true }),
+    menu,
+    rows: menu.getByRole('menuitemradio'),
+    /** A workspace's row, by its name. */
+    row: (name: string) => menu.getByRole('menuitemradio', { name, exact: true }),
+    action: (name: WorkspaceActionName) => menu.getByRole('menuitem', { name: new RegExp(`^${name}`) }),
   }
 }
 

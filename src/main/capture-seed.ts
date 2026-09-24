@@ -188,6 +188,15 @@ export interface CaptureSeed {
   readonly panelTab?: string | undefined
   /** The right panel's width, in CSS pixels; the default unless given. */
   readonly panelWidth?: number | undefined
+  /** The panels to show collapsed; each is open unless given. */
+  readonly collapsed?: SeedCollapsed | undefined
+}
+
+/** Which panels a seed collapses. */
+export interface SeedCollapsed {
+  readonly sidebar?: boolean | undefined
+  readonly rightPanel?: boolean | undefined
+  readonly bottomBar?: boolean | undefined
 }
 
 const turn = z.int().positive()
@@ -254,6 +263,13 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
   workspace: z.strictObject({ name: z.string(), rootPath: z.string() }),
   panelTab: z.string().optional(),
   panelWidth: z.int().positive().optional(),
+  collapsed: z
+    .strictObject({
+      sidebar: z.boolean().optional(),
+      rightPanel: z.boolean().optional(),
+      bottomBar: z.boolean().optional(),
+    })
+    .optional(),
   tasks: z.array(
     z.strictObject({
       title: z.string(),
@@ -344,6 +360,13 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
     if (seed.panelTab !== undefined) setUiState(db, { key: UiStateKey.RightPanelTab, value: seed.panelTab })
     if (seed.panelWidth !== undefined) {
       setUiState(db, { key: UiStateKey.RightPanelWidth, value: String(seed.panelWidth) })
+    }
+    for (const [key, collapsed] of [
+      [UiStateKey.SidebarCollapsed, seed.collapsed?.sidebar],
+      [UiStateKey.RightPanelCollapsed, seed.collapsed?.rightPanel],
+      [UiStateKey.BottomBarCollapsed, seed.collapsed?.bottomBar],
+    ] as const) {
+      if (collapsed !== undefined) setUiState(db, { key, value: String(collapsed) })
     }
     const resumed: string[] = []
     for (const [index, sample] of seed.tasks.entries()) {

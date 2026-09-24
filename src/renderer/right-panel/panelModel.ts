@@ -1,4 +1,5 @@
-// The right panel's state, as it's stored in UI state: its selected tab, its width and whether it's collapsed.
+// The right panel's state, as it's stored in UI state: its selected tab and its width. (Whether it's collapsed is
+// `../panels`, with the other panels'.)
 
 /** The right panel's tabs, in the order the tab bar shows them (and ⌘⌥1–5 picks them). */
 export enum PanelTab {
@@ -68,11 +69,6 @@ export function clampWidth(width: number, { min, max }: WidthBounds): number {
 export function parsePanelWidth(value: string | undefined): number {
   const width = value === undefined || value === '' ? NaN : Number(value)
   return Number.isFinite(width) ? Math.max(Math.round(width), MIN_PANEL_WIDTH) : DEFAULT_PANEL_WIDTH
-}
-
-/** Whether the stored value says the panel is collapsed. Unset means open. */
-export function isPanelCollapsed(value: string | undefined): boolean {
-  return value === 'true'
 }
 
 /** A tab's count: a plain number (`7` tool calls) or progress (`3/4` todos). */

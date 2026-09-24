@@ -3,7 +3,6 @@ import {
   clampWidth,
   DEFAULT_PANEL_WIDTH,
   formatCount,
-  isPanelCollapsed,
   MIN_CHAT_WIDTH,
   MIN_PANEL_WIDTH,
   PANEL_TABS,
@@ -65,14 +64,6 @@ describe('parsePanelWidth', () => {
     expect(parsePanelWidth('')).toBe(DEFAULT_PANEL_WIDTH)
     expect(parsePanelWidth('wide')).toBe(DEFAULT_PANEL_WIDTH)
     expect(parsePanelWidth('Infinity')).toBe(DEFAULT_PANEL_WIDTH)
-  })
-})
-
-describe('isPanelCollapsed', () => {
-  it('is collapsed only when stored so', () => {
-    expect(isPanelCollapsed('true')).toBe(true)
-    expect(isPanelCollapsed('false')).toBe(false)
-    expect(isPanelCollapsed(undefined)).toBe(false)
   })
 })
 

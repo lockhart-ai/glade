@@ -5,7 +5,7 @@ import { describeIssues, REQUEST_SCHEMAS } from './requests'
 
 const KEY = UiStateKey.ActiveWorkspaceId
 const BAD_KEY =
-  'key: Invalid option: expected one of "active_workspace_id"|"selected_task_id"|"pinned_section_collapsed"|"active_section_collapsed"|"done_section_collapsed"|"task_filter"|"relaunch_notice"|"right_panel_tab"|"right_panel_width"|"right_panel_collapsed"'
+  'key: Invalid option: expected one of "active_workspace_id"|"selected_task_id"|"pinned_section_collapsed"|"active_section_collapsed"|"done_section_collapsed"|"task_filter"|"relaunch_notice"|"right_panel_tab"|"right_panel_width"|"right_panel_collapsed"|"sidebar_collapsed"|"bottom_bar_collapsed"'
 
 describe('REQUEST_SCHEMAS', () => {
   it('parses valid requests', () => {
@@ -14,6 +14,7 @@ describe('REQUEST_SCHEMAS', () => {
       rootPath: '/code/acme-api',
     })
     expect(REQUEST_SCHEMAS[CommandName.WorkspacesOpen].parse({ id: 'w' })).toEqual({ id: 'w' })
+    expect(REQUEST_SCHEMAS[CommandName.WorkspacesReveal].parse({ id: 'w' })).toEqual({ id: 'w' })
     expect(REQUEST_SCHEMAS[CommandName.DialogChooseFolder].parse({})).toEqual({})
     expect(REQUEST_SCHEMAS[CommandName.TasksList].parse({ workspaceId: 'w' })).toEqual({ workspaceId: 'w' })
     expect(REQUEST_SCHEMAS[CommandName.TasksCreate].parse({ workspaceId: 'w' })).toEqual({ workspaceId: 'w' })
