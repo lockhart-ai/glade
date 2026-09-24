@@ -33,6 +33,11 @@ export interface E2eSpec {
   /** The agent script every task's agent plays (see `src/main/agent/scripts.ts`). None by default: no agent runs. */
   readonly agentScript?: AgentScriptName
   /**
+   * The agent scripts to play in place of `agentScript` for the tasks whose first message is exactly the key, so a spec
+   * can run different scripts in different tasks at once. A task's agent picks its script on its first message.
+   */
+  readonly agentScriptsByFirstMessage?: Readonly<Record<string, AgentScriptName>>
+  /**
    * A JSON fixture of sample data (see `./capture-seed`) to fill the database with before the window opens, on top of
    * whatever the data folder already holds. A test passes it on its first launch only.
    */
@@ -43,6 +48,7 @@ const e2eSpecSchema: z.ZodType<E2eSpec> = z.strictObject({
   userData: z.string().refine(isInTempFolder, 'must be a folder in the system temp folder'),
   route: z.string().regex(/^(#[\w\-/]*)?$/, 'must be empty or a hash like #gallery'),
   agentScript: z.enum(AGENT_SCRIPT_NAMES).optional(),
+  agentScriptsByFirstMessage: z.record(z.string(), z.enum(AGENT_SCRIPT_NAMES)).optional(),
   seed: z.string().refine(isAbsolute, 'must be an absolute path').optional(),
 })
 

@@ -30,7 +30,7 @@ function drain(messages: AsyncIterable<unknown>): () => unknown[] {
 describe('createTestModeAgentBackend', () => {
   it('fails loudly when a session starts with no script', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const backend = createTestModeAgentBackend(null)
+    const backend = createTestModeAgentBackend({ script: null })
 
     expect(() => backend.start(OPTIONS)).toThrow(UnscriptedAgentError)
     expect(error).toHaveBeenCalledWith(expect.stringMatching(/^Glade test mode: An agent session started in \/tmp/))
@@ -39,7 +39,7 @@ describe('createTestModeAgentBackend', () => {
   it('plays the script in each session, and is idle once every session has played its turns', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     const script: AgentScript = { name: 'test', turns: [[delay(100), say('Done.'), result()]] }
-    const backend = createTestModeAgentBackend(script)
+    const backend = createTestModeAgentBackend({ script })
     await backend.whenIdle()
 
     const first = backend.start(OPTIONS)
@@ -64,7 +64,7 @@ describe('createTestModeAgentBackend', () => {
 
   it('is idle while a turn waits to be stopped, and passes the interrupt on', async () => {
     const script: AgentScript = { name: 'test', turns: [[waitForInterrupt()]] }
-    const backend = createTestModeAgentBackend(script)
+    const backend = createTestModeAgentBackend({ script })
     const session = backend.start(OPTIONS)
     const received = drain(session.messages)
     session.send('a', 'user-1')
@@ -77,9 +77,51 @@ describe('createTestModeAgentBackend', () => {
     session.close()
   })
 
+  it('plays the script a session’s first message picks, the default for any other, for all its turns', async () => {
+    const script = (reply: string): AgentScript => ({ name: reply, turns: [[say(reply), result()]] })
+    const backend = createTestModeAgentBackend({
+      script: script('Default.'),
+      byFirstMessage: new Map([['Run the suite.', script('Suite.')]]),
+    })
+    const picked = backend.start(OPTIONS)
+    const other = backend.start(OPTIONS)
+    const received = [drain(picked.messages), drain(other.messages)]
+    picked.send('Run the suite.', 'user-1')
+    picked.send('And again.', 'user-2')
+    other.send('Fix the bug.', 'user-3')
+
+    await backend.whenIdle()
+    const results = received.map((messages) =>
+      messages()
+        .filter((message) => (message as { type: string }).type === 'result')
+        .map((message) => (message as { result: string }).result),
+    )
+    expect(results).toEqual([['Suite.', 'Suite.'], ['Default.']])
+    picked.close()
+    other.close()
+  })
+
+  it('kills a session whose first message picks no script, when there is no default', async () => {
+    const backend = createTestModeAgentBackend({
+      script: null,
+      byFirstMessage: new Map([['Run the suite.', { name: 'suite', turns: [[result()]] }]]),
+    })
+    const session = backend.start(OPTIONS)
+    const failure = (async () => {
+      for await (const message of session.messages) expect(message).toBeDefined()
+    })()
+    session.send('Something else.', 'user-1')
+
+    await expect(failure).rejects.toThrow(
+      new UnscriptedAgentError('No agent script for a task whose first message is "Something else.".'),
+    )
+    await backend.whenIdle()
+    session.close()
+  })
+
   it('passes a settings change on to the scripted session', async () => {
     const script: AgentScript = { name: 'test', turns: [[init(), result()]] }
-    const backend = createTestModeAgentBackend(script)
+    const backend = createTestModeAgentBackend({ script })
     const session = backend.start(OPTIONS)
     const received = drain(session.messages)
     session.configure({ model: 'claude-sample-2', effort: OPTIONS.effort })

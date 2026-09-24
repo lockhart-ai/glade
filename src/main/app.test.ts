@@ -654,6 +654,23 @@ describe('startApp in e2e mode', () => {
     expect(createSdkBackend).not.toHaveBeenCalled()
   })
 
+  it('runs the agent script the spec picks for a task by its first message', async () => {
+    askForE2e({ agentScriptsByFirstMessage: { 'How does it retry?': 'simple-reply' } })
+    await startAndWaitUntilReady()
+    const db = new Database(join(electron.app.userData, 'glade.db'))
+    const task = sampleTask(db, sampleWorkspace(db, electron.app.userData).id)
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    await handler?.({}, CommandName.TasksSend, { id: task.id, text: 'How does it retry?' })
+
+    await vi.waitFor(() => {
+      expect(db.prepare("SELECT body FROM messages WHERE role = 'agent'").all()).toEqual([
+        { body: expect.stringMatching(/^The client retries/) as unknown },
+      ])
+    })
+    db.close()
+  })
+
   it('never makes the real agent backend by default either', async () => {
     askForE2e()
 

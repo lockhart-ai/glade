@@ -36,6 +36,11 @@ export interface LaunchOptions {
    */
   readonly agentScript?: AgentScriptName
   /**
+   * The agent scripts to play in place of `agentScript` for the tasks whose first message is exactly the key, e.g. to
+   * run `long-running` in one task and `multi-tool-turn` in another at once.
+   */
+  readonly agentScriptsByFirstMessage?: Readonly<Record<string, AgentScriptName>>
+  /**
    * A sample-data fixture (a JSON file in `e2e/seeds/`, see `src/main/capture-seed.ts`) to fill the database with
    * before the window opens. Pass it on a test's first launch only.
    */
@@ -132,11 +137,12 @@ export const test = base.extend<Fixtures>({
       }
     }
 
-    await use(async ({ route = '', chosenFolder, agentScript, seed } = {}) => {
+    await use(async ({ route = '', chosenFolder, agentScript, agentScriptsByFirstMessage, seed } = {}) => {
       const spec: E2eSpec = {
         userData,
         route,
         ...(agentScript === undefined ? {} : { agentScript }),
+        ...(agentScriptsByFirstMessage === undefined ? {} : { agentScriptsByFirstMessage }),
         ...(seed === undefined ? {} : { seed }),
       }
       const app = await electron.launch({
