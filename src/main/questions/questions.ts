@@ -3,7 +3,9 @@
  *
  * - **Asking** saves an open question set for the task (so it outlives the app), tells the windows (`question.opened`)
  *   and waits, however long it takes, until the set is answered or withdrawn. The task's agent is waiting on you while
- *   it does, though its turn is still running: its activity is waiting, and `task.asking` is true.
+ *   it does, though its turn is still running: its activity is waiting, and `task.asking` is true. Questions in a task
+ *   you aren't viewing mark it unread and are notified, as a final reply is (`../tasks/attention`): the notification
+ *   says the first question.
  * - **Answering** closes the set with your reply (`question.answered`), and the call that waits on it returns it; the
  *   task is working again.
  * - **Withdrawing** closes the set without one (`question.withdrawn`), when the turn that asked it ends some other way:
@@ -32,6 +34,8 @@ import {
   type QuestionSetClosing,
 } from '../db/repositories/question-sets'
 import { getTask } from '../db/repositories/tasks'
+import type { NotifyReply } from '../notifications/notifications'
+import { noteAgentReply } from '../tasks/attention'
 import { updateTaskFromRunner, type TaskServiceContext } from '../tasks/service'
 
 export interface QuestionBroker {
@@ -66,7 +70,14 @@ export function toolResultFor(reply: QuestionReply): string {
   }
 }
 
-export function createQuestionBroker(context: TaskServiceContext): QuestionBroker {
+/**
+ * The broker for a task service. `notify` notifies questions asked in a task you aren't viewing, as the runner's
+ * `notifyReply` does a reply; nothing by default.
+ */
+export function createQuestionBroker(
+  context: TaskServiceContext,
+  notify: NotifyReply = () => undefined,
+): QuestionBroker {
   const { db, emit } = context
   /** The calls waiting on their sets, by set id. */
   const waiting = new Map<string, (reply: QuestionReply | null) => void>()
@@ -100,6 +111,8 @@ export function createQuestionBroker(context: TaskServiceContext): QuestionBroke
       const set = appendQuestionSet(db, { taskId, turn: Math.max(1, lastTurn(db, taskId)), questions })
       emitQuestionSet(emit, set)
       updateTaskFromRunner(context, taskId, { activity: TaskActivity.Waiting })
+      const [first] = questions
+      if (first !== undefined && noteAgentReply(context, taskId)) notify(taskId, first.prompt)
       return new Promise((resolve) => {
         waiting.set(set.id, resolve)
         const cancel = (): void => {

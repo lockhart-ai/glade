@@ -52,7 +52,7 @@ export function registerBridge({
 }: BridgeOptions): RegisteredBridge {
   const emit = createBroadcast(EVENT_CHANNEL, targets)
   // One broker for the agent's questions: the Glade tools' `ask` waits on it, and the runner answers through it.
-  const questions = createQuestionBroker({ db, emit })
+  const questions = createQuestionBroker({ db, emit }, notifyReply)
   const runner = createAgentRunner({
     db,
     emit,

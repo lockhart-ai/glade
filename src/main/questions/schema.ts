@@ -34,7 +34,11 @@ const choiceOption = z.object({
   detail: text('option detail').optional().describe('Optional: one line on what picking it means.'),
   sketch: text('option sketch')
     .optional()
-    .describe('Optional: a tiny sketch of what the option would look like, e.g. a layout in a few lines of text.'),
+    .describe(
+      'Optional: a tiny sketch of what the option would look like, e.g. a layout, in a few short lines of plain text ' +
+        '(up to about 6 lines of 40 characters). Shown as is, monospaced, above the label in a small frame; lines ' +
+        'starting with # are shown as headings. No Markdown beyond that.',
+    ),
 }) satisfies z.ZodType<ChoiceOption>
 
 const choiceQuestion = z.object({

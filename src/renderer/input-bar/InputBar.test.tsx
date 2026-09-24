@@ -23,6 +23,7 @@ import {
   QUEUE_PLACEHOLDER,
   queueFailureMessage,
   REPLY_PLACEHOLDER,
+  ASKING_PLACEHOLDER,
   sendFailureMessage,
 } from './InputBar'
 import { PAUSED_HINT } from './QueueList'
@@ -295,6 +296,7 @@ describe('InputBar', () => {
     it('sends the message of a task asking you questions, which answers them, even while it works or pauses', async () => {
       for (const activity of [TaskActivity.Working, TaskActivity.Paused]) {
         const fake = await renderBar({ task: { activity, asking: true } })
+        expect(field()).toHaveAttribute('placeholder', ASKING_PLACEHOLDER)
         type('By type, please.')
 
         await press('Enter')

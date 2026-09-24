@@ -136,6 +136,10 @@ export function chat(page: Page) {
     errorDetails: log.getByRole('alert').getByLabel('Error details'),
     /** The line that ends the chat while the task's turn is paused: "Paused · resumes at 11:42". */
     pausedLine: log.getByRole('status', { name: 'Paused' }),
+    /** The agent's open questions: the card you answer them on. */
+    questionCard: log.getByRole('form', { name: 'Questions from the agent' }),
+    /** The agent's questions once they're answered or withdrawn: the closed card. */
+    closedQuestions: log.getByRole('region', { name: 'Questions from the agent' }),
   }
 }
 
