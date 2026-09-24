@@ -6,8 +6,9 @@ import {
   type CommandResponse,
   type GladeEvent,
 } from '../../shared/bridge'
-import { CommandError } from './errors'
-import type { Emit, Handlers } from './handlers'
+import { CommandFailure } from './errors'
+import type { Emit } from './events'
+import type { Handlers } from './handlers'
 import { describeIssues, type RequestSchemas } from './requests'
 
 /** Runs a command that arrived over IPC. Never throws: every failure comes back as a `BridgeResult` error. */
@@ -46,7 +47,7 @@ export function createDispatcher(handlers: Handlers, schemas: RequestSchemas): D
     try {
       return await run(handlers, schemas, command, request)
     } catch (error) {
-      if (error instanceof CommandError) {
+      if (error instanceof CommandFailure) {
         return { ok: false, error: bridgeError(error.code, `${command}: ${error.message}`) }
       }
       console.error(`Command ${command} failed`, error)

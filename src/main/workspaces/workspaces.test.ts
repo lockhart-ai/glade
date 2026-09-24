@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { BridgeErrorCode } from '../../shared/bridge'
 import { UiStateKey } from '../../shared/domain'
-import { CommandError } from '../bridge/errors'
+import { CommandFailure } from '../bridge/errors'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
 import { getWorkspace, listWorkspaces } from '../db/repositories/workspaces'
@@ -78,7 +78,7 @@ describe('createWorkspaceAt', () => {
     const path = root()
 
     expect(() => createWorkspaceAt(database.db, path)).toThrow(
-      new CommandError(BridgeErrorCode.InvalidRootPath, `${path} is not a folder`),
+      new CommandFailure(BridgeErrorCode.InvalidRootPath, `${path} is not a folder`),
     )
     expect(listWorkspaces(database.db)).toEqual([])
     expect(existsSync(join(dir, 'CLAUDE.md'))).toBe(false)
@@ -125,7 +125,7 @@ describe('openWorkspace', () => {
 
   it('refuses an unknown workspace, changing nothing', () => {
     expect(() => openWorkspace(database.db, 'gone')).toThrow(
-      new CommandError(BridgeErrorCode.NotFound, 'No workspace gone'),
+      new CommandFailure(BridgeErrorCode.NotFound, 'No workspace gone'),
     )
     expect(listUiState(database.db)).toEqual([])
   })

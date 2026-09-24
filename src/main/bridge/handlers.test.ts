@@ -6,7 +6,7 @@ import { CommandName, EventType, type GladeEvent } from '../../shared/bridge'
 import { UiStateKey } from '../../shared/domain'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { setUiState } from '../db/repositories/ui-state'
-import { createHandlers, emitTaskUpdated, type Handlers } from './handlers'
+import { createHandlers, type Handlers } from './handlers'
 
 let database: TestDatabase
 let root: string
@@ -25,14 +25,6 @@ beforeEach(() => {
 afterEach(() => {
   database.close()
   rmSync(root, { recursive: true, force: true })
-})
-
-it('emitTaskUpdated sends the whole task as a task.updated event', () => {
-  const task = sampleTask(database.db, sampleWorkspace(database.db).id)
-
-  emitTaskUpdated(emit, task)
-
-  expect(emit).toHaveBeenCalledExactlyOnceWith({ type: EventType.TaskUpdated, task })
 })
 
 describe('workspaces.create', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { UiStateKey } from '../../shared/domain'
+import { Effort, TaskState, UiStateKey } from '../../shared/domain'
 import { HydrationStatus, selectSelectedTask, selectSelectedWorkspace } from './state'
 import { createGladeStore } from './store'
 import { fakeBridge, refuse, sampleTask, sampleWorkspace, type FakeMain } from './test-bridge'
@@ -201,5 +201,45 @@ describe('setUiState', () => {
     const store = createGladeStore(bridge)
 
     await expect(store.getState().setUiState({ key: UiStateKey.SelectedTaskId, value: 't1' })).rejects.toBe(failure)
+  })
+})
+
+describe('task actions', () => {
+  it('creates a task and selects it, with its workspace', async () => {
+    const { store, data } = await hydrated(main([{ key: UiStateKey.ActiveWorkspaceId, value: 'w1' }]))
+
+    const task = await store.getState().createTask('w2')
+
+    expect(data.tasks).toContainEqual(task)
+    expect(selectSelectedTask(store.getState())).toEqual(task)
+    expect(store.getState().selectedWorkspaceId).toBe('w2')
+  })
+
+  it("selects a created task whose task.updated event hasn't arrived yet", async () => {
+    const created = sampleTask('t3', 'w1', '')
+    const { bridge } = fakeBridge(main(), { [CommandName.TasksCreate]: () => ({ task: created }) })
+    const store = createGladeStore(bridge)
+    await store.getState().hydrate()
+
+    await store.getState().createTask('w1')
+
+    expect(selectSelectedTask(store.getState())).toEqual(created)
+  })
+
+  it('marks a task done, reopens it and updates it through main, following its events', async () => {
+    const { store, invoke } = await hydrated()
+
+    await store.getState().markTaskDone('t1')
+    expect(store.getState().tasks.t1?.state).toBe(TaskState.Done)
+    await store.getState().reopenTask('t1')
+    expect(store.getState().tasks.t1?.state).toBe(TaskState.Active)
+    await store.getState().updateTask('t1', { pinned: true, effort: Effort.Low })
+
+    expect(store.getState().tasks.t1).toMatchObject({ pinned: true, effort: Effort.Low, doneAt: null })
+    expect(invoke.mock.calls.slice(-3)).toEqual([
+      [CommandName.TasksMarkDone, { id: 't1' }],
+      [CommandName.TasksReopen, { id: 't1' }],
+      [CommandName.TasksUpdate, { id: 't1', patch: { pinned: true, effort: Effort.Low } }],
+    ])
   })
 })

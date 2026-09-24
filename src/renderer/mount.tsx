@@ -2,16 +2,19 @@ import { StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { GladeBridge } from '../shared/bridge'
 import { App } from './App'
+import { ReadySignal } from './ready'
 import { GladeStoreProvider } from './store/react'
 import { createGladeStore } from './store/store'
 
-/** The app with its store, which starts loading from main over `bridge` straight away. */
+/** The app with its store, which starts loading from main over `bridge` straight away. Ready once it has loaded. */
 export function appPage(bridge: GladeBridge): React.JSX.Element {
   const store = createGladeStore(bridge)
-  void store.getState().hydrate()
+  const hydrated = store.getState().hydrate()
   return (
     <GladeStoreProvider store={store}>
-      <App />
+      <ReadySignal until={hydrated}>
+        <App />
+      </ReadySignal>
     </GladeStoreProvider>
   )
 }

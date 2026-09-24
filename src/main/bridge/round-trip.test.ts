@@ -10,7 +10,8 @@ import {
   type GladeBridge,
   type GladeEvent,
 } from '../../shared/bridge'
-import { UiStateKey } from '../../shared/domain'
+import { TaskState, UiStateKey } from '../../shared/domain'
+import { getTask } from '../db/repositories/tasks'
 import { getUiState } from '../db/repositories/ui-state'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { registerBridge } from '.'
@@ -115,6 +116,39 @@ describe('the bridge', () => {
     await expect(glade.invoke(CommandName.WorkspacesOpen, { id: 'gone' })).rejects.toEqual(
       bridgeError(BridgeErrorCode.NotFound, 'workspaces.open: No workspace gone'),
     )
+  })
+
+  it('creates a task, marks it done and reopens it, broadcasting task.updated each time', async () => {
+    const workspace = sampleWorkspace(database.db)
+    const events: GladeEvent[] = []
+    glade.subscribe((event) => events.push(event))
+
+    const { task: created } = await glade.invoke(CommandName.TasksCreate, { workspaceId: workspace.id })
+    const { task: done } = await glade.invoke(CommandName.TasksMarkDone, { id: created.id })
+    const { task: reopened } = await glade.invoke(CommandName.TasksReopen, { id: created.id })
+    const { task: renamed } = await glade.invoke(CommandName.TasksUpdate, {
+      id: created.id,
+      patch: { title: 'Rate limits' },
+    })
+
+    expect(created).toMatchObject({ workspaceId: workspace.id, state: TaskState.Active, title: '', doneAt: null })
+    expect(done).toMatchObject({ id: created.id, state: TaskState.Done, doneAt: expect.any(Number) as unknown })
+    expect(reopened).toEqual({ ...created, updatedAt: reopened.updatedAt })
+    expect(renamed.title).toBe('Rate limits')
+    expect(getTask(database.db, created.id)).toEqual(renamed)
+    expect(events).toEqual([created, done, reopened, renamed].map((task) => ({ type: EventType.TaskUpdated, task })))
+  })
+
+  it('rejects an invalid transition or a missing task with a typed error', async () => {
+    const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+
+    await expect(glade.invoke(CommandName.TasksReopen, { id: task.id })).rejects.toEqual(
+      bridgeError(BridgeErrorCode.InvalidTransition, "tasks.reopen: Can't reopen a task that is active"),
+    )
+    await expect(glade.invoke(CommandName.TasksMarkDone, { id: 'gone' })).rejects.toEqual(
+      bridgeError(BridgeErrorCode.NotFound, 'tasks.markDone: No task gone'),
+    )
+    expect(getTask(database.db, task.id)).toEqual(task)
   })
 
   it('rejects an unknown command with a typed error', async () => {

@@ -9,7 +9,7 @@
  *   rejecting with a `BridgeError`. `BridgeError` is a plain object, not an `Error`: `contextBridge` copies an `Error`
  *   thrown into the renderer's world but drops its extra properties, so `code` wouldn't survive.
  */
-import type { Task, UiStateEntry, UiStateKey, Workspace } from './domain'
+import type { Effort, Task, UiStateEntry, UiStateKey, Workspace } from './domain'
 
 /** The name the bridge is exposed under on `window`. */
 export const BRIDGE_KEY = 'glade'
@@ -28,6 +28,10 @@ export enum CommandName {
   WorkspacesOpen = 'workspaces.open',
   DialogChooseFolder = 'dialog.chooseFolder',
   TasksList = 'tasks.list',
+  TasksCreate = 'tasks.create',
+  TasksMarkDone = 'tasks.markDone',
+  TasksReopen = 'tasks.reopen',
+  TasksUpdate = 'tasks.update',
   UiStateGet = 'uiState.get',
   UiStateGetAll = 'uiState.getAll',
   UiStateSet = 'uiState.set',
@@ -85,6 +89,46 @@ export interface TasksListResponse {
   readonly tasks: readonly Task[]
 }
 
+/** Creates an active task with an empty title, objective and status, and the default model and effort. */
+export interface TasksCreateRequest {
+  readonly workspaceId: string
+}
+
+/** Names one task. */
+export interface TaskIdRequest {
+  readonly id: string
+}
+
+/**
+ * The task fields the user can change. The title, objective and status the agent sets go through main's task service,
+ * not this command; the state changes only through `tasks.markDone` and `tasks.reopen`.
+ */
+export interface TaskUserPatch {
+  readonly title?: string
+  readonly pinned?: boolean
+  readonly unread?: boolean
+  readonly model?: string
+  readonly effort?: Effort
+}
+
+export interface TasksUpdateRequest {
+  readonly id: string
+  readonly patch: TaskUserPatch
+}
+
+/**
+ * What every task command answers with: the task as it now is. Each also broadcasts `task.updated` with it.
+ *
+ * - `tasks.markDone`: an active task becomes done and `doneAt` is set; its status is its outcome.
+ * - `tasks.reopen`: a done task becomes active and `doneAt` is cleared. Straight after `tasks.markDone`, it restores
+ *   every field but `updatedAt`, so it's also how Undo works.
+ * - Either one on a task already in the target state fails with `invalid_transition`; any task command on a task that
+ *   doesn't exist fails with `not_found`.
+ */
+export interface TaskResponse {
+  readonly task: Task
+}
+
 export interface UiStateGetRequest {
   readonly key: UiStateKey
 }
@@ -115,6 +159,10 @@ export interface CommandMap {
   [CommandName.WorkspacesOpen]: CommandSpec<WorkspacesOpenRequest, WorkspacesOpenResponse>
   [CommandName.DialogChooseFolder]: CommandSpec<EmptyRequest, DialogChooseFolderResponse>
   [CommandName.TasksList]: CommandSpec<TasksListRequest, TasksListResponse>
+  [CommandName.TasksCreate]: CommandSpec<TasksCreateRequest, TaskResponse>
+  [CommandName.TasksMarkDone]: CommandSpec<TaskIdRequest, TaskResponse>
+  [CommandName.TasksReopen]: CommandSpec<TaskIdRequest, TaskResponse>
+  [CommandName.TasksUpdate]: CommandSpec<TasksUpdateRequest, TaskResponse>
   [CommandName.UiStateGet]: CommandSpec<UiStateGetRequest, UiStateGetResponse>
   [CommandName.UiStateGetAll]: CommandSpec<EmptyRequest, UiStateGetAllResponse>
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>
@@ -163,10 +211,12 @@ export enum BridgeErrorCode {
   UnknownCommand = 'unknown_command',
   /** The request doesn't match the command's request type. */
   InvalidRequest = 'invalid_request',
-  /** The workspace root isn't an existing directory. */
-  InvalidRootPath = 'invalid_root_path',
-  /** The request names something that doesn't exist. */
+  /** The command names something that doesn't exist, such as a deleted task or workspace. */
   NotFound = 'not_found',
+  /** The command asks for a state change the thing's current state doesn't allow, such as reopening an active task. */
+  InvalidTransition = 'invalid_transition',
+  /** A workspace root that isn't an existing directory. */
+  InvalidRootPath = 'invalid_root_path',
   /** The handler threw. */
   Internal = 'internal',
 }

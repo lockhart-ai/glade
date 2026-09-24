@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { UiStateKey } from '../../shared/domain'
+import { UiStateKey, type Task } from '../../shared/domain'
 import { createBroadcast, createDispatcher } from './dispatcher'
-import { CommandError } from './errors'
+import { CommandFailure } from './errors'
 import type { Handlers } from './handlers'
 import { REQUEST_SCHEMAS } from './requests'
 
@@ -17,6 +17,10 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     },
     [CommandName.DialogChooseFolder]: () => ({ path: null }),
     [CommandName.TasksList]: () => ({ tasks: [] }),
+    [CommandName.TasksCreate]: () => ({ task: {} as Task }),
+    [CommandName.TasksMarkDone]: () => ({ task: {} as Task }),
+    [CommandName.TasksReopen]: () => ({ task: {} as Task }),
+    [CommandName.TasksUpdate]: () => ({ task: {} as Task }),
     [CommandName.UiStateGet]: () => Promise.resolve({ value: 'async' }),
     [CommandName.UiStateGetAll]: () => ({ entries: [] }),
     [CommandName.UiStateSet]: () => null,
@@ -85,6 +89,23 @@ describe('createDispatcher', () => {
     expect(console.error).toHaveBeenCalledWith('Command uiState.set failed', failure)
   })
 
+  it("reports a handler's command failure with its own code, without logging it", async () => {
+    const dispatch = createDispatcher(
+      handlers({
+        [CommandName.TasksReopen]: () => {
+          throw new CommandFailure(BridgeErrorCode.InvalidTransition, "Can't reopen a task that is active")
+        },
+      }),
+      REQUEST_SCHEMAS,
+    )
+
+    await expect(dispatch('tasks.reopen', { id: 't1' })).resolves.toEqual({
+      ok: false,
+      error: bridgeError(BridgeErrorCode.InvalidTransition, "tasks.reopen: Can't reopen a task that is active"),
+    })
+    expect(console.error).not.toHaveBeenCalled()
+  })
+
   it('reports a rejected handler, or one that throws a non-Error, as an internal error', async () => {
     const dispatch = createDispatcher(
       handlers({
@@ -105,23 +126,6 @@ describe('createDispatcher', () => {
       ok: false,
       error: bridgeError(BridgeErrorCode.Internal, 'workspaces.list failed: bug'),
     })
-  })
-
-  it("answers a handler's CommandError with its own code, without logging it", async () => {
-    const dispatch = createDispatcher(
-      handlers({
-        [CommandName.WorkspacesOpen]: () => {
-          throw new CommandError(BridgeErrorCode.NotFound, 'No workspace gone')
-        },
-      }),
-      REQUEST_SCHEMAS,
-    )
-
-    await expect(dispatch('workspaces.open', { id: 'gone' })).resolves.toEqual({
-      ok: false,
-      error: bridgeError(BridgeErrorCode.NotFound, 'workspaces.open: No workspace gone'),
-    })
-    expect(console.error).not.toHaveBeenCalled()
   })
 })
 

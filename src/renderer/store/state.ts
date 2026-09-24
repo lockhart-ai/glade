@@ -2,6 +2,7 @@
  * The shape of the renderer's store: a mirror of main's state, hydrated on launch and kept current by bridge events.
  * Main (and SQLite behind it) stays the source of truth; nothing here is kept only in memory.
  */
+import type { TaskUserPatch } from '../../shared/bridge'
 import type { Message, Task, ToolEvent, UiStateEntry, UiStateKey, Workspace } from '../../shared/domain'
 
 export enum HydrationStatus {
@@ -48,7 +49,8 @@ export interface GladeData {
 
 /**
  * What the renderer can do to the store. Every change to UI state is applied at once and written back to main through
- * `uiState.set`; each action's promise rejects with the `BridgeError` when main refuses the write.
+ * `uiState.set`. A change to a task is made in main, and reaches the store through main's `task.updated` event. Each
+ * action's promise rejects with the `BridgeError` when main refuses the command.
  */
 export interface GladeActions {
   /** Subscribes to main's events (once) and loads a fresh snapshot of main's state. Never rejects. */
@@ -65,6 +67,14 @@ export interface GladeActions {
   /** Selects a task, or none. Selecting a task in another workspace shows that workspace too. */
   selectTask(taskId: string | null): Promise<void>
   setUiState(entry: UiStateEntry): Promise<void>
+  /** Creates an active, empty task in the workspace and selects it. Resolves with the new task. */
+  createTask(workspaceId: string): Promise<Task>
+  /** Marks an active task done. */
+  markTaskDone(taskId: string): Promise<void>
+  /** Reopens a done task. Straight after `markTaskDone`, this is Undo: it restores every field but `updatedAt`. */
+  reopenTask(taskId: string): Promise<void>
+  /** Changes the user's fields of a task: its title, pin, unread flag, model or effort. */
+  updateTask(taskId: string, patch: TaskUserPatch): Promise<void>
 }
 
 export interface GladeState extends GladeData, GladeActions {}

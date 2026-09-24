@@ -1,6 +1,7 @@
-import { act, screen } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it } from 'vitest'
 import { CommandName } from '../shared/bridge'
+import { READY_ATTRIBUTE } from '../shared/ready'
 import { appPage, mountApp } from './mount'
 import { fakeBridge, sampleWorkspace } from './store/test-bridge'
 
@@ -17,6 +18,20 @@ it('renders the app into the root element and loads its store from main', async 
 
   expect(await screen.findByRole('main', { name: 'Task' })).toBeInTheDocument()
   expect(invoke).toHaveBeenCalledWith(CommandName.WorkspacesList, {})
+})
+
+it('marks the app ready once its store has loaded', async () => {
+  const root = document.createElement('div')
+  document.body.append(root)
+  const { bridge } = fakeBridge({ workspaces: [], tasks: [], uiState: [] })
+
+  mountApp(root, appPage(bridge))
+
+  await waitFor(() => {
+    expect(document.documentElement).toHaveAttribute(READY_ATTRIBUTE)
+  })
+  expect(screen.getByRole('main', { name: 'Task' })).toBeInTheDocument()
+  document.documentElement.removeAttribute(READY_ATTRIBUTE)
 })
 
 it('renders another page when given one', () => {

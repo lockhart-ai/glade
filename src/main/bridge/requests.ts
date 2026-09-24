@@ -5,13 +5,16 @@ import {
   CommandName,
   type CommandRequest,
   type EmptyRequest,
+  type TaskIdRequest,
+  type TasksCreateRequest,
+  type TasksUpdateRequest,
   type TasksListRequest,
   type UiStateGetRequest,
   type UiStateSetRequest,
   type WorkspacesCreateRequest,
   type WorkspacesOpenRequest,
 } from '../../shared/bridge'
-import { UiStateKey } from '../../shared/domain'
+import { Effort, UiStateKey } from '../../shared/domain'
 
 /**
  * A zod schema for each command's request, which arrives from the renderer as `unknown`. The named interfaces in
@@ -30,6 +33,21 @@ const workspacesOpenRequest = z.strictObject({ id: z.string() }) satisfies z.Zod
 
 const tasksListRequest = z.strictObject({ workspaceId: z.string() }) satisfies z.ZodType<TasksListRequest>
 
+const tasksCreateRequest = z.strictObject({ workspaceId: z.string() }) satisfies z.ZodType<TasksCreateRequest>
+
+const taskIdRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<TaskIdRequest>
+
+const tasksUpdateRequest = z.strictObject({
+  id: z.string(),
+  patch: z.strictObject({
+    title: z.string().optional(),
+    pinned: z.boolean().optional(),
+    unread: z.boolean().optional(),
+    model: z.string().min(1).optional(),
+    effort: z.enum(Effort).optional(),
+  }),
+}) satisfies z.ZodType<TasksUpdateRequest>
+
 const uiStateGetRequest = z.strictObject({ key: z.enum(UiStateKey) }) satisfies z.ZodType<UiStateGetRequest>
 
 const uiStateSetRequest = z.strictObject({
@@ -43,6 +61,10 @@ export const REQUEST_SCHEMAS = {
   [CommandName.WorkspacesOpen]: workspacesOpenRequest,
   [CommandName.DialogChooseFolder]: emptyRequest,
   [CommandName.TasksList]: tasksListRequest,
+  [CommandName.TasksCreate]: tasksCreateRequest,
+  [CommandName.TasksMarkDone]: taskIdRequest,
+  [CommandName.TasksReopen]: taskIdRequest,
+  [CommandName.TasksUpdate]: tasksUpdateRequest,
   [CommandName.UiStateGet]: uiStateGetRequest,
   [CommandName.UiStateGetAll]: emptyRequest,
   [CommandName.UiStateSet]: uiStateSetRequest,
