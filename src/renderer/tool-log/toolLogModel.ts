@@ -15,7 +15,7 @@ import {
   type ToolEvent,
   type ToolInput,
 } from '../../shared/domain'
-import { clockTime } from '../chat/chatModel'
+import { clockTime, dayAndTime } from '../chat/chatModel'
 
 /** How long the short JSON of an MCP tool's input may be before it's cut; the row's ellipsis shows the rest. */
 const MAX_JSON_SUMMARY = 200
@@ -170,9 +170,7 @@ function sameDay(a: EpochMs, b: EpochMs): boolean {
 
 /** A divider's time: "11:20", or "Sep 25, 09:14" on a different day from the entry before it. */
 export function dividerTime(at: EpochMs, previous: EpochMs | undefined): string {
-  if (previous === undefined || sameDay(at, previous)) return clockTime(at)
-  const day = new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  return `${day}, ${clockTime(at)}`
+  return previous === undefined || sameDay(at, previous) ? clockTime(at) : dayAndTime(at)
 }
 
 /** What a divider says before its time: "turn 2", "marked done", "reopened", "resumed after restart". */

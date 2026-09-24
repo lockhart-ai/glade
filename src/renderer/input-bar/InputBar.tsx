@@ -45,9 +45,6 @@ function placeholder(task: Task, started: boolean): string {
 
 /** What the toast says when a message couldn't be sent. */
 export function sendFailureMessage(error: unknown): string {
-  if (isBridgeError(error) && error.code === BridgeErrorCode.InvalidTransition) {
-    return 'This task is done, so it can’t take a message yet.'
-  }
   if (isBridgeError(error) && error.code === BridgeErrorCode.Busy) {
     return 'The agent is still working. Send your message when it finishes.'
   }

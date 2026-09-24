@@ -274,6 +274,23 @@ const multiToolTurn: AgentScript = {
       ),
       result(),
     ],
+    // A follow-up, e.g. the message that reopens the task once it's done.
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      say('Reopened. Checking the report header, which formats dates too.'),
+      gladeTool('status-reopened', 'set_status', { status: 'Reopened to fix the report header date too.' }),
+      ...tool(
+        'report',
+        'Read',
+        { file_path: 'src/report.ts' },
+        'export const header = (d: Date) => `Report for ${formatDate(d)}`',
+      ),
+      delay(BEAT_MS),
+      gladeTool('status-reopened-done', 'set_status', { status: 'The report header uses the UTC date too.' }),
+      say('The report header already goes through `formatDate`, so it uses the UTC date too. Nothing else to change.'),
+      result(),
+    ],
   ],
 }
 

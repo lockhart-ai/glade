@@ -197,6 +197,38 @@ describe('Chat', () => {
     expect(divider).toHaveTextContent(/^Glade restarted · 14:26$/)
   })
 
+  it('marks where the task was marked done and where your message reopened it', async () => {
+    const divider = (id: string, dividerKind: DividerKind, turn: number, createdAt: number): ToolEvent => ({
+      id,
+      taskId: 't1',
+      turn,
+      createdAt,
+      kind: ToolEventKind.Divider,
+      dividerKind,
+    })
+    const reopen: Message = { ...ASK, id: 'm3', body: 'Pro keys get 180 a minute.', turn: 2 }
+    await renderChat({
+      task: { activity: TaskActivity.Working },
+      messages: [ASK, REPLY, reopen],
+      toolEvents: [
+        divider('d1', DividerKind.MarkedDone, 1, new Date(2026, 8, 23, 11, 26).getTime()),
+        divider('d2', DividerKind.Reopened, 2, new Date(2026, 8, 25, 9, 14).getTime()),
+        divider('d3', DividerKind.Turn, 2, new Date(2026, 8, 25, 9, 14).getTime()),
+      ],
+    })
+
+    const items = [...conversation().querySelectorAll('article, [role="separator"]')].map((item) =>
+      item.getAttribute('aria-label'),
+    )
+    expect(items).toEqual(['You', 'Agent', 'Marked done', 'You', 'Reopened'])
+    expect(within(conversation()).getByRole('separator', { name: 'Marked done' })).toHaveTextContent(
+      'Marked done · Sep 23, 11:26',
+    )
+    expect(within(conversation()).getByRole('separator', { name: 'Reopened' })).toHaveTextContent(
+      /^Reopened by your message$/,
+    )
+  })
+
   it('highlights the latest reply as a question while the agent waits on you', async () => {
     const { emit } = await renderChat({ messages: [ASK, REPLY] })
     const reply = (): Element | null => screen.getByRole('article', { name: 'Agent' }).firstElementChild

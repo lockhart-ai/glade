@@ -91,6 +91,10 @@ export function chat(page: Page) {
     agentReplies: log.getByRole('article', { name: 'Agent' }),
     /** Where Glade restarted and resumed a turn. */
     restarts: log.getByRole('separator', { name: 'Glade restarted' }),
+    /** Where a done task was marked done, before the message that reopened it. */
+    markedDone: log.getByRole('separator', { name: 'Marked done' }),
+    /** Where your message reopened a done task. */
+    reopened: log.getByRole('separator', { name: 'Reopened' }),
     /** What a task with no messages yet asks. */
     newTaskPrompt: log.getByRole('heading', { name: 'What should the agent do?' }),
   }

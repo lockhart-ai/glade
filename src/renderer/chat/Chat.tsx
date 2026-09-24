@@ -9,11 +9,14 @@ import {
   ChatEntryKind,
   chatEntries,
   clockTime,
+  markedDoneLabel,
+  REOPENED_LABEL,
   ReplyStyle,
   restartLabel,
   toolCallLabel,
   workingNarration,
   type AgentEntry,
+  type MarkedDoneEntry,
   type RestartedEntry,
   type UserEntry,
 } from './chatModel'
@@ -66,13 +69,29 @@ function AgentReply({ entry: { message, style, toolCalls }, onShowTurn }: AgentR
   )
 }
 
-/** Where the app restarted and resumed a turn. */
-function RestartDivider(entry: RestartedEntry): React.JSX.Element {
+interface ChatDividerProps {
+  /** The divider's accessible name. */
+  readonly name: string
+  readonly children: string
+}
+
+/** A label between two rules, across the conversation. */
+function ChatDivider({ name, children }: ChatDividerProps): React.JSX.Element {
   return (
-    <div role="separator" aria-label="Glade restarted" className={styles.restart}>
-      {restartLabel(entry)}
+    <div role="separator" aria-label={name} className={styles.divider}>
+      {children}
     </div>
   )
+}
+
+/** Where the app restarted and resumed a turn. */
+function RestartDivider(entry: RestartedEntry): React.JSX.Element {
+  return <ChatDivider name="Glade restarted">{restartLabel(entry)}</ChatDivider>
+}
+
+/** Where the task was marked done, before the message that reopened it. */
+function MarkedDoneDivider(entry: MarkedDoneEntry): React.JSX.Element {
+  return <ChatDivider name="Marked done">{markedDoneLabel(entry)}</ChatDivider>
 }
 
 interface WorkingLineProps {
@@ -145,6 +164,14 @@ export function Chat(): React.JSX.Element {
               return <UserMessage key={entry.message.id} {...entry} />
             case ChatEntryKind.Restarted:
               return <RestartDivider key={entry.divider.id} {...entry} />
+            case ChatEntryKind.MarkedDone:
+              return <MarkedDoneDivider key={entry.divider.id} {...entry} />
+            case ChatEntryKind.Reopened:
+              return (
+                <ChatDivider key={entry.divider.id} name="Reopened">
+                  {REOPENED_LABEL}
+                </ChatDivider>
+              )
             case ChatEntryKind.Agent:
               return (
                 <AgentReply
