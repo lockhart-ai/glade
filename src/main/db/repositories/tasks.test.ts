@@ -98,7 +98,7 @@ describe('listTasks', () => {
     sampleTask(test.db, other.id)
 
     expect(listTasks(test.db, workspace.id)).toEqual([newer, older])
-    const touched = updateTask(test.db, older.id, { unread: true }, 4_000)
+    const touched = updateTask(test.db, older.id, { pinned: true }, 4_000)
     expect(listTasks(test.db, workspace.id)).toEqual([touched, newer])
   })
 })
@@ -201,6 +201,16 @@ describe('updateTask', () => {
     expect(updateTask(test.db, task.id, { status: 'Reading the tests' }, 4_000).statusUpdatedAt).toBe(3_000)
     expect(updateTask(test.db, task.id, { activity: TaskActivity.Working }, 5_000).statusUpdatedAt).toBe(3_000)
     expect(updateTask(test.db, task.id, { status: 'Tests pass' }, 6_000).statusUpdatedAt).toBe(6_000)
+  })
+
+  it('leaves the update time alone when only the unread flag changes', () => {
+    const task = sampleTask(test.db, workspace.id)
+
+    const unread = updateTask(test.db, task.id, { unread: true, title: undefined }, 3_000)
+    expect(unread).toEqual({ ...task, unread: true })
+    expect(getTask(test.db, task.id)).toEqual(unread)
+    expect(updateTask(test.db, task.id, { unread: false }, 4_000)).toEqual(task)
+    expect(updateTask(test.db, task.id, { unread: true, pinned: true }, 5_000).updatedAt).toBe(5_000)
   })
 
   it('throws for an unknown id', () => {

@@ -6,7 +6,8 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import { FakeAgentBackend } from '../../main/agent/fake-backend'
+import { FakeAgentBackend, settle } from '../../main/agent/fake-backend'
+import * as sdk from '../../main/agent/test-sdk-messages'
 import { registerBridge } from '../../main/bridge'
 import { fakeIpcPair } from '../../main/bridge/fake-ipc'
 import { openAppDatabase, type AppDatabase } from '../../main/db/database'
@@ -15,7 +16,8 @@ import { createWorkspace, getWorkspace } from '../../main/db/repositories/worksp
 import { STARTER_CLAUDE_MD } from '../../main/workspaces/starter-claude-md'
 import { createBridge } from '../../preload/bridge'
 import { bridgeError, BridgeErrorCode, CommandName, type GladeBridge } from '../../shared/bridge'
-import { DividerKind, ToolCallState, type Task, type Workspace } from '../../shared/domain'
+import { needsYou, parseTaskFilter, TaskFilter } from '../../shared/attention'
+import { DividerKind, ToolCallState, UiStateKey, type Task, type Workspace } from '../../shared/domain'
 import {
   appendDivider,
   appendNarration,
@@ -42,21 +44,27 @@ afterEach(() => {
 })
 
 /** Starts the app: opens the database in `dir`, wires main's bridge to it and hydrates a fresh store. */
-async function launch(): Promise<{ database: AppDatabase; glade: GladeBridge; store: GladeStore }> {
+async function launch(): Promise<{
+  database: AppDatabase
+  glade: GladeBridge
+  store: GladeStore
+  backend: FakeAgentBackend
+}> {
   const database = openAppDatabase(join(dir, 'data'))
   open.push(database)
   const ipc = fakeIpcPair()
+  const backend = new FakeAgentBackend()
   registerBridge({
     ipc: ipc.main,
     db: database.db,
     targets: () => [ipc.window],
     chooseFolder: () => Promise.resolve(null),
-    agentBackend: new FakeAgentBackend(),
+    agentBackend: backend,
   })
   const glade = createBridge(ipc.renderer)
   const store = createGladeStore(glade)
   await store.getState().hydrate()
-  return { database, glade, store }
+  return { database, glade, store, backend }
 }
 
 function quit(database: AppDatabase): void {
@@ -199,4 +207,44 @@ it('starts with no workspace when there are none: the first-run state', async ()
   const { store } = await launch()
 
   expect(store.getState()).toMatchObject({ workspaces: [], selectedWorkspaceId: null })
+})
+
+it('keeps unread tasks, the Needs you tasks and the chosen filter across a restart', async () => {
+  const first = await launch()
+  const workspace = createWorkspace(first.database.db, { name: 'Acme API', rootPath: '/code/acme-api' }, 1_000)
+  const asked = sampleTask(first.database.db, workspace.id)
+  const other = sampleTask(first.database.db, workspace.id)
+  quit(first.database)
+
+  const second = await launch()
+  const { getState } = second.store
+  await getState().selectTask(asked.id)
+  await getState().sendMessage(asked.id, 'Why is the login test flaky?')
+  // You move to the other task before the agent replies.
+  await getState().selectTask(other.id)
+  second.backend.session.emit(sdk.init(), sdk.text('It is a race.'), sdk.result('It is a race.'))
+  await settle()
+  await getState().setUiState({ key: UiStateKey.TaskFilter, value: TaskFilter.Unread })
+
+  const attention = (store: GladeStore): unknown => {
+    const tasks = Object.values(store.getState().tasks)
+    return {
+      unread: tasks.filter(({ unread }) => unread).map(({ id }) => id),
+      needsYou: tasks.filter(needsYou).map(({ id }) => id),
+      filter: parseTaskFilter(store.getState().uiState[UiStateKey.TaskFilter]),
+    }
+  }
+  const expected = { unread: [asked.id], needsYou: [asked.id], filter: TaskFilter.Unread }
+  expect(attention(second.store)).toEqual(expected)
+  quit(second.database)
+
+  const third = await launch()
+  expect(attention(third.store)).toEqual(expected)
+
+  // Opening it marks it read, for good.
+  await third.store.getState().selectTask(asked.id)
+  expect(third.store.getState().tasks[asked.id]?.unread).toBe(false)
+  quit(third.database)
+  const fourth = await launch()
+  expect(attention(fourth.store)).toEqual({ ...expected, unread: [] })
 })

@@ -1,7 +1,7 @@
 import { faMagnifyingGlass, faPlus } from '@fortawesome/free-solid-svg-icons'
 import { useMemo } from 'react'
-import type { Task } from '../../shared/domain'
-import { TaskIndicator, taskIndicator } from '../../shared/taskIndicator'
+import { needsYou, parseTaskFilter, TaskFilter } from '../../shared/attention'
+import { UiStateKey, type Task } from '../../shared/domain'
 import { classNames } from '../components/classNames'
 import { Button, ButtonVariant, Input } from '../components'
 import { useGladeStore } from '../store/react'
@@ -19,24 +19,53 @@ interface ChipCounts {
 }
 
 function countChips(tasks: Iterable<Task>, workspaceId: string): ChipCounts {
-  let needsYou = 0
+  let needs = 0
   let unread = 0
   for (const task of tasks) {
     if (task.workspaceId !== workspaceId) continue
-    if (taskIndicator(task) === TaskIndicator.Waiting) needsYou += 1
+    if (needsYou(task)) needs += 1
     if (task.unread) unread += 1
   }
-  return { needsYou, unread }
+  return { needsYou: needs, unread }
+}
+
+interface ChipProps {
+  filter: TaskFilter
+  chosen: TaskFilter
+  onChoose: (filter: TaskFilter) => void
+  children: React.ReactNode
+}
+
+/** One filter chip: pressed while its filter is the chosen one. */
+function Chip({ filter, chosen, onChoose, children }: ChipProps): React.JSX.Element {
+  const on = filter === chosen
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      className={classNames(styles.chip, on && styles.chipOn)}
+      onClick={() => {
+        onChoose(filter)
+      }}
+    >
+      {children}
+    </button>
+  )
 }
 
 /**
- * Above the task list: the search field and the New task button, then the All · Needs you · Unread filter chips. The
- * search field and the chips don't filter yet.
+ * Above the task list: the search field and the New task button, then the All · Needs you · Unread filter chips, which
+ * filter the task list and remember the choice. The search field doesn't filter yet.
  */
 export function TaskListToolbar({ workspaceId }: TaskListToolbarProps): React.JSX.Element {
   const tasks = useGladeStore((state) => state.tasks)
   const newTask = useNewTask(workspaceId)
   const counts = useMemo(() => countChips(Object.values(tasks), workspaceId), [tasks, workspaceId])
+  const chosen = useGladeStore((state) => parseTaskFilter(state.uiState[UiStateKey.TaskFilter]))
+  const setUiState = useGladeStore((state) => state.setUiState)
+  const choose = (filter: TaskFilter): void => {
+    if (filter !== chosen) void setUiState({ key: UiStateKey.TaskFilter, value: filter })
+  }
 
   return (
     <div className={styles.toolbar}>
@@ -58,15 +87,15 @@ export function TaskListToolbar({ workspaceId }: TaskListToolbarProps): React.JS
         />
       </div>
       <div className={styles.chips} role="group" aria-label="Filter tasks">
-        <button type="button" aria-pressed="true" className={classNames(styles.chip, styles.chipOn)}>
+        <Chip filter={TaskFilter.All} chosen={chosen} onChoose={choose}>
           All
-        </button>
-        <button type="button" aria-pressed="false" className={styles.chip}>
+        </Chip>
+        <Chip filter={TaskFilter.NeedsYou} chosen={chosen} onChoose={choose}>
           Needs you<span className={classNames(styles.count, styles.needsYou)}>{counts.needsYou}</span>
-        </button>
-        <button type="button" aria-pressed="false" className={styles.chip}>
+        </Chip>
+        <Chip filter={TaskFilter.Unread} chosen={chosen} onChoose={choose}>
           Unread<span className={classNames(styles.count, styles.unread)}>{counts.unread}</span>
-        </button>
+        </Chip>
       </div>
     </div>
   )

@@ -1,5 +1,7 @@
 import { faChevronDown, faChevronRight, faThumbtack } from '@fortawesome/free-solid-svg-icons'
 import { useEffect, useId, useMemo } from 'react'
+import { parseTaskFilter } from '../../shared/attention'
+import { UiStateKey } from '../../shared/domain'
 import { Icon, IconSize } from '../components'
 import { useGladeStore } from '../store/react'
 import {
@@ -55,7 +57,8 @@ function stepFor(event: KeyboardEvent): Step | null {
 }
 
 /**
- * A workspace's tasks in the Pinned, Active and Done sections, kept live from the store. Each section collapses, and
+ * A workspace's tasks in the Pinned, Active and Done sections, kept live from the store, narrowed to the filter chosen
+ * with the chips above (`TaskListToolbar`); each section counts the tasks it shows. Each section collapses, and
  * remembers it. Clicking a row selects its task; ⌥↑ / ⌥↓ move the selection through the expanded sections.
  */
 export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
@@ -66,7 +69,8 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
   const setUiState = useGladeStore((state) => state.setUiState)
   const now = useNow()
 
-  const sections = useMemo(() => sectionTasks(Object.values(tasks), workspaceId), [tasks, workspaceId])
+  const filter = parseTaskFilter(uiState[UiStateKey.TaskFilter])
+  const sections = useMemo(() => sectionTasks(Object.values(tasks), workspaceId, filter), [tasks, workspaceId, filter])
   const order = useMemo(() => visibleTaskIds(sections, uiState), [sections, uiState])
 
   useEffect(() => {

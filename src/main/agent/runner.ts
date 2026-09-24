@@ -17,6 +17,7 @@
  * - Each tool call is saved as running and filled in as done or error when its result arrives. A subagent's tool calls
  *   carry their `Agent` call's id.
  * - The task's activity is working for the turn, then waiting on you, or error if the turn failed.
+ * - A final reply in a task you aren't viewing marks it unread (`../tasks/attention`).
  * - The task's context usage follows the agent's latest top-level message, and its context window is what the turn's
  *   `result` reports for the session's model (`docs/sdk-notes.md`, "Usage and context size").
  *
@@ -69,6 +70,7 @@ import {
   updateToolCall,
 } from '../db/repositories/tool-events'
 import { getWorkspace } from '../db/repositories/workspaces'
+import { noteAgentReply } from '../tasks/attention'
 import { reopenTask, updateTaskFromRunner } from '../tasks/service'
 import type { AgentBackend, AgentMcpServers, AgentSession, AgentSessionSettings } from './backend'
 import {
@@ -254,6 +256,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const summary = summarizeTurn(event.durationMs, turnEvents)
       const message = appendMessage(db, { taskId, role: MessageRole.Agent, body: reply, turn: turn.number, summary })
       emitMessageAppended(emit, message)
+      noteAgentReply(context, taskId)
     }
     failRunning(taskId, turn, 'The turn ended before this tool call finished.')
     setActivity(taskId, TaskActivity.Waiting)

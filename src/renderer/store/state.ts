@@ -103,6 +103,11 @@ export interface GladeActions {
   /** Changes the user's fields of a task: its title, pin, unread flag, model or effort. */
   updateTask: (taskId: string, patch: TaskUserPatch) => Promise<void>
   /**
+   * Marks a task unread. The task you're viewing stays unread until you next open it: only opening a task (selecting
+   * it) marks it read.
+   */
+  markUnread: (taskId: string) => Promise<void>
+  /**
    * Sends the user's message to the task's agent. Resolves once main has saved it; the message and the turn arrive as
    * events. Rejects with `busy` while the agent is working.
    */
