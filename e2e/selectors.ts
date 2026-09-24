@@ -64,7 +64,7 @@ export function taskPanel(page: Page) {
   }
 }
 
-/** The chat view:the user's messages and the agent's replies, oldest first. */
+/** The chat view: the user's messages and the agent's replies, oldest first, or a new task's prompt. */
 export function chat(page: Page) {
   const log = regions(page).chat.getByRole('log', { name: 'Conversation' })
   return {
@@ -73,6 +73,8 @@ export function chat(page: Page) {
     agentReplies: log.getByRole('article', { name: 'Agent' }),
     /** Where Glade restarted and resumed a turn. */
     restarts: log.getByRole('separator', { name: 'Glade restarted' }),
+    /** What a task with no messages yet asks. */
+    newTaskPrompt: log.getByRole('heading', { name: 'What should the agent do?' }),
   }
 }
 

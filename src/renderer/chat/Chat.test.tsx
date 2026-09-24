@@ -98,10 +98,33 @@ function conversation(): HTMLElement {
 }
 
 describe('Chat', () => {
-  it('shows an empty state for a task with no messages', async () => {
+  it('asks a task with no messages what the agent should do, and where it will work', async () => {
     await renderChat()
 
-    expect(conversation()).toHaveTextContent('No messages yet.')
+    expect(screen.getByRole('heading', { name: 'What should the agent do?' })).toBeInTheDocument()
+    expect(conversation()).toHaveTextContent(
+      'Describe it in your own words. The agent names the task and writes its objective from your first message. ' +
+        'It works in the workspace root, /code/w1.',
+    )
+  })
+
+  it('shows the workspace root from the home folder as ~', async () => {
+    const { store } = await renderChat()
+
+    act(() => {
+      store.setState({ workspaces: [{ ...sampleWorkspace('w1'), rootPath: '/Users/sam/code/api' }] })
+    })
+    expect(conversation()).toHaveTextContent('It works in the workspace root, ~/code/api.')
+  })
+
+  it('drops the prompt once the first message is in', async () => {
+    const { emit } = await renderChat()
+
+    act(() => {
+      emit({ type: EventType.MessageAppended, message: ASK })
+    })
+    expect(screen.queryByRole('heading', { name: 'What should the agent do?' })).toBeNull()
+    expect(screen.getByRole('article', { name: 'You' })).toHaveTextContent(ASK.body)
   })
 
   it('shows nothing when no task is selected', async () => {
@@ -211,11 +234,11 @@ describe('Chat', () => {
       expect(screen.queryByRole('status')).toBeNull()
     })
 
-    it('shows instead of the empty state on a first turn', async () => {
+    it('shows instead of the new-task prompt on a first turn', async () => {
       await renderChat({ task: working })
 
       expect(screen.getByRole('status')).toHaveTextContent('Working')
-      expect(conversation()).not.toHaveTextContent('No messages yet.')
+      expect(screen.queryByRole('heading', { name: 'What should the agent do?' })).toBeNull()
     })
   })
 

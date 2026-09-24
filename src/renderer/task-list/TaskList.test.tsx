@@ -299,6 +299,9 @@ describe('TaskListToolbar', () => {
     })
     expect(fake.invoke).toHaveBeenCalledWith(CommandName.TasksCreate, { workspaceId: 'w1' })
     expect(row('New task')).toHaveAttribute('aria-current', 'true')
+    await vi.waitFor(() => {
+      expect(store.getState().inputFocusRequest).toBe(1)
+    })
   })
 
   it('shows a toast when a task can’t be created', async () => {

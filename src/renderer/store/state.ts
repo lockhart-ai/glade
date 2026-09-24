@@ -60,6 +60,11 @@ export interface GladeData {
    * thing here that isn't mirrored from main: nothing is lost if a relaunch forgets it.
    */
   readonly toolLogFocus: ToolLogFocus | null
+  /**
+   * How many times something has asked for the input bar's message field to take the focus (a new task, for one); 0
+   * until the first. The input bar focuses its field each time this changes. A one-off UI intent, like `toolLogFocus`.
+   */
+  readonly inputFocusRequest: number
 }
 
 /**
@@ -109,6 +114,8 @@ export interface GladeActions {
   stopTask: (taskId: string) => Promise<void>
   /** Asks the tool log to show a task's turn (see `ToolLogFocus`). */
   focusTurn: (taskId: string, turn: number) => void
+  /** Asks the input bar to focus its message field (see `inputFocusRequest`). */
+  focusInput: () => void
 }
 
 export interface GladeState extends GladeData, GladeActions {}
@@ -123,6 +130,7 @@ export const INITIAL_DATA: GladeData = {
   toolEvents: {},
   uiState: {},
   toolLogFocus: null,
+  inputFocusRequest: 0,
 }
 
 export function selectSelectedWorkspace(state: GladeData): Workspace | undefined {
