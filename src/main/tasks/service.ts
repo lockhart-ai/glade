@@ -4,8 +4,9 @@ import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, type TaskUserPatch } from '../../shared/bridge'
 import type { ApiRetry, Task, TaskActivity, TaskError, TaskPause } from '../../shared/domain'
 import { CommandFailure } from '../bridge/errors'
-import { emitTaskUpdated, type Emit } from '../bridge/events'
+import { emitTaskUpdated, emitToolEventUpdated, type Emit } from '../bridge/events'
 import { createTask as insertTask, getTask, updateTask, type TaskPatch } from '../db/repositories/tasks'
+import { interruptPausedToolCalls } from '../db/repositories/tool-events'
 import { getWorkspace } from '../db/repositories/workspaces'
 import { DEFAULT_EFFORT, DEFAULT_MODEL } from './defaults'
 import { applyTransition, TaskTransition } from './taskLifecycle'
@@ -67,9 +68,14 @@ export function createTask(context: TaskServiceContext, workspaceId: string): Ta
   return task
 }
 
-/** Marks an active task done and stamps `doneAt`. Its status stays as it is and is its outcome. */
+/**
+ * Marks an active task done and stamps `doneAt`. Its status stays as it is and is its outcome. A pause is behind it
+ * then, so the calls a pause cut off read as interrupted, as they do when a task resumes.
+ */
 export function markTaskDone(context: TaskServiceContext, id: string): Task {
-  return move(context, id, TaskTransition.MarkDone)
+  const task = move(context, id, TaskTransition.MarkDone)
+  for (const call of interruptPausedToolCalls(context.db, id)) emitToolEventUpdated(context.emit, call)
+  return task
 }
 
 /**

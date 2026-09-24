@@ -4,7 +4,9 @@
  * latest narration, the tool-call count under each reply (beside the turn's summary, saved on the reply), and three of its dividers: "Glade restarted" where a turn was
  * resumed after the app quit (`docs/design/html/18-relaunch.html`), and "Marked done" and "Reopened by your message"
  * where a message reopened a done task (`docs/design/html/06-reopen.html`). Its compactions show as "Compacted ·
- * 198k → 41k" dividers (`docs/design/html/19-compaction.html`).
+ * 198k → 41k" dividers (`docs/design/html/19-compaction.html`). The agent's questions (`ask`) show as question cards
+ * where they were asked (`docs/design/html/03-rich-question.html`), each led by the narration the agent wrote just
+ * before asking, if any.
  */
 import { formatTokens } from '../context-meter/format'
 import {
@@ -20,6 +22,7 @@ import {
   type EpochMs,
   type Message,
   type NarrationEvent,
+  type QuestionSet,
   type Task,
   type ToolEvent,
   type TurnSummary,
@@ -46,6 +49,8 @@ export enum ChatEntryKind {
   Reopened = 'reopened',
   /** Where the context was compacted. */
   Compacted = 'compacted',
+  /** The questions the agent asked (`ask`): a question card. */
+  Question = 'question',
 }
 
 export interface UserEntry {
@@ -87,8 +92,16 @@ export interface CompactedEntry {
   readonly compaction: CompactionEvent
 }
 
-/** One entry in the chat: a message, or a divider. */
-export type ChatEntry = UserEntry | AgentEntry | RestartedEntry | MarkedDoneEntry | ReopenedEntry | CompactedEntry
+export interface QuestionEntry {
+  readonly kind: ChatEntryKind.Question
+  readonly questionSet: QuestionSet
+  /** What the agent said just before it asked (the narration right before its `ask` call), or null. */
+  readonly lead: string | null
+}
+
+/** One entry in the chat: a message, a divider, or a question card. */
+export type ChatEntry =
+  UserEntry | AgentEntry | RestartedEntry | MarkedDoneEntry | ReopenedEntry | CompactedEntry | QuestionEntry
 
 /** The chat's entries that are dividers. */
 export type DividerEntry = RestartedEntry | MarkedDoneEntry | ReopenedEntry | CompactedEntry
@@ -184,12 +197,47 @@ function dividerComesBefore(entry: DividerEntry, message: Message): boolean {
   return message.role === MessageRole.Agent || message.createdAt > divider.createdAt
 }
 
+/** The name the model calls Glade's `ask` tool by, as the tool log records it. */
+const ASK_TOOL = 'mcp__glade__ask'
+
+/**
+ * What the agent said just before it asked a question set: the narration of its turn that came right before its `ask`
+ * call, or null when something else (another tool call) came between.
+ */
+export function questionLead(set: QuestionSet, toolEvents: readonly ToolEvent[]): string | null {
+  const before = toolEvents.filter(
+    (event) =>
+      event.turn === set.turn &&
+      event.createdAt <= set.createdAt &&
+      !(event.kind === ToolEventKind.ToolCall && event.name === ASK_TOOL),
+  )
+  const last = before.at(-1)
+  return last?.kind === ToolEventKind.Narration ? last.text : null
+}
+
+/** Whether a question card shows before a message: before later turns' messages, and its own turn's that came after it. */
+function questionComesBefore({ questionSet }: QuestionEntry, message: Message): boolean {
+  if (message.turn !== questionSet.turn) return message.turn > questionSet.turn
+  return message.createdAt > questionSet.createdAt
+}
+
+/** When a divider entry happened, for putting question cards among the dividers. */
+function dividerTime(entry: DividerEntry): EpochMs {
+  return entry.kind === ChatEntryKind.Compacted ? entry.compaction.createdAt : entry.divider.createdAt
+}
+
 /**
  * The chat's entries for a task: each message in order, with each agent reply's style and tool-call count, and its
  * dividers in log order: a restart divider for each resumed turn and a reopened divider for each reopening message,
- * each after its turn's message and before its reply, and a marked done divider before each reopening message.
+ * each after its turn's message and before its reply, and a marked done divider before each reopening message. Each
+ * question set shows as a card where it was asked: after the messages before it, and before the dividers after it.
  */
-export function chatEntries(task: Task, messages: readonly Message[], toolEvents: readonly ToolEvent[]): ChatEntry[] {
+export function chatEntries(
+  task: Task,
+  messages: readonly Message[],
+  toolEvents: readonly ToolEvent[],
+  questionSets: readonly QuestionSet[] = [],
+): ChatEntry[] {
   const counts = toolCallsByTurn(toolEvents)
   const last = messages.at(-1)
   const turn = currentTurn(messages)
@@ -197,14 +245,32 @@ export function chatEntries(task: Task, messages: readonly Message[], toolEvents
     const entry = toolEventEntry(task, event, turn)
     return entry === null ? [] : [entry]
   })
+  const questions = questionSets
+    .toSorted((a, b) => a.createdAt - b.createdAt)
+    .map((questionSet): QuestionEntry => ({
+      kind: ChatEntryKind.Question,
+      questionSet,
+      lead: questionLead(questionSet, toolEvents),
+    }))
   const entries: ChatEntry[] = []
-  /** Adds the dividers that go before `message`, or all that are left. */
+  /** Adds the question cards that go before `message` (all that are left without one) and before `before`, if given. */
+  const addQuestions = (message: Message | undefined, before?: EpochMs): void => {
+    for (let question = questions[0]; question !== undefined; question = questions[0]) {
+      if (message !== undefined && !questionComesBefore(question, message)) return
+      if (before !== undefined && question.questionSet.createdAt > before) return
+      questions.shift()
+      entries.push(question)
+    }
+  }
+  /** Adds the dividers that go before `message`, or all that are left, with the question cards that came first. */
   const addDividers = (message?: Message): void => {
     for (let divider = dividers[0]; divider !== undefined; divider = dividers[0]) {
-      if (message !== undefined && !dividerComesBefore(divider, message)) return
+      if (message !== undefined && !dividerComesBefore(divider, message)) break
+      addQuestions(message, dividerTime(divider))
       dividers.shift()
       entries.push(divider)
     }
+    addQuestions(message)
   }
   for (const message of messages) {
     addDividers(message)
@@ -241,9 +307,9 @@ export function compactedLabel({ compaction }: CompactedEntry): string {
 export const COMPACTING_NARRATION = 'Compacting the context'
 
 /**
- * What the working line says while a turn runs: the latest narration of the current turn, or null when the task isn't
- * working. The narration is empty until the agent's first note of the turn arrives. While the context is being
- * compacted, it says so.
+ * What the working line says while a turn runs: the agent's latest narration of the current turn (not a subagent's),
+ * or null when the task isn't working. The narration is empty until the agent's first note of the turn arrives. While
+ * the context is being compacted, it says so.
  */
 export function workingNarration(
   task: Task,
@@ -255,7 +321,8 @@ export function workingNarration(
   if (last?.kind === ToolEventKind.Compaction && last.state === ToolCallState.Running) return COMPACTING_NARRATION
   const turn = currentTurn(messages)
   const latest = toolEvents.findLast(
-    (event): event is NarrationEvent => event.kind === ToolEventKind.Narration && event.turn === turn,
+    (event): event is NarrationEvent =>
+      event.kind === ToolEventKind.Narration && event.turn === turn && event.parentToolUseId === null,
   )
   return latest?.text ?? ''
 }

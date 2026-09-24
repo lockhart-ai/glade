@@ -1,1 +1,1 @@
-export { ToolLog, type ToolLogProps, type TurnFocus } from './ToolLog'
+export { SubagentRows, ToolLog, type SubagentRowsProps, type ToolLogProps, type TurnFocus } from './ToolLog'

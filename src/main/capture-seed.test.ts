@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   AgentErrorKind,
+  CompactionTrigger,
   DividerKind,
   MessageRole,
   PauseReason,
@@ -109,6 +110,22 @@ describe('readSeed', () => {
     expect(seed.tasks.find((task) => task.selected)?.title).toBe('Move image uploads to S3')
   })
 
+  it('reads the compaction fixture', () => {
+    const selected = readSeed(join(FIXTURES, 'compaction.json')).tasks.find((task) => task.selected)
+    expect(selected?.toolEvents?.filter((event) => event.kind === ToolEventKind.Compaction)).toMatchObject([
+      { trigger: CompactionTrigger.Auto, preTokens: 198_000, postTokens: 41_000 },
+    ])
+  })
+
+  it('reads the relaunch fixture’s interrupted call and the usage limit fixture’s paused one', () => {
+    const states = (fixture: string): unknown[] =>
+      (readSeed(join(FIXTURES, fixture)).tasks.find((task) => task.selected)?.toolEvents ?? []).map(
+        (event) => event.kind === ToolEventKind.ToolCall && event.state,
+      )
+    expect(states('relaunch.json')).toContain(ToolCallState.Interrupted)
+    expect(states('usage-limit.json')).toContain(ToolCallState.Paused)
+  })
+
   it('reads the e2e tool log fixture', () => {
     const seed = readSeed(join(import.meta.dirname, '..', '..', 'e2e', 'seeds', 'tool-log.json'))
     expect(seed.tasks[0]?.toolEvents).toHaveLength(11)
@@ -196,12 +213,12 @@ describe('applySeed', () => {
     expect(getUiState(db, UiStateKey.RightPanelTab)).toBeUndefined()
   })
 
-  it("opens the right panel's tab the fixture names", () => {
+  it('opens the right panel on the tab it names', () => {
     const { db } = database
 
-    applySeed(db, { ...SEED, panelTab: 'todos' })
+    applySeed(db, { ...SEED, panelTab: 'subagents', tasks: [] })
 
-    expect(getUiState(db, UiStateKey.RightPanelTab)).toBe('todos')
+    expect(getUiState(db, UiStateKey.RightPanelTab)).toBe('subagents')
   })
 
   it('names the tasks resumed after a crash in the relaunch notice', () => {
@@ -282,7 +299,7 @@ describe('applySeed', () => {
       },
     ])
     expect(listToolEvents(db, taskId)).toMatchObject([
-      { kind: ToolEventKind.Narration, text: 'Looking around.', createdAt: NOW - 29 * MINUTE },
+      { kind: ToolEventKind.Narration, text: 'Looking around.', createdAt: NOW - 29 * MINUTE, parentToolUseId: null },
       {
         kind: ToolEventKind.ToolCall,
         name: 'Read',
@@ -342,7 +359,7 @@ describe('applySeed', () => {
     ])
   })
 
-  it('writes dividers, failed calls, and a subagent’s calls under their parent', () => {
+  it('writes dividers, calls that ended how they say, and a subagent’s calls under their parent', () => {
     const { db } = database
 
     applySeed(
@@ -363,16 +380,33 @@ describe('applySeed', () => {
                 toolUseId: 'agent-1',
                 turn: 2,
                 minutesAgo: 8,
+                finishedMinutesAgo: 5,
+              },
+              {
+                kind: ToolEventKind.Narration,
+                text: 'Building first.',
+                parentToolUseId: 'agent-1',
+                turn: 2,
+                minutesAgo: 7.5,
               },
               {
                 kind: ToolEventKind.ToolCall,
                 name: 'Bash',
                 input: { command: 'make' },
                 output: 'Exit 2',
-                failed: true,
+                state: ToolCallState.Error,
                 parentToolUseId: 'agent-1',
                 turn: 2,
                 minutesAgo: 7,
+              },
+              {
+                kind: ToolEventKind.ToolCall,
+                name: 'Bash',
+                input: { command: 'python copy.py' },
+                output: 'Glade quit before this tool call finished.',
+                state: ToolCallState.Interrupted,
+                turn: 2,
+                minutesAgo: 6,
               },
             ],
           },
@@ -384,8 +418,68 @@ describe('applySeed', () => {
     const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
     expect(listToolEvents(db, task?.id ?? '')).toMatchObject([
       { kind: ToolEventKind.Divider, dividerKind: DividerKind.Turn, turn: 2, createdAt: NOW - 9 * MINUTE },
-      { kind: ToolEventKind.ToolCall, toolUseId: 'agent-1', state: ToolCallState.Done, parentToolUseId: null },
-      { kind: ToolEventKind.ToolCall, output: 'Exit 2', state: ToolCallState.Error, parentToolUseId: 'agent-1' },
+      {
+        kind: ToolEventKind.ToolCall,
+        toolUseId: 'agent-1',
+        state: ToolCallState.Done,
+        parentToolUseId: null,
+        createdAt: NOW - 8 * MINUTE,
+        finishedAt: NOW - 5 * MINUTE,
+      },
+      { kind: ToolEventKind.Narration, text: 'Building first.', parentToolUseId: 'agent-1' },
+      {
+        kind: ToolEventKind.ToolCall,
+        output: 'Exit 2',
+        state: ToolCallState.Error,
+        parentToolUseId: 'agent-1',
+        finishedAt: NOW - 7 * MINUTE,
+      },
+      { kind: ToolEventKind.ToolCall, state: ToolCallState.Interrupted, parentToolUseId: null },
+    ])
+  })
+
+  it('writes compactions, done unless they say otherwise', () => {
+    const { db } = database
+    const compaction = { kind: ToolEventKind.Compaction, preTokens: 198_000, windowTokens: 200_000, turn: 2 } as const
+
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          {
+            title: 'Move image uploads to S3',
+            minutesAgo: 0,
+            toolEvents: [
+              { ...compaction, trigger: CompactionTrigger.Auto, postTokens: 41_000, minutesAgo: 30 },
+              {
+                ...compaction,
+                trigger: CompactionTrigger.Manual,
+                state: ToolCallState.Running,
+                preTokens: null,
+                postTokens: null,
+                minutesAgo: 1,
+              },
+            ],
+          },
+        ],
+      },
+      NOW,
+    )
+
+    const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    expect(listToolEvents(db, task?.id ?? '')).toMatchObject([
+      {
+        kind: ToolEventKind.Compaction,
+        trigger: CompactionTrigger.Auto,
+        state: ToolCallState.Done,
+        preTokens: 198_000,
+        postTokens: 41_000,
+        windowTokens: 200_000,
+        turn: 2,
+        createdAt: NOW - 30 * MINUTE,
+      },
+      { kind: ToolEventKind.Compaction, trigger: CompactionTrigger.Manual, state: ToolCallState.Running },
     ])
   })
 })

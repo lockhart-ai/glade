@@ -38,6 +38,7 @@ function call(overrides: Partial<ToolCallEvent> = {}): ToolCallEvent {
     input: {},
     output: null,
     state: ToolCallState.Done,
+    finishedAt: null,
     toolUseId: 'use-1',
     parentToolUseId: null,
     ...overrides,
@@ -45,7 +46,7 @@ function call(overrides: Partial<ToolCallEvent> = {}): ToolCallEvent {
 }
 
 function narration(id: string, turn: number, createdAt = AT): NarrationEvent {
-  return { id, taskId: 't1', turn, createdAt, kind: ToolEventKind.Narration, text: `note ${id}` }
+  return { id, taskId: 't1', turn, createdAt, kind: ToolEventKind.Narration, text: `note ${id}`, parentToolUseId: null }
 }
 
 function divider(id: string, turn: number, dividerKind = DividerKind.Turn, createdAt = AT): DividerEvent {
@@ -112,6 +113,12 @@ describe('resultSummary', () => {
     expect(resultSummary(call({ state: ToolCallState.Running }))).toBe('Running…')
   })
 
+  it('says a call a pause or a quit cut off was paused or interrupted, whatever its output', () => {
+    const note = 'Glade quit before this tool call finished.'
+    expect(resultSummary(call({ name: 'Bash', state: ToolCallState.Paused, output: note }))).toBe('Paused')
+    expect(resultSummary(call({ name: 'Bash', state: ToolCallState.Interrupted, output: note }))).toBe('Interrupted')
+  })
+
   it('shows the first line of a failed call’s error', () => {
     expect(resultSummary(call({ state: ToolCallState.Error, output: '\nFile not found\nat …' }))).toBe('File not found')
     expect(resultSummary(call({ state: ToolCallState.Error, output: null }))).toBe('Failed')
@@ -149,6 +156,13 @@ describe('call state', () => {
     expect(callStateLabel(ToolCallState.Running)).toBe('Running')
     expect(callStateLabel(ToolCallState.Done)).toBe('Done')
     expect(callStateLabel(ToolCallState.Error)).toBe('Failed')
+  })
+
+  it('colours a paused call purple and an interrupted one slate, since neither failed', () => {
+    expect(callIndicator(ToolCallState.Paused)).toBe(TaskIndicator.Waiting)
+    expect(callIndicator(ToolCallState.Interrupted)).toBe(TaskIndicator.Done)
+    expect(callStateLabel(ToolCallState.Paused)).toBe('Paused')
+    expect(callStateLabel(ToolCallState.Interrupted)).toBe('Interrupted')
   })
 })
 
@@ -195,21 +209,29 @@ describe('toolLogRows', () => {
     ])
   })
 
-  it('nests a subagent’s calls under the call that started it, and keeps orphans at the top level', () => {
+  it('nests a subagent’s calls and notes under the call that started it, and keeps orphans at the top level', () => {
     const rows = toolLogRows([
       call({ id: 'agent', name: 'Agent', toolUseId: 'use-agent' }),
       call({ id: 'grep', name: 'Grep', toolUseId: 'use-grep', parentToolUseId: 'use-agent' }),
       narration('n1', 1),
+      { ...narration('n2', 1), parentToolUseId: 'use-agent' },
       call({ id: 'read', name: 'Read', toolUseId: 'use-read', parentToolUseId: 'use-agent' }),
       call({ id: 'orphan', name: 'Bash', toolUseId: 'use-orphan', parentToolUseId: 'use-gone' }),
+      { ...narration('n3', 1), parentToolUseId: 'use-gone' },
     ])
 
-    expect(rows).toHaveLength(3)
+    expect(rows).toHaveLength(4)
     expect(rows[0]).toMatchObject({
       name: 'Agent',
-      children: [{ name: 'Grep', children: [] }, { name: 'Read' }],
+      children: [
+        { name: 'Grep', children: [] },
+        { kind: ToolEventKind.Narration, narration: { id: 'n2' } },
+        { name: 'Read' },
+      ],
     })
+    expect(rows[1]).toMatchObject({ kind: ToolEventKind.Narration, narration: { id: 'n1' } })
     expect(rows[2]).toMatchObject({ name: 'Bash', children: [] })
+    expect(rows[3]).toMatchObject({ kind: ToolEventKind.Narration, narration: { id: 'n3' } })
   })
 })
 
@@ -244,6 +266,8 @@ describe('compactions', () => {
   it('say whether they are compacting, finished or never did', () => {
     expect(compactionResult(compaction({ state: ToolCallState.Running }))).toBe('Compacting…')
     expect(compactionResult(compaction({ state: ToolCallState.Error }))).toBe("Didn't finish")
+    expect(compactionResult(compaction({ state: ToolCallState.Paused }))).toBe("Didn't finish")
+    expect(compactionResult(compaction({ state: ToolCallState.Interrupted }))).toBe("Didn't finish")
     expect(compactionResult(compaction())).toBe('Resuming from a summary')
     expect(compactionResult(compaction({ trigger: CompactionTrigger.Auto }))).toBe(
       'Automatic · resuming from a summary',

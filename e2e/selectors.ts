@@ -113,6 +113,24 @@ export function taskPanel(page: Page) {
   }
 }
 
+/** The right panel's Subagents tab: the tally by status and a row per subagent, which opens its log. */
+export function subagentsTab(page: Page) {
+  const panel = regions(page).taskPanel.getByRole('tabpanel')
+  /** A subagent's row, by its name; `data-status` is running, done or error. */
+  const row = (name: string) => panel.getByRole('group', { name, exact: true })
+  return {
+    /** "3 running 1 done". */
+    tally: panel.getByRole('group', { name: 'Subagents by status' }),
+    /** Every subagent's row, top to bottom. */
+    rows: panel.locator('[data-status][role="group"]'),
+    row,
+    /** A row's header: its dot, name, status, latest line, elapsed time and tool call count. Click it to open its log. */
+    header: (name: string) => row(name).getByRole('button').first(),
+    /** A row's log, while it's open. */
+    log: (name: string) => panel.getByRole('log', { name: `${name} log` }),
+  }
+}
+
 /** The chat view: the user's messages and the agent's replies, oldest first, or a new task's prompt. */
 export function chat(page: Page) {
   const log = regions(page).chat.getByRole('log', { name: 'Conversation' })
@@ -143,6 +161,10 @@ export function chat(page: Page) {
     errorDetails: log.getByRole('alert').getByLabel('Error details'),
     /** The line that ends the chat while the task's turn is paused: "Paused · resumes at 11:42". */
     pausedLine: log.getByRole('status', { name: 'Paused' }),
+    /** The agent's open questions: the card you answer them on. */
+    questionCard: log.getByRole('form', { name: 'Questions from the agent' }),
+    /** The agent's questions once they're answered or withdrawn: the closed card. */
+    closedQuestions: log.getByRole('region', { name: 'Questions from the agent' }),
   }
 }
 

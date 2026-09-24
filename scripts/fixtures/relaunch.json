@@ -106,7 +106,7 @@
             "command": "python scripts/copy_media_to_s3.py"
           },
           "output": "Glade quit before this tool call finished.",
-          "failed": true,
+          "state": "interrupted",
           "turn": 1,
           "minutesAgo": 6
         },

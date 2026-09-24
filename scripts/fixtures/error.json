@@ -130,7 +130,7 @@
           "name": "API",
           "input": { "request": "request 4 of 4" },
           "output": "529 overloaded · task paused\n\nAPI Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"},\"request_id\":\"req_011Sample\"}",
-          "failed": true,
+          "state": "error",
           "turn": 2,
           "minutesAgo": 1
         }

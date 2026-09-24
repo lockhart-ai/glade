@@ -36,6 +36,7 @@ function call(id: string, overrides: Partial<ToolCallEvent> = {}): ToolCallEvent
     input: { file_path: `${ROOT}/api/views.py` },
     output: '1\tfrom x import y\n2\t\n3\tclass A: pass',
     state: ToolCallState.Done,
+    finishedAt: null,
     toolUseId: `use-${id}`,
     parentToolUseId: null,
     ...overrides,
@@ -43,7 +44,7 @@ function call(id: string, overrides: Partial<ToolCallEvent> = {}): ToolCallEvent
 }
 
 function narration(id: string, turn: number, text: string): NarrationEvent {
-  return { id, taskId: 't1', turn, createdAt: AT - 60_000, kind: ToolEventKind.Narration, text }
+  return { id, taskId: 't1', turn, createdAt: AT - 60_000, kind: ToolEventKind.Narration, text, parentToolUseId: null }
 }
 
 function divider(id: string, turn: number, dividerKind = DividerKind.Turn): DividerEvent {
@@ -185,7 +186,6 @@ describe('TaskPanel', () => {
       ['Files', 'No files yet.'],
       ['Todos', 'No todos yet.'],
       ['Artifacts', 'No artifacts yet.'],
-      ['Subagents', 'No subagents yet.'],
     ] as const) {
       fireEvent.click(tab(name))
       expect(screen.getByRole('tabpanel')).toHaveTextContent(empty)
@@ -290,6 +290,56 @@ describe('TaskPanel', () => {
       expect(screen.getByLabelText('Glob output')).toHaveTextContent(/^$/)
     })
 
+    it('shows a call a pause cut off in purple, and one a quit cut off like a finished call', async () => {
+      await renderPanel({
+        toolEvents: [
+          call('c1', {
+            name: 'Bash',
+            input: { command: 'python copy.py' },
+            state: ToolCallState.Interrupted,
+            output: 'Glade quit before this tool call finished.',
+          }),
+          call('c2', {
+            name: 'Bash',
+            input: { command: 'python copy.py --resume' },
+            state: ToolCallState.Paused,
+            output: 'The task paused before this tool call finished.',
+          }),
+        ],
+      })
+
+      const interrupted = row(/^Interrupted\s*Bash/)
+      expect(interrupted).toHaveTextContent(/Interrupted$/)
+      expect(within(interrupted).getByRole('img', { name: 'Interrupted' })).toHaveAttribute('data-state', 'done')
+      expect(interrupted.parentElement).toHaveAttribute('data-state', ToolCallState.Interrupted)
+      expect(interrupted.parentElement?.className).not.toMatch(/error/)
+      fireEvent.click(interrupted)
+      expect(screen.getByLabelText('Bash output')).toHaveTextContent('Glade quit before this tool call finished.')
+
+      const paused = row(/^Paused\s*Bash/)
+      expect(paused).toHaveTextContent(/Paused$/)
+      expect(within(paused).getByRole('img', { name: 'Paused' })).toHaveAttribute('data-state', 'waiting')
+      expect(paused.parentElement?.className).toMatch(/paused/)
+    })
+
+    it('shows inline code and emphasis in the agent’s notes, and nothing that loads or links', async () => {
+      await renderPanel({
+        toolEvents: [
+          narration(
+            'n1',
+            1,
+            'The project uses `django-storages` for *static* files. See [the docs](https://example.com) ![logo](https://example.com/x.png)',
+          ),
+        ],
+      })
+
+      const note = within(log()).getByText(/The project uses/)
+      expect(within(note).getByText('django-storages').tagName).toBe('CODE')
+      expect(within(note).getByText('static').tagName).toBe('EM')
+      expect(note).toHaveTextContent('The project uses django-storages for static files. See the docs logo 10:43')
+      expect(note.querySelector('a, img')).toBeNull()
+    })
+
     it('marks where each turn after the first starts, and what else happened', async () => {
       await renderPanel({
         toolEvents: [...TURN_ONE, divider('d2', 2), call('c3', { turn: 2 }), divider('d3', 2, DividerKind.MarkedDone)],
@@ -377,6 +427,54 @@ describe('TaskPanel', () => {
         emit({ type: EventType.ToolEventAppended, toolEvent: call('c5', { turn: 1 }) })
       })
       expect(scroller.scrollTop).toBe(900)
+    })
+  })
+
+  describe('the Subagents tab', () => {
+    const agent = (id: string, description: string, overrides: Partial<ToolCallEvent> = {}): ToolCallEvent =>
+      call(id, { name: 'Agent', input: { description }, state: ToolCallState.Running, output: null, ...overrides })
+
+    it('counts nothing and says so when the task has no subagents', async () => {
+      await renderPanel({ uiState: [{ key: UiStateKey.RightPanelTab, value: 'subagents' }] })
+      expect(tab(/^Subagents/)).toHaveTextContent(/^Subagents$/)
+      expect(screen.getByRole('tabpanel')).toHaveTextContent('No subagents yet.')
+    })
+
+    it('shows nothing without a task', async () => {
+      await renderPanel({ selected: false, uiState: [{ key: UiStateKey.RightPanelTab, value: 'subagents' }] })
+      expect(screen.getByRole('tabpanel')).toBeEmptyDOMElement()
+    })
+
+    it('lists the task’s subagents and follows them live', async () => {
+      const { emit } = await renderPanel({
+        toolEvents: [agent('api', 'API changes'), agent('links', 'Check links')],
+        uiState: [{ key: UiStateKey.RightPanelTab, value: 'subagents' }],
+      })
+      const tally = (): HTMLElement => screen.getByRole('group', { name: 'Subagents by status' })
+      expect(tab(/^Subagents/)).toHaveTextContent('Subagents 2')
+      expect(tally()).toHaveTextContent('2 running')
+
+      act(() => {
+        emit({
+          type: EventType.ToolEventAppended,
+          toolEvent: call('bash', {
+            name: 'Bash',
+            input: { command: 'gh pr list' },
+            state: ToolCallState.Running,
+            output: null,
+            parentToolUseId: 'use-api',
+          }),
+        })
+        emit({
+          type: EventType.ToolEventUpdated,
+          toolEvent: agent('links', 'Check links', { state: ToolCallState.Done, output: 'Fixed both links.' }),
+        })
+      })
+      expect(tally()).toHaveTextContent('1 running1 done')
+      const api = screen.getByRole('group', { name: 'API changes' })
+      expect(api).toHaveTextContent('Bashgh pr list')
+      expect(api).toHaveTextContent('1 tool call')
+      expect(screen.getByRole('group', { name: 'Check links' })).toHaveTextContent('Fixed both links.')
     })
   })
 

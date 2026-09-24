@@ -121,7 +121,8 @@
             "command": "python scripts/copy_media_to_s3.py",
             "description": "Copy the existing uploads to S3"
           },
-          "output": "copied 1,240 of 3,900",
+          "output": "The task paused before this tool call finished.",
+          "state": "paused",
           "turn": 1,
           "minutesAgo": 3
         }

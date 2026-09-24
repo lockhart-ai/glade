@@ -207,6 +207,30 @@ function scriptedTurn(): unknown[] {
 }
 
 describe('a turn', () => {
+  it("logs a subagent's own text as its note, straight away, and keeps it out of the chat", async () => {
+    await send('Find out why the login test is flaky.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_02', 'Agent', { description: 'Find flaky tests', prompt: 'Run each login test.' }),
+      sdk.text('  Running each login test 50 times.  ', 'toolu_02', 'msg_sub'),
+      sdk.text('   ', 'toolu_02', 'msg_sub'),
+    )
+    await settle()
+
+    expect(listToolEvents(database.db, task.id).at(-1)).toMatchObject({
+      kind: ToolEventKind.Narration,
+      text: 'Running each login test 50 times.',
+      parentToolUseId: 'toolu_02',
+    })
+    expect(listToolEvents(database.db, task.id).filter((event) => event.kind === ToolEventKind.Narration)).toHaveLength(
+      1,
+    )
+
+    backend.session.emit(sdk.toolResult('toolu_02', 'Two flaky tests.'), sdk.result('Found two flaky tests.'))
+    await settle()
+    expect(chat().at(-1)).toEqual({ role: MessageRole.Agent, body: 'Found two flaky tests.', turn: 1 })
+  })
+
   it('saves the chat, the tool log, the session id and the activity, and broadcasts each change', async () => {
     await send('Find out why the login test is flaky.')
 
@@ -920,11 +944,11 @@ describe('resuming on launch', () => {
     expect(toolLog()).toEqual([
       { divider: DividerKind.Turn, turn: 1 },
       { narration: "I'll run the whole suite.", turn: 1 },
-      expect.objectContaining({ call: 'Bash', state: ToolCallState.Error, output: RESTARTED_TOOL_NOTE, turn: 1 }),
+      expect.objectContaining({ call: 'Bash', state: ToolCallState.Interrupted, output: RESTARTED_TOOL_NOTE, turn: 1 }),
       { divider: DividerKind.Resumed, turn: 1 },
     ])
     expect(drainEvents()).toEqual([
-      [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Error],
+      [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Interrupted],
       [EventType.ToolEventAppended, ToolEventKind.Divider, null],
     ])
 
@@ -2110,7 +2134,7 @@ describe('questions', () => {
       expect(current()).toMatchObject({ activity: TaskActivity.Waiting, asking: true })
       expect(needsYou(current())).toBe(true)
       expect(getOpenQuestionSet(database.db, task.id)).toEqual(open)
-      expect(askRow()).toMatchObject({ state: ToolCallState.Error, output: ASK_RESTARTED_NOTE })
+      expect(askRow()).toMatchObject({ state: ToolCallState.Interrupted, output: ASK_RESTARTED_NOTE })
       // The app doesn't resume it as a working turn on the next launch either.
       relaunch()
       runner.resumeInterrupted()

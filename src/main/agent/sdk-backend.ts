@@ -25,6 +25,8 @@ export function sdkOptions(options: AgentSessionOptions): Options {
     mcpServers: { ...options.mcpServers },
     // Questions go through Glade's own `ask`, which shows them on a card; Claude Code's own asking tool has no UI here.
     disallowedTools: ['AskUserQuestion'],
+    // A subagent's own text too, not just its tool calls: the Subagents tab shows the last thing each one said.
+    forwardSubagentText: true,
     // No `env` and no credentials: the bundled Claude Code binary finds the user's own login itself.
   }
 }

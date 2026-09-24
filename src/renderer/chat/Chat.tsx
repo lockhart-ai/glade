@@ -1,6 +1,6 @@
 import { faWrench } from '@fortawesome/free-solid-svg-icons'
 import { useMemo } from 'react'
-import type { Message, ToolEvent } from '../../shared/domain'
+import type { Message, QuestionSet, ToolEvent } from '../../shared/domain'
 import { classNames } from '../components/classNames'
 import { Icon, IconSize } from '../components'
 import { selectSelectedTask } from '../store/state'
@@ -21,6 +21,7 @@ import {
   workingNarration,
   type AgentEntry,
   type MarkedDoneEntry,
+  type QuestionEntry,
   type RestartedEntry,
   type SummaryLine,
   type UserEntry,
@@ -28,6 +29,7 @@ import {
 import { shortenHomePath } from '../paths'
 import { isPaused, pausedChatLine } from '../pause/pauseModel'
 import { useNow } from '../task-list/useNow'
+import { QuestionCard } from '../questions/QuestionCard'
 import { ErrorCard } from './ErrorCard'
 import { Markdown } from './Markdown'
 import { useStickToBottom } from './useStickToBottom'
@@ -35,6 +37,7 @@ import styles from './Chat.module.css'
 
 const NO_MESSAGES: readonly Message[] = []
 const NO_TOOL_EVENTS: readonly ToolEvent[] = []
+const NO_QUESTION_SETS: readonly QuestionSet[] = []
 
 function UserMessage({ message }: UserEntry): React.JSX.Element {
   return (
@@ -98,6 +101,17 @@ function AgentReply({ entry: { message, style, toolCalls }, onShowTurn }: AgentR
       )}
       <span className={styles.meta}>agent · {clockTime(message.createdAt)}</span>
     </article>
+  )
+}
+
+/** The agent's questions: what it said just before asking, if anything, then the question card. */
+function AgentQuestions({ questionSet, lead }: QuestionEntry): React.JSX.Element {
+  return (
+    <div className={styles.agent}>
+      {lead !== null && <Markdown source={lead} className={styles.reply} />}
+      <QuestionCard questionSet={questionSet} />
+      <span className={styles.meta}>agent · {clockTime(questionSet.createdAt)}</span>
+    </div>
   )
 }
 
@@ -191,13 +205,15 @@ export function Chat(): React.JSX.Element {
   const toolEvents =
     useGladeStore((state) => (task === undefined ? undefined : state.toolEvents[task.id])) ?? NO_TOOL_EVENTS
   const focusTurn = useGladeStore((state) => state.focusTurn)
+  const questionSets =
+    useGladeStore((state) => (task === undefined ? undefined : state.questionSets[task.id])) ?? NO_QUESTION_SETS
   const root = useGladeStore(
     (state) => state.workspaces.find((workspace) => workspace.id === task?.workspaceId)?.rootPath,
   )
 
   const entries = useMemo(
-    () => (task === undefined ? [] : chatEntries(task, messages, toolEvents)),
-    [task, messages, toolEvents],
+    () => (task === undefined ? [] : chatEntries(task, messages, toolEvents, questionSets)),
+    [task, messages, toolEvents, questionSets],
   )
   const narration = task === undefined ? null : workingNarration(task, messages, toolEvents)
   const working = task === undefined || narration === null ? null : workingLabel(task, narration)
@@ -205,7 +221,7 @@ export function Chat(): React.JSX.Element {
   const now = useNow()
   const paused = task !== undefined && isPaused(task) ? pausedChatLine(task.pause, now) : null
   const { ref, onScroll } = useStickToBottom(
-    `${String(entries.length)}:${working ?? ''}:${String(stopped)}:${paused ?? ''}`,
+    `${String(entries.length)}:${working ?? ''}:${String(stopped)}:${paused ?? ''}:${questionSets.map(({ state }) => state).join()}`,
     task?.id,
   )
   const isNew = task !== undefined && entries.length === 0 && narration === null
@@ -234,6 +250,8 @@ export function Chat(): React.JSX.Element {
                   {REOPENED_LABEL}
                 </ChatDivider>
               )
+            case ChatEntryKind.Question:
+              return <AgentQuestions key={entry.questionSet.id} {...entry} />
             case ChatEntryKind.Agent:
               return (
                 <AgentReply

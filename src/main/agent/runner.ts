@@ -16,7 +16,8 @@
  *   summary (`./turn-summary`): the wall-clock time since the turn's first user message, and the files and lines the
  *   turn's edits changed.
  * - Each tool call is saved as running and filled in as done or error when its result arrives. A subagent's tool calls
- *   carry their `Agent` call's id.
+ *   carry their `Agent` call's id. A subagent's own text (`forwardSubagentText`) isn't held back: it goes straight to
+ *   the tool log as narration carrying its `Agent` call's id, for the Subagents tab, and never to the chat.
  * - The task's activity is working for the turn, then waiting on you, or error if the turn failed.
  * - A final reply in a task you aren't viewing marks it unread (`../tasks/attention`) and is notified (`notifyReply`).
  * - The task's context usage follows the agent's latest top-level message, and its context window is what the turn's
@@ -155,7 +156,8 @@ import {
   appendNarration,
   appendToolCall,
   failRunningCompactions,
-  failRunningToolCalls,
+  interruptPausedToolCalls,
+  interruptRunningToolCalls,
   listToolEvents,
   updateCompaction,
   updateToolCall,
@@ -372,7 +374,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const notifyReply = options.notifyReply ?? (() => undefined)
   const isOnline = options.isOnline ?? (() => true)
   const context = { db, emit }
-  const questions = options.questions ?? createQuestionBroker(context)
+  const questions = options.questions ?? createQuestionBroker(context, notifyReply)
   const sessions = new Map<string, LiveSession>()
   // Resumes a paused turn when its pause is due.
   const timers = createPauseTimers((taskId) => {
@@ -385,10 +387,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   /**
    * The agent is working on a new turn: whatever error stopped it or pause held it before is behind it, and so is any
-   * retry the app quit in the middle of.
+   * retry the app quit in the middle of. The calls a pause cut off now read as interrupted.
    */
   const startWorking = (taskId: string, through: TaskServiceContext = context): void => {
     timers.disarm(taskId)
+    for (const call of interruptPausedToolCalls(db, taskId)) emitToolEventUpdated(through.emit, call)
     const task = getTask(db, taskId)
     if (
       task?.activity !== TaskActivity.Working ||
@@ -489,17 +492,23 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (text !== '') emitToolEventAppended(emit, appendNarration(db, { taskId, turn: turn.number, text }))
   }
 
-  /** Marks the calls that never got a result as failed. */
-  const failRunning = (taskId: string, turn: Turn, output: string): void => {
+  /** Marks the calls that never got a result as failed, or as paused when the turn pauses. */
+  const failRunning = (taskId: string, turn: Turn, output: string, state = ToolCallState.Error): void => {
     for (const toolUseId of turn.running.keys()) {
-      emitToolEventUpdated(emit, updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Error, output }))
+      emitToolEventUpdated(emit, updateToolCall(db, { taskId, toolUseId, state, output }))
     }
     turn.running.clear()
   }
 
-  const onText = (turn: Turn, event: TextEvent): void => {
-    // A subagent's own text isn't forwarded by default; if it is, it's the subagent's business, not the chat's.
-    if (event.parentToolUseId === null) turn.pending.push(event.text)
+  const onText = (taskId: string, turn: Turn, event: TextEvent): void => {
+    const { text, parentToolUseId } = event
+    if (parentToolUseId === null) {
+      turn.pending.push(text)
+      return
+    }
+    // A subagent's text is the subagent's business, not the chat's: it's what the Subagents tab says it's doing.
+    if (text.trim() === '') return
+    emitToolEventAppended(emit, appendNarration(db, { taskId, turn: turn.number, text: text.trim(), parentToolUseId }))
   }
 
   const onToolCall = (taskId: string, turn: Turn, event: ToolCallStartedEvent): void => {
@@ -692,7 +701,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       live.limit,
     )
     if (pauseReason(error) !== null) {
-      failRunning(taskId, turn, PAUSED_TOOL_NOTE)
+      failRunning(taskId, turn, PAUSED_TOOL_NOTE, ToolCallState.Paused)
       pauseOnError(taskId, error, live.limit)
       return
     }
@@ -722,8 +731,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     failCompaction(turn)
     turn.pending.push(message)
     flushPreamble(taskId, turn)
-    failRunning(taskId, turn, message)
     const error = withRetries(turn, { source: TaskErrorSource.Session, status: null, code: null, details: message })
+    failRunning(taskId, turn, message, pauseReason(error) === null ? ToolCallState.Error : ToolCallState.Paused)
     if (!pauseOnError(taskId, error, live.limit)) stopOnError(taskId, error)
   }
 
@@ -750,7 +759,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     switch (event.kind) {
       case AgentEventKind.Text:
         recovered(taskId, turn)
-        onText(turn, event)
+        onText(taskId, turn, event)
         return
       case AgentEventKind.ToolCallStarted:
         recovered(taskId, turn)
@@ -839,7 +848,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const taskId = task.id
     // A task always has a turn by the time it works; the tool log's first turn is 1 regardless.
     const turn = Math.max(1, lastTurn(db, taskId))
-    for (const call of failRunningToolCalls(db, taskId, RESTARTED_TOOL_NOTE)) emitToolEventUpdated(emit, call)
+    for (const call of interruptRunningToolCalls(db, taskId, RESTARTED_TOOL_NOTE)) emitToolEventUpdated(emit, call)
     const compactions = failRunningCompactions(db, taskId)
     for (const compaction of compactions) emitToolEventUpdated(emit, compaction)
     // The turn was a compaction you asked for, not a turn of yours: it ends there, and the queue starts the next turn,
@@ -945,7 +954,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    * and so is its turn. Its task waits on you until you answer it.
    */
   const orphanQuestion = (set: QuestionSet): void => {
-    for (const call of failRunningToolCalls(db, set.taskId, ASK_RESTARTED_NOTE)) emitToolEventUpdated(emit, call)
+    for (const call of interruptRunningToolCalls(db, set.taskId, ASK_RESTARTED_NOTE)) emitToolEventUpdated(emit, call)
     setActivity(set.taskId, TaskActivity.Waiting)
   }
 

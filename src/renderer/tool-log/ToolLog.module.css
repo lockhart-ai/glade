@@ -1,5 +1,6 @@
 /* The tool log, from docs/design/html/task-workspace.html (rows, notes), 06-reopen.html (dividers), 02-agent-working.html
-   (a running call and its output) and 16-error.html (a failed call). */
+   (a running call and its output), 16-error.html (a failed call), 17-usage-limit.html (a paused call) and
+   18-relaunch.html (an interrupted call, and inline code in a note). */
 .scroller {
   flex-grow: 1;
   min-height: 0;
@@ -122,6 +123,16 @@
   color: var(--color-pink);
 }
 
+/* A call a pause cut off, highlighted like the running call it was (17-usage-limit.html). An interrupted call looks
+   like a finished one (18-relaunch.html), so it needs no styles of its own. */
+.paused {
+  background: var(--color-inner-2);
+}
+
+.paused .result {
+  color: var(--color-purple);
+}
+
 .output {
   max-height: 320px;
   overflow: auto;
@@ -156,6 +167,15 @@
   font-size: var(--font-size-secondary);
   line-height: 1.5;
   color: var(--color-muted);
+}
+
+/* Inline code in a note, from 18-relaunch.html. */
+.narration code {
+  padding: 1px 5px;
+  background: var(--color-raised);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-secondary);
 }
 
 .narrationTime {
@@ -196,4 +216,45 @@
   to {
     background: transparent;
   }
+}
+
+/* A subagent's log in the Subagents tab (docs/design/html/11-subagents.html): each call on one line, notes tighter. */
+.call.compact {
+  padding: 4px 2px;
+  border-radius: 6px;
+}
+
+.call.compact .callLine {
+  gap: 8px;
+}
+
+.call.compact .name,
+.call.compact .argument {
+  font-size: 11.5px;
+}
+
+.call.compact .time {
+  font-size: 10.5px;
+}
+
+.call.compact .smallDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+}
+
+/* The blue dot says it's running; the log is already on its own dark ground. */
+.call.compact.running {
+  background: transparent;
+}
+
+.narration.compact {
+  margin: 2px 0 2px 2px;
+  padding: 0 0 0 10px;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.45;
+}
+
+.narration.compact .narrationTime {
+  font-size: 10.5px;
 }

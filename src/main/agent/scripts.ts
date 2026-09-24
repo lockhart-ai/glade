@@ -771,7 +771,10 @@ const copyInBatches: AgentScript = {
   ],
 }
 
-/** The questions `asks-a-question` asks before it drafts the release notes: a choice with sketches, and two pills. */
+/**
+ * The questions `asks-a-question` asks before it drafts the release notes: a choice with sketches, two pills, and an
+ * optional text question.
+ */
 export const RELEASE_NOTES_QUESTIONS: readonly Question[] = [
   {
     kind: QuestionKind.Choice,
@@ -781,13 +784,13 @@ export const RELEASE_NOTES_QUESTIONS: readonly Question[] = [
         id: 'by-type',
         label: 'By type',
         detail: 'Features, fixes, internal. Matches the 2.3 notes.',
-        sketch: '## Features\n- …\n## Fixes\n- …\n## Internal\n- …',
+        sketch: '# Features\n- Rate limits on /search\n# Fixes\n- Login redirect loop',
       },
       {
         id: 'by-area',
         label: 'By area',
         detail: 'API, dashboard, admin. Easier for integrators to scan.',
-        sketch: '## API\n- …\n## Dashboard\n- …\n## Admin\n- …',
+        sketch: '# API\n- Rate limits on /search\n# Dashboard\n- Login redirect loop',
       },
     ],
   },
@@ -797,6 +800,12 @@ export const RELEASE_NOTES_QUESTIONS: readonly Question[] = [
     options: ['Features', 'Internal changes', 'Leave it out'],
   },
   { kind: QuestionKind.Pills, prompt: 'Credit contributors?', options: ['GitHub handles', 'Full names', 'No credits'] },
+  {
+    kind: QuestionKind.Text,
+    prompt: 'Anything to call out in the upgrade guide?',
+    placeholder: 'e.g. the new 429s on /search',
+    optional: true,
+  },
 ]
 
 /**
@@ -810,13 +819,14 @@ const asksAQuestion: AgentScript = {
     [
       ...turnStart(),
       delay(BEAT_MS),
-      say('41 PRs since v2.3.0. Before I draft the notes, a few questions.'),
       ...describeTask(
         'Draft release notes for 2.4',
         'Draft release notes for 2.4 from the PRs merged since the 2.3 tag, grouped into features, fixes and ' +
           'internal changes.',
-        'Waiting on three layout and credit questions.',
+        'Waiting on layout, credit and upgrade guide questions.',
       ),
+      // Said just before asking, so the question card leads with it.
+      say('41 PRs since v2.3.0. A few choices are yours before I draft the notes.'),
       ask('questions', RELEASE_NOTES_QUESTIONS),
       delay(BEAT_MS),
       gladeTool('status-drafted', 'set_status', { status: 'Release notes drafted in docs/releases/2.4.md.' }),
@@ -830,6 +840,78 @@ const asksAQuestion: AgentScript = {
     gladeTool('status-resumed', 'set_status', { status: 'Release notes drafted in docs/releases/2.4.md.' }),
     say('Got your answers after the restart. The release notes for 2.4 are drafted in `docs/releases/2.4.md`.'),
     result(),
+  ],
+}
+
+/**
+ * Three subagents run side by side, splitting the release notes by area: one checks the links in the last notes and
+ * finishes, while the other two keep reading PRs (one last said something, the other is in a tool call) until the turn
+ * is stopped, so a spec can watch them run, then see them fail when it stops them.
+ */
+const parallelSubagents: AgentScript = {
+  name: 'parallel-subagents',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      say("I'll split the PRs by area across three subagents, and check the links in the 2.3 notes meanwhile."),
+      ...describeTask(
+        'Draft release notes for 2.4',
+        'Draft release notes for 2.4 from the PRs merged since the 2.3 tag, grouped into features, fixes and ' +
+          'internal changes.',
+        'Split the PRs by area across three subagents.',
+      ),
+      toolUse('api', 'Agent', {
+        description: 'API changes',
+        prompt: 'Sort the API PRs merged since v2.3.0 into features, fixes and internal changes.',
+        subagent_type: 'general-purpose',
+      }),
+      toolUse('dashboard', 'Agent', {
+        description: 'Dashboard changes',
+        prompt: 'Sort the dashboard PRs merged since v2.3.0 into features, fixes and internal changes.',
+        subagent_type: 'general-purpose',
+      }),
+      toolUse('links', 'Agent', {
+        description: 'Check links in the 2.3 notes',
+        prompt: 'Check every link in docs/releases/2.3.md and fix the broken ones.',
+        subagent_type: 'general-purpose',
+      }),
+      say('Reading the API PRs, newest first.', 'api'),
+      ...tool(
+        'api-list',
+        'Bash',
+        { command: 'gh pr list --label api --state merged', description: 'List the merged API PRs' },
+        '1409\tAdd per-key throttles\n1402\tRate limit the public API',
+        'api',
+      ),
+      ...tool('links-read', 'Read', { file_path: 'docs/releases/2.3.md' }, '# 2.3\n…', 'links'),
+      delay(BEAT_MS),
+      ...tool(
+        'dashboard-list',
+        'Bash',
+        { command: 'gh pr list --label dashboard --state merged', description: 'List the merged dashboard PRs' },
+        '1418\tMove the charts onto the new query',
+        'dashboard',
+      ),
+      ...tool(
+        'links-fix',
+        'Edit',
+        { file_path: 'docs/releases/2.3.md', old_string: '/docs/limits', new_string: '/docs/rate-limits' },
+        'The file docs/releases/2.3.md has been updated.',
+        'links',
+      ),
+      toolResult('links', 'Found 2 broken links and fixed both in the draft.'),
+      ...tool(
+        'api-view',
+        'Bash',
+        { command: 'gh pr view 1402 --json title,body', description: 'Read PR 1402' },
+        '{"title":"Rate limit the public API"}',
+        'api',
+      ),
+      say('#1418 moves the charts onto the new query, so it belongs under features, not fixes.', 'dashboard'),
+      toolUse('api-read', 'Read', { file_path: 'api/throttles.py' }, 'api'),
+      waitForInterrupt(),
+    ],
   ],
 }
 
@@ -1018,6 +1100,7 @@ export const AGENT_SCRIPT_NAMES = [
   'long-context',
   'auto-compaction',
   'asks-a-question',
+  'parallel-subagents',
   'usage-limit',
   'usage-limit-hour',
   'offline',
@@ -1039,6 +1122,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'long-context': longContext,
   'auto-compaction': autoCompaction,
   'asks-a-question': asksAQuestion,
+  'parallel-subagents': parallelSubagents,
   'usage-limit': usageLimit,
   'usage-limit-hour': usageLimitHour,
   offline,

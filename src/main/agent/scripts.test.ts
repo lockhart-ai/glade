@@ -171,6 +171,48 @@ describe('AGENT_SCRIPTS', () => {
     expect(getTask(database.db, task.id)?.status).toBe('The report header uses the UTC date too.')
   })
 
+  it('parallel-subagents: runs three subagents side by side, one finishing, until stopped', async () => {
+    const agent = start('parallel-subagents')
+    await send(agent, 'Draft the 2.4 release notes.')
+
+    const agents = calls().filter((call) => call.name === 'Agent')
+    expect(agents.map((call) => [call.input.description, call.state])).toEqual([
+      ['API changes', ToolCallState.Running],
+      ['Dashboard changes', ToolCallState.Running],
+      ['Check links in the 2.3 notes', ToolCallState.Done],
+    ])
+    const [api, dashboard, links] = agents.map((call) => call.toolUseId)
+    const nested = (parent: string | undefined): ToolEvent[] =>
+      listToolEvents(database.db, task.id).filter(
+        (event) =>
+          (event.kind === ToolEventKind.ToolCall || event.kind === ToolEventKind.Narration) &&
+          event.parentToolUseId === parent,
+      )
+    expect(nested(api).map((event) => event.kind)).toEqual([
+      ToolEventKind.Narration,
+      ToolEventKind.ToolCall,
+      ToolEventKind.ToolCall,
+      ToolEventKind.ToolCall,
+    ])
+    expect(nested(api).at(-1)).toMatchObject({ name: 'Read', state: ToolCallState.Running })
+    expect(nested(dashboard).at(-1)).toMatchObject({
+      kind: ToolEventKind.Narration,
+      text: '#1418 moves the charts onto the new query, so it belongs under features, not fixes.',
+    })
+    expect(nested(links)).toHaveLength(2)
+    expect(agents[2]?.output).toBe('Found 2 broken links and fixed both in the draft.')
+    expect(activity()).toBe(TaskActivity.Working)
+
+    const stopped = agent.stop(task.id)
+    await vi.runAllTimersAsync()
+    await expect(stopped).resolves.toMatchObject({ activity: TaskActivity.Waiting })
+    expect(
+      calls()
+        .filter((call) => call.name === 'Agent')
+        .map((call) => call.state),
+    ).toEqual([ToolCallState.Error, ToolCallState.Error, ToolCallState.Done])
+  })
+
   it('long-running: keeps working, with its command running, until stopped', async () => {
     const agent = start('long-running')
     await send(agent, 'Run the e2e suite.')
@@ -210,7 +252,7 @@ describe('AGENT_SCRIPTS', () => {
       ['mcp__glade__set_title', ToolCallState.Done],
       ['mcp__glade__set_objective', ToolCallState.Done],
       ['mcp__glade__set_status', ToolCallState.Done],
-      ['Bash', ToolCallState.Error],
+      ['Bash', ToolCallState.Interrupted],
       ['Bash', ToolCallState.Done],
       ['mcp__glade__set_status', ToolCallState.Done],
     ])
@@ -238,7 +280,7 @@ describe('AGENT_SCRIPTS', () => {
       calls()
         .filter(({ name }) => name === 'Bash')
         .map(({ state }) => state),
-    ).toEqual([ToolCallState.Error, ToolCallState.Done])
+    ).toEqual([ToolCallState.Interrupted, ToolCallState.Done])
     expect(getTask(database.db, task.id)).toMatchObject({
       activity: TaskActivity.Waiting,
       title: 'Build the release',
@@ -273,7 +315,7 @@ describe('AGENT_SCRIPTS', () => {
       ['mcp__glade__set_title', ToolCallState.Done],
       ['mcp__glade__set_objective', ToolCallState.Done],
       ['mcp__glade__set_status', ToolCallState.Done],
-      ['Bash', ToolCallState.Error],
+      ['Bash', ToolCallState.Interrupted],
       ['Bash', ToolCallState.Done],
       ['Bash', ToolCallState.Done],
       ['mcp__glade__set_status', ToolCallState.Done],
@@ -411,13 +453,13 @@ describe('AGENT_SCRIPTS', () => {
     expect(open?.questions).toEqual(RELEASE_NOTES_QUESTIONS)
     expect(getTask(database.db, task.id)).toMatchObject({
       title: 'Draft release notes for 2.4',
-      status: 'Waiting on three layout and credit questions.',
+      status: 'Waiting on layout, credit and upgrade guide questions.',
       activity: TaskActivity.Waiting,
       asking: true,
     })
     expect(reply()).toBeUndefined()
 
-    agent.answer(open?.id ?? '', { 0: 'by-type', 1: 'Internal changes', 2: 'GitHub handles' })
+    agent.answer(open?.id ?? '', { 0: 'by-type', 1: 'Internal changes', 2: 'GitHub handles', 3: ' Mention the 429s. ' })
     await vi.waitFor(() => {
       expect(activity()).toBe(TaskActivity.Waiting)
     })
@@ -425,7 +467,7 @@ describe('AGENT_SCRIPTS', () => {
     expect(reply()).toMatch(/^Thanks\. The release notes for 2\.4 are drafted/)
     expect(calls().find((call) => call.name === 'mcp__glade__ask')).toMatchObject({
       state: ToolCallState.Done,
-      output: '{"0":"by-type","1":"Internal changes","2":"GitHub handles"}',
+      output: '{"0":"by-type","1":"Internal changes","2":"GitHub handles","3":"Mention the 429s."}',
     })
     expect(getTask(database.db, task.id)?.status).toBe('Release notes drafted in docs/releases/2.4.md.')
   })

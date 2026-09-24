@@ -243,6 +243,14 @@ export enum ToolCallState {
   Running = 'running',
   Done = 'done',
   Error = 'error',
+  /**
+   * Cut off by a pause (a usage limit, or offline) while the task is still paused: its turn picks up again when the
+   * task resumes (`docs/design/html/17-usage-limit.html`). It becomes `Interrupted` once the task works again or is
+   * marked done.
+   */
+  Paused = 'paused',
+  /** Cut off by Glade quitting, or by a pause the task has since resumed from: not a failure (`18-relaunch.html`). */
+  Interrupted = 'interrupted',
 }
 
 /** What a divider in the tool log marks. */
@@ -269,6 +277,8 @@ export type ToolInput = Readonly<Record<string, unknown>>
 export interface NarrationEvent extends ToolEventBase {
   readonly kind: ToolEventKind.Narration
   readonly text: string
+  /** The `Agent` tool call's `tool_use` id when a subagent wrote it; null for the agent's own notes. */
+  readonly parentToolUseId: string | null
 }
 
 export interface ToolCallEvent extends ToolEventBase {
@@ -279,6 +289,8 @@ export interface ToolCallEvent extends ToolEventBase {
   /** The result's text; null until the result arrives. */
   readonly output: string | null
   readonly state: ToolCallState
+  /** When its result arrived; null while it runs, and for calls logged before Glade recorded it. */
+  readonly finishedAt: EpochMs | null
   /** The SDK's `tool_use` id, which pairs the call with its result. */
   readonly toolUseId: string
   /** The `Agent` tool call's `tool_use` id when the call was made inside a subagent; null at the top level. */
@@ -406,7 +418,10 @@ export interface ChoiceOption {
   readonly label: string
   /** A line under the label. */
   readonly detail?: string
-  /** A small sketch of what the option would look like. */
+  /**
+   * A small sketch of what the option would look like: a few short lines of plain text, shown as is in a small
+   * monospace frame, with lines starting with `#` as headings (`docs/model-surface.md`).
+   */
   readonly sketch?: string
 }
 
