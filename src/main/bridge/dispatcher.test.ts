@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import {
   FileContentKind,
+  FileInfoKind,
   UiStateKey,
   type Message,
   type OpenFiles,
@@ -40,6 +41,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
       questionSets: [],
       openFiles: { taskId: 't', paths: [], activePath: null },
       todos: null,
+      artifacts: [],
     }),
     [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
     [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
@@ -49,6 +51,9 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.FilesOpen]: () => ({ openFiles: {} as OpenFiles }),
     [CommandName.FilesClose]: () => ({ openFiles: {} as OpenFiles }),
     [CommandName.FilesOpenInEditor]: () => null,
+    [CommandName.FilesInfo]: () => ({ info: { kind: FileInfoKind.Missing } }),
+    [CommandName.FilesCopy]: () => null,
+    [CommandName.FilesReveal]: () => null,
     [CommandName.UiStateGet]: () => Promise.resolve({ value: 'async' }),
     [CommandName.UiStateGetAll]: () => ({ entries: [] }),
     [CommandName.UiStateSet]: () => null,

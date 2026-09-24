@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -16,6 +16,7 @@ import {
   UiStateKey,
 } from '../shared/domain'
 import { applySeed, readSeed, type CaptureSeed } from './capture-seed'
+import { listArtifacts } from './db/repositories/artifacts'
 import { listMessages } from './db/repositories/messages'
 import { getOpenFiles } from './db/repositories/open-files'
 import { listQueuedMessages } from './db/repositories/queued-messages'
@@ -127,6 +128,15 @@ describe('readSeed', () => {
     expect(states('usage-limit.json')).toContain(ToolCallState.Paused)
   })
 
+  it('reads the artifacts fixture, its workspace holding the files it declares', () => {
+    const seed = readSeed(join(FIXTURES, 'artifacts.json'))
+
+    expect(seed.workspace.rootPath).toBe(join(FIXTURES, 'artifacts-workspace'))
+    const artifacts = seed.tasks.find((task) => task.selected)?.artifacts ?? []
+    expect(artifacts.map(({ title }) => title)).toEqual(['Release notes 2.4', 'Upgrade guide', 'Announcement email'])
+    for (const { path } of artifacts) expect(existsSync(join(seed.workspace.rootPath, path))).toBe(true)
+  })
+
   it('reads the open file fixture, its workspace a folder beside it', () => {
     const seed = readSeed(join(FIXTURES, 'open-file.json'))
 
@@ -210,6 +220,44 @@ describe('applySeed', () => {
     ])
     expect(getUiState(db, UiStateKey.ActiveWorkspaceId)).toBe(workspace?.id)
     expect(getUiState(db, UiStateKey.SelectedTaskId)).toBe(tasks[0]?.id)
+  })
+
+  it('declares a task’s artifacts, in order, marking each file that’s there as changed when it was declared', () => {
+    const { db } = database
+    const root = mkdtempSync(join(tmpdir(), 'glade-seed-artifacts-'))
+    try {
+      mkdirSync(join(root, 'docs'))
+      writeFileSync(join(root, 'docs', 'notes.md'), '# Notes\n')
+      const now = 100 * 60_000
+
+      applySeed(
+        db,
+        {
+          ...SEED,
+          workspace: { name: 'Acme API', rootPath: root },
+          tasks: [
+            {
+              title: 'Draft release notes',
+              minutesAgo: 0,
+              artifacts: [
+                { path: 'docs/notes.md', title: 'Notes', minutesAgo: 12 },
+                { path: 'out/gone.txt', title: 'Gone', minutesAgo: 6 },
+              ],
+            },
+          ],
+        },
+        now,
+      )
+
+      const taskId = listTasks(db, listWorkspaces(db)[0]?.id ?? '')[0]?.id ?? ''
+      expect(listArtifacts(db, taskId).map(({ path, title, addedAt }) => [path, title, addedAt])).toEqual([
+        ['docs/notes.md', 'Notes', now - 12 * 60_000],
+        ['out/gone.txt', 'Gone', now - 6 * 60_000],
+      ])
+      expect(statSync(join(root, 'docs', 'notes.md')).mtimeMs).toBe(now - 12 * 60_000)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('opens a task’s files, showing the first unless told which, and sets the panel’s width', () => {

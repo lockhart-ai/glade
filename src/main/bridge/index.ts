@@ -3,7 +3,7 @@ import { COMMAND_CHANNEL, EVENT_CHANNEL } from '../../shared/bridge'
 import type { AgentBackend } from '../agent/backend'
 import { createGladeMcpServer, GLADE_SERVER } from '../agent/glade-tools'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
-import type { OpenPath } from '../files/files'
+import type { OpenPath, RevealPath, WriteClipboard } from '../files/files'
 import type { NotifyReply } from '../notifications/notifications'
 import { createQuestionBroker } from '../questions/questions'
 import { createBroadcast, createDispatcher, type EventTarget } from './dispatcher'
@@ -25,6 +25,10 @@ export interface BridgeOptions {
   readonly chooseFolder: () => Promise<string | null>
   /** Opens a file in the app macOS opens its kind of file with (Electron's `shell.openPath`): Open in editor. */
   readonly openPath: OpenPath
+  /** Shows a file in Finder, selected (Electron's `shell.showItemInFolder`): an artifact's Reveal in folder. */
+  readonly revealPath: RevealPath
+  /** Puts text on the clipboard (Electron's `clipboard.writeText`): an artifact's Copy. */
+  readonly writeClipboard: WriteClipboard
   /** What runs the tasks' agents: the Claude Agent SDK in the app, a scripted stand-in in tests. */
   readonly agentBackend: AgentBackend
   /** Notifies an agent reply in a task you aren't viewing (`../notifications`). Nothing by default. */
@@ -50,6 +54,8 @@ export function registerBridge({
   targets,
   chooseFolder,
   openPath,
+  revealPath,
+  writeClipboard,
   agentBackend,
   notifyReply,
   isOnline,
@@ -67,7 +73,10 @@ export function registerBridge({
     // Each session gets its own Glade tools, built for its task.
     mcpServers: (task) => ({ [GLADE_SERVER]: createGladeMcpServer({ db, emit, questions }, task.id) }),
   })
-  const dispatch = createDispatcher(createHandlers({ db, emit, chooseFolder, openPath, runner }), REQUEST_SCHEMAS)
+  const dispatch = createDispatcher(
+    createHandlers({ db, emit, chooseFolder, openPath, revealPath, writeClipboard, runner }),
+    REQUEST_SCHEMAS,
+  )
   ipc.handle(COMMAND_CHANNEL, (_event, command, request) => dispatch(command, request))
   return { runner, emit }
 }

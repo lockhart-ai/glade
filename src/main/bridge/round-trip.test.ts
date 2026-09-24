@@ -32,6 +32,8 @@ beforeEach(() => {
     targets: () => [ipc.window],
     chooseFolder,
     openPath: () => Promise.resolve(''),
+    revealPath: () => undefined,
+    writeClipboard: () => Promise.resolve(),
     agentBackend: new FakeAgentBackend(),
   })
   glade = createBridge(ipc.renderer)

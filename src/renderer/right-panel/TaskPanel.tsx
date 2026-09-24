@@ -2,6 +2,7 @@ import { faTableColumns } from '@fortawesome/free-solid-svg-icons'
 import { useCallback, useState, type KeyboardEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { UiStateKey, type ToolEvent } from '../../shared/domain'
+import { ArtifactsTab } from '../artifacts'
 import { Button, ButtonVariant, TabPanel, Tabs, type TabItem } from '../components'
 import { FilesTab, isCloseFileKey, type FileLineFocus } from '../files'
 import { RightPanel } from '../layout'
@@ -17,20 +18,12 @@ import styles from './TaskPanel.module.css'
 
 const TABS_ID = 'task-panel'
 
-/** What each tab not built yet shows. */
-const EMPTY_STATES: Readonly<
-  Record<Exclude<PanelTab, PanelTab.ToolCalls | PanelTab.Files | PanelTab.Todos | PanelTab.Subagents>, string>
-> = {
-  [PanelTab.Artifacts]: 'No artifacts yet.',
-}
-
 const NO_TOOL_EVENTS: readonly ToolEvent[] = []
 
 /**
  * The right panel of the task card: the tab bar (Tool calls, Files, Todos, Artifacts, Subagents, each with its count)
- * and the selected tab. Tool calls, Files, Todos and Subagents are built so far; Artifacts shows an empty state. The
- * selected tab, the width and whether the panel is collapsed are kept in UI state, for the whole window; collapsed,
- * the panel shows nothing.
+ * and the selected tab. The selected tab, the width and whether the panel is collapsed are kept in UI state, for the
+ * whole window; collapsed, the panel shows nothing.
  * When the chat asks to show a turn of the selected task (its tool-call chip), the store opens Tool calls and the log
  * scrolls to that turn; when the agent shows a file (`show_file`), the store opens Files and the viewer marks its line.
  */
@@ -46,8 +39,8 @@ export function TaskPanel(): React.JSX.Element | null {
     ),
   )
   const tab = useGladeStore((state) => parsePanelTab(state.uiState[UiStateKey.RightPanelTab]))
-  // Only the Todos tab shows a relative time ("updated 4m ago").
-  const now = useNow(tab === PanelTab.Todos ? NOW_REFRESH_MS : null)
+  // Only the Todos and Artifacts tabs show relative times ("updated 4m ago", "12m ago").
+  const now = useNow(tab === PanelTab.Todos || tab === PanelTab.Artifacts ? NOW_REFRESH_MS : null)
   const width = useGladeStore((state) => parsePanelWidth(state.uiState[UiStateKey.RightPanelWidth]))
   const collapsed = useGladeStore((state) => isPanelCollapsed(state.uiState[UiStateKey.RightPanelCollapsed]))
   const setUiState = useGladeStore((state) => state.setUiState)
@@ -135,7 +128,7 @@ export function TaskPanel(): React.JSX.Element | null {
           )
         )
       case PanelTab.Artifacts:
-        return <p className={styles.empty}>{EMPTY_STATES[tab]}</p>
+        return task !== undefined && <ArtifactsTab key={task.id} taskId={task.id} now={now} />
     }
   }
 

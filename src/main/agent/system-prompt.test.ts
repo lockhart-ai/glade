@@ -28,6 +28,9 @@ describe('systemPromptAppend', () => {
         'When you need the user to decide something before you can go on, call ask instead of asking in your reply: ' +
           'it shows your questions on a card and waits for the answers. Ask everything you need at once, with ' +
           'choices or pills when the likely answers are known.',
+        '',
+        'When you make a deliverable the user asked for (a report, a document, a draft), call add_artifact with its ' +
+          'path and a short title, so it shows in the Artifacts tab and stays with the task after it is done.',
       ].join('\n'),
     )
   })

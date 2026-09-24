@@ -9,6 +9,7 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  type Artifact,
   type DividerEvent,
   type NarrationEvent,
   type OpenFiles,
@@ -67,6 +68,7 @@ interface Setup {
   readonly uiState?: UiStateEntry[]
   readonly openFiles?: OpenFiles[]
   readonly todos?: Readonly<Record<string, TodoList>>
+  readonly artifacts?: readonly Artifact[]
 }
 
 async function renderPanel({
@@ -75,6 +77,7 @@ async function renderPanel({
   uiState = [],
   openFiles = [],
   todos,
+  artifacts = [],
 }: Setup = {}): Promise<FakeBridge & { store: GladeStore }> {
   const fake = fakeBridge({
     workspaces: [sampleWorkspace('w1')],
@@ -86,6 +89,7 @@ async function renderPanel({
     ],
     toolEvents,
     openFiles,
+    artifacts,
     ...(todos === undefined ? {} : { todos }),
   })
   const store = createGladeStore(fake.bridge)
@@ -187,7 +191,7 @@ describe('TaskPanel', () => {
     expect(invoke).not.toHaveBeenCalled()
   })
 
-  it('shows an empty state on the tabs not built yet', async () => {
+  it('shows an empty state on Todos and Artifacts while they have nothing', async () => {
     await renderPanel()
 
     for (const [name, empty] of [
@@ -565,6 +569,38 @@ describe('TaskPanel', () => {
       await act(() => store.getState().selectTask('t2'))
       await act(() => store.getState().selectTask('t1'))
       expect(tab('Files')).toHaveAttribute('aria-selected', 'true')
+    })
+  })
+
+  describe('Artifacts', () => {
+    const artifact = (path: string, title: string): Artifact => ({
+      taskId: 't1',
+      path,
+      title,
+      addedAt: AT,
+      updatedAt: AT,
+    })
+
+    it('counts the task’s artifacts in the tab, keeps up with the agent, and shows their cards', async () => {
+      const { emit } = await renderPanel({
+        artifacts: [artifact('docs/releases/2.4.md', 'Release notes 2.4')],
+        uiState: [{ key: UiStateKey.RightPanelTab, value: 'artifacts' }],
+      })
+
+      expect(tab(/^Artifacts/)).toHaveTextContent('Artifacts 1')
+      expect(screen.getByRole('listitem', { name: 'Release notes 2.4' })).toBeInTheDocument()
+
+      act(() => {
+        emit({
+          type: EventType.ArtifactsChanged,
+          taskId: 't1',
+          artifacts: [artifact('docs/releases/2.4.md', 'Release notes 2.4'), artifact('out/email.txt', 'Email')],
+        })
+      })
+      expect(tab(/^Artifacts/)).toHaveTextContent('Artifacts 2')
+      await waitFor(() => {
+        expect(screen.getByRole('listitem', { name: 'Email' })).toHaveTextContent('Text · missing')
+      })
     })
   })
 

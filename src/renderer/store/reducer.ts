@@ -2,6 +2,8 @@ import { EventType, type GladeEvent } from '../../shared/bridge'
 import type { TasksHistoryResponse } from '../../shared/bridge'
 import {
   UiStateKey,
+  type Artifact,
+  type EpochMs,
   type Message,
   type QuestionSet,
   type TodoList,
@@ -83,6 +85,8 @@ export function withHistory(state: GladeData, taskId: string, history: TasksHist
     },
     // Like the queue, open files change in place: the loaded ones are as new as any event before them.
     openFiles: { ...state.openFiles, [taskId]: history.openFiles },
+    // Each change carries the whole list; the one declared in last is the newer.
+    artifacts: { ...state.artifacts, [taskId]: newerArtifacts(history.artifacts, state.artifacts[taskId]) },
     todos: { ...state.todos, [taskId]: newerTodos(history.todos, state.todos[taskId]) },
   }
 }
@@ -91,6 +95,16 @@ export function withHistory(state: GladeData, taskId: string, history: TasksHist
 function newerTodos(loaded: TodoList | null, current: TodoList | null | undefined): TodoList | null {
   if (current === undefined || current === null) return loaded
   return loaded === null || current.updatedAt > loaded.updatedAt ? current : loaded
+}
+
+/** When a task's artifacts last changed: the latest time one was declared. */
+function lastDeclared(artifacts: readonly Artifact[]): EpochMs {
+  return artifacts.reduce((latest, artifact) => Math.max(latest, artifact.updatedAt), 0)
+}
+
+/** The loaded artifacts, unless an event already brought newer ones. */
+function newerArtifacts(loaded: readonly Artifact[], current: readonly Artifact[] | undefined): readonly Artifact[] {
+  return current !== undefined && lastDeclared(current) > lastDeclared(loaded) ? current : loaded
 }
 
 /**
@@ -141,5 +155,7 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
     }
     case EventType.TodosChanged:
       return { ...state, todos: { ...state.todos, [event.taskId]: event.todos } }
+    case EventType.ArtifactsChanged:
+      return { ...state, artifacts: { ...state.artifacts, [event.taskId]: event.artifacts } }
   }
 }

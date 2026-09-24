@@ -15,13 +15,16 @@ import {
 import {
   Effort,
   FileContentKind,
+  FileInfoKind,
   MessageRole,
   QuestionKind,
   QuestionReplyKind,
   QuestionSetState,
   TaskActivity,
   TaskState,
+  type Artifact,
   type FileContent,
+  type FileInfo,
   type Message,
   type OpenFiles,
   type QuestionSet,
@@ -58,6 +61,14 @@ export interface FakeMain {
   readonly openedInEditor?: string[]
   /** Each task's todo list, by task id; none when left out. */
   readonly todos?: Readonly<Record<string, TodoList>>
+  /** Every task's artifacts; none when left out. */
+  readonly artifacts?: readonly Artifact[]
+  /** What `files.info` answers with, by path, for any task; missing when left out. */
+  readonly fileInfo?: Readonly<Record<string, FileInfo>>
+  /** The paths `files.copy` copied, oldest first. */
+  readonly copied?: string[]
+  /** The paths `files.reveal` revealed, oldest first. */
+  readonly revealed?: string[]
 }
 
 export interface FakeBridge {
@@ -153,6 +164,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       questionSets: (main.questionSets ?? []).filter((set) => set.taskId === id),
       openFiles: openFilesOf(id),
       todos: main.todos?.[id] ?? null,
+      artifacts: (main.artifacts ?? []).filter((artifact) => artifact.taskId === id),
     }),
     [CommandName.QueueAdd]: ({ taskId, text }) => {
       queued += 1
@@ -197,6 +209,15 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     [CommandName.FilesClose]: ({ taskId, path }) => changeOpenFiles(taskId, (open) => withClosedFile(open, path)),
     [CommandName.FilesOpenInEditor]: ({ path }) => {
       main.openedInEditor?.push(path)
+      return null
+    },
+    [CommandName.FilesInfo]: ({ path }) => ({ info: main.fileInfo?.[path] ?? { kind: FileInfoKind.Missing } }),
+    [CommandName.FilesCopy]: ({ path }) => {
+      main.copied?.push(path)
+      return null
+    },
+    [CommandName.FilesReveal]: ({ path }) => {
+      main.revealed?.push(path)
       return null
     },
     [CommandName.UiStateGet]: ({ key }) => ({ value: main.uiState.find((entry) => entry.key === key)?.value ?? null }),
