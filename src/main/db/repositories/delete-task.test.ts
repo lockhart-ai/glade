@@ -2,6 +2,7 @@ import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DividerKind, MessageRole, QuestionKind, type Task, type Workspace } from '../../../shared/domain'
 import { appendMessage } from './messages'
+import { setOpenFiles } from './open-files'
 import { appendQuestionSet } from './question-sets'
 import { appendQueuedMessage } from './queued-messages'
 import { deleteTask, getTask, listTasks } from './tasks'
@@ -53,6 +54,7 @@ function fillTask(db: Database, task: Task): void {
   })
   appendDivider(db, { taskId, turn: 1, dividerKind: DividerKind.Turn })
   appendQueuedMessage(db, { taskId, body: 'Also cover /search' })
+  setOpenFiles(db, { taskId, paths: ['api/views.py'], activePath: 'api/views.py' })
   appendQuestionSet(db, {
     taskId,
     turn: 1,
@@ -61,7 +63,7 @@ function fillTask(db: Database, task: Task): void {
 }
 
 /** The tables `fillTask` writes to. A new table that belongs to a task fails the test below until it's added here. */
-const FILLED_TABLES = ['messages', 'question_sets', 'queued_messages', 'tool_events']
+const FILLED_TABLES = ['messages', 'open_files', 'question_sets', 'queued_messages', 'tool_events']
 
 describe('deleteTask', () => {
   it('knows every table that belongs to a task', () => {

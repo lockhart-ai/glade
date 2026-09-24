@@ -20,7 +20,7 @@ test('right panel: ⌘⌥2 picks a tab; dragging the handle resizes it, kept on 
   // ⌘⌥2 picks Files, wherever the focus is.
   await window.keyboard.press('Meta+Alt+Digit2')
   await expect(panel.tab('Files')).toHaveAttribute('aria-selected', 'true')
-  await expect(panel.tabPanel).toHaveText('No files yet.')
+  await expect(panel.tabPanel).toContainText('No file open.')
 
   // Dragging the handle left widens the panel by as much, and the chat gives up the room.
   await expect.poll(() => widthOf(panel.panel)).toBe(440)

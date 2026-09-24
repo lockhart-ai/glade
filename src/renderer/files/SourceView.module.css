@@ -1,0 +1,42 @@
+/* A file's source, from docs/design/html/08-open-file.html: numbered lines in Geist Mono, a marked line in blue. */
+.source {
+  box-sizing: border-box;
+  min-width: 100%;
+  width: max-content;
+  padding: 12px 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-secondary);
+  line-height: 1.7;
+  color: var(--color-text);
+}
+
+/* Blocks off screen skip layout and paint; their size is kept once known, and guessed from their line count before. */
+.block {
+  content-visibility: auto;
+}
+
+.line {
+  display: flex;
+  border-left: 2px solid transparent;
+}
+
+.line[data-focused] {
+  background: rgba(91, 141, 239, 0.1);
+  border-left-color: var(--color-blue);
+}
+
+.number {
+  flex-shrink: 0;
+  width: 44px;
+  box-sizing: border-box;
+  padding-right: 14px;
+  text-align: right;
+  color: #4e5468;
+  user-select: none;
+}
+
+/* Long lines scroll sideways with the view rather than wrap, as in an editor. */
+.code {
+  padding-right: 16px;
+  white-space: pre;
+}

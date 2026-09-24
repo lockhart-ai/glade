@@ -32,6 +32,30 @@ export const E2E_NOTIFIER_GLOBAL = '__gladeE2eNotifier'
  */
 export const E2E_NETWORK_GLOBAL = '__gladeE2eNetwork'
 
+/**
+ * Where e2e mode puts the files Open in editor opened on the main process's global object: an `E2eEditor`, since an e2e
+ * run never opens a real editor. A spec reads it through Playwright's `app.evaluate`.
+ */
+export const E2E_EDITOR_GLOBAL = '__gladeE2eEditor'
+
+/** The files Open in editor opened in e2e mode (`E2E_EDITOR_GLOBAL`), oldest first, by their real paths. */
+export interface E2eEditor {
+  readonly opened: string[]
+}
+
+/**
+ * Puts an empty `E2eEditor` on the global object for a spec to read (`E2E_EDITOR_GLOBAL`), and answers with what opens
+ * a file in e2e mode in place of Electron's `shell.openPath`: it records the path, and succeeds.
+ */
+export function createE2eEditor(): (path: string) => Promise<string> {
+  const editor: E2eEditor = { opened: [] }
+  Reflect.set(globalThis, E2E_EDITOR_GLOBAL, editor)
+  return (path) => {
+    editor.opened.push(path)
+    return Promise.resolve('')
+  }
+}
+
 /** The network's state in e2e mode (`E2E_NETWORK_GLOBAL`). */
 export interface E2eNetwork {
   online: boolean

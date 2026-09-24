@@ -1,6 +1,6 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
-import { UiStateKey, type UiStateEntry, type Workspace } from '../../shared/domain'
+import { UiStateKey, type OpenFiles, type UiStateEntry, type Workspace } from '../../shared/domain'
 import { isPanelCollapsed, PanelTab, parsePanelTab } from '../right-panel/panelModel'
 import { listedTaskIds, selectionAfterDeleting } from '../task-list/sections'
 import { describeFailure, loadSnapshot } from './hydrate'
@@ -28,13 +28,34 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         else openWhenLoaded = event.taskId
         return
       }
-      if (pending === null) set((state) => applyEvent(state, event))
-      else pending.push(event)
+      if (pending !== null) {
+        pending.push(event)
+        return
+      }
+      set((state) => applyEvent(state, event))
+      if (event.type === EventType.FileShown) showPanelTab(event.taskId, PanelTab.Files)
     }
 
     const setUiState = async (entry: UiStateEntry): Promise<void> => {
       set((state) => applyEvent(state, { type: EventType.UiStateChanged, entry }))
       await bridge.invoke(CommandName.UiStateSet, entry)
+    }
+
+    // Shows a panel tab of the selected task: the right panel opens at it, even when it was collapsed or on another tab.
+    // For another task, nothing changes: the panel shows the task you're viewing.
+    const showPanelTab = (taskId: string, tab: PanelTab): void => {
+      const { selectedTaskId, uiState } = get()
+      if (taskId !== selectedTaskId) return
+      if (parsePanelTab(uiState[UiStateKey.RightPanelTab]) !== tab) {
+        void setUiState({ key: UiStateKey.RightPanelTab, value: tab })
+      }
+      if (isPanelCollapsed(uiState[UiStateKey.RightPanelCollapsed])) {
+        void setUiState({ key: UiStateKey.RightPanelCollapsed, value: 'false' })
+      }
+    }
+
+    const applyOpenFiles = ({ openFiles }: { openFiles: OpenFiles }): void => {
+      set((state) => applyEvent(state, { type: EventType.OpenFilesChanged, openFiles }))
     }
 
     // Main broadcasts what opening changed as events; applying the answer too keeps the store right whichever arrives
@@ -224,20 +245,30 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       focusTurn(taskId, turn) {
-        const { selectedTaskId, uiState } = get()
-        if (taskId === selectedTaskId) {
-          if (parsePanelTab(uiState[UiStateKey.RightPanelTab]) !== PanelTab.ToolCalls) {
-            void setUiState({ key: UiStateKey.RightPanelTab, value: PanelTab.ToolCalls })
-          }
-          if (isPanelCollapsed(uiState[UiStateKey.RightPanelCollapsed])) {
-            void setUiState({ key: UiStateKey.RightPanelCollapsed, value: 'false' })
-          }
-        }
+        showPanelTab(taskId, PanelTab.ToolCalls)
         set(({ toolLogFocus }) => ({ toolLogFocus: { taskId, turn, request: (toolLogFocus?.request ?? 0) + 1 } }))
       },
 
       focusInput() {
         set(({ inputFocusRequest }) => ({ inputFocusRequest: inputFocusRequest + 1 }))
+      },
+
+      // Main broadcasts the change too; applying the answer as well keeps the tabs right whichever arrives first.
+      async openFile(taskId, path) {
+        applyOpenFiles(await bridge.invoke(CommandName.FilesOpen, { taskId, path }))
+      },
+
+      async closeFile(taskId, path) {
+        applyOpenFiles(await bridge.invoke(CommandName.FilesClose, { taskId, path }))
+      },
+
+      async readFile(taskId, path) {
+        const { content } = await bridge.invoke(CommandName.FilesRead, { taskId, path })
+        return content
+      },
+
+      async openInEditor(taskId, path) {
+        await bridge.invoke(CommandName.FilesOpenInEditor, { taskId, path })
       },
     }
   })

@@ -17,6 +17,7 @@ import {
 } from '../shared/domain'
 import { applySeed, readSeed, type CaptureSeed } from './capture-seed'
 import { listMessages } from './db/repositories/messages'
+import { getOpenFiles } from './db/repositories/open-files'
 import { listQueuedMessages } from './db/repositories/queued-messages'
 import { listToolEvents } from './db/repositories/tool-events'
 import { listTasks } from './db/repositories/tasks'
@@ -126,6 +127,14 @@ describe('readSeed', () => {
     expect(states('usage-limit.json')).toContain(ToolCallState.Paused)
   })
 
+  it('reads the open file fixture, its workspace a folder beside it', () => {
+    const seed = readSeed(join(FIXTURES, 'open-file.json'))
+
+    expect(seed.workspace.rootPath).toBe(join(FIXTURES, 'open-file-workspace'))
+    expect(seed).toMatchObject({ panelTab: 'files', panelWidth: 780 })
+    expect(seed.tasks.find((task) => task.selected)?.openFiles?.activePath).toBe('docs/rate-limits.md')
+  })
+
   it('reads the e2e tool log fixture', () => {
     const seed = readSeed(join(import.meta.dirname, '..', '..', 'e2e', 'seeds', 'tool-log.json'))
     expect(seed.tasks[0]?.toolEvents).toHaveLength(11)
@@ -201,6 +210,27 @@ describe('applySeed', () => {
     ])
     expect(getUiState(db, UiStateKey.ActiveWorkspaceId)).toBe(workspace?.id)
     expect(getUiState(db, UiStateKey.SelectedTaskId)).toBe(tasks[0]?.id)
+  })
+
+  it('opens a task’s files, showing the first unless told which, and sets the panel’s width', () => {
+    const { db } = database
+
+    applySeed(db, {
+      ...SEED,
+      tasks: [
+        { title: 'Shows one', minutesAgo: 0, openFiles: { paths: ['a.md', 'b.md'], activePath: 'b.md' } },
+        { title: 'Shows the first', minutesAgo: 0, openFiles: { paths: ['a.md'] } },
+        { title: 'Opens none', minutesAgo: 0, openFiles: { paths: [] } },
+      ],
+      panelWidth: 780,
+    })
+
+    const workspaceId = listWorkspaces(db)[0]?.id ?? ''
+    const byTitle = Object.fromEntries(listTasks(db, workspaceId).map((task) => [task.title, task.id]))
+    expect(getOpenFiles(db, byTitle['Shows one'] ?? '')).toMatchObject({ paths: ['a.md', 'b.md'], activePath: 'b.md' })
+    expect(getOpenFiles(db, byTitle['Shows the first'] ?? '').activePath).toBe('a.md')
+    expect(getOpenFiles(db, byTitle['Opens none'] ?? '').activePath).toBeNull()
+    expect(getUiState(db, UiStateKey.RightPanelWidth)).toBe('780')
   })
 
   it('selects nothing unless a task asks to be', () => {

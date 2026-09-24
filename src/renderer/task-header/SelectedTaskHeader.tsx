@@ -28,17 +28,21 @@ const NO_TOOL_EVENTS: readonly ToolEvent[] = []
 interface FieldRowProps {
   readonly label: string
   readonly className: string | undefined
+  /** The row's full text, shown as its tooltip since the row clamps to a line or two. */
+  readonly text: string
   readonly children: ReactNode
 }
 
 /** One labelled row under the divider: Objective, then Status (Outcome once the task is done). */
-function FieldRow({ label, className, children }: FieldRowProps): React.JSX.Element {
+function FieldRow({ label, className, text, children }: FieldRowProps): React.JSX.Element {
   return (
     <div role="group" aria-label={label} className={styles.row}>
       <div className={styles.label} aria-hidden>
         {label}
       </div>
-      <p className={className}>{children}</p>
+      <p className={className} title={text === '' ? undefined : text}>
+        {children}
+      </p>
     </div>
   )
 }
@@ -70,6 +74,7 @@ function Header({ task }: HeaderProps): React.JSX.Element {
       toast.show({ message: describeFailure(error) })
     }
   }
+  const timingText = timing(task, now, reopened)
   const pinLabel = task.pinned ? 'Unpin task' : 'Pin task'
 
   return (
@@ -77,7 +82,9 @@ function Header({ task }: HeaderProps): React.JSX.Element {
       <div className={styles.top}>
         <div className={styles.heading}>
           <div className={styles.titleRow}>
-            <h1 className={styles.title}>{task.title === '' ? <Empty>{EMPTY_TITLE}</Empty> : task.title}</h1>
+            <h1 className={styles.title} title={task.title === '' ? undefined : task.title}>
+              {task.title === '' ? <Empty>{EMPTY_TITLE}</Empty> : task.title}
+            </h1>
             <Button
               variant={ButtonVariant.Icon}
               icon={faThumbtack}
@@ -91,7 +98,9 @@ function Header({ task }: HeaderProps): React.JSX.Element {
             <Pill indicator={taskIndicator(task)} role="status">
               {pillLabel(task, reopened)}
             </Pill>
-            <span className={styles.timing}>{timing(task, now, reopened)}</span>
+            <span className={styles.timing} title={timingText}>
+              {timingText}
+            </span>
           </div>
         </div>
         {offersMarkDone(task) && (
@@ -115,10 +124,10 @@ function Header({ task }: HeaderProps): React.JSX.Element {
         )}
       </div>
       <div className={styles.fields}>
-        <FieldRow label="Objective" className={styles.objective}>
+        <FieldRow label="Objective" className={styles.objective} text={task.objective}>
           {task.objective === '' ? <Empty>{EMPTY_OBJECTIVE}</Empty> : task.objective}
         </FieldRow>
-        <FieldRow label={done ? 'Outcome' : 'Status'} className={styles.status}>
+        <FieldRow label={done ? 'Outcome' : 'Status'} className={styles.status} text={task.status}>
           {task.status === '' ? (
             <Empty>{EMPTY_STATUS}</Empty>
           ) : (

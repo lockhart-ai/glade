@@ -133,6 +133,40 @@ export function subagentsTab(page: Page) {
   }
 }
 
+/** The right panel's Files tab: the list of the task's files, the open files' tabs, and the file showing. */
+export function filesTab(page: Page) {
+  const panel = regions(page).taskPanel
+  const menu = page.getByRole('menu', { name: 'Files in this task' })
+  const openFiles = panel.getByRole('group', { name: 'Open files' })
+  const source = panel.getByTestId('source')
+  // A tab's name is the file's, after its blue dot's ("Changed by the agent") when it has one.
+  const tab = (name: string) =>
+    openFiles.getByRole('button', {
+      name: new RegExp(`^(Changed by the agent )?${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`),
+    })
+  return {
+    /** The "☰ 6 ⌄" button, whose menu lists the files the agent changed and read. */
+    list: panel.getByRole('button', { name: 'All files in this task' }),
+    menu,
+    /** A file in the list's menu, by its path. */
+    listed: (path: string) => menu.getByRole('menuitem', { name: path, exact: true }),
+    openFiles,
+    /** An open file's tab, by its name; `pressed` while it shows. */
+    tab,
+    /** The blue dot on the tab of a file the agent changed. */
+    changedDot: (name: string) => tab(name).getByRole('img', { name: 'Changed by the agent' }),
+    close: (name: string) => openFiles.getByRole('button', { name: `Close ${name}`, exact: true }),
+    /** The scrolling area the file shows in. */
+    contents: panel.getByRole('region', { name: / contents$/ }),
+    source,
+    /** A line of the source, by its number from 1: its number, then its text. */
+    line: (number: number) => source.locator(`[data-line="${String(number)}"]`),
+    openInEditor: panel.getByRole('button', { name: 'Open in editor' }),
+    /** Source or Preview, for a Markdown file. */
+    mode: (name: 'Source' | 'Preview') => panel.getByRole('radio', { name }),
+  }
+}
+
 /** The chat view: the user's messages and the agent's replies, oldest first, or a new task's prompt. */
 export function chat(page: Page) {
   const log = regions(page).chat.getByRole('log', { name: 'Conversation' })

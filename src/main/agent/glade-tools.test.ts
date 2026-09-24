@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -11,6 +14,7 @@ import {
   type QuestionSet,
   type Task,
 } from '../../shared/domain'
+import { getOpenFiles } from '../db/repositories/open-files'
 import { getOpenQuestionSet, listQuestionSets } from '../db/repositories/question-sets'
 import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
@@ -117,6 +121,7 @@ describe('the server', () => {
       GladeTool.SetObjective,
       GladeTool.SetStatus,
       GladeTool.Ask,
+      GladeTool.ShowFile,
     ])
     for (const listed of tools) expect(listed._meta).toEqual({ 'anthropic/alwaysLoad': true })
     expect(tools.map((listed) => listed.inputSchema.required)).toEqual([
@@ -124,6 +129,7 @@ describe('the server', () => {
       ['objective'],
       ['status'],
       ['questions'],
+      ['path'],
     ])
     await client.close()
   })
@@ -312,5 +318,58 @@ describe('ask', () => {
     ])
     context.questions.withdraw(task.id)
     await outcome
+  })
+})
+
+describe('show_file', () => {
+  let root: string
+  let showing: McpToolCaller
+  let taskId: string
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'glade-show-file-'))
+    mkdirSync(join(root, 'docs'))
+    writeFileSync(join(root, 'docs', 'rate-limits.md'), '# Rate limits\n')
+    taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+    showing = createMcpToolCaller({ [GLADE_SERVER]: createGladeMcpServer(context, taskId) })
+  })
+
+  afterEach(async () => {
+    await showing.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('opens the file in the task’s Files tab and asks the window to show it, at the line if given', async () => {
+    await expect(showing.call('mcp__glade__show_file', { path: 'docs/rate-limits.md', line: 8 })).resolves.toEqual({
+      output: 'Showing docs/rate-limits.md at line 8.',
+      isError: false,
+    })
+    await expect(
+      showing.call('mcp__glade__show_file', { path: join(root, 'docs', 'rate-limits.md') }),
+    ).resolves.toEqual({ output: 'Showing docs/rate-limits.md.', isError: false })
+
+    expect(getOpenFiles(database.db, taskId)).toEqual({
+      taskId,
+      paths: ['docs/rate-limits.md'],
+      activePath: 'docs/rate-limits.md',
+    })
+    expect(events.filter((event) => event.type === EventType.FileShown)).toEqual([
+      { type: EventType.FileShown, taskId, path: 'docs/rate-limits.md', line: 8 },
+      { type: EventType.FileShown, taskId, path: 'docs/rate-limits.md', line: null },
+    ])
+  })
+
+  it('answers with a tool error for a file it can’t show, or input that isn’t valid, and opens nothing', async () => {
+    const missing = await showing.call('mcp__glade__show_file', { path: 'docs/gone.md' })
+    expect(missing).toEqual({ output: "There's no file at docs/gone.md.", isError: true })
+    const outside = await showing.call('mcp__glade__show_file', { path: '/etc/hosts' })
+    expect(outside.isError).toBe(true)
+    expect(outside.output).toContain('is outside the workspace')
+    for (const input of [{}, { path: '  ' }, { path: 'docs/rate-limits.md', line: 0 }, { path: 'x', line: 1.5 }]) {
+      expect((await showing.call('mcp__glade__show_file', input)).isError).toBe(true)
+    }
+
+    expect(getOpenFiles(database.db, taskId).paths).toEqual([])
+    expect(events).toEqual([])
   })
 })

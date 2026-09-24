@@ -13,6 +13,7 @@ export {
   type MenuAnchor,
   type MenuElementAnchor,
   type MenuEntry,
+  type MenuHeading,
   type MenuItem,
   type MenuPointAnchor,
   type MenuProps,

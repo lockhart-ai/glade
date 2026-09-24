@@ -1,15 +1,17 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandName, EventType } from '../../shared/bridge'
 import {
   CompactionTrigger,
   DividerKind,
+  FileContentKind,
   TodoState,
   ToolCallState,
   ToolEventKind,
   UiStateKey,
   type DividerEvent,
   type NarrationEvent,
+  type OpenFiles,
   type TodoList,
   type ToolCallEvent,
   type ToolEvent,
@@ -63,12 +65,17 @@ interface Setup {
   readonly selected?: boolean
   /** More stored UI state, e.g. the panel's tab or width. */
   readonly uiState?: UiStateEntry[]
+  readonly openFiles?: OpenFiles[]
   readonly todos?: Readonly<Record<string, TodoList>>
 }
 
-async function renderPanel({ toolEvents = TURN_ONE, selected = true, uiState = [], todos }: Setup = {}): Promise<
-  FakeBridge & { store: GladeStore }
-> {
+async function renderPanel({
+  toolEvents = TURN_ONE,
+  selected = true,
+  uiState = [],
+  openFiles = [],
+  todos,
+}: Setup = {}): Promise<FakeBridge & { store: GladeStore }> {
   const fake = fakeBridge({
     workspaces: [sampleWorkspace('w1')],
     tasks: [sampleTask('t1', 'w1'), sampleTask('t2', 'w1')],
@@ -78,6 +85,7 @@ async function renderPanel({ toolEvents = TURN_ONE, selected = true, uiState = [
       ...uiState,
     ],
     toolEvents,
+    openFiles,
     ...(todos === undefined ? {} : { todos }),
   })
   const store = createGladeStore(fake.bridge)
@@ -183,7 +191,6 @@ describe('TaskPanel', () => {
     await renderPanel()
 
     for (const [name, empty] of [
-      ['Files', 'No files yet.'],
       ['Todos', 'No todos yet.'],
       ['Artifacts', 'No artifacts yet.'],
     ] as const) {
@@ -558,6 +565,109 @@ describe('TaskPanel', () => {
       await act(() => store.getState().selectTask('t2'))
       await act(() => store.getState().selectTask('t1'))
       expect(tab('Files')).toHaveAttribute('aria-selected', 'true')
+    })
+  })
+
+  describe('Files', () => {
+    const OPEN: OpenFiles = { taskId: 't1', paths: ['api/views.py', 'README.md'], activePath: 'api/views.py' }
+    const FILES_TAB = { key: UiStateKey.RightPanelTab, value: 'files' }
+
+    it('counts the files open, and shows the Files tab', async () => {
+      await renderPanel({ openFiles: [OPEN], uiState: [FILES_TAB] })
+
+      expect(tab(/^Files/)).toHaveTextContent('Files 2')
+      expect(screen.getByRole('group', { name: 'Open files' })).toBeInTheDocument()
+    })
+
+    it('closes the file showing on ⌘W while the focus is in the panel, keeping the focus there', async () => {
+      const { invoke } = await renderPanel({ openFiles: [OPEN], uiState: [FILES_TAB] })
+      const close = screen.getByRole('button', { name: 'Close views.py' })
+      close.focus()
+
+      const event = createEvent.keyDown(close, { key: 'w', code: 'KeyW', metaKey: true })
+      fireEvent(close, event)
+
+      expect(event.defaultPrevented).toBe(true)
+      expect(invoke).toHaveBeenCalledWith(CommandName.FilesClose, { taskId: 't1', path: 'api/views.py' })
+      await waitFor(() => {
+        expect(screen.getByRole('tabpanel')).toHaveFocus()
+      })
+      expect(tab(/^Files/)).toHaveTextContent('Files 1')
+    })
+
+    it('leaves the focus where it is when it stays in the panel', async () => {
+      await renderPanel({ openFiles: [OPEN], uiState: [FILES_TAB] })
+      const list = screen.getByRole('button', { name: 'All files in this task' })
+      list.focus()
+
+      fireEvent.keyDown(list, { key: 'w', code: 'KeyW', metaKey: true })
+
+      await waitFor(() => {
+        expect(tab(/^Files/)).toHaveTextContent('Files 1')
+      })
+      expect(list).toHaveFocus()
+    })
+
+    it('opens at Files, collapsed or not, when the agent shows a file, and marks its line', async () => {
+      const lines = Array.from({ length: 12 }, (_, index) => `line ${String(index + 1)}`).join('\n')
+      const fake = fakeBridge({
+        workspaces: [sampleWorkspace('w1')],
+        tasks: [sampleTask('t1', 'w1'), sampleTask('t2', 'w1')],
+        uiState: [
+          { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+          { key: UiStateKey.SelectedTaskId, value: 't1' },
+          { key: UiStateKey.RightPanelCollapsed, value: 'true' },
+        ],
+        toolEvents: TURN_ONE,
+        openFiles: [OPEN],
+        files: { 'api/views.py': { kind: FileContentKind.Text, text: lines, truncated: false, size: lines.length } },
+      })
+      const store = createGladeStore(fake.bridge)
+      render(
+        <GladeStoreProvider store={store}>
+          <TaskPanel />
+        </GladeStoreProvider>,
+      )
+      await act(() => store.getState().hydrate())
+
+      // Another task's file changes nothing here.
+      act(() => {
+        fake.emit({ type: EventType.FileShown, taskId: 't2', path: 'api/views.py', line: 3 })
+      })
+      expect(screen.queryByRole('complementary', { name: 'Task panel' })).toBeNull()
+
+      act(() => {
+        fake.emit({ type: EventType.FileShown, taskId: 't1', path: 'api/views.py', line: 9 })
+      })
+      expect(tab(/^Files/)).toHaveAttribute('aria-selected', 'true')
+      await waitFor(() => {
+        expect(screen.getByTestId('source').querySelector('[data-line="9"]')).toHaveAttribute('data-focused', 'true')
+      })
+    })
+
+    it('leaves ⌘W alone on another tab, with no file open, or with other modifiers', async () => {
+      const { invoke } = await renderPanel({ openFiles: [OPEN, { taskId: 't2', paths: [], activePath: null }] })
+      const panel = screen.getByRole('complementary', { name: 'Task panel' })
+      const press = (init: object): boolean => {
+        const event = createEvent.keyDown(panel, { key: 'w', code: 'KeyW', metaKey: true, ...init })
+        fireEvent(panel, event)
+        return event.defaultPrevented
+      }
+
+      expect(press({})).toBe(false)
+      fireEvent.click(tab(/^Files/))
+      expect(press({ shiftKey: true })).toBe(false)
+      expect(press({ code: 'KeyQ' })).toBe(false)
+      fireEvent.click(screen.getByRole('button', { name: 'Close views.py' }))
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Close views.py' })).toBeNull()
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Close README.md' }))
+      await waitFor(() => {
+        expect(screen.getByText('No file open.')).toBeInTheDocument()
+      })
+      expect(press({})).toBe(false)
+      expect(invoke.mock.calls.filter(([command]) => command === CommandName.FilesClose)).toHaveLength(2)
     })
   })
 })

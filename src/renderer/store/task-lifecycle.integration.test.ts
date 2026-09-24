@@ -27,6 +27,7 @@ beforeEach(async () => {
     db: database.db,
     targets: () => [ipc.window],
     chooseFolder: () => Promise.resolve(null),
+    openPath: () => Promise.resolve(''),
     agentBackend: new FakeAgentBackend(),
   })
   const bridge = createBridge(ipc.renderer)

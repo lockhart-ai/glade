@@ -81,6 +81,8 @@ export function withHistory(state: GladeData, taskId: string, history: TasksHist
       ...state.questionSets,
       [taskId]: merged<QuestionSet>(history.questionSets, state.questionSets[taskId]),
     },
+    // Like the queue, open files change in place: the loaded ones are as new as any event before them.
+    openFiles: { ...state.openFiles, [taskId]: history.openFiles },
     todos: { ...state.todos, [taskId]: newerTodos(history.todos, state.todos[taskId]) },
   }
 }
@@ -111,7 +113,7 @@ function without<T>(byTask: Readonly<Record<string, T>>, taskId: string): Readon
   return taskId in byTask ? Object.fromEntries(Object.entries(byTask).filter(([id]) => id !== taskId)) : byTask
 }
 
-/** Forgets a deleted task: the task, its logs, queue, question sets and todos, and any intent that names it. */
+/** Forgets a deleted task: the task, its logs, queue, question sets, todos and open files, and any intent that names it. */
 export function withoutTask(state: GladeData, taskId: string): GladeData {
   return {
     ...state,
@@ -121,6 +123,8 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     queuedMessages: without(state.queuedMessages, taskId),
     questionSets: without(state.questionSets, taskId),
     todos: without(state.todos, taskId),
+    openFiles: without(state.openFiles, taskId),
+    fileFocus: state.fileFocus?.taskId === taskId ? null : state.fileFocus,
     toolLogFocus: state.toolLogFocus?.taskId === taskId ? null : state.toolLogFocus,
     renamingTaskId: state.renamingTaskId === taskId ? null : state.renamingTaskId,
     deletingTaskId: state.deletingTaskId === taskId ? null : state.deletingTaskId,
@@ -154,6 +158,12 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
     case EventType.QuestionAnswered:
     case EventType.QuestionWithdrawn:
       return { ...state, questionSets: withReplaced(state.questionSets, event.questionSet) }
+    case EventType.OpenFilesChanged:
+      return { ...state, openFiles: { ...state.openFiles, [event.openFiles.taskId]: event.openFiles } }
+    case EventType.FileShown: {
+      const { taskId, path, line } = event
+      return { ...state, fileFocus: { taskId, path, line, request: (state.fileFocus?.request ?? 0) + 1 } }
+    }
     case EventType.TodosChanged:
       return { ...state, todos: { ...state.todos, [event.taskId]: event.todos } }
   }
