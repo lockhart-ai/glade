@@ -20,15 +20,18 @@ function electronBinary(): string {
  * better-sqlite3 binary loads under Electron's ABI. Resolves once the writer is mid-transaction.
  */
 function startWriterMidTransaction(file: string): Promise<ReturnType<typeof spawn>> {
-  const child = spawn(electronBinary(), [join(import.meta.dirname, 'test-fixtures', 'crash-writer.mjs'), file], {
+  const writer = join(import.meta.dirname, 'test-fixtures', 'crash-writer.mjs')
+  const child = spawn(electronBinary(), ['--expose-gc', writer, file], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   return new Promise((resolve, reject) => {
     let stderr = ''
+    let stdout = ''
     child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()))
     child.stdout.on('data', (chunk: Buffer) => {
-      if (chunk.toString().includes('mid-transaction')) resolve(child)
+      stdout += chunk.toString()
+      if (stdout.split('\n').includes('mid-transaction')) resolve(child)
     })
     child.on('exit', (code) => {
       reject(new Error(`crash writer exited early (${String(code)}): ${stderr}`))

@@ -31,3 +31,13 @@
   flex-grow: 1;
   height: var(--touch-target-dense);
 }
+
+/* The whole window while the store loads, or when it couldn't. */
+.status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  font-size: var(--font-size-title);
+  font-weight: var(--font-weight-title);
+}

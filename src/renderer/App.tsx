@@ -1,6 +1,8 @@
 import { classNames } from './components/classNames'
 import { AppShell, BottomBar, RightPanel, Sidebar, TaskCard, TaskHeader } from './layout'
 import styles from './App.module.css'
+import { HydrationStatus } from './store/state'
+import { useGladeStore } from './store/react'
 
 interface PlaceholderProps {
   label: string
@@ -12,7 +14,8 @@ function Placeholder({ label, className }: PlaceholderProps): React.JSX.Element 
   return <div className={classNames(styles.placeholder, className)}>{label}</div>
 }
 
-export function App(): React.JSX.Element {
+/** The window layout, with a labelled placeholder in each region until the P1 tickets fill them. */
+function Layout(): React.JSX.Element {
   return (
     <AppShell
       sidebar={
@@ -44,4 +47,20 @@ export function App(): React.JSX.Element {
       }
     />
   )
+}
+
+export function App(): React.JSX.Element {
+  const hydration = useGladeStore((state) => state.hydration)
+  switch (hydration.status) {
+    case HydrationStatus.Loading:
+      return (
+        <main className={styles.status} aria-busy="true">
+          Loading…
+        </main>
+      )
+    case HydrationStatus.Failed:
+      return <main className={styles.status}>Glade couldn’t load: {hydration.message}</main>
+    case HydrationStatus.Ready:
+      return <Layout />
+  }
 }

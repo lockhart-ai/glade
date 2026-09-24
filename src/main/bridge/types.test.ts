@@ -11,7 +11,7 @@ import {
   type GladeBridge,
   type GladeEvent,
 } from '../../shared/bridge'
-import { UiStateKey, type UiStateEntry, type Workspace } from '../../shared/domain'
+import { UiStateKey, type Task, type UiStateEntry, type Workspace } from '../../shared/domain'
 import type { Handlers } from './handlers'
 import { REQUEST_SCHEMAS, type RequestSchemas } from './requests'
 
@@ -27,6 +27,12 @@ describe('the command map', () => {
     expectTypeOf(glade.invoke(CommandName.UiStateGet, { key: UiStateKey.ActiveWorkspaceId })).resolves.toEqualTypeOf<{
       readonly value: string | null
     }>()
+    expectTypeOf(glade.invoke(CommandName.TasksList, { workspaceId: 'w' })).resolves.toEqualTypeOf<{
+      readonly tasks: readonly Task[]
+    }>()
+    expectTypeOf(glade.invoke(CommandName.UiStateGetAll, {})).resolves.toEqualTypeOf<{
+      readonly entries: readonly UiStateEntry[]
+    }>()
     expectTypeOf<CommandRequest<CommandName.UiStateSet>>().toEqualTypeOf<UiStateEntry>()
     expectTypeOf(
       glade.invoke(CommandName.UiStateSet, { key: UiStateKey.ActiveWorkspaceId, value: '' }),
@@ -38,6 +44,10 @@ describe('the command map', () => {
     void glade.invoke(CommandName.UiStateGet, { key: 'theme' })
     // @ts-expect-error: uiState.set needs a value.
     void glade.invoke(CommandName.UiStateSet, { key: UiStateKey.ActiveWorkspaceId })
+    // @ts-expect-error: tasks.list needs a workspace id.
+    void glade.invoke(CommandName.TasksList, {})
+    // @ts-expect-error: uiState.getAll takes no arguments.
+    void glade.invoke(CommandName.UiStateGetAll, { key: UiStateKey.ActiveWorkspaceId })
     // @ts-expect-error: workspaces.list takes no arguments.
     void glade.invoke(CommandName.WorkspacesList, { all: true })
     // @ts-expect-error: not a command.
@@ -56,10 +66,14 @@ describe('the command map', () => {
     // @ts-expect-error: uiState.set has no schema.
     const missing: RequestSchemas = {
       [CommandName.WorkspacesList]: z.strictObject({}),
+      [CommandName.TasksList]: z.strictObject({ workspaceId: z.string() }),
       [CommandName.UiStateGet]: z.strictObject({ key: z.enum(UiStateKey) }),
+      [CommandName.UiStateGetAll]: z.strictObject({}),
     }
     const wrong: RequestSchemas = {
       [CommandName.WorkspacesList]: z.strictObject({}),
+      [CommandName.TasksList]: z.strictObject({ workspaceId: z.string() }),
+      [CommandName.UiStateGetAll]: z.strictObject({}),
       // @ts-expect-error: uiState.get's key is a UiStateKey, not any string.
       [CommandName.UiStateGet]: z.strictObject({ key: z.string() }),
       [CommandName.UiStateSet]: z.strictObject({ key: z.enum(UiStateKey), value: z.string() }),
@@ -71,7 +85,9 @@ describe('the command map', () => {
     // @ts-expect-error: uiState.set has no handler.
     const handlers: Handlers = {
       [CommandName.WorkspacesList]: () => ({ workspaces: [] }),
+      [CommandName.TasksList]: () => ({ tasks: [] }),
       [CommandName.UiStateGet]: () => ({ value: null }),
+      [CommandName.UiStateGetAll]: () => ({ entries: [] }),
     }
     noop(handlers)
   })
@@ -79,6 +95,8 @@ describe('the command map', () => {
   it('refuses a handler whose response disagrees with the map', () => {
     const handlers: Handlers = {
       [CommandName.WorkspacesList]: () => ({ workspaces: [] }),
+      [CommandName.TasksList]: () => ({ tasks: [] }),
+      [CommandName.UiStateGetAll]: () => ({ entries: [] }),
       // @ts-expect-error: uiState.get answers `{ value }`, not a bare string.
       [CommandName.UiStateGet]: () => 'workspace-1',
       [CommandName.UiStateSet]: () => null,
@@ -89,6 +107,8 @@ describe('the command map', () => {
   it('refuses a handler that reads a request field the map does not have', () => {
     const handlers: Handlers = {
       [CommandName.WorkspacesList]: () => ({ workspaces: [] }),
+      [CommandName.TasksList]: () => ({ tasks: [] }),
+      [CommandName.UiStateGetAll]: () => ({ entries: [] }),
       // @ts-expect-error: uiState.get's request has `key`, not `name`.
       [CommandName.UiStateGet]: ({ name }) => ({ value: String(name) }),
       [CommandName.UiStateSet]: () => null,
@@ -115,8 +135,17 @@ describe('events', () => {
   it('narrows an event by its type', () => {
     glade.subscribe((event) => {
       expectTypeOf(event).toEqualTypeOf<GladeEvent>()
-      if (event.type === EventType.UiStateChanged) expectTypeOf(event.entry).toEqualTypeOf<UiStateEntry>()
-      else expectTypeOf(event.workspace).toEqualTypeOf<Workspace>()
+      switch (event.type) {
+        case EventType.UiStateChanged:
+          expectTypeOf(event.entry).toEqualTypeOf<UiStateEntry>()
+          break
+        case EventType.WorkspaceUpdated:
+          expectTypeOf(event.workspace).toEqualTypeOf<Workspace>()
+          break
+        case EventType.TaskUpdated:
+          expectTypeOf(event.task).toEqualTypeOf<Task>()
+          break
+      }
     })
   })
 })

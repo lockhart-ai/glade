@@ -8,7 +8,9 @@ import { REQUEST_SCHEMAS } from './requests'
 function handlers(overrides: Partial<Handlers> = {}): Handlers {
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: [] }),
+    [CommandName.TasksList]: () => ({ tasks: [] }),
     [CommandName.UiStateGet]: () => Promise.resolve({ value: 'async' }),
+    [CommandName.UiStateGetAll]: () => ({ entries: [] }),
     [CommandName.UiStateSet]: () => null,
     ...overrides,
   }

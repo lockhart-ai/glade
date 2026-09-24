@@ -21,6 +21,9 @@ its PR, and sends back fixes. Jared approves and merges. This SOP starts simple 
    Closes #N
    ```
 
+   The body ends at `Closes #N`: no "Generated with Claude Code" footer or other attribution lines. (Commit messages
+   keep their Co-Authored-By trailer.)
+
    Then arm auto-merge (squash) on it, using the glade-team identity described in `CLAUDE.md`: `gh pr merge <N> --auto
    --squash`. It merges once Jared approves and checks pass.
 

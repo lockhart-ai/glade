@@ -4,12 +4,14 @@ import { UiStateKey } from '../../shared/domain'
 import { describeIssues, REQUEST_SCHEMAS } from './requests'
 
 const KEY = UiStateKey.ActiveWorkspaceId
-const BAD_KEY = 'key: Invalid input: expected "active_workspace_id"'
+const BAD_KEY = 'key: Invalid option: expected one of "active_workspace_id"|"selected_task_id"'
 
 describe('REQUEST_SCHEMAS', () => {
   it('parses valid requests', () => {
     expect(REQUEST_SCHEMAS[CommandName.WorkspacesList].parse({})).toEqual({})
+    expect(REQUEST_SCHEMAS[CommandName.TasksList].parse({ workspaceId: 'w' })).toEqual({ workspaceId: 'w' })
     expect(REQUEST_SCHEMAS[CommandName.UiStateGet].parse({ key: KEY })).toEqual({ key: KEY })
+    expect(REQUEST_SCHEMAS[CommandName.UiStateGetAll].parse({})).toEqual({})
     expect(REQUEST_SCHEMAS[CommandName.UiStateSet].parse({ key: KEY, value: '' })).toEqual({ key: KEY, value: '' })
   })
 
@@ -20,6 +22,13 @@ describe('REQUEST_SCHEMAS', () => {
     ['an unexpected field', CommandName.WorkspacesList, { all: true }, 'Unrecognized key: "all"'],
     ['unexpected fields', CommandName.UiStateGet, { key: KEY, a: 1, b: 2 }, 'Unrecognized keys: "a", "b"'],
     ['a missing key', CommandName.UiStateGet, {}, BAD_KEY],
+    [
+      'a missing workspace id',
+      CommandName.TasksList,
+      {},
+      'workspaceId: Invalid input: expected string, received undefined',
+    ],
+    ['arguments to uiState.getAll', CommandName.UiStateGetAll, { key: KEY }, 'Unrecognized key: "key"'],
     ['an unknown key', CommandName.UiStateSet, { key: 'theme', value: 'dark' }, BAD_KEY],
     [
       'a missing key and value',

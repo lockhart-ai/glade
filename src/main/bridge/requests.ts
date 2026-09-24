@@ -4,6 +4,7 @@ import {
   CommandName,
   type CommandRequest,
   type EmptyRequest,
+  type TasksListRequest,
   type UiStateGetRequest,
   type UiStateSetRequest,
 } from '../../shared/bridge'
@@ -18,6 +19,8 @@ export type RequestSchemas = { readonly [C in CommandName]: z.ZodType<CommandReq
 
 const emptyRequest = z.strictObject({}) satisfies z.ZodType<EmptyRequest>
 
+const tasksListRequest = z.strictObject({ workspaceId: z.string() }) satisfies z.ZodType<TasksListRequest>
+
 const uiStateGetRequest = z.strictObject({ key: z.enum(UiStateKey) }) satisfies z.ZodType<UiStateGetRequest>
 
 const uiStateSetRequest = z.strictObject({
@@ -27,7 +30,9 @@ const uiStateSetRequest = z.strictObject({
 
 export const REQUEST_SCHEMAS = {
   [CommandName.WorkspacesList]: emptyRequest,
+  [CommandName.TasksList]: tasksListRequest,
   [CommandName.UiStateGet]: uiStateGetRequest,
+  [CommandName.UiStateGetAll]: emptyRequest,
   [CommandName.UiStateSet]: uiStateSetRequest,
 } as const satisfies RequestSchemas
 
