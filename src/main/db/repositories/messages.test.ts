@@ -30,8 +30,26 @@ describe('appendMessage', () => {
       body: 'Why is **the date test** flaky?',
       turn: 1,
       createdAt: 3_000,
+      summary: null,
     })
     expect(listMessages(test.db, task.id)).toEqual([message])
+  })
+
+  it("stores an agent reply's turn summary, with or without a duration", () => {
+    const summary = { durationMs: 1_450_000, filesChanged: 4, linesAdded: 61, linesRemoved: 3 }
+    const reply = appendMessage(test.db, { taskId: task.id, role: MessageRole.Agent, body: 'Done.', turn: 1, summary })
+    const untimed = { durationMs: null, filesChanged: 0, linesAdded: 0, linesRemoved: 0 }
+    const next = appendMessage(test.db, {
+      taskId: task.id,
+      role: MessageRole.Agent,
+      body: 'Done again.',
+      turn: 2,
+      summary: untimed,
+    })
+
+    expect(reply.summary).toEqual(summary)
+    expect(listMessages(test.db, task.id).map((message) => message.summary)).toEqual([summary, untimed])
+    expect(next.summary).toEqual(untimed)
   })
 
   it('defaults the time to now', () => {

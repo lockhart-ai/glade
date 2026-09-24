@@ -12,7 +12,8 @@
  * **A turn**, from `send` to the SDK's `result`:
  * - The user's message goes to the chat log with the next turn number, and a turn divider to the tool log.
  * - The agent's top-level text is held back. A tool call after it makes it preamble, saved to the tool log as
- *   narration; whatever is left at the end of the turn is the final reply, saved to the chat log.
+ *   narration; whatever is left at the end of the turn is the final reply, saved to the chat log with the turn's
+ *   summary (`./turn-summary`): the duration the `result` reports, and the files and lines the turn's edits changed.
  * - Each tool call is saved as running and filled in as done or error when its result arrives. A subagent's tool calls
  *   carry their `Agent` call's id.
  * - The task's activity is working for the turn, then waiting on you, or error if the turn failed.
@@ -84,6 +85,7 @@ import {
   appendNarration,
   appendToolCall,
   failRunningToolCalls,
+  listToolEvents,
   updateToolCall,
 } from '../db/repositories/tool-events'
 import { getWorkspace } from '../db/repositories/workspaces'
@@ -101,6 +103,7 @@ import {
   type TurnFinishedEvent,
 } from './events'
 import { systemPromptAppend } from './system-prompt'
+import { summarizeTurn } from './turn-summary'
 
 export interface AgentRunnerOptions {
   readonly db: Database
@@ -301,7 +304,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const held = turn.pending.splice(0).join('\n\n').trim()
     const reply = held === '' ? event.result.trim() : held
     if (reply !== '') {
-      const message = appendMessage(db, { taskId, role: MessageRole.Agent, body: reply, turn: turn.number })
+      const turnEvents = listToolEvents(db, taskId).filter((toolEvent) => toolEvent.turn === turn.number)
+      const summary = summarizeTurn(event.durationMs, turnEvents)
+      const message = appendMessage(db, { taskId, role: MessageRole.Agent, body: reply, turn: turn.number, summary })
       emitMessageAppended(emit, message)
     }
     failRunning(taskId, turn, 'The turn ended before this tool call finished.')

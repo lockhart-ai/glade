@@ -191,3 +191,18 @@
   height: 1px;
   background: var(--color-inner-border);
 }
+
+/* The turn's summary beside its tool-call chip: "Finished in 24m 10s · 4 files +61 −3". */
+.summary {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-faint);
+}
+
+.added {
+  color: var(--color-teal);
+}
+
+.removed {
+  color: var(--color-pink);
+}

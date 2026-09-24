@@ -4,6 +4,7 @@ import { coreTablesMigration } from './0002-core-tables'
 import { taskActivityMigration } from './0003-task-activity'
 import { statusUpdatedAtMigration } from './0004-status-updated-at'
 import { contextUsageMigration } from './0005-context-usage'
+import { turnSummaryMigration } from './0006-turn-summary'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -12,4 +13,5 @@ export const MIGRATIONS: readonly Migration[] = [
   taskActivityMigration,
   statusUpdatedAtMigration,
   contextUsageMigration,
+  turnSummaryMigration,
 ]

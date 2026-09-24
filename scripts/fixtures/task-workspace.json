@@ -37,7 +37,13 @@
           "role": "agent",
           "body": "Tests pass — 14 new ones cover the limit, the 429 response and the Retry-After header.\n\nOne decision before I finish: **/search** is much heavier than the other endpoints. Should it get a tighter limit of 60 a minute, or share the default 120?",
           "turn": 1,
-          "minutesAgo": 4
+          "minutesAgo": 4,
+          "summary": {
+            "durationMs": 1450000,
+            "filesChanged": 4,
+            "linesAdded": 61,
+            "linesRemoved": 3
+          }
         }
       ],
       "toolEvents": [

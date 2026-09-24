@@ -171,5 +171,5 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
 }
 
 export function sampleMessage(id: string, taskId: string, body = 'Add rate limiting to the public API.'): Message {
-  return { id, taskId, role: MessageRole.User, body, turn: 1, createdAt: 3_000 }
+  return { id, taskId, role: MessageRole.User, body, turn: 1, createdAt: 3_000, summary: null }
 }

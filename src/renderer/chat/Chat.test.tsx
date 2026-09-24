@@ -28,6 +28,7 @@ const ASK: Message = {
   body: 'Add per-key rate limiting to the public API.',
   turn: 1,
   createdAt: ASKED_AT,
+  summary: null,
 }
 const REPLY: Message = {
   id: 'm2',
@@ -36,6 +37,7 @@ const REPLY: Message = {
   body: 'Tests pass.\n\nShould **/search** get a tighter limit of `60`?',
   turn: 1,
   createdAt: REPLIED_AT,
+  summary: null,
 }
 
 const PREAMBLE = 'Looking at how the API views are set up.'
@@ -298,6 +300,38 @@ describe('Chat', () => {
       await renderChat({ messages: [ASK, REPLY] })
 
       expect(within(screen.getByRole('article', { name: 'Agent' })).queryByRole('button')).toBeNull()
+    })
+  })
+
+  describe('the turn summary', () => {
+    const summary = { durationMs: (24 * 60 + 10) * 1000, filesChanged: 4, linesAdded: 61, linesRemoved: 3 }
+
+    it('shows how long the turn ran and what it changed, beside the tool-call chip', async () => {
+      await renderChat({ messages: [ASK, { ...REPLY, summary }], toolEvents: TURN_ONE })
+
+      const line = screen.getByRole('note', { name: 'Turn summary' })
+      expect(line).toHaveTextContent('Finished in 24m 10s · 4 files +61 −3')
+      expect(line.previousElementSibling).toBe(screen.getByRole('button', { name: '3 tool calls' }))
+      // The counts are spans of their own, coloured teal and pink.
+      expect(within(line).getByText('+61').tagName).toBe('SPAN')
+      expect(within(line).getByText('−3').tagName).toBe('SPAN')
+    })
+
+    it('shows on its own without tool calls, leaving out the files when none changed', async () => {
+      const quick = { durationMs: 8_000, filesChanged: 0, linesAdded: 0, linesRemoved: 0 }
+      await renderChat({ messages: [ASK, { ...REPLY, summary: quick }] })
+
+      expect(screen.getByRole('note', { name: 'Turn summary' })).toHaveTextContent(/^Finished in 8s$/)
+      expect(screen.queryByRole('button')).toBeNull()
+    })
+
+    it('is left out for a reply without one, or with nothing to say', async () => {
+      const empty = { durationMs: null, filesChanged: 0, linesAdded: 0, linesRemoved: 0 }
+      await renderChat({
+        messages: [ASK, REPLY, { ...ASK, id: 'm3', turn: 2 }, { ...REPLY, id: 'm4', summary: empty }],
+      })
+
+      expect(screen.queryByRole('note', { name: 'Turn summary' })).toBeNull()
     })
   })
 
