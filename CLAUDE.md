@@ -41,6 +41,9 @@ spacing), `docs/keymap.md`, `docs/context-menus.md`.
   - change
   - change
   ```
+- **Kittens use the glade-team GitHub App for every `gh` call:** `GH_TOKEN="$(node scripts/gh-token.mjs)" gh …`,
+  minted inline per call. Never fall back to Jared's own `gh` login; if the token is empty, stop. The app's config
+  lives outside the repo in `~/.config/glade-team/`.
 
 ## Code conventions
 
