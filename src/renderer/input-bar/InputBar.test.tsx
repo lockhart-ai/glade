@@ -214,15 +214,23 @@ describe('InputBar', () => {
       expect(field()).toHaveValue('')
     })
 
+    it('sends a done task’s message, which reopens it', async () => {
+      const fake = await renderBar({ task: { state: TaskState.Done } })
+      expect(field()).toHaveAttribute('placeholder', DONE_PLACEHOLDER)
+      type('Also update the docs.')
+
+      await press('Enter')
+
+      expect(sends(fake)).toEqual([{ id: 't1', text: 'Also update the docs.' }])
+      expect(field()).toHaveValue('')
+    })
+
     it('keeps the message and says why in a toast when it can’t be sent', async () => {
       const fake = await renderBar({
-        task: { state: TaskState.Done },
         overrides: {
-          [CommandName.TasksSend]: () =>
-            refuse(bridgeError(BridgeErrorCode.InvalidTransition, "Can't send a message to a task that is done")),
+          [CommandName.TasksSend]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No task t1')),
         },
       })
-      expect(field()).toHaveAttribute('placeholder', DONE_PLACEHOLDER)
       type('Also update the docs.')
 
       await press('Enter')
@@ -230,7 +238,7 @@ describe('InputBar', () => {
       expect(sends(fake)).toHaveLength(1)
       expect(field()).toHaveValue('Also update the docs.')
       expect(screen.getByRole('region', { name: 'Notifications' })).toHaveTextContent(
-        'This task is done, so it can’t take a message yet.',
+        'Couldn’t send your message: No task t1',
       )
     })
   })
@@ -381,12 +389,9 @@ describe('InputBar', () => {
 })
 
 describe('sendFailureMessage', () => {
-  it('explains a busy agent, a done task, and anything else', () => {
+  it('explains a busy agent, and anything else', () => {
     expect(sendFailureMessage(bridgeError(BridgeErrorCode.Busy, 'busy'))).toBe(
       'The agent is still working. Send your message when it finishes.',
-    )
-    expect(sendFailureMessage(bridgeError(BridgeErrorCode.InvalidTransition, 'done'))).toBe(
-      'This task is done, so it can’t take a message yet.',
     )
     expect(sendFailureMessage(bridgeError(BridgeErrorCode.Internal, 'tasks.send failed: no agent'))).toBe(
       'Couldn’t send your message: tasks.send failed: no agent',

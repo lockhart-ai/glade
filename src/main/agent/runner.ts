@@ -19,6 +19,12 @@
  * - The task's context usage follows the agent's latest top-level message, and its context window is what the turn's
  *   `result` reports for the session's model (`docs/sdk-notes.md`, "Usage and context size").
  *
+ * **Reopen by chatting.** A message to a done task reopens it: the task goes back to active and the message is the
+ * next turn of the same session, the live one if it's still running, or the saved one resumed by its id. The tool log
+ * gets a marked done divider, stamped with the `doneAt` that reopening clears (the chat and header show it), at the end
+ * of the last turn, then a reopened divider and the turn divider for the new turn. Marking done itself adds no divider,
+ * so Undo leaves nothing behind.
+ *
  * **Stop** interrupts the running turn (`docs/sdk-notes.md` §7): the SDK ends it within tens of milliseconds with an
  * aborted result, and the session stays alive for the next message. A stopped turn isn't a failure: its activity goes
  * back to waiting on you. What it already saved stays. Its held-back text, including the partial text the SDK flushes
@@ -39,7 +45,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
-import { BridgeErrorCode } from '../../shared/bridge'
+import { BridgeErrorCode, type GladeEvent } from '../../shared/bridge'
 import {
   DividerKind,
   MessageRole,
@@ -61,7 +67,7 @@ import {
   updateToolCall,
 } from '../db/repositories/tool-events'
 import { getWorkspace } from '../db/repositories/workspaces'
-import { updateTaskFromRunner } from '../tasks/service'
+import { reopenTask, updateTaskFromRunner } from '../tasks/service'
 import type { AgentBackend, AgentMcpServers, AgentSession, AgentSessionSettings } from './backend'
 import {
   AgentEventKind,
@@ -86,8 +92,8 @@ export interface AgentRunnerOptions {
 
 export interface AgentRunner {
   /**
-   * Saves the user's message and starts a turn with it. Throws a `CommandFailure`: `not_found` for no such task,
-   * `invalid_transition` for a done task, `busy` while a turn is running.
+   * Saves the user's message and starts a turn with it. A done task is reopened first (see the module comment). Throws
+   * a `CommandFailure`: `not_found` for no such task, `busy` while a turn is running.
    */
   send(taskId: string, text: string): Message
   /**
@@ -366,9 +372,6 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     send(taskId, text) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
-      if (task.state === TaskState.Done) {
-        throw new CommandFailure(BridgeErrorCode.InvalidTransition, "Can't send a message to a task that is done")
-      }
       if ((sessions.get(taskId)?.turn ?? null) !== null) {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working; wait for it to finish its turn')
       }
@@ -380,12 +383,35 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       }
 
       const turn = lastTurn(db, taskId) + 1
-      const { message, divider } = db.transaction(() => ({
-        message: appendMessage(db, { taskId, role: MessageRole.User, body: text, turn }),
-        divider: appendDivider(db, { taskId, turn, dividerKind: DividerKind.Turn }),
-      }))()
+      const reopening = task.state === TaskState.Done
+      // Reopening's own events wait for the transaction to commit, so the windows never hear of a reopen that didn't.
+      const reopenEvents: GladeEvent[] = []
+      const { message, dividers } = db.transaction(() => {
+        if (!reopening) {
+          return {
+            message: appendMessage(db, { taskId, role: MessageRole.User, body: text, turn }),
+            dividers: [appendDivider(db, { taskId, turn, dividerKind: DividerKind.Turn })],
+          }
+        }
+        // Reopening clears `doneAt`, so the marked done divider keeps it: it's the time the chat and header show.
+        const markedDone = appendDivider(
+          db,
+          { taskId, turn: turn - 1, dividerKind: DividerKind.MarkedDone },
+          task.doneAt ?? task.updatedAt,
+        )
+        reopenTask({ db, emit: (event) => reopenEvents.push(event) }, taskId)
+        return {
+          message: appendMessage(db, { taskId, role: MessageRole.User, body: text, turn }),
+          dividers: [
+            markedDone,
+            appendDivider(db, { taskId, turn, dividerKind: DividerKind.Reopened }),
+            appendDivider(db, { taskId, turn, dividerKind: DividerKind.Turn }),
+          ],
+        }
+      })()
+      for (const event of reopenEvents) emit(event)
       emitMessageAppended(emit, message)
-      emitToolEventAppended(emit, divider)
+      for (const divider of dividers) emitToolEventAppended(emit, divider)
       setActivity(taskId, TaskActivity.Working)
 
       live.turn = newTurn(turn)

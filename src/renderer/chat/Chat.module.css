@@ -171,8 +171,11 @@
   color: var(--color-muted);
 }
 
-/* Where the app restarted and resumed a turn: a label between two rules, from 18-relaunch.html. */
-.restart {
+/*
+ * A divider in the conversation: a label between two rules. Where the app restarted and resumed a turn
+ * (18-relaunch.html), and where a message reopened a done task (06-reopen.html).
+ */
+.divider {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -181,8 +184,8 @@
   color: var(--color-faint);
 }
 
-.restart::before,
-.restart::after {
+.divider::before,
+.divider::after {
   content: '';
   flex-grow: 1;
   height: 1px;

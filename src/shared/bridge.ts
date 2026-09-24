@@ -133,12 +133,12 @@ export interface TaskResponse {
 }
 
 /**
- * Sends the user's message to an active task's agent, starting a turn. Answers once the message is saved and handed to
- * the agent, not when the turn ends: the turn's progress arrives as `message.appended`, `toolEvent.appended`,
- * `toolEvent.updated` and `task.updated` events.
+ * Sends the user's message to a task's agent, starting a turn. A done task is reopened by it: it becomes active, its
+ * `doneAt` is cleared, and the tool log gets marked done (stamped with the old `doneAt`) and reopened dividers before
+ * the new turn's. Answers once the message is saved and handed to the agent, not when the turn ends: the turn's
+ * progress arrives as `message.appended`, `toolEvent.appended`, `toolEvent.updated` and `task.updated` events.
  *
- * Fails with `busy` while the agent is working on a turn, `invalid_transition` when the task is done, and `not_found`
- * when there's no such task.
+ * Fails with `busy` while the agent is working on a turn, and `not_found` when there's no such task.
  */
 export interface TasksSendRequest {
   readonly id: string

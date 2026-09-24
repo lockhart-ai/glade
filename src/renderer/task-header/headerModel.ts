@@ -1,4 +1,12 @@
-import { TaskActivity, TaskState, type EpochMs, type Task } from '../../shared/domain'
+import {
+  DividerKind,
+  TaskActivity,
+  TaskState,
+  ToolEventKind,
+  type EpochMs,
+  type Task,
+  type ToolEvent,
+} from '../../shared/domain'
 import { TaskIndicator, taskIndicator } from '../../shared/taskIndicator'
 import { clockTime } from '../chat/chatModel'
 
@@ -47,11 +55,42 @@ export function canMarkDone(task: Pick<Task, 'state' | 'activity' | 'title' | 'o
   return offersMarkDone(task) && task.activity !== TaskActivity.Working
 }
 
-/** The status pill's label: `Active · working`, `Active · waiting on you`, `Active · stopped by an error`, `Done · Sep 23`. */
-export function pillLabel(task: Pick<Task, 'state' | 'activity' | 'doneAt' | 'updatedAt'>): string {
+/** A task a message reopened, from its tool log's dividers (docs/design/html/06-reopen.html). */
+export interface Reopening {
+  /** When a message last reopened it. */
+  readonly reopenedAt: EpochMs
+  /** When it was first marked done, which the marked done divider keeps. */
+  readonly firstDoneAt: EpochMs
+  /** Whether the turn that reopened it is the latest one. */
+  readonly latestTurn: boolean
+}
+
+/** How a task was reopened, or null if no message has reopened it. */
+export function reopening(toolEvents: readonly ToolEvent[]): Reopening | null {
+  let reopened: ToolEvent | undefined
+  let firstDone: ToolEvent | undefined
+  let latest = 0
+  for (const event of toolEvents) {
+    latest = Math.max(latest, event.turn)
+    if (event.kind !== ToolEventKind.Divider) continue
+    if (event.dividerKind === DividerKind.Reopened) reopened = event
+    if (event.dividerKind === DividerKind.MarkedDone) firstDone ??= event
+  }
+  if (reopened === undefined || firstDone === undefined) return null
+  return { reopenedAt: reopened.createdAt, firstDoneAt: firstDone.createdAt, latestTurn: reopened.turn === latest }
+}
+
+/**
+ * The status pill's label: `Active · working`, `Active · waiting on you`, `Active · stopped by an error`, `Done · Sep 23`,
+ * and `Active · reopened` while the agent works on the message that reopened the task.
+ */
+export function pillLabel(
+  task: Pick<Task, 'state' | 'activity' | 'doneAt' | 'updatedAt'>,
+  reopened: Reopening | null = null,
+): string {
   switch (taskIndicator(task)) {
     case TaskIndicator.Working:
-      return 'Active · working'
+      return reopened?.latestTurn === true ? 'Active · reopened' : 'Active · working'
     case TaskIndicator.Waiting:
       return 'Active · waiting on you'
     case TaskIndicator.Error:
@@ -62,12 +101,16 @@ export function pillLabel(task: Pick<Task, 'state' | 'activity' | 'doneAt' | 'up
 }
 
 /**
- * The time beside the pill: when a done task ran (`10:42 – 11:26`), otherwise how long ago an active task was started
- * (`started 42m ago`), or created while it's still new (`created just now`).
+ * The time beside the pill: when a done task ran (`10:42 – 11:26`), when a reopened task was reopened and first done
+ * (`reopened just now · first done Sep 23`), otherwise how long ago an active task was started (`started 42m ago`), or
+ * created while it's still new (`created just now`).
  */
-export function timing(task: Task, now: EpochMs): string {
+export function timing(task: Task, now: EpochMs, reopened: Reopening | null = null): string {
   if (task.state === TaskState.Done) {
     return `${clockTime(task.createdAt)} – ${clockTime(task.doneAt ?? task.updatedAt)}`
+  }
+  if (reopened !== null) {
+    return `reopened ${formatAgo(reopened.reopenedAt, now)} · first done ${formatDay(reopened.firstDoneAt)}`
   }
   return `${isNewTask(task) ? 'created' : 'started'} ${formatAgo(task.createdAt, now)}`
 }

@@ -1,6 +1,6 @@
 import { faCheck, faThumbtack } from '@fortawesome/free-solid-svg-icons'
-import type { ReactNode } from 'react'
-import { TaskState, type Task } from '../../shared/domain'
+import { useMemo, type ReactNode } from 'react'
+import { TaskState, type Task, type ToolEvent } from '../../shared/domain'
 import { taskIndicator } from '../../shared/taskIndicator'
 import { Button, ButtonVariant, Pill, useToast } from '../components'
 import { TaskHeader } from '../layout'
@@ -16,10 +16,13 @@ import {
   formatAgo,
   offersMarkDone,
   pillLabel,
+  reopening,
   timing,
 } from './headerModel'
 import styles from './SelectedTaskHeader.module.css'
 import { useMarkDone } from './useMarkDone'
+
+const NO_TOOL_EVENTS: readonly ToolEvent[] = []
 
 interface FieldRowProps {
   readonly label: string
@@ -54,6 +57,8 @@ function Header({ task }: HeaderProps): React.JSX.Element {
   const markDone = useMarkDone()
   const toast = useToast()
   const done = task.state === TaskState.Done
+  const toolEvents = useGladeStore((state) => state.toolEvents[task.id]) ?? NO_TOOL_EVENTS
+  const reopened = useMemo(() => reopening(toolEvents), [toolEvents])
 
   const run = async (action: Promise<void>): Promise<void> => {
     try {
@@ -81,9 +86,9 @@ function Header({ task }: HeaderProps): React.JSX.Element {
           </div>
           <div className={styles.meta}>
             <Pill indicator={taskIndicator(task)} role="status">
-              {pillLabel(task)}
+              {pillLabel(task, reopened)}
             </Pill>
-            <span className={styles.timing}>{timing(task, now)}</span>
+            <span className={styles.timing}>{timing(task, now, reopened)}</span>
           </div>
         </div>
         {offersMarkDone(task) && (

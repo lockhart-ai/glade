@@ -130,6 +130,15 @@ describe('AGENT_SCRIPTS', () => {
       objective: 'Make the date formatting test pass in every timezone.',
       status: 'Fixed the timezone bug; the tests pass.',
     })
+
+    await send(agent, 'Check the report header too.')
+    expect(listMessages(database.db, task.id).at(-1)?.body).toMatch(/^The report header already goes through/)
+    expect(
+      calls()
+        .slice(-3)
+        .map((call) => call.name),
+    ).toEqual(['mcp__glade__set_status', 'Read', 'mcp__glade__set_status'])
+    expect(getTask(database.db, task.id)?.status).toBe('The report header uses the UTC date too.')
   })
 
   it('long-running: keeps working, with its command running, until stopped', async () => {

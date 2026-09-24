@@ -67,6 +67,23 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+/** Quits the app, mid-turn or not, as a crash or force-quit would leave it, then starts a new runner on the same database. */
+function relaunch(): void {
+  runner.close()
+  backend = new FakeAgentBackend()
+  const ipc = fakeIpcPair()
+  ;({ runner } = registerBridge({
+    ipc: ipc.main,
+    db: database.db,
+    targets: () => [ipc.window],
+    chooseFolder: () => Promise.resolve(null),
+    agentBackend: backend,
+  }))
+  glade = createBridge(ipc.renderer)
+  events = []
+  glade.subscribe((event) => events.push(event))
+}
+
 async function send(text: string): Promise<void> {
   await glade.invoke(CommandName.TasksSend, { id: task.id, text })
 }
@@ -540,22 +557,6 @@ describe('the session', () => {
 })
 
 describe('resuming on launch', () => {
-  /** Quits the app mid-turn, as a crash or force-quit would leave it, then starts a new runner on the same database. */
-  function relaunch(): void {
-    runner.close()
-    backend = new FakeAgentBackend()
-    const ipc = fakeIpcPair()
-    ;({ runner } = registerBridge({
-      ipc: ipc.main,
-      db: database.db,
-      targets: () => [ipc.window],
-      chooseFolder: () => Promise.resolve(null),
-      agentBackend: backend,
-    }))
-    events = []
-    createBridge(ipc.renderer).subscribe((event) => events.push(event))
-  }
-
   it('carries on a turn the app quit in, in the same session, and ends it like any other', async () => {
     await send('Run the e2e suite.')
     backend.session.emit(
@@ -669,10 +670,7 @@ describe('tasks.send', () => {
     expect(backend.session.sent).toHaveLength(1)
   })
 
-  it('refuses a done task, a task that does not exist, and a blank message', async () => {
-    updateTask(database.db, task.id, { state: TaskState.Done })
-
-    await expect(send('Hi')).rejects.toMatchObject({ code: BridgeErrorCode.InvalidTransition })
+  it('refuses a task that does not exist, and a blank message', async () => {
     await expect(glade.invoke(CommandName.TasksSend, { id: 'gone', text: 'Hi' })).rejects.toMatchObject({
       code: BridgeErrorCode.NotFound,
     })
@@ -1017,5 +1015,100 @@ describe('the Glade tools', () => {
         turn: 1,
       },
     ])
+  })
+})
+
+describe('reopening by chatting', () => {
+  const DONE_AT = Date.UTC(2026, 8, 23, 11, 26)
+
+  /** Runs a first turn to its reply, then marks the task done at `DONE_AT`, as the header's Mark done would. */
+  async function finishAndMarkDone(): Promise<void> {
+    await send('Find out why the login test is flaky.')
+    backend.session.emit(...scriptedTurn())
+    await settle()
+    vi.spyOn(Date, 'now').mockReturnValueOnce(DONE_AT)
+    await glade.invoke(CommandName.TasksMarkDone, { id: task.id })
+    events.splice(0)
+  }
+
+  /** The tool log's dividers after the first turn's five entries. */
+  function reopenDividers(): unknown[] {
+    return listToolEvents(database.db, task.id)
+      .slice(5)
+      .filter((event) => event.kind === ToolEventKind.Divider)
+      .map(({ dividerKind, turn, createdAt }) => ({ dividerKind, turn, createdAt }))
+  }
+
+  it('reopens a done task and delivers the message as the next turn of the same live session', async () => {
+    await finishAndMarkDone()
+    expect(current()).toMatchObject({ state: TaskState.Done, doneAt: DONE_AT })
+    const session = backend.session
+
+    await send('Actually, also cover the logout test.')
+
+    expect(backend.sessions).toEqual([session])
+    expect(session.sent.map(({ text }) => text)).toEqual([
+      'Find out why the login test is flaky.',
+      'Actually, also cover the logout test.',
+    ])
+    expect(current()).toMatchObject({ state: TaskState.Active, doneAt: null, activity: TaskActivity.Working })
+    expect(reopenDividers()).toEqual([
+      { dividerKind: DividerKind.MarkedDone, turn: 1, createdAt: DONE_AT },
+      { dividerKind: DividerKind.Reopened, turn: 2, createdAt: expect.any(Number) as unknown },
+      { dividerKind: DividerKind.Turn, turn: 2, createdAt: expect.any(Number) as unknown },
+    ])
+    // The task reopens before anything else is heard, and its dividers follow the message, in log order.
+    const used = current().contextUsedTokens
+    expect(drainEvents()).toEqual([
+      [EventType.TaskUpdated, TaskActivity.Waiting, sdk.SESSION_ID, used],
+      [EventType.MessageAppended, MessageRole.User, 'Actually, also cover the logout test.'],
+      [EventType.ToolEventAppended, ToolEventKind.Divider, null],
+      [EventType.ToolEventAppended, ToolEventKind.Divider, null],
+      [EventType.ToolEventAppended, ToolEventKind.Divider, null],
+      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, used],
+    ])
+
+    session.emit(sdk.init(), sdk.result('The logout test is covered too.'))
+    await settle()
+
+    expect(chat().slice(2)).toEqual([
+      { role: MessageRole.User, body: 'Actually, also cover the logout test.', turn: 2 },
+      { role: MessageRole.Agent, body: 'The logout test is covered too.', turn: 2 },
+    ])
+    expect(current()).toMatchObject({ state: TaskState.Active, activity: TaskActivity.Waiting })
+  })
+
+  it('resumes the saved session by its id when the live one is gone', async () => {
+    await finishAndMarkDone()
+    relaunch()
+
+    await send('Actually, also cover the logout test.')
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
+    expect(backend.session.sent.map(({ text }) => text)).toEqual(['Actually, also cover the logout test.'])
+    expect(current()).toMatchObject({ state: TaskState.Active, doneAt: null })
+    expect(reopenDividers()).toEqual([
+      expect.objectContaining({ dividerKind: DividerKind.MarkedDone, turn: 1, createdAt: DONE_AT }),
+      expect.objectContaining({ dividerKind: DividerKind.Reopened, turn: 2 }),
+      expect.objectContaining({ dividerKind: DividerKind.Turn, turn: 2 }),
+    ])
+
+    backend.session.emit(sdk.init(), sdk.result('The logout test is covered too.'))
+    await settle()
+
+    expect(chat().at(-1)).toEqual({ role: MessageRole.Agent, body: 'The logout test is covered too.', turn: 2 })
+    expect(current().activity).toBe(TaskActivity.Waiting)
+  })
+
+  it('leaves a done task done when its workspace is gone', async () => {
+    await finishAndMarkDone()
+    relaunch()
+    database.db.pragma('foreign_keys = OFF')
+    database.db.prepare('DELETE FROM workspaces').run()
+
+    await expect(send('One more thing.')).rejects.toMatchObject({ code: BridgeErrorCode.NotFound })
+    expect(current()).toMatchObject({ state: TaskState.Done, doneAt: DONE_AT })
+    expect(reopenDividers()).toEqual([])
   })
 })

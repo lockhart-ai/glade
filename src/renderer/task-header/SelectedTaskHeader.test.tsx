@@ -1,7 +1,15 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { TaskActivity, TaskState, UiStateKey, type Task } from '../../shared/domain'
+import {
+  DividerKind,
+  TaskActivity,
+  TaskState,
+  ToolEventKind,
+  UiStateKey,
+  type Task,
+  type ToolEvent,
+} from '../../shared/domain'
 import { DEFAULT_TOAST_TIMEOUT, ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore } from '../store/store'
@@ -34,13 +42,20 @@ interface Setup {
   readonly task?: Partial<Task>
   readonly selected?: boolean
   readonly overrides?: Partial<FakeHandlers>
+  readonly toolEvents?: ToolEvent[]
 }
 
-async function renderHeader({ task = {}, selected = true, overrides = {} }: Setup = {}): Promise<FakeBridge> {
+async function renderHeader({
+  task = {},
+  selected = true,
+  overrides = {},
+  toolEvents = [],
+}: Setup = {}): Promise<FakeBridge> {
   const fake = fakeBridge(
     {
       workspaces: [sampleWorkspace('w1')],
       tasks: [{ ...TASK, ...task }],
+      toolEvents,
       uiState: [
         { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
         { key: UiStateKey.SelectedTaskId, value: selected ? 't1' : '' },
@@ -102,6 +117,29 @@ describe('SelectedTaskHeader', () => {
     expect(header()).toHaveTextContent('started 42m ago')
     expect(field('Objective')).toHaveTextContent('Add per-key rate limiting to the public API.')
     expect(field('Status')).toHaveTextContent('Throttle applied; 14 new tests pass. · 4m ago')
+    expect(within(header()).getByRole('button', { name: 'Mark done' })).toBeInTheDocument()
+  })
+
+  it('shows a reopened task as reopened, with when it was first done', async () => {
+    const divider = (dividerKind: DividerKind, turn: number, createdAt: number): ToolEvent => ({
+      id: dividerKind,
+      taskId: 't1',
+      turn,
+      createdAt,
+      kind: ToolEventKind.Divider,
+      dividerKind,
+    })
+    await renderHeader({
+      task: { activity: TaskActivity.Working },
+      toolEvents: [
+        divider(DividerKind.MarkedDone, 1, STARTED + 44 * MINUTE),
+        divider(DividerKind.Reopened, 2, NOW),
+        divider(DividerKind.Turn, 2, NOW),
+      ],
+    })
+
+    expect(pill()).toHaveTextContent('Active · reopened')
+    expect(header()).toHaveTextContent('reopened just now · first done Sep 23')
     expect(within(header()).getByRole('button', { name: 'Mark done' })).toBeInTheDocument()
   })
 

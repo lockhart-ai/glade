@@ -16,6 +16,9 @@ import {
   chatEntries,
   clockTime,
   currentTurn,
+  dayAndTime,
+  markedDoneLabel,
+  REOPENED_LABEL,
   ReplyStyle,
   restartLabel,
   type ChatEntry,
@@ -25,6 +28,11 @@ import {
 } from './chatModel'
 
 const task = sampleTask('t1', 'w1')
+
+/** Each entry's message id, or its divider's id. */
+function kinds(entries: readonly ChatEntry[]): unknown[] {
+  return entries.map((entry) => ('message' in entry ? entry.message.id : entry.divider.id))
+}
 
 function message(id: string, role: MessageRole, turn: number): Message {
   return { id, taskId: 't1', role, body: id, turn, createdAt: 1_000 }
@@ -133,8 +141,6 @@ describe('chatEntries', () => {
       kind: ToolEventKind.Divider,
       dividerKind: DividerKind.Resumed,
     })
-    const kinds = (entries: readonly ChatEntry[]): unknown[] =>
-      entries.map((entry) => (entry.kind === ChatEntryKind.Restarted ? entry.divider.id : entry.message.id))
 
     it("shows a divider for each resumed turn, after the turn's message and before its reply", () => {
       const events = [...toolEvents, divider, resumed('r1', 1), resumed('r2', 2)]
@@ -152,6 +158,48 @@ describe('chatEntries', () => {
       expect(labels(working)).toEqual(['Glade restarted · 14:26', 'Glade restarted · 14:26 · resuming'])
       expect(labels(chatEntries(task, running, events))).toEqual(['Glade restarted · 14:26', 'Glade restarted · 14:26'])
     })
+  })
+})
+
+describe('after a reopen', () => {
+  const doneAt = new Date(2026, 8, 23, 11, 26).getTime()
+  const at = (dividerKind: DividerKind, id: string, turn: number, createdAt = doneAt): DividerEvent => ({
+    id,
+    taskId: 't1',
+    turn,
+    createdAt,
+    kind: ToolEventKind.Divider,
+    dividerKind,
+  })
+  const messages = [
+    message('ask', MessageRole.User, 1),
+    message('reply-1', MessageRole.Agent, 1),
+    message('reopen', MessageRole.User, 2),
+    message('reply-2', MessageRole.Agent, 2),
+  ]
+  const events = [
+    at(DividerKind.Turn, 't1', 1),
+    at(DividerKind.MarkedDone, 'done', 1),
+    at(DividerKind.Reopened, 'reopened', 2, doneAt + 86_400_000),
+    at(DividerKind.Turn, 't2', 2),
+  ]
+
+  it('shows marked done before the reopening message, and reopened after it and before its reply', () => {
+    const entries = chatEntries(task, messages, events)
+    expect(kinds(entries)).toEqual(['ask', 'reply-1', 'done', 'reopen', 'reopened', 'reply-2'])
+    expect(entries[2]).toEqual({ kind: ChatEntryKind.MarkedDone, divider: events[1] })
+    expect(entries[4]).toEqual({ kind: ChatEntryKind.Reopened, divider: events[2] })
+  })
+
+  it('keeps both dividers after the reopening message while its turn runs', () => {
+    const working = chatEntries({ ...task, activity: TaskActivity.Working }, messages.slice(0, 3), events)
+    expect(kinds(working)).toEqual(['ask', 'reply-1', 'done', 'reopen', 'reopened'])
+  })
+
+  it('says when the task was marked done, with its day', () => {
+    const [entry] = chatEntries(task, [], [at(DividerKind.MarkedDone, 'done', 1)])
+    expect(entry?.kind === ChatEntryKind.MarkedDone && markedDoneLabel(entry)).toBe('Marked done · Sep 23, 11:26')
+    expect(REOPENED_LABEL).toBe('Reopened by your message')
   })
 })
 
@@ -182,6 +230,10 @@ describe('labels', () => {
   it('counts tool calls', () => {
     expect(toolCallLabel(1)).toBe('1 tool call')
     expect(toolCallLabel(7)).toBe('7 tool calls')
+  })
+
+  it('shows a day and time', () => {
+    expect(dayAndTime(new Date(2026, 8, 25, 9, 14).getTime())).toBe('Sep 25, 09:14')
   })
 
   it('shows 24-hour local time', () => {
