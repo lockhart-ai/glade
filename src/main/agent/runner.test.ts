@@ -11,6 +11,7 @@ import {
   TaskState,
   ToolCallState,
   ToolEventKind,
+  type QueuedMessage,
   UiStateKey,
   type Task,
   type ToolEvent,
@@ -19,6 +20,7 @@ import {
 import { registerBridge } from '../bridge'
 import { fakeIpcPair } from '../bridge/fake-ipc'
 import { listMessages } from '../db/repositories/messages'
+import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
@@ -135,6 +137,8 @@ function drainEvents(): (readonly unknown[])[] {
         return [event.type, event.toolEvent.kind, 'state' in event.toolEvent ? event.toolEvent.state : null]
       case EventType.TaskUpdated:
         return [event.type, event.task.activity, event.task.sessionId, event.task.contextUsedTokens]
+      case EventType.QueueChanged:
+        return [event.type, event.queuedMessages.map(({ body }) => body)]
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
       case EventType.TaskOpenRequested:
@@ -260,6 +264,7 @@ describe('a turn', () => {
     await expect(glade.invoke(CommandName.TasksHistory, { id: task.id })).resolves.toEqual({
       messages: listMessages(database.db, task.id),
       toolEvents: listToolEvents(database.db, task.id),
+      queuedMessages: [],
     })
   })
 
@@ -1042,6 +1047,347 @@ describe('tasks.stop', () => {
   })
 })
 
+describe('the message queue', () => {
+  async function queue(text: string, taskId = task.id): Promise<QueuedMessage> {
+    return (await glade.invoke(CommandName.QueueAdd, { taskId, text })).queuedMessage
+  }
+
+  function queued(): string[] {
+    return listQueuedMessages(database.db, task.id).map(({ body }) => body)
+  }
+
+  /** What the session was sent, text only. */
+  function sent(): string[] {
+    return backend.session.sent.map(({ text }) => text)
+  }
+
+  /** A turn that has started a shell command and is waiting on its result. */
+  async function startCopy(): Promise<void> {
+    await send('Copy the existing uploads to S3.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.text("I'll copy the files, then check a sample."),
+      sdk.toolUse('toolu_01', 'Bash', { command: 'python scripts/copy.py' }),
+    )
+    await settle()
+  }
+
+  it('keeps messages queued while a tool call runs, then folds them into the turn once its result arrives', async () => {
+    await startCopy()
+    events.splice(0)
+
+    const first = await queue('Keep the original filenames in the bucket keys.')
+    await queue('When the copy finishes, tell me how many files failed.')
+
+    expect(first).toMatchObject({ taskId: task.id, body: 'Keep the original filenames in the bucket keys.' })
+    expect(queued()).toEqual([
+      'Keep the original filenames in the bucket keys.',
+      'When the copy finishes, tell me how many files failed.',
+    ])
+    expect(sent()).toEqual(['Copy the existing uploads to S3.'])
+    expect(drainEvents()).toEqual([
+      [EventType.QueueChanged, ['Keep the original filenames in the bucket keys.']],
+      [
+        EventType.QueueChanged,
+        ['Keep the original filenames in the bucket keys.', 'When the copy finishes, tell me how many files failed.'],
+      ],
+    ])
+
+    backend.session.emit(sdk.toolResult('toolu_01', 'copied 3,900 of 3,900'))
+    await settle()
+
+    expect(queued()).toEqual([])
+    const messages = listMessages(database.db, task.id)
+    expect(chat()).toEqual([
+      { role: MessageRole.User, body: 'Copy the existing uploads to S3.', turn: 1 },
+      { role: MessageRole.User, body: 'Keep the original filenames in the bucket keys.', turn: 1 },
+      { role: MessageRole.User, body: 'When the copy finishes, tell me how many files failed.', turn: 1 },
+    ])
+    expect(backend.session.sent.map(({ text, uuid }) => [text, uuid])).toEqual(
+      messages.map(({ body, id }) => [body, id]),
+    )
+    expect(drainEvents()).toEqual([
+      [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Done],
+      [EventType.QueueChanged, []],
+      [EventType.MessageAppended, MessageRole.User, 'Keep the original filenames in the bucket keys.'],
+      [EventType.MessageAppended, MessageRole.User, 'When the copy finishes, tell me how many files failed.'],
+    ])
+
+    backend.session.emit(
+      sdk.text('Done: the keys keep their filenames, and no file failed.', null, 'msg_02'),
+      sdk.result('Done: the keys keep their filenames, and no file failed.', {
+        user_message_uuids: messages.map(({ id }) => id),
+      }),
+    )
+    await settle()
+
+    expect(chat().at(-1)).toEqual({
+      role: MessageRole.Agent,
+      body: 'Done: the keys keep their filenames, and no file failed.',
+      turn: 1,
+    })
+    expect(current().activity).toBe(TaskActivity.Waiting)
+    expect(toolLog().filter((entry) => 'divider' in (entry as object))).toEqual([
+      { divider: DividerKind.Turn, turn: 1 },
+    ])
+  })
+
+  it("waits until every top-level call of the step has its result, not just a subagent's", async () => {
+    await send('Check the uploads.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_01', 'Bash', { command: 'ls uploads' }),
+      sdk.toolUse('toolu_02', 'Agent', { description: 'Check a sample', prompt: 'Check ten files.' }, null, 'msg_01'),
+      sdk.toolUse('toolu_03', 'Read', { file_path: 'uploads/a.jpg' }, 'toolu_02', 'msg_sub'),
+    )
+    await settle()
+    await queue('Skip the thumbnails.')
+
+    backend.session.emit(sdk.toolResult('toolu_03', 'ok', false, 'toolu_02'), sdk.toolResult('toolu_01', 'a.jpg'))
+    await settle()
+    expect(queued()).toEqual(['Skip the thumbnails.'])
+
+    backend.session.emit(sdk.toolResult('toolu_02', 'All ten files are fine.'))
+    await settle()
+    expect(queued()).toEqual([])
+    expect(sent()).toEqual(['Check the uploads.', 'Skip the thumbnails.'])
+  })
+
+  it('starts the next turn with what is still queued when the turn ends', async () => {
+    await send('Summarise the plan.')
+    backend.session.emit(sdk.init(), sdk.text('The plan: copy, then verify.'))
+    await settle()
+    await queue('Keep the original filenames.')
+    await queue('Then check a sample.')
+    events.splice(0)
+
+    backend.session.emit(sdk.result('The plan: copy, then verify.'))
+    await settle()
+
+    expect(queued()).toEqual([])
+    expect(chat()).toEqual([
+      { role: MessageRole.User, body: 'Summarise the plan.', turn: 1 },
+      { role: MessageRole.Agent, body: 'The plan: copy, then verify.', turn: 1 },
+      { role: MessageRole.User, body: 'Keep the original filenames.', turn: 2 },
+      { role: MessageRole.User, body: 'Then check a sample.', turn: 2 },
+    ])
+    expect(sent()).toEqual(['Summarise the plan.', 'Keep the original filenames.', 'Then check a sample.'])
+    expect(drainEvents()).toEqual([
+      [EventType.MessageAppended, MessageRole.Agent, 'The plan: copy, then verify.'],
+      [EventType.QueueChanged, []],
+      [EventType.MessageAppended, MessageRole.User, 'Keep the original filenames.'],
+      [EventType.MessageAppended, MessageRole.User, 'Then check a sample.'],
+      [EventType.ToolEventAppended, ToolEventKind.Divider, null],
+    ])
+    expect(current().activity).toBe(TaskActivity.Working)
+
+    // It's a turn like any other: busy until it ends.
+    await expect(send('And another thing.')).rejects.toMatchObject({ code: BridgeErrorCode.Busy })
+    backend.session.emit(sdk.result('Copied with the original filenames; the sample is fine.'))
+    await settle()
+    expect(current().activity).toBe(TaskActivity.Waiting)
+  })
+
+  it('delivers an edit made before delivery, and never a removed message', async () => {
+    await startCopy()
+    const keep = await queue('Keep the filenames.')
+    const drop = await queue('Use the Glacier storage class.')
+
+    const { queuedMessage } = await glade.invoke(CommandName.QueueEdit, {
+      id: keep.id,
+      text: 'Keep the original filenames in the bucket keys.',
+    })
+    await glade.invoke(CommandName.QueueRemove, { id: drop.id })
+
+    expect(queuedMessage).toEqual({ ...keep, body: 'Keep the original filenames in the bucket keys.' })
+    expect(queued()).toEqual(['Keep the original filenames in the bucket keys.'])
+
+    backend.session.emit(sdk.toolResult('toolu_01', 'copied'))
+    await settle()
+
+    expect(sent()).toEqual(['Copy the existing uploads to S3.', 'Keep the original filenames in the bucket keys.'])
+    // Once delivered, it can't be edited or removed.
+    await expect(glade.invoke(CommandName.QueueEdit, { id: keep.id, text: 'Too late.' })).rejects.toMatchObject({
+      code: BridgeErrorCode.NotFound,
+    })
+    await expect(glade.invoke(CommandName.QueueRemove, { id: keep.id })).rejects.toMatchObject({
+      code: BridgeErrorCode.NotFound,
+    })
+  })
+
+  it('leaves the queue alone when the turn is stopped, then sends it before the next message', async () => {
+    await startCopy()
+    await queue('Keep the original filenames.')
+    backend.session.onInterrupt = () => {
+      backend.session.emit(
+        sdk.toolResult('toolu_01', "The user doesn't want to proceed with this tool use.", true),
+        sdk.interruptMarker(true),
+        sdk.abortedResult('aborted_tools'),
+      )
+      return Promise.resolve()
+    }
+
+    await glade.invoke(CommandName.TasksStop, { id: task.id })
+
+    expect(current().activity).toBe(TaskActivity.Waiting)
+    expect(queued()).toEqual(['Keep the original filenames.'])
+    expect(sent()).toEqual(['Copy the existing uploads to S3.'])
+
+    await send('Carry on with the copy.')
+
+    expect(queued()).toEqual([])
+    expect(chat().slice(1)).toEqual([
+      { role: MessageRole.User, body: 'Keep the original filenames.', turn: 2 },
+      { role: MessageRole.User, body: 'Carry on with the copy.', turn: 2 },
+    ])
+    expect(sent()).toEqual([
+      'Copy the existing uploads to S3.',
+      'Keep the original filenames.',
+      'Carry on with the copy.',
+    ])
+  })
+
+  it('leaves the queue alone when the turn fails', async () => {
+    await startCopy()
+    backend.session.emit(sdk.toolResult('toolu_01', 'copied'))
+    await settle()
+    await queue('Keep the original filenames.')
+
+    backend.session.emit(sdk.apiErrorResult())
+    await settle()
+
+    expect(current().activity).toBe(TaskActivity.Error)
+    expect(queued()).toEqual(['Keep the original filenames.'])
+    expect(sent()).toEqual(['Copy the existing uploads to S3.'])
+  })
+
+  it('leaves the queue alone when the session fails', async () => {
+    await startCopy()
+    await queue('Keep the original filenames.')
+
+    backend.session.fail(new Error('The agent process exited with code 1'))
+    await settle()
+
+    expect(current().activity).toBe(TaskActivity.Error)
+    expect(queued()).toEqual(['Keep the original filenames.'])
+  })
+
+  it('leaves the queue alone when the turn ends on a task marked done meanwhile', async () => {
+    await startCopy()
+    backend.session.emit(sdk.toolResult('toolu_01', 'copied'))
+    await settle()
+    await queue('Keep the original filenames.')
+    await glade.invoke(CommandName.TasksMarkDone, { id: task.id })
+
+    backend.session.emit(sdk.result('Copied.'))
+    await settle()
+
+    expect(current()).toMatchObject({ state: TaskState.Done, activity: TaskActivity.Waiting })
+    expect(queued()).toEqual(['Keep the original filenames.'])
+  })
+
+  it('starts a turn at once for a message queued when no turn is running', async () => {
+    await send('Hi')
+    backend.session.emit(sdk.init(), sdk.result('Hello.'))
+    await settle()
+
+    const message = await queue('Copy the existing uploads to S3.')
+
+    expect(message.body).toBe('Copy the existing uploads to S3.')
+    expect(queued()).toEqual([])
+    expect(chat().at(-1)).toEqual({ role: MessageRole.User, body: 'Copy the existing uploads to S3.', turn: 2 })
+    expect(sent()).toEqual(['Hi', 'Copy the existing uploads to S3.'])
+    expect(current().activity).toBe(TaskActivity.Working)
+  })
+
+  it('starts the session for a message queued to a task that has none', async () => {
+    await queue('Copy the existing uploads to S3.')
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(sent()).toEqual(['Copy the existing uploads to S3.'])
+    expect(chat()).toEqual([{ role: MessageRole.User, body: 'Copy the existing uploads to S3.', turn: 1 }])
+  })
+
+  it('carries the turn on when the SDK answers a message handed over mid-turn with a turn of its own', async () => {
+    await startCopy()
+    await queue('Keep the original filenames.')
+    backend.session.emit(sdk.toolResult('toolu_01', 'copied'))
+    await settle()
+    const [first, folded] = listMessages(database.db, task.id)
+
+    backend.session.emit(
+      sdk.text('Copied all 3,900 files.', null, 'msg_02'),
+      sdk.result('Copied all 3,900 files.', { user_message_uuids: [first?.id] }),
+    )
+    await settle()
+
+    expect(chat().at(-1)).toEqual({ role: MessageRole.Agent, body: 'Copied all 3,900 files.', turn: 1 })
+    expect(current().activity).toBe(TaskActivity.Working)
+
+    backend.session.emit(
+      sdk.init(),
+      sdk.text('They keep their original filenames.', null, 'msg_03'),
+      sdk.result('They keep their original filenames.', { user_message_uuids: [folded?.id] }),
+    )
+    await settle()
+
+    expect(chat().slice(-2)).toEqual([
+      { role: MessageRole.Agent, body: 'Copied all 3,900 files.', turn: 1 },
+      { role: MessageRole.Agent, body: 'They keep their original filenames.', turn: 1 },
+    ])
+    expect(current().activity).toBe(TaskActivity.Waiting)
+  })
+
+  it('ends the turn on a result that names none of its messages, since it cannot match them up', async () => {
+    await startCopy()
+    await queue('Keep the original filenames.')
+    backend.session.emit(sdk.toolResult('toolu_01', 'copied'))
+    await settle()
+
+    backend.session.emit(sdk.result('Copied.', { user_message_uuids: ['not-one-of-ours'] }))
+    await settle()
+
+    expect(current().activity).toBe(TaskActivity.Waiting)
+  })
+
+  it('keeps the queue across a relaunch, and delivers it at the end of the resumed turn’s step', async () => {
+    await startCopy()
+    await queue('Keep the original filenames.')
+
+    relaunch()
+    expect(queued()).toEqual(['Keep the original filenames.'])
+    runner.resumeInterrupted()
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_02', 'Bash', { command: 'python scripts/copy.py --resume' }),
+      sdk.toolResult('toolu_02', 'copied the rest'),
+    )
+    await settle()
+
+    expect(queued()).toEqual([])
+    expect(sent()).toEqual([RESUME_PROMPT, 'Keep the original filenames.'])
+    expect(chat().at(-1)).toEqual({ role: MessageRole.User, body: 'Keep the original filenames.', turn: 1 })
+  })
+
+  it('lists the queue with the task’s history', async () => {
+    await startCopy()
+    const message = await queue('Keep the original filenames.')
+
+    await expect(glade.invoke(CommandName.TasksHistory, { id: task.id })).resolves.toMatchObject({
+      queuedMessages: [message],
+    })
+  })
+
+  it('refuses a task that does not exist, and a blank message', async () => {
+    await expect(queue('Hi', 'gone')).rejects.toMatchObject({ code: BridgeErrorCode.NotFound })
+    await expect(queue(' \n')).rejects.toMatchObject({ code: BridgeErrorCode.InvalidRequest })
+    await expect(glade.invoke(CommandName.QueueEdit, { id: 'gone', text: ' ' })).rejects.toMatchObject({
+      code: BridgeErrorCode.InvalidRequest,
+    })
+    expect(backend.sessions).toEqual([])
+  })
+})
+
 describe('tasks.history', () => {
   it('refuses a task that does not exist', async () => {
     await expect(glade.invoke(CommandName.TasksHistory, { id: 'gone' })).rejects.toMatchObject({
@@ -1248,6 +1594,7 @@ describe('several tasks at once', () => {
       case EventType.TaskUpdated:
         return event.task.id
       case EventType.TaskOpenRequested:
+      case EventType.QueueChanged:
         return event.taskId
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
@@ -1265,6 +1612,8 @@ describe('several tasks at once', () => {
         return [event.type, event.toolEvent.kind, 'state' in event.toolEvent ? event.toolEvent.state : null]
       case EventType.TaskUpdated:
         return [event.type, event.task.activity]
+      case EventType.QueueChanged:
+        return [event.type, event.queuedMessages.length]
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
       case EventType.TaskOpenRequested:

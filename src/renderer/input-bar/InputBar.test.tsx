@@ -9,23 +9,40 @@ import { createGladeStore, type GladeStore } from '../store/store'
 import {
   fakeBridge,
   refuse,
+  sampleQueuedMessage,
   sampleTask,
   sampleWorkspace,
   type FakeBridge,
   type FakeHandlers,
 } from '../store/test-bridge'
-import { DONE_PLACEHOLDER, InputBar, NEW_TASK_PLACEHOLDER, REPLY_PLACEHOLDER, sendFailureMessage } from './InputBar'
+import {
+  DONE_PLACEHOLDER,
+  InputBar,
+  NEW_TASK_PLACEHOLDER,
+  QUEUE_PLACEHOLDER,
+  queueFailureMessage,
+  REPLY_PLACEHOLDER,
+  sendFailureMessage,
+} from './InputBar'
 
 interface Setup {
   readonly task?: Partial<Task>
   readonly selected?: boolean
   readonly overrides?: Partial<FakeHandlers>
   readonly contextMeter?: React.ReactNode
+  /** The selected task's queue. */
+  readonly queued?: readonly string[]
 }
 
 type Rendered = FakeBridge & { store: GladeStore }
 
-async function renderBar({ task = {}, selected = true, overrides = {}, contextMeter }: Setup = {}): Promise<Rendered> {
+async function renderBar({
+  task = {},
+  selected = true,
+  overrides = {},
+  contextMeter,
+  queued = [],
+}: Setup = {}): Promise<Rendered> {
   const fake = fakeBridge(
     {
       workspaces: [sampleWorkspace('w1')],
@@ -38,6 +55,7 @@ async function renderBar({ task = {}, selected = true, overrides = {}, contextMe
         { key: UiStateKey.SelectedTaskId, value: selected ? 't1' : '' },
       ],
       messages: [],
+      queuedMessages: queued.map((body, index) => sampleQueuedMessage(`q${String(index + 1)}`, 't1', body)),
     },
     overrides,
   )
@@ -77,6 +95,29 @@ async function press(key: string, init: Partial<KeyboardEventInit> = {}): Promis
 
 function sends(fake: FakeBridge): unknown[] {
   return fake.invoke.mock.calls.filter(([command]) => command === CommandName.TasksSend).map(([, request]) => request)
+}
+
+function queueAdds(fake: FakeBridge): unknown[] {
+  return fake.invoke.mock.calls.filter(([command]) => command === CommandName.QueueAdd).map(([, request]) => request)
+}
+
+function queueButton(): HTMLElement {
+  return screen.getByRole('button', { name: 'Queue message' })
+}
+
+function queueRegion(): HTMLElement {
+  return screen.getByRole('region', { name: 'Queued messages' })
+}
+
+/** Each queued message's row: its number and text. */
+function queueRows(): string[] {
+  return within(queueRegion())
+    .getAllByRole('listitem')
+    .map((row) => row.textContent)
+}
+
+function notifications(): HTMLElement {
+  return screen.getByRole('region', { name: 'Notifications' })
 }
 
 function stops(fake: FakeBridge): unknown[] {
@@ -252,26 +293,66 @@ describe('InputBar', () => {
   })
 
   describe('while the agent works', () => {
-    it('disables Send and shows Stop, but lets you keep typing', async () => {
+    it('queues what you send instead, with its own placeholder, and shows Stop', async () => {
       const fake = await renderBar()
       setActivity(fake, TaskActivity.Working)
-      type('Next, the docs.')
+      expect(field()).toHaveAttribute('placeholder', QUEUE_PLACEHOLDER)
+      type('Keep the original filenames.')
 
-      expect(field()).toBeEnabled()
-      expect(sendButton()).toBeDisabled()
+      expect(queueButton()).toBeEnabled()
       expect(await press('Enter')).toBe(false)
       expect(sends(fake)).toEqual([])
-      expect(field()).toHaveValue('Next, the docs.')
+      expect(queueAdds(fake)).toEqual([{ taskId: 't1', text: 'Keep the original filenames.' }])
+      expect(field()).toHaveValue('')
+      expect(queueRows()).toEqual(['1Keep the original filenames.'])
 
-      // Stop stops the agent, which goes back to waiting on you.
+      type('Then check a sample.')
+      await act(async () => {
+        fireEvent.click(queueButton())
+        await Promise.resolve()
+      })
+      expect(queueRows()).toEqual(['1Keep the original filenames.', '2Then check a sample.'])
+      expect(queueRegion()).toHaveTextContent('Queued · 2Sent when the agent finishes its current step')
+
+      // Stop stops the agent, which goes back to waiting on you; the queue stays, to go with your next message.
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
         await Promise.resolve()
       })
       expect(stops(fake)).toEqual([{ id: 't1' }])
       expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
+      expect(queueRegion()).toHaveTextContent('Queued · 2Sent with your next message')
+      type('Carry on.')
       await press('Enter')
-      expect(sends(fake)).toEqual([{ id: 't1', text: 'Next, the docs.' }])
+      expect(sends(fake)).toEqual([{ id: 't1', text: 'Carry on.' }])
+    })
+
+    it('queues the message when the agent turns out to be working already', async () => {
+      const fake = await renderBar({
+        overrides: {
+          [CommandName.TasksSend]: () => refuse(bridgeError(BridgeErrorCode.Busy, 'The agent is working')),
+        },
+      })
+      type('Keep the original filenames.')
+
+      await press('Enter')
+
+      expect(sends(fake)).toHaveLength(1)
+      expect(queueAdds(fake)).toEqual([{ taskId: 't1', text: 'Keep the original filenames.' }])
+      expect(field()).toHaveValue('')
+    })
+
+    it('keeps the message and says why in a toast when it can’t be queued', async () => {
+      const fake = await renderBar({
+        overrides: { [CommandName.QueueAdd]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No task t1')) },
+      })
+      setActivity(fake, TaskActivity.Working)
+      type('Keep the original filenames.')
+
+      await press('Enter')
+
+      expect(field()).toHaveValue('Keep the original filenames.')
+      expect(notifications()).toHaveTextContent('Couldn’t send your message: No task t1')
     })
 
     it('says so in a toast when the agent can’t be stopped', async () => {
@@ -396,11 +477,175 @@ describe('InputBar', () => {
   })
 })
 
-describe('sendFailureMessage', () => {
-  it('explains a busy agent, and anything else', () => {
-    expect(sendFailureMessage(bridgeError(BridgeErrorCode.Busy, 'busy'))).toBe(
-      'The agent is still working. Send your message when it finishes.',
+describe('the queue', () => {
+  const QUEUE = ['Keep the filenames.', 'Use the Glacier storage class.']
+
+  function editor(): HTMLTextAreaElement {
+    return screen.getByRole('textbox', { name: 'Queued message' })
+  }
+
+  function rowButton(position: number, name: string): HTMLElement {
+    const row = within(queueRegion()).getAllByRole('listitem')[position - 1]
+    if (row === undefined) throw new Error(`No queued message ${String(position)}`)
+    return within(row).getByRole('button', { name })
+  }
+
+  async function click(element: HTMLElement): Promise<void> {
+    await act(async () => {
+      fireEvent.click(element)
+      await Promise.resolve()
+    })
+  }
+
+  async function keyInEditor(key: string, init: Partial<KeyboardEventInit> = {}): Promise<void> {
+    await act(async () => {
+      fireEvent.keyDown(editor(), { key, ...init })
+      await Promise.resolve()
+    })
+  }
+
+  function edits(fake: FakeBridge): unknown[] {
+    return fake.invoke.mock.calls.filter(([command]) => command === CommandName.QueueEdit).map(([, request]) => request)
+  }
+
+  it('shows nothing without queued messages', async () => {
+    await renderBar()
+    expect(screen.queryByRole('region', { name: 'Queued messages' })).toBeNull()
+  })
+
+  it('numbers the queued messages in the order they will go', async () => {
+    await renderBar({ queued: QUEUE })
+    expect(queueRows()).toEqual(['1Keep the filenames.', '2Use the Glacier storage class.'])
+    expect(queueRegion()).toHaveTextContent('Queued · 2')
+  })
+
+  it('edits a message in place: ↵ saves it, and the message field gets the focus back', async () => {
+    const fake = await renderBar({ queued: QUEUE })
+
+    await click(rowButton(1, 'Edit queued message'))
+    expect(editor()).toHaveValue('Keep the filenames.')
+    expect(editor()).toHaveFocus()
+    fireEvent.change(editor(), { target: { value: 'Keep the original filenames in the bucket keys. ' } })
+    await keyInEditor('Enter')
+
+    expect(edits(fake)).toEqual([{ id: 'q1', text: 'Keep the original filenames in the bucket keys.' }])
+    expect(screen.queryByRole('textbox', { name: 'Queued message' })).toBeNull()
+    expect(queueRows()[0]).toBe('1Keep the original filenames in the bucket keys.')
+    expect(field()).toHaveFocus()
+  })
+
+  it('keeps ⇧↵ and an input method’s ↵ for the editor, and saves with the Save button or on leaving it', async () => {
+    const fake = await renderBar({ queued: QUEUE })
+    await click(rowButton(2, 'Edit queued message'))
+    fireEvent.change(editor(), { target: { value: 'Use Glacier.' } })
+    await keyInEditor('Enter', { shiftKey: true })
+    await keyInEditor('Enter', { isComposing: true })
+    await keyInEditor('a')
+    expect(edits(fake)).toEqual([])
+
+    const save = rowButton(2, 'Save queued message')
+    expect(fireEvent.mouseDown(save)).toBe(false)
+    await click(save)
+    expect(edits(fake)).toEqual([{ id: 'q2', text: 'Use Glacier.' }])
+
+    await click(rowButton(1, 'Edit queued message'))
+    fireEvent.change(editor(), { target: { value: 'Keep them.' } })
+    await act(async () => {
+      fireEvent.blur(editor())
+      await Promise.resolve()
+    })
+    expect(edits(fake)).toEqual([
+      { id: 'q2', text: 'Use Glacier.' },
+      { id: 'q1', text: 'Keep them.' },
+    ])
+  })
+
+  it('saves nothing for Esc, an unchanged text or a blank one', async () => {
+    const fake = await renderBar({ queued: QUEUE })
+
+    await click(rowButton(1, 'Edit queued message'))
+    fireEvent.change(editor(), { target: { value: 'Something else.' } })
+    await keyInEditor('Escape')
+    expect(screen.queryByRole('textbox', { name: 'Queued message' })).toBeNull()
+    expect(field()).toHaveFocus()
+
+    await click(rowButton(1, 'Edit queued message'))
+    await keyInEditor('Enter')
+    await click(rowButton(1, 'Edit queued message'))
+    fireEvent.change(editor(), { target: { value: '  ' } })
+    await keyInEditor('Enter')
+
+    expect(edits(fake)).toEqual([])
+    expect(queueRows()[0]).toBe('1Keep the filenames.')
+  })
+
+  it('edits the last queued message on ↑ in the empty message field', async () => {
+    await renderBar({ queued: QUEUE })
+
+    expect(await press('ArrowUp', { shiftKey: true })).toBe(true)
+    type('Draft')
+    expect(await press('ArrowUp')).toBe(true)
+    expect(screen.queryByRole('textbox', { name: 'Queued message' })).toBeNull()
+
+    type('')
+    expect(await press('ArrowUp')).toBe(false)
+    expect(editor()).toHaveValue('Use the Glacier storage class.')
+  })
+
+  it('leaves ↑ to the field when nothing is queued', async () => {
+    await renderBar()
+    expect(await press('ArrowUp')).toBe(true)
+  })
+
+  it('removes a message', async () => {
+    const fake = await renderBar({ queued: QUEUE })
+
+    await click(rowButton(1, 'Remove queued message'))
+
+    expect(fake.invoke).toHaveBeenLastCalledWith(CommandName.QueueRemove, { id: 'q1' })
+    expect(queueRows()).toEqual(['1Use the Glacier storage class.'])
+  })
+
+  it('says so in a toast when the agent already has the message being edited or removed', async () => {
+    const gone = () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No queued message'))
+    await renderBar({
+      queued: QUEUE,
+      overrides: { [CommandName.QueueEdit]: gone, [CommandName.QueueRemove]: gone },
+    })
+
+    await click(rowButton(1, 'Edit queued message'))
+    fireEvent.change(editor(), { target: { value: 'Keep them.' } })
+    await keyInEditor('Enter')
+    expect(notifications()).toHaveTextContent('Couldn’t edit the message: the agent already has it.')
+
+    await click(rowButton(2, 'Remove queued message'))
+    expect(notifications()).toHaveTextContent('Couldn’t remove the message: the agent already has it.')
+  })
+
+  it('stops editing a message that leaves the queue meanwhile', async () => {
+    const fake = await renderBar({ queued: QUEUE })
+    await click(rowButton(1, 'Edit queued message'))
+
+    act(() => {
+      fake.emit({ type: EventType.QueueChanged, taskId: 't1', queuedMessages: [] })
+    })
+
+    expect(screen.queryByRole('region', { name: 'Queued messages' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'Queued message' })).toBeNull()
+  })
+})
+
+describe('queueFailureMessage', () => {
+  it('explains a message that has left the queue, and anything else', () => {
+    expect(queueFailureMessage('edit', bridgeError(BridgeErrorCode.NotFound, 'No queued message q1'))).toBe(
+      'Couldn’t edit the message: the agent already has it.',
     )
+    expect(queueFailureMessage('remove', new Error('offline'))).toBe('Couldn’t remove the message: offline')
+  })
+})
+
+describe('sendFailureMessage', () => {
+  it('explains why a message could not be sent', () => {
     expect(sendFailureMessage(bridgeError(BridgeErrorCode.Internal, 'tasks.send failed: no agent'))).toBe(
       'Couldn’t send your message: tasks.send failed: no agent',
     )

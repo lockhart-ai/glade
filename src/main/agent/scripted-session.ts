@@ -5,6 +5,9 @@
  *
  * - Turns run one after another, in the order their messages were sent. The runner's `RESUME_PROMPT` runs the
  *   script's resume turn, if it has one.
+ * - A message sent while a turn is playing is folded into it, as the SDK folds a message pushed mid-turn: before its
+ *   next step, the turn drops the steps it has left and plays the script's next turn instead (without its init), and
+ *   its `result` answers every message it took.
  * - An interrupt ends the running turn the way the SDK does: tool calls still running get a "rejected" result, then an
  *   interrupt marker and an `error_during_execution` result (`aborted_tools` if a call was running, else
  *   `aborted_streaming`).
@@ -84,6 +87,10 @@ interface TurnState {
   lastText: string
   /** Whether `onIdle` has been called for this turn. */
   idle: boolean
+  /** The uuids of the messages the turn has taken: the one that started it, then any folded into it. */
+  readonly uuids: string[]
+  /** The script turns of messages folded into the turn that it hasn't started playing yet. */
+  readonly folded: ScriptTurn[]
 }
 
 export class ScriptedSession implements AgentSession {
@@ -121,6 +128,14 @@ export class ScriptedSession implements AgentSession {
           ? script.resumeTurn
           : (script.turns[Math.min(this.turnsRun, script.turns.length - 1)] ?? [])
     this.turnsRun += 1
+    const playing = this.turn
+    if (playing !== null && !playing.isInterrupted && !this.stopped) {
+      playing.uuids.push(uuid)
+      playing.folded.push(turn.filter((step) => step.kind !== ScriptStepKind.Init))
+      // The folded message has nothing of its own left to do: the turn it joined goes idle for itself.
+      this.options.onIdle?.()
+      return
+    }
     const number = this.turnsRun
     this.queue = this.queue.then(() => this.play(turn, number, uuid))
   }
@@ -182,14 +197,21 @@ export class ScriptedSession implements AgentSession {
       running: new Map(),
       lastText: '',
       idle: false,
+      uuids: [uuid],
+      folded: [],
     }
     this.turn = turn
     // Functions, so the checks aren't narrowed away: an interrupt or a close can land during any await.
     const wasInterrupted = (): boolean => turn.isInterrupted
     const isLive = (): boolean => !this.stopped
     try {
-      for (const step of steps) {
-        if (wasInterrupted()) break
+      let left: readonly ScriptStep[] = steps
+      while (!wasInterrupted()) {
+        // A message folded into the turn replaces what it had left to do.
+        left = turn.folded.shift() ?? left
+        const [step, ...rest] = left
+        if (step === undefined) break
+        left = rest
         await this.step(turn, step, uuid)
       }
       if (wasInterrupted() && isLive()) this.abort(turn)
@@ -238,7 +260,7 @@ export class ScriptedSession implements AgentSession {
       }
       case ScriptStepKind.Result:
         this.costUsd += TURN_COST_USD
-        this.result(turn, uuid, {
+        this.result(turn, turn.uuids, {
           subtype: 'success',
           is_error: step.isError ?? false,
           result: step.text ?? turn.lastText,
@@ -363,7 +385,7 @@ export class ScriptedSession implements AgentSession {
     })
   }
 
-  private result(turn: TurnState, uuid: string, fields: Record<string, unknown>): void {
+  private result(turn: TurnState, uuids: readonly string[], fields: Record<string, unknown>): void {
     const durationMs = Date.now() - turn.startedAt
     this.push({
       type: 'result',
@@ -375,7 +397,7 @@ export class ScriptedSession implements AgentSession {
       usage: TURN_USAGE,
       modelUsage: this.modelUsage(),
       permission_denials: [],
-      user_message_uuids: [uuid],
+      user_message_uuids: uuids,
       ...fields,
     })
   }
@@ -409,7 +431,7 @@ export class ScriptedSession implements AgentSession {
       parent_tool_use_id: null,
       message: { role: 'user', content: [{ type: 'text', text: marker }] },
     })
-    this.result(turn, '', {
+    this.result(turn, [''], {
       subtype: 'error_during_execution',
       is_error: true,
       result: '',

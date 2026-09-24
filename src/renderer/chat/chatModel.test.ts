@@ -149,6 +149,23 @@ describe('chatEntries', () => {
       expect(kinds(chatEntries(task, messages, events))).toEqual(['ask', 'r1', 'reply-1', 'follow-up', 'r2', 'reply-2'])
     })
 
+    it('puts a queued message delivered into the resumed turn after the divider, and one delivered before it ahead', () => {
+      const restartedAt = resumed('r1', 1).createdAt
+      const turn = [
+        message('ask', MessageRole.User, 1),
+        { ...message('queued-before', MessageRole.User, 1), createdAt: restartedAt - 1 },
+        { ...message('queued-after', MessageRole.User, 1), createdAt: restartedAt + 1 },
+        message('reply-1', MessageRole.Agent, 1),
+      ]
+      expect(kinds(chatEntries(task, turn, [resumed('r1', 1)]))).toEqual([
+        'ask',
+        'queued-before',
+        'r1',
+        'queued-after',
+        'reply-1',
+      ])
+    })
+
     it('keeps a divider for a turn with no reply yet at the end, saying it is resuming while the turn runs', () => {
       const running = messages.slice(0, 3)
       const events = [resumed('r1', 1), resumed('r2', 2)]

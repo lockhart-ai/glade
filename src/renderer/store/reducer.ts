@@ -63,6 +63,8 @@ export function withHistory(state: GladeData, taskId: string, history: TasksHist
     ...state,
     messages: { ...state.messages, [taskId]: merged<Message>(history.messages, state.messages[taskId]) },
     toolEvents: { ...state.toolEvents, [taskId]: merged<ToolEvent>(history.toolEvents, state.toolEvents[taskId]) },
+    // The queue changes in place, so events can't be merged into it: the loaded one is as new as any event before it.
+    queuedMessages: { ...state.queuedMessages, [taskId]: history.queuedMessages },
   }
 }
 
@@ -99,5 +101,7 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
     case EventType.TaskOpenRequested:
       // Opening a task is an action, not a change of state: the store selects it (see `./store`).
       return state
+    case EventType.QueueChanged:
+      return { ...state, queuedMessages: { ...state.queuedMessages, [event.taskId]: event.queuedMessages } }
   }
 }

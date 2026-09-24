@@ -4,7 +4,14 @@ import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from
 import { MessageRole } from '../../shared/domain'
 import { appendMessage } from '../db/repositories/messages'
 import { appendNarration } from '../db/repositories/tool-events'
-import { emitMessageAppended, emitTaskUpdated, emitToolEventAppended, emitToolEventUpdated } from './events'
+import { appendQueuedMessage } from '../db/repositories/queued-messages'
+import {
+  emitMessageAppended,
+  emitQueueChanged,
+  emitTaskUpdated,
+  emitToolEventAppended,
+  emitToolEventUpdated,
+} from './events'
 
 let database: TestDatabase
 
@@ -40,4 +47,18 @@ it("emits a task's appended message and its appended and updated tool events", (
     [{ type: EventType.ToolEventAppended, toolEvent }],
     [{ type: EventType.ToolEventUpdated, toolEvent }],
   ])
+})
+
+it("emits a task's whole queue as a queue.changed event", () => {
+  const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+  const queued = appendQueuedMessage(database.db, { taskId: task.id, body: 'Keep the filenames.' })
+  const emit = vi.fn()
+
+  emitQueueChanged(emit, task.id, [queued])
+
+  expect(emit).toHaveBeenCalledExactlyOnceWith({
+    type: EventType.QueueChanged,
+    taskId: task.id,
+    queuedMessages: [queued],
+  })
 })

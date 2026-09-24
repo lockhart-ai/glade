@@ -13,6 +13,7 @@ import {
 } from '../shared/domain'
 import { applySeed, readSeed, type CaptureSeed } from './capture-seed'
 import { listMessages } from './db/repositories/messages'
+import { listQueuedMessages } from './db/repositories/queued-messages'
 import { listToolEvents } from './db/repositories/tool-events'
 import { listTasks } from './db/repositories/tasks'
 import { getUiState } from './db/repositories/ui-state'
@@ -210,6 +211,7 @@ describe('applySeed', () => {
               },
               { kind: ToolEventKind.ToolCall, name: 'Bash', input: { command: 'make' }, turn: 1, minutesAgo: 3 },
             ],
+            queuedMessages: ['Keep the limits per key.', 'Then update the docs.'],
           },
         ],
       },
@@ -238,6 +240,10 @@ describe('applySeed', () => {
         parentToolUseId: null,
       },
       { kind: ToolEventKind.ToolCall, name: 'Bash', output: null, state: ToolCallState.Running },
+    ])
+    expect(listQueuedMessages(db, taskId).map(({ body, createdAt }) => [body, createdAt])).toEqual([
+      ['Keep the limits per key.', NOW],
+      ['Then update the docs.', NOW],
     ])
   })
 

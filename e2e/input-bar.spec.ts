@@ -64,7 +64,10 @@ test('input bar: ⌘L focuses it, ⇧↵ adds a line, the pickers persist, and �
   await expect(relaunched.setting('Effort')).toHaveText('EffortLow')
 })
 
-test('input bar: while the agent works, Send waits and the Stop button stops it', async ({ launch, tempFolder }) => {
+test('input bar: while the agent works, Send queues instead and the Stop button stops it', async ({
+  launch,
+  tempFolder,
+}) => {
   const root = join(tempFolder(), 'acme-api')
   mkdirSync(root)
   const glade = await launch({ agentScript: 'long-running', chosenFolder: root })
@@ -75,13 +78,13 @@ test('input bar: while the agent works, Send waits and the Stop button stops it'
   await bar.field.fill('Run the e2e suite.')
   await bar.field.press('Enter')
 
-  // The agent works until it's stopped: Stop shows, Send waits, and you can keep typing.
+  // The agent works until it's stopped: Stop shows, Send queues instead (see message-queue.spec.ts), and you can keep
+  // typing.
   await expect(bar.stop).toBeVisible()
-  await expect(bar.send).toBeDisabled()
+  await expect(bar.send).toHaveCount(0)
+  await expect(bar.queue).toBeEnabled()
   await bar.field.fill('Only run the unit tests.')
-  await bar.field.press('Enter')
   await expect(chat(glade.window).userMessages).toHaveCount(1)
-  await expect(bar.field).toHaveValue('Only run the unit tests.')
 
   await bar.stop.click()
   await expect(bar.stop).toHaveCount(0)

@@ -80,6 +80,10 @@
           "turn": 1,
           "minutesAgo": 1
         }
+      ],
+      "queuedMessages": [
+        "Keep the original filenames in the bucket keys.",
+        "When the copy finishes, tell me how many files failed, if any."
       ]
     }
   ]

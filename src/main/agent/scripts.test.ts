@@ -10,6 +10,7 @@ import {
   type ToolCallEvent,
 } from '../../shared/domain'
 import { listMessages } from '../db/repositories/messages'
+import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
@@ -186,6 +187,44 @@ describe('AGENT_SCRIPTS', () => {
     expect(getTask(database.db, task.id)).toMatchObject({
       activity: TaskActivity.Waiting,
       status: 'The e2e suite passes.',
+    })
+  })
+
+  it('copy-in-batches: keeps a message queued while it copies, and answers it in the turn it resumes after a quit', async () => {
+    const agent = start('copy-in-batches')
+    await send(agent, 'Move image uploads to S3.')
+    agent.queue(task.id, 'Keep the original filenames in the bucket keys.')
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+    expect(activity()).toBe(TaskActivity.Working)
+    expect(listQueuedMessages(database.db, task.id).map(({ body }) => body)).toEqual([
+      'Keep the original filenames in the bucket keys.',
+    ])
+    runner?.close()
+
+    const resumed = start('copy-in-batches')
+    resumed.resumeInterrupted()
+    const idle = backend.whenIdle()
+    await vi.runAllTimersAsync()
+    await idle
+
+    expect(listQueuedMessages(database.db, task.id)).toEqual([])
+    expect(listMessages(database.db, task.id).map(({ role, body, turn }) => [role, body, turn])).toEqual([
+      [MessageRole.User, 'Move image uploads to S3.', 1],
+      [MessageRole.User, 'Keep the original filenames in the bucket keys.', 1],
+      [MessageRole.Agent, 'All 3,900 files are in the bucket, and their keys keep the original filenames.', 1],
+    ])
+    expect(calls().map(({ name, state }) => [name, state])).toEqual([
+      ['mcp__glade__set_title', ToolCallState.Done],
+      ['mcp__glade__set_objective', ToolCallState.Done],
+      ['mcp__glade__set_status', ToolCallState.Done],
+      ['Bash', ToolCallState.Error],
+      ['Bash', ToolCallState.Done],
+      ['Bash', ToolCallState.Done],
+      ['mcp__glade__set_status', ToolCallState.Done],
+    ])
+    expect(getTask(database.db, task.id)).toMatchObject({
+      activity: TaskActivity.Waiting,
+      status: 'All 3,900 files copied to S3, keeping their original filenames.',
     })
   })
 

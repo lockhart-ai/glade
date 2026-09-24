@@ -2,12 +2,13 @@ import { faSquare } from '@fortawesome/free-regular-svg-icons'
 import { faArrowUp } from '@fortawesome/free-solid-svg-icons'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { BridgeErrorCode, isBridgeError } from '../../shared/bridge'
-import { Effort, TaskActivity, TaskState, type Task } from '../../shared/domain'
+import { Effort, TaskActivity, TaskState, type QueuedMessage, type Task } from '../../shared/domain'
 import { MODEL_OPTIONS, modelName } from '../../shared/models'
 import { Icon, IconSize, Textarea, useToast } from '../components'
 import { describeFailure } from '../store/hydrate'
 import { selectSelectedTask } from '../store/state'
 import { useGladeStore } from '../store/react'
+import { QueueList } from './QueueList'
 import { SettingPicker, type SettingOption } from './SettingPicker'
 import styles from './InputBar.module.css'
 
@@ -32,23 +33,46 @@ const PERMISSION_OPTIONS: readonly SettingOption[] = [{ id: ALLOW_ALL, name: 'Al
 export const NEW_TASK_PLACEHOLDER = 'Describe the task…'
 export const REPLY_PLACEHOLDER = 'Reply…'
 export const DONE_PLACEHOLDER = 'Send a message to reopen this task…'
+export const QUEUE_PLACEHOLDER = 'Add a message. It will be queued until the agent finishes its current step.'
+
+/** A task's queue when it has none. */
+const NO_QUEUE: readonly QueuedMessage[] = []
 
 function isEffort(value: string): value is Effort {
   return Object.values<string>(Effort).includes(value)
 }
 
-/** What the empty field says: a new task asks for its description, and a done task says a message reopens it. */
-function placeholder(task: Task, started: boolean): string {
+/**
+ * What the empty field says: a new task asks for its description, a working agent's says the message will be queued,
+ * and a done task's says a message reopens it.
+ */
+function placeholder(task: Task, started: boolean, working: boolean): string {
   if (task.state === TaskState.Done) return DONE_PLACEHOLDER
+  if (working) return QUEUE_PLACEHOLDER
   return started ? REPLY_PLACEHOLDER : NEW_TASK_PLACEHOLDER
+}
+
+/** Whether main refused a command because the agent is working on a turn. */
+function isBusy(error: unknown): boolean {
+  return isBridgeError(error) && error.code === BridgeErrorCode.Busy
 }
 
 /** What the toast says when a message couldn't be sent. */
 export function sendFailureMessage(error: unknown): string {
-  if (isBridgeError(error) && error.code === BridgeErrorCode.Busy) {
-    return 'The agent is still working. Send your message when it finishes.'
-  }
   return `Couldn’t send your message: ${describeFailure(error)}`
+}
+
+/** What the toast says when a queued message couldn't be edited or removed: most likely, it has just been sent. */
+export function queueFailureMessage(action: string, error: unknown): string {
+  if (isBridgeError(error) && error.code === BridgeErrorCode.NotFound) {
+    return `Couldn’t ${action} the message: the agent already has it.`
+  }
+  return `Couldn’t ${action} the message: ${describeFailure(error)}`
+}
+
+/** Whether a key was pressed with a modifier, which leaves it to the field (⇧↑ selects, ⌘↑ goes to the start). */
+function hasModifier(event: KeyboardEvent): boolean {
+  return event.shiftKey || event.metaKey || event.altKey || event.ctrlKey
 }
 
 /** ⌘L, which focuses the input from anywhere in the window. */
@@ -106,22 +130,29 @@ interface TaskInputBarProps extends InputBarProps {
 
 /**
  * Where you talk to the task's agent: the model, effort and permissions settings above a message field. ↵ sends and
- * ⇧↵ adds a line. While the agent works you can keep typing, but sending waits for it to finish (the queue comes
- * later) and Stop shows beside Send.
+ * ⇧↵ adds a line. While the agent works, sending queues the message instead and Stop shows beside Send. The queue
+ * shows above the settings, where each message can be edited in place or removed; ↑ in the empty field edits the last.
  */
 function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInputBarProps): React.JSX.Element {
   const updateTask = useGladeStore((state) => state.updateTask)
   const sendMessage = useGladeStore((state) => state.sendMessage)
+  const queueMessage = useGladeStore((state) => state.queueMessage)
+  const editQueuedMessage = useGladeStore((state) => state.editQueuedMessage)
+  const removeQueuedMessage = useGladeStore((state) => state.removeQueuedMessage)
+  const queue = useGladeStore((state) => state.queuedMessages[task.id] ?? NO_QUEUE)
   const stopTask = useGladeStore((state) => state.stopTask)
   const started = useGladeStore((state) => (state.messages[task.id]?.length ?? 0) > 0)
   const toast = useToast()
   const field = useRef<HTMLTextAreaElement>(null)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const working = task.state === TaskState.Active && task.activity === TaskActivity.Working
   // An empty draft doesn't disable Send (the design shows it ready); sending one just does nothing.
-  const canSend = !working && !sending
+  const canSend = !sending
+  // The message being edited has left the queue: delivered, or removed elsewhere.
+  if (editingId !== null && !queue.some(({ id }) => id === editingId)) setEditingId(null)
 
   useEffect(() => {
     if (focusRequest === answeredRef.current) return
@@ -134,13 +165,39 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     if (!canSend || text === '') return
     setSending(true)
     try {
-      await sendMessage(task.id, text)
+      if (working) await queueMessage(task.id, text)
+      else {
+        // The agent may have started working since the bar last heard: then the message waits in the queue.
+        await sendMessage(task.id, text).catch((error: unknown) => {
+          if (!isBusy(error)) throw error
+          return queueMessage(task.id, text)
+        })
+      }
       setDraft('')
     } catch (error) {
       toast.show({ message: sendFailureMessage(error) })
     } finally {
       setSending(false)
     }
+  }
+
+  const saveQueued = (id: string, text: string): void => {
+    setEditingId(null)
+    field.current?.focus()
+    editQueuedMessage(id, text).catch((error: unknown) => {
+      toast.show({ message: queueFailureMessage('edit', error) })
+    })
+  }
+
+  const cancelEdit = (): void => {
+    setEditingId(null)
+    field.current?.focus()
+  }
+
+  const removeQueued = (id: string): void => {
+    removeQueuedMessage(id).catch((error: unknown) => {
+      toast.show({ message: queueFailureMessage('remove', error) })
+    })
   }
 
   const change = async (setting: string, patch: Parameters<typeof updateTask>[1]): Promise<void> => {
@@ -152,6 +209,12 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    const last = queue.at(-1)
+    if (event.key === 'ArrowUp' && draft === '' && last !== undefined && !hasModifier(event)) {
+      event.preventDefault()
+      setEditingId(last.id)
+      return
+    }
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
     event.preventDefault()
     void send()
@@ -159,6 +222,15 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
 
   return (
     <div className={styles.bar}>
+      <QueueList
+        messages={queue}
+        working={working}
+        editingId={editingId}
+        onEdit={setEditingId}
+        onSave={saveQueued}
+        onCancel={cancelEdit}
+        onRemove={removeQueued}
+      />
       <div className={styles.settings}>
         <SettingPicker
           label="Model"
@@ -193,7 +265,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
         <Textarea
           ref={field}
           label="Message the agent"
-          placeholder={placeholder(task, started)}
+          placeholder={placeholder(task, started, working)}
           className={styles.field}
           value={draft}
           onChange={(event) => {
@@ -217,7 +289,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
         )}
         <button
           type="button"
-          aria-label="Send"
+          aria-label={working ? 'Queue message' : 'Send'}
           className={styles.send}
           disabled={!canSend}
           onClick={() => {

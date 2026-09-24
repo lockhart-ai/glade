@@ -10,7 +10,7 @@ import {
 } from '../../shared/domain'
 import { applyEvent, idFromUiState, withHistory, withOpenedWorkspace } from './reducer'
 import { INITIAL_DATA, type GladeData } from './state'
-import { sampleMessage, sampleTask, sampleWorkspace } from './test-bridge'
+import { sampleMessage, sampleQueuedMessage, sampleTask, sampleWorkspace } from './test-bridge'
 
 const state: GladeData = Object.freeze({
   ...INITIAL_DATA,
@@ -124,7 +124,7 @@ describe("a task's logs", () => {
 
   it('replaces an updated tool event in place, and leaves one it has not seen to the next load', () => {
     const done = { ...call, state: ToolCallState.Done, output: '12 passed' }
-    const loaded = withHistory(state, 't1', { messages: [], toolEvents: [divider, call] })
+    const loaded = withHistory(state, 't1', { messages: [], toolEvents: [divider, call], queuedMessages: [] })
 
     expect(applyEvent(loaded, { type: EventType.ToolEventUpdated, toolEvent: done }).toolEvents).toEqual({
       t1: [divider, done],
@@ -142,11 +142,27 @@ describe("a task's logs", () => {
     ] as const
     const current = withEvents.reduce(applyEvent, state)
 
-    const next = withHistory(current, 't1', { messages: [early], toolEvents: [divider, call] })
+    const next = withHistory(current, 't1', { messages: [early], toolEvents: [divider, call], queuedMessages: [] })
 
     expect(next.messages.t1).toEqual([early, late])
     expect(next.toolEvents.t1).toEqual([divider, call])
-    expect(withHistory(state, 't2', { messages: [], toolEvents: [] }).messages).toEqual({ t2: [] })
+    expect(withHistory(state, 't2', { messages: [], toolEvents: [], queuedMessages: [] }).messages).toEqual({ t2: [] })
+  })
+})
+
+describe("a task's queue", () => {
+  it('takes the queue from each change, whole, and from a history load', () => {
+    const first = sampleQueuedMessage('q1', 't1')
+    const second = sampleQueuedMessage('q2', 't1', 'Then check a sample.')
+
+    const changed = applyEvent(state, { type: EventType.QueueChanged, taskId: 't1', queuedMessages: [first, second] })
+    expect(changed.queuedMessages).toEqual({ t1: [first, second] })
+    expect(
+      applyEvent(changed, { type: EventType.QueueChanged, taskId: 't1', queuedMessages: [] }).queuedMessages,
+    ).toEqual({ t1: [] })
+
+    const loaded = withHistory(changed, 't1', { messages: [], toolEvents: [], queuedMessages: [second] })
+    expect(loaded.queuedMessages).toEqual({ t1: [second] })
   })
 })
 
