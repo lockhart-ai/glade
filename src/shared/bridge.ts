@@ -221,6 +221,7 @@ export enum EventType {
   MessageAppended = 'message.appended',
   ToolEventAppended = 'toolEvent.appended',
   ToolEventUpdated = 'toolEvent.updated',
+  TaskOpenRequested = 'task.openRequested',
 }
 
 export interface UiStateChangedEvent {
@@ -258,6 +259,15 @@ export interface ToolEventUpdatedEvent {
   readonly toolEvent: ToolEvent
 }
 
+/**
+ * Main asks the window to open a task, as clicking its row does: selecting it (and its workspace), which reads it, and
+ * loading its logs. Sent when you click the task's notification.
+ */
+export interface TaskOpenRequestedEvent {
+  readonly type: EventType.TaskOpenRequested
+  readonly taskId: string
+}
+
 /** Everything main broadcasts to the windows. */
 export type GladeEvent =
   | UiStateChangedEvent
@@ -266,6 +276,7 @@ export type GladeEvent =
   | MessageAppendedEvent
   | ToolEventAppendedEvent
   | ToolEventUpdatedEvent
+  | TaskOpenRequestedEvent
 
 export type EventListener = (event: GladeEvent) => void
 

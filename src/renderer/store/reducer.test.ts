@@ -19,6 +19,10 @@ const state: GladeData = Object.freeze({
 })
 
 describe('applyEvent', () => {
+  it('leaves the state alone when main asks to open a task, which the store does by selecting it', () => {
+    expect(applyEvent(state, { type: EventType.TaskOpenRequested, taskId: 't1' })).toBe(state)
+  })
+
   it('records a uiState.changed entry and the workspace selection it holds', () => {
     const entry = { key: UiStateKey.ActiveWorkspaceId, value: 'w2' }
 

@@ -137,6 +137,7 @@ function drainEvents(): (readonly unknown[])[] {
         return [event.type, event.task.activity, event.task.sessionId, event.task.contextUsedTokens]
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
+      case EventType.TaskOpenRequested:
         return [event.type]
     }
   })
@@ -1246,6 +1247,8 @@ describe('several tasks at once', () => {
         return event.toolEvent.taskId
       case EventType.TaskUpdated:
         return event.task.id
+      case EventType.TaskOpenRequested:
+        return event.taskId
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
         return null
@@ -1264,6 +1267,7 @@ describe('several tasks at once', () => {
         return [event.type, event.task.activity]
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
+      case EventType.TaskOpenRequested:
         return [event.type]
     }
   }

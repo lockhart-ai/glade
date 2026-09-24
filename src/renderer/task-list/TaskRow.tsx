@@ -1,4 +1,4 @@
-import { TaskState, type EpochMs, type Task } from '../../shared/domain'
+import { TaskState, UNTITLED_TASK_TITLE, type EpochMs, type Task } from '../../shared/domain'
 import { taskIndicator } from '../../shared/taskIndicator'
 import { classNames } from '../components/classNames'
 import { Dot } from '../components'
@@ -6,7 +6,7 @@ import { formatRelativeTime } from './relativeTime'
 import styles from './TaskRow.module.css'
 
 /** What a task without a title yet is called. */
-export const UNTITLED = 'New task'
+export const UNTITLED = UNTITLED_TASK_TITLE
 /** What an active task without a status yet says. */
 export const NO_STATUS = 'Waiting for instructions'
 

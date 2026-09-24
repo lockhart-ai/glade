@@ -17,7 +17,15 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     // While a snapshot loads, events wait here and are applied on top of it, so none is lost or overwritten.
     let pending: GladeEvent[] | null = null
 
+    // A task main asked to open while a snapshot loaded, opened once it has.
+    let openWhenLoaded: string | null = null
+
     const onEvent = (event: GladeEvent): void => {
+      if (event.type === EventType.TaskOpenRequested) {
+        if (pending === null) void get().selectTask(event.taskId)
+        else openWhenLoaded = event.taskId
+        return
+      }
       if (pending === null) set((state) => applyEvent(state, event))
       else pending.push(event)
     }
@@ -70,7 +78,14 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         }
         // The restored task's logs load once events flow again, so none that arrive meanwhile is held back.
         const { hydration, selectedTaskId } = get()
-        if (hydration.status !== HydrationStatus.Ready || selectedTaskId === null) return
+        if (hydration.status !== HydrationStatus.Ready) return
+        const opening = openWhenLoaded
+        openWhenLoaded = null
+        if (opening !== null) {
+          await get().selectTask(opening)
+          return
+        }
+        if (selectedTaskId === null) return
         try {
           await get().loadHistory(selectedTaskId)
         } catch (error) {

@@ -46,6 +46,9 @@ export enum Effort {
   Max = 'max',
 }
 
+/** What a task is called until its agent sets a title: in the task list, the header and its notifications. */
+export const UNTITLED_TASK_TITLE = 'New task'
+
 /**
  * One agent session with one objective. There is no separate outcome: when the task is done, its `status` is the
  * outcome.

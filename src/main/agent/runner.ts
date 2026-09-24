@@ -17,7 +17,7 @@
  * - Each tool call is saved as running and filled in as done or error when its result arrives. A subagent's tool calls
  *   carry their `Agent` call's id.
  * - The task's activity is working for the turn, then waiting on you, or error if the turn failed.
- * - A final reply in a task you aren't viewing marks it unread (`../tasks/attention`).
+ * - A final reply in a task you aren't viewing marks it unread (`../tasks/attention`) and is notified (`notifyReply`).
  * - The task's context usage follows the agent's latest top-level message, and its context window is what the turn's
  *   `result` reports for the session's model (`docs/sdk-notes.md`, "Usage and context size").
  *
@@ -70,6 +70,7 @@ import {
   updateToolCall,
 } from '../db/repositories/tool-events'
 import { getWorkspace } from '../db/repositories/workspaces'
+import type { NotifyReply } from '../notifications/notifications'
 import { noteAgentReply } from '../tasks/attention'
 import { reopenTask, updateTaskFromRunner } from '../tasks/service'
 import type { AgentBackend, AgentMcpServers, AgentSession, AgentSessionSettings } from './backend'
@@ -93,6 +94,11 @@ export interface AgentRunnerOptions {
   /** The in-process MCP servers to give a task's session, such as the Glade tools (`./glade-tools`). None by default. */
   readonly mcpServers?: (task: Task) => AgentMcpServers
   readonly log?: AgentLog
+  /**
+   * Notifies a final reply that arrived in a task you aren't viewing, once per reply (`../notifications`). Nothing by
+   * default.
+   */
+  readonly notifyReply?: NotifyReply
 }
 
 export interface AgentRunner {
@@ -173,6 +179,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const { db, emit, backend } = options
   const mcpServers = options.mcpServers ?? (() => ({}))
   const log = options.log ?? console
+  const notifyReply = options.notifyReply ?? (() => undefined)
   const context = { db, emit }
   const sessions = new Map<string, LiveSession>()
 
@@ -256,7 +263,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const summary = summarizeTurn(event.durationMs, turnEvents)
       const message = appendMessage(db, { taskId, role: MessageRole.Agent, body: reply, turn: turn.number, summary })
       emitMessageAppended(emit, message)
-      noteAgentReply(context, taskId)
+      if (noteAgentReply(context, taskId)) notifyReply(taskId, reply)
     }
     failRunning(taskId, turn, 'The turn ended before this tool call finished.')
     setActivity(taskId, TaskActivity.Waiting)
