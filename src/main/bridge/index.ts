@@ -1,5 +1,6 @@
 import type { Database } from 'better-sqlite3'
 import { COMMAND_CHANNEL, EVENT_CHANNEL } from '../../shared/bridge'
+import type { MenuState } from '../../shared/commands'
 import type { AgentBackend } from '../agent/backend'
 import { createGladeMcpServer, GLADE_SERVER } from '../agent/glade-tools'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
@@ -35,6 +36,10 @@ export interface BridgeOptions {
   readonly notifyReply?: NotifyReply
   /** Whether the network is up, for resuming a task paused offline (the runner's `isOnline`). Always up by default. */
   readonly isOnline?: () => boolean
+  /** Rebuilds the menu bar from what the window says it shows (`menu.update`). Nothing by default. */
+  readonly updateMenu?: (state: MenuState) => void
+  /** Closes the focused window (`window.close`). Nothing by default. */
+  readonly closeWindow?: () => void
 }
 
 /** What the bridge started, for the app to shut down. */
@@ -59,6 +64,8 @@ export function registerBridge({
   agentBackend,
   notifyReply,
   isOnline,
+  updateMenu,
+  closeWindow,
 }: BridgeOptions): RegisteredBridge {
   const emit = createBroadcast(EVENT_CHANNEL, targets)
   // One broker for the agent's questions: the Glade tools' `ask` waits on it, and the runner answers through it.
@@ -74,7 +81,7 @@ export function registerBridge({
     mcpServers: (task) => ({ [GLADE_SERVER]: createGladeMcpServer({ db, emit, questions }, task.id) }),
   })
   const dispatch = createDispatcher(
-    createHandlers({ db, emit, chooseFolder, openPath, revealPath, writeClipboard, runner }),
+    createHandlers({ db, emit, chooseFolder, openPath, revealPath, writeClipboard, runner, updateMenu, closeWindow }),
     REQUEST_SCHEMAS,
   )
   ipc.handle(COMMAND_CHANNEL, (_event, command, request) => dispatch(command, request))

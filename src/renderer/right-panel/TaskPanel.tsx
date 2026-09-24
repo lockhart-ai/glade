@@ -1,9 +1,9 @@
-import { useCallback, useState, type KeyboardEvent } from 'react'
+import { useCallback, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { UiStateKey, type ToolEvent } from '../../shared/domain'
 import { ArtifactsTab } from '../artifacts'
 import { TabPanel, Tabs, type TabItem } from '../components'
-import { FilesTab, isCloseFileKey, type FileLineFocus } from '../files'
+import { FilesTab, type FileLineFocus } from '../files'
 import { RightPanel } from '../layout'
 import { Panel, PanelToggle, usePanel } from '../panels'
 import { selectSelectedTask, selectSelectedWorkspace } from '../store/state'
@@ -83,12 +83,12 @@ export function TaskPanel(): React.JSX.Element | null {
     if (next !== width) void setUiState({ key: UiStateKey.RightPanelWidth, value: String(next) })
   }
 
-  // ⌘W closes the file showing in Files while the focus is in the panel; anywhere else it closes the window, as ever.
-  // The focus stays in the panel, on the tab's content, so another ⌘W closes the next file rather than the window.
-  const closeActiveFile = (event: KeyboardEvent<HTMLDivElement>): void => {
-    if (tab !== PanelTab.Files || task === undefined || activeFile === null || !isCloseFileKey(event)) return
+  // Close (⌘W) closes the file showing in Files while the focus is in the panel; anywhere else it closes the window, as
+  // ever. The focus stays in the panel, on the tab's content, so another ⌘W closes the next file rather than the window.
+  const closeActiveFile = (event: Event): void => {
+    if (tab !== PanelTab.Files || task === undefined || activeFile === null) return
     event.preventDefault()
-    const panel = event.currentTarget
+    const panel = event.currentTarget as HTMLElement
     void closeFile(task.id, activeFile).then(() => {
       if (!panel.contains(document.activeElement)) panel.querySelector<HTMLElement>('[role="tabpanel"]')?.focus()
     })
@@ -142,7 +142,7 @@ export function TaskPanel(): React.JSX.Element | null {
     <RightPanel
       width={width}
       onWidthChange={keepWidth}
-      onKeyDown={closeActiveFile}
+      onCloseRequest={closeActiveFile}
       tabs={
         <>
           <Tabs id={TABS_ID} label="Task panels" tabs={tabs} value={tab} onChange={selectTab} className={styles.tabs} />

@@ -14,17 +14,12 @@ import { useGladeStore } from './store/react'
 import { SelectedTaskHeader } from './task-header'
 import { DeleteTaskDialog, isSearching, TaskList, TaskListToolbar } from './task-list'
 import { SearchResults } from './search/SearchResults'
-import { useNewTaskShortcut } from './shortcuts/useNewTaskShortcut'
-import { useMarkDoneShortcut } from './shortcuts/useMarkDoneShortcut'
-import { useMarkUnreadShortcut } from './shortcuts/useMarkUnreadShortcut'
-import { usePinShortcut } from './shortcuts/usePinShortcut'
-import { useRenameShortcut } from './shortcuts/useRenameShortcut'
 import { useStopShortcut } from './shortcuts/useStopShortcut'
 import { useCompactShortcut } from './shortcuts/useCompactShortcut'
-import { usePanelShortcuts } from './shortcuts/usePanelShortcuts'
 import { useRightPanelShortcuts } from './shortcuts/useRightPanelShortcuts'
 import { useSearchShortcut } from './shortcuts/useSearchShortcut'
-import { useWorkspaceShortcuts } from './shortcuts/useWorkspaceShortcuts'
+import { MenuBar } from './commands/MenuBar'
+import { RemoveWorkspaceDialog } from './commands/RemoveWorkspaceDialog'
 import { WorkspaceSwitcher } from './workspace-switcher/WorkspaceSwitcher'
 import { TaskPanel } from './right-panel'
 import { RelaunchNotice } from './relaunch-notice'
@@ -73,16 +68,11 @@ function Window({ sidebar, task, banner, overlay }: WindowProps): React.JSX.Elem
   )
 }
 
-/** The panels the first-run window can toggle: only the bottom bar, since it has no task list or task card. */
-const FIRST_RUN_PANELS: readonly Panel[] = [Panel.BottomBar]
-
-/** The panels the window can toggle once there's a workspace. */
-const LAYOUT_PANELS: readonly Panel[] = [Panel.Sidebar, Panel.RightPanel, Panel.BottomBar]
-
-/** What shows before there is any workspace: no workspace in the sidebar and the welcome in the task card. */
+/**
+ * What shows while no workspace is: before there is any, or once the last one shown is closed. No workspace in the
+ * sidebar and the welcome in the task card.
+ */
 function FirstRunLayout(): React.JSX.Element {
-  usePanelShortcuts(FIRST_RUN_PANELS)
-  useWorkspaceShortcuts()
   return (
     <Window
       sidebar={
@@ -104,18 +94,12 @@ function Layout(): React.JSX.Element {
   const workspace = useGladeStore(selectSelectedWorkspace)
   const sidebar = usePanel(Panel.Sidebar)
   const hasTask = useGladeStore((state) => selectSelectedTask(state) !== undefined)
-  usePanelShortcuts(LAYOUT_PANELS)
   const searching = useGladeStore((state) => isSearching(state.searchText))
-  useNewTaskShortcut()
+  // The menu bar answers the other shortcuts (see `MenuBar`).
   useSearchShortcut()
   useStopShortcut()
   useCompactShortcut()
-  useMarkDoneShortcut()
-  useMarkUnreadShortcut()
-  usePinShortcut()
-  useRenameShortcut()
   useRightPanelShortcuts()
-  useWorkspaceShortcuts()
   return (
     <Window
       banner={<PauseBanner />}
@@ -146,6 +130,7 @@ function Layout(): React.JSX.Element {
         <>
           <RelaunchNotice />
           <DeleteTaskDialog />
+          <RemoveWorkspaceDialog />
         </>
       }
     />
@@ -154,7 +139,7 @@ function Layout(): React.JSX.Element {
 
 export function App(): React.JSX.Element {
   const hydration = useGladeStore((state) => state.hydration)
-  const hasWorkspace = useGladeStore((state) => state.workspaces.length > 0)
+  const hasWorkspace = useGladeStore((state) => state.selectedWorkspaceId !== null)
   switch (hydration.status) {
     case HydrationStatus.Loading:
       return (
@@ -165,6 +150,11 @@ export function App(): React.JSX.Element {
     case HydrationStatus.Failed:
       return <main className={styles.status}>Glade couldn’t load: {hydration.message}</main>
     case HydrationStatus.Ready:
-      return <ToastProvider>{hasWorkspace ? <Layout /> : <FirstRunLayout />}</ToastProvider>
+      return (
+        <ToastProvider>
+          <MenuBar />
+          {hasWorkspace ? <Layout /> : <FirstRunLayout />}
+        </ToastProvider>
+      )
   }
 }

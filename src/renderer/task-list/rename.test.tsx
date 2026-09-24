@@ -1,18 +1,27 @@
-// F2 and the inline rename it starts in the task list row, together: the shortcut, the row's field, and the store.
+// Rename… (Task › Rename…, F2, or a row's menu) and the inline rename it starts in the task list row, together: the
+// task's actions, the row's field, and the store.
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { useEffect } from 'react'
 import { describe, expect, it } from 'vitest'
-import { TaskFilter } from '../../shared/attention'
 import { bridgeError, BridgeErrorCode, CommandName } from '../../shared/bridge'
 import { TaskState, UiStateKey, type Task, type UiStateEntry } from '../../shared/domain'
 import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore } from '../store/store'
 import { fakeBridge, refuse, sampleTask, sampleWorkspace, type FakeHandlers } from '../store/test-bridge'
-import { TaskList } from '../task-list'
-import { useRenameShortcut } from './useRenameShortcut'
+import { TaskList } from './TaskList'
+import { useTaskActions } from './useTaskActions'
 
-function Harness(): React.JSX.Element {
-  useRenameShortcut()
+/** Renames the selected task, as the Task menu's Rename… does; set while the harness is rendered. */
+let renameSelected: () => void = () => undefined
+
+function Harness({ selected }: { readonly selected: string }): React.JSX.Element {
+  const actionsFor = useTaskActions()
+  useEffect(() => {
+    renameSelected = () => {
+      actionsFor(selected)?.rename()
+    }
+  }, [actionsFor, selected])
   return (
     <>
       <textarea aria-label="Message" />
@@ -43,7 +52,7 @@ async function renderRename(selected = 't1', uiState: UiStateEntry[] = [], overr
   const view = render(
     <GladeStoreProvider store={store}>
       <ToastProvider>
-        <Harness />
+        <Harness selected={selected} />
       </ToastProvider>
     </GladeStoreProvider>,
   )
@@ -62,16 +71,19 @@ function field(): HTMLInputElement {
   return screen.getByRole<HTMLInputElement>('textbox', { name: 'Task title' })
 }
 
-/** Presses F2 (or a variation of it); false when the app took the key. */
-function pressF2(target: Window | HTMLElement = window, init: KeyboardEventInit = {}): boolean {
-  return fireEvent.keyDown(target, { key: 'F2', ...init })
+/** Chooses Rename… for the selected task. */
+function chooseRename(): void {
+  act(() => {
+    renameSelected()
+  })
 }
 
-describe('F2 and the inline rename', () => {
+describe('Rename… and the inline rename', () => {
   it("turns the selected task's title into a field holding it, selected, even from the message field", async () => {
     await renderRename()
+    screen.getByRole('textbox', { name: 'Message' }).focus()
 
-    expect(pressF2(screen.getByRole('textbox', { name: 'Message' }))).toBe(false)
+    chooseRename()
 
     const input = field()
     expect(input).toHaveValue('Fix flaky login test')
@@ -82,7 +94,7 @@ describe('F2 and the inline rename', () => {
 
   it('saves the new title, trimmed, on ↵, and the row shows it', async () => {
     const { invoke, store } = await renderRename()
-    pressF2()
+    chooseRename()
 
     fireEvent.change(field(), { target: { value: '  Fix the login race  ' } })
     fireEvent.keyDown(field(), { key: 'Enter' })
@@ -98,7 +110,7 @@ describe('F2 and the inline rename', () => {
 
   it('cancels on Esc, keeping the title', async () => {
     const { invoke } = await renderRename()
-    pressF2()
+    chooseRename()
 
     fireEvent.change(field(), { target: { value: 'Something else' } })
     fireEvent.keyDown(field(), { key: 'Escape' })
@@ -110,7 +122,7 @@ describe('F2 and the inline rename', () => {
 
   it('refuses a blank title on ↵, keeping the field, until you type one', async () => {
     const { invoke } = await renderRename()
-    pressF2()
+    chooseRename()
 
     fireEvent.change(field(), { target: { value: '   ' } })
     fireEvent.keyDown(field(), { key: 'Enter' })
@@ -129,13 +141,13 @@ describe('F2 and the inline rename', () => {
 
   it('saves when the field loses the focus, and cancels then when it is blank', async () => {
     const { invoke } = await renderRename()
-    pressF2()
+    chooseRename()
     fireEvent.change(field(), { target: { value: 'Fix the login race' } })
     fireEvent.blur(field())
     await act(() => Promise.resolve())
     expect(titleCalls(invoke)).toEqual([{ id: 't1', patch: { title: 'Fix the login race' } }])
 
-    pressF2()
+    chooseRename()
     fireEvent.change(field(), { target: { value: '' } })
     fireEvent.blur(field())
 
@@ -145,7 +157,7 @@ describe('F2 and the inline rename', () => {
 
   it('ignores other keys in the field', async () => {
     await renderRename()
-    pressF2()
+    chooseRename()
 
     fireEvent.keyDown(field(), { key: 'a' })
 
@@ -156,7 +168,7 @@ describe('F2 and the inline rename', () => {
     await renderRename('t1', [], {
       [CommandName.TasksUpdate]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No task t1')),
     })
-    pressF2()
+    chooseRename()
 
     fireEvent.change(field(), { target: { value: 'Fix the login race' } })
     fireEvent.keyDown(field(), { key: 'Enter' })
@@ -168,44 +180,12 @@ describe('F2 and the inline rename', () => {
   it("opens the selected task's collapsed section to show its field", async () => {
     const { store } = await renderRename('t3')
 
-    pressF2()
+    chooseRename()
     await act(() => Promise.resolve())
 
     expect(store.getState().uiState[UiStateKey.DoneSectionCollapsed]).toBe('false')
     expect(
       within(screen.getByRole('region', { name: 'Done' })).getByRole('textbox', { name: 'Task title' }),
     ).toHaveValue('Upgrade Django')
-  })
-
-  it.each([
-    ['no task is selected', '', []],
-    ['the filter chip hides the selected task', 't1', [{ key: UiStateKey.TaskFilter, value: TaskFilter.Unread }]],
-  ])('does nothing when %s', async (_, selected, uiState) => {
-    const { store } = await renderRename(selected, uiState)
-
-    expect(pressF2()).toBe(false)
-
-    expect(store.getState().renamingTaskId).toBeNull()
-  })
-
-  it.each([
-    ['⌘F2', { metaKey: true }],
-    ['⇧F2', { shiftKey: true }],
-    ['⌥F2', { altKey: true }],
-    ['⌃F2', { ctrlKey: true }],
-    ['F3', { key: 'F3' }],
-  ])('ignores %s', async (_, init) => {
-    const { store } = await renderRename()
-
-    expect(pressF2(window, init)).toBe(true)
-    expect(store.getState().renamingTaskId).toBeNull()
-  })
-
-  it('stops listening once unmounted', async () => {
-    const { store, view } = await renderRename()
-    view.unmount()
-
-    pressF2()
-    expect(store.getState().renamingTaskId).toBeNull()
   })
 })

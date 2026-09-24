@@ -1,7 +1,8 @@
 # Keymap
 
 macOS bindings; Ctrl replaces ⌘ elsewhere. Every shortcut is rebindable in Settings › Keyboard, and menus show the
-current binding. ![Keymap](design/screens/22-keymap.png)
+current binding. The menu bar answers the keys of its items (`KEYMAP` in `src/shared/commands.ts`); the window listens
+for the rest. ![Keymap](design/screens/22-keymap.png)
 
 | Area | Action | Keys |
 |---|---|---|
@@ -12,6 +13,8 @@ current binding. ![Keymap](design/screens/22-keymap.png)
 | | New workspace | ⌘⇧N |
 | | Open folder as workspace | ⌘O |
 | | Switch workspace | ⌘1 – ⌘9 |
+| | Close workspace | ⌘⇧W |
+| | Close the focused file or terminal tab, else the window | ⌘W |
 | Task list | Next / previous task | ⌥↓ / ⌥↑ |
 | | Next task that needs you | ⌘⌥↓ |
 | | Rename | F2 |
@@ -29,7 +32,6 @@ current binding. ![Keymap](design/screens/22-keymap.png)
 | | Toggle right panel | ⌘⌥B |
 | | Toggle bottom bar | ⌘J |
 | | Tool calls · Files · Todos · Artifacts · Subagents | ⌘⌥1 – ⌘⌥5 |
-| | Close file tab | ⌘W |
 | | Open file in editor | ⌘⇧E |
 | Terminal | Focus terminal | ⌃` |
 | | New terminal tab | ⌘T |

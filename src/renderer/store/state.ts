@@ -3,6 +3,7 @@
  * Main (and SQLite behind it) stays the source of truth; nothing here is kept only in memory.
  */
 import type { TaskUserPatch } from '../../shared/bridge'
+import type { Command, MenuState } from '../../shared/commands'
 import type {
   Artifact,
   FileContent,
@@ -133,6 +134,8 @@ export interface GladeData {
   readonly renamingTaskId: string | null
   /** The task Delete task… asks you to confirm deleting; null when it isn't asking. A one-off UI intent. */
   readonly deletingTaskId: string | null
+  /** The workspace Remove from list… asks you to confirm removing; null when it isn't asking. A one-off UI intent. */
+  readonly removingWorkspaceId: string | null
   /**
    * How many times Workspace settings… has asked for the shown workspace's settings; 0 until the first. The settings
    * modal (P7-03) opens at the workspace's section each time this changes. A one-off UI intent, like
@@ -185,6 +188,30 @@ export interface GladeActions {
   revealWorkspace: (workspaceId: string) => Promise<void>
   /** Asks for the shown workspace's settings (Workspace settings…): see `workspaceSettingsRequest`. */
   openWorkspaceSettings: () => void
+  /**
+   * Closes the shown workspace (Close workspace): shows the most recently opened of the others, with its selection, or
+   * the first-run window when there's no other. The workspace stays in the list, as do its tasks, and opening it again
+   * brings back its selection. Does nothing for a workspace that isn't shown.
+   */
+  closeWorkspace: (workspaceId: string) => Promise<void>
+  /** Asks you to confirm removing a workspace (Remove from list…): see `removingWorkspaceId`. */
+  requestRemoveWorkspace: (workspaceId: string) => void
+  /** Stops asking: the workspace stays. */
+  cancelRemoveWorkspace: () => void
+  /**
+   * Removes a workspace from the list, once you've confirmed it (`workspaces.remove`): its tasks' agents are stopped,
+   * and it and its tasks go from Glade; its folder stays on disk. When it was shown, shows another as closing it would.
+   */
+  removeWorkspace: (workspaceId: string) => Promise<void>
+  /** Closes the window (`window.close`). */
+  closeWindow: () => Promise<void>
+  /** Tells main what the menu bar shows (`menu.update`). */
+  updateMenu: (state: MenuState) => Promise<void>
+  /**
+   * Calls `listener` with each command main sends from the menu bar (`menu.command`), until unsubscribed. The window
+   * runs them (see `src/renderer/commands`).
+   */
+  onCommand: (listener: (command: Command) => void) => () => void
   /**
    * Selects a task, or none, and loads its chat log and tool log. Selecting a task in another workspace shows that
    * workspace too.
@@ -323,6 +350,7 @@ export const INITIAL_DATA: GladeData = {
   fileFocus: null,
   renamingTaskId: null,
   deletingTaskId: null,
+  removingWorkspaceId: null,
   workspaceSettingsRequest: 0,
   inputInsertion: null,
   searchText: '',

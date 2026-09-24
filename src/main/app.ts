@@ -1,5 +1,16 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, clipboard, dialog, ipcMain, net, Notification, shell, type WebPreferences } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  Menu,
+  net,
+  Notification,
+  shell,
+  type WebPreferences,
+} from 'electron'
 import { EventType } from '../shared/bridge'
 import type { AgentBackend } from './agent/backend'
 import { createSdkBackend } from './agent/sdk-backend'
@@ -30,6 +41,7 @@ import {
   type E2eSpec,
 } from './e2e'
 import type { OpenPath, RevealPath, WriteClipboard } from './files/files'
+import { installAppMenu } from './menu/app-menu'
 import { createElectronNotifier } from './notifications/electron-notifier'
 import { createReplyNotifications } from './notifications/notifications'
 import type { Notifier } from './notifications/notifier'
@@ -371,6 +383,15 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
         queue: (taskId, text) => bridge.runner.queue(taskId, text),
       },
     })
+    // The menu bar's items run in the window: each sends its command there, once the bridge is registered.
+    const appMenu = installAppMenu({
+      menu: Menu,
+      appName: app.name,
+      developer: !app.isPackaged,
+      send: (command) => {
+        bridge.emit({ type: EventType.MenuCommand, command })
+      },
+    })
     const bridge: RegisteredBridge = registerBridge({
       ipc: ipcMain,
       db: database.db,
@@ -386,6 +407,12 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
       notifyReply,
       // Whether the network is up, for resuming a task paused offline. In e2e mode, the spec decides.
       isOnline: testMode?.kind === TestModeKind.E2e ? createE2eNetwork() : net.isOnline.bind(net),
+      updateMenu: (state) => {
+        appMenu.update(state)
+      },
+      closeWindow: () => {
+        BrowserWindow.getFocusedWindow()?.close()
+      },
     })
 
     const { runner } = bridge

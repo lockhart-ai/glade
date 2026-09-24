@@ -1,16 +1,18 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { BridgeErrorCode } from '../../shared/bridge'
-import { UiStateKey } from '../../shared/domain'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { BridgeErrorCode, EventType } from '../../shared/bridge'
+import { MessageRole, UiStateKey } from '../../shared/domain'
 import { CommandFailure } from '../bridge/errors'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
+import { appendMessage, listMessages } from '../db/repositories/messages'
+import { listTasks } from '../db/repositories/tasks'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
 import { getWorkspaceSelection } from '../db/repositories/workspace-selections'
 import { getWorkspace, listWorkspaces } from '../db/repositories/workspaces'
 import { STARTER_CLAUDE_MD } from './starter-claude-md'
-import { createWorkspaceAt, noteSelection, openWorkspace } from './workspaces'
+import { createWorkspaceAt, noteSelection, openWorkspace, removeWorkspace } from './workspaces'
 
 let database: TestDatabase
 let dir: string
@@ -205,3 +207,59 @@ function select(workspaceId: string, taskId: string): void {
   noteSelection(database.db, entry)
   setUiState(database.db, entry)
 }
+
+describe('removeWorkspace', () => {
+  function removal() {
+    return { db: database.db, emit: vi.fn(), runner: { discard: vi.fn() } }
+  }
+
+  it("closes its tasks' sessions and deletes it and everything of its tasks, leaving the others and the folder", () => {
+    const root = folder('acme-api')
+    const acme = createWorkspaceAt(database.db, root).workspace
+    const web = sampleWorkspace(database.db, '/code/acme-web')
+    const [first, second, kept] = [
+      sampleTask(database.db, acme.id),
+      sampleTask(database.db, acme.id),
+      sampleTask(database.db, web.id),
+    ]
+    appendMessage(database.db, { taskId: first.id, role: MessageRole.User, body: 'Add rate limiting', turn: 1 })
+    setUiState(database.db, { key: UiStateKey.ActiveWorkspaceId, value: web.id })
+    const context = removal()
+
+    removeWorkspace(context, acme.id)
+
+    expect(context.runner.discard.mock.calls).toEqual([[first.id], [second.id]].sort())
+    expect(listWorkspaces(database.db)).toEqual([web])
+    expect(listTasks(database.db, acme.id)).toEqual([])
+    expect(listMessages(database.db, first.id)).toEqual([])
+    expect(listTasks(database.db, web.id)).toEqual([kept])
+    expect(getUiState(database.db, UiStateKey.ActiveWorkspaceId)).toBe(web.id)
+    expect(existsSync(join(root, 'CLAUDE.md'))).toBe(true)
+    expect(context.emit.mock.calls.map(([event]) => event as unknown)).toEqual([
+      ...[first.id, second.id].sort().map((taskId) => ({ type: EventType.TaskDeleted, taskId })),
+      { type: EventType.WorkspaceRemoved, workspaceId: acme.id },
+    ])
+  })
+
+  it('leaves the window showing no workspace and no task when it was the one shown', () => {
+    const acme = sampleWorkspace(database.db)
+    const task = sampleTask(database.db, acme.id)
+    select(acme.id, task.id)
+    const context = removal()
+
+    removeWorkspace(context, acme.id)
+
+    expect(getUiState(database.db, UiStateKey.ActiveWorkspaceId)).toBe('')
+    expect(getUiState(database.db, UiStateKey.SelectedTaskId)).toBe('')
+    expect(context.emit.mock.calls.slice(0, 2).map(([event]) => event as unknown)).toEqual([
+      { type: EventType.UiStateChanged, entry: { key: UiStateKey.ActiveWorkspaceId, value: '' } },
+      { type: EventType.UiStateChanged, entry: { key: UiStateKey.SelectedTaskId, value: '' } },
+    ])
+  })
+
+  it('refuses an unknown workspace', () => {
+    expect(() => {
+      removeWorkspace(removal(), 'nope')
+    }).toThrow(new CommandFailure(BridgeErrorCode.NotFound, 'No workspace nope'))
+  })
+})

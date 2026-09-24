@@ -377,3 +377,13 @@ export function deleteTaskDialog(page: Page) {
     confirm: dialog.getByRole('button', { name: 'Delete' }),
   }
 }
+
+/** The confirmation Workspace › Remove from list… asks for. */
+export function removeWorkspaceDialog(page: Page) {
+  const dialog = page.getByRole('alertdialog')
+  return {
+    dialog,
+    cancel: dialog.getByRole('button', { name: 'Cancel' }),
+    confirm: dialog.getByRole('button', { name: 'Remove' }),
+  }
+}

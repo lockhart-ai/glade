@@ -31,13 +31,6 @@ export interface FileLineFocus {
   readonly request: number
 }
 
-/** Whether a key press is ⌘W, which closes the file showing while the right panel has the focus. */
-export function isCloseFileKey(
-  event: Pick<KeyboardEvent, 'metaKey' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'code'>,
-): boolean {
-  return event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && event.code === 'KeyW'
-}
-
 /** Whether a key press is ⌘⇧E, Open in editor. */
 export function isOpenInEditorKey(event: KeyboardEvent): boolean {
   return event.metaKey && event.shiftKey && !event.altKey && !event.ctrlKey && event.code === 'KeyE'

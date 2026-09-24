@@ -1,6 +1,7 @@
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { expect, openedInEditor, test } from './fixtures'
+import { chooseMenuItem } from './menu'
 import { chat, filesTab, firstRun, inputBar, taskList, taskPanel } from './selectors'
 
 /** Makes a workspace folder holding `files` (path → content), in a throwaway folder. */
@@ -97,12 +98,12 @@ test('files: the list of changed and read files, open-file tabs, the viewer, Ope
   await expect(again.tab('date.test.ts')).toBeVisible()
   await expect(again.line(1)).toContainText('export function formatDate')
 
-  // ⌘W with the focus in the panel closes the file showing; the next ⌘W closes the other.
+  // File › Close (⌘W) with the focus in the panel closes the file showing, not the window; the next closes the other.
   await again.contents.focus()
-  await relaunched.window.keyboard.press('Meta+KeyW')
+  await chooseMenuItem(relaunched, 'File', 'Close')
   await expect(again.tab('date.ts')).toHaveCount(0)
   await expect(again.tab('date.test.ts')).toHaveAttribute('aria-pressed', 'true')
-  await relaunched.window.keyboard.press('Meta+KeyW')
+  await chooseMenuItem(relaunched, 'File', 'Close')
   await expect(taskPanel(relaunched.window).tabPanel).toContainText('No file open.')
   await expect(taskPanel(relaunched.window).tab(/^Files/)).toHaveText('Files')
 })
@@ -112,13 +113,14 @@ test('files: show_file opens the collapsed panel at the file and line; Markdown 
   tempFolder,
 }) => {
   const root = workspace(tempFolder, { 'docs/rate-limits.md': RATE_LIMITS })
-  const { window } = await launch({ agentScript: 'shows-a-file', chosenFolder: root })
+  const glade = await launch({ agentScript: 'shows-a-file', chosenFolder: root })
+  const { window } = glade
   await firstRun(window).openFolder.click()
   await taskList(window).newTask.click()
 
   // The panel starts collapsed, on Tool calls.
   const panel = taskPanel(window)
-  await window.keyboard.press('Meta+Alt+KeyB')
+  await chooseMenuItem(glade, 'View', 'Toggle right panel')
   await expect(panel.panel).toBeHidden()
 
   await inputBar(window).field.fill('Document the rate limits for clients.')

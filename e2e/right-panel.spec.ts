@@ -1,5 +1,6 @@
 import type { Locator } from '@playwright/test'
 import { expect, seedPath, test } from './fixtures'
+import { chooseMenuItem } from './menu'
 import { regions, taskHeader, taskPanel } from './selectors'
 
 /** A laid-out element's width, in CSS pixels. */
@@ -49,12 +50,13 @@ test('right panel: ⌘⌥2 picks a tab; dragging the handle resizes it, kept on 
   await expect(again.tab('Files')).toHaveAttribute('aria-selected', 'true')
   await expect.poll(() => widthOf(again.panel)).toBe(624)
 
-  // ⌘⌥B collapses the panel, the chat takes its room, and the header offers it back; ⌘⌥B reopens it.
+  // View › Toggle right panel (⌘⌥B) collapses the panel, the chat takes its room, and the header offers it back; it
+  // reopens it too.
   const header = taskHeader(relaunched.window)
-  await relaunched.window.keyboard.press('Meta+Alt+KeyB')
+  await chooseMenuItem(relaunched, 'View', 'Toggle right panel')
   await expect(again.panel).toBeHidden()
   await expect(header.showSidePanel).toBeVisible()
-  await relaunched.window.keyboard.press('Meta+Alt+KeyB')
+  await chooseMenuItem(relaunched, 'View', 'Toggle right panel')
   await expect.poll(() => widthOf(again.panel)).toBe(624)
   await expect(header.showSidePanel).toBeHidden()
 

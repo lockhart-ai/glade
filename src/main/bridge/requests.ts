@@ -8,6 +8,7 @@ import {
   type CommandRequest,
   type EmptyRequest,
   type FileRequest,
+  type MenuUpdateRequest,
   type QueueAddRequest,
   type QueueEditRequest,
   type QueueRemoveRequest,
@@ -24,6 +25,7 @@ import {
   type UiStateSetRequest,
   type WorkspacesCreateRequest,
   type WorkspacesOpenRequest,
+  type WorkspacesRemoveRequest,
   type WorkspacesRevealRequest,
 } from '../../shared/bridge'
 import { Effort, UiStateKey } from '../../shared/domain'
@@ -46,6 +48,8 @@ const workspacesCreateRequest = z.strictObject({
 const workspacesOpenRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<WorkspacesOpenRequest>
 
 const workspacesRevealRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<WorkspacesRevealRequest>
+
+const workspacesRemoveRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<WorkspacesRemoveRequest>
 
 const tasksListRequest = z.strictObject({ workspaceId: z.string() }) satisfies z.ZodType<TasksListRequest>
 
@@ -121,11 +125,29 @@ const searchQueryRequest = z.strictObject({
   text: z.string(),
 }) satisfies z.ZodType<SearchQueryRequest>
 
+const menuUpdateRequest = z.strictObject({
+  workspaces: z.array(z.strictObject({ id: z.string(), name: z.string() })).readonly(),
+  shownWorkspaceId: z.string().nullable(),
+  task: z
+    .strictObject({
+      id: z.string(),
+      pinned: z.boolean(),
+      canRename: z.boolean(),
+      canMarkUnread: z.boolean(),
+      canMarkDone: z.boolean(),
+      canReopen: z.boolean(),
+      canCopyOutcome: z.boolean(),
+    })
+    .nullable(),
+  panels: z.strictObject({ sidebar: z.boolean(), rightPanel: z.boolean(), bottomBar: z.boolean() }),
+}) satisfies z.ZodType<MenuUpdateRequest>
+
 export const REQUEST_SCHEMAS = {
   [CommandName.WorkspacesList]: emptyRequest,
   [CommandName.WorkspacesCreate]: workspacesCreateRequest,
   [CommandName.WorkspacesOpen]: workspacesOpenRequest,
   [CommandName.WorkspacesReveal]: workspacesRevealRequest,
+  [CommandName.WorkspacesRemove]: workspacesRemoveRequest,
   [CommandName.DialogChooseFolder]: emptyRequest,
   [CommandName.TasksList]: tasksListRequest,
   [CommandName.TasksCreate]: tasksCreateRequest,
@@ -156,6 +178,8 @@ export const REQUEST_SCHEMAS = {
   [CommandName.UiStateGetAll]: emptyRequest,
   [CommandName.UiStateSet]: uiStateSetRequest,
   [CommandName.SearchQuery]: searchQueryRequest,
+  [CommandName.MenuUpdate]: menuUpdateRequest,
+  [CommandName.WindowClose]: emptyRequest,
 } as const satisfies RequestSchemas
 
 /** A short, readable account of why a request didn't parse: each problem as `field: message`, joined by `; `. */
