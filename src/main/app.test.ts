@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
@@ -451,6 +451,37 @@ describe('startApp in capture mode', () => {
     expect(console.error).toHaveBeenCalledWith('Glade capture failed: no page')
     expect(electron.app.exit).toHaveBeenCalledWith(1)
     expect(existsSync(join(outDir, 'gallery-1100x700.png'))).toBe(false)
+  })
+
+  it('fills the database from the seed fixture before opening the window', async () => {
+    const seed = join(outDir, 'seed.json')
+    writeFileSync(seed, JSON.stringify({ workspace: { name: 'Acme API', rootPath: '/code/api' }, tasks: [] }))
+    askForCapture({ seed })
+
+    await startAndWaitUntilReady()
+    await waitForExit()
+
+    expect(electron.app.exit).toHaveBeenCalledWith(0)
+    const db = new Database(join(electron.app.userData, 'glade.db'), { readonly: true })
+    try {
+      expect(db.prepare('SELECT name FROM workspaces').all()).toEqual([{ name: 'Acme API' }])
+    } finally {
+      db.close()
+    }
+  })
+
+  it('exits with an error, without opening a window, when the seed fixture is bad', async () => {
+    askForCapture({ seed: join(outDir, 'missing.json') })
+    const close = vi.spyOn(Database.prototype, 'close')
+
+    await startAndWaitUntilReady()
+
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringMatching(/^Glade capture failed: the seed .* can't be read/),
+    )
+    expect(electron.windows).toHaveLength(0)
+    expect(close).toHaveBeenCalledOnce()
+    expect(electron.app.exit).toHaveBeenCalledWith(1)
   })
 
   it('exits with an error, before Electron is ready, when the spec is invalid', () => {

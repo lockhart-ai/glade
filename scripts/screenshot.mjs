@@ -2,15 +2,17 @@
 // Captures PNGs of the app from inside Electron, in a window that is never shown, with a throwaway data folder.
 //
 //   npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <file base name>]
-//                         [--agent-script <name> [--message <first message>]]
+//                         [--seed <fixture.json>] [--agent-script <name> [--message <first message>]]
 //
-// With --agent-script, the capture shows a populated task: the app seeds a workspace and a task, sends it the first
+// With --agent-script, the capture shows a live task: the app makes a workspace and a task, sends it the first
 // message, and lets the named agent script (src/main/agent/scripts.ts: simple-reply, multi-tool-turn, long-running,
-// failing-turn) play its reply, before capturing. No real agent ever runs.
+// failing-turn) play its reply through the real agent runner, before capturing. No real agent ever runs.
 //
 // Builds the app into out/testing (see scripts/test-build.mjs, which keeps dev-only pages such as the gallery), then
 // launches Electron on it with the capture spec in GLADE_CAPTURE (see src/main/capture.ts), and a fresh temp folder
-// for the app's data, removed afterwards. Writes one PNG per size, named <name>-<width>x<height>.png.
+// for the app's data, removed afterwards. Writes one PNG per size, named <name>-<width>x<height>.png. With --seed, the
+// app fills that data folder's database from a JSON fixture of sample data first (see src/main/capture-seed.ts and
+// scripts/fixtures/), so the capture shows a populated app rather than the first-run screen.
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -27,7 +29,7 @@ function fail(message) {
   console.error(`screenshot: ${message}`)
   console.error(
     'usage: npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <name>] ' +
-      '[--agent-script <name> [--message <text>]]',
+      '[--seed <fixture>] [--agent-script <name> [--message <text>]]',
   )
   process.exit(2)
 }
@@ -48,6 +50,7 @@ try {
       name: { type: 'string' },
       'agent-script': { type: 'string' },
       message: { type: 'string', default: DEFAULT_MESSAGE },
+      seed: { type: 'string' },
     },
   }))
 } catch (error) {
@@ -68,6 +71,7 @@ const spec = {
   }),
   timeoutMs: TIMEOUT_MS,
   ...(agentScript === undefined ? {} : { conversation: { agentScript, message: values.message } }),
+  ...(values.seed === undefined ? {} : { seed: resolve(values.seed) }),
 }
 
 if (!buildForTests()) {

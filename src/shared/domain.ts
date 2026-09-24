@@ -134,7 +134,7 @@ export interface NarrationEvent extends ToolEventBase {
 
 export interface ToolCallEvent extends ToolEventBase {
   readonly kind: ToolEventKind.ToolCall
-  /** The tool's name as the SDK reports it (MCP tools arrive as `mcp__<server>__<tool>`). */
+  /** The tool's name as the SDK reports it (MCP tools arrive as `mcp__<server>__<tool>`); see `toolDisplayName`. */
   readonly name: string
   readonly input: ToolInput
   /** The result's text; null until the result arrives. */
@@ -160,6 +160,12 @@ export enum UiStateKey {
   ActiveWorkspaceId = 'active_workspace_id',
   /** The id of the selected task. An empty string means no task is selected. */
   SelectedTaskId = 'selected_task_id',
+  /** Whether the task list's Pinned section is collapsed: `'true'` or `'false'`. Unset means expanded. */
+  PinnedSectionCollapsed = 'pinned_section_collapsed',
+  /** Whether the task list's Active section is collapsed: `'true'` or `'false'`. Unset means expanded. */
+  ActiveSectionCollapsed = 'active_section_collapsed',
+  /** Whether the task list's Done section is collapsed: `'true'` or `'false'`. Unset means collapsed. */
+  DoneSectionCollapsed = 'done_section_collapsed',
 }
 
 export interface UiStateEntry {

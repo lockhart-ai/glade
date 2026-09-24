@@ -56,14 +56,19 @@ it('lands in the empty workspace once a folder is chosen', async () => {
   expect(sidebar).not.toHaveTextContent('Tasks will appear here')
 })
 
-it('renders the window layout with the workspace and a placeholder in each region', async () => {
+it('renders the window layout with the workspace, the chat, and a placeholder in each other region', async () => {
   await renderApp([sampleWorkspace('w1')])
 
   expect(screen.getByRole('region', { name: 'Workspace' })).toHaveTextContent('Acme API/code/w1')
+  const sidebar = screen.getByRole('navigation', { name: 'Tasks' })
+  expect(within(sidebar).getByRole('searchbox', { name: 'Search tasks' })).toBeInTheDocument()
+  expect(within(sidebar).getByRole('region', { name: 'Active' })).toHaveTextContent('Active0')
 
   const main = screen.getByRole('main', { name: 'Task' })
   expect(within(main).getByRole('region', { name: 'Task header' })).toHaveTextContent('Task header')
-  expect(within(main).getByRole('region', { name: 'Chat' })).toHaveTextContent('Chat')
+  expect(
+    within(within(main).getByRole('region', { name: 'Chat' })).getByRole('log', { name: 'Conversation' }),
+  ).toBeInTheDocument()
   expect(within(main).getByTestId('input-bar')).toHaveTextContent('Input bar')
 
   const panel = within(main).getByRole('complementary', { name: 'Task panel' })

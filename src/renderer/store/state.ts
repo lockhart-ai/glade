@@ -31,6 +31,16 @@ export type Hydration = HydrationLoading | HydrationReady | HydrationFailed
 /** The persisted UI state values that have been set, by key. */
 export type UiStateValues = Readonly<Partial<Record<UiStateKey, string>>>
 
+/**
+ * A request to show one turn in the tool log, made by a chat reply's tool-call chip and acted on by the tool log.
+ * `request` goes up by one with every request, so asking for the same turn again is still a new request.
+ */
+export interface ToolLogFocus {
+  readonly taskId: string
+  readonly turn: number
+  readonly request: number
+}
+
 /** Everything the store holds. `applyEvent` maps one of these to the next. */
 export interface GladeData {
   readonly hydration: Hydration
@@ -45,6 +55,11 @@ export interface GladeData {
   /** Each task's tool log, by task id: loaded when the task is selected, then kept current by events. */
   readonly toolEvents: Readonly<Record<string, readonly ToolEvent[]>>
   readonly uiState: UiStateValues
+  /**
+   * The latest request to show a turn in the tool log; null until one is made. A one-off UI intent, so it's the one
+   * thing here that isn't mirrored from main: nothing is lost if a relaunch forgets it.
+   */
+  readonly toolLogFocus: ToolLogFocus | null
 }
 
 /**
@@ -87,6 +102,8 @@ export interface GladeActions {
    * events. Rejects with `busy` while the agent is working.
    */
   sendMessage: (taskId: string, text: string) => Promise<void>
+  /** Asks the tool log to show a task's turn (see `ToolLogFocus`). */
+  focusTurn: (taskId: string, turn: number) => void
 }
 
 export interface GladeState extends GladeData, GladeActions {}
@@ -100,6 +117,7 @@ export const INITIAL_DATA: GladeData = {
   messages: {},
   toolEvents: {},
   uiState: {},
+  toolLogFocus: null,
 }
 
 export function selectSelectedWorkspace(state: GladeData): Workspace | undefined {

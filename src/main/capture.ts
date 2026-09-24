@@ -40,6 +40,8 @@ export interface CaptureSpec {
    * named agent script (see `src/main/agent/scripts.ts`). None by default.
    */
   readonly conversation?: CaptureConversation
+  /** A JSON fixture of sample data (see `./capture-seed`) to fill the throwaway database with; none for a fresh app. */
+  readonly seed?: string | undefined
 }
 
 export interface CaptureConversation {
@@ -75,6 +77,7 @@ function captureSpecSchema(minimum: MinimumSize): z.ZodType<CaptureSpec> {
     conversation: z
       .strictObject({ agentScript: z.enum(AGENT_SCRIPT_NAMES), message: z.string().trim().min(1) })
       .optional(),
+    seed: z.string().refine(isAbsolute, 'must be an absolute path').optional(),
   })
 }
 

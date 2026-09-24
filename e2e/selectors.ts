@@ -30,6 +30,24 @@ export function firstRun(page: Page) {
   }
 }
 
+/** A task list section's name. */
+export type TaskSectionName = 'Pinned' | 'Active' | 'Done'
+
+/** The sidebar's task list: the search field, the New task button and the Pinned, Active and Done sections. */
+export function taskList(page: Page) {
+  const sidebar = regions(page).sidebar
+  const section = (name: TaskSectionName) => sidebar.getByRole('region', { name })
+  return {
+    newTask: sidebar.getByRole('button', { name: 'New task', exact: true }),
+    search: sidebar.getByRole('searchbox', { name: 'Search tasks' }),
+    section,
+    /** A section's header, which collapses and expands it. */
+    sectionHeader: (name: TaskSectionName) => section(name).getByRole('button').first(),
+    /** A section's task rows, top to bottom. */
+    rows: (name: TaskSectionName) => section(name).getByRole('listitem').getByRole('button'),
+  }
+}
+
 /** The component gallery (`#gallery`, dev and e2e builds only). */
 export function gallery(page: Page) {
   return {

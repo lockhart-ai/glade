@@ -15,10 +15,11 @@ import {
   type MinimumSize,
 } from './capture'
 import { openAppDatabase, type AppDatabase } from './db/database'
+import { applySeed, readSeed } from './capture-seed'
 import { chooseFolder } from './dialogs'
 import { E2E_WINDOW_SIZE, e2eChosenFolder, prepareE2e, readE2eSpec, type E2eSpec } from './e2e'
 import { checkSecurity, describeViolations } from './security'
-import { seedConversation } from './seed'
+import { seedConversation } from './capture-conversation'
 
 /** The `bg` design token, so the window never flashes white before the renderer paints. */
 const WINDOW_BACKGROUND = '#0A0B0F'
@@ -134,8 +135,9 @@ interface CaptureContext {
   readonly agent: TestModeAgentBackend
 }
 
-/** Seeds the spec's conversation, if it has one, then captures the page of a hidden window. Resolves with the files. */
+/** Fills the database from the spec's seed fixture and seeds its conversation, if it has them, then captures the page of a hidden window. Resolves with the files. */
 async function capture(spec: CaptureSpec, { database, bridge, agent }: CaptureContext): Promise<string[]> {
+  if (spec.seed !== undefined) applySeed(database.db, readSeed(spec.seed))
   if (spec.conversation !== undefined) {
     const context = {
       db: database.db,
