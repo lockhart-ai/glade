@@ -15,7 +15,7 @@ it('renders the app into the root element and loads its store from main', async 
 
   mountApp(root, appPage(bridge))
 
-  expect(await screen.findByText('Glade')).toBeInTheDocument()
+  expect(await screen.findByRole('main', { name: 'Task' })).toBeInTheDocument()
   expect(invoke).toHaveBeenCalledWith(CommandName.WorkspacesList, {})
 })
 
