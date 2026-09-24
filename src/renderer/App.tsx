@@ -8,6 +8,7 @@ import styles from './App.module.css'
 import { HydrationStatus, selectSelectedWorkspace } from './store/state'
 import { useGladeStore } from './store/react'
 import { TaskList, TaskListToolbar } from './task-list'
+import { useStopShortcut } from './shortcuts/useStopShortcut'
 
 interface PlaceholderProps {
   label: string
@@ -58,6 +59,7 @@ function FirstRunLayout(): React.JSX.Element {
 /** The window layout, with a labelled placeholder in each region until the P1 tickets fill them. */
 function Layout(): React.JSX.Element {
   const workspace = useGladeStore(selectSelectedWorkspace)
+  useStopShortcut()
   return (
     <Window
       sidebar={

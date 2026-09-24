@@ -49,6 +49,7 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.TasksReopen]: ({ id }) => ({ task: reopenTask(context, id) }),
     [CommandName.TasksUpdate]: ({ id, patch }) => ({ task: updateTaskFromUser(context, id, patch) }),
     [CommandName.TasksSend]: ({ id, text }) => ({ message: runner.send(id, text) }),
+    [CommandName.TasksStop]: async ({ id }) => ({ task: await runner.stop(id) }),
     [CommandName.TasksHistory]: ({ id }) => {
       if (getTask(db, id) === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${id}`)
       return { messages: listMessages(db, id), toolEvents: listToolEvents(db, id) }
