@@ -1,8 +1,9 @@
 import { faWrench } from '@fortawesome/free-solid-svg-icons'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import type { Message, QuestionSet, ToolEvent } from '../../shared/domain'
 import { classNames } from '../components/classNames'
 import { Icon, IconSize } from '../components'
+import { agentReplyMenu, ContextMenu, useContextMenu, useMenuCommands } from '../context-menus'
 import { selectSelectedTask } from '../store/state'
 import { useGladeStore } from '../store/react'
 import {
@@ -16,6 +17,7 @@ import {
   restartLabel,
   summaryLine,
   isStoppedByError,
+  quoted,
   toolCallLabel,
   workingLabel,
   workingNarration,
@@ -51,6 +53,8 @@ function UserMessage({ message }: UserEntry): React.JSX.Element {
 interface AgentReplyProps {
   readonly entry: AgentEntry
   readonly onShowTurn: (turn: number) => void
+  /** Adds text to the message field (Quote in reply). */
+  readonly onQuote: (text: string) => void
 }
 
 interface TurnSummaryProps {
@@ -73,11 +77,36 @@ function TurnSummary({ line }: TurnSummaryProps): React.JSX.Element {
   )
 }
 
-function AgentReply({ entry: { message, style, toolCalls }, onShowTurn }: AgentReplyProps): React.JSX.Element {
+/**
+ * One of the agent's replies, with its turn's tool-call chip and summary. Right-click it, or ⇧F10 on it, for its menu:
+ * copy it as text or Markdown, quote it in your reply, or show its turn in the tool log.
+ */
+function AgentReply({ entry, onShowTurn, onQuote }: AgentReplyProps): React.JSX.Element {
+  const { message, style, toolCalls } = entry
   const summary = message.summary === null ? null : summaryLine(message.summary)
+  const menu = useContextMenu<AgentEntry>()
+  const { copy } = useMenuCommands()
+  const rendered = useRef<HTMLDivElement>(null)
+  const entries = () =>
+    agentReplyMenu(entry, {
+      // The reply as it reads on screen, without its Markdown.
+      copy: () => {
+        copy(rendered.current?.innerText.trim() ?? message.body)
+      },
+      copyMarkdown: () => {
+        copy(message.body)
+      },
+      quote: () => {
+        onQuote(quoted(message.body))
+      },
+      showToolCalls: () => {
+        onShowTurn(message.turn)
+      },
+    })
   return (
-    <article aria-label="Agent" className={styles.agent}>
+    <article aria-label="Agent" className={styles.agent} tabIndex={0} {...menu.targetProps(entry)}>
       <Markdown
+        ref={rendered}
         source={message.body}
         className={classNames(styles.reply, style === ReplyStyle.Question && styles.question)}
       />
@@ -100,6 +129,7 @@ function AgentReply({ entry: { message, style, toolCalls }, onShowTurn }: AgentR
         </div>
       )}
       <span className={styles.meta}>agent · {clockTime(message.createdAt)}</span>
+      <ContextMenu label="Reply actions" state={menu} entries={entries} />
     </article>
   )
 }
@@ -205,6 +235,7 @@ export function Chat(): React.JSX.Element {
   const toolEvents =
     useGladeStore((state) => (task === undefined ? undefined : state.toolEvents[task.id])) ?? NO_TOOL_EVENTS
   const focusTurn = useGladeStore((state) => state.focusTurn)
+  const insertIntoInput = useGladeStore((state) => state.insertIntoInput)
   const questionSets =
     useGladeStore((state) => (task === undefined ? undefined : state.questionSets[task.id])) ?? NO_QUESTION_SETS
   const root = useGladeStore(
@@ -259,6 +290,9 @@ export function Chat(): React.JSX.Element {
                   entry={entry}
                   onShowTurn={(turn) => {
                     focusTurn(entry.message.taskId, turn)
+                  }}
+                  onQuote={(text) => {
+                    insertIntoInput(entry.message.taskId, text)
                   }}
                 />
               )

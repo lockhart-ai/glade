@@ -21,6 +21,7 @@ import {
   sampleWorkspace,
   type FakeBridge,
   type FakeHandlers,
+  type FakeMain,
 } from '../store/test-bridge'
 import { TaskFilter } from '../../shared/attention'
 import { TaskList, TaskListToolbar } from '.'
@@ -52,12 +53,14 @@ async function renderList(
   tasks: Task[] = TASKS,
   uiState: UiStateEntry[] = [],
   overrides: Partial<FakeHandlers> = {},
+  main: Partial<FakeMain> = {},
 ): Promise<Rendered> {
   const fake = fakeBridge(
     {
       workspaces: [sampleWorkspace('w1'), sampleWorkspace('w2')],
       tasks: [...tasks],
       uiState: [{ key: UiStateKey.ActiveWorkspaceId, value: 'w1' }, ...uiState],
+      ...main,
     },
     overrides,
   )
@@ -464,5 +467,98 @@ describe('TaskListToolbar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New task' }))
 
     expect(await screen.findByText('No workspace w1')).toBeInTheDocument()
+  })
+})
+
+describe('the task context menu', () => {
+  /** Opens a row's menu with a right-click, and answers its items' labels. */
+  async function openMenu(title: string): Promise<string[]> {
+    fireEvent.contextMenu(row(title))
+    await act(() => Promise.resolve())
+    return screen.getAllByRole('menuitem').map((item) => item.textContent)
+  }
+
+  async function choose(title: string, label: string): Promise<void> {
+    await openMenu(title)
+    fireEvent.click(screen.getByRole('menuitem', { name: new RegExp(`^${label}`) }))
+    await act(() => Promise.resolve())
+  }
+
+  const DONE_OPEN = [{ key: UiStateKey.DoneSectionCollapsed, value: 'false' }]
+
+  it('opens on a row with a right-click, or ⇧F10 on the focused row, with the items for its state', async () => {
+    await renderList(TASKS, DONE_OPEN)
+
+    expect(await openMenu('Add rate limiting')).toEqual([
+      'Open↵',
+      'Pin to top⌘⇧P',
+      'Rename…F2',
+      'Mark as unread⌘⇧U',
+      'Mark done⌘⇧D',
+      'Copy link to task',
+      'Delete task…',
+    ])
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+
+    fireEvent.keyDown(row('Upgrade Django'), { key: 'F10', shiftKey: true })
+    await act(() => Promise.resolve())
+    expect(screen.getByRole('menu', { name: 'Task actions' })).toHaveTextContent(/^Open↵Pin to topRename…Reopen/)
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+
+    expect(await openMenu('Draft release notes')).toContain('Unpin⌘⇧P')
+  })
+
+  it('opens, pins, renames, marks unread and deletes (asking first) through the store', async () => {
+    const { store } = await renderList()
+
+    await choose('Add rate limiting', 'Open')
+    expect(store.getState().selectedTaskId).toBe('a1')
+
+    await choose('Add rate limiting', 'Pin to top')
+    expect(store.getState().tasks.a1?.pinned).toBe(true)
+
+    await choose('Add rate limiting', 'Mark as unread')
+    expect(store.getState().tasks.a1?.unread).toBe(true)
+
+    await choose('Add rate limiting', 'Rename…')
+    expect(store.getState().renamingTaskId).toBe('a1')
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Task title' }), { key: 'Escape' })
+
+    await choose('Move image uploads', 'Delete task…')
+    expect(store.getState().deletingTaskId).toBe('a2')
+    expect(store.getState().tasks.a2).toBeDefined()
+  })
+
+  it('marks a task done with the Undo toast, and reopens a done one', async () => {
+    const { store } = await renderList()
+
+    await choose('Fix flaky login test', 'Mark done')
+    await vi.waitFor(() => {
+      expect(store.getState().tasks.a3?.state).toBe(TaskState.Done)
+    })
+    expect(await screen.findByRole('button', { name: 'Undo' })).toBeInTheDocument()
+
+    await choose('Upgrade Django', 'Reopen')
+    expect(store.getState().tasks.d1?.state).toBe(TaskState.Active)
+  })
+
+  it('copies a task’s link, and a done task’s outcome', async () => {
+    const copied: string[] = []
+    await renderList(TASKS, DONE_OPEN, {}, { copied })
+
+    await choose('Add rate limiting', 'Copy link to task')
+    await choose('Upgrade Django', 'Copy outcome')
+
+    expect(copied).toEqual(['glade://task/a1', 'Upgraded to 5.2'])
+  })
+
+  it('shows a toast when an item’s command fails', async () => {
+    await renderList(TASKS, [], {
+      [CommandName.ClipboardWriteText]: () => refuse(bridgeError(BridgeErrorCode.Internal, 'No clipboard')),
+    })
+
+    await choose('Add rate limiting', 'Copy link to task')
+
+    expect(await screen.findByText('No clipboard')).toBeInTheDocument()
   })
 })

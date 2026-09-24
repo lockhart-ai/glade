@@ -283,6 +283,29 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       async revealFile(taskId, path) {
         await bridge.invoke(CommandName.FilesReveal, { taskId, path })
       },
+
+      async showFile(taskId, path) {
+        await get().openFile(taskId, path)
+        showPanelTab(taskId, PanelTab.Files)
+      },
+
+      async removeArtifact(taskId, path) {
+        await bridge.invoke(CommandName.ArtifactsRemove, { taskId, path })
+      },
+
+      async stopSubagent(taskId, toolUseId) {
+        await bridge.invoke(CommandName.SubagentsStop, { taskId, toolUseId })
+      },
+
+      async copyText(text) {
+        await bridge.invoke(CommandName.ClipboardWriteText, { text })
+      },
+
+      insertIntoInput(taskId, text) {
+        set(({ inputInsertion }) => ({
+          inputInsertion: { taskId, text, request: (inputInsertion?.request ?? 0) + 1 },
+        }))
+      },
     }
   })
 }

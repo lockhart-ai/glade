@@ -3,8 +3,16 @@ import { useMemo, useState } from 'react'
 import type { EpochMs, ToolEvent } from '../../shared/domain'
 import { classNames } from '../components/classNames'
 import { Dot, Icon, IconSize } from '../components'
+import {
+  ContextMenu,
+  subagentMenu,
+  useContextMenu,
+  useMenuCommands,
+  type ContextMenuTargetProps,
+} from '../context-menus'
+import { useGladeStore } from '../store/react'
 import { useNow } from '../task-list/useNow'
-import { SubagentRows } from '../tool-log'
+import { SubagentRows, ToolCallMenu } from '../tool-log'
 import {
   anyRunning,
   deriveSubagents,
@@ -12,6 +20,8 @@ import {
   metaLine,
   statusIndicator,
   statusLabel,
+  subagentLogText,
+  SubagentStatus,
   tally,
   type LatestLine,
   type Subagent,
@@ -52,13 +62,15 @@ interface RowProps {
   readonly rootPath: string | undefined
   readonly expanded: boolean
   readonly onToggle: () => void
+  /** What opens its context menu from its header. */
+  readonly menuTarget: ContextMenuTargetProps
 }
 
 /**
  * One subagent: its dot, name, status, what it's doing and how long it has run. Click it to open its log below it
  * (in place of the latest line, which the log ends with); click again to close it.
  */
-function SubagentRow({ subagent, now, rootPath, expanded, onToggle }: RowProps): React.JSX.Element {
+function SubagentRow({ subagent, now, rootPath, expanded, onToggle, menuTarget }: RowProps): React.JSX.Element {
   const { name, status, latest, log } = subagent
   return (
     <div
@@ -67,7 +79,7 @@ function SubagentRow({ subagent, now, rootPath, expanded, onToggle }: RowProps):
       className={classNames(styles.row, styles[status], expanded && styles.expanded)}
       data-status={status}
     >
-      <button type="button" className={styles.header} aria-expanded={expanded} onClick={onToggle}>
+      <button type="button" className={styles.header} aria-expanded={expanded} onClick={onToggle} {...menuTarget}>
         <span className={styles.titleLine}>
           <Dot state={statusIndicator(status)} />
           <span className={styles.name}>{name}</span>
@@ -93,6 +105,7 @@ function SubagentRow({ subagent, now, rootPath, expanded, onToggle }: RowProps):
 }
 
 export interface SubagentsTabProps {
+  readonly taskId: string
   readonly events: readonly ToolEvent[]
   /** The workspace root, so file arguments show relative to it. */
   readonly rootPath?: string | undefined
@@ -101,12 +114,16 @@ export interface SubagentsTabProps {
 /**
  * The Subagents tab (docs/design/html/11-subagents.html): a tally of the task's subagents by status, then a row for
  * each, running ones first. A running subagent's elapsed time ticks. Rows open and close one at a time or several at
- * once; which are open is kept for as long as the tab shows the task.
+ * once; which are open is kept for as long as the tab shows the task. A row's context menu opens its log or copies it,
+ * and stops it while it runs; the tool calls in an open log have their own.
  */
-export function SubagentsTab({ events, rootPath }: SubagentsTabProps): React.JSX.Element {
+export function SubagentsTab({ taskId, events, rootPath }: SubagentsTabProps): React.JSX.Element {
   const subagents = useMemo(() => deriveSubagents(events, rootPath), [events, rootPath])
   const now = useNow(anyRunning(subagents) ? ELAPSED_REFRESH_MS : null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
+  const menu = useContextMenu<string>()
+  const { run, copy } = useMenuCommands()
+  const stopSubagent = useGladeStore((state) => state.stopSubagent)
 
   if (subagents.length === 0) return <p className={styles.empty}>No subagents yet.</p>
 
@@ -118,28 +135,54 @@ export function SubagentsTab({ events, rootPath }: SubagentsTabProps): React.JSX
     })
   }
 
+  const entries = (id: string) => {
+    const subagent = subagents.find(({ call }) => call.id === id)
+    if (subagent === undefined) return []
+    return subagentMenu(
+      { expanded: expanded.has(id) },
+      {
+        toggleLog: () => {
+          toggle(id)
+        },
+        copyLog: () => {
+          copy(subagentLogText(subagent, rootPath))
+        },
+        stop:
+          subagent.status === SubagentStatus.Running
+            ? () => {
+                run(() => stopSubagent(taskId, subagent.call.toolUseId))
+              }
+            : null,
+      },
+    )
+  }
+
   return (
-    <div className={styles.scroller}>
-      <div role="group" className={styles.tally} aria-label="Subagents by status">
-        {tally(subagents).map(({ status, label }) => (
-          <span key={status} className={styles.tallyPart} data-status={status}>
-            <span className={classNames(styles.tallyDot, styles[status])} />
-            {label}
-          </span>
+    <ToolCallMenu taskId={taskId} rootPath={rootPath}>
+      <div className={styles.scroller}>
+        <div role="group" className={styles.tally} aria-label="Subagents by status">
+          {tally(subagents).map(({ status, label }) => (
+            <span key={status} className={styles.tallyPart} data-status={status}>
+              <span className={classNames(styles.tallyDot, styles[status])} />
+              {label}
+            </span>
+          ))}
+        </div>
+        {subagents.map((subagent) => (
+          <SubagentRow
+            key={subagent.call.id}
+            subagent={subagent}
+            now={now}
+            rootPath={rootPath}
+            expanded={expanded.has(subagent.call.id)}
+            onToggle={() => {
+              toggle(subagent.call.id)
+            }}
+            menuTarget={menu.targetProps(subagent.call.id)}
+          />
         ))}
+        <ContextMenu label="Subagent actions" state={menu} entries={entries} />
       </div>
-      {subagents.map((subagent) => (
-        <SubagentRow
-          key={subagent.call.id}
-          subagent={subagent}
-          now={now}
-          rootPath={rootPath}
-          expanded={expanded.has(subagent.call.id)}
-          onToggle={() => {
-            toggle(subagent.call.id)
-          }}
-        />
-      ))}
-    </div>
+    </ToolCallMenu>
   )
 }

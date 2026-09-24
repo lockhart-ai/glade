@@ -1,3 +1,4 @@
+import type { Ref } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { classNames } from '../components/classNames'
@@ -7,6 +8,7 @@ export interface MarkdownProps {
   /** The Markdown source. */
   source: string
   className?: string
+  ref?: Ref<HTMLDivElement>
 }
 
 /**
@@ -59,9 +61,9 @@ export function InlineMarkdown({ source }: InlineMarkdownProps): React.JSX.Eleme
 }
 
 /** Chat Markdown (CommonMark and GitHub's tables, task lists and strikethrough), with code styled. Raw HTML is dropped. */
-export function Markdown({ source, className }: MarkdownProps): React.JSX.Element {
+export function Markdown({ source, className, ref }: MarkdownProps): React.JSX.Element {
   return (
-    <div className={classNames(styles.markdown, className)}>
+    <div ref={ref} className={classNames(styles.markdown, className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS} skipHtml urlTransform={dropUrl}>
         {source}
       </ReactMarkdown>

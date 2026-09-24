@@ -303,3 +303,25 @@ export function contextPopover(page: Page) {
     compactNow: popover.getByRole('button', { name: 'Compact now' }),
   }
 }
+
+/** A context menu while it's open, by its name (e.g. "Task actions"), and its items. */
+export function contextMenu(page: Page, name: string) {
+  const menu = page.getByRole('menu', { name })
+  return {
+    menu,
+    /** Its items, top to bottom; each one's text is its label, then its shortcut if it shows one. */
+    items: menu.getByRole('menuitem'),
+    /** An item, by its label. */
+    item: (label: string) => menu.getByRole('menuitem').filter({ hasText: label }).first(),
+  }
+}
+
+/** The confirmation Delete task… asks for. */
+export function deleteTaskDialog(page: Page) {
+  const dialog = page.getByRole('alertdialog')
+  return {
+    dialog,
+    cancel: dialog.getByRole('button', { name: 'Cancel' }),
+    confirm: dialog.getByRole('button', { name: 'Delete' }),
+  }
+}

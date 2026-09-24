@@ -1,7 +1,13 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render as renderUnwrapped, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { TodoState, type TodoList } from '../../shared/domain'
-import { NO_TODOS, Todos, TODOS_EXPLAINER } from './Todos'
+import { storeWrapper } from '../store/test-wrapper'
+import { askAboutTodo, NO_TODOS, Todos, TODOS_EXPLAINER } from './Todos'
+
+/** Renders under a store, which the items' context menus act through. */
+function render(ui: React.ReactElement, wrapper = storeWrapper()) {
+  return renderUnwrapped(ui, { wrapper: wrapper.wrapper })
+}
 
 const NOW = new Date(2026, 8, 23, 14, 30).getTime()
 
@@ -25,7 +31,7 @@ function items(): HTMLElement[] {
 
 describe('Todos', () => {
   it('shows how many are done, with a progress bar and when the list was last updated', () => {
-    render(<Todos list={LIST} now={NOW} />)
+    render(<Todos taskId="t1" list={LIST} now={NOW} />)
 
     expect(screen.getByText('3 of 7 done')).toBeInTheDocument()
     expect(screen.getByText('updated just now')).toBeInTheDocument()
@@ -39,12 +45,12 @@ describe('Todos', () => {
   })
 
   it('says how long ago an older list was updated', () => {
-    render(<Todos list={{ ...LIST, updatedAt: NOW - 4 * 60_000 }} now={NOW} />)
+    render(<Todos taskId="t1" list={{ ...LIST, updatedAt: NOW - 4 * 60_000 }} now={NOW} />)
     expect(screen.getByText('updated 4m ago')).toBeInTheDocument()
   })
 
   it('shows each item in its state, with its note under a doing or waiting one', () => {
-    render(<Todos list={LIST} now={NOW} />)
+    render(<Todos taskId="t1" list={LIST} now={NOW} />)
 
     expect(items().map((item) => item.textContent)).toEqual([
       'Done: Find how uploads are stored today',
@@ -67,12 +73,54 @@ describe('Todos', () => {
   })
 
   it('says there are no todos until the agent keeps a list with something on it', () => {
-    const { rerender } = render(<Todos list={null} now={NOW} />)
+    const { rerender } = render(<Todos taskId="t1" list={null} now={NOW} />)
     expect(screen.getByText(NO_TODOS)).toBeInTheDocument()
-    rerender(<Todos list={undefined} now={NOW} />)
+    rerender(<Todos taskId="t1" list={undefined} now={NOW} />)
     expect(screen.getByText(NO_TODOS)).toBeInTheDocument()
-    rerender(<Todos list={{ items: [], updatedAt: NOW }} now={NOW} />)
+    rerender(<Todos taskId="t1" list={{ items: [], updatedAt: NOW }} now={NOW} />)
     expect(screen.getByText(NO_TODOS)).toBeInTheDocument()
     expect(screen.queryByRole('list')).toBeNull()
+  })
+})
+
+describe('a todo’s context menu', () => {
+  function item(text: string): HTMLElement {
+    const found = screen.getAllByRole('listitem').find((element) => element.textContent.includes(text))
+    if (found === undefined) throw new Error(`No todo ${text}`)
+    return found
+  }
+
+  it('copies the todo, and asks the agent about it in the message field', async () => {
+    const copied: string[] = []
+    const wrapper = storeWrapper({ copied })
+    render(<Todos taskId="t1" list={LIST} now={NOW} />, wrapper)
+
+    fireEvent.contextMenu(item('Add an S3 backend'))
+    await act(() => Promise.resolve())
+    expect(screen.getAllByRole('menuitem').map((menuItem) => menuItem.textContent)).toEqual([
+      'Copy',
+      'Ask agent about this',
+    ])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Copy' }))
+    await act(() => Promise.resolve())
+    expect(copied).toEqual(['Add an S3 backend for media files'])
+
+    item('Add an S3 backend').focus()
+    fireEvent.keyDown(item('Add an S3 backend'), { key: 'F10', shiftKey: true })
+    await act(() => Promise.resolve())
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Ask agent about this' }))
+    expect(wrapper.store.getState().inputInsertion).toEqual({
+      taskId: 't1',
+      text: 'About the todo “Add an S3 backend for media files”: ',
+      request: 1,
+    })
+  })
+})
+
+describe('askAboutTodo', () => {
+  it('names the todo, for you to finish with your question', () => {
+    expect(askAboutTodo({ text: 'Run the tests', state: TodoState.Todo, note: null })).toBe(
+      'About the todo “Run the tests”: ',
+    )
   })
 })

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
-import { CommandName, EventType, type GladeEvent } from '../../shared/bridge'
+import { BridgeErrorCode, CommandName, EventType, type GladeEvent } from '../../shared/bridge'
 import { FileContentKind, FileInfoKind, UiStateKey } from '../../shared/domain'
 import { FakeAgentBackend } from '../agent/fake-backend'
 import { createAgentRunner } from '../agent/runner'
@@ -127,6 +127,29 @@ describe('the files commands', () => {
 
     await expect(handlers[CommandName.FilesOpenInEditor]({ taskId, path: 'docs/rate-limits.md' })).resolves.toBeNull()
     expect(openPath).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/\/docs\/rate-limits\.md$/))
+  })
+})
+
+describe('artifacts.remove', () => {
+  it('takes a file off the task’s artifacts, broadcasting what’s left, and refuses one that isn’t there', async () => {
+    const taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+    addArtifact(database.db, { taskId, path: 'docs/notes.md', title: 'Notes' }, 5)
+    const email = addArtifact(database.db, { taskId, path: 'out/email.txt', title: 'Email' }, 6)
+
+    expect(handlers[CommandName.ArtifactsRemove]({ taskId, path: 'docs/notes.md' })).toBeNull()
+
+    expect(emit).toHaveBeenCalledExactlyOnceWith({ type: EventType.ArtifactsChanged, taskId, artifacts: [email] })
+    expect((await handlers[CommandName.TasksHistory]({ id: taskId })).artifacts).toEqual([email])
+    expect(() => handlers[CommandName.ArtifactsRemove]({ taskId, path: 'docs/notes.md' })).toThrow(
+      expect.objectContaining({ code: BridgeErrorCode.NotFound }),
+    )
+  })
+})
+
+describe('clipboard.writeText', () => {
+  it('puts the text on the clipboard', async () => {
+    await expect(handlers[CommandName.ClipboardWriteText]({ text: 'glade://task/t1' })).resolves.toBeNull()
+    expect(writeClipboard).toHaveBeenCalledExactlyOnceWith('glade://task/t1')
   })
 })
 

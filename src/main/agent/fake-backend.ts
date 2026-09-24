@@ -18,6 +18,8 @@ export class FakeAgentSession implements AgentSession {
   /** Every settings change the runner asked for, in order. */
   readonly configured: AgentSessionSettings[] = []
   interrupts = 0
+  /** The SDK task ids the runner asked to stop, in order. */
+  readonly stoppedTasks: string[] = []
   closed = false
   private readonly stream = new AsyncQueue<unknown>()
   readonly messages: AsyncIterable<unknown> = this.stream
@@ -46,6 +48,11 @@ export class FakeAgentSession implements AgentSession {
   interrupt(): Promise<void> {
     this.interrupts += 1
     return this.onInterrupt()
+  }
+
+  stopTask(sdkTaskId: string): Promise<void> {
+    this.stoppedTasks.push(sdkTaskId)
+    return Promise.resolve()
   }
 
   close(): void {
