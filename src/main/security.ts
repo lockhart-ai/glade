@@ -5,7 +5,7 @@ export enum SecuritySetting {
   Sandbox = 'sandbox',
 }
 
-/** The subset of Electron's resolved `WebPreferences` that the security check reads. */
+/** The subset of Electron's `WebPreferences` that the security check reads. */
 export interface SecurityPreferences {
   readonly contextIsolation?: boolean | undefined
   readonly nodeIntegration?: boolean | undefined
@@ -46,27 +46,10 @@ function actualValue(preferences: SecurityPreferences, setting: SecuritySetting)
   }
 }
 
-function readBoolean(record: object, key: SecuritySetting): boolean | undefined {
-  const value: unknown = Reflect.get(record, key)
-  return typeof value === 'boolean' ? value : undefined
-}
-
 /**
- * Parses the resolved webPreferences Electron reports for a window. Anything that isn't a boolean is read as missing,
- * so a malformed or absent value fails the check rather than passing it.
- */
-export function parseSecurityPreferences(value: unknown): SecurityPreferences {
-  if (typeof value !== 'object' || value === null) return {}
-  return {
-    contextIsolation: readBoolean(value, SecuritySetting.ContextIsolation),
-    nodeIntegration: readBoolean(value, SecuritySetting.NodeIntegration),
-    sandbox: readBoolean(value, SecuritySetting.Sandbox),
-  }
-}
-
-/**
- * Checks a window's resolved webPreferences against the required security settings. A setting that is missing
- * counts as a violation: the check only passes when every setting is explicitly in effect.
+ * Checks the webPreferences a window will be created with against the required security settings. A setting that is
+ * left out counts as a violation, even where Electron's default would be safe: every setting must be stated
+ * explicitly.
  */
 export function checkSecurity(preferences: SecurityPreferences): SecurityCheck {
   const violations = ALL_SETTINGS.flatMap((setting): SecurityViolation[] => {

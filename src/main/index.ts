@@ -1,18 +1,16 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, type WebContents } from 'electron'
-import { checkSecurity, describeViolations, parseSecurityPreferences } from './security'
+import { app, BrowserWindow, dialog, type WebPreferences } from 'electron'
+import { checkSecurity, describeViolations } from './security'
 
 /** The `bg` design token, so the window never flashes white before the renderer paints. */
 const WINDOW_BACKGROUND = '#0A0B0F'
 
-/**
- * The webPreferences Electron actually resolved for a window, not the options we passed in. Electron still provides
- * `webContents.getLastWebPreferences()` but no longer declares it in its type definitions, so it's read as unknown. If
- * a future Electron drops it, this returns null and the security check fails closed.
- */
-function resolvedWebPreferences(contents: WebContents): unknown {
-  const getLastWebPreferences: unknown = Reflect.get(contents, 'getLastWebPreferences')
-  return typeof getLastWebPreferences === 'function' ? Reflect.apply(getLastWebPreferences, contents, []) : null
+/** The only webPreferences any window is created with. Checked by `checkSecurity` before a window exists. */
+const WINDOW_WEB_PREFERENCES: WebPreferences = {
+  preload: join(__dirname, '../preload/index.js'),
+  contextIsolation: true,
+  nodeIntegration: false,
+  sandbox: true,
 }
 
 function refuseToStart(reason: string): void {
@@ -30,20 +28,8 @@ function createWindow(): void {
     show: false,
     titleBarStyle: 'hiddenInset',
     backgroundColor: WINDOW_BACKGROUND,
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
+    webPreferences: WINDOW_WEB_PREFERENCES,
   })
-
-  const security = checkSecurity(parseSecurityPreferences(resolvedWebPreferences(window.webContents)))
-  if (!security.ok) {
-    window.destroy()
-    refuseToStart(describeViolations(security.violations))
-    return
-  }
 
   // The renderer only ever shows the app's own page: no popups, no navigating away.
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -61,6 +47,12 @@ function createWindow(): void {
 }
 
 void app.whenReady().then(() => {
+  const security = checkSecurity(WINDOW_WEB_PREFERENCES)
+  if (!security.ok) {
+    refuseToStart(describeViolations(security.violations))
+    return
+  }
+
   createWindow()
 
   app.on('activate', () => {
