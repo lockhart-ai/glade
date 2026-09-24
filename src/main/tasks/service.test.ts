@@ -66,6 +66,7 @@ describe('createTask', () => {
       title: '',
       objective: '',
       status: '',
+      statusUpdatedAt: null,
       state: TaskState.Active,
       activity: TaskActivity.Waiting,
       pinned: false,
@@ -172,7 +173,13 @@ describe('updating fields', () => {
 
     const updated = updateTaskFromAgent(context, task.id, patch)
 
-    expect(updated).toEqual({ ...task, objective: 'Limit each key.', status: 'Deployed.', updatedAt: 7_000 })
+    expect(updated).toEqual({
+      ...task,
+      objective: 'Limit each key.',
+      status: 'Deployed.',
+      statusUpdatedAt: 7_000,
+      updatedAt: 7_000,
+    })
     expect(events).toEqual([{ type: EventType.TaskUpdated, task: updated }])
   })
 })

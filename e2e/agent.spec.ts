@@ -1,10 +1,9 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { CommandName } from '../src/shared/bridge'
-import { TaskActivity } from '../src/shared/domain'
 import { expect, test } from './fixtures'
-import { chat, firstRun, taskList, taskPanel } from './selectors'
-import { invoke, taskHeader } from './task-view'
+import { chat, firstRun, taskHeader, taskList, taskPanel } from './selectors'
+import { invoke } from './task-view'
 
 test('new task, first message, scripted reply', async ({ launch, tempFolder }) => {
   const root = join(tempFolder(), 'acme-api')
@@ -34,13 +33,12 @@ test('new task, first message, scripted reply', async ({ launch, tempFolder }) =
   await expect(row).toContainText('Fix the flaky date test')
   await expect(row).toContainText('Fixed the timezone bug; the tests pass.')
 
-  // Until the task header lands, this reads what it will show through the bridge.
-  expect(await taskHeader(window, workspaceId, taskId)).toEqual({
-    title: 'Fix the flaky date test',
-    objective: 'Make the date formatting test pass in every timezone.',
-    status: 'Fixed the timezone bug; the tests pass.',
-    activity: TaskActivity.Waiting,
-  })
+  // So does the task header, with the objective, and the agent waiting on you once the turn ends.
+  const header = taskHeader(window)
+  await expect(header.title).toHaveText('Fix the flaky date test')
+  await expect(header.field('Objective')).toHaveText('Make the date formatting test pass in every timezone.')
+  await expect(header.field('Status')).toContainText('Fixed the timezone bug; the tests pass.')
+  await expect(header.pill).toHaveText('Active · waiting on you')
 
   // The tool log shows every call the turn made, all done, with the subagent's calls under its Agent call.
   const panel = taskPanel(window)
@@ -68,8 +66,7 @@ test('stop a running turn with ⌘., then carry on in the same session', async (
   const workspaceId = workspaces[0]?.id ?? ''
   const { tasks } = await invoke(window, CommandName.TasksList, { workspaceId })
   const taskId = tasks[0]?.id ?? ''
-  const activity = async (): Promise<TaskActivity | undefined> =>
-    (await taskHeader(window, workspaceId, taskId))?.activity
+  const { pill } = taskHeader(window)
   const sessionId = async (): Promise<string | null | undefined> =>
     (await invoke(window, CommandName.TasksList, { workspaceId })).tasks.find(({ id }) => id === taskId)?.sessionId
   await invoke(window, CommandName.TasksSend, { id: taskId, text: 'Run the e2e suite.' })
@@ -77,14 +74,14 @@ test('stop a running turn with ⌘., then carry on in the same session', async (
   // The agent works, with its command running, until it's stopped.
   const panel = taskPanel(window)
   await expect(panel.call(/^Running\s*Bash/)).toBeVisible()
-  expect(await activity()).toBe(TaskActivity.Working)
+  await expect(pill).toHaveText('Active · working')
   const session = await sessionId()
   expect(session).toBeTruthy()
 
   await window.keyboard.press('Meta+.')
 
   // Back to waiting on you: the running command ended as an error, and the tool log says you stopped it.
-  await expect.poll(activity).toBe(TaskActivity.Waiting)
+  await expect(pill).toHaveText('Active · waiting on you')
   await expect(panel.call(/^Failed\s*Bash/)).toBeVisible()
   await expect(panel.call(/^Running/)).toHaveCount(0)
   await expect(panel.log.getByText(/^You stopped the agent\./)).toBeVisible()
@@ -96,6 +93,6 @@ test('stop a running turn with ⌘., then carry on in the same session', async (
   await expect(userMessages).toHaveCount(2)
   await expect(agentReplies).toHaveCount(1)
   await expect(agentReplies.first()).toContainText('I stopped the suite and will only run the unit tests.')
-  await expect.poll(activity).toBe(TaskActivity.Waiting)
+  await expect(pill).toHaveText('Active · waiting on you')
   expect(await sessionId()).toBe(session)
 })

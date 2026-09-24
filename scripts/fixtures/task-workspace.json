@@ -19,9 +19,10 @@
     },
     {
       "title": "Add rate limiting to public API",
-      "objective": "Add per-key rate limiting to the public API so one client can't starve the others.",
+      "objective": "Add per-key rate limiting to the public API so one client can't starve the others. Over the limit, return 429 with a Retry-After header.",
       "status": "Waiting on you: pick a limit for /search",
       "minutesAgo": 4,
+      "startedMinutesAgo": 42,
       "selected": true,
       "messages": [
         {
