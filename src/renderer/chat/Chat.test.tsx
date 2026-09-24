@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { EventType } from '../../shared/bridge'
 import {
+  DividerKind,
   MessageRole,
   TaskActivity,
   ToolCallState,
@@ -168,6 +169,32 @@ describe('Chat', () => {
     expect(conversation()).not.toHaveTextContent('Running the tests.')
     expect(conversation()).not.toHaveTextContent(TOOL_OUTPUT)
     expect(screen.getAllByRole('article')).toHaveLength(2)
+  })
+
+  it('marks where Glade restarted and resumed a turn, saying it is resuming while the turn runs', async () => {
+    const resumedAt = new Date(2026, 8, 23, 14, 26).getTime()
+    const resumed: ToolEvent = {
+      id: 'r1',
+      taskId: 't1',
+      turn: 1,
+      createdAt: resumedAt,
+      kind: ToolEventKind.Divider,
+      dividerKind: DividerKind.Resumed,
+    }
+    const { emit } = await renderChat({
+      task: { activity: TaskActivity.Working },
+      messages: [ASK],
+      toolEvents: [resumed],
+    })
+
+    const divider = within(conversation()).getByRole('separator', { name: 'Glade restarted' })
+    expect(divider).toHaveTextContent('Glade restarted · 14:26 · resuming')
+
+    act(() => {
+      emit({ type: EventType.MessageAppended, message: REPLY })
+      emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), activity: TaskActivity.Waiting } })
+    })
+    expect(divider).toHaveTextContent(/^Glade restarted · 14:26$/)
   })
 
   it('highlights the latest reply as a question while the agent waits on you', async () => {

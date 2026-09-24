@@ -170,3 +170,21 @@
   line-height: 1.55;
   color: var(--color-muted);
 }
+
+/* Where the app restarted and resumed a turn: a label between two rules, from 18-relaunch.html. */
+.restart {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+.restart::before,
+.restart::after {
+  content: '';
+  flex-grow: 1;
+  height: 1px;
+  background: var(--color-inner-border);
+}

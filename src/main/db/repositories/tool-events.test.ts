@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DividerKind, ToolCallState, ToolEventKind, type Task } from '../../../shared/domain'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
-import { appendDivider, appendNarration, appendToolCall, listToolEvents, updateToolCall } from './tool-events'
+import {
+  appendDivider,
+  appendNarration,
+  appendToolCall,
+  failRunningToolCalls,
+  listToolEvents,
+  updateToolCall,
+} from './tool-events'
 
 let test: TestDatabase
 let task: Task
@@ -159,6 +166,32 @@ describe('updateToolCall', () => {
     expect(() =>
       updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_bash', state: ToolCallState.Done, output: '' }),
     ).toThrow(`No tool call toolu_bash in task ${task.id}`)
+  })
+})
+
+describe('failRunningToolCalls', () => {
+  it("records only this task's running calls as errors, in log order", () => {
+    const first = appendToolCall(test.db, bashCall('toolu_1'))
+    appendToolCall(test.db, bashCall('toolu_done'))
+    updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_done', state: ToolCallState.Done, output: 'ok' })
+    const second = appendToolCall(test.db, bashCall('toolu_2', 'toolu_1'))
+    const other = sampleTask(test.db, task.workspaceId)
+    appendToolCall(test.db, { ...bashCall('toolu_other'), taskId: other.id })
+
+    const failed = failRunningToolCalls(test.db, task.id, 'Glade quit.')
+
+    const error = { state: ToolCallState.Error, output: 'Glade quit.' }
+    expect(failed).toEqual([
+      { ...first, ...error },
+      { ...second, ...error },
+    ])
+    expect(listToolEvents(test.db, task.id).map((event) => 'state' in event && event.state)).toEqual([
+      ToolCallState.Error,
+      ToolCallState.Done,
+      ToolCallState.Error,
+    ])
+    expect(listToolEvents(test.db, other.id)).toMatchObject([{ state: ToolCallState.Running }])
+    expect(failRunningToolCalls(test.db, task.id, 'Glade quit.')).toEqual([])
   })
 })
 
