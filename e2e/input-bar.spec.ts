@@ -17,7 +17,7 @@ test('input bar: ⌘L focuses it, ⇧↵ adds a line, the pickers persist, and �
   await expect(bar.setting('Model')).toHaveText('ModelOpus 5.5')
   await expect(bar.setting('Effort')).toHaveText('EffortHigh')
   await expect(bar.setting('Permissions')).toHaveText('PermissionsAllow all')
-  await expect(bar.field).toHaveAttribute('placeholder', 'Reply…')
+  await expect(bar.field).toHaveAttribute('placeholder', 'Describe the task…')
   await expect(bar.send).toBeEnabled()
   await expect(bar.stop).toHaveCount(0)
 

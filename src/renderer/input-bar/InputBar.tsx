@@ -29,11 +29,18 @@ const EFFORT_OPTIONS: readonly SettingOption[] = Object.values(Effort).map((effo
 const ALLOW_ALL = 'allow_all'
 const PERMISSION_OPTIONS: readonly SettingOption[] = [{ id: ALLOW_ALL, name: 'Allow all' }]
 
+export const NEW_TASK_PLACEHOLDER = 'Describe the task…'
 export const REPLY_PLACEHOLDER = 'Reply…'
 export const DONE_PLACEHOLDER = 'Send a message to reopen this task…'
 
 function isEffort(value: string): value is Effort {
   return Object.values<string>(Effort).includes(value)
+}
+
+/** What the empty field says: a new task asks for its description, and a done task says a message reopens it. */
+function placeholder(task: Task, started: boolean): string {
+  if (task.state === TaskState.Done) return DONE_PLACEHOLDER
+  return started ? REPLY_PLACEHOLDER : NEW_TASK_PLACEHOLDER
 }
 
 /** What the toast says when a message couldn't be sent. */
@@ -78,6 +85,7 @@ function TaskInputBar({ task, contextMeter }: TaskInputBarProps): React.JSX.Elem
   const updateTask = useGladeStore((state) => state.updateTask)
   const sendMessage = useGladeStore((state) => state.sendMessage)
   const stopTask = useGladeStore((state) => state.stopTask)
+  const started = useGladeStore((state) => (state.messages[task.id]?.length ?? 0) > 0)
   const toast = useToast()
   const field = useRef<HTMLTextAreaElement>(null)
   const [draft, setDraft] = useState('')
@@ -163,7 +171,7 @@ function TaskInputBar({ task, contextMeter }: TaskInputBarProps): React.JSX.Elem
         <Textarea
           ref={field}
           label="Message the agent"
-          placeholder={task.state === TaskState.Done ? DONE_PLACEHOLDER : REPLY_PLACEHOLDER}
+          placeholder={placeholder(task, started)}
           className={styles.field}
           value={draft}
           onChange={(event) => {

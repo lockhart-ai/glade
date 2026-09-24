@@ -14,7 +14,7 @@ import {
   type FakeBridge,
   type FakeHandlers,
 } from '../store/test-bridge'
-import { DONE_PLACEHOLDER, InputBar, REPLY_PLACEHOLDER, sendFailureMessage } from './InputBar'
+import { DONE_PLACEHOLDER, InputBar, NEW_TASK_PLACEHOLDER, REPLY_PLACEHOLDER, sendFailureMessage } from './InputBar'
 
 interface Setup {
   readonly task?: Partial<Task>
@@ -119,8 +119,17 @@ describe('InputBar', () => {
     expect(screen.getByRole('button', { name: 'Effort: High' })).toHaveTextContent('EffortHigh')
     expect(screen.getByRole('button', { name: 'Permissions: Allow all' })).toBeInTheDocument()
     expect(screen.getByTestId('context-meter-slot')).toHaveTextContent('meter')
-    expect(field()).toHaveAttribute('placeholder', REPLY_PLACEHOLDER)
     expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
+  })
+
+  it('asks a new task for its description, then for replies once it has a message', async () => {
+    await renderBar()
+    expect(field()).toHaveAttribute('placeholder', NEW_TASK_PLACEHOLDER)
+
+    type('Add rate limiting to the public API.')
+    await press('Enter')
+
+    expect(field()).toHaveAttribute('placeholder', REPLY_PLACEHOLDER)
   })
 
   it('shows a model the picker doesn’t offer by its id', async () => {
