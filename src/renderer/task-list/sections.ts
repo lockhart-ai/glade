@@ -1,4 +1,4 @@
-import { TaskState, UiStateKey, type Task } from '../../shared/domain'
+import { TaskState, UiStateKey, type Task, type UiStateEntry } from '../../shared/domain'
 import type { UiStateValues } from '../store/state'
 
 /** The task list's sections, in the order they appear. */
@@ -50,7 +50,16 @@ export function collapsedValue(collapsed: boolean): string {
   return collapsed ? 'true' : 'false'
 }
 
-function sectionOf(task: Task): SectionId {
+/**
+ * What to write so a task that was just marked done stays in view: Done expanded, as a manual expand would store it.
+ * Null when there's nothing to do: the task stays under Pinned, or Done is already open.
+ */
+export function revealDone(task: Pick<Task, 'pinned'>, uiState: UiStateValues): UiStateEntry | null {
+  if (task.pinned || !isCollapsed(uiState, SectionId.Done)) return null
+  return { key: collapseKey(SectionId.Done), value: collapsedValue(false) }
+}
+
+function sectionOf(task: Pick<Task, 'pinned' | 'state'>): SectionId {
   if (task.pinned) return SectionId.Pinned
   switch (task.state) {
     case TaskState.Active:

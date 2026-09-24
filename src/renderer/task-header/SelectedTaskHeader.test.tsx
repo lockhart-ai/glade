@@ -10,7 +10,7 @@ import {
   type Task,
   type ToolEvent,
 } from '../../shared/domain'
-import { ToastProvider } from '../components'
+import { DEFAULT_TOAST_TIMEOUT, ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore } from '../store/store'
 import {
@@ -23,6 +23,7 @@ import {
 } from '../store/test-bridge'
 import { NOW_REFRESH_MS } from '../task-list/useNow'
 import { SelectedTaskHeader } from './SelectedTaskHeader'
+import { MARKED_DONE_MESSAGE } from './useMarkDone'
 
 const MINUTE = 60_000
 const STARTED = new Date(2026, 8, 23, 10, 42).getTime()
@@ -81,6 +82,10 @@ function header(): HTMLElement {
 /** A labelled row's value, e.g. the objective. */
 function field(name: string): HTMLElement {
   return within(within(header()).getByRole('group', { name })).getByRole('paragraph')
+}
+
+function toasts(): HTMLElement {
+  return screen.getByRole('region', { name: 'Notifications' })
 }
 
 function pill(): HTMLElement {
@@ -188,7 +193,7 @@ describe('SelectedTaskHeader', () => {
     expect(pin).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('marks the task done and switches to the done presentation', async () => {
+  it('marks the task done with no dialog, switches to the done presentation and shows an Undo toast', async () => {
     const { invoke } = await renderHeader()
 
     fireEvent.click(within(header()).getByRole('button', { name: 'Mark done' }))
@@ -197,6 +202,91 @@ describe('SelectedTaskHeader', () => {
     expect(invoke).toHaveBeenCalledWith(CommandName.TasksMarkDone, { id: 't1' })
     expect(field('Outcome')).toHaveTextContent('Throttle applied; 14 new tests pass.')
     expect(within(header()).queryByRole('button', { name: 'Mark done' })).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(await within(toasts()).findByText(MARKED_DONE_MESSAGE)).toBeInTheDocument()
+    await vi.waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(CommandName.UiStateSet, {
+        key: UiStateKey.DoneSectionCollapsed,
+        value: 'false',
+      })
+    })
+  })
+
+  it('leaves Done as it is when the task stays under Pinned', async () => {
+    const { invoke } = await renderHeader({ task: { pinned: true } })
+
+    fireEvent.click(within(header()).getByRole('button', { name: 'Mark done' }))
+
+    expect(await within(toasts()).findByText(MARKED_DONE_MESSAGE)).toBeInTheDocument()
+    expect(invoke).not.toHaveBeenCalledWith(CommandName.UiStateSet, expect.anything())
+  })
+
+  it('still offers Undo when Done can’t be expanded, and says why', async () => {
+    await renderHeader({
+      overrides: { [CommandName.UiStateSet]: () => refuse(bridgeError(BridgeErrorCode.Internal, 'Disk full')) },
+    })
+
+    fireEvent.click(within(header()).getByRole('button', { name: 'Mark done' }))
+
+    expect(await screen.findByText('Disk full')).toBeInTheDocument()
+    expect(within(toasts()).getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+  })
+
+  it('puts the task back exactly as it was on Undo, and takes the toast away', async () => {
+    const { invoke } = await renderHeader({ task: { pinned: true } })
+
+    fireEvent.click(within(header()).getByRole('button', { name: 'Mark done' }))
+    fireEvent.click(await within(toasts()).findByRole('button', { name: 'Undo' }))
+
+    expect(await within(header()).findByRole('button', { name: 'Mark done' })).toBeEnabled()
+    expect(invoke).toHaveBeenCalledWith(CommandName.TasksReopen, { id: 't1' })
+    expect(pill()).toHaveTextContent('Active · waiting on you')
+    expect(within(header()).getByRole('heading', { level: 1 })).toHaveTextContent('Add rate limiting to public API')
+    expect(within(header()).getByRole('button', { name: 'Unpin task' })).toBeInTheDocument()
+    expect(field('Objective')).toHaveTextContent('Add per-key rate limiting to the public API.')
+    expect(field('Status')).toHaveTextContent('Throttle applied; 14 new tests pass. · 4m ago')
+    expect(toasts()).toBeEmptyDOMElement()
+  })
+
+  it('says why when Undo fails, leaving the task done', async () => {
+    await renderHeader({
+      overrides: {
+        [CommandName.TasksReopen]: () => refuse(bridgeError(BridgeErrorCode.InvalidTransition, 'Already active')),
+      },
+    })
+
+    fireEvent.click(within(header()).getByRole('button', { name: 'Mark done' }))
+    fireEvent.click(await within(toasts()).findByRole('button', { name: 'Undo' }))
+
+    expect(await screen.findByText('Already active')).toBeInTheDocument()
+    expect(pill()).toHaveTextContent(/^Done · /)
+  })
+
+  it('takes the Undo toast away after a few seconds, leaving the task done', async () => {
+    await renderHeader()
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
+    vi.setSystemTime(NOW)
+
+    fireEvent.click(within(header()).getByRole('button', { name: 'Mark done' }))
+    await act(() => Promise.resolve())
+    expect(toasts()).toHaveTextContent(MARKED_DONE_MESSAGE)
+
+    act(() => {
+      vi.advanceTimersByTime(DEFAULT_TOAST_TIMEOUT)
+    })
+
+    expect(toasts()).toBeEmptyDOMElement()
+    expect(pill()).toHaveTextContent(/^Done · /)
+  })
+
+  it('disables Mark done while the agent is working', async () => {
+    const { invoke } = await renderHeader({ task: { activity: TaskActivity.Working } })
+
+    const markDone = within(header()).getByRole('button', { name: 'Mark done' })
+    expect(markDone).toBeDisabled()
+    fireEvent.click(markDone)
+
+    expect(invoke).not.toHaveBeenCalledWith(CommandName.TasksMarkDone, expect.anything())
   })
 
   it('says why when main refuses an action', async () => {
@@ -210,6 +300,19 @@ describe('SelectedTaskHeader', () => {
 
     expect(await screen.findByText('Already done')).toBeInTheDocument()
     expect(pill()).toHaveTextContent('Active · waiting on you')
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
+  })
+
+  it('says why when main refuses to pin the task', async () => {
+    await renderHeader({
+      overrides: {
+        [CommandName.TasksUpdate]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No task t1')),
+      },
+    })
+
+    fireEvent.click(within(header()).getByRole('button', { name: 'Pin task' }))
+
+    expect(await screen.findByText('No task t1')).toBeInTheDocument()
   })
 
   it('follows the task live as the agent changes it', async () => {

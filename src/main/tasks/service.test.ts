@@ -77,6 +77,8 @@ describe('createTask', () => {
       updatedAt: 5_000,
       doneAt: null,
       sessionId: null,
+      contextUsedTokens: 0,
+      contextWindowTokens: 1_000_000,
     })
     expect(DEFAULT_EFFORT).toBe(Effort.High)
     expect(getTask(database.db, task.id)).toEqual(task)
@@ -161,8 +163,11 @@ describe('updating fields', () => {
       title: 'Rate limits',
       pinned: false,
       model: 'claude-sample-2',
+      // The window goes with the model: the default model's 1M, this one's 200k.
+      contextWindowTokens: 200_000,
       updatedAt: 7_000,
     })
+    expect(task.contextWindowTokens).toBe(1_000_000)
     expect(events).toEqual([{ type: EventType.TaskUpdated, task: updated }])
   })
 
@@ -195,6 +200,18 @@ describe('updateTaskFromRunner', () => {
     expect(working).toEqual({ ...task, activity: TaskActivity.Working, sessionId: 'session-2', updatedAt: 7_000 })
     expect(errored).toEqual({ ...working, activity: TaskActivity.Error })
     expect(events).toEqual([working, errored].map((updated) => ({ type: EventType.TaskUpdated, task: updated })))
+  })
+
+  it('records how full the context is', () => {
+    const task = busyTask()
+    vi.setSystemTime(7_000)
+
+    const used = updateTaskFromRunner(context, task.id, { contextUsedTokens: 76_000 })
+    const sized = updateTaskFromRunner(context, task.id, { contextWindowTokens: 200_000 })
+
+    expect(used).toEqual({ ...task, contextUsedTokens: 76_000, updatedAt: 7_000 })
+    expect(sized).toEqual({ ...used, contextWindowTokens: 200_000 })
+    expect(events).toEqual([used, sized].map((updated) => ({ type: EventType.TaskUpdated, task: updated })))
   })
 })
 

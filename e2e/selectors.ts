@@ -100,6 +100,15 @@ export function chat(page: Page) {
   }
 }
 
+/** The toasts at the bottom of the window, e.g. Mark done's Undo. */
+export function toasts(page: Page) {
+  const region = page.getByRole('region', { name: 'Notifications' })
+  return {
+    region,
+    undo: region.getByRole('button', { name: 'Undo' }),
+  }
+}
+
 /** The component gallery (`#gallery`, dev and e2e builds only). */
 export function gallery(page: Page) {
   return {
@@ -122,5 +131,7 @@ export function inputBar(page: Page) {
     field: bar.getByRole('textbox', { name: 'Message the agent' }),
     send: bar.getByRole('button', { name: 'Send', exact: true }),
     stop: bar.getByRole('button', { name: 'Stop', exact: true }),
+    /** The context meter, at the right of the settings row. */
+    contextMeter: bar.getByTestId('context-meter-slot').getByRole('meter', { name: 'Context used' }),
   }
 }

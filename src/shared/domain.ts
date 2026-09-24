@@ -75,6 +75,16 @@ export interface Task {
   readonly doneAt: EpochMs | null
   /** The Claude Agent SDK session id, stored from the session's first `system/init`; null until then. */
   readonly sessionId: string | null
+  /**
+   * How much of the context window the session's prompt fills, in tokens: the input tokens of the agent's latest
+   * top-level message (`docs/sdk-notes.md`, "Usage and context size"). 0 until the agent first answers.
+   */
+  readonly contextUsedTokens: number
+  /**
+   * The model's context window, in tokens: what the SDK last reported for the task's model, or else what
+   * `contextWindowFor` (`./contextWindow`) gives for it.
+   */
+  readonly contextWindowTokens: number
 }
 
 /** Who wrote a chat message. */

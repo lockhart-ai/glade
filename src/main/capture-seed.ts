@@ -81,6 +81,10 @@ export interface SeedTask {
   readonly activity?: TaskActivity | undefined
   readonly pinned?: boolean | undefined
   readonly unread?: boolean | undefined
+  /** How much context the task's agent has used, in tokens; none unless given. */
+  readonly contextUsedTokens?: number | undefined
+  /** The task's context window, in tokens; its model's unless given. */
+  readonly contextWindowTokens?: number | undefined
   /** How long before the capture the task was last updated (and its status set, and it was marked done). */
   readonly minutesAgo: number
   /** How long before the capture the task was created; `minutesAgo` unless given. */
@@ -129,6 +133,8 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       activity: z.enum(TaskActivity).optional(),
       pinned: z.boolean().optional(),
       unread: z.boolean().optional(),
+      contextUsedTokens: z.int().nonnegative().optional(),
+      contextWindowTokens: z.int().positive().optional(),
       minutesAgo,
       startedMinutesAgo: minutesAgo.optional(),
       selected: z.boolean().optional(),
@@ -193,6 +199,8 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
           activity: sample.activity ?? TaskActivity.Waiting,
           pinned: sample.pinned ?? false,
           unread: sample.unread ?? false,
+          contextUsedTokens: sample.contextUsedTokens,
+          contextWindowTokens: sample.contextWindowTokens,
         },
         at,
       )

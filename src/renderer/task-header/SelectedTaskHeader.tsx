@@ -9,16 +9,18 @@ import { useGladeStore } from '../store/react'
 import { selectSelectedTask } from '../store/state'
 import { useNow } from '../task-list/useNow'
 import {
+  canMarkDone,
   EMPTY_OBJECTIVE,
   EMPTY_STATUS,
   EMPTY_TITLE,
   formatAgo,
-  isNewTask,
+  offersMarkDone,
   pillLabel,
   reopening,
   timing,
 } from './headerModel'
 import styles from './SelectedTaskHeader.module.css'
+import { useMarkDone } from './useMarkDone'
 
 const NO_TOOL_EVENTS: readonly ToolEvent[] = []
 
@@ -52,7 +54,7 @@ interface HeaderProps {
 function Header({ task }: HeaderProps): React.JSX.Element {
   const now = useNow()
   const updateTask = useGladeStore((state) => state.updateTask)
-  const markTaskDone = useGladeStore((state) => state.markTaskDone)
+  const markDone = useMarkDone()
   const toast = useToast()
   const done = task.state === TaskState.Done
   const toolEvents = useGladeStore((state) => state.toolEvents[task.id]) ?? NO_TOOL_EVENTS
@@ -89,8 +91,13 @@ function Header({ task }: HeaderProps): React.JSX.Element {
             <span className={styles.timing}>{timing(task, now, reopened)}</span>
           </div>
         </div>
-        {!done && !isNewTask(task) && (
-          <Button variant={ButtonVariant.Ghost} icon={faCheck} onClick={() => void run(markTaskDone(task.id))}>
+        {offersMarkDone(task) && (
+          <Button
+            variant={ButtonVariant.Ghost}
+            icon={faCheck}
+            disabled={!canMarkDone(task)}
+            onClick={() => void markDone(task.id)}
+          >
             Mark done
           </Button>
         )}
@@ -117,7 +124,7 @@ function Header({ task }: HeaderProps): React.JSX.Element {
 }
 
 /**
- * The selected task's header card: its title and pin toggle, status pill and timing, Mark done while it's active, and
+ * The selected task's header card: its title and pin toggle, status pill and timing, Mark done while it's active (disabled while the agent works), and
  * its objective and status (its outcome once done). It follows the store, so it changes as the agent sets its fields.
  * Nothing shows while no task is selected.
  */

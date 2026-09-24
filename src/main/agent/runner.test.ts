@@ -130,7 +130,7 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.ToolEventUpdated:
         return [event.type, event.toolEvent.kind, 'state' in event.toolEvent ? event.toolEvent.state : null]
       case EventType.TaskUpdated:
-        return [event.type, event.task.activity, event.task.sessionId]
+        return [event.type, event.task.activity, event.task.sessionId, event.task.contextUsedTokens]
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
         return [event.type]
@@ -235,8 +235,9 @@ describe('a turn', () => {
     expect(drainEvents()).toEqual([
       [EventType.MessageAppended, MessageRole.User, 'Find out why the login test is flaky.'],
       [EventType.ToolEventAppended, ToolEventKind.Divider, null],
-      [EventType.TaskUpdated, TaskActivity.Working, null],
-      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID],
+      [EventType.TaskUpdated, TaskActivity.Working, null, 0],
+      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, 0],
+      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED],
       [EventType.ToolEventAppended, ToolEventKind.Narration, null],
       [EventType.ToolEventAppended, ToolEventKind.ToolCall, ToolCallState.Running],
       [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Done],
@@ -249,7 +250,7 @@ describe('a turn', () => {
         MessageRole.Agent,
         'The redirect test reads the session before it is saved; that race is the flake.',
       ],
-      [EventType.TaskUpdated, TaskActivity.Waiting, sdk.SESSION_ID],
+      [EventType.TaskUpdated, TaskActivity.Waiting, sdk.SESSION_ID, sdk.CONTEXT_USED],
     ])
     await expect(glade.invoke(CommandName.TasksHistory, { id: task.id })).resolves.toEqual({
       messages: listMessages(database.db, task.id),
@@ -292,8 +293,8 @@ describe('a turn', () => {
     ])
     // The session id didn't change, so the second init wrote nothing.
     expect(drainEvents().filter(([type]) => type === EventType.TaskUpdated)).toEqual([
-      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID],
-      [EventType.TaskUpdated, TaskActivity.Waiting, sdk.SESSION_ID],
+      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED],
+      [EventType.TaskUpdated, TaskActivity.Waiting, sdk.SESSION_ID, sdk.CONTEXT_USED],
     ])
   })
 
@@ -317,6 +318,84 @@ describe('a turn', () => {
     await settle()
 
     expect(toolLog()[1]).toMatchObject({ state: ToolCallState.Error, output: 'File does not exist.' })
+  })
+})
+
+describe('the context usage', () => {
+  /** The context usage in each `task.updated` since the last call. */
+  function contextUpdates(): { used: number; window: number }[] {
+    return events
+      .splice(0)
+      .flatMap((event) =>
+        event.type === EventType.TaskUpdated
+          ? [{ used: event.task.contextUsedTokens, window: event.task.contextWindowTokens }]
+          : [],
+      )
+  }
+
+  it("follows the latest top-level message, not a subagent's, and saves it on the task", async () => {
+    expect(current()).toMatchObject({ contextUsedTokens: 0, contextWindowTokens: 200_000 })
+    await send('Find out why the login test is flaky.')
+    contextUpdates()
+
+    backend.session.emit(
+      sdk.init(),
+      sdk.withContextUsed(sdk.text('Looking.'), 40_000),
+      sdk.withContextUsed(sdk.toolUse('toolu_01', 'Bash', { command: 'ls' }), 40_000),
+      sdk.toolResult('toolu_01', 'src'),
+      sdk.withContextUsed(sdk.toolUse('toolu_02', 'Bash', { command: 'ls' }, 'toolu_01', 'msg_sub'), 5_000),
+      sdk.withContextUsed(sdk.text('Found it.', null, 'msg_02'), 76_000),
+      sdk.result('Found it.'),
+    )
+    await settle()
+
+    expect(current()).toMatchObject({ contextUsedTokens: 76_000, contextWindowTokens: 200_000 })
+    expect(contextUpdates()).toEqual([
+      { used: 0, window: 200_000 },
+      { used: 40_000, window: 200_000 },
+      { used: 76_000, window: 200_000 },
+      { used: 76_000, window: 200_000 },
+    ])
+  })
+
+  it("keeps the context window the result reports for the session's model", async () => {
+    await send('Hi')
+    const modelUsage = {
+      'claude-sample-other': { contextWindow: 50_000 },
+      [sdk.MODEL]: { contextWindow: 180_000 },
+    }
+    backend.session.emit(sdk.init(), sdk.text('Hello.'), sdk.result('Hello.', { modelUsage }))
+    await settle()
+
+    expect(current()).toMatchObject({ contextUsedTokens: sdk.CONTEXT_USED, contextWindowTokens: 180_000 })
+  })
+
+  it("keeps the window it has when the result doesn't report the session's model", async () => {
+    await send('Hi')
+    backend.session.emit(
+      sdk.init(),
+      sdk.result('Hello.', { modelUsage: { 'claude-sample-other': { contextWindow: 1 } } }),
+    )
+    await settle()
+    expect(current().contextWindowTokens).toBe(200_000)
+  })
+
+  it("can't find a window before the session has said which model it runs on", async () => {
+    await send('Hi')
+    backend.session.emit(sdk.result('Hello.', { modelUsage: { [sdk.MODEL]: { contextWindow: 1 } } }))
+    await settle()
+    expect(current().contextWindowTokens).toBe(200_000)
+  })
+
+  it('lists the task with it once its session is gone', async () => {
+    await send('Hi')
+    backend.session.emit(sdk.init(), sdk.withContextUsed(sdk.text('Hello.'), 76_000), sdk.result('Hello.'))
+    await settle()
+    runner.close()
+
+    await expect(glade.invoke(CommandName.TasksList, { workspaceId: workspace.id })).resolves.toEqual({
+      tasks: [expect.objectContaining({ contextUsedTokens: 76_000, contextWindowTokens: 200_000 })],
+    })
   })
 })
 
@@ -723,7 +802,7 @@ describe('tasks.stop', () => {
       [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Error],
       [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Error],
       [EventType.ToolEventAppended, ToolEventKind.Narration, null],
-      [EventType.TaskUpdated, TaskActivity.Waiting, sdk.SESSION_ID],
+      [EventType.TaskUpdated, TaskActivity.Waiting, sdk.SESSION_ID, sdk.CONTEXT_USED],
     ])
   })
 
@@ -886,8 +965,8 @@ describe('the Glade tools', () => {
         ? [{ title: event.task.title, objective: event.task.objective, status: event.task.status }]
         : [],
     )
-    // Working, then the session id, then the three tools' writes, then waiting on you.
-    expect(updates.slice(2, 5)).toEqual([
+    // Working, then the session id, the context used, the three tools' writes, then waiting on you.
+    expect(updates.slice(3, 6)).toEqual([
       { title: 'Fix the flaky login test', objective: '', status: '' },
       { title: 'Fix the flaky login test', objective: 'Make the login test pass every run.', status: '' },
       {
@@ -896,7 +975,7 @@ describe('the Glade tools', () => {
         status: 'Reproducing the flake.',
       },
     ])
-    expect(updates).toHaveLength(6)
+    expect(updates).toHaveLength(7)
     expect(toolLog()).toEqual([
       { divider: DividerKind.Turn, turn: 1 },
       {
@@ -979,13 +1058,14 @@ describe('reopening by chatting', () => {
       { dividerKind: DividerKind.Turn, turn: 2, createdAt: expect.any(Number) as unknown },
     ])
     // The task reopens before anything else is heard, and its dividers follow the message, in log order.
+    const used = current().contextUsedTokens
     expect(drainEvents()).toEqual([
-      [EventType.TaskUpdated, TaskActivity.Waiting, sdk.SESSION_ID],
+      [EventType.TaskUpdated, TaskActivity.Waiting, sdk.SESSION_ID, used],
       [EventType.MessageAppended, MessageRole.User, 'Actually, also cover the logout test.'],
       [EventType.ToolEventAppended, ToolEventKind.Divider, null],
       [EventType.ToolEventAppended, ToolEventKind.Divider, null],
       [EventType.ToolEventAppended, ToolEventKind.Divider, null],
-      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID],
+      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, used],
     ])
 
     session.emit(sdk.init(), sdk.result('The logout test is covered too.'))

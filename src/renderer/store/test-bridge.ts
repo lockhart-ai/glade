@@ -165,6 +165,8 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
     updatedAt: 2_000,
     doneAt: null,
     sessionId: null,
+    contextUsedTokens: 0,
+    contextWindowTokens: 200_000,
   }
 }
 

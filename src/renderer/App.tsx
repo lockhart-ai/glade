@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Chat } from './chat'
 import { classNames } from './components/classNames'
+import { ContextMeter } from './context-meter'
 import { ToastProvider } from './components'
 import { FirstRun } from './first-run/FirstRun'
 import { InputBar } from './input-bar'
@@ -11,6 +12,7 @@ import { useGladeStore } from './store/react'
 import { SelectedTaskHeader } from './task-header'
 import { TaskList, TaskListToolbar } from './task-list'
 import { useNewTaskShortcut } from './shortcuts/useNewTaskShortcut'
+import { useMarkDoneShortcut } from './shortcuts/useMarkDoneShortcut'
 import { useStopShortcut } from './shortcuts/useStopShortcut'
 import { TaskPanel } from './tool-log'
 
@@ -65,6 +67,7 @@ function Layout(): React.JSX.Element {
   const workspace = useGladeStore(selectSelectedWorkspace)
   useNewTaskShortcut()
   useStopShortcut()
+  useMarkDoneShortcut()
   return (
     <Window
       sidebar={
@@ -79,7 +82,12 @@ function Layout(): React.JSX.Element {
         </Sidebar>
       }
       task={
-        <TaskCard header={<SelectedTaskHeader />} chat={<Chat />} inputBar={<InputBar />} rightPanel={<TaskPanel />} />
+        <TaskCard
+          header={<SelectedTaskHeader />}
+          chat={<Chat />}
+          inputBar={<InputBar contextMeter={<ContextMeter />} />}
+          rightPanel={<TaskPanel />}
+        />
       }
     />
   )

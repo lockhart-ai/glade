@@ -3,6 +3,10 @@
 
 export const SESSION_ID = '3f1c9a52-7d2e-4b8a-9c11-0e5f6a7b8c9d'
 export const MODEL = 'claude-sample-1'
+/** The context window results report for `MODEL`. */
+export const CONTEXT_WINDOW = 200_000
+/** The context each assistant message reports using: its input, cache read and cache creation tokens. */
+export const CONTEXT_USED = 22_846
 
 export function init(sessionId = SESSION_ID): unknown {
   return {
@@ -40,6 +44,23 @@ function assistant(content: unknown[], parent: string | null, messageId: string)
       stop_reason: null,
       content,
       usage: { input_tokens: 10, cache_creation_input_tokens: 1272, cache_read_input_tokens: 21564, output_tokens: 1 },
+    },
+  }
+}
+
+/** `message`, an assistant message, with its usage replaced: its prompt used `tokens` of context. */
+export function withContextUsed(message: unknown, tokens: number): unknown {
+  const assistantMessage = message as { message: Record<string, unknown> }
+  return {
+    ...assistantMessage,
+    message: {
+      ...assistantMessage.message,
+      usage: {
+        input_tokens: 6,
+        cache_creation_input_tokens: 1000,
+        cache_read_input_tokens: tokens - 1006,
+        output_tokens: 1,
+      },
     },
   }
 }
@@ -94,7 +115,18 @@ export function result(reply: string, overrides: Record<string, unknown> = {}): 
     duration_api_ms: 8073,
     total_cost_usd: 0.0285,
     usage: { input_tokens: 28, cache_creation_input_tokens: 9443, cache_read_input_tokens: 58094, output_tokens: 553 },
-    modelUsage: {},
+    modelUsage: {
+      [MODEL]: {
+        inputTokens: 953,
+        outputTokens: 566,
+        cacheReadInputTokens: 58094,
+        cacheCreationInputTokens: 9443,
+        webSearchRequests: 0,
+        costUSD: 0.0285,
+        contextWindow: CONTEXT_WINDOW,
+        maxOutputTokens: 32000,
+      },
+    },
     permission_denials: [],
     ...overrides,
   }

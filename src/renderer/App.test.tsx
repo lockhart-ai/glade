@@ -1,11 +1,11 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName } from '../shared/bridge'
-import type { Workspace } from '../shared/domain'
+import { UiStateKey, type Workspace } from '../shared/domain'
 import { App } from './App'
 import { GladeStoreProvider } from './store/react'
 import { createGladeStore, type GladeStore } from './store/store'
-import { fakeBridge, refuse, sampleWorkspace, type FakeHandlers } from './store/test-bridge'
+import { fakeBridge, refuse, sampleTask, sampleWorkspace, type FakeHandlers } from './store/test-bridge'
 
 async function renderApp(workspaces: Workspace[], overrides: Partial<FakeHandlers> = {}): Promise<GladeStore> {
   const store = createGladeStore(fakeBridge({ workspaces, tasks: [], uiState: [] }, overrides).bridge)
@@ -70,8 +70,11 @@ it('renders the window layout with the workspace, the chat, and a placeholder in
   expect(
     within(within(main).getByRole('region', { name: 'Chat' })).getByRole('log', { name: 'Conversation' }),
   ).toBeInTheDocument()
-  // No task is selected, so the input bar is empty.
-  expect(within(main).getByTestId('input-bar')).toBeEmptyDOMElement()
+  // No task is selected, so the input bar is empty but for the toasts, which stand above it.
+  const inputBar = within(main).getByTestId('input-bar')
+  expect(inputBar).toHaveTextContent(/^$/)
+  expect(within(inputBar).queryByRole('textbox')).toBeNull()
+  expect(within(inputBar).getByRole('region', { name: 'Notifications' })).toBeInTheDocument()
 
   const panel = within(main).getByRole('complementary', { name: 'Task panel' })
   expect(within(panel).getByRole('tab', { name: /^Tool calls/ })).toHaveAttribute('aria-selected', 'true')
@@ -79,6 +82,24 @@ it('renders the window layout with the workspace, the chat, and a placeholder in
   const terminal = screen.getByRole('region', { name: 'Terminal' })
   expect(terminal).toHaveTextContent('Terminal tabs')
   expect(within(terminal).getByText('Terminal')).toBeInTheDocument()
+})
+
+it("puts the selected task's context meter in the input bar", async () => {
+  const task = { ...sampleTask('t1', 'w1'), contextUsedTokens: 76_000, contextWindowTokens: 200_000 }
+  const uiState = [
+    { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+    { key: UiStateKey.SelectedTaskId, value: 't1' },
+  ]
+  const store = createGladeStore(fakeBridge({ workspaces: [sampleWorkspace('w1')], tasks: [task], uiState }).bridge)
+  render(
+    <GladeStoreProvider store={store}>
+      <App />
+    </GladeStoreProvider>,
+  )
+  await act(() => store.getState().hydrate())
+
+  const slot = within(screen.getByTestId('input-bar')).getByTestId('context-meter-slot')
+  expect(within(slot).getByRole('meter', { name: 'Context used' })).toHaveTextContent('38% · 76k / 200k')
 })
 
 it('says why when the store could not load', async () => {

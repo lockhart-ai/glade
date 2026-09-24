@@ -24,6 +24,8 @@
       "minutesAgo": 4,
       "startedMinutesAgo": 42,
       "selected": true,
+      "contextUsedTokens": 76000,
+      "contextWindowTokens": 200000,
       "messages": [
         {
           "role": "user",

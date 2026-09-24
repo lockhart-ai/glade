@@ -1,7 +1,7 @@
 import { faFolder } from '@fortawesome/free-regular-svg-icons'
 import { faPlus } from '@fortawesome/free-solid-svg-icons'
 import gladeMark from '../../../assets/icon/glade-mark.svg'
-import { Button, ButtonSize, ButtonVariant, Card, useToast } from '../components'
+import { Button, ButtonSize, ButtonVariant, Card, ToastAnchor, useToast } from '../components'
 import { describeFailure } from '../store/hydrate'
 import { useGladeStore } from '../store/react'
 import styles from './FirstRun.module.css'
@@ -9,7 +9,7 @@ import styles from './FirstRun.module.css'
 /**
  * The task card's content before there is any workspace: a welcome with Open folder… and Create a new folder…. Both
  * use the native folder dialog (it has New Folder); choosing a folder adds it as a workspace and opens it. Failures,
- * such as a root that isn't a folder, show as a toast.
+ * such as a root that isn't a folder, show as a toast at the bottom of the card.
  */
 export function FirstRun(): React.JSX.Element {
   const chooseFolder = useGladeStore((state) => state.chooseFolder)
@@ -27,6 +27,7 @@ export function FirstRun(): React.JSX.Element {
 
   return (
     <Card role="main" aria-label="Welcome" className={styles.card}>
+      <ToastAnchor className={styles.toastAnchor} />
       <div className={styles.welcome}>
         <div className={styles.mark}>
           <img src={gladeMark} alt="" width={56} height={56} />

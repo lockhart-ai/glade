@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { DividerKind, TaskActivity, TaskState, ToolEventKind, type ToolEvent } from '../../shared/domain'
 import { sampleTask } from '../store/test-bridge'
-import { formatAgo, formatDay, isNewTask, pillLabel, reopening, timing, type Reopening } from './headerModel'
+import {
+  canMarkDone,
+  formatAgo,
+  formatDay,
+  isNewTask,
+  offersMarkDone,
+  pillLabel,
+  reopening,
+  timing,
+  type Reopening,
+} from './headerModel'
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
@@ -37,6 +47,21 @@ describe('isNewTask', () => {
     expect(isNewTask({ title: 'Fix it', objective: '', status: '' })).toBe(false)
     expect(isNewTask({ title: '', objective: 'Fix it', status: '' })).toBe(false)
     expect(isNewTask({ title: '', objective: '', status: 'Reading' })).toBe(false)
+  })
+})
+
+describe('offersMarkDone and canMarkDone', () => {
+  const task = { ...sampleTask('t1', 'w1', 'Fix it'), activity: TaskActivity.Waiting }
+
+  it.each([
+    ['an active task the agent has set up', task, true, true],
+    ['a task stopped by an error', { ...task, activity: TaskActivity.Error }, true, true],
+    ['a task whose agent is working', { ...task, activity: TaskActivity.Working }, true, false],
+    ['a new task', { ...task, title: '' }, false, false],
+    ['a done task', { ...task, state: TaskState.Done }, false, false],
+  ])('for %s: offered %s, allowed %s', (_, value, offered, allowed) => {
+    expect(offersMarkDone(value)).toBe(offered)
+    expect(canMarkDone(value)).toBe(allowed)
   })
 })
 

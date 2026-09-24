@@ -1,5 +1,6 @@
 /* From docs/design/html/20-first-run.html. */
 .card {
+  position: relative;
   min-height: 0;
   min-width: 0;
   padding: var(--space-outer);
@@ -58,4 +59,9 @@
   margin: 6px 0 0;
   font-size: var(--font-size-secondary);
   color: var(--color-faint);
+}
+
+/* With no input bar to stand above, toasts sit at the bottom centre of the card. */
+.toastAnchor {
+  bottom: 24px;
 }
