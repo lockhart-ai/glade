@@ -16,6 +16,8 @@ its PR, and sends back fixes. Jared approves and merges. This SOP starts simple 
    This commit:
    - change
 
+   Screenshots: (when visual)
+
    Closes #N
    ```
 
@@ -28,5 +30,11 @@ its PR, and sends back fixes. Jared approves and merges. This SOP starts simple 
 
    Never merge directly. Report back to the supervisor with the PR link, how you checked each acceptance criterion,
    and any decisions or open questions.
+
+   **Visual changes need screenshots.** If the PR changes anything you can see, take screenshots of the running app
+   (`npm run dev` with Electron's `--remote-debugging-port`, captured through the Chrome DevTools Protocol) and compare
+   them with the design screens. Commit the PNGs to the orphan `screenshots` branch under `pr-<N>/`; never commit them
+   to your feature branch or main. Add a `Screenshots:` section to the PR body, before `Closes #N`, with images from
+   `https://raw.githubusercontent.com/lockhart-ai/glade/screenshots/pr-<N>/<file>.png`.
 
 Review fixes go on the same branch as new commits; don't force-push.
