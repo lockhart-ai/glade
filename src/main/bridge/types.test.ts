@@ -17,6 +17,7 @@ import {
   UiStateKey,
   type Message,
   type QuestionSet,
+  type TodoList,
   type QueuedMessage,
   type Task,
   type ToolEvent,
@@ -41,7 +42,13 @@ const TASK_HANDLERS = {
   [CommandName.TasksStop]: () => ({ task: {} as Task }),
   [CommandName.TasksRetry]: () => ({ task: {} as Task }),
   [CommandName.TasksCompact]: () => ({ task: {} as Task }),
-  [CommandName.TasksHistory]: () => ({ messages: [], toolEvents: [], queuedMessages: [], questionSets: [] }),
+  [CommandName.TasksHistory]: () => ({
+    messages: [],
+    toolEvents: [],
+    queuedMessages: [],
+    questionSets: [],
+    todos: null,
+  }),
   [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueRemove]: () => null,
@@ -103,6 +110,7 @@ describe('the command map', () => {
       readonly toolEvents: readonly ToolEvent[]
       readonly queuedMessages: readonly QueuedMessage[]
       readonly questionSets: readonly QuestionSet[]
+      readonly todos: TodoList | null
     }>()
     expectTypeOf(glade.invoke(CommandName.QueueAdd, { taskId: 't', text: 'Hi' })).resolves.toEqualTypeOf<{
       readonly queuedMessage: QueuedMessage
@@ -281,6 +289,9 @@ describe('events', () => {
         case EventType.QuestionAnswered:
         case EventType.QuestionWithdrawn:
           expectTypeOf(event.questionSet).toEqualTypeOf<QuestionSet>()
+          break
+        case EventType.TodosChanged:
+          expectTypeOf(event.todos).toEqualTypeOf<TodoList | null>()
           break
       }
     })

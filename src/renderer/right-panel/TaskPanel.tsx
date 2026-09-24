@@ -6,7 +6,9 @@ import { Button, ButtonVariant, TabPanel, Tabs, type TabItem } from '../componen
 import { RightPanel } from '../layout'
 import { selectSelectedTask, selectSelectedWorkspace } from '../store/state'
 import { useGladeStore } from '../store/react'
+import { Todos } from '../todos'
 import { ToolLog, type TurnFocus } from '../tool-log'
+import { useNow } from '../task-list/useNow'
 import { formatCount, isPanelCollapsed, PanelTab, parsePanelTab, parsePanelWidth } from './panelModel'
 import { PANEL_TAB_DEFINITIONS } from './panelTabs'
 import styles from './TaskPanel.module.css'
@@ -14,9 +16,8 @@ import styles from './TaskPanel.module.css'
 const TABS_ID = 'task-panel'
 
 /** What each tab not built yet shows. */
-const EMPTY_STATES: Readonly<Record<Exclude<PanelTab, PanelTab.ToolCalls>, string>> = {
+const EMPTY_STATES: Readonly<Record<Exclude<PanelTab, PanelTab.ToolCalls | PanelTab.Todos>, string>> = {
   [PanelTab.Files]: 'No files yet.',
-  [PanelTab.Todos]: 'No todos yet.',
   [PanelTab.Artifacts]: 'No artifacts yet.',
   [PanelTab.Subagents]: 'No subagents yet.',
 }
@@ -25,7 +26,7 @@ const NO_TOOL_EVENTS: readonly ToolEvent[] = []
 
 /**
  * The right panel of the task card: the tab bar (Tool calls, Files, Todos, Artifacts, Subagents, each with its count)
- * and the selected tab. Only Tool calls is built so far; the others show an empty state. The selected tab, the width
+ * and the selected tab. Tool calls and Todos are built so far; the others show an empty state. The selected tab, the width
  * and whether the panel is collapsed are kept in UI state, for the whole window; collapsed, the panel shows nothing.
  * When the chat asks to show a turn of the selected task (its tool-call chip), the store opens Tool calls and the log
  * scrolls to that turn.
@@ -35,6 +36,8 @@ export function TaskPanel(): React.JSX.Element | null {
   const rootPath = useGladeStore((state) => selectSelectedWorkspace(state)?.rootPath)
   const events =
     useGladeStore((state) => (task === undefined ? undefined : state.toolEvents[task.id])) ?? NO_TOOL_EVENTS
+  const todos = useGladeStore((state) => (task === undefined ? undefined : state.todos[task.id]))
+  const now = useNow()
   const counts = useGladeStore(
     useShallow((state) =>
       PANEL_TAB_DEFINITIONS.map(({ count }) => (task === undefined ? undefined : formatCount(count(state, task.id)))),
@@ -107,6 +110,8 @@ export function TaskPanel(): React.JSX.Element | null {
               onFocusShown={clearFocus}
             />
           )
+        ) : tab === PanelTab.Todos ? (
+          task !== undefined && <Todos list={todos} now={now} />
         ) : (
           <p className={styles.empty}>{EMPTY_STATES[tab]}</p>
         )}

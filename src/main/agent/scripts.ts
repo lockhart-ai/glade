@@ -833,6 +833,179 @@ const asksAQuestion: AgentScript = {
   ],
 }
 
+/** The plan `keeps-todos` makes, as the items of its todo list, with each one's active form. */
+export const S3_PLAN: readonly { readonly subject: string; readonly activeForm: string }[] = [
+  { subject: 'Find how uploads are stored today', activeForm: 'Finding how uploads are stored' },
+  { subject: 'Add an S3 backend for media files', activeForm: 'Adding an S3 backend' },
+  { subject: 'Check new uploads land in the bucket', activeForm: 'Checking new uploads' },
+  { subject: 'Copy the 3,900 existing files', activeForm: 'Copying the existing files' },
+  { subject: 'Spot-check a sample of copied files', activeForm: 'Spot-checking copied files' },
+  { subject: 'Update stored paths in the database', activeForm: 'Updating stored paths' },
+  { subject: 'Delete local copies', activeForm: 'Deleting local copies' },
+]
+
+/** What `keeps-todos` asks while it copies the files. */
+export const DELETE_LOCAL_COPIES_QUESTION: Question = {
+  kind: QuestionKind.Pills,
+  prompt: 'Once the copy is checked, should I delete the local copies?',
+  options: ['Delete them', 'Keep them for now'],
+}
+
+/** Claude Code's `TaskCreate`, adding an item of the plan (the `n`th, from 1), and its result. */
+const createTodo = (item: (typeof S3_PLAN)[number], n: number): ScriptStep[] => [
+  ...tool(
+    `create-${String(n)}`,
+    'TaskCreate',
+    { subject: item.subject, description: item.subject, activeForm: item.activeForm },
+    `Task #${String(n)} created successfully: ${item.subject}`,
+  ),
+]
+
+/** Claude Code's `TaskUpdate`, changing item `n` of the plan. */
+const updateTodo = (n: number, status: string, extra: ToolInput = {}): ScriptStep[] => [
+  ...tool(
+    `update-${String(n)}-${status}`,
+    'TaskUpdate',
+    { taskId: String(n), status, ...extra },
+    `Updated task #${String(n)} status`,
+  ),
+]
+
+/**
+ * A turn that keeps a todo list with Claude Code's own todo tools, as the model does unprompted: `TaskCreate` for each
+ * step of its plan, then `TaskUpdate` as it starts and finishes each. Partway through (3 of 7 done, copying the files) it
+ * asks whether to delete the local copies, and waits; once answered it works through two more steps and ends the turn
+ * with 6 of 7 done.
+ */
+const keepsTodos: AgentScript = {
+  name: 'keeps-todos',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      say("I'll plan the move, then work through it step by step."),
+      ...describeTask(
+        'Move image uploads to S3',
+        'Move user image uploads from local disk to S3. New uploads go straight to the bucket; copy the existing ' +
+          'files over and update their stored paths.',
+        'Planning the move to S3.',
+      ),
+      ...S3_PLAN.flatMap((item, index) => createTodo(item, index + 1)),
+      ...updateTodo(1, 'in_progress'),
+      ...tool('settings', 'Read', { file_path: 'config/settings/base.py' }, "MEDIA_ROOT = BASE_DIR / 'media'"),
+      ...updateTodo(1, 'completed'),
+      ...updateTodo(2, 'in_progress'),
+      delay(BEAT_MS),
+      ...tool(
+        'backend',
+        'Edit',
+        {
+          file_path: 'config/settings/base.py',
+          old_string: "MEDIA_ROOT = BASE_DIR / 'media'",
+          new_string: "DEFAULT_FILE_STORAGE = 'storages.backends.s3.S3Storage'",
+        },
+        'The file config/settings/base.py has been updated.',
+      ),
+      ...updateTodo(2, 'completed'),
+      ...updateTodo(3, 'in_progress'),
+      ...tool(
+        'check',
+        'Bash',
+        { command: "python manage.py shell -c 'upload_test()'", description: 'Upload a test image' },
+        'uploaded to s3://acme-uploads/test.png',
+      ),
+      ...updateTodo(3, 'completed'),
+      ...updateTodo(4, 'in_progress', { activeForm: 'Copying files · 1,240 of 3,900' }),
+      gladeTool('status-copying', 'set_status', { status: 'Copying existing files: 1,240 of 3,900 done.' }),
+      ask('delete', [DELETE_LOCAL_COPIES_QUESTION]),
+      delay(BEAT_MS),
+      ...updateTodo(4, 'completed'),
+      ...updateTodo(5, 'in_progress'),
+      ...tool(
+        'spot-check',
+        'Bash',
+        { command: 'python scripts/check_media.py --sample 50', description: 'Spot-check copied files' },
+        '50 of 50 match',
+      ),
+      ...updateTodo(5, 'completed'),
+      ...updateTodo(6, 'in_progress'),
+      ...tool(
+        'paths',
+        'Bash',
+        { command: 'python manage.py update_media_paths', description: 'Update stored paths' },
+        'updated 3,900 rows',
+      ),
+      ...updateTodo(6, 'completed'),
+      gladeTool('status-done', 'set_status', { status: 'All 3,900 files on S3 with their paths updated.' }),
+      say('All 3,900 files are on S3, spot-checked, with their stored paths updated. Deleting the local copies waits.'),
+      result(),
+    ],
+  ],
+}
+
+/**
+ * A turn that keeps its todo list with `TodoWrite`, Claude Code's older todo tool, which replaces the whole list each
+ * call: three steps, checked off one by one, ending with all three done.
+ */
+const writesTodos: AgentScript = {
+  name: 'writes-todos',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask('Fix the flaky login test', 'Make the login test pass every run.', 'Finding the race.'),
+      ...tool(
+        'plan',
+        'TodoWrite',
+        {
+          todos: [
+            { content: 'Reproduce the flake', status: 'in_progress', activeForm: 'Reproducing the flake' },
+            { content: 'Fix the race', status: 'pending', activeForm: 'Fixing the race' },
+            { content: 'Run the test 200 times', status: 'pending', activeForm: 'Running the test 200 times' },
+          ],
+        },
+        'Todos have been modified successfully.',
+      ),
+      ...tool('repeat', 'Bash', { command: 'pytest tests/test_login.py --count 50' }, '2 failed, 48 passed'),
+      ...tool(
+        'progress',
+        'TodoWrite',
+        {
+          todos: [
+            { content: 'Reproduce the flake', status: 'completed', activeForm: 'Reproducing the flake' },
+            { content: 'Fix the race', status: 'in_progress', activeForm: 'Fixing the race' },
+            { content: 'Run the test 200 times', status: 'pending', activeForm: 'Running the test 200 times' },
+          ],
+        },
+        'Todos have been modified successfully.',
+      ),
+      delay(BEAT_MS),
+      ...tool(
+        'fix',
+        'Edit',
+        { file_path: 'tests/test_login.py', old_string: 'client.get(', new_string: 'session.save()\n    client.get(' },
+        'The file tests/test_login.py has been updated.',
+      ),
+      ...tool('verify', 'Bash', { command: 'pytest tests/test_login.py --count 200' }, '200 passed'),
+      ...tool(
+        'done',
+        'TodoWrite',
+        {
+          todos: [
+            { content: 'Reproduce the flake', status: 'completed', activeForm: 'Reproducing the flake' },
+            { content: 'Fix the race', status: 'completed', activeForm: 'Fixing the race' },
+            { content: 'Run the test 200 times', status: 'completed', activeForm: 'Running the test 200 times' },
+          ],
+        },
+        'Todos have been modified successfully.',
+      ),
+      gladeTool('status-fixed', 'set_status', { status: 'Found the race; the fix passes 200 runs.' }),
+      say('The test read the session before it was saved. It now saves first, and passes 200 runs in a row.'),
+      result(),
+    ],
+  ],
+}
+
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
   'simple-reply',
@@ -848,6 +1021,8 @@ export const AGENT_SCRIPT_NAMES = [
   'usage-limit',
   'usage-limit-hour',
   'offline',
+  'keeps-todos',
+  'writes-todos',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -867,4 +1042,6 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'usage-limit': usageLimit,
   'usage-limit-hour': usageLimitHour,
   offline,
+  'keeps-todos': keepsTodos,
+  'writes-todos': writesTodos,
 }

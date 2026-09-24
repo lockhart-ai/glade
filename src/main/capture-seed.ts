@@ -126,6 +126,8 @@ export interface SeedPause {
 export interface CaptureSeed {
   readonly workspace: { readonly name: string; readonly rootPath: string }
   readonly tasks: readonly SeedTask[]
+  /** The right panel's tab, as UI state stores it (e.g. `todos`); Tool calls unless given. */
+  readonly panelTab?: string | undefined
 }
 
 const turn = z.int().positive()
@@ -173,6 +175,7 @@ const seedPauseSchema = z.strictObject({
 
 const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
   workspace: z.strictObject({ name: z.string(), rootPath: z.string() }),
+  panelTab: z.string().optional(),
   tasks: z.array(
     z.strictObject({
       title: z.string(),
@@ -246,6 +249,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
   db.transaction(() => {
     const workspace = createWorkspace(db, seed.workspace, now)
     setUiState(db, { key: UiStateKey.ActiveWorkspaceId, value: workspace.id })
+    if (seed.panelTab !== undefined) setUiState(db, { key: UiStateKey.RightPanelTab, value: seed.panelTab })
     const resumed: string[] = []
     for (const [index, sample] of seed.tasks.entries()) {
       const at = now - sample.minutesAgo * MINUTE

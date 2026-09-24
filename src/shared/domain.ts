@@ -325,6 +325,38 @@ export interface CompactionEvent extends ToolEventBase {
  */
 export type ToolEvent = NarrationEvent | ToolCallEvent | DividerEvent | CompactionEvent
 
+/** Where an item on the agent's todo list stands (`docs/design/html/09-todos.html`). */
+export enum TodoState {
+  Todo = 'todo',
+  /** Being worked on now. */
+  Doing = 'doing',
+  Done = 'done',
+  /**
+   * Waiting on you. Claude Code's own todo tools have no such state, so nothing sets it yet; the Todos tab shows it for
+   * when something does.
+   */
+  Waiting = 'waiting',
+}
+
+/** One item on the agent's todo list. */
+export interface Todo {
+  readonly text: string
+  readonly state: TodoState
+  /** The line under a doing or waiting item, e.g. what the agent is doing on it now; null for none. */
+  readonly note: string | null
+}
+
+/**
+ * A task's todo list, as the agent keeps it with Claude Code's own todo tools (see `src/main/todos`). It isn't stored
+ * on its own: main works it out from the task's tool log, which is.
+ */
+export interface TodoList {
+  /** In the agent's order. */
+  readonly items: readonly Todo[]
+  /** When the agent last changed it: the time of its latest todo tool call. */
+  readonly updatedAt: EpochMs
+}
+
 /** The keys of the app's persisted UI state. Each value is a string. */
 export enum UiStateKey {
   /** The id of the workspace the window shows. */

@@ -84,7 +84,10 @@ export function taskHeader(page: Page) {
   }
 }
 
-/** The task card's right panel: its tabs, its resize handle and collapse button, and the Tool calls tab's log. */
+/**
+ * The task card's right panel: its tabs, its resize handle and collapse button, the Tool calls tab's log and the Todos
+ * tab's list.
+ */
 export function taskPanel(page: Page) {
   const panel = regions(page).taskPanel
   const log = panel.getByRole('log', { name: 'Tool log' })
@@ -103,6 +106,10 @@ export function taskPanel(page: Page) {
     dividers: log.getByRole('separator'),
     /** Each compaction's Compact row: its name, the tokens before and after, its time and how it went. */
     compactions: log.getByRole('group', { name: 'Compact' }),
+    /** The Todos tab's progress bar, whose value is how many todos are done. */
+    todoProgress: panel.getByRole('progressbar', { name: 'Todos done' }),
+    /** The Todos tab's items, top to bottom, each read as its state then its text (`Doing: Copy the files…`). */
+    todos: panel.getByRole('list', { name: 'Todos' }).getByRole('listitem'),
   }
 }
 

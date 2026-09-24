@@ -1,0 +1,102 @@
+import { TodoState, type EpochMs, type Todo, type TodoList } from '../../shared/domain'
+import { classNames } from '../components/classNames'
+import { formatAgo } from '../task-header/headerModel'
+import { progressBar, progressHeading, todoProgress } from './todosModel'
+import styles from './Todos.module.css'
+
+/** What the tab shows while the agent has no list. */
+export const NO_TODOS = 'No todos yet.'
+
+/** The line under the heading, from 09-todos.html. */
+export const TODOS_EXPLAINER = 'The agent writes this list and checks items off as it works.'
+
+/** How each state reads to a screen reader, ahead of the item's text. */
+const STATE_LABELS: Readonly<Record<TodoState, string>> = {
+  [TodoState.Todo]: 'To do',
+  [TodoState.Doing]: 'Doing',
+  [TodoState.Done]: 'Done',
+  [TodoState.Waiting]: 'Waiting on you',
+}
+
+const STATE_CLASSES: Readonly<Record<TodoState, string | undefined>> = {
+  [TodoState.Todo]: styles.todo,
+  [TodoState.Doing]: styles.doing,
+  [TodoState.Done]: styles.done,
+  [TodoState.Waiting]: styles.waiting,
+}
+
+/** An item's icon: a ring, ticked when done, with a dot in it while it's being worked on. */
+function StateIcon({ state }: { readonly state: TodoState }): React.JSX.Element {
+  if (state === TodoState.Doing) {
+    return (
+      <span className={styles.doingRing}>
+        <span className={styles.doingDot} />
+      </span>
+    )
+  }
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="8" />
+      {state === TodoState.Done && <path d="m8.5 12 2.5 2.5 4.5-5" strokeLinecap="round" strokeLinejoin="round" />}
+    </svg>
+  )
+}
+
+function TodoItem({ todo }: { readonly todo: Todo }): React.JSX.Element {
+  return (
+    <li className={classNames(styles.item, STATE_CLASSES[todo.state])}>
+      <span className={styles.icon} aria-hidden="true">
+        <StateIcon state={todo.state} />
+      </span>
+      <div className={styles.body}>
+        <span className={styles.hidden}>{`${STATE_LABELS[todo.state]}: `}</span>
+        <div className={styles.text}>{todo.text}</div>
+        {todo.note !== null && <div className={styles.note}>{todo.note}</div>}
+      </div>
+    </li>
+  )
+}
+
+export interface TodosProps {
+  /** The task's todo list; null or undefined while the agent has kept none. */
+  readonly list: TodoList | null | undefined
+  readonly now: EpochMs
+}
+
+/**
+ * The Todos tab (`docs/design/html/09-todos.html`): how many of the agent's todos are done, with a progress bar and when
+ * the agent last changed the list, then each item as todo, doing (blue, with its note), done (struck through) or
+ * waiting on you (purple). The agent keeps the list; you only read it.
+ */
+export function Todos({ list, now }: TodosProps): React.JSX.Element {
+  if (list === null || list === undefined || list.items.length === 0) return <p className={styles.empty}>{NO_TODOS}</p>
+  const progress = todoProgress(list)
+  const bar = progressBar(progress)
+  return (
+    <div className={styles.todos}>
+      <div className={styles.summary}>
+        <div className={styles.headingRow}>
+          <span className={styles.heading}>{progressHeading(progress)}</span>
+          <span className={styles.updated}>{`updated ${formatAgo(list.updatedAt, now)}`}</span>
+        </div>
+        <div
+          className={styles.bar}
+          role="progressbar"
+          aria-label="Todos done"
+          aria-valuemin={0}
+          aria-valuemax={progress.total}
+          aria-valuenow={progress.done}
+        >
+          <div className={styles.barDone} style={{ width: `${String(bar.done)}%` }} />
+          <div className={styles.barDoing} style={{ width: `${String(bar.doing)}%` }} />
+        </div>
+        <div className={styles.explainer}>{TODOS_EXPLAINER}</div>
+      </div>
+      <ul className={styles.list} aria-label="Todos">
+        {list.items.map((todo, index) => (
+          <TodoItem key={index} todo={todo} />
+        ))}
+      </ul>
+    </div>
+  )
+}

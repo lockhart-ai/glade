@@ -140,6 +140,7 @@ import { CommandFailure } from '../bridge/errors'
 import {
   emitMessageAppended,
   emitQueueChanged,
+  emitTodosChanged,
   emitToolEventAppended,
   emitToolEventUpdated,
   type Emit,
@@ -163,6 +164,7 @@ import { getWorkspace } from '../db/repositories/workspaces'
 import type { NotifyReply } from '../notifications/notifications'
 import { createQuestionBroker, toolResultFor, type QuestionBroker } from '../questions/questions'
 import { addQueuedMessage } from '../tasks/queue'
+import { changesTodos, todoListFor } from '../todos/todos'
 import { noteAgentReply } from '../tasks/attention'
 import { reopenTask, updateTaskFromRunner, updateTaskFromUser, type TaskServiceContext } from '../tasks/service'
 import type { AgentBackend, AgentMcpServers, AgentSession, AgentSessionSettings } from './backend'
@@ -543,6 +545,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const output = event.isError && turn.stopping ? STOPPED_NOTE : event.output
     const call = updateToolCall(db, { taskId, toolUseId: event.toolUseId, state, output })
     emitToolEventUpdated(emit, call)
+    if (changesTodos(call)) emitTodosChanged(emit, taskId, todoListFor(db, taskId))
     if (parent === null && !turn.stopping && stepFinished(turn)) deliverQueue(taskId, live, turn)
   }
 

@@ -16,6 +16,7 @@ import type {
   QuestionSet,
   QueuedMessage,
   Task,
+  TodoList,
   ToolEvent,
   UiStateEntry,
   UiStateKey,
@@ -222,6 +223,8 @@ export interface TasksHistoryResponse {
   readonly queuedMessages: readonly QueuedMessage[]
   /** Every question set the agent asked, open or closed, in the order it asked them. */
   readonly questionSets: readonly QuestionSet[]
+  /** The agent's todo list (the Todos tab), as its tool log leaves it; null when it has kept none. */
+  readonly todos: TodoList | null
 }
 
 /**
@@ -346,6 +349,7 @@ export enum EventType {
   QuestionOpened = 'question.opened',
   QuestionAnswered = 'question.answered',
   QuestionWithdrawn = 'question.withdrawn',
+  TodosChanged = 'todos.changed',
 }
 
 export interface UiStateChangedEvent {
@@ -420,6 +424,13 @@ export interface QuestionWithdrawnEvent {
   readonly questionSet: QuestionSet
 }
 
+/** A todo tool call of the agent's finished, which changed its todo list. Carries the whole list as it now is. */
+export interface TodosChangedEvent {
+  readonly type: EventType.TodosChanged
+  readonly taskId: string
+  readonly todos: TodoList | null
+}
+
 /** Everything main broadcasts to the windows. */
 export type GladeEvent =
   | UiStateChangedEvent
@@ -433,6 +444,7 @@ export type GladeEvent =
   | QuestionOpenedEvent
   | QuestionAnsweredEvent
   | QuestionWithdrawnEvent
+  | TodosChangedEvent
 
 export type EventListener = (event: GladeEvent) => void
 

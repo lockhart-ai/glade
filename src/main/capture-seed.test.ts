@@ -103,6 +103,12 @@ describe('readSeed', () => {
     expect(paused.every((task) => task.activity === TaskActivity.Paused)).toBe(true)
   })
 
+  it('reads the todos fixture, which opens the Todos tab', () => {
+    const seed = readSeed(join(FIXTURES, 'todos.json'))
+    expect(seed.panelTab).toBe('todos')
+    expect(seed.tasks.find((task) => task.selected)?.title).toBe('Move image uploads to S3')
+  })
+
   it('reads the e2e tool log fixture', () => {
     const seed = readSeed(join(import.meta.dirname, '..', '..', 'e2e', 'seeds', 'tool-log.json'))
     expect(seed.tasks[0]?.toolEvents).toHaveLength(11)
@@ -187,6 +193,15 @@ describe('applySeed', () => {
 
     expect(getUiState(db, UiStateKey.SelectedTaskId)).toBeUndefined()
     expect(getUiState(db, UiStateKey.RelaunchNotice)).toBeUndefined()
+    expect(getUiState(db, UiStateKey.RightPanelTab)).toBeUndefined()
+  })
+
+  it("opens the right panel's tab the fixture names", () => {
+    const { db } = database
+
+    applySeed(db, { ...SEED, panelTab: 'todos' })
+
+    expect(getUiState(db, UiStateKey.RightPanelTab)).toBe('todos')
   })
 
   it('names the tasks resumed after a crash in the relaunch notice', () => {

@@ -4,11 +4,13 @@ import { CommandName, EventType } from '../../shared/bridge'
 import {
   CompactionTrigger,
   DividerKind,
+  TodoState,
   ToolCallState,
   ToolEventKind,
   UiStateKey,
   type DividerEvent,
   type NarrationEvent,
+  type TodoList,
   type ToolCallEvent,
   type ToolEvent,
   type UiStateEntry,
@@ -60,9 +62,10 @@ interface Setup {
   readonly selected?: boolean
   /** More stored UI state, e.g. the panel's tab or width. */
   readonly uiState?: UiStateEntry[]
+  readonly todos?: Readonly<Record<string, TodoList>>
 }
 
-async function renderPanel({ toolEvents = TURN_ONE, selected = true, uiState = [] }: Setup = {}): Promise<
+async function renderPanel({ toolEvents = TURN_ONE, selected = true, uiState = [], todos }: Setup = {}): Promise<
   FakeBridge & { store: GladeStore }
 > {
   const fake = fakeBridge({
@@ -74,6 +77,7 @@ async function renderPanel({ toolEvents = TURN_ONE, selected = true, uiState = [
       ...uiState,
     ],
     toolEvents,
+    ...(todos === undefined ? {} : { todos }),
   })
   const store = createGladeStore(fake.bridge)
   render(
@@ -200,6 +204,46 @@ describe('TaskPanel', () => {
     await renderPanel({ selected: false })
     expect(screen.getByRole('tabpanel')).toBeEmptyDOMElement()
     expect(tab(/^Tool calls/)).toHaveTextContent(/^Tool calls$/)
+  })
+
+  describe('the Todos tab', () => {
+    const list = (done: number, total: number): TodoList => ({
+      items: Array.from({ length: total }, (_, index) => ({
+        text: `Step ${String(index + 1)}`,
+        state: index < done ? TodoState.Done : index === done ? TodoState.Doing : TodoState.Todo,
+        note: index === done ? 'Working on it' : null,
+      })),
+      updatedAt: Date.now(),
+    })
+
+    it("counts the selected task's done todos in the tab, and shows its list", async () => {
+      await renderPanel({ todos: { t1: list(3, 7) }, uiState: [{ key: UiStateKey.RightPanelTab, value: 'todos' }] })
+
+      expect(tab(/^Todos/)).toHaveTextContent('Todos 3/7')
+      expect(screen.getByRole('tabpanel')).toHaveTextContent('3 of 7 done')
+      expect(within(screen.getByRole('list', { name: 'Todos' })).getAllByRole('listitem')).toHaveLength(7)
+    })
+
+    it('follows the list as the agent changes it, and shows the task you pick', async () => {
+      const { emit, store } = await renderPanel({ uiState: [{ key: UiStateKey.RightPanelTab, value: 'todos' }] })
+      expect(tab(/^Todos/)).toHaveTextContent(/^Todos$/)
+      expect(screen.getByRole('tabpanel')).toHaveTextContent('No todos yet.')
+
+      act(() => {
+        emit({ type: EventType.TodosChanged, taskId: 't1', todos: list(1, 4) })
+      })
+      expect(tab(/^Todos/)).toHaveTextContent('Todos 1/4')
+      expect(screen.getByRole('tabpanel')).toHaveTextContent('1 of 4 done')
+
+      await act(() => store.getState().selectTask('t2'))
+      expect(tab(/^Todos/)).toHaveTextContent(/^Todos$/)
+      expect(screen.getByRole('tabpanel')).toHaveTextContent('No todos yet.')
+    })
+
+    it('shows nothing without a task', async () => {
+      await renderPanel({ selected: false, uiState: [{ key: UiStateKey.RightPanelTab, value: 'todos' }] })
+      expect(screen.getByRole('tabpanel')).toBeEmptyDOMElement()
+    })
   })
 
   describe('the tool log', () => {

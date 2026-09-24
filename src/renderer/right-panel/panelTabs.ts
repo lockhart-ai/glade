@@ -1,5 +1,6 @@
 import type { GladeData } from '../store/state'
 import { toolCallCount } from '../tool-log/toolLogModel'
+import { todoProgress } from '../todos'
 import { PanelTab, type PanelCount } from './panelModel'
 
 /**
@@ -23,7 +24,14 @@ export const PANEL_TAB_DEFINITIONS: readonly PanelTabDefinition[] = [
     count: (state, taskId) => toolCallCount(state.toolEvents[taskId] ?? []),
   },
   { tab: PanelTab.Files, label: 'Files', count: NOTHING_YET },
-  { tab: PanelTab.Todos, label: 'Todos', count: NOTHING_YET },
+  {
+    tab: PanelTab.Todos,
+    label: 'Todos',
+    count: (state, taskId) => {
+      const { done, total } = todoProgress(state.todos[taskId])
+      return { done, total }
+    },
+  },
   { tab: PanelTab.Artifacts, label: 'Artifacts', count: NOTHING_YET },
   { tab: PanelTab.Subagents, label: 'Subagents', count: NOTHING_YET },
 ]

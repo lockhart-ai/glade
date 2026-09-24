@@ -4,6 +4,7 @@ import {
   UiStateKey,
   type Message,
   type QuestionSet,
+  type TodoList,
   type ToolEvent,
   type UiStateEntry,
   type Workspace,
@@ -80,7 +81,14 @@ export function withHistory(state: GladeData, taskId: string, history: TasksHist
       ...state.questionSets,
       [taskId]: merged<QuestionSet>(history.questionSets, state.questionSets[taskId]),
     },
+    todos: { ...state.todos, [taskId]: newerTodos(history.todos, state.todos[taskId]) },
   }
+}
+
+/** The loaded todo list, unless an event already brought a newer one. */
+function newerTodos(loaded: TodoList | null, current: TodoList | null | undefined): TodoList | null {
+  if (current === undefined || current === null) return loaded
+  return loaded === null || current.updatedAt > loaded.updatedAt ? current : loaded
 }
 
 /**
@@ -123,5 +131,7 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
     case EventType.QuestionAnswered:
     case EventType.QuestionWithdrawn:
       return { ...state, questionSets: withReplaced(state.questionSets, event.questionSet) }
+    case EventType.TodosChanged:
+      return { ...state, todos: { ...state.todos, [event.taskId]: event.todos } }
   }
 }

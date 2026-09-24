@@ -317,3 +317,16 @@ export function failRunningToolCalls(db: Database, taskId: string, output: strin
     .map((raw) => new Row('tool_events', raw).text('tool_use_id'))
   return running.map((toolUseId) => updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Error, output }))
 }
+
+/** A task's calls to any of the named tools, in the order they were made. */
+export function listToolCallsNamed(db: Database, taskId: string, names: readonly string[]): ToolCallEvent[] {
+  if (names.length === 0) return []
+  return db
+    .prepare(
+      `SELECT ${COLUMNS} FROM tool_events
+      WHERE task_id = ? AND kind = 'tool_call' AND tool_name IN (${names.map(() => '?').join(', ')})
+      ORDER BY seq`,
+    )
+    .all(taskId, ...names)
+    .map((raw) => parseToolCall(new Row('tool_events', raw)))
+}
