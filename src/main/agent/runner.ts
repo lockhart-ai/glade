@@ -54,9 +54,18 @@
  * text goes to the tool log as narration and its unfinished tool calls end as errors; an API error adds a failed "API"
  * row to the tool log, and any other error a note saying why. What the turn already saved stays.
  *
+ * **Pauses** (`docs/design/html/17-usage-limit.html`, `./pauses`). A turn that ends on the account's usage limit, or
+ * because the API can't be reached, doesn't stop the task on an error: the task pauses, its activity paused and its
+ * `pause` saying why and when it resumes, for the app-wide banner, the task list and the chat's paused line. Its
+ * held-back text goes to the tool log as narration and its unfinished tool calls end as errors, as for an error, but
+ * the tool log gets no failed API row. Messages sent meanwhile wait in the queue. The pause resumes on its own: at the
+ * limit's reset time (from the SDK's `rate_limit_event`), or once the network is back (`isOnline`), with a timer that a
+ * relaunch arms again. Resuming is a retry (below), and the queue follows once the turn ends. Retrying a paused task
+ * yourself, e.g. on another model, resumes it at once.
+ *
  * **Retry** runs the stopped turn again: the turn's last message goes to the session once more (started again with
  * `resume` if it's gone), optionally on another model, which becomes the task's. The chat log gets nothing new, and the
- * turn keeps its number. Starting a turn, by retrying or by sending a message, clears the error.
+ * turn keeps its number. Starting a turn, by retrying or by sending a message, clears the error or pause.
  *
  * **Compaction** (`docs/sdk-notes.md` §5). Compact now and ⌘⇧K (`compact`) send an idle session `/compact`, which runs
  * like a turn of its own: the agent works while it compacts, so messages sent meanwhile are queued, and Stop stops it.
@@ -87,6 +96,7 @@ import {
   CompactionTrigger,
   DividerKind,
   MessageRole,
+  PauseReason,
   TaskActivity,
   TaskErrorSource,
   TaskState,
@@ -108,7 +118,7 @@ import {
 } from '../bridge/events'
 import { appendMessage, lastTurn, listMessages, turnStartedAt } from '../db/repositories/messages'
 import { listQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
-import { getTask, listWorkingTasks } from '../db/repositories/tasks'
+import { getTask, listPausedTasks, listWorkingTasks } from '../db/repositories/tasks'
 import {
   appendCompaction,
   appendDivider,
@@ -135,11 +145,13 @@ import {
   type ApiErrorEvent,
   type ApiRetryEvent,
   type CompactedEvent,
+  RateLimitStatus,
   type TextEvent,
   type ToolCallStartedEvent,
   type ToolResultEvent,
   type TurnFinishedEvent,
 } from './events'
+import { checkedOffline, createPauseTimers, pauseFor, pauseReason, type UsageLimit } from './pauses'
 import { systemPromptAppend } from './system-prompt'
 import { summarizeTurn } from './turn-summary'
 
@@ -155,18 +167,23 @@ export interface AgentRunnerOptions {
    * default.
    */
   readonly notifyReply?: NotifyReply
+  /**
+   * Whether the network is up, checked before a turn paused offline resumes (`./pauses`): Electron's `net.isOnline()`
+   * in the app. Always up by default.
+   */
+  readonly isOnline?: () => boolean
 }
 
 export interface AgentRunner {
   /**
    * Saves the user's message and starts a turn with it. A done task is reopened first (see the module comment). Throws
-   * a `CommandFailure`: `not_found` for no such task, `busy` while a turn is running.
+   * a `CommandFailure`: `not_found` for no such task, `busy` while a turn is running or the task is paused.
    */
   send(taskId: string, text: string): Message
   /**
    * Adds the user's message to the task's queue, for the agent to get after its current step (see the module comment).
-   * When no turn is running, the queue is delivered at once, starting one. Throws a `CommandFailure` `not_found` for no
-   * such task.
+   * When no turn is running, the queue is delivered at once, starting one, unless the task is paused: then it waits for
+   * the task to resume. Throws a `CommandFailure` `not_found` for no such task.
    */
   queue(taskId: string, text: string): QueuedMessage
   /**
@@ -175,20 +192,23 @@ export interface AgentRunner {
    */
   stop(taskId: string): Promise<Task>
   /**
-   * Retries the turn an error stopped (see the module comment), on `model` if given, which becomes the task's model.
-   * Answers with the task, working again. Throws a `CommandFailure`: `not_found` for no such task, `busy` while a turn
-   * is running, and `invalid_transition` for a task whose agent isn't stopped by an error.
+   * Retries the turn an error stopped or a pause holds (see the module comment), on `model` if given, which becomes the
+   * task's model. Answers with the task, working again. Throws a `CommandFailure`: `not_found` for no such task, `busy`
+   * while a turn is running, and `invalid_transition` for a task whose agent isn't stopped by an error or paused.
    */
   retry(taskId: string, model?: string): Task
   /**
    * Compacts the task's context now: sends its session `/compact` (see the module comment), and answers with the task,
    * now working. Throws a `CommandFailure`: `not_found` for no such task, `busy` while a turn is running, and
-   * `invalid_transition` for a done task or one whose agent has no session yet.
+   * `invalid_transition` for a done or paused task, or one whose agent has no session yet.
    */
   compact(taskId: string): Task
-  /** Carries on the turns the app quit or crashed in (see the module comment). Call it once, on launch. */
+  /**
+   * Carries on the turns the app quit or crashed in, and arms the timers of the paused ones (see the module comment).
+   * Call it once, on launch.
+   */
   resumeInterrupted(): void
-  /** Closes every live session, e.g. when the app quits. */
+  /** Closes every live session and clears the pause timers, e.g. when the app quits. */
   close(): void
 }
 
@@ -224,6 +244,8 @@ interface LiveSession {
    * find its context window. Null until the first init.
    */
   sdkModel: string | null
+  /** What the SDK last said about the account's usage limit; null until it says (it never does for an API key). */
+  limit: UsageLimit | null
   /** Closed by the runner: whatever it still emits is ignored, and a turn cut short stays working, for the next launch to resume. */
   closed: boolean
 }
@@ -245,6 +267,14 @@ export const NOT_RESUMED_NOTE = "Glade quit before the agent's session started, 
 
 /** What a tool call cut short by an error says. */
 export const STOPPED_BY_ERROR_NOTE = 'The agent stopped on an error before this tool call finished.'
+
+/** What a tool call cut short by a pause says. */
+export const PAUSED_TOOL_NOTE = 'The task paused before this tool call finished.'
+
+/** Whether a task's turn is paused. */
+function isPaused(task: Task): boolean {
+  return task.state === TaskState.Active && task.activity === TaskActivity.Paused
+}
 
 /** Whether a turn ended because it was interrupted: the SDK's `aborted_streaming` or `aborted_tools`. */
 function isAborted(terminalReason: string | null): boolean {
@@ -279,30 +309,54 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const mcpServers = options.mcpServers ?? (() => ({}))
   const log = options.log ?? console
   const notifyReply = options.notifyReply ?? (() => undefined)
+  const isOnline = options.isOnline ?? (() => true)
   const context = { db, emit }
   const sessions = new Map<string, LiveSession>()
+  // Resumes a paused turn when its pause is due.
+  const timers = createPauseTimers((taskId) => {
+    onPauseDue(taskId)
+  })
 
   const setActivity = (taskId: string, activity: TaskActivity): void => {
     if (getTask(db, taskId)?.activity !== activity) updateTaskFromRunner(context, taskId, { activity })
   }
 
   /**
-   * The agent is working on a new turn: whatever error stopped it before is behind it, and so is any retry the app quit
-   * in the middle of.
+   * The agent is working on a new turn: whatever error stopped it or pause held it before is behind it, and so is any
+   * retry the app quit in the middle of.
    */
   const startWorking = (taskId: string): void => {
+    timers.disarm(taskId)
     const task = getTask(db, taskId)
-    if (task?.activity !== TaskActivity.Working || task.error !== null || task.retrying !== null) {
-      updateTaskFromRunner(context, taskId, { activity: TaskActivity.Working, error: null, retrying: null })
+    if (
+      task?.activity !== TaskActivity.Working ||
+      task.error !== null ||
+      task.retrying !== null ||
+      task.pause !== null
+    ) {
+      updateTaskFromRunner(context, taskId, {
+        activity: TaskActivity.Working,
+        error: null,
+        retrying: null,
+        pause: null,
+      })
     }
   }
 
-  /** The error the turn ends on, with the retries that came before it. */
-  const withRetries = (turn: Turn | null, error: Omit<TaskError, 'kind' | 'retries' | 'retryingMs'>): TaskError => {
+  /**
+   * The error the turn ends on, with the retries that came before it. `limit` is what the session last said about the
+   * usage limit, which tells a spent limit from a passing rate limit.
+   */
+  const withRetries = (
+    turn: Turn | null,
+    error: Omit<TaskError, 'kind' | 'retries' | 'retryingMs'>,
+    limit: UsageLimit | null = null,
+  ): TaskError => {
     const retrying = turn?.retrying ?? null
+    const facts = { status: error.status, code: error.code, message: error.details, limitRejected: limit?.rejected }
     return {
       ...error,
-      kind: classifyAgentError({ status: error.status, code: error.code, message: error.details }),
+      kind: classifyAgentError(facts),
       retries: retrying?.attempt ?? 0,
       retryingMs: retrying === null ? 0 : Math.max(0, Date.now() - retrying.since),
     }
@@ -310,7 +364,42 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   /** Stops the task on an error: the chat shows its card, and the task list its "Error: …" line. */
   const stopOnError = (taskId: string, error: TaskError): void => {
-    updateTaskFromRunner(context, taskId, { activity: TaskActivity.Error, error, retrying: null })
+    updateTaskFromRunner(context, taskId, { activity: TaskActivity.Error, error, retrying: null, pause: null })
+  }
+
+  /**
+   * Pauses the task's turn (see the module comment) on an error that pauses it, and arms the timer that resumes it.
+   * Answers whether it paused: false for an error that stops the task instead.
+   */
+  const pauseOnError = (taskId: string, error: TaskError, limit: UsageLimit | null): boolean => {
+    const reason = pauseReason(error)
+    if (reason === null) return false
+    const pause = pauseFor(reason, error.details, limit, Date.now())
+    updateTaskFromRunner(context, taskId, { activity: TaskActivity.Paused, error: null, retrying: null, pause })
+    timers.arm(taskId, pause.resumesAt)
+    return true
+  }
+
+  /**
+   * A paused turn's time has come: resume it, unless it's offline and the network is still down, when it checks again
+   * later. A task that's no longer paused (resumed by hand, marked done) is left alone.
+   */
+  const onPauseDue = (taskId: string): void => {
+    const task = getTask(db, taskId)
+    if (task === undefined || !isPaused(task) || task.pause === null) return
+    if (task.pause.reason === PauseReason.Offline && !isOnline()) {
+      const pause = checkedOffline(task.pause, Date.now())
+      updateTaskFromRunner(context, taskId, { pause })
+      timers.arm(taskId, pause.resumesAt)
+      return
+    }
+    try {
+      runner.retry(taskId)
+    } catch (error) {
+      log.warn(`Failed to resume paused task ${taskId}`, error)
+      const details = `Glade couldn't resume the agent: ${describeError(error)}`
+      stopOnError(taskId, withRetries(null, { source: TaskErrorSource.Session, status: null, code: null, details }))
+    }
   }
 
   /** Claude Code will retry a failed API request: the working line says so until the agent moves on. */
@@ -447,7 +536,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
     if (event.isError) {
       endTurn(live, turn)
-      onTurnFailed(taskId, turn, event)
+      onTurnFailed(taskId, live, turn, event)
       return
     }
     recovered(taskId, turn)
@@ -487,25 +576,35 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    * The turn ended on an error (see the module comment). An API error gets a failed API row in the tool log; any other
    * gets a note saying why.
    */
-  const onTurnFailed = (taskId: string, turn: Turn, event: TurnFinishedEvent): void => {
+  const onTurnFailed = (taskId: string, live: LiveSession, turn: Turn, event: TurnFinishedEvent): void => {
     flushPreamble(taskId, turn)
-    failRunning(taskId, turn, STOPPED_BY_ERROR_NOTE)
     const { apiError } = turn
     const reported = event.errors.join('\n')
     const isApiError = apiError !== null || event.apiErrorStatus !== null || event.terminalReason === 'api_error'
     if (!isApiError) {
+      failRunning(taskId, turn, STOPPED_BY_ERROR_NOTE)
       const details = reported === '' ? `The turn failed (${event.terminalReason ?? 'unknown'}).` : reported
       emitToolEventAppended(emit, appendNarration(db, { taskId, turn: turn.number, text: details }))
       stopOnError(taskId, withRetries(turn, { source: TaskErrorSource.Turn, status: null, code: null, details }))
       return
     }
     const details = [apiError?.message ?? '', event.result, reported].find((text) => text.trim() !== '') ?? ''
-    const error = withRetries(turn, {
-      source: TaskErrorSource.Api,
-      status: event.apiErrorStatus,
-      code: apiError?.code ?? null,
-      details: details === '' ? `The API request failed (${event.terminalReason ?? 'unknown'}).` : details,
-    })
+    const error = withRetries(
+      turn,
+      {
+        source: TaskErrorSource.Api,
+        status: event.apiErrorStatus,
+        code: apiError?.code ?? null,
+        details: details === '' ? `The API request failed (${event.terminalReason ?? 'unknown'}).` : details,
+      },
+      live.limit,
+    )
+    if (pauseReason(error) !== null) {
+      failRunning(taskId, turn, PAUSED_TOOL_NOTE)
+      pauseOnError(taskId, error, live.limit)
+      return
+    }
+    failRunning(taskId, turn, STOPPED_BY_ERROR_NOTE)
     const toolUseId = `glade-api-error-${randomUUID()}`
     const input = { request: apiRowArgument(error) }
     appendToolCall(db, { taskId, turn: turn.number, name: API_TOOL_NAME, input, toolUseId, parentToolUseId: null })
@@ -532,10 +631,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     turn.pending.push(message)
     flushPreamble(taskId, turn)
     failRunning(taskId, turn, message)
-    stopOnError(
-      taskId,
-      withRetries(turn, { source: TaskErrorSource.Session, status: null, code: null, details: message }),
-    )
+    const error = withRetries(turn, { source: TaskErrorSource.Session, status: null, code: null, details: message })
+    if (!pauseOnError(taskId, error, live.limit)) stopOnError(taskId, error)
   }
 
   const onEvent = (taskId: string, live: LiveSession, event: AgentEvent): void => {
@@ -549,6 +646,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
     if (event.kind === AgentEventKind.SessionFailed) {
       onSessionFailed(taskId, live, event.message)
+      return
+    }
+    if (event.kind === AgentEventKind.RateLimit) {
+      live.limit = { rejected: event.status === RateLimitStatus.Rejected, resetsAt: event.resetsAt }
       return
     }
     const { turn } = live
@@ -624,6 +725,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       turn: null,
       settings: { model: task.model, effort: task.effort },
       sdkModel: null,
+      limit: null,
       closed: false,
     }
     sessions.set(task.id, live)
@@ -704,12 +806,15 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     return messages
   }
 
-  return {
+  const runner: AgentRunner = {
     send(taskId, text) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
       if ((sessions.get(taskId)?.turn ?? null) !== null) {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working; queue the message instead')
+      }
+      if (isPaused(task)) {
+        throw new CommandFailure(BridgeErrorCode.Busy, 'The task is paused; queue the message instead')
       }
       // The message sent is the last of the turn's: any queued ones go before it.
       const message = startTurn(task, sessions.get(taskId) ?? start(task), text).at(-1)
@@ -721,6 +826,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
       const queued = addQueuedMessage(context, taskId, text)
+      // A paused task delivers its queue once it resumes.
+      if (isPaused(task)) return queued
       const live = sessions.get(taskId)
       // The turn ended just before the message arrived: nothing will deliver the queue, so it starts a turn now.
       if ((live?.turn ?? null) === null) startTurn(task, live ?? start(task), null)
@@ -746,8 +853,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working')
       }
       const last = listMessages(db, taskId).findLast((message) => message.role === MessageRole.User)
-      if (task.state !== TaskState.Active || task.activity !== TaskActivity.Error || last === undefined) {
-        throw new CommandFailure(BridgeErrorCode.InvalidTransition, "The agent isn't stopped by an error")
+      const stopped = task.activity === TaskActivity.Error || task.activity === TaskActivity.Paused
+      if (task.state !== TaskState.Active || !stopped || last === undefined) {
+        throw new CommandFailure(BridgeErrorCode.InvalidTransition, "The agent isn't stopped by an error or paused")
       }
       const current = model === undefined ? task : updateTaskFromUser(context, taskId, { model })
       const live = sessions.get(taskId) ?? start(current)
@@ -770,6 +878,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       }
       if (task.state === TaskState.Done) {
         throw new CommandFailure(BridgeErrorCode.InvalidTransition, 'A done task is not compacted')
+      }
+      if (isPaused(task)) {
+        throw new CommandFailure(BridgeErrorCode.InvalidTransition, 'A paused task is compacted once it resumes')
       }
       if (task.sessionId === null) {
         throw new CommandFailure(BridgeErrorCode.InvalidTransition, 'The agent has no context to compact yet')
@@ -807,9 +918,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           stopOnError(task.id, withRetries(null, failure))
         }
       }
+      for (const task of listPausedTasks(db)) timers.arm(task.id, task.pause?.resumesAt ?? Date.now())
     },
 
     close() {
+      timers.close()
       for (const live of sessions.values()) {
         live.closed = true
         live.session.close()
@@ -818,4 +931,5 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       sessions.clear()
     },
   }
+  return runner
 }

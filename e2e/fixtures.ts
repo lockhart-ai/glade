@@ -10,7 +10,15 @@ import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { _electron as electron, test as base, type ElectronApplication, type Page } from '@playwright/test'
 import type { AgentScriptName } from '../src/main/agent/scripts'
-import { E2E_CHOSEN_FOLDER_ENV, E2E_ENV, E2E_NOTIFIER_GLOBAL, E2E_WINDOW_SIZE, type E2eSpec } from '../src/main/e2e'
+import {
+  E2E_CHOSEN_FOLDER_ENV,
+  E2E_ENV,
+  E2E_NETWORK_GLOBAL,
+  E2E_NOTIFIER_GLOBAL,
+  E2E_WINDOW_SIZE,
+  type E2eNetwork,
+  type E2eSpec,
+} from '../src/main/e2e'
 import type { TaskNotification } from '../src/main/notifications/notifier'
 import type { RecordingNotifier } from '../src/main/notifications/recording-notifier'
 import { READY_ATTRIBUTE } from '../src/shared/ready'
@@ -211,5 +219,18 @@ export async function replyToNotification({ app }: Glade, index: number, text: s
       ;(Reflect.get(globalThis, name) as RecordingNotifier).reply(index, text)
     },
     { name: E2E_NOTIFIER_GLOBAL, index, text },
+  )
+}
+
+/**
+ * Takes the app offline, or brings it back online, as far as its check for the network is concerned
+ * (`E2E_NETWORK_GLOBAL`): an e2e run can't unplug the machine. The app starts online.
+ */
+export async function setOnline({ app }: Glade, online: boolean): Promise<void> {
+  await app.evaluate(
+    (_, { name, value }) => {
+      ;(Reflect.get(globalThis, name) as E2eNetwork).online = value
+    },
+    { name: E2E_NETWORK_GLOBAL, value: online },
   )
 }

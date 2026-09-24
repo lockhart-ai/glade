@@ -83,7 +83,8 @@ export function reopening(toolEvents: readonly ToolEvent[]): Reopening | null {
 
 /**
  * The status pill's label: `Active · working`, `Active · waiting on you`, `Active · stopped by an error`, `Done · Sep 23`,
- * and `Active · reopened` while the agent works on the message that reopened the task.
+ * `Active · reopened` while the agent works on the message that reopened the task, and `Active · paused` while its
+ * turn is paused (docs/design/html/17-usage-limit.html).
  */
 export function pillLabel(
   task: Pick<Task, 'state' | 'activity' | 'doneAt' | 'updatedAt'>,
@@ -91,6 +92,7 @@ export function pillLabel(
 ): string {
   switch (taskIndicator(task)) {
     case TaskIndicator.Working:
+      if (task.activity === TaskActivity.Paused) return 'Active · paused'
       return reopened?.latestTurn === true ? 'Active · reopened' : 'Active · working'
     case TaskIndicator.Waiting:
       return 'Active · waiting on you'

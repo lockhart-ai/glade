@@ -7,11 +7,14 @@ import styles from './QueueList.module.css'
 /** What the queue's header says about when its messages go: after the agent's step, or with your next message. */
 export const WORKING_HINT = 'Sent when the agent finishes its current step'
 export const IDLE_HINT = 'Sent with your next message'
+export const PAUSED_HINT = 'Sent when the task resumes'
 
 export interface QueueListProps {
   readonly messages: readonly QueuedMessage[]
   /** Whether the agent is working, so the queue goes after its current step rather than with your next message. */
   readonly working: boolean
+  /** Whether the task's turn is paused, so the queue goes once it resumes. */
+  readonly paused?: boolean
   /** The message being edited in place, if any. */
   readonly editingId: string | null
   readonly onEdit: (id: string) => void
@@ -25,13 +28,13 @@ export interface QueueListProps {
  * The messages waiting for the agent, above the input (`docs/design/html/02-agent-working.html`): numbered in the order
  * they'll be delivered, each with Edit, which edits its text in place, and Remove. Nothing when the queue is empty.
  */
-export function QueueList({ messages, working, ...row }: QueueListProps): React.JSX.Element | null {
+export function QueueList({ messages, working, paused = false, ...row }: QueueListProps): React.JSX.Element | null {
   if (messages.length === 0) return null
   return (
     <section className={styles.queue} aria-label="Queued messages">
       <div className={styles.header}>
         <span className={styles.label}>Queued · {messages.length}</span>
-        <span className={styles.hint}>{working ? WORKING_HINT : IDLE_HINT}</span>
+        <span className={styles.hint}>{paused ? PAUSED_HINT : working ? WORKING_HINT : IDLE_HINT}</span>
       </div>
       <ol className={styles.list}>
         {messages.map((message, index) => (
@@ -42,7 +45,7 @@ export function QueueList({ messages, working, ...row }: QueueListProps): React.
   )
 }
 
-interface QueueRowProps extends Omit<QueueListProps, 'messages' | 'working'> {
+interface QueueRowProps extends Omit<QueueListProps, 'messages' | 'working' | 'paused'> {
   readonly message: QueuedMessage
   /** Its place in the queue, from 1. */
   readonly position: number

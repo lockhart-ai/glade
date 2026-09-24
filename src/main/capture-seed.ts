@@ -10,6 +10,7 @@ import {
   AgentErrorKind,
   DividerKind,
   MessageRole,
+  PauseReason,
   TaskActivity,
   TaskErrorSource,
   TaskState,
@@ -106,6 +107,16 @@ export interface SeedTask {
   readonly queuedMessages?: readonly string[] | undefined
   /** What stopped its agent, with `activity: "error"`; none unless given. */
   readonly error?: TaskError | undefined
+  /** Why its turn is paused, with `activity: "paused"`; none unless given. */
+  readonly pause?: SeedPause | undefined
+}
+
+/** A sample pause (`TaskPause`), with its times relative to the capture. */
+export interface SeedPause {
+  readonly reason: PauseReason
+  /** How long after the capture it resumes. */
+  readonly resumesInMinutes: number
+  readonly details: string
 }
 
 /** A fixture: one workspace, opened, and its tasks. */
@@ -151,6 +162,12 @@ const seedErrorSchema = z.strictObject({
   retryingMs: count,
 }) satisfies z.ZodType<TaskError>
 
+const seedPauseSchema = z.strictObject({
+  reason: z.enum(PauseReason),
+  resumesInMinutes: minutesAgo,
+  details: z.string(),
+}) satisfies z.ZodType<SeedPause>
+
 const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
   workspace: z.strictObject({ name: z.string(), rootPath: z.string() }),
   tasks: z.array(
@@ -181,6 +198,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       toolEvents: z.array(seedToolEventSchema).optional(),
       queuedMessages: z.array(z.string()).optional(),
       error: seedErrorSchema.optional(),
+      pause: seedPauseSchema.optional(),
     }),
   ),
 })
@@ -243,6 +261,16 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
           contextUsedTokens: sample.contextUsedTokens,
           contextWindowTokens: sample.contextWindowTokens,
           error: sample.error ?? null,
+          pause:
+            sample.pause === undefined
+              ? null
+              : {
+                  reason: sample.pause.reason,
+                  since: at,
+                  resumesAt: now + sample.pause.resumesInMinutes * MINUTE,
+                  checks: 0,
+                  details: sample.pause.details,
+                },
           // A titled task has run (its agent named it), so it has a session: e.g. it can need you.
           sessionId: sample.title === '' ? null : `seed-session-${String(index)}`,
         },

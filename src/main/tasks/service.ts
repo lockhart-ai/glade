@@ -2,7 +2,7 @@
 // own tools. Each function writes the task, tells every window with `task.updated`, and returns the task as it now is.
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, type TaskUserPatch } from '../../shared/bridge'
-import type { ApiRetry, Task, TaskActivity, TaskError } from '../../shared/domain'
+import type { ApiRetry, Task, TaskActivity, TaskError, TaskPause } from '../../shared/domain'
 import { CommandFailure } from '../bridge/errors'
 import { emitTaskUpdated, type Emit } from '../bridge/events'
 import { createTask as insertTask, getTask, updateTask, type TaskPatch } from '../db/repositories/tasks'
@@ -24,7 +24,7 @@ export interface AgentTaskPatch {
 
 /**
  * The fields the agent runner keeps current: what the agent is doing, its SDK session id, its context usage, what
- * stopped it and the API retry in progress.
+ * stopped it, the API retry in progress and what paused it.
  */
 export interface RunnerTaskPatch {
   readonly activity?: TaskActivity
@@ -35,6 +35,8 @@ export interface RunnerTaskPatch {
   readonly error?: TaskError | null
   /** Null clears it. */
   readonly retrying?: ApiRetry | null
+  /** Null clears it. */
+  readonly pause?: TaskPause | null
 }
 
 function existing(db: Database, id: string): Task {
@@ -92,11 +94,14 @@ export function updateTaskFromAgent(context: TaskServiceContext, id: string, pat
   return write(context, id, { title, objective, status })
 }
 
-/** Records what the agent runner learned: the task's activity, its SDK session id, its context usage or its error. */
+/**
+ * Records what the agent runner learned: the task's activity, its SDK session id, its context usage, its error or its
+ * pause.
+ */
 export function updateTaskFromRunner(context: TaskServiceContext, id: string, patch: RunnerTaskPatch): Task {
   existing(context.db, id)
-  const { activity, sessionId, contextUsedTokens, contextWindowTokens, error, retrying } = patch
-  return write(context, id, { activity, sessionId, contextUsedTokens, contextWindowTokens, error, retrying })
+  const { activity, sessionId, contextUsedTokens, contextWindowTokens, error, retrying, pause } = patch
+  return write(context, id, { activity, sessionId, contextUsedTokens, contextWindowTokens, error, retrying, pause })
 }
 
 /** Marks a task read or unread. This isn't a change to the task, so its `updatedAt` stays as it is. */

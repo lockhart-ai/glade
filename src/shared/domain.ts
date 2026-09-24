@@ -36,6 +36,11 @@ export enum TaskActivity {
   Working = 'working',
   /** The agent's last turn failed. */
   Error = 'error',
+  /**
+   * The agent's turn is paused because the account hit its usage limit or the API can't be reached. The task's `pause`
+   * says why and when it resumes; it resumes on its own, with no one needing to step in.
+   */
+  Paused = 'paused',
 }
 
 /**
@@ -77,6 +82,33 @@ export interface TaskError {
   readonly retries: number
   /** How long those retries took, from the first failure to giving up. 0 without retries. */
   readonly retryingMs: number
+}
+
+/** Why a task's turn is paused (`TaskPause`). */
+export enum PauseReason {
+  /** The account's usage limit ran out: the turn resumes when it resets. */
+  UsageLimit = 'usage_limit',
+  /** The API couldn't be reached: the turn resumes when the network is back. */
+  Offline = 'offline',
+}
+
+/**
+ * A paused turn (`TaskActivity.Paused`): the app-wide banner, the task list's "Paused: usage limit · resumes 11:42" and
+ * the chat's paused line. Persisted, so a relaunch keeps the pause and its timer.
+ */
+export interface TaskPause {
+  readonly reason: PauseReason
+  /** When the task paused. */
+  readonly since: EpochMs
+  /**
+   * When Glade next tries the turn again: the usage limit's reset time (or Glade's guess, when the API gave none), or,
+   * offline, when it next checks whether the network is back.
+   */
+  readonly resumesAt: EpochMs
+  /** How many times in a row Glade has found the network still down; 0 for a usage limit. Spaces out the checks. */
+  readonly checks: number
+  /** The raw error that paused the turn, as the SDK gave it: what the banner's Details shows. */
+  readonly details: string
 }
 
 /** An automatic retry of a failed API request in progress: the working line says "Retrying (2 of 10)…". */
@@ -143,6 +175,8 @@ export interface Task {
   readonly error: TaskError | null
   /** The automatic retry in progress while the agent's API requests fail; null otherwise. */
   readonly retrying: ApiRetry | null
+  /** Why the agent's turn is paused and when it resumes, while its activity is paused; null otherwise. */
+  readonly pause: TaskPause | null
 }
 
 /** Who wrote a chat message. */

@@ -115,6 +115,55 @@ describe('migrate', () => {
     expect(schemaVersion(db)).toBe(0)
   })
 
+  describe('a migration that rebuilds a referenced table', () => {
+    const parentAndChild: Migration = {
+      version: 2,
+      name: 'Create parent and child',
+      up(on) {
+        on.exec(`
+          CREATE TABLE parent (id INTEGER PRIMARY KEY);
+          CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER NOT NULL REFERENCES parent (id) ON DELETE CASCADE);
+          INSERT INTO parent VALUES (1);
+          INSERT INTO child VALUES (10, 1);
+        `)
+      },
+    }
+    const rebuild = (orphan: boolean): Migration => ({
+      version: 3,
+      name: 'Rebuild parent',
+      rebuildsReferencedTable: true,
+      up(on) {
+        on.exec(`
+          CREATE TABLE parent_new (id INTEGER PRIMARY KEY, note TEXT);
+          INSERT INTO parent_new (id) SELECT id FROM parent ${orphan ? 'WHERE id != 1' : ''};
+          DROP TABLE parent;
+          ALTER TABLE parent_new RENAME TO parent;
+        `)
+      },
+    })
+
+    it('runs with foreign keys off, so dropping the old table keeps the rows that reference it', () => {
+      db.pragma('foreign_keys = ON')
+
+      migrate(db, [schemaVersionMigration, parentAndChild, rebuild(false)])
+
+      expect(db.prepare('SELECT id FROM child').pluck().all()).toEqual([10])
+      expect(db.pragma('foreign_keys', { simple: true })).toBe(1)
+    })
+
+    it('rolls back when a reference no longer holds, and puts foreign keys back as they were', () => {
+      db.pragma('foreign_keys = OFF')
+
+      expect(() => migrate(db, [schemaVersionMigration, parentAndChild, rebuild(true)])).toThrow(
+        expect.objectContaining({ cause: new Error('1 rows break a foreign key') }) as Error,
+      )
+
+      expect(schemaVersion(db)).toBe(2)
+      expect(db.prepare('SELECT id FROM parent').pluck().all()).toEqual([1])
+      expect(db.pragma('foreign_keys', { simple: true })).toBe(0)
+    })
+  })
+
   it('refuses a database newer than the app', () => {
     migrate(db, [schemaVersionMigration, createTable(2, 'alpha')])
 

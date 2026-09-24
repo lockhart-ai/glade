@@ -195,8 +195,8 @@ describe('sendToTask', () => {
     expect(runner.send).toHaveBeenCalledExactlyOnceWith(taskId, 'One more thing.')
   })
 
-  it('queues the message while the agent works', () => {
-    updateTask(database.db, taskId, { activity: TaskActivity.Working })
+  it.each([TaskActivity.Working, TaskActivity.Paused])('queues the message while the agent is %s', (activity) => {
+    updateTask(database.db, taskId, { activity })
     const runner = fakeRunner()
     sendToTask(database.db, runner, taskId, 'And the docs.')
     expect(runner.queue).toHaveBeenCalledExactlyOnceWith(taskId, 'And the docs.')

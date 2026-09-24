@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { CompactionTrigger } from '../../shared/domain'
-import { AgentEventKind, createSdkMessageParser, type AgentEvent } from './events'
+import { AgentEventKind, createSdkMessageParser, RateLimitStatus, type AgentEvent } from './events'
 import * as sdk from './test-sdk-messages'
 
 function parser() {
@@ -10,6 +10,10 @@ function parser() {
 
 function parse(raw: unknown): AgentEvent[] {
   return parser().parse(raw)
+}
+
+function isRateLimit(message: unknown): boolean {
+  return typeof message === 'object' && message !== null && Reflect.get(message, 'type') === 'rate_limit_event'
 }
 
 describe('parsing SDK messages', () => {
@@ -191,6 +195,19 @@ describe('parsing SDK messages', () => {
     expect(parse(connection)).toEqual([expect.objectContaining({ status: null, code: 'unknown', delayMs: 0 })])
   })
 
+  it("reads where the usage limit stands, with its reset time in milliseconds when it's given", () => {
+    expect(parse(sdk.rateLimit('rejected', 1_790_000_000))).toEqual([
+      { kind: AgentEventKind.RateLimit, status: RateLimitStatus.Rejected, resetsAt: 1_790_000_000_000 },
+    ])
+    expect(parse(sdk.turnStartNoise().find(isRateLimit))).toEqual([
+      { kind: AgentEventKind.RateLimit, status: RateLimitStatus.Allowed, resetsAt: null },
+    ])
+    const malformed = { type: 'rate_limit_event', rate_limit_info: { status: 'allowed_warning', resetsAt: 'soon' } }
+    expect(parse(malformed)).toEqual([
+      { kind: AgentEventKind.RateLimit, status: RateLimitStatus.AllowedWarning, resetsAt: null },
+    ])
+  })
+
   it('reads the message an API error makes as the error, not as text or context used', () => {
     expect(parse(sdk.apiErrorMessage('overloaded'))).toEqual([
       { kind: AgentEventKind.ApiError, code: 'overloaded', message: sdk.OVERLOADED_ERROR },
@@ -220,7 +237,7 @@ describe('parsing SDK messages', () => {
   it('drops the message types and system subtypes Glade does not use, without a word', () => {
     const { parse: parseQuietly, warn } = parser()
     for (const message of [
-      ...sdk.turnStartNoise(),
+      ...sdk.turnStartNoise().filter((message) => !isRateLimit(message)),
       { type: 'stream_event', event: {} },
       { type: 'tool_progress', elapsed_time_seconds: 3 },
       { type: 'system', subtype: 'status', status: 'compacting' },
@@ -245,6 +262,11 @@ describe('parsing SDK messages', () => {
     ['a message with no type', { subtype: 'init' }, 'Dropped an SDK message with no type'],
     ['an init with no session id', { type: 'system', subtype: 'init', model: 'm' }, 'system/init'],
     ['an API retry with no attempt', { type: 'system', subtype: 'api_retry', max_retries: 3 }, 'system/api_retry'],
+    [
+      'a rate limit with an unknown status',
+      { type: 'rate_limit_event', rate_limit_info: { status: 'x' } },
+      'rate_limit',
+    ],
     ['an assistant message with no content', { type: 'assistant', message: {} }, 'assistant'],
     ['a user message with no message', { type: 'user' }, 'user'],
     ['a compact boundary with no metadata', { type: 'system', subtype: 'compact_boundary' }, 'system/compact_boundary'],

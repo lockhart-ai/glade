@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, Notification, type WebPreferences } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, net, Notification, type WebPreferences } from 'electron'
 import { EventType } from '../shared/bridge'
 import type { AgentBackend } from './agent/backend'
 import { createSdkBackend } from './agent/sdk-backend'
@@ -17,7 +17,15 @@ import {
 import { openAppDatabase, type AppDatabase } from './db/database'
 import { applySeed, readSeed } from './capture-seed'
 import { chooseFolder } from './dialogs'
-import { E2E_NOTIFIER_GLOBAL, E2E_WINDOW_SIZE, e2eChosenFolder, prepareE2e, readE2eSpec, type E2eSpec } from './e2e'
+import {
+  createE2eNetwork,
+  E2E_NOTIFIER_GLOBAL,
+  E2E_WINDOW_SIZE,
+  e2eChosenFolder,
+  prepareE2e,
+  readE2eSpec,
+  type E2eSpec,
+} from './e2e'
 import { createElectronNotifier } from './notifications/electron-notifier'
 import { createReplyNotifications } from './notifications/notifications'
 import type { Notifier } from './notifications/notifier'
@@ -333,6 +341,8 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
           ? () => Promise.resolve(e2eChosenFolder(process.env))
           : () => chooseFolder(dialog, BrowserWindow.getFocusedWindow()),
       notifyReply,
+      // Whether the network is up, for resuming a task paused offline. In e2e mode, the spec decides.
+      isOnline: testMode?.kind === TestModeKind.E2e ? createE2eNetwork() : net.isOnline.bind(net),
     })
 
     const { runner } = bridge

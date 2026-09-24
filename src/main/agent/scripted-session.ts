@@ -303,6 +303,17 @@ export class ScriptedSession implements AgentSession {
       case ScriptStepKind.Compact:
         this.compact(step.postTokens ?? Math.round(this.contextTokens / 5), step.trigger ?? 'manual')
         return
+      case ScriptStepKind.LimitReached:
+        this.push({
+          type: 'rate_limit_event',
+          rate_limit_info: {
+            status: 'rejected',
+            resetsAt: Math.ceil((Date.now() + step.resetInMs) / 1000),
+            rateLimitType: 'five_hour',
+          },
+          uuid: randomUUID(),
+        })
+        return
     }
   }
 

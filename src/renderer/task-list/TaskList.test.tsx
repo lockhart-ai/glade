@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import {
   AgentErrorKind,
+  PauseReason,
   TaskActivity,
   TaskErrorSource,
   TaskState,
@@ -158,6 +159,17 @@ describe('TaskList', () => {
 
     expect(row('Fix flaky login test')).toHaveTextContent('Fix flaky login testnowError: API overloaded · retry?')
     expect(row('Fix flaky login test').querySelector('[data-state]')).toHaveAttribute('data-state', 'error')
+  })
+
+  it('says why a paused task is paused and when it resumes in place of the status, with a blue dot', async () => {
+    const resumesAt = new Date(2099, 8, 23, 11, 42).getTime()
+    const pause = { reason: PauseReason.UsageLimit, since: 0, resumesAt, checks: 0, details: 'Limit.' }
+    await renderList([task('p1', 'Move image uploads to S3', 0, { activity: TaskActivity.Paused, pause })])
+
+    expect(row('Move image uploads to S3')).toHaveTextContent(
+      'Move image uploads to S3nowPaused: usage limit · resumes Sep 23 11:42',
+    )
+    expect(row('Move image uploads to S3').querySelector('[data-state]')).toHaveAttribute('data-state', 'working')
   })
 
   it('marks an unread row with a blue dot', async () => {

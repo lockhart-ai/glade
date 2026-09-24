@@ -88,7 +88,7 @@ export function replyNotification(task: Pick<Task, 'id' | 'title'>, reply: strin
 export type ReplyRunner = Pick<AgentRunner, 'send' | 'queue'>
 
 /**
- * Sends `text` to a task the way the input bar does: queued while its agent works, else sent as the next turn (which
+ * Sends `text` to a task the way the input bar does: queued while its agent works or its turn is paused, else sent as the next turn (which
  * reopens a done task), and queued after all if the agent has just started working. Blank text sends nothing. Throws
  * the runner's `CommandFailure` for anything else, such as a task that no longer exists.
  */
@@ -96,7 +96,8 @@ export function sendToTask(db: Database, runner: ReplyRunner, taskId: string, te
   const message = text.trim()
   if (message === '') return
   const task = getTask(db, taskId)
-  if (task?.state === TaskState.Active && task.activity === TaskActivity.Working) {
+  const running = task?.activity === TaskActivity.Working || task?.activity === TaskActivity.Paused
+  if (task?.state === TaskState.Active && running) {
     runner.queue(taskId, message)
     return
   }

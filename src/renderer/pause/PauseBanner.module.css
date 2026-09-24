@@ -1,0 +1,83 @@
+/*
+ * The app-wide banner, from docs/design/html/17-usage-limit.html. Its fill is the design's own tint of --color-purple,
+ * as the chat's paused line's is.
+ */
+.banner {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px 10px 16px;
+  background: #211a30;
+  border: 1px solid var(--color-question-border);
+  border-radius: var(--radius-nested);
+  -webkit-app-region: no-drag;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.icon {
+  display: flex;
+  color: var(--color-purple);
+}
+
+.text {
+  min-width: 0;
+  font-size: var(--font-size-body);
+  color: var(--color-text);
+}
+
+.title {
+  font-weight: 600;
+}
+
+.spacer {
+  flex-grow: 1;
+}
+
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0 2px 28px;
+}
+
+.tasks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task {
+  display: flex;
+  gap: 12px;
+  font-size: var(--font-size-secondary);
+}
+
+.taskTitle {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.taskStatus {
+  color: var(--color-faint);
+}
+
+.said {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-question-border);
+  border-radius: var(--radius-button);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

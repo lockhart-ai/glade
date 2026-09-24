@@ -6,6 +6,7 @@ import {
   AgentErrorKind,
   DividerKind,
   MessageRole,
+  PauseReason,
   TaskActivity,
   TaskErrorSource,
   TaskState,
@@ -90,6 +91,12 @@ describe('readSeed', () => {
   it('reads the error fixture', () => {
     const selected = readSeed(join(FIXTURES, 'error.json')).tasks.find((task) => task.selected)
     expect(selected).toMatchObject({ activity: TaskActivity.Error, error: { status: 529, code: 'overloaded' } })
+  })
+
+  it('reads the usage limit fixture', () => {
+    const paused = readSeed(join(FIXTURES, 'usage-limit.json')).tasks.filter((task) => task.pause !== undefined)
+    expect(paused).toHaveLength(3)
+    expect(paused.every((task) => task.activity === TaskActivity.Paused)).toBe(true)
   })
 
   it('reads the e2e tool log fixture', () => {
@@ -272,6 +279,30 @@ describe('applySeed', () => {
     })
 
     expect(listTasks(db, listWorkspaces(db)[0]?.id ?? '')).toMatchObject([{ activity: TaskActivity.Error, error }])
+  })
+
+  it('writes why a task’s turn is paused, with its resume time relative to the capture', () => {
+    const { db } = database
+    const pause = { reason: PauseReason.UsageLimit, resumesInMinutes: 42, details: "You've hit your session limit" }
+
+    applySeed(
+      db,
+      { ...SEED, tasks: [{ title: 'Move image uploads to S3', minutesAgo: 1, activity: TaskActivity.Paused, pause }] },
+      NOW,
+    )
+
+    expect(listTasks(db, listWorkspaces(db)[0]?.id ?? '')).toMatchObject([
+      {
+        activity: TaskActivity.Paused,
+        pause: {
+          reason: PauseReason.UsageLimit,
+          since: NOW - 60_000,
+          resumesAt: NOW + 42 * 60_000,
+          checks: 0,
+          details: "You've hit your session limit",
+        },
+      },
+    ])
   })
 
   it('writes dividers, failed calls, and a subagent’s calls under their parent', () => {

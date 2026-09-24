@@ -124,6 +124,7 @@ vi.mock('electron', () => ({
   dialog: electron.dialog,
   ipcMain: electron.ipcMain,
   Notification: electron.FakeNotification,
+  net: { isOnline: () => true },
 }))
 
 // The real agent backend, watched: a test mode must never make one.
