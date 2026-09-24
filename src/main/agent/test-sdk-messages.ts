@@ -104,3 +104,24 @@ export function result(reply: string, overrides: Record<string, unknown> = {}): 
 export function apiErrorResult(): unknown {
   return result('', { is_error: true, terminal_reason: 'api_error', api_error_status: 529, errors: [] })
 }
+
+/** The partial text the SDK flushes when a turn is interrupted mid-text, flagged as aborted. */
+export function abortedText(body: string, messageId = 'msg_01'): unknown {
+  return { ...(text(body, null, messageId) as object), aborted: true }
+}
+
+/** The marker the SDK adds to the transcript when a turn is interrupted: a user message Glade ignores. */
+export function interruptMarker(duringTool = false): unknown {
+  const marker = duringTool ? '[Request interrupted by user for tool use]' : '[Request interrupted by user]'
+  return {
+    type: 'user',
+    parent_tool_use_id: null,
+    session_id: SESSION_ID,
+    message: { role: 'user', content: [{ type: 'text', text: marker }] },
+  }
+}
+
+/** The result of an interrupted turn (`docs/sdk-notes.md`, Interrupt). */
+export function abortedResult(terminalReason: 'aborted_streaming' | 'aborted_tools' = 'aborted_streaming'): unknown {
+  return result('', { subtype: 'error_during_execution', is_error: true, terminal_reason: terminalReason })
+}

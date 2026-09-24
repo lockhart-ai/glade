@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import { Effort, MessageRole, TaskActivity, TaskState, UiStateKey, type Task } from '../../shared/domain'
 import { ToastProvider } from '../components'
@@ -77,6 +77,10 @@ async function press(key: string, init: Partial<KeyboardEventInit> = {}): Promis
 
 function sends(fake: FakeBridge): unknown[] {
   return fake.invoke.mock.calls.filter(([command]) => command === CommandName.TasksSend).map(([, request]) => request)
+}
+
+function stops(fake: FakeBridge): unknown[] {
+  return fake.invoke.mock.calls.filter(([command]) => command === CommandName.TasksStop).map(([, request]) => request)
 }
 
 function updates(fake: FakeBridge): unknown[] {
@@ -234,16 +238,31 @@ describe('InputBar', () => {
       expect(sends(fake)).toEqual([])
       expect(field()).toHaveValue('Next, the docs.')
 
-      // Stop calls a placeholder until P1-08 adds the stop action.
-      const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
-      fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
-      expect(info).toHaveBeenCalledExactlyOnceWith('Stop isn’t wired up yet (P1-08); task t1 keeps working.')
-      info.mockRestore()
-
-      setActivity(fake, TaskActivity.Waiting)
+      // Stop stops the agent, which goes back to waiting on you.
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+        await Promise.resolve()
+      })
+      expect(stops(fake)).toEqual([{ id: 't1' }])
       expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
       await press('Enter')
       expect(sends(fake)).toEqual([{ id: 't1', text: 'Next, the docs.' }])
+    })
+
+    it('says so in a toast when the agent can’t be stopped', async () => {
+      const fake = await renderBar({
+        overrides: { [CommandName.TasksStop]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No task t1')) },
+      })
+      setActivity(fake, TaskActivity.Working)
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+        await Promise.resolve()
+      })
+
+      expect(screen.getByRole('region', { name: 'Notifications' })).toHaveTextContent(
+        'Couldn’t stop the agent: No task t1',
+      )
     })
 
     it('shows no Stop for a done task whose last activity was working', async () => {

@@ -45,7 +45,7 @@ export interface AgentSession {
    * between turns, never mid-turn.
    */
   configure(settings: AgentSessionSettings): void
-  /** Interrupts the running turn; the session stays alive. The seam for Stop (P1-08). */
+  /** Interrupts the running turn, which then ends with an aborted result; the session stays alive. Stop uses it. */
   interrupt(): Promise<void>
   /** Ends the session and its agent process. */
   close(): void

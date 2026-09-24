@@ -272,7 +272,10 @@ const multiToolTurn: AgentScript = {
   ],
 }
 
-/** A turn that keeps working, with a command still running, until it's stopped. */
+/**
+ * A turn that keeps working, with a command still running, until it's stopped; then a short reply to the message sent
+ * after the stop, so a spec can see the stopped task carry on.
+ */
 const longRunning: AgentScript = {
   name: 'long-running',
   turns: [
@@ -282,6 +285,12 @@ const longRunning: AgentScript = {
       ...describeTask('Run the e2e suite', 'Run the end-to-end suite and fix what fails.', 'Running the e2e suite.'),
       toolUse('suite', 'Bash', { command: 'npm run test:e2e', description: 'Run the end-to-end suite' }),
       waitForInterrupt(),
+    ],
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      say('Understood. I stopped the suite and will only run the unit tests.'),
+      result(),
     ],
   ],
 }

@@ -59,3 +59,53 @@ test('new task, first message, scripted reply', async ({ launch, tempFolder }) =
     { tool: 'mcp__glade__set_status', state: done, inside: null },
   ])
 })
+
+test('stop a running turn with ⌘., then carry on in the same session', async ({ launch, tempFolder }) => {
+  const root = join(tempFolder(), 'acme-api')
+  mkdirSync(root)
+  const { window } = await launch({ agentScript: 'long-running', chosenFolder: root })
+  await firstRun(window).openFolder.click()
+  const list = taskList(window)
+  await list.newTask.click()
+  await expect(list.rows('Active')).toHaveCount(1)
+
+  const { workspaces } = await invoke(window, CommandName.WorkspacesList, {})
+  const workspaceId = workspaces[0]?.id ?? ''
+  const { tasks } = await invoke(window, CommandName.TasksList, { workspaceId })
+  const taskId = tasks[0]?.id ?? ''
+  const activity = async (): Promise<TaskActivity | undefined> =>
+    (await taskHeader(window, workspaceId, taskId))?.activity
+  const sessionId = async (): Promise<string | null | undefined> =>
+    (await invoke(window, CommandName.TasksList, { workspaceId })).tasks.find(({ id }) => id === taskId)?.sessionId
+  const bar = inputBar(window)
+  await bar.field.fill('Run the e2e suite.')
+  await bar.field.press('Enter')
+
+  // The agent works, with its command running, until it's stopped.
+  await expect
+    .poll(async () => (await toolLog(window, taskId)).at(-1))
+    .toEqual({ tool: 'Bash', state: ToolCallState.Running, inside: null })
+  expect(await activity()).toBe(TaskActivity.Working)
+  const session = await sessionId()
+  expect(session).toBeTruthy()
+
+  await window.keyboard.press('Meta+.')
+
+  // Back to waiting on you: the running command ended as an error, and the tool log says you stopped it.
+  await expect.poll(activity).toBe(TaskActivity.Waiting)
+  expect((await toolLog(window, taskId)).slice(-2)).toEqual([
+    { tool: 'Bash', state: ToolCallState.Error, inside: null },
+    { narration: 'You stopped the agent.' },
+  ])
+  const { userMessages, agentReplies } = chat(window)
+  await expect(agentReplies).toHaveCount(0)
+
+  // A message after the stop carries on in the same session.
+  await bar.field.fill('Only run the unit tests.')
+  await bar.field.press('Enter')
+  await expect(userMessages).toHaveCount(2)
+  await expect(agentReplies).toHaveCount(1)
+  await expect(agentReplies.first()).toContainText('I stopped the suite and will only run the unit tests.')
+  await expect.poll(activity).toBe(TaskActivity.Waiting)
+  expect(await sessionId()).toBe(session)
+})

@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { DividerKind, Effort, MessageRole, TaskState, ToolEventKind, UiStateKey } from '../../shared/domain'
+import {
+  DividerKind,
+  Effort,
+  MessageRole,
+  TaskActivity,
+  TaskState,
+  ToolEventKind,
+  UiStateKey,
+} from '../../shared/domain'
 import { HydrationStatus, selectSelectedTask, selectSelectedWorkspace } from './state'
 import { createGladeStore } from './store'
 import { fakeBridge, refuse, sampleMessage, sampleTask, sampleWorkspace, type FakeMain } from './test-bridge'
@@ -335,6 +343,17 @@ describe("a task's logs", () => {
     const store = createGladeStore(bridge)
 
     await expect(store.getState().sendMessage('t1', 'Hi')).rejects.toBe(busy)
+  })
+
+  it('stops a task through main, and the store follows its event', async () => {
+    const data = main()
+    data.tasks[0] = { ...sampleTask('t1', 'w1'), activity: TaskActivity.Working }
+    const { store, invoke } = await hydrated(data)
+
+    await store.getState().stopTask('t1')
+
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.TasksStop, { id: 't1' })
+    expect(store.getState().tasks.t1?.activity).toBe(TaskActivity.Waiting)
   })
 
   it('asks the tool log to show a turn, as a new request each time, without calling main', async () => {

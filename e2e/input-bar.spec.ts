@@ -63,3 +63,30 @@ test('input bar: ⌘L focuses it, ⇧↵ adds a line, the pickers persist, and �
   await expect(relaunched.setting('Model')).toHaveText('ModelSonnet 5')
   await expect(relaunched.setting('Effort')).toHaveText('EffortLow')
 })
+
+test('input bar: while the agent works, Send waits and the Stop button stops it', async ({ launch, tempFolder }) => {
+  const root = join(tempFolder(), 'acme-api')
+  mkdirSync(root)
+  const glade = await launch({ agentScript: 'long-running', chosenFolder: root })
+  await firstRun(glade.window).openFolder.click()
+  await taskList(glade.window).newTask.click()
+  const bar = inputBar(glade.window)
+
+  await bar.field.fill('Run the e2e suite.')
+  await bar.field.press('Enter')
+
+  // The agent works until it's stopped: Stop shows, Send waits, and you can keep typing.
+  await expect(bar.stop).toBeVisible()
+  await expect(bar.send).toBeDisabled()
+  await bar.field.fill('Only run the unit tests.')
+  await bar.field.press('Enter')
+  await expect(chat(glade.window).userMessages).toHaveCount(1)
+  await expect(bar.field).toHaveValue('Only run the unit tests.')
+
+  await bar.stop.click()
+  await expect(bar.stop).toHaveCount(0)
+  await expect(bar.send).toBeEnabled()
+  await bar.send.click()
+  await expect(chat(glade.window).userMessages).toHaveCount(2)
+  await expect(chat(glade.window).agentReplies.first()).toContainText('I stopped the suite')
+})

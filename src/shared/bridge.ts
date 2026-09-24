@@ -33,6 +33,7 @@ export enum CommandName {
   TasksReopen = 'tasks.reopen',
   TasksUpdate = 'tasks.update',
   TasksSend = 'tasks.send',
+  TasksStop = 'tasks.stop',
   TasksHistory = 'tasks.history',
   UiStateGet = 'uiState.get',
   UiStateGetAll = 'uiState.getAll',
@@ -150,6 +151,16 @@ export interface TasksSendResponse {
   readonly message: Message
 }
 
+/**
+ * Stops the task's agent: interrupts its running turn, and answers with the task once the turn has ended, back to
+ * waiting on you. The session stays alive, so the next `tasks.send` carries on in it. What the turn already saved
+ * stays; its unfinished tool calls end as errors, and the tool log notes that you stopped it.
+ *
+ * On a task whose agent isn't working it does nothing and answers with the task. Fails with `not_found` when there's
+ * no such task.
+ */
+export type TasksStopRequest = TaskIdRequest
+
 /** A task's chat log and tool log, each in the order they were appended. */
 export interface TasksHistoryResponse {
   readonly messages: readonly Message[]
@@ -191,6 +202,7 @@ export interface CommandMap {
   [CommandName.TasksReopen]: CommandSpec<TaskIdRequest, TaskResponse>
   [CommandName.TasksUpdate]: CommandSpec<TasksUpdateRequest, TaskResponse>
   [CommandName.TasksSend]: CommandSpec<TasksSendRequest, TasksSendResponse>
+  [CommandName.TasksStop]: CommandSpec<TasksStopRequest, TaskResponse>
   [CommandName.TasksHistory]: CommandSpec<TaskIdRequest, TasksHistoryResponse>
   [CommandName.UiStateGet]: CommandSpec<UiStateGetRequest, UiStateGetResponse>
   [CommandName.UiStateGetAll]: CommandSpec<EmptyRequest, UiStateGetAllResponse>

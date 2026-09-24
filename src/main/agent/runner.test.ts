@@ -23,7 +23,7 @@ import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from
 import { listToolEvents } from '../db/repositories/tool-events'
 import { FakeAgentBackend, settle } from './fake-backend'
 import { GLADE_SERVER } from './glade-tools'
-import { createAgentRunner, type AgentRunner } from './runner'
+import { createAgentRunner, STOPPED_NOTE, type AgentRunner } from './runner'
 import { systemPromptAppend } from './system-prompt'
 import * as sdk from './test-sdk-messages'
 
@@ -408,14 +408,6 @@ describe('the session', () => {
     expect(current().activity).toBe(TaskActivity.Working)
   })
 
-  it('interrupts the running session, and does nothing for a task without one', async () => {
-    await runner.interrupt(task.id)
-    await send('Hi')
-    await runner.interrupt(task.id)
-
-    expect(backend.session.interrupts).toBe(1)
-  })
-
   it('gives the session the MCP servers for its task', () => {
     const servers = { glade: { type: 'http' as const, url: 'http://127.0.0.1:1/mcp' } }
     const mcpServers = vi.fn(() => servers)
@@ -536,6 +528,202 @@ describe('tasks.send', () => {
     await send('Again')
 
     expect(backend.session.configured).toEqual([])
+  })
+})
+
+describe('tasks.stop', () => {
+  /** How long the scripted agent takes to end a turn once interrupted: about what the real one takes (§7). */
+  const INTERRUPT_LATENCY_MS = 40
+
+  async function stop(id = task.id): Promise<Task> {
+    return (await glade.invoke(CommandName.TasksStop, { id })).task
+  }
+
+  /** A turn that has narrated, finished one tool call and is running two more, one of them a subagent's. */
+  async function startLongTurn(): Promise<void> {
+    await send('Copy the existing uploads to S3.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.text('Backend configured. Copying the existing files next.'),
+      sdk.toolUse('toolu_01', 'Write', { file_path: 'scripts/copy.py', content: 'copy()' }),
+      sdk.toolResult('toolu_01', 'File created'),
+      sdk.toolUse('toolu_02', 'Bash', { command: 'python scripts/copy.py' }),
+      sdk.toolUse('toolu_03', 'Agent', { description: 'Check a sample', prompt: 'Check ten copied files.' }),
+    )
+    await settle()
+  }
+
+  /** Makes the agent answer an interrupt as the real one does mid-tool, after a realistic delay. */
+  function abortToolsOnInterrupt(): void {
+    backend.session.onInterrupt = () => {
+      setTimeout(() => {
+        backend.session.emit(
+          sdk.toolResult('toolu_02', "The user doesn't want to proceed with this tool use.", true),
+          sdk.interruptMarker(true),
+          sdk.abortedResult('aborted_tools'),
+        )
+      }, INTERRUPT_LATENCY_MS)
+      return Promise.resolve()
+    }
+  }
+
+  it('halts a running turn within a second, keeps what it saved, and goes back to waiting on you', async () => {
+    await startLongTurn()
+    abortToolsOnInterrupt()
+    events.splice(0)
+
+    const started = performance.now()
+    const stopped = await stop()
+    const elapsed = performance.now() - started
+
+    expect(backend.session.interrupts).toBe(1)
+    expect(elapsed).toBeLessThan(1000)
+    expect(stopped.activity).toBe(TaskActivity.Waiting)
+    expect(current().activity).toBe(TaskActivity.Waiting)
+    expect(chat()).toEqual([{ role: MessageRole.User, body: 'Copy the existing uploads to S3.', turn: 1 }])
+    expect(toolLog()).toEqual([
+      { divider: DividerKind.Turn, turn: 1 },
+      { narration: 'Backend configured. Copying the existing files next.', turn: 1 },
+      expect.objectContaining({ call: 'Write', state: ToolCallState.Done, output: 'File created' }),
+      expect.objectContaining({
+        call: 'Bash',
+        state: ToolCallState.Error,
+        output: "The user doesn't want to proceed with this tool use.",
+      }),
+      expect.objectContaining({ call: 'Agent', state: ToolCallState.Error, output: STOPPED_NOTE }),
+      { narration: STOPPED_NOTE, turn: 1 },
+    ])
+    expect(drainEvents()).toEqual([
+      [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Error],
+      [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Error],
+      [EventType.ToolEventAppended, ToolEventKind.Narration, null],
+      [EventType.TaskUpdated, TaskActivity.Waiting, sdk.SESSION_ID],
+    ])
+  })
+
+  it('lets a stopped task be messaged again, carrying on in the same session', async () => {
+    await startLongTurn()
+    abortToolsOnInterrupt()
+    await stop()
+
+    await send('Only copy the files from this year.')
+    expect(current().activity).toBe(TaskActivity.Working)
+    backend.session.emit(sdk.init(), sdk.result('Copied the 1,240 files from this year.'))
+    await settle()
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(backend.session.sent.map(({ text }) => text)).toEqual([
+      'Copy the existing uploads to S3.',
+      'Only copy the files from this year.',
+    ])
+    expect(chat().slice(1)).toEqual([
+      { role: MessageRole.User, body: 'Only copy the files from this year.', turn: 2 },
+      { role: MessageRole.Agent, body: 'Copied the 1,240 files from this year.', turn: 2 },
+    ])
+    expect(current().activity).toBe(TaskActivity.Waiting)
+  })
+
+  it('keeps the partial text of a reply it stopped in the tool log, not the chat', async () => {
+    await send('Write a short story.')
+    backend.session.emit(sdk.init())
+    backend.session.onInterrupt = () => {
+      backend.session.emit(
+        sdk.abortedText('# Juniper\n\nIn the heart of the'),
+        sdk.interruptMarker(),
+        sdk.abortedResult(),
+      )
+      return Promise.resolve()
+    }
+
+    await stop()
+
+    expect(chat()).toHaveLength(1)
+    expect(toolLog().slice(1)).toEqual([
+      { narration: '# Juniper\n\nIn the heart of the', turn: 1 },
+      { narration: STOPPED_NOTE, turn: 1 },
+    ])
+    expect(current().activity).toBe(TaskActivity.Waiting)
+  })
+
+  it('answers only once the interrupted turn has ended', async () => {
+    await send('Hi')
+    let answered = false
+    const stopping = stop().then((stopped) => {
+      answered = true
+      return stopped
+    })
+    await settle()
+    expect(backend.session.interrupts).toBe(1)
+    expect(answered).toBe(false)
+
+    backend.session.emit(sdk.interruptMarker(), sdk.abortedResult())
+
+    await expect(stopping).resolves.toMatchObject({ activity: TaskActivity.Waiting })
+  })
+
+  it('treats an aborted turn as stopped, even when Glade did not ask', async () => {
+    await send('Hi')
+    backend.session.emit(sdk.init(), sdk.interruptMarker(), sdk.abortedResult())
+    await settle()
+
+    expect(toolLog()[1]).toEqual({ narration: STOPPED_NOTE, turn: 1 })
+    expect(current().activity).toBe(TaskActivity.Waiting)
+  })
+
+  it('keeps the reply of a turn that finished before the interrupt landed', async () => {
+    await send('Hi')
+    backend.session.onInterrupt = () => {
+      backend.session.emit(sdk.init(), sdk.result('Hello.'))
+      return Promise.resolve()
+    }
+
+    await stop()
+
+    expect(chat().at(-1)).toEqual({ role: MessageRole.Agent, body: 'Hello.', turn: 1 })
+    expect(current().activity).toBe(TaskActivity.Waiting)
+  })
+
+  it('does nothing for a task whose agent is not working', async () => {
+    await expect(stop()).resolves.toEqual(current())
+
+    await send('Hi')
+    backend.session.emit(sdk.init(), sdk.result('Hello.'))
+    await settle()
+    events.splice(0)
+    await expect(stop()).resolves.toEqual(current())
+
+    updateTask(database.db, task.id, { state: TaskState.Done })
+    await expect(stop()).resolves.toMatchObject({ state: TaskState.Done })
+    expect(backend.session.interrupts).toBe(0)
+    expect(events).toEqual([])
+  })
+
+  it('refuses a task that does not exist', async () => {
+    await expect(stop('gone')).rejects.toMatchObject({ code: BridgeErrorCode.NotFound })
+  })
+
+  it('answers once the turn ends some other way: the session failing, or the app closing it', async () => {
+    await send('Hi')
+    backend.session.onInterrupt = () => {
+      backend.session.fail(new Error('spawn claude ENOENT'))
+      return Promise.resolve()
+    }
+    await expect(stop()).resolves.toMatchObject({ activity: TaskActivity.Error })
+
+    await send('Try again.')
+    backend.session.onInterrupt = () => {
+      runner.close()
+      return Promise.resolve()
+    }
+    await expect(stop()).resolves.toMatchObject({ activity: TaskActivity.Working })
+  })
+
+  it('fails when the session cannot be interrupted', async () => {
+    await send('Hi')
+    backend.session.onInterrupt = () => Promise.reject(new Error('The session is not in streaming input mode'))
+
+    await expect(stop()).rejects.toMatchObject({ code: BridgeErrorCode.Internal })
+    expect(current().activity).toBe(TaskActivity.Working)
   })
 })
 

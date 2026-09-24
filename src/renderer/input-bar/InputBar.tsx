@@ -52,14 +52,6 @@ function isFocusShortcut(event: globalThis.KeyboardEvent): boolean {
   return event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === 'l'
 }
 
-/**
- * Placeholder for Stop until P1-08 adds the store's `stopTask(id)` action, which interrupts the running turn. Wire the
- * Stop button to that action then, and remove this.
- */
-function stopTaskPlaceholder(taskId: string): void {
-  console.info(`Stop isn’t wired up yet (P1-08); task ${taskId} keeps working.`)
-}
-
 export interface InputBarProps {
   /** The context meter (P1-14), at the right of the settings row. Empty until then. */
   readonly contextMeter?: ReactNode
@@ -85,6 +77,7 @@ interface TaskInputBarProps extends InputBarProps {
 function TaskInputBar({ task, contextMeter }: TaskInputBarProps): React.JSX.Element {
   const updateTask = useGladeStore((state) => state.updateTask)
   const sendMessage = useGladeStore((state) => state.sendMessage)
+  const stopTask = useGladeStore((state) => state.stopTask)
   const toast = useToast()
   const field = useRef<HTMLTextAreaElement>(null)
   const [draft, setDraft] = useState('')
@@ -183,7 +176,9 @@ function TaskInputBar({ task, contextMeter }: TaskInputBarProps): React.JSX.Elem
             type="button"
             className={styles.stop}
             onClick={() => {
-              stopTaskPlaceholder(task.id)
+              stopTask(task.id).catch((error: unknown) => {
+                toast.show({ message: `Couldn’t stop the agent: ${describeFailure(error)}` })
+              })
             }}
           >
             <Icon icon={faSquare} size={IconSize.Medium} />
