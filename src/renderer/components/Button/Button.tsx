@@ -1,5 +1,5 @@
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
-import type { ButtonHTMLAttributes } from 'react'
+import type { ComponentPropsWithRef } from 'react'
 import { classNames } from '../classNames'
 import { Icon, IconSize } from '../Icon/Icon'
 import styles from './Button.module.css'
@@ -24,7 +24,7 @@ export enum ButtonSize {
   Large = 'large',
 }
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps extends ComponentPropsWithRef<'button'> {
   variant?: ButtonVariant
   /** Height of a labelled button. Icon buttons are always 30px square. */
   size?: ButtonSize

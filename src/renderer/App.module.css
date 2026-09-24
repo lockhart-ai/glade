@@ -1,4 +1,39 @@
+/* Placeholder regions until the P1 tickets fill the layout. Their heights follow task-workspace.png. */
 .placeholder {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--color-strong);
+  border-radius: var(--radius-button);
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+}
+
+.fill {
+  flex-grow: 1;
+  min-height: 0;
+  margin: var(--space-outer);
+}
+
+.header {
+  height: 148px;
+}
+
+.inputBar {
+  height: 110px;
+}
+
+.tabs {
+  flex-grow: 1;
+  height: var(--touch-target-dense);
+}
+
+/* The whole window while the store loads, or when it couldn't. */
+.status {
   display: flex;
   align-items: center;
   justify-content: center;

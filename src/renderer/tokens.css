@@ -67,6 +67,19 @@
   --radius-menu: 10px;
   --shadow-nested: 0 6px 20px rgba(0, 0, 0, 0.25);
   --shadow-menu: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --shadow-toast: 0 12px 32px rgba(0, 0, 0, 0.45);
   --touch-target-dense: 28px;
   --touch-target-send: 44px;
+
+  /* Window layout, from docs/design/html/task-workspace.html. Panels shrink in small windows (the max values). */
+  --sidebar-width: 300px;
+  --right-panel-width: 440px;
+  --right-panel-max-width: 32vw;
+  --bottom-bar-height: 300px;
+  --bottom-bar-max-height: 30vh;
+  /*
+   * The macOS traffic lights (titleBarStyle hiddenInset) sit over the top-left of the sidebar card, reaching about
+   * 14px below its top edge. The sidebar keeps a strip this tall clear above its content.
+   */
+  --title-bar-inset: 16px;
 }

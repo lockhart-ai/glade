@@ -1,5 +1,6 @@
 import { faCheck, faThumbtack } from '@fortawesome/free-solid-svg-icons'
 import { fireEvent, render, screen } from '@testing-library/react'
+import { createRef } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import iconStyles from '../Icon/Icon.module.css'
 import { moduleClass } from '../moduleClass'
@@ -76,6 +77,13 @@ describe('Button', () => {
     expect(button).toHaveAttribute('title', 'Save it')
     expect(button).toHaveClass('extra', cls('button'))
     expect(onClick).toHaveBeenCalledOnce()
+  })
+
+  it('passes its ref to the <button>, e.g. to anchor a menu', () => {
+    const ref = createRef<HTMLButtonElement>()
+    render(<Button ref={ref}>Task actions</Button>)
+
+    expect(ref.current).toBe(screen.getByRole('button', { name: 'Task actions' }))
   })
 
   it('does not fire clicks when disabled', () => {
