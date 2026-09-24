@@ -6,8 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { COMMAND_CHANNEL, CommandName, EVENT_CHANNEL, EventType } from '../shared/bridge'
 import { UiStateKey } from '../shared/domain'
 import { CAPTURE_ENV, type CaptureSpec } from './capture'
+import { FakeAgentBackend } from './agent/fake-backend'
 import { E2E_CHOSEN_FOLDER_ENV, E2E_ENV, E2E_WINDOW_SIZE, type E2eSpec } from './e2e'
 import { MIGRATIONS } from './db/migrations'
+import { sampleTask, sampleWorkspace } from './db/repositories/test-database'
 import { CHOOSE_FOLDER_OPTIONS } from './dialogs'
 
 type Handler = (...args: unknown[]) => unknown
@@ -96,6 +98,13 @@ vi.mock('electron', () => ({
   dialog: electron.dialog,
   ipcMain: electron.ipcMain,
 }))
+
+// The real agent backend, watched: a test mode must never make one.
+vi.mock('./agent/sdk-backend', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./agent/sdk-backend')>()
+  return { ...original, createSdkBackend: vi.fn(original.createSdkBackend) }
+})
+const { createSdkBackend } = await import('./agent/sdk-backend')
 
 const { startApp, WINDOW_WEB_PREFERENCES } = await import('./app')
 
@@ -271,6 +280,29 @@ describe('startApp', () => {
     expect(window.webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, { type: EventType.UiStateChanged, entry })
   })
 
+  it('runs the agents on the backend it was started with, and closes their sessions when the app quits', async () => {
+    const backend = new FakeAgentBackend()
+    startApp({ createAgentBackend: () => backend })
+    await Promise.resolve()
+    await Promise.resolve()
+    const db = new Database(join(electron.app.userData, 'glade.db'))
+    const task = sampleTask(db, sampleWorkspace(db).id)
+    db.close()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    await expect(handler?.({}, CommandName.TasksSend, { id: task.id, text: 'Hi' })).resolves.toMatchObject({ ok: true })
+    appHandler('will-quit')()
+
+    expect(backend.session.sent.map(({ text }) => text)).toEqual(['Hi'])
+    expect(backend.session.closed).toBe(true)
+  })
+
+  it('runs the agents on the Claude Agent SDK by default', async () => {
+    await startAndWaitUntilReady()
+
+    expect(createSdkBackend).toHaveBeenCalledOnce()
+  })
+
   it('shows the open-folder dialog as a sheet on the focused window', async () => {
     await startAndWaitUntilReady()
     const window = onlyWindow()
@@ -393,6 +425,7 @@ describe('startApp in capture mode', () => {
     expect(readFileSync(join(outDir, 'gallery-1100x700.png'), 'utf8')).toBe('png')
     expect(console.log).toHaveBeenCalledWith(`Captured ${join(outDir, 'gallery-1100x700.png')}`)
     expect(close).toHaveBeenCalledOnce()
+    expect(createSdkBackend).not.toHaveBeenCalled()
     expect(electron.app.exit).toHaveBeenCalledWith(0)
     expect(electron.appHandlers.has('activate')).toBe(false)
     expect(electron.appHandlers.has('will-quit')).toBe(false)
@@ -502,6 +535,37 @@ describe('startApp in e2e mode', () => {
       value: { path: null },
     })
     expect(electron.dialog.showOpenDialog).not.toHaveBeenCalled()
+  })
+
+  it('never runs the real agent, even when started with another backend: an agent session fails loudly', async () => {
+    askForE2e()
+    const backend = new FakeAgentBackend()
+    const createAgentBackend = vi.fn(() => backend)
+    startApp({ createAgentBackend })
+    await Promise.resolve()
+    await Promise.resolve()
+    const db = new Database(join(electron.app.userData, 'glade.db'))
+    const task = sampleTask(db, sampleWorkspace(db).id)
+    db.close()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    await expect(handler?.({}, CommandName.TasksSend, { id: task.id, text: 'Hi' })).resolves.toMatchObject({
+      ok: false,
+    })
+
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/^Glade test mode: An agent session started/))
+    expect(createAgentBackend).not.toHaveBeenCalled()
+    expect(createSdkBackend).not.toHaveBeenCalled()
+    expect(backend.sessions).toHaveLength(0)
+  })
+
+  it('never makes the real agent backend by default either', async () => {
+    askForE2e()
+
+    await startAndWaitUntilReady()
+
+    expect(electron.ipcMain.handle).toHaveBeenCalledOnce()
+    expect(createSdkBackend).not.toHaveBeenCalled()
   })
 
   it('reopens a hidden window on activate', async () => {

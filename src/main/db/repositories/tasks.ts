@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
-import { Effort, TaskState, type EpochMs, type Task } from '../../../shared/domain'
+import { Effort, TaskActivity, TaskState, type EpochMs, type Task } from '../../../shared/domain'
 import { Row } from './rows'
 
 export interface NewTask {
@@ -19,6 +19,7 @@ export interface TaskPatch {
   readonly status?: string
   /** Moving to done sets `doneAt`; moving back to active clears it. */
   readonly state?: TaskState
+  readonly activity?: TaskActivity
   readonly pinned?: boolean
   readonly unread?: boolean
   readonly model?: string
@@ -26,10 +27,11 @@ export interface TaskPatch {
   readonly sessionId?: string | null
 }
 
-const COLUMNS = `id, workspace_id, title, objective, status, state, pinned, unread, model, effort, created_at, updated_at,
-  done_at, session_id`
+const COLUMNS = `id, workspace_id, title, objective, status, state, activity, pinned, unread, model, effort, created_at,
+  updated_at, done_at, session_id`
 
 const TASK_STATES = Object.values(TaskState)
+const TASK_ACTIVITIES = Object.values(TaskActivity)
 const EFFORTS = Object.values(Effort)
 
 function parseTask(raw: unknown): Task {
@@ -41,6 +43,7 @@ function parseTask(raw: unknown): Task {
     objective: row.text('objective'),
     status: row.text('status'),
     state: row.oneOf('state', TASK_STATES),
+    activity: row.oneOf('activity', TASK_ACTIVITIES),
     pinned: row.flag('pinned'),
     unread: row.flag('unread'),
     model: row.text('model'),
@@ -70,6 +73,7 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     objective: input.objective ?? '',
     status: input.status ?? '',
     state: TaskState.Active,
+    activity: TaskActivity.Waiting,
     pinned: false,
     unread: false,
     model: input.model,
@@ -80,8 +84,8 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     sessionId: null,
   }
   db.prepare(
-    `INSERT INTO tasks (${COLUMNS}) VALUES (@id, @workspaceId, @title, @objective, @status, @state, @pinned, @unread,
-      @model, @effort, @createdAt, @updatedAt, @doneAt, @sessionId)`,
+    `INSERT INTO tasks (${COLUMNS}) VALUES (@id, @workspaceId, @title, @objective, @status, @state, @activity, @pinned,
+      @unread, @model, @effort, @createdAt, @updatedAt, @doneAt, @sessionId)`,
   ).run(toParams(task))
   return task
 }
@@ -120,6 +124,7 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
     objective: patch.objective ?? current.objective,
     status: patch.status ?? current.status,
     state,
+    activity: patch.activity ?? current.activity,
     pinned: patch.pinned ?? current.pinned,
     unread: patch.unread ?? current.unread,
     model: patch.model ?? current.model,
@@ -129,8 +134,8 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
     sessionId: patch.sessionId === undefined ? current.sessionId : patch.sessionId,
   }
   db.prepare(
-    `UPDATE tasks SET title = @title, objective = @objective, status = @status, state = @state, pinned = @pinned,
-      unread = @unread, model = @model, effort = @effort, updated_at = @updatedAt, done_at = @doneAt,
+    `UPDATE tasks SET title = @title, objective = @objective, status = @status, state = @state, activity = @activity,
+      pinned = @pinned, unread = @unread, model = @model, effort = @effort, updated_at = @updatedAt, done_at = @doneAt,
       session_id = @sessionId
     WHERE id = @id`,
   ).run(toParams(updated))

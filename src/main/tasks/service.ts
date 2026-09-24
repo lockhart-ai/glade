@@ -1,8 +1,8 @@
-// Every write to a task goes through here: the renderer's task commands and, from P1-09, the agent's own tools. Each
-// function writes the task, tells every window with `task.updated`, and returns the task as it now is.
+// Every write to a task goes through here: the renderer's task commands, the agent runner and, from P1-09, the agent's
+// own tools. Each function writes the task, tells every window with `task.updated`, and returns the task as it now is.
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, type TaskUserPatch } from '../../shared/bridge'
-import type { Task } from '../../shared/domain'
+import type { Task, TaskActivity } from '../../shared/domain'
 import { CommandFailure } from '../bridge/errors'
 import { emitTaskUpdated, type Emit } from '../bridge/events'
 import { createTask as insertTask, getTask, updateTask, type TaskPatch } from '../db/repositories/tasks'
@@ -20,6 +20,12 @@ export interface AgentTaskPatch {
   readonly title?: string
   readonly objective?: string
   readonly status?: string
+}
+
+/** The fields the agent runner keeps current: what the agent is doing, and its SDK session id. */
+export interface RunnerTaskPatch {
+  readonly activity?: TaskActivity
+  readonly sessionId?: string
 }
 
 function existing(db: Database, id: string): Task {
@@ -75,4 +81,11 @@ export function updateTaskFromAgent(context: TaskServiceContext, id: string, pat
   existing(context.db, id)
   const { title, objective, status } = patch
   return write(context, id, { title, objective, status })
+}
+
+/** Records what the agent runner learned: the task's activity or its SDK session id. */
+export function updateTaskFromRunner(context: TaskServiceContext, id: string, patch: RunnerTaskPatch): Task {
+  existing(context.db, id)
+  const { activity, sessionId } = patch
+  return write(context, id, { activity, sessionId })
 }

@@ -9,7 +9,7 @@
  *   rejecting with a `BridgeError`. `BridgeError` is a plain object, not an `Error`: `contextBridge` copies an `Error`
  *   thrown into the renderer's world but drops its extra properties, so `code` wouldn't survive.
  */
-import type { Effort, Task, UiStateEntry, UiStateKey, Workspace } from './domain'
+import type { Effort, Message, Task, ToolEvent, UiStateEntry, UiStateKey, Workspace } from './domain'
 
 /** The name the bridge is exposed under on `window`. */
 export const BRIDGE_KEY = 'glade'
@@ -32,6 +32,8 @@ export enum CommandName {
   TasksMarkDone = 'tasks.markDone',
   TasksReopen = 'tasks.reopen',
   TasksUpdate = 'tasks.update',
+  TasksSend = 'tasks.send',
+  TasksHistory = 'tasks.history',
   UiStateGet = 'uiState.get',
   UiStateGetAll = 'uiState.getAll',
   UiStateSet = 'uiState.set',
@@ -129,6 +131,31 @@ export interface TaskResponse {
   readonly task: Task
 }
 
+/**
+ * Sends the user's message to an active task's agent, starting a turn. Answers once the message is saved and handed to
+ * the agent, not when the turn ends: the turn's progress arrives as `message.appended`, `toolEvent.appended`,
+ * `toolEvent.updated` and `task.updated` events.
+ *
+ * Fails with `busy` while the agent is working on a turn, `invalid_transition` when the task is done, and `not_found`
+ * when there's no such task.
+ */
+export interface TasksSendRequest {
+  readonly id: string
+  /** Markdown. Not blank. */
+  readonly text: string
+}
+
+export interface TasksSendResponse {
+  /** The user's message, as saved to the chat log. */
+  readonly message: Message
+}
+
+/** A task's chat log and tool log, each in the order they were appended. */
+export interface TasksHistoryResponse {
+  readonly messages: readonly Message[]
+  readonly toolEvents: readonly ToolEvent[]
+}
+
 export interface UiStateGetRequest {
   readonly key: UiStateKey
 }
@@ -163,6 +190,8 @@ export interface CommandMap {
   [CommandName.TasksMarkDone]: CommandSpec<TaskIdRequest, TaskResponse>
   [CommandName.TasksReopen]: CommandSpec<TaskIdRequest, TaskResponse>
   [CommandName.TasksUpdate]: CommandSpec<TasksUpdateRequest, TaskResponse>
+  [CommandName.TasksSend]: CommandSpec<TasksSendRequest, TasksSendResponse>
+  [CommandName.TasksHistory]: CommandSpec<TaskIdRequest, TasksHistoryResponse>
   [CommandName.UiStateGet]: CommandSpec<UiStateGetRequest, UiStateGetResponse>
   [CommandName.UiStateGetAll]: CommandSpec<EmptyRequest, UiStateGetAllResponse>
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>
@@ -177,6 +206,9 @@ export enum EventType {
   UiStateChanged = 'uiState.changed',
   WorkspaceUpdated = 'workspace.updated',
   TaskUpdated = 'task.updated',
+  MessageAppended = 'message.appended',
+  ToolEventAppended = 'toolEvent.appended',
+  ToolEventUpdated = 'toolEvent.updated',
 }
 
 export interface UiStateChangedEvent {
@@ -196,8 +228,32 @@ export interface TaskUpdatedEvent {
   readonly task: Task
 }
 
+/** A message was appended to a task's chat log. */
+export interface MessageAppendedEvent {
+  readonly type: EventType.MessageAppended
+  readonly message: Message
+}
+
+/** An entry was appended to a task's tool log. */
+export interface ToolEventAppendedEvent {
+  readonly type: EventType.ToolEventAppended
+  readonly toolEvent: ToolEvent
+}
+
+/** A tool log entry changed: a tool call's result arrived. Carries the whole entry as it now is. */
+export interface ToolEventUpdatedEvent {
+  readonly type: EventType.ToolEventUpdated
+  readonly toolEvent: ToolEvent
+}
+
 /** Everything main broadcasts to the windows. */
-export type GladeEvent = UiStateChangedEvent | WorkspaceUpdatedEvent | TaskUpdatedEvent
+export type GladeEvent =
+  | UiStateChangedEvent
+  | WorkspaceUpdatedEvent
+  | TaskUpdatedEvent
+  | MessageAppendedEvent
+  | ToolEventAppendedEvent
+  | ToolEventUpdatedEvent
 
 export type EventListener = (event: GladeEvent) => void
 
@@ -215,6 +271,8 @@ export enum BridgeErrorCode {
   NotFound = 'not_found',
   /** The command asks for a state change the thing's current state doesn't allow, such as reopening an active task. */
   InvalidTransition = 'invalid_transition',
+  /** The agent is working on a turn, so it can't take another message yet. */
+  Busy = 'busy',
   /** A workspace root that isn't an existing directory. */
   InvalidRootPath = 'invalid_root_path',
   /** The handler threw. */

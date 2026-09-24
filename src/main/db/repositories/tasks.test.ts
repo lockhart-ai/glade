@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { Effort, TaskState, type Workspace } from '../../../shared/domain'
+import { Effort, TaskActivity, TaskState, type Workspace } from '../../../shared/domain'
 import { createTask, getTask, listTasks, updateTask } from './tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 
@@ -30,6 +30,7 @@ describe('createTask', () => {
       objective: '',
       status: '',
       state: TaskState.Active,
+      activity: TaskActivity.Waiting,
       pinned: false,
       unread: false,
       model: 'claude-sample-1',
@@ -108,6 +109,7 @@ describe('updateTask', () => {
         unread: true,
         model: 'claude-sample-2',
         effort: Effort.Max,
+        activity: TaskActivity.Working,
         sessionId: 'session-1',
       },
       3_000,
@@ -122,6 +124,7 @@ describe('updateTask', () => {
       unread: true,
       model: 'claude-sample-2',
       effort: Effort.Max,
+      activity: TaskActivity.Working,
       sessionId: 'session-1',
       updatedAt: 3_000,
     })

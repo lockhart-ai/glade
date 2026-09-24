@@ -1,5 +1,8 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, type WebPreferences } from 'electron'
+import type { AgentBackend } from './agent/backend'
+import { createSdkBackend } from './agent/sdk-backend'
+import { createTestModeAgentBackend } from './agent/test-mode-backend'
 import { registerBridge } from './bridge'
 import {
   captureShots,
@@ -150,15 +153,25 @@ function startTestMode(): TestMode {
   return null
 }
 
+/** What the app can be started with. */
+export interface AppOptions {
+  /**
+   * Makes the backend the tasks' agents run on, once the app is ready. The Claude Agent SDK by default; unit tests pass
+   * a fake. Never used in a test mode (e2e or capture), which always runs on `createTestModeAgentBackend`, so no
+   * automated run can reach the real Claude API.
+   */
+  readonly createAgentBackend?: () => AgentBackend
+}
+
 /**
  * Starts the app: once Electron is ready, checks the window security settings, opens and migrates the database (closed
- * again on quit), registers the bridge the renderer talks to main through, then opens the main window.
+ * again on quit), registers the bridge the renderer talks to main through (with the agent runner behind it), then opens the main window.
  *
  * Outside a packaged app, a capture spec in the environment (see `./capture`) starts a screenshot run instead: the
  * same app with a throwaway data folder, in a window that is never shown, which captures its page and exits. An e2e
  * spec (see `./e2e`) runs the app as normal for Playwright to drive, with a throwaway data folder and a hidden window.
  */
-export function startApp(): void {
+export function startApp({ createAgentBackend = createSdkBackend }: AppOptions = {}): void {
   let testMode: TestMode
   try {
     testMode = startTestMode()
@@ -189,10 +202,12 @@ export function startApp(): void {
     }
     const { database } = opening
 
-    registerBridge({
+    const { runner } = registerBridge({
       ipc: ipcMain,
       db: database.db,
       targets: () => BrowserWindow.getAllWindows().map((window) => window.webContents),
+      // A test mode never reaches the real Claude API, whatever the app was started with.
+      agentBackend: testMode === null ? createAgentBackend() : createTestModeAgentBackend(),
       // A test can't click a native dialog, so in e2e mode it answers with the folder the test chose.
       chooseFolder:
         testMode?.kind === TestModeKind.E2e
@@ -206,6 +221,7 @@ export function startApp(): void {
     }
 
     app.on('will-quit', () => {
+      runner.close()
       database.db.close()
     })
 
