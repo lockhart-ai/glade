@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { CommandName } from '../src/shared/bridge'
 import { chooseFolder, clickNotification, desktop, expect, notifications, test } from './fixtures'
+import { chooseMenuItem } from './menu'
 import { chat, firstRun, inputBar, regions, taskHeader, taskList, workspaceSwitcher } from './selectors'
 import { invoke } from './task-view'
 
@@ -36,17 +37,18 @@ test('several workspaces: switching restores each one’s task, and background t
   await firstRun(window).openFolder.click()
   await expect(workspace).toContainText('acme-api')
 
-  // ⌘⇧N adds a second workspace from the folder dialog and shows it, with nothing selected yet.
+  // Workspace › New workspace… (⌘⇧N) adds a second workspace from the folder dialog and shows it, with nothing
+  // selected yet.
   await chooseFolder(glade, rootB)
-  await window.keyboard.press('Meta+Shift+N')
+  await chooseMenuItem(glade, 'Workspace', 'New workspace…')
   await expect(workspace).toContainText('acme-web')
   await list.newTask.click()
   await bar.field.fill(ASK_RETRIES)
   await bar.field.press('Enter')
   await expect(header.title).toHaveText(B_TITLE)
 
-  // ⌘1 goes back to A, which had no task selected; start a long turn there.
-  await window.keyboard.press('Meta+1')
+  // Switch workspace › acme-api (⌘1) goes back to A, which had no task selected; start a long turn there.
+  await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-api')
   await expect(workspace).toContainText('acme-api')
   await expect(header.title).toHaveCount(0)
   await list.newTask.click()
@@ -55,8 +57,8 @@ test('several workspaces: switching restores each one’s task, and background t
   await expect(header.title).toHaveText(A_TITLE)
   await expect(bar.stop).toBeVisible()
 
-  // ⌘2 switches to B while A keeps working: B's own task is back, and the switcher shows A still active.
-  await window.keyboard.press('Meta+2')
+  // Switching to B (⌘2) while A keeps working: B's own task is back, and the switcher shows A still active.
+  await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-web')
   await expect(workspace).toContainText('acme-web')
   await expect(header.title).toHaveText(B_TITLE)
   await expect(chat(window).agentReplies.first()).toContainText('The client retries idempotent requests')
@@ -90,14 +92,14 @@ test('several workspaces: switching restores each one’s task, and background t
   await expect(header.title).toHaveText(A_TITLE)
   await expect(chat(window).agentReplies.last()).toContainText('I stopped the suite')
 
-  // With the task list collapsed (⌘B), there's no header to open the switcher from, but ⌘1 – ⌘9 still switch.
-  await window.keyboard.press('Meta+B')
+  // With the task list collapsed (⌘B), there's no header to open the switcher from, but the menu bar still switches.
+  await chooseMenuItem(glade, 'View', 'Toggle task list')
   await expect(regions(window).sidebar).toHaveCount(0)
-  await window.keyboard.press('Meta+2')
+  await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-web')
   await expect(header.title).toHaveText(B_TITLE)
-  await window.keyboard.press('Meta+1')
+  await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-api')
   await expect(header.title).toHaveText(A_TITLE)
-  await window.keyboard.press('Meta+B')
+  await chooseMenuItem(glade, 'View', 'Toggle task list')
   await expect(workspace).toContainText('acme-api')
 
   // After a relaunch both workspaces are there, A still shows its task, and switching to B brings B's back.

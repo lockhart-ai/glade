@@ -9,7 +9,6 @@ import {
   Icon,
   IconSize,
   Input,
-  Kbd,
   Menu,
   MenuAnchorKind,
   MenuEntryKind,
@@ -23,7 +22,6 @@ import { shortenHomePath } from '../paths'
 import { describeFailure } from '../store/hydrate'
 import { selectSelectedWorkspace } from '../store/state'
 import { useGladeStore } from '../store/react'
-import { KEYMAP } from './keymap'
 import styles from './SettingsDialog.module.css'
 
 interface SettingRowProps {
@@ -225,30 +223,6 @@ export function NotificationsSection(): React.JSX.Element {
 /** Glade has one theme, so there's nothing to choose. */
 export function AppearanceSection(): React.JSX.Element {
   return <Intro>Glade has one theme, dark. Nothing to change here yet.</Intro>
-}
-
-/** Every shortcut, read-only: rebinding them is the command registry's (P7-04). */
-export function KeyboardSection(): React.JSX.Element {
-  return (
-    <>
-      <Intro>The keyboard shortcuts. Menus show them too.</Intro>
-      {KEYMAP.map((group) => (
-        <section key={group.area} className={styles.keyGroup} aria-label={group.area}>
-          <h3 className={styles.keyArea}>{group.area}</h3>
-          {group.bindings.map((binding) => (
-            <div key={binding.action} className={styles.keyRow}>
-              <span>{binding.action}</span>
-              <span className={styles.keys}>
-                {binding.keys.map((keys) => (
-                  <Kbd key={keys}>{keys}</Kbd>
-                ))}
-              </span>
-            </div>
-          ))}
-        </section>
-      ))}
-    </>
-  )
 }
 
 /** The plugin API is for later, so there are none to show. */

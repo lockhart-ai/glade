@@ -3,7 +3,9 @@ import { faArrowUp } from '@fortawesome/free-solid-svg-icons'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { BridgeErrorCode, isBridgeError } from '../../shared/bridge'
 import { Effort, TaskActivity, TaskState, type QueuedMessage, type Task } from '../../shared/domain'
+import { WindowCommandId } from '../../shared/commands'
 import { EFFORT_NAMES, MODEL_OPTIONS, modelName } from '../../shared/models'
+import { isCommandKey, useCommand, useKeymap } from '../commands/hooks'
 import { Icon, IconSize, Textarea, useToast } from '../components'
 import { describeFailure } from '../store/hydrate'
 import { selectSelectedTask } from '../store/state'
@@ -75,16 +77,6 @@ export function withInsertion(draft: string, text: string): string {
   return draft.trim() === '' ? text : `${draft.trimEnd()}\n\n${text}`
 }
 
-/** Whether a key was pressed with a modifier, which leaves it to the field (⇧↑ selects, ⌘↑ goes to the start). */
-function hasModifier(event: KeyboardEvent): boolean {
-  return event.shiftKey || event.metaKey || event.altKey || event.ctrlKey
-}
-
-/** ⌘L, which focuses the input from anywhere in the window. */
-function isFocusShortcut(event: globalThis.KeyboardEvent): boolean {
-  return event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === 'l'
-}
-
 export interface InputBarProps {
   /** The context meter (P1-14), at the right of the settings row. Empty until then. */
   readonly contextMeter?: ReactNode
@@ -99,18 +91,8 @@ export function InputBar({ contextMeter }: InputBarProps): React.JSX.Element | n
   // task's bar mounts (+ and ⌘N select the task, then ask) is still answered once.
   const answeredRef = useRef(focusRequest)
 
-  // ⌘L asks for the focus the same way + and ⌘N do.
-  useEffect(() => {
-    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
-      if (!isFocusShortcut(event)) return
-      event.preventDefault()
-      focusInput()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [focusInput])
+  // Focus input (⌘L) asks for the focus the same way + and ⌘N do.
+  useCommand(WindowCommandId.FocusInput, focusInput)
 
   if (task === undefined) return null
   // A fresh draft for each task.
@@ -134,8 +116,8 @@ interface TaskInputBarProps extends InputBarProps {
 }
 
 /**
- * Where you talk to the task's agent: the model, effort and permissions settings above a message field. ↵ sends and
- * ⇧↵ adds a line. While the agent works, sending queues the message instead and Stop shows beside Send; while its turn
+ * Where you talk to the task's agent: the model, effort and permissions settings above a message field. Send (↵) sends
+ * and ⇧↵ adds a line. While the agent works, sending queues the message instead and Stop shows beside Send; while its turn
  * is paused, sending queues it too, until the task resumes. The queue
  * shows above the settings, where each message can be edited in place or removed; ↑ in the empty field edits the last.
  */
@@ -149,6 +131,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   const stopTask = useGladeStore((state) => state.stopTask)
   const started = useGladeStore((state) => (state.messages[task.id]?.length ?? 0) > 0)
   const toast = useToast()
+  const keymap = useKeymap()
   const field = useRef<HTMLTextAreaElement>(null)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
@@ -241,12 +224,12 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     const last = queue.at(-1)
-    if (event.key === 'ArrowUp' && draft === '' && last !== undefined && !hasModifier(event)) {
+    if (draft === '' && last !== undefined && isCommandKey(WindowCommandId.EditLastQueued, keymap, event)) {
       event.preventDefault()
       setEditingId(last.id)
       return
     }
-    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+    if (!isCommandKey(WindowCommandId.Send, keymap, event) || event.nativeEvent.isComposing) return
     event.preventDefault()
     void send()
   }

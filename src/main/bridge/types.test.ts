@@ -11,6 +11,7 @@ import {
   type GladeBridge,
   type GladeEvent,
 } from '../../shared/bridge'
+import type { Command } from '../../shared/commands'
 import {
   Effort,
   FileContentKind,
@@ -75,6 +76,9 @@ const TASK_HANDLERS = {
   [CommandName.SettingsGet]: () => ({ settings: DEFAULT_SETTINGS }),
   [CommandName.SettingsUpdate]: () => ({ settings: DEFAULT_SETTINGS }),
   [CommandName.ArtifactsRemove]: () => null,
+  [CommandName.WorkspacesRemove]: () => null,
+  [CommandName.MenuUpdate]: () => null,
+  [CommandName.WindowClose]: () => null,
   [CommandName.SearchQuery]: () => ({ results: [] }),
   [CommandName.TerminalList]: () => ({ tabs: [] }),
   [CommandName.TerminalCreate]: () => ({ tab: {} as TerminalTab }),
@@ -115,6 +119,9 @@ const TASK_SCHEMAS = {
   [CommandName.SettingsUpdate]: REQUEST_SCHEMAS[CommandName.SettingsUpdate],
   [CommandName.ArtifactsRemove]: REQUEST_SCHEMAS[CommandName.ArtifactsRemove],
   [CommandName.SearchQuery]: REQUEST_SCHEMAS[CommandName.SearchQuery],
+  [CommandName.WorkspacesRemove]: REQUEST_SCHEMAS[CommandName.WorkspacesRemove],
+  [CommandName.MenuUpdate]: REQUEST_SCHEMAS[CommandName.MenuUpdate],
+  [CommandName.WindowClose]: REQUEST_SCHEMAS[CommandName.WindowClose],
 } satisfies Partial<RequestSchemas>
 
 describe('the command map', () => {
@@ -365,6 +372,12 @@ describe('events', () => {
           break
         case EventType.TerminalCleared:
           expectTypeOf(event.tabId).toEqualTypeOf<string>()
+          break
+        case EventType.WorkspaceRemoved:
+          expectTypeOf(event.workspaceId).toEqualTypeOf<string>()
+          break
+        case EventType.MenuCommand:
+          expectTypeOf(event.command).toEqualTypeOf<Command>()
           break
         case EventType.SettingsChanged:
           expectTypeOf(event.settings).toEqualTypeOf<Settings>()

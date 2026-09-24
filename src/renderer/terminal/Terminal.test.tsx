@@ -4,6 +4,9 @@ import { bridgeError, BridgeErrorCode, CommandName, EventType, type TerminalAtta
 import { UiStateKey } from '../../shared/domain'
 import { refuse, sampleTerminalTab, type FakeHandlers, type FakeMain } from '../store/test-bridge'
 import { storeWrapper, type StoreWrapper } from '../store/test-wrapper'
+import { WindowCommandId } from '../../shared/commands'
+import { DEFAULT_SETTINGS } from '../../shared/settings'
+import { requestClose } from '../commands/closeRequest'
 import { Terminal } from './Terminal'
 import { screens, type FakeScreen } from './test-screen'
 
@@ -162,7 +165,7 @@ describe('Terminal', () => {
     expect(store.getState().terminalPaste).toBeNull()
   })
 
-  it('goes round the tabs with ⌃⇥ and ⌃⇧⇥, clears with ⌘K and closes with ⌘W, from the terminal', async () => {
+  it('goes round the tabs with ⌃⇥ and ⌃⇧⇥ and clears with ⌘K, from the terminal', async () => {
     const { store, calls } = await renderTerminal()
     const [first] = screenElements()
     if (first === undefined) throw new Error('No screen')
@@ -177,10 +180,46 @@ describe('Terminal', () => {
     fireEvent.keyDown(first, { code: 'KeyK', key: 'k', metaKey: true })
     await act(() => Promise.resolve())
     expect(calls).toContain('clear a')
+  })
 
-    fireEvent.keyDown(first, { code: 'KeyW', key: 'w', metaKey: true })
+  it('follows the keymap as you’ve bound it', async () => {
+    const { store, calls } = await renderTerminal({
+      settings: { ...DEFAULT_SETTINGS, keyBindings: { [WindowCommandId.ClearTerminal]: 'Ctrl+L' } },
+    })
+    const [first] = screenElements()
+    if (first === undefined) throw new Error('No screen')
+
+    expect(fireEvent.keyDown(first, { code: 'KeyK', key: 'k', metaKey: true })).toBe(true)
+    fireEvent.keyDown(first, { code: 'KeyL', key: 'l', ctrlKey: true })
     await act(() => Promise.resolve())
+
+    expect(calls).toEqual(['attach a 80x24', 'attach b 80x24', 'clear a'])
+    expect(screenOf(0).isAppKey(new KeyboardEvent('keydown', { code: 'KeyL', key: 'l', ctrlKey: true }))).toBe(true)
+    expect(store.getState().terminalTabs).toHaveLength(2)
+  })
+
+  it('closes the tab showing on Close (⌘W) with the focus in the terminal, leaving the window open', async () => {
+    const { store } = await renderTerminal()
+    const [first] = screenElements()
+    if (first === undefined) throw new Error('No screen')
+    first.tabIndex = -1
+    first.focus()
+
+    let closed = false
+    await act(() => {
+      closed = requestClose()
+      return Promise.resolve()
+    })
+
+    expect(closed).toBe(true)
     expect(store.getState().terminalTabs.map(({ id }) => id)).toEqual(['b'])
+  })
+
+  it('leaves Close to the window with the focus elsewhere', async () => {
+    const { store } = await renderTerminal()
+
+    expect(requestClose()).toBe(false)
+    expect(store.getState().terminalTabs).toHaveLength(2)
   })
 
   it('leaves other keys to the shell and the app', async () => {

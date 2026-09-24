@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { EventType } from '../../shared/bridge'
+import { appCommand, AppCommandId } from '../../shared/commands'
 import {
   DividerKind,
   QuestionReplyKind,
@@ -34,6 +35,22 @@ const state: GladeData = Object.freeze({
 describe('applyEvent', () => {
   it('leaves the state alone when main asks to open a task, which the store does by selecting it', () => {
     expect(applyEvent(state, { type: EventType.TaskOpenRequested, taskId: 't1' })).toBe(state)
+  })
+
+  it('leaves the state alone for a menu bar command, which the window runs', () => {
+    expect(applyEvent(state, { type: EventType.MenuCommand, command: appCommand(AppCommandId.NewTask) })).toBe(state)
+  })
+
+  it('forgets a removed workspace, its tasks and the confirmation that named it', () => {
+    const asking = { ...state, removingWorkspaceId: 'w1', messages: { t1: [sampleMessage('m1', 't1')] } }
+
+    const next = applyEvent(asking, { type: EventType.WorkspaceRemoved, workspaceId: 'w1' })
+
+    expect(next.workspaces.map(({ id }) => id)).toEqual(['w2'])
+    expect(next.tasks).toEqual({})
+    expect(next.messages).toEqual({})
+    expect(next.removingWorkspaceId).toBeNull()
+    expect(applyEvent(asking, { type: EventType.WorkspaceRemoved, workspaceId: 'w2' }).removingWorkspaceId).toBe('w1')
   })
 
   it('records a uiState.changed entry and the workspace selection it holds', () => {

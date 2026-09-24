@@ -237,13 +237,43 @@ describe('TaskList', () => {
     })
   })
 
+  it('jumps to the next task that needs you with ⌘⌥↓, going round from the top, even from a text field', async () => {
+    const { store } = await renderList(TASKS, [{ key: UiStateKey.SelectedTaskId, value: 'a2' }])
+    const search = screen.getByRole('searchbox', { name: 'Search tasks' })
+    const press = (target: Element | Window = window): boolean =>
+      fireEvent.keyDown(target, { key: 'ArrowDown', altKey: true, metaKey: true })
+
+    // a2 is working; a1 and a3 are waiting on you, and so is the pinned p1.
+    for (const [target, expected] of [
+      [window, 'a1'],
+      [search, 'a3'],
+      [window, 'p1'],
+      [window, 'a1'],
+    ] as const) {
+      expect(press(target)).toBe(false)
+      await vi.waitFor(() => {
+        expect(store.getState().selectedTaskId).toBe(expected)
+      })
+    }
+  })
+
+  it('stays put on ⌘⌥↓ when no other task needs you', async () => {
+    const { store, fake } = await renderList(TASKS.slice(1, 3), [{ key: UiStateKey.SelectedTaskId, value: 'a1' }])
+    fake.invoke.mockClear()
+
+    expect(fireEvent.keyDown(window, { key: 'ArrowDown', altKey: true, metaKey: true })).toBe(false)
+
+    expect(fake.invoke).not.toHaveBeenCalled()
+    expect(store.getState().selectedTaskId).toBe('a1')
+  })
+
   it('leaves other keys, other modifiers and text fields alone', async () => {
     const { store, fake } = await renderList()
     fake.invoke.mockClear()
 
     fireEvent.keyDown(window, { key: 'ArrowDown' })
     fireEvent.keyDown(window, { key: 'ArrowLeft', altKey: true })
-    fireEvent.keyDown(window, { key: 'ArrowDown', altKey: true, metaKey: true })
+    fireEvent.keyDown(window, { key: 'ArrowDown', altKey: true, ctrlKey: true })
     pressAlt('ArrowDown', screen.getByRole('searchbox', { name: 'Search tasks' }))
 
     expect(fake.invoke).not.toHaveBeenCalled()

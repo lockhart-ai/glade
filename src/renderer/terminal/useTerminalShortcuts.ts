@@ -1,39 +1,24 @@
-import { useEffect } from 'react'
+import { WindowCommandId } from '../../shared/commands'
+import { useCommands } from '../commands/hooks'
 import { useMenuCommands } from '../context-menus'
-import { useGladeStoreApi } from '../store/react'
-import { TerminalShortcut, terminalShortcut } from './terminalModel'
+import { useGladeStore } from '../store/react'
 
 /**
- * The terminal's shortcuts that work wherever the focus is (docs/keymap.md): ⌃` focuses the terminal (opening the
- * bottom bar, and a tab when there's none) and ⌘T opens a new tab. The ones that act on the tab showing work in the
- * terminal itself (see `Terminal`). A failure shows as a toast, so it must be used under a `ToastProvider`.
+ * The terminal's commands that work wherever the focus is, registered with the window's key dispatcher, so they follow
+ * the keymap: Focus terminal (⌃`) opens the bottom bar, and a tab when there's none, with the focus in it; New terminal
+ * tab (⌘T) opens a new one. The ones that act on the tab showing work in the terminal itself (see `Terminal`). A
+ * failure shows as a toast, so it must be used under a `ToastProvider`.
  */
 export function useTerminalShortcuts(): void {
-  const store = useGladeStoreApi()
+  const focusTerminal = useGladeStore((state) => state.focusTerminal)
+  const createTerminal = useGladeStore((state) => state.createTerminal)
   const { run } = useMenuCommands()
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      const { focusTerminal, createTerminal } = store.getState()
-      switch (terminalShortcut(event)) {
-        case TerminalShortcut.Focus:
-          run(focusTerminal)
-          break
-        case TerminalShortcut.NewTab:
-          run(createTerminal)
-          break
-        case TerminalShortcut.NextTab:
-        case TerminalShortcut.PreviousTab:
-        case TerminalShortcut.Clear:
-        case TerminalShortcut.Close:
-        case null:
-          return
-      }
-      event.preventDefault()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [store, run])
+  useCommands({
+    [WindowCommandId.FocusTerminal]: () => {
+      run(focusTerminal)
+    },
+    [WindowCommandId.NewTerminalTab]: () => {
+      run(createTerminal)
+    },
+  })
 }

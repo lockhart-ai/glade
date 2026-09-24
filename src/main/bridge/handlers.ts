@@ -1,5 +1,6 @@
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, CommandName, EventType, type CommandRequest, type CommandResponse } from '../../shared/bridge'
+import type { MenuState } from '../../shared/commands'
 import type { AgentRunner } from '../agent/runner'
 import { listArtifacts } from '../db/repositories/artifacts'
 import { listMessages } from '../db/repositories/messages'
@@ -13,7 +14,13 @@ import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state
 import { getSettings, updateSettings } from '../db/repositories/settings'
 import { getWorkspace, listWorkspaces } from '../db/repositories/workspaces'
 import type { Terminals } from '../terminal/terminals'
-import { changeWorkspace, createWorkspaceAt, noteSelection, openWorkspace } from '../workspaces/workspaces'
+import {
+  changeWorkspace,
+  createWorkspaceAt,
+  noteSelection,
+  openWorkspace,
+  removeWorkspace,
+} from '../workspaces/workspaces'
 import { editQueuedMessage, removeQueuedMessage } from '../tasks/queue'
 import { noteUiStateSet } from '../tasks/attention'
 import { createTask, deleteTask, markTaskDone, reopenTask, updateTaskFromUser } from '../tasks/service'
@@ -54,6 +61,10 @@ export interface HandlerContext {
   readonly revealPath: RevealPath
   /** Puts text on the clipboard (Electron's `clipboard.writeText`). */
   readonly writeClipboard: WriteClipboard
+  /** Rebuilds the menu bar from what the window says it shows (`menu.update`). Nothing by default. */
+  readonly updateMenu?: (state: MenuState) => void
+  /** Closes the focused window (`window.close`). Nothing by default. */
+  readonly closeWindow?: () => void
   /** The global terminal's tabs and their shells. */
   readonly terminals: Terminals
 }
@@ -89,6 +100,10 @@ export function createHandlers(context: HandlerContext): Handlers {
       const workspace = getWorkspace(db, id)
       if (workspace === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${id}`)
       context.revealPath(workspace.rootPath)
+      return null
+    },
+    [CommandName.WorkspacesRemove]: ({ id }) => {
+      removeWorkspace(context, id)
       return null
     },
     [CommandName.WorkspacesUpdate]: ({ id, patch }) => {
@@ -199,6 +214,14 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.TerminalClose]: ({ id }) => {
       terminals.close(id)
+      return null
+    },
+    [CommandName.MenuUpdate]: (state) => {
+      context.updateMenu?.(state)
+      return null
+    },
+    [CommandName.WindowClose]: () => {
+      context.closeWindow?.()
       return null
     },
   }

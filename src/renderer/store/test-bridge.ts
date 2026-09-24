@@ -12,6 +12,7 @@ import {
   type GladeBridge,
   type GladeEvent,
 } from '../../shared/bridge'
+import type { MenuState } from '../../shared/commands'
 import {
   Effort,
   FileContentKind,
@@ -94,6 +95,10 @@ export interface FakeMain {
    * `attach term-1 80x24`, `write term-1 ls`, `resize term-1 100x30`, `clear term-1`, `interrupt term-1`.
    */
   readonly terminalCalls?: string[]
+  /** What the window told main the menu bar shows (`menu.update`), oldest first. */
+  readonly menuStates?: MenuState[]
+  /** How many times `window.close` closed the window. */
+  closedWindows?: number
 }
 
 export interface FakeBridge {
@@ -183,6 +188,19 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
         return refuse(bridgeError(BridgeErrorCode.NotFound, `No workspace ${id}`))
       }
       main.revealedWorkspaces?.push(id)
+      return null
+    },
+    // Like main, it forgets the workspace's tasks and broadcasts their deletion, then the workspace's removal; unlike
+    // main, it leaves the UI state alone.
+    [CommandName.WorkspacesRemove]: ({ id }) => {
+      const index = main.workspaces.findIndex((workspace) => workspace.id === id)
+      if (index === -1) return refuse(bridgeError(BridgeErrorCode.NotFound, `No workspace ${id}`))
+      main.workspaces.splice(index, 1)
+      for (const task of main.tasks.filter(({ workspaceId }) => workspaceId === id)) {
+        main.tasks.splice(main.tasks.indexOf(task), 1)
+        emit({ type: EventType.TaskDeleted, taskId: task.id })
+      }
+      emit({ type: EventType.WorkspaceRemoved, workspaceId: id })
       return null
     },
     [CommandName.WorkspacesUpdate]: ({ id, patch }) => {
@@ -367,6 +385,14 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     [CommandName.TerminalClose]: ({ id }) => {
       terminalTabs.splice(terminalAt(id).index, 1)
       tabsChanged()
+      return null
+    },
+    [CommandName.MenuUpdate]: (state) => {
+      main.menuStates?.push(state)
+      return null
+    },
+    [CommandName.WindowClose]: () => {
+      main.closedWindows = (main.closedWindows ?? 0) + 1
       return null
     },
   }

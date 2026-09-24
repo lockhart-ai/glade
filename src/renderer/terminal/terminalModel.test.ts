@@ -1,19 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { UiStateKey } from '../../shared/domain'
 import { sampleTerminalTab } from '../store/test-bridge'
-import {
-  activeTerminalTab,
-  commandToPaste,
-  cycledTab,
-  isAppKey,
-  TerminalShortcut,
-  terminalShortcut,
-  unseenOutput,
-  type ShortcutKeys,
-} from './terminalModel'
+import { WindowCommandId } from '../../shared/commands'
+import { resolveKeymap, DEFAULT_KEYMAP, type KeyPress } from '../../shared/keymap'
+import { activeTerminalTab, commandToPaste, cycledTab, isAppKey, unseenOutput } from './terminalModel'
 
-function keys(code: string, modifiers: Partial<ShortcutKeys> = {}): ShortcutKeys {
-  return { code, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...modifiers }
+function keys(key: string, code: string, modifiers: Partial<KeyPress> = {}): KeyPress {
+  return { key, code, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...modifiers }
 }
 
 describe('activeTerminalTab', () => {
@@ -30,40 +23,23 @@ describe('activeTerminalTab', () => {
   })
 })
 
-describe('terminalShortcut', () => {
-  it.each([
-    ['⌃`', keys('Backquote', { ctrlKey: true }), TerminalShortcut.Focus],
-    ['⌘T', keys('KeyT', { metaKey: true }), TerminalShortcut.NewTab],
-    ['⌃⇥', keys('Tab', { ctrlKey: true }), TerminalShortcut.NextTab],
-    ['⌃⇧⇥', keys('Tab', { ctrlKey: true, shiftKey: true }), TerminalShortcut.PreviousTab],
-    ['⌘K', keys('KeyK', { metaKey: true }), TerminalShortcut.Clear],
-    ['⌘W', keys('KeyW', { metaKey: true }), TerminalShortcut.Close],
-  ])('reads %s', (_keys, event, shortcut) => {
-    expect(terminalShortcut(event)).toBe(shortcut)
-  })
-
-  it.each([
-    ['⌃C, which goes to the shell', keys('KeyC', { ctrlKey: true })],
-    ['⌘⇧K, Compact context', keys('KeyK', { metaKey: true, shiftKey: true })],
-    ['⌃⇧`', keys('Backquote', { ctrlKey: true, shiftKey: true })],
-    ['⌥⌘T', keys('KeyT', { metaKey: true, altKey: true })],
-    ['⌃⌘T', keys('KeyT', { metaKey: true, ctrlKey: true })],
-    ['⌘J, a panel shortcut', keys('KeyJ', { metaKey: true })],
-    ['a plain T', keys('KeyT')],
-  ])('reads nothing from %s', (_keys, event) => {
-    expect(terminalShortcut(event)).toBeNull()
-  })
-})
-
 describe('isAppKey', () => {
   it('leaves every ⌘ key and the terminal’s shortcuts to the app', () => {
-    expect(isAppKey(keys('KeyJ', { metaKey: true }))).toBe(true)
-    expect(isAppKey(keys('Tab', { ctrlKey: true }))).toBe(true)
+    expect(isAppKey(DEFAULT_KEYMAP, keys('j', 'KeyJ', { metaKey: true }))).toBe(true)
+    expect(isAppKey(DEFAULT_KEYMAP, keys('`', 'Backquote', { ctrlKey: true }))).toBe(true)
+    expect(isAppKey(DEFAULT_KEYMAP, keys('Tab', 'Tab', { ctrlKey: true, shiftKey: true }))).toBe(true)
   })
 
-  it('sends everything else to the shell, ⌃C included', () => {
-    expect(isAppKey(keys('KeyC', { ctrlKey: true }))).toBe(false)
-    expect(isAppKey(keys('KeyL'))).toBe(false)
+  it('sends everything else to the shell, ⌃C included, and modifiers alone', () => {
+    expect(isAppKey(DEFAULT_KEYMAP, keys('c', 'KeyC', { ctrlKey: true }))).toBe(false)
+    expect(isAppKey(DEFAULT_KEYMAP, keys('l', 'KeyL'))).toBe(false)
+    expect(isAppKey(DEFAULT_KEYMAP, keys('Control', 'ControlLeft', { ctrlKey: true }))).toBe(false)
+  })
+
+  it('follows the keymap as you’ve bound it', () => {
+    const rebound = resolveKeymap({ [WindowCommandId.FocusTerminal]: 'Ctrl+Alt+T' })
+    expect(isAppKey(rebound, keys('`', 'Backquote', { ctrlKey: true }))).toBe(false)
+    expect(isAppKey(rebound, keys('t', 'KeyT', { ctrlKey: true, altKey: true }))).toBe(true)
   })
 })
 

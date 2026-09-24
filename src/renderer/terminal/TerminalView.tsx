@@ -2,11 +2,12 @@ import { useEffect, useRef } from 'react'
 import { EventType } from '../../shared/bridge'
 import { useToast } from '../components'
 import { classNames } from '../components/classNames'
+import { useKeymap } from '../commands/hooks'
 import { describeFailure } from '../store/hydrate'
 import { useGladeStore, useGladeStoreApi } from '../store/react'
 import type { TerminalEvent } from '../store/state'
 import { createTerminalScreen, type TerminalScreen } from './screen'
-import { unseenOutput } from './terminalModel'
+import { isAppKey, unseenOutput } from './terminalModel'
 import styles from './Terminal.module.css'
 
 export interface TerminalViewProps {
@@ -28,12 +29,18 @@ export function TerminalView({ tabId, active }: TerminalViewProps): React.JSX.El
   const screen = useRef<TerminalScreen | null>(null)
   const focusRequest = useGladeStore((state) => state.terminalFocusRequest)
   const paste = useGladeStore((state) => state.terminalPaste)
+  // The keymap as it is when a key is pressed, so a shortcut you rebind reaches the app, not the shell.
+  const currentKeymap = useKeymap()
+  const keymap = useRef(currentKeymap)
+  useEffect(() => {
+    keymap.current = currentKeymap
+  }, [currentKeymap])
 
   useEffect(() => {
     const element = container.current
     if (element === null) return
     const { attachTerminal, writeTerminal, resizeTerminal, subscribeTerminal } = store.getState()
-    const shown = createTerminalScreen()
+    const shown = createTerminalScreen((event) => isAppKey(keymap.current, event))
     shown.open(element)
     shown.fit()
     screen.current = shown

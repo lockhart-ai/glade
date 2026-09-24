@@ -1,5 +1,16 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, clipboard, dialog, ipcMain, net, Notification, shell, type WebPreferences } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  Menu,
+  net,
+  Notification,
+  shell,
+  type WebPreferences,
+} from 'electron'
 import { EventType } from '../shared/bridge'
 import type { AgentBackend } from './agent/backend'
 import { createSdkBackend } from './agent/sdk-backend'
@@ -30,6 +41,7 @@ import {
   type E2eSpec,
 } from './e2e'
 import type { OpenPath, RevealPath, WriteClipboard } from './files/files'
+import { installAppMenu } from './menu/app-menu'
 import { createElectronNotifier } from './notifications/electron-notifier'
 import { createReplyNotifications } from './notifications/notifications'
 import type { Notifier } from './notifications/notifier'
@@ -45,6 +57,9 @@ import { loginShell, testShell } from './terminal/shell'
 
 /** The `bg` design token, so the window never flashes white before the renderer paints. */
 const WINDOW_BACKGROUND = '#0A0B0F'
+
+/** The app's name, as its menu bar says it (About, Hide and Quit). `app.name` is the package's, `glade`, outside a build. */
+const APP_NAME = 'Glade'
 
 /** The smallest the window can be made. */
 const WINDOW_MIN_SIZE: MinimumSize = { width: 1100, height: 700 }
@@ -388,6 +403,15 @@ export function startApp({ createAgentBackend = createSdkBackend, spawnPty = spa
         queue: (taskId, text) => bridge.runner.queue(taskId, text),
       },
     })
+    // The menu bar's items run in the window: each sends its command there, once the bridge is registered.
+    const appMenu = installAppMenu({
+      menu: Menu,
+      appName: APP_NAME,
+      developer: !app.isPackaged,
+      send: (command) => {
+        bridge.emit({ type: EventType.MenuCommand, command })
+      },
+    })
     const bridge: RegisteredBridge = registerBridge({
       ipc: ipcMain,
       db: database.db,
@@ -404,6 +428,12 @@ export function startApp({ createAgentBackend = createSdkBackend, spawnPty = spa
       // Whether the network is up, for resuming a task paused offline. In e2e mode, the spec decides.
       isOnline: testMode?.kind === TestModeKind.E2e ? createE2eNetwork() : net.isOnline.bind(net),
       terminal: terminalOptions(testMode, spawnPty),
+      updateMenu: (state) => {
+        appMenu.update(state)
+      },
+      closeWindow: () => {
+        BrowserWindow.getFocusedWindow()?.close()
+      },
     })
 
     const { runner } = bridge

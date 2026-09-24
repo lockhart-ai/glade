@@ -27,6 +27,9 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
       throw new Error('not in these tests')
     },
     [CommandName.WorkspacesReveal]: () => null,
+    [CommandName.WorkspacesRemove]: () => null,
+    [CommandName.MenuUpdate]: () => null,
+    [CommandName.WindowClose]: () => null,
     [CommandName.DialogChooseFolder]: () => ({ path: null }),
     [CommandName.TasksList]: () => ({ tasks: [] }),
     [CommandName.TasksCreate]: () => ({ task: {} as Task }),

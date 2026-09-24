@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Effort } from '../../../shared/domain'
+import { AppCommandId, TaskCommandId } from '../../../shared/commands'
 import { DEFAULT_SETTINGS } from '../../../shared/settings'
 import { getSettings, updateSettings } from './settings'
 import { openTestDatabase, type TestDatabase } from './test-database'
@@ -35,6 +36,22 @@ describe('settings', () => {
   it('skips an empty patch and keys set to undefined', () => {
     expect(updateSettings(test.db, { taskTitles: undefined })).toEqual(DEFAULT_SETTINGS)
     expect(test.db.prepare('SELECT COUNT(*) FROM settings').pluck().get()).toBe(0)
+  })
+
+  it('store the shortcuts you rebind, dropping a command it doesn’t know or a chord that doesn’t parse', () => {
+    expect(updateSettings(test.db, { keyBindings: { [AppCommandId.NewTask]: 'Meta+Shift+T' } }).keyBindings).toEqual({
+      [AppCommandId.NewTask]: 'Meta+Shift+T',
+    })
+    test.db.prepare('UPDATE settings SET value = ? WHERE key = ?').run(
+      JSON.stringify({
+        [TaskCommandId.MarkDone]: 'Ctrl+D',
+        from_the_future: 'Meta+K',
+        [AppCommandId.NewTask]: 'Meta+',
+      }),
+      'keyBindings',
+    )
+
+    expect(getSettings(test.db).keyBindings).toEqual({ [TaskCommandId.MarkDone]: 'Ctrl+D' })
   })
 
   it('reads a stored value that is not valid JSON, is the wrong shape, or has an unknown key as the default', () => {

@@ -5,6 +5,10 @@ import type { ScreenSize, TerminalScreen } from './screen'
 /** A terminal screen that records what it's asked to do, and types and resizes when its test says. */
 export class FakeScreen implements TerminalScreen {
   size: ScreenSize = { cols: 80, rows: 24 }
+
+  /** @param isAppKey Which keys the app takes rather than the shell, as the real screen is told. */
+  constructor(readonly isAppKey: (event: KeyboardEvent) => boolean) {}
+
   /** What it shows: everything written since it was last cleared. */
   shown = ''
   /** The element it was put in. */
@@ -69,8 +73,8 @@ export class FakeScreen implements TerminalScreen {
 /** Every screen made, oldest first. Tests empty it between them. */
 export const screens: FakeScreen[] = []
 
-export function createTerminalScreen(): TerminalScreen {
-  const screen = new FakeScreen()
+export function createTerminalScreen(isAppKey: (event: KeyboardEvent) => boolean): TerminalScreen {
+  const screen = new FakeScreen(isAppKey)
   screens.push(screen)
   return screen
 }

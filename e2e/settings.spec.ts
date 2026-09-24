@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { chooseFolder, expect, notifications, test } from './fixtures'
+import { chooseMenuItem } from './menu'
 import { chat, firstRun, inputBar, settings, taskList, workspaceSwitcher } from './selectors'
 
 /** Task A's first message: it plays `multi-tool-turn`, which titles the task and replies after a dozen tool calls. */
@@ -21,8 +22,8 @@ test('settings save as you change them: new tasks take the defaults, notificatio
   const bar = inputBar(window)
   const modal = settings(window)
 
-  // ⌘, opens Settings at Agent, with the defaults for new tasks.
-  await window.keyboard.press('Meta+Comma')
+  // Glade › Settings… (⌘,) opens Settings at Agent, with the defaults for new tasks.
+  await chooseMenuItem(glade, 'Glade', 'Settings…')
   await expect(modal.dialog).toBeVisible()
   await expect(modal.heading).toHaveText('Agent')
   await expect(modal.model).toHaveText('Opus 5.5')
@@ -43,7 +44,7 @@ test('settings save as you change them: new tasks take the defaults, notificatio
   await modal.toggle('Notifications').click()
   await expect(modal.toggle('Notifications')).not.toBeChecked()
 
-  // Keyboard lists the shortcuts, read-only.
+  // Keyboard lists the shortcuts.
   await modal.section('Keyboard').click()
   await expect(modal.dialog.getByRole('region', { name: 'Global' })).toContainText('Settings⌘,')
   await window.keyboard.press('Escape')
@@ -66,7 +67,7 @@ test('settings save as you change them: new tasks take the defaults, notificatio
   await glade.close()
   const relaunched = await launch()
   const again = settings(relaunched.window)
-  await relaunched.window.keyboard.press('Meta+Comma')
+  await chooseMenuItem(relaunched, 'Glade', 'Settings…')
   await expect(again.model).toHaveText('Sonnet 5')
   await expect(again.choice('Effort', 'Low')).toBeChecked()
   await again.section('Notifications').click()

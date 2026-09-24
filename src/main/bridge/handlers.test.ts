@@ -5,13 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { Effort, FileContentKind, FileInfoKind, UiStateKey } from '../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { BridgeErrorCode, CommandName, EventType, type GladeEvent } from '../../shared/bridge'
+import { EMPTY_MENU_STATE } from '../../shared/commands'
 import { SearchField } from '../../shared/search'
 import { FakeAgentBackend } from '../agent/fake-backend'
 import { createAgentRunner } from '../agent/runner'
 import { addArtifact } from '../db/repositories/artifacts'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { getSettings } from '../db/repositories/settings'
-import { getTask, updateTask } from '../db/repositories/tasks'
+import { getTask, listTasks, updateTask } from '../db/repositories/tasks'
 import { setUiState } from '../db/repositories/ui-state'
 import { createFakeSpawner, fakeTerminalOptions, type FakeSpawner } from '../terminal/fake-pty'
 import { createTerminals } from '../terminal/terminals'
@@ -69,6 +70,52 @@ describe('workspaces.create', () => {
 
     expect(await handlers[CommandName.WorkspacesCreate]({ rootPath: root })).toEqual({ ...first, created: false })
     expect(emit).not.toHaveBeenCalled()
+  })
+})
+
+describe('workspaces.remove', () => {
+  it('removes the workspace and its tasks, broadcasting it', async () => {
+    const workspace = sampleWorkspace(database.db)
+    const task = sampleTask(database.db, workspace.id)
+
+    expect(await handlers[CommandName.WorkspacesRemove]({ id: workspace.id })).toBeNull()
+
+    expect(listTasks(database.db, workspace.id)).toEqual([])
+    expect(emit.mock.calls.map(([event]) => event)).toEqual([
+      { type: EventType.TaskDeleted, taskId: task.id },
+      { type: EventType.WorkspaceRemoved, workspaceId: workspace.id },
+    ])
+  })
+})
+
+describe('menu.update and window.close', () => {
+  it('rebuild the menu bar and close the window, through the app', async () => {
+    const runner = createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() })
+    const updateMenu = vi.fn()
+    const closeWindow = vi.fn()
+    const withApp = createHandlers({
+      db: database.db,
+      emit,
+      chooseFolder,
+      openPath,
+      revealPath,
+      writeClipboard,
+      runner,
+      updateMenu,
+      closeWindow,
+      terminals: createTerminals({ db: database.db, emit, ...fakeTerminalOptions() }),
+    })
+
+    expect(await withApp[CommandName.MenuUpdate](EMPTY_MENU_STATE)).toBeNull()
+    expect(await withApp[CommandName.WindowClose]({})).toBeNull()
+
+    expect(updateMenu).toHaveBeenCalledWith(EMPTY_MENU_STATE)
+    expect(closeWindow).toHaveBeenCalledOnce()
+  })
+
+  it('do nothing without an app', async () => {
+    expect(await handlers[CommandName.MenuUpdate](EMPTY_MENU_STATE)).toBeNull()
+    expect(await handlers[CommandName.WindowClose]({})).toBeNull()
   })
 })
 

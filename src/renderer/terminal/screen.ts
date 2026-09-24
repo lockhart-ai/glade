@@ -4,7 +4,6 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { colors } from '../tokens'
-import { isAppKey } from './terminalModel'
 
 /** A terminal's size, in character cells. */
 export interface ScreenSize {
@@ -37,8 +36,11 @@ export interface TerminalScreen {
 /** How many lines of output the screen keeps to scroll back through. */
 const SCROLLBACK_LINES = 5_000
 
-/** Makes an xterm.js screen in the designs' colours and type (`docs/design/html/task-workspace.html`). */
-export function createTerminalScreen(): TerminalScreen {
+/**
+ * Makes an xterm.js screen in the designs' colours and type (`docs/design/html/task-workspace.html`). The keys
+ * `isAppKey` claims go to the app, not the shell.
+ */
+export function createTerminalScreen(isAppKey: (event: KeyboardEvent) => boolean): TerminalScreen {
   const terminal = new Terminal({
     fontFamily: "'Geist Mono', ui-monospace, monospace",
     fontSize: 12.5,

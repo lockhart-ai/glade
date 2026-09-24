@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test'
 import { CommandName } from '../src/shared/bridge'
 import { TaskState, type Task } from '../src/shared/domain'
 import { expect, test } from './fixtures'
+import { chooseMenuItem } from './menu'
 import { chat, firstRun, inputBar, regions, taskHeader, taskList, toasts } from './selectors'
 import { invoke } from './task-view'
 
@@ -21,7 +22,8 @@ async function onlyTask(window: Page): Promise<Task> {
 test('mark done: moves the task to Done with an Undo toast, and Undo puts it back', async ({ launch, tempFolder }) => {
   const root = join(tempFolder(), 'acme-api')
   mkdirSync(root)
-  const { window } = await launch({ agentScript: 'multi-tool-turn', chosenFolder: root })
+  const glade = await launch({ agentScript: 'multi-tool-turn', chosenFolder: root })
+  const { window } = glade
   await firstRun(window).openFolder.click()
   const list = taskList(window)
   await list.newTask.click()
@@ -74,8 +76,8 @@ test('mark done: moves the task to Done with an Undo toast, and Undo puts it bac
   const restored = await onlyTask(window)
   expect(restored).toEqual({ ...before, updatedAt: restored.updatedAt })
 
-  // ⌘⇧D marks it done again; left alone, the toast goes after a few seconds and the task stays done.
-  await window.keyboard.press('Meta+Shift+D')
+  // Task › Mark done (⌘⇧D) marks it done again; left alone, the toast goes after a few seconds and the task stays done.
+  await chooseMenuItem(glade, 'Task', 'Mark done')
   await expect(toast.region).toContainText(MARKED_DONE)
   await expect(list.rows('Done')).toHaveCount(1)
   await expect(toast.region).toBeEmpty()

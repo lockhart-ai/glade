@@ -5,6 +5,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
+import { chooseMenuItem } from './menu'
 import { chat, contextMenu, firstRun, inputBar, taskList, taskPanel, terminal } from './selectors'
 
 /** The prompt of a shell in the workspace `acme-api`. */
@@ -95,16 +96,17 @@ test('terminal: tabs of real shells that start in the workspace, and survive a r
   await expect(again.screen.locator('textarea')).toBeFocused()
 })
 
-test('terminal: ⌃` opens the collapsed bottom bar with a new shell, and ⌘W closes it', async ({
+test('terminal: ⌃` opens the collapsed bottom bar with a new shell, and File › Close (⌘W) closes it', async ({
   launch,
   tempFolder,
 }) => {
   const root = join(tempFolder(), 'acme-api')
   mkdirSync(root)
-  const { window } = await launch({ chosenFolder: root })
+  const glade = await launch({ chosenFolder: root })
+  const { window } = glade
   await firstRun(window).openFolder.click()
   const term = terminal(window)
-  await window.keyboard.press('Meta+KeyJ')
+  await chooseMenuItem(glade, 'View', 'Toggle bottom bar')
   await expect(term.empty).toBeHidden()
 
   await window.keyboard.press('Control+Backquote')
@@ -112,7 +114,8 @@ test('terminal: ⌃` opens the collapsed bottom bar with a new shell, and ⌘W c
   await expect(line(window, PROMPT)).toHaveCount(1)
   await expect(term.screen.locator('textarea')).toBeFocused()
 
-  await window.keyboard.press('Meta+KeyW')
+  // The menu bar answers ⌘W; with the focus in the terminal, it closes the tab rather than the window.
+  await chooseMenuItem(glade, 'File', 'Close')
   await expect(term.tabs).toHaveCount(0)
   await expect(term.empty).toBeVisible()
 })

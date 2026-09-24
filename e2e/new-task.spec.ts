@@ -1,18 +1,23 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from './fixtures'
+import { chooseMenuItem } from './menu'
 import { chat, firstRun, inputBar, taskList } from './selectors'
 
-test('⌘N opens a new task, and the first message has the agent name it', async ({ launch, tempFolder }) => {
+test('File › New task (⌘N) opens a new task, and the first message has the agent name it', async ({
+  launch,
+  tempFolder,
+}) => {
   const root = join(tempFolder(), 'acme-api')
   mkdirSync(root)
-  const { window } = await launch({ agentScript: 'multi-tool-turn', chosenFolder: root })
+  const glade = await launch({ agentScript: 'multi-tool-turn', chosenFolder: root })
+  const { window } = glade
   await firstRun(window).openFolder.click()
   const list = taskList(window)
   const { newTaskPrompt, userMessages, agentReplies } = chat(window)
 
-  // ⌘N adds a selected "New task" row to Active, and the chat asks what the agent should do.
-  await window.keyboard.press('Meta+N')
+  // File › New task (⌘N) adds a selected "New task" row to Active, and the chat asks what the agent should do.
+  await chooseMenuItem(glade, 'File', 'New task')
   const row = list.rows('Active').first()
   await expect(list.rows('Active')).toHaveCount(1)
   await expect(row).toContainText('New task')
@@ -35,8 +40,8 @@ test('⌘N opens a new task, and the first message has the agent name it', async
   await expect(row).toContainText('Fix the flaky date test')
   await expect(row).toContainText('Fixed the timezone bug; the tests pass.')
 
-  // Each + or ⌘N opens another new task, even while one is unused.
-  await window.keyboard.press('Meta+N')
+  // Each + or New task opens another new task, even while one is unused.
+  await chooseMenuItem(glade, 'File', 'New task')
   await expect(list.rows('Active')).toHaveCount(2)
   await expect(bar.field).toBeFocused()
   await bar.field.blur()

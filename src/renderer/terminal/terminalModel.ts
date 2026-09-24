@@ -1,6 +1,8 @@
-// The terminal's logic, apart from React and xterm.js: which tab shows, its shortcuts, and which output a window
-// already has.
+// The terminal's logic, apart from React and xterm.js: which tab shows, which keys it leaves to the app, and which
+// output a window already has.
+import { WindowCommandId } from '../../shared/commands'
 import { UiStateKey } from '../../shared/domain'
+import { chordFromEvent, COMMANDS, KeyScope, matchCommand, type Keymap, type KeyPress } from '../../shared/keymap'
 import type { TerminalTab } from '../../shared/terminal'
 import type { UiStateValues } from '../store/state'
 
@@ -10,64 +12,27 @@ export function activeTerminalTab(tabs: readonly TerminalTab[], uiState: UiState
   return tabs.find((tab) => tab.id === picked) ?? tabs[0]
 }
 
-/** What a terminal shortcut does (docs/keymap.md). */
-export enum TerminalShortcut {
-  /** ⌃`: focus the terminal, wherever the focus is. */
-  Focus = 'focus',
-  /** ⌘T: a new terminal tab, wherever the focus is. */
-  NewTab = 'new_tab',
-  /** ⌃⇥, in the terminal. */
-  NextTab = 'next_tab',
-  /** ⌃⇧⇥, in the terminal. */
-  PreviousTab = 'previous_tab',
-  /** ⌘K, in the terminal. */
-  Clear = 'clear',
-  /** ⌘W, in the terminal: close its tab. */
-  Close = 'close',
-}
-
-/** The parts of a key press the terminal's shortcuts read. */
-export interface ShortcutKeys {
-  readonly metaKey: boolean
-  readonly ctrlKey: boolean
-  readonly altKey: boolean
-  readonly shiftKey: boolean
-  /** The physical key, e.g. `KeyT`. */
-  readonly code: string
-}
+/** The scopes of the shortcuts that reach the app with the focus in the terminal, rather than its shell. */
+const APP_SCOPES: readonly KeyScope[] = [KeyScope.MenuBar, KeyScope.Window, KeyScope.Terminal]
 
 /**
- * The terminal shortcut a key press is, or null. It reads the physical key (`code`), as the other ⌘ shortcuts with a
- * letter do. ⌃C isn't here: it's a key the terminal itself sends, as any terminal does, and SIGINT follows.
+ * Whether the terminal leaves a key press to the app rather than sending it to its shell: every ⌘ key (a Mac terminal
+ * sends none of them), and any other key bound to a command that works in the terminal (⌃`, ⌃⇥…), as the keymap now
+ * binds it. Kill process's ⌃C is the shell's: the terminal sends it, and SIGINT follows.
  */
-export function terminalShortcut({ metaKey, ctrlKey, altKey, shiftKey, code }: ShortcutKeys): TerminalShortcut | null {
-  if (altKey) return null
-  if (ctrlKey && !metaKey) {
-    if (code === 'Tab') return shiftKey ? TerminalShortcut.PreviousTab : TerminalShortcut.NextTab
-    return code === 'Backquote' && !shiftKey ? TerminalShortcut.Focus : null
-  }
-  if (!metaKey || ctrlKey || shiftKey) return null
-  switch (code) {
-    case 'KeyT':
-      return TerminalShortcut.NewTab
-    case 'KeyK':
-      return TerminalShortcut.Clear
-    case 'KeyW':
-      return TerminalShortcut.Close
-    default:
-      return null
-  }
+export function isAppKey(keymap: Keymap, event: KeyPress): boolean {
+  if (event.metaKey) return true
+  const pressed = chordFromEvent(event)
+  if (pressed === null) return false
+  return COMMANDS.some(
+    (definition) =>
+      definition.id !== WindowCommandId.KillProcess &&
+      APP_SCOPES.includes(definition.scope) &&
+      matchCommand(definition, keymap[definition.id], pressed) !== null,
+  )
 }
 
-/**
- * Whether the terminal leaves a key press to the app rather than sending it to its shell: every ⌘ shortcut (a Mac
- * terminal sends none of them) and the terminal's own ⌃ shortcuts.
- */
-export function isAppKey(event: ShortcutKeys): boolean {
-  return event.metaKey || terminalShortcut(event) !== null
-}
-
-/** The tab `step` tabs on from `activeId`, going round: ⌃⇥ is 1, ⌃⇧⇥ is -1. */
+/** The tab `step` tabs on from `activeId`, going round: Next tab is 1, Previous tab is -1. */
 export function cycledTab(ids: readonly string[], activeId: string, step: 1 | -1): string | undefined {
   const index = ids.indexOf(activeId)
   if (index === -1) return ids[0]

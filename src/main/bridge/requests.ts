@@ -8,6 +8,7 @@ import {
   type CommandRequest,
   type EmptyRequest,
   type FileRequest,
+  type MenuUpdateRequest,
   type QueueAddRequest,
   type QueueEditRequest,
   type QueueRemoveRequest,
@@ -29,6 +30,7 @@ import {
   type UiStateSetRequest,
   type WorkspacesCreateRequest,
   type WorkspacesOpenRequest,
+  type WorkspacesRemoveRequest,
   type SettingsUpdateRequest,
   type WorkspacesUpdateRequest,
   type WorkspacesRevealRequest,
@@ -68,6 +70,8 @@ const workspacesUpdateRequest = z.strictObject({
   }),
 }) satisfies z.ZodType<WorkspacesUpdateRequest>
 const workspacesRevealRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<WorkspacesRevealRequest>
+
+const workspacesRemoveRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<WorkspacesRemoveRequest>
 
 const tasksListRequest = z.strictObject({ workspaceId: z.string() }) satisfies z.ZodType<TasksListRequest>
 
@@ -174,12 +178,31 @@ const terminalRenameRequest = z.strictObject({
     .refine((name) => name.trim() !== '', 'Expected a name that is not blank'),
 }) satisfies z.ZodType<TerminalRenameRequest>
 
+const menuUpdateRequest = z.strictObject({
+  workspaces: z.array(z.strictObject({ id: z.string(), name: z.string() })).readonly(),
+  shownWorkspaceId: z.string().nullable(),
+  task: z
+    .strictObject({
+      id: z.string(),
+      pinned: z.boolean(),
+      canRename: z.boolean(),
+      canMarkUnread: z.boolean(),
+      canMarkDone: z.boolean(),
+      canReopen: z.boolean(),
+      canCopyOutcome: z.boolean(),
+    })
+    .nullable(),
+  panels: z.strictObject({ sidebar: z.boolean(), rightPanel: z.boolean(), bottomBar: z.boolean() }),
+  keyBindings: SETTING_SCHEMAS.keyBindings,
+}) satisfies z.ZodType<MenuUpdateRequest>
+
 export const REQUEST_SCHEMAS = {
   [CommandName.WorkspacesList]: emptyRequest,
   [CommandName.WorkspacesCreate]: workspacesCreateRequest,
   [CommandName.WorkspacesOpen]: workspacesOpenRequest,
   [CommandName.WorkspacesUpdate]: workspacesUpdateRequest,
   [CommandName.WorkspacesReveal]: workspacesRevealRequest,
+  [CommandName.WorkspacesRemove]: workspacesRemoveRequest,
   [CommandName.DialogChooseFolder]: emptyRequest,
   [CommandName.TasksList]: tasksListRequest,
   [CommandName.TasksCreate]: tasksCreateRequest,
@@ -222,6 +245,8 @@ export const REQUEST_SCHEMAS = {
   [CommandName.TerminalClear]: terminalIdRequest,
   [CommandName.TerminalInterrupt]: terminalIdRequest,
   [CommandName.TerminalClose]: terminalIdRequest,
+  [CommandName.MenuUpdate]: menuUpdateRequest,
+  [CommandName.WindowClose]: emptyRequest,
 } as const satisfies RequestSchemas
 
 /** A short, readable account of why a request didn't parse: each problem as `field: message`, joined by `; `. */
