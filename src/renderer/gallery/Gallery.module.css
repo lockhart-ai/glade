@@ -107,3 +107,35 @@
   font-size: var(--font-size-secondary-sm);
   color: var(--color-muted);
 }
+
+.contextTarget {
+  padding: 18px 22px;
+  border: 1px dashed var(--color-strong);
+  border-radius: var(--radius-button);
+  font-size: var(--font-size-secondary);
+  color: var(--color-muted);
+  cursor: context-menu;
+}
+
+.contextPopover {
+  width: 370px;
+}
+
+.popoverHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: var(--font-size-body);
+}
+
+.popoverUsage {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.popoverActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

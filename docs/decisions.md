@@ -44,6 +44,8 @@
   (packaging), xterm.js + node-pty (terminal).
 - **Icons:** Font Awesome (free regular + solid SVG icons via the official React packages), bundled locally; regular
   style preferred to match the designs' thin strokes.
+- **Overlays:** Floating UI (`@floating-ui/react`) positions menus and popovers and handles their focus, dismissal and
+  list keyboard navigation; overlays render in a portal.
 - **Validation:** zod at every boundary (IPC requests, SDK events, tool inputs, JSON from disk); schemas are checked
   against the named interfaces.
 
