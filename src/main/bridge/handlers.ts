@@ -1,10 +1,14 @@
 import type { Database } from 'better-sqlite3'
-import { CommandName, EventType, type CommandRequest, type CommandResponse } from '../../shared/bridge'
-import { listTasks } from '../db/repositories/tasks'
+import { BridgeErrorCode, CommandName, EventType, type CommandRequest, type CommandResponse } from '../../shared/bridge'
+import type { AgentRunner } from '../agent/runner'
+import { listMessages } from '../db/repositories/messages'
+import { getTask, listTasks } from '../db/repositories/tasks'
+import { listToolEvents } from '../db/repositories/tool-events'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
 import { listWorkspaces } from '../db/repositories/workspaces'
 import { createWorkspaceAt, openWorkspace } from '../workspaces/workspaces'
 import { createTask, markTaskDone, reopenTask, updateTaskFromUser } from '../tasks/service'
+import { CommandFailure } from './errors'
 import type { Emit } from './events'
 
 /**
@@ -20,10 +24,11 @@ export interface HandlerContext {
   readonly emit: Emit
   /** Shows the native open-folder dialog; resolves with the chosen path, or null when cancelled. */
   readonly chooseFolder: () => Promise<string | null>
+  readonly runner: AgentRunner
 }
 
 export function createHandlers(context: HandlerContext): Handlers {
-  const { db, emit, chooseFolder } = context
+  const { db, emit, chooseFolder, runner } = context
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
     [CommandName.WorkspacesCreate]: ({ rootPath }) => {
@@ -43,6 +48,11 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.TasksMarkDone]: ({ id }) => ({ task: markTaskDone(context, id) }),
     [CommandName.TasksReopen]: ({ id }) => ({ task: reopenTask(context, id) }),
     [CommandName.TasksUpdate]: ({ id, patch }) => ({ task: updateTaskFromUser(context, id, patch) }),
+    [CommandName.TasksSend]: ({ id, text }) => ({ message: runner.send(id, text) }),
+    [CommandName.TasksHistory]: ({ id }) => {
+      if (getTask(db, id) === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${id}`)
+      return { messages: listMessages(db, id), toolEvents: listToolEvents(db, id) }
+    },
     [CommandName.UiStateGet]: ({ key }) => ({ value: getUiState(db, key) ?? null }),
     [CommandName.UiStateGetAll]: () => ({ entries: listUiState(db) }),
     [CommandName.UiStateSet]: (entry) => {

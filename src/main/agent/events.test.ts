@@ -1,0 +1,174 @@
+import { describe, expect, it, vi } from 'vitest'
+import { AgentEventKind, createSdkMessageParser, type AgentEvent } from './events'
+import * as sdk from './test-sdk-messages'
+
+function parser() {
+  const warn = vi.fn()
+  return { parse: createSdkMessageParser({ warn }), warn }
+}
+
+function parse(raw: unknown): AgentEvent[] {
+  return parser().parse(raw)
+}
+
+describe('parsing SDK messages', () => {
+  it('reads the session id and model from system/init', () => {
+    expect(parse(sdk.init())).toEqual([
+      { kind: AgentEventKind.SessionStarted, sessionId: sdk.SESSION_ID, model: sdk.MODEL },
+    ])
+  })
+
+  it("reads the agent's text and tool calls, at the top level and in a subagent", () => {
+    expect(parse(sdk.text('Checking the tests.'))).toEqual([
+      { kind: AgentEventKind.Text, text: 'Checking the tests.', parentToolUseId: null },
+    ])
+    expect(parse(sdk.toolUse('toolu_03', 'Bash', { command: 'ls' }, 'toolu_02'))).toEqual([
+      {
+        kind: AgentEventKind.ToolCallStarted,
+        toolUseId: 'toolu_03',
+        name: 'Bash',
+        input: { command: 'ls' },
+        parentToolUseId: 'toolu_02',
+      },
+    ])
+  })
+
+  it('reads every block of an assistant message, skipping thinking and a missing parent', () => {
+    const message = {
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'thinking', thinking: 'Hmm.' },
+          { type: 'text', text: 'Let me look.' },
+          { type: 'tool_use', id: 'toolu_01', name: 'Read', input: { file_path: 'a.ts' } },
+        ],
+      },
+    }
+    expect(parse(message)).toEqual([
+      { kind: AgentEventKind.Text, text: 'Let me look.', parentToolUseId: null },
+      {
+        kind: AgentEventKind.ToolCallStarted,
+        toolUseId: 'toolu_01',
+        name: 'Read',
+        input: { file_path: 'a.ts' },
+        parentToolUseId: null,
+      },
+    ])
+  })
+
+  it('reads tool results with string content, text blocks or none', () => {
+    expect(parse(sdk.toolResult('toolu_01', '12 passed'))).toEqual([
+      { kind: AgentEventKind.ToolResult, toolUseId: 'toolu_01', output: '12 passed', isError: false },
+    ])
+    const blocks = [
+      { type: 'text', text: 'Line one.' },
+      { type: 'image', source: {} },
+      { type: 'text', text: 'Line two.' },
+    ]
+    expect(parse(sdk.toolResult('toolu_02', blocks, true))).toEqual([
+      { kind: AgentEventKind.ToolResult, toolUseId: 'toolu_02', output: 'Line one.\nLine two.', isError: true },
+    ])
+    const bare = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_03' }] } }
+    expect(parse(bare)).toEqual([
+      { kind: AgentEventKind.ToolResult, toolUseId: 'toolu_03', output: '', isError: false },
+    ])
+  })
+
+  it('reads nothing from user messages that hold no tool results, or replay earlier ones', () => {
+    expect(parse({ type: 'user', message: { content: 'This session is being continued…' } })).toEqual([])
+    expect(parse({ type: 'user', message: { content: [{ type: 'text', text: 'Subagent prompt' }] } })).toEqual([])
+    expect(parse({ ...(sdk.toolResult('toolu_01', 'x') as object), isReplay: true })).toEqual([])
+  })
+
+  it('reads a successful result with its usage, duration and cost', () => {
+    expect(parse(sdk.result('Done.'))).toEqual([
+      {
+        kind: AgentEventKind.TurnFinished,
+        isError: false,
+        result: 'Done.',
+        errors: [],
+        terminalReason: 'completed',
+        durationMs: 7620,
+        totalCostUsd: 0.0285,
+        usage: { inputTokens: 28, outputTokens: 553, cacheReadInputTokens: 58094, cacheCreationInputTokens: 9443 },
+      },
+    ])
+  })
+
+  it('reads an error result by its error flag, not its subtype', () => {
+    expect(parse(sdk.apiErrorResult())).toEqual([
+      expect.objectContaining({ kind: AgentEventKind.TurnFinished, isError: true, terminalReason: 'api_error' }),
+    ])
+  })
+
+  it('reads a result with fields missing or malformed as a failed turn with what it could read', () => {
+    expect(parse({ type: 'result', usage: { input_tokens: 'many' }, errors: 'nope' })).toEqual([
+      {
+        kind: AgentEventKind.TurnFinished,
+        isError: true,
+        result: '',
+        errors: [],
+        terminalReason: null,
+        durationMs: null,
+        totalCostUsd: null,
+        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+      },
+    ])
+  })
+
+  it('drops the message types and system subtypes Glade does not use, without a word', () => {
+    const { parse: parseQuietly, warn } = parser()
+    for (const message of [
+      ...sdk.turnStartNoise(),
+      { type: 'stream_event', event: {} },
+      { type: 'tool_progress', elapsed_time_seconds: 3 },
+      { type: 'system', subtype: 'compact_boundary' },
+    ]) {
+      expect(parseQuietly(message)).toEqual([])
+    }
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('drops an unknown message type, logging it once', () => {
+    const { parse: parseOnce, warn } = parser()
+
+    expect(parseOnce({ type: 'hologram', session_id: 'x' })).toEqual([])
+    expect(parseOnce({ type: 'hologram', session_id: 'y' })).toEqual([])
+
+    expect(warn).toHaveBeenCalledExactlyOnceWith('Ignored SDK messages of the unknown type hologram')
+  })
+
+  it.each([
+    ['a non-object', 'hello', 'Dropped an SDK message with no type'],
+    ['null', null, 'Dropped an SDK message with no type'],
+    ['a message with no type', { subtype: 'init' }, 'Dropped an SDK message with no type'],
+    ['an init with no session id', { type: 'system', subtype: 'init', model: 'm' }, 'system/init'],
+    ['an assistant message with no content', { type: 'assistant', message: {} }, 'assistant'],
+    ['a user message with no message', { type: 'user' }, 'user'],
+  ])('drops %s, logging why', (_case, raw, logged) => {
+    const { parse: parseBad, warn } = parser()
+
+    expect(parseBad(raw)).toEqual([])
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn.mock.calls[0]?.[0]).toContain(logged)
+  })
+
+  it.each([
+    ['text block', { type: 'text', text: 42 }, 'Dropped a malformed text block from the agent'],
+    ['tool call', { type: 'tool_use', id: 'toolu_01', name: 'Bash', input: 'ls' }, 'Dropped a malformed tool call'],
+  ])('drops a malformed %s but keeps the blocks around it', (_case, bad, logged) => {
+    const { parse: parseBad, warn } = parser()
+    const message = { type: 'assistant', message: { content: [bad, { type: 'text', text: 'Still here.' }] } }
+
+    expect(parseBad(message)).toEqual([{ kind: AgentEventKind.Text, text: 'Still here.', parentToolUseId: null }])
+    expect(warn.mock.calls[0]?.[0]).toContain(logged)
+  })
+
+  it('drops a malformed tool result', () => {
+    const { parse: parseBad, warn } = parser()
+    const message = { type: 'user', message: { content: [{ type: 'tool_result', content: 'no id' }] } }
+
+    expect(parseBad(message)).toEqual([])
+    expect(warn.mock.calls[0]?.[0]).toBe('Dropped a malformed tool result')
+  })
+})

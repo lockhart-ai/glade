@@ -2,6 +2,7 @@
 // main-side dispatcher, handlers, task service and repositories on a database in a temporary folder.
 // Runs in the main Vitest project (Node), since it needs better-sqlite3.
 import { afterEach, beforeEach, expect, it } from 'vitest'
+import { FakeAgentBackend } from '../../main/agent/fake-backend'
 import { registerBridge } from '../../main/bridge'
 import { fakeIpcPair } from '../../main/bridge/fake-ipc'
 import { getTask } from '../../main/db/repositories/tasks'
@@ -26,6 +27,7 @@ beforeEach(async () => {
     db: database.db,
     targets: () => [ipc.window],
     chooseFolder: () => Promise.resolve(null),
+    agentBackend: new FakeAgentBackend(),
   })
   const bridge = createBridge(ipc.renderer)
   events = []

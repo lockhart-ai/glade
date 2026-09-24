@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
+import { FakeAgentBackend } from '../../main/agent/fake-backend'
 import { registerBridge } from '../../main/bridge'
 import { fakeIpcPair } from '../../main/bridge/fake-ipc'
 import { openAppDatabase, type AppDatabase } from '../../main/db/database'
@@ -43,6 +44,7 @@ async function launch(): Promise<{ database: AppDatabase; glade: GladeBridge; st
     db: database.db,
     targets: () => [ipc.window],
     chooseFolder: () => Promise.resolve(null),
+    agentBackend: new FakeAgentBackend(),
   })
   const glade = createBridge(ipc.renderer)
   const store = createGladeStore(glade)

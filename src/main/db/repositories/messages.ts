@@ -42,3 +42,9 @@ export function listMessages(db: Database, taskId: string): Message[] {
     .all(taskId)
     .map(parseMessage)
 }
+
+/** The turn of a task's latest message: its number of turns so far, or 0 before its first message. */
+export function lastTurn(db: Database, taskId: string): number {
+  const turn: unknown = db.prepare('SELECT COALESCE(MAX(turn), 0) FROM messages WHERE task_id = ?').pluck().get(taskId)
+  return typeof turn === 'number' ? turn : 0
+}

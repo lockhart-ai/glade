@@ -7,6 +7,7 @@ import {
   type EmptyRequest,
   type TaskIdRequest,
   type TasksCreateRequest,
+  type TasksSendRequest,
   type TasksUpdateRequest,
   type TasksListRequest,
   type UiStateGetRequest,
@@ -48,6 +49,10 @@ const tasksUpdateRequest = z.strictObject({
   }),
 }) satisfies z.ZodType<TasksUpdateRequest>
 
+const tasksSendRequest = z.strictObject({
+  id: z.string(),
+  text: z.string().refine((text) => text.trim() !== '', 'Expected a message that is not blank'),
+}) satisfies z.ZodType<TasksSendRequest>
 const uiStateGetRequest = z.strictObject({ key: z.enum(UiStateKey) }) satisfies z.ZodType<UiStateGetRequest>
 
 const uiStateSetRequest = z.strictObject({
@@ -65,6 +70,8 @@ export const REQUEST_SCHEMAS = {
   [CommandName.TasksMarkDone]: taskIdRequest,
   [CommandName.TasksReopen]: taskIdRequest,
   [CommandName.TasksUpdate]: tasksUpdateRequest,
+  [CommandName.TasksSend]: tasksSendRequest,
+  [CommandName.TasksHistory]: taskIdRequest,
   [CommandName.UiStateGet]: uiStateGetRequest,
   [CommandName.UiStateGetAll]: emptyRequest,
   [CommandName.UiStateSet]: uiStateSetRequest,
