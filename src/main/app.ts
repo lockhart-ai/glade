@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, type WebPreferences } from 'electron'
+import { openAppDatabase, type AppDatabase } from './db/database'
 import { checkSecurity, describeViolations } from './security'
 
 /** The `bg` design token, so the window never flashes white before the renderer paints. */
@@ -13,10 +14,40 @@ export const WINDOW_WEB_PREFERENCES: WebPreferences = {
   sandbox: true,
 }
 
-function refuseToStart(reason: string): void {
-  console.error(`Glade refused to start: insecure window settings\n${reason}`)
-  dialog.showErrorBox('Glade refused to start', `The window's security settings are not in effect.\n\n${reason}`)
+/** Why the app can't start, for the log and for the dialog the user sees. */
+interface StartFailure {
+  readonly logSummary: string
+  readonly message: string
+  readonly detail: string
+}
+
+function refuseToStart({ logSummary, message, detail }: StartFailure): void {
+  console.error(`Glade refused to start: ${logSummary}\n${detail}`)
+  dialog.showErrorBox('Glade refused to start', `${message}\n\n${detail}`)
   app.exit(1)
+}
+
+type DatabaseOpening =
+  { readonly ok: true; readonly database: AppDatabase } | { readonly ok: false; readonly failure: StartFailure }
+
+/** Opens and migrates the database in the app's data folder, or says why it couldn't. */
+function openDatabase(): DatabaseOpening {
+  try {
+    const database = openAppDatabase(app.getPath('userData'))
+    const { fromVersion, toVersion } = database.migration
+    console.log(`Database opened at ${database.file}; schema version ${String(fromVersion)} -> ${String(toVersion)}`)
+    return { ok: true, database }
+  } catch (error) {
+    const detail = error instanceof Error ? describeError(error) : String(error)
+    return {
+      ok: false,
+      failure: { logSummary: 'could not open the database', message: 'The database could not be opened.', detail },
+    }
+  }
+}
+
+function describeError(error: Error): string {
+  return error.cause instanceof Error ? `${error.message}: ${error.cause.message}` : error.message
 }
 
 function createWindow(): void {
@@ -50,14 +81,30 @@ function createWindow(): void {
   }
 }
 
-/** Starts the app: checks the window security settings once Electron is ready, then opens the main window. */
+/**
+ * Starts the app: once Electron is ready, checks the window security settings, opens and migrates the database (closed
+ * again on quit), then opens the main window.
+ */
 export function startApp(): void {
   void app.whenReady().then(() => {
     const security = checkSecurity(WINDOW_WEB_PREFERENCES)
     if (!security.ok) {
-      refuseToStart(describeViolations(security.violations))
+      refuseToStart({
+        logSummary: 'insecure window settings',
+        message: "The window's security settings are not in effect.",
+        detail: describeViolations(security.violations),
+      })
       return
     }
+
+    const opening = openDatabase()
+    if (!opening.ok) {
+      refuseToStart(opening.failure)
+      return
+    }
+    app.on('will-quit', () => {
+      opening.database.db.close()
+    })
 
     createWindow()
 
