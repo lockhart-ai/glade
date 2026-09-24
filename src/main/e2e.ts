@@ -5,6 +5,7 @@
  * answer with what the test asked for. It never runs in a packaged app.
  */
 import { z } from 'zod'
+import { AGENT_SCRIPT_NAMES, type AgentScriptName } from './agent/scripts'
 import { isInTempFolder, isolateApp, type IsolatedApp } from './isolation'
 
 /** The environment variable that carries the e2e spec, as JSON. */
@@ -28,11 +29,14 @@ export interface E2eSpec {
   readonly userData: string
   /** The page's location hash, e.g. `#gallery`, or `''` for the app itself. */
   readonly route: string
+  /** The agent script every task's agent plays (see `src/main/agent/scripts.ts`). None by default: no agent runs. */
+  readonly agentScript?: AgentScriptName
 }
 
 const e2eSpecSchema: z.ZodType<E2eSpec> = z.strictObject({
   userData: z.string().refine(isInTempFolder, 'must be a folder in the system temp folder'),
   route: z.string().regex(/^(#[\w\-/]*)?$/, 'must be empty or a hash like #gallery'),
+  agentScript: z.enum(AGENT_SCRIPT_NAMES).optional(),
 })
 
 /** The e2e spec was set but isn't valid, or its data folder can't be used. */
