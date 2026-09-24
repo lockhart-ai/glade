@@ -1,15 +1,10 @@
+import { createSdkMcpServer, tool as mcpTool } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { Effort } from '../../shared/domain'
 import type { AgentSessionOptions } from './backend'
 import { AgentEventKind, createSdkMessageParser, type AgentEvent } from './events'
-import {
-  gladeToolName,
-  noGladeTools,
-  REJECTED_TOOL_OUTPUT,
-  ScriptedSession,
-  type GladeToolCaller,
-  type ScriptedSessionOptions,
-} from './scripted-session'
+import { gladeToolName, REJECTED_TOOL_OUTPUT, ScriptedSession, type ScriptedSessionOptions } from './scripted-session'
 import {
   delay,
   emit,
@@ -26,13 +21,29 @@ import {
   type ScriptTurn,
 } from './scripts'
 
+/** The titles the fake Glade server's `set_title` was given. */
+let titles: string[] = []
+
+/** A stand-in for the Glade server, with the real server's name and a `set_title` tool. */
+function gladeServer() {
+  return createSdkMcpServer({
+    name: 'glade',
+    tools: [
+      mcpTool('set_title', 'Name the task.', { title: z.string() }, ({ title }) => {
+        titles.push(title)
+        return Promise.resolve({ content: [{ type: 'text', text: 'Title set.' }] })
+      }),
+    ],
+  })
+}
+
 const SESSION: AgentSessionOptions = {
   cwd: '/code/acme-api',
   model: 'claude-sample-1',
   effort: Effort.High,
   resumeSessionId: null,
   systemPromptAppend: '',
-  mcpServers: { glade: { type: 'sdk', name: 'glade', instance: {} as never } },
+  mcpServers: {},
 }
 
 /** A session on a script, with everything it streams collected, parsed as the runner would parse it. */
@@ -56,8 +67,7 @@ function play(turns: readonly ScriptTurn[], options: Partial<ScriptedSessionOpti
   let idles = 0
   const session = new ScriptedSession({
     script,
-    session: SESSION,
-    callGladeTool: noGladeTools,
+    session: { ...SESSION, mcpServers: { glade: gladeServer() } },
     newId: () => `id-${String((ids += 1))}`,
     onIdle: () => {
       idles += 1
@@ -89,6 +99,7 @@ async function flush(): Promise<void> {
 
 beforeEach(() => {
   ids = 0
+  titles = []
   vi.useFakeTimers()
   vi.setSystemTime(10_000)
 })
@@ -229,47 +240,38 @@ describe('ScriptedSession', () => {
     })
   })
 
-  it('calls a Glade tool through the caller, with the session’s MCP servers, and streams its outcome', async () => {
-    const callGladeTool = vi.fn<GladeToolCaller>(() => Promise.resolve({ output: 'Title set.', isError: false }))
-    const played = play([[gladeTool('title', 'set_title', { title: 'Fix it' }), result()]], { callGladeTool })
+  it('calls a Glade tool through the session’s glade server, as the SDK would, and streams its outcome', async () => {
+    const played = play([
+      [gladeTool('title', 'set_title', { title: 'Fix it' }), gladeTool('bad', 'set_title', { title: 42 }), result()],
+    ])
     played.session.send('Go', 'user-1')
     await flush()
 
-    expect(callGladeTool).toHaveBeenCalledWith(SESSION.mcpServers, 'set_title', { title: 'Fix it' })
-    expect(played.events.slice(0, 2)).toEqual([
+    expect(titles).toEqual(['Fix it'])
+    expect(played.events.slice(0, 4)).toEqual([
       expect.objectContaining({ kind: AgentEventKind.ToolCallStarted, name: 'mcp__glade__set_title' }),
       expect.objectContaining({ kind: AgentEventKind.ToolResult, output: 'Title set.', isError: false }),
+      expect.objectContaining({ kind: AgentEventKind.ToolCallStarted, input: { title: 42 } }),
+      expect.objectContaining({
+        kind: AgentEventKind.ToolResult,
+        output: expect.stringContaining('Input validation error') as unknown,
+        isError: true,
+      }),
     ])
+    played.session.close()
   })
 
-  it('fails a Glade tool call as a missing tool when the session has none', async () => {
-    expect(gladeToolName('set_status')).toBe('mcp__glade__set_status')
-    await expect(noGladeTools({}, 'set_status', {})).resolves.toEqual({
-      output: 'Error: No such tool available: mcp__glade__set_status',
-      isError: true,
-    })
-  })
-
-  it('kills the session when a Glade tool’s handler throws', async () => {
+  it('kills the session, loudly, when it has no Glade server to call', async () => {
     const played = play([[gladeTool('title', 'set_title', {}), say('Never.')], [say('Nor this.')]], {
-      callGladeTool: () => Promise.reject(new Error('handler broke')),
+      session: { ...SESSION, mcpServers: {} },
     })
     played.session.send('Go', 'user-1')
     played.session.send('Again', 'user-2')
     await flush()
-    expect((await played.ended)?.message).toBe('handler broke')
+    expect((await played.ended)?.message).toBe('No in-process MCP server named glade')
     expect(played.events.map((event) => event.kind)).toEqual([AgentEventKind.ToolCallStarted])
     expect(played.idles()).toBe(2)
-  })
-
-  it('wraps a non-Error thrown by a Glade tool', async () => {
-    const played = play([[gladeTool('title', 'set_title', {})]], {
-      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- the case under test
-      callGladeTool: () => Promise.reject('nope'),
-    })
-    played.session.send('Go', 'user-1')
-    await flush()
-    expect((await played.ended)?.message).toBe('nope')
+    expect(gladeToolName('set_status')).toBe('mcp__glade__set_status')
   })
 
   it('passes an emit step’s message through as is', async () => {

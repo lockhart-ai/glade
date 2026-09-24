@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Effort } from '../../shared/domain'
 import type { AgentSessionOptions } from './backend'
-import { noGladeTools } from './scripted-session'
 import { delay, result, say, waitForInterrupt, type AgentScript } from './scripts'
 import { createTestModeAgentBackend, UnscriptedAgentError } from './test-mode-backend'
 
@@ -31,7 +30,7 @@ function drain(messages: AsyncIterable<unknown>): () => unknown[] {
 describe('createTestModeAgentBackend', () => {
   it('fails loudly when a session starts with no script', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const backend = createTestModeAgentBackend({ script: null, callGladeTool: noGladeTools })
+    const backend = createTestModeAgentBackend(null)
 
     expect(() => backend.start(OPTIONS)).toThrow(UnscriptedAgentError)
     expect(error).toHaveBeenCalledWith(expect.stringMatching(/^Glade test mode: An agent session started in \/tmp/))
@@ -40,7 +39,7 @@ describe('createTestModeAgentBackend', () => {
   it('plays the script in each session, and is idle once every session has played its turns', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     const script: AgentScript = { name: 'test', turns: [[delay(100), say('Done.'), result()]] }
-    const backend = createTestModeAgentBackend({ script, callGladeTool: noGladeTools })
+    const backend = createTestModeAgentBackend(script)
     await backend.whenIdle()
 
     const first = backend.start(OPTIONS)
@@ -65,7 +64,7 @@ describe('createTestModeAgentBackend', () => {
 
   it('is idle while a turn waits to be stopped, and passes the interrupt on', async () => {
     const script: AgentScript = { name: 'test', turns: [[waitForInterrupt()]] }
-    const backend = createTestModeAgentBackend({ script, callGladeTool: noGladeTools })
+    const backend = createTestModeAgentBackend(script)
     const session = backend.start(OPTIONS)
     const received = drain(session.messages)
     session.send('a', 'user-1')

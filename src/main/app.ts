@@ -2,7 +2,6 @@ import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, type WebPreferences } from 'electron'
 import type { AgentBackend } from './agent/backend'
 import { createSdkBackend } from './agent/sdk-backend'
-import { noGladeTools } from './agent/scripted-session'
 import { AGENT_SCRIPTS, type AgentScriptName } from './agent/scripts'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './agent/test-mode-backend'
 import { registerBridge, type RegisteredBridge } from './bridge'
@@ -187,10 +186,7 @@ function startTestMode(): TestMode {
 function createTestModeAgent(testMode: NonNullable<TestMode>): TestModeAgentBackend {
   const name: AgentScriptName | undefined =
     testMode.kind === TestModeKind.Capture ? testMode.spec.conversation?.agentScript : testMode.spec.agentScript
-  return createTestModeAgentBackend({
-    script: name === undefined ? null : AGENT_SCRIPTS[name],
-    callGladeTool: noGladeTools,
-  })
+  return createTestModeAgentBackend(name === undefined ? null : AGENT_SCRIPTS[name])
 }
 
 /** What the app can be started with. */

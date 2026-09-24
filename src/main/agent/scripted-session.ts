@@ -12,26 +12,14 @@
 import { randomUUID } from 'node:crypto'
 import type { ToolInput } from '../../shared/domain'
 import { AsyncQueue } from './async-queue'
-import type { AgentMcpServers, AgentSession, AgentSessionOptions } from './backend'
+import type { AgentSession, AgentSessionOptions } from './backend'
+import { GLADE_SERVER } from './glade-tools'
+import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
 import { ScriptStepKind, type AgentScript, type ScriptStep, type ScriptTurn } from './scripts'
-
-/** What a Glade tool's handler answered: the `tool_result` text, and whether it's an error. */
-export interface GladeToolOutcome {
-  readonly output: string
-  readonly isError: boolean
-}
-
-/** Runs a Glade tool's handler, registered on the session's `glade` MCP server, the way the SDK would. */
-export type GladeToolCaller = (servers: AgentMcpServers, tool: string, input: ToolInput) => Promise<GladeToolOutcome>
-
-/** For a session without Glade's tools: every call fails, as a call to a tool the session doesn't have does. */
-export const noGladeTools: GladeToolCaller = (_servers, tool) =>
-  Promise.resolve({ output: `Error: No such tool available: ${gladeToolName(tool)}`, isError: true })
 
 export interface ScriptedSessionOptions {
   readonly script: AgentScript
   readonly session: AgentSessionOptions
-  readonly callGladeTool: GladeToolCaller
   /** Makes the session's ids: its SDK session id (unless it resumes one) and the prefix of its tool call ids. */
   readonly newId?: () => string
   /**
@@ -41,9 +29,9 @@ export interface ScriptedSessionOptions {
   readonly onIdle?: () => void
 }
 
-/** The name the SDK gives Glade's tools. */
+/** The name the SDK gives one of Glade's tools, e.g. `mcp__glade__set_title`. */
 export function gladeToolName(tool: string): string {
-  return `mcp__glade__${tool}`
+  return `mcp__${GLADE_SERVER}__${tool}`
 }
 
 /** The model's token usage on each assistant message, and the turn's on its `result`. Made up, but realistic. */
@@ -100,11 +88,14 @@ export class ScriptedSession implements AgentSession {
   private queue: Promise<void> = Promise.resolve()
   private stopped = false
   private costUsd = 0
+  /** Runs the session's in-process MCP tools, as the Claude Code process would. */
+  private readonly tools: McpToolCaller
 
   constructor(private readonly options: ScriptedSessionOptions) {
     const newId = options.newId ?? randomUUID
     this.sessionId = options.session.resumeSessionId ?? newId()
     this.idPrefix = newId().replaceAll('-', '').slice(0, 8)
+    this.tools = createMcpToolCaller(options.session.mcpServers)
   }
 
   send(_text: string, uuid: string): void {
@@ -124,6 +115,7 @@ export class ScriptedSession implements AgentSession {
     this.stopped = true
     this.turn?.interrupt()
     this.stream.end()
+    void this.tools.close()
   }
 
   private push(message: Record<string, unknown>): void {
@@ -165,7 +157,7 @@ export class ScriptedSession implements AgentSession {
       }
       if (wasInterrupted() && isLive()) this.abort(turn)
     } catch (error) {
-      // A Glade tool's handler threw: that kills the session, as it would the agent process.
+      // A Glade tool couldn't be called at all (the session has no Glade server): that kills the session, loudly.
       if (!(error instanceof Stopped) && isLive()) {
         this.die(error instanceof Error ? error : new Error(String(error)))
       }
@@ -203,7 +195,7 @@ export class ScriptedSession implements AgentSession {
         return
       case ScriptStepKind.GladeTool: {
         this.toolUse(turn, step.id, gladeToolName(step.tool), step.input, null, uuid)
-        const outcome = await this.options.callGladeTool(this.options.session.mcpServers, step.tool, step.input)
+        const outcome = await this.tools.call(gladeToolName(step.tool), step.input)
         this.toolResult(turn, step.id, outcome.output, outcome.isError)
         return
       }

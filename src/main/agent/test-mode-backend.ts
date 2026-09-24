@@ -6,17 +6,11 @@
  * With no script, starting a session fails loudly.
  */
 import type { AgentBackend, AgentSession, AgentSessionOptions } from './backend'
-import { ScriptedSession, type GladeToolCaller } from './scripted-session'
+import { ScriptedSession } from './scripted-session'
 import type { AgentScript } from './scripts'
 
 /** An agent session was started in a test mode that has no script for it. */
 export class UnscriptedAgentError extends Error {}
-
-export interface TestModeAgentOptions {
-  /** The script every session plays, or null for none. */
-  readonly script: AgentScript | null
-  readonly callGladeTool: GladeToolCaller
-}
 
 export interface TestModeAgentBackend extends AgentBackend {
   /**
@@ -26,7 +20,11 @@ export interface TestModeAgentBackend extends AgentBackend {
   whenIdle(): Promise<void>
 }
 
-export function createTestModeAgentBackend({ script, callGladeTool }: TestModeAgentOptions): TestModeAgentBackend {
+/**
+ * A backend whose sessions play `script`, or fail loudly for none. A session's Glade tool calls run the real handlers
+ * on its `glade` server, so they really change the task.
+ */
+export function createTestModeAgentBackend(script: AgentScript | null): TestModeAgentBackend {
   let busy = 0
   let waiters: (() => void)[] = []
   const settle = (): void => {
@@ -49,7 +47,7 @@ export function createTestModeAgentBackend({ script, callGladeTool }: TestModeAg
         console.error(`Glade test mode: ${error.message}`)
         throw error
       }
-      const session = new ScriptedSession({ script, session: options, callGladeTool, onIdle: settle })
+      const session = new ScriptedSession({ script, session: options, onIdle: settle })
       return {
         messages: session.messages,
         send(text, uuid) {

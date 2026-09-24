@@ -14,7 +14,7 @@ import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { createAgentRunner, type AgentRunner } from './runner'
-import type { GladeToolCaller } from './scripted-session'
+import { createGladeMcpServer, GLADE_SERVER } from './glade-tools'
 import { AGENT_SCRIPT_NAMES, AGENT_SCRIPTS, type AgentScriptName } from './scripts'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
 
@@ -22,16 +22,16 @@ let database: TestDatabase
 let task: Task
 let runner: AgentRunner | undefined
 let backend: TestModeAgentBackend
-let gladeCalls: [string, unknown][]
-
-const callGladeTool: GladeToolCaller = (_servers, tool, input) => {
-  gladeCalls.push([tool, input])
-  return Promise.resolve({ output: 'Done.', isError: false })
-}
 
 function start(name: AgentScriptName): AgentRunner {
-  backend = createTestModeAgentBackend({ script: AGENT_SCRIPTS[name], callGladeTool })
-  runner = createAgentRunner({ db: database.db, emit: () => undefined, backend })
+  backend = createTestModeAgentBackend(AGENT_SCRIPTS[name])
+  const context = { db: database.db, emit: () => undefined }
+  runner = createAgentRunner({
+    ...context,
+    backend,
+    // The real Glade tools, as the app gives every session.
+    mcpServers: (forTask) => ({ [GLADE_SERVER]: createGladeMcpServer(context, forTask.id) }),
+  })
   return runner
 }
 
@@ -59,7 +59,6 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
   database = openTestDatabase()
   task = sampleTask(database.db, sampleWorkspace(database.db).id)
-  gladeCalls = []
 })
 
 afterEach(() => {
@@ -79,7 +78,11 @@ describe('AGENT_SCRIPTS', () => {
     const agent = start('simple-reply')
     await send(agent, 'How does the client retry?')
 
-    expect(gladeCalls.map(([tool]) => tool)).toEqual(['set_title', 'set_objective', 'set_status'])
+    expect(getTask(database.db, task.id)).toMatchObject({
+      title: 'Explain the retry policy',
+      objective: 'Explain how the API client retries failed requests.',
+      status: 'Answered the question about retries.',
+    })
     expect(reply()).toMatch(/^The client retries idempotent requests/)
     expect(calls().map((call) => [call.name, call.state])).toEqual([
       ['mcp__glade__set_title', ToolCallState.Done],
@@ -121,6 +124,11 @@ describe('AGENT_SCRIPTS', () => {
     expect(calls().every((call) => call.state === ToolCallState.Done)).toBe(true)
     expect(reply()).toMatch(/^The failing test was a timezone bug/)
     expect(activity()).toBe(TaskActivity.Waiting)
+    expect(getTask(database.db, task.id)).toMatchObject({
+      title: 'Fix the flaky date test',
+      objective: 'Make the date formatting test pass in every timezone.',
+      status: 'Fixed the timezone bug; the tests pass.',
+    })
   })
 
   it('long-running: keeps working, with its command running, until stopped', async () => {
