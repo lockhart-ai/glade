@@ -34,6 +34,7 @@ export enum CommandName {
   TasksUpdate = 'tasks.update',
   TasksSend = 'tasks.send',
   TasksStop = 'tasks.stop',
+  TasksRetry = 'tasks.retry',
   TasksCompact = 'tasks.compact',
   TasksHistory = 'tasks.history',
   QueueAdd = 'queue.add',
@@ -170,6 +171,21 @@ export interface TasksSendResponse {
 export type TasksStopRequest = TaskIdRequest
 
 /**
+ * Retries the turn an error stopped: the turn's last message goes to the agent again, in the same session, and the
+ * task is working again, with its error cleared. With a `model`, the task changes to it first, and the retry runs on
+ * it. Answers with the task, working. Nothing new goes to the chat log: the turn's progress arrives as events, as it
+ * does after `tasks.send`, and a turn that fails again stops the task on the new error.
+ *
+ * Fails with `invalid_transition` for a task whose agent isn't stopped by an error, `busy` while the agent is working
+ * on a turn, and `not_found` when there's no such task.
+ */
+export interface TasksRetryRequest {
+  readonly id: string
+  /** The model to retry on, as the SDK names it; the task's own when left out. */
+  readonly model?: string
+}
+
+/**
  * Compacts the task's context now (Compact now, ⌘⇧K): sends its session `/compact` (`docs/sdk-notes.md` §5), which
  * replaces older turns with a summary for the agent. Nothing goes to the chat log. The agent works while it compacts,
  * so messages sent meanwhile are queued. The tool log gets a running Compact row, filled in with the tokens before and
@@ -257,6 +273,7 @@ export interface CommandMap {
   [CommandName.TasksUpdate]: CommandSpec<TasksUpdateRequest, TaskResponse>
   [CommandName.TasksSend]: CommandSpec<TasksSendRequest, TasksSendResponse>
   [CommandName.TasksStop]: CommandSpec<TasksStopRequest, TaskResponse>
+  [CommandName.TasksRetry]: CommandSpec<TasksRetryRequest, TaskResponse>
   [CommandName.TasksCompact]: CommandSpec<TasksCompactRequest, TaskResponse>
   [CommandName.TasksHistory]: CommandSpec<TaskIdRequest, TasksHistoryResponse>
   [CommandName.QueueAdd]: CommandSpec<QueueAddRequest, QueuedMessageResponse>

@@ -1,0 +1,63 @@
+/*
+ * The error card, from docs/design/html/16-error.html. Its pinks aren't tokens; they're the design's own tints of
+ * --color-pink, as the header pill's and the tool log's error row's are.
+ */
+.card {
+  flex-shrink: 0;
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: #231620;
+  border: 1px solid #5a2d3c;
+  border-radius: 12px;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-pink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--color-text);
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* The design's buttons are 32px tall, between the small and medium sizes. */
+.card .action {
+  height: 32px;
+}
+
+.details {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px 12px;
+  background: var(--color-bg);
+  border: 1px solid #5a2d3c;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

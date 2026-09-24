@@ -465,6 +465,20 @@ describe("a task's logs", () => {
     expect(store.getState().tasks.t1?.activity).toBe(TaskActivity.Waiting)
   })
 
+  it('retries a task an error stopped through main, on another model if asked, and the store follows', async () => {
+    const data = main()
+    data.tasks[0] = { ...sampleTask('t1', 'w1'), activity: TaskActivity.Error }
+    const { store, invoke } = await hydrated(data)
+
+    await store.getState().retryTask('t1')
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.TasksRetry, { id: 't1' })
+    expect(store.getState().tasks.t1).toMatchObject({ activity: TaskActivity.Working, error: null })
+
+    await store.getState().retryTask('t1', 'claude-sonnet-5')
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.TasksRetry, { id: 't1', model: 'claude-sonnet-5' })
+    expect(store.getState().tasks.t1?.model).toBe('claude-sonnet-5')
+  })
+
   it('compacts a task through main, and the store follows its event', async () => {
     const { store, invoke } = await hydrated()
 

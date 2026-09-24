@@ -33,6 +33,7 @@ const PERMISSION_OPTIONS: readonly SettingOption[] = [{ id: ALLOW_ALL, name: 'Al
 export const NEW_TASK_PLACEHOLDER = 'Describe the task…'
 export const REPLY_PLACEHOLDER = 'Reply…'
 export const DONE_PLACEHOLDER = 'Send a message to reopen this task…'
+export const ERROR_PLACEHOLDER = 'Reply, or press Retry…'
 export const QUEUE_PLACEHOLDER = 'Add a message. It will be queued until the agent finishes its current step.'
 
 /** A task's queue when it has none. */
@@ -44,11 +45,12 @@ function isEffort(value: string): value is Effort {
 
 /**
  * What the empty field says: a new task asks for its description, a working agent's says the message will be queued,
- * and a done task's says a message reopens it.
+ * one an error stopped points at the error card's Retry, and a done task's says a message reopens it.
  */
 function placeholder(task: Task, started: boolean, working: boolean): string {
   if (task.state === TaskState.Done) return DONE_PLACEHOLDER
   if (working) return QUEUE_PLACEHOLDER
+  if (task.activity === TaskActivity.Error) return ERROR_PLACEHOLDER
   return started ? REPLY_PLACEHOLDER : NEW_TASK_PLACEHOLDER
 }
 

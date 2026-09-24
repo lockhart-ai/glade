@@ -33,6 +33,13 @@ export enum AgentEventKind {
   TurnFinished = 'turn_finished',
   /** The agent process failed, or its session ended while a turn was running. No `TurnFinished` follows. */
   SessionFailed = 'session_failed',
+  /** An API request failed, and Claude Code will retry it after a delay (`system/api_retry`). */
+  ApiRetry = 'api_retry',
+  /**
+   * An API request failed for good: the SDK's assistant message that carries the error, in place of the model's reply.
+   * The turn's error `result` follows.
+   */
+  ApiError = 'api_error',
 }
 
 export interface SessionStartedEvent {
@@ -121,10 +128,32 @@ export interface TurnFinishedEvent {
    * SDK doesn't say.
    */
   readonly userMessageUuids: readonly string[] | null
+  /** The HTTP status of the API error the turn ended on; null when it didn't end on one. */
+  readonly apiErrorStatus: number | null
 }
 
 export interface SessionFailedEvent {
   readonly kind: AgentEventKind.SessionFailed
+  readonly message: string
+}
+
+export interface ApiRetryEvent {
+  readonly kind: AgentEventKind.ApiRetry
+  /** Which retry this is, from 1. */
+  readonly attempt: number
+  readonly maxRetries: number
+  readonly delayMs: number
+  /** The failed request's HTTP status; null for a connection error. */
+  readonly status: number | null
+  /** The SDK's name for the error, e.g. `overloaded`. */
+  readonly code: string
+}
+
+export interface ApiErrorEvent {
+  readonly kind: AgentEventKind.ApiError
+  /** The SDK's name for the error, e.g. `overloaded`. */
+  readonly code: string
+  /** The error's text, e.g. `API Error: 529 {"type":"error",…}`. */
   readonly message: string
 }
 
@@ -140,6 +169,8 @@ export type AgentEvent =
   | CompactionFailedEvent
   | TurnFinishedEvent
   | SessionFailedEvent
+  | ApiRetryEvent
+  | ApiErrorEvent
 
 /** Where parsing reports what it drops. */
 export interface AgentLog {
@@ -164,6 +195,16 @@ const initMessage = z.looseObject({
   subtype: z.literal('init'),
   session_id: z.string().min(1),
   model: z.string(),
+})
+
+const apiRetryMessage = z.looseObject({
+  type: z.literal('system'),
+  subtype: z.literal('api_retry'),
+  attempt: z.int().positive(),
+  max_retries: z.int().nonnegative(),
+  retry_delay_ms: z.number().nonnegative().catch(0),
+  error_status: z.int().nullable().catch(null),
+  error: z.string().catch('unknown'),
 })
 
 const tokenCount = z.number().int().nonnegative()
@@ -217,6 +258,8 @@ const usage = z.looseObject({
 const assistantMessage = z.looseObject({
   type: z.literal('assistant'),
   parent_tool_use_id: parentToolUseId,
+  // Set on the message the SDK makes of an API error that ended the turn: its text is the error, not the model's.
+  error: z.string().optional(),
   // A message without usage (or with a malformed one) still has content worth showing.
   message: z.looseObject({ content: z.array(block), usage: usage.optional().catch(undefined) }),
 })
@@ -241,6 +284,7 @@ const resultMessage = z.looseObject({
   total_cost_usd: z.number().nullable().catch(null),
   modelUsage: z.record(z.string(), z.unknown()).catch({}),
   user_message_uuids: z.array(z.string()).nullable().optional().catch(null),
+  api_error_status: z.int().nullable().optional().catch(null),
 })
 
 function fromStatus(message: z.infer<typeof statusMessage>): AgentEvent[] {
@@ -268,8 +312,28 @@ function contextUsed(parent: string | null, messageUsage: z.infer<typeof usage> 
   return [{ kind: AgentEventKind.ContextUsed, tokens }]
 }
 
+function fromApiRetry(message: z.infer<typeof apiRetryMessage>): AgentEvent[] {
+  return [
+    {
+      kind: AgentEventKind.ApiRetry,
+      attempt: message.attempt,
+      maxRetries: message.max_retries,
+      delayMs: message.retry_delay_ms,
+      status: message.error_status,
+      code: message.error,
+    },
+  ]
+}
+
+/** An API error's message: its text blocks, joined. */
+function fromApiError(code: string, content: readonly z.infer<typeof block>[]): AgentEvent[] {
+  return [{ kind: AgentEventKind.ApiError, code, message: resultText(content) }]
+}
+
 function fromAssistant(message: z.infer<typeof assistantMessage>, log: AgentLog): AgentEvent[] {
   const parent = message.parent_tool_use_id ?? null
+  // A subagent's failed request is the subagent's business: its `Agent` call reports it.
+  if (message.error !== undefined) return parent === null ? fromApiError(message.error, message.message.content) : []
   const blocks = message.message.content.flatMap((raw): AgentEvent[] => {
     switch (raw.type) {
       case 'text': {
@@ -349,6 +413,7 @@ function fromResult(message: z.infer<typeof resultMessage>): AgentEvent[] {
       totalCostUsd: message.total_cost_usd,
       contextWindows: contextWindows(message.modelUsage),
       userMessageUuids: message.user_message_uuids ?? null,
+      apiErrorStatus: message.api_error_status ?? null,
       usage:
         turnUsage === null
           ? null
@@ -393,6 +458,7 @@ export function createSdkMessageParser(log: AgentLog): (raw: unknown) => AgentEv
       case 'system':
         if (subtype === 'init') return parsed(initMessage, raw, log, 'system/init', fromInit)
         if (subtype === 'status') return parsed(statusMessage, raw, log, 'system/status', fromStatus)
+        if (subtype === 'api_retry') return parsed(apiRetryMessage, raw, log, 'system/api_retry', fromApiRetry)
         if (subtype === 'compact_boundary') {
           return parsed(compactBoundaryMessage, raw, log, 'system/compact_boundary', fromCompactBoundary)
         }

@@ -53,6 +53,7 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.TasksUpdate]: ({ id, patch }) => ({ task: updateTaskFromUser(context, id, patch) }),
     [CommandName.TasksSend]: ({ id, text }) => ({ message: runner.send(id, text) }),
     [CommandName.TasksStop]: async ({ id }) => ({ task: await runner.stop(id) }),
+    [CommandName.TasksRetry]: ({ id, model }) => ({ task: runner.retry(id, model) }),
     [CommandName.TasksCompact]: ({ id }) => ({ task: runner.compact(id) }),
     [CommandName.TasksHistory]: ({ id }) => {
       if (getTask(db, id) === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${id}`)

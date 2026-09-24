@@ -38,6 +38,57 @@ export enum TaskActivity {
   Error = 'error',
 }
 
+/**
+ * What kind of error stopped a task's agent (`src/main/agent/error-classification.ts`). Claude Code itself retries the
+ * transient ones before giving up (`docs/sdk-notes.md`, "Errors and retries").
+ */
+export enum AgentErrorKind {
+  /** Worth another try later: the API is overloaded or had a server error, or it rate limited the request. */
+  Transient = 'transient',
+  /** Won't go away by trying again as is: e.g. a model that doesn't exist, or a failed sign-in. */
+  Permanent = 'permanent',
+  /** The account's usage limit or credits ran out. */
+  UsageLimit = 'usage_limit',
+  /** The API couldn't be reached at all. */
+  Offline = 'offline',
+}
+
+/** Where the error that stopped a task's agent came from. */
+export enum TaskErrorSource {
+  /** An API request failed, after any retries: the turn ended with an API error. */
+  Api = 'api',
+  /** The turn ended with an error that wasn't the API's, e.g. it ran out of turns. */
+  Turn = 'turn',
+  /** The agent's process failed, or its session ended, mid-turn. */
+  Session = 'session',
+}
+
+/** What stopped a task's agent, for the chat's error card and the task list's status line. */
+export interface TaskError {
+  readonly kind: AgentErrorKind
+  readonly source: TaskErrorSource
+  /** The API's HTTP status, e.g. 529; null when there was none (a connection error, or not the API's). */
+  readonly status: number | null
+  /** The SDK's name for the error, e.g. `overloaded` or `model_not_found`; null when it gave none. */
+  readonly code: string | null
+  /** The raw error, as the SDK or the agent process gave it: what "Show details" shows. */
+  readonly details: string
+  /** How many times the request was retried automatically before giving up. */
+  readonly retries: number
+  /** How long those retries took, from the first failure to giving up. 0 without retries. */
+  readonly retryingMs: number
+}
+
+/** An automatic retry of a failed API request in progress: the working line says "Retrying (2 of 10)…". */
+export interface ApiRetry {
+  /** Which retry this is, from 1. */
+  readonly attempt: number
+  /** How many retries there will be at most. */
+  readonly maxRetries: number
+  /** When the first request of the run of retries failed. */
+  readonly since: EpochMs
+}
+
 /** How hard the model thinks, set per task from the input bar's effort picker. */
 export enum Effort {
   Low = 'low',
@@ -88,6 +139,10 @@ export interface Task {
    * `contextWindowFor` (`./contextWindow`) gives for it.
    */
   readonly contextWindowTokens: number
+  /** What stopped the agent, while its activity is error; null otherwise. */
+  readonly error: TaskError | null
+  /** The automatic retry in progress while the agent's API requests fail; null otherwise. */
+  readonly retrying: ApiRetry | null
 }
 
 /** Who wrote a chat message. */
@@ -195,6 +250,12 @@ export interface DividerEvent extends ToolEventBase {
   readonly kind: ToolEventKind.Divider
   readonly dividerKind: DividerKind
 }
+
+/**
+ * The name of the failed tool call row the tool log shows for an API error that stopped the agent: "API · request 3 of
+ * 3 · 529 overloaded · task paused" (`docs/design/html/16-error.html`). It isn't a real tool: the runner adds it.
+ */
+export const API_TOOL_NAME = 'API'
 
 /** What started a compaction: you (Compact now, ⌘⇧K), or the SDK at its auto-compact threshold. */
 export enum CompactionTrigger {

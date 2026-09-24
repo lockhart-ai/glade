@@ -1,18 +1,23 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { EventType } from '../../shared/bridge'
+import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import {
+  AgentErrorKind,
   CompactionTrigger,
   DividerKind,
   MessageRole,
+  TaskErrorSource,
+  TaskState,
   TaskActivity,
   ToolCallState,
   ToolEventKind,
   UiStateKey,
   type Message,
   type Task,
+  type TaskError,
   type ToolEvent,
 } from '../../shared/domain'
+import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import { fakeBridge, sampleTask, sampleWorkspace, type FakeBridge } from '../store/test-bridge'
@@ -89,7 +94,9 @@ async function renderChat({ task = {}, messages = [], toolEvents = [], selected 
   const store = createGladeStore(fake.bridge)
   render(
     <GladeStoreProvider store={store}>
-      <Chat />
+      <ToastProvider>
+        <Chat />
+      </ToastProvider>
     </GladeStoreProvider>,
   )
   await act(() => store.getState().hydrate())
@@ -309,6 +316,18 @@ describe('Chat', () => {
       expect(screen.queryByRole('status')).toBeNull()
     })
 
+    it('says which retry is running while a failed API request is retried', async () => {
+      const retrying = { attempt: 2, maxRetries: 10, since: ASKED_AT }
+      const { emit } = await renderChat({ task: { ...working, retrying }, messages: [ASK], toolEvents: TURN_ONE })
+
+      expect(screen.getByRole('status')).toHaveTextContent(/^Retrying \(2 of 10\)…$/)
+
+      act(() => {
+        emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), ...working } })
+      })
+      expect(screen.getByRole('status')).toHaveTextContent(`Working · ${PREAMBLE}`)
+    })
+
     it('shows instead of the new-task prompt on a first turn', async () => {
       await renderChat({ task: working })
 
@@ -373,6 +392,111 @@ describe('Chat', () => {
       })
 
       expect(screen.queryByRole('note', { name: 'Turn summary' })).toBeNull()
+    })
+  })
+
+  describe('the error card', () => {
+    const OVERLOADED: TaskError = {
+      kind: AgentErrorKind.Transient,
+      source: TaskErrorSource.Api,
+      status: 529,
+      code: 'overloaded',
+      details: 'API Error: 529 {"type":"error","error":{"type":"overloaded_error"}}',
+      retries: 3,
+      retryingMs: 120_000,
+    }
+    const stopped = { activity: TaskActivity.Error, error: OVERLOADED }
+
+    function card(): HTMLElement {
+      return screen.getByRole('alert')
+    }
+
+    it('says the agent stopped, what happened, and that nothing is lost, after the conversation', async () => {
+      await renderChat({ task: stopped, messages: [ASK], toolEvents: TURN_ONE })
+
+      expect(within(card()).getByText('The agent stopped')).toBeInTheDocument()
+      expect(card()).toHaveTextContent(
+        'The API returned 529 overloaded. Glade retried 3 times over 2 minutes, then paused the task. ' +
+          'Nothing is lost: the chat, tool log and files are as they were.',
+      )
+      expect(within(card()).getByText('529 overloaded').tagName).toBe('SPAN')
+      expect(card().previousElementSibling).toBe(screen.getByRole('article', { name: 'You' }))
+      expect(screen.queryByRole('status')).toBeNull()
+    })
+
+    it('shows only while an error stops an active task', async () => {
+      const { emit } = await renderChat({ task: { ...stopped, state: TaskState.Done }, messages: [ASK] })
+      expect(screen.queryByRole('alert')).toBeNull()
+
+      act(() => {
+        emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), ...stopped } })
+      })
+      expect(card()).toBeInTheDocument()
+
+      act(() => {
+        emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), activity: TaskActivity.Working } })
+      })
+      expect(screen.queryByRole('alert')).toBeNull()
+    })
+
+    it('says less, and has no details, for an error it knows nothing about', async () => {
+      await renderChat({ task: { activity: TaskActivity.Error, error: null }, messages: [ASK] })
+
+      expect(card()).toHaveTextContent('The agent stopped on an error. Glade paused the task. Nothing is lost')
+      expect(within(card()).queryByRole('button', { name: 'Show details' })).toBeNull()
+    })
+
+    it('retries the turn', async () => {
+      const { invoke } = await renderChat({ task: stopped, messages: [ASK] })
+
+      fireEvent.click(within(card()).getByRole('button', { name: 'Retry' }))
+
+      expect(invoke).toHaveBeenLastCalledWith(CommandName.TasksRetry, { id: 't1' })
+      expect(await screen.findByRole('status')).toHaveTextContent('Working')
+      expect(screen.queryByRole('alert')).toBeNull()
+    })
+
+    it('retries with the model you pick', async () => {
+      const { invoke } = await renderChat({ task: stopped, messages: [ASK] })
+
+      const button = within(card()).getByRole('button', { name: 'Retry with another model' })
+      expect(button).toHaveAttribute('aria-expanded', 'false')
+      fireEvent.click(button)
+      expect(button).toHaveAttribute('aria-expanded', 'true')
+      fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Sonnet 5' }))
+
+      expect(invoke).toHaveBeenLastCalledWith(CommandName.TasksRetry, { id: 't1', model: 'claude-sonnet-5' })
+      expect(await screen.findByRole('status')).toHaveTextContent('Working')
+    })
+
+    it('closes the model menu without retrying', async () => {
+      const { invoke } = await renderChat({ task: stopped, messages: [ASK] })
+      fireEvent.click(within(card()).getByRole('button', { name: 'Retry with another model' }))
+      await screen.findByRole('menu')
+
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+
+      expect(screen.queryByRole('menu')).toBeNull()
+      expect(invoke).not.toHaveBeenCalledWith(CommandName.TasksRetry, expect.anything())
+    })
+
+    it('shows and hides the raw error', async () => {
+      await renderChat({ task: stopped, messages: [ASK] })
+
+      fireEvent.click(within(card()).getByRole('button', { name: 'Show details' }))
+      expect(screen.getByLabelText('Error details')).toHaveTextContent(OVERLOADED.details)
+
+      fireEvent.click(within(card()).getByRole('button', { name: 'Hide details' }))
+      expect(screen.queryByLabelText('Error details')).toBeNull()
+    })
+
+    it('says so when the retry could not start', async () => {
+      const { invoke } = await renderChat({ task: stopped, messages: [ASK] })
+      invoke.mockRejectedValueOnce(bridgeError(BridgeErrorCode.Busy, 'The agent is working'))
+
+      fireEvent.click(within(card()).getByRole('button', { name: 'Retry' }))
+
+      expect(await screen.findByText('Couldn’t retry: The agent is working')).toBeInTheDocument()
     })
   })
 

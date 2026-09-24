@@ -17,6 +17,7 @@ import {
 } from '../store/test-bridge'
 import {
   DONE_PLACEHOLDER,
+  ERROR_PLACEHOLDER,
   InputBar,
   NEW_TASK_PLACEHOLDER,
   QUEUE_PLACEHOLDER,
@@ -261,6 +262,16 @@ describe('InputBar', () => {
       })
       expect(sendButton()).toBeEnabled()
       expect(field()).toHaveValue('')
+    })
+
+    it('points at Retry when an error stopped the agent, and still sends a reply', async () => {
+      const fake = await renderBar({ task: { activity: TaskActivity.Error } })
+      expect(field()).toHaveAttribute('placeholder', ERROR_PLACEHOLDER)
+      type('Try a smaller change.')
+
+      await press('Enter')
+
+      expect(sends(fake)).toEqual([{ id: 't1', text: 'Try a smaller change.' }])
     })
 
     it('sends a done task’s message, which reopens it', async () => {

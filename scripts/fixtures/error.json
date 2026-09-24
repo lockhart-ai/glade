@@ -1,0 +1,164 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "tasks": [
+    {
+      "title": "Draft release notes for 2.4",
+      "status": "Waiting on you: two questions",
+      "pinned": true,
+      "minutesAgo": 25
+    },
+    {
+      "title": "Investigate slow dashboard query",
+      "status": "Added an index; 2.1s down to 90ms",
+      "state": "done",
+      "pinned": true,
+      "minutesAgo": 7200
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "status": "Waiting on you: pick a limit for /search",
+      "minutesAgo": 4
+    },
+    {
+      "title": "Move image uploads to S3",
+      "status": "Copying existing files, 1,240 of 3,900",
+      "activity": "working",
+      "minutesAgo": 0
+    },
+    {
+      "title": "Fix flaky login test",
+      "objective": "test_login_redirect fails about one run in ten on CI. Find out why and fix it, without just adding retries.",
+      "status": "Fixed the race in the test. Was confirming on Postgres when the API became overloaded; paused after 3 retries.",
+      "activity": "error",
+      "unread": true,
+      "minutesAgo": 0,
+      "startedMinutesAgo": 35,
+      "selected": true,
+      "contextUsedTokens": 104000,
+      "contextWindowTokens": 200000,
+      "error": {
+        "kind": "transient",
+        "source": "api",
+        "status": 529,
+        "code": "overloaded",
+        "details": "API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"},\"request_id\":\"req_011Sample\"}",
+        "retries": 3,
+        "retryingMs": 118000
+      },
+      "messages": [
+        {
+          "role": "user",
+          "body": "test_login_redirect fails about one run in ten on CI. Find out why and fix it, without just adding retries.",
+          "turn": 1,
+          "minutesAgo": 35
+        },
+        {
+          "role": "agent",
+          "body": "I ran it 50 times locally: 6 failures. The test reads the session before the login view's write is committed, so it races. I'll change the test to assert on the redirect response instead.",
+          "turn": 1,
+          "minutesAgo": 14,
+          "summary": { "durationMs": 1264000, "filesChanged": 1, "linesAdded": 7, "linesRemoved": 11 }
+        },
+        {
+          "role": "user",
+          "body": "Sounds right, go ahead and confirm it against Postgres too.",
+          "turn": 2,
+          "minutesAgo": 5
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "narration",
+          "text": "Running the redirect test 50 times to see how often it fails.",
+          "turn": 1,
+          "minutesAgo": 34
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": { "command": "pytest --count 50 tests/test_auth.py::test_login_redirect" },
+          "output": "6 failed, 44 passed in 19.8s",
+          "turn": 1,
+          "minutesAgo": 33
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": { "file_path": "/Users/sample/code/api/tests/test_auth.py" },
+          "output": "def test_login_redirect(client):\n    ...\n",
+          "turn": 1,
+          "minutesAgo": 30
+        },
+        {
+          "kind": "narration",
+          "text": "Changing the test to assert on the redirect response.",
+          "turn": 1,
+          "minutesAgo": 16
+        },
+        {
+          "kind": "tool_call",
+          "name": "Edit",
+          "input": {
+            "file_path": "/Users/sample/code/api/tests/test_auth.py",
+            "old_string": "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk",
+            "new_string": "a\nb\nc\nd\ne\nf\ng"
+          },
+          "output": "The file tests/test_auth.py has been updated.",
+          "turn": 1,
+          "minutesAgo": 16
+        },
+        { "kind": "divider", "dividerKind": "turn", "turn": 2, "minutesAgo": 5 },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": { "command": "docker compose up -d db" },
+          "output": "Started postgres",
+          "turn": 2,
+          "minutesAgo": 4
+        },
+        {
+          "kind": "narration",
+          "text": "Running the test 200 times against Postgres.",
+          "turn": 2,
+          "minutesAgo": 4
+        },
+        {
+          "kind": "tool_call",
+          "name": "API",
+          "input": { "request": "request 4 of 4" },
+          "output": "529 overloaded · task paused\n\nAPI Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"},\"request_id\":\"req_011Sample\"}",
+          "failed": true,
+          "turn": 2,
+          "minutesAgo": 1
+        }
+      ]
+    },
+    {
+      "title": "Upgrade Django to 5.2",
+      "status": "Upgraded; two deprecations fixed",
+      "state": "done",
+      "minutesAgo": 2880
+    },
+    {
+      "title": "Remove unused feature flags",
+      "status": "Removed 9 flags and their checks",
+      "state": "done",
+      "minutesAgo": 5760
+    },
+    {
+      "title": "Set up nightly backups",
+      "status": "Nightly dump, 14-day retention",
+      "state": "done",
+      "minutesAgo": 10080
+    },
+    {
+      "title": "Add CSV export to reports",
+      "status": "Export endpoint and button shipped",
+      "state": "done",
+      "minutesAgo": 30240
+    }
+  ]
+}

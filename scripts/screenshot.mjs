@@ -6,7 +6,7 @@
 //
 // With --agent-script, the capture shows a live task: the app makes a workspace and a task, sends it the first
 // message, and lets the named agent script (src/main/agent/scripts.ts: simple-reply, multi-tool-turn, long-running,
-// failing-turn) play its reply through the real agent runner, before capturing. No real agent ever runs.
+// failing-turn, flaky-api) play its reply through the real agent runner, before capturing. No real agent ever runs.
 //
 // Builds the app into out/testing (see scripts/test-build.mjs, which keeps dev-only pages such as the gallery), then
 // launches Electron on it with the capture spec in GLADE_CAPTURE (see src/main/capture.ts), and a fresh temp folder
