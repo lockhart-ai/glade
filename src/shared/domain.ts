@@ -557,3 +557,49 @@ export interface MissingFileContent {
 
 /** A file as the viewer shows it (`files.read`). */
 export type FileContent = TextFileContent | BinaryFileContent | MissingFileContent
+
+/**
+ * A deliverable of a task: a file in its workspace the agent declared with `add_artifact`, shown in the Artifacts tab.
+ * It stays with the task, done or not.
+ */
+export interface Artifact {
+  readonly taskId: string
+  /** Relative to the task's workspace root, with `/` between its parts (`docs/releases/2.4.md`). */
+  readonly path: string
+  /** What the agent called it (`Release notes 2.4`); declaring the same path again renames it. */
+  readonly title: string
+  /** When the agent first declared it. The tab lists artifacts in this order. */
+  readonly addedAt: EpochMs
+  /** When the agent last declared it. */
+  readonly updatedAt: EpochMs
+}
+
+/** What looking at an artifact's file found. */
+export enum FileInfoKind {
+  /** A text file: its lines are counted. */
+  Text = 'text',
+  /** Not text (it has a NUL byte), or too large to count its lines cheaply. */
+  Other = 'other',
+  /** There's no file at that path (any more). */
+  Missing = 'missing',
+}
+
+export interface TextFileInfo {
+  readonly kind: FileInfoKind.Text
+  readonly lines: number
+  /** When the file last changed. */
+  readonly modifiedAt: EpochMs
+}
+
+export interface OtherFileInfo {
+  readonly kind: FileInfoKind.Other
+  /** When the file last changed. */
+  readonly modifiedAt: EpochMs
+}
+
+export interface MissingFileInfo {
+  readonly kind: FileInfoKind.Missing
+}
+
+/** An artifact's file, as its card describes it (`files.info`). */
+export type FileInfo = TextFileInfo | OtherFileInfo | MissingFileInfo

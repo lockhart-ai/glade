@@ -14,6 +14,7 @@ import {
   type QuestionSet,
   type Task,
 } from '../../shared/domain'
+import { listArtifacts } from '../db/repositories/artifacts'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { getOpenQuestionSet, listQuestionSets } from '../db/repositories/question-sets'
 import { getTask } from '../db/repositories/tasks'
@@ -122,6 +123,7 @@ describe('the server', () => {
       GladeTool.SetStatus,
       GladeTool.Ask,
       GladeTool.ShowFile,
+      GladeTool.AddArtifact,
     ])
     for (const listed of tools) expect(listed._meta).toEqual({ 'anthropic/alwaysLoad': true })
     expect(tools.map((listed) => listed.inputSchema.required)).toEqual([
@@ -130,6 +132,7 @@ describe('the server', () => {
       ['status'],
       ['questions'],
       ['path'],
+      ['path', 'title'],
     ])
     await client.close()
   })
@@ -371,5 +374,92 @@ describe('show_file', () => {
 
     expect(getOpenFiles(database.db, taskId).paths).toEqual([])
     expect(events).toEqual([])
+  })
+})
+
+describe('add_artifact', () => {
+  let root: string
+  let adding: McpToolCaller
+  let taskId: string
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'glade-add-artifact-'))
+    mkdirSync(join(root, 'docs', 'releases'), { recursive: true })
+    writeFileSync(join(root, 'docs', 'releases', '2.4.md'), '# Release notes 2.4\n')
+    writeFileSync(join(root, 'docs', 'releases', '2.4-upgrade.md'), '# Upgrading to 2.4\n')
+    taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+    adding = createMcpToolCaller({ [GLADE_SERVER]: createGladeMcpServer(context, taskId) })
+  })
+
+  afterEach(async () => {
+    await adding.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  const changes = (): (readonly string[])[] =>
+    events.flatMap((event) =>
+      event.type === EventType.ArtifactsChanged && event.taskId === taskId
+        ? [event.artifacts.map(({ path, title }) => `${path}: ${title}`)]
+        : [],
+    )
+
+  it('declares a file of the workspace, by a relative or absolute path, and broadcasts the list', async () => {
+    await expect(
+      adding.call('mcp__glade__add_artifact', { path: 'docs/releases/2.4.md', title: 'Release notes 2.4' }),
+    ).resolves.toEqual({
+      output: 'Added docs/releases/2.4.md to the artifacts as "Release notes 2.4".',
+      isError: false,
+    })
+    await adding.call('mcp__glade__add_artifact', {
+      path: join(root, 'docs', 'releases', '2.4-upgrade.md'),
+      title: 'Upgrade guide',
+    })
+
+    expect(listArtifacts(database.db, taskId).map(({ path, title }) => [path, title])).toEqual([
+      ['docs/releases/2.4.md', 'Release notes 2.4'],
+      ['docs/releases/2.4-upgrade.md', 'Upgrade guide'],
+    ])
+    expect(changes()).toEqual([
+      ['docs/releases/2.4.md: Release notes 2.4'],
+      ['docs/releases/2.4.md: Release notes 2.4', 'docs/releases/2.4-upgrade.md: Upgrade guide'],
+    ])
+  })
+
+  it('renames an artifact declared again, keeping one per path', async () => {
+    vi.useFakeTimers({ now: 1_000, toFake: ['Date'] })
+    await adding.call('mcp__glade__add_artifact', { path: 'docs/releases/2.4.md', title: 'Release notes' })
+    vi.setSystemTime(2_000)
+
+    await expect(
+      adding.call('mcp__glade__add_artifact', { path: './docs/releases/2.4.md', title: 'Release notes 2.4' }),
+    ).resolves.toEqual({ output: 'Renamed the artifact docs/releases/2.4.md to "Release notes 2.4".', isError: false })
+
+    expect(listArtifacts(database.db, taskId)).toEqual([
+      { taskId, path: 'docs/releases/2.4.md', title: 'Release notes 2.4', addedAt: 1_000, updatedAt: 2_000 },
+    ])
+    expect(changes().at(-1)).toEqual(['docs/releases/2.4.md: Release notes 2.4'])
+    vi.useRealTimers()
+  })
+
+  it('answers with a tool error for a path outside the workspace, no file, or input that isn’t valid', async () => {
+    const outside = await adding.call('mcp__glade__add_artifact', { path: '/etc/hosts', title: 'Hosts' })
+    expect(outside.isError).toBe(true)
+    expect(outside.output).toContain('is outside the workspace')
+    await expect(
+      adding.call('mcp__glade__add_artifact', { path: '../secrets.txt', title: 'Secrets' }),
+    ).resolves.toMatchObject({ isError: true })
+    await expect(adding.call('mcp__glade__add_artifact', { path: 'docs/gone.md', title: 'Gone' })).resolves.toEqual({
+      output: "There's no file at docs/gone.md.",
+      isError: true,
+    })
+    await expect(adding.call('mcp__glade__add_artifact', { path: 'docs', title: 'A folder' })).resolves.toMatchObject({
+      isError: true,
+    })
+    for (const input of [{}, { path: 'docs/releases/2.4.md' }, { path: 'docs/releases/2.4.md', title: ' ' }]) {
+      expect((await adding.call('mcp__glade__add_artifact', input)).isError).toBe(true)
+    }
+
+    expect(listArtifacts(database.db, taskId)).toEqual([])
+    expect(changes()).toEqual([])
   })
 })

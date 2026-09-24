@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
@@ -118,6 +118,8 @@ const electron = vi.hoisted(() => {
       showOpenDialog: vi.fn(() => Promise.resolve({ canceled: false, filePaths: ['/code/acme-api'] })),
     },
     ipcMain: { handle: vi.fn<(channel: string, listener: Handler) => void>() },
+    shell: { openPath: vi.fn(() => Promise.resolve('')), showItemInFolder: vi.fn() },
+    clipboard: { writeText: vi.fn(() => Promise.resolve()) },
   }
 })
 
@@ -128,8 +130,8 @@ vi.mock('electron', () => ({
   ipcMain: electron.ipcMain,
   Notification: electron.FakeNotification,
   net: { isOnline: () => true },
-  clipboard: { writeText: vi.fn() },
-  shell: { openPath: vi.fn(), showItemInFolder: vi.fn() },
+  shell: electron.shell,
+  clipboard: electron.clipboard,
 }))
 
 // The real agent backend, watched: a test mode must never make one.
@@ -534,6 +536,26 @@ describe('startApp', () => {
       value: { path: '/code/acme-api' },
     })
     expect(electron.dialog.showOpenDialog).toHaveBeenCalledWith(window, CHOOSE_FOLDER_OPTIONS)
+  })
+
+  it('reveals an artifact in Finder and copies it to the clipboard', async () => {
+    await startAndWaitUntilReady()
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'glade-app-files-')))
+    try {
+      writeFileSync(join(root, 'notes.md'), '# Notes\n')
+      const db = new Database(join(electron.app.userData, 'glade.db'))
+      const taskId = sampleTask(db, sampleWorkspace(db, root).id).id
+      db.close()
+      const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+      await handler?.({}, CommandName.FilesReveal, { taskId, path: 'notes.md' })
+      await handler?.({}, CommandName.FilesCopy, { taskId, path: 'notes.md' })
+
+      expect(electron.shell.showItemInFolder).toHaveBeenCalledExactlyOnceWith(join(root, 'notes.md'))
+      expect(electron.clipboard.writeText).toHaveBeenCalledExactlyOnceWith('# Notes\n')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('closes the database when the app quits', async () => {

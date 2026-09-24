@@ -34,6 +34,8 @@ function launch(): void {
     targets: () => [ipc.window],
     chooseFolder: () => Promise.resolve(null),
     openPath: () => Promise.resolve(''),
+    revealPath: () => undefined,
+    writeClipboard: () => Promise.resolve(),
     agentBackend: backend,
     notifyReply: (taskId, reply) => notified.push([taskId, reply]),
   }))

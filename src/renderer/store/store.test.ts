@@ -4,6 +4,7 @@ import {
   DividerKind,
   Effort,
   FileContentKind,
+  FileInfoKind,
   MessageRole,
   QuestionSetState,
   TaskActivity,
@@ -676,15 +677,15 @@ describe("a task's logs", () => {
 })
 
 describe('context menu actions', () => {
-  it('copies text and reveals a file through main', async () => {
-    const data: FakeMain = { ...main(), copied: [], revealed: [] }
+  it('copies text and stops a subagent through main', async () => {
+    const data: FakeMain = { ...main(), copied: [], stoppedSubagents: [] }
     const { store } = await hydrated(data)
 
     await store.getState().copyText('glade://task/t1')
-    await store.getState().revealFile('t1', 'docs/rate-limits.md')
+    await store.getState().stopSubagent('t1', 'toolu_02')
 
     expect(data.copied).toEqual(['glade://task/t1'])
-    expect(data.revealed).toEqual(['docs/rate-limits.md'])
+    expect(data.stoppedSubagents).toEqual(['toolu_02'])
   })
 
   it('asks the input bar to add text, as a new request each time, without calling main', async () => {
@@ -714,6 +715,29 @@ describe('context menu actions', () => {
       [UiStateKey.RightPanelTab]: 'files',
       [UiStateKey.RightPanelCollapsed]: 'false',
     })
+  })
+})
+
+describe('artifact files', () => {
+  it('describes, copies and reveals a file through main', async () => {
+    const data: FakeMain = {
+      ...main(),
+      fileInfo: { 'README.md': { kind: FileInfoKind.Text, lines: 3, modifiedAt: 1 } },
+      copied: [],
+      revealed: [],
+    }
+    const { store, invoke } = await hydrated(data)
+
+    await expect(store.getState().fileInfo('t1', 'README.md')).resolves.toEqual({
+      kind: FileInfoKind.Text,
+      lines: 3,
+      modifiedAt: 1,
+    })
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.FilesInfo, { taskId: 't1', path: 'README.md' })
+    await store.getState().copyFile('t1', 'README.md')
+    await store.getState().revealFile('t1', 'README.md')
+    expect(data.copied).toEqual(['README.md'])
+    expect(data.revealed).toEqual(['README.md'])
   })
 })
 

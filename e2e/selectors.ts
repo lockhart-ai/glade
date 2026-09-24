@@ -133,6 +133,19 @@ export function subagentsTab(page: Page) {
   }
 }
 
+/** The right panel's Artifacts tab: a card per artifact, each with its title, path, file line and actions. */
+export function artifactsTab(page: Page) {
+  const list = regions(page).taskPanel.getByRole('list', { name: 'Artifacts' })
+  const card = (title: string) => list.getByRole('listitem', { name: title, exact: true })
+  return {
+    list,
+    cards: list.getByRole('listitem'),
+    card,
+    /** One of a card's actions: Open, Copy or Reveal in folder. */
+    action: (title: string, name: 'Open' | 'Copy' | 'Reveal in folder') => card(title).getByRole('button', { name }),
+  }
+}
+
 /** The right panel's Files tab: the list of the task's files, the open files' tabs, and the file showing. */
 export function filesTab(page: Page) {
   const panel = regions(page).taskPanel

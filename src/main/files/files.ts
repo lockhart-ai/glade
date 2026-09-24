@@ -1,14 +1,14 @@
 /**
- * The files of a task's workspace, for the Files tab: reading one for the viewer, the tabs open in it, opening one in
- * your editor, and the agent's `show_file`. A file is only ever reached inside the task's workspace root: every path is
+ * The files of a task's workspace, for the Files and Artifacts tabs: reading one for the viewer, the tabs open in it,
+ * opening one in your editor, describing, copying and revealing an artifact's file, and the agent's `show_file`. A file is only ever reached inside the task's workspace root: every path is
  * resolved against the root's real path, and so is every symlink along it, so `..` or a symlink can't reach a file
  * outside it.
  */
-import { constants } from 'node:fs'
-import { open, realpath, stat } from 'node:fs/promises'
+import { constants, type Stats } from 'node:fs'
+import { open, realpath, stat, type FileHandle } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { BridgeErrorCode, EventType } from '../../shared/bridge'
-import { FileContentKind, type FileContent, type OpenFiles } from '../../shared/domain'
+import { FileContentKind, FileInfoKind, type FileContent, type FileInfo, type OpenFiles } from '../../shared/domain'
 import {
   MAX_FILE_BYTES,
   MAX_FILE_LINES,
@@ -25,10 +25,30 @@ import type { TaskServiceContext } from '../tasks/service'
 /** Opens a file in the app macOS opens its kind of file with: Electron's `shell.openPath`, which answers with an error message, or `''`. */
 export type OpenPath = (path: string) => Promise<string>
 
-/** What the Files tab's commands need: the database and events, and a way to open a file in your editor. */
+/** Shows a file in Finder, selected: Electron's `shell.showItemInFolder`. */
+export type RevealPath = (path: string) => void
+
+/** Puts text on the clipboard: Electron's `clipboard.writeText`. */
+export type WriteClipboard = (text: string) => Promise<void>
+
+/**
+ * What the files commands need: the database and events, and the desktop: opening a file in your editor, showing one
+ * in Finder and the clipboard.
+ */
 export interface FilesContext extends TaskServiceContext {
   readonly openPath: OpenPath
+  readonly revealPath: RevealPath
+  readonly writeClipboard: WriteClipboard
 }
+
+/**
+ * The most of a file an artifact's card reads to count its lines, and the most Copy puts on the clipboard, in bytes.
+ * A larger file shows no line count, and can't be copied.
+ */
+export const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024
+
+/** How much of a file is read at a time to count its lines. */
+const CHUNK_BYTES = 64 * 1024
 
 /** Whether `path` is `root` or inside it. Both are absolute. */
 function isInside(root: string, path: string): boolean {
@@ -116,7 +136,7 @@ export async function readWorkspaceFile(rootPath: string, path: string): Promise
 }
 
 /** The root of a task's workspace. Throws a `CommandFailure` (`not_found`) when there's no such task. */
-function workspaceRoot(context: TaskServiceContext, taskId: string): string {
+export function workspaceRoot(context: TaskServiceContext, taskId: string): string {
   const task = getTask(context.db, taskId)
   const workspace = task === undefined ? undefined : getWorkspace(context.db, task.workspaceId)
   if (workspace === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
@@ -158,16 +178,18 @@ export async function openTaskFileInEditor(context: FilesContext, taskId: string
   if (failure !== '') throw new Error(`Couldn't open ${path}: ${failure}`)
 }
 
-/** `files.reveal`: shows a file of the task's workspace in Finder, selected in its folder. */
-export async function revealTaskFile(
-  context: TaskServiceContext,
-  taskId: string,
-  path: string,
-  showItemInFolder: (path: string) => void,
-): Promise<void> {
-  const real = await resolveWorkspaceFile(workspaceRoot(context, taskId), path)
-  if (real === null) throw new CommandFailure(BridgeErrorCode.NotFound, `No file at ${path}`)
-  showItemInFolder(real)
+/**
+ * A file of a task's workspace that a Glade tool names: `path` is absolute, or relative to the workspace root. Answers
+ * with the path relative to the root. Throws an `Error`, for the tool to tell the model, when the path isn't a file
+ * inside the workspace.
+ */
+export async function toolFilePath(context: TaskServiceContext, taskId: string, path: string): Promise<string> {
+  const root = workspaceRoot(context, taskId)
+  const relativePath = workspaceRelativePath(path, root)
+  if (relativePath === null) throw new Error(`${path} is outside the workspace (${root}).`)
+  const real = await resolveWorkspaceFile(root, relativePath)
+  if (real === null || !(await stat(real)).isFile()) throw new Error(`There's no file at ${path}.`)
+  return relativePath
 }
 
 /**
@@ -181,12 +203,84 @@ export async function showTaskFile(
   path: string,
   line: number | null,
 ): Promise<string> {
-  const root = workspaceRoot(context, taskId)
-  const relativePath = workspaceRelativePath(path, root)
-  if (relativePath === null) throw new Error(`${path} is outside the workspace (${root}).`)
-  const real = await resolveWorkspaceFile(root, relativePath)
-  if (real === null || !(await stat(real)).isFile()) throw new Error(`There's no file at ${path}.`)
+  const relativePath = await toolFilePath(context, taskId, path)
   openTaskFile(context, taskId, relativePath)
   context.emit({ type: EventType.FileShown, taskId, path: relativePath, line })
   return relativePath
+}
+
+/**
+ * Opens a regular file of a task's workspace for reading and hands it to `read`; `read` gets null when there's no file
+ * there. Throws a `CommandFailure` for a path outside the workspace, or a task that isn't there.
+ */
+async function withTaskFile<T>(
+  context: TaskServiceContext,
+  taskId: string,
+  path: string,
+  read: (file: { handle: FileHandle; real: string; info: Stats } | null) => Promise<T>,
+): Promise<T> {
+  const real = await resolveWorkspaceFile(workspaceRoot(context, taskId), path)
+  if (real === null) return read(null)
+  // No following a symlink swapped in since the path was resolved.
+  const handle = await open(real, constants.O_RDONLY | constants.O_NOFOLLOW)
+  try {
+    const info = await handle.stat()
+    return await read(info.isFile() ? { handle, real, info } : null)
+  } finally {
+    await handle.close()
+  }
+}
+
+/** The lines in a file, counted a chunk at a time; null when it has a NUL byte, so isn't text. */
+async function countLines(handle: FileHandle, size: number): Promise<number | null> {
+  const buffer = Buffer.alloc(Math.min(size, CHUNK_BYTES))
+  let newlines = 0
+  let last = -1
+  for (let position = 0; position < size;) {
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, position)
+    if (bytesRead === 0) break
+    const chunk = buffer.subarray(0, bytesRead)
+    if (chunk.includes(0)) return null
+    for (let at = chunk.indexOf(10); at !== -1; at = chunk.indexOf(10, at + 1)) newlines++
+    last = chunk[bytesRead - 1] ?? last
+    position += bytesRead
+  }
+  // A last line without a newline still counts.
+  return last === -1 || last === 10 ? newlines : newlines + 1
+}
+
+/**
+ * `files.info`: a file of the task's workspace as its artifact card describes it: its lines, counted from a cheap read
+ * (none for a file that isn't text, or is larger than `MAX_ARTIFACT_BYTES`), and when it last changed; or missing.
+ */
+export async function infoOfTaskFile(context: TaskServiceContext, taskId: string, path: string): Promise<FileInfo> {
+  return withTaskFile(context, taskId, path, async (file) => {
+    if (file === null) return { kind: FileInfoKind.Missing }
+    const modifiedAt = Math.round(file.info.mtimeMs)
+    const lines = file.info.size > MAX_ARTIFACT_BYTES ? null : await countLines(file.handle, file.info.size)
+    return lines === null ? { kind: FileInfoKind.Other, modifiedAt } : { kind: FileInfoKind.Text, lines, modifiedAt }
+  })
+}
+
+/** `files.copy`: puts a text file's contents on the clipboard. */
+export async function copyTaskFile(context: FilesContext, taskId: string, path: string): Promise<void> {
+  const text = await withTaskFile(context, taskId, path, async (file) => {
+    if (file === null) throw new CommandFailure(BridgeErrorCode.NotFound, `No file at ${path}`)
+    if (file.info.size > MAX_ARTIFACT_BYTES) {
+      throw new CommandFailure(BridgeErrorCode.InvalidRequest, `${path} is too large to copy`)
+    }
+    const bytes = await file.handle.readFile()
+    if (bytes.includes(0)) throw new CommandFailure(BridgeErrorCode.InvalidRequest, `${path} isn't text`)
+    return new TextDecoder().decode(bytes)
+  })
+  await context.writeClipboard(text)
+}
+
+/** `files.reveal`: shows a file of the task's workspace in Finder, selected. */
+export async function revealTaskFile(context: FilesContext, taskId: string, path: string): Promise<void> {
+  const real = await withTaskFile(context, taskId, path, (file) => {
+    if (file === null) throw new CommandFailure(BridgeErrorCode.NotFound, `No file at ${path}`)
+    return Promise.resolve(file.real)
+  })
+  context.revealPath(real)
 }

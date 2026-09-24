@@ -271,13 +271,22 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.FilesOpenInEditor, { taskId, path })
       },
 
-      async showFile(taskId, path) {
-        await get().openFile(taskId, path)
-        showPanelTab(taskId, PanelTab.Files)
+      async fileInfo(taskId, path) {
+        const { info } = await bridge.invoke(CommandName.FilesInfo, { taskId, path })
+        return info
+      },
+
+      async copyFile(taskId, path) {
+        await bridge.invoke(CommandName.FilesCopy, { taskId, path })
       },
 
       async revealFile(taskId, path) {
         await bridge.invoke(CommandName.FilesReveal, { taskId, path })
+      },
+
+      async showFile(taskId, path) {
+        await get().openFile(taskId, path)
+        showPanelTab(taskId, PanelTab.Files)
       },
 
       async stopSubagent(taskId, toolUseId) {

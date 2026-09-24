@@ -15,13 +15,16 @@ import {
 import {
   Effort,
   FileContentKind,
+  FileInfoKind,
   MessageRole,
   QuestionKind,
   QuestionReplyKind,
   QuestionSetState,
   TaskActivity,
   TaskState,
+  type Artifact,
   type FileContent,
+  type FileInfo,
   type Message,
   type OpenFiles,
   type QuestionSet,
@@ -56,14 +59,19 @@ export interface FakeMain {
   readonly files?: Readonly<Record<string, FileContent>>
   /** The paths `files.openInEditor` opened, oldest first. */
   readonly openedInEditor?: string[]
-  /** The paths `files.reveal` showed in Finder, oldest first. */
-  readonly revealed?: string[]
-  /** The text `clipboard.writeText` copied, oldest first. */
-  readonly copied?: string[]
   /** The subagents `subagents.stop` stopped, by their `Agent` calls' tool_use ids, oldest first. */
   readonly stoppedSubagents?: string[]
   /** Each task's todo list, by task id; none when left out. */
   readonly todos?: Readonly<Record<string, TodoList>>
+  /** Every task's artifacts; none when left out. */
+  readonly artifacts?: readonly Artifact[]
+  /** What `files.info` answers with, by path, for any task; missing when left out. */
+  readonly fileInfo?: Readonly<Record<string, FileInfo>>
+  /** What was put on the clipboard, oldest first: the path of each file `files.copy` copied, and the text of each
+   * `clipboard.writeText`. */
+  readonly copied?: string[]
+  /** The paths `files.reveal` revealed, oldest first. */
+  readonly revealed?: string[]
 }
 
 export interface FakeBridge {
@@ -167,6 +175,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       questionSets: (main.questionSets ?? []).filter((set) => set.taskId === id),
       openFiles: openFilesOf(id),
       todos: main.todos?.[id] ?? null,
+      artifacts: (main.artifacts ?? []).filter((artifact) => artifact.taskId === id),
     }),
     [CommandName.QueueAdd]: ({ taskId, text }) => {
       queued += 1
@@ -215,6 +224,11 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     },
     [CommandName.SubagentsStop]: ({ toolUseId }) => {
       main.stoppedSubagents?.push(toolUseId)
+      return null
+    },
+    [CommandName.FilesInfo]: ({ path }) => ({ info: main.fileInfo?.[path] ?? { kind: FileInfoKind.Missing } }),
+    [CommandName.FilesCopy]: ({ path }) => {
+      main.copied?.push(path)
       return null
     },
     [CommandName.FilesReveal]: ({ path }) => {

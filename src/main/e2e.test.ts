@@ -15,6 +15,7 @@ import {
   E2eSpecError,
   prepareE2e,
   readE2eSpec,
+  type E2eDesktop,
   type E2eEditor,
   type E2eNetwork,
   type E2eSpec,
@@ -138,24 +139,6 @@ describe('createE2eNetwork', () => {
   })
 })
 
-describe('createE2eDesktop', () => {
-  afterEach(() => {
-    Reflect.deleteProperty(globalThis, E2E_DESKTOP_GLOBAL)
-  })
-
-  it('records what it copies and reveals on the global object', async () => {
-    const desktop = createE2eDesktop()
-
-    await desktop.writeClipboard('glade://task/t1')
-    desktop.showItemInFolder('/code/acme-api/README.md')
-
-    expect(Reflect.get(globalThis, E2E_DESKTOP_GLOBAL)).toEqual({
-      copied: ['glade://task/t1'],
-      revealed: ['/code/acme-api/README.md'],
-    })
-  })
-})
-
 describe('createE2eEditor', () => {
   afterEach(() => {
     Reflect.deleteProperty(globalThis, E2E_EDITOR_GLOBAL)
@@ -167,5 +150,23 @@ describe('createE2eEditor', () => {
     await expect(openPath('/code/acme-api/README.md')).resolves.toBe('')
 
     expect((Reflect.get(globalThis, E2E_EDITOR_GLOBAL) as E2eEditor).opened).toEqual(['/code/acme-api/README.md'])
+  })
+})
+
+describe('createE2eDesktop', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, E2E_DESKTOP_GLOBAL)
+  })
+
+  it('records each file it reveals and each text it copies on the global object', async () => {
+    const { revealPath, writeClipboard } = createE2eDesktop()
+
+    revealPath('/code/acme-api/docs/notes.md')
+    await writeClipboard('# Notes')
+
+    expect(Reflect.get(globalThis, E2E_DESKTOP_GLOBAL) as E2eDesktop).toEqual({
+      revealed: ['/code/acme-api/docs/notes.md'],
+      copied: ['# Notes'],
+    })
   })
 })

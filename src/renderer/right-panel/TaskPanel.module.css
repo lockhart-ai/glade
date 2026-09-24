@@ -28,11 +28,3 @@
   outline: 2px solid var(--color-blue-text);
   outline-offset: -2px;
 }
-
-.empty {
-  margin: auto 0;
-  padding: 10px 8px;
-  text-align: center;
-  font-size: var(--font-size-secondary);
-  color: var(--color-faint);
-}

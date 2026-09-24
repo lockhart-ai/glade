@@ -79,6 +79,8 @@ beforeEach(() => {
     targets: () => [ipc.window],
     chooseFolder: () => Promise.resolve(null),
     openPath: () => Promise.resolve(''),
+    revealPath: () => undefined,
+    writeClipboard: () => Promise.resolve(),
     agentBackend: backend,
   }))
   glade = createBridge(ipc.renderer)
@@ -103,6 +105,8 @@ function relaunch(): void {
     targets: () => [ipc.window],
     chooseFolder: () => Promise.resolve(null),
     openPath: () => Promise.resolve(''),
+    revealPath: () => undefined,
+    writeClipboard: () => Promise.resolve(),
     agentBackend: backend,
   }))
   glade = createBridge(ipc.renderer)
@@ -169,6 +173,8 @@ function drainEvents(): (readonly unknown[])[] {
         return [event.type, event.queuedMessages.map(({ body }) => body)]
       case EventType.TodosChanged:
         return [event.type, event.todos?.items.map(({ text, state }) => [text, state]) ?? null]
+      case EventType.ArtifactsChanged:
+        return [event.type, event.artifacts.map(({ path }) => path)]
       case EventType.QuestionOpened:
       case EventType.QuestionAnswered:
       case EventType.QuestionWithdrawn:
@@ -330,6 +336,7 @@ describe('a turn', () => {
       questionSets: [],
       openFiles: { taskId: task.id, paths: [], activePath: null },
       todos: null,
+      artifacts: [],
     })
   })
 
@@ -2435,6 +2442,7 @@ describe('several tasks at once', () => {
       case EventType.QueueChanged:
       case EventType.FileShown:
       case EventType.TodosChanged:
+      case EventType.ArtifactsChanged:
         return event.taskId
       case EventType.OpenFilesChanged:
         return event.openFiles.taskId
@@ -2471,6 +2479,7 @@ describe('several tasks at once', () => {
       case EventType.OpenFilesChanged:
       case EventType.FileShown:
       case EventType.TodosChanged:
+      case EventType.ArtifactsChanged:
         return [event.type]
     }
   }

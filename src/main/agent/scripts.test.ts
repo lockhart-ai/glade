@@ -20,6 +20,7 @@ import {
   type ToolEvent,
 } from '../../shared/domain'
 import { autoCompactThreshold } from '../../shared/contextWindow'
+import { listArtifacts } from '../db/repositories/artifacts'
 import { listMessages } from '../db/repositories/messages'
 import { getOpenQuestionSet } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
@@ -151,6 +152,39 @@ describe('AGENT_SCRIPTS', () => {
       ])
       expect(getOpenFiles(database.db, task.id)).toMatchObject({ activePath: 'docs/rate-limits.md' })
       expect(reply()).toMatch(/Line 8 has the tighter \/search limit/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('declares-artifacts: writes release notes and an upgrade guide, and declares both as artifacts', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'glade-declares-artifacts-'))
+    try {
+      mkdirSync(join(root, 'docs', 'releases'), { recursive: true })
+      writeFileSync(join(root, 'docs', 'releases', '2.4.md'), '# Release notes 2.4\n')
+      writeFileSync(join(root, 'docs', 'releases', '2.4-upgrade.md'), '# Upgrading to 2.4\n')
+      task = sampleTask(database.db, sampleWorkspace(database.db, root).id)
+      // Real timers: \`add_artifact\` reads the disk, which fake timers would race with the tool call's timeout.
+      vi.useRealTimers()
+      const agent = start('declares-artifacts')
+      agent.send(task.id, 'Draft the 2.4 release notes.')
+      await backend.whenIdle()
+
+      expect(calls().map((call) => [call.name, call.state])).toEqual([
+        ['mcp__glade__set_title', ToolCallState.Done],
+        ['mcp__glade__set_objective', ToolCallState.Done],
+        ['mcp__glade__set_status', ToolCallState.Done],
+        ['Write', ToolCallState.Done],
+        ['Write', ToolCallState.Done],
+        ['mcp__glade__add_artifact', ToolCallState.Done],
+        ['mcp__glade__add_artifact', ToolCallState.Done],
+        ['mcp__glade__set_status', ToolCallState.Done],
+      ])
+      expect(listArtifacts(database.db, task.id).map(({ path, title }) => [path, title])).toEqual([
+        ['docs/releases/2.4.md', 'Release notes 2.4'],
+        ['docs/releases/2.4-upgrade.md', 'Upgrade guide'],
+      ])
+      expect(reply()).toBe('The release notes and an upgrade guide are ready in Artifacts.')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

@@ -14,6 +14,7 @@ import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import type { Question } from '../../shared/domain'
+import { addTaskArtifact } from '../artifacts/artifacts'
 import { getTask } from '../db/repositories/tasks'
 import { showTaskFile } from '../files/files'
 import { toolResultFor, type QuestionBroker } from '../questions/questions'
@@ -30,6 +31,7 @@ export enum GladeTool {
   SetStatus = 'set_status',
   Ask = 'ask',
   ShowFile = 'show_file',
+  AddArtifact = 'add_artifact',
 }
 
 export interface SetTitleInput {
@@ -51,6 +53,11 @@ export interface AskInput {
 export interface ShowFileInput {
   readonly path: string
   readonly line?: number | undefined
+}
+
+export interface AddArtifactInput {
+  readonly path: string
+  readonly title: string
 }
 
 /** Text the model sends: trimmed, and never empty. */
@@ -77,6 +84,11 @@ const showFileInput = z.object({
   line: z.int().positive().optional().describe('A line to scroll to and mark, from 1.'),
 }) satisfies z.ZodType<ShowFileInput>
 
+const addArtifactInput = z.object({
+  path: text('path').describe("The file's path: absolute, or relative to the workspace root."),
+  title: text('title').describe('A short name for the deliverable, e.g. "Release notes 2.4".'),
+}) satisfies z.ZodType<AddArtifactInput>
+
 /** A tool's reply to the model: MCP's own result type. */
 export type GladeToolResult = CallToolResult
 
@@ -101,6 +113,8 @@ export interface GladeToolHandlers {
   ask(input: AskInput, signal?: AbortSignal): Promise<GladeToolResult>
   /** Opens a file in the task's Files tab; an error result when it isn't a file in the workspace. */
   showFile(input: ShowFileInput): Promise<GladeToolResult>
+  /** Declares a file as a deliverable of the task; an error result when it isn't a file in the workspace. */
+  addArtifact(input: AddArtifactInput): Promise<GladeToolResult>
 }
 
 export function createGladeToolHandlers(context: GladeToolContext, taskId: string): GladeToolHandlers {
@@ -132,6 +146,18 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
         return { ...reply((error as Error).message), isError: true }
       }
     },
+    async addArtifact({ path, title }) {
+      try {
+        const artifact = await addTaskArtifact(context, taskId, path, title)
+        return reply(
+          artifact.addedAt === artifact.updatedAt
+            ? `Added ${artifact.path} to the artifacts as "${title}".`
+            : `Renamed the artifact ${artifact.path} to "${title}".`,
+        )
+      } catch (error) {
+        return { ...reply((error as Error).message), isError: true }
+      }
+    },
   }
 }
 
@@ -154,6 +180,10 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
   [GladeTool.ShowFile]:
     "Open a file in the user's Files tab, next to the chat, to point them at it: a change to review, say. Give a line " +
     'to scroll to and mark it. The file must be in the workspace.',
+  [GladeTool.AddArtifact]:
+    "Add a file you made to the task's artifacts: its deliverables, which the user finds in the Artifacts tab and " +
+    'which stay with the task after it is done. Use it for what the user asked for (a report, a document, a draft), ' +
+    'not for every file you change. The file must exist in the workspace. Adding the same path again renames it.',
 }
 
 /** The signal an MCP tool call is cancelled by, from the handler's `extra` (MCP's `RequestHandlerExtra`). */
@@ -184,6 +214,9 @@ export function createGladeMcpServer(context: GladeToolContext, taskId: string):
       ),
       tool(GladeTool.ShowFile, DESCRIPTIONS[GladeTool.ShowFile], showFileInput.shape, (input) =>
         handlers.showFile(input),
+      ),
+      tool(GladeTool.AddArtifact, DESCRIPTIONS[GladeTool.AddArtifact], addArtifactInput.shape, (input) =>
+        handlers.addArtifact(input),
       ),
     ],
   })

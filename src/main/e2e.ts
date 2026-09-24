@@ -7,7 +7,6 @@
 import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import { AGENT_SCRIPT_NAMES, type AgentScriptName } from './agent/scripts'
-import type { Desktop } from './desktop'
 import { isInTempFolder, isolateApp, type IsolatedApp } from './isolation'
 
 /** The environment variable that carries the e2e spec, as JSON. */
@@ -58,33 +57,37 @@ export function createE2eEditor(): (path: string) => Promise<string> {
 }
 
 /**
- * Where e2e mode puts what the context menus copied and revealed on the main process's global object: an `E2eDesktop`,
- * since an e2e run never touches the real clipboard or Finder. A spec reads it through Playwright's `app.evaluate`.
+ * Where e2e mode puts what an artifact's Reveal in folder and Copy did on the main process's global object: an
+ * `E2eDesktop`, since an e2e run never opens Finder or touches the clipboard. A spec reads it through Playwright's
+ * `app.evaluate`.
  */
 export const E2E_DESKTOP_GLOBAL = '__gladeE2eDesktop'
 
-/** What the context menus copied and revealed in e2e mode (`E2E_DESKTOP_GLOBAL`), oldest first. */
+/** What e2e mode did in place of Finder and the clipboard (`E2E_DESKTOP_GLOBAL`), oldest first. */
 export interface E2eDesktop {
-  /** The text each Copy put on the clipboard. */
-  readonly copied: string[]
-  /** The real path of each file Reveal in Finder showed. */
+  /** The real paths of the files shown in Finder. */
   readonly revealed: string[]
+  /** The text put on the clipboard. */
+  readonly copied: string[]
 }
 
 /**
- * Puts an empty `E2eDesktop` on the global object for a spec to read (`E2E_DESKTOP_GLOBAL`), and answers with the
- * `Desktop` that records into it in place of Electron's clipboard and Finder.
+ * Puts an empty `E2eDesktop` on the global object for a spec to read (`E2E_DESKTOP_GLOBAL`), and answers with what
+ * shows a file in Finder and writes the clipboard in e2e mode: each records what it was given.
  */
-export function createE2eDesktop(): Desktop {
-  const desktop: E2eDesktop = { copied: [], revealed: [] }
+export function createE2eDesktop(): {
+  revealPath: (path: string) => void
+  writeClipboard: (text: string) => Promise<void>
+} {
+  const desktop: E2eDesktop = { revealed: [], copied: [] }
   Reflect.set(globalThis, E2E_DESKTOP_GLOBAL, desktop)
   return {
+    revealPath: (path) => {
+      desktop.revealed.push(path)
+    },
     writeClipboard: (text) => {
       desktop.copied.push(text)
       return Promise.resolve()
-    },
-    showItemInFolder: (path) => {
-      desktop.revealed.push(path)
     },
   }
 }

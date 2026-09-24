@@ -10,8 +10,10 @@
  *   thrown into the renderer's world but drops its extra properties, so `code` wouldn't survive.
  */
 import type {
+  Artifact,
   Effort,
   FileContent,
+  FileInfo,
   Message,
   OpenFiles,
   QuestionAnswers,
@@ -61,8 +63,10 @@ export enum CommandName {
   FilesOpen = 'files.open',
   FilesClose = 'files.close',
   FilesOpenInEditor = 'files.openInEditor',
-  FilesReveal = 'files.reveal',
   ClipboardWriteText = 'clipboard.writeText',
+  FilesInfo = 'files.info',
+  FilesCopy = 'files.copy',
+  FilesReveal = 'files.reveal',
   UiStateGet = 'uiState.get',
   UiStateGetAll = 'uiState.getAll',
   UiStateSet = 'uiState.set',
@@ -258,6 +262,8 @@ export interface TasksHistoryResponse {
   readonly openFiles: OpenFiles
   /** The agent's todo list (the Todos tab), as its tool log leaves it; null when it has kept none. */
   readonly todos: TodoList | null
+  /** The files the agent declared as its deliverables (the Artifacts tab), in the order it first declared them. */
+  readonly artifacts: readonly Artifact[]
 }
 
 /**
@@ -363,10 +369,29 @@ export interface OpenFilesResponse {
  */
 export type FilesOpenInEditorRequest = FileRequest
 
-/** Shows a file in Finder, selected in its folder (Reveal in Finder). Fails with `not_found` when there's no such file. */
+/**
+ * Describes a file for its artifact card: its line count (from a cheap read) and when it last changed, or that it's
+ * missing. Never fails for a file that isn't there.
+ */
+export type FilesInfoRequest = FileRequest
+
+export interface FilesInfoResponse {
+  readonly info: FileInfo
+}
+
+/**
+ * Copies a text file's contents to the clipboard (an artifact's Copy contents). Fails with `not_found` when there's no
+ * such file, and `invalid_request` when it isn't text or is too large to copy.
+ */
+export type FilesCopyRequest = FileRequest
+
+/**
+ * Shows a file in Finder, selected (Reveal in Finder, for a file tab or an artifact). Fails with `not_found` when there's
+ * no such file.
+ */
 export type FilesRevealRequest = FileRequest
 
-/** Puts text on the clipboard (a context menu's Copy items). */
+/** Puts text on the clipboard (the context menus' Copy items). */
 export interface ClipboardWriteTextRequest {
   readonly text: string
 }
@@ -420,8 +445,10 @@ export interface CommandMap {
   [CommandName.FilesOpen]: CommandSpec<FilesOpenRequest, OpenFilesResponse>
   [CommandName.FilesClose]: CommandSpec<FilesCloseRequest, OpenFilesResponse>
   [CommandName.FilesOpenInEditor]: CommandSpec<FilesOpenInEditorRequest, null>
-  [CommandName.FilesReveal]: CommandSpec<FilesRevealRequest, null>
   [CommandName.ClipboardWriteText]: CommandSpec<ClipboardWriteTextRequest, null>
+  [CommandName.FilesInfo]: CommandSpec<FilesInfoRequest, FilesInfoResponse>
+  [CommandName.FilesCopy]: CommandSpec<FilesCopyRequest, null>
+  [CommandName.FilesReveal]: CommandSpec<FilesRevealRequest, null>
   [CommandName.UiStateGet]: CommandSpec<UiStateGetRequest, UiStateGetResponse>
   [CommandName.UiStateGetAll]: CommandSpec<EmptyRequest, UiStateGetAllResponse>
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>
@@ -448,6 +475,7 @@ export enum EventType {
   OpenFilesChanged = 'openFiles.changed',
   FileShown = 'file.shown',
   TodosChanged = 'todos.changed',
+  ArtifactsChanged = 'artifacts.changed',
 }
 
 export interface UiStateChangedEvent {
@@ -554,6 +582,13 @@ export interface TodosChangedEvent {
   readonly todos: TodoList | null
 }
 
+/** The agent declared an artifact, or declared one again with a new title. Carries the task's artifacts as they now are. */
+export interface ArtifactsChangedEvent {
+  readonly type: EventType.ArtifactsChanged
+  readonly taskId: string
+  readonly artifacts: readonly Artifact[]
+}
+
 /** Everything main broadcasts to the windows. */
 export type GladeEvent =
   | UiStateChangedEvent
@@ -571,6 +606,7 @@ export type GladeEvent =
   | OpenFilesChangedEvent
   | FileShownEvent
   | TodosChangedEvent
+  | ArtifactsChangedEvent
 
 export type EventListener = (event: GladeEvent) => void
 

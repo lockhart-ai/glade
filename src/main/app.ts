@@ -29,8 +29,7 @@ import {
   readE2eSpec,
   type E2eSpec,
 } from './e2e'
-import { NO_DESKTOP, type Desktop } from './desktop'
-import type { OpenPath } from './files/files'
+import type { OpenPath, RevealPath, WriteClipboard } from './files/files'
 import { createElectronNotifier } from './notifications/electron-notifier'
 import { createReplyNotifications } from './notifications/notifications'
 import type { Notifier } from './notifications/notifier'
@@ -257,16 +256,29 @@ function createOpenPath(testMode: TestMode): OpenPath {
   return () => Promise.resolve('')
 }
 
+/** Showing a file in Finder, and the clipboard: the desktop an artifact's Reveal in folder and Copy use. */
+interface Desktop {
+  readonly revealPath: RevealPath
+  readonly writeClipboard: WriteClipboard
+}
+
 /**
- * What the context menus copy with and reveal files through: Electron's clipboard and Finder. A test mode never touches
- * either: e2e mode records what it would have done, for the spec to read (`E2E_DESKTOP_GLOBAL`), and a capture ignores it.
+ * The real Finder and clipboard. A test mode never touches them: e2e mode records what they'd have done instead, for
+ * the spec to read (`E2E_DESKTOP_GLOBAL`), and a capture ignores it.
  */
 function createDesktop(testMode: TestMode): Desktop {
   if (testMode === null) {
-    return { writeClipboard: (text) => clipboard.writeText(text), showItemInFolder: shell.showItemInFolder.bind(shell) }
+    return {
+      revealPath: (path) => {
+        shell.showItemInFolder(path)
+      },
+      writeClipboard: (text) => {
+        return clipboard.writeText(text)
+      },
+    }
   }
   if (testMode.kind === TestModeKind.E2e) return createE2eDesktop()
-  return NO_DESKTOP
+  return { revealPath: () => undefined, writeClipboard: () => Promise.resolve() }
 }
 
 /** What opening a task from its notification needs from the running app. */
@@ -370,7 +382,7 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
           ? () => Promise.resolve(e2eChosenFolder(process.env))
           : () => chooseFolder(dialog, BrowserWindow.getFocusedWindow()),
       openPath: createOpenPath(testMode),
-      desktop: createDesktop(testMode),
+      ...createDesktop(testMode),
       notifyReply,
       // Whether the network is up, for resuming a task paused offline. In e2e mode, the spec decides.
       isOnline: testMode?.kind === TestModeKind.E2e ? createE2eNetwork() : net.isOnline.bind(net),

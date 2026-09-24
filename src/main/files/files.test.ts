@@ -1,15 +1,27 @@
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
-import { FileContentKind } from '../../shared/domain'
+import { FileContentKind, FileInfoKind } from '../../shared/domain'
 import { MAX_FILE_BYTES, MAX_FILE_LINES } from '../../shared/files'
 import { CommandFailure } from '../bridge/errors'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import {
   closeTaskFile,
+  copyTaskFile,
+  infoOfTaskFile,
+  MAX_ARTIFACT_BYTES,
   openTaskFile,
   openTaskFileInEditor,
   readTaskFile,
@@ -44,7 +56,13 @@ beforeEach(() => {
   writeFileSync(join(outside, 'token.txt'), 'hunter2')
   database = openTestDatabase()
   events = []
-  context = { db: database.db, emit: (event) => events.push(event), openPath: vi.fn(() => Promise.resolve('')) }
+  context = {
+    db: database.db,
+    emit: (event) => events.push(event),
+    openPath: vi.fn(() => Promise.resolve('')),
+    revealPath: vi.fn(),
+    writeClipboard: vi.fn(() => Promise.resolve()),
+  }
   taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
 })
 
@@ -219,21 +237,6 @@ describe('the task commands', () => {
   })
 })
 
-describe('revealTaskFile', () => {
-  it('shows a file in Finder by its real path, or fails when it is missing', async () => {
-    write('docs/rate-limits.md', '# Rate limits\n')
-    const showItemInFolder = vi.fn()
-
-    await revealTaskFile(context, taskId, 'docs/rate-limits.md', showItemInFolder)
-    expect(showItemInFolder).toHaveBeenCalledExactlyOnceWith(realpathSync(join(root, 'docs', 'rate-limits.md')))
-
-    expect((await failure(revealTaskFile(context, taskId, 'gone.md', showItemInFolder))).code).toBe(
-      BridgeErrorCode.NotFound,
-    )
-    expect(showItemInFolder).toHaveBeenCalledOnce()
-  })
-})
-
 describe('showTaskFile', () => {
   it('opens a file by a path relative to the root or absolute, and asks the window to show it at the line', async () => {
     write('docs/rate-limits.md', '# Rate limits\n')
@@ -261,5 +264,92 @@ describe('showTaskFile', () => {
     await expect(showTaskFile(context, taskId, 'gone.md', null)).rejects.toThrow("There's no file at gone.md.")
     await expect(showTaskFile(context, taskId, 'docs', null)).rejects.toThrow("There's no file at docs.")
     expect(events).toEqual([])
+  })
+})
+
+describe('infoOfTaskFile', () => {
+  const changed = new Date(1_700_000_000_000)
+
+  it('counts a text file’s lines, the last one with or without its newline, and says when it changed', async () => {
+    write('docs/notes.md', '# Notes\n\nOne\n')
+    write('docs/open.md', '# Notes\nOne')
+    write('docs/empty.md', '')
+    utimesSync(join(root, 'docs', 'notes.md'), changed, changed)
+
+    await expect(infoOfTaskFile(context, taskId, 'docs/notes.md')).resolves.toEqual({
+      kind: FileInfoKind.Text,
+      lines: 3,
+      modifiedAt: changed.getTime(),
+    })
+    await expect(infoOfTaskFile(context, taskId, 'docs/open.md')).resolves.toMatchObject({ lines: 2 })
+    await expect(infoOfTaskFile(context, taskId, 'docs/empty.md')).resolves.toMatchObject({ lines: 0 })
+  })
+
+  it('counts the lines of a file read in several chunks', async () => {
+    write('big.txt', 'a line of text\n'.repeat(20_000))
+
+    await expect(infoOfTaskFile(context, taskId, 'big.txt')).resolves.toMatchObject({
+      kind: FileInfoKind.Text,
+      lines: 20_000,
+    })
+  })
+
+  it('counts no lines of a binary file, or one too large to read cheaply', async () => {
+    write('logo.png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0a]))
+    write('dump.sql', Buffer.alloc(MAX_ARTIFACT_BYTES + 1, 0x0a))
+    utimesSync(join(root, 'logo.png'), changed, changed)
+
+    await expect(infoOfTaskFile(context, taskId, 'logo.png')).resolves.toEqual({
+      kind: FileInfoKind.Other,
+      modifiedAt: changed.getTime(),
+    })
+    await expect(infoOfTaskFile(context, taskId, 'dump.sql')).resolves.toMatchObject({ kind: FileInfoKind.Other })
+  })
+
+  it('is missing for no file, or a folder, and refuses a path outside the workspace', async () => {
+    mkdirSync(join(root, 'docs'))
+    symlinkSync(join(outside, 'token.txt'), join(root, 'token.txt'))
+
+    await expect(infoOfTaskFile(context, taskId, 'docs/gone.md')).resolves.toEqual({ kind: FileInfoKind.Missing })
+    await expect(infoOfTaskFile(context, taskId, 'docs')).resolves.toEqual({ kind: FileInfoKind.Missing })
+    expect((await failure(infoOfTaskFile(context, taskId, 'token.txt'))).code).toBe(BridgeErrorCode.OutsideWorkspace)
+    expect((await failure(infoOfTaskFile(context, 'gone', 'README.md'))).code).toBe(BridgeErrorCode.NotFound)
+  })
+})
+
+describe('copyTaskFile', () => {
+  it('puts a text file’s contents on the clipboard', async () => {
+    write('out/email.txt', 'Hi all,\n\n2.4 is out.\n')
+
+    await copyTaskFile(context, taskId, 'out/email.txt')
+
+    expect(context.writeClipboard).toHaveBeenCalledExactlyOnceWith('Hi all,\n\n2.4 is out.\n')
+  })
+
+  it('refuses a missing, binary or too large file, or one outside the workspace, copying nothing', async () => {
+    write('logo.png', Buffer.from([0x89, 0x00]))
+    write('dump.sql', Buffer.alloc(MAX_ARTIFACT_BYTES + 1, 0x41))
+    symlinkSync(join(outside, 'token.txt'), join(root, 'token.txt'))
+
+    expect((await failure(copyTaskFile(context, taskId, 'gone.md'))).code).toBe(BridgeErrorCode.NotFound)
+    expect((await failure(copyTaskFile(context, taskId, 'logo.png'))).code).toBe(BridgeErrorCode.InvalidRequest)
+    expect((await failure(copyTaskFile(context, taskId, 'dump.sql'))).code).toBe(BridgeErrorCode.InvalidRequest)
+    expect((await failure(copyTaskFile(context, taskId, 'token.txt'))).code).toBe(BridgeErrorCode.OutsideWorkspace)
+    expect(context.writeClipboard).not.toHaveBeenCalled()
+  })
+})
+
+describe('revealTaskFile', () => {
+  it('shows a file in Finder by its real path', async () => {
+    write('docs/notes.md', '# Notes\n')
+
+    await revealTaskFile(context, taskId, 'docs/notes.md')
+
+    expect(context.revealPath).toHaveBeenCalledExactlyOnceWith(realpathSync(join(root, 'docs', 'notes.md')))
+  })
+
+  it('refuses a file that isn’t there, revealing nothing', async () => {
+    expect((await failure(revealTaskFile(context, taskId, 'gone.md'))).code).toBe(BridgeErrorCode.NotFound)
+    expect(context.revealPath).not.toHaveBeenCalled()
   })
 })
