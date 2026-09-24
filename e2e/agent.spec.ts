@@ -78,11 +78,12 @@ test('stop a running turn with ⌘., then carry on in the same session', async (
 
   await window.keyboard.press('Meta+.')
 
-  // Back to waiting on you: the running command ended as an error, and the tool log says you stopped it.
+  // Back to waiting on you: the running command ended as an error that says you stopped it, and so does the tool log.
   await expect(pill).toHaveText('Active · waiting on you')
   await expect(panel.call(/^Failed\s*Bash/)).toBeVisible()
+  await expect(panel.call(/^Failed\s*Bash/)).toHaveAccessibleName(/You stopped the agent\.$/)
   await expect(panel.call(/^Running/)).toHaveCount(0)
-  await expect(panel.log.getByText(/^You stopped the agent\./)).toBeVisible()
+  await expect(panel.log.getByRole('paragraph').filter({ hasText: /^You stopped the agent\./ })).toBeVisible()
   const { userMessages, agentReplies } = chat(window)
   await expect(agentReplies).toHaveCount(0)
 

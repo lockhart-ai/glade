@@ -1,7 +1,7 @@
 import { act, render, renderHook, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { EventType } from '../../shared/bridge'
-import { GladeStoreProvider, useGladeStore } from './react'
+import { GladeStoreProvider, useGladeStore, useGladeStoreApi } from './react'
 import { selectSelectedWorkspace } from './state'
 import { createGladeStore } from './store'
 import { fakeBridge, sampleWorkspace } from './test-bridge'
@@ -45,4 +45,20 @@ it('throws outside a GladeStoreProvider', () => {
   expect(() => renderHook(() => useGladeStore((state) => state.hydration))).toThrow(
     'useGladeStore must be used under a GladeStoreProvider',
   )
+})
+
+it('hands back the store itself under a GladeStoreProvider', () => {
+  const store = createGladeStore(fakeBridge({ workspaces: [], tasks: [], uiState: [] }).bridge)
+
+  const { result } = renderHook(() => useGladeStoreApi(), {
+    wrapper: ({ children }) => <GladeStoreProvider store={store}>{children}</GladeStoreProvider>,
+  })
+
+  expect(result.current).toBe(store)
+})
+
+it('refuses to hand back the store outside a GladeStoreProvider', () => {
+  vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+  expect(() => renderHook(() => useGladeStoreApi())).toThrow('useGladeStoreApi must be used under a GladeStoreProvider')
 })

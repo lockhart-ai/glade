@@ -210,7 +210,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return
     }
     const state = event.isError ? ToolCallState.Error : ToolCallState.Done
-    const call = updateToolCall(db, { taskId, toolUseId: event.toolUseId, state, output: event.output })
+    // A call the SDK rejects because the user stopped the agent reads like the turn's other unfinished calls.
+    const output = event.isError && turn.stopping ? STOPPED_NOTE : event.output
+    const call = updateToolCall(db, { taskId, toolUseId: event.toolUseId, state, output })
     emitToolEventUpdated(emit, call)
   }
 

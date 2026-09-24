@@ -22,3 +22,10 @@ export function useGladeStore<T>(selector: (state: GladeState) => T): T {
   if (store === null) throw new Error('useGladeStore must be used under a GladeStoreProvider')
   return useStore(store, selector)
 }
+
+/** The store itself, to read or subscribe to it outside rendering. Must be used under a `GladeStoreProvider`. */
+export function useGladeStoreApi(): GladeStore {
+  const store = use(GladeStoreContext)
+  if (store === null) throw new Error('useGladeStoreApi must be used under a GladeStoreProvider')
+  return store
+}
