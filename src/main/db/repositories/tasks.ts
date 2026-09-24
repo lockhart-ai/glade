@@ -106,6 +106,14 @@ export function listTasks(db: Database, workspaceId: string): Task[] {
     .map(parseTask)
 }
 
+/** Every workspace's active tasks whose agent is working, oldest first. On launch, these are the turns the app died in. */
+export function listWorkingTasks(db: Database): Task[] {
+  return db
+    .prepare(`SELECT ${COLUMNS} FROM tasks WHERE state = ? AND activity = ? ORDER BY created_at, id`)
+    .all(TaskState.Active, TaskActivity.Working)
+    .map(parseTask)
+}
+
 function doneAtAfter(current: Task, state: TaskState, now: EpochMs): EpochMs | null {
   if (state === current.state) return current.doneAt
   switch (state) {

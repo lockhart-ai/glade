@@ -207,3 +207,17 @@ export function updateToolCall(db: Database, result: ToolCallResult): ToolCallEv
   if (row === undefined) throw new Error(`No tool call ${result.toolUseId} in task ${result.taskId}`)
   return parseToolCall(new Row('tool_events', row))
 }
+
+/**
+ * Records every tool call of a task that is still running as an error, e.g. the calls of a turn the app died in, and
+ * returns them updated, in log order.
+ */
+export function failRunningToolCalls(db: Database, taskId: string, output: string): ToolCallEvent[] {
+  const running = db
+    .prepare(
+      `SELECT tool_use_id FROM tool_events WHERE task_id = ? AND kind = 'tool_call' AND tool_state = ? ORDER BY seq`,
+    )
+    .all(taskId, ToolCallState.Running)
+    .map((raw) => new Row('tool_events', raw).text('tool_use_id'))
+  return running.map((toolUseId) => updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Error, output }))
+}

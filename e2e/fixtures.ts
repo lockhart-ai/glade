@@ -53,6 +53,8 @@ export interface Glade {
   readonly window: Page
   /** Quits the app, e.g. to launch it again on the same data. The fixture closes any app a test leaves running. */
   close(): Promise<void>
+  /** Kills the app's process outright, as a force-quit or crash would: nothing gets to run on the way out. */
+  kill(): Promise<void>
 }
 
 /**
@@ -109,11 +111,20 @@ export const test = base.extend<Fixtures>({
     const launched: Glade[] = []
     const name = videoName(testInfo.file, testInfo.title)
 
-    /** Closes a launched app and, when recording, keeps its video as `<name>.webm` (`<name>-2.webm` for the 2nd…). */
-    async function closeApp({ app, window }: Glade, index: number): Promise<void> {
+    /**
+     * Closes a launched app, or kills it as a force-quit or crash would, and, when recording, keeps its video as
+     * `<name>.webm` (`<name>-2.webm` for the 2nd…).
+     */
+    async function closeApp({ app, window }: Glade, index: number, kill: boolean): Promise<void> {
       const video = window.video()
       if (video !== null) await window.waitForTimeout(RECORDING_HOLD_MS)
-      await app.close()
+      if (kill) {
+        const exited = app.waitForEvent('close')
+        app.process().kill('SIGKILL')
+        await exited
+      } else {
+        await app.close()
+      }
       if (RECORD_DIR !== undefined && video !== null) {
         mkdirSync(RECORD_DIR, { recursive: true })
         const suffix = index === 0 ? '' : `-${String(index + 1)}`
@@ -141,7 +152,8 @@ export const test = base.extend<Fixtures>({
       const glade: Glade = {
         app,
         window,
-        close: () => (closing ??= closeApp(glade, index)),
+        close: () => (closing ??= closeApp(glade, index, false)),
+        kill: () => (closing ??= closeApp(glade, index, true)),
       }
       launched.push(glade)
       await window.locator(`html[${READY_ATTRIBUTE}]`).waitFor({ state: 'attached' })

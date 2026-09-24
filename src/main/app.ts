@@ -275,7 +275,13 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
       void runCapture(testMode.spec, { database, bridge, agent: testAgent })
       return
     }
-    if (testMode?.kind === TestModeKind.E2e && !seedE2e(testMode.spec, database)) return
+    // Carry on the turns the app last quit or crashed in; the window loads what they save from the database. An e2e
+    // seed is the state the window opens on, not a run the app quit in, so it goes in afterwards.
+    runner.resumeInterrupted()
+    if (testMode?.kind === TestModeKind.E2e && !seedE2e(testMode.spec, database)) {
+      runner.close()
+      return
+    }
 
     app.on('will-quit', () => {
       runner.close()
