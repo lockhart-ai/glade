@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { CommandName } from '../src/shared/bridge'
 import { TaskActivity, ToolCallState } from '../src/shared/domain'
 import { expect, test } from './fixtures'
-import { chat, firstRun, taskList } from './selectors'
+import { chat, firstRun, inputBar, taskList } from './selectors'
 import { invoke, taskHeader, toolLog } from './task-view'
 
 test('new task, first message, scripted reply', async ({ launch, tempFolder }) => {
@@ -15,12 +15,13 @@ test('new task, first message, scripted reply', async ({ launch, tempFolder }) =
   await list.newTask.click()
   await expect(list.rows('Active')).toHaveCount(1)
 
-  // Until the input bar lands (P1-06), the spec sends the message through the renderer's bridge, as the input bar will.
   const { workspaces } = await invoke(window, CommandName.WorkspacesList, {})
   const workspaceId = workspaces[0]?.id ?? ''
   const { tasks } = await invoke(window, CommandName.TasksList, { workspaceId })
   const taskId = tasks[0]?.id ?? ''
-  await invoke(window, CommandName.TasksSend, { id: taskId, text: 'The date test is flaky. Can you fix it?' })
+  const bar = inputBar(window)
+  await bar.field.fill('The date test is flaky. Can you fix it?')
+  await bar.field.press('Enter')
 
   // The chat shows the message and the agent's reply.
   const { userMessages, agentReplies } = chat(window)

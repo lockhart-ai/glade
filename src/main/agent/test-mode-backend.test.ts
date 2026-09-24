@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Effort } from '../../shared/domain'
 import type { AgentSessionOptions } from './backend'
-import { delay, result, say, waitForInterrupt, type AgentScript } from './scripts'
+import { delay, init, result, say, waitForInterrupt, type AgentScript } from './scripts'
 import { createTestModeAgentBackend, UnscriptedAgentError } from './test-mode-backend'
 
 const OPTIONS: AgentSessionOptions = {
@@ -74,6 +74,19 @@ describe('createTestModeAgentBackend', () => {
     await session.interrupt()
     await new Promise((resolve) => setImmediate(resolve))
     expect(received()).toContainEqual(expect.objectContaining({ type: 'result', terminal_reason: 'aborted_streaming' }))
+    session.close()
+  })
+
+  it('passes a settings change on to the scripted session', async () => {
+    const script: AgentScript = { name: 'test', turns: [[init(), result()]] }
+    const backend = createTestModeAgentBackend(script)
+    const session = backend.start(OPTIONS)
+    const received = drain(session.messages)
+    session.configure({ model: 'claude-sample-2', effort: OPTIONS.effort })
+    session.send('a', 'user-1')
+
+    await backend.whenIdle()
+    expect(received()).toContainEqual(expect.objectContaining({ type: 'system', model: 'claude-sample-2' }))
     session.close()
   })
 })

@@ -82,8 +82,3 @@ export function inputBar(page: Page) {
     stop: bar.getByRole('button', { name: 'Stop', exact: true }),
   }
 }
-
-/** The toasts at the bottom of the window. */
-export function notifications(page: Page) {
-  return page.getByRole('region', { name: 'Notifications' })
-}

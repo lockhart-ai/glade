@@ -295,6 +295,21 @@ describe('ScriptedSession', () => {
     expect(played.idles()).toBe(3)
   })
 
+  it('runs the turns after a settings change on its model, as the SDK does', async () => {
+    const played = play([[init(), say('Hi.'), result()]])
+    played.session.send('a', 'user-1')
+    played.session.configure({ model: 'claude-sample-2', effort: Effort.Low })
+    played.session.send('b', 'user-2')
+    await flush()
+
+    const models = played.raw
+      .filter((message) => message.type === 'system' || message.type === 'assistant')
+      .map((message) =>
+        message.type === 'system' ? message.model : (message.message as Record<string, unknown>).model,
+      )
+    expect(models).toEqual(['claude-sample-1', 'claude-sample-1', 'claude-sample-2', 'claude-sample-2'])
+  })
+
   it('plays nothing for a script with no turns', async () => {
     const played = play([])
     played.session.send('a', 'user-1')

@@ -1,12 +1,15 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from './fixtures'
-import { firstRun, inputBar, notifications, taskList } from './selectors'
+import { chat, firstRun, inputBar, taskList } from './selectors'
 
-test('input bar: ⌘L focuses it, ⇧↵ adds a line, the pickers persist, and ↵ sends', async ({ launch, tempFolder }) => {
+test('input bar: ⌘L focuses it, ⇧↵ adds a line, the pickers persist, and ↵ sends to the agent', async ({
+  launch,
+  tempFolder,
+}) => {
   const root = join(tempFolder(), 'acme-api')
   mkdirSync(root)
-  const glade = await launch({ chosenFolder: root })
+  const glade = await launch({ agentScript: 'simple-reply', chosenFolder: root })
   await firstRun(glade.window).openFolder.click()
   await taskList(glade.window).newTask.click()
   const bar = inputBar(glade.window)
@@ -44,12 +47,16 @@ test('input bar: ⌘L focuses it, ⇧↵ adds a line, the pickers persist, and �
   await bar.option('Low').click()
   await expect(bar.setting('Effort')).toHaveText('EffortLow')
 
-  // ↵ sends. The e2e app has no scripted agent to answer yet (#101), so the send fails, the message stays in the field
-  // and a toast says why.
+  // ↵ sends: the message shows in the chat, the field empties, and the scripted agent's reply arrives.
   await bar.field.focus()
   await glade.window.keyboard.press('Enter')
-  await expect(notifications(glade.window)).toContainText('Couldn’t send your message')
-  await expect(bar.field).toHaveValue('Add a Retry-After header.')
+  const conversation = chat(glade.window)
+  await expect(conversation.userMessages).toHaveCount(1)
+  await expect(conversation.userMessages.first()).toContainText('Add a Retry-After header.')
+  await expect(bar.field).toHaveValue('')
+  await expect(conversation.agentReplies.first()).toContainText('The client retries idempotent requests')
+  await expect(bar.send).toBeEnabled()
+  await expect(bar.stop).toHaveCount(0)
 
   await glade.close()
   const relaunched = inputBar((await launch()).window)
