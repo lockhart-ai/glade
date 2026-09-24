@@ -56,6 +56,7 @@ describe('tokens.css', () => {
       '--radius-menu': '10px',
       '--shadow-nested': '0 6px 20px rgba(0, 0, 0, 0.25)',
       '--shadow-menu': '0 16px 40px rgba(0, 0, 0, 0.55)',
+      '--shadow-toast': '0 12px 32px rgba(0, 0, 0, 0.45)',
       '--touch-target-dense': '28px',
       '--touch-target-send': '44px',
     })

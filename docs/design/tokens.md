@@ -37,6 +37,7 @@ can nest one level (header and right panel float inside the task card).
 - Outer padding and gaps between top-level cards: 12px. Top-level card radius 16; nested cards 12; buttons 7–8;
   pills 13; menus 10.
 - Nested cards get `box-shadow: 0 6px 20px rgba(0,0,0,.25)`. Menus and popovers `0 16px 40px rgba(0,0,0,.55)`.
+  Toasts `0 12px 32px rgba(0,0,0,.45)`.
 - Touch targets at least 28px in dense areas, 44px for the send button.
 
 The exact markup for every screen is in `html/` — open a file to read the CSS values. (Those files need the design

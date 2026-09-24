@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, it } from 'vitest'
+import { settleFloating } from '../components/settleFloating'
 import { Gallery } from './Gallery'
 
 it('shows a section for every component', () => {
@@ -12,6 +13,9 @@ it('shows a section for every component', () => {
     'Input · Textarea',
     'Toggle',
     'Segmented',
+    'Tabs',
+    'Menu',
+    'Popover · Toast',
   ]) {
     expect(screen.getByRole('region', { name })).toBeInTheDocument()
   }
@@ -48,4 +52,53 @@ it('keeps the live samples interactive', () => {
 
   fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Effort' })).getByRole('radio', { name: 'Max' }))
   expect(within(screen.getByRole('radiogroup', { name: 'Effort' })).getByRole('radio', { name: 'Max' })).toBeChecked()
+})
+
+it('switches tabs', () => {
+  render(<Gallery />)
+  fireEvent.click(screen.getByRole('tab', { name: 'Todos 3/4' }))
+
+  expect(screen.getByRole('tabpanel', { name: 'Todos 3/4' })).toHaveTextContent('The Todos panel.')
+})
+
+it('opens the sample menu from its button and from a right-click, and shows what was chosen', async () => {
+  render(<Gallery />)
+  fireEvent.click(screen.getByRole('button', { name: 'Task actions' }))
+  await settleFloating()
+  fireEvent.click(screen.getByRole('menuitem', { name: /Pin to top/ }))
+  await settleFloating()
+
+  expect(screen.queryByRole('menu')).toBeNull()
+  expect(screen.getByText('Pin to top')).toBeInTheDocument()
+
+  fireEvent.contextMenu(screen.getByText('Right-click here'), { clientX: 40, clientY: 40 })
+  await settleFloating()
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Delete task…' }))
+  await settleFloating()
+
+  expect(screen.getByText('Delete task…')).toBeInTheDocument()
+})
+
+it('opens and closes the sample popover', async () => {
+  render(<Gallery />)
+  fireEvent.click(screen.getByRole('button', { name: 'Context 97%' }))
+  await settleFloating()
+
+  expect(screen.getByRole('dialog', { name: 'Context' })).toHaveTextContent('97% · 194k / 200k')
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Compact now' }), { key: 'Escape' })
+  await settleFloating()
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+it('shows sample toasts, and undoes from one', () => {
+  render(<Gallery />)
+  const notifications = screen.getByRole('region', { name: 'Notifications' })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Plain toast' }))
+  expect(within(notifications).getByText('Copied link to task.')).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Show toast' }))
+  fireEvent.click(within(notifications).getByRole('button', { name: 'Undo' }))
+  expect(within(notifications).queryByText(/Marked done/)).toBeNull()
+  expect(within(notifications).getByText('Reopened.')).toBeInTheDocument()
 })

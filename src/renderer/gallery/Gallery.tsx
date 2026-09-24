@@ -2,6 +2,7 @@ import { faBell } from '@fortawesome/free-regular-svg-icons'
 import {
   faCheck,
   faChevronDown,
+  faEllipsis,
   faMagnifyingGlass,
   faPlus,
   faThumbtack,
@@ -21,11 +22,24 @@ import {
   IconSize,
   Input,
   Kbd,
+  Menu,
+  MenuAnchorKind,
+  MenuEntryKind,
+  MenuItemVariant,
   Pill,
+  Popover,
   Segmented,
+  TabPanel,
+  Tabs,
   Textarea,
   Toggle,
+  ToastProvider,
+  useToast,
+  type MenuAnchor,
+  type MenuEntry,
+  type MenuItem,
   type SegmentedOption,
+  type TabItem,
 } from '../components'
 import styles from './Gallery.module.css'
 
@@ -34,6 +48,14 @@ import styles from './Gallery.module.css'
  * for `#gallery` when `import.meta.env.DEV`, so production builds leave it out. Hover states are live.
  */
 export function Gallery(): React.JSX.Element {
+  return (
+    <ToastProvider>
+      <GalleryPage />
+    </ToastProvider>
+  )
+}
+
+function GalleryPage(): React.JSX.Element {
   return (
     <main className={styles.page}>
       <header className={styles.header}>
@@ -47,6 +69,9 @@ export function Gallery(): React.JSX.Element {
         <FieldSection />
         <ToggleSection />
         <SegmentedSection />
+        <TabsSection />
+        <MenuSection />
+        <OverlaySection />
       </div>
     </main>
   )
@@ -287,6 +312,175 @@ function SegmentedSection(): React.JSX.Element {
       <Row name="Disabled">
         <Segmented label="Disabled" options={EFFORT} value={Effort.Low} onChange={setEffort} disabled />
       </Row>
+    </Section>
+  )
+}
+
+enum SidePanel {
+  ToolCalls = 'tool-calls',
+  Files = 'files',
+  Todos = 'todos',
+  Artifacts = 'artifacts',
+  Subagents = 'subagents',
+}
+
+const SIDE_PANELS: readonly TabItem<SidePanel>[] = [
+  { value: SidePanel.ToolCalls, label: 'Tool calls', count: 7 },
+  { value: SidePanel.Files, label: 'Files' },
+  { value: SidePanel.Todos, label: 'Todos', count: '3/4' },
+  { value: SidePanel.Artifacts, label: 'Artifacts' },
+  { value: SidePanel.Subagents, label: 'Subagents' },
+]
+
+function TabsSection(): React.JSX.Element {
+  const [panel, setPanel] = useState(SidePanel.ToolCalls)
+  const label = SIDE_PANELS.find((tab) => tab.value === panel)?.label
+
+  return (
+    <Section title="Tabs">
+      <Tabs id="gallery-side" label="Task panels" tabs={SIDE_PANELS} value={panel} onChange={setPanel} />
+      <TabPanel tabsId="gallery-side" value={panel} className={styles.note}>
+        The {label} panel. Arrow keys move between tabs.
+      </TabPanel>
+    </Section>
+  )
+}
+
+/** Sample actions for the menus: the task (active) context menu from the designs. */
+function taskMenu(onChoose: (label: string) => void): MenuEntry[] {
+  const item = (label: string, shortcut?: string, variant?: MenuItemVariant): MenuItem => ({
+    kind: MenuEntryKind.Item,
+    label,
+    shortcut,
+    variant,
+    onSelect: () => {
+      onChoose(label)
+    },
+  })
+  return [
+    item('Open', '↵'),
+    { kind: MenuEntryKind.Separator },
+    { ...item('Pin to top', '⌘⇧P'), icon: faThumbtack },
+    item('Rename…', 'F2'),
+    item('Mark as unread', '⌘⇧U'),
+    { kind: MenuEntryKind.Separator },
+    { ...item('Mark done', '⌘⇧D'), icon: faCheck },
+    { kind: MenuEntryKind.Separator },
+    item('Copy link to task'),
+    item('Reveal folder in Finder'),
+    { kind: MenuEntryKind.Separator },
+    item('Delete task…', undefined, MenuItemVariant.Destructive),
+  ]
+}
+
+function MenuSection(): React.JSX.Element {
+  const [trigger, setTrigger] = useState<HTMLButtonElement | null>(null)
+  const [anchor, setAnchor] = useState<MenuAnchor | null>(null)
+  const [chosen, setChosen] = useState('Nothing yet')
+
+  return (
+    <Section title="Menu">
+      <Row name="Dropdown">
+        <Button
+          ref={setTrigger}
+          icon={faEllipsis}
+          aria-haspopup="menu"
+          aria-expanded={anchor?.kind === MenuAnchorKind.Element}
+          onClick={() => {
+            setAnchor({ kind: MenuAnchorKind.Element, element: trigger })
+          }}
+        >
+          Task actions
+        </Button>
+      </Row>
+      <Row name="Context">
+        <div
+          className={styles.contextTarget}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            setAnchor({ kind: MenuAnchorKind.Point, x: event.clientX, y: event.clientY })
+          }}
+        >
+          Right-click here
+        </div>
+      </Row>
+      <Row name="Chosen">
+        <span className={styles.note}>{chosen}</span>
+      </Row>
+      <Menu
+        label="Task actions"
+        entries={taskMenu(setChosen)}
+        anchor={anchor ?? { kind: MenuAnchorKind.Point, x: 0, y: 0 }}
+        open={anchor !== null}
+        onClose={() => {
+          setAnchor(null)
+        }}
+      />
+    </Section>
+  )
+}
+
+function OverlaySection(): React.JSX.Element {
+  const toast = useToast()
+  const [meter, setMeter] = useState<HTMLButtonElement | null>(null)
+  const [popoverOpen, setPopoverOpen] = useState(false)
+
+  return (
+    <Section title="Popover · Toast">
+      <Row name="Popover">
+        <Button
+          ref={setMeter}
+          aria-expanded={popoverOpen}
+          onClick={() => {
+            setPopoverOpen(!popoverOpen)
+          }}
+        >
+          Context 97%
+        </Button>
+      </Row>
+      <Row name="Toast">
+        <Button
+          onClick={() => {
+            toast.show({
+              message: 'Marked done. The latest status is kept as the outcome.',
+              icon: faCheck,
+              action: { label: 'Undo', onAction: () => toast.show({ message: 'Reopened.' }) },
+            })
+          }}
+        >
+          Show toast
+        </Button>
+        <Button
+          variant={ButtonVariant.Ghost}
+          onClick={() => {
+            toast.show({ message: 'Copied link to task.' })
+          }}
+        >
+          Plain toast
+        </Button>
+      </Row>
+      <Popover
+        label="Context"
+        anchor={meter}
+        open={popoverOpen}
+        onClose={() => {
+          setPopoverOpen(false)
+        }}
+        className={styles.contextPopover}
+      >
+        <div className={styles.popoverHeader}>
+          <strong>Context</strong>
+          <span className={styles.popoverUsage}>97% · 194k / 200k</span>
+        </div>
+        <p className={styles.note}>
+          Compacts automatically at 99%. Compacting replaces older turns with a summary for the agent; the full chat and
+          tool log stay here.
+        </p>
+        <div className={styles.popoverActions}>
+          <Button>Compact now</Button>
+          <Kbd>⌘⇧K</Kbd>
+        </div>
+      </Popover>
     </Section>
   )
 }
