@@ -1,6 +1,6 @@
-import { contextBridge } from 'electron'
-import { BRIDGE_KEY, type GladeBridge } from '../shared/bridge'
+import { contextBridge, ipcRenderer } from 'electron'
+import { BRIDGE_KEY } from '../shared/bridge'
+import { createBridge } from './bridge'
 
-const bridge: GladeBridge = {}
-
-contextBridge.exposeInMainWorld(BRIDGE_KEY, bridge)
+// The only place `ipcRenderer` is used: the renderer talks to main through `window.glade` alone.
+contextBridge.exposeInMainWorld(BRIDGE_KEY, createBridge(ipcRenderer))
