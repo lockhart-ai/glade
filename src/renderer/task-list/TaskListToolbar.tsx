@@ -62,7 +62,7 @@ function Chip({ filter, chosen, onChoose, children }: ChipProps): React.JSX.Elem
  * Above the task list: the search field and the New task button, then the All · Needs you · Unread filter chips, which
  * filter the task list and remember the choice. Typing in the search field searches the workspace, and the sidebar
  * shows the results in place of the list (and no chips); Esc, or emptying the field, ends the search. ⌘F focuses the
- * field, selecting what's in it (`focusSearch`).
+ * field, selecting what's in it (`focusSearch`), showing the sidebar first if it's collapsed (`useSearchShortcut`).
  */
 export function TaskListToolbar({ workspaceId }: TaskListToolbarProps): React.JSX.Element {
   const tasks = useGladeStore((state) => state.tasks)
@@ -74,8 +74,12 @@ export function TaskListToolbar({ workspaceId }: TaskListToolbarProps): React.JS
   const setSearchText = useGladeStore((state) => state.setSearchText)
   const searchFocusRequest = useGladeStore((state) => state.searchFocusRequest)
   const searchField = useRef<HTMLInputElement>(null)
+  // The request the field last answered, starting from the one there was when it mounted: a sidebar shown again after
+  // being collapsed mounts a new field, which mustn't take the focus for an old ⌘F.
+  const handledFocusRequest = useRef(searchFocusRequest)
   useEffect(() => {
-    if (searchFocusRequest === 0) return
+    if (searchFocusRequest === handledFocusRequest.current) return
+    handledFocusRequest.current = searchFocusRequest
     searchField.current?.focus()
     searchField.current?.select()
   }, [searchFocusRequest])

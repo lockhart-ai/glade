@@ -83,4 +83,9 @@
    * 14px below its top edge. The sidebar keeps a strip this tall clear above its content.
    */
   --title-bar-inset: 16px;
+  /*
+   * They reach about 75px in from the window's left edge. With the sidebar collapsed they float over the task card
+   * instead, and its title row starts this far in from the card's content edge (25px in) to clear them.
+   */
+  --traffic-light-clearance: 60px;
 }

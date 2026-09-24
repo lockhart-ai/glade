@@ -1,9 +1,6 @@
-import type { Locator } from '@playwright/test'
 import { expect, seedPath, test, type Glade } from './fixtures'
 import { chat, regions, taskHeader, taskPanel } from './selectors'
-
-/** The window's minimum size (src/main/app.ts). */
-const MIN_WINDOW = { width: 1100, height: 700 } as const
+import { boxOf, MIN_WINDOW, resize } from './window-layout'
 
 /**
  * The tallest the header may be in the smallest window: one line of title, the pill and timing, and one line each of
@@ -13,22 +10,6 @@ const MAX_HEADER_HEIGHT = 200
 
 /** The chat keeps at least this much height in the smallest window. */
 const MIN_CHAT_HEIGHT = 80
-
-async function boxOf(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
-  const box = await locator.boundingBox()
-  if (box === null) throw new Error('The element is not laid out')
-  return box
-}
-
-async function resize({ app, window }: Glade, width: number, height: number): Promise<void> {
-  await app.evaluate(
-    ({ BrowserWindow }, size) => {
-      BrowserWindow.getAllWindows()[0]?.setContentSize(size.width, size.height)
-    },
-    { width, height },
-  )
-  await expect.poll(() => window.evaluate(() => [innerWidth, innerHeight])).toEqual([width, height])
-}
 
 /** The header stays compact, the chat keeps room and scrolls, and its last message sits above the input bar. */
 async function expectChatClearOfTheHeader({ window }: Glade): Promise<void> {

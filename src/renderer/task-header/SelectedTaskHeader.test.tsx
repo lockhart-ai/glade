@@ -44,6 +44,7 @@ interface Setup {
   readonly overrides?: Partial<FakeHandlers>
   readonly toolEvents?: ToolEvent[]
   readonly panelCollapsed?: boolean
+  readonly sidebarCollapsed?: boolean
 }
 
 async function renderHeader({
@@ -52,6 +53,7 @@ async function renderHeader({
   overrides = {},
   toolEvents = [],
   panelCollapsed = false,
+  sidebarCollapsed = false,
 }: Setup = {}): Promise<FakeBridge> {
   const fake = fakeBridge(
     {
@@ -62,6 +64,7 @@ async function renderHeader({
         { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
         { key: UiStateKey.SelectedTaskId, value: selected ? 't1' : '' },
         { key: UiStateKey.RightPanelCollapsed, value: String(panelCollapsed) },
+        { key: UiStateKey.SidebarCollapsed, value: String(sidebarCollapsed) },
       ],
     },
     overrides,
@@ -385,5 +388,17 @@ describe('SelectedTaskHeader', () => {
     await renderHeader()
 
     expect(screen.queryByRole('button', { name: 'Show side panel' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Show task list' })).toBeNull()
+  })
+
+  it('shows the task list again from a button before the title while it’s collapsed', async () => {
+    const { invoke } = await renderHeader({ sidebarCollapsed: true })
+
+    const show = screen.getByRole('button', { name: 'Show task list' })
+    expect(show.compareDocumentPosition(screen.getByRole('heading'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    fireEvent.click(show)
+
+    expect(invoke).toHaveBeenCalledWith(CommandName.UiStateSet, { key: UiStateKey.SidebarCollapsed, value: 'false' })
+    expect(screen.queryByRole('button', { name: 'Show task list' })).toBeNull()
   })
 })

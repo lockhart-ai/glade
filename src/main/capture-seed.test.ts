@@ -299,6 +299,16 @@ describe('applySeed', () => {
     expect(getUiState(db, UiStateKey.RightPanelTab)).toBe('subagents')
   })
 
+  it('collapses the panels it names, and leaves the rest as they are', () => {
+    const { db } = database
+
+    applySeed(db, { ...SEED, collapsed: { sidebar: true, bottomBar: false }, tasks: [] })
+
+    expect(getUiState(db, UiStateKey.SidebarCollapsed)).toBe('true')
+    expect(getUiState(db, UiStateKey.BottomBarCollapsed)).toBe('false')
+    expect(getUiState(db, UiStateKey.RightPanelCollapsed)).toBeUndefined()
+  })
+
   it('names the tasks resumed after a crash in the relaunch notice', () => {
     const { db } = database
 

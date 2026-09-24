@@ -394,6 +394,10 @@ export enum UiStateKey {
   RightPanelWidth = 'right_panel_width',
   /** Whether the right panel is collapsed: `'true'` or `'false'`. Unset means open. */
   RightPanelCollapsed = 'right_panel_collapsed',
+  /** Whether the sidebar (the task list) is collapsed: `'true'` or `'false'`. Unset means open. */
+  SidebarCollapsed = 'sidebar_collapsed',
+  /** Whether the bottom bar is collapsed to its tab row: `'true'` or `'false'`. Unset means open. */
+  BottomBarCollapsed = 'bottom_bar_collapsed',
 }
 
 export interface UiStateEntry {
