@@ -1,0 +1,10 @@
+# Build output and the lockfile
+out/
+dist/
+release/
+coverage/
+package-lock.json
+
+# Docs are prose and design mockups, formatted by hand
+*.md
+docs/
