@@ -3,9 +3,9 @@ import { useMemo } from 'react'
 import type { Task } from '../../shared/domain'
 import { TaskIndicator, taskIndicator } from '../../shared/taskIndicator'
 import { classNames } from '../components/classNames'
-import { Button, ButtonVariant, Input, useToast } from '../components'
-import { describeFailure } from '../store/hydrate'
+import { Button, ButtonVariant, Input } from '../components'
 import { useGladeStore } from '../store/react'
+import { useNewTask } from './useNewTask'
 import styles from './TaskListToolbar.module.css'
 
 export interface TaskListToolbarProps {
@@ -35,17 +35,8 @@ function countChips(tasks: Iterable<Task>, workspaceId: string): ChipCounts {
  */
 export function TaskListToolbar({ workspaceId }: TaskListToolbarProps): React.JSX.Element {
   const tasks = useGladeStore((state) => state.tasks)
-  const createTask = useGladeStore((state) => state.createTask)
-  const toast = useToast()
+  const newTask = useNewTask(workspaceId)
   const counts = useMemo(() => countChips(Object.values(tasks), workspaceId), [tasks, workspaceId])
-
-  const newTask = async (): Promise<void> => {
-    try {
-      await createTask(workspaceId)
-    } catch (error) {
-      toast.show({ message: describeFailure(error) })
-    }
-  }
 
   return (
     <div className={styles.toolbar}>

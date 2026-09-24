@@ -8,6 +8,7 @@ import styles from './App.module.css'
 import { HydrationStatus, selectSelectedWorkspace } from './store/state'
 import { useGladeStore } from './store/react'
 import { TaskList, TaskListToolbar } from './task-list'
+import { NewTaskShortcut } from './shortcuts/useNewTaskShortcut'
 
 interface PlaceholderProps {
   label: string
@@ -65,6 +66,7 @@ function Layout(): React.JSX.Element {
           <SidebarHeader workspace={workspace} />
           {workspace !== undefined && (
             <>
+              <NewTaskShortcut workspaceId={workspace.id} />
               <TaskListToolbar workspaceId={workspace.id} />
               <TaskList workspaceId={workspace.id} />
             </>

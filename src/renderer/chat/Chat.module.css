@@ -139,9 +139,34 @@
   white-space: nowrap;
 }
 
-.empty {
+/* Before the first message the prompt fills the chat on its own. */
+.thread:empty {
+  display: none;
+}
+
+/* A new task's prompt, centred in the chat, from docs/design/html/01-new-task.html. */
+.prompt {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  text-align: center;
+}
+
+.promptTitle {
   margin: 0;
-  align-self: center;
-  font-size: var(--font-size-body);
-  color: var(--color-faint);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.promptText {
+  margin: 0;
+  max-width: 440px;
+  font-size: var(--font-size-chat);
+  line-height: 1.55;
+  color: var(--color-muted);
 }
