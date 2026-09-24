@@ -16,6 +16,12 @@
  *   carry their `Agent` call's id.
  * - The task's activity is working for the turn, then waiting on you, or error if the turn failed.
  *
+ * **Stop** interrupts the running turn (`docs/sdk-notes.md` §7): the SDK ends it within tens of milliseconds with an
+ * aborted result, and the session stays alive for the next message. A stopped turn isn't a failure: its activity goes
+ * back to waiting on you. What it already saved stays. Its held-back text, including the partial text the SDK flushes
+ * when it aborts, goes to the tool log as narration rather than the chat, since it isn't a finished reply; its
+ * unfinished tool calls end as errors; and a narration notes that you stopped it.
+ *
  * Every write is broadcast to the windows as it happens. Only the in-flight turn's bookkeeping (its held-back text and
  * running calls) is kept in memory; P1-17 recovers a turn the app died in from the database.
  */
@@ -65,8 +71,11 @@ export interface AgentRunner {
    * `invalid_transition` for a done task, `busy` while a turn is running.
    */
   send(taskId: string, text: string): Message
-  /** Interrupts the task's running turn, if it has a live session. The seam for Stop (P1-08). */
-  interrupt(taskId: string): Promise<void>
+  /**
+   * Stops the task's running turn, and resolves with the task once the turn has ended. Does nothing for a task whose
+   * agent isn't working. Throws a `CommandFailure` `not_found` for no such task.
+   */
+  stop(taskId: string): Promise<Task>
   /** Closes every live session, e.g. when the app quits. */
   close(): void
 }
@@ -78,6 +87,11 @@ interface Turn {
   readonly pending: string[]
   /** The tool calls waiting on their results. */
   readonly running: Set<string>
+  /** Whether the user asked to stop the turn. */
+  stopping: boolean
+  /** Resolves once the turn has ended, however it ended. */
+  readonly ended: Promise<void>
+  readonly end: () => void
 }
 
 interface LiveSession {
@@ -85,6 +99,22 @@ interface LiveSession {
   turn: Turn | null
   /** Closed by the runner: whatever it still emits is ignored, and a turn cut short stays working for P1-17. */
   closed: boolean
+}
+
+/** What the tool log says when the user stopped a turn, and what its unfinished tool calls say. */
+export const STOPPED_NOTE = 'You stopped the agent.'
+
+/** Whether a turn ended because it was interrupted: the SDK's `aborted_streaming` or `aborted_tools`. */
+function isAborted(terminalReason: string | null): boolean {
+  return terminalReason?.startsWith('aborted') === true
+}
+
+function newTurn(number: number): Turn {
+  let end = (): void => undefined
+  const ended = new Promise<void>((resolve) => {
+    end = resolve
+  })
+  return { number, pending: [], running: new Set(), stopping: false, ended, end }
 }
 
 function describeError(error: unknown): string {
@@ -141,8 +171,25 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     emitToolEventUpdated(emit, call)
   }
 
-  const onTurnFinished = (taskId: string, live: LiveSession, turn: Turn, event: TurnFinishedEvent): void => {
+  /** Forgets the session's turn, and lets whoever waits on it know it has ended. */
+  const endTurn = (live: LiveSession, turn: Turn): void => {
     live.turn = null
+    turn.end()
+  }
+
+  const onTurnStopped = (taskId: string, turn: Turn): void => {
+    flushPreamble(taskId, turn)
+    failRunning(taskId, turn, STOPPED_NOTE)
+    emitToolEventAppended(emit, appendNarration(db, { taskId, turn: turn.number, text: STOPPED_NOTE }))
+    setActivity(taskId, TaskActivity.Waiting)
+  }
+
+  const onTurnFinished = (taskId: string, live: LiveSession, turn: Turn, event: TurnFinishedEvent): void => {
+    endTurn(live, turn)
+    if (event.isError && (turn.stopping || isAborted(event.terminalReason))) {
+      onTurnStopped(taskId, turn)
+      return
+    }
     if (event.isError) {
       const why =
         event.errors.length > 0 ? event.errors.join('\n') : `The turn failed (${event.terminalReason ?? 'unknown'}).`
@@ -166,8 +213,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const onSessionFailed = (taskId: string, live: LiveSession, message: string): void => {
     if (sessions.get(taskId) === live) sessions.delete(taskId)
     const { turn } = live
-    live.turn = null
     if (turn === null) return
+    endTurn(live, turn)
     turn.pending.push(message)
     flushPreamble(taskId, turn)
     failRunning(taskId, turn, message)
@@ -263,19 +310,28 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       emitToolEventAppended(emit, divider)
       setActivity(taskId, TaskActivity.Working)
 
-      live.turn = { number: turn, pending: [], running: new Set() }
+      live.turn = newTurn(turn)
       live.session.send(text, message.id)
       return message
     },
 
-    async interrupt(taskId) {
-      await sessions.get(taskId)?.session.interrupt()
+    async stop(taskId) {
+      const task = getTask(db, taskId)
+      if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
+      const live = sessions.get(taskId)
+      const turn = live?.turn ?? null
+      if (live === undefined || turn === null) return task
+      turn.stopping = true
+      await live.session.interrupt()
+      await turn.ended
+      return getTask(db, taskId) ?? task
     },
 
     close() {
       for (const live of sessions.values()) {
         live.closed = true
         live.session.close()
+        live.turn?.end()
       }
       sessions.clear()
     },

@@ -71,6 +71,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.TasksReopen]: taskIdRequest,
   [CommandName.TasksUpdate]: tasksUpdateRequest,
   [CommandName.TasksSend]: tasksSendRequest,
+  [CommandName.TasksStop]: taskIdRequest,
   [CommandName.TasksHistory]: taskIdRequest,
   [CommandName.UiStateGet]: uiStateGetRequest,
   [CommandName.UiStateGetAll]: emptyRequest,

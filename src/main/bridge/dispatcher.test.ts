@@ -22,6 +22,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.TasksReopen]: () => ({ task: {} as Task }),
     [CommandName.TasksUpdate]: () => ({ task: {} as Task }),
     [CommandName.TasksSend]: () => ({ message: {} as Message }),
+    [CommandName.TasksStop]: () => ({ task: {} as Task }),
     [CommandName.TasksHistory]: () => ({ messages: [], toolEvents: [] }),
     [CommandName.UiStateGet]: () => Promise.resolve({ value: 'async' }),
     [CommandName.UiStateGetAll]: () => ({ entries: [] }),

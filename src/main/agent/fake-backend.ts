@@ -27,9 +27,12 @@ export class FakeAgentSession implements AgentSession {
     this.sent.push({ text, uuid })
   }
 
+  /** What the session does when interrupted, as the agent would: e.g. stream an aborted turn. Nothing by default. */
+  onInterrupt: () => Promise<void> = () => Promise.resolve()
+
   interrupt(): Promise<void> {
     this.interrupts += 1
-    return Promise.resolve()
+    return this.onInterrupt()
   }
 
   close(): void {
