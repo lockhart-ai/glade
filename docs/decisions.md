@@ -48,6 +48,10 @@
   list keyboard navigation; overlays render in a portal.
 - **Validation:** zod at every boundary (IPC requests, SDK events, tool inputs, JSON from disk); schemas are checked
   against the named interfaces.
+- **Releases:** one minor release per phase (P1 is 0.1.0), built and published by `.github/workflows/release.yml` from
+  a pushed tag (`releasing.md`). Apple silicon only. Builds are **ad-hoc signed** (no certificate, not notarised) so a
+  download opens with right-click → Open instead of being reported as damaged. Developer ID signing and notarisation
+  come later (L-04, #69).
 
 ## Open
 

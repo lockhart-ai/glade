@@ -1,5 +1,7 @@
-# electron-builder config: an unsigned macOS app for the host arch, written to release/.
-# Build with `npm run package`. The icon is build/icon.icns; regenerate it with scripts/make-icon.sh.
+# electron-builder config: an ad-hoc signed macOS app for Apple silicon (arm64), written to release/ as a .dmg and a .zip.
+# Build with `npm run package`; docs/releasing.md covers releases. arm64 only: the Claude Agent SDK's bundled binary
+# comes from a per-platform npm package (claude-agent-sdk-darwin-arm64), so an x64 build needs its own install.
+# The icon is build/icon.icns; regenerate it with scripts/make-icon.sh.
 appId: ai.lockhart.glade
 productName: Glade
 directories:
@@ -12,11 +14,20 @@ files:
   - '!out/e2e-results/**/*'
   - package.json
 mac:
-  target: dir
+  target:
+    - target: dmg
+      arch: arm64
+    - target: zip
+      arch: arm64
   icon: build/icon.icns
   category: public.app-category.developer-tools
-  # Unsigned for now: skip looking for a signing identity.
-  identity: null
+  # Ad-hoc signed (a sealed signature with no certificate) so a downloaded copy opens with right-click, Open rather
+  # than being reported as damaged. Developer ID signing and notarisation are L-04 (#69). The hardened runtime is off:
+  # it only matters for notarisation, and with an ad-hoc signature it blocks loading the unsigned native addons.
+  identity: '-'
+  hardenedRuntime: false
+# Glade-0.1.0-arm64.dmg, Glade-0.1.0-arm64.zip
+artifactName: ${productName}-${version}-${arch}.${ext}
 # Nothing to rebuild for Electron: better-sqlite3 is a Node-API addon with prebuilt binaries, which load under both
 # Node and Electron (see src/main/db/database.ts).
 npmRebuild: false
