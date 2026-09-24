@@ -3,6 +3,7 @@ import { Chat } from './chat'
 import { classNames } from './components/classNames'
 import { ToastProvider } from './components'
 import { FirstRun } from './first-run/FirstRun'
+import { InputBar } from './input-bar'
 import { AppShell, BottomBar, Sidebar, SidebarHeader, TaskCard } from './layout'
 import styles from './App.module.css'
 import { HydrationStatus, selectSelectedWorkspace } from './store/state'
@@ -78,12 +79,7 @@ function Layout(): React.JSX.Element {
         </Sidebar>
       }
       task={
-        <TaskCard
-          header={<SelectedTaskHeader />}
-          chat={<Chat />}
-          inputBar={<Placeholder label="Input bar" className={styles.inputBar} />}
-          rightPanel={<TaskPanel />}
-        />
+        <TaskCard header={<SelectedTaskHeader />} chat={<Chat />} inputBar={<InputBar />} rightPanel={<TaskPanel />} />
       }
     />
   )

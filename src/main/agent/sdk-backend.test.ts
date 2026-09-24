@@ -8,6 +8,8 @@ import { createSdkBackend, sdkOptions, userMessage } from './sdk-backend'
 const sdk = vi.hoisted(() => {
   const session = {
     interrupt: vi.fn(() => Promise.resolve(undefined)),
+    setModel: vi.fn<(model?: string) => Promise<void>>(() => Promise.resolve(undefined)),
+    applyFlagSettings: vi.fn<(settings: unknown) => Promise<void>>(() => Promise.resolve(undefined)),
     close: vi.fn(),
     [Symbol.asyncIterator]: vi.fn(),
   }
@@ -84,4 +86,54 @@ it('starts one streaming-input query per session and pushes each message into it
   expect(pushed).toEqual([userMessage('Hi', 'uuid-1'), userMessage('Fix it.', 'uuid-2')])
   expect(sdk.session.interrupt).toHaveBeenCalledOnce()
   expect(sdk.session.close).toHaveBeenCalledOnce()
+})
+
+/** The messages pushed into a session's prompt: its first `count`. */
+async function pushedMessages(count: number): Promise<string[]> {
+  const prompt = sdk.query.mock.calls[0]?.[0].prompt as AsyncIterable<SDKUserMessage>
+  const pushed: string[] = []
+  for await (const message of prompt) {
+    const { content } = message.message
+    pushed.push(typeof content === 'string' ? content : JSON.stringify(content))
+    if (pushed.length === count) break
+  }
+  return pushed
+}
+
+it('changes the model and effort before delivering the next message, never after', async () => {
+  const order: string[] = []
+  sdk.session.setModel.mockImplementation((model?: string) => {
+    order.push(`model ${String(model)}`)
+    return Promise.resolve(undefined)
+  })
+  sdk.session.applyFlagSettings.mockImplementation((settings: unknown) => {
+    order.push(`flags ${JSON.stringify(settings)}`)
+    return Promise.resolve(undefined)
+  })
+  const session = createSdkBackend().start(OPTIONS)
+
+  session.send('Hi', 'uuid-1')
+  session.configure({ model: 'claude-sample-2', effort: Effort.Max })
+  session.send('Fix it.', 'uuid-2')
+  const pushed = await pushedMessages(2)
+
+  expect(pushed).toEqual(['Hi', 'Fix it.'])
+  expect(order).toEqual(['model claude-sample-2', 'flags {"effortLevel":"max"}'])
+  expect(sdk.session.setModel).toHaveBeenCalledBefore(sdk.session.applyFlagSettings)
+})
+
+it('still delivers the message, on the old settings, when the SDK refuses a change', async () => {
+  sdk.session.setModel.mockRejectedValueOnce(new Error('model_not_found'))
+  const log = { warn: vi.fn() }
+  const session = createSdkBackend(log).start(OPTIONS)
+
+  session.configure({ model: 'claude-missing', effort: Effort.Low })
+  session.send('Hi', 'uuid-1')
+
+  expect(await pushedMessages(1)).toEqual(['Hi'])
+  expect(log.warn).toHaveBeenCalledExactlyOnceWith(
+    "Couldn't change the session to claude-missing at low effort",
+    expect.any(Error),
+  )
+  expect(sdk.session.applyFlagSettings).not.toHaveBeenCalled()
 })

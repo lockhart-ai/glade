@@ -78,6 +78,9 @@ describe('parsing SDK messages', () => {
     expect(parse({ type: 'user', message: { content: 'This session is being continued…' } })).toEqual([])
     expect(parse({ type: 'user', message: { content: [{ type: 'text', text: 'Subagent prompt' }] } })).toEqual([])
     expect(parse({ ...(sdk.toolResult('toolu_01', 'x') as object), isReplay: true })).toEqual([])
+    // setModel's echo (docs/sdk-notes.md §4) stays out of the chat.
+    const echo = '<local-command-stdout>Set model to claude-sonnet-5</local-command-stdout>'
+    expect(parse({ type: 'user', message: { content: echo } })).toEqual([])
   })
 
   it('reads a successful result with its usage, duration and cost', () => {

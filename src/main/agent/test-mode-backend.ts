@@ -54,6 +54,9 @@ export function createTestModeAgentBackend(script: AgentScript | null): TestMode
           busy += 1
           session.send(text, uuid)
         },
+        configure: (settings) => {
+          session.configure(settings)
+        },
         interrupt: () => session.interrupt(),
         close: () => {
           session.close()

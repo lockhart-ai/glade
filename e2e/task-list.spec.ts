@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from './fixtures'
-import { firstRun, taskList } from './selectors'
+import { firstRun, inputBar, taskList } from './selectors'
 
 test('task list: new tasks show live, ⌥↑/⌥↓ move the selection, and a collapsed section stays collapsed', async ({
   launch,
@@ -26,7 +26,9 @@ test('task list: new tasks show live, ⌥↑/⌥↓ move the selection, and a co
   await expect(list.section('Active')).toContainText('Active2')
   await expect(list.rows('Active').first()).toHaveAttribute('aria-current', 'true')
 
-  // ⌥↓ and ⌥↑ move through the list.
+  // ⌥↓ and ⌥↑ move through the list. A new task puts the focus in the input bar, whose text they'd move through
+  // instead, so leave it first.
+  await inputBar(glade.window).field.blur()
   await glade.window.keyboard.press('Alt+ArrowDown')
   await expect(list.rows('Active').nth(1)).toHaveAttribute('aria-current', 'true')
   await glade.window.keyboard.press('Alt+ArrowUp')

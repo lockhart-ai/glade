@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { CommandName } from '../src/shared/bridge'
 import { expect, test } from './fixtures'
-import { chat, firstRun, taskHeader, taskList, taskPanel } from './selectors'
+import { chat, firstRun, inputBar, taskHeader, taskList, taskPanel } from './selectors'
 import { invoke } from './task-view'
 
 test('new task, first message, scripted reply', async ({ launch, tempFolder }) => {
@@ -14,12 +14,9 @@ test('new task, first message, scripted reply', async ({ launch, tempFolder }) =
   await list.newTask.click()
   await expect(list.rows('Active')).toHaveCount(1)
 
-  // Until the input bar lands (P1-06), the spec sends the message through the renderer's bridge, as the input bar will.
-  const { workspaces } = await invoke(window, CommandName.WorkspacesList, {})
-  const workspaceId = workspaces[0]?.id ?? ''
-  const { tasks } = await invoke(window, CommandName.TasksList, { workspaceId })
-  const taskId = tasks[0]?.id ?? ''
-  await invoke(window, CommandName.TasksSend, { id: taskId, text: 'The date test is flaky. Can you fix it?' })
+  const bar = inputBar(window)
+  await bar.field.fill('The date test is flaky. Can you fix it?')
+  await bar.field.press('Enter')
 
   // The chat shows the message and the agent's reply.
   const { userMessages, agentReplies } = chat(window)
@@ -61,7 +58,6 @@ test('stop a running turn with ⌘., then carry on in the same session', async (
   await list.newTask.click()
   await expect(list.rows('Active')).toHaveCount(1)
 
-  // Until the input bar lands (P1-06), the spec sends messages through the renderer's bridge, as the input bar will.
   const { workspaces } = await invoke(window, CommandName.WorkspacesList, {})
   const workspaceId = workspaces[0]?.id ?? ''
   const { tasks } = await invoke(window, CommandName.TasksList, { workspaceId })
@@ -69,7 +65,9 @@ test('stop a running turn with ⌘., then carry on in the same session', async (
   const { pill } = taskHeader(window)
   const sessionId = async (): Promise<string | null | undefined> =>
     (await invoke(window, CommandName.TasksList, { workspaceId })).tasks.find(({ id }) => id === taskId)?.sessionId
-  await invoke(window, CommandName.TasksSend, { id: taskId, text: 'Run the e2e suite.' })
+  const bar = inputBar(window)
+  await bar.field.fill('Run the e2e suite.')
+  await bar.field.press('Enter')
 
   // The agent works, with its command running, until it's stopped.
   const panel = taskPanel(window)
@@ -89,7 +87,8 @@ test('stop a running turn with ⌘., then carry on in the same session', async (
   await expect(agentReplies).toHaveCount(0)
 
   // A message after the stop carries on in the same session.
-  await invoke(window, CommandName.TasksSend, { id: taskId, text: 'Only run the unit tests.' })
+  await bar.field.fill('Only run the unit tests.')
+  await bar.field.press('Enter')
   await expect(userMessages).toHaveCount(2)
   await expect(agentReplies).toHaveCount(1)
   await expect(agentReplies.first()).toContainText('I stopped the suite and will only run the unit tests.')

@@ -4,6 +4,11 @@ import { query, type Options, type SDKUserMessage } from '@anthropic-ai/claude-a
 import { AsyncQueue } from './async-queue'
 import type { AgentBackend, AgentSession, AgentSessionOptions } from './backend'
 
+/** Where the adapter reports a settings change the SDK refused. */
+export interface SdkBackendLog {
+  warn(message: string, error: unknown): void
+}
+
 /** The SDK options for a session. */
 export function sdkOptions(options: AgentSessionOptions): Options {
   return {
@@ -36,22 +41,45 @@ export function userMessage(text: string, uuid: string): SDKUserMessage {
 /**
  * Starts each session as one long-lived `query()` in streaming input mode: its prompt is a queue the session pushes the
  * user's messages into, turn after turn.
+ *
+ * A settings change and the messages after it are delivered in order: the next message waits for `setModel` and
+ * `applyFlagSettings` to finish (`docs/sdk-notes.md` §4). If the SDK refuses a change, the message still goes, on the
+ * settings the session had.
  */
-export function createSdkBackend(): AgentBackend {
+export function createSdkBackend(log: SdkBackendLog = console): AgentBackend {
   return {
     start(options): AgentSession {
       const input = new AsyncQueue<SDKUserMessage>()
       const session = query({ prompt: input, options: sdkOptions(options) })
+      // Everything asked of the session so far, in order.
+      let queue = Promise.resolve()
+      const then = (step: () => Promise<void> | void): void => {
+        queue = queue.then(step)
+      }
       return {
         messages: session,
         send(text, uuid) {
-          input.push(userMessage(text, uuid))
+          then(() => {
+            input.push(userMessage(text, uuid))
+          })
+        },
+        configure({ model, effort }) {
+          then(async () => {
+            try {
+              await session.setModel(model)
+              await session.applyFlagSettings({ effortLevel: effort })
+            } catch (error) {
+              log.warn(`Couldn't change the session to ${model} at ${effort} effort`, error)
+            }
+          })
         },
         async interrupt() {
           await session.interrupt()
         },
         close() {
-          input.end()
+          then(() => {
+            input.end()
+          })
           session.close()
         },
       }

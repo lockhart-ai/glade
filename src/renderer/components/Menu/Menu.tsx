@@ -14,6 +14,7 @@ import {
   useTypeahead,
 } from '@floating-ui/react'
 import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { faCheck } from '@fortawesome/free-solid-svg-icons'
 import { classNames } from '../classNames'
 import { Icon, IconSize } from '../Icon/Icon'
 import { Placement } from '../Placement'
@@ -39,6 +40,11 @@ export interface MenuItem {
   /** The action's keyboard shortcut, shown at the right as a hint, e.g. "⌘⇧P". */
   shortcut?: string
   variant?: MenuItemVariant
+  /**
+   * Makes the item one of a set of choices (a picker's options): true for the chosen one, which shows a check at the
+   * right. Leave it out for a plain action.
+   */
+  checked?: boolean
   /** Runs when the item is chosen, after the menu closes. */
   onSelect: () => void
 }
@@ -184,7 +190,8 @@ export function Menu({ label, entries, anchor, open, onClose, className }: MenuP
                       listRef.current[index] = button
                     }}
                     type="button"
-                    role="menuitem"
+                    role={entry.checked === undefined ? 'menuitem' : 'menuitemradio'}
+                    aria-checked={entry.checked}
                     tabIndex={-1}
                     className={classNames(
                       styles.item,
@@ -210,6 +217,7 @@ export function Menu({ label, entries, anchor, open, onClose, className }: MenuP
                       {entry.label}
                     </span>
                     {entry.shortcut !== undefined && <kbd className={styles.shortcut}>{entry.shortcut}</kbd>}
+                    {entry.checked === true && <Icon icon={faCheck} size={IconSize.Medium} className={styles.check} />}
                   </button>
                 )
               }
