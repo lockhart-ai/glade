@@ -65,8 +65,10 @@ export interface SeedTask {
   readonly activity?: TaskActivity | undefined
   readonly pinned?: boolean | undefined
   readonly unread?: boolean | undefined
-  /** How long before the capture the task was last updated. */
+  /** How long before the capture the task was last updated (and its status set, and it was marked done). */
   readonly minutesAgo: number
+  /** How long before the capture the task was created; `minutesAgo` unless given. */
+  readonly startedMinutesAgo?: number | undefined
   /** Select this task. */
   readonly selected?: boolean | undefined
   /** Its chat log, in order. */
@@ -107,7 +109,8 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       activity: z.enum(TaskActivity).optional(),
       pinned: z.boolean().optional(),
       unread: z.boolean().optional(),
-      minutesAgo: z.number().nonnegative(),
+      minutesAgo,
+      startedMinutesAgo: minutesAgo.optional(),
       selected: z.boolean().optional(),
       messages: z.array(z.strictObject({ role: z.enum(MessageRole), body: z.string(), turn, minutesAgo })).optional(),
       toolEvents: z.array(seedToolEventSchema).optional(),
@@ -149,7 +152,9 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
     setUiState(db, { key: UiStateKey.ActiveWorkspaceId, value: workspace.id })
     for (const sample of seed.tasks) {
       const at = now - sample.minutesAgo * MINUTE
-      const task = createTask(db, { workspaceId: workspace.id, model: DEFAULT_MODEL, effort: DEFAULT_EFFORT }, at)
+      const createdAt = now - (sample.startedMinutesAgo ?? sample.minutesAgo) * MINUTE
+      const newTask = { workspaceId: workspace.id, model: DEFAULT_MODEL, effort: DEFAULT_EFFORT }
+      const task = createTask(db, newTask, createdAt)
       updateTask(
         db,
         task.id,

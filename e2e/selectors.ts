@@ -48,6 +48,24 @@ export function taskList(page: Page) {
   }
 }
 
+/** A labelled row of the task header. */
+export type TaskHeaderField = 'Objective' | 'Status' | 'Outcome'
+
+/** The selected task's header: its title, pin toggle, status pill, Mark done, and objective and status rows. */
+export function taskHeader(page: Page) {
+  const header = regions(page).taskHeader
+  return {
+    header,
+    title: header.getByRole('heading', { level: 1 }),
+    pill: header.getByRole('status'),
+    pin: header.getByRole('button', { name: 'Pin task' }),
+    unpin: header.getByRole('button', { name: 'Unpin task' }),
+    markDone: header.getByRole('button', { name: 'Mark done' }),
+    /** A row's value, e.g. the objective. */
+    field: (name: TaskHeaderField) => header.getByRole('group', { name }).getByRole('paragraph'),
+  }
+}
+
 /** The chat view: the user's messages and the agent's replies, oldest first. */
 export function chat(page: Page) {
   const log = regions(page).chat.getByRole('log', { name: 'Conversation' })

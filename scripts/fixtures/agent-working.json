@@ -10,6 +10,7 @@
       "status": "Storage switched to S3 and new uploads verified. Copying existing files: 1,240 of 3,900 done.",
       "activity": "working",
       "minutesAgo": 0,
+      "startedMinutesAgo": 21,
       "selected": true,
       "messages": [
         {

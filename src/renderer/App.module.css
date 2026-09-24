@@ -19,10 +19,6 @@
   margin: var(--space-outer);
 }
 
-.header {
-  height: 148px;
-}
-
 .inputBar {
   height: 110px;
 }

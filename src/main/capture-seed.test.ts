@@ -20,7 +20,7 @@ const MINUTE = 60_000
 const SEED: CaptureSeed = {
   workspace: { name: 'Acme API', rootPath: '/Users/sample/code/api' },
   tasks: [
-    { title: 'Add rate limiting', status: 'Waiting on you', minutesAgo: 4, selected: true },
+    { title: 'Add rate limiting', status: 'Waiting on you', minutesAgo: 4, startedMinutesAgo: 42, selected: true },
     { title: 'Move uploads', activity: TaskActivity.Working, minutesAgo: 30 },
     {
       title: 'Upgrade Django',
@@ -56,6 +56,10 @@ describe('readSeed', () => {
 
   it('reads the task workspace fixture', () => {
     expect(readSeed(FIXTURE).workspace.name).toBe('Acme API')
+  })
+
+  it('reads the mark done fixture', () => {
+    expect(readSeed(join(FIXTURES, 'mark-done.json')).tasks.find((task) => task.selected)?.state).toBe(TaskState.Done)
   })
 
   it('reads the agent working fixture', () => {
@@ -104,7 +108,9 @@ describe('applySeed', () => {
         unread: false,
         model: DEFAULT_MODEL,
         effort: DEFAULT_EFFORT,
+        createdAt: NOW - 42 * MINUTE,
         updatedAt: NOW - 4 * MINUTE,
+        statusUpdatedAt: NOW - 4 * MINUTE,
         doneAt: null,
         activity: TaskActivity.Waiting,
       },
@@ -115,6 +121,7 @@ describe('applySeed', () => {
         state: TaskState.Done,
         pinned: true,
         unread: true,
+        createdAt: NOW - 60 * MINUTE,
         updatedAt: NOW - 60 * MINUTE,
         doneAt: NOW - 60 * MINUTE,
       },

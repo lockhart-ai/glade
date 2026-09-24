@@ -83,7 +83,9 @@
   color: var(--color-text);
 }
 
-/* A pressed icon toggle (e.g. a pinned task's pin). */
+/* A pressed icon toggle (e.g. a pinned task's pin), from docs/design/html/03-rich-question.html. */
 .icon[aria-pressed='true'] {
+  background: var(--color-inner-2);
+  border-color: var(--color-inner-border);
   color: var(--color-text);
 }

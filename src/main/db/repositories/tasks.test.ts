@@ -29,6 +29,7 @@ describe('createTask', () => {
       title: '',
       objective: '',
       status: '',
+      statusUpdatedAt: null,
       state: TaskState.Active,
       activity: TaskActivity.Waiting,
       pinned: false,
@@ -58,6 +59,7 @@ describe('createTask', () => {
       title: 'Fix the flaky date test',
       objective: 'Make the date tests pass in every timezone',
       status: 'Reading the test config',
+      statusUpdatedAt: task.createdAt,
     })
     expect(task.createdAt).toBeGreaterThanOrEqual(before)
   })
@@ -120,6 +122,7 @@ describe('updateTask', () => {
       title: 'Fix the flaky date test',
       objective: 'Make the date tests pass in every timezone',
       status: 'Found it: a timezone bug',
+      statusUpdatedAt: 3_000,
       pinned: true,
       unread: true,
       model: 'claude-sample-2',
@@ -153,6 +156,15 @@ describe('updateTask', () => {
     const reopened = updateTask(test.db, task.id, { state: TaskState.Active }, 5_000)
     expect(reopened).toMatchObject({ state: TaskState.Active, doneAt: null, updatedAt: 5_000 })
     expect(getTask(test.db, task.id)).toEqual(reopened)
+  })
+
+  it('stamps the status time only when the status changes', () => {
+    const task = sampleTask(test.db, workspace.id)
+    updateTask(test.db, task.id, { status: 'Reading the tests' }, 3_000)
+
+    expect(updateTask(test.db, task.id, { status: 'Reading the tests' }, 4_000).statusUpdatedAt).toBe(3_000)
+    expect(updateTask(test.db, task.id, { activity: TaskActivity.Working }, 5_000).statusUpdatedAt).toBe(3_000)
+    expect(updateTask(test.db, task.id, { status: 'Tests pass' }, 6_000).statusUpdatedAt).toBe(6_000)
   })
 
   it('throws for an unknown id', () => {

@@ -57,6 +57,7 @@ it('lands in the empty workspace once a folder is chosen', async () => {
 })
 
 it('renders the window layout with the workspace, the chat, and a placeholder in each other region', async () => {
+  // With no task selected there is no task header.
   await renderApp([sampleWorkspace('w1')])
 
   expect(screen.getByRole('region', { name: 'Workspace' })).toHaveTextContent('Acme API/code/w1')
@@ -65,7 +66,7 @@ it('renders the window layout with the workspace, the chat, and a placeholder in
   expect(within(sidebar).getByRole('region', { name: 'Active' })).toHaveTextContent('Active0')
 
   const main = screen.getByRole('main', { name: 'Task' })
-  expect(within(main).getByRole('region', { name: 'Task header' })).toHaveTextContent('Task header')
+  expect(within(main).queryByRole('region', { name: 'Task header' })).toBeNull()
   expect(
     within(within(main).getByRole('region', { name: 'Chat' })).getByRole('log', { name: 'Conversation' }),
   ).toBeInTheDocument()

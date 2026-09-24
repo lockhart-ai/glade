@@ -1,10 +1,10 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { CommandName } from '../src/shared/bridge'
-import { TaskActivity, ToolCallState } from '../src/shared/domain'
+import { ToolCallState } from '../src/shared/domain'
 import { expect, test } from './fixtures'
-import { chat, firstRun, taskList } from './selectors'
-import { invoke, taskHeader, toolLog } from './task-view'
+import { chat, firstRun, taskHeader, taskList } from './selectors'
+import { invoke, toolLog } from './task-view'
 
 test('new task, first message, scripted reply', async ({ launch, tempFolder }) => {
   const root = join(tempFolder(), 'acme-api')
@@ -34,13 +34,14 @@ test('new task, first message, scripted reply', async ({ launch, tempFolder }) =
   await expect(row).toContainText('Fix the flaky date test')
   await expect(row).toContainText('Fixed the timezone bug; the tests pass.')
 
-  // Until the task header and the tool log land (P1-11, P1-12), these read what they will show through the bridge.
-  expect(await taskHeader(window, workspaceId, taskId)).toEqual({
-    title: 'Fix the flaky date test',
-    objective: 'Make the date formatting test pass in every timezone.',
-    status: 'Fixed the timezone bug; the tests pass.',
-    activity: TaskActivity.Waiting,
-  })
+  // So does the task header, with the objective, and the agent waiting on you once the turn ends.
+  const header = taskHeader(window)
+  await expect(header.title).toHaveText('Fix the flaky date test')
+  await expect(header.field('Objective')).toHaveText('Make the date formatting test pass in every timezone.')
+  await expect(header.field('Status')).toContainText('Fixed the timezone bug; the tests pass.')
+  await expect(header.pill).toHaveText('Active · waiting on you')
+
+  // Until the tool log lands (P1-11), this reads what it will show through the bridge.
   const done = ToolCallState.Done
   expect(await toolLog(window, taskId)).toEqual([
     { narration: "I'll find where the date is formatted, then fix the timezone bug and run the tests." },
