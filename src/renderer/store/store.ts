@@ -2,6 +2,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla'
 import { CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
 import { UiStateKey, type OpenFiles, type UiStateEntry, type Workspace } from '../../shared/domain'
 import { isPanelCollapsed, PanelTab, parsePanelTab } from '../right-panel/panelModel'
+import { DEFAULT_SETTINGS_SECTION } from '../settings/sections'
 import { listedTaskIds, selectionAfterDeleting } from '../task-list/sections'
 import { describeFailure, loadSnapshot } from './hydrate'
 import { applyEvent, withHistory, withOpenedWorkspace } from './reducer'
@@ -81,6 +82,27 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
 
       async openWorkspace(workspaceId) {
         await open(workspaceId)
+      },
+
+      // Main broadcasts the change too; applying the answer as well keeps the store right whichever arrives first.
+      async updateWorkspace(workspaceId, patch) {
+        const { workspace } = await bridge.invoke(CommandName.WorkspacesUpdate, { id: workspaceId, patch })
+        set((state) => applyEvent(state, { type: EventType.WorkspaceUpdated, workspace }))
+      },
+
+      // Shown at once, then as main saved them.
+      async updateSettings(patch) {
+        set((state) => ({ settings: { ...state.settings, ...patch } }))
+        const { settings } = await bridge.invoke(CommandName.SettingsUpdate, { patch })
+        set({ settings })
+      },
+
+      openSettings(section = DEFAULT_SETTINGS_SECTION) {
+        set({ settingsSection: section })
+      },
+
+      closeSettings() {
+        set({ settingsSection: null })
       },
 
       async hydrate() {

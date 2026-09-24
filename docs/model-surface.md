@@ -20,6 +20,10 @@ knows its task. It sets `alwaysLoad: true`, so the tools are never deferred behi
 Each field is trimmed and must not be empty. Input that fails its schema, or a task that is gone, comes back to the
 model as a tool error and changes nothing. Each write goes through `updateTaskFromAgent`, which emits `task.updated`.
 
+Settings › Agent can turn off **Status summary** and **Task titles** (P7-03). A session started while one is off gets
+neither the tool (`set_status` or `set_title`) nor the system prompt's ask for it; the settings are read as each
+session starts.
+
 ## Implemented: `ask` (P4-01, names unconfirmed)
 
 `mcp__glade__ask` takes `{ questions: Question[] }`, with `Question` exactly as drafted below (`QuestionKind` and the

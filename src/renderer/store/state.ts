@@ -2,7 +2,9 @@
  * The shape of the renderer's store: a mirror of main's state, hydrated on launch and kept current by bridge events.
  * Main (and SQLite behind it) stays the source of truth; nothing here is kept only in memory.
  */
-import type { TaskUserPatch } from '../../shared/bridge'
+import type { TaskUserPatch, WorkspaceUserPatch } from '../../shared/bridge'
+import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../shared/settings'
+import type { SettingsSection } from '../settings/sections'
 import type {
   Artifact,
   FileContent,
@@ -121,6 +123,10 @@ export interface GladeData {
   readonly renamingTaskId: string | null
   /** The task Delete task… asks you to confirm deleting; null when it isn't asking. A one-off UI intent. */
   readonly deletingTaskId: string | null
+  /** The app's settings, as main last broadcast them. */
+  readonly settings: Settings
+  /** The section the Settings modal shows; null while it's closed. A one-off UI intent. */
+  readonly settingsSection: SettingsSection | null
 }
 
 /**
@@ -138,6 +144,17 @@ export interface GladeActions {
   createWorkspace: (rootPath: string) => Promise<Workspace>
   /** Asks for a folder with the native dialog, which can also create one. Resolves with its path, or null if cancelled. */
   chooseFolder: () => Promise<string | null>
+  /**
+   * Renames a workspace or moves it to another root folder (Settings › Workspace). Rejects with the `BridgeError` for a
+   * root that isn't a folder or is another workspace's.
+   */
+  updateWorkspace: (workspaceId: string, patch: WorkspaceUserPatch) => Promise<void>
+  /** Changes settings; each saves at once (`settings.update`). */
+  updateSettings: (patch: SettingsPatch) => Promise<void>
+  /** Opens the Settings modal (⌘,) at a section, or moves it there if it's open. */
+  openSettings: (section?: SettingsSection) => void
+  /** Closes the Settings modal. */
+  closeSettings: () => void
   /** Opens a workspace: records it as last opened and shows it, deselecting a task in another workspace. */
   openWorkspace: (workspaceId: string) => Promise<void>
   /** Shows a workspace, or none. Deselects the selected task if it's in another workspace. */
@@ -259,6 +276,8 @@ export const INITIAL_DATA: GladeData = {
   fileFocus: null,
   renamingTaskId: null,
   deletingTaskId: null,
+  settings: DEFAULT_SETTINGS,
+  settingsSection: null,
 }
 
 export function selectSelectedWorkspace(state: GladeData): Workspace | undefined {

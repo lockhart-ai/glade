@@ -39,7 +39,7 @@ import {
 } from './db/repositories/tool-events'
 import { setUiState } from './db/repositories/ui-state'
 import { createWorkspace } from './db/repositories/workspaces'
-import { DEFAULT_EFFORT, DEFAULT_MODEL } from './tasks/defaults'
+import { DEFAULT_SETTINGS } from '../shared/settings'
 
 const MINUTE = 60_000
 
@@ -349,7 +349,11 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
     for (const [index, sample] of seed.tasks.entries()) {
       const at = now - sample.minutesAgo * MINUTE
       const createdAt = now - (sample.startedMinutesAgo ?? sample.minutesAgo) * MINUTE
-      const newTask = { workspaceId: workspace.id, model: DEFAULT_MODEL, effort: DEFAULT_EFFORT }
+      const newTask = {
+        workspaceId: workspace.id,
+        model: DEFAULT_SETTINGS.defaultModel,
+        effort: DEFAULT_SETTINGS.defaultEffort,
+      }
       const task = createTask(db, newTask, createdAt)
       updateTask(
         db,

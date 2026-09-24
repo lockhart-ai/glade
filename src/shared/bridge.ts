@@ -26,6 +26,7 @@ import type {
   UiStateKey,
   Workspace,
 } from './domain'
+import type { Settings, SettingsPatch } from './settings'
 
 /** The name the bridge is exposed under on `window`. */
 export const BRIDGE_KEY = 'glade'
@@ -42,6 +43,7 @@ export enum CommandName {
   WorkspacesList = 'workspaces.list',
   WorkspacesCreate = 'workspaces.create',
   WorkspacesOpen = 'workspaces.open',
+  WorkspacesUpdate = 'workspaces.update',
   DialogChooseFolder = 'dialog.chooseFolder',
   TasksList = 'tasks.list',
   TasksCreate = 'tasks.create',
@@ -68,6 +70,8 @@ export enum CommandName {
   UiStateGet = 'uiState.get',
   UiStateGetAll = 'uiState.getAll',
   UiStateSet = 'uiState.set',
+  SettingsGet = 'settings.get',
+  SettingsUpdate = 'settings.update',
 }
 
 /** The request of a command that takes no arguments: pass `{}`. */
@@ -104,6 +108,29 @@ export interface WorkspacesOpenRequest {
 }
 
 export interface WorkspacesOpenResponse {
+  readonly workspace: Workspace
+}
+
+/** The workspace fields you can change, in Settings › Workspace. */
+export interface WorkspaceUserPatch {
+  /** Not blank; saved trimmed. */
+  readonly name?: string
+  /** An absolute path to an existing directory, which no other workspace has as its root. */
+  readonly rootPath?: string
+}
+
+/**
+ * Renames a workspace or moves it to another root folder. Nothing on disk changes: the folders stay as they are, and no
+ * starter `CLAUDE.md` is written. A task's agent session started before the move keeps running in the old root until it
+ * ends; sessions started after it run in the new one. Broadcasts `workspace.updated`. Fails with `not_found` for an
+ * unknown id, and `invalid_root_path` when the root isn't an existing directory or is another workspace's root.
+ */
+export interface WorkspacesUpdateRequest {
+  readonly id: string
+  readonly patch: WorkspaceUserPatch
+}
+
+export interface WorkspacesUpdateResponse {
   readonly workspace: Workspace
 }
 
@@ -391,6 +418,16 @@ export interface UiStateGetAllResponse {
 /** Sets one UI state value. Broadcasts `uiState.changed`. */
 export type UiStateSetRequest = UiStateEntry
 
+/** `settings.get` and `settings.update` answer with the settings as they now are. */
+export interface SettingsResponse {
+  readonly settings: Settings
+}
+
+/** Changes the settings in `patch` (Settings saves each change at once). Broadcasts `settings.changed`. */
+export interface SettingsUpdateRequest {
+  readonly patch: SettingsPatch
+}
+
 /** One command's request and response types. */
 export interface CommandSpec<Request, Response> {
   readonly request: Request
@@ -402,6 +439,7 @@ export interface CommandMap {
   [CommandName.WorkspacesList]: CommandSpec<EmptyRequest, WorkspacesListResponse>
   [CommandName.WorkspacesCreate]: CommandSpec<WorkspacesCreateRequest, WorkspacesCreateResponse>
   [CommandName.WorkspacesOpen]: CommandSpec<WorkspacesOpenRequest, WorkspacesOpenResponse>
+  [CommandName.WorkspacesUpdate]: CommandSpec<WorkspacesUpdateRequest, WorkspacesUpdateResponse>
   [CommandName.DialogChooseFolder]: CommandSpec<EmptyRequest, DialogChooseFolderResponse>
   [CommandName.TasksList]: CommandSpec<TasksListRequest, TasksListResponse>
   [CommandName.TasksCreate]: CommandSpec<TasksCreateRequest, TaskResponse>
@@ -428,6 +466,8 @@ export interface CommandMap {
   [CommandName.UiStateGet]: CommandSpec<UiStateGetRequest, UiStateGetResponse>
   [CommandName.UiStateGetAll]: CommandSpec<EmptyRequest, UiStateGetAllResponse>
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>
+  [CommandName.SettingsGet]: CommandSpec<EmptyRequest, SettingsResponse>
+  [CommandName.SettingsUpdate]: CommandSpec<SettingsUpdateRequest, SettingsResponse>
 }
 
 export type CommandRequest<C extends CommandName> = CommandMap[C]['request']
@@ -452,6 +492,7 @@ export enum EventType {
   FileShown = 'file.shown',
   TodosChanged = 'todos.changed',
   ArtifactsChanged = 'artifacts.changed',
+  SettingsChanged = 'settings.changed',
 }
 
 export interface UiStateChangedEvent {
@@ -565,6 +606,12 @@ export interface ArtifactsChangedEvent {
   readonly artifacts: readonly Artifact[]
 }
 
+/** The settings changed. Carries them all as they now are. */
+export interface SettingsChangedEvent {
+  readonly type: EventType.SettingsChanged
+  readonly settings: Settings
+}
+
 /** Everything main broadcasts to the windows. */
 export type GladeEvent =
   | UiStateChangedEvent
@@ -583,6 +630,7 @@ export type GladeEvent =
   | FileShownEvent
   | TodosChangedEvent
   | ArtifactsChangedEvent
+  | SettingsChangedEvent
 
 export type EventListener = (event: GladeEvent) => void
 

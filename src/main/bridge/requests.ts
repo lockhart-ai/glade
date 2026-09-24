@@ -20,9 +20,12 @@ import {
   type UiStateSetRequest,
   type WorkspacesCreateRequest,
   type WorkspacesOpenRequest,
+  type SettingsUpdateRequest,
+  type WorkspacesUpdateRequest,
 } from '../../shared/bridge'
 import { Effort, UiStateKey } from '../../shared/domain'
 import { isWorkspaceRelativePath } from '../../shared/files'
+import { SETTING_SCHEMAS } from '../db/repositories/settings'
 import { questionAnswersSchema } from '../questions/schema'
 
 /**
@@ -39,6 +42,20 @@ const workspacesCreateRequest = z.strictObject({
 }) satisfies z.ZodType<WorkspacesCreateRequest>
 
 const workspacesOpenRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<WorkspacesOpenRequest>
+
+/** An absolute path, which main resolves. */
+const absolutePath = z.string().refine((path) => isAbsolute(path), 'Expected an absolute path')
+
+const workspacesUpdateRequest = z.strictObject({
+  id: z.string(),
+  patch: z.strictObject({
+    name: z
+      .string()
+      .refine((name) => name.trim() !== '', 'Expected a name that is not blank')
+      .optional(),
+    rootPath: absolutePath.optional(),
+  }),
+}) satisfies z.ZodType<WorkspacesUpdateRequest>
 
 const tasksListRequest = z.strictObject({ workspaceId: z.string() }) satisfies z.ZodType<TasksListRequest>
 
@@ -90,6 +107,10 @@ const fileRequest = z.strictObject({
     .refine(isWorkspaceRelativePath, 'Expected a normalized path relative to the workspace root, inside it'),
 }) satisfies z.ZodType<FileRequest>
 
+const settingsUpdateRequest = z.strictObject({
+  patch: z.strictObject(SETTING_SCHEMAS).partial(),
+}) satisfies z.ZodType<SettingsUpdateRequest>
+
 const uiStateGetRequest = z.strictObject({ key: z.enum(UiStateKey) }) satisfies z.ZodType<UiStateGetRequest>
 
 const uiStateSetRequest = z.strictObject({
@@ -101,6 +122,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.WorkspacesList]: emptyRequest,
   [CommandName.WorkspacesCreate]: workspacesCreateRequest,
   [CommandName.WorkspacesOpen]: workspacesOpenRequest,
+  [CommandName.WorkspacesUpdate]: workspacesUpdateRequest,
   [CommandName.DialogChooseFolder]: emptyRequest,
   [CommandName.TasksList]: tasksListRequest,
   [CommandName.TasksCreate]: tasksCreateRequest,
@@ -127,6 +149,8 @@ export const REQUEST_SCHEMAS = {
   [CommandName.UiStateGet]: uiStateGetRequest,
   [CommandName.UiStateGetAll]: emptyRequest,
   [CommandName.UiStateSet]: uiStateSetRequest,
+  [CommandName.SettingsGet]: emptyRequest,
+  [CommandName.SettingsUpdate]: settingsUpdateRequest,
 } as const satisfies RequestSchemas
 
 /** A short, readable account of why a request didn't parse: each problem as `field: message`, joined by `; `. */

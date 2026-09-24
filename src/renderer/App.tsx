@@ -20,6 +20,8 @@ import { useRenameShortcut } from './shortcuts/useRenameShortcut'
 import { useStopShortcut } from './shortcuts/useStopShortcut'
 import { useCompactShortcut } from './shortcuts/useCompactShortcut'
 import { useRightPanelShortcuts } from './shortcuts/useRightPanelShortcuts'
+import { useSettingsShortcut } from './shortcuts/useSettingsShortcut'
+import { SettingsDialog } from './settings/SettingsDialog'
 import { TaskPanel } from './right-panel'
 import { RelaunchNotice } from './relaunch-notice'
 
@@ -61,6 +63,7 @@ function Window({ sidebar, task, banner, overlay }: WindowProps): React.JSX.Elem
 
 /** What shows before there is any workspace: no workspace in the sidebar and the welcome in the task card. */
 function FirstRunLayout(): React.JSX.Element {
+  useSettingsShortcut()
   return (
     <Window
       sidebar={
@@ -70,6 +73,7 @@ function FirstRunLayout(): React.JSX.Element {
         </Sidebar>
       }
       task={<FirstRun />}
+      overlay={<SettingsDialog />}
     />
   )
 }
@@ -85,6 +89,7 @@ function Layout(): React.JSX.Element {
   usePinShortcut()
   useRenameShortcut()
   useRightPanelShortcuts()
+  useSettingsShortcut()
   return (
     <Window
       banner={<PauseBanner />}
@@ -111,6 +116,7 @@ function Layout(): React.JSX.Element {
         <>
           <RelaunchNotice />
           <DeleteTaskDialog />
+          <SettingsDialog />
         </>
       }
     />

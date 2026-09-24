@@ -36,6 +36,7 @@ import {
   type Workspace,
 } from '../../shared/domain'
 import { noOpenFiles, withClosedFile, withOpenedFile } from '../../shared/files'
+import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 
 export type FakeHandlers = {
   readonly [C in CommandName]: (request: CommandRequest<C>) => CommandResponse<C> | Promise<CommandResponse<C>>
@@ -69,6 +70,8 @@ export interface FakeMain {
   readonly copied?: string[]
   /** The paths `files.reveal` revealed, oldest first. */
   readonly revealed?: string[]
+  /** The settings `settings.get` starts answering with; the defaults when left out. `settings.update` changes them. */
+  readonly settings?: Settings
 }
 
 export interface FakeBridge {
@@ -84,10 +87,12 @@ export interface FakeBridge {
  * like main does. The task commands don't check transitions, `tasks.send` only saves and broadcasts the message, and
  * `tasks.stop` only sets the task back to waiting, `tasks.compact` only sets it working, and `tasks.delete` only
  * removes the task and broadcasts it, without deselecting it; main's own tests cover the rest. `workspaces.create` adds a
- * workspace and `workspaces.open` answers with it opened at 5,000, neither broadcasting.
+ * workspace, `workspaces.open` answers with it opened at 5,000 and `workspaces.update` changes it, none broadcasting.
+ * `settings.update` changes the settings and broadcasts them.
  */
 export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void): FakeHandlers {
   let sent = 0
+  let settings = main.settings ?? DEFAULT_SETTINGS
   let queued = 0
   const queue = main.queuedMessages ?? []
   const queueOf = (taskId: string): QueuedMessage[] => queue.filter((message) => message.taskId === taskId)
@@ -128,6 +133,14 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       const current = main.workspaces.find((workspace) => workspace.id === id)
       if (current === undefined) return refuse(bridgeError(BridgeErrorCode.NotFound, `No workspace ${id}`))
       return { workspace: { ...current, lastOpenedAt: 5_000 } }
+    },
+    [CommandName.WorkspacesUpdate]: ({ id, patch }) => {
+      const index = main.workspaces.findIndex((workspace) => workspace.id === id)
+      const current = main.workspaces[index]
+      if (current === undefined) return refuse(bridgeError(BridgeErrorCode.NotFound, `No workspace ${id}`))
+      const workspace = { ...current, ...patch }
+      main.workspaces[index] = workspace
+      return { workspace }
     },
     [CommandName.DialogChooseFolder]: () => ({ path: null }),
     [CommandName.TasksList]: ({ workspaceId }) => ({
@@ -236,6 +249,12 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       else main.uiState[index] = entry
       emit({ type: EventType.UiStateChanged, entry })
       return null
+    },
+    [CommandName.SettingsGet]: () => ({ settings }),
+    [CommandName.SettingsUpdate]: ({ patch }) => {
+      settings = { ...settings, ...patch }
+      emit({ type: EventType.SettingsChanged, settings })
+      return { settings }
     },
   }
 }

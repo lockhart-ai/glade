@@ -303,3 +303,23 @@ export function contextPopover(page: Page) {
     compactNow: popover.getByRole('button', { name: 'Compact now' }),
   }
 }
+
+/** The Settings modal (⌘,): its sections down the left, and the chosen one's controls. */
+export function settings(page: Page) {
+  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  return {
+    dialog,
+    /** A section in the nav, by its name (the workspace's is the workspace's name). */
+    section: (name: string) =>
+      dialog.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name, exact: true }),
+    heading: dialog.getByRole('heading', { level: 2 }),
+    close: dialog.getByRole('button', { name: 'Close settings' }),
+    /** The default model's button, which opens a menu of the models. */
+    model: dialog.getByRole('button', { name: /^Model: / }),
+    /** A choice of a segmented setting, e.g. `choice('Effort', 'Low')`. */
+    choice: (group: string, name: string) =>
+      dialog.getByRole('radiogroup', { name: group }).getByRole('radio', { name, exact: true }),
+    /** An on/off setting, e.g. `toggle('Notifications')`. */
+    toggle: (name: string) => dialog.getByRole('switch', { name, exact: true }),
+  }
+}

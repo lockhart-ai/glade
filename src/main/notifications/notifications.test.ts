@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BridgeErrorCode } from '../../shared/bridge'
 import { TaskActivity, TaskState } from '../../shared/domain'
 import { CommandFailure } from '../bridge/errors'
+import { updateSettings } from '../db/repositories/settings'
 import { updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import {
   createReplyNotifications,
-  NOTIFICATION_DEFAULTS,
+  NOTIFICATION_BODY_LENGTH,
   plainText,
   replyNotification,
   sendToTask,
@@ -91,11 +92,14 @@ describe('replyNotification', () => {
     expect(replyNotification({ id: 't1', title: '' }, 'Done.').title).toBe('New task')
   })
 
-  it('keeps to the default length and sound', () => {
-    const { body, silent } = replyNotification({ id: 't1', title: 'T' }, 'word '.repeat(100))
-    expect(body.length).toBeLessThanOrEqual(NOTIFICATION_DEFAULTS.bodyLength)
+  it('keeps to the body length', () => {
+    const { body } = replyNotification({ id: 't1', title: 'T' }, 'word '.repeat(100))
+    expect(body.length).toBeLessThanOrEqual(NOTIFICATION_BODY_LENGTH)
     expect(body.endsWith('…')).toBe(true)
-    expect(silent).toBe(NOTIFICATION_DEFAULTS.silent)
+  })
+
+  it('makes a sound only when asked to', () => {
+    expect(replyNotification({ id: 't1', title: 'T' }, 'Done.', true).silent).toBe(false)
   })
 })
 
@@ -127,6 +131,30 @@ describe('createReplyNotifications', () => {
     notifier.click(0)
     expect(openTask).toHaveBeenCalledExactlyOnceWith(task.id)
     expect(runner.send).not.toHaveBeenCalled()
+  })
+
+  it('shows nothing while notifications are off in the settings', () => {
+    const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+    updateSettings(database.db, { notifications: false })
+    const notifier = createRecordingNotifier()
+    const notify = createReplyNotifications({ db: database.db, notifier, openTask: vi.fn(), runner: fakeRunner() })
+
+    notify(task.id, 'Done.')
+    expect(notifier.shown).toEqual([])
+
+    // Turning them back on takes effect from the next reply.
+    updateSettings(database.db, { notifications: true })
+    notify(task.id, 'Done again.')
+    expect(notifier.shown).toHaveLength(1)
+  })
+
+  it('makes a sound when the settings have sound on', () => {
+    const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+    updateSettings(database.db, { notificationSound: true })
+    const notifier = createRecordingNotifier()
+    createReplyNotifications({ db: database.db, notifier, openTask: vi.fn(), runner: fakeRunner() })(task.id, 'Done.')
+
+    expect(notifier.shown).toEqual([expect.objectContaining({ silent: false })])
   })
 
   it('sends its inline reply to the task, without opening it', () => {

@@ -3,7 +3,7 @@ import { faArrowUp } from '@fortawesome/free-solid-svg-icons'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { BridgeErrorCode, isBridgeError } from '../../shared/bridge'
 import { Effort, TaskActivity, TaskState, type QueuedMessage, type Task } from '../../shared/domain'
-import { MODEL_OPTIONS, modelName } from '../../shared/models'
+import { EFFORT_NAMES, MODEL_OPTIONS, modelName } from '../../shared/models'
 import { Icon, IconSize, Textarea, useToast } from '../components'
 import { describeFailure } from '../store/hydrate'
 import { selectSelectedTask } from '../store/state'
@@ -12,14 +12,6 @@ import { PAUSED_PLACEHOLDER } from '../pause/pauseModel'
 import { QueueList } from './QueueList'
 import { SettingPicker, type SettingOption } from './SettingPicker'
 import styles from './InputBar.module.css'
-
-/** What the effort picker calls each level. */
-const EFFORT_NAMES: Readonly<Record<Effort, string>> = {
-  [Effort.Low]: 'Low',
-  [Effort.Medium]: 'Medium',
-  [Effort.High]: 'High',
-  [Effort.Max]: 'Max',
-}
 
 /** The effort picker's options, lowest first. */
 const EFFORT_OPTIONS: readonly SettingOption[] = Object.values(Effort).map((effort) => ({

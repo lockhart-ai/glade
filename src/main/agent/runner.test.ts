@@ -54,6 +54,7 @@ import {
   type AgentRunner,
 } from './runner'
 import { systemPromptAppend } from './system-prompt'
+import { updateSettings } from '../db/repositories/settings'
 import * as sdk from './test-sdk-messages'
 
 let database: TestDatabase
@@ -186,6 +187,7 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.TaskOpenRequested:
       case EventType.OpenFilesChanged:
       case EventType.FileShown:
+      case EventType.SettingsChanged:
         return [event.type]
     }
   })
@@ -885,6 +887,16 @@ describe('the session', () => {
     expect(mcpServers).toHaveBeenCalledWith(task)
     expect(backend.session.options.mcpServers).toBe(servers)
     own.close()
+  })
+
+  it('asks for a status and a title only when Settings has them on as the session starts', async () => {
+    updateSettings(database.db, { statusSummary: false, taskTitles: false })
+
+    await send('Find out why the login test is flaky.')
+
+    expect(backend.session.options.systemPromptAppend).toBe(
+      systemPromptAppend(task, { statusSummary: false, taskTitles: false }),
+    )
   })
 
   it('logs and survives an unknown message, a result for a call it never saw, and a write that fails', async () => {
@@ -2409,6 +2421,7 @@ describe('several tasks at once', () => {
         return event.questionSet.taskId
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
+      case EventType.SettingsChanged:
         return null
     }
   }
@@ -2437,6 +2450,7 @@ describe('several tasks at once', () => {
       case EventType.FileShown:
       case EventType.TodosChanged:
       case EventType.ArtifactsChanged:
+      case EventType.SettingsChanged:
         return [event.type]
     }
   }
