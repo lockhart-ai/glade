@@ -1,0 +1,101 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  E2E_CHOSEN_FOLDER_ENV,
+  E2E_ENV,
+  e2eChosenFolder,
+  E2eSpecError,
+  prepareE2e,
+  readE2eSpec,
+  type E2eSpec,
+} from './e2e'
+
+let folder = join(tmpdir(), 'glade-e2e-test')
+
+beforeEach(() => {
+  folder = mkdtempSync(join(tmpdir(), 'glade-e2e-test-'))
+})
+
+afterEach(() => {
+  rmSync(folder, { recursive: true, force: true })
+})
+
+function spec(overrides: Partial<E2eSpec> = {}): E2eSpec {
+  return { userData: folder, route: '', ...overrides }
+}
+
+function env(value: unknown): NodeJS.ProcessEnv {
+  return { [E2E_ENV]: typeof value === 'string' ? value : JSON.stringify(value) }
+}
+
+describe('readE2eSpec', () => {
+  it('is null when no e2e run was asked for', () => {
+    expect(readE2eSpec({}, false)).toBeNull()
+  })
+
+  it('is null in a packaged app, even when an e2e run was asked for', () => {
+    expect(readE2eSpec(env(spec()), true)).toBeNull()
+  })
+
+  it('reads a valid spec', () => {
+    expect(readE2eSpec(env(spec()), false)).toEqual(spec())
+    expect(readE2eSpec(env(spec({ route: '#gallery' })), false)).toEqual(spec({ route: '#gallery' }))
+  })
+
+  it('rejects a spec that is not JSON', () => {
+    expect(() => readE2eSpec(env('{'), false)).toThrow(E2eSpecError)
+    expect(() => readE2eSpec(env('{'), false)).toThrow(/^GLADE_E2E is not JSON: /)
+  })
+
+  it.each<[string, unknown]>([
+    ['a data folder outside the temp folder', spec({ userData: '/Users/someone/Library/Application Support/glade' })],
+    ['the temp folder itself as the data folder', spec({ userData: tmpdir() })],
+    ['a route that is not a hash', spec({ route: 'gallery' })],
+    ['an unknown field', { ...spec(), show: true }],
+  ])('rejects %s', (_, value) => {
+    expect(() => readE2eSpec(env(value), false)).toThrow(/^GLADE_E2E is invalid: /)
+  })
+})
+
+describe('prepareE2e', () => {
+  function fakeApp() {
+    return { setPath: vi.fn<(name: 'userData', path: string) => void>(), dock: { hide: vi.fn<() => void>() } }
+  }
+
+  it('points the data folder at the temp folder and hides the dock icon', () => {
+    const app = fakeApp()
+
+    prepareE2e(app, spec())
+
+    expect(app.setPath).toHaveBeenCalledWith('userData', folder)
+    expect(app.dock.hide).toHaveBeenCalledOnce()
+  })
+
+  it('reuses a data folder from an earlier launch, so a test can relaunch the app', () => {
+    writeFileSync(join(folder, 'glade.db'), '')
+    const app = fakeApp()
+
+    prepareE2e(app, spec())
+
+    expect(app.setPath).toHaveBeenCalledWith('userData', folder)
+  })
+
+  it('refuses a data folder that does not exist', () => {
+    const app = fakeApp()
+
+    expect(() => {
+      prepareE2e(app, spec({ userData: join(folder, 'missing') }))
+    }).toThrow(E2eSpecError)
+    expect(app.setPath).not.toHaveBeenCalled()
+  })
+})
+
+describe('e2eChosenFolder', () => {
+  it('answers with the folder the test chose, or null (cancelled) when there is none', () => {
+    expect(e2eChosenFolder({ [E2E_CHOSEN_FOLDER_ENV]: '/tmp/acme-api' })).toBe('/tmp/acme-api')
+    expect(e2eChosenFolder({ [E2E_CHOSEN_FOLDER_ENV]: '' })).toBeNull()
+    expect(e2eChosenFolder({})).toBeNull()
+  })
+})

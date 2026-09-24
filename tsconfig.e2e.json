@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    // Specs run in Node, and pass callbacks to the page (DOM) and to the main process (Node).
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.e2e.tsbuildinfo"
+  },
+  // The specs share the e2e mode's constants with the main process.
+  "include": ["playwright.config.ts", "e2e/**/*", "src/main/e2e.ts", "src/main/isolation.ts", "src/shared/ready.ts"]
+}
