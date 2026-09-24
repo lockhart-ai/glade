@@ -65,4 +65,3 @@ export function describeViolations(violations: readonly SecurityViolation[]): st
     .map(({ setting, required, actual }) => `${setting} must be ${String(required)} (was ${String(actual)})`)
     .join('\n')
 }
-export const ciBreak: number = "not a number";
