@@ -194,5 +194,7 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
     case EventType.TerminalCleared:
       // A terminal's output goes straight to its terminal (see `subscribeTerminal` in `./store`), not into the store.
       return state
+    case EventType.SettingsChanged:
+      return { ...state, settings: event.settings }
   }
 }

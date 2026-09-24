@@ -2,13 +2,15 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
+import { Effort, FileContentKind, FileInfoKind, UiStateKey } from '../../shared/domain'
+import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { BridgeErrorCode, CommandName, EventType, type GladeEvent } from '../../shared/bridge'
-import { FileContentKind, FileInfoKind, UiStateKey } from '../../shared/domain'
 import { SearchField } from '../../shared/search'
 import { FakeAgentBackend } from '../agent/fake-backend'
 import { createAgentRunner } from '../agent/runner'
 import { addArtifact } from '../db/repositories/artifacts'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
+import { getSettings } from '../db/repositories/settings'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { setUiState } from '../db/repositories/ui-state'
 import { createFakeSpawner, fakeTerminalOptions, type FakeSpawner } from '../terminal/fake-pty'
@@ -122,6 +124,35 @@ describe('workspaces.reveal', () => {
   it('refuses an unknown workspace', () => {
     expect(() => handlers[CommandName.WorkspacesReveal]({ id: 'gone' })).toThrow('No workspace gone')
     expect(revealPath).not.toHaveBeenCalled()
+  })
+})
+
+describe('workspaces.update', () => {
+  it('renames a workspace or moves its root, and broadcasts it', async () => {
+    const workspace = sampleWorkspace(database.db)
+
+    const renamed = await handlers[CommandName.WorkspacesUpdate]({ id: workspace.id, patch: { name: 'Acme' } })
+    const moved = await handlers[CommandName.WorkspacesUpdate]({ id: workspace.id, patch: { rootPath: root } })
+
+    expect(renamed).toEqual({ workspace: { ...workspace, name: 'Acme' } })
+    expect(moved).toEqual({ workspace: { ...workspace, name: 'Acme', rootPath: root } })
+    expect(emit.mock.calls.map(([event]) => event)).toEqual([
+      { type: EventType.WorkspaceUpdated, workspace: renamed.workspace },
+      { type: EventType.WorkspaceUpdated, workspace: moved.workspace },
+    ])
+  })
+})
+
+describe('the settings commands', () => {
+  it('answer with the settings, and save and broadcast a change', () => {
+    expect(handlers[CommandName.SettingsGet]({})).toEqual({ settings: DEFAULT_SETTINGS })
+
+    const changed = handlers[CommandName.SettingsUpdate]({ patch: { defaultEffort: Effort.Max } })
+
+    const settings = { ...DEFAULT_SETTINGS, defaultEffort: Effort.Max }
+    expect(changed).toEqual({ settings })
+    expect(getSettings(database.db)).toEqual(settings)
+    expect(emit).toHaveBeenCalledExactlyOnceWith({ type: EventType.SettingsChanged, settings })
   })
 })
 

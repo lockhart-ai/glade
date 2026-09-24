@@ -1,7 +1,7 @@
 import { statSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import type { Database } from 'better-sqlite3'
-import { BridgeErrorCode } from '../../shared/bridge'
+import { BridgeErrorCode, type WorkspaceUserPatch } from '../../shared/bridge'
 import { UiStateKey, type EpochMs, type UiStateEntry, type Workspace } from '../../shared/domain'
 import { CommandFailure } from '../bridge/errors'
 import { getTask } from '../db/repositories/tasks'
@@ -69,6 +69,35 @@ export function openWorkspace(db: Database, id: string, now: EpochMs = Date.now(
     if (selected !== current) uiState.push({ key: UiStateKey.SelectedTaskId, value: selected })
     for (const entry of uiState) setUiState(db, entry)
     return { workspace, selectedTaskId: selected === '' ? null : selected, uiState }
+  })()
+}
+
+/**
+ * Renames a workspace or moves it to another root folder (Settings › Workspace), leaving everything on disk as it is.
+ * The name is saved trimmed; the root is resolved like a new workspace's.
+ *
+ * @throws CommandFailure `not_found` when there's no such workspace, `invalid_request` for a blank name, and
+ *   `invalid_root_path` when the root isn't an existing directory or is another workspace's root.
+ */
+export function changeWorkspace(db: Database, id: string, patch: WorkspaceUserPatch): Workspace {
+  return db.transaction((): Workspace => {
+    if (getWorkspace(db, id) === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${id}`)
+    const name = patch.name?.trim()
+    if (name === '') throw new CommandFailure(BridgeErrorCode.InvalidRequest, 'A workspace name cannot be blank')
+    const rootPath = patch.rootPath === undefined ? undefined : resolve(patch.rootPath)
+    if (rootPath !== undefined) {
+      if (!isDirectory(rootPath)) {
+        throw new CommandFailure(BridgeErrorCode.InvalidRootPath, `${rootPath} is not a folder`)
+      }
+      const other = getWorkspaceByRoot(db, rootPath)
+      if (other !== undefined && other.id !== id) {
+        throw new CommandFailure(BridgeErrorCode.InvalidRootPath, `${rootPath} is already the workspace ${other.name}`)
+      }
+    }
+    return updateWorkspace(db, id, {
+      ...(name === undefined ? {} : { name }),
+      ...(rootPath === undefined ? {} : { rootPath }),
+    })
   })()
 }
 

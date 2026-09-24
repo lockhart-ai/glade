@@ -10,6 +10,7 @@ import {
   type QueuedMessage,
   type Task,
 } from '../../shared/domain'
+import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { createBroadcast, createDispatcher } from './dispatcher'
 import { CommandFailure } from './errors'
 import type { TerminalTab } from '../../shared/terminal'
@@ -74,6 +75,11 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.TerminalClear]: () => null,
     [CommandName.TerminalInterrupt]: () => null,
     [CommandName.TerminalClose]: () => null,
+    [CommandName.WorkspacesUpdate]: () => {
+      throw new Error('not in these tests')
+    },
+    [CommandName.SettingsGet]: () => ({ settings: DEFAULT_SETTINGS }),
+    [CommandName.SettingsUpdate]: () => ({ settings: DEFAULT_SETTINGS }),
     ...overrides,
   }
 }

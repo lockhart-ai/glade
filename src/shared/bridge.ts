@@ -26,6 +26,7 @@ import type {
   UiStateKey,
   Workspace,
 } from './domain'
+import type { Settings, SettingsPatch } from './settings'
 import type { SearchResult } from './search'
 import type { TerminalTab } from './terminal'
 
@@ -44,6 +45,7 @@ export enum CommandName {
   WorkspacesList = 'workspaces.list',
   WorkspacesCreate = 'workspaces.create',
   WorkspacesOpen = 'workspaces.open',
+  WorkspacesUpdate = 'workspaces.update',
   WorkspacesReveal = 'workspaces.reveal',
   DialogChooseFolder = 'dialog.chooseFolder',
   TasksList = 'tasks.list',
@@ -74,6 +76,8 @@ export enum CommandName {
   UiStateGet = 'uiState.get',
   UiStateGetAll = 'uiState.getAll',
   UiStateSet = 'uiState.set',
+  SettingsGet = 'settings.get',
+  SettingsUpdate = 'settings.update',
   SearchQuery = 'search.query',
   TerminalList = 'terminal.list',
   TerminalCreate = 'terminal.create',
@@ -129,6 +133,29 @@ export interface WorkspacesOpenResponse {
 /** Shows a workspace's root folder in Finder (Reveal root in Finder). Fails with `not_found` for an unknown id. */
 export interface WorkspacesRevealRequest {
   readonly id: string
+}
+
+/** The workspace fields you can change, in Settings › Workspace. */
+export interface WorkspaceUserPatch {
+  /** Not blank; saved trimmed. */
+  readonly name?: string
+  /** An absolute path to an existing directory, which no other workspace has as its root. */
+  readonly rootPath?: string
+}
+
+/**
+ * Renames a workspace or moves it to another root folder. Nothing on disk changes: the folders stay as they are, and no
+ * starter `CLAUDE.md` is written. A task's agent session started before the move keeps running in the old root until it
+ * ends; sessions started after it run in the new one. Broadcasts `workspace.updated`. Fails with `not_found` for an
+ * unknown id, and `invalid_root_path` when the root isn't an existing directory or is another workspace's root.
+ */
+export interface WorkspacesUpdateRequest {
+  readonly id: string
+  readonly patch: WorkspaceUserPatch
+}
+
+export interface WorkspacesUpdateResponse {
+  readonly workspace: Workspace
 }
 
 /** Shows the native open-folder dialog, which can also create a new folder. */
@@ -445,6 +472,16 @@ export interface UiStateGetAllResponse {
 /** Sets one UI state value. Broadcasts `uiState.changed`. */
 export type UiStateSetRequest = UiStateEntry
 
+/** `settings.get` and `settings.update` answer with the settings as they now are. */
+export interface SettingsResponse {
+  readonly settings: Settings
+}
+
+/** Changes the settings in `patch` (Settings saves each change at once). Broadcasts `settings.changed`. */
+export interface SettingsUpdateRequest {
+  readonly patch: SettingsPatch
+}
+
 /**
  * Searches a workspace's tasks: their titles, objectives, statuses (outcomes once done) and chat messages, yours and
  * the agent's. What you type is plain text, never query syntax (see `src/shared/search.ts`): every word must appear
@@ -537,6 +574,7 @@ export interface CommandMap {
   [CommandName.WorkspacesList]: CommandSpec<EmptyRequest, WorkspacesListResponse>
   [CommandName.WorkspacesCreate]: CommandSpec<WorkspacesCreateRequest, WorkspacesCreateResponse>
   [CommandName.WorkspacesOpen]: CommandSpec<WorkspacesOpenRequest, WorkspacesOpenResponse>
+  [CommandName.WorkspacesUpdate]: CommandSpec<WorkspacesUpdateRequest, WorkspacesUpdateResponse>
   [CommandName.WorkspacesReveal]: CommandSpec<WorkspacesRevealRequest, null>
   [CommandName.DialogChooseFolder]: CommandSpec<EmptyRequest, DialogChooseFolderResponse>
   [CommandName.TasksList]: CommandSpec<TasksListRequest, TasksListResponse>
@@ -567,6 +605,8 @@ export interface CommandMap {
   [CommandName.UiStateGet]: CommandSpec<UiStateGetRequest, UiStateGetResponse>
   [CommandName.UiStateGetAll]: CommandSpec<EmptyRequest, UiStateGetAllResponse>
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>
+  [CommandName.SettingsGet]: CommandSpec<EmptyRequest, SettingsResponse>
+  [CommandName.SettingsUpdate]: CommandSpec<SettingsUpdateRequest, SettingsResponse>
   [CommandName.SearchQuery]: CommandSpec<SearchQueryRequest, SearchQueryResponse>
   [CommandName.TerminalList]: CommandSpec<EmptyRequest, TerminalListResponse>
   [CommandName.TerminalCreate]: CommandSpec<TerminalCreateRequest, TerminalTabResponse>
@@ -609,6 +649,7 @@ export enum EventType {
   TerminalTabsChanged = 'terminal.tabsChanged',
   TerminalOutput = 'terminal.output',
   TerminalCleared = 'terminal.cleared',
+  SettingsChanged = 'settings.changed',
 }
 
 export interface UiStateChangedEvent {
@@ -746,6 +787,12 @@ export interface TerminalClearedEvent {
   readonly tabId: string
 }
 
+/** The settings changed. Carries them all as they now are. */
+export interface SettingsChangedEvent {
+  readonly type: EventType.SettingsChanged
+  readonly settings: Settings
+}
+
 /** Everything main broadcasts to the windows. */
 export type GladeEvent =
   | UiStateChangedEvent
@@ -767,6 +814,7 @@ export type GladeEvent =
   | TerminalTabsChangedEvent
   | TerminalOutputEvent
   | TerminalClearedEvent
+  | SettingsChangedEvent
 
 export type EventListener = (event: GladeEvent) => void
 

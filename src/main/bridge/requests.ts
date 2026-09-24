@@ -29,11 +29,14 @@ import {
   type UiStateSetRequest,
   type WorkspacesCreateRequest,
   type WorkspacesOpenRequest,
+  type SettingsUpdateRequest,
+  type WorkspacesUpdateRequest,
   type WorkspacesRevealRequest,
 } from '../../shared/bridge'
 import { Effort, UiStateKey } from '../../shared/domain'
 import { isWorkspaceRelativePath } from '../../shared/files'
 import { MAX_TERMINAL_NAME, MAX_TERMINAL_SIZE, MAX_TERMINAL_WRITE } from '../../shared/terminal'
+import { SETTING_SCHEMAS } from '../db/repositories/settings'
 import { questionAnswersSchema } from '../questions/schema'
 
 /**
@@ -51,6 +54,19 @@ const workspacesCreateRequest = z.strictObject({
 
 const workspacesOpenRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<WorkspacesOpenRequest>
 
+/** An absolute path, which main resolves. */
+const absolutePath = z.string().refine((path) => isAbsolute(path), 'Expected an absolute path')
+
+const workspacesUpdateRequest = z.strictObject({
+  id: z.string(),
+  patch: z.strictObject({
+    name: z
+      .string()
+      .refine((name) => name.trim() !== '', 'Expected a name that is not blank')
+      .optional(),
+    rootPath: absolutePath.optional(),
+  }),
+}) satisfies z.ZodType<WorkspacesUpdateRequest>
 const workspacesRevealRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<WorkspacesRevealRequest>
 
 const tasksListRequest = z.strictObject({ workspaceId: z.string() }) satisfies z.ZodType<TasksListRequest>
@@ -108,6 +124,9 @@ const fileRequest = z.strictObject({
     .refine(isWorkspaceRelativePath, 'Expected a normalized path relative to the workspace root, inside it'),
 }) satisfies z.ZodType<FileRequest>
 
+const settingsUpdateRequest = z.strictObject({
+  patch: z.strictObject(SETTING_SCHEMAS).partial(),
+}) satisfies z.ZodType<SettingsUpdateRequest>
 const artifactsRemoveRequest = z.strictObject({
   taskId: z.string(),
   path: z.string(),
@@ -159,6 +178,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.WorkspacesList]: emptyRequest,
   [CommandName.WorkspacesCreate]: workspacesCreateRequest,
   [CommandName.WorkspacesOpen]: workspacesOpenRequest,
+  [CommandName.WorkspacesUpdate]: workspacesUpdateRequest,
   [CommandName.WorkspacesReveal]: workspacesRevealRequest,
   [CommandName.DialogChooseFolder]: emptyRequest,
   [CommandName.TasksList]: tasksListRequest,
@@ -189,6 +209,8 @@ export const REQUEST_SCHEMAS = {
   [CommandName.UiStateGet]: uiStateGetRequest,
   [CommandName.UiStateGetAll]: emptyRequest,
   [CommandName.UiStateSet]: uiStateSetRequest,
+  [CommandName.SettingsGet]: emptyRequest,
+  [CommandName.SettingsUpdate]: settingsUpdateRequest,
   [CommandName.SearchQuery]: searchQueryRequest,
   [CommandName.TerminalList]: emptyRequest,
   [CommandName.TerminalCreate]: terminalCreateRequest,

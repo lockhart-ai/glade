@@ -29,6 +29,7 @@ import {
   type Workspace,
 } from '../../shared/domain'
 import type { TerminalTab } from '../../shared/terminal'
+import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import type { Handlers } from './handlers'
 import { REQUEST_SCHEMAS, type RequestSchemas } from './requests'
 
@@ -70,6 +71,9 @@ const TASK_HANDLERS = {
   [CommandName.FilesInfo]: () => ({ info: { kind: FileInfoKind.Missing } }),
   [CommandName.FilesCopy]: () => null,
   [CommandName.FilesReveal]: () => null,
+  [CommandName.WorkspacesUpdate]: () => ({ workspace: WORKSPACE }),
+  [CommandName.SettingsGet]: () => ({ settings: DEFAULT_SETTINGS }),
+  [CommandName.SettingsUpdate]: () => ({ settings: DEFAULT_SETTINGS }),
   [CommandName.ArtifactsRemove]: () => null,
   [CommandName.SearchQuery]: () => ({ results: [] }),
   [CommandName.TerminalList]: () => ({ tabs: [] }),
@@ -106,6 +110,9 @@ const TASK_SCHEMAS = {
   [CommandName.FilesInfo]: REQUEST_SCHEMAS[CommandName.FilesInfo],
   [CommandName.FilesCopy]: REQUEST_SCHEMAS[CommandName.FilesCopy],
   [CommandName.FilesReveal]: REQUEST_SCHEMAS[CommandName.FilesReveal],
+  [CommandName.WorkspacesUpdate]: REQUEST_SCHEMAS[CommandName.WorkspacesUpdate],
+  [CommandName.SettingsGet]: REQUEST_SCHEMAS[CommandName.SettingsGet],
+  [CommandName.SettingsUpdate]: REQUEST_SCHEMAS[CommandName.SettingsUpdate],
   [CommandName.ArtifactsRemove]: REQUEST_SCHEMAS[CommandName.ArtifactsRemove],
   [CommandName.SearchQuery]: REQUEST_SCHEMAS[CommandName.SearchQuery],
 } satisfies Partial<RequestSchemas>
@@ -358,6 +365,9 @@ describe('events', () => {
           break
         case EventType.TerminalCleared:
           expectTypeOf(event.tabId).toEqualTypeOf<string>()
+          break
+        case EventType.SettingsChanged:
+          expectTypeOf(event.settings).toEqualTypeOf<Settings>()
           break
       }
     })

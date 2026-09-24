@@ -5,6 +5,7 @@ import { createGladeMcpServer, GLADE_SERVER } from '../agent/glade-tools'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
 import type { OpenPath, RevealPath, WriteClipboard } from '../files/files'
 import type { NotifyReply } from '../notifications/notifications'
+import { getSettings } from '../db/repositories/settings'
 import { createQuestionBroker } from '../questions/questions'
 import { createBroadcast, createDispatcher, type EventTarget } from './dispatcher'
 import type { Emit } from './events'
@@ -87,8 +88,10 @@ export function registerBridge({
     notifyReply,
     questions,
     isOnline,
-    // Each session gets its own Glade tools, built for its task.
-    mcpServers: (task) => ({ [GLADE_SERVER]: createGladeMcpServer({ db, emit, questions }, task.id) }),
+    // Each session gets its own Glade tools, built for its task, with the upkeep Settings has on as it starts.
+    mcpServers: (task) => ({
+      [GLADE_SERVER]: createGladeMcpServer({ db, emit, questions }, task.id, getSettings(db)),
+    }),
   })
   const terminals = createTerminals({ db, emit, ...terminal })
   const dispatch = createDispatcher(

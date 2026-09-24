@@ -31,6 +31,21 @@ describe('REQUEST_SCHEMAS', () => {
     expect(REQUEST_SCHEMAS[CommandName.UiStateGet].parse({ key: KEY })).toEqual({ key: KEY })
     expect(REQUEST_SCHEMAS[CommandName.UiStateGetAll].parse({})).toEqual({})
     expect(REQUEST_SCHEMAS[CommandName.UiStateSet].parse({ key: KEY, value: '' })).toEqual({ key: KEY, value: '' })
+    const rename = { id: 'w', patch: { name: ' Acme ', rootPath: '/code/acme' } }
+    expect(REQUEST_SCHEMAS[CommandName.WorkspacesUpdate].parse(rename)).toEqual(rename)
+    expect(REQUEST_SCHEMAS[CommandName.SettingsGet].parse({})).toEqual({})
+    const settings = {
+      patch: {
+        defaultModel: 'claude-sonnet-5',
+        defaultEffort: Effort.Low,
+        statusSummary: false,
+        taskTitles: false,
+        notifications: false,
+        notificationSound: true,
+      },
+    }
+    expect(REQUEST_SCHEMAS[CommandName.SettingsUpdate].parse(settings)).toEqual(settings)
+    expect(REQUEST_SCHEMAS[CommandName.SettingsUpdate].parse({ patch: {} })).toEqual({ patch: {} })
     const search = { workspaceId: 'w', text: '"Retry-After' }
     expect(REQUEST_SCHEMAS[CommandName.SearchQuery].parse(search)).toEqual(search)
   })
@@ -94,6 +109,30 @@ describe('REQUEST_SCHEMAS', () => {
       CommandName.WorkspacesOpen,
       {},
       'id: Invalid input: expected string, received undefined',
+    ],
+    [
+      'a blank workspace name',
+      CommandName.WorkspacesUpdate,
+      { id: 'w', patch: { name: ' ' } },
+      'patch.name: Expected a name that is not blank',
+    ],
+    [
+      'a relative new root',
+      CommandName.WorkspacesUpdate,
+      { id: 'w', patch: { rootPath: 'acme' } },
+      'patch.rootPath: Expected an absolute path',
+    ],
+    [
+      'an unknown setting',
+      CommandName.SettingsUpdate,
+      { patch: { theme: 'light' } },
+      'patch: Unrecognized key: "theme"',
+    ],
+    [
+      'a setting of the wrong type',
+      CommandName.SettingsUpdate,
+      { patch: { notifications: 'off' } },
+      'patch.notifications: Invalid input: expected boolean, received string',
     ],
     ['arguments to dialog.chooseFolder', CommandName.DialogChooseFolder, { title: 'x' }, 'Unrecognized key: "title"'],
     ['a missing task id', CommandName.TasksMarkDone, {}, 'id: Invalid input: expected string, received undefined'],

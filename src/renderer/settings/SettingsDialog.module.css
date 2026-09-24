@@ -1,0 +1,247 @@
+/* The Settings modal, docs/design/html/21-settings.html. */
+.backdrop {
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 6, 10, 0.66);
+}
+
+.dialog {
+  display: flex;
+  width: 980px;
+  max-width: calc(100vw - 48px);
+  height: 700px;
+  max-height: calc(100vh - 48px);
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--color-inner);
+  border: 1px solid var(--color-strong);
+  border-radius: var(--radius-card);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  color: var(--color-text);
+}
+
+.dialog:focus {
+  outline: none;
+}
+
+/* The sections, down the left. */
+.nav {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 2px;
+  width: 220px;
+  box-sizing: border-box;
+  padding: 20px 12px;
+  overflow-y: auto;
+  background: var(--color-panel);
+  border-right: 1px solid var(--color-inner-border);
+}
+
+.navTitle {
+  padding: 0 12px 10px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.navHeading {
+  padding: 18px 12px 6px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+.navItem {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  overflow: hidden;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-button-sm);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--color-muted);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.navItem:hover {
+  color: var(--color-text);
+}
+
+.navItem[aria-current='page'] {
+  background: var(--color-inner-2);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.navItem:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+}
+
+/* The chosen section, on the right. */
+.content {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 22px 32px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 6px;
+}
+
+.title {
+  margin: 0;
+  overflow: hidden;
+  font-size: 20px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.intro {
+  margin: 0 0 6px;
+  font-size: var(--font-size-secondary);
+  color: var(--color-faint);
+}
+
+.row {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 24px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--color-inner-border);
+}
+
+.rowText {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  gap: 3px;
+  min-width: 0;
+}
+
+.rowName {
+  font-size: var(--font-size-body);
+  font-weight: 500;
+}
+
+.rowDescription {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.45;
+  color: var(--color-faint);
+}
+
+/* The model picker: a select trigger, the Dark button of the design system. */
+.select {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 14px;
+  background: var(--color-raised);
+  border: 1px solid var(--color-strong);
+  border-radius: var(--radius-button);
+  font: inherit;
+  font-size: var(--font-size-secondary);
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.select:hover {
+  background: var(--color-inner-2);
+}
+
+.select:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 2px;
+}
+
+.nameField {
+  flex-shrink: 0;
+  width: 260px;
+}
+
+.path {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.error {
+  margin: 12px 0 0;
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-pink);
+}
+
+/* Settings › Keyboard: one group per area of the app, as docs/design/screens/22-keymap.png lays them out. */
+.keyGroup {
+  flex-shrink: 0;
+  padding-top: 14px;
+}
+
+.keyArea {
+  margin: 0;
+  padding: 6px 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  font-weight: 500;
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+.keyRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--color-inner-border);
+  font-size: var(--font-size-secondary);
+  color: var(--color-muted);
+}
+
+.keys {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}

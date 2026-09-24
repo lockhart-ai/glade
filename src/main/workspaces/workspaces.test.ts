@@ -10,7 +10,7 @@ import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state
 import { getWorkspaceSelection } from '../db/repositories/workspace-selections'
 import { getWorkspace, listWorkspaces } from '../db/repositories/workspaces'
 import { STARTER_CLAUDE_MD } from './starter-claude-md'
-import { createWorkspaceAt, noteSelection, openWorkspace } from './workspaces'
+import { changeWorkspace, createWorkspaceAt, noteSelection, openWorkspace } from './workspaces'
 
 let database: TestDatabase
 let dir: string
@@ -164,6 +164,49 @@ describe('openWorkspace', () => {
   })
 })
 
+describe('changeWorkspace', () => {
+  it('renames a workspace, trimmed, and moves it to another root, resolved, writing nothing to either folder', () => {
+    const old = folder('acme-api')
+    const workspace = createWorkspaceAt(database.db, old, 1_000).workspace
+    const next = folder('acme')
+
+    expect(changeWorkspace(database.db, workspace.id, { name: '  Acme  ' })).toEqual({ ...workspace, name: 'Acme' })
+    const moved = changeWorkspace(database.db, workspace.id, { rootPath: `${next}/` })
+
+    expect(moved).toEqual({ ...workspace, name: 'Acme', rootPath: next })
+    expect(getWorkspace(database.db, workspace.id)).toEqual(moved)
+    expect(existsSync(join(next, 'CLAUDE.md'))).toBe(false)
+    expect(existsSync(join(old, 'CLAUDE.md'))).toBe(true)
+  })
+
+  it('keeps its own root, and changes nothing for an empty patch', () => {
+    const root = folder('acme-api')
+    const workspace = createWorkspaceAt(database.db, root).workspace
+
+    expect(changeWorkspace(database.db, workspace.id, { rootPath: root })).toEqual(workspace)
+    expect(changeWorkspace(database.db, workspace.id, {})).toEqual(workspace)
+  })
+
+  it('refuses an unknown workspace, a blank name, a root that is not a folder, and another workspace’s root', () => {
+    const workspace = createWorkspaceAt(database.db, folder('acme-api')).workspace
+    const other = createWorkspaceAt(database.db, folder('acme-web')).workspace
+
+    expect(() => changeWorkspace(database.db, 'gone', { name: 'x' })).toThrow(
+      new CommandFailure(BridgeErrorCode.NotFound, 'No workspace gone'),
+    )
+    expect(() => changeWorkspace(database.db, workspace.id, { name: ' ' })).toThrow(
+      new CommandFailure(BridgeErrorCode.InvalidRequest, 'A workspace name cannot be blank'),
+    )
+    const missing = join(dir, 'missing')
+    expect(() => changeWorkspace(database.db, workspace.id, { rootPath: missing })).toThrow(
+      new CommandFailure(BridgeErrorCode.InvalidRootPath, `${missing} is not a folder`),
+    )
+    expect(() => changeWorkspace(database.db, workspace.id, { rootPath: other.rootPath })).toThrow(
+      new CommandFailure(BridgeErrorCode.InvalidRootPath, `${other.rootPath} is already the workspace acme-web`),
+    )
+    expect(getWorkspace(database.db, workspace.id)).toEqual(workspace)
+  })
+})
 describe('noteSelection', () => {
   it("records a selected task as its workspace's selection", () => {
     const acme = sampleWorkspace(database.db)

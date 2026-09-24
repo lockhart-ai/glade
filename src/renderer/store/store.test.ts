@@ -12,6 +12,8 @@ import {
   ToolEventKind,
   UiStateKey,
 } from '../../shared/domain'
+import { DEFAULT_SETTINGS } from '../../shared/settings'
+import { SettingsSection } from '../settings/sections'
 import { HydrationStatus, selectSelectedTask, selectSelectedWorkspace } from './state'
 import { createGladeStore } from './store'
 import {
@@ -164,6 +166,61 @@ describe('openWorkspace', () => {
   })
 })
 
+describe('updateWorkspace', () => {
+  it('renames or moves a workspace and holds it as main answers', async () => {
+    const { store, invoke } = await hydrated()
+
+    await store.getState().updateWorkspace('w2', { name: 'Acme Web', rootPath: '/code/acme-web' })
+
+    expect(invoke).toHaveBeenCalledWith(CommandName.WorkspacesUpdate, {
+      id: 'w2',
+      patch: { name: 'Acme Web', rootPath: '/code/acme-web' },
+    })
+    expect(store.getState().workspaces[1]).toMatchObject({ id: 'w2', name: 'Acme Web', rootPath: '/code/acme-web' })
+  })
+
+  it("rejects with main's error", async () => {
+    const { store } = await hydrated()
+
+    await expect(store.getState().updateWorkspace('gone', { name: 'x' })).rejects.toEqual(
+      bridgeError(BridgeErrorCode.NotFound, 'No workspace gone'),
+    )
+  })
+})
+
+describe('settings', () => {
+  it('are loaded with the snapshot', async () => {
+    const settings = { ...DEFAULT_SETTINGS, defaultEffort: Effort.Max }
+    const { store } = await hydrated({ ...main(), settings })
+
+    expect(store.getState().settings).toEqual(settings)
+  })
+
+  it('change at once, save through main, and follow what main broadcasts', async () => {
+    const { store, invoke, emit } = await hydrated()
+
+    const saving = store.getState().updateSettings({ notifications: false })
+    expect(store.getState().settings.notifications).toBe(false)
+    await saving
+
+    expect(invoke).toHaveBeenCalledWith(CommandName.SettingsUpdate, { patch: { notifications: false } })
+    emit({ type: EventType.SettingsChanged, settings: { ...DEFAULT_SETTINGS, taskTitles: false } })
+    expect(store.getState().settings).toEqual({ ...DEFAULT_SETTINGS, taskTitles: false })
+  })
+
+  it('open at the Agent section or the one asked for, and close', async () => {
+    const { store } = await hydrated()
+    expect(store.getState().settingsSection).toBeNull()
+
+    store.getState().openSettings()
+    expect(store.getState().settingsSection).toBe(SettingsSection.Agent)
+    store.getState().openSettings(SettingsSection.Workspace)
+    expect(store.getState().settingsSection).toBe(SettingsSection.Workspace)
+    store.getState().closeSettings()
+    expect(store.getState().settingsSection).toBeNull()
+  })
+})
+
 describe('switching workspaces', () => {
   it("shows the task last selected in the workspace, with its logs, from main's answer", async () => {
     const data = {
@@ -212,18 +269,6 @@ describe('revealWorkspace', () => {
     await store.getState().revealWorkspace('w2')
 
     expect(revealedWorkspaces).toEqual(['w2'])
-  })
-})
-
-describe('openWorkspaceSettings', () => {
-  it('counts each request for the workspace settings', async () => {
-    const { store } = await hydrated()
-    expect(store.getState().workspaceSettingsRequest).toBe(0)
-
-    store.getState().openWorkspaceSettings()
-    store.getState().openWorkspaceSettings()
-
-    expect(store.getState().workspaceSettingsRequest).toBe(2)
   })
 })
 
