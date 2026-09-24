@@ -1,0 +1,38 @@
+# Design
+
+Screens are 1920×1200 at 1× (the lifecycle board is 1440×900; the interaction map is 3200×1720). Sample data is
+illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
+
+| Screen | What it shows | |
+|---|---|---|
+| Task workspace | The main window: sidebar, task card with header, chat and right panel, bottom bar. Done section collapsed. | ![Task workspace](screens/task-workspace.png) |
+| Task lifecycle | Active ⇄ Done and the task record. | ![Task lifecycle](screens/lifecycle.png) |
+| 1 · New task | An empty task; the first message sets the title and objective. | ![1 · New task](screens/01-new-task.png) |
+| 2 · Agent working | Live working line, Stop, message queue above the input, context meter. | ![2 · Agent working](screens/02-agent-working.png) |
+| 3 · Rich question | The `ask` card: option cards with sketches, pills, Send answers. | ![3 · Rich question](screens/03-rich-question.png) |
+| 4 · Needs you | Unread row in the sidebar and a native notification from another task. | ![4 · Needs you](screens/04-needs-you.png) |
+| 5 · Mark done | No dialog; Undo toast; the task moves to Done with its outcome. | ![5 · Mark done](screens/05-mark-done.png) |
+| 6 · Reopen by chatting | A message in a done task reopens it, with dividers in chat and log. | ![6 · Reopen by chatting](screens/06-reopen.png) |
+| 7 · Search | Results across titles, objectives, outcomes and chat logs; matches highlighted. | ![7 · Search](screens/07-search.png) |
+| 8 · Open a file | Files tab with open-file tabs, source/preview toggle, resizable panel. | ![8 · Open a file](screens/08-open-file.png) |
+| 9 · Todos | The agent's checklist with progress. | ![9 · Todos](screens/09-todos.png) |
+| 10 · Artifacts | Deliverables with Open / Copy / Reveal. | ![10 · Artifacts](screens/10-artifacts.png) |
+| 11 · Subagents | Status and latest line per subagent; one expanded inline to its log. | ![11 · Subagents](screens/11-subagents.png) |
+| 12 · Right-click a task | Task context menu in place. | ![12 · Right-click a task](screens/12-right-click-task.png) |
+| 13 · Context menus | Every context menu. Also in `../context-menus.md`. | ![13 · Context menus](screens/13-context-menus.png) |
+| 14 · Workspace switcher | Sidebar dropdown with per-workspace counts. | ![14 · Workspace switcher](screens/14-workspace-switcher.png) |
+| 15 · Workspace menu | The macOS menu bar's Workspace menu. | ![15 · Workspace menu](screens/15-workspace-menu.png) |
+| 16 · Error in a task | Agent stopped after retries; Retry / Retry with another model / Show details. | ![16 · Error in a task](screens/16-error.png) |
+| 17 · Usage limit or offline | App-wide banner; tasks pause and resume on their own. | ![17 · Usage limit or offline](screens/17-usage-limit.png) |
+| 18 · Relaunch after a crash | Mid-turn tasks resume; notice and dividers. | ![18 · Relaunch after a crash](screens/18-relaunch.png) |
+| 19 · Compaction | Context popover at 97%, Compact now; notes saved to CLAUDE.md first. | ![19 · Compaction](screens/19-compaction.png) |
+| 20 · First run | No workspace yet: Open folder / Create a new folder. | ![20 · First run](screens/20-first-run.png) |
+| 21 · Settings | Modal; Agent section shown. | ![21 · Settings](screens/21-settings.png) |
+| 22 · Keymap | Every shortcut. Also in `../keymap.md`. | ![22 · Keymap](screens/22-keymap.png) |
+| Interaction map | Every screen, state and action as a graph. | ![Interaction map](screens/interaction-map.png) |
+| Decisions | The decisions board. | ![Decisions](screens/decisions.png) |
+| Icon exploration | Variations of the chosen icon; W07 is the one. | ![Icon exploration](screens/icon-exploration.png) |
+
+## Icon
+
+`../../assets/icon/glade-icon.svg` (app tile), `glade-mark.svg` (mark only), and 1024/256 PNGs.

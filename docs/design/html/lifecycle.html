@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Task lifecycle</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>@font-face{font-family:Geist;src:url(geist.woff2) format("woff2");font-weight:100 900}@font-face{font-family:"Geist Mono";src:url(geist-mono.woff2) format("woff2");font-weight:100 900}</style>
+
+
+<style>
+body{margin:0;background:#F4F1EA}
+a{color:#2F6FB0}a:hover{color:#1F4F82}
+</style>
+</helmet>
+<div style="position: relative; width: 1440px; height: 900px; box-sizing: border-box; background: #F4F1EA; color: #1D1B17; font-family: Geist, system-ui, sans-serif; overflow: hidden">
+
+<div style="position: absolute; left: 80px; top: 64px; width: 1280px; display: flex; flex-direction: column; gap: 12px">
+<div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #5E5A52">01 · Model</div>
+<h1 style="margin: 0; font-family: Geist, system-ui, sans-serif; font-weight: 600; font-size: 52px; line-height: 1.05; letter-spacing: -0.01em">The life of one task</h1>
+<p style="margin: 0; max-width: 900px; font-size: 18px; line-height: 1.5; color: #4A463F">Everything lives in a workspace: a name and a root folder. Inside it, one task is one agent session with one objective. It is either active or done — nothing in between — and it can move back and forth.</p>
+</div>
+
+<svg width="1440" height="900" viewBox="0 0 1440 900" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+<defs>
+<marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#1D1B17"></path></marker>
+</defs>
+<line x1="642" y1="380" x2="796" y2="380" stroke="#1D1B17" stroke-width="1.75" marker-end="url(#ah)"></line>
+<path d="M1020 502 L1020 530 L420 530 L420 506" fill="none" stroke="#1D1B17" stroke-width="1.75" marker-end="url(#ah)"></path>
+</svg>
+
+<div style="position: absolute; left: 642px; top: 350px; width: 154px; text-align: center; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #1D1B17">you mark it done</div>
+
+<div style="position: absolute; left: 560px; top: 538px; width: 320px; text-align: center; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #1D1B17">you send a message: it reopens</div>
+
+<div style="position: absolute; left: 200px; top: 260px; width: 440px; height: 240px; box-sizing: border-box; padding: 28px; background: #FFFFFF; border: 2px solid #2F6FB0; border-radius: 16px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; align-items: center; gap: 10px"><span style="width: 12px; height: 12px; border-radius: 6px; background: #2F6FB0"></span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: #5E5A52">Starts here</span></div>
+<div style="font-family: Geist, system-ui, sans-serif; font-size: 40px; font-weight: 600">Active</div>
+<p style="margin: 0; font-size: 16px; line-height: 1.5; color: #4A463F">Created with an objective and immediately live. Whether the agent is mid-turn or waiting on you is just what's happening in the conversation — not a separate state.</p>
+</div>
+
+<div style="position: absolute; left: 800px; top: 260px; width: 440px; height: 240px; box-sizing: border-box; padding: 28px; background: #EAE5DA; border: 1px solid #D8D1C3; border-radius: 16px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; align-items: center; gap: 10px"><span style="width: 12px; height: 12px; border-radius: 6px; background: #2E7D5B"></span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: #5E5A52">Resting</span></div>
+<div style="font-family: Geist, system-ui, sans-serif; font-size: 40px; font-weight: 600">Done</div>
+<p style="margin: 0; font-size: 16px; line-height: 1.5; color: #4A463F">Finished. The last status summary becomes the outcome. It stays open to chat: send a message and it reopens.</p>
+</div>
+
+<div style="position: absolute; left: 200px; top: 590px; width: 1040px; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; align-items: baseline; gap: 16px; padding-bottom: 12px; border-bottom: 1px solid #CFC8BA">
+<div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #5E5A52">The task record</div>
+<div style="font-size: 15px; color: #5E5A52">— the starting model; more fields later</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px">
+<div style="box-sizing: border-box; padding: 20px; background: #FFFFFF; border: 1px solid #D8D1C3; border-radius: 12px; display: flex; flex-direction: column; gap: 8px">
+<div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #5E5A52">Set once</div>
+<div style="font-size: 18px; font-weight: 600">Objective</div>
+<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #4A463F">Written by the agent from your first message, alongside the title.</p>
+</div>
+<div style="box-sizing: border-box; padding: 20px; background: #FFFFFF; border: 1px solid #D8D1C3; border-radius: 12px; display: flex; flex-direction: column; gap: 8px">
+<div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #5E5A52">Rewritten</div>
+<div style="font-size: 18px; font-weight: 600">Status summary</div>
+<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #4A463F">The latest state of things, replaced as work moves. On Done it becomes the outcome.</p>
+</div>
+<div style="box-sizing: border-box; padding: 20px; background: #FFFFFF; border: 1px solid #D8D1C3; border-radius: 12px; display: flex; flex-direction: column; gap: 8px">
+<div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #5E5A52">Append-only</div>
+<div style="font-size: 18px; font-weight: 600">Chat log</div>
+<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #4A463F">Your messages and the agent's final replies. Nothing mid-turn.</p>
+</div>
+<div style="box-sizing: border-box; padding: 20px; background: #FFFFFF; border: 1px solid #D8D1C3; border-radius: 12px; display: flex; flex-direction: column; gap: 8px">
+<div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #5E5A52">Append-only</div>
+<div style="font-size: 18px; font-weight: 600">Tool call log</div>
+<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #4A463F">Every tool call, plus the agent's working notes between them.</p>
+</div>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

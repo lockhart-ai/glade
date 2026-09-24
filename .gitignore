@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+release/
+*.tsbuildinfo
+coverage/
+
+# Local app state
+.glade/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.key
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS and editors
+.DS_Store
+.vscode/
+.idea/
+*.swp
