@@ -15,6 +15,30 @@
   gap: var(--space-outer);
 }
 
+/*
+ * With the sidebar collapsed, the traffic lights sit over the card's top-left corner (the window hides its title bar),
+ * reaching --title-bar-inset below the card's top edge. The column starts just below them.
+ */
+.column.belowTrafficLights {
+  padding-top: calc(var(--title-bar-inset) - var(--space-outer) + 4px);
+}
+
+/*
+ * The row above the chat, with the sidebar collapsed and no task header. It starts clear of the traffic lights, and
+ * drags the window everywhere but its buttons.
+ */
+.titleBar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding-left: var(--traffic-light-clearance);
+  -webkit-app-region: drag;
+}
+
+.titleBar > * {
+  -webkit-app-region: no-drag;
+}
+
 .chat {
   flex-grow: 1;
   min-height: 0;

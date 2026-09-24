@@ -1,5 +1,5 @@
 import { faCheck } from '@fortawesome/free-solid-svg-icons'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { Task, Workspace } from '../../shared/domain'
 import { Icon, IconSize, Menu, MenuAnchorKind, MenuEntryKind, type MenuEntry } from '../components'
 import { classNames } from '../components/classNames'
@@ -46,7 +46,12 @@ function WorkspaceRow({ workspace, workspaces, tasks, shown }: WorkspaceRowProps
  * Reveal root in Finder. Choosing a workspace switches to it, restoring its selection. Must be used under a
  * `ToastProvider`: failures show as toasts.
  */
-export function WorkspaceSwitcher(): React.JSX.Element {
+export interface WorkspaceSwitcherProps {
+  /** The button that collapses the task list, shown in the header beside the switcher. */
+  collapseButton?: ReactNode
+}
+
+export function WorkspaceSwitcher({ collapseButton }: WorkspaceSwitcherProps): React.JSX.Element {
   const workspace = useGladeStore(selectSelectedWorkspace)
   const workspaces = useGladeStore((state) => state.workspaces)
   const tasks = useGladeStore((state) => state.tasks)
@@ -102,6 +107,7 @@ export function WorkspaceSwitcher(): React.JSX.Element {
       <SidebarHeader
         workspace={workspace}
         tone={workspace === undefined ? undefined : badgeTone(workspaces, workspace.id)}
+        collapseButton={collapseButton}
         switcher={{
           expanded: open,
           onToggle: (trigger) => {

@@ -1,7 +1,7 @@
-import { faChevronDown, faTableColumns } from '@fortawesome/free-solid-svg-icons'
+import { faChevronDown } from '@fortawesome/free-solid-svg-icons'
 import type { ReactNode } from 'react'
 import type { Workspace } from '../../shared/domain'
-import { Button, ButtonVariant, Icon } from '../components'
+import { Icon } from '../components'
 import { classNames } from '../components/classNames'
 import { shortenHomePath } from '../paths'
 import { BadgeTone } from '../workspace-switcher/switcherModel'
@@ -23,13 +23,20 @@ export interface SidebarHeaderProps {
   tone?: BadgeTone
   /** The switcher the workspace opens when clicked. Without one (before there's any workspace), it's inert. */
   switcher?: SidebarHeaderSwitcher
+  /** The button that collapses the task list (see `PanelToggle`), where the window offers it. */
+  collapseButton?: ReactNode
 }
 
 /**
  * The top of the sidebar: the workspace's initial in a badge, its name, and its root folder, with the switcher's
- * chevron, and the button that collapses the task list (which does nothing yet: that comes in P7).
+ * chevron, and the button that collapses the task list when the window offers it.
  */
-export function SidebarHeader({ workspace, tone = BadgeTone.Blue, switcher }: SidebarHeaderProps): React.JSX.Element {
+export function SidebarHeader({
+  workspace,
+  tone = BadgeTone.Blue,
+  switcher,
+  collapseButton,
+}: SidebarHeaderProps): React.JSX.Element {
   const content: ReactNode = (
     <>
       <WorkspaceBadge name={workspace?.name} tone={tone} size={BadgeSize.Large} />
@@ -62,12 +69,7 @@ export function SidebarHeader({ workspace, tone = BadgeTone.Blue, switcher }: Si
           {content}
         </button>
       )}
-      <Button
-        variant={ButtonVariant.Icon}
-        icon={faTableColumns}
-        aria-label="Collapse task list"
-        title="Collapse task list"
-      />
+      {collapseButton}
     </section>
   )
 }

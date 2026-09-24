@@ -7,8 +7,9 @@ import { FirstRun } from './first-run/FirstRun'
 import { InputBar } from './input-bar'
 import { PauseBanner } from './pause/PauseBanner'
 import { AppShell, BottomBar, Sidebar, SidebarHeader, TaskCard } from './layout'
+import { Panel, PanelToggle, usePanel } from './panels'
 import styles from './App.module.css'
-import { HydrationStatus, selectSelectedWorkspace } from './store/state'
+import { HydrationStatus, selectSelectedTask, selectSelectedWorkspace } from './store/state'
 import { useGladeStore } from './store/react'
 import { SelectedTaskHeader } from './task-header'
 import { DeleteTaskDialog, isSearching, TaskList, TaskListToolbar } from './task-list'
@@ -20,6 +21,7 @@ import { usePinShortcut } from './shortcuts/usePinShortcut'
 import { useRenameShortcut } from './shortcuts/useRenameShortcut'
 import { useStopShortcut } from './shortcuts/useStopShortcut'
 import { useCompactShortcut } from './shortcuts/useCompactShortcut'
+import { usePanelShortcuts } from './shortcuts/usePanelShortcuts'
 import { useRightPanelShortcuts } from './shortcuts/useRightPanelShortcuts'
 import { useSearchShortcut } from './shortcuts/useSearchShortcut'
 import { useWorkspaceShortcuts } from './shortcuts/useWorkspaceShortcuts'
@@ -38,33 +40,48 @@ function Placeholder({ label, className }: PlaceholderProps): React.JSX.Element 
 }
 
 interface WindowProps {
-  sidebar: ReactNode
+  /** The sidebar, or nothing while it's collapsed. */
+  sidebar?: ReactNode
   task: ReactNode
   /** The app-wide banner, if any. */
   banner?: ReactNode
   overlay?: ReactNode
 }
 
-/** The window frame, with the bottom bar's placeholder until the terminal ticket fills it. */
+/**
+ * The window frame, with the bottom bar's placeholder until the terminal ticket fills it. The bottom bar collapses to
+ * its tab row.
+ */
 function Window({ sidebar, task, banner, overlay }: WindowProps): React.JSX.Element {
+  const bottomBar = usePanel(Panel.BottomBar)
   return (
     <AppShell
       banner={banner}
       sidebar={sidebar}
       task={task}
       overlay={overlay}
+      bottomBarCollapsed={bottomBar.collapsed}
       bottomBar={
         <BottomBar
+          collapsed={bottomBar.collapsed}
           terminalTabs={<Placeholder label="Terminal tabs" className={styles.tabs} />}
           terminal={<Placeholder label="Terminal" className={styles.fill} />}
+          toggle={<PanelToggle panel={Panel.BottomBar} />}
         />
       }
     />
   )
 }
 
+/** The panels the first-run window can toggle: only the bottom bar, since it has no task list or task card. */
+const FIRST_RUN_PANELS: readonly Panel[] = [Panel.BottomBar]
+
+/** The panels the window can toggle once there's a workspace. */
+const LAYOUT_PANELS: readonly Panel[] = [Panel.Sidebar, Panel.RightPanel, Panel.BottomBar]
+
 /** What shows before there is any workspace: no workspace in the sidebar and the welcome in the task card. */
 function FirstRunLayout(): React.JSX.Element {
+  usePanelShortcuts(FIRST_RUN_PANELS)
   useWorkspaceShortcuts()
   return (
     <Window
@@ -79,9 +96,15 @@ function FirstRunLayout(): React.JSX.Element {
   )
 }
 
-/** The window layout, with a labelled placeholder in each region until the P1 tickets fill them. */
+/**
+ * The window layout: the sidebar, the task card and the bottom bar. While the sidebar is collapsed, a button at the top
+ * left of the task card shows it again: at the start of the task header, or on a row of its own with no task selected.
+ */
 function Layout(): React.JSX.Element {
   const workspace = useGladeStore(selectSelectedWorkspace)
+  const sidebar = usePanel(Panel.Sidebar)
+  const hasTask = useGladeStore((state) => selectSelectedTask(state) !== undefined)
+  usePanelShortcuts(LAYOUT_PANELS)
   const searching = useGladeStore((state) => isSearching(state.searchText))
   useNewTaskShortcut()
   useSearchShortcut()
@@ -97,18 +120,22 @@ function Layout(): React.JSX.Element {
     <Window
       banner={<PauseBanner />}
       sidebar={
-        <Sidebar>
-          <WorkspaceSwitcher />
-          {workspace !== undefined && (
-            <>
-              <TaskListToolbar workspaceId={workspace.id} />
-              {searching ? <SearchResults workspaceId={workspace.id} /> : <TaskList workspaceId={workspace.id} />}
-            </>
-          )}
-        </Sidebar>
+        sidebar.collapsed ? undefined : (
+          <Sidebar>
+            <WorkspaceSwitcher collapseButton={<PanelToggle panel={Panel.Sidebar} />} />
+            {workspace !== undefined && (
+              <>
+                <TaskListToolbar workspaceId={workspace.id} />
+                {searching ? <SearchResults workspaceId={workspace.id} /> : <TaskList workspaceId={workspace.id} />}
+              </>
+            )}
+          </Sidebar>
+        )
       }
       task={
         <TaskCard
+          clearTrafficLights={sidebar.collapsed}
+          titleBar={sidebar.collapsed && !hasTask ? <PanelToggle panel={Panel.Sidebar} /> : undefined}
           header={<SelectedTaskHeader />}
           chat={<Chat />}
           inputBar={<InputBar contextMeter={<ContextMeter />} />}

@@ -90,6 +90,16 @@ test('several workspaces: switching restores each one’s task, and background t
   await expect(header.title).toHaveText(A_TITLE)
   await expect(chat(window).agentReplies.last()).toContainText('I stopped the suite')
 
+  // With the task list collapsed (⌘B), there's no header to open the switcher from, but ⌘1 – ⌘9 still switch.
+  await window.keyboard.press('Meta+B')
+  await expect(regions(window).sidebar).toHaveCount(0)
+  await window.keyboard.press('Meta+2')
+  await expect(header.title).toHaveText(B_TITLE)
+  await window.keyboard.press('Meta+1')
+  await expect(header.title).toHaveText(A_TITLE)
+  await window.keyboard.press('Meta+B')
+  await expect(workspace).toContainText('acme-api')
+
   // After a relaunch both workspaces are there, A still shows its task, and switching to B brings B's back.
   await glade.close()
   const relaunched = await launch()
