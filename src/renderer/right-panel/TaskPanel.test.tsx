@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { EventType } from '../../shared/bridge'
+import { CommandName, EventType } from '../../shared/bridge'
 import {
   CompactionTrigger,
   DividerKind,
@@ -11,11 +11,13 @@ import {
   type NarrationEvent,
   type ToolCallEvent,
   type ToolEvent,
+  type UiStateEntry,
 } from '../../shared/domain'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import { fakeBridge, sampleTask, sampleWorkspace, type FakeBridge } from '../store/test-bridge'
-import { FOCUS_HIGHLIGHT_MS, HIGHLIGHT_CLASS } from './ToolLog'
+import { FOCUS_HIGHLIGHT_MS, HIGHLIGHT_CLASS } from '../tool-log/ToolLog'
+import { MIN_PANEL_WIDTH } from './panelModel'
 import { TaskPanel } from './TaskPanel'
 
 const AT = new Date(2026, 8, 23, 10, 44).getTime()
@@ -56,9 +58,11 @@ const TURN_ONE: ToolEvent[] = [
 interface Setup {
   readonly toolEvents?: ToolEvent[]
   readonly selected?: boolean
+  /** More stored UI state, e.g. the panel's tab or width. */
+  readonly uiState?: UiStateEntry[]
 }
 
-async function renderPanel({ toolEvents = TURN_ONE, selected = true }: Setup = {}): Promise<
+async function renderPanel({ toolEvents = TURN_ONE, selected = true, uiState = [] }: Setup = {}): Promise<
   FakeBridge & { store: GladeStore }
 > {
   const fake = fakeBridge({
@@ -67,6 +71,7 @@ async function renderPanel({ toolEvents = TURN_ONE, selected = true }: Setup = {
     uiState: [
       { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
       { key: UiStateKey.SelectedTaskId, value: selected ? 't1' : '' },
+      ...uiState,
     ],
     toolEvents,
   })
@@ -104,7 +109,7 @@ afterEach(() => {
 })
 
 describe('TaskPanel', () => {
-  it('shows the tab bar, with Tool calls selected and counted, and an inert collapse button', async () => {
+  it('shows the tab bar, with Tool calls selected and counted', async () => {
     await renderPanel()
 
     expect(screen.getAllByRole('tab').map((element) => element.textContent)).toEqual([
@@ -115,8 +120,58 @@ describe('TaskPanel', () => {
       'Subagents',
     ])
     expect(tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('keeps the tab you pick in UI state', async () => {
+    const { invoke, store } = await renderPanel()
+
+    fireEvent.click(tab('Todos'))
+    expect(tab('Todos')).toHaveAttribute('aria-selected', 'true')
+    expect(store.getState().uiState[UiStateKey.RightPanelTab]).toBe('todos')
+    expect(invoke).toHaveBeenCalledWith(CommandName.UiStateSet, { key: UiStateKey.RightPanelTab, value: 'todos' })
+
+    // Picking the tab that's already selected writes nothing.
+    invoke.mockClear()
+    fireEvent.click(tab('Todos'))
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('opens on the stored tab, the same for every task', async () => {
+    const { store } = await renderPanel({ uiState: [{ key: UiStateKey.RightPanelTab, value: 'artifacts' }] })
+
+    expect(tab('Artifacts')).toHaveAttribute('aria-selected', 'true')
+    await act(() => store.getState().selectTask('t2'))
+    expect(tab('Artifacts')).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('collapses with its collapse button, and shows nothing while collapsed', async () => {
+    const { store } = await renderPanel()
+
     fireEvent.click(screen.getByRole('button', { name: 'Collapse side panel' }))
-    expect(tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
+    expect(store.getState().uiState[UiStateKey.RightPanelCollapsed]).toBe('true')
+    expect(screen.queryByRole('complementary', { name: 'Task panel' })).toBeNull()
+
+    act(() => {
+      void store.getState().setUiState({ key: UiStateKey.RightPanelCollapsed, value: 'false' })
+    })
+    expect(screen.getByRole('complementary', { name: 'Task panel' })).toBeInTheDocument()
+  })
+
+  it('takes its width from UI state, and keeps the width you resize it to', async () => {
+    const { invoke, store } = await renderPanel({ uiState: [{ key: UiStateKey.RightPanelWidth, value: '600' }] })
+    const slot = screen.getByTestId('right-panel')
+    expect(slot.style.getPropertyValue('--right-panel-width')).toBe('600px')
+
+    // Focused, → narrows the panel a step; jsdom lays nothing out, so there's only room for its minimum width.
+    const handle = screen.getByRole('separator', { name: 'Resize panel' })
+    fireEvent.keyDown(handle, { key: 'ArrowRight' })
+    expect(store.getState().uiState[UiStateKey.RightPanelWidth]).toBe(String(MIN_PANEL_WIDTH))
+    expect(slot.style.getPropertyValue('--right-panel-width')).toBe(`${String(MIN_PANEL_WIDTH)}px`)
+
+    // A key press that leaves the width where it is writes nothing.
+    invoke.mockClear()
+    fireEvent.keyDown(handle, { key: 'ArrowRight' })
+    expect(invoke).not.toHaveBeenCalled()
   })
 
   it('shows an empty state on the tabs not built yet', async () => {
@@ -138,12 +193,13 @@ describe('TaskPanel', () => {
   it('says when there are no tool calls yet, and shows nothing without a task', async () => {
     await renderPanel({ toolEvents: [] })
     expect(screen.getByRole('tabpanel')).toHaveTextContent('No tool calls yet.')
-    expect(tab(/^Tool calls/)).toHaveTextContent('Tool calls 0')
+    expect(tab(/^Tool calls/)).toHaveTextContent(/^Tool calls$/)
   })
 
-  it('shows nothing in the log when no task is selected', async () => {
+  it('shows nothing in the log, and no counts, when no task is selected', async () => {
     await renderPanel({ selected: false })
     expect(screen.getByRole('tabpanel')).toBeEmptyDOMElement()
+    expect(tab(/^Tool calls/)).toHaveTextContent(/^Tool calls$/)
   })
 
   describe('the tool log', () => {
@@ -245,11 +301,12 @@ describe('TaskPanel', () => {
         toolEvents: [...TURN_ONE, divider('d2', 2), call('c3', { turn: 2 }), divider('d3', 2, DividerKind.MarkedDone)],
       })
 
-      expect(screen.getAllByRole('separator').map((element) => element.getAttribute('aria-label'))).toEqual([
-        'turn 2 · 11:20',
-        'marked done · 11:20',
-      ])
-      expect(screen.getAllByRole('separator')[0]).toHaveTextContent('turn 2 · 11:20')
+      expect(
+        within(log())
+          .getAllByRole('separator')
+          .map((element) => element.getAttribute('aria-label')),
+      ).toEqual(['turn 2 · 11:20', 'marked done · 11:20'])
+      expect(within(log()).getAllByRole('separator')[0]).toHaveTextContent('turn 2 · 11:20')
     })
 
     it('shows a compaction as a Compact row, filled in when it finishes, that starts its turn if first', async () => {
@@ -365,7 +422,28 @@ describe('TaskPanel', () => {
         store.getState().focusTurn('t1', 2)
       })
       expect(firstNote).not.toHaveClass(HIGHLIGHT_CLASS)
-      expect(screen.getByRole('separator')).toHaveClass(HIGHLIGHT_CLASS)
+      expect(within(log()).getByRole('separator')).toHaveClass(HIGHLIGHT_CLASS)
+    })
+
+    it('opens the panel when it was collapsed, and keeps Tool calls as the tab', async () => {
+      const { store } = await renderPanel({
+        toolEvents: TWO_TURNS,
+        uiState: [
+          { key: UiStateKey.RightPanelCollapsed, value: 'true' },
+          { key: UiStateKey.RightPanelTab, value: 'files' },
+        ],
+      })
+      expect(screen.queryByRole('complementary', { name: 'Task panel' })).toBeNull()
+
+      act(() => {
+        store.getState().focusTurn('t1', 2)
+      })
+      expect(store.getState().uiState).toMatchObject({
+        [UiStateKey.RightPanelCollapsed]: 'false',
+        [UiStateKey.RightPanelTab]: 'tool-calls',
+      })
+      expect(tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
+      expect(scrollIntoView.mock.contexts[0]).toBe(within(log()).getByRole('separator', { name: 'turn 2 · 11:20' }))
     })
 
     it('ignores a request for another task, a turn not in the log, and an old request', async () => {

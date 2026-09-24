@@ -1,4 +1,21 @@
+/*
+ * The panel's column in the task card: the width you chose, capped so the chat beside it keeps its minimum width (but
+ * never below the panel's own minimum). Percentages are of the task card's content width.
+ */
+.slot {
+  position: relative;
+  flex: 0 0 auto;
+  width: clamp(
+    var(--right-panel-min-width),
+    var(--right-panel-width),
+    calc(100% - var(--chat-min-width) - var(--space-outer))
+  );
+  min-height: 0;
+  display: flex;
+}
+
 .panel {
+  flex-grow: 1;
   min-height: 0;
   min-width: 0;
   display: flex;

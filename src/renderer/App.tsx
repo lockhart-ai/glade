@@ -17,7 +17,8 @@ import { useMarkDoneShortcut } from './shortcuts/useMarkDoneShortcut'
 import { useMarkUnreadShortcut } from './shortcuts/useMarkUnreadShortcut'
 import { useStopShortcut } from './shortcuts/useStopShortcut'
 import { useCompactShortcut } from './shortcuts/useCompactShortcut'
-import { TaskPanel } from './tool-log'
+import { useRightPanelShortcuts } from './shortcuts/useRightPanelShortcuts'
+import { TaskPanel } from './right-panel'
 import { RelaunchNotice } from './relaunch-notice'
 
 interface PlaceholderProps {
@@ -79,6 +80,7 @@ function Layout(): React.JSX.Element {
   useCompactShortcut()
   useMarkDoneShortcut()
   useMarkUnreadShortcut()
+  useRightPanelShortcuts()
   return (
     <Window
       banner={<PauseBanner />}

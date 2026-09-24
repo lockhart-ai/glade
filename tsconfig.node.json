@@ -12,6 +12,8 @@
     "src/preload/**/*",
     "src/shared/**/*",
     // The store is framework-free, so its integration test can run against the real main process under Node.
-    "src/renderer/store/*.ts"
+    "src/renderer/store/*.ts",
+    // The right panel's state, which the store reads; plain functions, like the store.
+    "src/renderer/right-panel/panelModel.ts"
   ]
 }

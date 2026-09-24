@@ -155,7 +155,10 @@ export interface GladeActions {
    * it compacts, and the Compact row arrive as events. Rejects with `busy` while the agent is working.
    */
   compactTask: (taskId: string) => Promise<void>
-  /** Asks the tool log to show a task's turn (see `ToolLogFocus`). */
+  /**
+   * Asks the tool log to show a task's turn (see `ToolLogFocus`). For the selected task, it also opens the right panel
+   * at Tool calls, so the turn shows even when the panel was collapsed or on another tab.
+   */
   focusTurn: (taskId: string, turn: number) => void
   /** Asks the input bar to focus its message field (see `inputFocusRequest`). */
   focusInput: () => void

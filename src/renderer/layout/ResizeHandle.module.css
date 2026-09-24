@@ -1,0 +1,31 @@
+/* The panel's drag handle, in the gap left of it, from docs/design/html/08-open-file.html. */
+.handle {
+  position: absolute;
+  left: -10px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+
+.grip {
+  width: 4px;
+  height: 44px;
+  border-radius: 2px;
+  background: var(--color-strong);
+  transition: background-color 120ms ease;
+}
+
+.handle:hover .grip,
+.handle[data-dragging='true'] .grip {
+  background: var(--color-slate);
+}
+
+.handle:focus-visible .grip {
+  background: var(--color-blue-text);
+}
