@@ -73,8 +73,7 @@ it('renders the window layout with the workspace, the chat, and a placeholder in
   expect(within(main).getByTestId('input-bar')).toBeEmptyDOMElement()
 
   const panel = within(main).getByRole('complementary', { name: 'Task panel' })
-  expect(panel).toHaveTextContent('Tabs')
-  expect(panel).toHaveTextContent('Right panel')
+  expect(within(panel).getByRole('tab', { name: /^Tool calls/ })).toHaveAttribute('aria-selected', 'true')
 
   const terminal = screen.getByRole('region', { name: 'Terminal' })
   expect(terminal).toHaveTextContent('Terminal tabs')

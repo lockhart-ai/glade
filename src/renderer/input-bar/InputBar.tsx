@@ -1,6 +1,6 @@
 import { faSquare } from '@fortawesome/free-regular-svg-icons'
 import { faArrowUp } from '@fortawesome/free-solid-svg-icons'
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { BridgeErrorCode, isBridgeError } from '../../shared/bridge'
 import { Effort, TaskActivity, TaskState, type Task } from '../../shared/domain'
 import { MODEL_OPTIONS, modelName } from '../../shared/models'
@@ -67,13 +67,44 @@ export interface InputBarProps {
 /** The selected task's input bar, or nothing when no task is selected. */
 export function InputBar({ contextMeter }: InputBarProps): React.JSX.Element | null {
   const task = useGladeStore(selectSelectedTask)
+  const focusInput = useGladeStore((state) => state.focusInput)
+  const focusRequest = useGladeStore((state) => state.inputFocusRequest)
+  // The last focus request the field has answered. It lives here, not in the task's bar, so a request made as a new
+  // task's bar mounts (+ and ⌘N select the task, then ask) is still answered once.
+  const answeredRef = useRef(focusRequest)
+
+  // ⌘L asks for the focus the same way + and ⌘N do.
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (!isFocusShortcut(event)) return
+      event.preventDefault()
+      focusInput()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [focusInput])
+
   if (task === undefined) return null
   // A fresh draft for each task.
-  return <TaskInputBar key={task.id} task={task} contextMeter={contextMeter} />
+  return (
+    <TaskInputBar
+      key={task.id}
+      task={task}
+      contextMeter={contextMeter}
+      focusRequest={focusRequest}
+      answeredRef={answeredRef}
+    />
+  )
 }
 
 interface TaskInputBarProps extends InputBarProps {
   readonly task: Task
+  /** The latest request for the field to take the focus (`inputFocusRequest`). */
+  readonly focusRequest: number
+  /** The last request answered; the bar focuses its field when `focusRequest` moves past it. */
+  readonly answeredRef: RefObject<number>
 }
 
 /**
@@ -81,7 +112,7 @@ interface TaskInputBarProps extends InputBarProps {
  * ⇧↵ adds a line. While the agent works you can keep typing, but sending waits for it to finish (the queue comes
  * later) and Stop shows beside Send.
  */
-function TaskInputBar({ task, contextMeter }: TaskInputBarProps): React.JSX.Element {
+function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInputBarProps): React.JSX.Element {
   const updateTask = useGladeStore((state) => state.updateTask)
   const sendMessage = useGladeStore((state) => state.sendMessage)
   const stopTask = useGladeStore((state) => state.stopTask)
@@ -96,16 +127,10 @@ function TaskInputBar({ task, contextMeter }: TaskInputBarProps): React.JSX.Elem
   const canSend = !working && !sending
 
   useEffect(() => {
-    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
-      if (!isFocusShortcut(event)) return
-      event.preventDefault()
-      field.current?.focus()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [])
+    if (focusRequest === answeredRef.current) return
+    answeredRef.current = focusRequest
+    field.current?.focus()
+  }, [focusRequest, answeredRef])
 
   const send = async (): Promise<void> => {
     const text = draft.trim()

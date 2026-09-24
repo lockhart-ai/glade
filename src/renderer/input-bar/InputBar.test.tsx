@@ -347,6 +347,28 @@ describe('InputBar', () => {
     expect(field()).toHaveFocus()
   })
 
+  it('focuses the field when asked, once per request, even when the request comes as a new task’s bar mounts', async () => {
+    const fake = await renderBar()
+    expect(field()).not.toHaveFocus()
+
+    act(() => {
+      fake.store.getState().focusInput()
+    })
+    expect(field()).toHaveFocus()
+    act(() => {
+      field().blur()
+    })
+
+    // Selecting a task alone doesn't take the focus; selecting it and asking in one go (as + and ⌘N do) does.
+    await act(() => fake.store.getState().selectTask('t2'))
+    expect(field()).not.toHaveFocus()
+    await act(async () => {
+      await fake.store.getState().selectTask('t1')
+      fake.store.getState().focusInput()
+    })
+    expect(field()).toHaveFocus()
+  })
+
   it('starts each task with its own empty draft', async () => {
     const fake = await renderBar()
     type('For the first task')

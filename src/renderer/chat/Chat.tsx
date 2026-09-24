@@ -14,6 +14,7 @@ import {
   type AgentEntry,
   type UserEntry,
 } from './chatModel'
+import { shortenHomePath } from '../paths'
 import { Markdown } from './Markdown'
 import { useStickToBottom } from './useStickToBottom'
 import styles from './Chat.module.css'
@@ -81,6 +82,24 @@ function WorkingLine({ narration }: WorkingLineProps): React.JSX.Element {
   )
 }
 
+interface NewTaskPromptProps {
+  /** The task's workspace root, where the agent works. */
+  readonly root: string
+}
+
+/** What a task shows before its first message: what to write, and where the agent will work. */
+function NewTaskPrompt({ root }: NewTaskPromptProps): React.JSX.Element {
+  return (
+    <div className={styles.prompt}>
+      <h2 className={styles.promptTitle}>What should the agent do?</h2>
+      <p className={styles.promptText}>
+        Describe it in your own words. The agent names the task and writes its objective from your first message. It
+        works in the workspace root, {shortenHomePath(root)}.
+      </p>
+    </div>
+  )
+}
+
 /**
  * The selected task's conversation: your messages and the agent's final reply per turn, never anything from within a
  * turn. While a turn runs, a working line shows the agent's latest narration. It keeps to the bottom as the
@@ -92,6 +111,9 @@ export function Chat(): React.JSX.Element {
   const toolEvents =
     useGladeStore((state) => (task === undefined ? undefined : state.toolEvents[task.id])) ?? NO_TOOL_EVENTS
   const focusTurn = useGladeStore((state) => state.focusTurn)
+  const root = useGladeStore(
+    (state) => state.workspaces.find((workspace) => workspace.id === task?.workspaceId)?.rootPath,
+  )
 
   const entries = useMemo(
     () => (task === undefined ? [] : chatEntries(task, messages, toolEvents)),
@@ -99,13 +121,12 @@ export function Chat(): React.JSX.Element {
   )
   const narration = task === undefined ? null : workingNarration(task, messages, toolEvents)
   const { ref, onScroll } = useStickToBottom(`${String(entries.length)}:${narration ?? ''}`, task?.id)
+  const isNew = task !== undefined && entries.length === 0 && narration === null
 
   return (
     <div ref={ref} onScroll={onScroll} role="log" aria-label="Conversation" className={styles.scroller}>
+      {isNew && root !== undefined && <NewTaskPrompt root={root} />}
       <div className={styles.thread}>
-        {task !== undefined && entries.length === 0 && narration === null && (
-          <p className={styles.empty}>No messages yet.</p>
-        )}
         {entries.map((entry) => {
           switch (entry.role) {
             case MessageRole.User:

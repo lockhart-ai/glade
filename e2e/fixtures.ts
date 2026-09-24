@@ -35,6 +35,16 @@ export interface LaunchOptions {
    * task a message fails: no e2e run ever reaches the real agent.
    */
   readonly agentScript?: AgentScriptName
+  /**
+   * A sample-data fixture (a JSON file in `e2e/seeds/`, see `src/main/capture-seed.ts`) to fill the database with
+   * before the window opens. Pass it on a test's first launch only.
+   */
+  readonly seed?: string
+}
+
+/** The path of a sample-data fixture in `e2e/seeds/`, by file name. */
+export function seedPath(name: string): string {
+  return resolve(__dirname, 'seeds', name)
 }
 
 /** A running app: its main process, and its window's page. */
@@ -111,8 +121,13 @@ export const test = base.extend<Fixtures>({
       }
     }
 
-    await use(async ({ route = '', chosenFolder, agentScript } = {}) => {
-      const spec: E2eSpec = { userData, route, ...(agentScript === undefined ? {} : { agentScript }) }
+    await use(async ({ route = '', chosenFolder, agentScript, seed } = {}) => {
+      const spec: E2eSpec = {
+        userData,
+        route,
+        ...(agentScript === undefined ? {} : { agentScript }),
+        ...(seed === undefined ? {} : { seed }),
+      }
       const app = await electron.launch({
         args: [MAIN],
         env: appEnv(spec, chosenFolder),

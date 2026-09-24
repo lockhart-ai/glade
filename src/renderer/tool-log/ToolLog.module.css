@@ -1,0 +1,193 @@
+/* The tool log, from docs/design/html/task-workspace.html (rows, notes), 06-reopen.html (dividers), 02-agent-working.html
+   (a running call and its output) and 16-error.html (a failed call). */
+.scroller {
+  flex-grow: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The log sits at the bottom until it fills the panel. */
+.log {
+  margin-top: auto;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.empty {
+  margin: auto 0;
+  padding: 10px 8px;
+  text-align: center;
+  font-size: var(--font-size-secondary);
+  color: var(--color-faint);
+}
+
+.callGroup {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 8px;
+}
+
+.call {
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.running {
+  background: var(--color-inner-2);
+}
+
+/* #2A1820 in 16-error.html: the pink, dimmed on the nested card. */
+.error {
+  background: #2a1820;
+}
+
+.callButton {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.callButton:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.callLine {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.name {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-secondary-sm);
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.argument {
+  flex-grow: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.time {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+.result {
+  padding-left: 18px;
+  margin-top: 3px;
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.running .result {
+  color: var(--color-blue-text);
+}
+
+.error .result {
+  color: var(--color-pink);
+}
+
+.output {
+  max-height: 320px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--color-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A subagent's calls, indented under the call that started it. */
+.children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-left: 16px;
+  padding-left: 4px;
+  border-left: 2px solid var(--color-inner-border);
+}
+
+.narration {
+  flex-shrink: 0;
+  margin: 6px 4px 6px 16px;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--color-strong);
+  font-size: var(--font-size-secondary);
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+.narrationTime {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+.divider {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 4px 4px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+  border-radius: 6px;
+}
+
+.rule {
+  flex-grow: 1;
+  height: 1px;
+  background: var(--color-inner-border);
+}
+
+/* The start of the turn the chat asked to see, for a moment. */
+.highlighted {
+  animation: highlight 1.6s ease-out;
+}
+
+@keyframes highlight {
+  from {
+    background: color-mix(in srgb, var(--color-blue) 24%, transparent);
+    color: var(--color-text);
+  }
+
+  to {
+    background: transparent;
+  }
+}

@@ -368,4 +368,15 @@ describe("a task's logs", () => {
     expect(store.getState().toolLogFocus).toEqual({ taskId: 't1', turn: 2, request: 2 })
     expect(invoke.mock.calls).toHaveLength(calls)
   })
+
+  it('asks the input bar to take the focus, as a new request each time, without calling main', async () => {
+    const { store, invoke } = await hydrated()
+    const calls = invoke.mock.calls.length
+    expect(store.getState().inputFocusRequest).toBe(0)
+
+    store.getState().focusInput()
+    store.getState().focusInput()
+    expect(store.getState().inputFocusRequest).toBe(2)
+    expect(invoke.mock.calls).toHaveLength(calls)
+  })
 })
