@@ -1,0 +1,16 @@
+# electron-builder config: an unsigned macOS app for the host arch, written to release/.
+# Build with `npm run package`. The icon is build/icon.icns; regenerate it with scripts/make-icon.sh.
+appId: ai.lockhart.glade
+productName: Glade
+directories:
+  buildResources: build
+  output: release
+files:
+  - out/**/*
+  - package.json
+mac:
+  target: dir
+  icon: build/icon.icns
+  category: public.app-category.developer-tools
+  # Unsigned for now: skip looking for a signing identity.
+  identity: null
