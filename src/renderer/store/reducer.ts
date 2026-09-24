@@ -98,6 +98,9 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, toolEvents: withAppended(state.toolEvents, event.toolEvent) }
     case EventType.ToolEventUpdated:
       return { ...state, toolEvents: withReplaced(state.toolEvents, event.toolEvent) }
+    case EventType.TaskOpenRequested:
+      // Opening a task is an action, not a change of state: the store selects it (see `./store`).
+      return state
     case EventType.QueueChanged:
       return { ...state, queuedMessages: { ...state.queuedMessages, [event.taskId]: event.queuedMessages } }
   }

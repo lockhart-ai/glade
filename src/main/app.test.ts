@@ -6,15 +6,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { COMMAND_CHANNEL, CommandName, EVENT_CHANNEL, EventType } from '../shared/bridge'
 import { MessageRole, TaskActivity, UiStateKey } from '../shared/domain'
 import { CAPTURE_ENV, type CaptureSpec } from './capture'
-import { FakeAgentBackend } from './agent/fake-backend'
+import { FakeAgentBackend, settle } from './agent/fake-backend'
+import * as sdk from './agent/test-sdk-messages'
 import { RESUME_PROMPT } from './agent/runner'
-import { E2E_CHOSEN_FOLDER_ENV, E2E_ENV, E2E_WINDOW_SIZE, type E2eSpec } from './e2e'
+import { E2E_CHOSEN_FOLDER_ENV, E2E_ENV, E2E_NOTIFIER_GLOBAL, E2E_WINDOW_SIZE, type E2eSpec } from './e2e'
 import { openAppDatabase } from './db/database'
 import { MIGRATIONS } from './db/migrations'
 import { appendMessage } from './db/repositories/messages'
 import { updateTask } from './db/repositories/tasks'
 import { sampleTask, sampleWorkspace } from './db/repositories/test-database'
 import { CHOOSE_FOLDER_OPTIONS } from './dialogs'
+import type { RecordingNotifier } from './notifications/recording-notifier'
 
 type Handler = (...args: unknown[]) => unknown
 
@@ -38,6 +40,9 @@ const electron = vi.hoisted(() => {
     readonly loadURL = vi.fn(() => Promise.resolve())
     readonly loadFile = vi.fn(() => Promise.resolve())
     readonly setContentSize = vi.fn()
+    readonly isMinimized = vi.fn(() => false)
+    readonly restore = vi.fn()
+    readonly focus = vi.fn()
     readonly webContents = {
       send: vi.fn(),
       // The page is always ready, at whatever size it was asked for.
@@ -64,11 +69,28 @@ const electron = vi.hoisted(() => {
     static getFocusedWindow = vi.fn((): FakeWindow | null => windows[0] ?? null)
   }
 
+  // Every native notification made, with its listeners, so a test can click one.
+  const notifications: FakeNotification[] = []
+  class FakeNotification {
+    readonly listeners = new Map<string, Handler>()
+    readonly show = vi.fn()
+    constructor(readonly options: unknown) {
+      notifications.push(this)
+    }
+    on(event: string, listener: Handler): this {
+      this.listeners.set(event, listener)
+      return this
+    }
+    static isSupported = (): boolean => true
+  }
+
   return {
     appHandlers,
     windows,
     capturePage,
     FakeWindow,
+    notifications,
+    FakeNotification,
     app: {
       isPackaged: false,
       userData: '',
@@ -101,6 +123,7 @@ vi.mock('electron', () => ({
   BrowserWindow: electron.FakeWindow,
   dialog: electron.dialog,
   ipcMain: electron.ipcMain,
+  Notification: electron.FakeNotification,
 }))
 
 // The real agent backend, watched: a test mode must never make one.
@@ -132,12 +155,45 @@ function appHandler(event: string): Handler {
   return handler
 }
 
+/**
+ * Starts the app on a fake agent with two tasks, the second one selected, and has the first one's agent reply. Resolves
+ * with the tasks' ids.
+ */
+async function replyInUnviewedTask(): Promise<{ replied: string; viewed: string }> {
+  const backend = new FakeAgentBackend()
+  startApp({ createAgentBackend: () => backend })
+  await Promise.resolve()
+  await Promise.resolve()
+  const db = new Database(join(electron.app.userData, 'glade.db'))
+  const workspace = sampleWorkspace(db)
+  const replied = sampleTask(db, workspace.id)
+  updateTask(db, replied.id, { title: 'Fix the login redirect' })
+  const viewed = sampleTask(db, workspace.id)
+  db.close()
+  const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+  await handler?.({}, CommandName.UiStateSet, { key: UiStateKey.SelectedTaskId, value: viewed.id })
+  await handler?.({}, CommandName.TasksSend, { id: replied.id, text: 'Why does it redirect twice?' })
+  backend.session.emit(sdk.init(), sdk.text('It was a **race**.'), sdk.result('It was a **race**.'))
+  await settle()
+  return { replied: replied.id, viewed: viewed.id }
+}
+
+/** The one native notification made. */
+function onlyNotification(): InstanceType<typeof electron.FakeNotification> {
+  expect(electron.notifications).toHaveLength(1)
+  const notification = electron.notifications[0]
+  if (notification === undefined) throw new Error('no notification')
+  return notification
+}
+
 const originalPlatform = process.platform
 
 beforeEach(() => {
   vi.clearAllMocks()
   electron.appHandlers.clear()
   electron.windows.length = 0
+  electron.notifications.length = 0
+  Reflect.deleteProperty(globalThis, E2E_NOTIFIER_GLOBAL)
   electron.app.isPackaged = false
   electron.app.userData = mkdtempSync(join(tmpdir(), 'glade-app-'))
   vi.stubEnv('ELECTRON_RENDERER_URL', undefined)
@@ -315,6 +371,61 @@ describe('startApp', () => {
     expect(backend.session.options.resumeSessionId).toBe('session-1')
     expect(backend.session.sent.map(({ text }) => text)).toEqual([RESUME_PROMPT])
     expect(onlyWindow()).toBeDefined()
+  })
+
+  it("notifies a reply in a task you aren't viewing with a silent native notification", async () => {
+    await replyInUnviewedTask()
+
+    const notification = onlyNotification()
+    expect(notification.options).toEqual({ title: 'Fix the login redirect', body: 'It was a race.', silent: true })
+    expect(notification.show).toHaveBeenCalledOnce()
+  })
+
+  it("brings the window up and asks it to open the task when the task's notification is clicked", async () => {
+    const { replied } = await replyInUnviewedTask()
+    const window = onlyWindow()
+    window.isMinimized.mockReturnValue(true)
+
+    onlyNotification().listeners.get('click')?.()
+
+    expect(window.restore).toHaveBeenCalledOnce()
+    expect(window.show).toHaveBeenCalledOnce()
+    expect(window.focus).toHaveBeenCalledOnce()
+    expect(window.webContents.send).toHaveBeenLastCalledWith(EVENT_CHANNEL, {
+      type: EventType.TaskOpenRequested,
+      taskId: replied,
+    })
+  })
+
+  it('leaves a window that is not minimised as it is, other than showing and focusing it', async () => {
+    await replyInUnviewedTask()
+    const window = onlyWindow()
+
+    onlyNotification().listeners.get('click')?.()
+
+    expect(window.restore).not.toHaveBeenCalled()
+    expect(window.show).toHaveBeenCalledOnce()
+    expect(window.focus).toHaveBeenCalledOnce()
+  })
+
+  it('opens a window on the task, reading it, when its notification is clicked with every window closed', async () => {
+    const { replied } = await replyInUnviewedTask()
+    electron.windows.length = 0
+
+    onlyNotification().listeners.get('click')?.()
+
+    const window = onlyWindow()
+    expect(window.options).toMatchObject({ show: false })
+    window.onceHandlers.get('ready-to-show')?.()
+    expect(window.show).toHaveBeenCalledOnce()
+    const db = new Database(join(electron.app.userData, 'glade.db'), { readonly: true })
+    try {
+      const selected = db.prepare('SELECT value FROM ui_state WHERE key = ?').get(UiStateKey.SelectedTaskId)
+      expect(selected).toEqual({ value: replied })
+      expect(db.prepare('SELECT unread FROM tasks WHERE id = ?').get(replied)).toEqual({ unread: 0 })
+    } finally {
+      db.close()
+    }
   })
 
   it('runs the agents on the Claude Agent SDK by default', async () => {
@@ -707,6 +818,38 @@ describe('startApp in e2e mode', () => {
     expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/^Glade e2e failed: the seed .* can't be read/))
     expect(electron.windows).toHaveLength(0)
     expect(electron.app.exit).toHaveBeenCalledWith(1)
+  })
+
+  it('records notifications for the test to read and click, never showing one, and keeps the window hidden', async () => {
+    askForE2e({ agentScript: 'simple-reply' })
+    await startAndWaitUntilReady()
+    const notifier = Reflect.get(globalThis, E2E_NOTIFIER_GLOBAL) as RecordingNotifier
+    const db = new Database(join(electron.app.userData, 'glade.db'))
+    const replied = sampleTask(db, sampleWorkspace(db, electron.app.userData).id).id
+    db.close()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+    await handler?.({}, CommandName.TasksSend, { id: replied, text: 'How does it retry?' })
+
+    await vi.waitFor(() => {
+      expect(notifier.shown).toEqual([
+        {
+          taskId: replied,
+          title: 'Explain the retry policy',
+          body: expect.stringMatching(/^The client retries idempotent requests .*…$/) as unknown,
+          silent: true,
+        },
+      ])
+    })
+    expect(electron.notifications).toEqual([])
+    const window = onlyWindow()
+    notifier.click(0)
+
+    expect(window.show).not.toHaveBeenCalled()
+    expect(window.focus).not.toHaveBeenCalled()
+    expect(window.webContents.send).toHaveBeenLastCalledWith(EVENT_CHANNEL, {
+      type: EventType.TaskOpenRequested,
+      taskId: replied,
+    })
   })
 
   it('reopens a hidden window on activate', async () => {

@@ -18,6 +18,13 @@ export const E2E_ENV = 'GLADE_E2E'
  */
 export const E2E_CHOSEN_FOLDER_ENV = 'GLADE_E2E_CHOSEN_FOLDER'
 
+/**
+ * Where e2e mode puts its notifier on the main process's global object: a `RecordingNotifier`
+ * (`./notifications/recording-notifier`), which records the notifications the app would show, and clicks them, since
+ * an e2e run never shows a real one. A spec reads and clicks it through Playwright's `app.evaluate`.
+ */
+export const E2E_NOTIFIER_GLOBAL = '__gladeE2eNotifier'
+
 /** The window's content size in e2e mode, which is also the size of the recordings. */
 export const E2E_WINDOW_SIZE = { width: 1920, height: 1200 } as const
 

@@ -13,6 +13,8 @@
     "src/main/e2e.ts",
     "src/main/isolation.ts",
     "src/main/agent/scripts.ts",
+    "src/main/notifications/notifier.ts",
+    "src/main/notifications/recording-notifier.ts",
     "src/shared/bridge.ts",
     "src/shared/domain.ts",
     "src/shared/ready.ts"

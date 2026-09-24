@@ -3,6 +3,7 @@ import {
   TaskActivity,
   TaskState,
   ToolEventKind,
+  UNTITLED_TASK_TITLE,
   type EpochMs,
   type Task,
   type ToolEvent,
@@ -15,7 +16,7 @@ const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 
 /** What the header says in place of each field the agent hasn't set yet, from docs/design/html/01-new-task.html. */
-export const EMPTY_TITLE = 'New task'
+export const EMPTY_TITLE = UNTITLED_TASK_TITLE
 export const EMPTY_OBJECTIVE = 'Set by your first message.'
 export const EMPTY_STATUS = 'Nothing yet.'
 

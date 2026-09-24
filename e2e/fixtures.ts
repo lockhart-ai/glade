@@ -10,7 +10,9 @@ import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { _electron as electron, test as base, type ElectronApplication, type Page } from '@playwright/test'
 import type { AgentScriptName } from '../src/main/agent/scripts'
-import { E2E_CHOSEN_FOLDER_ENV, E2E_ENV, E2E_WINDOW_SIZE, type E2eSpec } from '../src/main/e2e'
+import { E2E_CHOSEN_FOLDER_ENV, E2E_ENV, E2E_NOTIFIER_GLOBAL, E2E_WINDOW_SIZE, type E2eSpec } from '../src/main/e2e'
+import type { TaskNotification } from '../src/main/notifications/notifier'
+import type { RecordingNotifier } from '../src/main/notifications/recording-notifier'
 import { READY_ATTRIBUTE } from '../src/shared/ready'
 
 export { expect } from '@playwright/test'
@@ -181,5 +183,23 @@ export async function chooseFolder({ app }: Glade, path: string | null): Promise
       else process.env[name] = value
     },
     { name: E2E_CHOSEN_FOLDER_ENV, value: path },
+  )
+}
+
+/**
+ * The notifications the app has shown so far, oldest first. An e2e run never shows a real one: main records them in
+ * its place (`E2E_NOTIFIER_GLOBAL`).
+ */
+export async function notifications({ app }: Glade): Promise<TaskNotification[]> {
+  return app.evaluate((_, name) => [...(Reflect.get(globalThis, name) as RecordingNotifier).shown], E2E_NOTIFIER_GLOBAL)
+}
+
+/** Clicks the `index`th notification the app has shown, as the OS would when you click it. */
+export async function clickNotification({ app }: Glade, index: number): Promise<void> {
+  await app.evaluate(
+    (_, { name, index }) => {
+      ;(Reflect.get(globalThis, name) as RecordingNotifier).click(index)
+    },
+    { name: E2E_NOTIFIER_GLOBAL, index },
   )
 }

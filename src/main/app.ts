@@ -1,5 +1,6 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, type WebPreferences } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Notification, type WebPreferences } from 'electron'
+import { EventType } from '../shared/bridge'
 import type { AgentBackend } from './agent/backend'
 import { createSdkBackend } from './agent/sdk-backend'
 import { AGENT_SCRIPTS, type AgentScriptName } from './agent/scripts'
@@ -16,7 +17,12 @@ import {
 import { openAppDatabase, type AppDatabase } from './db/database'
 import { applySeed, readSeed } from './capture-seed'
 import { chooseFolder } from './dialogs'
-import { E2E_WINDOW_SIZE, e2eChosenFolder, prepareE2e, readE2eSpec, type E2eSpec } from './e2e'
+import { E2E_NOTIFIER_GLOBAL, E2E_WINDOW_SIZE, e2eChosenFolder, prepareE2e, readE2eSpec, type E2eSpec } from './e2e'
+import { createElectronNotifier } from './notifications/electron-notifier'
+import { createReplyNotifications } from './notifications/notifications'
+import type { Notifier } from './notifications/notifier'
+import { createRecordingNotifier } from './notifications/recording-notifier'
+import { openTaskWithoutWindow } from './tasks/attention'
 import { checkSecurity, describeViolations } from './security'
 import { seedConversation } from './capture-conversation'
 
@@ -215,6 +221,44 @@ function createTestModeAgent(testMode: NonNullable<TestMode>): TestModeAgentBack
   })
 }
 
+/**
+ * What shows the app's notifications. A test mode never shows one: it records them instead, and in e2e mode puts the
+ * recording on the global object (`E2E_NOTIFIER_GLOBAL`) for the spec to read and click.
+ */
+function createNotifier(testMode: TestMode): Notifier {
+  if (testMode === null) return createElectronNotifier(Notification)
+  const recording = createRecordingNotifier()
+  if (testMode.kind === TestModeKind.E2e) Reflect.set(globalThis, E2E_NOTIFIER_GLOBAL, recording)
+  return recording
+}
+
+/** What opening a task from its notification needs from the running app. */
+interface OpenTaskContext {
+  readonly testMode: TestMode
+  readonly database: AppDatabase
+  readonly bridge: RegisteredBridge
+}
+
+/**
+ * Opens a task, when its notification is clicked: brings the window up, restoring it if it's minimised, and asks it to
+ * open the task, as clicking its row does. With every window closed, it selects the task itself and opens a window on
+ * it. A test mode's window stays hidden.
+ */
+function openTaskFromNotification(taskId: string, { testMode, database, bridge }: OpenTaskContext): void {
+  const [window] = BrowserWindow.getAllWindows()
+  if (window === undefined) {
+    openTaskWithoutWindow({ db: database.db, emit: bridge.emit }, taskId)
+    createWindow(testMode)
+    return
+  }
+  if (testMode === null) {
+    if (window.isMinimized()) window.restore()
+    window.show()
+    window.focus()
+  }
+  bridge.emit({ type: EventType.TaskOpenRequested, taskId })
+}
+
 /** What the app can be started with. */
 export interface AppOptions {
   /**
@@ -266,7 +310,14 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
 
     // A test mode never reaches the real Claude API, whatever the app was started with: its agent plays a script.
     const testAgent = testMode === null ? null : createTestModeAgent(testMode)
-    const bridge = registerBridge({
+    const notifyReply = createReplyNotifications({
+      db: database.db,
+      notifier: createNotifier(testMode),
+      openTask: (taskId) => {
+        openTaskFromNotification(taskId, { testMode, database, bridge })
+      },
+    })
+    const bridge: RegisteredBridge = registerBridge({
       ipc: ipcMain,
       db: database.db,
       targets: () => BrowserWindow.getAllWindows().map((window) => window.webContents),
@@ -276,6 +327,7 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
         testMode?.kind === TestModeKind.E2e
           ? () => Promise.resolve(e2eChosenFolder(process.env))
           : () => chooseFolder(dialog, BrowserWindow.getFocusedWindow()),
+      notifyReply,
     })
 
     const { runner } = bridge
