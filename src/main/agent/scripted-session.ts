@@ -26,7 +26,14 @@ import type { AgentSession, AgentSessionOptions, AgentSessionSettings } from './
 import { GLADE_SERVER } from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
 import { COMPACT_COMMAND, RESUME_PROMPT } from './runner'
-import { DEFAULT_COMPACT_TURN, ScriptStepKind, type AgentScript, type ScriptStep, type ScriptTurn } from './scripts'
+import {
+  DEFAULT_COMPACT_TURN,
+  ScriptStepKind,
+  type AgentScript,
+  type CompactStep,
+  type ScriptStep,
+  type ScriptTurn,
+} from './scripts'
 
 /** Picks the script a session plays from the first message sent to it. Throws when it has none for that message. */
 export type ScriptChooser = (firstMessage: string) => AgentScript
@@ -301,7 +308,7 @@ export class ScriptedSession implements AgentSession {
         this.contextTokens = Math.round(contextWindowFor(this.model) * step.fraction)
         return
       case ScriptStepKind.Compact:
-        this.compact(step.postTokens ?? Math.round(this.contextTokens / 5), step.trigger ?? 'manual')
+        await this.compact(turn, step)
         return
       case ScriptStepKind.LimitReached:
         this.push({
@@ -317,16 +324,22 @@ export class ScriptedSession implements AgentSession {
     }
   }
 
-  /** Compacts the context to `postTokens`, streaming what the SDK does (`docs/sdk-notes.md`, Compaction). */
-  private compact(postTokens: number, trigger: 'manual' | 'auto'): void {
+  /**
+   * Compacts the context, streaming what the SDK does (`docs/sdk-notes.md`, Compaction). An interrupt while it compacts
+   * leaves the context as it was.
+   */
+  private async compact(turn: TurnState, step: CompactStep): Promise<void> {
+    const postTokens = step.postTokens ?? Math.round(this.contextTokens / 5)
     const metadata = {
-      trigger,
+      trigger: step.trigger ?? 'manual',
       pre_tokens: this.contextTokens,
       post_tokens: postTokens,
       duration_ms: COMPACT_DURATION_MS,
     }
-    this.contextTokens = postTokens
     this.push({ type: 'system', subtype: 'status', status: 'compacting', uuid: randomUUID() })
+    if (step.ms !== undefined) await this.wait(turn, step.ms)
+    if (turn.isInterrupted) return
+    this.contextTokens = postTokens
     this.push({ type: 'system', subtype: 'status', status: null, compact_result: 'success', uuid: randomUUID() })
     this.push({ type: 'system', subtype: 'compact_boundary', compact_metadata: metadata, uuid: randomUUID() })
     this.push({

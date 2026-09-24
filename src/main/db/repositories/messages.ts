@@ -80,3 +80,18 @@ export function turnStartedAt(db: Database, taskId: string, turn: number): Epoch
     .get(taskId, turn, MessageRole.User)
   return typeof startedAt === 'number' ? startedAt : null
 }
+
+/**
+ * The first message you sent the task whose SDK session is `sessionId`, or undefined when no task has that session or
+ * it has no message of yours.
+ */
+export function firstUserMessageOfSession(db: Database, sessionId: string): string | undefined {
+  const body: unknown = db
+    .prepare(
+      `SELECT messages.body FROM messages JOIN tasks ON tasks.id = messages.task_id
+      WHERE tasks.session_id = ? AND messages.role = ? ORDER BY messages.seq LIMIT 1`,
+    )
+    .pluck()
+    .get(sessionId, MessageRole.User)
+  return typeof body === 'string' ? body : undefined
+}

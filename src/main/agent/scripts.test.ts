@@ -2,6 +2,7 @@
 // with is what an e2e spec or a capture sees.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  CompactionTrigger,
   AgentErrorKind,
   API_TOOL_NAME,
   MessageRole,
@@ -12,7 +13,9 @@ import {
   type Task,
   type TaskPause,
   type ToolCallEvent,
+  type ToolEvent,
 } from '../../shared/domain'
+import { autoCompactThreshold } from '../../shared/contextWindow'
 import { listMessages } from '../db/repositories/messages'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { getTask } from '../db/repositories/tasks'
@@ -195,6 +198,32 @@ describe('AGENT_SCRIPTS', () => {
     })
   })
 
+  it('long-build: keeps building until the app quits, then builds again and finishes the turn when resumed', async () => {
+    await send(start('long-build'), 'Build the release.')
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+    expect(activity()).toBe(TaskActivity.Working)
+    expect(calls().at(-1)).toMatchObject({ name: 'Bash', state: ToolCallState.Running })
+    runner?.close()
+
+    const resumed = start('long-build')
+    resumed.resumeInterrupted()
+    const idle = backend.whenIdle()
+    await vi.runAllTimersAsync()
+    await idle
+
+    expect(reply()).toBe('The release is built: dist/glade-0.3.0.dmg.')
+    expect(
+      calls()
+        .filter(({ name }) => name === 'Bash')
+        .map(({ state }) => state),
+    ).toEqual([ToolCallState.Error, ToolCallState.Done])
+    expect(getTask(database.db, task.id)).toMatchObject({
+      activity: TaskActivity.Waiting,
+      title: 'Build the release',
+      status: 'The release is built.',
+    })
+  })
+
   it('copy-in-batches: keeps a message queued while it copies, and answers it in the turn it resumes after a quit', async () => {
     const agent = start('copy-in-batches')
     await send(agent, 'Move image uploads to S3.')
@@ -231,6 +260,44 @@ describe('AGENT_SCRIPTS', () => {
       activity: TaskActivity.Waiting,
       status: 'All 3,900 files copied to S3, keeping their original filenames.',
     })
+  })
+
+  it('auto-compaction: crosses the threshold, compacts on its own mid-turn, and carries on to its reply', async () => {
+    const agent = start('auto-compaction')
+    await send(agent, 'Move image uploads to S3.')
+
+    // 97% of the window, past the SDK's auto-compact threshold, whatever the task's model.
+    const windowTokens = getTask(database.db, task.id)?.contextWindowTokens ?? 0
+    expect(0.97 * windowTokens).toBeGreaterThan(autoCompactThreshold(windowTokens))
+    const log = listToolEvents(database.db, task.id)
+    const compactionAt = log.findIndex((event) => event.kind === ToolEventKind.Compaction)
+    expect(log[compactionAt]).toMatchObject({
+      kind: ToolEventKind.Compaction,
+      trigger: CompactionTrigger.Auto,
+      state: ToolCallState.Done,
+      preTokens: Math.round(0.97 * windowTokens),
+      postTokens: 41_000,
+      windowTokens,
+      turn: 1,
+    })
+    // It happens between the sample check and updating the stored paths, and nothing before it is dropped.
+    const names = (events: readonly ToolEvent[]): string[] =>
+      events.flatMap((event) => (event.kind === ToolEventKind.ToolCall ? [event.name] : []))
+    expect(names(log.slice(0, compactionAt))).toEqual([
+      'mcp__glade__set_title',
+      'mcp__glade__set_objective',
+      'mcp__glade__set_status',
+      'Bash',
+      'Bash',
+    ])
+    expect(names(log.slice(compactionAt + 1))).toEqual(['mcp__glade__set_status', 'Bash'])
+    expect(calls().every((call) => call.state === ToolCallState.Done)).toBe(true)
+    expect(listMessages(database.db, task.id).map(({ role, turn }) => [role, turn])).toEqual([
+      [MessageRole.User, 1],
+      [MessageRole.Agent, 1],
+    ])
+    expect(reply()).toMatch(/^All 3,900 files are copied/)
+    expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, contextUsedTokens: 41_000 })
   })
 
   it('failing-turn: fails on an API error after its first tool call, once its retries are spent', async () => {

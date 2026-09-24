@@ -128,6 +128,8 @@ export interface CompactStep {
   readonly postTokens?: number
   /** `manual` by default. */
   readonly trigger?: 'manual' | 'auto'
+  /** How long it compacts for, in milliseconds, between the compacting status and the boundary: no time by default. */
+  readonly ms?: number
 }
 
 export interface LimitReachedStep {
@@ -388,6 +390,37 @@ const longRunning: AgentScript = {
   ],
 }
 
+/**
+ * A release build that keeps going, with its command running, until it's stopped or the app quits, like `long-running`,
+ * so a spec can run several long turns side by side. Resumed after a quit, it builds again and finishes the turn.
+ */
+const longBuild: AgentScript = {
+  name: 'long-build',
+  turns: [
+    [
+      ...turnStart(),
+      say("I'll build the release; it takes a few minutes."),
+      ...describeTask('Build the release', 'Build the 0.3.0 release for macOS.', 'Building the release.'),
+      toolUse('build', 'Bash', { command: 'npm run dist', description: 'Build the release' }),
+      waitForInterrupt(),
+    ],
+  ],
+  resumeTurn: [
+    ...turnStart(),
+    say('Glade restarted mid-build, so I am building the release again.'),
+    ...tool(
+      'build-again',
+      'Bash',
+      { command: 'npm run dist', description: 'Build the release' },
+      'dist/glade-0.3.0.dmg',
+    ),
+    delay(BEAT_MS),
+    gladeTool('status-built', 'set_status', { status: 'The release is built.' }),
+    say('The release is built: dist/glade-0.3.0.dmg.'),
+    result(),
+  ],
+}
+
 /** What a script's agent does when sent `/compact`, unless the script says otherwise: compacts, and ends the turn. */
 export const DEFAULT_COMPACT_TURN: ScriptTurn = [init(), delay(BEAT_MS), compact(), result({ text: '' })]
 
@@ -414,6 +447,54 @@ const longContext: AgentScript = {
   ],
   // Slower than the default, so a recording shows it compacting.
   compactTurn: [init(), delay(BEAT_MS * 4), compact(), result({ text: '' })],
+}
+
+/**
+ * A long turn that crosses the SDK's auto-compact threshold (967k of the default model's 1M window) part way through:
+ * the SDK compacts on its own, in the middle of the turn, and the turn carries on from the summary to its reply. Its
+ * steps take their time, so a spec or a recording sees the meter past the threshold and the compaction running.
+ */
+const autoCompaction: AgentScript = {
+  name: 'auto-compaction',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      say("I'll copy the existing uploads to the bucket, check a sample, then update the stored paths."),
+      ...describeTask(
+        'Move image uploads to S3',
+        'Move user image uploads from local disk to S3, and copy the existing files over.',
+        'Copying the existing files.',
+      ),
+      fillContext(0.6),
+      ...tool(
+        'copy',
+        'Bash',
+        { command: 'python scripts/copy_media_to_s3.py', description: 'Copy the existing uploads to S3' },
+        'copied 3,900 of 3,900',
+      ),
+      delay(BEAT_MS),
+      fillContext(0.97),
+      ...tool(
+        'sample',
+        'Bash',
+        { command: 'python scripts/check_media_sample.py --count 50', description: 'Check a sample against the disk' },
+        '50 of 50 match',
+      ),
+      delay(BEAT_MS * 4),
+      compact({ trigger: 'auto', postTokens: 41_000, ms: BEAT_MS * 4 }),
+      gladeTool('status-paths', 'set_status', { status: 'All files copied and spot-checked. Updating stored paths.' }),
+      ...tool(
+        'paths',
+        'Bash',
+        { command: 'python manage.py update_media_paths', description: 'Update the stored paths' },
+        'Updated 3,900 paths.',
+      ),
+      delay(BEAT_MS),
+      say('All 3,900 files are copied, 50 random ones match byte for byte, and the stored paths point at the bucket.'),
+      result(),
+    ],
+  ],
 }
 
 /** What the API says when it's overloaded, as the SDK words it. */
@@ -675,10 +756,12 @@ export const AGENT_SCRIPT_NAMES = [
   'simple-reply',
   'multi-tool-turn',
   'long-running',
+  'long-build',
   'failing-turn',
   'flaky-api',
   'copy-in-batches',
   'long-context',
+  'auto-compaction',
   'usage-limit',
   'usage-limit-hour',
   'offline',
@@ -691,10 +774,12 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'simple-reply': simpleReply,
   'multi-tool-turn': multiToolTurn,
   'long-running': longRunning,
+  'long-build': longBuild,
   'failing-turn': failingTurn,
   'flaky-api': flakyApi,
   'copy-in-batches': copyInBatches,
   'long-context': longContext,
+  'auto-compaction': autoCompaction,
   'usage-limit': usageLimit,
   'usage-limit-hour': usageLimitHour,
   offline,

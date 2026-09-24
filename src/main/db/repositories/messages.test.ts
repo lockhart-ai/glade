@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MessageRole, type Task } from '../../../shared/domain'
-import { appendMessage, lastTurn, listMessages, turnStartedAt } from './messages'
+import { appendMessage, firstUserMessageOfSession, lastTurn, listMessages, turnStartedAt } from './messages'
+import { updateTask } from './tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 
 let test: TestDatabase
@@ -115,5 +116,20 @@ describe('turnStartedAt', () => {
     expect(turnStartedAt(test.db, task.id, 1)).toBe(2_000)
     expect(turnStartedAt(test.db, task.id, 2)).toBeNull()
     expect(turnStartedAt(test.db, task.id, 3)).toBeNull()
+  })
+})
+
+describe('firstUserMessageOfSession', () => {
+  it("is the first message you sent the session's task, or undefined for no such session or message", () => {
+    const other = sampleTask(test.db, task.workspaceId)
+    updateTask(test.db, task.id, { sessionId: 'session-1' })
+    updateTask(test.db, other.id, { sessionId: 'session-2' })
+    appendMessage(test.db, { taskId: task.id, role: MessageRole.Agent, body: 'Unasked.', turn: 1 })
+    appendMessage(test.db, { taskId: task.id, role: MessageRole.User, body: 'Hi', turn: 1 })
+    appendMessage(test.db, { taskId: task.id, role: MessageRole.User, body: 'And this.', turn: 2 })
+
+    expect(firstUserMessageOfSession(test.db, 'session-1')).toBe('Hi')
+    expect(firstUserMessageOfSession(test.db, 'session-2')).toBeUndefined()
+    expect(firstUserMessageOfSession(test.db, 'nope')).toBeUndefined()
   })
 })

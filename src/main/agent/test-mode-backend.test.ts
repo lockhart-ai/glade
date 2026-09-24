@@ -101,6 +101,30 @@ describe('createTestModeAgentBackend', () => {
     other.close()
   })
 
+  it("picks a resumed session's script by the first message of the task it resumes", async () => {
+    const script = (reply: string): AgentScript => ({ name: reply, turns: [[say(reply), result()]] })
+    const backend = createTestModeAgentBackend({
+      script: script('Default.'),
+      byFirstMessage: new Map([['Run the suite.', script('Suite.')]]),
+      firstMessageOf: (sessionId) => (sessionId === 'session-1' ? 'Run the suite.' : undefined),
+    })
+    const resumed = backend.start({ ...OPTIONS, resumeSessionId: 'session-1' })
+    const unknown = backend.start({ ...OPTIONS, resumeSessionId: 'session-2' })
+    const received = [drain(resumed.messages), drain(unknown.messages)]
+    resumed.send('Carry on.', 'user-1')
+    unknown.send('Carry on.', 'user-2')
+
+    await backend.whenIdle()
+    const results = received.map((messages) =>
+      messages()
+        .filter((message) => (message as { type: string }).type === 'result')
+        .map((message) => (message as { result: string }).result),
+    )
+    expect(results).toEqual([['Suite.'], ['Default.']])
+    resumed.close()
+    unknown.close()
+  })
+
   it('kills a session whose first message picks no script, when there is no default', async () => {
     const backend = createTestModeAgentBackend({
       script: null,

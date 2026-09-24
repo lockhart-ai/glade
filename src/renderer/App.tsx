@@ -18,6 +18,7 @@ import { useMarkUnreadShortcut } from './shortcuts/useMarkUnreadShortcut'
 import { useStopShortcut } from './shortcuts/useStopShortcut'
 import { useCompactShortcut } from './shortcuts/useCompactShortcut'
 import { TaskPanel } from './tool-log'
+import { RelaunchNotice } from './relaunch-notice'
 
 interface PlaceholderProps {
   label: string
@@ -34,15 +35,17 @@ interface WindowProps {
   task: ReactNode
   /** The app-wide banner, if any. */
   banner?: ReactNode
+  overlay?: ReactNode
 }
 
 /** The window frame, with the bottom bar's placeholder until the terminal ticket fills it. */
-function Window({ sidebar, task, banner }: WindowProps): React.JSX.Element {
+function Window({ sidebar, task, banner, overlay }: WindowProps): React.JSX.Element {
   return (
     <AppShell
       banner={banner}
       sidebar={sidebar}
       task={task}
+      overlay={overlay}
       bottomBar={
         <BottomBar
           terminalTabs={<Placeholder label="Terminal tabs" className={styles.tabs} />}
@@ -98,6 +101,7 @@ function Layout(): React.JSX.Element {
           rightPanel={<TaskPanel />}
         />
       }
+      overlay={<RelaunchNotice />}
     />
   )
 }

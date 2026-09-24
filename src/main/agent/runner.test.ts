@@ -25,7 +25,7 @@ import {
 import { registerBridge } from '../bridge'
 import { fakeIpcPair } from '../bridge/fake-ipc'
 import { listMessages } from '../db/repositories/messages'
-import { listQueuedMessages } from '../db/repositories/queued-messages'
+import { appendQueuedMessage, listQueuedMessages } from '../db/repositories/queued-messages'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
@@ -898,30 +898,115 @@ describe('resuming on launch', () => {
     expect(chat().at(-1)).toEqual({ role: MessageRole.User, body: 'Thanks.', turn: 2 })
   })
 
-  it('puts a working task with no session back to waiting on you, with a note, and starts nothing', async () => {
-    await send('Hi')
+  it('sends a new session the turn’s messages again when the app died before its session started', async () => {
+    await send('Find out why the login test is flaky.')
     relaunch()
-    runner.resumeInterrupted()
 
-    expect(backend.sessions).toHaveLength(0)
+    expect(runner.resumeInterrupted()).toEqual([task.id])
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(backend.session.options.resumeSessionId).toBeNull()
+    const [message] = listMessages(database.db, task.id)
+    expect(backend.session.sent).toEqual([
+      expect.objectContaining({ text: 'Find out why the login test is flaky.', uuid: message?.id }),
+    ])
     expect(toolLog()).toEqual([
       { divider: DividerKind.Turn, turn: 1 },
-      { narration: NOT_RESUMED_NOTE, turn: 1 },
+      { divider: DividerKind.Resumed, turn: 1 },
     ])
+    expect(current().activity).toBe(TaskActivity.Working)
+
+    backend.session.emit(sdk.init(), sdk.text('It was a race.'), sdk.result('It was a race.'))
+    await settle()
+
+    expect(chat()).toEqual([
+      { role: MessageRole.User, body: 'Find out why the login test is flaky.', turn: 1 },
+      { role: MessageRole.Agent, body: 'It was a race.', turn: 1 },
+    ])
+    expect(current()).toMatchObject({ activity: TaskActivity.Waiting, sessionId: sdk.SESSION_ID })
+  })
+
+  it('saves a turn’s messages and its working activity in one write, so no crash can leave one without the other', async () => {
+    // Saving the task as working fails, as if the app died there: the message isn't saved either.
+    database.db.exec(`
+      CREATE TEMP TRIGGER crash_on_working BEFORE UPDATE OF activity ON tasks WHEN NEW.activity = 'working'
+      BEGIN SELECT RAISE(ABORT, 'Glade died'); END
+    `)
+    await expect(send('Hi')).rejects.toMatchObject({ message: expect.stringContaining('Glade died') as unknown })
+
+    expect(chat()).toEqual([])
+    expect(toolLog()).toEqual([])
+    expect(current().activity).toBe(TaskActivity.Waiting)
+    expect(backend.session.sent).toEqual([])
+  })
+
+  it('puts a working task with no session or messages back to waiting on you, with a note, and starts nothing', () => {
+    updateTask(database.db, task.id, { activity: TaskActivity.Working })
+
+    expect(runner.resumeInterrupted()).toEqual([])
+
+    expect(backend.sessions).toHaveLength(0)
+    expect(toolLog()).toEqual([{ narration: NOT_RESUMED_NOTE, turn: 1 }])
     expect(current().activity).toBe(TaskActivity.Waiting)
   })
 
-  it('leaves tasks that were waiting, errored or done alone', () => {
+  it('carries on every task the app quit in mid-turn, each in its own session, and answers with them', async () => {
+    const others = [sampleTask(database.db, workspace.id, 3_000), sampleTask(database.db, workspace.id, 4_000)]
+    for (const [index, other] of [task, ...others].entries()) {
+      await glade.invoke(CommandName.TasksSend, { id: other.id, text: `Task ${String(index + 1)}` })
+      backend.sessions[index]?.emit(sdk.init(`session-${String(index + 1)}`))
+    }
+    await settle()
+
+    relaunch()
+    expect(runner.resumeInterrupted()).toEqual([task.id, ...others.map(({ id }) => id)])
+
+    expect(backend.sessions.map((session) => session.options.resumeSessionId)).toEqual([
+      'session-1',
+      'session-2',
+      'session-3',
+    ])
+    for (const session of backend.sessions) expect(session.sent.map(({ text }) => text)).toEqual([RESUME_PROMPT])
+    for (const [index, session] of backend.sessions.entries()) {
+      session.emit(sdk.init(`session-${String(index + 1)}`), sdk.result(`Done ${String(index + 1)}.`))
+    }
+    await settle()
+
+    for (const [index, each] of [task, ...others].entries()) {
+      expect(getTask(database.db, each.id)?.activity).toBe(TaskActivity.Waiting)
+      expect(listMessages(database.db, each.id).at(-1)?.body).toBe(`Done ${String(index + 1)}.`)
+    }
+  })
+
+  it('carries on the other tasks when one cannot be resumed', () => {
+    const other = sampleTask(database.db, workspace.id, 3_000)
+    updateTask(database.db, task.id, { activity: TaskActivity.Working, sessionId: 'session-1' })
+    updateTask(database.db, other.id, { activity: TaskActivity.Working, sessionId: 'session-2' })
+    const start = vi.spyOn(backend, 'start')
+    start.mockImplementationOnce(() => {
+      throw new Error('spawn claude ENOENT')
+    })
+
+    expect(runner.resumeInterrupted()).toEqual([other.id])
+
+    expect(current().activity).toBe(TaskActivity.Error)
+    expect(backend.session.options.resumeSessionId).toBe('session-2')
+  })
+
+  it('leaves tasks that were waiting, errored or done alone, with their queues', () => {
     const others = [TaskActivity.Waiting, TaskActivity.Error].map((activity) =>
       updateTask(database.db, sampleTask(database.db, workspace.id).id, { activity, sessionId: 's' }),
     )
     updateTask(database.db, task.id, { state: TaskState.Done, activity: TaskActivity.Working, sessionId: 's' })
+    // A failed turn leaves its queue for the next message you send.
+    for (const { id } of [task, ...others]) appendQueuedMessage(database.db, { taskId: id, body: 'And the docs.' })
 
-    runner.resumeInterrupted()
+    expect(runner.resumeInterrupted()).toEqual([])
 
     expect(backend.sessions).toHaveLength(0)
     expect(events).toEqual([])
     for (const other of others) expect(getTask(database.db, other.id)).toEqual(other)
+    for (const { id } of [task, ...others]) expect(listQueuedMessages(database.db, id)).toHaveLength(1)
   })
 
   it('marks a task it cannot resume as errored, and says why', async () => {
@@ -2197,13 +2282,13 @@ describe('compaction', () => {
     expect(current().activity).toBe(TaskActivity.Error)
   })
 
-  it('logs a compaction the SDK does on its own in the middle of a turn', async () => {
+  it('logs a compaction the SDK reports without first saying it was compacting', async () => {
     await fullTurn(160_000)
     await send('Now update the stored paths.')
     backend.session.emit(
       sdk.init(),
       sdk.withContextUsed(sdk.text('Updating in batches.'), 167_500),
-      ...sdk.compaction(167_500, 30_000, 'auto'),
+      sdk.compactBoundary({ trigger: 'auto', pre_tokens: 167_500, post_tokens: 30_000 }),
     )
     await settle()
 
@@ -2216,6 +2301,98 @@ describe('compaction', () => {
     })
     expect(current()).toMatchObject({ activity: TaskActivity.Working, contextUsedTokens: 30_000 })
     expect(listToolEvents(database.db, task.id).at(-1)).toMatchObject({ windowTokens: sdk.CONTEXT_WINDOW })
+  })
+
+  it('carries a long turn on through a compaction the SDK does on its own at its threshold, and keeps it all', async () => {
+    const auto = { ...running, compaction: CompactionTrigger.Auto, turn: 2 }
+    await fullTurn(160_000)
+    await send('Now update the stored paths.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.text('Updating the stored paths in batches of 500.'),
+      sdk.withContextUsed(
+        sdk.toolUse('toolu_batch1', 'Bash', { command: 'python manage.py update_media_paths --batch 1' }),
+        168_000,
+      ),
+      sdk.toolResult('toolu_batch1', 'Updated 500 paths.'),
+    )
+    await settle()
+    expect(current().contextUsedTokens).toBe(168_000)
+    events.splice(0)
+
+    // Past the threshold, the SDK compacts on its own: the working line says so while it does.
+    backend.session.emit({ type: 'system', subtype: 'status', status: 'compacting', session_id: sdk.SESSION_ID })
+    await settle()
+    expect(toolLog().at(-1)).toEqual(auto)
+    expect(drainEvents()).toEqual([[EventType.ToolEventAppended, ToolEventKind.Compaction, ToolCallState.Running]])
+
+    backend.session.emit(...sdk.compaction(168_000, 41_000, 'auto').slice(1))
+    await settle()
+    expect(toolLog().at(-1)).toEqual({ ...auto, state: ToolCallState.Done, preTokens: 168_000, postTokens: 41_000 })
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, contextUsedTokens: 41_000 })
+    expect(drainEvents()).toEqual([
+      [EventType.ToolEventUpdated, ToolEventKind.Compaction, ToolCallState.Done],
+      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, 41_000],
+    ])
+
+    // The turn carries on from the summary, and its reply lands.
+    backend.session.emit(
+      sdk.withContextUsed(
+        sdk.toolUse(
+          'toolu_batch2',
+          'Bash',
+          { command: 'python manage.py update_media_paths --batch 2' },
+          null,
+          'msg_02',
+        ),
+        43_000,
+      ),
+      sdk.toolResult('toolu_batch2', 'Updated 500 paths.'),
+      sdk.withContextUsed(sdk.text('Updated the stored paths of all 3,900 files.', null, 'msg_03'), 43_500),
+      sdk.result('Updated the stored paths of all 3,900 files.'),
+    )
+    await settle()
+    const log = [
+      { narration: 'Updating the stored paths in batches of 500.', turn: 2 },
+      expect.objectContaining({ call: 'Bash', state: ToolCallState.Done, output: 'Updated 500 paths.', turn: 2 }),
+      { ...auto, state: ToolCallState.Done, preTokens: 168_000, postTokens: 41_000 },
+      expect.objectContaining({ call: 'Bash', state: ToolCallState.Done, output: 'Updated 500 paths.', turn: 2 }),
+    ]
+    const conversation = [
+      { role: MessageRole.User, body: 'Move the uploads to S3.', turn: 1 },
+      { role: MessageRole.Agent, body: 'All 3,900 files are copied.', turn: 1 },
+      { role: MessageRole.User, body: 'Now update the stored paths.', turn: 2 },
+      { role: MessageRole.Agent, body: 'Updated the stored paths of all 3,900 files.', turn: 2 },
+    ]
+    expect(toolLog().slice(-4)).toEqual(log)
+    expect(chat()).toEqual(conversation)
+    expect(current()).toMatchObject({ activity: TaskActivity.Waiting, contextUsedTokens: 43_500 })
+
+    // Nothing was dropped from Glade's own record, and it's all still there after a relaunch.
+    relaunch()
+    expect(toolLog().slice(-4)).toEqual(log)
+    expect(chat()).toEqual(conversation)
+    expect(current()).toMatchObject({ activity: TaskActivity.Waiting, contextUsedTokens: 43_500 })
+  })
+
+  it('ends an automatic Compact row as an error when the SDK says the compaction failed, and carries the turn on', async () => {
+    await fullTurn(160_000)
+    await send('Now update the stored paths.')
+    backend.session.emit(
+      sdk.init(),
+      { type: 'system', subtype: 'status', status: 'compacting', session_id: sdk.SESSION_ID },
+      { type: 'system', subtype: 'status', status: null, compact_result: 'failed', session_id: sdk.SESSION_ID },
+    )
+    await settle()
+
+    const failed = { ...running, compaction: CompactionTrigger.Auto, state: ToolCallState.Error, turn: 2 }
+    expect(toolLog().at(-1)).toEqual(failed)
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, contextUsedTokens: 160_000 })
+
+    backend.session.emit(sdk.text('Updated.'), sdk.result('Updated.'))
+    await settle()
+    expect(toolLog().at(-1)).toEqual(failed)
+    expect(chat().at(-1)).toEqual({ role: MessageRole.Agent, body: 'Updated.', turn: 2 })
   })
 
   it('refuses while the agent works, for a done task, before the agent has a session, and for no such task', async () => {
@@ -2245,17 +2422,39 @@ describe('compaction', () => {
     expect(sent()).toEqual([COMPACT_COMMAND])
   })
 
-  it('fails a compaction the app quit in, and carries the task on like any other cut-short turn', async () => {
+  it('fails a compaction the app quit in, and puts the task back to waiting on you without redoing it', async () => {
     await fullTurn()
     await compact()
+    // It was retrying an overloaded API when the app quit.
+    backend.session.emit(sdk.init(), sdk.apiRetry(1, 10))
+    await settle()
+    expect(current().retrying).not.toBeNull()
 
     relaunch()
-    runner.resumeInterrupted()
+    expect(runner.resumeInterrupted()).toEqual([])
 
+    expect(toolLog().at(-1)).toEqual({ ...running, state: ToolCallState.Error })
+    expect(backend.sessions).toHaveLength(0)
+    expect(current()).toMatchObject({ activity: TaskActivity.Waiting, retrying: null })
+    expect(chat()).toHaveLength(2)
+  })
+
+  it('starts the next turn with the queue after a compaction the app quit in, as the compaction would have', async () => {
+    await fullTurn()
+    await compact()
+    await glade.invoke(CommandName.QueueAdd, { taskId: task.id, text: 'Now update the stored paths.' })
+
+    relaunch()
+    expect(runner.resumeInterrupted()).toEqual([task.id])
+
+    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
+    expect(sent()).toEqual(['Now update the stored paths.'])
     expect(toolLog().slice(-2)).toEqual([
       { ...running, state: ToolCallState.Error },
-      { divider: DividerKind.Resumed, turn: 1 },
+      { divider: DividerKind.Turn, turn: 2 },
     ])
-    expect(sent()).toEqual([RESUME_PROMPT])
+    expect(listQueuedMessages(database.db, task.id)).toEqual([])
+    expect(chat().at(-1)).toEqual({ role: MessageRole.User, body: 'Now update the stored paths.', turn: 2 })
+    expect(current().activity).toBe(TaskActivity.Working)
   })
 })

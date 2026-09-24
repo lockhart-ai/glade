@@ -73,17 +73,26 @@
  * turn. The tool log gets a running Compact row at once, filled in when the SDK's `compact_boundary` reports the tokens
  * before and after; if the turn ends without one, the row ends as an error. The context usage drops to the tokens after
  * straight away (`getContextUsage()` is stale after a compaction), and follows the next assistant message from there.
- * A compaction the SDK does on its own, at its auto-compact threshold, is logged when its boundary arrives.
+ * A compaction the SDK does on its own, at its auto-compact threshold in the middle of a turn, gets a running Compact
+ * row (automatic) when the SDK says it's compacting, filled in the same way; the turn then carries on to its reply. A
+ * compaction the SDK says failed ends its row as an error straight away.
  *
- * **Resume on launch.** A turn the app quit or crashed in is left working in the database. On launch,
- * `resumeInterrupted` carries each one on: it resumes the task's SDK session by its saved id (`docs/sdk-notes.md` §8),
- * adds a resumed divider to the tool log, and sends the session `RESUME_PROMPT`. A resumed session waits for a message
- * like any other in streaming input mode, so it needs one to carry on; the prompt isn't saved to the chat, since you
- * didn't write it. The turn keeps its number and ends like any other; its summary's duration counts from its first
- * message, before the app quit. What the dead turn had only in memory is gone:
- * its held-back text (the model still has it in its transcript) and the calls that never got a result, which end as
- * errors. A working task with no session id never got as far as starting its session, so there's nothing to resume:
- * it goes back to waiting on you, with a note.
+ * **Resume on launch.** A turn the app quit or crashed in is left working in the database: a turn's user messages and
+ * its working activity are saved together, so none is left unanswered. On launch, `resumeInterrupted` carries each
+ * one on: it resumes the task's SDK session by its saved id (`docs/sdk-notes.md` §8), adds a resumed divider to the
+ * tool log, and sends the session `RESUME_PROMPT`. A resumed session waits for a message like any other in streaming
+ * input mode, so it needs one to carry on; the prompt isn't saved to the chat, since you didn't write it. The turn
+ * keeps its number and ends like any other, and its queue is delivered as in any turn; its summary's duration counts
+ * from its first message, before the app quit. What the dead turn had only in memory is gone: its held-back text (the
+ * model still has it in its transcript) and the calls that never got a result, which end as errors. A retry the
+ * turn was in is over: the working line stops saying so until the SDK retries again. Otherwise:
+ * - a working task with no session id never got as far as starting its session, so the agent never saw the turn: a
+ *   new session is sent the turn's messages again. With no messages there's nothing to carry on: it goes back to
+ *   waiting on you, with a note.
+ * - a compaction the app quit in ends as an error, and isn't redone: the task goes back to waiting on you, unless
+ *   messages are queued, which start the next turn as they would have after it.
+ * - a task in error, waiting on you or done has no turn running, so it's left as it is, queue and all: an error keeps
+ *   its card and Retry.
  *
  * Every write is broadcast to the windows as it happens. Only the in-flight turn's bookkeeping (its held-back text and
  * running calls) is kept in memory.
@@ -134,7 +143,7 @@ import { getWorkspace } from '../db/repositories/workspaces'
 import type { NotifyReply } from '../notifications/notifications'
 import { addQueuedMessage } from '../tasks/queue'
 import { noteAgentReply } from '../tasks/attention'
-import { reopenTask, updateTaskFromRunner, updateTaskFromUser } from '../tasks/service'
+import { reopenTask, updateTaskFromRunner, updateTaskFromUser, type TaskServiceContext } from '../tasks/service'
 import type { AgentBackend, AgentMcpServers, AgentSession, AgentSessionSettings } from './backend'
 import { classifyAgentError } from './error-classification'
 import {
@@ -205,9 +214,10 @@ export interface AgentRunner {
   compact(taskId: string): Task
   /**
    * Carries on the turns the app quit or crashed in, and arms the timers of the paused ones (see the module comment).
-   * Call it once, on launch.
+   * Call it once, on launch. Answers with the ids of the tasks whose agents picked their work back up, in the order
+   * they were created.
    */
-  resumeInterrupted(): void
+  resumeInterrupted(): string[]
   /** Closes every live session and clears the pause timers, e.g. when the app quits. */
   close(): void
 }
@@ -227,7 +237,7 @@ interface Turn {
   retrying: ApiRetry | null
   /** The API error the SDK gave up on, which the turn's error result follows. */
   apiError: ApiErrorEvent | null
-  /** The id of the running Compact row of a compaction you asked for, until the SDK reports it; null otherwise. */
+  /** The id of the running Compact row, until the SDK reports how the compaction went; null otherwise. */
   compaction: string | null
   /** Resolves once the turn has ended, however it ended. */
   readonly ended: Promise<void>
@@ -325,7 +335,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    * The agent is working on a new turn: whatever error stopped it or pause held it before is behind it, and so is any
    * retry the app quit in the middle of.
    */
-  const startWorking = (taskId: string): void => {
+  const startWorking = (taskId: string, through: TaskServiceContext = context): void => {
     timers.disarm(taskId)
     const task = getTask(db, taskId)
     if (
@@ -334,13 +344,18 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       task.retrying !== null ||
       task.pause !== null
     ) {
-      updateTaskFromRunner(context, taskId, {
+      updateTaskFromRunner(through, taskId, {
         activity: TaskActivity.Working,
         error: null,
         retrying: null,
         pause: null,
       })
     }
+  }
+
+  /** A turn the app quit in is over without the agent: it waits on you, and any retry it was in is over too. */
+  const backToWaiting = (taskId: string): void => {
+    updateTaskFromRunner(context, taskId, { activity: TaskActivity.Waiting, retrying: null })
   }
 
   /**
@@ -495,7 +510,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     setActivity(taskId, TaskActivity.Waiting)
   }
 
-  /** Ends the compaction you asked for as an error, if the SDK never reported it. */
+  /** Ends the running compaction as an error, if the SDK never reported it or says it failed. */
   const failCompaction = (turn: Turn): void => {
     if (turn.compaction === null) return
     const id = turn.compaction
@@ -507,8 +522,28 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   /**
-   * Logs a compaction the SDK reports: fills in the one you asked for, or adds one it did on its own. The context usage
-   * drops to what it reports is left.
+   * The SDK started compacting. A compaction you asked for already has its row; one the SDK started on its own, at its
+   * threshold, gets a running automatic one now, so the working line says it's compacting.
+   */
+  const onCompacting = (taskId: string, turn: Turn): void => {
+    const task = getTask(db, taskId)
+    if (task === undefined || turn.compaction !== null) return
+    const compaction = appendCompaction(db, {
+      taskId,
+      turn: turn.number,
+      trigger: CompactionTrigger.Auto,
+      state: ToolCallState.Running,
+      preTokens: null,
+      postTokens: null,
+      windowTokens: task.contextWindowTokens,
+    })
+    emitToolEventAppended(emit, compaction)
+    turn.compaction = compaction.id
+  }
+
+  /**
+   * Logs a compaction the SDK reports: fills in its running row, or adds one if the SDK never said it was compacting.
+   * The context usage drops to what it reports is left.
    */
   const onCompacted = (taskId: string, turn: Turn, event: CompactedEvent): void => {
     const task = getTask(db, taskId)
@@ -679,8 +714,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           updateTaskFromRunner(context, taskId, { contextUsedTokens: event.tokens })
         }
         return
+      case AgentEventKind.Compacting:
+        onCompacting(taskId, turn)
+        return
       case AgentEventKind.Compacted:
         onCompacted(taskId, turn, event)
+        return
+      case AgentEventKind.CompactionFailed:
+        failCompaction(turn)
         return
       case AgentEventKind.TurnFinished:
         recordContextWindow(taskId, live, event)
@@ -733,23 +774,55 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     return live
   }
 
-  /** Carries on the turn a working task was in when the app quit (see the module comment). */
-  const resume = (task: Task): void => {
-    const turn = lastTurn(db, task.id)
-    for (const call of failRunningToolCalls(db, task.id, RESTARTED_TOOL_NOTE)) emitToolEventUpdated(emit, call)
-    for (const compaction of failRunningCompactions(db, task.id)) emitToolEventUpdated(emit, compaction)
-    if (task.sessionId === null) {
-      emitToolEventAppended(emit, appendNarration(db, { taskId: task.id, turn, text: NOT_RESUMED_NOTE }))
-      setActivity(task.id, TaskActivity.Waiting)
-      return
+  /**
+   * Carries on the turn a working task was in when the app quit (see the module comment). Answers whether the task's
+   * agent picked its work back up.
+   */
+  const resume = (task: Task): boolean => {
+    const taskId = task.id
+    // A task always has a turn by the time it works; the tool log's first turn is 1 regardless.
+    const turn = Math.max(1, lastTurn(db, taskId))
+    for (const call of failRunningToolCalls(db, taskId, RESTARTED_TOOL_NOTE)) emitToolEventUpdated(emit, call)
+    const compactions = failRunningCompactions(db, taskId)
+    for (const compaction of compactions) emitToolEventUpdated(emit, compaction)
+    // The turn was a compaction you asked for, not a turn of yours: it ends there, and the queue starts the next turn,
+    // as it would have when the compaction finished.
+    if (compactions.length > 0) {
+      if (listQueuedMessages(db, taskId).length > 0) {
+        startTurn(task, start(task), null)
+        return true
+      }
+      backToWaiting(taskId)
+      return false
+    }
+    if (task.sessionId !== null) {
+      const live = start(task)
+      startWorking(taskId)
+      emitToolEventAppended(emit, appendDivider(db, { taskId, turn, dividerKind: DividerKind.Resumed }))
+      const uuid = randomUUID()
+      live.turn = newTurn(turn)
+      live.turn.awaiting.add(uuid)
+      live.session.send(RESUME_PROMPT, uuid)
+      return true
+    }
+    // The session never started, so the agent never saw the turn's messages: a new session gets them again.
+    const unanswered = listMessages(db, taskId).filter(
+      (message) => message.turn === turn && message.role === MessageRole.User,
+    )
+    if (unanswered.length === 0) {
+      emitToolEventAppended(emit, appendNarration(db, { taskId, turn, text: NOT_RESUMED_NOTE }))
+      backToWaiting(taskId)
+      return false
     }
     const live = start(task)
-    startWorking(task.id)
-    emitToolEventAppended(emit, appendDivider(db, { taskId: task.id, turn, dividerKind: DividerKind.Resumed }))
-    const uuid = randomUUID()
+    startWorking(taskId)
+    emitToolEventAppended(emit, appendDivider(db, { taskId, turn, dividerKind: DividerKind.Resumed }))
     live.turn = newTurn(turn)
-    live.turn.awaiting.add(uuid)
-    live.session.send(RESUME_PROMPT, uuid)
+    for (const message of unanswered) {
+      live.turn.awaiting.add(message.id)
+      live.session.send(message.body, message.id)
+    }
+    return true
   }
 
   /** The pickers change the task, not the session: its current model and effort apply from the next turn on. */
@@ -771,8 +844,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
     const turn = lastTurn(db, taskId) + 1
     const reopening = task.state === TaskState.Done
-    // Reopening's own events wait for the transaction to commit, so the windows never hear of a reopen that didn't.
+    // The task's own events wait for the transaction to commit, so the windows never hear of a change that didn't.
     const reopenEvents: GladeEvent[] = []
+    const workingEvents: GladeEvent[] = []
     const { queued, messages, dividers } = db.transaction(() => {
       // Reopening clears `doneAt`, so the marked done divider keeps it: it's the time the chat and header show.
       const markedDone = reopening
@@ -790,13 +864,16 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const messages = bodies.map((body) => appendMessage(db, { taskId, role: MessageRole.User, body, turn }))
       const reopened = reopening ? [appendDivider(db, { taskId, turn, dividerKind: DividerKind.Reopened })] : []
       const divider = appendDivider(db, { taskId, turn, dividerKind: DividerKind.Turn })
+      // Working in the same write as the turn's messages: if the app dies before the session gets them, the next
+      // launch finds the turn working and carries it on (see `resume`), rather than a message nobody answers.
+      startWorking(taskId, { db, emit: (event) => workingEvents.push(event) })
       return { queued, messages, dividers: [...markedDone, ...reopened, divider] }
     })()
     for (const event of reopenEvents) emit(event)
     if (queued.length > 0) emitQueueChanged(emit, taskId, [])
     for (const message of messages) emitMessageAppended(emit, message)
     for (const divider of dividers) emitToolEventAppended(emit, divider)
-    startWorking(taskId)
+    for (const event of workingEvents) emit(event)
 
     live.turn = newTurn(turn)
     for (const message of messages) {
@@ -907,18 +984,23 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     },
 
     resumeInterrupted() {
+      const resumed: string[] = []
       for (const task of listWorkingTasks(db)) {
         try {
-          resume(task)
+          if (resume(task)) resumed.push(task.id)
         } catch (error) {
           log.warn(`Failed to resume task ${task.id}`, error)
           const text = `Glade couldn't resume the agent: ${describeError(error)}`
-          emitToolEventAppended(emit, appendNarration(db, { taskId: task.id, turn: lastTurn(db, task.id), text }))
+          emitToolEventAppended(
+            emit,
+            appendNarration(db, { taskId: task.id, turn: Math.max(1, lastTurn(db, task.id)), text }),
+          )
           const failure = { source: TaskErrorSource.Session, status: null, code: null, details: text }
           stopOnError(task.id, withRetries(null, failure))
         }
       }
       for (const task of listPausedTasks(db)) timers.arm(task.id, task.pause?.resumesAt ?? Date.now())
+      return resumed
     },
 
     close() {
