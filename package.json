@@ -12,20 +12,26 @@
     "typecheck": "tsc --build",
     "lint": "echo 'lint is not set up yet: see P0-02 (#3)' && exit 1",
     "format": "echo 'format is not set up yet: see P0-02 (#3)' && exit 1",
-    "test": "echo 'test is not set up yet: see P0-03 (#4)' && exit 1"
+    "test": "vitest run --coverage"
   },
   "dependencies": {
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^24.13.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
+    "@vitest/coverage-v8": "^5.0.1",
     "electron": "^44.4.5",
     "electron-vite": "^5.0.0",
+    "jsdom": "^29.1.1",
     "typescript": "~6.0.3",
-    "vite": "^7.3.6"
+    "vite": "^7.3.6",
+    "vitest": "^5.0.1"
   }
 }
