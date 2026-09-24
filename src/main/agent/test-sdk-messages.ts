@@ -55,7 +55,12 @@ export function withContextUsed(message: unknown, tokens: number): unknown {
     ...assistantMessage,
     message: {
       ...assistantMessage.message,
-      usage: { input_tokens: 6, cache_creation_input_tokens: 1000, cache_read_input_tokens: tokens - 1006, output_tokens: 1 },
+      usage: {
+        input_tokens: 6,
+        cache_creation_input_tokens: 1000,
+        cache_read_input_tokens: tokens - 1006,
+        output_tokens: 1,
+      },
     },
   }
 }

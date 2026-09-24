@@ -1,0 +1,25 @@
+/* The context meter, from docs/design/html/task-workspace.html. Its font and colour come from the input bar's slot. */
+.meter {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.track,
+.arc {
+  fill: none;
+  stroke-width: 2.4;
+}
+
+.track {
+  stroke: var(--color-strong);
+}
+
+.arc {
+  stroke: var(--color-blue-text);
+  stroke-linecap: round;
+}
+
+.percent {
+  color: var(--color-text);
+}

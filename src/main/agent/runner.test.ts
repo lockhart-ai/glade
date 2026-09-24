@@ -293,11 +293,13 @@ describe('a turn', () => {
 describe('the context usage', () => {
   /** The context usage in each `task.updated` since the last call. */
   function contextUpdates(): { used: number; window: number }[] {
-    return events.splice(0).flatMap((event) =>
-      event.type === EventType.TaskUpdated
-        ? [{ used: event.task.contextUsedTokens, window: event.task.contextWindowTokens }]
-        : [],
-    )
+    return events
+      .splice(0)
+      .flatMap((event) =>
+        event.type === EventType.TaskUpdated
+          ? [{ used: event.task.contextUsedTokens, window: event.task.contextWindowTokens }]
+          : [],
+      )
   }
 
   it("follows the latest top-level message, not a subagent's, and saves it on the task", async () => {
@@ -339,7 +341,10 @@ describe('the context usage', () => {
 
   it("keeps the window it has when the result doesn't report the session's model", async () => {
     await send('Hi')
-    backend.session.emit(sdk.init(), sdk.result('Hello.', { modelUsage: { 'claude-sample-other': { contextWindow: 1 } } }))
+    backend.session.emit(
+      sdk.init(),
+      sdk.result('Hello.', { modelUsage: { 'claude-sample-other': { contextWindow: 1 } } }),
+    )
     await settle()
     expect(current().contextWindowTokens).toBe(200_000)
   })
