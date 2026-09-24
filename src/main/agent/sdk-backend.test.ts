@@ -8,6 +8,7 @@ import { createSdkBackend, sdkOptions, userMessage } from './sdk-backend'
 const sdk = vi.hoisted(() => {
   const session = {
     interrupt: vi.fn(() => Promise.resolve(undefined)),
+    stopTask: vi.fn<(taskId: string) => Promise<void>>(() => Promise.resolve(undefined)),
     setModel: vi.fn<(model?: string) => Promise<void>>(() => Promise.resolve(undefined)),
     applyFlagSettings: vi.fn<(settings: unknown) => Promise<void>>(() => Promise.resolve(undefined)),
     close: vi.fn(),
@@ -81,12 +82,14 @@ it('starts one streaming-input query per session and pushes each message into it
   session.send('Hi', 'uuid-1')
   session.send('Fix it.', 'uuid-2')
   await session.interrupt()
+  await session.stopTask('b7f3')
   session.close()
 
   const pushed: SDKUserMessage[] = []
   for await (const message of prompt) pushed.push(message)
   expect(pushed).toEqual([userMessage('Hi', 'uuid-1'), userMessage('Fix it.', 'uuid-2')])
   expect(sdk.session.interrupt).toHaveBeenCalledOnce()
+  expect(sdk.session.stopTask).toHaveBeenCalledExactlyOnceWith('b7f3')
   expect(sdk.session.close).toHaveBeenCalledOnce()
 })
 

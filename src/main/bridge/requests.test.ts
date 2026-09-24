@@ -45,6 +45,8 @@ describe('REQUEST_SCHEMAS', () => {
     }
     expect(REQUEST_SCHEMAS[CommandName.SettingsUpdate].parse(settings)).toEqual(settings)
     expect(REQUEST_SCHEMAS[CommandName.SettingsUpdate].parse({ patch: {} })).toEqual({ patch: {} })
+    const search = { workspaceId: 'w', text: '"Retry-After' }
+    expect(REQUEST_SCHEMAS[CommandName.SearchQuery].parse(search)).toEqual(search)
   })
 
   it.each([
@@ -54,6 +56,12 @@ describe('REQUEST_SCHEMAS', () => {
     ['an unexpected field', CommandName.WorkspacesList, { all: true }, 'Unrecognized key: "all"'],
     ['unexpected fields', CommandName.UiStateGet, { key: KEY, a: 1, b: 2 }, 'Unrecognized keys: "a", "b"'],
     ['a missing key', CommandName.UiStateGet, {}, BAD_KEY],
+    [
+      'a search without its text',
+      CommandName.SearchQuery,
+      { workspaceId: 'w' },
+      'text: Invalid input: expected string, received undefined',
+    ],
     [
       'a missing workspace id',
       CommandName.TasksList,

@@ -21,6 +21,7 @@ import type {
   UiStateKey,
   Workspace,
 } from '../../shared/domain'
+import type { SearchResult } from '../../shared/search'
 
 export enum HydrationStatus {
   Loading = 'loading',
@@ -68,6 +69,17 @@ export interface FileFocus {
   readonly path: string
   /** From 1; null for the top of the file. */
   readonly line: number | null
+  readonly request: number
+}
+
+/**
+ * A request to add text to a task's message field (Quote in reply, Ask agent about this), made by a context menu and
+ * acted on by the input bar, which adds it to its draft and focuses the field. `request` goes up by one with every
+ * request, like `ToolLogFocus`'s.
+ */
+export interface InputInsertion {
+  readonly taskId: string
+  readonly text: string
   readonly request: number
 }
 
@@ -127,6 +139,21 @@ export interface GladeData {
   readonly settings: Settings
   /** The section the Settings modal shows; null while it's closed. A one-off UI intent. */
   readonly settingsSection: SettingsSection | null
+  /** The latest request to add text to a task's message field; null until one is made. A one-off UI intent. */
+  readonly inputInsertion: InputInsertion | null
+  /**
+   * What's typed in the sidebar's search field; empty while not searching. While it isn't blank, the sidebar lists the
+   * search's results instead of the tasks, and the selected task's header and chat highlight its matches. Not mirrored
+   * from main, like `toolLogFocus`: a relaunch starts with no search.
+   */
+  readonly searchText: string
+  /** How many times something has asked for the search field to take the focus (⌘F); 0 until the first. */
+  readonly searchFocusRequest: number
+  /**
+   * How many times a search result has been opened; 0 until the first. The chat scrolls to its first marked match each
+   * time this changes, if it's off screen. A one-off UI intent, like `inputFocusRequest`.
+   */
+  readonly matchRevealRequest: number
 }
 
 /**
@@ -251,8 +278,29 @@ export interface GladeActions {
   fileInfo: (taskId: string, path: string) => Promise<FileInfo>
   /** Copies a text file of a task's workspace to the clipboard (`files.copy`). */
   copyFile: (taskId: string, path: string) => Promise<void>
-  /** Shows a file of a task's workspace in Finder (`files.reveal`). */
+  /** Shows a file of a task's workspace in Finder, selected in its folder (`files.reveal`). */
   revealFile: (taskId: string, path: string) => Promise<void>
+  /**
+   * Opens a file in a task's Files tab and shows it there (a tool call's Open file): for the selected task, the right
+   * panel opens at Files too, even when it was collapsed or on another tab.
+   */
+  showFile: (taskId: string, path: string) => Promise<void>
+  /** Takes a file off a task's artifacts (`artifacts.remove`); the file stays. */
+  removeArtifact: (taskId: string, path: string) => Promise<void>
+  /** Stops one of a task's running subagents, by the `Agent` call that started it (`subagents.stop`). */
+  stopSubagent: (taskId: string, toolUseId: string) => Promise<void>
+  /** Puts text on the clipboard (`clipboard.writeText`). */
+  copyText: (text: string) => Promise<void>
+  /** Asks the input bar to add text to a task's message field and focus it (see `inputInsertion`). */
+  insertIntoInput: (taskId: string, text: string) => void
+  /** Sets the sidebar's search text (see `searchText`); an empty string ends the search. */
+  setSearchText: (text: string) => void
+  /** Asks the sidebar's search field to take the focus (see `searchFocusRequest`). */
+  focusSearch: () => void
+  /** Searches a workspace's tasks (`search.query`): one result per matching task, best first. */
+  searchTasks: (workspaceId: string, text: string) => Promise<readonly SearchResult[]>
+  /** Opens a search result: selects its task, loads its logs, then asks the chat to show the first match. */
+  openSearchResult: (taskId: string) => Promise<void>
 }
 
 export interface GladeState extends GladeData, GladeActions {}
@@ -278,6 +326,10 @@ export const INITIAL_DATA: GladeData = {
   deletingTaskId: null,
   settings: DEFAULT_SETTINGS,
   settingsSection: null,
+  inputInsertion: null,
+  searchText: '',
+  searchFocusRequest: 0,
+  matchRevealRequest: 0,
 }
 
 export function selectSelectedWorkspace(state: GladeData): Workspace | undefined {

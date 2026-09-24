@@ -6,6 +6,7 @@ import { listMessages } from '../db/repositories/messages'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { listQuestionSets } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
+import { searchTasks } from '../db/repositories/search'
 import { getTask, listTasks } from '../db/repositories/tasks'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
@@ -28,6 +29,7 @@ import {
   type WriteClipboard,
 } from '../files/files'
 import { todoListFor } from '../todos/todos'
+import { removeTaskArtifact } from '../artifacts/artifacts'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
 
@@ -54,7 +56,7 @@ export interface HandlerContext {
 }
 
 export function createHandlers(context: HandlerContext): Handlers {
-  const { db, emit, chooseFolder, runner } = context
+  const { db, emit, chooseFolder, runner, writeClipboard } = context
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
     [CommandName.WorkspacesCreate]: ({ rootPath }) => {
@@ -87,6 +89,10 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.TasksStop]: async ({ id }) => ({ task: await runner.stop(id) }),
     [CommandName.TasksRetry]: ({ id, model }) => ({ task: runner.retry(id, model) }),
     [CommandName.TasksCompact]: ({ id }) => ({ task: runner.compact(id) }),
+    [CommandName.SubagentsStop]: async ({ taskId, toolUseId }) => {
+      await runner.stopSubagent(taskId, toolUseId)
+      return null
+    },
     [CommandName.TasksHistory]: ({ id }) => {
       if (getTask(db, id) === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${id}`)
       return {
@@ -122,6 +128,14 @@ export function createHandlers(context: HandlerContext): Handlers {
       await revealTaskFile(context, taskId, path)
       return null
     },
+    [CommandName.ArtifactsRemove]: ({ taskId, path }) => {
+      removeTaskArtifact(context, taskId, path)
+      return null
+    },
+    [CommandName.ClipboardWriteText]: async ({ text }) => {
+      await writeClipboard(text)
+      return null
+    },
     [CommandName.UiStateGet]: ({ key }) => ({ value: getUiState(db, key) ?? null }),
     [CommandName.UiStateGetAll]: () => ({ entries: listUiState(db) }),
     [CommandName.UiStateSet]: (entry) => {
@@ -136,5 +150,6 @@ export function createHandlers(context: HandlerContext): Handlers {
       emit({ type: EventType.SettingsChanged, settings })
       return { settings }
     },
+    [CommandName.SearchQuery]: ({ workspaceId, text }) => ({ results: searchTasks(db, workspaceId, text) }),
   }
 }

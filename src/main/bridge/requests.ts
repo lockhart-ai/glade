@@ -3,6 +3,8 @@ import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import {
   CommandName,
+  type ArtifactsRemoveRequest,
+  type ClipboardWriteTextRequest,
   type CommandRequest,
   type EmptyRequest,
   type FileRequest,
@@ -10,6 +12,8 @@ import {
   type QueueEditRequest,
   type QueueRemoveRequest,
   type QuestionsAnswerRequest,
+  type SearchQueryRequest,
+  type SubagentsStopRequest,
   type TaskIdRequest,
   type TasksCreateRequest,
   type TasksRetryRequest,
@@ -89,6 +93,11 @@ const tasksRetryRequest = z.strictObject({
   model: z.string().min(1).optional(),
 }) satisfies z.ZodType<TasksRetryRequest>
 
+const subagentsStopRequest = z.strictObject({
+  taskId: z.string(),
+  toolUseId: z.string(),
+}) satisfies z.ZodType<SubagentsStopRequest>
+
 const queueAddRequest = z.strictObject({ taskId: z.string(), text: messageText }) satisfies z.ZodType<QueueAddRequest>
 
 const queueEditRequest = z.strictObject({ id: z.string(), text: messageText }) satisfies z.ZodType<QueueEditRequest>
@@ -110,6 +119,12 @@ const fileRequest = z.strictObject({
 const settingsUpdateRequest = z.strictObject({
   patch: z.strictObject(SETTING_SCHEMAS).partial(),
 }) satisfies z.ZodType<SettingsUpdateRequest>
+const artifactsRemoveRequest = z.strictObject({
+  taskId: z.string(),
+  path: z.string(),
+}) satisfies z.ZodType<ArtifactsRemoveRequest>
+
+const clipboardWriteTextRequest = z.strictObject({ text: z.string() }) satisfies z.ZodType<ClipboardWriteTextRequest>
 
 const uiStateGetRequest = z.strictObject({ key: z.enum(UiStateKey) }) satisfies z.ZodType<UiStateGetRequest>
 
@@ -117,6 +132,11 @@ const uiStateSetRequest = z.strictObject({
   key: z.enum(UiStateKey),
   value: z.string(),
 }) satisfies z.ZodType<UiStateSetRequest>
+
+const searchQueryRequest = z.strictObject({
+  workspaceId: z.string(),
+  text: z.string(),
+}) satisfies z.ZodType<SearchQueryRequest>
 
 export const REQUEST_SCHEMAS = {
   [CommandName.WorkspacesList]: emptyRequest,
@@ -134,6 +154,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.TasksStop]: taskIdRequest,
   [CommandName.TasksRetry]: tasksRetryRequest,
   [CommandName.TasksCompact]: taskIdRequest,
+  [CommandName.SubagentsStop]: subagentsStopRequest,
   [CommandName.TasksHistory]: taskIdRequest,
   [CommandName.QueueAdd]: queueAddRequest,
   [CommandName.QueueEdit]: queueEditRequest,
@@ -143,14 +164,17 @@ export const REQUEST_SCHEMAS = {
   [CommandName.FilesOpen]: fileRequest,
   [CommandName.FilesClose]: fileRequest,
   [CommandName.FilesOpenInEditor]: fileRequest,
+  [CommandName.ClipboardWriteText]: clipboardWriteTextRequest,
   [CommandName.FilesInfo]: fileRequest,
   [CommandName.FilesCopy]: fileRequest,
   [CommandName.FilesReveal]: fileRequest,
+  [CommandName.ArtifactsRemove]: artifactsRemoveRequest,
   [CommandName.UiStateGet]: uiStateGetRequest,
   [CommandName.UiStateGetAll]: emptyRequest,
   [CommandName.UiStateSet]: uiStateSetRequest,
   [CommandName.SettingsGet]: emptyRequest,
   [CommandName.SettingsUpdate]: settingsUpdateRequest,
+  [CommandName.SearchQuery]: searchQueryRequest,
 } as const satisfies RequestSchemas
 
 /** A short, readable account of why a request didn't parse: each problem as `field: message`, joined by `; `. */

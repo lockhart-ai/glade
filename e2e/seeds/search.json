@@ -1,0 +1,115 @@
+{
+  "workspace": { "name": "Acme API", "rootPath": "/Users/sample/code/api" },
+  "tasks": [
+    {
+      "title": "Add rate limiting to public API",
+      "objective": "Add per-key rate limiting to the public API so one client can't starve the others. Over the limit, return 429 with a Retry-After header.",
+      "status": "Per-key rate limiting is live on the public API. Over the limit, clients get a 429 with a Retry-After header. The default is 120 requests a minute; /search has its own limit of 60. 15 tests cover it.",
+      "state": "done",
+      "minutesAgo": 0,
+      "startedMinutesAgo": 44,
+      "contextUsedTokens": 82000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Add per-key rate limiting to the public API so one client can't starve the others. Over the limit, return 429 with a Retry-After header.",
+          "turn": 1,
+          "minutesAgo": 44
+        },
+        {
+          "role": "agent",
+          "body": "Tests pass — 14 new ones cover the limit, the 429 response and the Retry-After header.\n\nOne decision before I finish: **/search** is much heavier than the other endpoints. Should it get a tighter limit of 60 a minute, or share the default 120?",
+          "turn": 1,
+          "minutesAgo": 20,
+          "summary": { "durationMs": 1450000, "filesChanged": 4, "linesAdded": 61, "linesRemoved": 3 }
+        }
+      ],
+      "toolEvents": [
+        { "kind": "divider", "dividerKind": "turn", "turn": 1, "minutesAgo": 44 },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": { "file_path": "/Users/sample/code/api/api/views.py" },
+          "output": "     1\tfrom rest_framework import viewsets",
+          "turn": 1,
+          "minutesAgo": 42
+        },
+        {
+          "kind": "tool_call",
+          "name": "Grep",
+          "input": { "pattern": "throttle" },
+          "output": "No matches found",
+          "turn": 1,
+          "minutesAgo": 41
+        },
+        {
+          "kind": "narration",
+          "text": "The API already uses DRF, so I'll use its throttling rather than adding middleware.",
+          "turn": 1,
+          "minutesAgo": 39
+        },
+        {
+          "kind": "tool_call",
+          "name": "Write",
+          "input": { "file_path": "/Users/sample/code/api/api/throttles.py", "content": "" },
+          "output": "File created.",
+          "turn": 1,
+          "minutesAgo": 37
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": { "command": "pytest api/tests -q" },
+          "output": "..............  [100%]\n14 passed in 3.2s",
+          "turn": 1,
+          "minutesAgo": 23
+        }
+      ]
+    },
+    {
+      "title": "Add webhook retries",
+      "objective": "Retry failed webhook deliveries with exponential backoff.",
+      "status": "Deliveries retry up to five times with backoff.",
+      "state": "done",
+      "minutesAgo": 87000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Retry failed webhook deliveries with exponential backoff, and honour the Retry-After header when a receiver sends one.",
+          "turn": 1,
+          "minutesAgo": 87100
+        }
+      ]
+    },
+    {
+      "title": "Fix flaky login test",
+      "objective": "Find why the login test fails one run in ten, and fix it.",
+      "status": "Waiting on you: fix the helper or the test?",
+      "minutesAgo": 0,
+      "messages": [
+        { "role": "user", "body": "The login test fails one run in ten. Find out why.", "turn": 1, "minutesAgo": 12 },
+        {
+          "role": "agent",
+          "body": "Found the race: the client ignores Retry-After in the test helper, so it retries before the server is ready. Should I fix the helper or the test?",
+          "turn": 1,
+          "minutesAgo": 1
+        }
+      ]
+    },
+    {
+      "title": "Move image uploads to S3",
+      "objective": "Serve uploaded images from S3 instead of the app server.",
+      "status": "Copying existing files",
+      "activity": "working",
+      "minutesAgo": 2,
+      "selected": true
+    },
+    {
+      "title": "Upgrade Django",
+      "objective": "Upgrade Django to 5.2.",
+      "status": "Upgraded to 5.2; all tests pass.",
+      "state": "done",
+      "minutesAgo": 4320
+    }
+  ]
+}

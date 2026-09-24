@@ -4,15 +4,15 @@ import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { getSettings } from '../repositories/settings'
 import { MIGRATIONS } from '.'
-import { settingsMigration } from './0016-settings'
+import { settingsMigration } from './0017-settings'
 
-it('is migration 16', () => {
-  expect(MIGRATIONS[15]).toBe(settingsMigration)
+it('is migration 17', () => {
+  expect(MIGRATIONS[16]).toBe(settingsMigration)
 })
 
 it('starts with every setting at its default, and keeps one row per setting', () => {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 15))
+  migrate(db, MIGRATIONS.slice(0, 16))
 
   migrate(db, MIGRATIONS)
 

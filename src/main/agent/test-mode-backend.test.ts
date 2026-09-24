@@ -71,6 +71,9 @@ describe('createTestModeAgentBackend', () => {
 
     await backend.whenIdle()
     expect(received()).toEqual([])
+    // A script's subagents can't be stopped on their own: asking does nothing.
+    await session.stopTask('b7f3')
+    expect(received()).toEqual([])
     await session.interrupt()
     await new Promise((resolve) => setImmediate(resolve))
     expect(received()).toContainEqual(expect.objectContaining({ type: 'result', terminal_reason: 'aborted_streaming' }))

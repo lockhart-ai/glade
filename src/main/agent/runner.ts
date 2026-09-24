@@ -239,6 +239,13 @@ export interface AgentRunner {
    */
   stop(taskId: string): Promise<Task>
   /**
+   * Stops one of the task's running subagents, by the `Agent` tool call that started it, leaving the turn running: the
+   * call gets its result, as it would have when the subagent finished. Throws a `CommandFailure`: `not_found` for no
+   * such task, and `invalid_transition` for a subagent that isn't running in the task's live session (it finished, or
+   * the session doesn't know it as a task it can stop).
+   */
+  stopSubagent(taskId: string, toolUseId: string): Promise<void>
+  /**
    * Retries the turn an error stopped or a pause holds (see the module comment), on `model` if given, which becomes the
    * task's model. Answers with the task, working again. Throws a `CommandFailure`: `not_found` for no such task, `busy`
    * while a turn is running, and `invalid_transition` for a task whose agent isn't stopped by an error or paused.
@@ -302,6 +309,8 @@ interface LiveSession {
   limit: UsageLimit | null
   /** Closed by the runner: whatever it still emits is ignored, and a turn cut short stays working, for the next launch to resume. */
   closed: boolean
+  /** The SDK's task id of each subagent running in the session, by the `Agent` tool call that started it. */
+  readonly subagents: Map<string, string>
 }
 
 /** What the tool log says when the user stopped a turn, and what its unfinished tool calls say. */
@@ -551,6 +560,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const stepFinished = (turn: Turn): boolean => ![...turn.running.values()].includes(null)
 
   const onToolResult = (taskId: string, live: LiveSession, turn: Turn, event: ToolResultEvent): void => {
+    live.subagents.delete(event.toolUseId)
     const parent = turn.running.get(event.toolUseId)
     if (!turn.running.delete(event.toolUseId)) {
       log.warn(`Ignored a result for tool call ${event.toolUseId}, which isn't running`)
@@ -760,6 +770,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       live.limit = { rejected: event.status === RateLimitStatus.Rejected, resetsAt: event.resetsAt }
       return
     }
+    if (event.kind === AgentEventKind.SubagentStarted) {
+      live.subagents.set(event.toolUseId, event.sdkTaskId)
+      return
+    }
     const { turn } = live
     // Between turns there's nothing to add to: e.g. a late system message after a turn's result.
     if (turn === null) return
@@ -841,6 +855,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       sdkModel: null,
       limit: null,
       closed: false,
+      subagents: new Map(),
     }
     sessions.set(task.id, live)
     void pump(task.id, live)
@@ -1074,6 +1089,16 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       await live.session.interrupt()
       await turn.ended
       return getTask(db, taskId) ?? task
+    },
+
+    async stopSubagent(taskId, toolUseId) {
+      if (getTask(db, taskId) === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
+      const live = sessions.get(taskId)
+      const sdkTaskId = live?.subagents.get(toolUseId)
+      if (live === undefined || sdkTaskId === undefined) {
+        throw new CommandFailure(BridgeErrorCode.InvalidTransition, "The subagent isn't running")
+      }
+      await live.session.stopTask(sdkTaskId)
     },
 
     retry(taskId, model) {

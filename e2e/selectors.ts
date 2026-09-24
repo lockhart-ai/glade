@@ -66,6 +66,22 @@ export function taskList(page: Page) {
   }
 }
 
+/** The sidebar's search results, in place of the task list while the search field has text. */
+export function searchResults(page: Page) {
+  const results = regions(page).sidebar.getByRole('region', { name: 'Search results' })
+  return {
+    results,
+    /** "Results" and the count, e.g. `Results3`. */
+    count: results.getByRole('heading'),
+    /** The result rows, best first. */
+    rows: results.getByRole('listitem').getByRole('button'),
+    /** A result's row by its task's title. */
+    row: (title: string) => results.getByRole('listitem').getByRole('button', { name: new RegExp(`^${title}`) }),
+    /** The marked matches in a row, or anywhere else. */
+    marks: (within: Locator) => within.locator('mark'),
+  }
+}
+
 /** A labelled row of the task header. */
 export type TaskHeaderField = 'Objective' | 'Status' | 'Outcome'
 
@@ -321,5 +337,27 @@ export function settings(page: Page) {
       dialog.getByRole('radiogroup', { name: group }).getByRole('radio', { name, exact: true }),
     /** An on/off setting, e.g. `toggle('Notifications')`. */
     toggle: (name: string) => dialog.getByRole('switch', { name, exact: true }),
+  }
+}
+
+/** A context menu while it's open, by its name (e.g. "Task actions"), and its items. */
+export function contextMenu(page: Page, name: string) {
+  const menu = page.getByRole('menu', { name })
+  return {
+    menu,
+    /** Its items, top to bottom; each one's text is its label, then its shortcut if it shows one. */
+    items: menu.getByRole('menuitem'),
+    /** An item, by its label. */
+    item: (label: string) => menu.getByRole('menuitem').filter({ hasText: label }).first(),
+  }
+}
+
+/** The confirmation Delete task… asks for. */
+export function deleteTaskDialog(page: Page) {
+  const dialog = page.getByRole('alertdialog')
+  return {
+    dialog,
+    cancel: dialog.getByRole('button', { name: 'Cancel' }),
+    confirm: dialog.getByRole('button', { name: 'Delete' }),
   }
 }

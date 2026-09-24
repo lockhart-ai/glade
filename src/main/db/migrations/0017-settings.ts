@@ -6,7 +6,7 @@ import type { Migration } from '../migrate'
  * the repository only reads the keys it knows.
  */
 export const settingsMigration: Migration = {
-  version: 16,
+  version: 17,
   name: 'Add the settings',
   up(db) {
     db.exec(`

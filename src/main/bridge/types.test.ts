@@ -65,12 +65,16 @@ const TASK_HANDLERS = {
   [CommandName.FilesOpen]: () => ({ openFiles: {} as OpenFiles }),
   [CommandName.FilesClose]: () => ({ openFiles: {} as OpenFiles }),
   [CommandName.FilesOpenInEditor]: () => null,
+  [CommandName.SubagentsStop]: () => null,
+  [CommandName.ClipboardWriteText]: () => null,
   [CommandName.FilesInfo]: () => ({ info: { kind: FileInfoKind.Missing } }),
   [CommandName.FilesCopy]: () => null,
   [CommandName.FilesReveal]: () => null,
   [CommandName.WorkspacesUpdate]: () => ({ workspace: WORKSPACE }),
   [CommandName.SettingsGet]: () => ({ settings: DEFAULT_SETTINGS }),
   [CommandName.SettingsUpdate]: () => ({ settings: DEFAULT_SETTINGS }),
+  [CommandName.ArtifactsRemove]: () => null,
+  [CommandName.SearchQuery]: () => ({ results: [] }),
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
   [CommandName.TasksCreate]: REQUEST_SCHEMAS[CommandName.TasksCreate],
@@ -90,12 +94,16 @@ const TASK_SCHEMAS = {
   [CommandName.FilesOpen]: REQUEST_SCHEMAS[CommandName.FilesOpen],
   [CommandName.FilesClose]: REQUEST_SCHEMAS[CommandName.FilesClose],
   [CommandName.FilesOpenInEditor]: REQUEST_SCHEMAS[CommandName.FilesOpenInEditor],
+  [CommandName.SubagentsStop]: REQUEST_SCHEMAS[CommandName.SubagentsStop],
+  [CommandName.ClipboardWriteText]: REQUEST_SCHEMAS[CommandName.ClipboardWriteText],
   [CommandName.FilesInfo]: REQUEST_SCHEMAS[CommandName.FilesInfo],
   [CommandName.FilesCopy]: REQUEST_SCHEMAS[CommandName.FilesCopy],
   [CommandName.FilesReveal]: REQUEST_SCHEMAS[CommandName.FilesReveal],
   [CommandName.WorkspacesUpdate]: REQUEST_SCHEMAS[CommandName.WorkspacesUpdate],
   [CommandName.SettingsGet]: REQUEST_SCHEMAS[CommandName.SettingsGet],
   [CommandName.SettingsUpdate]: REQUEST_SCHEMAS[CommandName.SettingsUpdate],
+  [CommandName.ArtifactsRemove]: REQUEST_SCHEMAS[CommandName.ArtifactsRemove],
+  [CommandName.SearchQuery]: REQUEST_SCHEMAS[CommandName.SearchQuery],
 } satisfies Partial<RequestSchemas>
 
 describe('the command map', () => {

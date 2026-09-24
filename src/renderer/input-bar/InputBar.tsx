@@ -70,6 +70,11 @@ export function queueFailureMessage(action: string, error: unknown): string {
   return `Couldn’t ${action} the message: ${describeFailure(error)}`
 }
 
+/** The draft with text added to it (Quote in reply, Ask agent about this): after what's there, a blank line apart. */
+export function withInsertion(draft: string, text: string): string {
+  return draft.trim() === '' ? text : `${draft.trimEnd()}\n\n${text}`
+}
+
 /** Whether a key was pressed with a modifier, which leaves it to the field (⇧↑ selects, ⌘↑ goes to the start). */
 function hasModifier(event: KeyboardEvent): boolean {
   return event.shiftKey || event.metaKey || event.altKey || event.ctrlKey
@@ -148,6 +153,11 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const insertion = useGladeStore((state) => state.inputInsertion)
+  // The last request to add text that the draft has taken, so a request is only ever taken once.
+  const [insertedRequest, setInsertedRequest] = useState(insertion?.request)
+  // The request there was when the bar mounted, which it doesn't take.
+  const [mountedRequest] = useState(insertion?.request)
 
   const working = task.state === TaskState.Active && task.activity === TaskActivity.Working
   // A paused turn resumes on its own: messages wait in the queue until then.
@@ -156,6 +166,23 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   const canSend = !sending
   // The message being edited has left the queue: delivered, or removed elsewhere.
   if (editingId !== null && !queue.some(({ id }) => id === editingId)) setEditingId(null)
+
+  // A new request to add text to this task's draft: add it while rendering, so it shows in the same commit.
+  if (insertion !== null && insertion.taskId === task.id && insertion.request !== insertedRequest) {
+    setInsertedRequest(insertion.request)
+    setDraft((current) => withInsertion(current, insertion.text))
+  }
+
+  // Then focus the field, with the caret at the end, after what was added. In a microtask, since the request comes from
+  // a menu, which returns the focus to where it was in one as it closes: the field must take it after that.
+  useEffect(() => {
+    if (insertedRequest === mountedRequest) return
+    queueMicrotask(() => {
+      const element = field.current
+      element?.focus()
+      element?.setSelectionRange(element.value.length, element.value.length)
+    })
+  }, [insertedRequest, mountedRequest])
 
   useEffect(() => {
     if (focusRequest === answeredRef.current) return

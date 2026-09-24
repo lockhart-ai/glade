@@ -1,8 +1,9 @@
 import { faWrench } from '@fortawesome/free-solid-svg-icons'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import type { Message, QuestionSet, ToolEvent } from '../../shared/domain'
 import { classNames } from '../components/classNames'
 import { Icon, IconSize } from '../components'
+import { agentReplyMenu, ContextMenu, useContextMenu, useMenuCommands } from '../context-menus'
 import { selectSelectedTask } from '../store/state'
 import { useGladeStore } from '../store/react'
 import {
@@ -16,6 +17,7 @@ import {
   restartLabel,
   summaryLine,
   isStoppedByError,
+  quoted,
   toolCallLabel,
   workingLabel,
   workingNarration,
@@ -32,6 +34,8 @@ import { useNow } from '../task-list/useNow'
 import { QuestionCard } from '../questions/QuestionCard'
 import { ErrorCard } from './ErrorCard'
 import { Markdown } from './Markdown'
+import { Highlighted, useSearchHighlight } from '../search/Highlight'
+import { useRevealMatch } from '../search/useRevealMatch'
 import { useStickToBottom } from './useStickToBottom'
 import styles from './Chat.module.css'
 
@@ -39,18 +43,27 @@ const NO_MESSAGES: readonly Message[] = []
 const NO_TOOL_EVENTS: readonly ToolEvent[] = []
 const NO_QUESTION_SETS: readonly QuestionSet[] = []
 
-function UserMessage({ message }: UserEntry): React.JSX.Element {
+/** What the sidebar's search marks in the chat (`useSearchHighlight`). */
+interface HighlightProps {
+  readonly highlight: RegExp | null
+}
+
+function UserMessage({ message, highlight }: UserEntry & HighlightProps): React.JSX.Element {
   return (
     <article aria-label="You" className={styles.user}>
-      <div className={styles.bubble}>{message.body}</div>
+      <div className={styles.bubble}>
+        <Highlighted text={message.body} pattern={highlight} />
+      </div>
       <span className={styles.meta}>you · {clockTime(message.createdAt)}</span>
     </article>
   )
 }
 
-interface AgentReplyProps {
+interface AgentReplyProps extends HighlightProps {
   readonly entry: AgentEntry
   readonly onShowTurn: (turn: number) => void
+  /** Adds text to the message field (Quote in reply). */
+  readonly onQuote: (text: string) => void
 }
 
 interface TurnSummaryProps {
@@ -73,12 +86,38 @@ function TurnSummary({ line }: TurnSummaryProps): React.JSX.Element {
   )
 }
 
-function AgentReply({ entry: { message, style, toolCalls }, onShowTurn }: AgentReplyProps): React.JSX.Element {
+/**
+ * One of the agent's replies, with its turn's tool-call chip and summary. Right-click it, or ⇧F10 on it, for its menu:
+ * copy it as text or Markdown, quote it in your reply, or show its turn in the tool log.
+ */
+function AgentReply({ entry, onShowTurn, onQuote, highlight }: AgentReplyProps): React.JSX.Element {
+  const { message, style, toolCalls } = entry
   const summary = message.summary === null ? null : summaryLine(message.summary)
+  const menu = useContextMenu<AgentEntry>()
+  const { copy } = useMenuCommands()
+  const rendered = useRef<HTMLDivElement>(null)
+  const entries = () =>
+    agentReplyMenu(entry, {
+      // The reply as it reads on screen, without its Markdown.
+      copy: () => {
+        copy(rendered.current?.innerText.trim() ?? message.body)
+      },
+      copyMarkdown: () => {
+        copy(message.body)
+      },
+      quote: () => {
+        onQuote(quoted(message.body))
+      },
+      showToolCalls: () => {
+        onShowTurn(message.turn)
+      },
+    })
   return (
-    <article aria-label="Agent" className={styles.agent}>
+    <article aria-label="Agent" className={styles.agent} tabIndex={0} {...menu.targetProps(entry)}>
       <Markdown
+        ref={rendered}
         source={message.body}
+        highlight={highlight}
         className={classNames(styles.reply, style === ReplyStyle.Question && styles.question)}
       />
       {(toolCalls > 0 || summary !== null) && (
@@ -100,15 +139,16 @@ function AgentReply({ entry: { message, style, toolCalls }, onShowTurn }: AgentR
         </div>
       )}
       <span className={styles.meta}>agent · {clockTime(message.createdAt)}</span>
+      <ContextMenu label="Reply actions" state={menu} entries={entries} />
     </article>
   )
 }
 
 /** The agent's questions: what it said just before asking, if anything, then the question card. */
-function AgentQuestions({ questionSet, lead }: QuestionEntry): React.JSX.Element {
+function AgentQuestions({ questionSet, lead, highlight }: QuestionEntry & HighlightProps): React.JSX.Element {
   return (
     <div className={styles.agent}>
-      {lead !== null && <Markdown source={lead} className={styles.reply} />}
+      {lead !== null && <Markdown source={lead} className={styles.reply} highlight={highlight} />}
       <QuestionCard questionSet={questionSet} />
       <span className={styles.meta}>agent · {clockTime(questionSet.createdAt)}</span>
     </div>
@@ -205,6 +245,7 @@ export function Chat(): React.JSX.Element {
   const toolEvents =
     useGladeStore((state) => (task === undefined ? undefined : state.toolEvents[task.id])) ?? NO_TOOL_EVENTS
   const focusTurn = useGladeStore((state) => state.focusTurn)
+  const insertIntoInput = useGladeStore((state) => state.insertIntoInput)
   const questionSets =
     useGladeStore((state) => (task === undefined ? undefined : state.questionSets[task.id])) ?? NO_QUESTION_SETS
   const root = useGladeStore(
@@ -225,6 +266,8 @@ export function Chat(): React.JSX.Element {
     task?.id,
   )
   const isNew = task !== undefined && entries.length === 0 && narration === null
+  const highlight = useSearchHighlight()
+  useRevealMatch(ref)
 
   return (
     <div ref={ref} onScroll={onScroll} role="log" aria-label="Conversation" className={styles.scroller}>
@@ -233,7 +276,7 @@ export function Chat(): React.JSX.Element {
         {entries.map((entry) => {
           switch (entry.kind) {
             case ChatEntryKind.User:
-              return <UserMessage key={entry.message.id} {...entry} />
+              return <UserMessage key={entry.message.id} {...entry} highlight={highlight} />
             case ChatEntryKind.Restarted:
               return <RestartDivider key={entry.divider.id} {...entry} />
             case ChatEntryKind.MarkedDone:
@@ -251,14 +294,18 @@ export function Chat(): React.JSX.Element {
                 </ChatDivider>
               )
             case ChatEntryKind.Question:
-              return <AgentQuestions key={entry.questionSet.id} {...entry} />
+              return <AgentQuestions key={entry.questionSet.id} {...entry} highlight={highlight} />
             case ChatEntryKind.Agent:
               return (
                 <AgentReply
                   key={entry.message.id}
                   entry={entry}
+                  highlight={highlight}
                   onShowTurn={(turn) => {
                     focusTurn(entry.message.taskId, turn)
+                  }}
+                  onQuote={(text) => {
+                    insertIntoInput(entry.message.taskId, text)
                   }}
                 />
               )

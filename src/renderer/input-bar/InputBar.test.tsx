@@ -25,6 +25,7 @@ import {
   REPLY_PLACEHOLDER,
   ASKING_PLACEHOLDER,
   sendFailureMessage,
+  withInsertion,
 } from './InputBar'
 import { PAUSED_HINT } from './QueueList'
 import { PAUSED_PLACEHOLDER } from '../pause/pauseModel'
@@ -509,6 +510,30 @@ describe('InputBar', () => {
     expect(field()).toHaveFocus()
   })
 
+  it('adds text asked for (Quote in reply) to the selected task’s draft, then focuses the field after it', async () => {
+    const fake = await renderBar()
+    type('Thanks.')
+
+    await act(async () => {
+      fake.store.getState().insertIntoInput('t1', '> Tests pass.\n\n')
+      await Promise.resolve()
+    })
+    expect(field()).toHaveValue('Thanks.\n\n> Tests pass.\n\n')
+    expect(field()).toHaveFocus()
+    expect(field().selectionStart).toBe(field().value.length)
+
+    // Text for another task is left for it, and a bar that mounts after a request doesn't take it again.
+    act(() => {
+      field().blur()
+      fake.store.getState().insertIntoInput('t2', 'About the todo')
+    })
+    expect(field()).toHaveValue('Thanks.\n\n> Tests pass.\n\n')
+    await act(() => fake.store.getState().selectTask('t2'))
+    await act(() => Promise.resolve())
+    expect(field()).toHaveValue('')
+    expect(field()).not.toHaveFocus()
+  })
+
   it('starts each task with its own empty draft', async () => {
     const fake = await renderBar()
     type('For the first task')
@@ -675,6 +700,40 @@ describe('the queue', () => {
 
     expect(screen.queryByRole('region', { name: 'Queued messages' })).toBeNull()
     expect(screen.queryByRole('textbox', { name: 'Queued message' })).toBeNull()
+  })
+})
+
+describe('a queued message’s context menu', () => {
+  async function choose(position: number, label: string): Promise<void> {
+    const row = within(queueRegion()).getAllByRole('listitem')[position - 1]
+    if (row === undefined) throw new Error(`No queued message ${String(position)}`)
+    fireEvent.contextMenu(row)
+    await act(() => Promise.resolve())
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Edit', 'Remove'])
+    fireEvent.click(screen.getByRole('menuitem', { name: label }))
+    await act(() => Promise.resolve())
+  }
+
+  it('edits a message in place, and removes one, as its buttons do', async () => {
+    const fake = await renderBar({ queued: ['Keep the filenames.', 'Use the Glacier storage class.'] })
+
+    await choose(1, 'Edit')
+    expect(screen.getByRole('textbox', { name: 'Queued message' })).toHaveValue('Keep the filenames.')
+
+    // Not while it's being edited: the editor's keys are its own.
+    fireEvent.contextMenu(within(queueRegion()).getAllByRole('listitem')[0] ?? document.body)
+    expect(screen.queryByRole('menu')).toBeNull()
+
+    await choose(2, 'Remove')
+    expect(fake.invoke).toHaveBeenLastCalledWith(CommandName.QueueRemove, { id: 'q2' })
+  })
+})
+
+describe('withInsertion', () => {
+  it('adds text to an empty draft as it is, and after anything else a blank line apart', () => {
+    expect(withInsertion('', '> Quoted\n\n')).toBe('> Quoted\n\n')
+    expect(withInsertion('  \n', 'About it: ')).toBe('About it: ')
+    expect(withInsertion('Thanks.\n', '> Quoted')).toBe('Thanks.\n\n> Quoted')
   })
 })
 

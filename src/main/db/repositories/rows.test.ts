@@ -34,6 +34,12 @@ describe('Row', () => {
     expect(() => row({ count: 2n ** 60n }).integer('count')).toThrow('expected an integer')
   })
 
+  it('reads numbers', () => {
+    expect(row({ rank: -1.25 }).real('rank')).toBe(-1.25)
+    expect(() => row({ rank: Number.NaN }).real('rank')).toThrow('things.rank: expected a number, got null')
+    expect(() => row({ rank: '1' }).real('rank')).toThrow('expected a number')
+  })
+
   it('reads nullable integers', () => {
     expect(row({ count: null }).nullableInteger('count')).toBeNull()
     expect(row({ count: 7 }).nullableInteger('count')).toBe(7)

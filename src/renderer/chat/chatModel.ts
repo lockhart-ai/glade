@@ -398,3 +398,11 @@ export function clockTime(at: EpochMs): string {
   const date = new Date(at)
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
+
+/**
+ * A reply quoted for yours (Quote in reply): each line of its Markdown behind `> `, then a blank line to write under.
+ */
+export function quoted(markdown: string): string {
+  const lines = markdown.trim().split('\n')
+  return `${lines.map((line) => (line.trim() === '' ? '>' : `> ${line}`)).join('\n')}\n\n`
+}

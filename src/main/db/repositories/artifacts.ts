@@ -36,6 +36,11 @@ export function addArtifact(db: Database, { taskId, path, title }: NewArtifact, 
   return parseArtifact(raw)
 }
 
+/** Removes one of a task's artifacts (the file stays). Answers whether it was one. */
+export function removeArtifact(db: Database, taskId: string, path: string): boolean {
+  return db.prepare('DELETE FROM artifacts WHERE task_id = ? AND path = ?').run(taskId, path).changes > 0
+}
+
 /** A task's artifacts, in the order they were first declared. */
 export function listArtifacts(db: Database, taskId: string): Artifact[] {
   return db
