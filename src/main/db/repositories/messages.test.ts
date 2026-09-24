@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MessageRole, type Task } from '../../../shared/domain'
-import { appendMessage, listMessages } from './messages'
+import { appendMessage, lastTurn, listMessages } from './messages'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 
 let test: TestDatabase
@@ -71,5 +71,16 @@ describe('listMessages', () => {
     test.db.prepare("UPDATE messages SET role = 'system' WHERE id = ?").run(message.id)
 
     expect(() => listMessages(test.db, task.id)).toThrow('messages.role: expected one of user, agent, got "system"')
+  })
+})
+
+describe('lastTurn', () => {
+  it("is the latest message's turn, or 0 before the first message", () => {
+    expect(lastTurn(test.db, task.id)).toBe(0)
+    appendMessage(test.db, { taskId: task.id, role: MessageRole.User, body: 'Hi', turn: 1 })
+    appendMessage(test.db, { taskId: task.id, role: MessageRole.Agent, body: 'Hello.', turn: 1 })
+    appendMessage(test.db, { taskId: task.id, role: MessageRole.User, body: 'Fix it.', turn: 2 })
+
+    expect(lastTurn(test.db, task.id)).toBe(2)
   })
 })

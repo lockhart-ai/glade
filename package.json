@@ -22,6 +22,7 @@
     "test": "vitest run --coverage"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.281",
     "@floating-ui/react": "^0.27.20",
     "@fortawesome/fontawesome-svg-core": "^7.3.1",
     "@fortawesome/free-regular-svg-icons": "^7.3.1",

@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs'
 import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
-import { TaskState, UiStateKey, type EpochMs } from '../shared/domain'
+import { TaskActivity, TaskState, UiStateKey, type EpochMs } from '../shared/domain'
 import { createTask, updateTask } from './db/repositories/tasks'
 import { setUiState } from './db/repositories/ui-state'
 import { createWorkspace } from './db/repositories/workspaces'
@@ -19,6 +19,8 @@ export interface SeedTask {
   readonly objective?: string | undefined
   readonly status?: string | undefined
   readonly state?: TaskState | undefined
+  /** What the task's agent is doing; waiting unless given. */
+  readonly activity?: TaskActivity | undefined
   readonly pinned?: boolean | undefined
   readonly unread?: boolean | undefined
   /** How long before the capture the task was last updated. */
@@ -41,6 +43,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       objective: z.string().optional(),
       status: z.string().optional(),
       state: z.enum(TaskState).optional(),
+      activity: z.enum(TaskActivity).optional(),
       pinned: z.boolean().optional(),
       unread: z.boolean().optional(),
       minutesAgo: z.number().nonnegative(),
@@ -78,6 +81,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
           objective: sample.objective ?? '',
           status: sample.status ?? '',
           state: sample.state ?? TaskState.Active,
+          activity: sample.activity ?? TaskActivity.Waiting,
           pinned: sample.pinned ?? false,
           unread: sample.unread ?? false,
         },

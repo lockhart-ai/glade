@@ -1,8 +1,8 @@
-import { TaskState, type Task } from './domain'
+import { TaskActivity, TaskState, type Task } from './domain'
 
 /**
- * What a task's indicator shows: its dot in the task list and the pill in its header. `taskIndicator` maps a task onto
- * one of these.
+ * What a task's indicator shows: its dot in the task list and the pill in its header. The domain maps a task's
+ * lifecycle state onto one of these.
  */
 export enum TaskIndicator {
   /** The agent is working (blue). */
@@ -15,15 +15,15 @@ export enum TaskIndicator {
   Error = 'error',
 }
 
-/**
- * The one place a task's indicator is worked out. A done task shows Done; an active task shows Waiting until the agent
- * runner records whether its agent is working or has hit an error.
- */
-export function taskIndicator(task: Task): TaskIndicator {
-  switch (task.state) {
-    case TaskState.Active:
+/** The indicator a task shows: done when it's done, otherwise what its agent is doing. */
+export function taskIndicator(task: Pick<Task, 'state' | 'activity'>): TaskIndicator {
+  if (task.state === TaskState.Done) return TaskIndicator.Done
+  switch (task.activity) {
+    case TaskActivity.Waiting:
       return TaskIndicator.Waiting
-    case TaskState.Done:
-      return TaskIndicator.Done
+    case TaskActivity.Working:
+      return TaskIndicator.Working
+    case TaskActivity.Error:
+      return TaskIndicator.Error
   }
 }

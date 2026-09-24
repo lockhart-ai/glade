@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { EventType } from '../../shared/bridge'
-import { UiStateKey } from '../../shared/domain'
-import { applyEvent, idFromUiState, withOpenedWorkspace } from './reducer'
+import {
+  DividerKind,
+  ToolCallState,
+  ToolEventKind,
+  UiStateKey,
+  type ToolCallEvent,
+  type ToolEvent,
+} from '../../shared/domain'
+import { applyEvent, idFromUiState, withHistory, withOpenedWorkspace } from './reducer'
 import { INITIAL_DATA, type GladeData } from './state'
-import { sampleTask, sampleWorkspace } from './test-bridge'
+import { sampleMessage, sampleTask, sampleWorkspace } from './test-bridge'
 
 const state: GladeData = Object.freeze({
   ...INITIAL_DATA,
@@ -68,6 +75,74 @@ describe('applyEvent', () => {
 
     expect(next.tasks).toEqual({ t1: renamed, t2: added })
     expect(state.tasks).toEqual({ t1: sampleTask('t1', 'w1') })
+  })
+})
+
+const divider: ToolEvent = {
+  kind: ToolEventKind.Divider,
+  id: 'e1',
+  taskId: 't1',
+  turn: 1,
+  createdAt: 3_000,
+  dividerKind: DividerKind.Turn,
+}
+
+const call: ToolCallEvent = {
+  kind: ToolEventKind.ToolCall,
+  id: 'e2',
+  taskId: 't1',
+  turn: 1,
+  createdAt: 3_000,
+  name: 'Bash',
+  input: { command: 'npm test' },
+  output: null,
+  state: ToolCallState.Running,
+  toolUseId: 'toolu_01',
+  parentToolUseId: null,
+}
+
+describe("a task's logs", () => {
+  it('appends a message and a tool event to their task, once each', () => {
+    const message = sampleMessage('m1', 't1')
+    const events = [
+      { type: EventType.MessageAppended, message },
+      { type: EventType.MessageAppended, message },
+      { type: EventType.ToolEventAppended, toolEvent: divider },
+      { type: EventType.ToolEventAppended, toolEvent: divider },
+    ] as const
+
+    const next = events.reduce(applyEvent, state)
+
+    expect(next.messages).toEqual({ t1: [message] })
+    expect(next.toolEvents).toEqual({ t1: [divider] })
+    expect(state.messages).toEqual({})
+  })
+
+  it('replaces an updated tool event in place, and leaves one it has not seen to the next load', () => {
+    const done = { ...call, state: ToolCallState.Done, output: '12 passed' }
+    const loaded = withHistory(state, 't1', { messages: [], toolEvents: [divider, call] })
+
+    expect(applyEvent(loaded, { type: EventType.ToolEventUpdated, toolEvent: done }).toolEvents).toEqual({
+      t1: [divider, done],
+    })
+    expect(applyEvent(state, { type: EventType.ToolEventUpdated, toolEvent: done }).toolEvents).toBe(state.toolEvents)
+  })
+
+  it('loads a history, keeping entries that events brought after it was read', () => {
+    const early = sampleMessage('m1', 't1')
+    const late = sampleMessage('m2', 't1', 'And fix it.')
+    const withEvents = [
+      { type: EventType.MessageAppended, message: early },
+      { type: EventType.MessageAppended, message: late },
+      { type: EventType.ToolEventAppended, toolEvent: call },
+    ] as const
+    const current = withEvents.reduce(applyEvent, state)
+
+    const next = withHistory(current, 't1', { messages: [early], toolEvents: [divider, call] })
+
+    expect(next.messages.t1).toEqual([early, late])
+    expect(next.toolEvents.t1).toEqual([divider, call])
+    expect(withHistory(state, 't2', { messages: [], toolEvents: [] }).messages).toEqual({ t2: [] })
   })
 })
 

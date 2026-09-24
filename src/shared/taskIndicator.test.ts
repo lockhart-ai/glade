@@ -1,32 +1,13 @@
-import { describe, expect, it } from 'vitest'
-import { Effort, TaskState, type Task } from './domain'
-import { TaskIndicator, taskIndicator } from './taskIndicator'
+import { expect, it } from 'vitest'
+import { TaskActivity, TaskState } from './domain'
+import { taskIndicator, TaskIndicator } from './taskIndicator'
 
-function task(state: TaskState): Task {
-  return {
-    id: 't1',
-    workspaceId: 'w1',
-    title: '',
-    objective: '',
-    status: '',
-    state,
-    pinned: false,
-    unread: false,
-    model: 'claude-sample-1',
-    effort: Effort.Medium,
-    createdAt: 1,
-    updatedAt: 1,
-    doneAt: state === TaskState.Done ? 1 : null,
-    sessionId: null,
-  }
-}
-
-describe('taskIndicator', () => {
-  it('shows an active task as waiting on you', () => {
-    expect(taskIndicator(task(TaskState.Active))).toBe(TaskIndicator.Waiting)
-  })
-
-  it('shows a done task as done', () => {
-    expect(taskIndicator(task(TaskState.Done))).toBe(TaskIndicator.Done)
-  })
+it.each([
+  [TaskState.Active, TaskActivity.Waiting, TaskIndicator.Waiting],
+  [TaskState.Active, TaskActivity.Working, TaskIndicator.Working],
+  [TaskState.Active, TaskActivity.Error, TaskIndicator.Error],
+  [TaskState.Done, TaskActivity.Waiting, TaskIndicator.Done],
+  [TaskState.Done, TaskActivity.Error, TaskIndicator.Done],
+])('shows a %s task whose agent is %s as %s', (state, activity, indicator) => {
+  expect(taskIndicator({ state, activity })).toBe(indicator)
 })

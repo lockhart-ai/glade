@@ -1,5 +1,7 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, type WebPreferences } from 'electron'
+import type { AgentBackend } from './agent/backend'
+import { createSdkBackend } from './agent/sdk-backend'
 import { registerBridge } from './bridge'
 import {
   captureShots,
@@ -140,14 +142,23 @@ function startCapture(): CaptureSpec | null {
   return capture
 }
 
+/** What the app can be started with. */
+export interface AppOptions {
+  /**
+   * Makes the backend the tasks' agents run on, once the app is ready. The Claude Agent SDK by default; a test mode can
+   * pass a scripted one.
+   */
+  readonly createAgentBackend?: () => AgentBackend
+}
+
 /**
  * Starts the app: once Electron is ready, checks the window security settings, opens and migrates the database (closed
- * again on quit), registers the bridge the renderer talks to main through, then opens the main window.
+ * again on quit), registers the bridge the renderer talks to main through (with the agent runner behind it), then opens the main window.
  *
  * Outside a packaged app, a capture spec in the environment (see `./capture`) starts a screenshot run instead: the
  * same app with a throwaway data folder, in a window that is never shown, which captures its page and exits.
  */
-export function startApp(): void {
+export function startApp({ createAgentBackend = createSdkBackend }: AppOptions = {}): void {
   let capture: CaptureSpec | null
   try {
     capture = startCapture()
@@ -178,10 +189,11 @@ export function startApp(): void {
     }
     const { database } = opening
 
-    registerBridge({
+    const { runner } = registerBridge({
       ipc: ipcMain,
       db: database.db,
       targets: () => BrowserWindow.getAllWindows().map((window) => window.webContents),
+      agentBackend: createAgentBackend(),
       chooseFolder: () => chooseFolder(dialog, BrowserWindow.getFocusedWindow()),
     })
 
@@ -191,6 +203,7 @@ export function startApp(): void {
     }
 
     app.on('will-quit', () => {
+      runner.close()
       database.db.close()
     })
 

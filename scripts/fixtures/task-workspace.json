@@ -21,8 +21,18 @@
       "minutesAgo": 4,
       "selected": true
     },
-    { "title": "Move image uploads to S3", "status": "Copying existing files, 1,240 of 3,900", "minutesAgo": 0 },
-    { "title": "Fix flaky login test", "status": "Found the race; fix passes 200 local runs", "minutesAgo": 9 },
+    {
+      "title": "Move image uploads to S3",
+      "status": "Copying existing files, 1,240 of 3,900",
+      "activity": "working",
+      "minutesAgo": 0
+    },
+    {
+      "title": "Fix flaky login test",
+      "status": "Found the race; fix passes 200 local runs",
+      "activity": "working",
+      "minutesAgo": 9
+    },
     { "title": "Upgrade to Django 5.2", "status": "Upgraded; all tests pass", "state": "done", "minutesAgo": 1440 },
     { "title": "Add OpenAPI docs", "status": "Schema served at /api/schema", "state": "done", "minutesAgo": 2880 },
     {

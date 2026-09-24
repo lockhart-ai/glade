@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { TaskState, UiStateKey, type Task, type UiStateEntry } from '../../shared/domain'
+import { TaskActivity, TaskState, UiStateKey, type Task, type UiStateEntry } from '../../shared/domain'
 import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
@@ -26,7 +26,7 @@ function task(id: string, title: string, minutesAgo: number, change: Partial<Tas
 const TASKS: Task[] = [
   task('p1', 'Draft release notes for 2.4', 25, { pinned: true, status: 'Waiting on you: two questions' }),
   task('a1', 'Add rate limiting to public API', 4, { status: 'Waiting on you: pick a limit for /search' }),
-  task('a2', 'Move image uploads to S3', 0, { status: 'Copying existing files' }),
+  task('a2', 'Move image uploads to S3', 0, { status: 'Copying existing files', activity: TaskActivity.Working }),
   task('a3', 'Fix flaky login test', 9, { status: 'Found the race', unread: true }),
   task('d1', 'Upgrade Django', 3 * 24 * 60, { state: TaskState.Done, status: 'Upgraded to 5.2' }),
   { ...task('x1', 'Another workspace’s task', 1), workspaceId: 'w2' },
@@ -139,6 +139,7 @@ describe('TaskList', () => {
     const dotOf = (title: string): string | null =>
       row(title).querySelector('[data-state]')?.getAttribute('data-state') ?? null
     expect(dotOf('Add rate limiting')).toBe('waiting')
+    expect(dotOf('Move image uploads')).toBe('working')
     expect(dotOf('Upgrade Django')).toBe('done')
   })
 
@@ -282,8 +283,8 @@ describe('TaskListToolbar', () => {
     const chips = within(screen.getByRole('group', { name: 'Filter tasks' })).getAllByRole('button')
     expect(chips.map((chip) => [chip.textContent, chip.getAttribute('aria-pressed')])).toEqual([
       ['All', 'true'],
-      // Every active task in w1 is waiting on you until the agent runner says otherwise.
-      ['Needs you4', 'false'],
+      // The active tasks in w1 whose agent is waiting on you.
+      ['Needs you3', 'false'],
       ['Unread1', 'false'],
     ])
   })

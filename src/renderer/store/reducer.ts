@@ -1,5 +1,6 @@
 import { EventType, type GladeEvent } from '../../shared/bridge'
-import { UiStateKey, type UiStateEntry, type Workspace } from '../../shared/domain'
+import type { TasksHistoryResponse } from '../../shared/bridge'
+import { UiStateKey, type Message, type ToolEvent, type UiStateEntry, type Workspace } from '../../shared/domain'
 import type { GladeData } from './state'
 
 /** A stored selection id: the empty string means nothing is selected. */
@@ -28,6 +29,42 @@ function withWorkspace(workspaces: readonly Workspace[], workspace: Workspace): 
     : [...workspaces, workspace]
 }
 
+/** Something appended to a task's log, identified by its id. */
+interface LogEntry {
+  readonly id: string
+  readonly taskId: string
+}
+
+type LogsByTask<T> = Readonly<Record<string, readonly T[]>>
+
+/** Appends an entry to its task's log, unless the log already has it. */
+function withAppended<T extends LogEntry>(logs: LogsByTask<T>, entry: T): LogsByTask<T> {
+  const log = logs[entry.taskId] ?? []
+  return log.some(({ id }) => id === entry.id) ? logs : { ...logs, [entry.taskId]: [...log, entry] }
+}
+
+/** Replaces an entry in its task's log. An entry the log doesn't have is left to the next history load. */
+function withReplaced<T extends LogEntry>(logs: LogsByTask<T>, entry: T): LogsByTask<T> {
+  const log = logs[entry.taskId]
+  if (log?.some(({ id }) => id === entry.id) !== true) return logs
+  return { ...logs, [entry.taskId]: log.map((existing) => (existing.id === entry.id ? entry : existing)) }
+}
+
+/** A task's loaded log, followed by any entries events brought that the load didn't have yet. */
+function merged<T extends LogEntry>(loaded: readonly T[], current: readonly T[] = []): readonly T[] {
+  const ids = new Set(loaded.map(({ id }) => id))
+  return [...loaded, ...current.filter(({ id }) => !ids.has(id))]
+}
+
+/** Records a task's chat log and tool log as loaded from main, keeping anything newer events already brought. */
+export function withHistory(state: GladeData, taskId: string, history: TasksHistoryResponse): GladeData {
+  return {
+    ...state,
+    messages: { ...state.messages, [taskId]: merged<Message>(history.messages, state.messages[taskId]) },
+    toolEvents: { ...state.toolEvents, [taskId]: merged<ToolEvent>(history.toolEvents, state.toolEvents[taskId]) },
+  }
+}
+
 /**
  * What `workspaces.open` does, as main broadcasts it: the workspace as it now is, shown, and the selected task
  * deselected if it's in another workspace.
@@ -52,5 +89,11 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, workspaces: withWorkspace(state.workspaces, event.workspace) }
     case EventType.TaskUpdated:
       return { ...state, tasks: { ...state.tasks, [event.task.id]: event.task } }
+    case EventType.MessageAppended:
+      return { ...state, messages: withAppended(state.messages, event.message) }
+    case EventType.ToolEventAppended:
+      return { ...state, toolEvents: withAppended(state.toolEvents, event.toolEvent) }
+    case EventType.ToolEventUpdated:
+      return { ...state, toolEvents: withReplaced(state.toolEvents, event.toolEvent) }
   }
 }

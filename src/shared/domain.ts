@@ -25,6 +25,19 @@ export enum TaskState {
   Done = 'done',
 }
 
+/**
+ * What an active task's agent is doing, persisted so the task list and header can show it and a relaunch can resume
+ * from it. Not a state: a task is still only active or done.
+ */
+export enum TaskActivity {
+  /** The agent isn't running a turn: it's waiting on you. A new task starts here. */
+  Waiting = 'waiting',
+  /** The agent is running a turn. */
+  Working = 'working',
+  /** The agent's last turn failed. */
+  Error = 'error',
+}
+
 /** How hard the model thinks, set per task from the input bar's effort picker. */
 export enum Effort {
   Low = 'low',
@@ -47,6 +60,8 @@ export interface Task {
   /** The agent's status summary (`set_status`); empty until it first sets one. */
   readonly status: string
   readonly state: TaskState
+  /** What the agent is doing. Set by the agent runner. */
+  readonly activity: TaskActivity
   readonly pinned: boolean
   readonly unread: boolean
   /** The model id the task's session runs on, as the SDK names it. */

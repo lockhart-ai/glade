@@ -2,7 +2,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla'
 import { CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
 import { UiStateKey, type UiStateEntry, type Workspace } from '../../shared/domain'
 import { describeFailure, loadSnapshot } from './hydrate'
-import { applyEvent, withOpenedWorkspace } from './reducer'
+import { applyEvent, withHistory, withOpenedWorkspace } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState } from './state'
 
 export type GladeStore = StoreApi<GladeState>
@@ -68,6 +68,14 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         } finally {
           pending = null
         }
+        // The restored task's logs load once events flow again, so none that arrive meanwhile is held back.
+        const { hydration, selectedTaskId } = get()
+        if (hydration.status !== HydrationStatus.Ready || selectedTaskId === null) return
+        try {
+          await get().loadHistory(selectedTaskId)
+        } catch (error) {
+          set({ hydration: { status: HydrationStatus.Failed, message: describeFailure(error) } })
+        }
       },
 
       async selectWorkspace(workspaceId) {
@@ -86,6 +94,12 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
           await setUiState({ key: UiStateKey.ActiveWorkspaceId, value: task.workspaceId })
         }
         await setUiState({ key: UiStateKey.SelectedTaskId, value: taskId ?? NONE })
+        if (taskId !== null) await get().loadHistory(taskId)
+      },
+
+      async loadHistory(taskId) {
+        const history = await bridge.invoke(CommandName.TasksHistory, { id: taskId })
+        set((state) => withHistory(state, taskId, history))
       },
 
       setUiState,
@@ -108,6 +122,10 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
 
       async updateTask(taskId, patch) {
         await bridge.invoke(CommandName.TasksUpdate, { id: taskId, patch })
+      },
+
+      async sendMessage(taskId, text) {
+        await bridge.invoke(CommandName.TasksSend, { id: taskId, text })
       },
     }
   })

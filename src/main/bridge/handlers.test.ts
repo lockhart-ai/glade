@@ -4,6 +4,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { CommandName, EventType, type GladeEvent } from '../../shared/bridge'
 import { UiStateKey } from '../../shared/domain'
+import { FakeAgentBackend } from '../agent/fake-backend'
+import { createAgentRunner } from '../agent/runner'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { setUiState } from '../db/repositories/ui-state'
 import { createHandlers, type Handlers } from './handlers'
@@ -19,7 +21,8 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'glade-handlers-'))
   emit = vi.fn()
   chooseFolder = vi.fn(() => Promise.resolve(root))
-  handlers = createHandlers({ db: database.db, emit, chooseFolder })
+  const runner = createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() })
+  handlers = createHandlers({ db: database.db, emit, chooseFolder, runner })
 })
 
 afterEach(() => {

@@ -11,6 +11,7 @@ import {
   type GladeEvent,
 } from '../../shared/bridge'
 import { TaskState, UiStateKey } from '../../shared/domain'
+import { FakeAgentBackend } from '../agent/fake-backend'
 import { getTask } from '../db/repositories/tasks'
 import { getUiState } from '../db/repositories/ui-state'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
@@ -25,7 +26,13 @@ beforeEach(() => {
   database = openTestDatabase()
   chooseFolder = vi.fn(() => Promise.resolve('/code/acme-api'))
   const ipc = fakeIpcPair()
-  registerBridge({ ipc: ipc.main, db: database.db, targets: () => [ipc.window], chooseFolder })
+  registerBridge({
+    ipc: ipc.main,
+    db: database.db,
+    targets: () => [ipc.window],
+    chooseFolder,
+    agentBackend: new FakeAgentBackend(),
+  })
   glade = createBridge(ipc.renderer)
 })
 

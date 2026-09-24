@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { TaskState, UiStateKey } from '../shared/domain'
+import { TaskActivity, TaskState, UiStateKey } from '../shared/domain'
 import { applySeed, readSeed, type CaptureSeed } from './capture-seed'
 import { listTasks } from './db/repositories/tasks'
 import { getUiState } from './db/repositories/ui-state'
@@ -18,6 +18,7 @@ const SEED: CaptureSeed = {
   workspace: { name: 'Acme API', rootPath: '/Users/sample/code/api' },
   tasks: [
     { title: 'Add rate limiting', status: 'Waiting on you', minutesAgo: 4, selected: true },
+    { title: 'Move uploads', activity: TaskActivity.Working, minutesAgo: 30 },
     {
       title: 'Upgrade Django',
       objective: 'Move to 5.2',
@@ -98,7 +99,9 @@ describe('applySeed', () => {
         effort: DEFAULT_EFFORT,
         updatedAt: NOW - 4 * MINUTE,
         doneAt: null,
+        activity: TaskActivity.Waiting,
       },
+      { title: 'Move uploads', activity: TaskActivity.Working },
       {
         title: 'Upgrade Django',
         objective: 'Move to 5.2',
