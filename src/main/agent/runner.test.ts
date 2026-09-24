@@ -864,11 +864,11 @@ describe('resuming on launch', () => {
     expect(toolLog()).toEqual([
       { divider: DividerKind.Turn, turn: 1 },
       { narration: "I'll run the whole suite.", turn: 1 },
-      expect.objectContaining({ call: 'Bash', state: ToolCallState.Error, output: RESTARTED_TOOL_NOTE, turn: 1 }),
+      expect.objectContaining({ call: 'Bash', state: ToolCallState.Interrupted, output: RESTARTED_TOOL_NOTE, turn: 1 }),
       { divider: DividerKind.Resumed, turn: 1 },
     ])
     expect(drainEvents()).toEqual([
-      [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Error],
+      [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Interrupted],
       [EventType.ToolEventAppended, ToolEventKind.Divider, null],
     ])
 

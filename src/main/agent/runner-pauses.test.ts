@@ -2,7 +2,7 @@
 // task, and a timer resumes it on its own. A scripted agent session behind the real bridge, with fake timers and clock.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createBridge } from '../../preload/bridge'
-import { BridgeErrorCode, CommandName, type GladeBridge } from '../../shared/bridge'
+import { BridgeErrorCode, CommandName, EventType, type GladeBridge } from '../../shared/bridge'
 import {
   API_TOOL_NAME,
   MessageRole,
@@ -181,11 +181,30 @@ describe('a usage limit', () => {
     expect(log.some((event) => event.kind === ToolEventKind.ToolCall && event.name === API_TOOL_NAME)).toBe(false)
     expect(log.filter((event) => event.kind === ToolEventKind.ToolCall)).toMatchObject([
       { state: ToolCallState.Done, output: 'copied 1,240 of 3,900' },
-      { state: ToolCallState.Error, output: PAUSED_TOOL_NOTE },
+      { state: ToolCallState.Paused, output: PAUSED_TOOL_NOTE },
     ])
     expect(log).toContainEqual(
       expect.objectContaining({ kind: ToolEventKind.Narration, text: "I'll copy the uploads." }),
     )
+  })
+
+  it('shows the paused calls as interrupted once the task resumes, and tells the window', async () => {
+    const task = newTask()
+    await hitUsageLimit(task, 'Move the uploads to S3.')
+    const updated: unknown[] = []
+    glade.subscribe((event) => {
+      if (event.type === EventType.ToolEventUpdated) updated.push(event.toolEvent)
+    })
+
+    await wait(RESETS_AT - NOW)
+
+    expect(current(task).activity).toBe(TaskActivity.Working)
+    const calls = listToolEvents(database.db, task.id).filter((event) => event.kind === ToolEventKind.ToolCall)
+    expect(calls).toMatchObject([
+      { state: ToolCallState.Done, output: 'copied 1,240 of 3,900' },
+      { state: ToolCallState.Interrupted, output: PAUSED_TOOL_NOTE },
+    ])
+    expect(updated).toEqual([calls[1]])
   })
 
   it('queues messages sent meanwhile, and delivers them once the resumed turn ends', async () => {
@@ -380,11 +399,14 @@ describe('going offline', () => {
   it('pauses the task when the agent process fails for want of the network', async () => {
     const task = newTask()
     const session = await send(task, 'Move the uploads to S3.')
-    session.emit(sdk.init())
+    session.emit(sdk.init(), sdk.toolUse('toolu_01', 'Bash', { command: 'python copy.py' }))
     session.fail(new Error('getaddrinfo ENOTFOUND api.anthropic.com'))
     await settle()
 
     expect(current(task)).toMatchObject({ activity: TaskActivity.Paused, pause: { reason: PauseReason.Offline } })
+    expect(listToolEvents(database.db, task.id).filter((event) => event.kind === ToolEventKind.ToolCall)).toMatchObject(
+      [{ state: ToolCallState.Paused }],
+    )
 
     await wait(OFFLINE_FIRST_CHECK_MS)
     // The session is gone, so it starts again, resumed.

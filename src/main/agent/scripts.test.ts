@@ -188,7 +188,7 @@ describe('AGENT_SCRIPTS', () => {
       ['mcp__glade__set_title', ToolCallState.Done],
       ['mcp__glade__set_objective', ToolCallState.Done],
       ['mcp__glade__set_status', ToolCallState.Done],
-      ['Bash', ToolCallState.Error],
+      ['Bash', ToolCallState.Interrupted],
       ['Bash', ToolCallState.Done],
       ['mcp__glade__set_status', ToolCallState.Done],
     ])
@@ -216,7 +216,7 @@ describe('AGENT_SCRIPTS', () => {
       calls()
         .filter(({ name }) => name === 'Bash')
         .map(({ state }) => state),
-    ).toEqual([ToolCallState.Error, ToolCallState.Done])
+    ).toEqual([ToolCallState.Interrupted, ToolCallState.Done])
     expect(getTask(database.db, task.id)).toMatchObject({
       activity: TaskActivity.Waiting,
       title: 'Build the release',
@@ -251,7 +251,7 @@ describe('AGENT_SCRIPTS', () => {
       ['mcp__glade__set_title', ToolCallState.Done],
       ['mcp__glade__set_objective', ToolCallState.Done],
       ['mcp__glade__set_status', ToolCallState.Done],
-      ['Bash', ToolCallState.Error],
+      ['Bash', ToolCallState.Interrupted],
       ['Bash', ToolCallState.Done],
       ['Bash', ToolCallState.Done],
       ['mcp__glade__set_status', ToolCallState.Done],

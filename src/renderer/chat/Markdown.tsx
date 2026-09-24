@@ -23,6 +23,41 @@ function dropUrl(): null {
   return null
 }
 
+/**
+ * The elements inline Markdown keeps: code and emphasis, and the paragraphs and images it turns into plain text. Any
+ * other element is unwrapped to its contents.
+ */
+const INLINE_ELEMENTS = ['p', 'img', 'code', 'em', 'strong']
+
+/** A paragraph of inline Markdown is just its text, so paragraphs run on a space apart; an image is its alt text. */
+const INLINE_COMPONENTS: Components = {
+  p: ({ children }) => <>{children} </>,
+  img: ({ alt }) => <>{alt}</>,
+}
+
+export interface InlineMarkdownProps {
+  /** The Markdown source. */
+  source: string
+}
+
+/**
+ * A line of Markdown shown inline, like a tool log note: only code and emphasis come through. Anything else (a link,
+ * an image, a heading, a list) shows as its text, a code block as inline code, and raw HTML is dropped.
+ */
+export function InlineMarkdown({ source }: InlineMarkdownProps): React.JSX.Element {
+  return (
+    <ReactMarkdown
+      allowedElements={INLINE_ELEMENTS}
+      unwrapDisallowed
+      components={INLINE_COMPONENTS}
+      skipHtml
+      urlTransform={dropUrl}
+    >
+      {source}
+    </ReactMarkdown>
+  )
+}
+
 /** Chat Markdown (CommonMark and GitHub's tables, task lists and strikethrough), with code styled. Raw HTML is dropped. */
 export function Markdown({ source, className }: MarkdownProps): React.JSX.Element {
   return (
