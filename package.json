@@ -6,6 +6,9 @@
   "license": "MIT",
   "author": "Lockhart AI",
   "main": "./out/main/index.js",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "electron-vite dev --watch",
     "build": "electron-vite build",
