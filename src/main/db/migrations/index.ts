@@ -11,7 +11,8 @@ import { taskErrorMigration } from './0009-task-error'
 import { taskPauseMigration } from './0010-task-pause'
 import { questionSetsMigration } from './0011-question-sets'
 import { toolCallInterruptedMigration } from './0012-tool-call-interrupted'
-import { openFilesMigration } from './0013-open-files'
+import { subagentLogMigration } from './0013-subagent-log'
+import { openFilesMigration } from './0014-open-files'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -27,5 +28,6 @@ export const MIGRATIONS: readonly Migration[] = [
   taskPauseMigration,
   questionSetsMigration,
   toolCallInterruptedMigration,
+  subagentLogMigration,
   openFilesMigration,
 ]

@@ -58,6 +58,8 @@ export interface SeedMessage {
 export interface SeedNarration {
   readonly kind: ToolEventKind.Narration
   readonly text: string
+  /** The `toolUseId` of the `Agent` call whose subagent wrote it; the agent's own note when not given. */
+  readonly parentToolUseId?: string | undefined
   readonly turn: number
   readonly minutesAgo: number
 }
@@ -76,6 +78,8 @@ export interface SeedToolCall {
   readonly parentToolUseId?: string | undefined
   readonly turn: number
   readonly minutesAgo: number
+  /** How long before the capture its result arrived, when it has one; `minutesAgo` unless given. */
+  readonly finishedMinutesAgo?: number | undefined
 }
 
 /** A sample divider in the tool log. */
@@ -167,8 +171,10 @@ export interface CaptureSeed {
    */
   readonly workspace: { readonly name: string; readonly rootPath: string }
   readonly tasks: readonly SeedTask[]
-  /** More UI state, e.g. the right panel's tab and width. */
-  readonly uiState?: Readonly<Partial<Record<UiStateKey, string>>> | undefined
+  /** The right panel's tab to open on (`PanelTab`, e.g. `subagents`); Tool calls unless given. */
+  readonly panelTab?: string | undefined
+  /** The right panel's width, in CSS pixels; the default unless given. */
+  readonly panelWidth?: number | undefined
 }
 
 const turn = z.int().positive()
@@ -183,7 +189,13 @@ const seedSummarySchema = z.strictObject({
 })
 
 const seedToolEventSchema: z.ZodType<SeedToolEvent> = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal(ToolEventKind.Narration), text: z.string(), turn, minutesAgo }),
+  z.strictObject({
+    kind: z.literal(ToolEventKind.Narration),
+    text: z.string(),
+    parentToolUseId: z.string().optional(),
+    turn,
+    minutesAgo,
+  }),
   z.strictObject({
     kind: z.literal(ToolEventKind.ToolCall),
     name: z.string(),
@@ -194,6 +206,7 @@ const seedToolEventSchema: z.ZodType<SeedToolEvent> = z.discriminatedUnion('kind
     parentToolUseId: z.string().optional(),
     turn,
     minutesAgo,
+    finishedMinutesAgo: minutesAgo.optional(),
   }),
   z.strictObject({ kind: z.literal(ToolEventKind.Divider), dividerKind: z.enum(DividerKind), turn, minutesAgo }),
   z.strictObject({
@@ -226,6 +239,8 @@ const seedPauseSchema = z.strictObject({
 
 const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
   workspace: z.strictObject({ name: z.string(), rootPath: z.string() }),
+  panelTab: z.string().optional(),
+  panelWidth: z.int().positive().optional(),
   tasks: z.array(
     z.strictObject({
       title: z.string(),
@@ -259,7 +274,6 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       openFiles: z.strictObject({ paths: z.array(z.string()), activePath: z.string().optional() }).optional(),
     }),
   ),
-  uiState: z.partialRecord(z.enum(UiStateKey), z.string()).optional(),
 })
 
 /** Reads and checks a seed fixture. Throws when it can't be read or isn't a valid fixture. */
@@ -278,11 +292,14 @@ export function readSeed(path: string): CaptureSeed {
     : { ...parsed.data, workspace: { ...workspace, rootPath: resolve(dirname(path), workspace.rootPath) } }
 }
 
-function seedToolEvent(db: Database, taskId: string, event: SeedToolEvent, at: EpochMs, seedId: string): void {
+function seedToolEvent(db: Database, taskId: string, event: SeedToolEvent, now: EpochMs, seedId: string): void {
+  const at = now - event.minutesAgo * MINUTE
   switch (event.kind) {
-    case ToolEventKind.Narration:
-      appendNarration(db, { taskId, turn: event.turn, text: event.text }, at)
+    case ToolEventKind.Narration: {
+      const { turn, text, parentToolUseId } = event
+      appendNarration(db, { taskId, turn, text, parentToolUseId }, at)
       return
+    }
     case ToolEventKind.Divider:
       appendDivider(db, { taskId, turn: event.turn, dividerKind: event.dividerKind }, at)
       return
@@ -290,8 +307,10 @@ function seedToolEvent(db: Database, taskId: string, event: SeedToolEvent, at: E
       const { name, input, output, turn } = event
       const toolUseId = event.toolUseId ?? seedId
       appendToolCall(db, { taskId, turn, name, input, toolUseId, parentToolUseId: event.parentToolUseId ?? null }, at)
-      if (output !== undefined)
-        updateToolCall(db, { taskId, toolUseId, state: event.state ?? ToolCallState.Done, output })
+      if (output !== undefined) {
+        const finishedAt = event.finishedMinutesAgo === undefined ? at : now - event.finishedMinutesAgo * MINUTE
+        updateToolCall(db, { taskId, toolUseId, state: event.state ?? ToolCallState.Done, output }, finishedAt)
+      }
       return
     }
     case ToolEventKind.Compaction: {
@@ -308,6 +327,10 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
   db.transaction(() => {
     const workspace = createWorkspace(db, seed.workspace, now)
     setUiState(db, { key: UiStateKey.ActiveWorkspaceId, value: workspace.id })
+    if (seed.panelTab !== undefined) setUiState(db, { key: UiStateKey.RightPanelTab, value: seed.panelTab })
+    if (seed.panelWidth !== undefined) {
+      setUiState(db, { key: UiStateKey.RightPanelWidth, value: String(seed.panelWidth) })
+    }
     const resumed: string[] = []
     for (const [index, sample] of seed.tasks.entries()) {
       const at = now - sample.minutesAgo * MINUTE
@@ -353,7 +376,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         )
       }
       for (const [index, event] of (sample.toolEvents ?? []).entries()) {
-        seedToolEvent(db, task.id, event, ago(event.minutesAgo), `seed-${String(index)}`)
+        seedToolEvent(db, task.id, event, now, `seed-${String(index)}`)
       }
       for (const body of sample.queuedMessages ?? []) appendQueuedMessage(db, { taskId: task.id, body }, now)
       if (sample.openFiles !== undefined) {
@@ -364,10 +387,6 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
     }
     if (resumed.length > 0) {
       setUiState(db, { key: UiStateKey.RelaunchNotice, value: serializeRelaunchNotice({ taskIds: resumed }) })
-    }
-    for (const [key, value] of Object.entries(seed.uiState ?? {})) {
-      // The schema only lets UI state keys in.
-      setUiState(db, { key: key as UiStateKey, value })
     }
   })()
 }

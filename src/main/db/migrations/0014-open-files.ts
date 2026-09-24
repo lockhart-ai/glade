@@ -6,7 +6,7 @@ import type { Migration } from '../migrate'
  * the one showing. A task without a row has no files open. The open files repository parses them.
  */
 export const openFilesMigration: Migration = {
-  version: 13,
+  version: 14,
   name: 'Add the open files',
   up(db) {
     db.exec(`

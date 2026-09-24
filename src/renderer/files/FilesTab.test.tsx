@@ -38,6 +38,7 @@ function call(id: string, name: string, path: string, overrides: Partial<ToolCal
     input: { file_path: `${ROOT}/${path}` },
     output: 'ok',
     state: ToolCallState.Done,
+    finishedAt: null,
     toolUseId: `use-${id}`,
     parentToolUseId: null,
     ...overrides,

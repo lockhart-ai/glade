@@ -125,7 +125,7 @@ describe('readSeed', () => {
     const seed = readSeed(join(FIXTURES, 'open-file.json'))
 
     expect(seed.workspace.rootPath).toBe(join(FIXTURES, 'open-file-workspace'))
-    expect(seed.uiState).toEqual({ [UiStateKey.RightPanelTab]: 'files', [UiStateKey.RightPanelWidth]: '780' })
+    expect(seed).toMatchObject({ panelTab: 'files', panelWidth: 780 })
     expect(seed.tasks.find((task) => task.selected)?.openFiles?.activePath).toBe('docs/rate-limits.md')
   })
 
@@ -206,7 +206,7 @@ describe('applySeed', () => {
     expect(getUiState(db, UiStateKey.SelectedTaskId)).toBe(tasks[0]?.id)
   })
 
-  it('opens a task’s files, showing the first unless told which, and sets more UI state', () => {
+  it('opens a task’s files, showing the first unless told which, and sets the panel’s width', () => {
     const { db } = database
 
     applySeed(db, {
@@ -216,7 +216,7 @@ describe('applySeed', () => {
         { title: 'Shows the first', minutesAgo: 0, openFiles: { paths: ['a.md'] } },
         { title: 'Opens none', minutesAgo: 0, openFiles: { paths: [] } },
       ],
-      uiState: { [UiStateKey.RightPanelTab]: 'files' },
+      panelWidth: 780,
     })
 
     const workspaceId = listWorkspaces(db)[0]?.id ?? ''
@@ -224,7 +224,7 @@ describe('applySeed', () => {
     expect(getOpenFiles(db, byTitle['Shows one'] ?? '')).toMatchObject({ paths: ['a.md', 'b.md'], activePath: 'b.md' })
     expect(getOpenFiles(db, byTitle['Shows the first'] ?? '').activePath).toBe('a.md')
     expect(getOpenFiles(db, byTitle['Opens none'] ?? '').activePath).toBeNull()
-    expect(getUiState(db, UiStateKey.RightPanelTab)).toBe('files')
+    expect(getUiState(db, UiStateKey.RightPanelWidth)).toBe('780')
   })
 
   it('selects nothing unless a task asks to be', () => {
@@ -234,6 +234,15 @@ describe('applySeed', () => {
 
     expect(getUiState(db, UiStateKey.SelectedTaskId)).toBeUndefined()
     expect(getUiState(db, UiStateKey.RelaunchNotice)).toBeUndefined()
+    expect(getUiState(db, UiStateKey.RightPanelTab)).toBeUndefined()
+  })
+
+  it('opens the right panel on the tab it names', () => {
+    const { db } = database
+
+    applySeed(db, { ...SEED, panelTab: 'subagents', tasks: [] })
+
+    expect(getUiState(db, UiStateKey.RightPanelTab)).toBe('subagents')
   })
 
   it('names the tasks resumed after a crash in the relaunch notice', () => {
@@ -314,7 +323,7 @@ describe('applySeed', () => {
       },
     ])
     expect(listToolEvents(db, taskId)).toMatchObject([
-      { kind: ToolEventKind.Narration, text: 'Looking around.', createdAt: NOW - 29 * MINUTE },
+      { kind: ToolEventKind.Narration, text: 'Looking around.', createdAt: NOW - 29 * MINUTE, parentToolUseId: null },
       {
         kind: ToolEventKind.ToolCall,
         name: 'Read',
@@ -395,6 +404,14 @@ describe('applySeed', () => {
                 toolUseId: 'agent-1',
                 turn: 2,
                 minutesAgo: 8,
+                finishedMinutesAgo: 5,
+              },
+              {
+                kind: ToolEventKind.Narration,
+                text: 'Building first.',
+                parentToolUseId: 'agent-1',
+                turn: 2,
+                minutesAgo: 7.5,
               },
               {
                 kind: ToolEventKind.ToolCall,
@@ -425,8 +442,22 @@ describe('applySeed', () => {
     const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
     expect(listToolEvents(db, task?.id ?? '')).toMatchObject([
       { kind: ToolEventKind.Divider, dividerKind: DividerKind.Turn, turn: 2, createdAt: NOW - 9 * MINUTE },
-      { kind: ToolEventKind.ToolCall, toolUseId: 'agent-1', state: ToolCallState.Done, parentToolUseId: null },
-      { kind: ToolEventKind.ToolCall, output: 'Exit 2', state: ToolCallState.Error, parentToolUseId: 'agent-1' },
+      {
+        kind: ToolEventKind.ToolCall,
+        toolUseId: 'agent-1',
+        state: ToolCallState.Done,
+        parentToolUseId: null,
+        createdAt: NOW - 8 * MINUTE,
+        finishedAt: NOW - 5 * MINUTE,
+      },
+      { kind: ToolEventKind.Narration, text: 'Building first.', parentToolUseId: 'agent-1' },
+      {
+        kind: ToolEventKind.ToolCall,
+        output: 'Exit 2',
+        state: ToolCallState.Error,
+        parentToolUseId: 'agent-1',
+        finishedAt: NOW - 7 * MINUTE,
+      },
       { kind: ToolEventKind.ToolCall, state: ToolCallState.Interrupted, parentToolUseId: null },
     ])
   })

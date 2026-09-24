@@ -1,0 +1,277 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "panelTab": "subagents",
+  "tasks": [
+    {
+      "title": "Draft release notes for 2.4",
+      "objective": "Draft release notes for 2.4 from the PRs merged since the 2.3 tag. Group them into features, fixes and internal changes, and add a short upgrade guide if anything changes for API clients.",
+      "status": "Found 41 PRs since v2.3.0 and split them by area across three subagents. The link check on the 2.3 notes is done.",
+      "activity": "working",
+      "pinned": true,
+      "minutesAgo": 0,
+      "startedMinutesAgo": 7,
+      "selected": true,
+      "contextUsedTokens": 58000,
+      "contextWindowTokens": 200000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Draft release notes for 2.4 from the PRs merged since the 2.3 tag. Group them into features, fixes and internal changes, and add a short upgrade guide if anything changes for API clients.",
+          "turn": 1,
+          "minutesAgo": 7
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "narration",
+          "text": "41 PRs since v2.3.0. I'll split them by area across three subagents, and check the links in the 2.3 notes.",
+          "turn": 1,
+          "minutesAgo": 6.5
+        },
+        {
+          "kind": "tool_call",
+          "name": "mcp__glade__set_status",
+          "input": {
+            "status": "Found 41 PRs since v2.3.0 and split them by area across three subagents."
+          },
+          "turn": 1,
+          "minutesAgo": 6.4,
+          "output": "Status set."
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "Check links in the 2.3 notes",
+            "prompt": "Check every link in docs/releases/2.3.md.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 6,
+          "output": "Found 2 broken links and fixed both in the draft.",
+          "toolUseId": "links",
+          "finishedMinutesAgo": 4.8
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": {
+            "file_path": "/Users/sample/code/api/docs/releases/2.3.md"
+          },
+          "turn": 1,
+          "minutesAgo": 5.9,
+          "output": "# 2.3\n…",
+          "parentToolUseId": "links"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "npx markdown-link-check docs/releases/2.3.md"
+          },
+          "turn": 1,
+          "minutesAgo": 5.7,
+          "output": "2 dead links",
+          "parentToolUseId": "links"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Edit",
+          "input": {
+            "file_path": "/Users/sample/code/api/docs/releases/2.3.md",
+            "old_string": "/docs/limits",
+            "new_string": "/docs/rate-limits"
+          },
+          "turn": 1,
+          "minutesAgo": 5.2,
+          "output": "Updated.",
+          "parentToolUseId": "links"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "API changes",
+            "prompt": "Sort the API PRs.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 4.2,
+          "toolUseId": "api"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "Dashboard changes",
+            "prompt": "Sort the dashboard PRs.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 3.6667,
+          "toolUseId": "dash"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "Admin & internal changes",
+            "prompt": "Sort the admin and internal PRs.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 3.0833,
+          "toolUseId": "admin"
+        },
+        {
+          "kind": "narration",
+          "text": "Reading the 14 API PRs, newest first.",
+          "turn": 1,
+          "minutesAgo": 4.1,
+          "parentToolUseId": "api"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "gh pr list --label api --state merged"
+          },
+          "turn": 1,
+          "minutesAgo": 4.0,
+          "output": "1409\tAdd per-key throttles\n1402\tRate limit the public API",
+          "parentToolUseId": "api"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "gh pr list --label dashboard --state merged"
+          },
+          "turn": 1,
+          "minutesAgo": 3.6,
+          "output": "1418\tMove the charts onto the new query",
+          "parentToolUseId": "dash"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "gh pr view 1402 --json title,body"
+          },
+          "turn": 1,
+          "minutesAgo": 3.5,
+          "output": "{\"title\":\"Rate limit the public API\"}",
+          "parentToolUseId": "api"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "gh pr list --label admin --state merged"
+          },
+          "turn": 1,
+          "minutesAgo": 3.0,
+          "output": "1437\tAudit log filters",
+          "parentToolUseId": "admin"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": {
+            "file_path": "/Users/sample/code/api/api/views.py"
+          },
+          "turn": 1,
+          "minutesAgo": 2.9,
+          "output": "…",
+          "parentToolUseId": "api"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "gh pr view 1418 --json title,body"
+          },
+          "turn": 1,
+          "minutesAgo": 2.5,
+          "output": "{\"title\":\"Move the charts onto the new query\"}",
+          "parentToolUseId": "dash"
+        },
+        {
+          "kind": "narration",
+          "text": "#1402 is the rate limiting change. It's user-facing, so it goes first under features, with a pointer to the upgrade guide.",
+          "turn": 1,
+          "minutesAgo": 2.2,
+          "parentToolUseId": "api"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "gh pr view 1433 --json title,body,labels"
+          },
+          "turn": 1,
+          "minutesAgo": 2.0,
+          "output": "…",
+          "parentToolUseId": "admin"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "gh pr view 1409 --json title,body"
+          },
+          "turn": 1,
+          "minutesAgo": 1.5,
+          "output": "…",
+          "parentToolUseId": "api"
+        },
+        {
+          "kind": "narration",
+          "text": "#1418 moves the charts onto the new query, so it belongs under features, not fixes.",
+          "turn": 1,
+          "minutesAgo": 1.0,
+          "parentToolUseId": "dash"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": {
+            "file_path": "/Users/sample/code/api/api/throttles.py"
+          },
+          "turn": 1,
+          "minutesAgo": 0.5,
+          "parentToolUseId": "api"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "gh pr view 1437 --json title,body,labels"
+          },
+          "turn": 1,
+          "minutesAgo": 0.3,
+          "parentToolUseId": "admin"
+        }
+      ]
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "status": "Waiting on you: pick a limit for /search",
+      "minutesAgo": 4
+    },
+    {
+      "title": "Fix flaky login test",
+      "status": "Found the race; fix passes 200 local runs",
+      "minutesAgo": 9
+    },
+    {
+      "title": "Upgrade Django to 5.2",
+      "status": "Upgraded; two deprecations fixed",
+      "state": "done",
+      "minutesAgo": 2880
+    }
+  ]
+}

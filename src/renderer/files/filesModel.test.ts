@@ -15,6 +15,7 @@ function call(id: string, name: string, input: Record<string, unknown>, override
     input,
     output: 'ok',
     state: ToolCallState.Done,
+    finishedAt: null,
     toolUseId: `use-${id}`,
     parentToolUseId: null,
     ...overrides,
@@ -36,7 +37,15 @@ const EVENTS: ToolEvent[] = [
   call('c10', 'Write', { file_path: `${ROOT}/api/models.py` }, { state: ToolCallState.Error }),
   call('c11', 'Read', { file_path: '/etc/hosts' }),
   call('c12', 'Read', { path: `${ROOT}/README.md` }),
-  { id: 'n1', taskId: 't1', turn: 1, createdAt: 0, kind: ToolEventKind.Narration, text: 'Reading the views.' },
+  {
+    id: 'n1',
+    taskId: 't1',
+    turn: 1,
+    createdAt: 0,
+    kind: ToolEventKind.Narration,
+    text: 'Reading the views.',
+    parentToolUseId: null,
+  },
 ]
 
 describe('touchedFiles', () => {

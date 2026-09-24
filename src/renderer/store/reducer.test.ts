@@ -104,6 +104,7 @@ const call: ToolCallEvent = {
   input: { command: 'npm test' },
   output: null,
   state: ToolCallState.Running,
+  finishedAt: null,
   toolUseId: 'toolu_01',
   parentToolUseId: null,
 }

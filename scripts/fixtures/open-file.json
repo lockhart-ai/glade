@@ -179,8 +179,6 @@
       "minutesAgo": 10080
     }
   ],
-  "uiState": {
-    "right_panel_tab": "files",
-    "right_panel_width": "780"
-  }
+  "panelTab": "files",
+  "panelWidth": 780
 }

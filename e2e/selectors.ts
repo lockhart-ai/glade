@@ -106,6 +106,24 @@ export function taskPanel(page: Page) {
   }
 }
 
+/** The right panel's Subagents tab: the tally by status and a row per subagent, which opens its log. */
+export function subagentsTab(page: Page) {
+  const panel = regions(page).taskPanel.getByRole('tabpanel')
+  /** A subagent's row, by its name; `data-status` is running, done or error. */
+  const row = (name: string) => panel.getByRole('group', { name, exact: true })
+  return {
+    /** "3 running 1 done". */
+    tally: panel.getByRole('group', { name: 'Subagents by status' }),
+    /** Every subagent's row, top to bottom. */
+    rows: panel.locator('[data-status][role="group"]'),
+    row,
+    /** A row's header: its dot, name, status, latest line, elapsed time and tool call count. Click it to open its log. */
+    header: (name: string) => row(name).getByRole('button').first(),
+    /** A row's log, while it's open. */
+    log: (name: string) => panel.getByRole('log', { name: `${name} log` }),
+  }
+}
+
 /** The right panel's Files tab: the list of the task's files, the open files' tabs, and the file showing. */
 export function filesTab(page: Page) {
   const panel = regions(page).taskPanel

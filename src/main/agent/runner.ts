@@ -16,7 +16,8 @@
  *   summary (`./turn-summary`): the wall-clock time since the turn's first user message, and the files and lines the
  *   turn's edits changed.
  * - Each tool call is saved as running and filled in as done or error when its result arrives. A subagent's tool calls
- *   carry their `Agent` call's id.
+ *   carry their `Agent` call's id. A subagent's own text (`forwardSubagentText`) isn't held back: it goes straight to
+ *   the tool log as narration carrying its `Agent` call's id, for the Subagents tab, and never to the chat.
  * - The task's activity is working for the turn, then waiting on you, or error if the turn failed.
  * - A final reply in a task you aren't viewing marks it unread (`../tasks/attention`) and is notified (`notifyReply`).
  * - The task's context usage follows the agent's latest top-level message, and its context window is what the turn's
@@ -497,9 +498,15 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     turn.running.clear()
   }
 
-  const onText = (turn: Turn, event: TextEvent): void => {
-    // A subagent's own text isn't forwarded by default; if it is, it's the subagent's business, not the chat's.
-    if (event.parentToolUseId === null) turn.pending.push(event.text)
+  const onText = (taskId: string, turn: Turn, event: TextEvent): void => {
+    const { text, parentToolUseId } = event
+    if (parentToolUseId === null) {
+      turn.pending.push(text)
+      return
+    }
+    // A subagent's text is the subagent's business, not the chat's: it's what the Subagents tab says it's doing.
+    if (text.trim() === '') return
+    emitToolEventAppended(emit, appendNarration(db, { taskId, turn: turn.number, text: text.trim(), parentToolUseId }))
   }
 
   const onToolCall = (taskId: string, turn: Turn, event: ToolCallStartedEvent): void => {
@@ -749,7 +756,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     switch (event.kind) {
       case AgentEventKind.Text:
         recovered(taskId, turn)
-        onText(turn, event)
+        onText(taskId, turn, event)
         return
       case AgentEventKind.ToolCallStarted:
         recovered(taskId, turn)
