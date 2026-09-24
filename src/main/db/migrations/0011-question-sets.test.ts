@@ -4,15 +4,15 @@ import { migrate } from '../migrate'
 import { listQuestionSets } from '../repositories/question-sets'
 import { getTask } from '../repositories/tasks'
 import { MIGRATIONS } from '.'
-import { questionSetsMigration } from './0010-question-sets'
+import { questionSetsMigration } from './0011-question-sets'
 
-it('is migration 10', () => {
-  expect(MIGRATIONS[9]).toBe(questionSetsMigration)
+it('is migration 11', () => {
+  expect(MIGRATIONS[10]).toBe(questionSetsMigration)
 })
 
 it('starts every existing task with no questions, dropped with its task, and checks the JSON columns', () => {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 9))
+  migrate(db, MIGRATIONS.slice(0, 10))
   db.prepare("INSERT INTO workspaces VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)").run()
   db.prepare(
     `INSERT INTO tasks (id, workspace_id, title, objective, status, state, activity, pinned, unread, model, effort,

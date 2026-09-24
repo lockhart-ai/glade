@@ -162,8 +162,8 @@ export interface TaskResponse {
  * words: it's saved to the chat log as your reply, in the turn that asked, and the agent gets it as the answer
  * (`{ "freeText": … }`). It starts no turn, and the queue stays as it is. Broadcasts `question.answered`.
  *
- * Fails with `busy` while the agent is working on a turn (queue the message with `queue.add` instead), and `not_found`
- * when there's no such task.
+ * Fails with `busy` while the agent is working on a turn or the task is paused (queue the message with `queue.add`
+ * instead), and `not_found` when there's no such task.
  */
 export interface TasksSendRequest {
   readonly id: string
@@ -187,13 +187,14 @@ export interface TasksSendResponse {
 export type TasksStopRequest = TaskIdRequest
 
 /**
- * Retries the turn an error stopped: the turn's last message goes to the agent again, in the same session, and the
- * task is working again, with its error cleared. With a `model`, the task changes to it first, and the retry runs on
- * it. Answers with the task, working. Nothing new goes to the chat log: the turn's progress arrives as events, as it
- * does after `tasks.send`, and a turn that fails again stops the task on the new error.
+ * Retries the turn an error stopped or a pause holds: the turn's last message goes to the agent again, in the same
+ * session, and the task is working again, with its error or pause cleared. With a `model`, the task changes to it
+ * first, and the retry runs on it (the usage limit banner's Switch model). Answers with the task, working. Nothing new
+ * goes to the chat log: the turn's progress arrives as events, as it does after `tasks.send`, and a turn that fails
+ * again stops (or pauses) the task on the new error.
  *
- * Fails with `invalid_transition` for a task whose agent isn't stopped by an error, `busy` while the agent is working
- * on a turn, and `not_found` when there's no such task.
+ * Fails with `invalid_transition` for a task whose agent isn't stopped by an error or paused, `busy` while the agent
+ * is working on a turn, and `not_found` when there's no such task.
  */
 export interface TasksRetryRequest {
   readonly id: string
@@ -227,7 +228,8 @@ export interface TasksHistoryResponse {
  * Adds the user's message to the end of a task's queue, for the agent to get after its current step: when the running
  * turn's current tool calls have their results, or when the turn ends. Until then it can be edited or removed. When
  * the task's agent isn't working (the turn ended just before the message arrived), the queue is delivered at once,
- * starting a turn, as `tasks.send` would. Broadcasts `queue.changed`. Fails with `not_found` when there's no such task.
+ * starting a turn, as `tasks.send` would, unless the task is paused: then it waits until the task resumes. Broadcasts
+ * `queue.changed`. Fails with `not_found` when there's no such task.
  */
 export interface QueueAddRequest {
   readonly taskId: string

@@ -111,6 +111,29 @@
   color: #b5cbf8;
 }
 
+/* The paused line, from docs/design/html/17-usage-limit.html: the design's own tint of --color-purple. */
+.paused {
+  align-self: flex-start;
+  max-width: 720px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #1e1b2c;
+  border: 1px solid var(--color-question-border);
+  border-radius: 10px;
+  font-size: 13.5px;
+  color: var(--color-muted);
+}
+
+.pausedDot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 3px;
+  background: var(--color-purple);
+}
+
 .dots {
   flex-shrink: 0;
   display: flex;

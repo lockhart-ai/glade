@@ -13,6 +13,21 @@ describe('AppShell', () => {
     expect(screen.getByText('Bottom slot')).toBeInTheDocument()
     expect(screen.getByTestId('window-drag-strip')).toBeEmptyDOMElement()
   })
+
+  it('shows the banner above the rest when there is one', () => {
+    render(
+      <AppShell
+        sidebar={<p>Sidebar slot</p>}
+        task={<p>Task slot</p>}
+        bottomBar={<p>Bottom slot</p>}
+        banner={<p>Banner</p>}
+      />,
+    )
+
+    expect(screen.getByText('Banner').compareDocumentPosition(screen.getByText('Sidebar slot'))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+  })
 })
 
 describe('Sidebar', () => {

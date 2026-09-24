@@ -49,6 +49,11 @@ export enum ScriptStepKind {
    * answers as JSON, and plays on. Stop withdraws the questions and cuts the call short.
    */
   Ask = 'ask',
+  /**
+   * The account's usage limit runs out: a `rate_limit_event` saying it's rejecting requests until `resetInMs` from now
+   * (to the second, as the SDK gives it), as the SDK sends when a request hits the limit.
+   */
+  LimitReached = 'limit_reached',
 }
 
 export interface InitStep {
@@ -139,6 +144,12 @@ export interface AskStep {
   readonly questions: readonly Question[]
 }
 
+export interface LimitReachedStep {
+  readonly kind: ScriptStepKind.LimitReached
+  /** How long from now the limit resets. */
+  readonly resetInMs: number
+}
+
 export type ScriptStep =
   | InitStep
   | TextStep
@@ -153,6 +164,7 @@ export type ScriptStep =
   | FillContextStep
   | CompactStep
   | AskStep
+  | LimitReachedStep
 
 export type ScriptTurn = readonly ScriptStep[]
 
@@ -238,6 +250,11 @@ export const ask = (id: string, questions: readonly Question[]): AskStep => ({
   kind: ScriptStepKind.Ask,
   id,
   questions,
+})
+
+export const limitReached = (resetInMs: number): LimitReachedStep => ({
+  kind: ScriptStepKind.LimitReached,
+  resetInMs,
 })
 
 /** How long a step "takes" in the library's scripts: long enough to see in a recording, short enough for a test. */
@@ -389,6 +406,37 @@ const longRunning: AgentScript = {
     delay(BEAT_MS),
     gladeTool('status-resumed', 'set_status', { status: 'The e2e suite passes.' }),
     say('The end-to-end suite passes: all 41 tests.'),
+    result(),
+  ],
+}
+
+/**
+ * A release build that keeps going, with its command running, until it's stopped or the app quits, like `long-running`,
+ * so a spec can run several long turns side by side. Resumed after a quit, it builds again and finishes the turn.
+ */
+const longBuild: AgentScript = {
+  name: 'long-build',
+  turns: [
+    [
+      ...turnStart(),
+      say("I'll build the release; it takes a few minutes."),
+      ...describeTask('Build the release', 'Build the 0.3.0 release for macOS.', 'Building the release.'),
+      toolUse('build', 'Bash', { command: 'npm run dist', description: 'Build the release' }),
+      waitForInterrupt(),
+    ],
+  ],
+  resumeTurn: [
+    ...turnStart(),
+    say('Glade restarted mid-build, so I am building the release again.'),
+    ...tool(
+      'build-again',
+      'Bash',
+      { command: 'npm run dist', description: 'Build the release' },
+      'dist/glade-0.3.0.dmg',
+    ),
+    delay(BEAT_MS),
+    gladeTool('status-built', 'set_status', { status: 'The release is built.' }),
+    say('The release is built: dist/glade-0.3.0.dmg.'),
     result(),
   ],
 }
@@ -571,6 +619,102 @@ const flakyApi: AgentScript = {
   ],
 }
 
+/** What the API says when the account's usage limit has run out, as the SDK words it. */
+const USAGE_LIMIT_ERROR = "You've hit your session limit · resets 11:42am"
+
+/**
+ * The account's usage limit runs out, as Claude Code reports it: the limit rejects requests until `resetInMs` from
+ * now, and the turn ends on the API's 429. Claude Code doesn't retry it.
+ */
+const usageLimitReached = (resetInMs: number): ScriptStep[] => [
+  limitReached(resetInMs),
+  emit({
+    type: 'assistant',
+    parent_tool_use_id: null,
+    error: 'rate_limit',
+    message: { id: 'msg_api_error', role: 'assistant', content: [{ type: 'text', text: USAGE_LIMIT_ERROR }] },
+  }),
+  result({ text: USAGE_LIMIT_ERROR, isError: true, terminalReason: 'api_error', extra: { api_error_status: 429 } }),
+]
+
+/** What the SDK says when it couldn't reach the API at all. */
+const CONNECTION_ERROR = 'API Error: Connection error.'
+
+/** The API can't be reached, as Claude Code reports it once its retries are spent: a connection error, no status. */
+const connectionLost = (): ScriptStep[] => [
+  emit({
+    type: 'assistant',
+    parent_tool_use_id: null,
+    error: 'unknown',
+    message: { id: 'msg_api_error', role: 'assistant', content: [{ type: 'text', text: CONNECTION_ERROR }] },
+  }),
+  result({ text: CONNECTION_ERROR, isError: true, terminalReason: 'api_error' }),
+]
+
+/** How soon the limit resets in `usage-limit`: soon enough for a spec to watch the tasks resume on their own. */
+const SHORT_RESET_MS = 6000
+
+/** How soon the limit resets in `usage-limit-hour`: long enough that nothing resumes during a spec on its own. */
+const HOUR_RESET_MS = 60 * 60_000
+
+/** The turn a usage-limit or offline script finishes with once it resumes: the copy completes. */
+const copyCompletes = (): ScriptStep[] => [
+  ...turnStart(),
+  delay(BEAT_MS),
+  say('Picking up where the copy stopped.'),
+  ...tool(
+    'copy-rest',
+    'Bash',
+    { command: 'python scripts/copy_media_to_s3.py --resume', description: 'Copy the rest of the uploads to S3' },
+    'copied 3,900 of 3,900',
+  ),
+  delay(BEAT_MS),
+  gladeTool('status-copied', 'set_status', { status: 'All 3,900 files copied to S3.' }),
+  say('The copy finished: all 3,900 files are in the bucket.'),
+  result(),
+]
+
+/** A copy that runs until something outside the task stops it, then `ending`. */
+const copyUntil = (ending: readonly ScriptStep[]): ScriptStep[] => [
+  ...turnStart(),
+  delay(BEAT_MS),
+  say("I'll copy the existing uploads to the bucket, then check a sample."),
+  ...describeTask(
+    'Move image uploads to S3',
+    'Move user image uploads from local disk to S3, and copy the existing files over.',
+    'Copying existing files: 1,240 of 3,900 done.',
+  ),
+  ...tool(
+    'copy',
+    'Bash',
+    { command: 'python scripts/copy_media_to_s3.py', description: 'Copy the existing uploads to S3' },
+    'copied 1,240 of 3,900',
+  ),
+  delay(BEAT_MS),
+  ...ending,
+]
+
+/**
+ * A copy that runs into the account's usage limit, which resets a few seconds later; the task resumes on its own then
+ * (the retry is its second turn) and the copy completes.
+ */
+const usageLimit: AgentScript = {
+  name: 'usage-limit',
+  turns: [copyUntil(usageLimitReached(SHORT_RESET_MS)), copyCompletes()],
+}
+
+/** `usage-limit` with a limit that resets in an hour, so the task stays paused unless it's resumed some other way. */
+const usageLimitHour: AgentScript = {
+  name: 'usage-limit-hour',
+  turns: [copyUntil(usageLimitReached(HOUR_RESET_MS)), copyCompletes()],
+}
+
+/** A copy that loses the network; the task resumes once it's back, and the copy completes. */
+const offline: AgentScript = {
+  name: 'offline',
+  turns: [copyUntil(connectionLost()), copyCompletes()],
+}
+
 /**
  * A long copy, for the message queue: its first turn keeps copying, with the command still running, until it's stopped
  * or the app quits, so messages sent meanwhile stay queued. Resumed after a quit, it copies the rest; a message still
@@ -694,12 +838,16 @@ export const AGENT_SCRIPT_NAMES = [
   'simple-reply',
   'multi-tool-turn',
   'long-running',
+  'long-build',
   'failing-turn',
   'flaky-api',
   'copy-in-batches',
   'long-context',
   'auto-compaction',
   'asks-a-question',
+  'usage-limit',
+  'usage-limit-hour',
+  'offline',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -709,10 +857,14 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'simple-reply': simpleReply,
   'multi-tool-turn': multiToolTurn,
   'long-running': longRunning,
+  'long-build': longBuild,
   'failing-turn': failingTurn,
   'flaky-api': flakyApi,
   'copy-in-batches': copyInBatches,
   'long-context': longContext,
   'auto-compaction': autoCompaction,
   'asks-a-question': asksAQuestion,
+  'usage-limit': usageLimit,
+  'usage-limit-hour': usageLimitHour,
+  offline,
 }

@@ -9,7 +9,7 @@
  * a turn that has already finished.
  */
 import { z } from 'zod'
-import { CompactionTrigger, type ToolInput } from '../../shared/domain'
+import { CompactionTrigger, type EpochMs, type ToolInput } from '../../shared/domain'
 
 export enum AgentEventKind {
   /** The session is running: it names its SDK session id. Arrives at the start of every turn. */
@@ -40,6 +40,11 @@ export enum AgentEventKind {
    * The turn's error `result` follows.
    */
   ApiError = 'api_error',
+  /**
+   * The account's usage limit, as the API's rate limit headers report it (`rate_limit_event`, subscription logins
+   * only): whether it's rejecting requests, and when it resets.
+   */
+  RateLimit = 'rate_limit',
 }
 
 export interface SessionStartedEvent {
@@ -157,6 +162,22 @@ export interface ApiErrorEvent {
   readonly message: string
 }
 
+/** Where the account's usage limit stands (the SDK's `SDKRateLimitInfo.status`). */
+export enum RateLimitStatus {
+  Allowed = 'allowed',
+  /** Allowed, but close to the limit. */
+  AllowedWarning = 'allowed_warning',
+  /** The limit ran out: requests are rejected until it resets. */
+  Rejected = 'rejected',
+}
+
+export interface RateLimitEvent {
+  readonly kind: AgentEventKind.RateLimit
+  readonly status: RateLimitStatus
+  /** When the limit resets; null when the SDK doesn't say. The SDK gives epoch seconds; this is milliseconds. */
+  readonly resetsAt: EpochMs | null
+}
+
 /** Everything the runner reacts to. */
 export type AgentEvent =
   | SessionStartedEvent
@@ -171,6 +192,7 @@ export type AgentEvent =
   | SessionFailedEvent
   | ApiRetryEvent
   | ApiErrorEvent
+  | RateLimitEvent
 
 /** Where parsing reports what it drops. */
 export interface AgentLog {
@@ -182,7 +204,6 @@ const IGNORED_TYPES: ReadonlySet<string> = new Set([
   'auth_status',
   'command_lifecycle',
   'prompt_suggestion',
-  'rate_limit_event',
   'stream_event',
   'tool_progress',
   'tool_use_summary',
@@ -208,6 +229,15 @@ const apiRetryMessage = z.looseObject({
 })
 
 const tokenCount = z.number().int().nonnegative()
+
+const rateLimitMessage = z.looseObject({
+  type: z.literal('rate_limit_event'),
+  rate_limit_info: z.looseObject({
+    status: z.enum(RateLimitStatus),
+    // Unix epoch seconds (the `anthropic-ratelimit-unified-reset` header). A malformed one is as good as missing.
+    resetsAt: z.number().positive().optional().catch(undefined),
+  }),
+})
 
 const compactBoundaryMessage = z.looseObject({
   type: z.literal('system'),
@@ -323,6 +353,11 @@ function fromApiRetry(message: z.infer<typeof apiRetryMessage>): AgentEvent[] {
       code: message.error,
     },
   ]
+}
+
+function fromRateLimit(message: z.infer<typeof rateLimitMessage>): AgentEvent[] {
+  const { status, resetsAt } = message.rate_limit_info
+  return [{ kind: AgentEventKind.RateLimit, status, resetsAt: resetsAt === undefined ? null : resetsAt * 1000 }]
 }
 
 /** An API error's message: its text blocks, joined. */
@@ -469,6 +504,8 @@ export function createSdkMessageParser(log: AgentLog): (raw: unknown) => AgentEv
         return parsed(userMessage, raw, log, 'user', (message) => fromUser(message, log))
       case 'result':
         return fromResult(resultMessage.parse(raw))
+      case 'rate_limit_event':
+        return parsed(rateLimitMessage, raw, log, 'rate_limit_event', fromRateLimit)
       default:
         if (!IGNORED_TYPES.has(type) && !reported.has(type)) {
           reported.add(type)

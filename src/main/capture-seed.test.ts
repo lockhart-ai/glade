@@ -6,6 +6,7 @@ import {
   AgentErrorKind,
   DividerKind,
   MessageRole,
+  PauseReason,
   TaskActivity,
   TaskErrorSource,
   TaskState,
@@ -83,6 +84,10 @@ describe('readSeed', () => {
     expect(readSeed(join(FIXTURES, 'agent-working.json')).tasks[0]?.activity).toBe(TaskActivity.Working)
   })
 
+  it('reads the relaunch fixture', () => {
+    expect(readSeed(join(FIXTURES, 'relaunch.json')).tasks.filter((task) => task.resumedAfterCrash)).toHaveLength(2)
+  })
+
   it('reads the needs you fixture', () => {
     expect(readSeed(join(FIXTURES, 'needs-you.json')).tasks.filter((task) => task.unread)).toHaveLength(1)
   })
@@ -90,6 +95,12 @@ describe('readSeed', () => {
   it('reads the error fixture', () => {
     const selected = readSeed(join(FIXTURES, 'error.json')).tasks.find((task) => task.selected)
     expect(selected).toMatchObject({ activity: TaskActivity.Error, error: { status: 529, code: 'overloaded' } })
+  })
+
+  it('reads the usage limit fixture', () => {
+    const paused = readSeed(join(FIXTURES, 'usage-limit.json')).tasks.filter((task) => task.pause !== undefined)
+    expect(paused).toHaveLength(3)
+    expect(paused.every((task) => task.activity === TaskActivity.Paused)).toBe(true)
   })
 
   it('reads the e2e tool log fixture', () => {
@@ -175,6 +186,24 @@ describe('applySeed', () => {
     applySeed(db, { ...SEED, tasks: [{ title: 'Only', minutesAgo: 0 }] })
 
     expect(getUiState(db, UiStateKey.SelectedTaskId)).toBeUndefined()
+    expect(getUiState(db, UiStateKey.RelaunchNotice)).toBeUndefined()
+  })
+
+  it('names the tasks resumed after a crash in the relaunch notice', () => {
+    const { db } = database
+
+    applySeed(db, {
+      ...SEED,
+      tasks: [
+        { title: 'First', minutesAgo: 0, resumedAfterCrash: true },
+        { title: 'Second', minutesAgo: 0 },
+        { title: 'Third', minutesAgo: 0, resumedAfterCrash: true },
+      ],
+    })
+
+    const tasks = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    const ids = ['First', 'Third'].map((title) => tasks.find((task) => task.title === title)?.id)
+    expect(getUiState(db, UiStateKey.RelaunchNotice)).toBe(JSON.stringify({ taskIds: ids }))
   })
 
   it('gives a titled task a session, since it has run, and a new, untitled one none', () => {
@@ -272,6 +301,30 @@ describe('applySeed', () => {
     })
 
     expect(listTasks(db, listWorkspaces(db)[0]?.id ?? '')).toMatchObject([{ activity: TaskActivity.Error, error }])
+  })
+
+  it('writes why a task’s turn is paused, with its resume time relative to the capture', () => {
+    const { db } = database
+    const pause = { reason: PauseReason.UsageLimit, resumesInMinutes: 42, details: "You've hit your session limit" }
+
+    applySeed(
+      db,
+      { ...SEED, tasks: [{ title: 'Move image uploads to S3', minutesAgo: 1, activity: TaskActivity.Paused, pause }] },
+      NOW,
+    )
+
+    expect(listTasks(db, listWorkspaces(db)[0]?.id ?? '')).toMatchObject([
+      {
+        activity: TaskActivity.Paused,
+        pause: {
+          reason: PauseReason.UsageLimit,
+          since: NOW - 60_000,
+          resumesAt: NOW + 42 * 60_000,
+          checks: 0,
+          details: "You've hit your session limit",
+        },
+      },
+    ])
   })
 
   it('writes dividers, failed calls, and a subagent’s calls under their parent', () => {

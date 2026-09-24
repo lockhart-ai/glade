@@ -315,6 +315,17 @@ export class ScriptedSession implements AgentSession {
       case ScriptStepKind.Ask:
         await this.ask(turn, step, uuid)
         return
+      case ScriptStepKind.LimitReached:
+        this.push({
+          type: 'rate_limit_event',
+          rate_limit_info: {
+            status: 'rejected',
+            resetsAt: Math.ceil((Date.now() + step.resetInMs) / 1000),
+            rateLimitType: 'five_hour',
+          },
+          uuid: randomUUID(),
+        })
+        return
     }
   }
 

@@ -171,8 +171,9 @@ describe('canCompact', () => {
     expect(canCompact({ ...TASK, activity: TaskActivity.Error })).toBe(true)
   })
 
-  it('is false while the agent works, for a done task, and before the agent has a session', () => {
+  it('is false while the agent works or is paused, for a done task, and before the agent has a session', () => {
     expect(canCompact({ ...TASK, activity: TaskActivity.Working })).toBe(false)
+    expect(canCompact({ ...TASK, activity: TaskActivity.Paused })).toBe(false)
     expect(canCompact({ ...TASK, state: TaskState.Done })).toBe(false)
     expect(canCompact({ ...TASK, sessionId: null })).toBe(false)
   })

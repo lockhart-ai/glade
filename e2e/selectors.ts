@@ -128,6 +128,22 @@ export function chat(page: Page) {
     errorButton: (name: 'Retry' | 'Retry with another model' | 'Show details' | 'Hide details') =>
       log.getByRole('alert').getByRole('button', { name, exact: true }),
     errorDetails: log.getByRole('alert').getByLabel('Error details'),
+    /** The line that ends the chat while the task's turn is paused: "Paused · resumes at 11:42". */
+    pausedLine: log.getByRole('status', { name: 'Paused' }),
+  }
+}
+
+/** The app-wide banner across the top of the window while tasks are paused, and its controls. */
+export function pauseBanner(page: Page) {
+  const banner = page.getByRole('status', { name: 'Paused tasks' })
+  return {
+    banner,
+    switchModel: banner.getByRole('button', { name: 'Switch model', exact: true }),
+    details: banner.getByRole('button', { name: 'Details', exact: true }),
+    /** Details' list of the paused tasks: each one's title, then why and until when. */
+    pausedTasks: banner.getByRole('list', { name: 'Paused tasks' }).getByRole('listitem'),
+    /** Details' raw error, as the SDK gave it. */
+    said: banner.getByLabel('What the API said'),
   }
 }
 
@@ -137,6 +153,16 @@ export function toasts(page: Page) {
   return {
     region,
     undo: region.getByRole('button', { name: 'Undo' }),
+  }
+}
+
+/** The notice after Glade quit unexpectedly with tasks mid-turn, in the window's top right corner. */
+export function relaunchNotice(page: Page) {
+  const notice = page.getByRole('status', { name: 'Glade quit unexpectedly' })
+  return {
+    notice,
+    showThem: notice.getByRole('button', { name: 'Show them' }),
+    dismiss: notice.getByRole('button', { name: 'Dismiss' }),
   }
 }
 

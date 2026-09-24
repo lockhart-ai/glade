@@ -18,6 +18,11 @@ export interface AgentErrorFacts {
   readonly code: string | null
   /** The error's text. */
   readonly message: string
+  /**
+   * Whether the SDK said the account's usage limit is rejecting requests (a `rate_limit_event` with status `rejected`)
+   * before the error. A 429 then means the limit ran out, not a passing rate limit. False when it didn't say.
+   */
+  readonly limitRejected?: boolean
 }
 
 /** The SDK's error names for errors that go away if you wait. */
@@ -33,8 +38,9 @@ const TRANSIENT_STATUSES: ReadonlySet<number> = new Set([408, 409, 429])
 const CONNECTION_FAILURE =
   /\b(ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|ENETDOWN)\b|fetch failed|connection error|network/i
 
-function isUsageLimit({ code, message }: AgentErrorFacts): boolean {
+function isUsageLimit({ status, code, message, limitRejected = false }: AgentErrorFacts): boolean {
   if (code !== null && USAGE_LIMIT_CODES.has(code)) return true
+  if (limitRejected && (code === 'rate_limit' || status === 429)) return true
   return USAGE_LIMIT_ERROR_PREFIXES.some((prefix) => message.includes(prefix))
 }
 

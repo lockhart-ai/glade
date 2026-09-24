@@ -7,7 +7,7 @@ import type { Migration } from '../migrate'
  * task has at most one open set, since its agent's turn waits on it.
  */
 export const questionSetsMigration: Migration = {
-  version: 10,
+  version: 11,
   name: 'Add the question sets',
   up(db) {
     db.exec(`

@@ -6,10 +6,12 @@ import {
   AgentErrorKind,
   API_TOOL_NAME,
   MessageRole,
+  PauseReason,
   TaskActivity,
   ToolCallState,
   ToolEventKind,
   type Task,
+  type TaskPause,
   type ToolCallEvent,
   type ToolEvent,
 } from '../../shared/domain'
@@ -24,6 +26,7 @@ import { createQuestionBroker } from '../questions/questions'
 import { createAgentRunner, STOPPED_NOTE, type AgentRunner } from './runner'
 import { createGladeMcpServer, GLADE_SERVER } from './glade-tools'
 import { AGENT_SCRIPT_NAMES, AGENT_SCRIPTS, RELEASE_NOTES_QUESTIONS, type AgentScriptName } from './scripts'
+import { OFFLINE_FIRST_CHECK_MS } from './pauses'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
 
 let database: TestDatabase
@@ -208,6 +211,32 @@ describe('AGENT_SCRIPTS', () => {
     })
   })
 
+  it('long-build: keeps building until the app quits, then builds again and finishes the turn when resumed', async () => {
+    await send(start('long-build'), 'Build the release.')
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+    expect(activity()).toBe(TaskActivity.Working)
+    expect(calls().at(-1)).toMatchObject({ name: 'Bash', state: ToolCallState.Running })
+    runner?.close()
+
+    const resumed = start('long-build')
+    resumed.resumeInterrupted()
+    const idle = backend.whenIdle()
+    await vi.runAllTimersAsync()
+    await idle
+
+    expect(reply()).toBe('The release is built: dist/glade-0.3.0.dmg.')
+    expect(
+      calls()
+        .filter(({ name }) => name === 'Bash')
+        .map(({ state }) => state),
+    ).toEqual([ToolCallState.Error, ToolCallState.Done])
+    expect(getTask(database.db, task.id)).toMatchObject({
+      activity: TaskActivity.Waiting,
+      title: 'Build the release',
+      status: 'The release is built.',
+    })
+  })
+
   it('copy-in-batches: keeps a message queued while it copies, and answers it in the turn it resumes after a quit', async () => {
     const agent = start('copy-in-batches')
     await send(agent, 'Move image uploads to S3.')
@@ -298,6 +327,56 @@ describe('AGENT_SCRIPTS', () => {
       error: { kind: AgentErrorKind.Transient, status: 529, code: 'overloaded', retries: 3 },
     })
     expect(reply()).toBeUndefined()
+  })
+
+  /** Sends the message, lets its first turn play, and answers with the task's pause. */
+  async function pausedBy(agent: AgentRunner, text: string): Promise<TaskPause | null | undefined> {
+    agent.send(task.id, text)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(activity()).toBe(TaskActivity.Paused)
+    return getTask(database.db, task.id)?.pause
+  }
+
+  /** Lets the resumed turn play to its end. */
+  async function resumeAfter(ms: number): Promise<void> {
+    await vi.advanceTimersByTimeAsync(ms)
+    const idle = backend.whenIdle()
+    await vi.runAllTimersAsync()
+    await idle
+  }
+
+  it.each([
+    ['usage-limit', 6_000],
+    ['usage-limit-hour', 60 * 60_000],
+  ] as const)('%s: pauses on the usage limit mid-copy, then resumes when it resets and finishes', async (name, ms) => {
+    const pause = await pausedBy(start(name), 'Move the uploads to S3.')
+
+    expect(pause).toMatchObject({
+      reason: PauseReason.UsageLimit,
+      details: expect.stringMatching(/^You've hit your/) as unknown,
+    })
+    // The SDK gives the reset time to the second.
+    const wait = (pause?.resumesAt ?? 0) - (pause?.since ?? 0)
+    expect(wait).toBeGreaterThanOrEqual(ms)
+    expect(wait).toBeLessThan(ms + 1_000)
+    expect(calls().map((call) => [call.name, call.state])).toContainEqual(['Bash', ToolCallState.Done])
+
+    await resumeAfter(wait)
+    expect(reply()).toBe('The copy finished: all 3,900 files are in the bucket.')
+    expect(getTask(database.db, task.id)).toMatchObject({
+      activity: TaskActivity.Waiting,
+      pause: null,
+      status: 'All 3,900 files copied to S3.',
+    })
+  })
+
+  it('offline: pauses when the network goes, then resumes once it is back and finishes', async () => {
+    const pause = await pausedBy(start('offline'), 'Move the uploads to S3.')
+    expect(pause).toMatchObject({ reason: PauseReason.Offline, details: 'API Error: Connection error.' })
+
+    await resumeAfter(OFFLINE_FIRST_CHECK_MS)
+    expect(reply()).toBe('The copy finished: all 3,900 files are in the bucket.')
+    expect(activity()).toBe(TaskActivity.Waiting)
   })
 
   it('flaky-api: fails on an overloaded API, then gets through when retried', async () => {

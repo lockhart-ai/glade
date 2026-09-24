@@ -25,6 +25,7 @@ describe('needsYou', () => {
     ['waiting on you', RAN, true],
     ['errored', { ...RAN, activity: TaskActivity.Error }, true],
     ['working', { ...RAN, activity: TaskActivity.Working }, false],
+    ['paused, since it resumes on its own', { ...RAN, activity: TaskActivity.Paused }, false],
     ['done', { ...RAN, state: TaskState.Done }, false],
     ['brand new, never run', { ...RAN, sessionId: null }, false],
     ['asking you questions', { ...RAN, asking: true }, true],

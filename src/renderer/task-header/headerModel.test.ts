@@ -57,6 +57,7 @@ describe('offersMarkDone and canMarkDone', () => {
     ['an active task the agent has set up', task, true, true],
     ['a task stopped by an error', { ...task, activity: TaskActivity.Error }, true, true],
     ['a task whose agent is working', { ...task, activity: TaskActivity.Working }, true, false],
+    ['a paused task', { ...task, activity: TaskActivity.Paused }, true, true],
     ['a new task', { ...task, title: '' }, false, false],
     ['a done task', { ...task, state: TaskState.Done }, false, false],
   ])('for %s: offered %s, allowed %s', (_, value, offered, allowed) => {
@@ -72,6 +73,7 @@ describe('pillLabel', () => {
     [TaskActivity.Working, 'Active · working'],
     [TaskActivity.Waiting, 'Active · waiting on you'],
     [TaskActivity.Error, 'Active · stopped by an error'],
+    [TaskActivity.Paused, 'Active · paused'],
   ])('labels an active task that is %s', (activity, expected) => {
     expect(pillLabel({ ...active, activity })).toBe(expected)
   })

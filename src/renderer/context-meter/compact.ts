@@ -9,10 +9,11 @@ export const COMPACT_SHORTCUT = '⌘⇧K'
 
 /**
  * Whether a task can be compacted now: it's active, its agent isn't working (Compact now is off while it works, rather
- * than waiting behind its turn), and its agent has a session, so there's something to compact.
+ * than waiting behind its turn) or paused, and its agent has a session, so there's something to compact.
  */
 export function canCompact(task: Pick<Task, 'state' | 'activity' | 'sessionId'>): boolean {
-  return task.state === TaskState.Active && task.activity !== TaskActivity.Working && task.sessionId !== null
+  const running = task.activity === TaskActivity.Working || task.activity === TaskActivity.Paused
+  return task.state === TaskState.Active && !running && task.sessionId !== null
 }
 
 /** Compacts a task's context now, showing a toast if main refuses. Must be used under a `ToastProvider`. */

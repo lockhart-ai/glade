@@ -288,6 +288,14 @@ receives `compact_summary`. See §5.
   `USAGE_WARNING_PREFIXES` for recognising limit messages.
 - **[verified]** `rate_limit_event.rate_limit_info` gives `status`, `resetsAt` and per-window `utilization`. This is
   useful for the P3 usage-limit screen.
+  - `resetsAt` is **Unix epoch seconds** (the `anthropic-ratelimit-unified-reset` header; the bundled binary's schema
+    says so). `status: "rejected"` means the limit is refusing requests until then. Only subscription logins get the
+    event; an API key gets none.
+  - The usage-limit error itself (`error: "rate_limit"`, a 429) words the reset time for people ("You've hit your
+    session limit · resets 3pm"), so Glade doesn't parse it.
+  - P3-04: a turn that ends on a usage limit (the error prefixes above, `billing_error`, or a 429 after a rejected
+    `rate_limit_event`) or on a connection error pauses its task instead of stopping it, and resumes it at `resetsAt`
+    (15 minutes later without one), or once the network is back. See `src/main/agent/pauses.ts`. Not yet seen live.
 - **[verified] Process failure:** if the binary can't start (e.g. a missing `cwd`), the iterator **throws** and no
   `result` arrives. Glade must catch it and mark the task errored.
 

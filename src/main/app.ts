@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, Notification, type WebPreferences } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, net, Notification, type WebPreferences } from 'electron'
 import { EventType } from '../shared/bridge'
 import type { AgentBackend } from './agent/backend'
 import { createSdkBackend } from './agent/sdk-backend'
@@ -15,14 +15,24 @@ import {
   type MinimumSize,
 } from './capture'
 import { openAppDatabase, type AppDatabase } from './db/database'
+import { firstUserMessageOfSession } from './db/repositories/messages'
 import { applySeed, readSeed } from './capture-seed'
 import { chooseFolder } from './dialogs'
-import { E2E_NOTIFIER_GLOBAL, E2E_WINDOW_SIZE, e2eChosenFolder, prepareE2e, readE2eSpec, type E2eSpec } from './e2e'
+import {
+  createE2eNetwork,
+  E2E_NOTIFIER_GLOBAL,
+  E2E_WINDOW_SIZE,
+  e2eChosenFolder,
+  prepareE2e,
+  readE2eSpec,
+  type E2eSpec,
+} from './e2e'
 import { createElectronNotifier } from './notifications/electron-notifier'
 import { createReplyNotifications } from './notifications/notifications'
 import type { Notifier } from './notifications/notifier'
 import { createRecordingNotifier } from './notifications/recording-notifier'
 import { openTaskWithoutWindow } from './tasks/attention'
+import { markQuit, markRunning, noteRelaunch } from './relaunch'
 import { checkSecurity, describeViolations } from './security'
 import { seedConversation } from './capture-conversation'
 
@@ -207,9 +217,9 @@ function startTestMode(): TestMode {
 
 /**
  * The agent a test mode's tasks run on: the script its spec names, or none, and for an e2e spec the scripts it picks by
- * a task's first message.
+ * a task's first message, read from the database for a session resumed on launch.
  */
-function createTestModeAgent(testMode: NonNullable<TestMode>): TestModeAgentBackend {
+function createTestModeAgent(testMode: NonNullable<TestMode>, db: AppDatabase['db']): TestModeAgentBackend {
   const name: AgentScriptName | undefined =
     testMode.kind === TestModeKind.Capture ? testMode.spec.conversation?.agentScript : testMode.spec.agentScript
   const byFirstMessage = testMode.kind === TestModeKind.E2e ? testMode.spec.agentScriptsByFirstMessage : undefined
@@ -218,6 +228,7 @@ function createTestModeAgent(testMode: NonNullable<TestMode>): TestModeAgentBack
     byFirstMessage: new Map(
       Object.entries(byFirstMessage ?? {}).map(([message, script]) => [message, AGENT_SCRIPTS[script]]),
     ),
+    firstMessageOf: (sessionId) => firstUserMessageOfSession(db, sessionId),
   })
 }
 
@@ -309,7 +320,7 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
     const { database } = opening
 
     // A test mode never reaches the real Claude API, whatever the app was started with: its agent plays a script.
-    const testAgent = testMode === null ? null : createTestModeAgent(testMode)
+    const testAgent = testMode === null ? null : createTestModeAgent(testMode, database.db)
     const notifyReply = createReplyNotifications({
       db: database.db,
       notifier: createNotifier(testMode),
@@ -333,6 +344,8 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
           ? () => Promise.resolve(e2eChosenFolder(process.env))
           : () => chooseFolder(dialog, BrowserWindow.getFocusedWindow()),
       notifyReply,
+      // Whether the network is up, for resuming a task paused offline. In e2e mode, the spec decides.
+      isOnline: testMode?.kind === TestModeKind.E2e ? createE2eNetwork() : net.isOnline.bind(net),
     })
 
     const { runner } = bridge
@@ -341,9 +354,11 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
       void runCapture(testMode.spec, { database, bridge, agent: testAgent })
       return
     }
-    // Carry on the turns the app last quit or crashed in; the window loads what they save from the database. An e2e
-    // seed is the state the window opens on, not a run the app quit in, so it goes in afterwards.
-    runner.resumeInterrupted()
+    // Carry on the turns the app last quit or crashed in; the window loads what they save from the database, and the
+    // relaunch notice when it crashed. An e2e seed is the state the window opens on, not a run the app quit in, so it
+    // goes in afterwards.
+    const crashed = markRunning(database.db)
+    noteRelaunch(database.db, crashed, runner.resumeInterrupted())
     if (testMode?.kind === TestModeKind.E2e && !seedE2e(testMode.spec, database)) {
       runner.close()
       return
@@ -351,6 +366,8 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
 
     app.on('will-quit', () => {
       runner.close()
+      // Quitting can get here again once the database is closed; the mark went with the first time.
+      if (database.db.open) markQuit(database.db)
       database.db.close()
     })
 

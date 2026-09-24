@@ -14,9 +14,12 @@ import { openAppDatabase } from './db/database'
 import { MIGRATIONS } from './db/migrations'
 import { appendMessage } from './db/repositories/messages'
 import { updateTask } from './db/repositories/tasks'
+import { getUiState } from './db/repositories/ui-state'
 import { sampleTask, sampleWorkspace } from './db/repositories/test-database'
 import { CHOOSE_FOLDER_OPTIONS } from './dialogs'
 import type { RecordingNotifier } from './notifications/recording-notifier'
+import { markRunning } from './relaunch'
+import { serializeRelaunchNotice } from '../shared/relaunchNotice'
 
 type Handler = (...args: unknown[]) => unknown
 
@@ -124,6 +127,7 @@ vi.mock('electron', () => ({
   dialog: electron.dialog,
   ipcMain: electron.ipcMain,
   Notification: electron.FakeNotification,
+  net: { isOnline: () => true },
 }))
 
 // The real agent backend, watched: a test mode must never make one.
@@ -371,6 +375,45 @@ describe('startApp', () => {
     expect(backend.session.options.resumeSessionId).toBe('session-1')
     expect(backend.session.sent.map(({ text }) => text)).toEqual([RESUME_PROMPT])
     expect(onlyWindow()).toBeDefined()
+  })
+
+  /** Starts the app on a database whose last run left a task mid-turn, and answers with the task's id. */
+  async function startAfterRun({ crashed }: { crashed: boolean }): Promise<string> {
+    const { db } = openAppDatabase(electron.app.userData)
+    const task = sampleTask(db, sampleWorkspace(db).id)
+    appendMessage(db, { taskId: task.id, role: MessageRole.User, body: 'Run the suite.', turn: 1 })
+    updateTask(db, task.id, { activity: TaskActivity.Working, sessionId: 'session-1' })
+    if (crashed) markRunning(db)
+    db.close()
+    startApp({ createAgentBackend: () => new FakeAgentBackend() })
+    await Promise.resolve()
+    await Promise.resolve()
+    return task.id
+  }
+
+  function relaunchNotice(): string | undefined {
+    const db = new Database(join(electron.app.userData, 'glade.db'))
+    try {
+      return getUiState(db, UiStateKey.RelaunchNotice)
+    } finally {
+      db.close()
+    }
+  }
+
+  it('saves the relaunch notice when the last run crashed with tasks mid-turn', async () => {
+    const taskId = await startAfterRun({ crashed: true })
+
+    expect(relaunchNotice()).toBe(serializeRelaunchNotice({ taskIds: [taskId] }))
+  })
+
+  it('resumes without a notice after a clean quit, and clears the running mark when it quits', async () => {
+    await startAfterRun({ crashed: false })
+
+    expect(relaunchNotice()).toBeUndefined()
+    appHandler('will-quit')()
+    const { db } = openAppDatabase(electron.app.userData)
+    expect(markRunning(db)).toBe(false)
+    db.close()
   })
 
   it("notifies a reply in a task you aren't viewing with a silent native notification", async () => {
@@ -825,6 +868,25 @@ describe('startApp in e2e mode', () => {
       ])
     })
     db.close()
+  })
+
+  it('resumes a task on the agent script its first message picked', async () => {
+    const { db } = openAppDatabase(electron.app.userData)
+    const task = sampleTask(db, sampleWorkspace(db, electron.app.userData).id)
+    appendMessage(db, { taskId: task.id, role: MessageRole.User, body: 'How does it retry?', turn: 1 })
+    updateTask(db, task.id, { activity: TaskActivity.Working, sessionId: 'session-1' })
+    db.close()
+    askForE2e({ agentScriptsByFirstMessage: { 'How does it retry?': 'simple-reply' } })
+
+    await startAndWaitUntilReady()
+
+    const check = new Database(join(electron.app.userData, 'glade.db'))
+    await vi.waitFor(() => {
+      expect(check.prepare("SELECT body FROM messages WHERE role = 'agent'").all()).toEqual([
+        { body: expect.stringMatching(/^The client retries/) as unknown },
+      ])
+    })
+    check.close()
   })
 
   it('never makes the real agent backend by default either', async () => {

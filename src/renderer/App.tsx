@@ -5,6 +5,7 @@ import { ContextMeter } from './context-meter'
 import { ToastProvider } from './components'
 import { FirstRun } from './first-run/FirstRun'
 import { InputBar } from './input-bar'
+import { PauseBanner } from './pause/PauseBanner'
 import { AppShell, BottomBar, Sidebar, SidebarHeader, TaskCard } from './layout'
 import styles from './App.module.css'
 import { HydrationStatus, selectSelectedWorkspace } from './store/state'
@@ -17,6 +18,7 @@ import { useMarkUnreadShortcut } from './shortcuts/useMarkUnreadShortcut'
 import { useStopShortcut } from './shortcuts/useStopShortcut'
 import { useCompactShortcut } from './shortcuts/useCompactShortcut'
 import { TaskPanel } from './tool-log'
+import { RelaunchNotice } from './relaunch-notice'
 
 interface PlaceholderProps {
   label: string
@@ -31,14 +33,19 @@ function Placeholder({ label, className }: PlaceholderProps): React.JSX.Element 
 interface WindowProps {
   sidebar: ReactNode
   task: ReactNode
+  /** The app-wide banner, if any. */
+  banner?: ReactNode
+  overlay?: ReactNode
 }
 
 /** The window frame, with the bottom bar's placeholder until the terminal ticket fills it. */
-function Window({ sidebar, task }: WindowProps): React.JSX.Element {
+function Window({ sidebar, task, banner, overlay }: WindowProps): React.JSX.Element {
   return (
     <AppShell
+      banner={banner}
       sidebar={sidebar}
       task={task}
+      overlay={overlay}
       bottomBar={
         <BottomBar
           terminalTabs={<Placeholder label="Terminal tabs" className={styles.tabs} />}
@@ -74,6 +81,7 @@ function Layout(): React.JSX.Element {
   useMarkUnreadShortcut()
   return (
     <Window
+      banner={<PauseBanner />}
       sidebar={
         <Sidebar>
           <SidebarHeader workspace={workspace} />
@@ -93,6 +101,7 @@ function Layout(): React.JSX.Element {
           rightPanel={<TaskPanel />}
         />
       }
+      overlay={<RelaunchNotice />}
     />
   )
 }

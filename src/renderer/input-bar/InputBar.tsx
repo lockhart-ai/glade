@@ -8,6 +8,7 @@ import { Icon, IconSize, Textarea, useToast } from '../components'
 import { describeFailure } from '../store/hydrate'
 import { selectSelectedTask } from '../store/state'
 import { useGladeStore } from '../store/react'
+import { PAUSED_PLACEHOLDER } from '../pause/pauseModel'
 import { QueueList } from './QueueList'
 import { SettingPicker, type SettingOption } from './SettingPicker'
 import styles from './InputBar.module.css'
@@ -45,11 +46,13 @@ function isEffort(value: string): value is Effort {
 
 /**
  * What the empty field says: a new task asks for its description, a working agent's says the message will be queued,
- * one an error stopped points at the error card's Retry, and a done task's says a message reopens it.
+ * a paused one's that it's queued until the task resumes, one an error stopped points at the error card's Retry, and a
+ * done task's says a message reopens it.
  */
 function placeholder(task: Task, started: boolean, working: boolean): string {
   if (task.state === TaskState.Done) return DONE_PLACEHOLDER
   if (working) return QUEUE_PLACEHOLDER
+  if (task.activity === TaskActivity.Paused) return PAUSED_PLACEHOLDER
   if (task.activity === TaskActivity.Error) return ERROR_PLACEHOLDER
   return started ? REPLY_PLACEHOLDER : NEW_TASK_PLACEHOLDER
 }
@@ -132,7 +135,8 @@ interface TaskInputBarProps extends InputBarProps {
 
 /**
  * Where you talk to the task's agent: the model, effort and permissions settings above a message field. ↵ sends and
- * ⇧↵ adds a line. While the agent works, sending queues the message instead and Stop shows beside Send. The queue
+ * ⇧↵ adds a line. While the agent works, sending queues the message instead and Stop shows beside Send; while its turn
+ * is paused, sending queues it too, until the task resumes. The queue
  * shows above the settings, where each message can be edited in place or removed; ↑ in the empty field edits the last.
  */
 function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInputBarProps): React.JSX.Element {
@@ -151,6 +155,8 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   const [editingId, setEditingId] = useState<string | null>(null)
 
   const working = task.state === TaskState.Active && task.activity === TaskActivity.Working
+  // A paused turn resumes on its own: messages wait in the queue until then.
+  const paused = task.state === TaskState.Active && task.activity === TaskActivity.Paused
   // An empty draft doesn't disable Send (the design shows it ready); sending one just does nothing.
   const canSend = !sending
   // The message being edited has left the queue: delivered, or removed elsewhere.
@@ -167,7 +173,8 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     if (!canSend || text === '') return
     setSending(true)
     try {
-      if (working) await queueMessage(task.id, text)
+      // A message to an agent waiting on answers to its questions answers them, so it's sent, whatever else holds the task.
+      if ((working || paused) && !task.asking) await queueMessage(task.id, text)
       else {
         // The agent may have started working since the bar last heard: then the message waits in the queue.
         await sendMessage(task.id, text).catch((error: unknown) => {
@@ -227,6 +234,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
       <QueueList
         messages={queue}
         working={working}
+        paused={paused}
         editingId={editingId}
         onEdit={setEditingId}
         onSave={saveQueued}
@@ -291,7 +299,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
         )}
         <button
           type="button"
-          aria-label={working ? 'Queue message' : 'Send'}
+          aria-label={working || paused ? 'Queue message' : 'Send'}
           className={styles.send}
           disabled={!canSend}
           onClick={() => {

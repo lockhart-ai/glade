@@ -29,7 +29,9 @@ export function needsYou(task: Pick<Task, 'state' | 'activity' | 'sessionId' | '
     case TaskActivity.Waiting:
     case TaskActivity.Error:
       return true
+    // A paused turn resumes on its own.
     case TaskActivity.Working:
+    case TaskActivity.Paused:
       return false
   }
 }

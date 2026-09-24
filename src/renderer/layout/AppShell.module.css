@@ -1,12 +1,23 @@
+/* A column rather than a grid, so the banner, when there is one, takes its own height above the rest. */
 .shell {
   position: relative;
   box-sizing: border-box;
   height: 100vh;
   padding: var(--space-outer);
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) min(var(--bottom-bar-height), var(--bottom-bar-max-height));
+  display: flex;
+  flex-direction: column;
   gap: var(--space-outer);
   overflow: hidden;
+}
+
+.shell > * {
+  flex-shrink: 0;
+}
+
+.bottom {
+  height: min(var(--bottom-bar-height), var(--bottom-bar-max-height));
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
 }
 
 /* The outer padding along the top edge drags the window (the title bar is hidden). */
@@ -17,7 +28,8 @@
   -webkit-app-region: drag;
 }
 
-.top {
+.shell > .top {
+  flex: 1 1 0;
   min-height: 0;
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);

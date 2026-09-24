@@ -21,7 +21,9 @@ export function taskIndicator(task: Pick<Task, 'state' | 'activity'>): TaskIndic
   switch (task.activity) {
     case TaskActivity.Waiting:
       return TaskIndicator.Waiting
+    // A paused turn is still under way: it resumes on its own (docs/design/html/17-usage-limit.html).
     case TaskActivity.Working:
+    case TaskActivity.Paused:
       return TaskIndicator.Working
     case TaskActivity.Error:
       return TaskIndicator.Error

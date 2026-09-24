@@ -26,6 +26,8 @@ import {
   type UserEntry,
 } from './chatModel'
 import { shortenHomePath } from '../paths'
+import { isPaused, pausedChatLine } from '../pause/pauseModel'
+import { useNow } from '../task-list/useNow'
 import { ErrorCard } from './ErrorCard'
 import { Markdown } from './Markdown'
 import { useStickToBottom } from './useStickToBottom'
@@ -143,6 +145,21 @@ function WorkingLine({ label }: WorkingLineProps): React.JSX.Element {
   )
 }
 
+interface PausedLineProps {
+  /** What it says (`pausedChatLine`). */
+  readonly label: string
+}
+
+/** The line that ends the chat while the task's turn is paused: when it resumes. */
+function PausedLine({ label }: PausedLineProps): React.JSX.Element {
+  return (
+    <div role="status" aria-label="Paused" className={styles.paused}>
+      <span className={styles.pausedDot} aria-hidden />
+      {label}
+    </div>
+  )
+}
+
 interface NewTaskPromptProps {
   /** The task's workspace root, where the agent works. */
   readonly root: string
@@ -164,7 +181,8 @@ function NewTaskPrompt({ root }: NewTaskPromptProps): React.JSX.Element {
 /**
  * The selected task's conversation: your messages and the agent's final reply per turn, never anything from within a
  * turn. While a turn runs, a working line shows the agent's latest narration, or which retry of a failed API request
- * is running; when an error stops the agent, its error card ends the conversation. It keeps to the bottom as the
+ * is running; when an error stops the agent, its error card ends the conversation, and while its turn is paused, a
+ * paused line saying when it resumes. It keeps to the bottom as the
  * conversation grows, unless you've scrolled up.
  */
 export function Chat(): React.JSX.Element {
@@ -184,7 +202,12 @@ export function Chat(): React.JSX.Element {
   const narration = task === undefined ? null : workingNarration(task, messages, toolEvents)
   const working = task === undefined || narration === null ? null : workingLabel(task, narration)
   const stopped = task !== undefined && isStoppedByError(task)
-  const { ref, onScroll } = useStickToBottom(`${String(entries.length)}:${working ?? ''}:${String(stopped)}`, task?.id)
+  const now = useNow()
+  const paused = task !== undefined && isPaused(task) ? pausedChatLine(task.pause, now) : null
+  const { ref, onScroll } = useStickToBottom(
+    `${String(entries.length)}:${working ?? ''}:${String(stopped)}:${paused ?? ''}`,
+    task?.id,
+  )
   const isNew = task !== undefined && entries.length === 0 && narration === null
 
   return (
@@ -225,6 +248,7 @@ export function Chat(): React.JSX.Element {
         })}
         {working !== null && <WorkingLine label={working} />}
         {stopped && <ErrorCard key={task.id} task={task} />}
+        {paused !== null && <PausedLine label={paused} />}
       </div>
     </div>
   )

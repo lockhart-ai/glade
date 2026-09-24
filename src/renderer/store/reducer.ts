@@ -27,6 +27,7 @@ export function withUiState(state: GladeData, entry: UiStateEntry): GladeData {
     case UiStateKey.ActiveSectionCollapsed:
     case UiStateKey.DoneSectionCollapsed:
     case UiStateKey.TaskFilter:
+    case UiStateKey.RelaunchNotice:
       return next
   }
 }
