@@ -128,6 +128,8 @@ export interface GladeActions {
    * you, arrives as an event. Does nothing when the agent isn't working.
    */
   stopTask: (taskId: string) => Promise<void>
+  /** Retries the turn an error stopped, on `model` if given (`tasks.retry`). */
+  retryTask: (taskId: string, model?: string) => Promise<void>
   /** Asks the tool log to show a task's turn (see `ToolLogFocus`). */
   focusTurn: (taskId: string, turn: number) => void
   /** Asks the input bar to focus its message field (see `inputFocusRequest`). */

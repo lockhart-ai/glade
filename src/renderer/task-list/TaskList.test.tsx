@@ -1,7 +1,15 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { TaskActivity, TaskState, UiStateKey, type Task, type UiStateEntry } from '../../shared/domain'
+import {
+  AgentErrorKind,
+  TaskActivity,
+  TaskErrorSource,
+  TaskState,
+  UiStateKey,
+  type Task,
+  type UiStateEntry,
+} from '../../shared/domain'
 import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
@@ -132,6 +140,24 @@ describe('TaskList', () => {
 
     expect(row('New task')).toHaveTextContent('New tasknowWaiting for instructions')
     expect(row('Finished')).toHaveTextContent(/^Finishednow$/)
+  })
+
+  it('says what stopped the agent in place of the status while an error has, with a pink dot', async () => {
+    const error = {
+      kind: AgentErrorKind.Transient,
+      source: TaskErrorSource.Api,
+      status: 529,
+      code: 'overloaded',
+      details: 'API Error: 529 Overloaded',
+      retries: 3,
+      retryingMs: 120_000,
+    }
+    await renderList([
+      task('e1', 'Fix flaky login test', 0, { status: 'Found the race', activity: TaskActivity.Error, error }),
+    ])
+
+    expect(row('Fix flaky login test')).toHaveTextContent('Fix flaky login testnowError: API overloaded · retry?')
+    expect(row('Fix flaky login test').querySelector('[data-state]')).toHaveAttribute('data-state', 'error')
   })
 
   it('marks an unread row with a blue dot', async () => {

@@ -34,6 +34,7 @@ export enum CommandName {
   TasksUpdate = 'tasks.update',
   TasksSend = 'tasks.send',
   TasksStop = 'tasks.stop',
+  TasksRetry = 'tasks.retry',
   TasksHistory = 'tasks.history',
   QueueAdd = 'queue.add',
   QueueEdit = 'queue.edit',
@@ -168,6 +169,21 @@ export interface TasksSendResponse {
  */
 export type TasksStopRequest = TaskIdRequest
 
+/**
+ * Retries the turn an error stopped: the turn's last message goes to the agent again, in the same session, and the
+ * task is working again, with its error cleared. With a `model`, the task changes to it first, and the retry runs on
+ * it. Answers with the task, working. Nothing new goes to the chat log: the turn's progress arrives as events, as it
+ * does after `tasks.send`, and a turn that fails again stops the task on the new error.
+ *
+ * Fails with `invalid_transition` for a task whose agent isn't stopped by an error, `busy` while the agent is working
+ * on a turn, and `not_found` when there's no such task.
+ */
+export interface TasksRetryRequest {
+  readonly id: string
+  /** The model to retry on, as the SDK names it; the task's own when left out. */
+  readonly model?: string
+}
+
 /** A task's chat log and tool log, each in the order they were appended, and its message queue. */
 export interface TasksHistoryResponse {
   readonly messages: readonly Message[]
@@ -244,6 +260,7 @@ export interface CommandMap {
   [CommandName.TasksUpdate]: CommandSpec<TasksUpdateRequest, TaskResponse>
   [CommandName.TasksSend]: CommandSpec<TasksSendRequest, TasksSendResponse>
   [CommandName.TasksStop]: CommandSpec<TasksStopRequest, TaskResponse>
+  [CommandName.TasksRetry]: CommandSpec<TasksRetryRequest, TaskResponse>
   [CommandName.TasksHistory]: CommandSpec<TaskIdRequest, TasksHistoryResponse>
   [CommandName.QueueAdd]: CommandSpec<QueueAddRequest, QueuedMessageResponse>
   [CommandName.QueueEdit]: CommandSpec<QueueEditRequest, QueuedMessageResponse>

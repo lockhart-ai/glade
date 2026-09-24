@@ -10,6 +10,7 @@ import {
   type QueueRemoveRequest,
   type TaskIdRequest,
   type TasksCreateRequest,
+  type TasksRetryRequest,
   type TasksSendRequest,
   type TasksUpdateRequest,
   type TasksListRequest,
@@ -57,6 +58,11 @@ const messageText = z.string().refine((text) => text.trim() !== '', 'Expected a 
 
 const tasksSendRequest = z.strictObject({ id: z.string(), text: messageText }) satisfies z.ZodType<TasksSendRequest>
 
+const tasksRetryRequest = z.strictObject({
+  id: z.string(),
+  model: z.string().min(1).optional(),
+}) satisfies z.ZodType<TasksRetryRequest>
+
 const queueAddRequest = z.strictObject({ taskId: z.string(), text: messageText }) satisfies z.ZodType<QueueAddRequest>
 
 const queueEditRequest = z.strictObject({ id: z.string(), text: messageText }) satisfies z.ZodType<QueueEditRequest>
@@ -82,6 +88,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.TasksUpdate]: tasksUpdateRequest,
   [CommandName.TasksSend]: tasksSendRequest,
   [CommandName.TasksStop]: taskIdRequest,
+  [CommandName.TasksRetry]: tasksRetryRequest,
   [CommandName.TasksHistory]: taskIdRequest,
   [CommandName.QueueAdd]: queueAddRequest,
   [CommandName.QueueEdit]: queueEditRequest,

@@ -1,5 +1,6 @@
 import { TaskState, type EpochMs, type Task } from '../../shared/domain'
-import { taskIndicator } from '../../shared/taskIndicator'
+import { TaskIndicator, taskIndicator } from '../../shared/taskIndicator'
+import { errorStatusLine } from '../../shared/taskError'
 import { classNames } from '../components/classNames'
 import { Dot } from '../components'
 import { formatRelativeTime } from './relativeTime'
@@ -18,9 +19,18 @@ export interface TaskRowProps {
   onSelect: (taskId: string) => void
 }
 
-/** One task in the list: its state dot, title, relative time, and one line of status. Unread rows are bold. */
+/** The row's line of status: what stopped the agent, while an error has; otherwise the task's status. */
+function statusLine(task: Task): string {
+  if (taskIndicator(task) === TaskIndicator.Error) return errorStatusLine(task.error)
+  return task.status === '' && task.state === TaskState.Active ? NO_STATUS : task.status
+}
+
+/**
+ * One task in the list: its state dot, title, relative time, and one line of status ("Error: API overloaded · retry?"
+ * while an error has stopped its agent). Unread rows are bold.
+ */
 export function TaskRow({ task, now, selected, onSelect }: TaskRowProps): React.JSX.Element {
-  const status = task.status === '' && task.state === TaskState.Active ? NO_STATUS : task.status
+  const status = statusLine(task)
   return (
     <button
       type="button"

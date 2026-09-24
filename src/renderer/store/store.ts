@@ -148,6 +148,10 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.TasksStop, { id: taskId })
       },
 
+      async retryTask(taskId, model) {
+        await bridge.invoke(CommandName.TasksRetry, model === undefined ? { id: taskId } : { id: taskId, model })
+      },
+
       focusTurn(taskId, turn) {
         set(({ toolLogFocus }) => ({ toolLogFocus: { taskId, turn, request: (toolLogFocus?.request ?? 0) + 1 } }))
       },

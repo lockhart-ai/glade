@@ -119,6 +119,7 @@ describe('parsing SDK messages', () => {
         usage: { inputTokens: 28, outputTokens: 553, cacheReadInputTokens: 58094, cacheCreationInputTokens: 9443 },
         contextWindows: { [sdk.MODEL]: sdk.CONTEXT_WINDOW },
         userMessageUuids: null,
+        apiErrorStatus: null,
       },
     ])
   })
@@ -146,10 +147,35 @@ describe('parsing SDK messages', () => {
     ])
   })
 
-  it('reads an error result by its error flag, not its subtype', () => {
+  it('reads an error result by its error flag, not its subtype, with its API error status', () => {
     expect(parse(sdk.apiErrorResult())).toEqual([
-      expect.objectContaining({ kind: AgentEventKind.TurnFinished, isError: true, terminalReason: 'api_error' }),
+      expect.objectContaining({
+        kind: AgentEventKind.TurnFinished,
+        isError: true,
+        result: sdk.OVERLOADED_ERROR,
+        terminalReason: 'api_error',
+        apiErrorStatus: 529,
+      }),
     ])
+    expect(parse(sdk.result('', { api_error_status: 'n/a' }))).toEqual([
+      expect.objectContaining({ apiErrorStatus: null }),
+    ])
+  })
+
+  it('reads the notice of a retried API request', () => {
+    expect(parse(sdk.apiRetry(2, 10))).toEqual([
+      { kind: AgentEventKind.ApiRetry, attempt: 2, maxRetries: 10, delayMs: 1000, status: 529, code: 'overloaded' },
+    ])
+    const connection = { ...(sdk.apiRetry(1) as object), error_status: null, error: 'unknown', retry_delay_ms: 'x' }
+    expect(parse(connection)).toEqual([expect.objectContaining({ status: null, code: 'unknown', delayMs: 0 })])
+  })
+
+  it('reads the message an API error makes as the error, not as text or context used', () => {
+    expect(parse(sdk.apiErrorMessage('overloaded'))).toEqual([
+      { kind: AgentEventKind.ApiError, code: 'overloaded', message: sdk.OVERLOADED_ERROR },
+    ])
+    // A subagent's failed request is its own business.
+    expect(parse(sdk.apiErrorMessage('overloaded', sdk.OVERLOADED_ERROR, 'toolu_agent'))).toEqual([])
   })
 
   it('reads a result with fields missing or malformed as a failed turn with what it could read', () => {
@@ -165,6 +191,7 @@ describe('parsing SDK messages', () => {
         usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
         contextWindows: {},
         userMessageUuids: null,
+        apiErrorStatus: null,
       },
     ])
   })
@@ -196,6 +223,7 @@ describe('parsing SDK messages', () => {
     ['null', null, 'Dropped an SDK message with no type'],
     ['a message with no type', { subtype: 'init' }, 'Dropped an SDK message with no type'],
     ['an init with no session id', { type: 'system', subtype: 'init', model: 'm' }, 'system/init'],
+    ['an API retry with no attempt', { type: 'system', subtype: 'api_retry', max_retries: 3 }, 'system/api_retry'],
     ['an assistant message with no content', { type: 'assistant', message: {} }, 'assistant'],
     ['a user message with no message', { type: 'user' }, 'user'],
   ])('drops %s, logging why', (_case, raw, logged) => {
