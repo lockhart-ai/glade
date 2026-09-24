@@ -132,9 +132,36 @@ export function result(reply: string, overrides: Record<string, unknown> = {}): 
   }
 }
 
-/** A turn that failed on an API error: the SDK's "success" subtype, but flagged as an error. */
-export function apiErrorResult(): unknown {
-  return result('', { is_error: true, terminal_reason: 'api_error', api_error_status: 529, errors: [] })
+/** What an overloaded API says, as the SDK words it. */
+export const OVERLOADED_ERROR =
+  'API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_011Sample"}'
+
+/** A turn that failed on an API error: the SDK's "success" subtype, but flagged as an error, with the error as its text. */
+export function apiErrorResult(text = OVERLOADED_ERROR, status: number | null = 529): unknown {
+  return result(text, { is_error: true, terminal_reason: 'api_error', api_error_status: status, errors: [] })
+}
+
+/** The assistant message the SDK makes of an API request it gave up on: the error, in place of the model's reply. */
+export function apiErrorMessage(code = 'overloaded', text = OVERLOADED_ERROR, parent: string | null = null): unknown {
+  return {
+    ...(assistant([{ type: 'text', text }], parent, 'msg_api_error') as object),
+    error: code,
+  }
+}
+
+/** The notice the SDK sends before it retries a failed API request (`docs/sdk-notes.md`, "Errors and retries"). */
+export function apiRetry(attempt: number, maxRetries = 10, status: number | null = 529, code = 'overloaded'): unknown {
+  return {
+    type: 'system',
+    subtype: 'api_retry',
+    attempt,
+    max_retries: maxRetries,
+    retry_delay_ms: 500 * 2 ** (attempt - 1),
+    error_status: status,
+    error: code,
+    uuid: `retry-${String(attempt)}`,
+    session_id: SESSION_ID,
+  }
 }
 
 /** The partial text the SDK flushes when a turn is interrupted mid-text, flagged as aborted. */

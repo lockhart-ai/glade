@@ -24,6 +24,7 @@ import {
   type ToolEvent,
   type TurnSummary,
 } from '../../shared/domain'
+import { retryingLabel } from '../../shared/taskError'
 
 /** How an agent reply is styled. */
 export enum ReplyStyle {
@@ -257,6 +258,20 @@ export function workingNarration(
     (event): event is NarrationEvent => event.kind === ToolEventKind.Narration && event.turn === turn,
   )
   return latest?.text ?? ''
+}
+
+/**
+ * What the working line says: `Working · <the latest narration>` (just `Working` before the first), or `Retrying (2 of
+ * 10)…` while a failed API request is being retried.
+ */
+export function workingLabel(task: Pick<Task, 'retrying'>, narration: string): string {
+  if (task.retrying !== null) return retryingLabel(task.retrying)
+  return narration === '' ? 'Working' : `Working · ${narration}`
+}
+
+/** Whether an error stopped the task's agent: the chat ends with the error card. */
+export function isStoppedByError(task: Pick<Task, 'state' | 'activity'>): boolean {
+  return task.state === TaskState.Active && task.activity === TaskActivity.Error
 }
 
 /** How long a turn ran: "8s", "24m 10s", "1h 2m", to the nearest second. */

@@ -2,6 +2,8 @@
 // with is what an e2e spec or a capture sees.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  AgentErrorKind,
+  API_TOOL_NAME,
   MessageRole,
   TaskActivity,
   ToolCallState,
@@ -254,16 +256,34 @@ describe('AGENT_SCRIPTS', () => {
     })
   })
 
-  it('failing-turn: fails on an API error after its first tool call', async () => {
+  it('failing-turn: fails on an API error after its first tool call, once its retries are spent', async () => {
     const agent = start('failing-turn')
     await send(agent, 'Build it.')
 
-    expect(calls().map((call) => [call.name, call.state])).toEqual([['Bash', ToolCallState.Done]])
-    expect(listToolEvents(database.db, task.id).at(-1)).toMatchObject({
-      kind: ToolEventKind.Narration,
-      text: 'API Error: 529 Overloaded. Try again in a moment.',
+    expect(calls().map((call) => [call.name, call.state, call.input])).toEqual([
+      ['Bash', ToolCallState.Done, expect.anything()],
+      [API_TOOL_NAME, ToolCallState.Error, { request: 'request 4 of 4' }],
+    ])
+    expect(getTask(database.db, task.id)).toMatchObject({
+      activity: TaskActivity.Error,
+      retrying: null,
+      error: { kind: AgentErrorKind.Transient, status: 529, code: 'overloaded', retries: 3 },
     })
-    expect(activity()).toBe(TaskActivity.Error)
     expect(reply()).toBeUndefined()
+  })
+
+  it('flaky-api: fails on an overloaded API, then gets through when retried', async () => {
+    const agent = start('flaky-api')
+    await send(agent, 'Fix the flaky login test.')
+    expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Error, title: 'Fix flaky login test' })
+
+    agent.retry(task.id)
+    const idle = backend.whenIdle()
+    await vi.runAllTimersAsync()
+    await idle
+
+    expect(reply()).toBe('The test passes 200 times in a row against Postgres, so the race is fixed.')
+    expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, error: null, retrying: null })
+    expect(listMessages(database.db, task.id).map((message) => message.turn)).toEqual([1, 1])
   })
 })

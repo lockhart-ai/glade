@@ -1,8 +1,19 @@
 import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
-import { Effort, TaskActivity, TaskState, type EpochMs, type Task } from '../../../shared/domain'
+import { z } from 'zod'
+import {
+  AgentErrorKind,
+  Effort,
+  TaskActivity,
+  TaskErrorSource,
+  TaskState,
+  type ApiRetry,
+  type EpochMs,
+  type Task,
+  type TaskError,
+} from '../../../shared/domain'
 import { contextWindowFor } from '../../../shared/contextWindow'
-import { Row } from './rows'
+import { Row, RowError } from './rows'
 
 export interface NewTask {
   readonly workspaceId: string
@@ -29,14 +40,44 @@ export interface TaskPatch {
   readonly contextUsedTokens?: number
   /** The window the SDK reported. Changing the model without one resets it to what the new model's id gives. */
   readonly contextWindowTokens?: number
+  /** What stopped the agent; null clears it. */
+  readonly error?: TaskError | null
+  /** The automatic API retry in progress; null clears it. */
+  readonly retrying?: ApiRetry | null
 }
 
 const COLUMNS = `id, workspace_id, title, objective, status, status_updated_at, state, activity, pinned, unread, model,
-  effort, created_at, updated_at, done_at, session_id, context_used_tokens, context_window_tokens`
+  effort, created_at, updated_at, done_at, session_id, context_used_tokens, context_window_tokens, error, retrying`
 
 const TASK_STATES = Object.values(TaskState)
 const TASK_ACTIVITIES = Object.values(TaskActivity)
 const EFFORTS = Object.values(Effort)
+
+const count = z.int().nonnegative()
+
+const taskErrorSchema = z.strictObject({
+  kind: z.enum(AgentErrorKind),
+  source: z.enum(TaskErrorSource),
+  status: z.int().nullable(),
+  code: z.string().nullable(),
+  details: z.string(),
+  retries: count,
+  retryingMs: count,
+}) satisfies z.ZodType<TaskError>
+
+const apiRetrySchema = z.strictObject({
+  attempt: z.int().positive(),
+  maxRetries: count,
+  since: count,
+}) satisfies z.ZodType<ApiRetry>
+
+/** A nullable JSON column holding a value `schema` parses. */
+function jsonColumn<T>(row: Row, table: string, column: string, schema: z.ZodType<T>): T | null {
+  if (row.nullableText(column) === null) return null
+  const parsed = schema.safeParse(row.jsonObject(column))
+  if (!parsed.success) throw new RowError(table, column, z.prettifyError(parsed.error))
+  return parsed.data
+}
 
 function parseTask(raw: unknown): Task {
   const row = new Row('tasks', raw)
@@ -61,6 +102,8 @@ function parseTask(raw: unknown): Task {
     contextUsedTokens: row.integer('context_used_tokens'),
     // Null until the SDK reports the window, e.g. for a task from before there was a context meter.
     contextWindowTokens: row.nullableInteger('context_window_tokens') ?? contextWindowFor(model),
+    error: jsonColumn(row, 'tasks', 'error', taskErrorSchema),
+    retrying: jsonColumn(row, 'tasks', 'retrying', apiRetrySchema),
   }
 }
 
@@ -70,6 +113,8 @@ function toParams(task: Task): Record<string, string | number | null> {
     ...task,
     pinned: task.pinned ? 1 : 0,
     unread: task.unread ? 1 : 0,
+    error: task.error === null ? null : JSON.stringify(task.error),
+    retrying: task.retrying === null ? null : JSON.stringify(task.retrying),
   }
 }
 
@@ -95,11 +140,13 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     sessionId: null,
     contextUsedTokens: 0,
     contextWindowTokens: contextWindowFor(input.model),
+    error: null,
+    retrying: null,
   }
   db.prepare(
     `INSERT INTO tasks (${COLUMNS}) VALUES (@id, @workspaceId, @title, @objective, @status, @statusUpdatedAt, @state,
       @activity, @pinned, @unread, @model, @effort, @createdAt, @updatedAt, @doneAt, @sessionId, @contextUsedTokens,
-      @contextWindowTokens)`,
+      @contextWindowTokens, @error, @retrying)`,
   ).run(toParams(task))
   return task
 }
@@ -173,12 +220,14 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
     contextUsedTokens: patch.contextUsedTokens ?? current.contextUsedTokens,
     contextWindowTokens:
       patch.contextWindowTokens ?? (model === current.model ? current.contextWindowTokens : contextWindowFor(model)),
+    error: patch.error === undefined ? current.error : patch.error,
+    retrying: patch.retrying === undefined ? current.retrying : patch.retrying,
   }
   db.prepare(
     `UPDATE tasks SET title = @title, objective = @objective, status = @status, status_updated_at = @statusUpdatedAt,
       state = @state, activity = @activity, pinned = @pinned, unread = @unread, model = @model, effort = @effort,
       updated_at = @updatedAt, done_at = @doneAt, session_id = @sessionId, context_used_tokens = @contextUsedTokens,
-      context_window_tokens = @contextWindowTokens
+      context_window_tokens = @contextWindowTokens, error = @error, retrying = @retrying
     WHERE id = @id`,
   ).run(toParams(updated))
   return updated

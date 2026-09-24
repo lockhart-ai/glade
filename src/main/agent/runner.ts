@@ -46,6 +46,18 @@
  * when it aborts, goes to the tool log as narration rather than the chat, since it isn't a finished reply; its
  * unfinished tool calls end as errors; and a narration notes that you stopped it.
  *
+ * **Errors** (`docs/design/html/16-error.html`). Glade doesn't retry a failed API request itself: Claude Code already
+ * retries the transient ones with backoff, and says so before each retry (`docs/sdk-notes.md`, "Errors and retries").
+ * While it does, the task's `retrying` says which retry it is, for the working line, until the agent moves on. When a
+ * turn ends on an error anyway, or the session fails mid-turn, the task stops on it: its activity is error and its
+ * `error` says what happened (`./error-classification` sorts it into a kind), for the chat's error card. Its held-back
+ * text goes to the tool log as narration and its unfinished tool calls end as errors; an API error adds a failed "API"
+ * row to the tool log, and any other error a note saying why. What the turn already saved stays.
+ *
+ * **Retry** runs the stopped turn again: the turn's last message goes to the session once more (started again with
+ * `resume` if it's gone), optionally on another model, which becomes the task's. The chat log gets nothing new, and the
+ * turn keeps its number. Starting a turn, by retrying or by sending a message, clears the error.
+ *
  * **Compaction** (`docs/sdk-notes.md` §5). Compact now and ⌘⇧K (`compact`) send an idle session `/compact`, which runs
  * like a turn of its own: the agent works while it compacts, so messages sent meanwhile are queued, and Stop stops it.
  * It isn't a user turn: `/compact` never reaches the chat, there's no turn divider, and it belongs to the task's last
@@ -61,13 +73,15 @@
  * input mode, so it needs one to carry on; the prompt isn't saved to the chat, since you didn't write it. The turn
  * keeps its number and ends like any other, and its queue is delivered as in any turn; its summary's duration counts
  * from its first message, before the app quit. What the dead turn had only in memory is gone: its held-back text (the
- * model still has it in its transcript) and the calls that never got a result, which end as errors. Otherwise:
+ * model still has it in its transcript) and the calls that never got a result, which end as errors. A retry the
+ * turn was in is over: the working line stops saying so until the SDK retries again. Otherwise:
  * - a working task with no session id never got as far as starting its session, so the agent never saw the turn: a
  *   new session is sent the turn's messages again. With no messages there's nothing to carry on: it goes back to
  *   waiting on you, with a note.
  * - a compaction the app quit in ends as an error, and isn't redone: the task goes back to waiting on you, unless
  *   messages are queued, which start the next turn as they would have after it.
- * - a task in error, waiting on you or done has no turn running, so it's left as it is, queue and all.
+ * - a task in error, waiting on you or done has no turn running, so it's left as it is, queue and all: an error keeps
+ *   its card and Retry.
  *
  * Every write is broadcast to the windows as it happens. Only the in-flight turn's bookkeeping (its held-back text and
  * running calls) is kept in memory.
@@ -76,16 +90,21 @@ import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, type GladeEvent } from '../../shared/bridge'
 import {
+  API_TOOL_NAME,
   CompactionTrigger,
   DividerKind,
   MessageRole,
   TaskActivity,
+  TaskErrorSource,
   TaskState,
   ToolCallState,
+  type ApiRetry,
   type Message,
   type QueuedMessage,
   type Task,
+  type TaskError,
 } from '../../shared/domain'
+import { apiRowArgument, apiRowResult } from '../../shared/taskError'
 import { CommandFailure } from '../bridge/errors'
 import {
   emitMessageAppended,
@@ -112,13 +131,16 @@ import { getWorkspace } from '../db/repositories/workspaces'
 import type { NotifyReply } from '../notifications/notifications'
 import { addQueuedMessage } from '../tasks/queue'
 import { noteAgentReply } from '../tasks/attention'
-import { reopenTask, updateTaskFromRunner } from '../tasks/service'
+import { reopenTask, updateTaskFromRunner, updateTaskFromUser, type TaskServiceContext } from '../tasks/service'
 import type { AgentBackend, AgentMcpServers, AgentSession, AgentSessionSettings } from './backend'
+import { classifyAgentError } from './error-classification'
 import {
   AgentEventKind,
   createSdkMessageParser,
   type AgentEvent,
   type AgentLog,
+  type ApiErrorEvent,
+  type ApiRetryEvent,
   type CompactedEvent,
   type TextEvent,
   type ToolCallStartedEvent,
@@ -160,6 +182,12 @@ export interface AgentRunner {
    */
   stop(taskId: string): Promise<Task>
   /**
+   * Retries the turn an error stopped (see the module comment), on `model` if given, which becomes the task's model.
+   * Answers with the task, working again. Throws a `CommandFailure`: `not_found` for no such task, `busy` while a turn
+   * is running, and `invalid_transition` for a task whose agent isn't stopped by an error.
+   */
+  retry(taskId: string, model?: string): Task
+  /**
    * Compacts the task's context now: sends its session `/compact` (see the module comment), and answers with the task,
    * now working. Throws a `CommandFailure`: `not_found` for no such task, `busy` while a turn is running, and
    * `invalid_transition` for a done task or one whose agent has no session yet.
@@ -185,6 +213,10 @@ interface Turn {
   readonly awaiting: Set<string>
   /** Whether the user asked to stop the turn. */
   stopping: boolean
+  /** The automatic retry of a failed API request in progress, as saved on the task; null when none is. */
+  retrying: ApiRetry | null
+  /** The API error the SDK gave up on, which the turn's error result follows. */
+  apiError: ApiErrorEvent | null
   /** The id of the running Compact row of a compaction you asked for, until the SDK reports it; null otherwise. */
   compaction: string | null
   /** Resolves once the turn has ended, however it ended. */
@@ -221,6 +253,9 @@ export const COMPACT_COMMAND = '/compact'
 /** What the tool log says for a working task that had no session to resume. */
 export const NOT_RESUMED_NOTE = "Glade quit before the agent's session started, so there was nothing to resume."
 
+/** What a tool call cut short by an error says. */
+export const STOPPED_BY_ERROR_NOTE = 'The agent stopped on an error before this tool call finished.'
+
 /** Whether a turn ended because it was interrupted: the SDK's `aborted_streaming` or `aborted_tools`. */
 function isAborted(terminalReason: string | null): boolean {
   return terminalReason?.startsWith('aborted') === true
@@ -237,6 +272,8 @@ function newTurn(number: number): Turn {
     running: new Map(),
     awaiting: new Set(),
     stopping: false,
+    retrying: null,
+    apiError: null,
     compaction: null,
     ended,
     end,
@@ -257,6 +294,52 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   const setActivity = (taskId: string, activity: TaskActivity): void => {
     if (getTask(db, taskId)?.activity !== activity) updateTaskFromRunner(context, taskId, { activity })
+  }
+
+  /**
+   * The agent is working on a new turn: whatever error stopped it before is behind it, and so is any retry the app quit
+   * in the middle of.
+   */
+  const startWorking = (taskId: string, through: TaskServiceContext = context): void => {
+    const task = getTask(db, taskId)
+    if (task?.activity !== TaskActivity.Working || task.error !== null || task.retrying !== null) {
+      updateTaskFromRunner(through, taskId, { activity: TaskActivity.Working, error: null, retrying: null })
+    }
+  }
+
+  /** A turn the app quit in is over without the agent: it waits on you, and any retry it was in is over too. */
+  const backToWaiting = (taskId: string): void => {
+    updateTaskFromRunner(context, taskId, { activity: TaskActivity.Waiting, retrying: null })
+  }
+
+  /** The error the turn ends on, with the retries that came before it. */
+  const withRetries = (turn: Turn | null, error: Omit<TaskError, 'kind' | 'retries' | 'retryingMs'>): TaskError => {
+    const retrying = turn?.retrying ?? null
+    return {
+      ...error,
+      kind: classifyAgentError({ status: error.status, code: error.code, message: error.details }),
+      retries: retrying?.attempt ?? 0,
+      retryingMs: retrying === null ? 0 : Math.max(0, Date.now() - retrying.since),
+    }
+  }
+
+  /** Stops the task on an error: the chat shows its card, and the task list its "Error: …" line. */
+  const stopOnError = (taskId: string, error: TaskError): void => {
+    updateTaskFromRunner(context, taskId, { activity: TaskActivity.Error, error, retrying: null })
+  }
+
+  /** Claude Code will retry a failed API request: the working line says so until the agent moves on. */
+  const onApiRetry = (taskId: string, turn: Turn, event: ApiRetryEvent): void => {
+    const since = turn.retrying?.since ?? Date.now()
+    turn.retrying = { attempt: event.attempt, maxRetries: event.maxRetries, since }
+    updateTaskFromRunner(context, taskId, { retrying: turn.retrying })
+  }
+
+  /** The agent moved on after a retried request: the retry is over. */
+  const recovered = (taskId: string, turn: Turn): void => {
+    if (turn.retrying === null) return
+    turn.retrying = null
+    updateTaskFromRunner(context, taskId, { retrying: null })
   }
 
   /** Saves the held-back text as narration, if there is any. */
@@ -331,6 +414,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   const onTurnStopped = (taskId: string, turn: Turn): void => {
+    recovered(taskId, turn)
     flushPreamble(taskId, turn)
     failRunning(taskId, turn, STOPPED_NOTE)
     emitToolEventAppended(emit, appendNarration(db, { taskId, turn: turn.number, text: STOPPED_NOTE }))
@@ -378,14 +462,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
     if (event.isError) {
       endTurn(live, turn)
-      const why =
-        event.errors.length > 0 ? event.errors.join('\n') : `The turn failed (${event.terminalReason ?? 'unknown'}).`
-      turn.pending.push(why)
-      flushPreamble(taskId, turn)
-      failRunning(taskId, turn, why)
-      setActivity(taskId, TaskActivity.Error)
+      onTurnFailed(taskId, turn, event)
       return
     }
+    recovered(taskId, turn)
     const held = turn.pending.splice(0).join('\n\n').trim()
     const reply = held === '' ? event.result.trim() : held
     if (reply !== '') {
@@ -418,6 +498,37 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     setActivity(taskId, TaskActivity.Waiting)
   }
 
+  /**
+   * The turn ended on an error (see the module comment). An API error gets a failed API row in the tool log; any other
+   * gets a note saying why.
+   */
+  const onTurnFailed = (taskId: string, turn: Turn, event: TurnFinishedEvent): void => {
+    flushPreamble(taskId, turn)
+    failRunning(taskId, turn, STOPPED_BY_ERROR_NOTE)
+    const { apiError } = turn
+    const reported = event.errors.join('\n')
+    const isApiError = apiError !== null || event.apiErrorStatus !== null || event.terminalReason === 'api_error'
+    if (!isApiError) {
+      const details = reported === '' ? `The turn failed (${event.terminalReason ?? 'unknown'}).` : reported
+      emitToolEventAppended(emit, appendNarration(db, { taskId, turn: turn.number, text: details }))
+      stopOnError(taskId, withRetries(turn, { source: TaskErrorSource.Turn, status: null, code: null, details }))
+      return
+    }
+    const details = [apiError?.message ?? '', event.result, reported].find((text) => text.trim() !== '') ?? ''
+    const error = withRetries(turn, {
+      source: TaskErrorSource.Api,
+      status: event.apiErrorStatus,
+      code: apiError?.code ?? null,
+      details: details === '' ? `The API request failed (${event.terminalReason ?? 'unknown'}).` : details,
+    })
+    const toolUseId = `glade-api-error-${randomUUID()}`
+    const input = { request: apiRowArgument(error) }
+    appendToolCall(db, { taskId, turn: turn.number, name: API_TOOL_NAME, input, toolUseId, parentToolUseId: null })
+    const output = `${apiRowResult(error)}\n\n${error.details}`
+    emitToolEventAppended(emit, updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Error, output }))
+    stopOnError(taskId, error)
+  }
+
   /** Keeps the context window the result reports for the session's model, if it reports one. */
   const recordContextWindow = (taskId: string, live: LiveSession, event: TurnFinishedEvent): void => {
     const window = live.sdkModel === null ? undefined : event.contextWindows[live.sdkModel]
@@ -436,7 +547,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     turn.pending.push(message)
     flushPreamble(taskId, turn)
     failRunning(taskId, turn, message)
-    setActivity(taskId, TaskActivity.Error)
+    stopOnError(
+      taskId,
+      withRetries(turn, { source: TaskErrorSource.Session, status: null, code: null, details: message }),
+    )
   }
 
   const onEvent = (taskId: string, live: LiveSession, event: AgentEvent): void => {
@@ -457,15 +571,24 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (turn === null) return
     switch (event.kind) {
       case AgentEventKind.Text:
+        recovered(taskId, turn)
         onText(turn, event)
         return
       case AgentEventKind.ToolCallStarted:
+        recovered(taskId, turn)
         onToolCall(taskId, turn, event)
         return
       case AgentEventKind.ToolResult:
         onToolResult(taskId, live, turn, event)
         return
+      case AgentEventKind.ApiRetry:
+        onApiRetry(taskId, turn, event)
+        return
+      case AgentEventKind.ApiError:
+        turn.apiError = event
+        return
       case AgentEventKind.ContextUsed:
+        recovered(taskId, turn)
         if (getTask(db, taskId)?.contextUsedTokens !== event.tokens) {
           updateTaskFromRunner(context, taskId, { contextUsedTokens: event.tokens })
         }
@@ -541,11 +664,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         startTurn(task, start(task), null)
         return true
       }
-      setActivity(taskId, TaskActivity.Waiting)
+      backToWaiting(taskId)
       return false
     }
     if (task.sessionId !== null) {
       const live = start(task)
+      startWorking(taskId)
       emitToolEventAppended(emit, appendDivider(db, { taskId, turn, dividerKind: DividerKind.Resumed }))
       const uuid = randomUUID()
       live.turn = newTurn(turn)
@@ -559,10 +683,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     )
     if (unanswered.length === 0) {
       emitToolEventAppended(emit, appendNarration(db, { taskId, turn, text: NOT_RESUMED_NOTE }))
-      setActivity(taskId, TaskActivity.Waiting)
+      backToWaiting(taskId)
       return false
     }
     const live = start(task)
+    startWorking(taskId)
     emitToolEventAppended(emit, appendDivider(db, { taskId, turn, dividerKind: DividerKind.Resumed }))
     live.turn = newTurn(turn)
     for (const message of unanswered) {
@@ -572,6 +697,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     return true
   }
 
+  /** The pickers change the task, not the session: its current model and effort apply from the next turn on. */
+  const applySettings = (task: Task, live: LiveSession): void => {
+    if (live.settings.model !== task.model || live.settings.effort !== task.effort) {
+      live.settings = { model: task.model, effort: task.effort }
+      live.session.configure(live.settings)
+    }
+  }
+
   /**
    * Starts a turn with the task's queued messages, in order, then `text` if there is one: each is saved to the chat log
    * as a user message of the new turn and handed to the session. A done task is reopened first (see the module
@@ -579,11 +712,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    */
   const startTurn = (task: Task, live: LiveSession, text: string | null): Message[] => {
     const taskId = task.id
-    // The pickers change the task, not the session: its current model and effort apply from this turn on.
-    if (live.settings.model !== task.model || live.settings.effort !== task.effort) {
-      live.settings = { model: task.model, effort: task.effort }
-      live.session.configure(live.settings)
-    }
+    applySettings(task, live)
 
     const turn = lastTurn(db, taskId) + 1
     const reopening = task.state === TaskState.Done
@@ -609,11 +738,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const divider = appendDivider(db, { taskId, turn, dividerKind: DividerKind.Turn })
       // Working in the same write as the turn's messages: if the app dies before the session gets them, the next
       // launch finds the turn working and carries it on (see `resume`), rather than a message nobody answers.
-      if (getTask(db, taskId)?.activity !== TaskActivity.Working) {
-        updateTaskFromRunner({ db, emit: (event) => workingEvents.push(event) }, taskId, {
-          activity: TaskActivity.Working,
-        })
-      }
+      startWorking(taskId, { db, emit: (event) => workingEvents.push(event) })
       return { queued, messages, dividers: [...markedDone, ...reopened, divider] }
     })()
     for (const event of reopenEvents) emit(event)
@@ -665,6 +790,28 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return getTask(db, taskId) ?? task
     },
 
+    retry(taskId, model) {
+      const task = getTask(db, taskId)
+      if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
+      if ((sessions.get(taskId)?.turn ?? null) !== null) {
+        throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working')
+      }
+      const last = listMessages(db, taskId).findLast((message) => message.role === MessageRole.User)
+      if (task.state !== TaskState.Active || task.activity !== TaskActivity.Error || last === undefined) {
+        throw new CommandFailure(BridgeErrorCode.InvalidTransition, "The agent isn't stopped by an error")
+      }
+      const current = model === undefined ? task : updateTaskFromUser(context, taskId, { model })
+      const live = sessions.get(taskId) ?? start(current)
+      applySettings(current, live)
+      startWorking(taskId)
+      // The same turn again: its last message goes to the session once more, and the chat log stays as it is.
+      const uuid = randomUUID()
+      live.turn = newTurn(last.turn)
+      live.turn.awaiting.add(uuid)
+      live.session.send(last.body, uuid)
+      return getTask(db, taskId) ?? current
+    },
+
     compact(taskId) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
@@ -711,7 +858,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
             emit,
             appendNarration(db, { taskId: task.id, turn: Math.max(1, lastTurn(db, task.id)), text }),
           )
-          setActivity(task.id, TaskActivity.Error)
+          const failure = { source: TaskErrorSource.Session, status: null, code: null, details: text }
+          stopOnError(task.id, withRetries(null, failure))
         }
       }
       return resumed

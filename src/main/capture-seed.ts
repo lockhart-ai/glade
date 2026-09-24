@@ -7,14 +7,17 @@ import { readFileSync } from 'node:fs'
 import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
 import {
+  AgentErrorKind,
   DividerKind,
   MessageRole,
   TaskActivity,
+  TaskErrorSource,
   TaskState,
   ToolCallState,
   ToolEventKind,
   UiStateKey,
   type EpochMs,
+  type TaskError,
   type ToolInput,
   type TurnSummary,
 } from '../shared/domain'
@@ -102,6 +105,8 @@ export interface SeedTask {
   readonly toolEvents?: readonly SeedToolEvent[] | undefined
   /** The messages waiting in its queue, in order. */
   readonly queuedMessages?: readonly string[] | undefined
+  /** What stopped its agent, with `activity: "error"`; none unless given. */
+  readonly error?: TaskError | undefined
   /** Whether the relaunch notice names it, as a task Glade picked up again after it crashed. */
   readonly resumedAfterCrash?: boolean | undefined
 }
@@ -139,6 +144,16 @@ const seedToolEventSchema: z.ZodType<SeedToolEvent> = z.discriminatedUnion('kind
   z.strictObject({ kind: z.literal(ToolEventKind.Divider), dividerKind: z.enum(DividerKind), turn, minutesAgo }),
 ])
 
+const seedErrorSchema = z.strictObject({
+  kind: z.enum(AgentErrorKind),
+  source: z.enum(TaskErrorSource),
+  status: z.int().nullable(),
+  code: z.string().nullable(),
+  details: z.string(),
+  retries: count,
+  retryingMs: count,
+}) satisfies z.ZodType<TaskError>
+
 const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
   workspace: z.strictObject({ name: z.string(), rootPath: z.string() }),
   tasks: z.array(
@@ -168,6 +183,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
         .optional(),
       toolEvents: z.array(seedToolEventSchema).optional(),
       queuedMessages: z.array(z.string()).optional(),
+      error: seedErrorSchema.optional(),
       resumedAfterCrash: z.boolean().optional(),
     }),
   ),
@@ -231,6 +247,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
           unread: sample.unread ?? false,
           contextUsedTokens: sample.contextUsedTokens,
           contextWindowTokens: sample.contextWindowTokens,
+          error: sample.error ?? null,
           // A titled task has run (its agent named it), so it has a session: e.g. it can need you.
           sessionId: sample.title === '' ? null : `seed-session-${String(index)}`,
         },
