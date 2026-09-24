@@ -45,7 +45,11 @@ describe('openAppDatabase', () => {
     try {
       expect(file).toBe(join(dataDir, DATABASE_FILE_NAME))
       expect(existsSync(file)).toBe(true)
-      expect(migration).toEqual({ fromVersion: 0, toVersion: MIGRATIONS.length, applied: [1] })
+      expect(migration).toEqual({
+        fromVersion: 0,
+        toVersion: MIGRATIONS.length,
+        applied: MIGRATIONS.map((m) => m.version),
+      })
       expect(db.pragma('journal_mode', { simple: true })).toBe('wal')
     } finally {
       db.close()
@@ -65,17 +69,19 @@ describe('openAppDatabase', () => {
 
   it('rethrows when a migration fails, leaving the version where it was', () => {
     const failing = {
-      version: 2,
+      version: MIGRATIONS.length + 1,
       name: 'Fail',
       up() {
         throw new Error('boom')
       },
     }
-    expect(() => openAppDatabase(dataDir, [...MIGRATIONS, failing])).toThrow('Migration 2 (Fail) failed')
+    expect(() => openAppDatabase(dataDir, [...MIGRATIONS, failing])).toThrow(
+      `Migration ${String(MIGRATIONS.length + 1)} (Fail) failed`,
+    )
 
     const db = openDatabase(join(dataDir, DATABASE_FILE_NAME))
     try {
-      expect(schemaVersion(db)).toBe(1)
+      expect(schemaVersion(db)).toBe(MIGRATIONS.length)
     } finally {
       db.close()
     }

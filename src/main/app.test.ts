@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MIGRATIONS } from './db/migrations'
 
 type Handler = (...args: unknown[]) => unknown
 
@@ -211,11 +212,13 @@ describe('startApp', () => {
     await startAndWaitUntilReady()
 
     const file = join(electron.app.userData, 'glade.db')
-    expect(console.log).toHaveBeenCalledWith(`Database opened at ${file}; schema version 0 -> 1`)
+    expect(console.log).toHaveBeenCalledWith(
+      `Database opened at ${file}; schema version 0 -> ${String(MIGRATIONS.length)}`,
+    )
     expect(onlyWindow()).toBeDefined()
     const db = new Database(file, { readonly: true })
     try {
-      expect(db.prepare('SELECT MAX(version) FROM schema_version').pluck().get()).toBe(1)
+      expect(db.prepare('SELECT MAX(version) FROM schema_version').pluck().get()).toBe(MIGRATIONS.length)
     } finally {
       db.close()
     }
