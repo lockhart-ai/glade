@@ -1,0 +1,17 @@
+.card {
+  box-sizing: border-box;
+  border: 1px solid;
+}
+
+.top-level {
+  background: var(--color-panel);
+  border-color: var(--color-border);
+  border-radius: var(--radius-card);
+}
+
+.nested {
+  background: var(--color-inner);
+  border-color: var(--color-inner-border);
+  border-radius: var(--radius-nested);
+  box-shadow: var(--shadow-nested);
+}

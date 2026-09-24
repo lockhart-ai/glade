@@ -1,0 +1,41 @@
+.field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 36px;
+  min-width: 0;
+  padding: 0 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button);
+  color: var(--color-faint);
+}
+
+.field:hover {
+  border-color: var(--color-inner-border);
+}
+
+.field:focus-within {
+  border-color: var(--color-strong);
+}
+
+.field:has(.input:disabled) {
+  opacity: 0.45;
+}
+
+.input {
+  flex-grow: 1;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--color-text);
+}
+
+.input::placeholder {
+  color: var(--color-faint);
+}
