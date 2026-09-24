@@ -9,6 +9,7 @@ import { HydrationStatus, selectSelectedWorkspace } from './store/state'
 import { useGladeStore } from './store/react'
 import { SelectedTaskHeader } from './task-header'
 import { TaskList, TaskListToolbar } from './task-list'
+import { useNewTaskShortcut } from './shortcuts/useNewTaskShortcut'
 import { useStopShortcut } from './shortcuts/useStopShortcut'
 import { TaskPanel } from './tool-log'
 
@@ -61,6 +62,7 @@ function FirstRunLayout(): React.JSX.Element {
 /** The window layout, with a labelled placeholder in each region until the P1 tickets fill them. */
 function Layout(): React.JSX.Element {
   const workspace = useGladeStore(selectSelectedWorkspace)
+  useNewTaskShortcut()
   useStopShortcut()
   return (
     <Window
