@@ -1,4 +1,9 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MIGRATIONS } from './db/migrations'
 
 type Handler = (...args: unknown[]) => unknown
 
@@ -40,6 +45,11 @@ const electron = vi.hoisted(() => {
     FakeWindow,
     app: {
       isPackaged: false,
+      userData: '',
+      getPath: vi.fn((name: string): string => {
+        if (name !== 'userData') throw new Error(`unexpected getPath(${name})`)
+        return electron.app.userData
+      }),
       whenReady: vi.fn(() => Promise.resolve()),
       on: vi.fn((event: string, handler: Handler) => {
         appHandlers.set(event, handler)
@@ -82,11 +92,16 @@ beforeEach(() => {
   electron.appHandlers.clear()
   electron.windows.length = 0
   electron.app.isPackaged = false
+  electron.app.userData = mkdtempSync(join(tmpdir(), 'glade-app-'))
   vi.stubEnv('ELECTRON_RENDERER_URL', undefined)
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  vi.spyOn(console, 'log').mockImplementation(() => undefined)
 })
 
 afterEach(() => {
+  // Close the database the way quitting the app does, so the temp folder can go.
+  electron.appHandlers.get('will-quit')?.()
+  rmSync(electron.app.userData, { recursive: true, force: true })
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
   Object.defineProperty(process, 'platform', { value: originalPlatform })
@@ -191,6 +206,67 @@ describe('startApp', () => {
     )
     expect(electron.app.exit).toHaveBeenCalledWith(1)
     expect(electron.appHandlers.has('activate')).toBe(false)
+  })
+
+  it('opens and migrates glade.db in the data folder before opening the window', async () => {
+    await startAndWaitUntilReady()
+
+    const file = join(electron.app.userData, 'glade.db')
+    expect(console.log).toHaveBeenCalledWith(
+      `Database opened at ${file}; schema version 0 -> ${String(MIGRATIONS.length)}`,
+    )
+    expect(onlyWindow()).toBeDefined()
+    const db = new Database(file, { readonly: true })
+    try {
+      expect(db.prepare('SELECT MAX(version) FROM schema_version').pluck().get()).toBe(MIGRATIONS.length)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('closes the database when the app quits', async () => {
+    await startAndWaitUntilReady()
+    const close = vi.spyOn(Database.prototype, 'close')
+
+    appHandler('will-quit')()
+
+    expect(close).toHaveBeenCalledOnce()
+  })
+
+  it('refuses to start, without opening a window, when the database cannot be opened', async () => {
+    const dataDir = electron.app.userData
+    electron.app.userData = join(dataDir, 'missing')
+    try {
+      await startAndWaitUntilReady()
+    } finally {
+      electron.app.userData = dataDir
+    }
+
+    expect(electron.windows).toHaveLength(0)
+    expect(electron.dialog.showErrorBox).toHaveBeenCalledWith(
+      'Glade refused to start',
+      'The database could not be opened.\n\nCannot open database because the directory does not exist',
+    )
+    expect(console.error).toHaveBeenCalledWith(
+      'Glade refused to start: could not open the database\nCannot open database because the directory does not exist',
+    )
+    expect(electron.app.exit).toHaveBeenCalledWith(1)
+    expect(electron.appHandlers.has('will-quit')).toBe(false)
+  })
+
+  it('says which migration failed, and why, when migrating fails', async () => {
+    // A stray table the first migration is about to create makes it fail.
+    const db = new Database(join(electron.app.userData, 'glade.db'))
+    db.exec('CREATE TABLE schema_version (version INTEGER)')
+    db.close()
+
+    await startAndWaitUntilReady()
+
+    expect(electron.windows).toHaveLength(0)
+    expect(electron.dialog.showErrorBox).toHaveBeenCalledWith(
+      'Glade refused to start',
+      'The database could not be opened.\n\nMigration 1 (Create the schema version table) failed: table schema_version already exists',
+    )
   })
 
   it('quits when every window is closed, except on macOS', () => {
