@@ -24,7 +24,7 @@ let runner: AgentRunner | undefined
 let backend: TestModeAgentBackend
 
 function start(name: AgentScriptName): AgentRunner {
-  backend = createTestModeAgentBackend(AGENT_SCRIPTS[name])
+  backend = createTestModeAgentBackend({ script: AGENT_SCRIPTS[name] })
   const context = { db: database.db, emit: () => undefined }
   runner = createAgentRunner({
     ...context,

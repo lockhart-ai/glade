@@ -13,11 +13,13 @@ import {
   REOPENED_LABEL,
   ReplyStyle,
   restartLabel,
+  summaryLine,
   toolCallLabel,
   workingNarration,
   type AgentEntry,
   type MarkedDoneEntry,
   type RestartedEntry,
+  type SummaryLine,
   type UserEntry,
 } from './chatModel'
 import { shortenHomePath } from '../paths'
@@ -42,26 +44,50 @@ interface AgentReplyProps {
   readonly onShowTurn: (turn: number) => void
 }
 
+interface TurnSummaryProps {
+  readonly line: SummaryLine
+}
+
+/** "Finished in 24m 10s · 4 files +61 −3", beside the tool-call chip. */
+function TurnSummary({ line }: TurnSummaryProps): React.JSX.Element {
+  return (
+    <span role="note" aria-label="Turn summary" className={styles.summary}>
+      {line.text}
+      {line.lines !== null && (
+        <>
+          {' '}
+          <span className={styles.added}>{line.lines.added}</span>{' '}
+          <span className={styles.removed}>{line.lines.removed}</span>
+        </>
+      )}
+    </span>
+  )
+}
+
 function AgentReply({ entry: { message, style, toolCalls }, onShowTurn }: AgentReplyProps): React.JSX.Element {
+  const summary = message.summary === null ? null : summaryLine(message.summary)
   return (
     <article aria-label="Agent" className={styles.agent}>
       <Markdown
         source={message.body}
         className={classNames(styles.reply, style === ReplyStyle.Question && styles.question)}
       />
-      {toolCalls > 0 && (
+      {(toolCalls > 0 || summary !== null) && (
         <div className={styles.turn}>
-          <button
-            type="button"
-            className={styles.chip}
-            title="Show this turn in the tool log"
-            onClick={() => {
-              onShowTurn(message.turn)
-            }}
-          >
-            <Icon icon={faWrench} size={IconSize.Small} />
-            {toolCallLabel(toolCalls)}
-          </button>
+          {toolCalls > 0 && (
+            <button
+              type="button"
+              className={styles.chip}
+              title="Show this turn in the tool log"
+              onClick={() => {
+                onShowTurn(message.turn)
+              }}
+            >
+              <Icon icon={faWrench} size={IconSize.Small} />
+              {toolCallLabel(toolCalls)}
+            </button>
+          )}
+          {summary !== null && <TurnSummary line={summary} />}
         </div>
       )}
       <span className={styles.meta}>agent · {clockTime(message.createdAt)}</span>

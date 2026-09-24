@@ -23,7 +23,7 @@ import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { setUiState } from '../db/repositories/ui-state'
-import { FakeAgentBackend, settle } from './fake-backend'
+import { FakeAgentBackend, settle, type FakeAgentSession } from './fake-backend'
 import { GLADE_SERVER } from './glade-tools'
 import {
   createAgentRunner,
@@ -400,6 +400,94 @@ describe('the context usage', () => {
     await expect(glade.invoke(CommandName.TasksList, { workspaceId: workspace.id })).resolves.toEqual({
       tasks: [expect.objectContaining({ contextUsedTokens: 76_000, contextWindowTokens: 200_000 })],
     })
+  })
+})
+
+describe('the turn summary', () => {
+  /** The summary saved on the chat's latest reply. */
+  function lastSummary(): unknown {
+    return listMessages(database.db, task.id).at(-1)?.summary
+  }
+
+  it("saves the reply with the turn's duration and the files its finished edits changed, across a relaunch", async () => {
+    await send('Fix the date formatting.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_01', 'Edit', { file_path: 'src/date.ts', old_string: 'a\nb', new_string: 'a\nc\nd' }),
+      sdk.toolResult('toolu_01', 'Edited.'),
+      sdk.toolUse('toolu_02', 'Write', { file_path: 'test/date.test.ts', content: 'one\ntwo\nthree\n' }),
+      sdk.toolResult('toolu_02', 'Written.'),
+      // A failed edit changed nothing.
+      sdk.toolUse('toolu_03', 'Edit', { file_path: 'src/other.ts', old_string: 'x', new_string: 'y' }),
+      sdk.toolResult('toolu_03', 'String not found.', true),
+      sdk.toolUse('toolu_04', 'Agent', { description: 'Tidy up', prompt: 'Tidy the date module.' }),
+      sdk.toolUse(
+        'toolu_05',
+        'MultiEdit',
+        { file_path: 'src/date.ts', edits: [{ old_string: 'old', new_string: 'new' }] },
+        'toolu_04',
+        'msg_sub',
+      ),
+      sdk.toolResult('toolu_05', 'Edited.', false, 'toolu_04'),
+      sdk.toolResult('toolu_04', 'Tidied.'),
+      sdk.toolUse('toolu_06', 'Bash', { command: 'npm test' }, null, 'msg_02'),
+      sdk.toolResult('toolu_06', '148 passed'),
+      sdk.text('Fixed.', null, 'msg_03'),
+      sdk.result('Fixed.', { duration_ms: 1_450_000 }),
+    )
+    await settle()
+
+    const summary = { durationMs: 1_450_000, filesChanged: 2, linesAdded: 6, linesRemoved: 2 }
+    expect(lastSummary()).toEqual(summary)
+    const appended = events.filter((event) => event.type === EventType.MessageAppended).at(-1)
+    expect(appended).toMatchObject({ message: { role: MessageRole.Agent, summary } })
+
+    relaunch()
+    await expect(glade.invoke(CommandName.TasksHistory, { id: task.id })).resolves.toMatchObject({
+      messages: [
+        { role: MessageRole.User, summary: null },
+        { role: MessageRole.Agent, summary },
+      ],
+    })
+  })
+
+  it("counts only this turn's edits, and keeps a missing duration missing", async () => {
+    await send('Fix it.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_01', 'Write', { file_path: 'a.ts', content: 'a\n' }),
+      sdk.toolResult('toolu_01', 'Written.'),
+      sdk.result('Fixed.'),
+    )
+    await settle()
+    expect(lastSummary()).toEqual({ durationMs: 7620, filesChanged: 1, linesAdded: 1, linesRemoved: 0 })
+
+    await send('Thanks.')
+    backend.session.emit(sdk.init(), sdk.result('You are welcome.', { duration_ms: null }))
+    await settle()
+    expect(lastSummary()).toEqual({ durationMs: null, filesChanged: 0, linesAdded: 0, linesRemoved: 0 })
+  })
+
+  it('counts the edits a resumed turn made before the app quit', async () => {
+    await send('Fix it.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_01', 'Write', { file_path: 'a.ts', content: 'a\nb\n' }),
+      sdk.toolResult('toolu_01', 'Written.'),
+    )
+    await settle()
+
+    relaunch()
+    runner.resumeInterrupted()
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_02', 'Write', { file_path: 'b.ts', content: 'c\n' }),
+      sdk.toolResult('toolu_02', 'Written.'),
+      sdk.result('Fixed.', { duration_ms: 8_000 }),
+    )
+    await settle()
+
+    expect(lastSummary()).toEqual({ durationMs: 8_000, filesChanged: 2, linesAdded: 3, linesRemoved: 0 })
   })
 })
 
@@ -1131,5 +1219,193 @@ describe('reopening by chatting', () => {
     await expect(send('One more thing.')).rejects.toMatchObject({ code: BridgeErrorCode.NotFound })
     expect(current()).toMatchObject({ state: TaskState.Done, doneAt: DONE_AT })
     expect(reopenDividers()).toEqual([])
+  })
+})
+
+describe('several tasks at once', () => {
+  const NAMES = ['alpha', 'beta', 'gamma'] as const
+
+  /** Three tasks in the workspace, `task` first, and their sessions once each has been sent `text`. */
+  async function startThree(text: (name: string) => string): Promise<{ ids: string[]; sessions: FakeAgentSession[] }> {
+    const ids = [task.id, sampleTask(database.db, workspace.id).id, sampleTask(database.db, workspace.id).id]
+    // None of them is being viewed, so each one's reply makes it unread alike.
+    setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: '' })
+    for (const [index, id] of ids.entries()) {
+      await glade.invoke(CommandName.TasksSend, { id, text: text(NAMES[index] ?? '') })
+    }
+    return { ids, sessions: backend.sessions }
+  }
+
+  /** The task an event is about, if any. */
+  function eventTaskId(event: GladeEvent): string | null {
+    switch (event.type) {
+      case EventType.MessageAppended:
+        return event.message.taskId
+      case EventType.ToolEventAppended:
+      case EventType.ToolEventUpdated:
+        return event.toolEvent.taskId
+      case EventType.TaskUpdated:
+        return event.task.id
+      case EventType.UiStateChanged:
+      case EventType.WorkspaceUpdated:
+        return null
+    }
+  }
+
+  /** An event's type and what it changed, without anything that tells the tasks apart. */
+  function shape(event: GladeEvent): unknown[] {
+    switch (event.type) {
+      case EventType.MessageAppended:
+        return [event.type, event.message.role]
+      case EventType.ToolEventAppended:
+      case EventType.ToolEventUpdated:
+        return [event.type, event.toolEvent.kind, 'state' in event.toolEvent ? event.toolEvent.state : null]
+      case EventType.TaskUpdated:
+        return [event.type, event.task.activity]
+      case EventType.UiStateChanged:
+      case EventType.WorkspaceUpdated:
+        return [event.type]
+    }
+  }
+
+  /** A task's tool log, as each entry's kind and what tells the tasks apart. */
+  function logOf(taskId: string): unknown[] {
+    return listToolEvents(database.db, taskId).map((event) => {
+      switch (event.kind) {
+        case ToolEventKind.Divider:
+          return [event.dividerKind, event.turn]
+        case ToolEventKind.Narration:
+          return [event.text, event.turn]
+        case ToolEventKind.ToolCall:
+          return [event.name, event.input, event.state, event.output, event.toolUseId, event.parentToolUseId]
+      }
+    })
+  }
+
+  /** A turn about `name`, with the same tool call ids whatever the name: a subagent, results out of order, a reply. */
+  function turnAbout(name: string): unknown[] {
+    return [
+      sdk.init(`session-${name}`),
+      sdk.text(`Looking at ${name}.`),
+      sdk.toolUse('toolu_01', 'Read', { file_path: `src/${name}.ts` }),
+      sdk.toolUse('toolu_02', 'Agent', { description: `Check ${name}`, prompt: `Check ${name}.` }),
+      sdk.toolUse('toolu_03', 'Grep', { pattern: name }, 'toolu_02', 'msg_sub'),
+      sdk.toolResult('toolu_01', `${name} source`),
+      sdk.toolResult('toolu_03', `${name} matches`, false, 'toolu_02'),
+      sdk.toolResult('toolu_02', `${name} checked`),
+      sdk.withContextUsed(sdk.text(`Done with ${name}.`, null, 'msg_02'), 1000 * name.length),
+      sdk.result(`Done with ${name}.`),
+    ]
+  }
+
+  it('runs three turns side by side, each saved to and broadcast for its own task only', async () => {
+    const { ids, sessions } = await startThree((name) => `Work on ${name}.`)
+    expect(sessions.map((session) => session.sent.map(({ text }) => text))).toEqual(
+      NAMES.map((name) => [`Work on ${name}.`]),
+    )
+    events.splice(0)
+
+    // The sessions stream a message each in turn, and the runner handles each round before the next, so the tasks'
+    // writes really interleave.
+    const turns = NAMES.map(turnAbout)
+    for (let step = 0; step < (turns[0]?.length ?? 0); step += 1) {
+      for (const [index, session] of sessions.entries()) session.emit(turns[index]?.[step])
+      await settle()
+    }
+
+    for (const [index, id] of ids.entries()) {
+      const name = NAMES[index] ?? ''
+      expect(listMessages(database.db, id).map(({ role, body, turn }) => ({ role, body, turn }))).toEqual([
+        { role: MessageRole.User, body: `Work on ${name}.`, turn: 1 },
+        { role: MessageRole.Agent, body: `Done with ${name}.`, turn: 1 },
+      ])
+      expect(logOf(id)).toEqual([
+        [DividerKind.Turn, 1],
+        [`Looking at ${name}.`, 1],
+        ['Read', { file_path: `src/${name}.ts` }, ToolCallState.Done, `${name} source`, 'toolu_01', null],
+        [
+          'Agent',
+          { description: `Check ${name}`, prompt: `Check ${name}.` },
+          ToolCallState.Done,
+          `${name} checked`,
+          'toolu_02',
+          null,
+        ],
+        ['Grep', { pattern: name }, ToolCallState.Done, `${name} matches`, 'toolu_03', 'toolu_02'],
+      ])
+      expect(getTask(database.db, id)).toMatchObject({
+        sessionId: `session-${name}`,
+        activity: TaskActivity.Waiting,
+        contextUsedTokens: 1000 * name.length,
+      })
+    }
+
+    // The windows heard every change as it happened, the tasks' events interleaved. Each task's events read as the
+    // same turn, and none carries another task's content.
+    const broadcast = events.splice(0)
+    expect(broadcast.map(eventTaskId).slice(0, 3)).toEqual(ids)
+    const byTask = ids.map((id) => broadcast.filter((event) => eventTaskId(event) === id))
+    expect(byTask.flat()).toHaveLength(broadcast.length)
+    const [first, ...others] = byTask.map((own) => own.map(shape))
+    expect(first).toContainEqual([EventType.MessageAppended, MessageRole.Agent])
+    for (const other of others) expect(other).toEqual(first)
+    for (const [index, own] of byTask.entries()) {
+      const content = JSON.stringify(own)
+      expect(content).toContain(NAMES[index])
+      for (const name of NAMES) if (name !== NAMES[index]) expect(content).not.toContain(name)
+    }
+  })
+
+  it('stops one task without touching the others, and refuses a message only to a busy one', async () => {
+    const {
+      ids: [first = '', second = '', third = ''],
+      sessions: [a, b, c],
+    } = await startThree(() => 'Run the suite.')
+    if (a === undefined || b === undefined || c === undefined) throw new Error('Expected three sessions')
+    for (const session of [a, b, c]) session.emit(sdk.init(), sdk.toolUse('toolu_01', 'Bash', { command: 'npm test' }))
+    await settle()
+    a.onInterrupt = () => {
+      a.emit(
+        sdk.toolResult('toolu_01', 'rejected', true),
+        sdk.interruptMarker(true),
+        sdk.abortedResult('aborted_tools'),
+      )
+      return Promise.resolve()
+    }
+
+    await expect(glade.invoke(CommandName.TasksStop, { id: first })).resolves.toMatchObject({
+      task: { activity: TaskActivity.Waiting },
+    })
+    expect([a.interrupts, b.interrupts, c.interrupts]).toEqual([1, 0, 0])
+    for (const id of [second, third]) {
+      expect(getTask(database.db, id)?.activity).toBe(TaskActivity.Working)
+      expect(logOf(id)).toEqual([
+        [DividerKind.Turn, 1],
+        ['Bash', { command: 'npm test' }, ToolCallState.Running, null, 'toolu_01', null],
+      ])
+    }
+
+    // The stopped task takes a message again; a working one still refuses one.
+    await glade.invoke(CommandName.TasksSend, { id: first, text: 'Just the unit tests.' })
+    expect(a.sent.map(({ text }) => text)).toEqual(['Run the suite.', 'Just the unit tests.'])
+    await expect(glade.invoke(CommandName.TasksSend, { id: second, text: 'Hurry up.' })).rejects.toMatchObject({
+      code: BridgeErrorCode.Busy,
+    })
+
+    // The others finish as normal, and the first stays on its new turn.
+    b.emit(sdk.toolResult('toolu_01', '12 passed'), sdk.result('Beta passes.'))
+    c.emit(sdk.toolResult('toolu_01', '3 passed'), sdk.result('Gamma passes.'))
+    await settle()
+    expect(listMessages(database.db, second).at(-1)?.body).toBe('Beta passes.')
+    expect(listMessages(database.db, third).at(-1)?.body).toBe('Gamma passes.')
+    expect(getTask(database.db, first)?.activity).toBe(TaskActivity.Working)
+    expect(logOf(second).at(-1)).toEqual([
+      'Bash',
+      { command: 'npm test' },
+      ToolCallState.Done,
+      '12 passed',
+      'toolu_01',
+      null,
+    ])
   })
 })

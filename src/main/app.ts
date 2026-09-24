@@ -199,11 +199,20 @@ function startTestMode(): TestMode {
   return null
 }
 
-/** The agent a test mode's tasks run on: the script its spec names, or none. */
+/**
+ * The agent a test mode's tasks run on: the script its spec names, or none, and for an e2e spec the scripts it picks by
+ * a task's first message.
+ */
 function createTestModeAgent(testMode: NonNullable<TestMode>): TestModeAgentBackend {
   const name: AgentScriptName | undefined =
     testMode.kind === TestModeKind.Capture ? testMode.spec.conversation?.agentScript : testMode.spec.agentScript
-  return createTestModeAgentBackend(name === undefined ? null : AGENT_SCRIPTS[name])
+  const byFirstMessage = testMode.kind === TestModeKind.E2e ? testMode.spec.agentScriptsByFirstMessage : undefined
+  return createTestModeAgentBackend({
+    script: name === undefined ? null : AGENT_SCRIPTS[name],
+    byFirstMessage: new Map(
+      Object.entries(byFirstMessage ?? {}).map(([message, script]) => [message, AGENT_SCRIPTS[script]]),
+    ),
+  })
 }
 
 /** What the app can be started with. */

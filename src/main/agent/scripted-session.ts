@@ -9,6 +9,8 @@
  *   interrupt marker and an `error_during_execution` result (`aborted_tools` if a call was running, else
  *   `aborted_streaming`).
  * - A `Fail` step kills the session: its message stream throws, and it plays nothing more.
+ * - The script can be picked by the session's first message (a `ScriptChooser`), so different tasks can play different
+ *   scripts. A chooser that has none for it kills the session as a `Fail` step would.
  */
 import { randomUUID } from 'node:crypto'
 import { contextWindowFor } from '../../shared/contextWindow'
@@ -20,8 +22,12 @@ import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
 import { RESUME_PROMPT } from './runner'
 import { ScriptStepKind, type AgentScript, type ScriptStep, type ScriptTurn } from './scripts'
 
+/** Picks the script a session plays from the first message sent to it. Throws when it has none for that message. */
+export type ScriptChooser = (firstMessage: string) => AgentScript
+
 export interface ScriptedSessionOptions {
-  readonly script: AgentScript
+  /** The script to play, or how to pick it from the first message. */
+  readonly script: AgentScript | ScriptChooser
   readonly session: AgentSessionOptions
   /** Makes the session's ids: its SDK session id (unless it resumes one) and the prefix of its tool call ids. */
   readonly newId?: () => string
@@ -87,6 +93,8 @@ export class ScriptedSession implements AgentSession {
   /** Makes tool call ids unique to this session, since a task's calls share one log across sessions. */
   private readonly idPrefix: string
   private turnsRun = 0
+  /** The script the session plays: picked on its first message. */
+  private script: AgentScript | null = null
   private turn: TurnState | null = null
   private queue: Promise<void> = Promise.resolve()
   private stopped = false
@@ -105,14 +113,28 @@ export class ScriptedSession implements AgentSession {
   }
 
   send(text: string, uuid: string): void {
-    const { turns, resumeTurn } = this.options.script
+    const script = this.chooseScript(text)
     const turn =
-      text === RESUME_PROMPT && resumeTurn !== undefined
-        ? resumeTurn
-        : (turns[Math.min(this.turnsRun, turns.length - 1)] ?? [])
+      script === null
+        ? []
+        : text === RESUME_PROMPT && script.resumeTurn !== undefined
+          ? script.resumeTurn
+          : (script.turns[Math.min(this.turnsRun, script.turns.length - 1)] ?? [])
     this.turnsRun += 1
     const number = this.turnsRun
     this.queue = this.queue.then(() => this.play(turn, number, uuid))
+  }
+
+  /** The script to play, picked on the first message; null, having killed the session, when there's none for it. */
+  private chooseScript(firstMessage: string): AgentScript | null {
+    if (this.script !== null || this.stopped) return this.script
+    const { script } = this.options
+    try {
+      this.script = typeof script === 'function' ? script(firstMessage) : script
+    } catch (error) {
+      this.die(error instanceof Error ? error : new Error(String(error)))
+    }
+    return this.script
   }
 
   configure({ model }: AgentSessionSettings): void {
