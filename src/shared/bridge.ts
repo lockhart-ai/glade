@@ -47,6 +47,7 @@ export enum CommandName {
   TasksMarkDone = 'tasks.markDone',
   TasksReopen = 'tasks.reopen',
   TasksUpdate = 'tasks.update',
+  TasksDelete = 'tasks.delete',
   TasksSend = 'tasks.send',
   TasksStop = 'tasks.stop',
   TasksRetry = 'tasks.retry',
@@ -142,8 +143,17 @@ export interface TaskUserPatch {
 
 export interface TasksUpdateRequest {
   readonly id: string
+  /** A `title` must not be blank. */
   readonly patch: TaskUserPatch
 }
+
+/**
+ * Deletes a task (Delete task…, once you've confirmed it). Its agent's session is closed first, if it has one live,
+ * stopping any turn it's running; then the task's rows go from the database: the task, its chat log, tool log, queue
+ * and question sets. Nothing on disk is touched. When it's the selected task, it's deselected. Broadcasts
+ * `task.deleted`. Fails with `not_found` when there's no such task.
+ */
+export type TasksDeleteRequest = TaskIdRequest
 
 /**
  * What every task command answers with: the task as it now is. Each also broadcasts `task.updated` with it.
@@ -389,6 +399,7 @@ export interface CommandMap {
   [CommandName.TasksMarkDone]: CommandSpec<TaskIdRequest, TaskResponse>
   [CommandName.TasksReopen]: CommandSpec<TaskIdRequest, TaskResponse>
   [CommandName.TasksUpdate]: CommandSpec<TasksUpdateRequest, TaskResponse>
+  [CommandName.TasksDelete]: CommandSpec<TasksDeleteRequest, null>
   [CommandName.TasksSend]: CommandSpec<TasksSendRequest, TasksSendResponse>
   [CommandName.TasksStop]: CommandSpec<TasksStopRequest, TaskResponse>
   [CommandName.TasksRetry]: CommandSpec<TasksRetryRequest, TaskResponse>
@@ -417,6 +428,7 @@ export enum EventType {
   UiStateChanged = 'uiState.changed',
   WorkspaceUpdated = 'workspace.updated',
   TaskUpdated = 'task.updated',
+  TaskDeleted = 'task.deleted',
   MessageAppended = 'message.appended',
   ToolEventAppended = 'toolEvent.appended',
   ToolEventUpdated = 'toolEvent.updated',
@@ -445,6 +457,12 @@ export interface WorkspaceUpdatedEvent {
 export interface TaskUpdatedEvent {
   readonly type: EventType.TaskUpdated
   readonly task: Task
+}
+
+/** A task was deleted, and with it its logs, queue and question sets. */
+export interface TaskDeletedEvent {
+  readonly type: EventType.TaskDeleted
+  readonly taskId: string
 }
 
 /** A message was appended to a task's chat log. */
@@ -533,6 +551,7 @@ export type GladeEvent =
   | UiStateChangedEvent
   | WorkspaceUpdatedEvent
   | TaskUpdatedEvent
+  | TaskDeletedEvent
   | MessageAppendedEvent
   | ToolEventAppendedEvent
   | ToolEventUpdatedEvent

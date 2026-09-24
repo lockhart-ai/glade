@@ -2,6 +2,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla'
 import { CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
 import { UiStateKey, type OpenFiles, type UiStateEntry, type Workspace } from '../../shared/domain'
 import { isPanelCollapsed, PanelTab, parsePanelTab } from '../right-panel/panelModel'
+import { listedTaskIds, selectionAfterDeleting } from '../task-list/sections'
 import { describeFailure, loadSnapshot } from './hydrate'
 import { applyEvent, withHistory, withOpenedWorkspace } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState } from './state'
@@ -163,6 +164,52 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
 
       async markUnread(taskId) {
         await bridge.invoke(CommandName.TasksUpdate, { id: taskId, patch: { unread: true } })
+      },
+
+      async togglePin(taskId) {
+        const task = get().tasks[taskId]
+        if (task === undefined) return
+        await bridge.invoke(CommandName.TasksUpdate, { id: taskId, patch: { pinned: !task.pinned } })
+      },
+
+      startRename(taskId) {
+        set({ renamingTaskId: taskId })
+      },
+
+      cancelRename() {
+        set({ renamingTaskId: null })
+      },
+
+      async renameTask(taskId, title) {
+        const trimmed = title.trim()
+        if (trimmed === '') return false
+        if (trimmed !== get().tasks[taskId]?.title) {
+          await bridge.invoke(CommandName.TasksUpdate, { id: taskId, patch: { title: trimmed } })
+        }
+        if (get().renamingTaskId === taskId) set({ renamingTaskId: null })
+        return true
+      },
+
+      requestDelete(taskId) {
+        set({ deletingTaskId: taskId })
+      },
+
+      cancelDelete() {
+        set({ deletingTaskId: null })
+      },
+
+      async deleteTask(taskId) {
+        const { selectedTaskId, tasks, uiState } = get()
+        const task = tasks[taskId]
+        const selected = task !== undefined && taskId === selectedTaskId
+        const next = selected
+          ? selectionAfterDeleting(listedTaskIds(Object.values(tasks), task.workspaceId, uiState), taskId)
+          : null
+        if (get().deletingTaskId === taskId) set({ deletingTaskId: null })
+        await bridge.invoke(CommandName.TasksDelete, { id: taskId })
+        // Main's task.deleted event normally arrives first; make sure the task is gone either way.
+        set((state) => applyEvent(state, { type: EventType.TaskDeleted, taskId }))
+        if (selected) await get().selectTask(next)
       },
 
       async sendMessage(taskId, text) {

@@ -11,11 +11,13 @@ import styles from './App.module.css'
 import { HydrationStatus, selectSelectedWorkspace } from './store/state'
 import { useGladeStore } from './store/react'
 import { SelectedTaskHeader } from './task-header'
-import { isSearching, TaskList, TaskListToolbar } from './task-list'
+import { DeleteTaskDialog, isSearching, TaskList, TaskListToolbar } from './task-list'
 import { SearchResults } from './search/SearchResults'
 import { useNewTaskShortcut } from './shortcuts/useNewTaskShortcut'
 import { useMarkDoneShortcut } from './shortcuts/useMarkDoneShortcut'
 import { useMarkUnreadShortcut } from './shortcuts/useMarkUnreadShortcut'
+import { usePinShortcut } from './shortcuts/usePinShortcut'
+import { useRenameShortcut } from './shortcuts/useRenameShortcut'
 import { useStopShortcut } from './shortcuts/useStopShortcut'
 import { useCompactShortcut } from './shortcuts/useCompactShortcut'
 import { useRightPanelShortcuts } from './shortcuts/useRightPanelShortcuts'
@@ -84,6 +86,8 @@ function Layout(): React.JSX.Element {
   useCompactShortcut()
   useMarkDoneShortcut()
   useMarkUnreadShortcut()
+  usePinShortcut()
+  useRenameShortcut()
   useRightPanelShortcuts()
   return (
     <Window
@@ -107,7 +111,12 @@ function Layout(): React.JSX.Element {
           rightPanel={<TaskPanel />}
         />
       }
-      overlay={<RelaunchNotice />}
+      overlay={
+        <>
+          <RelaunchNotice />
+          <DeleteTaskDialog />
+        </>
+      }
     />
   )
 }

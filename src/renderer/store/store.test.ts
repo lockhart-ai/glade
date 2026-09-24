@@ -343,6 +343,149 @@ describe('task actions', () => {
   })
 })
 
+describe('pin, rename and delete', () => {
+  /** Three tasks in w1, newest first: t3 (pinned), then t2 and t1 under Active. t1 is selected. */
+  function listed(): FakeMain {
+    return {
+      workspaces: [sampleWorkspace('w1')],
+      tasks: [
+        { ...sampleTask('t1', 'w1', 'Fix flaky login test'), updatedAt: 1_000 },
+        { ...sampleTask('t2', 'w1', 'Move uploads to S3'), updatedAt: 2_000 },
+        { ...sampleTask('t3', 'w1', 'Draft release notes'), updatedAt: 3_000, pinned: true },
+      ],
+      uiState: [
+        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+        { key: UiStateKey.SelectedTaskId, value: 't1' },
+      ],
+    }
+  }
+
+  it('pins and unpins a task through main, and does nothing for a task it does not have', async () => {
+    const { store, invoke } = await hydrated(listed())
+
+    await store.getState().togglePin('t1')
+    expect(store.getState().tasks.t1?.pinned).toBe(true)
+    await store.getState().togglePin('t1')
+    expect(store.getState().tasks.t1?.pinned).toBe(false)
+    await store.getState().togglePin('missing')
+
+    expect(invoke.mock.calls.filter(([command]) => command === CommandName.TasksUpdate)).toEqual([
+      [CommandName.TasksUpdate, { id: 't1', patch: { pinned: true } }],
+      [CommandName.TasksUpdate, { id: 't1', patch: { pinned: false } }],
+    ])
+  })
+
+  it('renames a task to its trimmed title, and stops renaming', async () => {
+    const { store, invoke } = await hydrated(listed())
+    store.getState().startRename('t1')
+    expect(store.getState().renamingTaskId).toBe('t1')
+
+    await expect(store.getState().renameTask('t1', '  Fix the login race  ')).resolves.toBe(true)
+
+    expect(store.getState().tasks.t1?.title).toBe('Fix the login race')
+    expect(store.getState().renamingTaskId).toBeNull()
+    expect(invoke.mock.calls.at(-1)).toEqual([
+      CommandName.TasksUpdate,
+      { id: 't1', patch: { title: 'Fix the login race' } },
+    ])
+  })
+
+  it('refuses a blank title and keeps renaming, without calling main', async () => {
+    const { store, invoke } = await hydrated(listed())
+    store.getState().startRename('t1')
+    const calls = invoke.mock.calls.length
+
+    await expect(store.getState().renameTask('t1', ' \t ')).resolves.toBe(false)
+
+    expect(store.getState().renamingTaskId).toBe('t1')
+    expect(store.getState().tasks.t1?.title).toBe('Fix flaky login test')
+    expect(invoke.mock.calls).toHaveLength(calls)
+  })
+
+  it('saves an unchanged title without calling main, and leaves a rename of another task going', async () => {
+    const { store, invoke } = await hydrated(listed())
+    store.getState().startRename('t2')
+    const calls = invoke.mock.calls.length
+
+    await expect(store.getState().renameTask('t1', 'Fix flaky login test')).resolves.toBe(true)
+
+    expect(invoke.mock.calls).toHaveLength(calls)
+    expect(store.getState().renamingTaskId).toBe('t2')
+    store.getState().cancelRename()
+    expect(store.getState().renamingTaskId).toBeNull()
+  })
+
+  it('asks before deleting, and cancelling keeps the task', async () => {
+    const { store, invoke } = await hydrated(listed())
+
+    store.getState().requestDelete('t2')
+    expect(store.getState().deletingTaskId).toBe('t2')
+    store.getState().cancelDelete()
+
+    expect(store.getState().deletingTaskId).toBeNull()
+    expect(store.getState().tasks.t2).toBeDefined()
+    expect(invoke.mock.calls.map(([command]) => command)).not.toContain(CommandName.TasksDelete)
+  })
+
+  it('deletes the selected task and selects the next one in the list', async () => {
+    const { store, invoke, data } = await hydrated({
+      ...listed(),
+      uiState: [
+        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+        { key: UiStateKey.SelectedTaskId, value: 't3' },
+      ],
+    })
+    store.getState().requestDelete('t3')
+
+    await store.getState().deleteTask('t3')
+
+    expect(invoke).toHaveBeenCalledWith(CommandName.TasksDelete, { id: 't3' })
+    expect(data.tasks.map(({ id }) => id)).toEqual(['t1', 't2'])
+    expect(Object.keys(store.getState().tasks)).toEqual(['t1', 't2'])
+    expect(store.getState().deletingTaskId).toBeNull()
+    expect(store.getState().selectedTaskId).toBe('t2')
+  })
+
+  it('selects the one before when the deleted task was the last in the list, and none when it was the only one', async () => {
+    const { store } = await hydrated(listed())
+
+    await store.getState().deleteTask('t1')
+    expect(store.getState().selectedTaskId).toBe('t2')
+
+    await store.getState().deleteTask('t3')
+    await store.getState().deleteTask('t2')
+    expect(store.getState().selectedTaskId).toBeNull()
+    expect(store.getState().tasks).toEqual({})
+  })
+
+  it('keeps the selection when deleting another task, and forgets the task even before main says so', async () => {
+    const { store } = await hydrated(listed())
+    const fake = fakeBridge(listed(), { [CommandName.TasksDelete]: () => null })
+    const quiet = createGladeStore(fake.bridge)
+    await quiet.getState().hydrate()
+
+    await store.getState().deleteTask('t2')
+    await quiet.getState().deleteTask('t2')
+
+    for (const each of [store, quiet]) {
+      expect(each.getState().selectedTaskId).toBe('t1')
+      expect(each.getState().tasks.t2).toBeUndefined()
+    }
+  })
+
+  it("rejects with main's error, keeping the task", async () => {
+    const fake = fakeBridge(listed(), {
+      [CommandName.TasksDelete]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No task t1')),
+    })
+    const store = createGladeStore(fake.bridge)
+    await store.getState().hydrate()
+
+    await expect(store.getState().deleteTask('t1')).rejects.toMatchObject({ code: BridgeErrorCode.NotFound })
+    expect(store.getState().tasks.t1).toBeDefined()
+    expect(store.getState().selectedTaskId).toBe('t1')
+  })
+})
+
 describe("a task's logs", () => {
   it("loads the selected task's chat and tool log, then follows its events", async () => {
     const first = sampleMessage('m1', 't1')

@@ -59,6 +59,8 @@ export function taskList(page: Page) {
     /** A section's row for the task with this title. */
     row: (name: TaskSectionName, title: string) =>
       section(name).getByRole('listitem').getByRole('button').filter({ hasText: title }),
+    /** The field a row's title turns into while you rename the task (F2). */
+    renameField: sidebar.getByRole('textbox', { name: 'Task title' }),
     /** A row's state dot, whose `data-state` is the task's indicator (working, waiting, done or error). */
     dot: (row: Locator) => row.locator('[data-state]'),
   }

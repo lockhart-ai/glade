@@ -176,6 +176,26 @@ describe('SelectedTaskHeader', () => {
     expect(within(header()).queryByRole('button', { name: 'Mark done' })).toBeNull()
   })
 
+  it('gives the title, timing, objective and status their full text as tooltips, since they clamp in a small window', async () => {
+    await renderHeader()
+
+    expect(within(header()).getByText('started 42m ago')).toHaveAttribute('title', 'started 42m ago')
+    expect(within(header()).getByRole('heading', { level: 1 })).toHaveAttribute(
+      'title',
+      'Add rate limiting to public API',
+    )
+    expect(field('Objective')).toHaveAttribute('title', 'Add per-key rate limiting to the public API.')
+    expect(field('Status')).toHaveAttribute('title', 'Throttle applied; 14 new tests pass.')
+  })
+
+  it('gives stand-ins no tooltips', async () => {
+    await renderHeader({ task: { title: '', objective: '', status: '', statusUpdatedAt: null, createdAt: NOW } })
+
+    expect(within(header()).getByRole('heading', { level: 1 })).not.toHaveAttribute('title')
+    expect(field('Objective')).not.toHaveAttribute('title')
+    expect(field('Status')).not.toHaveAttribute('title')
+  })
+
   it('leaves out when the status changed if that isn’t known', async () => {
     await renderHeader({ task: { statusUpdatedAt: null } })
 

@@ -69,6 +69,17 @@
   background: var(--color-raised);
 }
 
+.danger {
+  background: color-mix(in srgb, var(--color-pink) 14%, transparent);
+  border-color: color-mix(in srgb, var(--color-pink) 45%, transparent);
+  color: var(--color-pink);
+  font-weight: 600;
+}
+
+.danger:hover:enabled {
+  background: color-mix(in srgb, var(--color-pink) 22%, transparent);
+}
+
 .icon {
   width: 30px;
   height: 30px;

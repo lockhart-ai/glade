@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { isAtBottom, STICK_THRESHOLD, useStickToBottom } from './useStickToBottom'
 
 describe('isAtBottom', () => {
@@ -73,5 +73,65 @@ describe('useStickToBottom', () => {
     rerender(<Scroller content="a" resetKey="t2" />)
 
     expect(scroller.scrollTop).toBe(1000)
+  })
+
+  describe('as the scroller resizes', () => {
+    /** The observers the hook made, and the elements each watches. */
+    const observers: { readonly resize: () => void; readonly watched: Element[]; disconnected: boolean }[] = []
+
+    class FakeResizeObserver {
+      private readonly entry: (typeof observers)[number]
+      constructor(callback: () => void) {
+        this.entry = { resize: callback, watched: [], disconnected: false }
+        observers.push(this.entry)
+      }
+      observe(element: Element): void {
+        this.entry.watched.push(element)
+      }
+      unobserve = (): void => undefined
+      disconnect(): void {
+        this.entry.disconnected = true
+      }
+    }
+
+    afterEach(() => {
+      observers.length = 0
+      vi.unstubAllGlobals()
+    })
+
+    it('keeps the bottom in view when the scroller shrinks while at the bottom', () => {
+      vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+      render(<Scroller content="a" resetKey="t1" />)
+      const scroller = screen.getByTestId('scroller')
+      expect(observers).toHaveLength(1)
+      expect(observers[0]?.watched).toEqual([scroller])
+
+      // The window gets shorter: the same content in a smaller viewport.
+      layOut(scroller, 1000)
+      observers[0]?.resize()
+
+      expect(scroller.scrollTop).toBe(1000)
+    })
+
+    it('leaves the scroll alone on a resize once the user has scrolled up', () => {
+      vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+      render(<Scroller content="a" resetKey="t1" />)
+      const scroller = screen.getByTestId('scroller')
+      layOut(scroller, 1000)
+      scrollTo(scroller, 100)
+
+      observers[0]?.resize()
+
+      expect(scroller.scrollTop).toBe(100)
+    })
+
+    it('stops watching when it unmounts', () => {
+      vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+      const { unmount } = render(<Scroller content="a" resetKey="t1" />)
+
+      unmount()
+
+      expect(observers[0]?.disconnected).toBe(true)
+    })
   })
 })

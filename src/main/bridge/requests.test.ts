@@ -106,6 +106,18 @@ describe('REQUEST_SCHEMAS', () => {
       'patch.model: Too small: expected string to have >=1 characters',
     ],
     [
+      'a blank title',
+      CommandName.TasksUpdate,
+      { id: 't', patch: { title: '  ' } },
+      'patch.title: Expected a title that is not blank',
+    ],
+    [
+      'a missing task id to delete',
+      CommandName.TasksDelete,
+      {},
+      'id: Invalid input: expected string, received undefined',
+    ],
+    [
       'a blank message',
       CommandName.TasksSend,
       { id: 't', text: ' \n\t' },

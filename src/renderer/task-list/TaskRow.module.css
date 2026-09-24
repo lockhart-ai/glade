@@ -47,6 +47,28 @@
   text-overflow: ellipsis;
 }
 
+/* The title's field while renaming (F2): the title's type, on the inset colour, outlined in blue. */
+.rename {
+  flex-grow: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  height: 24px;
+  margin: -3px 0;
+  padding: 0 6px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-blue);
+  border-radius: 6px;
+  outline: none;
+  font: inherit;
+  font-size: var(--font-size-body);
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.rename[aria-invalid='true'] {
+  border-color: var(--color-pink);
+}
+
 .done .title {
   color: var(--color-muted);
 }
