@@ -30,10 +30,10 @@
 - **Name:** Glade. **Icon:** "Stepping up" — three grass blades rising into the wind, the middle one lit
   (`assets/icon/`).
 
-- **Stack:** well-established, widely adopted tools only. electron-vite (build/dev), React + TypeScript (strict),
-  CSS Modules with the design tokens as CSS variables, Zustand (renderer store), better-sqlite3 (main process),
-  Vitest (unit/integration), ESLint (typescript-eslint) + Prettier, electron-builder (packaging), xterm.js + node-pty
-  (terminal).
+- **Stack:** well-established, widely adopted tools only. electron-vite (build/dev), React + TypeScript (strict), CSS
+  Modules with the design tokens as CSS variables, Zustand (renderer store), better-sqlite3 (main process), Vitest +
+  React Testing Library (unit/integration, 100% line coverage), ESLint (typescript-eslint) + Prettier, electron-builder
+  (packaging), xterm.js + node-pty (terminal).
 
 ## Open
 
