@@ -127,6 +127,10 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       async sendMessage(taskId, text) {
         await bridge.invoke(CommandName.TasksSend, { id: taskId, text })
       },
+
+      focusTurn(taskId, turn) {
+        set(({ toolLogFocus }) => ({ toolLogFocus: { taskId, turn, request: (toolLogFocus?.request ?? 0) + 1 } }))
+      },
     }
   })
 }

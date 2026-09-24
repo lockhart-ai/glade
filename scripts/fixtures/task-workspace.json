@@ -19,7 +19,98 @@
       "objective": "Add per-key rate limiting to the public API so one client can't starve the others.",
       "status": "Waiting on you: pick a limit for /search",
       "minutesAgo": 4,
-      "selected": true
+      "selected": true,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Add per-key rate limiting to the public API so one client can't starve the others. Over the limit, return 429 with a Retry-After header.",
+          "turn": 1,
+          "minutesAgo": 28
+        },
+        {
+          "role": "agent",
+          "body": "Tests pass — 14 new ones cover the limit, the 429 response and the Retry-After header.\n\nOne decision before I finish: **/search** is much heavier than the other endpoints. Should it get a tighter limit of 60 a minute, or share the default 120?",
+          "turn": 1,
+          "minutesAgo": 4
+        }
+      ],
+      "toolEvents": [
+        { "kind": "narration", "text": "Looking at how the API views are set up.", "turn": 1, "minutesAgo": 27 },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": { "file_path": "api/views.py" },
+          "output": "212 lines",
+          "turn": 1,
+          "minutesAgo": 26
+        },
+        {
+          "kind": "tool_call",
+          "name": "Grep",
+          "input": { "pattern": "throttle" },
+          "output": "No matches",
+          "turn": 1,
+          "minutesAgo": 25
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": { "file_path": "config/settings.py" },
+          "output": "318 lines",
+          "turn": 1,
+          "minutesAgo": 24
+        },
+        {
+          "kind": "narration",
+          "text": "The API already uses DRF, so I'll use its throttling rather than adding middleware.",
+          "turn": 1,
+          "minutesAgo": 23
+        },
+        {
+          "kind": "tool_call",
+          "name": "Write",
+          "input": { "file_path": "api/throttles.py" },
+          "output": "New file, 38 lines",
+          "turn": 1,
+          "minutesAgo": 21
+        },
+        {
+          "kind": "tool_call",
+          "name": "Edit",
+          "input": { "file_path": "api/views.py" },
+          "output": "+6 -0 across 3 viewsets",
+          "turn": 1,
+          "minutesAgo": 20
+        },
+        {
+          "kind": "narration",
+          "text": "Throttle applied to the three public viewsets at 120 a minute. Running the tests.",
+          "turn": 1,
+          "minutesAgo": 19
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": { "command": "pytest api/tests -q" },
+          "output": "14 passed in 3.2s",
+          "turn": 1,
+          "minutesAgo": 7
+        },
+        {
+          "kind": "narration",
+          "text": "Tests pass. Checking how heavy /search is before deciding its limit.",
+          "turn": 1,
+          "minutesAgo": 6
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": { "file_path": "api/search.py" },
+          "output": "96 lines",
+          "turn": 1,
+          "minutesAgo": 5
+        }
+      ]
     },
     {
       "title": "Move image uploads to S3",

@@ -2,15 +2,18 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { TaskActivity, TaskState, UiStateKey } from '../shared/domain'
+import { MessageRole, TaskActivity, TaskState, ToolCallState, ToolEventKind, UiStateKey } from '../shared/domain'
 import { applySeed, readSeed, type CaptureSeed } from './capture-seed'
+import { listMessages } from './db/repositories/messages'
+import { listToolEvents } from './db/repositories/tool-events'
 import { listTasks } from './db/repositories/tasks'
 import { getUiState } from './db/repositories/ui-state'
 import { listWorkspaces } from './db/repositories/workspaces'
 import { openTestDatabase, type TestDatabase } from './db/repositories/test-database'
 import { DEFAULT_EFFORT, DEFAULT_MODEL } from './tasks/defaults'
 
-const FIXTURE = join(import.meta.dirname, '..', '..', 'scripts', 'fixtures', 'task-workspace.json')
+const FIXTURES = join(import.meta.dirname, '..', '..', 'scripts', 'fixtures')
+const FIXTURE = join(FIXTURES, 'task-workspace.json')
 const NOW = 10_000_000
 const MINUTE = 60_000
 
@@ -53,6 +56,10 @@ describe('readSeed', () => {
 
   it('reads the task workspace fixture', () => {
     expect(readSeed(FIXTURE).workspace.name).toBe('Acme API')
+  })
+
+  it('reads the agent working fixture', () => {
+    expect(readSeed(join(FIXTURES, 'agent-working.json')).tasks[0]?.activity).toBe(TaskActivity.Working)
   })
 
   it('refuses a fixture that is missing or not JSON', () => {
@@ -122,5 +129,57 @@ describe('applySeed', () => {
     applySeed(db, { ...SEED, tasks: [{ title: 'Only', minutesAgo: 0 }] })
 
     expect(getUiState(db, UiStateKey.SelectedTaskId)).toBeUndefined()
+  })
+
+  it("writes a task's chat log and tool log, the tool calls done when they have an output", () => {
+    const { db } = database
+
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          {
+            title: 'Add rate limiting',
+            minutesAgo: 0,
+            messages: [
+              { role: MessageRole.User, body: 'Add rate limiting.', turn: 1, minutesAgo: 30 },
+              { role: MessageRole.Agent, body: 'Done.', turn: 1, minutesAgo: 2 },
+            ],
+            toolEvents: [
+              { kind: ToolEventKind.Narration, text: 'Looking around.', turn: 1, minutesAgo: 29 },
+              {
+                kind: ToolEventKind.ToolCall,
+                name: 'Read',
+                input: { file_path: 'a.py' },
+                output: '9 lines',
+                turn: 1,
+                minutesAgo: 28,
+              },
+              { kind: ToolEventKind.ToolCall, name: 'Bash', input: { command: 'make' }, turn: 1, minutesAgo: 3 },
+            ],
+          },
+        ],
+      },
+      NOW,
+    )
+
+    const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    const taskId = task?.id ?? ''
+    expect(listMessages(db, taskId)).toMatchObject([
+      { role: MessageRole.User, body: 'Add rate limiting.', turn: 1, createdAt: NOW - 30 * MINUTE },
+      { role: MessageRole.Agent, body: 'Done.', turn: 1, createdAt: NOW - 2 * MINUTE },
+    ])
+    expect(listToolEvents(db, taskId)).toMatchObject([
+      { kind: ToolEventKind.Narration, text: 'Looking around.', createdAt: NOW - 29 * MINUTE },
+      {
+        kind: ToolEventKind.ToolCall,
+        name: 'Read',
+        output: '9 lines',
+        state: ToolCallState.Done,
+        parentToolUseId: null,
+      },
+      { kind: ToolEventKind.ToolCall, name: 'Bash', output: null, state: ToolCallState.Running },
+    ])
   })
 })

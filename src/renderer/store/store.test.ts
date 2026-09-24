@@ -336,4 +336,17 @@ describe("a task's logs", () => {
 
     await expect(store.getState().sendMessage('t1', 'Hi')).rejects.toBe(busy)
   })
+
+  it('asks the tool log to show a turn, as a new request each time, without calling main', async () => {
+    const { store, invoke } = await hydrated()
+    const calls = invoke.mock.calls.length
+    expect(store.getState().toolLogFocus).toBeNull()
+
+    store.getState().focusTurn('t1', 2)
+    expect(store.getState().toolLogFocus).toEqual({ taskId: 't1', turn: 2, request: 1 })
+
+    store.getState().focusTurn('t1', 2)
+    expect(store.getState().toolLogFocus).toEqual({ taskId: 't1', turn: 2, request: 2 })
+    expect(invoke.mock.calls).toHaveLength(calls)
+  })
 })

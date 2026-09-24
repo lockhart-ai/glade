@@ -1,0 +1,83 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "tasks": [
+    {
+      "title": "Move image uploads to S3",
+      "objective": "Move user image uploads from local disk to S3. New uploads go straight to the bucket; copy the existing files over and update their stored paths.",
+      "status": "Storage switched to S3 and new uploads verified. Copying existing files: 1,240 of 3,900 done.",
+      "activity": "working",
+      "minutesAgo": 0,
+      "selected": true,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Move user image uploads from local disk to S3. New uploads go straight to the bucket; copy the existing files over and update their stored paths.",
+          "turn": 1,
+          "minutesAgo": 21
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "narration",
+          "text": "The project already uses `django-storages` for static files, so I'll add an S3 backend for media.",
+          "turn": 1,
+          "minutesAgo": 20
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": {
+            "file_path": "config/settings/base.py"
+          },
+          "output": "402 lines",
+          "turn": 1,
+          "minutesAgo": 20
+        },
+        {
+          "kind": "tool_call",
+          "name": "Edit",
+          "input": {
+            "file_path": "config/settings/base.py"
+          },
+          "output": "+9 -1",
+          "turn": 1,
+          "minutesAgo": 18
+        },
+        {
+          "kind": "narration",
+          "text": "Backend configured. Uploading a test image to check new uploads land in the bucket.",
+          "turn": 1,
+          "minutesAgo": 11
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "python manage.py shell -c 'upload_test()'"
+          },
+          "output": "Uploaded and read back 1 file",
+          "turn": 1,
+          "minutesAgo": 10
+        },
+        {
+          "kind": "narration",
+          "text": "Copying files, 1,240 of 3,900",
+          "turn": 1,
+          "minutesAgo": 1
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "python scripts/copy_media_to_s3.py"
+          },
+          "turn": 1,
+          "minutesAgo": 1
+        }
+      ]
+    }
+  ]
+}
