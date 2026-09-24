@@ -2,8 +2,9 @@ import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, type WebPreferences } from 'electron'
 import type { AgentBackend } from './agent/backend'
 import { createSdkBackend } from './agent/sdk-backend'
-import { createTestModeAgentBackend } from './agent/test-mode-backend'
-import { registerBridge } from './bridge'
+import { AGENT_SCRIPTS, type AgentScriptName } from './agent/scripts'
+import { createTestModeAgentBackend, type TestModeAgentBackend } from './agent/test-mode-backend'
+import { registerBridge, type RegisteredBridge } from './bridge'
 import {
   captureShots,
   prepareCapture,
@@ -17,6 +18,7 @@ import { applySeed, readSeed } from './capture-seed'
 import { chooseFolder } from './dialogs'
 import { E2E_WINDOW_SIZE, e2eChosenFolder, prepareE2e, readE2eSpec, type E2eSpec } from './e2e'
 import { checkSecurity, describeViolations } from './security'
+import { seedConversation } from './capture-conversation'
 
 /** The `bg` design token, so the window never flashes white before the renderer paints. */
 const WINDOW_BACKGROUND = '#0A0B0F'
@@ -125,35 +127,44 @@ function createWindow(testMode: TestMode): BrowserWindow {
   return window
 }
 
-/** Captures the hidden window's page, then closes the database and exits: 0 when every PNG was written, 1 otherwise. */
-async function runCapture(window: BrowserWindow, capture: CaptureSpec, database: AppDatabase): Promise<void> {
+/** What a capture needs from the running app to seed its conversation. */
+interface CaptureContext {
+  readonly database: AppDatabase
+  readonly bridge: RegisteredBridge
+  readonly agent: TestModeAgentBackend
+}
+
+/** Fills the database from the spec's seed fixture and seeds its conversation, if it has them, then captures the page of a hidden window. Resolves with the files. */
+async function capture(spec: CaptureSpec, { database, bridge, agent }: CaptureContext): Promise<string[]> {
+  if (spec.seed !== undefined) applySeed(database.db, readSeed(spec.seed))
+  if (spec.conversation !== undefined) {
+    const context = {
+      db: database.db,
+      emit: bridge.emit,
+      runner: bridge.runner,
+      whenIdle: () => agent.whenIdle(),
+      folder: spec.userData,
+    }
+    await seedConversation(context, spec.conversation)
+  }
+  return captureShots(createWindow({ kind: TestModeKind.Capture, spec }), spec)
+}
+
+/**
+ * Runs a capture (see `capture`), then closes the database and exits: 0 when every PNG was written, 1 otherwise.
+ */
+async function runCapture(spec: CaptureSpec, context: CaptureContext): Promise<void> {
   let exitCode = 0
   try {
-    const files = await withTimeout(captureShots(window, capture), capture.timeoutMs)
+    const files = await withTimeout(capture(spec, context), spec.timeoutMs)
     for (const file of files) console.log(`Captured ${file}`)
   } catch (error) {
     console.error(`Glade capture failed: ${error instanceof Error ? error.message : String(error)}`)
     exitCode = 1
   }
-  database.db.close()
+  context.bridge.runner.close()
+  context.database.db.close()
   app.exit(exitCode)
-}
-
-/**
- * Fills a capture's throwaway database from its seed fixture, if it has one. Returns false, having closed the database
- * and exited with an error, when the fixture can't be applied.
- */
-function seedCapture(capture: CaptureSpec, database: AppDatabase): boolean {
-  if (capture.seed === undefined) return true
-  try {
-    applySeed(database.db, readSeed(capture.seed))
-    return true
-  } catch (error) {
-    console.error(`Glade capture failed: ${(error as Error).message}`)
-    database.db.close()
-    app.exit(1)
-    return false
-  }
 }
 
 /** The test mode asked for through the environment, set up before the app is ready; `null` in a normal run. */
@@ -169,6 +180,13 @@ function startTestMode(): TestMode {
     return { kind: TestModeKind.E2e, spec: e2e }
   }
   return null
+}
+
+/** The agent a test mode's tasks run on: the script its spec names, or none. */
+function createTestModeAgent(testMode: NonNullable<TestMode>): TestModeAgentBackend {
+  const name: AgentScriptName | undefined =
+    testMode.kind === TestModeKind.Capture ? testMode.spec.conversation?.agentScript : testMode.spec.agentScript
+  return createTestModeAgentBackend(name === undefined ? null : AGENT_SCRIPTS[name])
 }
 
 /** What the app can be started with. */
@@ -220,12 +238,13 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
     }
     const { database } = opening
 
-    const { runner } = registerBridge({
+    // A test mode never reaches the real Claude API, whatever the app was started with: its agent plays a script.
+    const testAgent = testMode === null ? null : createTestModeAgent(testMode)
+    const bridge = registerBridge({
       ipc: ipcMain,
       db: database.db,
       targets: () => BrowserWindow.getAllWindows().map((window) => window.webContents),
-      // A test mode never reaches the real Claude API, whatever the app was started with.
-      agentBackend: testMode === null ? createAgentBackend() : createTestModeAgentBackend(),
+      agentBackend: testAgent ?? createAgentBackend(),
       // A test can't click a native dialog, so in e2e mode it answers with the folder the test chose.
       chooseFolder:
         testMode?.kind === TestModeKind.E2e
@@ -233,8 +252,10 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
           : () => chooseFolder(dialog, BrowserWindow.getFocusedWindow()),
     })
 
-    if (testMode?.kind === TestModeKind.Capture) {
-      if (seedCapture(testMode.spec, database)) void runCapture(createWindow(testMode), testMode.spec, database)
+    const { runner } = bridge
+
+    if (testMode?.kind === TestModeKind.Capture && testAgent !== null) {
+      void runCapture(testMode.spec, { database, bridge, agent: testAgent })
       return
     }
 

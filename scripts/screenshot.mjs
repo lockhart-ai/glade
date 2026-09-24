@@ -2,7 +2,11 @@
 // Captures PNGs of the app from inside Electron, in a window that is never shown, with a throwaway data folder.
 //
 //   npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <file base name>]
-//                         [--seed <fixture.json>]
+//                         [--seed <fixture.json>] [--agent-script <name> [--message <first message>]]
+//
+// With --agent-script, the capture shows a live task: the app makes a workspace and a task, sends it the first
+// message, and lets the named agent script (src/main/agent/scripts.ts: simple-reply, multi-tool-turn, long-running,
+// failing-turn) play its reply through the real agent runner, before capturing. No real agent ever runs.
 //
 // Builds the app into out/testing (see scripts/test-build.mjs, which keeps dev-only pages such as the gallery), then
 // launches Electron on it with the capture spec in GLADE_CAPTURE (see src/main/capture.ts), and a fresh temp folder
@@ -19,11 +23,13 @@ import { buildForTests, ROOT, TEST_MAIN } from './test-build.mjs'
 
 const DEFAULT_SIZE = '1920x1200'
 const TIMEOUT_MS = 60_000
+const DEFAULT_MESSAGE = 'The date formatting test fails in some timezones. Can you fix it?'
 
 function fail(message) {
   console.error(`screenshot: ${message}`)
   console.error(
-    'usage: npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <name>] [--seed <fixture>]',
+    'usage: npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <name>] ' +
+      '[--seed <fixture>] [--agent-script <name> [--message <text>]]',
   )
   process.exit(2)
 }
@@ -42,6 +48,8 @@ try {
       size: { type: 'string', multiple: true },
       route: { type: 'string', default: '' },
       name: { type: 'string' },
+      'agent-script': { type: 'string' },
+      message: { type: 'string', default: DEFAULT_MESSAGE },
       seed: { type: 'string' },
     },
   }))
@@ -51,7 +59,9 @@ try {
 if (values.out === undefined) fail('--out is required')
 
 const route = values.route === '' || values.route.startsWith('#') ? values.route : `#${values.route}`
-const name = values.name ?? (route === '' ? 'glade' : route.slice(1).replaceAll('/', '-'))
+const agentScript = values['agent-script']
+const defaultName = route === '' ? (agentScript ?? 'glade') : route.slice(1).replaceAll('/', '-')
+const name = values.name ?? defaultName
 const spec = {
   outDir: resolve(values.out),
   route,
@@ -60,6 +70,7 @@ const spec = {
     return { width, height, file: `${name}-${String(width)}x${String(height)}.png` }
   }),
   timeoutMs: TIMEOUT_MS,
+  ...(agentScript === undefined ? {} : { conversation: { agentScript, message: values.message } }),
   ...(values.seed === undefined ? {} : { seed: resolve(values.seed) }),
 }
 
