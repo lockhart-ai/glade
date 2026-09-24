@@ -1,6 +1,6 @@
 /**
- * Drives the app through the renderer's own bridge (`window.glade`), for what no screen does yet: sending a message
- * until the input bar lands (P1-06). Specs read what a task shows through the locators in `./selectors`.
+ * Calls the renderer's own bridge (`window.glade`), for specs that check what main has behind the screen, e.g. a
+ * task's session id or state. Specs drive the app and read what it shows through the locators in `./selectors`.
  */
 import type { Page } from '@playwright/test'
 import {

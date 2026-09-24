@@ -1,9 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { CommandName } from '../src/shared/bridge'
 import { expect, test } from './fixtures'
-import { chat, firstRun, taskHeader, taskList } from './selectors'
-import { invoke } from './task-view'
+import { chat, firstRun, inputBar, taskHeader, taskList } from './selectors'
 
 test('task header: fills in from the agent, pins the task, and marks it done', async ({ launch, tempFolder }) => {
   const root = join(tempFolder(), 'acme-api')
@@ -22,13 +20,9 @@ test('task header: fills in from the agent, pins the task, and marks it done', a
   await expect(header.field('Status')).toHaveText('Nothing yet.')
   await expect(header.markDone).toHaveCount(0)
 
-  // Until the input bar lands (P1-06), the spec sends the message through the renderer's bridge, as the input bar will.
-  const { workspaces } = await invoke(window, CommandName.WorkspacesList, {})
-  const { tasks } = await invoke(window, CommandName.TasksList, { workspaceId: workspaces[0]?.id ?? '' })
-  await invoke(window, CommandName.TasksSend, {
-    id: tasks[0]?.id ?? '',
-    text: 'The date test is flaky. Can you fix it?',
-  })
+  const bar = inputBar(window)
+  await bar.field.fill('The date test is flaky. Can you fix it?')
+  await bar.field.press('Enter')
 
   // The header follows what the agent sets with its Glade tools.
   await expect(chat(window).agentReplies).toHaveCount(1)

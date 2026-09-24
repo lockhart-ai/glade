@@ -790,11 +790,7 @@ describe('tasks.stop', () => {
       { divider: DividerKind.Turn, turn: 1 },
       { narration: 'Backend configured. Copying the existing files next.', turn: 1 },
       expect.objectContaining({ call: 'Write', state: ToolCallState.Done, output: 'File created' }),
-      expect.objectContaining({
-        call: 'Bash',
-        state: ToolCallState.Error,
-        output: "The user doesn't want to proceed with this tool use.",
-      }),
+      expect.objectContaining({ call: 'Bash', state: ToolCallState.Error, output: STOPPED_NOTE }),
       expect.objectContaining({ call: 'Agent', state: ToolCallState.Error, output: STOPPED_NOTE }),
       { narration: STOPPED_NOTE, turn: 1 },
     ])
@@ -873,6 +869,27 @@ describe('tasks.stop', () => {
 
     expect(toolLog()[1]).toEqual({ narration: STOPPED_NOTE, turn: 1 })
     expect(current().activity).toBe(TaskActivity.Waiting)
+  })
+
+  it("keeps the SDK's own text for a rejected tool call when Glade did not ask to stop", async () => {
+    await send('Copy the uploads.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_01', 'Bash', { command: 'python scripts/copy.py' }),
+      sdk.toolResult('toolu_01', "The user doesn't want to proceed with this tool use.", true),
+      sdk.interruptMarker(true),
+      sdk.abortedResult('aborted_tools'),
+    )
+    await settle()
+
+    expect(toolLog()[1]).toEqual(
+      expect.objectContaining({
+        call: 'Bash',
+        state: ToolCallState.Error,
+        output: "The user doesn't want to proceed with this tool use.",
+      }),
+    )
+    expect(toolLog()[2]).toEqual({ narration: STOPPED_NOTE, turn: 1 })
   })
 
   it('keeps the reply of a turn that finished before the interrupt landed', async () => {

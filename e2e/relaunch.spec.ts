@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test'
 import { CommandName } from '../src/shared/bridge'
 import { TaskActivity, type Task } from '../src/shared/domain'
 import { expect, test } from './fixtures'
-import { chat, firstRun, taskList, taskPanel } from './selectors'
+import { chat, firstRun, inputBar, taskList, taskPanel } from './selectors'
 import { invoke } from './task-view'
 
 /** The only task in the only workspace, as main has it. */
@@ -24,9 +24,9 @@ test('force-quit mid-turn, relaunch: the task resumes its session and finishes t
   await firstRun(first.window).openFolder.click()
   await taskList(first.window).newTask.click()
 
-  // Until the input bar lands (P1-06), the spec sends the message through the renderer's bridge, as the input bar will.
-  const task = await onlyTask(first.window)
-  await invoke(first.window, CommandName.TasksSend, { id: task?.id ?? '', text: 'Run the e2e suite.' })
+  const bar = inputBar(first.window)
+  await bar.field.fill('Run the e2e suite.')
+  await bar.field.press('Enter')
   await expect(taskPanel(first.window).call(/^Running\s*Bash/)).toBeVisible()
   await expect.poll(async () => (await onlyTask(first.window))?.activity).toBe(TaskActivity.Working)
   const sessionId = (await onlyTask(first.window))?.sessionId

@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Locator } from '@playwright/test'
 import { expect, test } from './fixtures'
-import { chat, firstRun, inputBar, taskHeader, taskList, taskPanel } from './selectors'
+import { chat, firstRun, inputBar, taskHeader, taskList, taskPanel, toasts } from './selectors'
 
 /** The accessible names of the chat's messages and dividers, top to bottom. */
 function chatOrder(log: Locator): Promise<(string | null)[]> {
@@ -30,18 +30,24 @@ test('reopen by chatting: a message in a done task reopens it and the agent carr
   await expect(conversation.agentReplies).toHaveCount(1)
   await expect(header.pill).toHaveText('Active · waiting on you')
 
-  // Mark it done: the row moves to Done, and the input bar says a message reopens it. Marking done adds no divider.
+  // Mark it done: the row moves to Done, the Undo toast shows, and the input bar says a message reopens it. Marking
+  // done adds no divider.
+  const { region, undo } = toasts(window)
   await list.sectionHeader('Done').click()
   await header.markDone.click()
+  await expect(undo).toBeVisible()
   await expect(header.pill).toHaveText(/^Done · /)
   await expect(list.rows('Done')).toHaveCount(1)
   await expect(list.rows('Active')).toHaveCount(0)
   await expect(bar.field).toHaveAttribute('placeholder', 'Send a message to reopen this task…')
   await expect(conversation.markedDone).toHaveCount(0)
 
-  // A message reopens it: the row moves back to Active, and the header says when it was reopened and first done.
+  // A message reopens it while the Undo toast is still up: the toast goes, the row moves back to Active, and the
+  // header says when it was reopened and first done.
   await bar.field.fill('Check the report header too.')
   await bar.field.press('Enter')
+  await expect(undo).toHaveCount(0)
+  await expect(region).toBeEmpty()
   await expect(list.rows('Active')).toHaveCount(1)
   await expect(list.rows('Done')).toHaveCount(0)
   await expect(header.pill).toHaveText(/^Active · /)

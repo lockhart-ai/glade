@@ -14,7 +14,6 @@ import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { createAgentRunner, STOPPED_NOTE, type AgentRunner } from './runner'
-import { REJECTED_TOOL_OUTPUT } from './scripted-session'
 import { createGladeMcpServer, GLADE_SERVER } from './glade-tools'
 import { AGENT_SCRIPT_NAMES, AGENT_SCRIPTS, type AgentScriptName } from './scripts'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
@@ -153,7 +152,7 @@ describe('AGENT_SCRIPTS', () => {
     const stopped = agent.stop(task.id)
     await vi.runAllTimersAsync()
     await expect(stopped).resolves.toMatchObject({ activity: TaskActivity.Waiting })
-    expect(calls().at(-1)).toMatchObject({ name: 'Bash', state: ToolCallState.Error, output: REJECTED_TOOL_OUTPUT })
+    expect(calls().at(-1)).toMatchObject({ name: 'Bash', state: ToolCallState.Error, output: STOPPED_NOTE })
     expect(listToolEvents(database.db, task.id).at(-1)).toMatchObject({
       kind: ToolEventKind.Narration,
       text: STOPPED_NOTE,
