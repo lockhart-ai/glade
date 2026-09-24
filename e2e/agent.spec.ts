@@ -74,8 +74,7 @@ test('stop a running turn with ⌘., then carry on in the same session', async (
   const workspaceId = workspaces[0]?.id ?? ''
   const { tasks } = await invoke(window, CommandName.TasksList, { workspaceId })
   const taskId = tasks[0]?.id ?? ''
-  const activity = async (): Promise<TaskActivity | undefined> =>
-    (await taskHeader(window, workspaceId, taskId))?.activity
+  const { pill } = taskHeader(window)
   const sessionId = async (): Promise<string | null | undefined> =>
     (await invoke(window, CommandName.TasksList, { workspaceId })).tasks.find(({ id }) => id === taskId)?.sessionId
   await invoke(window, CommandName.TasksSend, { id: taskId, text: 'Run the e2e suite.' })
@@ -84,14 +83,14 @@ test('stop a running turn with ⌘., then carry on in the same session', async (
   await expect
     .poll(async () => (await toolLog(window, taskId)).at(-1))
     .toEqual({ tool: 'Bash', state: ToolCallState.Running, inside: null })
-  expect(await activity()).toBe(TaskActivity.Working)
+  await expect(pill).toHaveText('Active · working')
   const session = await sessionId()
   expect(session).toBeTruthy()
 
   await window.keyboard.press('Meta+.')
 
   // Back to waiting on you: the running command ended as an error, and the tool log says you stopped it.
-  await expect.poll(activity).toBe(TaskActivity.Waiting)
+  await expect(pill).toHaveText('Active · waiting on you')
   expect((await toolLog(window, taskId)).slice(-2)).toEqual([
     { tool: 'Bash', state: ToolCallState.Error, inside: null },
     { narration: 'You stopped the agent.' },
@@ -104,6 +103,6 @@ test('stop a running turn with ⌘., then carry on in the same session', async (
   await expect(userMessages).toHaveCount(2)
   await expect(agentReplies).toHaveCount(1)
   await expect(agentReplies.first()).toContainText('I stopped the suite and will only run the unit tests.')
-  await expect.poll(activity).toBe(TaskActivity.Waiting)
+  await expect(pill).toHaveText('Active · waiting on you')
   expect(await sessionId()).toBe(session)
 })
