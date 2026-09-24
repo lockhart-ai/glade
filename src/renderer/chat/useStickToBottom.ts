@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 
 /** How close to the bottom, in pixels, still counts as at the bottom, so a stray pixel of scroll doesn't unstick. */
 export const STICK_THRESHOLD = 24
@@ -27,8 +27,9 @@ export interface StickToBottom {
 
 /**
  * Keeps a scroller pinned to its bottom as its content grows, unless the user has scrolled up: whenever `content`
- * changes, it scrolls to the bottom if the scroller was at the bottom before. Changing `resetKey` (e.g. selecting
- * another task) sticks it to the bottom again.
+ * changes, it scrolls to the bottom if the scroller was at the bottom before. So does the scroller shrinking, e.g. as
+ * the window gets smaller or the header above it grows, so the latest message stays in view above the input bar.
+ * Changing `resetKey` (e.g. selecting another task) sticks it to the bottom again.
  */
 export function useStickToBottom(content: unknown, resetKey: unknown): StickToBottom {
   const ref = useRef<HTMLDivElement | null>(null)
@@ -47,6 +48,18 @@ export function useStickToBottom(content: unknown, resetKey: unknown): StickToBo
     const scroller = ref.current
     if (scroller !== null && stuck.current) scroller.scrollTop = scroller.scrollHeight
   }, [content, resetKey])
+
+  useEffect(() => {
+    const scroller = ref.current
+    if (scroller === null) return
+    const observer = new ResizeObserver(() => {
+      if (stuck.current) scroller.scrollTop = scroller.scrollHeight
+    })
+    observer.observe(scroller)
+    return () => {
+      observer.disconnect()
+    }
+  }, [])
 
   return { ref, onScroll }
 }
