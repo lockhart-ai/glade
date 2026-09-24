@@ -32,6 +32,14 @@ describe('SidebarHeader', () => {
     expect(header).toHaveTextContent('Aacme API~/code/api')
   })
 
+  it('shows the switcher chevron and the collapse button, which do nothing yet', () => {
+    render(<SidebarHeader workspace={sampleWorkspace('w1')} />)
+
+    const header = screen.getByRole('region', { name: 'Workspace' })
+    expect(header.querySelectorAll('svg')).toHaveLength(2)
+    expect(within(header).getByRole('button', { name: 'Collapse task list' })).toBeEnabled()
+  })
+
   it('says to open a folder when there is no workspace', () => {
     render(<SidebarHeader />)
 

@@ -38,11 +38,8 @@ its PR, and sends back fixes. Jared approves and merges. This SOP starts simple 
    screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <name>]`, not `npm run dev` and remote
    debugging. It captures from inside Electron, in a window that is never shown, with a throwaway database. Never use
    OS-level capture or automation (`screencapture`, `osascript`, System Events): they pop windows and permission
-   dialogs up on Jared's screen. Compare the PNGs with the design screens. Save them to
-   `/private/tmp/claude-501/-Users-decker-Documents-glade/22a56592-db4d-4483-a6f8-3de038868265/scratchpad/pr-<N>/`
-   and list them in your report; the supervisor pushes them to the orphan `screenshots` branch under `pr-<N>/`. Never
-   commit them to your feature branch or main. Add a `Screenshots:` section to the PR body, before `Closes #N`, with
-   images from `https://raw.githubusercontent.com/lockhart-ai/glade/screenshots/pr-<N>/<file>.png`.
+   dialogs up on Jared's screen. Compare the PNGs with the design screens. Never commit them to your feature branch or
+   main.
 
    **UI changes need an e2e spec.** A PR that changes the UI adds or extends a Playwright spec in `e2e/` that drives
    the real app through the workflow (`npm run test:e2e`; CI runs it too). Use the fixtures in `e2e/fixtures.ts`
@@ -51,8 +48,12 @@ its PR, and sends back fixes. Jared approves and merges. This SOP starts simple 
 
    **Interactive changes need a recording.** If the PR changes how something behaves, record the specs with `npm run
    record -- --out <dir> [-g <test title>]`. It writes a `<spec>--<test>.webm`, `.mp4` and `.gif` per test, recorded
-   over the DevTools protocol, not OS capture. Save them to the same `pr-<N>/` folder as the screenshots and list them
-   in your report; the supervisor publishes them. Link the MP4s in a `Recordings:` section of the PR body, before
-   `Closes #N`.
+   over the DevTools protocol, not OS capture.
+
+   **Screenshots and recordings.** Save every PNG, GIF and MP4 you capture (both above) to
+   `/private/tmp/claude-501/-Users-decker-Documents-glade/22a56592-db4d-4483-a6f8-3de038868265/scratchpad/pr-<N>/`
+   and list them in your report. The supervisor pushes them to the orphan `screenshots` branch under `pr-<N>/` and
+   owns the `Screenshots:` and `Recordings:` sections of the PR body; kittens never write or edit those sections. When
+   you edit a PR body yourself, such as for a review fix, fetch it first and change only `Because`/`This commit`.
 
 Review fixes go on the same branch as new commits; don't force-push.

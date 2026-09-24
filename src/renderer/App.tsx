@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Chat } from './chat'
 import { classNames } from './components/classNames'
 import { ToastProvider } from './components'
 import { FirstRun } from './first-run/FirstRun'
@@ -6,6 +7,7 @@ import { AppShell, BottomBar, RightPanel, Sidebar, SidebarHeader, TaskCard, Task
 import styles from './App.module.css'
 import { HydrationStatus, selectSelectedWorkspace } from './store/state'
 import { useGladeStore } from './store/react'
+import { TaskList, TaskListToolbar } from './task-list'
 
 interface PlaceholderProps {
   label: string
@@ -61,6 +63,12 @@ function Layout(): React.JSX.Element {
       sidebar={
         <Sidebar>
           <SidebarHeader workspace={workspace} />
+          {workspace !== undefined && (
+            <>
+              <TaskListToolbar workspaceId={workspace.id} />
+              <TaskList workspaceId={workspace.id} />
+            </>
+          )}
         </Sidebar>
       }
       task={
@@ -70,7 +78,7 @@ function Layout(): React.JSX.Element {
               <Placeholder label="Task header" className={styles.header} />
             </TaskHeader>
           }
-          chat={<Placeholder label="Chat" className={styles.fill} />}
+          chat={<Chat />}
           inputBar={<Placeholder label="Input bar" className={styles.inputBar} />}
           rightPanel={
             <RightPanel tabs={<Placeholder label="Tabs" className={styles.tabs} />}>
