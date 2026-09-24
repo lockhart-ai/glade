@@ -1,8 +1,20 @@
+@import './tokens.css';
+
 html,
 body {
   margin: 0;
-  background: #0a0b0f;
-  color: #e6e8f0;
-  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Code, labels and timestamps use Geist Mono. */
+code,
+kbd,
+pre,
+samp,
+time {
+  font-family: var(--font-mono);
 }

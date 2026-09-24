@@ -3,6 +3,6 @@
   align-items: center;
   justify-content: center;
   height: 100vh;
-  font-size: 26px;
-  font-weight: 600;
+  font-size: var(--font-size-title);
+  font-weight: var(--font-weight-title);
 }
