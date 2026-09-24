@@ -195,6 +195,14 @@ describe('results', () => {
     expect(shown(titleOnly)).toBe('[Add] rate limiting')
   })
 
+  it('take the snippet from the latest of several matching messages', () => {
+    const { id } = task({ title: 'Add rate limiting' })
+    say(id, 'First, the backoff.')
+    say(id, 'Then the backoff again.')
+
+    expect(shown(search('backoff')[0])).toBe('Then the [backoff] again.')
+  })
+
   it('rank a title match above the same words in a chat, and newer tasks first when they tie', () => {
     const chat = task({ title: 'Tidy the logs' }, 3_000)
     say(chat.id, 'Webhook retries need a backoff.')
