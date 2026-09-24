@@ -9,7 +9,7 @@
  *   rejecting with a `BridgeError`. `BridgeError` is a plain object, not an `Error`: `contextBridge` copies an `Error`
  *   thrown into the renderer's world but drops its extra properties, so `code` wouldn't survive.
  */
-import type { UiStateEntry, UiStateKey, Workspace } from './domain'
+import type { Task, UiStateEntry, UiStateKey, Workspace } from './domain'
 
 /** The name the bridge is exposed under on `window`. */
 export const BRIDGE_KEY = 'glade'
@@ -24,7 +24,9 @@ export const EVENT_CHANNEL = 'glade:event'
 
 export enum CommandName {
   WorkspacesList = 'workspaces.list',
+  TasksList = 'tasks.list',
   UiStateGet = 'uiState.get',
+  UiStateGetAll = 'uiState.getAll',
   UiStateSet = 'uiState.set',
 }
 
@@ -36,6 +38,15 @@ export interface WorkspacesListResponse {
   readonly workspaces: readonly Workspace[]
 }
 
+export interface TasksListRequest {
+  readonly workspaceId: string
+}
+
+export interface TasksListResponse {
+  /** The workspace's tasks, most recently updated first. */
+  readonly tasks: readonly Task[]
+}
+
 export interface UiStateGetRequest {
   readonly key: UiStateKey
 }
@@ -43,6 +54,11 @@ export interface UiStateGetRequest {
 export interface UiStateGetResponse {
   /** Null when the key has never been set. */
   readonly value: string | null
+}
+
+export interface UiStateGetAllResponse {
+  /** Every UI state value that has been set. */
+  readonly entries: readonly UiStateEntry[]
 }
 
 /** Sets one UI state value. Broadcasts `uiState.changed`. */
@@ -57,7 +73,9 @@ export interface CommandSpec<Request, Response> {
 /** Each command's request and response. Add a command here and the handler registry won't typecheck until it has one. */
 export interface CommandMap {
   [CommandName.WorkspacesList]: CommandSpec<EmptyRequest, WorkspacesListResponse>
+  [CommandName.TasksList]: CommandSpec<TasksListRequest, TasksListResponse>
   [CommandName.UiStateGet]: CommandSpec<UiStateGetRequest, UiStateGetResponse>
+  [CommandName.UiStateGetAll]: CommandSpec<EmptyRequest, UiStateGetAllResponse>
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>
 }
 
@@ -69,6 +87,7 @@ export type CommandResponse<C extends CommandName> = CommandMap[C]['response']
 export enum EventType {
   UiStateChanged = 'uiState.changed',
   WorkspaceUpdated = 'workspace.updated',
+  TaskUpdated = 'task.updated',
 }
 
 export interface UiStateChangedEvent {
@@ -81,8 +100,14 @@ export interface WorkspaceUpdatedEvent {
   readonly workspace: Workspace
 }
 
+/** A task was created or changed. Carries the whole task as it now is. */
+export interface TaskUpdatedEvent {
+  readonly type: EventType.TaskUpdated
+  readonly task: Task
+}
+
 /** Everything main broadcasts to the windows. */
-export type GladeEvent = UiStateChangedEvent | WorkspaceUpdatedEvent
+export type GladeEvent = UiStateChangedEvent | WorkspaceUpdatedEvent | TaskUpdatedEvent
 
 export type EventListener = (event: GladeEvent) => void
 

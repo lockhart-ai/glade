@@ -8,7 +8,13 @@ export default defineConfig({
         test: {
           name: 'main',
           environment: 'node',
-          include: ['src/main/**/*.test.ts', 'src/preload/**/*.test.ts', 'src/shared/**/*.test.ts'],
+          include: [
+            'src/main/**/*.test.ts',
+            'src/preload/**/*.test.ts',
+            'src/shared/**/*.test.ts',
+            // Integration tests of the renderer's store against the real main process, which needs Node.
+            'src/renderer/**/*.integration.test.ts',
+          ],
         },
       },
       {
@@ -17,6 +23,7 @@ export default defineConfig({
           name: 'renderer',
           environment: 'jsdom',
           include: ['src/renderer/**/*.test.{ts,tsx}'],
+          exclude: ['src/renderer/**/*.integration.test.ts'],
           setupFiles: ['src/renderer/test-setup.ts'],
           // Vitest blanks CSS by default; tokens.test.ts reads the token stylesheet's text to check it.
           css: { include: [/tokens\.css/] },
