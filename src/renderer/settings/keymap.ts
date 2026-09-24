@@ -27,6 +27,7 @@ export const KEYMAP: readonly KeymapGroup[] = [
       { action: 'New workspace', keys: ['⌘⇧N'] },
       { action: 'Open folder as workspace', keys: ['⌘O'] },
       { action: 'Switch workspace', keys: ['⌘1 – ⌘9'] },
+      { action: 'Close workspace', keys: ['⌘⇧W'] },
     ],
   },
   {

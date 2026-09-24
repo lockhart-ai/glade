@@ -147,6 +147,20 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
   }
 }
 
+/**
+ * Forgets a removed workspace: it, and each of its tasks as `withoutTask` forgets one (main sends their `task.deleted`
+ * first, but a task the store has is never left without its workspace), and any intent that names it.
+ */
+export function withoutWorkspace(state: GladeData, workspaceId: string): GladeData {
+  const tasks = Object.values(state.tasks).filter((task) => task.workspaceId === workspaceId)
+  const forgotten = tasks.reduce((next, task) => withoutTask(next, task.id), state)
+  return {
+    ...forgotten,
+    workspaces: state.workspaces.filter(({ id }) => id !== workspaceId),
+    removingWorkspaceId: state.removingWorkspaceId === workspaceId ? null : state.removingWorkspaceId,
+  }
+}
+
 /** Applies one event from main to the store's state. Pure: returns the next state and leaves `state` alone. */
 export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
   switch (event.type) {
@@ -154,6 +168,8 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return withUiState(state, event.entry)
     case EventType.WorkspaceUpdated:
       return { ...state, workspaces: withWorkspace(state.workspaces, event.workspace) }
+    case EventType.WorkspaceRemoved:
+      return withoutWorkspace(state, event.workspaceId)
     case EventType.TaskUpdated:
       return { ...state, tasks: { ...state.tasks, [event.task.id]: event.task } }
     case EventType.TaskDeleted:
@@ -184,6 +200,9 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, todos: { ...state.todos, [event.taskId]: event.todos } }
     case EventType.ArtifactsChanged:
       return { ...state, artifacts: { ...state.artifacts, [event.taskId]: event.artifacts } }
+    case EventType.MenuCommand:
+      // Running a command is an action, not a change of state: the window runs it (see `./store`).
+      return state
     case EventType.SettingsChanged:
       return { ...state, settings: event.settings }
   }

@@ -16,6 +16,7 @@
     "src/main/notifications/notifier.ts",
     "src/main/notifications/recording-notifier.ts",
     "src/shared/bridge.ts",
+    "src/shared/commands.ts",
     "src/shared/domain.ts",
     "src/shared/models.ts",
     "src/shared/settings.ts",

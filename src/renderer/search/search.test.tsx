@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { bridgeError, BridgeErrorCode, CommandName, type SearchQueryResponse } from '../../shared/bridge'
+import { bridgeError, BridgeErrorCode, CommandName, EventType, type SearchQueryResponse } from '../../shared/bridge'
+import { appCommand, AppCommandId } from '../../shared/commands'
 import { MessageRole, TaskState, UiStateKey, type Message, type Task } from '../../shared/domain'
 import { SearchField } from '../../shared/search'
 import { App } from '../App'
@@ -62,6 +63,13 @@ async function renderApp(overrides: Partial<FakeHandlers> = {}): Promise<Rendere
   )
   await act(() => store.getState().hydrate())
   return { ...fake, store }
+}
+
+/** Chooses View › Toggle task list in the menu bar, whose ⌘B the menu bar answers. */
+function toggleTaskList({ emit }: FakeBridge): void {
+  act(() => {
+    emit({ type: EventType.MenuCommand, command: appCommand(AppCommandId.ToggleSidebar) })
+  })
 }
 
 function searchField(): HTMLInputElement {
@@ -273,9 +281,10 @@ describe('⌘F', () => {
   })
 
   it('shows a collapsed sidebar, with the search it was showing, and focuses the field', async () => {
-    const { store } = await renderApp()
+    const rendered = await renderApp()
+    const { store } = rendered
     type('flaky')
-    fireEvent.keyDown(window, { key: 'b', metaKey: true })
+    toggleTaskList(rendered)
     expect(screen.queryByRole('navigation', { name: 'Tasks' })).toBeNull()
 
     fireEvent.keyDown(window, { key: 'f', metaKey: true })
@@ -286,12 +295,12 @@ describe('⌘F', () => {
   })
 
   it('leaves the focus alone when the sidebar comes back by other means after a ⌘F', async () => {
-    await renderApp()
+    const rendered = await renderApp()
     fireEvent.keyDown(window, { key: 'f', metaKey: true })
-    fireEvent.keyDown(window, { key: 'b', metaKey: true })
+    toggleTaskList(rendered)
     screen.getByRole('button', { name: 'Show task list' }).focus()
 
-    fireEvent.keyDown(window, { key: 'b', metaKey: true })
+    toggleTaskList(rendered)
 
     expect(searchField()).not.toHaveFocus()
   })
@@ -313,7 +322,7 @@ describe('⌘F', () => {
   it('stops listening once the layout is gone', async () => {
     const { store } = await renderApp()
     act(() => {
-      store.setState({ workspaces: [] })
+      store.setState({ selectedWorkspaceId: null })
     })
 
     fireEvent.keyDown(window, { key: 'f', metaKey: true })

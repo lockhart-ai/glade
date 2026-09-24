@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { COMMAND_CHANNEL, CommandName, EVENT_CHANNEL, EventType } from '../shared/bridge'
+import { appCommand, AppCommandId, EMPTY_MENU_STATE } from '../shared/commands'
 import { MessageRole, TaskActivity, UiStateKey } from '../shared/domain'
 import { CAPTURE_ENV, type CaptureSpec } from './capture'
 import { FakeAgentBackend, settle } from './agent/fake-backend'
@@ -46,6 +47,7 @@ const electron = vi.hoisted(() => {
     readonly isMinimized = vi.fn(() => false)
     readonly restore = vi.fn()
     readonly focus = vi.fn()
+    readonly close = vi.fn()
     readonly webContents = {
       send: vi.fn(),
       // The page is always ready, at whatever size it was asked for.
@@ -95,6 +97,7 @@ const electron = vi.hoisted(() => {
     notifications,
     FakeNotification,
     app: {
+      name: 'Glade',
       isPackaged: false,
       userData: '',
       setPath: vi.fn((name: string, path: string) => {
@@ -120,6 +123,11 @@ const electron = vi.hoisted(() => {
     ipcMain: { handle: vi.fn<(channel: string, listener: Handler) => void>() },
     shell: { openPath: vi.fn(() => Promise.resolve('')), showItemInFolder: vi.fn() },
     clipboard: { writeText: vi.fn(() => Promise.resolve()) },
+    // The menu bar: each built menu is its template, and the one set last is the menu bar.
+    Menu: {
+      buildFromTemplate: vi.fn((template: unknown[]) => ({ template })),
+      setApplicationMenu: vi.fn<(menu: { template: unknown[] }) => void>(),
+    },
   }
 })
 
@@ -132,6 +140,7 @@ vi.mock('electron', () => ({
   net: { isOnline: () => true },
   shell: electron.shell,
   clipboard: electron.clipboard,
+  Menu: electron.Menu,
 }))
 
 // The real agent backend, watched: a test mode must never make one.
@@ -346,6 +355,43 @@ describe('startApp', () => {
     await expect(handler?.({}, CommandName.UiStateSet, entry)).resolves.toEqual({ ok: true, value: null })
 
     expect(window.webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, { type: EventType.UiStateChanged, entry })
+  })
+
+  it('sets the menu bar, rebuilds it from what the window shows, and sends its commands to the window', async () => {
+    await startAndWaitUntilReady()
+    const window = onlyWindow()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+    const menus = electron.Menu.setApplicationMenu.mock.calls
+    const fileMenu = (): { label: string; click: () => void; enabled: boolean }[] => {
+      const [menu] = menus[menus.length - 1] ?? []
+      const { template } = menu as { template: { label: string; submenu: unknown }[] }
+      return template.find(({ label }) => label === 'File')?.submenu as {
+        label: string
+        click: () => void
+        enabled: boolean
+      }[]
+    }
+    expect(menus).toHaveLength(1)
+    expect(fileMenu()[0]?.enabled).toBe(false)
+
+    const state = { ...EMPTY_MENU_STATE, workspaces: [{ id: 'w1', name: 'Acme API' }], shownWorkspaceId: 'w1' }
+    await expect(handler?.({}, CommandName.MenuUpdate, state)).resolves.toEqual({ ok: true, value: null })
+    expect(fileMenu()[0]?.enabled).toBe(true)
+    fileMenu()[0]?.click()
+
+    expect(window.webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, {
+      type: EventType.MenuCommand,
+      command: appCommand(AppCommandId.NewTask),
+    })
+  })
+
+  it('closes the focused window when the window asks', async () => {
+    await startAndWaitUntilReady()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    await expect(handler?.({}, CommandName.WindowClose, {})).resolves.toEqual({ ok: true, value: null })
+
+    expect(onlyWindow().close).toHaveBeenCalledOnce()
   })
 
   it('runs the agents on the backend it was started with, and closes their sessions when the app quits', async () => {

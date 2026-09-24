@@ -1,6 +1,9 @@
+import { AppCommandId, commandHint, TaskCommandId } from '../../shared/commands'
+
 /**
- * The keys the context menus show beside their items, from `docs/keymap.md`. They're kept in this one table until the
- * keymap registry (P7-04), which makes every shortcut rebindable, replaces it with the current bindings.
+ * The keys the context menus show beside their items, from `docs/keymap.md`: the ones the menu bar answers come from
+ * its keymap (`KEYMAP`), so the two always agree. The keymap registry (P7-04), which makes every shortcut rebindable,
+ * grows that keymap to cover the rest.
  */
 export enum ShortcutAction {
   /** Opens what the focused row is: a task, or a subagent's log. */
@@ -16,11 +19,11 @@ export enum ShortcutAction {
 
 export const SHORTCUT_HINTS: Readonly<Record<ShortcutAction, string>> = {
   [ShortcutAction.Open]: '↵',
-  [ShortcutAction.TogglePin]: '⌘⇧P',
-  [ShortcutAction.Rename]: 'F2',
-  [ShortcutAction.MarkUnread]: '⌘⇧U',
-  [ShortcutAction.MarkDone]: '⌘⇧D',
+  [ShortcutAction.TogglePin]: commandHint(TaskCommandId.TogglePin),
+  [ShortcutAction.Rename]: commandHint(TaskCommandId.Rename),
+  [ShortcutAction.MarkUnread]: commandHint(TaskCommandId.MarkUnread),
+  [ShortcutAction.MarkDone]: commandHint(TaskCommandId.MarkDone),
   [ShortcutAction.Copy]: '⌘C',
-  [ShortcutAction.CloseFileTab]: '⌘W',
+  [ShortcutAction.CloseFileTab]: commandHint(AppCommandId.Close),
   [ShortcutAction.OpenInEditor]: '⌘⇧E',
 }

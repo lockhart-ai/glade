@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test'
-import { expect, seedPath, test } from './fixtures'
+import { expect, seedPath, test, type Glade } from './fixtures'
+import { chooseMenuItem } from './menu'
 import { chat, panelToggles, regions, taskHeader, taskList, taskPanel } from './selectors'
 import { boxOf, MIN_WINDOW, resize, type Box } from './window-layout'
 
@@ -24,11 +25,11 @@ const ALL_OPEN: Panels = { sidebar: true, rightPanel: true, bottomBar: true }
 /** The design's window, and the smallest one the app allows. */
 const SIZES = [{ width: 1920, height: 1200 }, MIN_WINDOW] as const
 
-/** The shortcut that toggles each panel (docs/keymap.md). */
-const SHORTCUTS: Readonly<Record<PanelName, string>> = {
-  sidebar: 'Meta+KeyB',
-  rightPanel: 'Meta+Alt+KeyB',
-  bottomBar: 'Meta+KeyJ',
+/** The View menu's item that toggles each panel (⌘B, ⌘⌥B and ⌘J, which the menu bar answers). */
+const TOGGLES: Readonly<Record<PanelName, string>> = {
+  sidebar: 'Toggle task list',
+  rightPanel: 'Toggle right panel',
+  bottomBar: 'Toggle bottom bar',
 }
 
 /** The chat keeps at least this much height, whatever is open, in the smallest window. */
@@ -80,12 +81,12 @@ async function expectPanels(window: Page, panels: Panels): Promise<void> {
   await expect(toggles.showBottomBar).toBeVisible({ visible: !panels.bottomBar })
 }
 
-/** Presses the shortcut of each panel that differs, to go from one combination to another. */
-async function switchPanels(window: Page, from: Panels, to: Panels): Promise<void> {
-  for (const name of Object.keys(SHORTCUTS) as PanelName[]) {
-    if (from[name] !== to[name]) await window.keyboard.press(SHORTCUTS[name])
+/** Toggles each panel that differs from the View menu, to go from one combination to another. */
+async function switchPanels(glade: Glade, from: Panels, to: Panels): Promise<void> {
+  for (const name of Object.keys(TOGGLES) as PanelName[]) {
+    if (from[name] !== to[name]) await chooseMenuItem(glade, 'View', TOGGLES[name])
   }
-  await expectPanels(window, to)
+  await expectPanels(glade.window, to)
 }
 
 /** The chat's size in a combination, to compare how the combinations share the room. */
@@ -164,7 +165,7 @@ test('collapsible panels: every combination of the three reflows cleanly, in the
     const chats = new Map<string, ChatSize>()
     for (const panels of COMBINATIONS) {
       await test.step(`${String(size.width)}×${String(size.height)}: ${describe(panels)}`, async () => {
-        await switchPanels(window, current, panels)
+        await switchPanels(glade, current, panels)
         current = panels
         chats.set(describe(panels), await expectCleanLayout(window, panels, size))
       })
@@ -179,7 +180,7 @@ test('collapsible panels: every combination of the three reflows cleanly, in the
       if (panels.rightPanel) expect(without('rightPanel')?.width).toBeGreaterThan(chatSize.width)
       if (panels.bottomBar) expect(without('bottomBar')?.height).toBeGreaterThan(chatSize.height)
     }
-    await switchPanels(window, current, ALL_OPEN)
+    await switchPanels(glade, current, ALL_OPEN)
   }
 })
 
@@ -224,7 +225,7 @@ test('collapsible panels: the buttons collapse and show each panel, named with t
   await expectPanels(third.window, mixed)
 
   // ⌘F with the task list collapsed shows it again, with the search field focused.
-  await third.window.keyboard.press('Meta+KeyB')
+  await chooseMenuItem(third, 'View', 'Toggle task list')
   await expectPanels(third.window, { ...mixed, sidebar: false })
   await third.window.keyboard.press('Meta+KeyF')
   await expectPanels(third.window, mixed)

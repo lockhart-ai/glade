@@ -1,4 +1,4 @@
-import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandName, EventType } from '../../shared/bridge'
 import {
@@ -18,6 +18,7 @@ import {
   type ToolEvent,
   type UiStateEntry,
 } from '../../shared/domain'
+import { requestClose } from '../commands/closeRequest'
 import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
@@ -618,15 +619,13 @@ describe('TaskPanel', () => {
       expect(screen.getByRole('group', { name: 'Open files' })).toBeInTheDocument()
     })
 
-    it('closes the file showing on ⌘W while the focus is in the panel, keeping the focus there', async () => {
+    it('closes the file showing on Close (⌘W) while the focus is in the panel, keeping the focus there', async () => {
       const { invoke } = await renderPanel({ openFiles: [OPEN], uiState: [FILES_TAB] })
       const close = screen.getByRole('button', { name: 'Close views.py' })
       close.focus()
 
-      const event = createEvent.keyDown(close, { key: 'w', code: 'KeyW', metaKey: true })
-      fireEvent(close, event)
+      expect(requestClose()).toBe(true)
 
-      expect(event.defaultPrevented).toBe(true)
       expect(invoke).toHaveBeenCalledWith(CommandName.FilesClose, { taskId: 't1', path: 'api/views.py' })
       await waitFor(() => {
         expect(screen.getByRole('tabpanel')).toHaveFocus()
@@ -639,7 +638,7 @@ describe('TaskPanel', () => {
       const list = screen.getByRole('button', { name: 'All files in this task' })
       list.focus()
 
-      fireEvent.keyDown(list, { key: 'w', code: 'KeyW', metaKey: true })
+      requestClose()
 
       await waitFor(() => {
         expect(tab(/^Files/)).toHaveTextContent('Files 1')
@@ -686,19 +685,19 @@ describe('TaskPanel', () => {
       })
     })
 
-    it('leaves ⌘W alone on another tab, with no file open, or with other modifiers', async () => {
+    it('leaves Close (⌘W) to the window on another tab, with no file open, or with the focus outside it', async () => {
       const { invoke } = await renderPanel({ openFiles: [OPEN, { taskId: 't2', paths: [], activePath: null }] })
       const panel = screen.getByRole('complementary', { name: 'Task panel' })
-      const press = (init: object): boolean => {
-        const event = createEvent.keyDown(panel, { key: 'w', code: 'KeyW', metaKey: true, ...init })
-        fireEvent(panel, event)
-        return event.defaultPrevented
+      const press = (): boolean => {
+        screen.getByRole('tab', { name: /^Tool calls/ }).focus()
+        return requestClose()
       }
 
-      expect(press({})).toBe(false)
+      expect(press()).toBe(false)
       fireEvent.click(tab(/^Files/))
-      expect(press({ shiftKey: true })).toBe(false)
-      expect(press({ code: 'KeyQ' })).toBe(false)
+      ;(document.activeElement as HTMLElement | null)?.blur()
+      expect(requestClose()).toBe(false)
+      expect(panel.contains(document.activeElement)).toBe(false)
       fireEvent.click(screen.getByRole('button', { name: 'Close views.py' }))
       await waitFor(() => {
         expect(screen.queryByRole('button', { name: 'Close views.py' })).toBeNull()
@@ -707,7 +706,8 @@ describe('TaskPanel', () => {
       await waitFor(() => {
         expect(screen.getByText('No file open.')).toBeInTheDocument()
       })
-      expect(press({})).toBe(false)
+      screen.getByRole('tabpanel').focus()
+      expect(requestClose()).toBe(false)
       expect(invoke.mock.calls.filter(([command]) => command === CommandName.FilesClose)).toHaveLength(2)
     })
   })

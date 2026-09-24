@@ -26,6 +26,7 @@ import type {
   UiStateKey,
   Workspace,
 } from './domain'
+import type { Command, MenuState } from './commands'
 import type { Settings, SettingsPatch } from './settings'
 import type { SearchResult } from './search'
 
@@ -46,6 +47,7 @@ export enum CommandName {
   WorkspacesOpen = 'workspaces.open',
   WorkspacesUpdate = 'workspaces.update',
   WorkspacesReveal = 'workspaces.reveal',
+  WorkspacesRemove = 'workspaces.remove',
   DialogChooseFolder = 'dialog.chooseFolder',
   TasksList = 'tasks.list',
   TasksCreate = 'tasks.create',
@@ -78,6 +80,8 @@ export enum CommandName {
   SettingsGet = 'settings.get',
   SettingsUpdate = 'settings.update',
   SearchQuery = 'search.query',
+  MenuUpdate = 'menu.update',
+  WindowClose = 'window.close',
 }
 
 /** The request of a command that takes no arguments: pass `{}`. */
@@ -121,6 +125,17 @@ export interface WorkspacesOpenResponse {
 
 /** Shows a workspace's root folder in Finder (Reveal root in Finder). Fails with `not_found` for an unknown id. */
 export interface WorkspacesRevealRequest {
+  readonly id: string
+}
+
+/**
+ * Removes a workspace from the list (Remove from list…, once you've confirmed it): its tasks' agents are stopped, then
+ * the workspace and its tasks, with their logs, queues and question sets, go from the database. Nothing on disk is
+ * touched: the root folder and its files stay. When it's the workspace the window shows, the window shows none (and
+ * no task) until another is opened. Broadcasts `task.deleted` for each of its tasks, then `workspace.removed`. Fails
+ * with `not_found` for an unknown id.
+ */
+export interface WorkspacesRemoveRequest {
   readonly id: string
 }
 
@@ -486,6 +501,18 @@ export interface SearchQueryResponse {
   readonly results: readonly SearchResult[]
 }
 
+/**
+ * Tells main what the menu bar shows (`MenuState`): the window sends it whenever it changes, and main rebuilds the menu
+ * bar from it. Choosing one of its items comes back as a `menu.command` event.
+ */
+export type MenuUpdateRequest = MenuState
+
+/**
+ * Closes the focused window (Close, ⌘W, when nothing in it has a tab to close). On macOS the app keeps running, and
+ * clicking its Dock icon opens the window again.
+ */
+export type WindowCloseRequest = EmptyRequest
+
 /** One command's request and response types. */
 export interface CommandSpec<Request, Response> {
   readonly request: Request
@@ -499,6 +526,7 @@ export interface CommandMap {
   [CommandName.WorkspacesOpen]: CommandSpec<WorkspacesOpenRequest, WorkspacesOpenResponse>
   [CommandName.WorkspacesUpdate]: CommandSpec<WorkspacesUpdateRequest, WorkspacesUpdateResponse>
   [CommandName.WorkspacesReveal]: CommandSpec<WorkspacesRevealRequest, null>
+  [CommandName.WorkspacesRemove]: CommandSpec<WorkspacesRemoveRequest, null>
   [CommandName.DialogChooseFolder]: CommandSpec<EmptyRequest, DialogChooseFolderResponse>
   [CommandName.TasksList]: CommandSpec<TasksListRequest, TasksListResponse>
   [CommandName.TasksCreate]: CommandSpec<TasksCreateRequest, TaskResponse>
@@ -531,6 +559,8 @@ export interface CommandMap {
   [CommandName.SettingsGet]: CommandSpec<EmptyRequest, SettingsResponse>
   [CommandName.SettingsUpdate]: CommandSpec<SettingsUpdateRequest, SettingsResponse>
   [CommandName.SearchQuery]: CommandSpec<SearchQueryRequest, SearchQueryResponse>
+  [CommandName.MenuUpdate]: CommandSpec<MenuUpdateRequest, null>
+  [CommandName.WindowClose]: CommandSpec<EmptyRequest, null>
 }
 
 export type CommandRequest<C extends CommandName> = CommandMap[C]['request']
@@ -541,6 +571,7 @@ export type CommandResponse<C extends CommandName> = CommandMap[C]['response']
 export enum EventType {
   UiStateChanged = 'uiState.changed',
   WorkspaceUpdated = 'workspace.updated',
+  WorkspaceRemoved = 'workspace.removed',
   TaskUpdated = 'task.updated',
   TaskDeleted = 'task.deleted',
   MessageAppended = 'message.appended',
@@ -555,6 +586,7 @@ export enum EventType {
   FileShown = 'file.shown',
   TodosChanged = 'todos.changed',
   ArtifactsChanged = 'artifacts.changed',
+  MenuCommand = 'menu.command',
   SettingsChanged = 'settings.changed',
 }
 
@@ -567,6 +599,12 @@ export interface UiStateChangedEvent {
 export interface WorkspaceUpdatedEvent {
   readonly type: EventType.WorkspaceUpdated
   readonly workspace: Workspace
+}
+
+/** A workspace was removed from the list (`workspaces.remove`). Its tasks' `task.deleted` events came first. */
+export interface WorkspaceRemovedEvent {
+  readonly type: EventType.WorkspaceRemoved
+  readonly workspaceId: string
 }
 
 /** A task was created or changed. Carries the whole task as it now is. */
@@ -669,6 +707,12 @@ export interface ArtifactsChangedEvent {
   readonly artifacts: readonly Artifact[]
 }
 
+/** You chose a menu bar item, or pressed its key: the window runs its command. */
+export interface MenuCommandEvent {
+  readonly type: EventType.MenuCommand
+  readonly command: Command
+}
+
 /** The settings changed. Carries them all as they now are. */
 export interface SettingsChangedEvent {
   readonly type: EventType.SettingsChanged
@@ -679,6 +723,7 @@ export interface SettingsChangedEvent {
 export type GladeEvent =
   | UiStateChangedEvent
   | WorkspaceUpdatedEvent
+  | WorkspaceRemovedEvent
   | TaskUpdatedEvent
   | TaskDeletedEvent
   | MessageAppendedEvent
@@ -693,6 +738,7 @@ export type GladeEvent =
   | FileShownEvent
   | TodosChangedEvent
   | ArtifactsChangedEvent
+  | MenuCommandEvent
   | SettingsChangedEvent
 
 export type EventListener = (event: GladeEvent) => void

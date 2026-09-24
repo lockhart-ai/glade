@@ -67,3 +67,11 @@ export function updateWorkspace(db: Database, id: string, patch: WorkspacePatch)
   ).run(updated)
   return updated
 }
+
+/**
+ * Deletes a workspace's row, which takes its tasks with it, and theirs (their logs, queues, question sets and so on:
+ * every table that belongs to a task cascades from `tasks`). Returns whether there was such a workspace.
+ */
+export function deleteWorkspace(db: Database, id: string): boolean {
+  return db.prepare('DELETE FROM workspaces WHERE id = ?').run(id).changes > 0
+}

@@ -1,11 +1,12 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
+import type { Command } from '../../shared/commands'
 import { UiStateKey, type OpenFiles, type UiStateEntry, type Workspace } from '../../shared/domain'
 import { DEFAULT_SETTINGS_SECTION } from '../settings/sections'
 import { collapsedEntry, isCollapsed, Panel } from '../panels/panels'
 import { PanelTab, parsePanelTab } from '../right-panel/panelModel'
 import { listedTaskIds, selectionAfterDeleting } from '../task-list/sections'
-import { describeFailure, loadSnapshot } from './hydrate'
+import { describeFailure, lastOpenedWorkspace, loadSnapshot } from './hydrate'
 import { applyEvent, withHistory, withOpenedWorkspace } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState } from './state'
 
@@ -24,7 +25,14 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     // A task main asked to open while a snapshot loaded, opened once it has.
     let openWhenLoaded: string | null = null
 
+    // Who runs the menu bar's commands: the window, once it's showing.
+    const commandListeners = new Set<(command: Command) => void>()
+
     const onEvent = (event: GladeEvent): void => {
+      if (event.type === EventType.MenuCommand) {
+        for (const listener of commandListeners) listener(event.command)
+        return
+      }
       if (event.type === EventType.TaskOpenRequested) {
         if (pending === null) void get().selectTask(event.taskId)
         else openWhenLoaded = event.taskId
@@ -66,6 +74,18 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       set((state) => withOpenedWorkspace(state, workspace, selectedTaskId))
       if (selectedTaskId !== null) await get().loadHistory(selectedTaskId)
       return workspace
+    }
+
+    // Shows the most recently opened workspace other than `leaving`, or none (the first-run window) when there's no
+    // other. Showing none keeps each workspace's own selection, to come back when it's opened again.
+    const showAnotherWorkspace = async (leaving: string): Promise<void> => {
+      const next = lastOpenedWorkspace(get().workspaces.filter(({ id }) => id !== leaving))
+      if (next !== undefined) {
+        await open(next.id)
+        return
+      }
+      await setUiState({ key: UiStateKey.ActiveWorkspaceId, value: NONE })
+      await setUiState({ key: UiStateKey.SelectedTaskId, value: NONE })
     }
 
     return {
@@ -113,6 +133,42 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
 
       async revealWorkspace(workspaceId) {
         await bridge.invoke(CommandName.WorkspacesReveal, { id: workspaceId })
+      },
+
+      async closeWorkspace(workspaceId) {
+        if (get().selectedWorkspaceId === workspaceId) await showAnotherWorkspace(workspaceId)
+      },
+
+      requestRemoveWorkspace(workspaceId) {
+        set({ removingWorkspaceId: workspaceId })
+      },
+
+      cancelRemoveWorkspace() {
+        set({ removingWorkspaceId: null })
+      },
+
+      async removeWorkspace(workspaceId) {
+        const shown = get().selectedWorkspaceId === workspaceId
+        if (get().removingWorkspaceId === workspaceId) set({ removingWorkspaceId: null })
+        await bridge.invoke(CommandName.WorkspacesRemove, { id: workspaceId })
+        // Main's events normally arrive first; make sure the workspace is gone either way.
+        set((state) => applyEvent(state, { type: EventType.WorkspaceRemoved, workspaceId }))
+        if (shown) await showAnotherWorkspace(workspaceId)
+      },
+
+      async closeWindow() {
+        await bridge.invoke(CommandName.WindowClose, {})
+      },
+
+      async updateMenu(state) {
+        await bridge.invoke(CommandName.MenuUpdate, state)
+      },
+
+      onCommand(listener) {
+        commandListeners.add(listener)
+        return () => {
+          commandListeners.delete(listener)
+        }
       },
 
       async hydrate() {

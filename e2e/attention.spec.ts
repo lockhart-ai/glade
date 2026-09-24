@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Locator } from '@playwright/test'
 import { expect, test } from './fixtures'
+import { chooseMenuItem } from './menu'
 import { chat, firstRun, inputBar, taskHeader, taskList } from './selectors'
 
 /** The title the multi-tool-turn agent gives its task. */
@@ -58,7 +59,8 @@ test('unread and needs you: a reply in a task you left marks it, the chips filte
 
   // Quit and relaunch: A is still unread, the counts hold, and the Unread filter is still chosen.
   await first.close()
-  ;({ window } = await launch({ agentScript: 'multi-tool-turn' }))
+  const second = await launch({ agentScript: 'multi-tool-turn' })
+  ;({ window } = second)
   list = taskList(window)
   await expect(list.filter('Unread')).toHaveAttribute('aria-pressed', 'true')
   await expect(list.rows('Active')).toHaveCount(1)
@@ -75,8 +77,8 @@ test('unread and needs you: a reply in a task you left marks it, the chips filte
   await expect(list.filter('Unread')).toHaveText('Unread0')
   await expect(list.filter('Needs you')).toHaveText('Needs you1')
 
-  // ⌘⇧U marks it unread again, and it stays unread while you view it, until you next open it.
-  await window.keyboard.press('Meta+Shift+U')
+  // Task › Mark as unread (⌘⇧U) marks it unread again, and it stays unread while you view it, until you next open it.
+  await chooseMenuItem(second, 'Task', 'Mark as unread')
   await expect(list.filter('Unread')).toHaveText('Unread1')
   await expectUnread(list.taskRow(ASKED), ASKED, true)
   await expect(list.taskRow(ASKED)).toHaveAttribute('aria-current', 'true')

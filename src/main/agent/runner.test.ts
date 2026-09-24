@@ -184,6 +184,8 @@ function drainEvents(): (readonly unknown[])[] {
         return [event.type, event.taskId]
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
+      case EventType.WorkspaceRemoved:
+      case EventType.MenuCommand:
       case EventType.TaskOpenRequested:
       case EventType.OpenFilesChanged:
       case EventType.FileShown:
@@ -2464,6 +2466,8 @@ describe('several tasks at once', () => {
         return event.questionSet.taskId
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
+      case EventType.WorkspaceRemoved:
+      case EventType.MenuCommand:
       case EventType.SettingsChanged:
         return null
     }
@@ -2487,6 +2491,8 @@ describe('several tasks at once', () => {
         return [event.type, event.questionSet.state]
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
+      case EventType.WorkspaceRemoved:
+      case EventType.MenuCommand:
       case EventType.TaskOpenRequested:
       case EventType.TaskDeleted:
       case EventType.OpenFilesChanged:

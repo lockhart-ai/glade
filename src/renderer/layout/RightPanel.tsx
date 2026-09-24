@@ -1,4 +1,5 @@
-import { useCallback, useRef, type CSSProperties, type KeyboardEventHandler, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
+import { CLOSE_REQUEST_EVENT } from '../commands/closeRequest'
 import { Card, CardLevel } from '../components'
 import {
   MIN_CHAT_WIDTH,
@@ -19,8 +20,11 @@ export interface RightPanelProps {
   width: number
   /** The width you dragged the handle to (or moved it to with the arrow keys), to keep. */
   onWidthChange: (width: number) => void
-  /** A key pressed while the focus is in the panel, e.g. ⌘W to close the file showing. */
-  onKeyDown?: KeyboardEventHandler<HTMLDivElement>
+  /**
+   * Close (⌘W) while the focus is in the panel: a close request (`src/renderer/commands/closeRequest.ts`), to cancel
+   * when it closes something, such as the file showing.
+   */
+  onCloseRequest?: (event: Event) => void
 }
 
 /** The custom property the panel's width is set through; the stylesheet caps it to the room there is. */
@@ -46,8 +50,23 @@ function availableWidth(card: HTMLElement): number {
  * left edge that resizes it. While you drag, the width changes in place without re-rendering the panel's content; it's
  * handed to `onWidthChange` when you let go.
  */
-export function RightPanel({ tabs, children, width, onWidthChange, onKeyDown }: RightPanelProps): React.JSX.Element {
+export function RightPanel({
+  tabs,
+  children,
+  width,
+  onWidthChange,
+  onCloseRequest,
+}: RightPanelProps): React.JSX.Element {
   const slot = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const element = slot.current
+    if (element === null || onCloseRequest === undefined) return
+    element.addEventListener(CLOSE_REQUEST_EVENT, onCloseRequest)
+    return () => {
+      element.removeEventListener(CLOSE_REQUEST_EVENT, onCloseRequest)
+    }
+  }, [onCloseRequest])
 
   const bounds = useCallback((): WidthBounds => {
     const card = slot.current?.parentElement
@@ -67,13 +86,7 @@ export function RightPanel({ tabs, children, width, onWidthChange, onKeyDown }: 
         onResize={showWidth}
         onResizeEnd={onWidthChange}
       />
-      <Card
-        level={CardLevel.Nested}
-        role="complementary"
-        aria-label="Task panel"
-        className={styles.panel}
-        onKeyDown={onKeyDown}
-      >
+      <Card level={CardLevel.Nested} role="complementary" aria-label="Task panel" className={styles.panel}>
         <div className={styles.tabs} data-testid="right-panel-tabs">
           {tabs}
         </div>
