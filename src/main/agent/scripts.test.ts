@@ -211,11 +211,7 @@ describe('AGENT_SCRIPTS', () => {
     expect(listMessages(database.db, task.id).map(({ role, body, turn }) => [role, body, turn])).toEqual([
       [MessageRole.User, 'Move image uploads to S3.', 1],
       [MessageRole.User, 'Keep the original filenames in the bucket keys.', 1],
-      [
-        MessageRole.Agent,
-        'All 3,900 files are in the bucket, and their keys keep the original filenames.',
-        1,
-      ],
+      [MessageRole.Agent, 'All 3,900 files are in the bucket, and their keys keep the original filenames.', 1],
     ])
     expect(calls().map(({ name, state }) => [name, state])).toEqual([
       ['mcp__glade__set_title', ToolCallState.Done],

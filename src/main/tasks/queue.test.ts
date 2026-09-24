@@ -85,10 +85,18 @@ describe('removeQueuedMessage', () => {
     removeQueuedMessage(context(), first.id)
 
     expect(listQueuedMessages(database.db, task.id)).toEqual([second])
-    expect(emit).toHaveBeenCalledExactlyOnceWith({ type: EventType.QueueChanged, taskId: task.id, queuedMessages: [second] })
+    expect(emit).toHaveBeenCalledExactlyOnceWith({
+      type: EventType.QueueChanged,
+      taskId: task.id,
+      queuedMessages: [second],
+    })
   })
 
   it('fails with not_found for a message that is not queued', () => {
-    expect(failure(() => removeQueuedMessage(context(), 'missing'))).toBe(BridgeErrorCode.NotFound)
+    expect(
+      failure(() => {
+        removeQueuedMessage(context(), 'missing')
+      }),
+    ).toBe(BridgeErrorCode.NotFound)
   })
 })

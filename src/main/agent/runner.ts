@@ -501,19 +501,19 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       if ((sessions.get(taskId)?.turn ?? null) !== null) {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working; queue the message instead')
       }
-      const messages = startTurn(task, sessions.get(taskId) ?? start(task), text)
       // The message sent is the last of the turn's: any queued ones go before it.
-      return messages[messages.length - 1] as Message
+      const message = startTurn(task, sessions.get(taskId) ?? start(task), text).at(-1)
+      if (message === undefined) throw new Error(`The turn for task ${taskId} started without its message`)
+      return message
     },
 
     queue(taskId, text) {
+      const task = getTask(db, taskId)
+      if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
       const queued = addQueuedMessage(context, taskId, text)
       const live = sessions.get(taskId)
       // The turn ended just before the message arrived: nothing will deliver the queue, so it starts a turn now.
-      if ((live?.turn ?? null) === null) {
-        const task = getTask(db, taskId) as Task
-        startTurn(task, live ?? start(task), null)
-      }
+      if ((live?.turn ?? null) === null) startTurn(task, live ?? start(task), null)
       return queued
     },
 

@@ -138,6 +138,21 @@ export function inputBar(page: Page) {
     field: bar.getByRole('textbox', { name: 'Message the agent' }),
     send: bar.getByRole('button', { name: 'Send', exact: true }),
     stop: bar.getByRole('button', { name: 'Stop', exact: true }),
+    /** What Send becomes while the agent works. */
+    queue: bar.getByRole('button', { name: 'Queue message', exact: true }),
+    /** The message queue above the settings, while it has messages. */
+    queued: bar.getByRole('region', { name: 'Queued messages' }),
+    /** The queued messages' rows, in order: each one's number and text. */
+    queuedRows: bar.getByRole('region', { name: 'Queued messages' }).getByRole('listitem'),
+    /** A queued message's Edit, Remove or Save button, by its number. */
+    queuedButton: (position: number, name: 'Edit' | 'Remove' | 'Save') =>
+      bar
+        .getByRole('region', { name: 'Queued messages' })
+        .getByRole('listitem')
+        .nth(position - 1)
+        .getByRole('button', { name: `${name} queued message` }),
+    /** The field of the queued message being edited in place. */
+    queuedEditor: bar.getByRole('textbox', { name: 'Queued message' }),
     /** The context meter, at the right of the settings row. */
     contextMeter: bar.getByTestId('context-meter-slot').getByRole('meter', { name: 'Context used' }),
   }

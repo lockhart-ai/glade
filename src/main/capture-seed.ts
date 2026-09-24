@@ -19,6 +19,7 @@ import {
   type TurnSummary,
 } from '../shared/domain'
 import { appendMessage } from './db/repositories/messages'
+import { appendQueuedMessage } from './db/repositories/queued-messages'
 import { createTask, updateTask } from './db/repositories/tasks'
 import { appendDivider, appendNarration, appendToolCall, updateToolCall } from './db/repositories/tool-events'
 import { setUiState } from './db/repositories/ui-state'
@@ -98,6 +99,8 @@ export interface SeedTask {
   readonly messages?: readonly SeedMessage[] | undefined
   /** Its tool log, in order. */
   readonly toolEvents?: readonly SeedToolEvent[] | undefined
+  /** The messages waiting in its queue, in order. */
+  readonly queuedMessages?: readonly string[] | undefined
 }
 
 /** A fixture: one workspace, opened, and its tasks. */
@@ -161,6 +164,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
         )
         .optional(),
       toolEvents: z.array(seedToolEventSchema).optional(),
+      queuedMessages: z.array(z.string()).optional(),
     }),
   ),
 })
@@ -237,6 +241,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       for (const [index, event] of (sample.toolEvents ?? []).entries()) {
         seedToolEvent(db, task.id, event, ago(event.minutesAgo), `seed-${String(index)}`)
       }
+      for (const body of sample.queuedMessages ?? []) appendQueuedMessage(db, { taskId: task.id, body }, now)
     }
   })()
 }

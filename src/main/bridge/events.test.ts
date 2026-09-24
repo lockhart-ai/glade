@@ -56,5 +56,9 @@ it("emits a task's whole queue as a queue.changed event", () => {
 
   emitQueueChanged(emit, task.id, [queued])
 
-  expect(emit).toHaveBeenCalledExactlyOnceWith({ type: EventType.QueueChanged, taskId: task.id, queuedMessages: [queued] })
+  expect(emit).toHaveBeenCalledExactlyOnceWith({
+    type: EventType.QueueChanged,
+    taskId: task.id,
+    queuedMessages: [queued],
+  })
 })

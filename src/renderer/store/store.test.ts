@@ -11,7 +11,15 @@ import {
 } from '../../shared/domain'
 import { HydrationStatus, selectSelectedTask, selectSelectedWorkspace } from './state'
 import { createGladeStore } from './store'
-import { fakeBridge, refuse, sampleMessage, sampleTask, sampleWorkspace, type FakeMain } from './test-bridge'
+import {
+  fakeBridge,
+  refuse,
+  sampleMessage,
+  sampleQueuedMessage,
+  sampleTask,
+  sampleWorkspace,
+  type FakeMain,
+} from './test-bridge'
 
 function main(uiState: FakeMain['uiState'] = []): FakeMain {
   return {
@@ -343,6 +351,42 @@ describe("a task's logs", () => {
     const store = createGladeStore(bridge)
 
     await expect(store.getState().sendMessage('t1', 'Hi')).rejects.toBe(busy)
+  })
+
+  it('queues, edits and removes messages through main, and the store follows its events', async () => {
+    const { store, invoke } = await hydrated()
+
+    await store.getState().queueMessage('t1', 'Keep the filenames.')
+    await store.getState().queueMessage('t1', 'Use Glacier.')
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.QueueAdd, { taskId: 't1', text: 'Use Glacier.' })
+    const [first, second] = store.getState().queuedMessages.t1 ?? []
+
+    await store.getState().editQueuedMessage(first?.id ?? '', 'Keep the original filenames.')
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.QueueEdit, {
+      id: first?.id,
+      text: 'Keep the original filenames.',
+    })
+    await store.getState().removeQueuedMessage(second?.id ?? '')
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.QueueRemove, { id: second?.id })
+
+    expect(store.getState().queuedMessages.t1?.map(({ body }) => body)).toEqual(['Keep the original filenames.'])
+  })
+
+  it("rejects with main's error when a queued message is gone", async () => {
+    const { store } = await hydrated()
+    await expect(store.getState().editQueuedMessage('gone', 'Hi')).rejects.toMatchObject({
+      code: BridgeErrorCode.NotFound,
+    })
+    await expect(store.getState().removeQueuedMessage('gone')).rejects.toMatchObject({ code: BridgeErrorCode.NotFound })
+  })
+
+  it("loads a task's queue with its history", async () => {
+    const data = { ...main(), queuedMessages: [sampleQueuedMessage('q1', 't1')] }
+    const { store } = await hydrated(data)
+
+    await store.getState().loadHistory('t1')
+
+    expect(store.getState().queuedMessages).toEqual({ t1: [sampleQueuedMessage('q1', 't1')] })
   })
 
   it('stops a task through main, and the store follows its event', async () => {

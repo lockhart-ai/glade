@@ -18,6 +18,7 @@ import {
   TaskActivity,
   TaskState,
   type Message,
+  type QueuedMessage,
   type Task,
   type ToolEvent,
   type UiStateEntry,
@@ -36,6 +37,8 @@ export interface FakeMain {
   readonly messages?: Message[]
   /** Every task's tool log entries; none when left out. */
   readonly toolEvents?: ToolEvent[]
+  /** Every task's queued messages; none when left out. */
+  readonly queuedMessages?: QueuedMessage[]
 }
 
 export interface FakeBridge {
@@ -54,6 +57,14 @@ export interface FakeBridge {
  */
 export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void): FakeHandlers {
   let sent = 0
+  let queued = 0
+  const queue = main.queuedMessages ?? []
+  const queueOf = (taskId: string): QueuedMessage[] => queue.filter((message) => message.taskId === taskId)
+  const queueChanged = (taskId: string): void => {
+    emit({ type: EventType.QueueChanged, taskId, queuedMessages: queueOf(taskId) })
+  }
+  const notQueued = (id: string): Promise<never> =>
+    refuse(bridgeError(BridgeErrorCode.NotFound, `No queued message ${id}`))
   const writeTask = (id: string, change: Partial<Task>): { task: Task } => {
     const index = main.tasks.findIndex((task) => task.id === id)
     const current = main.tasks[index]
@@ -100,7 +111,31 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     [CommandName.TasksHistory]: ({ id }) => ({
       messages: (main.messages ?? []).filter((message) => message.taskId === id),
       toolEvents: (main.toolEvents ?? []).filter((event) => event.taskId === id),
+      queuedMessages: queueOf(id),
     }),
+    [CommandName.QueueAdd]: ({ taskId, text }) => {
+      queued += 1
+      const queuedMessage = sampleQueuedMessage(`queued-${String(queued)}`, taskId, text)
+      queue.push(queuedMessage)
+      queueChanged(taskId)
+      return { queuedMessage }
+    },
+    [CommandName.QueueEdit]: ({ id, text }) => {
+      const index = queue.findIndex((message) => message.id === id)
+      const current = queue[index]
+      if (current === undefined) return notQueued(id)
+      const queuedMessage = { ...current, body: text }
+      queue[index] = queuedMessage
+      queueChanged(queuedMessage.taskId)
+      return { queuedMessage }
+    },
+    [CommandName.QueueRemove]: ({ id }) => {
+      const index = queue.findIndex((message) => message.id === id)
+      const [removed] = index === -1 ? [] : queue.splice(index, 1)
+      if (removed === undefined) return notQueued(id)
+      queueChanged(removed.taskId)
+      return null
+    },
     [CommandName.UiStateGet]: ({ key }) => ({ value: main.uiState.find((entry) => entry.key === key)?.value ?? null }),
     [CommandName.UiStateGetAll]: () => ({ entries: [...main.uiState] }),
     [CommandName.UiStateSet]: (entry) => {
@@ -172,4 +207,8 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
 
 export function sampleMessage(id: string, taskId: string, body = 'Add rate limiting to the public API.'): Message {
   return { id, taskId, role: MessageRole.User, body, turn: 1, createdAt: 3_000, summary: null }
+}
+
+export function sampleQueuedMessage(id: string, taskId: string, body = 'Keep the original filenames.'): QueuedMessage {
+  return { id, taskId, body, createdAt: 4_000 }
 }

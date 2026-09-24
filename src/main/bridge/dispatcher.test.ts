@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { UiStateKey, type Message, type Task } from '../../shared/domain'
+import { UiStateKey, type Message, type QueuedMessage, type Task } from '../../shared/domain'
 import { createBroadcast, createDispatcher } from './dispatcher'
 import { CommandFailure } from './errors'
 import type { Handlers } from './handlers'
@@ -23,7 +23,10 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.TasksUpdate]: () => ({ task: {} as Task }),
     [CommandName.TasksSend]: () => ({ message: {} as Message }),
     [CommandName.TasksStop]: () => ({ task: {} as Task }),
-    [CommandName.TasksHistory]: () => ({ messages: [], toolEvents: [] }),
+    [CommandName.TasksHistory]: () => ({ messages: [], toolEvents: [], queuedMessages: [] }),
+    [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
+    [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
+    [CommandName.QueueRemove]: () => null,
     [CommandName.UiStateGet]: () => Promise.resolve({ value: 'async' }),
     [CommandName.UiStateGetAll]: () => ({ entries: [] }),
     [CommandName.UiStateSet]: () => null,

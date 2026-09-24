@@ -9,16 +9,7 @@
  *   rejecting with a `BridgeError`. `BridgeError` is a plain object, not an `Error`: `contextBridge` copies an `Error`
  *   thrown into the renderer's world but drops its extra properties, so `code` wouldn't survive.
  */
-import type {
-  Effort,
-  Message,
-  QueuedMessage,
-  Task,
-  ToolEvent,
-  UiStateEntry,
-  UiStateKey,
-  Workspace,
-} from './domain'
+import type { Effort, Message, QueuedMessage, Task, ToolEvent, UiStateEntry, UiStateKey, Workspace } from './domain'
 
 /** The name the bridge is exposed under on `window`. */
 export const BRIDGE_KEY = 'glade'
