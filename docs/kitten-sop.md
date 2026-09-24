@@ -27,8 +27,8 @@ its PR, and sends back fixes. Jared approves and merges. This SOP starts simple 
    Then arm auto-merge (squash) on it, using the glade-team identity described in `CLAUDE.md`: `gh pr merge <N> --auto
    --squash`. It merges once Jared approves and checks pass.
 
-   Before reporting back, run `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test` and `npm run
-   build` locally, and wait for the required `ci` check to go green on the PR (`node scripts/gh-team.mjs pr checks <N>
+   Before reporting back, run `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test`, `npm run
+   build` and `npm run test:e2e` locally, and wait for the required `ci` check to go green on the PR (`node scripts/gh-team.mjs pr checks <N>
    --watch`). If it goes red, fix it with new commits.
 
    Never merge directly. Report back to the supervisor with the PR link, how you checked each acceptance criterion,
@@ -43,5 +43,16 @@ its PR, and sends back fixes. Jared approves and merges. This SOP starts simple 
    and list them in your report; the supervisor pushes them to the orphan `screenshots` branch under `pr-<N>/`. Never
    commit them to your feature branch or main. Add a `Screenshots:` section to the PR body, before `Closes #N`, with
    images from `https://raw.githubusercontent.com/lockhart-ai/glade/screenshots/pr-<N>/<file>.png`.
+
+   **UI changes need an e2e spec.** A PR that changes the UI adds or extends a Playwright spec in `e2e/` that drives
+   the real app through the workflow (`npm run test:e2e`; CI runs it too). Use the fixtures in `e2e/fixtures.ts`
+   (`launch`, `tempFolder`, `chooseFolder`) and the locators in `e2e/selectors.ts`, and wait on locators, never on
+   timers. The app runs with a throwaway database, in a window that is never shown.
+
+   **Interactive changes need a recording.** If the PR changes how something behaves, record the specs with `npm run
+   record -- --out <dir> [-g <test title>]`. It writes a `<spec>--<test>.webm`, `.mp4` and `.gif` per test, recorded
+   over the DevTools protocol, not OS capture. Save them to the same `pr-<N>/` folder as the screenshots and list them
+   in your report; the supervisor publishes them. Link the MP4s in a `Recordings:` section of the PR body, before
+   `Closes #N`.
 
 Review fixes go on the same branch as new commits; don't force-push.

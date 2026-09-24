@@ -3,11 +3,12 @@
  * never shown, captures the page at each requested size with `capturePage()`, writes the PNGs and exits. It never
  * runs in a packaged app.
  */
-import { mkdirSync, readdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join, relative } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { z } from 'zod'
 import { READY_ATTRIBUTE } from '../shared/ready'
+import { isInTempFolder, isolateApp, type IsolatedApp } from './isolation'
 
 /** The environment variable that carries the capture spec, as JSON. */
 export const CAPTURE_ENV = 'GLADE_CAPTURE'
@@ -65,12 +66,6 @@ function captureSpecSchema(minimum: MinimumSize): z.ZodType<CaptureSpec> {
   })
 }
 
-/** Whether `path` is an absolute path inside (not at) the system temp folder. */
-function isInTempFolder(path: string): boolean {
-  const inside = relative(tmpdir(), path)
-  return isAbsolute(path) && inside !== '' && !inside.startsWith('..') && !isAbsolute(inside)
-}
-
 /** The capture spec was set but isn't valid. */
 export class CaptureSpecError extends Error {}
 
@@ -95,10 +90,7 @@ export function readCaptureSpec(env: NodeJS.ProcessEnv, isPackaged: boolean, min
 }
 
 /** The parts of Electron's `app` that capture mode sets up before the app is ready. */
-export interface CaptureApp {
-  setPath(name: 'userData', path: string): void
-  readonly dock?: { hide(): void } | undefined
-}
+export type CaptureApp = IsolatedApp
 
 /**
  * Sets the app up for a capture. Call before the app is ready. Points the data folder at the spec's fresh temporary
@@ -106,15 +98,11 @@ export interface CaptureApp {
  * Throws a `CaptureSpecError` unless that folder exists and is empty.
  */
 export function prepareCapture(app: CaptureApp, spec: CaptureSpec): void {
-  let entries: string[]
   try {
-    entries = readdirSync(spec.userData)
+    isolateApp(app, { mode: 'capture', userData: spec.userData, reuse: false })
   } catch (error) {
-    throw new CaptureSpecError(`the capture data folder can't be read: ${(error as Error).message}`)
+    throw new CaptureSpecError((error as Error).message)
   }
-  if (entries.length > 0) throw new CaptureSpecError(`the capture data folder ${spec.userData} is not empty`)
-  app.setPath('userData', spec.userData)
-  app.dock?.hide()
 }
 
 /** The parts of a `BrowserWindow` a capture drives. The window is never shown. */

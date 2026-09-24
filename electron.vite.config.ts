@@ -1,15 +1,15 @@
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
-/** The build mode `npm run screenshot` uses (`scripts/screenshot.mjs`), which is never packaged. */
-const SCREENSHOT_MODE = 'screenshot'
+/** The build mode of the test tools (`scripts/test-build.mjs`: screenshots and e2e tests), which is never packaged. */
+const TEST_MODE = 'testing'
 
 export default defineConfig(({ mode }) => ({
   main: {},
   preload: {},
   renderer: {
     plugins: [react()],
-    // Screenshots can capture the dev-only pages too, such as the component gallery.
-    define: mode === SCREENSHOT_MODE ? { 'import.meta.env.DEV': 'true' } : {},
+    // Screenshots and e2e tests can reach the dev-only pages too, such as the component gallery.
+    define: mode === TEST_MODE ? { 'import.meta.env.DEV': 'true' } : {},
   },
 }))

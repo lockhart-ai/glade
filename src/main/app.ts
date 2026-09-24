@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, type WebPreferences } from 'electron'
 import type { AgentBackend } from './agent/backend'
 import { createSdkBackend } from './agent/sdk-backend'
+import { createTestModeAgentBackend } from './agent/test-mode-backend'
 import { registerBridge } from './bridge'
 import {
   captureShots,
@@ -14,6 +15,7 @@ import {
 import { openAppDatabase, type AppDatabase } from './db/database'
 import { applySeed, readSeed } from './capture-seed'
 import { chooseFolder } from './dialogs'
+import { E2E_WINDOW_SIZE, e2eChosenFolder, prepareE2e, readE2eSpec, type E2eSpec } from './e2e'
 import { checkSecurity, describeViolations } from './security'
 
 /** The `bg` design token, so the window never flashes white before the renderer paints. */
@@ -37,10 +39,24 @@ interface StartFailure {
   readonly detail: string
 }
 
-/** Logs why the app can't start and exits. Shows a dialog too, except in a capture, which must never show anything. */
-function refuseToStart({ logSummary, message, detail }: StartFailure, capture: CaptureSpec | null): void {
+enum TestModeKind {
+  Capture = 'capture',
+  E2e = 'e2e',
+}
+
+/**
+ * How the app runs outside a normal run, set up from the environment before the app is ready: a screenshot capture
+ * (see `./capture`) or an e2e test run (see `./e2e`). Neither ever runs in a packaged app, nor shows anything.
+ */
+type TestMode =
+  | { readonly kind: TestModeKind.Capture; readonly spec: CaptureSpec }
+  | { readonly kind: TestModeKind.E2e; readonly spec: E2eSpec }
+  | null
+
+/** Logs why the app can't start and exits. Shows a dialog too, except in a test mode, which must never show anything. */
+function refuseToStart({ logSummary, message, detail }: StartFailure, testMode: TestMode): void {
   console.error(`Glade refused to start: ${logSummary}\n${detail}`)
-  if (capture === null) dialog.showErrorBox('Glade refused to start', `${message}\n\n${detail}`)
+  if (testMode === null) dialog.showErrorBox('Glade refused to start', `${message}\n\n${detail}`)
   app.exit(1)
 }
 
@@ -67,15 +83,18 @@ function describeError(error: Error): string {
   return error.cause instanceof Error ? `${error.message}: ${error.cause.message}` : error.message
 }
 
-/** Opens the main window: shown once it's ready, except in a capture, where it's never shown and opens at its route. */
-function createWindow(capture: CaptureSpec | null): BrowserWindow {
+/**
+ * Opens the main window: shown once it's ready, except in a test mode, where it's never shown (but still paints, so it
+ * can be captured and recorded) and opens at the spec's route. In e2e mode it's the size of the recordings.
+ */
+function createWindow(testMode: TestMode): BrowserWindow {
   const window = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: WINDOW_MIN_SIZE.width,
     minHeight: WINDOW_MIN_SIZE.height,
     show: false,
-    ...(capture === null ? {} : { paintWhenInitiallyHidden: true }),
+    ...(testMode === null ? {} : { paintWhenInitiallyHidden: true }),
     titleBarStyle: 'hiddenInset',
     backgroundColor: WINDOW_BACKGROUND,
     webPreferences: WINDOW_WEB_PREFERENCES,
@@ -87,14 +106,16 @@ function createWindow(capture: CaptureSpec | null): BrowserWindow {
     event.preventDefault()
   })
 
-  if (capture === null) {
+  if (testMode === null) {
     window.once('ready-to-show', () => {
       window.show()
     })
+  } else if (testMode.kind === TestModeKind.E2e) {
+    window.setContentSize(E2E_WINDOW_SIZE.width, E2E_WINDOW_SIZE.height)
   }
 
   // In development electron-vite serves the renderer with hot reload; otherwise load the built file.
-  const route = capture?.route ?? ''
+  const route = testMode?.spec.route ?? ''
   const devServerUrl = process.env.ELECTRON_RENDERER_URL
   if (!app.isPackaged && devServerUrl !== undefined) {
     void window.loadURL(`${devServerUrl}${route}`)
@@ -135,18 +156,27 @@ function seedCapture(capture: CaptureSpec, database: AppDatabase): boolean {
   }
 }
 
-/** The screenshot run asked for through the environment, set up before the app is ready; `null` in a normal run. */
-function startCapture(): CaptureSpec | null {
+/** The test mode asked for through the environment, set up before the app is ready; `null` in a normal run. */
+function startTestMode(): TestMode {
   const capture = readCaptureSpec(process.env, app.isPackaged, WINDOW_MIN_SIZE)
-  if (capture !== null) prepareCapture(app, capture)
-  return capture
+  if (capture !== null) {
+    prepareCapture(app, capture)
+    return { kind: TestModeKind.Capture, spec: capture }
+  }
+  const e2e = readE2eSpec(process.env, app.isPackaged)
+  if (e2e !== null) {
+    prepareE2e(app, e2e)
+    return { kind: TestModeKind.E2e, spec: e2e }
+  }
+  return null
 }
 
 /** What the app can be started with. */
 export interface AppOptions {
   /**
-   * Makes the backend the tasks' agents run on, once the app is ready. The Claude Agent SDK by default; a test mode can
-   * pass a scripted one.
+   * Makes the backend the tasks' agents run on, once the app is ready. The Claude Agent SDK by default; unit tests pass
+   * a fake. Never used in a test mode (e2e or capture), which always runs on `createTestModeAgentBackend`, so no
+   * automated run can reach the real Claude API.
    */
   readonly createAgentBackend?: () => AgentBackend
 }
@@ -156,14 +186,15 @@ export interface AppOptions {
  * again on quit), registers the bridge the renderer talks to main through (with the agent runner behind it), then opens the main window.
  *
  * Outside a packaged app, a capture spec in the environment (see `./capture`) starts a screenshot run instead: the
- * same app with a throwaway data folder, in a window that is never shown, which captures its page and exits.
+ * same app with a throwaway data folder, in a window that is never shown, which captures its page and exits. An e2e
+ * spec (see `./e2e`) runs the app as normal for Playwright to drive, with a throwaway data folder and a hidden window.
  */
 export function startApp({ createAgentBackend = createSdkBackend }: AppOptions = {}): void {
-  let capture: CaptureSpec | null
+  let testMode: TestMode
   try {
-    capture = startCapture()
+    testMode = startTestMode()
   } catch (error) {
-    console.error(`Glade capture failed: ${(error as Error).message}`)
+    console.error(`Glade test mode failed: ${(error as Error).message}`)
     app.exit(1)
     return
   }
@@ -177,14 +208,14 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
           message: "The window's security settings are not in effect.",
           detail: describeViolations(security.violations),
         },
-        capture,
+        testMode,
       )
       return
     }
 
     const opening = openDatabase()
     if (!opening.ok) {
-      refuseToStart(opening.failure, capture)
+      refuseToStart(opening.failure, testMode)
       return
     }
     const { database } = opening
@@ -193,12 +224,17 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
       ipc: ipcMain,
       db: database.db,
       targets: () => BrowserWindow.getAllWindows().map((window) => window.webContents),
-      agentBackend: createAgentBackend(),
-      chooseFolder: () => chooseFolder(dialog, BrowserWindow.getFocusedWindow()),
+      // A test mode never reaches the real Claude API, whatever the app was started with.
+      agentBackend: testMode === null ? createAgentBackend() : createTestModeAgentBackend(),
+      // A test can't click a native dialog, so in e2e mode it answers with the folder the test chose.
+      chooseFolder:
+        testMode?.kind === TestModeKind.E2e
+          ? () => Promise.resolve(e2eChosenFolder(process.env))
+          : () => chooseFolder(dialog, BrowserWindow.getFocusedWindow()),
     })
 
-    if (capture !== null) {
-      if (seedCapture(capture, database)) void runCapture(createWindow(capture), capture, database)
+    if (testMode?.kind === TestModeKind.Capture) {
+      if (seedCapture(testMode.spec, database)) void runCapture(createWindow(testMode), testMode.spec, database)
       return
     }
 
@@ -207,10 +243,10 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
       database.db.close()
     })
 
-    createWindow(null)
+    createWindow(testMode)
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow(null)
+      if (BrowserWindow.getAllWindows().length === 0) createWindow(testMode)
     })
   })
 
