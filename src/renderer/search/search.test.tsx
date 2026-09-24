@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, type SearchQueryResponse } from '../../shared/bridge'
 import { MessageRole, TaskState, UiStateKey, type Message, type Task } from '../../shared/domain'
 import { SearchField } from '../../shared/search'
@@ -295,5 +295,70 @@ describe('⌘F', () => {
     fireEvent.keyDown(window, { key: 'f', metaKey: true })
 
     expect(store.getState().searchFocusRequest).toBe(0)
+  })
+})
+
+describe('a result’s context menu', () => {
+  it('is the task’s menu, as in the task list, and its Rename… renames in the result’s row', async () => {
+    const { store } = await renderApp()
+    await searchFor('Retry-After', 3)
+
+    fireEvent.contextMenu(within(results()).getByRole('button', { name: /^Add rate limiting to public API/ }))
+
+    expect(screen.getByRole('menu', { name: 'Task actions' })).toHaveTextContent(/^Open↵Pin to topRename…Reopen/)
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Rename/ }))
+    expect(store.getState().renamingTaskId).toBe('t1')
+    const field = within(results()).getByRole('textbox', { name: 'Task title' })
+    fireEvent.change(field, { target: { value: 'Rate limit the public API' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    await waitFor(() => {
+      expect(store.getState().tasks.t1?.title).toBe('Rate limit the public API')
+    })
+  })
+})
+
+describe('opening a result scrolls the chat to the first match', () => {
+  /** Places every `<mark>` at `top` within a chat 500px tall, and records the scrolls asked for. */
+  function layout(top: number): ReturnType<typeof vi.fn> {
+    const scrollIntoView = vi.fn()
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const mark = this.tagName === 'MARK'
+      return DOMRect.fromRect({ x: 0, y: mark ? top : 0, width: 100, height: mark ? 20 : 500 })
+    })
+    Element.prototype.scrollIntoView = scrollIntoView
+    return scrollIntoView
+  }
+
+  async function openFirstResult(): Promise<void> {
+    await searchFor('Retry-After', 3)
+    fireEvent.click(within(results()).getByRole('button', { name: /^Add rate limiting to public API/ }))
+    await waitFor(() => {
+      expect(screen.getByRole('log', { name: 'Conversation' }).querySelectorAll('mark')).toHaveLength(2)
+    })
+  }
+
+  it('smoothly, when it’s off screen', async () => {
+    const scrollIntoView = layout(-400)
+    await renderApp()
+
+    await openFirstResult()
+
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ behavior: 'smooth', block: 'center' })
+    })
+    vi.restoreAllMocks()
+  })
+
+  it('not at all when it’s in view, or when the chat has no match', async () => {
+    const scrollIntoView = layout(100)
+    const { store } = await renderApp()
+
+    await openFirstResult()
+    await searchFor('flaky', 1)
+    await act(() => store.getState().openSearchResult('t3'))
+
+    expect(store.getState().matchRevealRequest).toBe(2)
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    vi.restoreAllMocks()
   })
 })

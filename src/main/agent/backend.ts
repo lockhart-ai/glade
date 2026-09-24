@@ -47,6 +47,11 @@ export interface AgentSession {
   configure(settings: AgentSessionSettings): void
   /** Interrupts the running turn, which then ends with an aborted result; the session stays alive. Stop uses it. */
   interrupt(): Promise<void>
+  /**
+   * Stops one of the session's tasks, such as a subagent, by the SDK's id for it (`system/task_started`), leaving the
+   * turn running: the tool call that started it gets its result. Stop subagent uses it.
+   */
+  stopTask(sdkTaskId: string): Promise<void>
   /** Ends the session and its agent process. */
   close(): void
 }

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type Ref } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { classNames } from '../components/classNames'
@@ -12,6 +12,7 @@ export interface MarkdownProps {
   className?: string
   /** What to mark in the rendered text (the sidebar's search, from `highlightPattern`); nothing when left out. */
   highlight?: RegExp | null
+  ref?: Ref<HTMLDivElement>
 }
 
 /**
@@ -64,10 +65,10 @@ export function InlineMarkdown({ source }: InlineMarkdownProps): React.JSX.Eleme
 }
 
 /** Chat Markdown (CommonMark and GitHub's tables, task lists and strikethrough), with code styled. Raw HTML is dropped. */
-export function Markdown({ source, className, highlight = null }: MarkdownProps): React.JSX.Element {
+export function Markdown({ source, className, ref, highlight = null }: MarkdownProps): React.JSX.Element {
   const rehypePlugins = useMemo(() => [rehypeHighlight(highlight, highlightStyles.mark ?? '')], [highlight])
   return (
-    <div className={classNames(styles.markdown, className)}>
+    <div ref={ref} className={classNames(styles.markdown, className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={rehypePlugins}

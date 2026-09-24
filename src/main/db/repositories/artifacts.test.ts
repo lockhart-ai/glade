@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { addArtifact, listArtifacts } from './artifacts'
+import { addArtifact, listArtifacts, removeArtifact } from './artifacts'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 
 let database: TestDatabase
@@ -36,6 +36,19 @@ describe('artifacts', () => {
 
     expect(renamed).toEqual({ taskId, path: 'a.md', title: 'A, final', addedAt: 10, updatedAt: 30 })
     expect(listArtifacts(database.db, taskId).map((artifact) => artifact.title)).toEqual(['A, final', 'B'])
+  })
+
+  it('are removed one at a time, and only the task’s own', () => {
+    const other = sampleTask(database.db, sampleWorkspace(database.db, '/code/other').id).id
+    addArtifact(database.db, { taskId, path: 'a.md', title: 'A' })
+    addArtifact(database.db, { taskId, path: 'b.md', title: 'B' })
+    addArtifact(database.db, { taskId: other, path: 'a.md', title: 'A' })
+
+    expect(removeArtifact(database.db, taskId, 'a.md')).toBe(true)
+    expect(removeArtifact(database.db, taskId, 'a.md')).toBe(false)
+
+    expect(listArtifacts(database.db, taskId).map((artifact) => artifact.path)).toEqual(['b.md'])
+    expect(listArtifacts(database.db, other).map((artifact) => artifact.path)).toEqual(['a.md'])
   })
 
   it('are each task’s own', () => {

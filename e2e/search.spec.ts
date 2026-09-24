@@ -32,6 +32,14 @@ test('search: results replace the list as you type, with the matches marked; ope
   await expect(search.row('Fix flaky login test')).toContainText('the client ignores Retry-After')
   await expect(search.results).toContainText('Searches titles, objectives, outcomes and full chat logs.')
 
+  // A result has its task's context menu, as a row in the task list does.
+  await search.row('Add webhook retries').click({ button: 'right' })
+  const menu = window.getByRole('menu', { name: 'Task actions' })
+  await expect(menu).toContainText('Reopen')
+  await expect(menu).toContainText('Copy outcome')
+  await window.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+
   // Opening a result selects its task, whose header and chat mark the matches.
   await search.row('Add rate limiting to public API').click()
   await expect(search.row('Add rate limiting to public API')).toHaveAttribute('aria-current', 'true')

@@ -60,13 +60,16 @@ export interface FakeMain {
   readonly files?: Readonly<Record<string, FileContent>>
   /** The paths `files.openInEditor` opened, oldest first. */
   readonly openedInEditor?: string[]
+  /** The subagents `subagents.stop` stopped, by their `Agent` calls' tool_use ids, oldest first. */
+  readonly stoppedSubagents?: string[]
   /** Each task's todo list, by task id; none when left out. */
   readonly todos?: Readonly<Record<string, TodoList>>
-  /** Every task's artifacts; none when left out. */
+  /** Every task's artifacts; none when left out. `artifacts.remove` removes one, from the fake's own copy. */
   readonly artifacts?: readonly Artifact[]
   /** What `files.info` answers with, by path, for any task; missing when left out. */
   readonly fileInfo?: Readonly<Record<string, FileInfo>>
-  /** The paths `files.copy` copied, oldest first. */
+  /** What was put on the clipboard, oldest first: the path of each file `files.copy` copied, and the text of each
+   * `clipboard.writeText`. */
   readonly copied?: string[]
   /** The paths `files.reveal` revealed, oldest first. */
   readonly revealed?: string[]
@@ -98,6 +101,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
   const notQueued = (id: string): Promise<never> =>
     refuse(bridgeError(BridgeErrorCode.NotFound, `No queued message ${id}`))
   const openFiles = main.openFiles ?? []
+  const artifacts = [...(main.artifacts ?? [])]
   const openFilesOf = (taskId: string): OpenFiles =>
     openFiles.find((open) => open.taskId === taskId) ?? noOpenFiles(taskId)
   const changeOpenFiles = (taskId: string, change: (open: OpenFiles) => OpenFiles): { openFiles: OpenFiles } => {
@@ -173,7 +177,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       questionSets: (main.questionSets ?? []).filter((set) => set.taskId === id),
       openFiles: openFilesOf(id),
       todos: main.todos?.[id] ?? null,
-      artifacts: (main.artifacts ?? []).filter((artifact) => artifact.taskId === id),
+      artifacts: artifacts.filter((artifact) => artifact.taskId === id),
     }),
     [CommandName.QueueAdd]: ({ taskId, text }) => {
       queued += 1
@@ -220,6 +224,10 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       main.openedInEditor?.push(path)
       return null
     },
+    [CommandName.SubagentsStop]: ({ toolUseId }) => {
+      main.stoppedSubagents?.push(toolUseId)
+      return null
+    },
     [CommandName.FilesInfo]: ({ path }) => ({ info: main.fileInfo?.[path] ?? { kind: FileInfoKind.Missing } }),
     [CommandName.FilesCopy]: ({ path }) => {
       main.copied?.push(path)
@@ -227,6 +235,21 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     },
     [CommandName.FilesReveal]: ({ path }) => {
       main.revealed?.push(path)
+      return null
+    },
+    [CommandName.ArtifactsRemove]: ({ taskId, path }) => {
+      const index = artifacts.findIndex((artifact) => artifact.taskId === taskId && artifact.path === path)
+      if (index === -1) return refuse(bridgeError(BridgeErrorCode.NotFound, `No artifact ${path}`))
+      artifacts.splice(index, 1)
+      emit({
+        type: EventType.ArtifactsChanged,
+        taskId,
+        artifacts: artifacts.filter((artifact) => artifact.taskId === taskId),
+      })
+      return null
+    },
+    [CommandName.ClipboardWriteText]: ({ text }) => {
+      main.copied?.push(text)
       return null
     },
     [CommandName.UiStateGet]: ({ key }) => ({ value: main.uiState.find((entry) => entry.key === key)?.value ?? null }),

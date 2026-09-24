@@ -2,6 +2,14 @@ import { useCallback, useEffect, useState } from 'react'
 import { FileInfoKind, UiStateKey, type Artifact, type EpochMs, type FileInfo } from '../../shared/domain'
 import { Button, ButtonSize, ButtonVariant } from '../components'
 import { classNames } from '../components/classNames'
+import {
+  artifactMenu,
+  ContextMenu,
+  useContextMenu,
+  useMenuCommands,
+  type ContextMenuTargetProps,
+} from '../context-menus'
+import { absolutePath } from '../files/FilesTab'
 import { PanelTab } from '../right-panel/panelModel'
 import { useGladeStore } from '../store/react'
 import { describeFile } from './artifactsModel'
@@ -37,6 +45,8 @@ interface ArtifactCardProps {
   readonly now: EpochMs
   /** Changes whenever the agent may have changed the file, so the card looks at it again. */
   readonly revision: number
+  /** What opens its context menu: a right-click, or ⇧F10 while it (or one of its buttons) has the focus. */
+  readonly menuTarget: ContextMenuTargetProps
 }
 
 /**
@@ -44,7 +54,7 @@ interface ArtifactCardProps {
  * and Reveal in folder. A file that isn't there any more shows muted, as missing, and can't be opened, copied or
  * revealed.
  */
-function ArtifactCard({ artifact, now, revision }: ArtifactCardProps): React.JSX.Element {
+function ArtifactCard({ artifact, now, revision, menuTarget }: ArtifactCardProps): React.JSX.Element {
   const { taskId, path, title } = artifact
   const fileInfo = useGladeStore((state) => state.fileInfo)
   const openFile = useGladeStore((state) => state.openFile)
@@ -85,7 +95,7 @@ function ArtifactCard({ artifact, now, revision }: ArtifactCardProps): React.JSX
   }
 
   return (
-    <li className={classNames(styles.card, missing && styles.missing)} aria-label={title}>
+    <li className={classNames(styles.card, missing && styles.missing)} aria-label={title} {...menuTarget}>
       <div className={styles.head}>
         <span className={styles.icon}>
           <FileIcon />
@@ -131,18 +141,59 @@ export interface ArtifactsTabProps {
 
 /**
  * The right panel's Artifacts tab (`docs/design/html/10-artifacts.html`): a card for each file the agent declared as a
- * deliverable of the task (`add_artifact`), in the order it declared them. They stay after the task is done.
+ * deliverable of the task (`add_artifact`), in the order it declared them. They stay after the task is done. A card's
+ * context menu has its buttons and more: Open in editor, Copy path, and Remove from artifacts, which leaves the file.
  */
 export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Element {
   const artifacts = useGladeStore((state) => state.artifacts[taskId]) ?? NO_ARTIFACT_LIST
   // Each tool call the agent makes may change a file: the cards look at theirs again as the log grows.
   const revision = useGladeStore((state) => state.toolEvents[taskId]?.length ?? 0)
+  const rootPath = useGladeStore(
+    (state) => state.workspaces.find((workspace) => workspace.id === state.tasks[taskId]?.workspaceId)?.rootPath,
+  )
+  const showFile = useGladeStore((state) => state.showFile)
+  const openInEditor = useGladeStore((state) => state.openInEditor)
+  const copyFile = useGladeStore((state) => state.copyFile)
+  const revealFile = useGladeStore((state) => state.revealFile)
+  const removeArtifact = useGladeStore((state) => state.removeArtifact)
+  const menu = useContextMenu<string>()
+  const { run, copy } = useMenuCommands()
   if (artifacts.length === 0) return <p className={styles.empty}>{NO_ARTIFACTS}</p>
+
+  const entries = (path: string) =>
+    artifactMenu({
+      open: () => {
+        run(() => showFile(taskId, path))
+      },
+      openInEditor: () => {
+        run(() => openInEditor(taskId, path))
+      },
+      copyContents: () => {
+        run(() => copyFile(taskId, path))
+      },
+      copyPath: () => {
+        copy(rootPath === undefined ? path : absolutePath(rootPath, path))
+      },
+      reveal: () => {
+        run(() => revealFile(taskId, path))
+      },
+      remove: () => {
+        run(() => removeArtifact(taskId, path))
+      },
+    })
+
   return (
     <ul className={styles.artifacts} aria-label="Artifacts">
       {artifacts.map((artifact) => (
-        <ArtifactCard key={artifact.path} artifact={artifact} now={now} revision={revision} />
+        <ArtifactCard
+          key={artifact.path}
+          artifact={artifact}
+          now={now}
+          revision={revision}
+          menuTarget={menu.targetProps(artifact.path)}
+        />
       ))}
+      <ContextMenu label="Artifact actions" state={menu} entries={entries} />
     </ul>
   )
 }

@@ -11,6 +11,7 @@ import {
   type ToolCallEvent,
   type ToolEvent,
 } from '../../shared/domain'
+import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import {
@@ -22,7 +23,7 @@ import {
   type FakeHandlers,
 } from '../store/test-bridge'
 import { colors } from '../tokens'
-import { FilesTab, type FileLineFocus } from './FilesTab'
+import { absolutePath, FilesTab, type FileLineFocus } from './FilesTab'
 
 const ROOT = sampleWorkspace('w1').rootPath
 const AT = new Date(2026, 8, 23, 11, 22).getTime()
@@ -83,9 +84,11 @@ interface Setup {
 }
 
 async function renderTab({ toolEvents = EVENTS, openFiles, files = FILES, overrides = {}, focus }: Setup = {}): Promise<
-  FakeBridge & { store: GladeStore; opened: string[] }
+  FakeBridge & { store: GladeStore; opened: string[]; copied: string[]; revealed: string[] }
 > {
   const opened: string[] = []
+  const copied: string[] = []
+  const revealed: string[] = []
   const fake = fakeBridge(
     {
       workspaces: [sampleWorkspace('w1')],
@@ -98,6 +101,8 @@ async function renderTab({ toolEvents = EVENTS, openFiles, files = FILES, overri
       openFiles: openFiles === undefined ? [] : [openFiles],
       files,
       openedInEditor: opened,
+      copied,
+      revealed,
     },
     overrides,
   )
@@ -105,10 +110,12 @@ async function renderTab({ toolEvents = EVENTS, openFiles, files = FILES, overri
   await act(() => store.getState().hydrate())
   render(
     <GladeStoreProvider store={store}>
-      <FilesTab taskId="t1" rootPath={ROOT} focus={focus ?? null} />
+      <ToastProvider>
+        <FilesTab taskId="t1" rootPath={ROOT} focus={focus ?? null} />
+      </ToastProvider>
     </GladeStoreProvider>,
   )
-  return { ...fake, store, opened }
+  return { ...fake, store, opened, copied, revealed }
 }
 
 function openTabs(): HTMLElement {
@@ -355,5 +362,93 @@ describe('FilesTab', () => {
 
     expect(screen.getByRole('button', { name: 'All files in this task' })).toBeDisabled()
     expect(await screen.findByText('This file isn’t there any more.')).toBeInTheDocument()
+  })
+})
+
+describe('a file tab’s context menu', () => {
+  async function choose(name: string, label: string): Promise<void> {
+    const tab = within(openTabs()).getByRole('button', {
+      name: new RegExp(`^(Changed by the agent)?\\s*${name}$`),
+    }).parentElement
+    fireEvent.contextMenu(tab ?? document.body)
+    await act(() => Promise.resolve())
+    // The label, then its shortcut if any: "Close" isn't "Close others".
+    fireEvent.click(screen.getByRole('menuitem', { name: new RegExp(`^${label}(?![ a-z])`) }))
+    await act(() => Promise.resolve())
+  }
+
+  function tabNames(): string[] {
+    return within(openTabs())
+      .queryAllByRole('button')
+      .filter((button) => button.hasAttribute('aria-pressed'))
+      .map((button) => button.textContent)
+  }
+
+  it('has the reference’s items, and opens on ⇧F10 on a tab', async () => {
+    await renderTab({ openFiles: OPEN })
+
+    const select = within(openTabs()).getByRole('button', { name: /^(Changed by the agent)?\s*throttles\.py$/ })
+    fireEvent.keyDown(select, { key: 'F10', shiftKey: true })
+    await act(() => Promise.resolve())
+
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'Close⌘W',
+      'Close others',
+      'Close all',
+      'Open in editor⌘⇧E',
+      'Reveal in Finder',
+      'Copy path',
+      'Copy relative path',
+    ])
+  })
+
+  it('copies the file’s path, whole or relative, opens it in the editor and shows it in Finder', async () => {
+    const { copied, opened, revealed } = await renderTab({ openFiles: OPEN })
+
+    await choose('throttles.py', 'Copy path')
+    await choose('throttles.py', 'Copy relative path')
+    await choose('throttles.py', 'Open in editor')
+    await choose('throttles.py', 'Reveal in Finder')
+
+    expect(copied).toEqual([`${ROOT}/api/throttles.py`, 'api/throttles.py'])
+    expect(opened).toEqual(['api/throttles.py'])
+    expect(revealed).toEqual(['api/throttles.py'])
+  })
+
+  it('closes the tab, the others, or all of them', async () => {
+    await renderTab({ openFiles: OPEN })
+
+    await choose('settings.py', 'Close')
+    await vi.waitFor(() => {
+      expect(tabNames()).toEqual(['rate-limits.md', 'throttles.py'])
+    })
+
+    await choose('throttles.py', 'Close others')
+    await vi.waitFor(() => {
+      expect(tabNames()).toEqual(['throttles.py'])
+    })
+
+    await choose('throttles.py', 'Close all')
+    await vi.waitFor(() => {
+      expect(tabNames()).toEqual([])
+    })
+  })
+
+  it('shows a toast when Finder can’t show the file', async () => {
+    await renderTab({
+      openFiles: OPEN,
+      overrides: { [CommandName.FilesReveal]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No file there')) },
+    })
+
+    await choose('throttles.py', 'Reveal in Finder')
+
+    expect(await screen.findByText('No file there')).toBeInTheDocument()
+  })
+})
+
+describe('absolutePath', () => {
+  it('joins the root and the relative path, whether the root ends in a slash or not', () => {
+    expect(absolutePath('/code/acme-api', 'src/date.ts')).toBe('/code/acme-api/src/date.ts')
+    expect(absolutePath('/code/acme-api/', 'src/date.ts')).toBe('/code/acme-api/src/date.ts')
   })
 })

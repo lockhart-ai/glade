@@ -4,6 +4,7 @@ import type { TextPart } from '../../shared/search'
 import { TaskIndicator, taskIndicator } from '../../shared/taskIndicator'
 import { errorStatusLine } from '../../shared/taskError'
 import { classNames } from '../components/classNames'
+import type { ContextMenuTargetProps } from '../context-menus'
 import { Dot } from '../components'
 import { isPaused, pausedStatusLine } from '../pause/pauseModel'
 import { Highlighted, Marked } from '../search/Highlight'
@@ -31,6 +32,8 @@ export interface TaskRowProps {
   onRename?: (taskId: string, title: string) => Promise<boolean>
   /** Stops renaming, keeping the title. */
   onCancelRename?: () => void
+  /** What opens the task's context menu from the row: a right-click, or ⇧F10 while it has the focus. */
+  menuTarget?: ContextMenuTargetProps
 }
 
 interface RenameFieldProps {
@@ -120,6 +123,7 @@ export function TaskRow({
   renaming = false,
   onRename,
   onCancelRename,
+  menuTarget,
 }: TaskRowProps): React.JSX.Element {
   const time = (
     <span className={styles.time}>
@@ -154,6 +158,7 @@ export function TaskRow({
       onClick={() => {
         onSelect(task.id)
       }}
+      {...menuTarget}
     >
       <span className={styles.line}>
         <Dot state={taskIndicator(task)} />
