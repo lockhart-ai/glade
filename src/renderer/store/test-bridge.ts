@@ -48,9 +48,9 @@ export interface FakeBridge {
 
 /**
  * Handlers answering from `main`, which `uiState.set` and the task commands write to (and broadcast through `emit`)
- * like main does. The task commands don't check transitions, and `tasks.send` only saves and broadcasts the message;
- * main's own tests cover the rest. `workspaces.create` adds a workspace and `workspaces.open` answers with it opened
- * at 5,000, neither broadcasting.
+ * like main does. The task commands don't check transitions, `tasks.send` only saves and broadcasts the message, and
+ * `tasks.stop` only sets the task back to waiting; main's own tests cover the rest. `workspaces.create` adds a
+ * workspace and `workspaces.open` answers with it opened at 5,000, neither broadcasting.
  */
 export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void): FakeHandlers {
   let sent = 0
@@ -96,6 +96,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       emit({ type: EventType.MessageAppended, message })
       return { message }
     },
+    [CommandName.TasksStop]: ({ id }) => writeTask(id, { activity: TaskActivity.Waiting }),
     [CommandName.TasksHistory]: ({ id }) => ({
       messages: (main.messages ?? []).filter((message) => message.taskId === id),
       toolEvents: (main.toolEvents ?? []).filter((event) => event.taskId === id),
