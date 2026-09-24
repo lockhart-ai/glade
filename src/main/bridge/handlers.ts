@@ -1,9 +1,10 @@
 import type { Database } from 'better-sqlite3'
-import { CommandName, EventType, type CommandRequest, type CommandResponse, type GladeEvent } from '../../shared/bridge'
-import type { Task } from '../../shared/domain'
+import { CommandName, EventType, type CommandRequest, type CommandResponse } from '../../shared/bridge'
 import { listTasks } from '../db/repositories/tasks'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
 import { listWorkspaces } from '../db/repositories/workspaces'
+import { createTask, markTaskDone, reopenTask, updateTaskFromUser } from '../tasks/service'
+import type { Emit } from './events'
 
 /**
  * One handler per command, taking the parsed request. A command in `CommandMap` without a handler here, or a handler
@@ -13,18 +14,20 @@ export type Handlers = {
   readonly [C in CommandName]: (request: CommandRequest<C>) => CommandResponse<C> | Promise<CommandResponse<C>>
 }
 
-/** Sends an event to every window. */
-export type Emit = (event: GladeEvent) => void
-
 export interface HandlerContext {
   readonly db: Database
   readonly emit: Emit
 }
 
-export function createHandlers({ db, emit }: HandlerContext): Handlers {
+export function createHandlers(context: HandlerContext): Handlers {
+  const { db, emit } = context
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
     [CommandName.TasksList]: ({ workspaceId }) => ({ tasks: listTasks(db, workspaceId) }),
+    [CommandName.TasksCreate]: ({ workspaceId }) => ({ task: createTask(context, workspaceId) }),
+    [CommandName.TasksMarkDone]: ({ id }) => ({ task: markTaskDone(context, id) }),
+    [CommandName.TasksReopen]: ({ id }) => ({ task: reopenTask(context, id) }),
+    [CommandName.TasksUpdate]: ({ id, patch }) => ({ task: updateTaskFromUser(context, id, patch) }),
     [CommandName.UiStateGet]: ({ key }) => ({ value: getUiState(db, key) ?? null }),
     [CommandName.UiStateGetAll]: () => ({ entries: listUiState(db) }),
     [CommandName.UiStateSet]: (entry) => {
@@ -33,9 +36,4 @@ export function createHandlers({ db, emit }: HandlerContext): Handlers {
       return null
     },
   }
-}
-
-/** Tells every window a task was created or changed. Whatever writes a task (P1's task commands) calls this after. */
-export function emitTaskUpdated(emit: Emit, task: Task): void {
-  emit({ type: EventType.TaskUpdated, task })
 }

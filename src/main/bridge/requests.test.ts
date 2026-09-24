@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CommandName } from '../../shared/bridge'
-import { UiStateKey } from '../../shared/domain'
+import { Effort, UiStateKey } from '../../shared/domain'
 import { describeIssues, REQUEST_SCHEMAS } from './requests'
 
 const KEY = UiStateKey.ActiveWorkspaceId
@@ -10,6 +10,12 @@ describe('REQUEST_SCHEMAS', () => {
   it('parses valid requests', () => {
     expect(REQUEST_SCHEMAS[CommandName.WorkspacesList].parse({})).toEqual({})
     expect(REQUEST_SCHEMAS[CommandName.TasksList].parse({ workspaceId: 'w' })).toEqual({ workspaceId: 'w' })
+    expect(REQUEST_SCHEMAS[CommandName.TasksCreate].parse({ workspaceId: 'w' })).toEqual({ workspaceId: 'w' })
+    expect(REQUEST_SCHEMAS[CommandName.TasksMarkDone].parse({ id: 't' })).toEqual({ id: 't' })
+    expect(REQUEST_SCHEMAS[CommandName.TasksReopen].parse({ id: 't' })).toEqual({ id: 't' })
+    const patch = { title: 'Rate limits', pinned: true, unread: false, model: 'claude-sample-2', effort: Effort.Max }
+    expect(REQUEST_SCHEMAS[CommandName.TasksUpdate].parse({ id: 't', patch })).toEqual({ id: 't', patch })
+    expect(REQUEST_SCHEMAS[CommandName.TasksUpdate].parse({ id: 't', patch: {} })).toEqual({ id: 't', patch: {} })
     expect(REQUEST_SCHEMAS[CommandName.UiStateGet].parse({ key: KEY })).toEqual({ key: KEY })
     expect(REQUEST_SCHEMAS[CommandName.UiStateGetAll].parse({})).toEqual({})
     expect(REQUEST_SCHEMAS[CommandName.UiStateSet].parse({ key: KEY, value: '' })).toEqual({ key: KEY, value: '' })
@@ -27,6 +33,37 @@ describe('REQUEST_SCHEMAS', () => {
       CommandName.TasksList,
       {},
       'workspaceId: Invalid input: expected string, received undefined',
+    ],
+    ['a missing task id', CommandName.TasksMarkDone, {}, 'id: Invalid input: expected string, received undefined'],
+    [
+      'a missing patch',
+      CommandName.TasksUpdate,
+      { id: 't' },
+      'patch: Invalid input: expected object, received undefined',
+    ],
+    [
+      'a patch to the state',
+      CommandName.TasksUpdate,
+      { id: 't', patch: { state: 'done' } },
+      'patch: Unrecognized key: "state"',
+    ],
+    [
+      "a patch to the agent's fields",
+      CommandName.TasksUpdate,
+      { id: 't', patch: { objective: 'x', status: 'y' } },
+      'patch: Unrecognized keys: "objective", "status"',
+    ],
+    [
+      'an unknown effort',
+      CommandName.TasksUpdate,
+      { id: 't', patch: { effort: 'huge' } },
+      'patch.effort: Invalid option: expected one of "low"|"medium"|"high"|"max"',
+    ],
+    [
+      'an empty model',
+      CommandName.TasksUpdate,
+      { id: 't', patch: { model: '' } },
+      'patch.model: Too small: expected string to have >=1 characters',
     ],
     ['arguments to uiState.getAll', CommandName.UiStateGetAll, { key: KEY }, 'Unrecognized key: "key"'],
     ['an unknown key', CommandName.UiStateSet, { key: 'theme', value: 'dark' }, BAD_KEY],
