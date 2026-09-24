@@ -122,6 +122,30 @@ export function withOpenedWorkspace(state: GladeData, workspace: Workspace): Gla
     : shown
 }
 
+/** Drops what the store keeps for one task. */
+function without<T>(byTask: Readonly<Record<string, T>>, taskId: string): Readonly<Record<string, T>> {
+  return taskId in byTask ? Object.fromEntries(Object.entries(byTask).filter(([id]) => id !== taskId)) : byTask
+}
+
+/** Forgets a deleted task: the task, its logs, queue, question sets, todos and open files, and any intent that names it. */
+export function withoutTask(state: GladeData, taskId: string): GladeData {
+  return {
+    ...state,
+    tasks: without(state.tasks, taskId),
+    messages: without(state.messages, taskId),
+    toolEvents: without(state.toolEvents, taskId),
+    queuedMessages: without(state.queuedMessages, taskId),
+    questionSets: without(state.questionSets, taskId),
+    todos: without(state.todos, taskId),
+    openFiles: without(state.openFiles, taskId),
+    artifacts: without(state.artifacts, taskId),
+    fileFocus: state.fileFocus?.taskId === taskId ? null : state.fileFocus,
+    toolLogFocus: state.toolLogFocus?.taskId === taskId ? null : state.toolLogFocus,
+    renamingTaskId: state.renamingTaskId === taskId ? null : state.renamingTaskId,
+    deletingTaskId: state.deletingTaskId === taskId ? null : state.deletingTaskId,
+  }
+}
+
 /** Applies one event from main to the store's state. Pure: returns the next state and leaves `state` alone. */
 export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
   switch (event.type) {
@@ -131,6 +155,8 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, workspaces: withWorkspace(state.workspaces, event.workspace) }
     case EventType.TaskUpdated:
       return { ...state, tasks: { ...state.tasks, [event.task.id]: event.task } }
+    case EventType.TaskDeleted:
+      return withoutTask(state, event.taskId)
     case EventType.MessageAppended:
       return { ...state, messages: withAppended(state.messages, event.message) }
     case EventType.ToolEventAppended:

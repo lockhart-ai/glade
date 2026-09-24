@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { TaskState, UNTITLED_TASK_TITLE, type EpochMs, type Task } from '../../shared/domain'
 import { TaskIndicator, taskIndicator } from '../../shared/taskIndicator'
 import { errorStatusLine } from '../../shared/taskError'
@@ -18,6 +19,74 @@ export interface TaskRowProps {
   now: EpochMs
   selected: boolean
   onSelect: (taskId: string) => void
+  /** Whether the title is being renamed (F2): the row shows a text field in its place. */
+  renaming?: boolean
+  /** Saves the new title; resolves false when it's refused (blank), and the field stays. */
+  onRename?: (taskId: string, title: string) => Promise<boolean>
+  /** Stops renaming, keeping the title. */
+  onCancelRename?: () => void
+}
+
+interface RenameFieldProps {
+  task: Task
+  onRename: (taskId: string, title: string) => Promise<boolean>
+  onCancel: () => void
+}
+
+/**
+ * The title's text field while renaming, holding the title selected. ↵ saves it, Esc cancels; a blank title is refused,
+ * and the field stays until you type one or cancel. Leaving the field saves it too, unless it's blank: then it cancels.
+ */
+function RenameField({ task, onRename, onCancel }: RenameFieldProps): React.JSX.Element {
+  const [invalid, setInvalid] = useState(false)
+  const input = useRef<HTMLInputElement>(null)
+  const finished = useRef(false)
+
+  useEffect(() => {
+    input.current?.focus()
+    input.current?.select()
+  }, [])
+
+  const save = async (title: string): Promise<void> => {
+    // Saving unmounts the field, which can blur it on the way out: that mustn't save again.
+    finished.current = true
+    if (await onRename(task.id, title)) return
+    finished.current = false
+    setInvalid(true)
+  }
+  const cancel = (): void => {
+    finished.current = true
+    onCancel()
+  }
+
+  return (
+    <input
+      ref={input}
+      className={styles.rename}
+      aria-label="Task title"
+      aria-invalid={invalid}
+      defaultValue={task.title}
+      placeholder={UNTITLED}
+      onChange={() => {
+        setInvalid(false)
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          void save(event.currentTarget.value)
+        } else if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          cancel()
+        }
+      }}
+      onBlur={(event) => {
+        if (finished.current) return
+        if (event.currentTarget.value.trim() === '') cancel()
+        else void save(event.currentTarget.value)
+      }}
+    />
+  )
 }
 
 /**
@@ -34,18 +103,45 @@ function statusLine(task: Task, now: EpochMs): string {
  * One task in the list: its state dot, title, relative time, and one line of status ("Error: API overloaded · retry?"
  * while an error has stopped its agent, "Paused: usage limit · resumes 11:42" while it's paused). Unread rows are bold.
  */
-export function TaskRow({ task, now, selected, onSelect }: TaskRowProps): React.JSX.Element {
+export function TaskRow({
+  task,
+  now,
+  selected,
+  onSelect,
+  renaming = false,
+  onRename,
+  onCancelRename,
+}: TaskRowProps): React.JSX.Element {
   const status = statusLine(task, now)
+  const time = (
+    <span className={styles.time}>
+      {formatRelativeTime(task.updatedAt, now)}
+      {task.unread && <span className={styles.unreadDot} role="img" aria-label="Unread" />}
+    </span>
+  )
+  const className = classNames(
+    styles.row,
+    selected && styles.selected,
+    task.unread && styles.unread,
+    task.state === TaskState.Done && styles.done,
+  )
+  if (renaming && onRename !== undefined && onCancelRename !== undefined) {
+    return (
+      <div className={className} aria-current={selected ? 'true' : undefined}>
+        <span className={styles.line}>
+          <Dot state={taskIndicator(task)} />
+          <RenameField task={task} onRename={onRename} onCancel={onCancelRename} />
+          {time}
+        </span>
+        <span className={styles.status}>{status}</span>
+      </div>
+    )
+  }
   return (
     <button
       type="button"
       aria-current={selected ? 'true' : undefined}
-      className={classNames(
-        styles.row,
-        selected && styles.selected,
-        task.unread && styles.unread,
-        task.state === TaskState.Done && styles.done,
-      )}
+      className={className}
       onClick={() => {
         onSelect(task.id)
       }}
@@ -53,10 +149,7 @@ export function TaskRow({ task, now, selected, onSelect }: TaskRowProps): React.
       <span className={styles.line}>
         <Dot state={taskIndicator(task)} />
         <span className={styles.title}>{task.title === '' ? UNTITLED : task.title}</span>
-        <span className={styles.time}>
-          {formatRelativeTime(task.updatedAt, now)}
-          {task.unread && <span className={styles.unreadDot} role="img" aria-label="Unread" />}
-        </span>
+        {time}
       </span>
       <span className={styles.status}>{status}</span>
     </button>

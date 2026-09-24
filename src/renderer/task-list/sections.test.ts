@@ -6,9 +6,11 @@ import {
   collapsedValue,
   collapseKey,
   isCollapsed,
+  listedTaskIds,
   revealDone,
   SectionId,
   sectionTasks,
+  selectionAfterDeleting,
   Step,
   stepSelection,
   visibleTaskIds,
@@ -161,5 +163,38 @@ describe('stepSelection', () => {
 
   it('selects nothing when there are no tasks', () => {
     expect(stepSelection([], 'a', Step.Next)).toBeNull()
+  })
+})
+
+describe('listedTaskIds', () => {
+  it("lists a workspace's tasks as the list shows them: filtered, in the expanded sections, top to bottom", () => {
+    const tasks = [
+      task('active-read', 300),
+      task('active-unread', 200, { unread: true }),
+      task('pinned-unread', 100, { pinned: true, unread: true }),
+      task('done-unread', 400, { state: TaskState.Done, unread: true }),
+      { ...task('elsewhere', 500, { unread: true }), workspaceId: 'w2' },
+    ]
+
+    expect(listedTaskIds(tasks, 'w1', {})).toEqual(['pinned-unread', 'active-read', 'active-unread'])
+    expect(
+      listedTaskIds(tasks, 'w1', {
+        [UiStateKey.TaskFilter]: TaskFilter.Unread,
+        [UiStateKey.DoneSectionCollapsed]: 'false',
+      }),
+    ).toEqual(['pinned-unread', 'active-unread', 'done-unread'])
+  })
+})
+
+describe('selectionAfterDeleting', () => {
+  it('picks the task after the deleted one, or the one before it at the end', () => {
+    expect(selectionAfterDeleting(['a', 'b', 'c'], 'a')).toBe('b')
+    expect(selectionAfterDeleting(['a', 'b', 'c'], 'b')).toBe('c')
+    expect(selectionAfterDeleting(['a', 'b', 'c'], 'c')).toBe('b')
+  })
+
+  it('picks none when the deleted task was the only one, or is not listed', () => {
+    expect(selectionAfterDeleting(['a'], 'a')).toBeNull()
+    expect(selectionAfterDeleting(['a', 'b'], 'hidden')).toBeNull()
   })
 })

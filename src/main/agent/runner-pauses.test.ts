@@ -343,6 +343,25 @@ describe('a usage limit', () => {
   })
 })
 
+describe('deleting a paused task', () => {
+  it('clears its timer, so it never resumes, while another paused task still does', async () => {
+    const deleted = newTask()
+    const kept = newTask()
+    await hitUsageLimit(deleted, 'Move the uploads to S3.')
+    await hitUsageLimit(kept, 'Fix the flaky login test.')
+    const session = sessionOf('Move the uploads to S3.')
+
+    await glade.invoke(CommandName.TasksDelete, { id: deleted.id })
+    await wait(RESETS_AT - NOW)
+
+    expect(getTask(database.db, deleted.id)).toBeUndefined()
+    expect(session.closed).toBe(true)
+    expect(session.sent.map((sent) => sent.text)).toEqual(['Move the uploads to S3.'])
+    expect(current(kept)).toMatchObject({ activity: TaskActivity.Working, pause: null })
+    expect(console.warn).not.toHaveBeenCalled()
+  })
+})
+
 describe('switching model', () => {
   it('resumes a paused task at once on the new model, which becomes its own', async () => {
     const task = newTask()

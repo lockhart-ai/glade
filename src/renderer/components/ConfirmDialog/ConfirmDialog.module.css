@@ -1,0 +1,49 @@
+/* The backdrop and card of the Settings modal, docs/design/html/21-settings.html, sized for a short question. */
+.backdrop {
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 6, 10, 0.66);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 420px;
+  max-width: calc(100vw - 48px);
+  box-sizing: border-box;
+  padding: 22px 22px 18px;
+  background: var(--color-inner);
+  border: 1px solid var(--color-strong);
+  border-radius: var(--radius-card);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  color: var(--color-text);
+}
+
+.dialog:focus {
+  outline: none;
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.message {
+  margin: 0;
+  font-size: var(--font-size-secondary);
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}

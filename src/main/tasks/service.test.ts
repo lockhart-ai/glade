@@ -1,18 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
-import { Effort, TaskActivity, TaskState, ToolCallState, type Task, type Workspace } from '../../shared/domain'
+import {
+  Effort,
+  TaskActivity,
+  TaskState,
+  ToolCallState,
+  UiStateKey,
+  type Task,
+  type Workspace,
+} from '../../shared/domain'
 import { CommandFailure } from '../bridge/errors'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { appendToolCall, listToolEvents, updateToolCall } from '../db/repositories/tool-events'
+import { getUiState, setUiState } from '../db/repositories/ui-state'
 import { DEFAULT_EFFORT, DEFAULT_MODEL } from './defaults'
 import {
   createTask,
+  deleteTask,
   markTaskDone,
   reopenTask,
   updateTaskFromAgent,
   updateTaskFromRunner,
   updateTaskFromUser,
+  type TaskDeletionContext,
   type TaskServiceContext,
 } from './service'
 
@@ -253,4 +264,69 @@ it.each([
 ])('%s refuses a task that does not exist', (_name, write) => {
   expectFailure(() => write('no-such-task'), BridgeErrorCode.NotFound, 'No task no-such-task')
   expect(events).toEqual([])
+})
+
+describe('deleteTask', () => {
+  /** A runner stand-in that records, when asked to discard a task, whether the task was still there. */
+  function recordingRunner(): { runner: TaskDeletionContext['runner']; discarded: [string, boolean][] } {
+    const discarded: [string, boolean][] = []
+    return {
+      runner: {
+        discard: (id) => {
+          discarded.push([id, getTask(database.db, id) !== undefined])
+        },
+      },
+      discarded,
+    }
+  }
+
+  it("lets go of the task's agent first, then deletes the task and tells the windows", () => {
+    const task = busyTask()
+    const kept = createTask(context, workspace.id)
+    events = []
+    const { runner, discarded } = recordingRunner()
+
+    deleteTask({ ...context, runner }, task.id)
+
+    expect(discarded).toEqual([[task.id, true]])
+    expect(getTask(database.db, task.id)).toBeUndefined()
+    expect(getTask(database.db, kept.id)).toEqual(kept)
+    expect(events).toEqual([{ type: EventType.TaskDeleted, taskId: task.id }])
+  })
+
+  it('deselects the task when it is the selected one', () => {
+    const task = busyTask()
+    setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: task.id })
+
+    deleteTask({ ...context, runner: recordingRunner().runner }, task.id)
+
+    expect(getUiState(database.db, UiStateKey.SelectedTaskId)).toBe('')
+    expect(events).toEqual([
+      { type: EventType.UiStateChanged, entry: { key: UiStateKey.SelectedTaskId, value: '' } },
+      { type: EventType.TaskDeleted, taskId: task.id },
+    ])
+  })
+
+  it('leaves another selected task selected', () => {
+    const task = busyTask()
+    setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: 'another' })
+
+    deleteTask({ ...context, runner: recordingRunner().runner }, task.id)
+
+    expect(getUiState(database.db, UiStateKey.SelectedTaskId)).toBe('another')
+  })
+
+  it('refuses a task that does not exist, without touching the runner', () => {
+    const { runner, discarded } = recordingRunner()
+
+    expectFailure(
+      () => {
+        deleteTask({ ...context, runner }, 'missing')
+      },
+      BridgeErrorCode.NotFound,
+      'No task missing',
+    )
+    expect(discarded).toEqual([])
+    expect(events).toEqual([])
+  })
 })

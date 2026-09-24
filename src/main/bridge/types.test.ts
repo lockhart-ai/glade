@@ -42,6 +42,7 @@ const TASK_HANDLERS = {
   [CommandName.TasksMarkDone]: () => ({ task: {} as Task }),
   [CommandName.TasksReopen]: () => ({ task: {} as Task }),
   [CommandName.TasksUpdate]: () => ({ task: {} as Task }),
+  [CommandName.TasksDelete]: () => null,
   [CommandName.TasksSend]: () => ({ message: {} as Message }),
   [CommandName.TasksStop]: () => ({ task: {} as Task }),
   [CommandName.TasksRetry]: () => ({ task: {} as Task }),
@@ -302,6 +303,7 @@ describe('events', () => {
           expectTypeOf(event.toolEvent).toEqualTypeOf<ToolEvent>()
           break
         case EventType.TaskOpenRequested:
+        case EventType.TaskDeleted:
           expectTypeOf(event.taskId).toEqualTypeOf<string>()
           break
         case EventType.QueueChanged:
