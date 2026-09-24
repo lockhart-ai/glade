@@ -17,6 +17,18 @@ it('renders the app into the root element', () => {
   expect(screen.getByRole('main')).toHaveTextContent('Glade')
 })
 
+it('renders another page when given one', () => {
+  const root = document.createElement('div')
+  document.body.append(root)
+
+  act(() => {
+    mountApp(root, <p>Gallery</p>)
+  })
+
+  expect(screen.getByText('Gallery')).toBeInTheDocument()
+  expect(screen.queryByRole('main')).toBeNull()
+})
+
 it('throws when there is no root element', () => {
   expect(() => {
     mountApp(null)
