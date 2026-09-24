@@ -399,6 +399,94 @@ describe('the context usage', () => {
   })
 })
 
+describe('the turn summary', () => {
+  /** The summary saved on the chat's latest reply. */
+  function lastSummary(): unknown {
+    return listMessages(database.db, task.id).at(-1)?.summary
+  }
+
+  it("saves the reply with the turn's duration and the files its finished edits changed, across a relaunch", async () => {
+    await send('Fix the date formatting.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_01', 'Edit', { file_path: 'src/date.ts', old_string: 'a\nb', new_string: 'a\nc\nd' }),
+      sdk.toolResult('toolu_01', 'Edited.'),
+      sdk.toolUse('toolu_02', 'Write', { file_path: 'test/date.test.ts', content: 'one\ntwo\nthree\n' }),
+      sdk.toolResult('toolu_02', 'Written.'),
+      // A failed edit changed nothing.
+      sdk.toolUse('toolu_03', 'Edit', { file_path: 'src/other.ts', old_string: 'x', new_string: 'y' }),
+      sdk.toolResult('toolu_03', 'String not found.', true),
+      sdk.toolUse('toolu_04', 'Agent', { description: 'Tidy up', prompt: 'Tidy the date module.' }),
+      sdk.toolUse(
+        'toolu_05',
+        'MultiEdit',
+        { file_path: 'src/date.ts', edits: [{ old_string: 'old', new_string: 'new' }] },
+        'toolu_04',
+        'msg_sub',
+      ),
+      sdk.toolResult('toolu_05', 'Edited.', false, 'toolu_04'),
+      sdk.toolResult('toolu_04', 'Tidied.'),
+      sdk.toolUse('toolu_06', 'Bash', { command: 'npm test' }, null, 'msg_02'),
+      sdk.toolResult('toolu_06', '148 passed'),
+      sdk.text('Fixed.', null, 'msg_03'),
+      sdk.result('Fixed.', { duration_ms: 1_450_000 }),
+    )
+    await settle()
+
+    const summary = { durationMs: 1_450_000, filesChanged: 2, linesAdded: 6, linesRemoved: 2 }
+    expect(lastSummary()).toEqual(summary)
+    const appended = events.filter((event) => event.type === EventType.MessageAppended).at(-1)
+    expect(appended).toMatchObject({ message: { role: MessageRole.Agent, summary } })
+
+    relaunch()
+    await expect(glade.invoke(CommandName.TasksHistory, { id: task.id })).resolves.toMatchObject({
+      messages: [
+        { role: MessageRole.User, summary: null },
+        { role: MessageRole.Agent, summary },
+      ],
+    })
+  })
+
+  it("counts only this turn's edits, and keeps a missing duration missing", async () => {
+    await send('Fix it.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_01', 'Write', { file_path: 'a.ts', content: 'a\n' }),
+      sdk.toolResult('toolu_01', 'Written.'),
+      sdk.result('Fixed.'),
+    )
+    await settle()
+    expect(lastSummary()).toEqual({ durationMs: 7620, filesChanged: 1, linesAdded: 1, linesRemoved: 0 })
+
+    await send('Thanks.')
+    backend.session.emit(sdk.init(), sdk.result('You are welcome.', { duration_ms: null }))
+    await settle()
+    expect(lastSummary()).toEqual({ durationMs: null, filesChanged: 0, linesAdded: 0, linesRemoved: 0 })
+  })
+
+  it('counts the edits a resumed turn made before the app quit', async () => {
+    await send('Fix it.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_01', 'Write', { file_path: 'a.ts', content: 'a\nb\n' }),
+      sdk.toolResult('toolu_01', 'Written.'),
+    )
+    await settle()
+
+    relaunch()
+    runner.resumeInterrupted()
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_02', 'Write', { file_path: 'b.ts', content: 'c\n' }),
+      sdk.toolResult('toolu_02', 'Written.'),
+      sdk.result('Fixed.', { duration_ms: 8_000 }),
+    )
+    await settle()
+
+    expect(lastSummary()).toEqual({ durationMs: 8_000, filesChanged: 2, linesAdded: 3, linesRemoved: 0 })
+  })
+})
+
 describe('an error turn', () => {
   it("records why in the tool log, fails the running calls, and marks the task's activity as error", async () => {
     await send('Find out why the login test is flaky.')

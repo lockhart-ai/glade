@@ -17,10 +17,12 @@ import {
   clockTime,
   currentTurn,
   dayAndTime,
+  durationLabel,
   markedDoneLabel,
   REOPENED_LABEL,
   ReplyStyle,
   restartLabel,
+  summaryLine,
   type ChatEntry,
   toolCallLabel,
   toolCallsByTurn,
@@ -35,7 +37,7 @@ function kinds(entries: readonly ChatEntry[]): unknown[] {
 }
 
 function message(id: string, role: MessageRole, turn: number): Message {
-  return { id, taskId: 't1', role, body: id, turn, createdAt: 1_000 }
+  return { id, taskId: 't1', role, body: id, turn, createdAt: 1_000, summary: null }
 }
 
 function toolCall(id: string, turn: number, parentToolUseId: string | null = null): ToolEvent {
@@ -230,6 +232,38 @@ describe('labels', () => {
   it('counts tool calls', () => {
     expect(toolCallLabel(1)).toBe('1 tool call')
     expect(toolCallLabel(7)).toBe('7 tool calls')
+  })
+
+  it('shows how long a turn ran, to the nearest second', () => {
+    expect(durationLabel(0)).toBe('0s')
+    expect(durationLabel(8_400)).toBe('8s')
+    expect(durationLabel(59_499)).toBe('59s')
+    expect(durationLabel(59_500)).toBe('1m 0s')
+    expect(durationLabel((24 * 60 + 10) * 1000)).toBe('24m 10s')
+    expect(durationLabel(3_599_000)).toBe('59m 59s')
+    expect(durationLabel((62 * 60 + 30) * 1000)).toBe('1h 2m')
+    expect(durationLabel(26 * 3_600_000)).toBe('26h 0m')
+  })
+
+  it('summarizes a turn: its duration, and the files and lines it changed when it changed any', () => {
+    const changed = { durationMs: (24 * 60 + 10) * 1000, filesChanged: 4, linesAdded: 61, linesRemoved: 3 }
+    expect(summaryLine(changed)).toEqual({
+      text: 'Finished in 24m 10s · 4 files',
+      lines: { added: '+61', removed: '−3' },
+    })
+    expect(summaryLine({ ...changed, filesChanged: 1, linesAdded: 2, linesRemoved: 0 })).toEqual({
+      text: 'Finished in 24m 10s · 1 file',
+      lines: { added: '+2', removed: '−0' },
+    })
+    expect(summaryLine({ durationMs: 8_000, filesChanged: 0, linesAdded: 0, linesRemoved: 0 })).toEqual({
+      text: 'Finished in 8s',
+      lines: null,
+    })
+    expect(summaryLine({ ...changed, durationMs: null })).toEqual({
+      text: '4 files',
+      lines: { added: '+61', removed: '−3' },
+    })
+    expect(summaryLine({ durationMs: null, filesChanged: 0, linesAdded: 0, linesRemoved: 0 })).toBeNull()
   })
 
   it('shows a day and time', () => {

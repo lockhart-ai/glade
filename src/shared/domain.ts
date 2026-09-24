@@ -93,6 +93,19 @@ export enum MessageRole {
   Agent = 'agent',
 }
 
+/**
+ * What a finished turn did, shown under its final reply: "Finished in 24m 10s · 4 files +61 −3". The file and line
+ * counts come from the turn's file-editing tool calls (`src/main/agent/turn-summary.ts`).
+ */
+export interface TurnSummary {
+  /** How long the turn ran, as the SDK's `result` reports it; null when it doesn't. */
+  readonly durationMs: number | null
+  /** The distinct files the turn's edits changed. */
+  readonly filesChanged: number
+  readonly linesAdded: number
+  readonly linesRemoved: number
+}
+
 /** One chat log entry: a user message, or the agent's final reply for a turn. Append-only. */
 export interface Message {
   readonly id: string
@@ -102,6 +115,8 @@ export interface Message {
   readonly body: string
   readonly turn: number
   readonly createdAt: EpochMs
+  /** The agent's final reply's turn summary; null for your messages, and for replies saved before summaries were. */
+  readonly summary: TurnSummary | null
 }
 
 /** The variants of a tool log entry. */
