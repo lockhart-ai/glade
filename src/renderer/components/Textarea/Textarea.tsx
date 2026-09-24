@@ -1,8 +1,8 @@
-import type { TextareaHTMLAttributes } from 'react'
+import type { ComponentPropsWithRef } from 'react'
 import { classNames } from '../classNames'
 import styles from './Textarea.module.css'
 
-export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
+export interface TextareaProps extends ComponentPropsWithRef<'textarea'> {
   /** The field's accessible name. The design shows a placeholder, not a visible label. */
   label: string
 }

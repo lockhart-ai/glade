@@ -1,9 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { CommandName } from '../src/shared/bridge'
 import { expect, test } from './fixtures'
-import { chat, firstRun, taskList } from './selectors'
-import { invoke } from './task-view'
+import { chat, firstRun, inputBar, taskList } from './selectors'
 
 test('⌘N opens a new task, and the first message has the agent name it', async ({ launch, tempFolder }) => {
   const root = join(tempFolder(), 'acme-api')
@@ -23,13 +21,12 @@ test('⌘N opens a new task, and the first message has the agent name it', async
   await expect(newTaskPrompt).toBeVisible()
   await expect(chat(window).log).toContainText(`It works in the workspace root, ${root}.`)
 
-  // Until the input bar lands (P1-13), the spec sends the first message through the renderer's bridge, as it will.
-  const { workspaces } = await invoke(window, CommandName.WorkspacesList, {})
-  const { tasks } = await invoke(window, CommandName.TasksList, { workspaceId: workspaces[0]?.id ?? '' })
-  await invoke(window, CommandName.TasksSend, {
-    id: tasks[0]?.id ?? '',
-    text: 'The date test is flaky. Can you fix it?',
-  })
+  // The input bar has the focus and asks for the task, so you can type the first message straight away.
+  const bar = inputBar(window)
+  await expect(bar.field).toBeFocused()
+  await expect(bar.field).toHaveAttribute('placeholder', 'Describe the task…')
+  await window.keyboard.type('The date test is flaky. Can you fix it?')
+  await window.keyboard.press('Enter')
 
   // The prompt gives way to the conversation, and the agent's Glade tools name the task and set its status.
   await expect(userMessages).toHaveCount(1)
@@ -41,8 +38,11 @@ test('⌘N opens a new task, and the first message has the agent name it', async
   // Each + or ⌘N opens another new task, even while one is unused.
   await window.keyboard.press('Meta+N')
   await expect(list.rows('Active')).toHaveCount(2)
+  await expect(bar.field).toBeFocused()
+  await bar.field.blur()
   await list.newTask.click()
   await expect(list.rows('Active')).toHaveCount(3)
+  await expect(bar.field).toBeFocused()
   await expect(list.rows('Active').filter({ hasText: 'Waiting for instructions' })).toHaveCount(2)
   await expect(newTaskPrompt).toBeVisible()
 })
