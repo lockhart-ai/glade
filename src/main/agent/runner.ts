@@ -16,6 +16,8 @@
  * - Each tool call is saved as running and filled in as done or error when its result arrives. A subagent's tool calls
  *   carry their `Agent` call's id.
  * - The task's activity is working for the turn, then waiting on you, or error if the turn failed.
+ * - The task's context usage follows the agent's latest top-level message, and its context window is what the turn's
+ *   `result` reports for the session's model (`docs/sdk-notes.md`, "Usage and context size").
  *
  * **Stop** interrupts the running turn (`docs/sdk-notes.md` §7): the SDK ends it within tens of milliseconds with an
  * aborted result, and the session stays alive for the next message. A stopped turn isn't a failure: its activity goes
@@ -118,6 +120,11 @@ interface LiveSession {
   turn: Turn | null
   /** The model and effort the session runs with now. */
   settings: AgentSessionSettings
+  /**
+   * The model the session last said it runs on (`system/init`), as the SDK names it there and in a turn's result, to
+   * find its context window. Null until the first init.
+   */
+  sdkModel: string | null
   /** Closed by the runner: whatever it still emits is ignored, and a turn cut short stays working, for the next launch to resume. */
   closed: boolean
 }
@@ -239,6 +246,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     setActivity(taskId, TaskActivity.Waiting)
   }
 
+  /** Keeps the context window the result reports for the session's model, if it reports one. */
+  const recordContextWindow = (taskId: string, live: LiveSession, event: TurnFinishedEvent): void => {
+    const window = live.sdkModel === null ? undefined : event.contextWindows[live.sdkModel]
+    if (window !== undefined && getTask(db, taskId)?.contextWindowTokens !== window) {
+      updateTaskFromRunner(context, taskId, { contextWindowTokens: window })
+    }
+  }
+
   /** The session is gone: fail its turn, if one was running, and forget it so the next message starts it again. */
   const onSessionFailed = (taskId: string, live: LiveSession, message: string): void => {
     if (sessions.get(taskId) === live) sessions.delete(taskId)
@@ -254,6 +269,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const onEvent = (taskId: string, live: LiveSession, event: AgentEvent): void => {
     if (live.closed) return
     if (event.kind === AgentEventKind.SessionStarted) {
+      live.sdkModel = event.model
       if (getTask(db, taskId)?.sessionId !== event.sessionId) {
         updateTaskFromRunner(context, taskId, { sessionId: event.sessionId })
       }
@@ -276,7 +292,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       case AgentEventKind.ToolResult:
         onToolResult(taskId, turn, event)
         return
+      case AgentEventKind.ContextUsed:
+        if (getTask(db, taskId)?.contextUsedTokens !== event.tokens) {
+          updateTaskFromRunner(context, taskId, { contextUsedTokens: event.tokens })
+        }
+        return
       case AgentEventKind.TurnFinished:
+        recordContextWindow(taskId, live, event)
         onTurnFinished(taskId, live, turn, event)
         return
     }
@@ -317,6 +339,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       session,
       turn: null,
       settings: { model: task.model, effort: task.effort },
+      sdkModel: null,
       closed: false,
     }
     sessions.set(task.id, live)

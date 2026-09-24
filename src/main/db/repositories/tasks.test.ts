@@ -40,8 +40,15 @@ describe('createTask', () => {
       updatedAt: 2_000,
       doneAt: null,
       sessionId: null,
+      contextUsedTokens: 0,
+      contextWindowTokens: 200_000,
     })
     expect(getTask(test.db, task.id)).toEqual(task)
+  })
+
+  it("starts with its model's context window", () => {
+    const task = createTask(test.db, { workspaceId: workspace.id, model: 'claude-sample-1[1m]', effort: Effort.High })
+    expect(getTask(test.db, task.id)?.contextWindowTokens).toBe(1_000_000)
   })
 
   it('takes an initial title, objective and status, and defaults the time to now', () => {
@@ -128,6 +135,8 @@ describe('updateTask', () => {
         effort: Effort.Max,
         activity: TaskActivity.Working,
         sessionId: 'session-1',
+        contextUsedTokens: 76_000,
+        contextWindowTokens: 190_000,
       },
       3_000,
     )
@@ -144,6 +153,8 @@ describe('updateTask', () => {
       effort: Effort.Max,
       activity: TaskActivity.Working,
       sessionId: 'session-1',
+      contextUsedTokens: 76_000,
+      contextWindowTokens: 190_000,
       updatedAt: 3_000,
     })
     expect(getTask(test.db, task.id)).toEqual(updated)
@@ -151,6 +162,16 @@ describe('updateTask', () => {
     const unchanged = updateTask(test.db, task.id, {}, 4_000)
     expect(unchanged).toEqual({ ...updated, updatedAt: 4_000 })
     expect(updateTask(test.db, task.id, { sessionId: null }, 5_000).sessionId).toBeNull()
+  })
+
+  it("resets the context window to the new model's when the model changes without one", () => {
+    const task = sampleTask(test.db, workspace.id)
+    const reported = updateTask(test.db, task.id, { contextUsedTokens: 76_000, contextWindowTokens: 190_000 })
+
+    expect(updateTask(test.db, task.id, { model: reported.model }).contextWindowTokens).toBe(190_000)
+    const extended = updateTask(test.db, task.id, { model: 'claude-sample-2[1m]' })
+    expect(extended).toMatchObject({ contextUsedTokens: 76_000, contextWindowTokens: 1_000_000 })
+    expect(getTask(test.db, task.id)).toEqual(extended)
   })
 
   it('defaults the update time to now', () => {

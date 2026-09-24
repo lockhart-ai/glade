@@ -20,6 +20,7 @@ describe('parsing SDK messages', () => {
 
   it("reads the agent's text and tool calls, at the top level and in a subagent", () => {
     expect(parse(sdk.text('Checking the tests.'))).toEqual([
+      { kind: AgentEventKind.ContextUsed, tokens: sdk.CONTEXT_USED },
       { kind: AgentEventKind.Text, text: 'Checking the tests.', parentToolUseId: null },
     ])
     expect(parse(sdk.toolUse('toolu_03', 'Bash', { command: 'ls' }, 'toolu_02'))).toEqual([
@@ -31,6 +32,28 @@ describe('parsing SDK messages', () => {
         parentToolUseId: 'toolu_02',
       },
     ])
+  })
+
+  it("reads how full the context is from a top-level message's input tokens, not a subagent's", () => {
+    expect(sdk.CONTEXT_USED).toBe(10 + 1272 + 21564)
+    expect(parse(sdk.withContextUsed(sdk.thinking(), 76_000))).toEqual([
+      { kind: AgentEventKind.ContextUsed, tokens: 76_000 },
+    ])
+    expect(parse(sdk.thinking()).map((event) => event.kind)).toEqual([AgentEventKind.ContextUsed])
+    expect(parse(sdk.text('Inside.', 'toolu_02')).map((event) => event.kind)).toEqual([AgentEventKind.Text])
+  })
+
+  it('reads a message with no usage, or a malformed one, as its content alone', () => {
+    const content = [{ type: 'text', text: 'Hi.' }]
+    const noUsage = { type: 'assistant', message: { content } }
+    const badUsage = { type: 'assistant', message: { content, usage: 'lots' } }
+    const partUsage = { type: 'assistant', message: { content: [], usage: { input_tokens: 5, output_tokens: 'x' } } }
+    const { parse: parseQuietly, warn } = parser()
+
+    expect(parseQuietly(noUsage)).toEqual([{ kind: AgentEventKind.Text, text: 'Hi.', parentToolUseId: null }])
+    expect(parseQuietly(badUsage)).toEqual([{ kind: AgentEventKind.Text, text: 'Hi.', parentToolUseId: null }])
+    expect(parseQuietly(partUsage)).toEqual([{ kind: AgentEventKind.ContextUsed, tokens: 5 }])
+    expect(warn).not.toHaveBeenCalled()
   })
 
   it('reads every block of an assistant message, skipping thinking and a missing parent', () => {
@@ -94,7 +117,22 @@ describe('parsing SDK messages', () => {
         durationMs: 7620,
         totalCostUsd: 0.0285,
         usage: { inputTokens: 28, outputTokens: 553, cacheReadInputTokens: 58094, cacheCreationInputTokens: 9443 },
+        contextWindows: { [sdk.MODEL]: sdk.CONTEXT_WINDOW },
       },
+    ])
+  })
+
+  it("reads each model's context window from a result, skipping entries without one", () => {
+    const modelUsage = {
+      'claude-sample-1[1m]': { contextWindow: 1_000_000, inputTokens: 1 },
+      'claude-sample-2': { contextWindow: 200_000 },
+      'claude-sample-3': { inputTokens: 1 },
+      'claude-sample-4': 'n/a',
+    }
+    expect(parse(sdk.result('Done.', { modelUsage }))).toEqual([
+      expect.objectContaining({
+        contextWindows: { 'claude-sample-1[1m]': 1_000_000, 'claude-sample-2': 200_000 },
+      }),
     ])
   })
 
@@ -115,6 +153,7 @@ describe('parsing SDK messages', () => {
         durationMs: null,
         totalCostUsd: null,
         usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+        contextWindows: {},
       },
     ])
   })

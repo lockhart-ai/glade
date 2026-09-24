@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Chat } from './chat'
 import { classNames } from './components/classNames'
+import { ContextMeter } from './context-meter'
 import { ToastProvider } from './components'
 import { FirstRun } from './first-run/FirstRun'
 import { InputBar } from './input-bar'
@@ -79,7 +80,12 @@ function Layout(): React.JSX.Element {
         </Sidebar>
       }
       task={
-        <TaskCard header={<SelectedTaskHeader />} chat={<Chat />} inputBar={<InputBar />} rightPanel={<TaskPanel />} />
+        <TaskCard
+          header={<SelectedTaskHeader />}
+          chat={<Chat />}
+          inputBar={<InputBar contextMeter={<ContextMeter />} />}
+          rightPanel={<TaskPanel />}
+        />
       }
     />
   )

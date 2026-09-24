@@ -29,7 +29,13 @@ const SEED: CaptureSeed = {
   workspace: { name: 'Acme API', rootPath: '/Users/sample/code/api' },
   tasks: [
     { title: 'Add rate limiting', status: 'Waiting on you', minutesAgo: 4, startedMinutesAgo: 42, selected: true },
-    { title: 'Move uploads', activity: TaskActivity.Working, minutesAgo: 30 },
+    {
+      title: 'Move uploads',
+      activity: TaskActivity.Working,
+      contextUsedTokens: 76_000,
+      contextWindowTokens: 200_000,
+      minutesAgo: 30,
+    },
     {
       title: 'Upgrade Django',
       objective: 'Move to 5.2',
@@ -126,8 +132,15 @@ describe('applySeed', () => {
         statusUpdatedAt: NOW - 4 * MINUTE,
         doneAt: null,
         activity: TaskActivity.Waiting,
+        contextUsedTokens: 0,
+        contextWindowTokens: 1_000_000,
       },
-      { title: 'Move uploads', activity: TaskActivity.Working },
+      {
+        title: 'Move uploads',
+        activity: TaskActivity.Working,
+        contextUsedTokens: 76_000,
+        contextWindowTokens: 200_000,
+      },
       {
         title: 'Upgrade Django',
         objective: 'Move to 5.2',

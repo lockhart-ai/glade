@@ -52,8 +52,10 @@ interface Played {
   readonly session: ScriptedSession
   /** The raw SDK messages. */
   readonly raw: Record<string, unknown>[]
-  /** What the runner would make of them. */
+  /** What the runner would make of them, but for the context usage each assistant message reports. */
   readonly events: AgentEvent[]
+  /** The context usage each top-level assistant message reports, in tokens. */
+  readonly contextUsed: number[]
   /** How many times the session went idle. */
   readonly idles: () => number
   /** Resolves when the stream ends, or with the error it failed with. */
@@ -77,20 +79,24 @@ function play(turns: readonly ScriptTurn[], options: Partial<ScriptedSessionOpti
   })
   const raw: Record<string, unknown>[] = []
   const events: AgentEvent[] = []
+  const contextUsed: number[] = []
   const warnings: unknown[] = []
   const parse = createSdkMessageParser({ warn: (...args) => warnings.push(args) })
   const ended = (async (): Promise<Error | null> => {
     try {
       for await (const message of session.messages) {
         raw.push(message as Record<string, unknown>)
-        events.push(...parse(message))
+        for (const event of parse(message)) {
+          if (event.kind === AgentEventKind.ContextUsed) contextUsed.push(event.tokens)
+          else events.push(event)
+        }
       }
       return null
     } catch (error) {
       return error as Error
     }
   })()
-  return { session, raw, events, idles: () => idles, ended, warnings }
+  return { session, raw, events, contextUsed, idles: () => idles, ended, warnings }
 }
 
 /** Lets the session play everything it can without time passing. */
@@ -170,7 +176,9 @@ describe('ScriptedSession', () => {
       result: 'Done.',
       durationMs: 1_500,
       usage: { inputTokens: 28, outputTokens: 553, cacheReadInputTokens: 58094, cacheCreationInputTokens: 9443 },
+      contextWindows: { 'claude-sample-1': 200_000 },
     })
+    expect(played.contextUsed).toEqual([22_846, 22_846])
     expect(played.idles()).toBe(1)
   })
 
