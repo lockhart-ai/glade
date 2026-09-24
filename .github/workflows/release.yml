@@ -1,0 +1,74 @@
+# Builds Glade and publishes a GitHub Release. See docs/releasing.md.
+#
+# - Pushing a tag vX.Y.Z (matching package.json's version) builds the .dmg and .zip and creates the release, with
+#   docs/releases/vX.Y.Z.md at the top of the notes and GitHub's generated notes below it.
+# - Running it by hand (workflow_dispatch) with dry_run builds and packages without publishing, and uploads the
+#   packages as workflow artifacts. With dry_run off on a tag ref, it publishes that tag (to retry a failed release).
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and package only; don't create a release
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: release
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      PUBLISH: ${{ github.event_name == 'push' || !inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Check the tag matches package.json
+        if: env.PUBLISH == 'true'
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_TYPE" != tag ] || [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Ref '$GITHUB_REF_NAME' is not the tag v$version (package.json's version)"
+            exit 1
+          fi
+          test -f "docs/releases/v$version.md" || { echo "::error::docs/releases/v$version.md is missing"; exit 1; }
+
+      - run: npm ci
+      # npm ci doesn't fetch the Electron binary yet (being fixed separately); run Electron's installer until it does.
+      - run: node node_modules/electron/install.js
+      - run: npm run typecheck
+      - run: npm test
+      # --publish never: the release is created below with gh, not by electron-builder.
+      - run: npm run package -- --publish never
+
+      - name: Upload the packages (dry run)
+        if: env.PUBLISH != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: glade-packages
+          path: |
+            release/*.dmg
+            release/*.zip
+          if-no-files-found: error
+
+      - name: Create the GitHub Release
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/*.dmg release/*.zip \
+            --verify-tag \
+            --title "Glade $GITHUB_REF_NAME" \
+            --notes-file "docs/releases/$GITHUB_REF_NAME.md" \
+            --generate-notes
