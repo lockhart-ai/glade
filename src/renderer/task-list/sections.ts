@@ -1,4 +1,4 @@
-import { matchesFilter, TaskFilter } from '../../shared/attention'
+import { matchesFilter, parseTaskFilter, TaskFilter } from '../../shared/attention'
 import { TaskState, UiStateKey, type Task, type UiStateEntry } from '../../shared/domain'
 import type { UiStateValues } from '../store/state'
 
@@ -94,6 +94,24 @@ export function sectionTasks(
 /** The ids of the tasks in the sections that aren't collapsed, top to bottom: the order ⌥↑ and ⌥↓ move through. */
 export function visibleTaskIds(sections: readonly TaskSection[], uiState: UiStateValues): string[] {
   return sections.filter(({ id }) => !isCollapsed(uiState, id)).flatMap(({ tasks }) => tasks.map((task) => task.id))
+}
+
+/**
+ * The ids of a workspace's tasks as the task list shows them, top to bottom: narrowed to its filter chip, in the
+ * sections that aren't collapsed.
+ */
+export function listedTaskIds(tasks: Iterable<Task>, workspaceId: string, uiState: UiStateValues): string[] {
+  return visibleTaskIds(sectionTasks(tasks, workspaceId, parseTaskFilter(uiState[UiStateKey.TaskFilter])), uiState)
+}
+
+/**
+ * The task to select once `deletedId` is deleted: the one after it in `order`, or the one before when it was the last.
+ * Null when it was the only one, or isn't in `order` at all.
+ */
+export function selectionAfterDeleting(order: readonly string[], deletedId: string): string | null {
+  const index = order.indexOf(deletedId)
+  if (index === -1) return null
+  return order[index + 1] ?? order[index - 1] ?? null
 }
 
 /** Which way ⌥↑ / ⌥↓ moves the selection. */

@@ -255,6 +255,12 @@ export interface AgentRunner {
    * they were created.
    */
   resumeInterrupted(): string[]
+  /**
+   * Lets go of a task that's being deleted: withdraws the question it waits on, if any, clears its pause timer, and
+   * closes its live session, if it has one, so a running turn stops and whatever the session still emits is ignored.
+   * Writes nothing else: the task's rows are about to go.
+   */
+  discard(taskId: string): void
   /** Closes every live session and clears the pause timers, e.g. when the app quits. */
   close(): void
 }
@@ -1149,6 +1155,17 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       }
       for (const task of listPausedTasks(db)) timers.arm(task.id, task.pause?.resumesAt ?? Date.now())
       return resumed
+    },
+
+    discard(taskId) {
+      questions.withdraw(taskId)
+      timers.disarm(taskId)
+      const live = sessions.get(taskId)
+      if (live === undefined) return
+      sessions.delete(taskId)
+      live.closed = true
+      live.session.close()
+      live.turn?.end()
     },
 
     close() {

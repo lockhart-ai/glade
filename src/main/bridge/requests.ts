@@ -44,10 +44,15 @@ const tasksCreateRequest = z.strictObject({ workspaceId: z.string() }) satisfies
 
 const taskIdRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<TaskIdRequest>
 
+/** Text that mustn't be blank. */
+function notBlank(what: string): z.ZodType<string> {
+  return z.string().refine((text) => text.trim() !== '', `Expected ${what} that is not blank`)
+}
+
 const tasksUpdateRequest = z.strictObject({
   id: z.string(),
   patch: z.strictObject({
-    title: z.string().optional(),
+    title: notBlank('a title').optional(),
     pinned: z.boolean().optional(),
     unread: z.boolean().optional(),
     model: z.string().min(1).optional(),
@@ -56,7 +61,7 @@ const tasksUpdateRequest = z.strictObject({
 }) satisfies z.ZodType<TasksUpdateRequest>
 
 /** A message's text, which mustn't be blank. */
-const messageText = z.string().refine((text) => text.trim() !== '', 'Expected a message that is not blank')
+const messageText = notBlank('a message')
 
 const tasksSendRequest = z.strictObject({ id: z.string(), text: messageText }) satisfies z.ZodType<TasksSendRequest>
 
@@ -93,6 +98,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.TasksMarkDone]: taskIdRequest,
   [CommandName.TasksReopen]: taskIdRequest,
   [CommandName.TasksUpdate]: tasksUpdateRequest,
+  [CommandName.TasksDelete]: taskIdRequest,
   [CommandName.TasksSend]: tasksSendRequest,
   [CommandName.TasksStop]: taskIdRequest,
   [CommandName.TasksRetry]: tasksRetryRequest,

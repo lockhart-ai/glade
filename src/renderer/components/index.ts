@@ -36,3 +36,4 @@ export {
   type ToastOptions,
   type ToastProviderProps,
 } from './Toast/Toast'
+export { ConfirmDialog, type ConfirmDialogProps } from './ConfirmDialog/ConfirmDialog'

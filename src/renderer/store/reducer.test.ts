@@ -110,6 +110,53 @@ const call: ToolCallEvent = {
   parentToolUseId: null,
 }
 
+describe('a deleted task', () => {
+  it('is forgotten with everything the store keeps for it, and the intents that name it', () => {
+    const loaded: GladeData = {
+      ...state,
+      tasks: { t1: sampleTask('t1', 'w1'), t2: sampleTask('t2', 'w1') },
+      messages: { t1: [sampleMessage('m1', 't1')], t2: [sampleMessage('m2', 't2')] },
+      toolEvents: { t1: [] },
+      queuedMessages: { t1: [sampleQueuedMessage('q1', 't1')] },
+      questionSets: { t1: [sampleQuestionSet('s1', 't1')] },
+      todos: { t1: null },
+      toolLogFocus: { taskId: 't1', turn: 1, request: 1 },
+      renamingTaskId: 't1',
+      deletingTaskId: 't1',
+    }
+
+    const next = applyEvent(loaded, { type: EventType.TaskDeleted, taskId: 't1' })
+
+    expect(next).toEqual({
+      ...loaded,
+      tasks: { t2: sampleTask('t2', 'w1') },
+      messages: { t2: [sampleMessage('m2', 't2')] },
+      toolEvents: {},
+      queuedMessages: {},
+      questionSets: {},
+      todos: {},
+      toolLogFocus: null,
+      renamingTaskId: null,
+      deletingTaskId: null,
+    })
+  })
+
+  it('leaves what belongs to other tasks as it is', () => {
+    const loaded: GladeData = {
+      ...state,
+      toolLogFocus: { taskId: 't1', turn: 1, request: 1 },
+      renamingTaskId: 't1',
+      deletingTaskId: 't1',
+    }
+
+    const next = applyEvent(loaded, { type: EventType.TaskDeleted, taskId: 't9' })
+
+    expect(next).toEqual(loaded)
+    expect(next.tasks).toBe(loaded.tasks)
+    expect(next.messages).toBe(loaded.messages)
+  })
+})
+
 describe("a task's logs", () => {
   it('appends a message and a tool event to their task, once each', () => {
     const message = sampleMessage('m1', 't1')

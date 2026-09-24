@@ -14,6 +14,8 @@
     // The store is framework-free, so its integration test can run against the real main process under Node.
     "src/renderer/store/*.ts",
     // The right panel's state, which the store reads; plain functions, like the store.
-    "src/renderer/right-panel/panelModel.ts"
+    "src/renderer/right-panel/panelModel.ts",
+    // The task list's order, which the store reads to pick the task to select after a delete; plain functions too.
+    "src/renderer/task-list/sections.ts"
   ]
 }

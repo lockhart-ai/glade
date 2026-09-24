@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { CommandName, EventType } from '../../shared/bridge'
+import { BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import { UiStateKey } from '../../shared/domain'
 import { fakeBridge } from './test-bridge'
 
@@ -18,6 +18,14 @@ it('answers uiState.get from its data, and stops delivering events once unsubscr
 
   expect(listener).not.toHaveBeenCalled()
   expect(fake.listenerCount()).toBe(0)
+})
+
+it('refuses to delete a task it does not have', async () => {
+  const fake = fakeBridge({ workspaces: [], tasks: [], uiState: [] })
+
+  await expect(fake.bridge.invoke(CommandName.TasksDelete, { id: 'missing' })).rejects.toMatchObject({
+    code: BridgeErrorCode.NotFound,
+  })
 })
 
 it('answers dialog.chooseFolder as if cancelled', async () => {

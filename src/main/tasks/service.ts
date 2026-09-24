@@ -1,12 +1,27 @@
 // Every write to a task goes through here: the renderer's task commands, the agent runner and, from P1-09, the agent's
 // own tools. Each function writes the task, tells every window with `task.updated`, and returns the task as it now is.
 import type { Database } from 'better-sqlite3'
-import { BridgeErrorCode, type TaskUserPatch } from '../../shared/bridge'
-import type { ApiRetry, Task, TaskActivity, TaskError, TaskPause } from '../../shared/domain'
+import { BridgeErrorCode, EventType, type TaskUserPatch } from '../../shared/bridge'
+import {
+  UiStateKey,
+  type ApiRetry,
+  type Task,
+  type TaskActivity,
+  type TaskError,
+  type TaskPause,
+} from '../../shared/domain'
+import type { AgentRunner } from '../agent/runner'
 import { CommandFailure } from '../bridge/errors'
 import { emitTaskUpdated, emitToolEventUpdated, type Emit } from '../bridge/events'
-import { createTask as insertTask, getTask, updateTask, type TaskPatch } from '../db/repositories/tasks'
+import {
+  createTask as insertTask,
+  deleteTask as removeTask,
+  getTask,
+  updateTask,
+  type TaskPatch,
+} from '../db/repositories/tasks'
 import { interruptPausedToolCalls } from '../db/repositories/tool-events'
+import { getUiState, setUiState } from '../db/repositories/ui-state'
 import { getWorkspace } from '../db/repositories/workspaces'
 import { DEFAULT_EFFORT, DEFAULT_MODEL } from './defaults'
 import { applyTransition, TaskTransition } from './taskLifecycle'
@@ -114,4 +129,27 @@ export function updateTaskFromRunner(context: TaskServiceContext, id: string, pa
 export function setTaskUnread(context: TaskServiceContext, id: string, unread: boolean): Task {
   existing(context.db, id)
   return write(context, id, { unread })
+}
+
+/** What deleting a task needs besides the database: the runner, to close the task's agent session first. */
+export interface TaskDeletionContext extends TaskServiceContext {
+  readonly runner: Pick<AgentRunner, 'discard'>
+}
+
+/**
+ * Deletes a task (`tasks.delete`): closes its agent's live session, if it has one, then deletes its rows, which takes
+ * its chat log, tool log, queue and question sets with it (`deleteTask` in the repository). Nothing on disk is touched.
+ * The selected task is deselected. Tells every window with `task.deleted`.
+ */
+export function deleteTask(context: TaskDeletionContext, id: string): void {
+  const { db, emit, runner } = context
+  existing(db, id)
+  runner.discard(id)
+  const deselect = getUiState(db, UiStateKey.SelectedTaskId) === id
+  db.transaction(() => {
+    removeTask(db, id)
+    if (deselect) setUiState(db, { key: UiStateKey.SelectedTaskId, value: '' })
+  })()
+  if (deselect) emit({ type: EventType.UiStateChanged, entry: { key: UiStateKey.SelectedTaskId, value: '' } })
+  emit({ type: EventType.TaskDeleted, taskId: id })
 }

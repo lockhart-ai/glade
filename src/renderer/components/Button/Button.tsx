@@ -11,6 +11,8 @@ export enum ButtonVariant {
   Dark = 'dark',
   /** Transparent with a strong outline (e.g. Mark done). */
   Ghost = 'ghost',
+  /** Pink on a pink tint, for the action that deletes something (e.g. a confirmation's Delete). */
+  Danger = 'danger',
   /** A square, borderless icon-only button (e.g. Pin task). Give it an `icon` and an `aria-label`. */
   Icon = 'icon',
 }

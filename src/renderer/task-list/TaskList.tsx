@@ -2,7 +2,8 @@ import { faChevronDown, faChevronRight, faThumbtack } from '@fortawesome/free-so
 import { useEffect, useId, useMemo } from 'react'
 import { parseTaskFilter } from '../../shared/attention'
 import { UiStateKey } from '../../shared/domain'
-import { Icon, IconSize } from '../components'
+import { Icon, IconSize, useToast } from '../components'
+import { describeFailure } from '../store/hydrate'
 import { useGladeStore } from '../store/react'
 import {
   collapsedValue,
@@ -59,13 +60,18 @@ function stepFor(event: KeyboardEvent): Step | null {
 /**
  * A workspace's tasks in the Pinned, Active and Done sections, kept live from the store, narrowed to the filter chosen
  * with the chips above (`TaskListToolbar`); each section counts the tasks it shows. Each section collapses, and
- * remembers it. Clicking a row selects its task; ⌥↑ / ⌥↓ move the selection through the expanded sections.
+ * remembers it. Clicking a row selects its task; ⌥↑ / ⌥↓ move the selection through the expanded sections. The task
+ * being renamed (F2) shows a text field for its title in its row.
  */
 export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
   const tasks = useGladeStore((state) => state.tasks)
   const uiState = useGladeStore((state) => state.uiState)
   const selectedTaskId = useGladeStore((state) => state.selectedTaskId)
   const selectTask = useGladeStore((state) => state.selectTask)
+  const renamingTaskId = useGladeStore((state) => state.renamingTaskId)
+  const renameTask = useGladeStore((state) => state.renameTask)
+  const cancelRename = useGladeStore((state) => state.cancelRename)
+  const toast = useToast()
   const setUiState = useGladeStore((state) => state.setUiState)
   const now = useNow()
 
@@ -90,6 +96,15 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
   const select = (taskId: string): void => {
     void selectTask(taskId)
   }
+  const rename = async (taskId: string, title: string): Promise<boolean> => {
+    try {
+      return await renameTask(taskId, title)
+    } catch (error) {
+      toast.show({ message: describeFailure(error) })
+      cancelRename()
+      return true
+    }
+  }
 
   return (
     <div className={styles.list}>
@@ -104,7 +119,15 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
         >
           {section.tasks.map((task) => (
             <li key={task.id}>
-              <TaskRow task={task} now={now} selected={task.id === selectedTaskId} onSelect={select} />
+              <TaskRow
+                task={task}
+                now={now}
+                selected={task.id === selectedTaskId}
+                onSelect={select}
+                renaming={task.id === renamingTaskId}
+                onRename={rename}
+                onCancelRename={cancelRename}
+              />
             </li>
           ))}
         </Section>

@@ -88,6 +88,13 @@ export interface GladeData {
    * until the first. The input bar focuses its field each time this changes. A one-off UI intent, like `toolLogFocus`.
    */
   readonly inputFocusRequest: number
+  /**
+   * The task whose title is being renamed in its task list row (F2); null when none is. A one-off UI intent, like
+   * `toolLogFocus`.
+   */
+  readonly renamingTaskId: string | null
+  /** The task Delete task… asks you to confirm deleting; null when it isn't asking. A one-off UI intent. */
+  readonly deletingTaskId: string | null
 }
 
 /**
@@ -130,6 +137,27 @@ export interface GladeActions {
    * it) marks it read.
    */
   markUnread: (taskId: string) => Promise<void>
+  /** Pins a task, or unpins it (⌘⇧P, or the header's pin toggle). */
+  togglePin: (taskId: string) => Promise<void>
+  /** Starts renaming a task in its task list row (F2): see `renamingTaskId`. */
+  startRename: (taskId: string) => void
+  /** Stops renaming, leaving the title as it was. */
+  cancelRename: () => void
+  /**
+   * Renames a task to `title`, trimmed, and stops renaming. Resolves false, and keeps renaming, when the title is blank:
+   * a task can't be renamed to nothing. Renaming touches nothing on disk.
+   */
+  renameTask: (taskId: string, title: string) => Promise<boolean>
+  /** Asks you to confirm deleting a task (Delete task…): see `deletingTaskId`. Nothing is deleted until you confirm. */
+  requestDelete: (taskId: string) => void
+  /** Stops asking: the task stays. */
+  cancelDelete: () => void
+  /**
+   * Deletes a task, once you've confirmed it (`tasks.delete`): its agent is stopped and its rows removed; files on disk
+   * are left alone. When it was the selected task, the next task in the list is selected (or the one before, when it
+   * was the last), else none.
+   */
+  deleteTask: (taskId: string) => Promise<void>
   /**
    * Sends the user's message to the task's agent. Resolves once main has saved it; the message and the turn arrive as
    * events. Rejects with `busy` while the agent is working.
@@ -186,6 +214,8 @@ export const INITIAL_DATA: GladeData = {
   uiState: {},
   toolLogFocus: null,
   inputFocusRequest: 0,
+  renamingTaskId: null,
+  deletingTaskId: null,
 }
 
 export function selectSelectedWorkspace(state: GladeData): Workspace | undefined {

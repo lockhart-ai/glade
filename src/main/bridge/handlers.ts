@@ -11,7 +11,7 @@ import { listWorkspaces } from '../db/repositories/workspaces'
 import { createWorkspaceAt, openWorkspace } from '../workspaces/workspaces'
 import { editQueuedMessage, removeQueuedMessage } from '../tasks/queue'
 import { noteUiStateSet } from '../tasks/attention'
-import { createTask, markTaskDone, reopenTask, updateTaskFromUser } from '../tasks/service'
+import { createTask, deleteTask, markTaskDone, reopenTask, updateTaskFromUser } from '../tasks/service'
 import { todoListFor } from '../todos/todos'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
@@ -53,6 +53,10 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.TasksMarkDone]: ({ id }) => ({ task: markTaskDone(context, id) }),
     [CommandName.TasksReopen]: ({ id }) => ({ task: reopenTask(context, id) }),
     [CommandName.TasksUpdate]: ({ id, patch }) => ({ task: updateTaskFromUser(context, id, patch) }),
+    [CommandName.TasksDelete]: ({ id }) => {
+      deleteTask(context, id)
+      return null
+    },
     [CommandName.TasksSend]: ({ id, text }) => ({ message: runner.send(id, text) }),
     [CommandName.TasksStop]: async ({ id }) => ({ task: await runner.stop(id) }),
     [CommandName.TasksRetry]: ({ id, model }) => ({ task: runner.retry(id, model) }),

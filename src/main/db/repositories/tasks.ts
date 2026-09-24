@@ -265,3 +265,11 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
   ).run(toParams(updated))
   return updated
 }
+
+/**
+ * Deletes a task and, through the foreign keys' `ON DELETE CASCADE`, every row that belongs to it: its messages, tool
+ * events, queued messages and question sets. It touches nothing on disk. Answers whether there was such a task.
+ */
+export function deleteTask(db: Database, id: string): boolean {
+  return db.prepare('DELETE FROM tasks WHERE id = ?').run(id).changes > 0
+}
