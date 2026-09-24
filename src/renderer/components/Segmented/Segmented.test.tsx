@@ -1,6 +1,7 @@
-import { moduleClass } from '../moduleClass'
+import { faBell } from '@fortawesome/free-regular-svg-icons'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { moduleClass } from '../moduleClass'
 import { Segmented, type SegmentedOption } from './Segmented'
 import styles from './Segmented.module.css'
 
@@ -84,5 +85,22 @@ describe('Segmented', () => {
     expect(screen.getByRole('radiogroup')).toHaveAttribute('aria-disabled', 'true')
     for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled()
     expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it("shows an option's icon before its label", () => {
+    render(
+      <Segmented
+        label="Notify"
+        options={[
+          { value: 'bell', label: 'Bell', icon: faBell },
+          { value: 'none', label: 'None' },
+        ]}
+        value="bell"
+        onChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('radio', { name: 'Bell' }).firstElementChild).toHaveAttribute('data-icon', 'bell')
+    expect(screen.getByRole('radio', { name: 'None' }).querySelector('svg')).toBeNull()
   })
 })

@@ -2,7 +2,7 @@ export { Button, ButtonSize, ButtonVariant, type ButtonProps } from './Button/Bu
 export { Card, CardLevel, type CardProps } from './Card/Card'
 export { Divider, type DividerProps } from './Divider/Divider'
 export { Dot, type DotProps } from './Dot/Dot'
-export { CheckIcon, ChevronDownIcon, PinIcon, PlusIcon, SearchIcon, type IconProps } from './icons/icons'
+export { Icon, IconSize, type IconProps } from './Icon/Icon'
 export { Input, type InputProps } from './Input/Input'
 export { Kbd, type KbdProps } from './Kbd/Kbd'
 export { Pill, type PillProps } from './Pill/Pill'

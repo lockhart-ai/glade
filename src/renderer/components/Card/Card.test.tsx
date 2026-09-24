@@ -1,6 +1,6 @@
-import { moduleClass } from '../moduleClass'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { moduleClass } from '../moduleClass'
 import { Card, CardLevel } from './Card'
 import styles from './Card.module.css'
 

@@ -1,3 +1,12 @@
+import { faBell } from '@fortawesome/free-regular-svg-icons'
+import {
+  faCheck,
+  faChevronDown,
+  faMagnifyingGlass,
+  faPlus,
+  faThumbtack,
+  faXmark,
+} from '@fortawesome/free-solid-svg-icons'
 import { useState, type ReactNode } from 'react'
 import { TaskIndicator } from '../../shared/taskIndicator'
 import {
@@ -6,16 +15,13 @@ import {
   ButtonVariant,
   Card,
   CardLevel,
-  CheckIcon,
-  ChevronDownIcon,
   Divider,
   Dot,
+  Icon,
+  IconSize,
   Input,
   Kbd,
   Pill,
-  PinIcon,
-  PlusIcon,
-  SearchIcon,
   Segmented,
   Textarea,
   Toggle,
@@ -89,13 +95,12 @@ function ButtonSection(): React.JSX.Element {
         <Button>Open task</Button>
         <Button>
           [MODEL NAME]
-          <ChevronDownIcon />
+          <Icon icon={faChevronDown} size={IconSize.Small} />
         </Button>
         <Button disabled>Disabled</Button>
       </Row>
       <Row name="Ghost">
-        <Button variant={ButtonVariant.Ghost}>
-          <CheckIcon size={14} />
+        <Button variant={ButtonVariant.Ghost} icon={faCheck}>
           Mark done
         </Button>
         <Button variant={ButtonVariant.Ghost} disabled>
@@ -107,21 +112,15 @@ function ButtonSection(): React.JSX.Element {
           variant={ButtonVariant.Icon}
           aria-label={pinned ? 'Unpin task' : 'Pin task'}
           aria-pressed={pinned}
+          icon={faThumbtack}
           onClick={() => {
             setPinned(!pinned)
           }}
-        >
-          <PinIcon />
-        </Button>
-        <Button variant={ButtonVariant.Icon} aria-label="Pinned" aria-pressed>
-          <PinIcon />
-        </Button>
-        <Button variant={ButtonVariant.Icon} aria-label="New task">
-          <PlusIcon />
-        </Button>
-        <Button variant={ButtonVariant.Icon} aria-label="Disabled" disabled>
-          <PlusIcon />
-        </Button>
+        />
+        <Button variant={ButtonVariant.Icon} aria-label="Pinned" aria-pressed icon={faThumbtack} />
+        <Button variant={ButtonVariant.Icon} aria-label="New task" icon={faPlus} />
+        <Button variant={ButtonVariant.Icon} aria-label="Close settings" icon={faXmark} />
+        <Button variant={ButtonVariant.Icon} aria-label="Disabled" icon={faPlus} disabled />
       </Row>
       <Row name="Sizes">
         <Button size={ButtonSize.Small}>Small</Button>
@@ -143,7 +142,7 @@ const INDICATORS: readonly { indicator: TaskIndicator; label: string }[] = [
 
 function StatusSection(): React.JSX.Element {
   return (
-    <Section title="Pill · Dot · Kbd">
+    <Section title="Pill · Dot · Kbd · Icon">
       <Row name="Pill">
         <span className={styles.wrap}>
           {INDICATORS.map(({ indicator, label }) => (
@@ -168,6 +167,15 @@ function StatusSection(): React.JSX.Element {
         <Kbd>⌥↑</Kbd>
         <Kbd>Esc</Kbd>
         <Kbd>↵</Kbd>
+      </Row>
+      <Row name="Icon">
+        {Object.values(IconSize).map((size) => (
+          <span key={size} className={styles.iconSample}>
+            <Icon icon={faBell} size={size} />
+            <Icon icon={faCheck} size={size} />
+            {size}
+          </span>
+        ))}
       </Row>
     </Section>
   )
@@ -196,7 +204,7 @@ function FieldSection(): React.JSX.Element {
         label="Search tasks"
         type="search"
         placeholder="Search"
-        icon={<SearchIcon />}
+        icon={faMagnifyingGlass}
         value={search}
         onChange={(event) => {
           setSearch(event.target.value)

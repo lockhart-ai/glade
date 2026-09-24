@@ -1,8 +1,8 @@
-import { moduleClass } from '../moduleClass'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { TaskIndicator } from '../../../shared/taskIndicator'
 import dotStyles from '../Dot/Dot.module.css'
+import { moduleClass } from '../moduleClass'
 import { Pill } from './Pill'
 import styles from './Pill.module.css'
 

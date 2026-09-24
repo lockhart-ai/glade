@@ -1,11 +1,15 @@
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import { useRef, type KeyboardEvent } from 'react'
 import { classNames } from '../classNames'
+import { Icon, IconSize } from '../Icon/Icon'
 import styles from './Segmented.module.css'
 
 /** One choice in a segmented control. */
 export interface SegmentedOption<T extends string> {
   value: T
   label: string
+  /** An icon before the label. */
+  icon?: IconDefinition
 }
 
 export interface SegmentedProps<T extends string> {
@@ -86,6 +90,7 @@ export function Segmented<T extends string>({
               handleKeyDown(event, index)
             }}
           >
+            {option.icon !== undefined && <Icon icon={option.icon} size={IconSize.Medium} />}
             {option.label}
           </button>
         )

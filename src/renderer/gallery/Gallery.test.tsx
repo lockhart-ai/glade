@@ -5,14 +5,21 @@ import { Gallery } from './Gallery'
 it('shows a section for every component', () => {
   render(<Gallery />)
 
-  for (const name of ['Button', 'Pill · Dot · Kbd', 'Card · Divider', 'Input · Textarea', 'Toggle', 'Segmented']) {
+  for (const name of [
+    'Button',
+    'Pill · Dot · Kbd · Icon',
+    'Card · Divider',
+    'Input · Textarea',
+    'Toggle',
+    'Segmented',
+  ]) {
     expect(screen.getByRole('region', { name })).toBeInTheDocument()
   }
 })
 
 it('shows each task state as a pill and a dot', () => {
   render(<Gallery />)
-  const status = screen.getByRole('region', { name: 'Pill · Dot · Kbd' })
+  const status = screen.getByRole('region', { name: 'Pill · Dot · Kbd · Icon' })
 
   for (const state of ['working', 'waiting', 'done', 'error']) {
     expect(within(status).getByRole('img', { name: state })).toBeInTheDocument()

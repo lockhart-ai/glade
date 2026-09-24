@@ -1,6 +1,6 @@
-import { moduleClass } from '../moduleClass'
 import { render, screen } from '@testing-library/react'
 import { expect, it } from 'vitest'
+import { moduleClass } from '../moduleClass'
 import { Divider } from './Divider'
 import styles from './Divider.module.css'
 

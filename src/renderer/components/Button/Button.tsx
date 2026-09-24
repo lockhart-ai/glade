@@ -1,5 +1,7 @@
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import type { ButtonHTMLAttributes } from 'react'
 import { classNames } from '../classNames'
+import { Icon, IconSize } from '../Icon/Icon'
 import styles from './Button.module.css'
 
 export enum ButtonVariant {
@@ -9,7 +11,7 @@ export enum ButtonVariant {
   Dark = 'dark',
   /** Transparent with a strong outline (e.g. Mark done). */
   Ghost = 'ghost',
-  /** A square, borderless icon-only button (e.g. Pin task). Give it an `aria-label`. */
+  /** A square, borderless icon-only button (e.g. Pin task). Give it an `icon` and an `aria-label`. */
   Icon = 'icon',
 }
 
@@ -26,21 +28,30 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant
   /** Height of a labelled button. Icon buttons are always 30px square. */
   size?: ButtonSize
+  /** An icon before the label, or the whole content of an icon button. */
+  icon?: IconDefinition
 }
 
-/** A real `<button>` (type "button" unless given one). Put an icon before the label as a child. */
+/** A real `<button>` (type "button" unless given one). */
 export function Button({
   variant = ButtonVariant.Dark,
   size = ButtonSize.Medium,
+  icon,
   type = 'button',
   className,
+  children,
   ...rest
 }: ButtonProps): React.JSX.Element {
+  const isIconButton = variant === ButtonVariant.Icon
+
   return (
     <button
       type={type}
-      className={classNames(styles.button, styles[variant], variant !== ButtonVariant.Icon && styles[size], className)}
+      className={classNames(styles.button, styles[variant], !isIconButton && styles[size], className)}
       {...rest}
-    />
+    >
+      {icon !== undefined && <Icon icon={icon} size={isIconButton ? IconSize.Large : IconSize.Medium} />}
+      {children}
+    </button>
   )
 }

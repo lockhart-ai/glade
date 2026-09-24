@@ -1,6 +1,6 @@
-import { moduleClass } from '../moduleClass'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { moduleClass } from '../moduleClass'
 import { Textarea } from './Textarea'
 import styles from './Textarea.module.css'
 

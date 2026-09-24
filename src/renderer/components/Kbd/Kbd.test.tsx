@@ -1,6 +1,6 @@
-import { moduleClass } from '../moduleClass'
 import { render, screen } from '@testing-library/react'
 import { expect, it } from 'vitest'
+import { moduleClass } from '../moduleClass'
 import { Kbd } from './Kbd'
 import styles from './Kbd.module.css'
 

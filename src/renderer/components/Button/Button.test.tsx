@@ -1,7 +1,8 @@
-import { moduleClass } from '../moduleClass'
+import { faCheck, faThumbtack } from '@fortawesome/free-solid-svg-icons'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { PinIcon } from '../icons/icons'
+import iconStyles from '../Icon/Icon.module.css'
+import { moduleClass } from '../moduleClass'
 import { Button, ButtonSize, ButtonVariant } from './Button'
 import styles from './Button.module.css'
 
@@ -31,17 +32,34 @@ describe('Button', () => {
     expect(screen.getByRole('button')).toHaveClass(cls(size))
   })
 
-  it('renders an icon button without a size, named by its aria-label', () => {
-    render(
-      <Button variant={ButtonVariant.Icon} aria-label="Pin task" aria-pressed={false}>
-        <PinIcon />
-      </Button>,
-    )
+  it('renders an icon button with a large icon and no size, named by its aria-label', () => {
+    render(<Button variant={ButtonVariant.Icon} icon={faThumbtack} aria-label="Pin task" aria-pressed={false} />)
     const button = screen.getByRole('button', { name: 'Pin task' })
 
     expect(button).toHaveClass(cls('icon'))
     expect(button).not.toHaveClass(cls('medium'))
     expect(button).toHaveAttribute('aria-pressed', 'false')
+    expect(button.querySelector('svg')).toHaveClass(moduleClass(iconStyles, 'large'))
+    expect(button.querySelector('svg')).toHaveAttribute('data-icon', 'thumbtack')
+  })
+
+  it('puts a medium icon before the label', () => {
+    render(
+      <Button variant={ButtonVariant.Ghost} icon={faCheck}>
+        Mark done
+      </Button>,
+    )
+    const button = screen.getByRole('button', { name: 'Mark done' })
+
+    expect(button.firstElementChild).toHaveAttribute('data-icon', 'check')
+    expect(button.firstElementChild).toHaveClass(moduleClass(iconStyles, 'medium'))
+    expect(button).toHaveTextContent('Mark done')
+  })
+
+  it('renders no icon unless given one', () => {
+    render(<Button>Open task</Button>)
+
+    expect(screen.getByRole('button').querySelector('svg')).toBeNull()
   })
 
   it('forwards native props and merges the class name', () => {

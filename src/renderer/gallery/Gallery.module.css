@@ -98,3 +98,12 @@
   font-size: var(--font-size-secondary-sm);
   color: var(--color-muted);
 }
+
+.iconSample {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 8px;
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-muted);
+}
