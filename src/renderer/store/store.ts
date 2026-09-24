@@ -1,6 +1,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
 import { UiStateKey, type UiStateEntry, type Workspace } from '../../shared/domain'
+import { isPanelCollapsed, PanelTab, parsePanelTab } from '../right-panel/panelModel'
 import { describeFailure, loadSnapshot } from './hydrate'
 import { applyEvent, withHistory, withOpenedWorkspace } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState } from './state'
@@ -172,6 +173,15 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       focusTurn(taskId, turn) {
+        const { selectedTaskId, uiState } = get()
+        if (taskId === selectedTaskId) {
+          if (parsePanelTab(uiState[UiStateKey.RightPanelTab]) !== PanelTab.ToolCalls) {
+            void setUiState({ key: UiStateKey.RightPanelTab, value: PanelTab.ToolCalls })
+          }
+          if (isPanelCollapsed(uiState[UiStateKey.RightPanelCollapsed])) {
+            void setUiState({ key: UiStateKey.RightPanelCollapsed, value: 'false' })
+          }
+        }
         set(({ toolLogFocus }) => ({ toolLogFocus: { taskId, turn, request: (toolLogFocus?.request ?? 0) + 1 } }))
       },
 

@@ -43,6 +43,7 @@ interface Setup {
   readonly selected?: boolean
   readonly overrides?: Partial<FakeHandlers>
   readonly toolEvents?: ToolEvent[]
+  readonly panelCollapsed?: boolean
 }
 
 async function renderHeader({
@@ -50,6 +51,7 @@ async function renderHeader({
   selected = true,
   overrides = {},
   toolEvents = [],
+  panelCollapsed = false,
 }: Setup = {}): Promise<FakeBridge> {
   const fake = fakeBridge(
     {
@@ -59,6 +61,7 @@ async function renderHeader({
       uiState: [
         { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
         { key: UiStateKey.SelectedTaskId, value: selected ? 't1' : '' },
+        { key: UiStateKey.RightPanelCollapsed, value: String(panelCollapsed) },
       ],
     },
     overrides,
@@ -347,5 +350,20 @@ describe('SelectedTaskHeader', () => {
 
     expect(header()).toHaveTextContent('started 43m ago')
     expect(field('Status')).toHaveTextContent('· 5m ago')
+  })
+
+  it('shows the side panel again from a button while it’s collapsed', async () => {
+    const { invoke } = await renderHeader({ panelCollapsed: true })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show side panel' }))
+
+    expect(invoke).toHaveBeenCalledWith(CommandName.UiStateSet, { key: UiStateKey.RightPanelCollapsed, value: 'false' })
+    expect(screen.queryByRole('button', { name: 'Show side panel' })).toBeNull()
+  })
+
+  it('has no Show side panel button while the panel is open', async () => {
+    await renderHeader()
+
+    expect(screen.queryByRole('button', { name: 'Show side panel' })).toBeNull()
   })
 })
