@@ -55,6 +55,13 @@ export interface GladeData {
 export interface GladeActions {
   /** Subscribes to main's events (once) and loads a fresh snapshot of main's state. Never rejects. */
   hydrate(): Promise<void>
+  /**
+   * Adds a workspace rooted at `rootPath` (or finds the one already there) and opens it. Rejects with the
+   * `BridgeError` when the root isn't an existing folder.
+   */
+  createWorkspace(rootPath: string): Promise<Workspace>
+  /** Opens a workspace: records it as last opened and shows it, deselecting a task in another workspace. */
+  openWorkspace(workspaceId: string): Promise<void>
   /** Shows a workspace, or none. Deselects the selected task if it's in another workspace. */
   selectWorkspace(workspaceId: string | null): Promise<void>
   /** Selects a task, or none. Selecting a task in another workspace shows that workspace too. */

@@ -19,3 +19,9 @@ it('answers uiState.get from its data, and stops delivering events once unsubscr
   expect(listener).not.toHaveBeenCalled()
   expect(fake.listenerCount()).toBe(0)
 })
+
+it('answers dialog.chooseFolder as if cancelled', async () => {
+  const fake = fakeBridge({ workspaces: [], tasks: [], uiState: [] })
+
+  await expect(fake.bridge.invoke(CommandName.DialogChooseFolder, {})).resolves.toEqual({ path: null })
+})

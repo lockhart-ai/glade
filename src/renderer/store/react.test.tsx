@@ -16,7 +16,11 @@ function SelectedWorkspace(): React.JSX.Element {
 }
 
 it('reads the store through a selector and re-renders when the selected value changes', async () => {
-  const fake = fakeBridge({ workspaces: [sampleWorkspace('w1')], tasks: [], uiState: [] })
+  const fake = fakeBridge({
+    workspaces: [sampleWorkspace('w1'), sampleWorkspace('w2', 'Acme Web')],
+    tasks: [],
+    uiState: [],
+  })
   const store = createGladeStore(fake.bridge)
   await store.getState().hydrate()
   render(
@@ -24,15 +28,15 @@ it('reads the store through a selector and re-renders when the selected value ch
       <SelectedWorkspace />
     </GladeStoreProvider>,
   )
-  expect(screen.getByRole('paragraph')).toHaveTextContent('None')
-
-  await act(() => store.getState().selectWorkspace('w1'))
   expect(screen.getByRole('paragraph')).toHaveTextContent('Acme API')
 
-  act(() => {
-    fake.emit({ type: EventType.WorkspaceUpdated, workspace: { ...sampleWorkspace('w1'), name: 'Acme Web' } })
-  })
+  await act(() => store.getState().selectWorkspace('w2'))
   expect(screen.getByRole('paragraph')).toHaveTextContent('Acme Web')
+
+  act(() => {
+    fake.emit({ type: EventType.WorkspaceUpdated, workspace: sampleWorkspace('w2', 'Acme Mobile') })
+  })
+  expect(screen.getByRole('paragraph')).toHaveTextContent('Acme Mobile')
 })
 
 it('throws outside a GladeStoreProvider', () => {

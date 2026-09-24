@@ -14,11 +14,13 @@ export interface BridgeOptions {
   readonly db: Database
   /** The windows' `webContents` open now, which events are sent to. */
   readonly targets: () => readonly EventTarget[]
+  /** Shows the native open-folder dialog; resolves with the chosen path, or null when cancelled. */
+  readonly chooseFolder: () => Promise<string | null>
 }
 
 /** Answers the renderer's commands on the command channel and broadcasts events on the event channel. */
-export function registerBridge({ ipc, db, targets }: BridgeOptions): void {
+export function registerBridge({ ipc, db, targets, chooseFolder }: BridgeOptions): void {
   const emit = createBroadcast(EVENT_CHANNEL, targets)
-  const dispatch = createDispatcher(createHandlers({ db, emit }), REQUEST_SCHEMAS)
+  const dispatch = createDispatcher(createHandlers({ db, emit, chooseFolder }), REQUEST_SCHEMAS)
   ipc.handle(COMMAND_CHANNEL, (_event, command, request) => dispatch(command, request))
 }

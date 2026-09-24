@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName } from '../../shared/bridge'
 import { UiStateKey } from '../../shared/domain'
-import { describeFailure, loadSnapshot, restoreSelection } from './hydrate'
+import { describeFailure, lastOpenedWorkspace, loadSnapshot, restoreSelection } from './hydrate'
 import { HydrationStatus, INITIAL_DATA } from './state'
 import { fakeBridge, refuse, sampleTask, sampleWorkspace, type FakeMain } from './test-bridge'
 
@@ -35,8 +35,15 @@ describe('loadSnapshot', () => {
     expect(invoke).toHaveBeenCalledWith(CommandName.TasksList, { workspaceId: 'w2' })
   })
 
-  it('starts with nothing selected when no selection was stored', async () => {
+  it('shows the most recently opened workspace, with no task, when no selection was stored', async () => {
     const snapshot = await loadSnapshot(fakeBridge(main()).bridge)
+
+    expect(snapshot.selectedWorkspaceId).toBe('w1')
+    expect(snapshot.selectedTaskId).toBeNull()
+  })
+
+  it('starts with nothing selected when there are no workspaces', async () => {
+    const snapshot = await loadSnapshot(fakeBridge({ workspaces: [], tasks: [], uiState: [] }).bridge)
 
     expect(snapshot.selectedWorkspaceId).toBeNull()
     expect(snapshot.selectedTaskId).toBeNull()
@@ -64,8 +71,17 @@ describe('restoreSelection', () => {
     })
   })
 
-  it('drops a workspace that is gone, and with it the task', () => {
-    expect(restoreSelection({ ...loaded, selectedWorkspaceId: 'gone', selectedTaskId: 't2' })).toMatchObject({
+  it('replaces a workspace that is gone with the most recently opened one, dropping the task', () => {
+    const opened = { ...loaded, workspaces: [sampleWorkspace('w1'), { ...sampleWorkspace('w2'), lastOpenedAt: 3_000 }] }
+
+    expect(restoreSelection({ ...opened, selectedWorkspaceId: 'gone', selectedTaskId: 't1' })).toMatchObject({
+      selectedWorkspaceId: 'w2',
+      selectedTaskId: null,
+    })
+  })
+
+  it('selects nothing when there are no workspaces', () => {
+    expect(restoreSelection({ ...INITIAL_DATA, selectedWorkspaceId: 'gone', selectedTaskId: 't1' })).toMatchObject({
       selectedWorkspaceId: null,
       selectedTaskId: null,
     })
@@ -80,6 +96,16 @@ describe('restoreSelection', () => {
       selectedWorkspaceId: 'w1',
       selectedTaskId: null,
     })
+  })
+})
+
+describe('lastOpenedWorkspace', () => {
+  it('finds the most recently opened workspace, the oldest of a tie, or none', () => {
+    const latest = { ...sampleWorkspace('w2'), lastOpenedAt: 3_000 }
+
+    expect(lastOpenedWorkspace([sampleWorkspace('w1'), latest, sampleWorkspace('w3')])).toBe(latest)
+    expect(lastOpenedWorkspace([sampleWorkspace('w1'), sampleWorkspace('w2')])?.id).toBe('w1')
+    expect(lastOpenedWorkspace([])).toBeUndefined()
   })
 })
 

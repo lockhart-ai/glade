@@ -85,6 +85,50 @@ describe('hydrate', () => {
   })
 })
 
+describe('createWorkspace', () => {
+  it("adds the workspace and opens it, from main's answers alone", async () => {
+    const { store, invoke } = await hydrated()
+    await store.getState().selectTask('t1')
+
+    const workspace = await store.getState().createWorkspace('/code/acme-web')
+
+    expect(invoke).toHaveBeenCalledWith(CommandName.WorkspacesCreate, { rootPath: '/code/acme-web' })
+    expect(invoke).toHaveBeenCalledWith(CommandName.WorkspacesOpen, { id: 'w3' })
+    expect(workspace).toEqual({ ...sampleWorkspace('w3'), rootPath: '/code/acme-web', lastOpenedAt: 5_000 })
+    expect(store.getState().workspaces).toContainEqual(workspace)
+    expect(store.getState()).toMatchObject({ selectedWorkspaceId: 'w3', selectedTaskId: null })
+  })
+
+  it("rejects with main's error", async () => {
+    const failure = bridgeError(BridgeErrorCode.InvalidRootPath, 'workspaces.create: /nope is not a folder')
+    const store = createGladeStore(fakeBridge(main(), { [CommandName.WorkspacesCreate]: () => refuse(failure) }).bridge)
+    await store.getState().hydrate()
+
+    await expect(store.getState().createWorkspace('/nope')).rejects.toBe(failure)
+    expect(store.getState().workspaces).toHaveLength(2)
+  })
+})
+
+describe('openWorkspace', () => {
+  it('records the workspace as opened and shows it', async () => {
+    const { store, invoke } = await hydrated()
+
+    await store.getState().openWorkspace('w2')
+
+    expect(invoke).toHaveBeenCalledWith(CommandName.WorkspacesOpen, { id: 'w2' })
+    expect(store.getState().selectedWorkspaceId).toBe('w2')
+    expect(selectSelectedWorkspace(store.getState())?.lastOpenedAt).toBe(5_000)
+  })
+
+  it("rejects with main's error for an unknown workspace", async () => {
+    const { store } = await hydrated()
+
+    await expect(store.getState().openWorkspace('gone')).rejects.toEqual(
+      bridgeError(BridgeErrorCode.NotFound, 'No workspace gone'),
+    )
+  })
+})
+
 describe('selectWorkspace', () => {
   it('selects the workspace at once and writes it back to main', async () => {
     const { store, data, invoke } = await hydrated()

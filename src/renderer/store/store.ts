@@ -1,8 +1,8 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
-import { UiStateKey, type UiStateEntry } from '../../shared/domain'
+import { UiStateKey, type UiStateEntry, type Workspace } from '../../shared/domain'
 import { describeFailure, loadSnapshot } from './hydrate'
-import { applyEvent } from './reducer'
+import { applyEvent, withOpenedWorkspace } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState } from './state'
 
 export type GladeStore = StoreApi<GladeState>
@@ -27,8 +27,25 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       await bridge.invoke(CommandName.UiStateSet, entry)
     }
 
+    // Main broadcasts what opening changed as events; applying the answer too keeps the store right whichever arrives
+    // first.
+    const open = async (workspaceId: string): Promise<Workspace> => {
+      const { workspace } = await bridge.invoke(CommandName.WorkspacesOpen, { id: workspaceId })
+      set((state) => withOpenedWorkspace(state, workspace))
+      return workspace
+    }
+
     return {
       ...INITIAL_DATA,
+
+      async createWorkspace(rootPath) {
+        const { workspace } = await bridge.invoke(CommandName.WorkspacesCreate, { rootPath })
+        return open(workspace.id)
+      },
+
+      async openWorkspace(workspaceId) {
+        await open(workspaceId)
+      },
 
       async hydrate() {
         if (!subscribed) {

@@ -42,6 +42,11 @@ export function getWorkspace(db: Database, id: string): Workspace | undefined {
   return row === undefined ? undefined : parseWorkspace(row)
 }
 
+export function getWorkspaceByRoot(db: Database, rootPath: string): Workspace | undefined {
+  const row: unknown = db.prepare(`SELECT ${COLUMNS} FROM workspaces WHERE root_path = ?`).get(rootPath)
+  return row === undefined ? undefined : parseWorkspace(row)
+}
+
 /** Every workspace, oldest first. */
 export function listWorkspaces(db: Database): Workspace[] {
   return db.prepare(`SELECT ${COLUMNS} FROM workspaces ORDER BY created_at, name, id`).all().map(parseWorkspace)

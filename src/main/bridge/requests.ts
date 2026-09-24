@@ -1,4 +1,5 @@
 // Request schemas live on the main side only, so the renderer never bundles zod for them.
+import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import {
   CommandName,
@@ -10,6 +11,8 @@ import {
   type TasksListRequest,
   type UiStateGetRequest,
   type UiStateSetRequest,
+  type WorkspacesCreateRequest,
+  type WorkspacesOpenRequest,
 } from '../../shared/bridge'
 import { Effort, UiStateKey } from '../../shared/domain'
 
@@ -21,6 +24,12 @@ import { Effort, UiStateKey } from '../../shared/domain'
 export type RequestSchemas = { readonly [C in CommandName]: z.ZodType<CommandRequest<C>> }
 
 const emptyRequest = z.strictObject({}) satisfies z.ZodType<EmptyRequest>
+
+const workspacesCreateRequest = z.strictObject({
+  rootPath: z.string().refine((path) => isAbsolute(path), 'Expected an absolute path'),
+}) satisfies z.ZodType<WorkspacesCreateRequest>
+
+const workspacesOpenRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<WorkspacesOpenRequest>
 
 const tasksListRequest = z.strictObject({ workspaceId: z.string() }) satisfies z.ZodType<TasksListRequest>
 
@@ -48,6 +57,9 @@ const uiStateSetRequest = z.strictObject({
 
 export const REQUEST_SCHEMAS = {
   [CommandName.WorkspacesList]: emptyRequest,
+  [CommandName.WorkspacesCreate]: workspacesCreateRequest,
+  [CommandName.WorkspacesOpen]: workspacesOpenRequest,
+  [CommandName.DialogChooseFolder]: emptyRequest,
   [CommandName.TasksList]: tasksListRequest,
   [CommandName.TasksCreate]: tasksCreateRequest,
   [CommandName.TasksMarkDone]: taskIdRequest,

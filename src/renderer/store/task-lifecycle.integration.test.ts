@@ -21,7 +21,12 @@ beforeEach(async () => {
   database = openTestDatabase()
   workspace = sampleWorkspace(database.db)
   const ipc = fakeIpcPair()
-  registerBridge({ ipc: ipc.main, db: database.db, targets: () => [ipc.window] })
+  registerBridge({
+    ipc: ipc.main,
+    db: database.db,
+    targets: () => [ipc.window],
+    chooseFolder: () => Promise.resolve(null),
+  })
   const bridge = createBridge(ipc.renderer)
   events = []
   bridge.subscribe((event) => events.push(event))
