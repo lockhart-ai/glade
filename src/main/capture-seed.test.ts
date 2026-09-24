@@ -81,6 +81,10 @@ describe('readSeed', () => {
     expect(readSeed(join(FIXTURES, 'agent-working.json')).tasks[0]?.activity).toBe(TaskActivity.Working)
   })
 
+  it('reads the relaunch fixture', () => {
+    expect(readSeed(join(FIXTURES, 'relaunch.json')).tasks.filter((task) => task.resumedAfterCrash)).toHaveLength(2)
+  })
+
   it('reads the needs you fixture', () => {
     expect(readSeed(join(FIXTURES, 'needs-you.json')).tasks.filter((task) => task.unread)).toHaveLength(1)
   })
@@ -168,6 +172,24 @@ describe('applySeed', () => {
     applySeed(db, { ...SEED, tasks: [{ title: 'Only', minutesAgo: 0 }] })
 
     expect(getUiState(db, UiStateKey.SelectedTaskId)).toBeUndefined()
+    expect(getUiState(db, UiStateKey.RelaunchNotice)).toBeUndefined()
+  })
+
+  it('names the tasks resumed after a crash in the relaunch notice', () => {
+    const { db } = database
+
+    applySeed(db, {
+      ...SEED,
+      tasks: [
+        { title: 'First', minutesAgo: 0, resumedAfterCrash: true },
+        { title: 'Second', minutesAgo: 0 },
+        { title: 'Third', minutesAgo: 0, resumedAfterCrash: true },
+      ],
+    })
+
+    const tasks = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    const ids = ['First', 'Third'].map((title) => tasks.find((task) => task.title === title)?.id)
+    expect(getUiState(db, UiStateKey.RelaunchNotice)).toBe(JSON.stringify({ taskIds: ids }))
   })
 
   it('gives a titled task a session, since it has run, and a new, untitled one none', () => {

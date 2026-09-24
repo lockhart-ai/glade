@@ -239,6 +239,11 @@ export enum UiStateKey {
   DoneSectionCollapsed = 'done_section_collapsed',
   /** The task list's filter chip: a `TaskFilter` (`./attention`). Unset means All. */
   TaskFilter = 'task_filter',
+  /**
+   * The relaunch notice after Glade quit unexpectedly, until you dismiss it: a `RelaunchNotice` (`./relaunchNotice`) as
+   * JSON. Unset or empty means no notice.
+   */
+  RelaunchNotice = 'relaunch_notice',
 }
 
 export interface UiStateEntry {

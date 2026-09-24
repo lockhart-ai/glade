@@ -190,6 +190,32 @@ describe('AGENT_SCRIPTS', () => {
     })
   })
 
+  it('long-build: keeps building until the app quits, then builds again and finishes the turn when resumed', async () => {
+    await send(start('long-build'), 'Build the release.')
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+    expect(activity()).toBe(TaskActivity.Working)
+    expect(calls().at(-1)).toMatchObject({ name: 'Bash', state: ToolCallState.Running })
+    runner?.close()
+
+    const resumed = start('long-build')
+    resumed.resumeInterrupted()
+    const idle = backend.whenIdle()
+    await vi.runAllTimersAsync()
+    await idle
+
+    expect(reply()).toBe('The release is built: dist/glade-0.3.0.dmg.')
+    expect(
+      calls()
+        .filter(({ name }) => name === 'Bash')
+        .map(({ state }) => state),
+    ).toEqual([ToolCallState.Error, ToolCallState.Done])
+    expect(getTask(database.db, task.id)).toMatchObject({
+      activity: TaskActivity.Waiting,
+      title: 'Build the release',
+      status: 'The release is built.',
+    })
+  })
+
   it('copy-in-batches: keeps a message queued while it copies, and answers it in the turn it resumes after a quit', async () => {
     const agent = start('copy-in-batches')
     await send(agent, 'Move image uploads to S3.')

@@ -133,6 +133,16 @@ export function toasts(page: Page) {
   }
 }
 
+/** The notice after Glade quit unexpectedly with tasks mid-turn, in the window's top right corner. */
+export function relaunchNotice(page: Page) {
+  const notice = page.getByRole('status', { name: 'Glade quit unexpectedly' })
+  return {
+    notice,
+    showThem: notice.getByRole('button', { name: 'Show them' }),
+    dismiss: notice.getByRole('button', { name: 'Dismiss' }),
+  }
+}
+
 /** The component gallery (`#gallery`, dev and e2e builds only). */
 export function gallery(page: Page) {
   return {

@@ -371,6 +371,37 @@ const longRunning: AgentScript = {
   ],
 }
 
+/**
+ * A release build that keeps going, with its command running, until it's stopped or the app quits, like `long-running`,
+ * so a spec can run several long turns side by side. Resumed after a quit, it builds again and finishes the turn.
+ */
+const longBuild: AgentScript = {
+  name: 'long-build',
+  turns: [
+    [
+      ...turnStart(),
+      say("I'll build the release; it takes a few minutes."),
+      ...describeTask('Build the release', 'Build the 0.3.0 release for macOS.', 'Building the release.'),
+      toolUse('build', 'Bash', { command: 'npm run dist', description: 'Build the release' }),
+      waitForInterrupt(),
+    ],
+  ],
+  resumeTurn: [
+    ...turnStart(),
+    say('Glade restarted mid-build, so I am building the release again.'),
+    ...tool(
+      'build-again',
+      'Bash',
+      { command: 'npm run dist', description: 'Build the release' },
+      'dist/glade-0.3.0.dmg',
+    ),
+    delay(BEAT_MS),
+    gladeTool('status-built', 'set_status', { status: 'The release is built.' }),
+    say('The release is built: dist/glade-0.3.0.dmg.'),
+    result(),
+  ],
+}
+
 /** What a script's agent does when sent `/compact`, unless the script says otherwise: compacts, and ends the turn. */
 export const DEFAULT_COMPACT_TURN: ScriptTurn = [init(), delay(BEAT_MS), compact(), result({ text: '' })]
 
@@ -480,6 +511,7 @@ export const AGENT_SCRIPT_NAMES = [
   'simple-reply',
   'multi-tool-turn',
   'long-running',
+  'long-build',
   'failing-turn',
   'copy-in-batches',
   'long-context',
@@ -492,6 +524,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'simple-reply': simpleReply,
   'multi-tool-turn': multiToolTurn,
   'long-running': longRunning,
+  'long-build': longBuild,
   'failing-turn': failingTurn,
   'copy-in-batches': copyInBatches,
   'long-context': longContext,
