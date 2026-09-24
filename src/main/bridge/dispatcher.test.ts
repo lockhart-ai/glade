@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { UiStateKey } from '../../shared/domain'
+import { UiStateKey, type Task } from '../../shared/domain'
 import { createBroadcast, createDispatcher } from './dispatcher'
+import { CommandFailure } from './errors'
 import type { Handlers } from './handlers'
 import { REQUEST_SCHEMAS } from './requests'
 
@@ -9,6 +10,10 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: [] }),
     [CommandName.TasksList]: () => ({ tasks: [] }),
+    [CommandName.TasksCreate]: () => ({ task: {} as Task }),
+    [CommandName.TasksMarkDone]: () => ({ task: {} as Task }),
+    [CommandName.TasksReopen]: () => ({ task: {} as Task }),
+    [CommandName.TasksUpdate]: () => ({ task: {} as Task }),
     [CommandName.UiStateGet]: () => Promise.resolve({ value: 'async' }),
     [CommandName.UiStateGetAll]: () => ({ entries: [] }),
     [CommandName.UiStateSet]: () => null,
@@ -75,6 +80,23 @@ describe('createDispatcher', () => {
       error: bridgeError(BridgeErrorCode.Internal, 'uiState.set failed: disk full'),
     })
     expect(console.error).toHaveBeenCalledWith('Command uiState.set failed', failure)
+  })
+
+  it("reports a handler's command failure with its own code, without logging it", async () => {
+    const dispatch = createDispatcher(
+      handlers({
+        [CommandName.TasksReopen]: () => {
+          throw new CommandFailure(BridgeErrorCode.InvalidTransition, "Can't reopen a task that is active")
+        },
+      }),
+      REQUEST_SCHEMAS,
+    )
+
+    await expect(dispatch('tasks.reopen', { id: 't1' })).resolves.toEqual({
+      ok: false,
+      error: bridgeError(BridgeErrorCode.InvalidTransition, "tasks.reopen: Can't reopen a task that is active"),
+    })
+    expect(console.error).not.toHaveBeenCalled()
   })
 
   it('reports a rejected handler, or one that throws a non-Error, as an internal error', async () => {

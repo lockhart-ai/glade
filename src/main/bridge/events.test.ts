@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { EventType } from '../../shared/bridge'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
-import { emitTaskUpdated } from './handlers'
+import { emitTaskUpdated } from './events'
 
 let database: TestDatabase
 

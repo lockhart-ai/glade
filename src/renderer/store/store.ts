@@ -67,6 +67,26 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       setUiState,
+
+      async createTask(workspaceId) {
+        const { task } = await bridge.invoke(CommandName.TasksCreate, { workspaceId })
+        // Main's task.updated event normally arrives first; make sure the task is here before selecting it.
+        if (!(task.id in get().tasks)) set((state) => applyEvent(state, { type: EventType.TaskUpdated, task }))
+        await get().selectTask(task.id)
+        return task
+      },
+
+      async markTaskDone(taskId) {
+        await bridge.invoke(CommandName.TasksMarkDone, { id: taskId })
+      },
+
+      async reopenTask(taskId) {
+        await bridge.invoke(CommandName.TasksReopen, { id: taskId })
+      },
+
+      async updateTask(taskId, patch) {
+        await bridge.invoke(CommandName.TasksUpdate, { id: taskId, patch })
+      },
     }
   })
 }

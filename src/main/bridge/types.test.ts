@@ -11,13 +11,27 @@ import {
   type GladeBridge,
   type GladeEvent,
 } from '../../shared/bridge'
-import { UiStateKey, type Task, type UiStateEntry, type Workspace } from '../../shared/domain'
+import { Effort, TaskState, UiStateKey, type Task, type UiStateEntry, type Workspace } from '../../shared/domain'
 import type { Handlers } from './handlers'
 import { REQUEST_SCHEMAS, type RequestSchemas } from './requests'
 
 const noop = (...values: unknown[]): unknown[] => values
 /** A stand-in: these tests are about types, so what it answers doesn't matter. */
 const glade: GladeBridge = { invoke: () => Promise.resolve({} as never), subscribe: () => noop }
+
+// The task commands' handlers and schemas, right, so each registry below differs from a valid one in one way only.
+const TASK_HANDLERS = {
+  [CommandName.TasksCreate]: () => ({ task: {} as Task }),
+  [CommandName.TasksMarkDone]: () => ({ task: {} as Task }),
+  [CommandName.TasksReopen]: () => ({ task: {} as Task }),
+  [CommandName.TasksUpdate]: () => ({ task: {} as Task }),
+} satisfies Partial<Handlers>
+const TASK_SCHEMAS = {
+  [CommandName.TasksCreate]: REQUEST_SCHEMAS[CommandName.TasksCreate],
+  [CommandName.TasksMarkDone]: REQUEST_SCHEMAS[CommandName.TasksMarkDone],
+  [CommandName.TasksReopen]: REQUEST_SCHEMAS[CommandName.TasksReopen],
+  [CommandName.TasksUpdate]: REQUEST_SCHEMAS[CommandName.TasksUpdate],
+} satisfies Partial<RequestSchemas>
 
 describe('the command map', () => {
   it('types invoke from the map: its request and its response', () => {
@@ -33,6 +47,14 @@ describe('the command map', () => {
     expectTypeOf(glade.invoke(CommandName.UiStateGetAll, {})).resolves.toEqualTypeOf<{
       readonly entries: readonly UiStateEntry[]
     }>()
+    expectTypeOf(glade.invoke(CommandName.TasksCreate, { workspaceId: 'w' })).resolves.toEqualTypeOf<{
+      readonly task: Task
+    }>()
+    expectTypeOf(glade.invoke(CommandName.TasksMarkDone, { id: 't' })).resolves.toEqualTypeOf<{ readonly task: Task }>()
+    expectTypeOf(glade.invoke(CommandName.TasksReopen, { id: 't' })).resolves.toEqualTypeOf<{ readonly task: Task }>()
+    expectTypeOf(
+      glade.invoke(CommandName.TasksUpdate, { id: 't', patch: { pinned: true, effort: Effort.Low } }),
+    ).resolves.toEqualTypeOf<{ readonly task: Task }>()
     expectTypeOf<CommandRequest<CommandName.UiStateSet>>().toEqualTypeOf<UiStateEntry>()
     expectTypeOf(
       glade.invoke(CommandName.UiStateSet, { key: UiStateKey.ActiveWorkspaceId, value: '' }),
@@ -50,6 +72,16 @@ describe('the command map', () => {
     void glade.invoke(CommandName.UiStateGetAll, { key: UiStateKey.ActiveWorkspaceId })
     // @ts-expect-error: workspaces.list takes no arguments.
     void glade.invoke(CommandName.WorkspacesList, { all: true })
+    // @ts-expect-error: tasks.create needs a workspace id.
+    void glade.invoke(CommandName.TasksCreate, {})
+    // @ts-expect-error: tasks.markDone needs a task id.
+    void glade.invoke(CommandName.TasksMarkDone, {})
+    // @ts-expect-error: the state changes only through tasks.markDone and tasks.reopen.
+    void glade.invoke(CommandName.TasksUpdate, { id: 't', patch: { state: TaskState.Done } })
+    // @ts-expect-error: the agent sets the status, through main's task service.
+    void glade.invoke(CommandName.TasksUpdate, { id: 't', patch: { status: 'Done' } })
+    // @ts-expect-error: the effort must be an Effort.
+    void glade.invoke(CommandName.TasksUpdate, { id: 't', patch: { effort: 'huge' } })
     // @ts-expect-error: not a command.
     void glade.invoke('tasks.explode', {})
   })
@@ -65,12 +97,14 @@ describe('the command map', () => {
   it('refuses a schema registry missing a command, or a schema that disagrees with the map', () => {
     // @ts-expect-error: uiState.set has no schema.
     const missing: RequestSchemas = {
+      ...TASK_SCHEMAS,
       [CommandName.WorkspacesList]: z.strictObject({}),
       [CommandName.TasksList]: z.strictObject({ workspaceId: z.string() }),
       [CommandName.UiStateGet]: z.strictObject({ key: z.enum(UiStateKey) }),
       [CommandName.UiStateGetAll]: z.strictObject({}),
     }
     const wrong: RequestSchemas = {
+      ...TASK_SCHEMAS,
       [CommandName.WorkspacesList]: z.strictObject({}),
       [CommandName.TasksList]: z.strictObject({ workspaceId: z.string() }),
       [CommandName.UiStateGetAll]: z.strictObject({}),
@@ -84,6 +118,7 @@ describe('the command map', () => {
   it('refuses a handler registry missing a command', () => {
     // @ts-expect-error: uiState.set has no handler.
     const handlers: Handlers = {
+      ...TASK_HANDLERS,
       [CommandName.WorkspacesList]: () => ({ workspaces: [] }),
       [CommandName.TasksList]: () => ({ tasks: [] }),
       [CommandName.UiStateGet]: () => ({ value: null }),
@@ -94,6 +129,7 @@ describe('the command map', () => {
 
   it('refuses a handler whose response disagrees with the map', () => {
     const handlers: Handlers = {
+      ...TASK_HANDLERS,
       [CommandName.WorkspacesList]: () => ({ workspaces: [] }),
       [CommandName.TasksList]: () => ({ tasks: [] }),
       [CommandName.UiStateGetAll]: () => ({ entries: [] }),
@@ -106,6 +142,7 @@ describe('the command map', () => {
 
   it('refuses a handler that reads a request field the map does not have', () => {
     const handlers: Handlers = {
+      ...TASK_HANDLERS,
       [CommandName.WorkspacesList]: () => ({ workspaces: [] }),
       [CommandName.TasksList]: () => ({ tasks: [] }),
       [CommandName.UiStateGetAll]: () => ({ entries: [] }),

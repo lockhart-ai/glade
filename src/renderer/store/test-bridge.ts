@@ -30,13 +30,34 @@ export interface FakeBridge {
   readonly listenerCount: () => number
 }
 
-/** Handlers answering from `main`, which `uiState.set` writes to (and broadcasts through `emit`) like main does. */
+/**
+ * Handlers answering from `main`, which `uiState.set` and the task commands write to (and broadcast through `emit`)
+ * like main does. The task commands don't check transitions; main's own tests cover those.
+ */
 export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void): FakeHandlers {
+  const writeTask = (id: string, change: Partial<Task>): { task: Task } => {
+    const index = main.tasks.findIndex((task) => task.id === id)
+    const current = main.tasks[index]
+    if (current === undefined) throw new Error(`No task ${id}`)
+    const task = { ...current, ...change }
+    main.tasks[index] = task
+    emit({ type: EventType.TaskUpdated, task })
+    return { task }
+  }
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: [...main.workspaces] }),
     [CommandName.TasksList]: ({ workspaceId }) => ({
       tasks: main.tasks.filter((task) => task.workspaceId === workspaceId),
     }),
+    [CommandName.TasksCreate]: ({ workspaceId }) => {
+      const task = sampleTask(`task-${String(main.tasks.length + 1)}`, workspaceId, '')
+      main.tasks.push(task)
+      emit({ type: EventType.TaskUpdated, task })
+      return { task }
+    },
+    [CommandName.TasksMarkDone]: ({ id }) => writeTask(id, { state: TaskState.Done, doneAt: 3_000 }),
+    [CommandName.TasksReopen]: ({ id }) => writeTask(id, { state: TaskState.Active, doneAt: null }),
+    [CommandName.TasksUpdate]: ({ id, patch }) => writeTask(id, patch),
     [CommandName.UiStateGet]: ({ key }) => ({ value: main.uiState.find((entry) => entry.key === key)?.value ?? null }),
     [CommandName.UiStateGetAll]: () => ({ entries: [...main.uiState] }),
     [CommandName.UiStateSet]: (entry) => {
