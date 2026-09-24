@@ -54,6 +54,7 @@ export enum CommandName {
   TasksStop = 'tasks.stop',
   TasksRetry = 'tasks.retry',
   TasksCompact = 'tasks.compact',
+  SubagentsStop = 'subagents.stop',
   TasksHistory = 'tasks.history',
   QueueAdd = 'queue.add',
   QueueEdit = 'queue.edit',
@@ -63,9 +64,11 @@ export enum CommandName {
   FilesOpen = 'files.open',
   FilesClose = 'files.close',
   FilesOpenInEditor = 'files.openInEditor',
+  ClipboardWriteText = 'clipboard.writeText',
   FilesInfo = 'files.info',
   FilesCopy = 'files.copy',
   FilesReveal = 'files.reveal',
+  ArtifactsRemove = 'artifacts.remove',
   UiStateGet = 'uiState.get',
   UiStateGetAll = 'uiState.getAll',
   UiStateSet = 'uiState.set',
@@ -244,6 +247,18 @@ export interface TasksRetryRequest {
  */
 export type TasksCompactRequest = TaskIdRequest
 
+/**
+ * Stops one of a task's running subagents (Stop subagent), by the `Agent` tool call that started it, leaving the task's
+ * turn running: the call gets its result as though the subagent had finished, and the tool log shows it ended. Answers
+ * once the SDK has been asked. Fails with `invalid_transition` for a subagent that isn't running, and `not_found` when
+ * there's no such task.
+ */
+export interface SubagentsStopRequest {
+  readonly taskId: string
+  /** The `tool_use` id of the `Agent` call that started the subagent. */
+  readonly toolUseId: string
+}
+
 /** A task's chat log and tool log, each in the order they were appended, its message queue, and its questions. */
 export interface TasksHistoryResponse {
   readonly messages: readonly Message[]
@@ -374,13 +389,31 @@ export interface FilesInfoResponse {
 }
 
 /**
- * Copies a text file's contents to the clipboard (an artifact's Copy). Fails with `not_found` when there's no such
- * file, and `invalid_request` when it isn't text or is too large to copy.
+ * Copies a text file's contents to the clipboard (an artifact's Copy contents). Fails with `not_found` when there's no
+ * such file, and `invalid_request` when it isn't text or is too large to copy.
  */
 export type FilesCopyRequest = FileRequest
 
-/** Shows a file in Finder, selected (an artifact's Reveal in folder). Fails with `not_found` when there's no such file. */
+/**
+ * Shows a file in Finder, selected (Reveal in Finder, for a file tab or an artifact). Fails with `not_found` when there's
+ * no such file.
+ */
 export type FilesRevealRequest = FileRequest
+
+/**
+ * Takes a file off a task's artifacts (Remove from artifacts); the file itself stays. Broadcasts `artifacts.changed`.
+ * Fails with `not_found` when the file isn't one of the task's artifacts.
+ */
+export interface ArtifactsRemoveRequest {
+  readonly taskId: string
+  /** Relative to the task's workspace root, as the artifact has it. */
+  readonly path: string
+}
+
+/** Puts text on the clipboard (the context menus' Copy items). */
+export interface ClipboardWriteTextRequest {
+  readonly text: string
+}
 
 export interface UiStateGetRequest {
   readonly key: UiStateKey
@@ -422,6 +455,7 @@ export interface CommandMap {
   [CommandName.TasksStop]: CommandSpec<TasksStopRequest, TaskResponse>
   [CommandName.TasksRetry]: CommandSpec<TasksRetryRequest, TaskResponse>
   [CommandName.TasksCompact]: CommandSpec<TasksCompactRequest, TaskResponse>
+  [CommandName.SubagentsStop]: CommandSpec<SubagentsStopRequest, null>
   [CommandName.TasksHistory]: CommandSpec<TaskIdRequest, TasksHistoryResponse>
   [CommandName.QueueAdd]: CommandSpec<QueueAddRequest, QueuedMessageResponse>
   [CommandName.QueueEdit]: CommandSpec<QueueEditRequest, QueuedMessageResponse>
@@ -431,9 +465,11 @@ export interface CommandMap {
   [CommandName.FilesOpen]: CommandSpec<FilesOpenRequest, OpenFilesResponse>
   [CommandName.FilesClose]: CommandSpec<FilesCloseRequest, OpenFilesResponse>
   [CommandName.FilesOpenInEditor]: CommandSpec<FilesOpenInEditorRequest, null>
+  [CommandName.ClipboardWriteText]: CommandSpec<ClipboardWriteTextRequest, null>
   [CommandName.FilesInfo]: CommandSpec<FilesInfoRequest, FilesInfoResponse>
   [CommandName.FilesCopy]: CommandSpec<FilesCopyRequest, null>
   [CommandName.FilesReveal]: CommandSpec<FilesRevealRequest, null>
+  [CommandName.ArtifactsRemove]: CommandSpec<ArtifactsRemoveRequest, null>
   [CommandName.UiStateGet]: CommandSpec<UiStateGetRequest, UiStateGetResponse>
   [CommandName.UiStateGetAll]: CommandSpec<EmptyRequest, UiStateGetAllResponse>
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>

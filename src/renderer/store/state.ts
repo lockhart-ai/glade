@@ -69,6 +69,17 @@ export interface FileFocus {
   readonly request: number
 }
 
+/**
+ * A request to add text to a task's message field (Quote in reply, Ask agent about this), made by a context menu and
+ * acted on by the input bar, which adds it to its draft and focuses the field. `request` goes up by one with every
+ * request, like `ToolLogFocus`'s.
+ */
+export interface InputInsertion {
+  readonly taskId: string
+  readonly text: string
+  readonly request: number
+}
+
 /** Everything the store holds. `applyEvent` maps one of these to the next. */
 export interface GladeData {
   readonly hydration: Hydration
@@ -127,6 +138,8 @@ export interface GladeData {
    * `inputFocusRequest`.
    */
   readonly workspaceSettingsRequest: number
+  /** The latest request to add text to a task's message field; null until one is made. A one-off UI intent. */
+  readonly inputInsertion: InputInsertion | null
 }
 
 /**
@@ -250,8 +263,21 @@ export interface GladeActions {
   fileInfo: (taskId: string, path: string) => Promise<FileInfo>
   /** Copies a text file of a task's workspace to the clipboard (`files.copy`). */
   copyFile: (taskId: string, path: string) => Promise<void>
-  /** Shows a file of a task's workspace in Finder (`files.reveal`). */
+  /** Shows a file of a task's workspace in Finder, selected in its folder (`files.reveal`). */
   revealFile: (taskId: string, path: string) => Promise<void>
+  /**
+   * Opens a file in a task's Files tab and shows it there (a tool call's Open file): for the selected task, the right
+   * panel opens at Files too, even when it was collapsed or on another tab.
+   */
+  showFile: (taskId: string, path: string) => Promise<void>
+  /** Takes a file off a task's artifacts (`artifacts.remove`); the file stays. */
+  removeArtifact: (taskId: string, path: string) => Promise<void>
+  /** Stops one of a task's running subagents, by the `Agent` call that started it (`subagents.stop`). */
+  stopSubagent: (taskId: string, toolUseId: string) => Promise<void>
+  /** Puts text on the clipboard (`clipboard.writeText`). */
+  copyText: (text: string) => Promise<void>
+  /** Asks the input bar to add text to a task's message field and focus it (see `inputInsertion`). */
+  insertIntoInput: (taskId: string, text: string) => void
 }
 
 export interface GladeState extends GladeData, GladeActions {}
@@ -276,6 +302,7 @@ export const INITIAL_DATA: GladeData = {
   renamingTaskId: null,
   deletingTaskId: null,
   workspaceSettingsRequest: 0,
+  inputInsertion: null,
 }
 
 export function selectSelectedWorkspace(state: GladeData): Workspace | undefined {

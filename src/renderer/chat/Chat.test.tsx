@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import {
   AgentErrorKind,
@@ -80,6 +80,8 @@ interface Setup {
   readonly toolEvents?: ToolEvent[]
   readonly questionSets?: QuestionSet[]
   readonly selected?: boolean
+  /** Where the fake main records what the menus copy. */
+  readonly copied?: string[]
 }
 
 async function renderChat({
@@ -88,6 +90,7 @@ async function renderChat({
   toolEvents = [],
   questionSets = [],
   selected = true,
+  copied,
 }: Setup = {}): Promise<FakeBridge & { store: GladeStore }> {
   const fake = fakeBridge({
     workspaces: [sampleWorkspace('w1')],
@@ -99,6 +102,7 @@ async function renderChat({
     messages,
     toolEvents,
     questionSets,
+    ...(copied === undefined ? {} : { copied }),
   })
   const store = createGladeStore(fake.bridge)
   render(
@@ -574,5 +578,77 @@ describe('Chat', () => {
       emit({ type: EventType.MessageAppended, message: REPLY })
     })
     expect(scroller.scrollTop).toBe(200)
+  })
+})
+
+describe('an agent reply’s context menu', () => {
+  // jsdom lays nothing out, so it has no innerText: the reply's text content stands in for it.
+  const innerText = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'innerText')
+  beforeAll(() => {
+    Object.defineProperty(HTMLElement.prototype, 'innerText', {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.textContent
+      },
+    })
+  })
+  afterAll(() => {
+    if (innerText === undefined) Reflect.deleteProperty(HTMLElement.prototype, 'innerText')
+    else Object.defineProperty(HTMLElement.prototype, 'innerText', innerText)
+  })
+
+  function reply(): HTMLElement {
+    return within(conversation()).getByRole('article', { name: 'Agent' })
+  }
+
+  async function choose(label: string): Promise<void> {
+    fireEvent.contextMenu(reply())
+    await act(() => Promise.resolve())
+    fireEvent.click(screen.getByRole('menuitem', { name: new RegExp(`^${label}`) }))
+    await act(() => Promise.resolve())
+  }
+
+  it('copies the reply as it reads, or as Markdown', async () => {
+    const copied: string[] = []
+    await renderChat({ messages: [ASK, REPLY], toolEvents: TURN_ONE, copied })
+
+    fireEvent.contextMenu(reply())
+    await act(() => Promise.resolve())
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'Copy⌘C',
+      'Copy as Markdown',
+      'Quote in reply',
+      "Show this turn's tool calls",
+    ])
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Copy⌘C/ }))
+    await choose('Copy as Markdown')
+
+    expect(copied).toEqual(['Tests pass.\nShould /search get a tighter limit of 60?', REPLY.body])
+  })
+
+  it('quotes the reply in yours, and shows its turn in the tool log', async () => {
+    const { store } = await renderChat({ messages: [ASK, REPLY], toolEvents: TURN_ONE })
+
+    await choose('Quote in reply')
+    expect(store.getState().inputInsertion).toEqual({
+      taskId: 't1',
+      text: '> Tests pass.\n>\n> Should **/search** get a tighter limit of `60`?\n\n',
+      request: 1,
+    })
+
+    await choose("Show this turn's tool calls")
+    expect(store.getState().toolLogFocus).toEqual({ taskId: 't1', turn: 1, request: 1 })
+  })
+
+  it('opens on ⇧F10 while the reply has the focus, and has no tool calls to show for a turn without any', async () => {
+    await renderChat({ messages: [ASK, REPLY] })
+
+    reply().focus()
+    fireEvent.keyDown(reply(), { key: 'F10', shiftKey: true })
+    await act(() => Promise.resolve())
+
+    expect(screen.getByRole('menu', { name: 'Reply actions' })).toHaveTextContent(
+      /^Copy⌘CCopy as MarkdownQuote in reply$/,
+    )
   })
 })

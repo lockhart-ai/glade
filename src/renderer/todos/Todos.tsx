@@ -1,5 +1,7 @@
 import { TodoState, type EpochMs, type Todo, type TodoList } from '../../shared/domain'
 import { classNames } from '../components/classNames'
+import { ContextMenu, todoMenu, useContextMenu, useMenuCommands, type ContextMenuTargetProps } from '../context-menus'
+import { useGladeStore } from '../store/react'
 import { formatAgo } from '../task-header/headerModel'
 import { progressBar, progressHeading, todoProgress } from './todosModel'
 import styles from './Todos.module.css'
@@ -42,9 +44,20 @@ function StateIcon({ state }: { readonly state: TodoState }): React.JSX.Element 
   )
 }
 
-function TodoItem({ todo }: { readonly todo: Todo }): React.JSX.Element {
+/** What Ask agent about this puts in the message field, for you to finish with your question. */
+export function askAboutTodo(todo: Todo): string {
+  return `About the todo “${todo.text}”: `
+}
+
+interface TodoItemProps {
+  readonly todo: Todo
+  /** What opens its context menu: a right-click, or ⇧F10 while it has the focus. */
+  readonly menuTarget: ContextMenuTargetProps
+}
+
+function TodoItem({ todo, menuTarget }: TodoItemProps): React.JSX.Element {
   return (
-    <li className={classNames(styles.item, STATE_CLASSES[todo.state])}>
+    <li className={classNames(styles.item, STATE_CLASSES[todo.state])} tabIndex={0} {...menuTarget}>
       <span className={styles.icon} aria-hidden="true">
         <StateIcon state={todo.state} />
       </span>
@@ -58,6 +71,7 @@ function TodoItem({ todo }: { readonly todo: Todo }): React.JSX.Element {
 }
 
 export interface TodosProps {
+  readonly taskId: string
   /** The task's todo list; null or undefined while the agent has kept none. */
   readonly list: TodoList | null | undefined
   readonly now: EpochMs
@@ -66,12 +80,25 @@ export interface TodosProps {
 /**
  * The Todos tab (`docs/design/html/09-todos.html`): how many of the agent's todos are done, with a progress bar and when
  * the agent last changed the list, then each item as todo, doing (blue, with its note), done (struck through) or
- * waiting on you (purple). The agent keeps the list; you only read it.
+ * waiting on you (purple). The agent keeps the list; you only read it. An item's context menu copies it, or asks the agent
+ * about it.
  */
-export function Todos({ list, now }: TodosProps): React.JSX.Element {
+export function Todos({ taskId, list, now }: TodosProps): React.JSX.Element {
+  const menu = useContextMenu<Todo>()
+  const { copy } = useMenuCommands()
+  const insertIntoInput = useGladeStore((state) => state.insertIntoInput)
   if (list === null || list === undefined || list.items.length === 0) return <p className={styles.empty}>{NO_TODOS}</p>
   const progress = todoProgress(list)
   const bar = progressBar(progress)
+  const entries = (todo: Todo) =>
+    todoMenu({
+      copy: () => {
+        copy(todo.text)
+      },
+      ask: () => {
+        insertIntoInput(taskId, askAboutTodo(todo))
+      },
+    })
   return (
     <div className={styles.todos}>
       <div className={styles.summary}>
@@ -94,9 +121,10 @@ export function Todos({ list, now }: TodosProps): React.JSX.Element {
       </div>
       <ul className={styles.list} aria-label="Todos">
         {list.items.map((todo, index) => (
-          <TodoItem key={index} todo={todo} />
+          <TodoItem key={index} todo={todo} menuTarget={menu.targetProps(todo)} />
         ))}
       </ul>
+      <ContextMenu label="Todo actions" state={menu} entries={entries} />
     </div>
   )
 }

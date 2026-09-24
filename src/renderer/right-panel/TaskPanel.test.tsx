@@ -18,6 +18,7 @@ import {
   type ToolEvent,
   type UiStateEntry,
 } from '../../shared/domain'
+import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import { fakeBridge, sampleTask, sampleWorkspace, type FakeBridge } from '../store/test-bridge'
@@ -95,7 +96,9 @@ async function renderPanel({
   const store = createGladeStore(fake.bridge)
   render(
     <GladeStoreProvider store={store}>
-      <TaskPanel />
+      <ToastProvider>
+        <TaskPanel />
+      </ToastProvider>
     </GladeStoreProvider>,
   )
   await act(() => store.getState().hydrate())
@@ -661,7 +664,9 @@ describe('TaskPanel', () => {
       const store = createGladeStore(fake.bridge)
       render(
         <GladeStoreProvider store={store}>
-          <TaskPanel />
+          <ToastProvider>
+            <TaskPanel />
+          </ToastProvider>
         </GladeStoreProvider>,
       )
       await act(() => store.getState().hydrate())

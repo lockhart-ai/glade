@@ -703,6 +703,55 @@ describe("a task's logs", () => {
   })
 })
 
+describe('context menu actions', () => {
+  it('copies text, stops a subagent and removes an artifact through main', async () => {
+    const data: FakeMain = {
+      ...main(),
+      copied: [],
+      stoppedSubagents: [],
+      artifacts: [{ taskId: 't1', path: 'docs/notes.md', title: 'Notes', addedAt: 1, updatedAt: 1 }],
+    }
+    const { store } = await hydrated(data)
+
+    await store.getState().copyText('glade://task/t1')
+    await store.getState().stopSubagent('t1', 'toolu_02')
+    await store.getState().removeArtifact('t1', 'docs/notes.md')
+
+    expect(data.copied).toEqual(['glade://task/t1'])
+    expect(data.stoppedSubagents).toEqual(['toolu_02'])
+    expect(store.getState().artifacts.t1).toEqual([])
+  })
+
+  it('asks the input bar to add text, as a new request each time, without calling main', async () => {
+    const { store, invoke } = await hydrated()
+    const calls = invoke.mock.calls.length
+    expect(store.getState().inputInsertion).toBeNull()
+
+    store.getState().insertIntoInput('t1', '> Quoted')
+    expect(store.getState().inputInsertion).toEqual({ taskId: 't1', text: '> Quoted', request: 1 })
+    store.getState().insertIntoInput('t1', '> Quoted')
+    expect(store.getState().inputInsertion).toEqual({ taskId: 't1', text: '> Quoted', request: 2 })
+    expect(invoke.mock.calls).toHaveLength(calls)
+  })
+
+  it('shows a file of the selected task in the Files tab, opening the right panel there', async () => {
+    const { store } = await hydrated(
+      main([
+        { key: UiStateKey.SelectedTaskId, value: 't1' },
+        { key: UiStateKey.RightPanelCollapsed, value: 'true' },
+      ]),
+    )
+
+    await store.getState().showFile('t1', 'src/date.ts')
+
+    expect(store.getState().openFiles.t1?.activePath).toBe('src/date.ts')
+    expect(store.getState().uiState).toMatchObject({
+      [UiStateKey.RightPanelTab]: 'files',
+      [UiStateKey.RightPanelCollapsed]: 'false',
+    })
+  })
+})
+
 describe('artifact files', () => {
   it('describes, copies and reveals a file through main', async () => {
     const data: FakeMain = {

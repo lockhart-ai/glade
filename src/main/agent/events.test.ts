@@ -250,6 +250,17 @@ describe('parsing SDK messages', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
+  it('reads a subagent started as a task, by the tool call that started it', () => {
+    expect(parse({ type: 'system', subtype: 'task_started', task_id: 'b7f3', tool_use_id: 'toolu_02' })).toEqual([
+      { kind: AgentEventKind.SubagentStarted, sdkTaskId: 'b7f3', toolUseId: 'toolu_02' },
+    ])
+    // A task no tool call started has no row to stop it from.
+    expect(parse({ type: 'system', subtype: 'task_started', task_id: 'b7f4' })).toEqual([])
+    const { parse: parseLogged, warn } = parser()
+    expect(parseLogged({ type: 'system', subtype: 'task_started' })).toEqual([])
+    expect(warn).toHaveBeenCalledOnce()
+  })
+
   it('reads a compaction starting, and one failing, from the session status', () => {
     expect(parse({ type: 'system', subtype: 'status', status: 'compacting' })).toEqual([
       { kind: AgentEventKind.Compacting },

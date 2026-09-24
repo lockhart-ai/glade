@@ -7,7 +7,14 @@
  */
 import { TaskIndicator } from '../../shared/taskIndicator'
 import { ToolCallState, ToolEventKind, type EpochMs, type ToolCallEvent, type ToolEvent } from '../../shared/domain'
-import { argumentSummary, toolLogRows, type CallRow, type SubagentRow, type ToolLogRow } from '../tool-log/toolLogModel'
+import {
+  argumentSummary,
+  resultSummary,
+  toolLogRows,
+  type CallRow,
+  type SubagentRow,
+  type ToolLogRow,
+} from '../tool-log/toolLogModel'
 
 /** The tools that start a subagent: `Agent` in `tool_use` (the init tools list calls it `Task`). */
 const SUBAGENT_TOOLS: ReadonlySet<string> = new Set(['Agent', 'Task'])
@@ -234,4 +241,29 @@ export function tally(subagents: readonly Subagent[]): TallyPart[] {
 /** Whether any subagent is still running, so its elapsed time needs to tick. */
 export function anyRunning(subagents: readonly Subagent[]): boolean {
   return subagents.some((subagent) => subagent.status === SubagentStatus.Running)
+}
+
+/** A subagent's log rows as lines of text, each nested subagent's rows indented under its call. */
+function logLines(rows: readonly SubagentRow[], rootPath: string | undefined, indent: string): string[] {
+  return rows.flatMap((row) => {
+    switch (row.kind) {
+      case ToolEventKind.ToolCall:
+        return [
+          `${indent}${row.name} ${argumentSummary(row.call, rootPath)}`.trimEnd(),
+          `${indent}  ${resultSummary(row.call)}`,
+          ...logLines(row.children, rootPath, `${indent}  `),
+        ]
+      case ToolEventKind.Narration:
+        return [`${indent}${row.narration.text}`]
+    }
+  })
+}
+
+/**
+ * A subagent's log as text (Copy log): its name, then each of its tool calls with its argument and short result and
+ * each of its notes, in order, and once it has finished, what it came to.
+ */
+export function subagentLogText(subagent: Subagent, rootPath?: string): string {
+  const outcome = subagent.status === SubagentStatus.Running ? '' : (subagent.call.output ?? '').trim()
+  return [subagent.name, ...logLines(subagent.log, rootPath, ''), ...(outcome === '' ? [] : ['', outcome])].join('\n')
 }

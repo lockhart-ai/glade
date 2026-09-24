@@ -4,6 +4,7 @@ import type { ToolEvent } from '../../shared/domain'
 import { fileName } from '../../shared/files'
 import { Icon, IconSize, Menu, MenuAnchorKind, MenuEntryKind, type MenuEntry, type MenuItem } from '../components'
 import { classNames } from '../components/classNames'
+import { ContextMenu, fileTabMenu, useContextMenu, useMenuCommands } from '../context-menus'
 import { useGladeStore } from '../store/react'
 import { FileViewer } from './FileViewer'
 import { isChanged, touchedCount, touchedFiles, touchOfFile, type TouchedFile, type TouchedFiles } from './filesModel'
@@ -59,11 +60,17 @@ function menuEntries(touched: TouchedFiles, open: (path: string) => void): MenuE
   return entries
 }
 
+/** A file's absolute path, from the workspace root and its path relative to it. */
+export function absolutePath(rootPath: string, path: string): string {
+  return `${rootPath.replace(/\/+$/, '')}/${path}`
+}
+
 /**
  * The right panel's Files tab (`docs/design/html/08-open-file.html`): a row with the list of the files the agent
  * changed or read, and a tab for each file open, with a blue dot on the ones it changed; under it, the file showing.
  * The open files are the task's, kept in main. ⌘⇧E opens the file showing in your editor. When the agent shows a file
- * (`show_file`), it opens here (main opens it), marked at `focus`'s line.
+ * (`show_file`), it opens here (main opens it), marked at `focus`'s line. A file tab's context menu closes it or the
+ * others, opens it in your editor or Finder, and copies its path.
  */
 export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.Element {
   const events = useGladeStore((state) => state.toolEvents[taskId]) ?? NO_TOOL_EVENTS
@@ -72,6 +79,9 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
   const openFile = useGladeStore((state) => state.openFile)
   const closeFile = useGladeStore((state) => state.closeFile)
   const openInEditor = useGladeStore((state) => state.openInEditor)
+  const revealFile = useGladeStore((state) => state.revealFile)
+  const menu = useContextMenu<string>()
+  const { run, copy } = useMenuCommands()
   const touched = useMemo(() => touchedFiles(events, rootPath), [events, rootPath])
   // The list button, while its menu is open.
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
@@ -97,6 +107,37 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
   if (count === 0 && paths.length === 0) return <p className={styles.empty}>No files yet.</p>
 
   const focused = focus !== null && focus.path === activePath ? focus : null
+
+  // Closes the tabs one by one, in order: each close shows the next tab, as closing it by hand would.
+  const closeAll = (closing: readonly string[]): void => {
+    run(async () => {
+      for (const path of closing) await closeFile(taskId, path)
+    })
+  }
+  const tabMenu = (path: string) =>
+    fileTabMenu({
+      close: () => {
+        closeAll([path])
+      },
+      closeOthers: () => {
+        closeAll(paths.filter((other) => other !== path))
+      },
+      closeAll: () => {
+        closeAll(paths)
+      },
+      openInEditor: () => {
+        run(() => openInEditor(taskId, path))
+      },
+      reveal: () => {
+        run(() => revealFile(taskId, path))
+      },
+      copyPath: () => {
+        copy(absolutePath(rootPath, path))
+      },
+      copyRelativePath: () => {
+        copy(path)
+      },
+    })
 
   return (
     <div className={styles.files}>
@@ -130,7 +171,12 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
             const name = fileName(path)
             const active = path === activePath
             return (
-              <div key={path} className={classNames(styles.tab, active && styles.active)} title={path}>
+              <div
+                key={path}
+                className={classNames(styles.tab, active && styles.active)}
+                title={path}
+                {...menu.targetProps(path)}
+              >
                 <button
                   type="button"
                   aria-pressed={active}
@@ -157,6 +203,7 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
             )
           })}
         </div>
+        <ContextMenu label="File actions" state={menu} entries={tabMenu} />
       </div>
       {activePath === null ? (
         <p className={styles.empty}>No file open.</p>

@@ -89,6 +89,7 @@ export function createTestModeAgentBackend(scripts: TestModeScripts): TestModeAg
           session.configure(settings)
         },
         interrupt: () => session.interrupt(),
+        stopTask: () => session.stopTask(),
         close: () => {
           session.close()
         },

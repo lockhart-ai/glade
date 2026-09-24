@@ -45,6 +45,11 @@ export enum AgentEventKind {
    * only): whether it's rejecting requests, and when it resets.
    */
   RateLimit = 'rate_limit',
+  /**
+   * A subagent started, as a task the session can stop on its own (`system/task_started`): the SDK's id for the task,
+   * and the `Agent` tool call that started it.
+   */
+  SubagentStarted = 'subagent_started',
 }
 
 export interface SessionStartedEvent {
@@ -178,6 +183,14 @@ export interface RateLimitEvent {
   readonly resetsAt: EpochMs | null
 }
 
+export interface SubagentStartedEvent {
+  readonly kind: AgentEventKind.SubagentStarted
+  /** The SDK's id for the subagent's task, which stops it (`stopTask`). */
+  readonly sdkTaskId: string
+  /** The `Agent` tool call that started it. */
+  readonly toolUseId: string
+}
+
 /** Everything the runner reacts to. */
 export type AgentEvent =
   | SessionStartedEvent
@@ -193,6 +206,7 @@ export type AgentEvent =
   | ApiRetryEvent
   | ApiErrorEvent
   | RateLimitEvent
+  | SubagentStartedEvent
 
 /** Where parsing reports what it drops. */
 export interface AgentLog {
@@ -226,6 +240,14 @@ const apiRetryMessage = z.looseObject({
   retry_delay_ms: z.number().nonnegative().catch(0),
   error_status: z.int().nullable().catch(null),
   error: z.string().catch('unknown'),
+})
+
+// Only a task started by a tool call (a subagent, or a background command) can be matched to its row in the tool log.
+const taskStartedMessage = z.looseObject({
+  type: z.literal('system'),
+  subtype: z.literal('task_started'),
+  task_id: z.string().min(1),
+  tool_use_id: z.string().min(1).optional(),
 })
 
 const tokenCount = z.number().int().nonnegative()
@@ -462,6 +484,11 @@ function fromResult(message: z.infer<typeof resultMessage>): AgentEvent[] {
   ]
 }
 
+function fromTaskStarted(message: z.infer<typeof taskStartedMessage>): AgentEvent[] {
+  const { task_id: sdkTaskId, tool_use_id: toolUseId } = message
+  return toolUseId === undefined ? [] : [{ kind: AgentEventKind.SubagentStarted, sdkTaskId, toolUseId }]
+}
+
 /** Parses `raw` with `schema`, or logs why it couldn't and gives nothing. */
 function parsed<T>(
   schema: z.ZodType<T>,
@@ -494,6 +521,9 @@ export function createSdkMessageParser(log: AgentLog): (raw: unknown) => AgentEv
         if (subtype === 'init') return parsed(initMessage, raw, log, 'system/init', fromInit)
         if (subtype === 'status') return parsed(statusMessage, raw, log, 'system/status', fromStatus)
         if (subtype === 'api_retry') return parsed(apiRetryMessage, raw, log, 'system/api_retry', fromApiRetry)
+        if (subtype === 'task_started') {
+          return parsed(taskStartedMessage, raw, log, 'system/task_started', fromTaskStarted)
+        }
         if (subtype === 'compact_boundary') {
           return parsed(compactBoundaryMessage, raw, log, 'system/compact_boundary', fromCompactBoundary)
         }
