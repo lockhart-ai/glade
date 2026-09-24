@@ -8,6 +8,7 @@ import { turnSummaryMigration } from './0006-turn-summary'
 import { messageQueueMigration } from './0007-message-queue'
 import { compactionMigration } from './0008-compaction'
 import { taskErrorMigration } from './0009-task-error'
+import { taskPauseMigration } from './0010-task-pause'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -20,4 +21,5 @@ export const MIGRATIONS: readonly Migration[] = [
   messageQueueMigration,
   compactionMigration,
   taskErrorMigration,
+  taskPauseMigration,
 ]

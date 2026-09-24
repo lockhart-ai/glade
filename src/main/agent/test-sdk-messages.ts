@@ -149,6 +149,43 @@ export function apiErrorMessage(code = 'overloaded', text = OVERLOADED_ERROR, pa
   }
 }
 
+/** What the API says when the account's usage limit has run out, as the SDK words it. */
+export const USAGE_LIMIT_ERROR = "You've hit your session limit · resets 11:42am"
+
+/** What the SDK says when it couldn't reach the API at all, once its retries are spent. */
+export const CONNECTION_ERROR = 'API Error: Connection error.'
+
+/**
+ * Where the account's usage limit stands (`rate_limit_event`, subscription logins only), with its reset time in epoch
+ * seconds, as the SDK gives it.
+ */
+export function rateLimit(status: 'allowed' | 'allowed_warning' | 'rejected', resetsAtSeconds?: number): unknown {
+  return {
+    type: 'rate_limit_event',
+    rate_limit_info: {
+      status,
+      ...(resetsAtSeconds === undefined ? {} : { resetsAt: resetsAtSeconds }),
+      rateLimitType: 'five_hour',
+    },
+    uuid: `rate-limit-${status}`,
+    session_id: SESSION_ID,
+  }
+}
+
+/** A turn that ran into the usage limit: the rejected limit, the API error the SDK makes of it, and the failed result. */
+export function usageLimitTurnEnd(resetsAtSeconds?: number): unknown[] {
+  return [
+    rateLimit('rejected', resetsAtSeconds),
+    apiErrorMessage('rate_limit', USAGE_LIMIT_ERROR),
+    apiErrorResult(USAGE_LIMIT_ERROR, 429),
+  ]
+}
+
+/** A turn that couldn't reach the API: the connection error the SDK gives up with, and the failed result. */
+export function offlineTurnEnd(): unknown[] {
+  return [apiErrorMessage('unknown', CONNECTION_ERROR), apiErrorResult(CONNECTION_ERROR, null)]
+}
+
 /** The notice the SDK sends before it retries a failed API request (`docs/sdk-notes.md`, "Errors and retries"). */
 export function apiRetry(attempt: number, maxRetries = 10, status: number | null = 529, code = 'overloaded'): unknown {
   return {

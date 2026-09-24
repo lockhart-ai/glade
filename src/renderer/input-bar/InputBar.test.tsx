@@ -25,6 +25,8 @@ import {
   REPLY_PLACEHOLDER,
   sendFailureMessage,
 } from './InputBar'
+import { PAUSED_HINT } from './QueueList'
+import { PAUSED_PLACEHOLDER } from '../pause/pauseModel'
 
 interface Setup {
   readonly task?: Partial<Task>
@@ -272,6 +274,22 @@ describe('InputBar', () => {
       await press('Enter')
 
       expect(sends(fake)).toEqual([{ id: 't1', text: 'Try a smaller change.' }])
+    })
+
+    it('queues a paused task’s message until the task resumes', async () => {
+      const fake = await renderBar({ task: { activity: TaskActivity.Paused } })
+      expect(field()).toHaveAttribute('placeholder', PAUSED_PLACEHOLDER)
+      expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
+      type('Keep the original filenames.')
+
+      await press('Enter')
+
+      expect(sends(fake)).toEqual([])
+      expect(fake.invoke).toHaveBeenCalledWith(CommandName.QueueAdd, {
+        taskId: 't1',
+        text: 'Keep the original filenames.',
+      })
+      expect(await screen.findByText(PAUSED_HINT)).toBeInTheDocument()
     })
 
     it('sends a done task’s message, which reopens it', async () => {

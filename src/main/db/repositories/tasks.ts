@@ -4,6 +4,7 @@ import { z } from 'zod'
 import {
   AgentErrorKind,
   Effort,
+  PauseReason,
   TaskActivity,
   TaskErrorSource,
   TaskState,
@@ -11,6 +12,7 @@ import {
   type EpochMs,
   type Task,
   type TaskError,
+  type TaskPause,
 } from '../../../shared/domain'
 import { contextWindowFor } from '../../../shared/contextWindow'
 import { Row, RowError } from './rows'
@@ -44,10 +46,12 @@ export interface TaskPatch {
   readonly error?: TaskError | null
   /** The automatic API retry in progress; null clears it. */
   readonly retrying?: ApiRetry | null
+  /** Why the turn is paused and when it resumes; null clears it. */
+  readonly pause?: TaskPause | null
 }
 
 const COLUMNS = `id, workspace_id, title, objective, status, status_updated_at, state, activity, pinned, unread, model,
-  effort, created_at, updated_at, done_at, session_id, context_used_tokens, context_window_tokens, error, retrying`
+  effort, created_at, updated_at, done_at, session_id, context_used_tokens, context_window_tokens, error, retrying, pause`
 
 const TASK_STATES = Object.values(TaskState)
 const TASK_ACTIVITIES = Object.values(TaskActivity)
@@ -70,6 +74,14 @@ const apiRetrySchema = z.strictObject({
   maxRetries: count,
   since: count,
 }) satisfies z.ZodType<ApiRetry>
+
+const taskPauseSchema = z.strictObject({
+  reason: z.enum(PauseReason),
+  since: count,
+  resumesAt: count,
+  checks: count,
+  details: z.string(),
+}) satisfies z.ZodType<TaskPause>
 
 /** A nullable JSON column holding a value `schema` parses. */
 function jsonColumn<T>(row: Row, table: string, column: string, schema: z.ZodType<T>): T | null {
@@ -104,6 +116,7 @@ function parseTask(raw: unknown): Task {
     contextWindowTokens: row.nullableInteger('context_window_tokens') ?? contextWindowFor(model),
     error: jsonColumn(row, 'tasks', 'error', taskErrorSchema),
     retrying: jsonColumn(row, 'tasks', 'retrying', apiRetrySchema),
+    pause: jsonColumn(row, 'tasks', 'pause', taskPauseSchema),
   }
 }
 
@@ -115,6 +128,7 @@ function toParams(task: Task): Record<string, string | number | null> {
     unread: task.unread ? 1 : 0,
     error: task.error === null ? null : JSON.stringify(task.error),
     retrying: task.retrying === null ? null : JSON.stringify(task.retrying),
+    pause: task.pause === null ? null : JSON.stringify(task.pause),
   }
 }
 
@@ -142,11 +156,12 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     contextWindowTokens: contextWindowFor(input.model),
     error: null,
     retrying: null,
+    pause: null,
   }
   db.prepare(
     `INSERT INTO tasks (${COLUMNS}) VALUES (@id, @workspaceId, @title, @objective, @status, @statusUpdatedAt, @state,
       @activity, @pinned, @unread, @model, @effort, @createdAt, @updatedAt, @doneAt, @sessionId, @contextUsedTokens,
-      @contextWindowTokens, @error, @retrying)`,
+      @contextWindowTokens, @error, @retrying, @pause)`,
   ).run(toParams(task))
   return task
 }
@@ -161,6 +176,14 @@ export function listTasks(db: Database, workspaceId: string): Task[] {
   return db
     .prepare(`SELECT ${COLUMNS} FROM tasks WHERE workspace_id = ? ORDER BY updated_at DESC, id`)
     .all(workspaceId)
+    .map(parseTask)
+}
+
+/** Every workspace's active tasks whose turn is paused, oldest first. On launch, their pauses are armed again. */
+export function listPausedTasks(db: Database): Task[] {
+  return db
+    .prepare(`SELECT ${COLUMNS} FROM tasks WHERE state = ? AND activity = ? ORDER BY created_at, id`)
+    .all(TaskState.Active, TaskActivity.Paused)
     .map(parseTask)
 }
 
@@ -222,12 +245,14 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
       patch.contextWindowTokens ?? (model === current.model ? current.contextWindowTokens : contextWindowFor(model)),
     error: patch.error === undefined ? current.error : patch.error,
     retrying: patch.retrying === undefined ? current.retrying : patch.retrying,
+    pause: patch.pause === undefined ? current.pause : patch.pause,
   }
   db.prepare(
     `UPDATE tasks SET title = @title, objective = @objective, status = @status, status_updated_at = @statusUpdatedAt,
       state = @state, activity = @activity, pinned = @pinned, unread = @unread, model = @model, effort = @effort,
       updated_at = @updatedAt, done_at = @doneAt, session_id = @sessionId, context_used_tokens = @contextUsedTokens,
-      context_window_tokens = @contextWindowTokens, error = @error, retrying = @retrying
+      context_window_tokens = @contextWindowTokens, error = @error, retrying = @retrying,
+      pause = @pause
     WHERE id = @id`,
   ).run(toParams(updated))
   return updated

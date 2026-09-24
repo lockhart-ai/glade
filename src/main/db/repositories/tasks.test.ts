@@ -2,13 +2,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   AgentErrorKind,
   Effort,
+  PauseReason,
   TaskActivity,
   TaskErrorSource,
   TaskState,
   type TaskError,
+  type TaskPause,
   type Workspace,
 } from '../../../shared/domain'
-import { createTask, getTask, listTasks, listWorkingTasks, updateTask } from './tasks'
+import { createTask, getTask, listPausedTasks, listTasks, listWorkingTasks, updateTask } from './tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 
 let test: TestDatabase
@@ -52,6 +54,7 @@ describe('createTask', () => {
       contextWindowTokens: 200_000,
       error: null,
       retrying: null,
+      pause: null,
     })
     expect(getTask(test.db, task.id)).toEqual(task)
   })
@@ -110,6 +113,34 @@ describe('listTasks', () => {
     expect(listTasks(test.db, workspace.id)).toEqual([newer, older])
     const touched = updateTask(test.db, older.id, { pinned: true }, 4_000)
     expect(listTasks(test.db, workspace.id)).toEqual([touched, newer])
+  })
+})
+
+const PAUSE: TaskPause = {
+  reason: PauseReason.UsageLimit,
+  since: 2_000,
+  resumesAt: 60_000,
+  checks: 0,
+  details: "You've hit your session limit",
+}
+
+describe('listPausedTasks', () => {
+  it("lists every workspace's active, paused tasks, oldest first", () => {
+    const other = sampleWorkspace(test.db, '/code/billing')
+    const paused = (workspaceId: string, now: number) =>
+      updateTask(
+        test.db,
+        sampleTask(test.db, workspaceId, now).id,
+        { activity: TaskActivity.Paused, pause: PAUSE },
+        now,
+      )
+    const newer = paused(workspace.id, 3_000)
+    const older = paused(other.id, 2_000)
+    sampleTask(test.db, workspace.id)
+    const done = paused(workspace.id, 4_000)
+    updateTask(test.db, done.id, { state: TaskState.Done })
+
+    expect(listPausedTasks(test.db).map((task) => task.id)).toEqual([older.id, newer.id])
   })
 })
 
@@ -248,6 +279,24 @@ describe('updateTask', () => {
     const cleared = updateTask(test.db, task.id, { error: null, retrying: null })
     expect(cleared).toMatchObject({ error: null, retrying: null })
     expect(getTask(test.db, task.id)).toEqual(cleared)
+  })
+
+  it('keeps the pause until a patch clears it', () => {
+    const task = sampleTask(test.db, workspace.id)
+
+    const paused = updateTask(test.db, task.id, { activity: TaskActivity.Paused, pause: PAUSE })
+    expect(paused).toMatchObject({ activity: TaskActivity.Paused, pause: PAUSE })
+    expect(getTask(test.db, task.id)).toEqual(paused)
+    expect(updateTask(test.db, task.id, { pinned: true })).toMatchObject({ pause: PAUSE })
+
+    expect(updateTask(test.db, task.id, { pause: null }).pause).toBeNull()
+    expect(getTask(test.db, task.id)?.pause).toBeNull()
+  })
+
+  it('refuses a pause that is not what the schema promises', () => {
+    const task = sampleTask(test.db, workspace.id)
+    test.db.prepare(`UPDATE tasks SET pause = '{"reason":"bored"}' WHERE id = ?`).run(task.id)
+    expect(() => getTask(test.db, task.id)).toThrow(/tasks\.pause/)
   })
 
   it('refuses an error that is not what the schema promises', () => {

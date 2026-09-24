@@ -3,12 +3,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  createE2eNetwork,
   E2E_CHOSEN_FOLDER_ENV,
   E2E_ENV,
+  E2E_NETWORK_GLOBAL,
   e2eChosenFolder,
   E2eSpecError,
   prepareE2e,
   readE2eSpec,
+  type E2eNetwork,
   type E2eSpec,
 } from './e2e'
 
@@ -110,5 +113,22 @@ describe('e2eChosenFolder', () => {
     expect(e2eChosenFolder({ [E2E_CHOSEN_FOLDER_ENV]: '/tmp/acme-api' })).toBe('/tmp/acme-api')
     expect(e2eChosenFolder({ [E2E_CHOSEN_FOLDER_ENV]: '' })).toBeNull()
     expect(e2eChosenFolder({})).toBeNull()
+  })
+})
+
+describe('createE2eNetwork', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, E2E_NETWORK_GLOBAL)
+  })
+
+  it('starts online, and follows what a spec sets on the global object', () => {
+    const isOnline = createE2eNetwork()
+    expect(isOnline()).toBe(true)
+
+    const network = Reflect.get(globalThis, E2E_NETWORK_GLOBAL) as E2eNetwork
+    network.online = false
+    expect(isOnline()).toBe(false)
+    network.online = true
+    expect(isOnline()).toBe(true)
   })
 })

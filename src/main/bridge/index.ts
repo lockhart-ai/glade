@@ -25,6 +25,8 @@ export interface BridgeOptions {
   readonly agentBackend: AgentBackend
   /** Notifies an agent reply in a task you aren't viewing (`../notifications`). Nothing by default. */
   readonly notifyReply?: NotifyReply
+  /** Whether the network is up, for resuming a task paused offline (the runner's `isOnline`). Always up by default. */
+  readonly isOnline?: () => boolean
 }
 
 /** What the bridge started, for the app to shut down. */
@@ -45,6 +47,7 @@ export function registerBridge({
   chooseFolder,
   agentBackend,
   notifyReply,
+  isOnline,
 }: BridgeOptions): RegisteredBridge {
   const emit = createBroadcast(EVENT_CHANNEL, targets)
   const runner = createAgentRunner({
@@ -52,6 +55,7 @@ export function registerBridge({
     emit,
     backend: agentBackend,
     notifyReply,
+    isOnline,
     // Each session gets its own Glade tools, built for its task.
     mcpServers: (task) => ({ [GLADE_SERVER]: createGladeMcpServer({ db, emit }, task.id) }),
   })

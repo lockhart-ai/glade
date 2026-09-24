@@ -25,6 +25,28 @@ export const E2E_CHOSEN_FOLDER_ENV = 'GLADE_E2E_CHOSEN_FOLDER'
  */
 export const E2E_NOTIFIER_GLOBAL = '__gladeE2eNotifier'
 
+/**
+ * Where e2e mode puts the network's state on the main process's global object: an `E2eNetwork`, online until a spec
+ * says otherwise. A spec sets it through Playwright's `app.evaluate`, to take the app offline and back, since an e2e
+ * run can't unplug the machine. The app reads it in place of Electron's `net.isOnline()`.
+ */
+export const E2E_NETWORK_GLOBAL = '__gladeE2eNetwork'
+
+/** The network's state in e2e mode (`E2E_NETWORK_GLOBAL`). */
+export interface E2eNetwork {
+  online: boolean
+}
+
+/**
+ * Puts the network's state, online, on the global object for a spec to change (`E2E_NETWORK_GLOBAL`), and answers
+ * with what tells the app whether it's online.
+ */
+export function createE2eNetwork(): () => boolean {
+  const network: E2eNetwork = { online: true }
+  Reflect.set(globalThis, E2E_NETWORK_GLOBAL, network)
+  return () => network.online
+}
+
 /** The window's content size in e2e mode, which is also the size of the recordings. */
 export const E2E_WINDOW_SIZE = { width: 1920, height: 1200 } as const
 

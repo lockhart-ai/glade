@@ -6,6 +6,7 @@ import {
   CompactionTrigger,
   DividerKind,
   MessageRole,
+  PauseReason,
   TaskErrorSource,
   TaskState,
   TaskActivity,
@@ -392,6 +393,33 @@ describe('Chat', () => {
       })
 
       expect(screen.queryByRole('note', { name: 'Turn summary' })).toBeNull()
+    })
+  })
+
+  describe('the paused line', () => {
+    const resumesAt = new Date(2099, 8, 23, 11, 42).getTime()
+
+    it('says when a usage limit pause resumes, after the conversation, and shows no error card', async () => {
+      const pause = { reason: PauseReason.UsageLimit, since: ASKED_AT, resumesAt, checks: 0, details: 'Limit.' }
+      await renderChat({ task: { activity: TaskActivity.Paused, pause }, messages: [ASK] })
+
+      const line = screen.getByRole('status', { name: 'Paused' })
+      expect(line).toHaveTextContent(/^Paused · resumes at Sep 23 11:42$/)
+      expect(line.previousElementSibling).toBe(screen.getByRole('article', { name: 'You' }))
+      expect(screen.queryByRole('alert')).toBeNull()
+    })
+
+    it('says an offline pause resumes when the network is back, and goes once the task resumes', async () => {
+      const pause = { reason: PauseReason.Offline, since: ASKED_AT, resumesAt, checks: 2, details: 'Connection error.' }
+      const { emit } = await renderChat({ task: { activity: TaskActivity.Paused, pause }, messages: [ASK] })
+      expect(screen.getByRole('status', { name: 'Paused' })).toHaveTextContent(
+        'Paused · resumes when the network is back',
+      )
+
+      act(() => {
+        emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), activity: TaskActivity.Working } })
+      })
+      expect(screen.queryByRole('status', { name: 'Paused' })).toBeNull()
     })
   })
 

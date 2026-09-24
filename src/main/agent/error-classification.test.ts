@@ -18,6 +18,7 @@ describe('classifyAgentError', () => {
     ['a request timeout (408)', { status: 408 }],
     ['a conflict (409)', { status: 409 }],
     ['overloaded without a status', { code: 'overloaded' }],
+    ['overloaded while the usage limit rejects requests', { status: 529, code: 'overloaded', limitRejected: true }],
   ])('calls %s transient', (_, overrides) => {
     expect(classifyAgentError(facts(overrides))).toBe(AgentErrorKind.Transient)
   })
@@ -37,6 +38,8 @@ describe('classifyAgentError', () => {
     ['a usage limit message', { status: 429, code: 'rate_limit', message: "You've hit your limit · resets 3pm" }],
     ['a usage limit after the API prefix', { message: "API Error: You're out of usage credits" }],
     ['a billing error', { status: 400, code: 'billing_error', message: 'Credit balance is too low' }],
+    ['a rate limit once the usage limit rejects requests', { code: 'rate_limit', limitRejected: true }],
+    ['a 429 once the usage limit rejects requests', { status: 429, limitRejected: true }],
   ])('calls %s a usage limit', (_, overrides) => {
     expect(classifyAgentError(facts(overrides))).toBe(AgentErrorKind.UsageLimit)
   })

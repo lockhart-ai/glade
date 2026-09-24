@@ -109,7 +109,12 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     },
     [CommandName.TasksStop]: ({ id }) => writeTask(id, { activity: TaskActivity.Waiting }),
     [CommandName.TasksRetry]: ({ id, model }) =>
-      writeTask(id, { activity: TaskActivity.Working, error: null, ...(model === undefined ? {} : { model }) }),
+      writeTask(id, {
+        activity: TaskActivity.Working,
+        error: null,
+        pause: null,
+        ...(model === undefined ? {} : { model }),
+      }),
     [CommandName.TasksCompact]: ({ id }) => writeTask(id, { activity: TaskActivity.Working }),
     [CommandName.TasksHistory]: ({ id }) => ({
       messages: (main.messages ?? []).filter((message) => message.taskId === id),
@@ -207,6 +212,7 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
     contextWindowTokens: 200_000,
     error: null,
     retrying: null,
+    pause: null,
   }
 }
 
