@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType } from '../../shared/bridge'
 import {
+  CompactionTrigger,
   DividerKind,
   ToolCallState,
   ToolEventKind,
@@ -199,6 +200,37 @@ describe('TaskPanel', () => {
         'marked done · 11:20',
       ])
       expect(screen.getAllByRole('separator')[0]).toHaveTextContent('turn 2 · 11:20')
+    })
+
+    it('shows a compaction as a Compact row, filled in when it finishes, that starts its turn if first', async () => {
+      const running = {
+        id: 'k1',
+        taskId: 't1',
+        turn: 2,
+        createdAt: AT,
+        kind: ToolEventKind.Compaction,
+        trigger: CompactionTrigger.Manual,
+        state: ToolCallState.Running,
+        preTokens: null,
+        postTokens: null,
+        windowTokens: 200_000,
+      } as const
+      const { emit } = await renderPanel({ toolEvents: [...TURN_ONE, running] })
+
+      const compact = within(log()).getByRole('group', { name: 'Compact' })
+      expect(compact).toHaveTextContent(/^Compact\s*10:44Compacting…$/)
+      expect(within(compact).getByLabelText('Running')).toBeInTheDocument()
+      expect(compact.parentElement).toHaveAttribute('data-turn-start', '2')
+      act(() => {
+        emit({
+          type: EventType.ToolEventUpdated,
+          toolEvent: { ...running, state: ToolCallState.Done, preTokens: 198_000, postTokens: 41_000 },
+        })
+      })
+      expect(within(log()).getByRole('group', { name: 'Compact' })).toHaveTextContent(
+        /^Compact198k → 41k tokens10:44Resuming from a summary$/,
+      )
+      expect(within(within(log()).getByRole('group', { name: 'Compact' })).getByLabelText('Done')).toBeInTheDocument()
     })
 
     it('nests a subagent’s calls under the call that started it', async () => {

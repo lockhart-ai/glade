@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { DividerKind, ToolCallState, ToolEventKind, type Task } from '../../../shared/domain'
+import { CompactionTrigger, DividerKind, ToolCallState, ToolEventKind, type Task } from '../../../shared/domain'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 import {
+  appendCompaction,
   appendDivider,
   appendNarration,
   appendToolCall,
+  failRunningCompactions,
   failRunningToolCalls,
   listToolEvents,
+  updateCompaction,
   updateToolCall,
 } from './tool-events'
 
@@ -227,5 +230,60 @@ describe('the tool_events table', () => {
     expect(insert('kind, tool_name, tool_use_id, tool_input, tool_state', `${call}, '{', 'running'`)).toThrow(
       'CHECK constraint failed',
     )
+  })
+})
+
+describe('compactions', () => {
+  const running = () => ({
+    taskId: task.id,
+    turn: 2,
+    trigger: CompactionTrigger.Manual,
+    state: ToolCallState.Running,
+    preTokens: null,
+    postTokens: null,
+    windowTokens: 200_000,
+  })
+
+  it('round-trips a running compaction, then fills in how it finished', () => {
+    const event = appendCompaction(test.db, running(), 3_000)
+    expect(event).toEqual({
+      kind: ToolEventKind.Compaction,
+      id: UUID,
+      ...running(),
+      createdAt: 3_000,
+    })
+    expect(listToolEvents(test.db, task.id)).toEqual([event])
+
+    const done = updateCompaction(test.db, {
+      id: event.id,
+      state: ToolCallState.Done,
+      preTokens: 198_000,
+      postTokens: 41_000,
+    })
+
+    expect(done).toEqual({ ...event, state: ToolCallState.Done, preTokens: 198_000, postTokens: 41_000 })
+    expect(listToolEvents(test.db, task.id)).toEqual([done])
+  })
+
+  it('throws when there is no such compaction', () => {
+    const narration = appendNarration(test.db, { taskId: task.id, turn: 1, text: 'Looking.' })
+    const outcome = { state: ToolCallState.Done, preTokens: 1, postTokens: 1 }
+    expect(() => updateCompaction(test.db, { id: 'nope', ...outcome })).toThrow('No compaction nope')
+    expect(() => updateCompaction(test.db, { id: narration.id, ...outcome })).toThrow(/No compaction/)
+  })
+
+  it('fails the compactions still running, and only those', () => {
+    const cut = appendCompaction(test.db, running())
+    const finished = appendCompaction(test.db, {
+      ...running(),
+      trigger: CompactionTrigger.Auto,
+      state: ToolCallState.Done,
+      preTokens: 190_000,
+      postTokens: 30_000,
+    })
+
+    expect(failRunningCompactions(test.db, task.id)).toEqual([{ ...cut, state: ToolCallState.Error }])
+    expect(listToolEvents(test.db, task.id)).toEqual([{ ...cut, state: ToolCallState.Error }, finished])
+    expect(failRunningCompactions(test.db, task.id)).toEqual([])
   })
 })

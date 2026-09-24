@@ -128,6 +128,11 @@ export interface GladeActions {
    * you, arrives as an event. Does nothing when the agent isn't working.
    */
   stopTask: (taskId: string) => Promise<void>
+  /**
+   * Compacts the task's context now (Compact now, ⌘⇧K). Resolves once compaction has started; the task, working while
+   * it compacts, and the Compact row arrive as events. Rejects with `busy` while the agent is working.
+   */
+  compactTask: (taskId: string) => Promise<void>
   /** Asks the tool log to show a task's turn (see `ToolLogFocus`). */
   focusTurn: (taskId: string, turn: number) => void
   /** Asks the input bar to focus its message field (see `inputFocusRequest`). */

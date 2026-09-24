@@ -465,6 +465,15 @@ describe("a task's logs", () => {
     expect(store.getState().tasks.t1?.activity).toBe(TaskActivity.Waiting)
   })
 
+  it('compacts a task through main, and the store follows its event', async () => {
+    const { store, invoke } = await hydrated()
+
+    await store.getState().compactTask('t1')
+
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.TasksCompact, { id: 't1' })
+    expect(store.getState().tasks.t1?.activity).toBe(TaskActivity.Working)
+  })
+
   it('asks the tool log to show a turn, as a new request each time, without calling main', async () => {
     const { store, invoke } = await hydrated()
     const calls = invoke.mock.calls.length

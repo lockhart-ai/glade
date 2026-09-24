@@ -82,6 +82,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.TasksUpdate]: tasksUpdateRequest,
   [CommandName.TasksSend]: tasksSendRequest,
   [CommandName.TasksStop]: taskIdRequest,
+  [CommandName.TasksCompact]: taskIdRequest,
   [CommandName.TasksHistory]: taskIdRequest,
   [CommandName.QueueAdd]: queueAddRequest,
   [CommandName.QueueEdit]: queueEditRequest,

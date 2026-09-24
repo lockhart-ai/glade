@@ -32,6 +32,17 @@ export enum ScriptStepKind {
   Fail = 'fail',
   /** Waits until the turn is interrupted (Stop), however long that takes. */
   WaitForInterrupt = 'wait_for_interrupt',
+  /**
+   * Fills the context: every assistant message from here on reports using `fraction` of the session model's window,
+   * as a long session's would.
+   */
+  FillContext = 'fill_context',
+  /**
+   * Compacts the context, as `/compact` or the SDK's auto-compaction does (`docs/sdk-notes.md`, Compaction): the
+   * compacting status, a `compact_boundary` from the context used so far to `postTokens`, and the summary the session
+   * continues from. Assistant messages report `postTokens` from here on.
+   */
+  Compact = 'compact',
 }
 
 export interface InitStep {
@@ -100,6 +111,20 @@ export interface WaitForInterruptStep {
   readonly kind: ScriptStepKind.WaitForInterrupt
 }
 
+export interface FillContextStep {
+  readonly kind: ScriptStepKind.FillContext
+  /** How full the context is, from 0 to 1. */
+  readonly fraction: number
+}
+
+export interface CompactStep {
+  readonly kind: ScriptStepKind.Compact
+  /** What's left after compacting, in tokens: a fifth of the context used by default. */
+  readonly postTokens?: number
+  /** `manual` by default. */
+  readonly trigger?: 'manual' | 'auto'
+}
+
 export type ScriptStep =
   | InitStep
   | TextStep
@@ -111,6 +136,8 @@ export type ScriptStep =
   | DelayStep
   | FailStep
   | WaitForInterruptStep
+  | FillContextStep
+  | CompactStep
 
 export type ScriptTurn = readonly ScriptStep[]
 
@@ -123,6 +150,11 @@ export interface AgentScript {
    * `RESUME_PROMPT`). Without one, that message runs the next turn like any other.
    */
   readonly resumeTurn?: ScriptTurn
+  /**
+   * What the agent does when Glade sends it `/compact` (the runner's `COMPACT_COMMAND`). By default it compacts, as
+   * `DEFAULT_COMPACT_TURN` does. It isn't one of `turns`: the message after it runs the next of those.
+   */
+  readonly compactTurn?: ScriptTurn
 }
 
 // Step builders, so scripts read as a turn would.
@@ -178,6 +210,13 @@ export const delay = (ms: number): DelayStep => ({ kind: ScriptStepKind.Delay, m
 export const fail = (message: string): FailStep => ({ kind: ScriptStepKind.Fail, message })
 
 export const waitForInterrupt = (): WaitForInterruptStep => ({ kind: ScriptStepKind.WaitForInterrupt })
+
+export const fillContext = (fraction: number): FillContextStep => ({ kind: ScriptStepKind.FillContext, fraction })
+
+export const compact = (options: Omit<CompactStep, 'kind'> = {}): CompactStep => ({
+  kind: ScriptStepKind.Compact,
+  ...options,
+})
 
 /** How long a step "takes" in the library's scripts: long enough to see in a recording, short enough for a test. */
 const BEAT_MS = 150
@@ -332,6 +371,34 @@ const longRunning: AgentScript = {
   ],
 }
 
+/** What a script's agent does when sent `/compact`, unless the script says otherwise: compacts, and ends the turn. */
+export const DEFAULT_COMPACT_TURN: ScriptTurn = [init(), delay(BEAT_MS), compact(), result({ text: '' })]
+
+/**
+ * A long session, for compaction: its turn leaves the context 95% full, near the auto-compact threshold. Compacting
+ * leaves a fifth of it, and the next message is answered from there.
+ */
+const longContext: AgentScript = {
+  name: 'long-context',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Move image uploads to S3',
+        'Move user image uploads from local disk to S3, and copy the existing files over.',
+        'All files copied and spot-checked.',
+      ),
+      fillContext(0.95),
+      say('All 3,900 files are copied and 50 random ones match byte for byte. Next I will update the stored paths.'),
+      result(),
+    ],
+    [...turnStart(), delay(BEAT_MS), say('Updated the stored paths of all 3,900 files.'), result()],
+  ],
+  // Slower than the default, so a recording shows it compacting.
+  compactTurn: [init(), delay(BEAT_MS * 4), compact(), result({ text: '' })],
+}
+
 /** A turn that fails on an API error after it has started working. */
 const failingTurn: AgentScript = {
   name: 'failing-turn',
@@ -415,6 +482,7 @@ export const AGENT_SCRIPT_NAMES = [
   'long-running',
   'failing-turn',
   'copy-in-batches',
+  'long-context',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -426,4 +494,5 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'long-running': longRunning,
   'failing-turn': failingTurn,
   'copy-in-batches': copyInBatches,
+  'long-context': longContext,
 }

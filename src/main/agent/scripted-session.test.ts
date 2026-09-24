@@ -1,15 +1,17 @@
 import { createSdkMcpServer, tool as mcpTool } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import { Effort } from '../../shared/domain'
+import { CompactionTrigger, Effort } from '../../shared/domain'
 import type { AgentSessionOptions } from './backend'
 import { AgentEventKind, createSdkMessageParser, type AgentEvent } from './events'
-import { RESUME_PROMPT } from './runner'
+import { COMPACT_COMMAND, RESUME_PROMPT } from './runner'
 import { gladeToolName, REJECTED_TOOL_OUTPUT, ScriptedSession, type ScriptedSessionOptions } from './scripted-session'
 import {
+  compact,
   delay,
   emit,
   fail,
+  fillContext,
   gladeTool,
   init,
   result,
@@ -373,6 +375,56 @@ describe('ScriptedSession', () => {
       raw.filter((message) => message.type === 'result').map((message) => message.result)
     expect(results(resumed)).toEqual(['Again.', 'One.'])
     expect(results(plain)).toEqual(['One.'])
+  })
+
+  it('reports the context each message used: 22,846 tokens, or as much of the window as a step fills', async () => {
+    const played = play([[say('One.'), fillContext(0.97), say('Two.'), result()]], {
+      session: { ...SESSION, model: 'claude-sample-1[1m]' },
+    })
+    played.session.send('a', 'user-1')
+    await flush()
+    expect(played.contextUsed).toEqual([22_846, 970_000])
+  })
+
+  it('compacts on /compact without using up a turn, and reports what it left from then on', async () => {
+    const played = play([
+      [fillContext(0.97), say('Full.'), result()],
+      [say('After.'), result()],
+    ])
+    played.session.send('a', 'user-1')
+    played.session.send(COMPACT_COMMAND, 'compact-1')
+    played.session.send('b', 'user-2')
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(played.events.filter((event) => event.kind !== AgentEventKind.SessionStarted)).toEqual([
+      expect.objectContaining({ kind: AgentEventKind.Text, text: 'Full.' }),
+      expect.objectContaining({ kind: AgentEventKind.TurnFinished, result: 'Full.' }),
+      { kind: AgentEventKind.Compacted, trigger: CompactionTrigger.Manual, preTokens: 194_000, postTokens: 38_800 },
+      expect.objectContaining({ kind: AgentEventKind.TurnFinished, result: '', userMessageUuids: ['compact-1'] }),
+      expect.objectContaining({ kind: AgentEventKind.Text, text: 'After.' }),
+      expect.objectContaining({ kind: AgentEventKind.TurnFinished, result: 'After.' }),
+    ])
+    expect(played.contextUsed).toEqual([194_000, 38_800])
+    expect(played.warnings).toEqual([])
+    expect(played.idles()).toBe(3)
+  })
+
+  it("plays the script's own compact turn, and a compaction step's given count and trigger", async () => {
+    const script: AgentScript = {
+      name: 'test',
+      turns: [[say('One.'), result()]],
+      compactTurn: [compact({ postTokens: 41_000, trigger: 'auto' }), result({ text: '' })],
+    }
+    const played = play([], { script })
+    played.session.send(COMPACT_COMMAND, 'compact-1')
+    await flush()
+
+    expect(played.events).toContainEqual({
+      kind: AgentEventKind.Compacted,
+      trigger: CompactionTrigger.Auto,
+      preTokens: 22_846,
+      postTokens: 41_000,
+    })
   })
 
   it('plays nothing for a script with no turns', async () => {

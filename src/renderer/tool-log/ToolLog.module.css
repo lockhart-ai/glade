@@ -66,6 +66,12 @@
   border-radius: 4px;
 }
 
+/* A compaction: laid out like a call's button, but there's no output to open. */
+.compaction {
+  display: flex;
+  flex-direction: column;
+}
+
 .callLine {
   display: flex;
   align-items: center;
