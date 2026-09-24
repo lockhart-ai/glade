@@ -1,6 +1,6 @@
 /**
- * What Glade appends to Claude Code's system prompt for a task's session: which task this is, and how to keep its
- * title, objective and status current with the Glade tools (`./glade-tools`). Anything about files on disk comes from
+ * What Glade appends to Claude Code's system prompt for a task's session: which task this is, how to keep its title,
+ * objective and status current with the Glade tools (`./glade-tools`), and when to ask the user with `ask`. Anything about files on disk comes from
  * the workspace's CLAUDE.md, not from here (`docs/model-surface.md`).
  */
 import type { Task } from '../../shared/domain'
@@ -28,6 +28,10 @@ export function systemPromptAppend(task: Task): string {
   lines.push(
     `- Every turn, call ${GladeTool.SetStatus} with one line on where the work stands, and again before you end ` +
       'the turn if that changed. When the task is done, the status is its outcome.',
+    '',
+    `When you need the user to decide something before you can go on, call ${GladeTool.Ask} instead of asking in ` +
+      'your reply: it shows your questions on a card and waits for the answers. Ask everything you need at once, ' +
+      'with choices or pills when the likely answers are known.',
   )
   return lines.join('\n')
 }

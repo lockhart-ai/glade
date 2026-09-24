@@ -5,6 +5,7 @@
 import type { Page } from '@playwright/test'
 import {
   BRIDGE_KEY,
+  type BridgeError,
   type CommandName,
   type CommandRequest,
   type CommandResponse,
@@ -22,6 +23,30 @@ export function invoke<C extends CommandName>(
       const bridge = (globalThis as unknown as Record<string, GladeBridge>)[key]
       if (bridge === undefined) throw new Error('No bridge on the page')
       return bridge.invoke(command, request)
+    },
+    { key: BRIDGE_KEY, command, request },
+  )
+}
+
+/**
+ * Runs a bridge command in the page that main should refuse, and resolves with the `BridgeError` it refused with, or
+ * null if it went through. (A rejection doesn't cross `page.evaluate` whole, since a `BridgeError` isn't an `Error`.)
+ */
+export function refusal<C extends CommandName>(
+  page: Page,
+  command: C,
+  request: CommandRequest<C>,
+): Promise<BridgeError | null> {
+  return page.evaluate(
+    async ({ key, command, request }) => {
+      const bridge = (globalThis as unknown as Record<string, GladeBridge>)[key]
+      if (bridge === undefined) throw new Error('No bridge on the page')
+      try {
+        await bridge.invoke(command, request)
+        return null
+      } catch (error) {
+        return error as BridgeError
+      }
     },
     { key: BRIDGE_KEY, command, request },
   )

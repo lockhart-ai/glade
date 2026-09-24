@@ -175,6 +175,11 @@ export interface Task {
   readonly error: TaskError | null
   /** The automatic retry in progress while the agent's API requests fail; null otherwise. */
   readonly retrying: ApiRetry | null
+  /**
+   * Whether the agent is waiting on your answers to questions it asked (`ask`): the task has an open question set.
+   * Derived from the question sets, so it's always right, across restarts too.
+   */
+  readonly asking: boolean
   /** Why the agent's turn is paused and when it resumes, while its activity is paused; null otherwise. */
   readonly pause: TaskPause | null
 }
@@ -344,4 +349,114 @@ export enum UiStateKey {
 export interface UiStateEntry {
   readonly key: UiStateKey
   readonly value: string
+}
+
+/** The kinds of question the agent can ask (`ask`, `docs/model-surface.md`). */
+export enum QuestionKind {
+  /** Option cards, each with a label and optionally a detail line and a sketch. */
+  Choice = 'choice',
+  /** Short options shown as pills. */
+  Pills = 'pills',
+  /** A text box. */
+  Text = 'text',
+}
+
+/** One option card of a choice question. */
+export interface ChoiceOption {
+  /** What the answer names the option by. Unique within its question. */
+  readonly id: string
+  readonly label: string
+  /** A line under the label. */
+  readonly detail?: string
+  /** A small sketch of what the option would look like. */
+  readonly sketch?: string
+}
+
+export interface ChoiceQuestion {
+  readonly kind: QuestionKind.Choice
+  readonly prompt: string
+  readonly options: readonly ChoiceOption[]
+  /** Whether you can pick more than one. */
+  readonly multiple?: boolean
+}
+
+export interface PillsQuestion {
+  readonly kind: QuestionKind.Pills
+  readonly prompt: string
+  /** Each pill's text, which is also what the answer gives back. Unique within its question. */
+  readonly options: readonly string[]
+  /** Whether you can pick more than one. */
+  readonly multiple?: boolean
+}
+
+export interface TextQuestion {
+  readonly kind: QuestionKind.Text
+  readonly prompt: string
+  readonly placeholder?: string
+  /** Whether it can be left empty. */
+  readonly optional?: boolean
+}
+
+/** One question the agent asks. */
+export type Question = ChoiceQuestion | PillsQuestion | TextQuestion
+
+/**
+ * One question's answer: a choice's option id, a pill's text or the text typed; an array of option ids or pill texts
+ * when the question takes more than one.
+ */
+export type QuestionAnswer = string | readonly string[]
+
+/**
+ * The answers to a question set, keyed by each question's index in it, from 0 (`"0"`, `"1"`, …). An optional text
+ * question left empty has no key.
+ */
+export type QuestionAnswers = Readonly<Record<string, QuestionAnswer>>
+
+/** Where a question set is in its life. */
+export enum QuestionSetState {
+  /** Waiting on your answers. */
+  Open = 'open',
+  /** You answered it: with the card, or in words. */
+  Answered = 'answered',
+  /** The turn that asked it ended without an answer: it was stopped, or failed. */
+  Withdrawn = 'withdrawn',
+}
+
+/** How you answered a question set. */
+export enum QuestionReplyKind {
+  /** With the card: an answer for each question. */
+  Answers = 'answers',
+  /** In your own words: a chat message sent while it was open. */
+  FreeText = 'free_text',
+}
+
+export interface AnswersReply {
+  readonly kind: QuestionReplyKind.Answers
+  readonly answers: QuestionAnswers
+}
+
+export interface FreeTextReply {
+  readonly kind: QuestionReplyKind.FreeText
+  readonly text: string
+}
+
+export type QuestionReply = AnswersReply | FreeTextReply
+
+/**
+ * The questions one `ask` call asked, shown as one card in the chat. It stays open until you answer it, and the agent's
+ * turn waits on it until then.
+ */
+export interface QuestionSet {
+  readonly id: string
+  readonly taskId: string
+  /** The turn that asked it. */
+  readonly turn: number
+  /** At least one. */
+  readonly questions: readonly Question[]
+  readonly state: QuestionSetState
+  /** How you answered it; null while it's open, and for a withdrawn set. */
+  readonly reply: QuestionReply | null
+  readonly createdAt: EpochMs
+  /** When it was answered or withdrawn; null while it's open. */
+  readonly closedAt: EpochMs | null
 }

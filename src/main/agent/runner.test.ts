@@ -14,6 +14,12 @@ import {
   TaskState,
   ToolCallState,
   ToolEventKind,
+  QuestionKind,
+  QuestionReplyKind,
+  QuestionSetState,
+  type Question,
+  type QuestionAnswers,
+  type QuestionSet,
   type QueuedMessage,
   UiStateKey,
   type Task,
@@ -25,6 +31,7 @@ import {
 import { registerBridge } from '../bridge'
 import { fakeIpcPair } from '../bridge/fake-ipc'
 import { listMessages } from '../db/repositories/messages'
+import { getOpenQuestionSet, listQuestionSets } from '../db/repositories/question-sets'
 import { appendQueuedMessage, listQueuedMessages } from '../db/repositories/queued-messages'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
@@ -32,8 +39,11 @@ import { listToolEvents } from '../db/repositories/tool-events'
 import { setUiState } from '../db/repositories/ui-state'
 import { FakeAgentBackend, settle, type FakeAgentSession } from './fake-backend'
 import { GLADE_SERVER } from './glade-tools'
+import { needsYou } from '../../shared/attention'
 import {
   COMPACT_COMMAND,
+  answeredAfterRestart,
+  ASK_RESTARTED_NOTE,
   createAgentRunner,
   NOT_RESUMED_NOTE,
   RESTARTED_TOOL_NOTE,
@@ -154,6 +164,10 @@ function drainEvents(): (readonly unknown[])[] {
         return [event.type, event.task.activity, event.task.sessionId, event.task.contextUsedTokens]
       case EventType.QueueChanged:
         return [event.type, event.queuedMessages.map(({ body }) => body)]
+      case EventType.QuestionOpened:
+      case EventType.QuestionAnswered:
+      case EventType.QuestionWithdrawn:
+        return [event.type, event.questionSet.state]
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
       case EventType.TaskOpenRequested:
@@ -280,6 +294,7 @@ describe('a turn', () => {
       messages: listMessages(database.db, task.id),
       toolEvents: listToolEvents(database.db, task.id),
       queuedMessages: [],
+      questionSets: [],
     })
   })
 
@@ -1859,6 +1874,268 @@ describe('the Glade tools', () => {
   })
 })
 
+describe('questions', () => {
+  const QUESTIONS: Question[] = [
+    {
+      kind: QuestionKind.Choice,
+      prompt: 'How should the notes be laid out?',
+      options: [
+        { id: 'by-type', label: 'By type', detail: 'Features, fixes, internal.' },
+        { id: 'by-area', label: 'By area', detail: 'API, dashboard, admin.' },
+      ],
+    },
+    {
+      kind: QuestionKind.Pills,
+      prompt: 'Where does the Django 5.2 upgrade go?',
+      options: ['Features', 'Internal changes', 'Leave it out'],
+    },
+    { kind: QuestionKind.Text, prompt: 'Anything else for the upgrade guide?', optional: true },
+  ]
+
+  /**
+   * Starts a turn whose agent calls `ask`, and resolves once its questions are open. `returned` resolves once the call
+   * returns and its result is streamed; it never rejects (the call is cut off when the app quits).
+   */
+  async function ask(): Promise<{ readonly open: QuestionSet; readonly returned: Promise<void> }> {
+    await send('Draft the release notes for 2.4.')
+    backend.session.emit(sdk.init(), sdk.text('Before I draft the notes, a few questions.'))
+    const returned = backend.session
+      .callTool('toolu_ask', 'mcp__glade__ask', { questions: QUESTIONS })
+      .catch(() => undefined)
+    const open = await vi.waitFor(() => {
+      const set = getOpenQuestionSet(database.db, task.id)
+      if (set === undefined) throw new Error('No question is open yet')
+      return set
+    })
+    await settle()
+    return { open, returned }
+  }
+
+  async function answer(id: string, answers: QuestionAnswers): Promise<QuestionSet> {
+    return (await glade.invoke(CommandName.QuestionsAnswer, { id, answers })).questionSet
+  }
+
+  /** The ask call's row in the tool log. */
+  function askRow(): unknown {
+    return toolLog().find((entry) => (entry as { call?: string }).call === 'mcp__glade__ask')
+  }
+
+  it('blocks the turn until answered with the card, meanwhile needing you, and gives the agent the answers', async () => {
+    const { open, returned } = await ask()
+
+    expect(open).toMatchObject({ turn: 1, questions: QUESTIONS, state: QuestionSetState.Open })
+    expect(current()).toMatchObject({ activity: TaskActivity.Waiting, asking: true })
+    expect(needsYou(current())).toBe(true)
+    expect(askRow()).toMatchObject({ state: ToolCallState.Running })
+    expect(drainEvents()).toContainEqual([EventType.QuestionOpened, QuestionSetState.Open])
+
+    const answered = await answer(open.id, { 0: 'by-type', 1: 'Internal changes', 2: '  ' })
+    await returned
+    await settle()
+
+    expect(answered).toMatchObject({
+      state: QuestionSetState.Answered,
+      reply: { kind: QuestionReplyKind.Answers, answers: { 0: 'by-type', 1: 'Internal changes' } },
+    })
+    expect(askRow()).toMatchObject({ state: ToolCallState.Done, output: '{"0":"by-type","1":"Internal changes"}' })
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, asking: false })
+    expect(needsYou(current())).toBe(false)
+    expect(drainEvents()).toContainEqual([EventType.QuestionAnswered, QuestionSetState.Answered])
+    expect(backend.session.sent.map(({ text }) => text)).toEqual(['Draft the release notes for 2.4.'])
+
+    backend.session.emit(
+      sdk.text('The notes are drafted, grouped by type.', null, 'msg_02'),
+      sdk.result('The notes are drafted, grouped by type.'),
+    )
+    await settle()
+    expect(chat()).toEqual([
+      { role: MessageRole.User, body: 'Draft the release notes for 2.4.', turn: 1 },
+      { role: MessageRole.Agent, body: 'The notes are drafted, grouped by type.', turn: 1 },
+    ])
+    expect(current().activity).toBe(TaskActivity.Waiting)
+    const history = await glade.invoke(CommandName.TasksHistory, { id: task.id })
+    expect(history.questionSets).toEqual([answered])
+  })
+
+  it('refuses answers that do not fit the questions, and sets that are gone or answered', async () => {
+    const { open, returned } = await ask()
+
+    await expect(answer(open.id, { 0: 'by-date', 1: ['Features'] })).rejects.toMatchObject({
+      code: BridgeErrorCode.InvalidRequest,
+      message: 'questions.answer: 0: has no option "by-date"; 1: takes one answer, not a list',
+    })
+    await expect(answer('gone', { 0: 'by-type' })).rejects.toMatchObject({ code: BridgeErrorCode.NotFound })
+    expect(current().asking).toBe(true)
+
+    await answer(open.id, { 0: 'by-area', 1: 'Features' })
+    await returned
+    await expect(answer(open.id, { 0: 'by-type', 1: 'Features' })).rejects.toMatchObject({
+      code: BridgeErrorCode.InvalidTransition,
+    })
+  })
+
+  it("answers in words: the message is the user's reply in the chat, and the agent gets it as free text", async () => {
+    const { open, returned } = await ask()
+
+    const { message } = await glade.invoke(CommandName.TasksSend, {
+      id: task.id,
+      text: 'By type, and leave the upgrade out.',
+    })
+    await returned
+    await settle()
+
+    expect(message).toMatchObject({ role: MessageRole.User, body: 'By type, and leave the upgrade out.', turn: 1 })
+    expect(chat()).toEqual([
+      { role: MessageRole.User, body: 'Draft the release notes for 2.4.', turn: 1 },
+      { role: MessageRole.User, body: 'By type, and leave the upgrade out.', turn: 1 },
+    ])
+    expect(askRow()).toMatchObject({
+      state: ToolCallState.Done,
+      output: '{"freeText":"By type, and leave the upgrade out."}',
+    })
+    expect(listQuestionSets(database.db, task.id)).toEqual([
+      {
+        ...open,
+        state: QuestionSetState.Answered,
+        reply: { kind: QuestionReplyKind.FreeText, text: 'By type, and leave the upgrade out.' },
+        closedAt: expect.any(Number) as unknown,
+      },
+    ])
+    // Not queued, and not handed to the session as a message of its own: it's the tool's answer.
+    expect(listQueuedMessages(database.db, task.id)).toEqual([])
+    expect(backend.session.sent.map(({ text }) => text)).toEqual(['Draft the release notes for 2.4.'])
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, asking: false })
+  })
+
+  it('leaves a message queued before the questions opened queued until they are answered', async () => {
+    await send('Draft the release notes for 2.4.')
+    await glade.invoke(CommandName.QueueAdd, { taskId: task.id, text: 'Keep it short.' })
+    backend.session.emit(sdk.init())
+    const returned = backend.session.callTool('toolu_ask', 'mcp__glade__ask', { questions: QUESTIONS })
+    const open = await vi.waitFor(() => {
+      const set = getOpenQuestionSet(database.db, task.id)
+      if (set === undefined) throw new Error('No question is open yet')
+      return set
+    })
+    expect(listQueuedMessages(database.db, task.id).map(({ body }) => body)).toEqual(['Keep it short.'])
+
+    await answer(open.id, { 0: 'by-type', 1: 'Features' })
+    await returned
+    await settle()
+
+    expect(listQueuedMessages(database.db, task.id)).toEqual([])
+    expect(backend.session.sent.map(({ text }) => text)).toEqual(['Draft the release notes for 2.4.', 'Keep it short.'])
+  })
+
+  it('withdraws the questions when the turn is stopped, so the call returns and the turn ends', async () => {
+    const { returned } = await ask()
+    backend.session.onInterrupt = async () => {
+      await returned
+      backend.session.emit(sdk.interruptMarker(true), sdk.abortedResult('aborted_tools'))
+    }
+
+    const stopped = (await glade.invoke(CommandName.TasksStop, { id: task.id })).task
+
+    expect(stopped).toMatchObject({ activity: TaskActivity.Waiting, asking: false })
+    expect(listQuestionSets(database.db, task.id).map(({ state }) => state)).toEqual([QuestionSetState.Withdrawn])
+    expect(askRow()).toMatchObject({ state: ToolCallState.Error, output: STOPPED_NOTE })
+    expect(drainEvents()).toContainEqual([EventType.QuestionWithdrawn, QuestionSetState.Withdrawn])
+  })
+
+  it('withdraws the questions when the session fails', async () => {
+    const { returned } = await ask()
+
+    backend.session.fail(new Error('The agent process exited with code 1'))
+    await returned
+    await settle()
+
+    expect(current()).toMatchObject({ activity: TaskActivity.Error, asking: false })
+    expect(listQuestionSets(database.db, task.id).map(({ state }) => state)).toEqual([QuestionSetState.Withdrawn])
+  })
+
+  describe('after a relaunch', () => {
+    /** Asks, then quits and relaunches the app with the questions open. */
+    async function askThenRelaunch(): Promise<QuestionSet> {
+      const { open } = await ask()
+      relaunch()
+      runner.resumeInterrupted()
+      return open
+    }
+
+    it('keeps the questions open, waiting on you, without starting the agent', async () => {
+      const open = await askThenRelaunch()
+
+      expect(backend.sessions).toHaveLength(0)
+      expect(current()).toMatchObject({ activity: TaskActivity.Waiting, asking: true })
+      expect(needsYou(current())).toBe(true)
+      expect(getOpenQuestionSet(database.db, task.id)).toEqual(open)
+      expect(askRow()).toMatchObject({ state: ToolCallState.Error, output: ASK_RESTARTED_NOTE })
+      // The app doesn't resume it as a working turn on the next launch either.
+      relaunch()
+      runner.resumeInterrupted()
+      expect(backend.sessions).toHaveLength(0)
+    })
+
+    it('hands the answers to the resumed session as a message that carries the turn on', async () => {
+      const open = await askThenRelaunch()
+
+      await answer(open.id, { 0: 'by-area', 1: 'Leave it out', 2: 'Mention the new rate limits.' })
+
+      const reply = {
+        kind: QuestionReplyKind.Answers,
+        answers: { 0: 'by-area', 1: 'Leave it out', 2: 'Mention the new rate limits.' },
+      } as const
+      expect(backend.sessions).toHaveLength(1)
+      expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
+      expect(backend.session.sent.map(({ text }) => text)).toEqual([answeredAfterRestart(reply)])
+      expect(answeredAfterRestart(reply)).toContain(
+        '{"0":"by-area","1":"Leave it out","2":"Mention the new rate limits."}',
+      )
+      expect(current()).toMatchObject({ activity: TaskActivity.Working, asking: false })
+      expect(toolLog().at(-1)).toEqual({ divider: DividerKind.Resumed, turn: 1 })
+
+      backend.session.emit(
+        sdk.init(),
+        sdk.text('The notes are drafted, grouped by area.', null, 'msg_02'),
+        sdk.result('The notes are drafted, grouped by area.'),
+      )
+      await settle()
+      expect(chat().at(-1)).toEqual({
+        role: MessageRole.Agent,
+        body: 'The notes are drafted, grouped by area.',
+        turn: 1,
+      })
+      expect(current().activity).toBe(TaskActivity.Waiting)
+    })
+
+    it('hands an answer in words to the resumed session too, and keeps it in the chat', async () => {
+      await askThenRelaunch()
+
+      await send('By area, please.')
+
+      expect(chat().at(-1)).toEqual({ role: MessageRole.User, body: 'By area, please.', turn: 1 })
+      expect(backend.session.sent.map(({ text }) => text)).toEqual([
+        answeredAfterRestart({ kind: QuestionReplyKind.FreeText, text: 'By area, please.' }),
+      ])
+      expect(current()).toMatchObject({ activity: TaskActivity.Working, asking: false })
+    })
+
+    it('refuses an answer while the agent is busy compacting, and keeps the questions open', async () => {
+      const open = await askThenRelaunch()
+      runner.compact(task.id)
+
+      await expect(answer(open.id, { 0: 'by-type', 1: 'Features' })).rejects.toMatchObject({
+        code: BridgeErrorCode.Busy,
+      })
+      await expect(glade.invoke(CommandName.TasksSend, { id: task.id, text: 'By type.' })).rejects.toMatchObject({
+        code: BridgeErrorCode.Busy,
+      })
+      expect(getOpenQuestionSet(database.db, task.id)).toEqual(open)
+      expect(chat()).toHaveLength(1)
+    })
+  })
+})
+
 describe('reopening by chatting', () => {
   const DONE_AT = Date.UTC(2026, 8, 23, 11, 26)
 
@@ -1981,6 +2258,10 @@ describe('several tasks at once', () => {
       case EventType.TaskOpenRequested:
       case EventType.QueueChanged:
         return event.taskId
+      case EventType.QuestionOpened:
+      case EventType.QuestionAnswered:
+      case EventType.QuestionWithdrawn:
+        return event.questionSet.taskId
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
         return null
@@ -1999,6 +2280,10 @@ describe('several tasks at once', () => {
         return [event.type, event.task.activity]
       case EventType.QueueChanged:
         return [event.type, event.queuedMessages.length]
+      case EventType.QuestionOpened:
+      case EventType.QuestionAnswered:
+      case EventType.QuestionWithdrawn:
+        return [event.type, event.questionSet.state]
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
       case EventType.TaskOpenRequested:

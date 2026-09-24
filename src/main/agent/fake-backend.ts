@@ -61,11 +61,13 @@ export class FakeAgentSession implements AgentSession {
 
   /**
    * Calls one of the session's in-process MCP tools, as the agent would: streams the `tool_use`, runs the tool's real
-   * handler through its MCP server, then streams the `tool_result` it gave. Resolves once the result is streamed.
+   * handler through its MCP server, then streams the `tool_result` it gave. Resolves once the result is streamed; a
+   * blocking tool (`ask`) waits until it returns. Aborting `signal` cancels the call, as the SDK does on an interrupt,
+   * and this rejects without streaming a result.
    */
-  async callTool(toolUseId: string, name: string, input: Record<string, unknown>): Promise<void> {
+  async callTool(toolUseId: string, name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<void> {
     this.emit(toolUse(toolUseId, name, input))
-    const { output, isError } = await this.tools.call(name, input)
+    const { output, isError } = await this.tools.call(name, input, signal)
     this.emit(toolResult(toolUseId, [{ type: 'text', text: output }], isError))
   }
 

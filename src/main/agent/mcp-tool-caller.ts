@@ -35,9 +35,19 @@ export function parseMcpToolName(name: string): McpToolName | null {
   return server === undefined || tool === undefined ? null : { server, tool }
 }
 
+/**
+ * How long a call may take: as good as forever, as the SDK's calls are (`docs/sdk-notes.md` §3), since `ask` waits on
+ * the user. (MCP's own default is a minute; this is the longest a timer can wait.)
+ */
+const NO_TIMEOUT_MS = 2 ** 31 - 1
+
 export interface McpToolCaller {
-  /** Calls a tool by its SDK name, e.g. `mcp__glade__set_title`. Throws if there's no in-process server of that name. */
-  call(name: string, input: Readonly<Record<string, unknown>>): Promise<McpToolOutcome>
+  /**
+   * Calls a tool by its SDK name, e.g. `mcp__glade__set_title`, and waits for its result however long it takes.
+   * Aborting `signal` cancels the call, as the SDK does when a turn is interrupted: the tool's handler sees its own
+   * signal abort, and this rejects. Throws if there's no in-process server of that name.
+   */
+  call(name: string, input: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<McpToolOutcome>
   /** Disconnects from every server it has called. */
   close(): Promise<void>
 }
@@ -69,11 +79,13 @@ export function createMcpToolCaller(servers: AgentMcpServers): McpToolCaller {
   }
 
   return {
-    async call(name, input) {
+    async call(name, input, signal) {
       const parsed = parseMcpToolName(name)
       if (parsed === null) throw new Error(`${name} isn't an MCP tool`)
       const client = await clientFor(parsed.server)
-      const result = toolResult.parse(await client.callTool({ name: parsed.tool, arguments: { ...input } }))
+      const options = { timeout: NO_TIMEOUT_MS, ...(signal === undefined ? {} : { signal }) }
+      const called = await client.callTool({ name: parsed.tool, arguments: { ...input } }, undefined, options)
+      const result = toolResult.parse(called)
       const output = result.content.flatMap((block) => (block.text === undefined ? [] : [block.text])).join('\n')
       return { output, isError: result.isError ?? false }
     },

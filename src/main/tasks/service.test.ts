@@ -81,6 +81,7 @@ describe('createTask', () => {
       contextWindowTokens: 1_000_000,
       error: null,
       retrying: null,
+      asking: false,
       pause: null,
     })
     expect(DEFAULT_EFFORT).toBe(Effort.High)

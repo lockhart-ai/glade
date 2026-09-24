@@ -54,6 +54,7 @@ describe('createTask', () => {
       contextWindowTokens: 200_000,
       error: null,
       retrying: null,
+      asking: false,
       pause: null,
     })
     expect(getTask(test.db, task.id)).toEqual(task)
