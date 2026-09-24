@@ -7,6 +7,9 @@ directories:
   output: release
 files:
   - out/**/*
+  # The test tools' build and results (scripts/test-build.mjs, playwright.config.ts) are never packaged.
+  - '!out/testing/**/*'
+  - '!out/e2e-results/**/*'
   - package.json
 mac:
   target: dir

@@ -7,6 +7,7 @@ import { COMMAND_CHANNEL, CommandName, EVENT_CHANNEL, EventType } from '../share
 import { UiStateKey } from '../shared/domain'
 import { CAPTURE_ENV, type CaptureSpec } from './capture'
 import { FakeAgentBackend } from './agent/fake-backend'
+import { E2E_CHOSEN_FOLDER_ENV, E2E_ENV, E2E_WINDOW_SIZE, type E2eSpec } from './e2e'
 import { MIGRATIONS } from './db/migrations'
 import { sampleTask, sampleWorkspace } from './db/repositories/test-database'
 import { CHOOSE_FOLDER_OPTIONS } from './dialogs'
@@ -97,6 +98,13 @@ vi.mock('electron', () => ({
   dialog: electron.dialog,
   ipcMain: electron.ipcMain,
 }))
+
+// The real agent backend, watched: a test mode must never make one.
+vi.mock('./agent/sdk-backend', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./agent/sdk-backend')>()
+  return { ...original, createSdkBackend: vi.fn(original.createSdkBackend) }
+})
+const { createSdkBackend } = await import('./agent/sdk-backend')
 
 const { startApp, WINDOW_WEB_PREFERENCES } = await import('./app')
 
@@ -289,6 +297,12 @@ describe('startApp', () => {
     expect(backend.session.closed).toBe(true)
   })
 
+  it('runs the agents on the Claude Agent SDK by default', async () => {
+    await startAndWaitUntilReady()
+
+    expect(createSdkBackend).toHaveBeenCalledOnce()
+  })
+
   it('shows the open-folder dialog as a sheet on the focused window', async () => {
     await startAndWaitUntilReady()
     const window = onlyWindow()
@@ -411,6 +425,7 @@ describe('startApp in capture mode', () => {
     expect(readFileSync(join(outDir, 'gallery-1100x700.png'), 'utf8')).toBe('png')
     expect(console.log).toHaveBeenCalledWith(`Captured ${join(outDir, 'gallery-1100x700.png')}`)
     expect(close).toHaveBeenCalledOnce()
+    expect(createSdkBackend).not.toHaveBeenCalled()
     expect(electron.app.exit).toHaveBeenCalledWith(0)
     expect(electron.appHandlers.has('activate')).toBe(false)
     expect(electron.appHandlers.has('will-quit')).toBe(false)
@@ -444,7 +459,7 @@ describe('startApp in capture mode', () => {
     startApp()
 
     expect(console.error).toHaveBeenCalledWith(
-      expect.stringMatching(/^Glade capture failed: GLADE_CAPTURE is not JSON/),
+      expect.stringMatching(/^Glade test mode failed: GLADE_CAPTURE is not JSON/),
     )
     expect(electron.app.exit).toHaveBeenCalledWith(1)
     expect(electron.app.whenReady).not.toHaveBeenCalled()
@@ -477,5 +492,124 @@ describe('startApp in capture mode', () => {
     window.onceHandlers.get('ready-to-show')?.()
     expect(window.show).toHaveBeenCalledOnce()
     expect(window.webContents.capturePage).not.toHaveBeenCalled()
+  })
+})
+
+describe('startApp in e2e mode', () => {
+  function askForE2e(overrides: Partial<E2eSpec> = {}): void {
+    vi.stubEnv(E2E_ENV, JSON.stringify({ userData: electron.app.userData, route: '', ...overrides }))
+  }
+
+  it('runs the app in a window that is never shown, at the recording size, with a throwaway data folder', async () => {
+    askForE2e({ route: '#gallery' })
+    const userData = electron.app.userData
+
+    await startAndWaitUntilReady()
+
+    expect(electron.app.setPath).toHaveBeenCalledWith('userData', userData)
+    expect(electron.app.dock.hide).toHaveBeenCalledOnce()
+    const window = onlyWindow()
+    expect(window.options).toMatchObject({ show: false, paintWhenInitiallyHidden: true })
+    expect(window.onceHandlers.has('ready-to-show')).toBe(false)
+    expect(window.setContentSize).toHaveBeenCalledWith(E2E_WINDOW_SIZE.width, E2E_WINDOW_SIZE.height)
+    expect(window.loadFile).toHaveBeenCalledWith(expect.stringMatching(/index\.html$/), { hash: 'gallery' })
+    expect(existsSync(join(userData, 'glade.db'))).toBe(true)
+    // Otherwise it's the normal app, which the test quits.
+    expect(electron.app.exit).not.toHaveBeenCalled()
+    expect(electron.appHandlers.has('will-quit')).toBe(true)
+  })
+
+  it('answers the folder dialog with the folder the test chose, without showing it', async () => {
+    askForE2e()
+    await startAndWaitUntilReady()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    vi.stubEnv(E2E_CHOSEN_FOLDER_ENV, '/tmp/acme-api')
+    await expect(handler?.({}, CommandName.DialogChooseFolder, {})).resolves.toEqual({
+      ok: true,
+      value: { path: '/tmp/acme-api' },
+    })
+    vi.stubEnv(E2E_CHOSEN_FOLDER_ENV, undefined)
+    await expect(handler?.({}, CommandName.DialogChooseFolder, {})).resolves.toEqual({
+      ok: true,
+      value: { path: null },
+    })
+    expect(electron.dialog.showOpenDialog).not.toHaveBeenCalled()
+  })
+
+  it('never runs the real agent, even when started with another backend: an agent session fails loudly', async () => {
+    askForE2e()
+    const backend = new FakeAgentBackend()
+    const createAgentBackend = vi.fn(() => backend)
+    startApp({ createAgentBackend })
+    await Promise.resolve()
+    await Promise.resolve()
+    const db = new Database(join(electron.app.userData, 'glade.db'))
+    const task = sampleTask(db, sampleWorkspace(db).id)
+    db.close()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    await expect(handler?.({}, CommandName.TasksSend, { id: task.id, text: 'Hi' })).resolves.toMatchObject({
+      ok: false,
+    })
+
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/^Glade test mode: An agent session started/))
+    expect(createAgentBackend).not.toHaveBeenCalled()
+    expect(createSdkBackend).not.toHaveBeenCalled()
+    expect(backend.sessions).toHaveLength(0)
+  })
+
+  it('never makes the real agent backend by default either', async () => {
+    askForE2e()
+
+    await startAndWaitUntilReady()
+
+    expect(electron.ipcMain.handle).toHaveBeenCalledOnce()
+    expect(createSdkBackend).not.toHaveBeenCalled()
+  })
+
+  it('reopens a hidden window on activate', async () => {
+    askForE2e()
+    await startAndWaitUntilReady()
+    electron.windows.length = 0
+
+    appHandler('activate')()
+
+    expect(onlyWindow().options).toMatchObject({ show: false, paintWhenInitiallyHidden: true })
+  })
+
+  it('refuses to start without a dialog when the database cannot be opened', async () => {
+    askForE2e()
+    const db = new Database(join(electron.app.userData, 'glade.db'))
+    db.exec('CREATE TABLE schema_version (version INTEGER)')
+    db.close()
+
+    await startAndWaitUntilReady()
+
+    expect(electron.windows).toHaveLength(0)
+    expect(electron.dialog.showErrorBox).not.toHaveBeenCalled()
+    expect(electron.app.exit).toHaveBeenCalledWith(1)
+  })
+
+  it('exits with an error, before Electron is ready, when the spec is invalid', () => {
+    askForE2e({ userData: '/Users/someone/Library/Application Support/glade' })
+
+    startApp()
+
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/^Glade test mode failed: GLADE_E2E is invalid/))
+    expect(electron.app.exit).toHaveBeenCalledWith(1)
+    expect(electron.app.whenReady).not.toHaveBeenCalled()
+  })
+
+  it('never runs in a packaged app', async () => {
+    electron.app.isPackaged = true
+    askForE2e()
+
+    await startAndWaitUntilReady()
+
+    expect(electron.app.setPath).not.toHaveBeenCalled()
+    const window = onlyWindow()
+    window.onceHandlers.get('ready-to-show')?.()
+    expect(window.show).toHaveBeenCalledOnce()
   })
 })

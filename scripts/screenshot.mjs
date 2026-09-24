@@ -3,19 +3,17 @@
 //
 //   npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <file base name>]
 //
-// Builds the app into out/screenshot (in the `screenshot` mode, which keeps dev-only pages such as the gallery), then
+// Builds the app into out/testing (see scripts/test-build.mjs, which keeps dev-only pages such as the gallery), then
 // launches Electron on it with the capture spec in GLADE_CAPTURE (see src/main/capture.ts), and a fresh temp folder
 // for the app's data, removed afterwards. Writes one PNG per size, named <name>-<width>x<height>.png.
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
+import { buildForTests, ROOT, TEST_MAIN } from './test-build.mjs'
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const BUILD_DIR = join(ROOT, 'out', 'screenshot')
 const DEFAULT_SIZE = '1920x1200'
 const TIMEOUT_MS = 60_000
 
@@ -58,11 +56,7 @@ const spec = {
   timeoutMs: TIMEOUT_MS,
 }
 
-const build = spawnSync('npx', ['electron-vite', 'build', '--mode', 'screenshot', '--outDir', BUILD_DIR], {
-  cwd: ROOT,
-  stdio: ['ignore', 'ignore', 'inherit'],
-})
-if (build.status !== 0) {
+if (!buildForTests()) {
   console.error('screenshot: the build failed')
   process.exit(1)
 }
@@ -73,7 +67,7 @@ const env = { ...process.env, GLADE_CAPTURE: JSON.stringify({ ...spec, userData 
 delete env.ELECTRON_RENDERER_URL
 delete env.ELECTRON_RUN_AS_NODE
 const electron = createRequire(import.meta.url)('electron')
-const run = spawnSync(electron, [join(BUILD_DIR, 'main', 'index.js')], {
+const run = spawnSync(electron, [TEST_MAIN], {
   cwd: ROOT,
   env,
   stdio: 'inherit',
