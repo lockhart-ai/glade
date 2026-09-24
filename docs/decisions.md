@@ -7,8 +7,10 @@
 - **Desktop shell:** Electron. macOS first.
 - **Agent runtime:** Claude Agent SDK (TypeScript), running in Electron's main process. It streams typed events, takes
   custom tools in-process, resumes sessions and reads CLAUDE.md files. (Recommended over driving the Claude Code CLI.)
-- **Auth:** use the user's Claude subscription (their Claude Code login) if the Agent SDK allows it; API key as the
-  fallback. Confirm in P1-05.
+- **Auth:** login-based. Glade runs on the user's own Claude Code login. Glade never handles credentials itself: no
+  claude.ai login screen, no reading or storing OAuth tokens. It runs the SDK's unmodified bundled Claude Code binary,
+  which still uses `ANTHROPIC_API_KEY` if one happens to be set. Policy risk: Anthropic's docs don't clearly permit
+  subscription use by a third-party app (see `sdk-notes.md` §1 and Open risks).
 - **State:** everything in SQLite — workspaces, tasks, chat, tool log, todos, artifacts, queue, UI state. Reopening
   after a crash resumes from the database.
 - **Agent sessions run in the workspace root** (the SDK session's `cwd`), so the workspace's own `CLAUDE.md` (the
@@ -26,7 +28,7 @@
 - **Two task states:** Active and Done. Done stays chat-able; a message reopens it. No follow-up tasks.
 - **Workspace** = name + root folder, top level. Switcher in the sidebar and the macOS menu bar.
 - **Chat shows final replies only.** Preamble goes to the tool log.
-- **Compaction:** automatic at 99% (configurable), manual from the context meter or ⌘⇧K.
+- **Compaction:** automatic at the SDK's default auto-compact threshold; manual from the context meter or ⌘⇧K.
 - **Permissions:** default Allow all. No per-call review for now.
 - **Message queue:** messages sent while the agent works are queued and delivered after its current step. They can be
   edited or removed. No "send now", no reordering.
@@ -50,3 +52,4 @@
 - Plugin API (Nekomata and others).
 - Handling hundreds of done tasks (pagination, archiving).
 - Per-call permission review.
+- Customising the auto-compact threshold (see `sdk-notes.md` §5 for the SDK's limits).
