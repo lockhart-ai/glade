@@ -1,10 +1,15 @@
 import { useCallback, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { CommandId, DEFAULT_KEYMAP, type Keymap, type KeyPress } from '../../shared/keymap'
+import { isCommandKey, useKeymap } from '../commands/hooks'
 import { Menu, MenuAnchorKind, type MenuAnchor, type MenuEntry } from '../components'
 
-/** Whether a key press opens the context menu of what has the focus: ⇧F10, or the keyboard's context-menu key. */
-export function isContextMenuKey(event: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'metaKey' | 'altKey' | 'ctrlKey'>) {
-  if (event.metaKey || event.altKey || event.ctrlKey) return false
-  return event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)
+/**
+ * Whether a key press opens the context menu of what has the focus: Context menu's binding (⇧F10 unless you've changed
+ * it), or the keyboard's context-menu key, with or without ⇧.
+ */
+export function isContextMenuKey(event: KeyPress, keymap: Keymap = DEFAULT_KEYMAP): boolean {
+  if (event.key === 'ContextMenu') return !event.metaKey && !event.altKey && !event.ctrlKey
+  return isCommandKey(CommandId.ContextMenu, keymap, event)
 }
 
 /** A context menu that's open: what it's for, and where. */
@@ -35,6 +40,7 @@ export interface ContextMenuState<T> {
  */
 export function useContextMenu<T>(): ContextMenuState<T> {
   const [opened, setOpened] = useState<OpenContextMenu<T> | null>(null)
+  const keymap = useKeymap()
   const targetProps = useCallback(
     (target: T): ContextMenuTargetProps => ({
       onContextMenu: (event) => {
@@ -43,13 +49,13 @@ export function useContextMenu<T>(): ContextMenuState<T> {
         setOpened({ target, anchor: { kind: MenuAnchorKind.Point, x: event.clientX, y: event.clientY } })
       },
       onKeyDown: (event) => {
-        if (!isContextMenuKey(event)) return
+        if (!isContextMenuKey(event, keymap)) return
         event.preventDefault()
         event.stopPropagation()
         setOpened({ target, anchor: { kind: MenuAnchorKind.Element, element: event.currentTarget } })
       },
     }),
-    [],
+    [keymap],
   )
   const close = useCallback(() => {
     setOpened(null)

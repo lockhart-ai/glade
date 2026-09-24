@@ -7,7 +7,6 @@ import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import { fakeBridge, refuse, sampleWorkspace, type FakeBridge, type FakeHandlers } from '../store/test-bridge'
-import { KEYMAP } from './keymap'
 import { SettingsSection } from './sections'
 import { SettingsDialog } from './SettingsDialog'
 
@@ -202,15 +201,12 @@ describe('SettingsDialog', () => {
     })
   })
 
-  it('lists every shortcut in Keyboard, read-only', async () => {
+  it('shows the shortcuts in Keyboard, each a keycap you can click to rebind', async () => {
     await renderSettings(SettingsSection.Keyboard)
 
-    for (const group of KEYMAP) {
-      const section = screen.getByRole('region', { name: group.area })
-      for (const binding of group.bindings) expect(section).toHaveTextContent(binding.action)
-    }
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Keyboard')
     const global = screen.getByRole('region', { name: 'Global' })
-    expect(within(global).getByText('Settings').nextSibling).toHaveTextContent('⌘,')
+    expect(within(global).getByRole('button', { name: 'Settings: ⌘,' })).toHaveTextContent('⌘,')
     expect(within(dialog()).queryByRole('textbox')).not.toBeInTheDocument()
   })
 

@@ -698,7 +698,7 @@ describe('TaskPanel', () => {
       expect(press({})).toBe(false)
       fireEvent.click(tab(/^Files/))
       expect(press({ shiftKey: true })).toBe(false)
-      expect(press({ code: 'KeyQ' })).toBe(false)
+      expect(press({ key: 'q', code: 'KeyQ' })).toBe(false)
       fireEvent.click(screen.getByRole('button', { name: 'Close views.py' }))
       await waitFor(() => {
         expect(screen.queryByRole('button', { name: 'Close views.py' })).toBeNull()

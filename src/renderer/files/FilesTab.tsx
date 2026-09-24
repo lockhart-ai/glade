@@ -1,7 +1,9 @@
 import { faChevronDown, faListUl, faXmark } from '@fortawesome/free-solid-svg-icons'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ToolEvent } from '../../shared/domain'
 import { fileName } from '../../shared/files'
+import { CommandId } from '../../shared/keymap'
+import { useCommand } from '../commands/hooks'
 import { Icon, IconSize, Menu, MenuAnchorKind, MenuEntryKind, type MenuEntry, type MenuItem } from '../components'
 import { classNames } from '../components/classNames'
 import { ContextMenu, fileTabMenu, useContextMenu, useMenuCommands } from '../context-menus'
@@ -31,18 +33,6 @@ export interface FileLineFocus {
   readonly request: number
 }
 
-/** Whether a key press is ⌘W, which closes the file showing while the right panel has the focus. */
-export function isCloseFileKey(
-  event: Pick<KeyboardEvent, 'metaKey' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'code'>,
-): boolean {
-  return event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && event.code === 'KeyW'
-}
-
-/** Whether a key press is ⌘⇧E, Open in editor. */
-export function isOpenInEditorKey(event: KeyboardEvent): boolean {
-  return event.metaKey && event.shiftKey && !event.altKey && !event.ctrlKey && event.code === 'KeyE'
-}
-
 /** The dropdown's entries: the files the agent changed, then the ones it read, each under its heading. */
 function menuEntries(touched: TouchedFiles, open: (path: string) => void): MenuEntry[] {
   const items = (files: readonly TouchedFile[]): MenuItem[] =>
@@ -68,7 +58,7 @@ export function absolutePath(rootPath: string, path: string): string {
 /**
  * The right panel's Files tab (`docs/design/html/08-open-file.html`): a row with the list of the files the agent
  * changed or read, and a tab for each file open, with a blue dot on the ones it changed; under it, the file showing.
- * The open files are the task's, kept in main. ⌘⇧E opens the file showing in your editor. When the agent shows a file
+ * The open files are the task's, kept in main. Open file in editor (⌘⇧E) opens the file showing in your editor. When the agent shows a file
  * (`show_file`), it opens here (main opens it), marked at `focus`'s line. A file tab's context menu closes it or the
  * others, opens it in your editor or Finder, and copies its path.
  */
@@ -81,23 +71,19 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
   const openInEditor = useGladeStore((state) => state.openInEditor)
   const revealFile = useGladeStore((state) => state.revealFile)
   const menu = useContextMenu<string>()
-  const { run, copy } = useMenuCommands()
+  const { run, copy, hints } = useMenuCommands()
   const touched = useMemo(() => touchedFiles(events, rootPath), [events, rootPath])
   // The list button, while its menu is open.
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
 
-  useEffect(() => {
-    if (activePath === null) return
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (!isOpenInEditorKey(event)) return
-      event.preventDefault()
-      void openInEditor(taskId, activePath)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [openInEditor, taskId, activePath])
+  useCommand(
+    CommandId.OpenInEditor,
+    activePath === null
+      ? null
+      : () => {
+          void openInEditor(taskId, activePath)
+        },
+  )
 
   const open = (path: string): void => {
     void openFile(taskId, path)
@@ -115,29 +101,32 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
     })
   }
   const tabMenu = (path: string) =>
-    fileTabMenu({
-      close: () => {
-        closeAll([path])
+    fileTabMenu(
+      {
+        close: () => {
+          closeAll([path])
+        },
+        closeOthers: () => {
+          closeAll(paths.filter((other) => other !== path))
+        },
+        closeAll: () => {
+          closeAll(paths)
+        },
+        openInEditor: () => {
+          run(() => openInEditor(taskId, path))
+        },
+        reveal: () => {
+          run(() => revealFile(taskId, path))
+        },
+        copyPath: () => {
+          copy(absolutePath(rootPath, path))
+        },
+        copyRelativePath: () => {
+          copy(path)
+        },
       },
-      closeOthers: () => {
-        closeAll(paths.filter((other) => other !== path))
-      },
-      closeAll: () => {
-        closeAll(paths)
-      },
-      openInEditor: () => {
-        run(() => openInEditor(taskId, path))
-      },
-      reveal: () => {
-        run(() => revealFile(taskId, path))
-      },
-      copyPath: () => {
-        copy(absolutePath(rootPath, path))
-      },
-      copyRelativePath: () => {
-        copy(path)
-      },
-    })
+      hints,
+    )
 
   return (
     <div className={styles.files}>

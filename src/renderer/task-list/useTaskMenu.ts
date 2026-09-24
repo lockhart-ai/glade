@@ -19,40 +19,44 @@ export function useTaskMenu(): (taskId: string) => readonly MenuEntry[] {
   const reopenTask = useGladeStore((state) => state.reopenTask)
   const requestDelete = useGladeStore((state) => state.requestDelete)
   const markDone = useMarkDone()
-  const { run, copy } = useMenuCommands()
+  const { run, copy, hints } = useMenuCommands()
 
   return useCallback(
     (taskId: string) => {
       const task = tasks[taskId]
       if (task === undefined) return []
-      return taskMenu(task, {
-        open: () => {
-          run(() => selectTask(taskId))
+      return taskMenu(
+        task,
+        {
+          open: () => {
+            run(() => selectTask(taskId))
+          },
+          togglePin: () => {
+            run(() => togglePin(taskId))
+          },
+          rename: () => {
+            startRename(taskId)
+          },
+          markUnread: () => {
+            run(() => markUnread(taskId))
+          },
+          markDone: () => void markDone(taskId),
+          reopen: () => {
+            run(() => reopenTask(taskId))
+          },
+          copyLink: () => {
+            copy(taskLink(taskId))
+          },
+          copyOutcome: () => {
+            copy(task.status)
+          },
+          delete: () => {
+            requestDelete(taskId)
+          },
         },
-        togglePin: () => {
-          run(() => togglePin(taskId))
-        },
-        rename: () => {
-          startRename(taskId)
-        },
-        markUnread: () => {
-          run(() => markUnread(taskId))
-        },
-        markDone: () => void markDone(taskId),
-        reopen: () => {
-          run(() => reopenTask(taskId))
-        },
-        copyLink: () => {
-          copy(taskLink(taskId))
-        },
-        copyOutcome: () => {
-          copy(task.status)
-        },
-        delete: () => {
-          requestDelete(taskId)
-        },
-      })
+        hints,
+      )
     },
-    [tasks, selectTask, togglePin, startRename, markUnread, reopenTask, requestDelete, markDone, run, copy],
+    [tasks, selectTask, togglePin, startRename, markUnread, reopenTask, requestDelete, markDone, run, copy, hints],
   )
 }

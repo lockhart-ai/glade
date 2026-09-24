@@ -1,9 +1,11 @@
 import { useCallback, useState, type KeyboardEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { UiStateKey, type ToolEvent } from '../../shared/domain'
+import { CommandId } from '../../shared/keymap'
+import { isCommandKey, useKeymap } from '../commands/hooks'
 import { ArtifactsTab } from '../artifacts'
 import { TabPanel, Tabs, type TabItem } from '../components'
-import { FilesTab, isCloseFileKey, type FileLineFocus } from '../files'
+import { FilesTab, type FileLineFocus } from '../files'
 import { RightPanel } from '../layout'
 import { Panel, PanelToggle, usePanel } from '../panels'
 import { selectSelectedTask, selectSelectedWorkspace } from '../store/state'
@@ -29,6 +31,7 @@ const NO_TOOL_EVENTS: readonly ToolEvent[] = []
  */
 export function TaskPanel(): React.JSX.Element | null {
   const task = useGladeStore(selectSelectedTask)
+  const keymap = useKeymap()
   const rootPath = useGladeStore((state) => selectSelectedWorkspace(state)?.rootPath)
   const events =
     useGladeStore((state) => (task === undefined ? undefined : state.toolEvents[task.id])) ?? NO_TOOL_EVENTS
@@ -86,7 +89,13 @@ export function TaskPanel(): React.JSX.Element | null {
   // ⌘W closes the file showing in Files while the focus is in the panel; anywhere else it closes the window, as ever.
   // The focus stays in the panel, on the tab's content, so another ⌘W closes the next file rather than the window.
   const closeActiveFile = (event: KeyboardEvent<HTMLDivElement>): void => {
-    if (tab !== PanelTab.Files || task === undefined || activeFile === null || !isCloseFileKey(event)) return
+    if (
+      tab !== PanelTab.Files ||
+      task === undefined ||
+      activeFile === null ||
+      !isCommandKey(CommandId.CloseFileTab, keymap, event)
+    )
+      return
     event.preventDefault()
     const panel = event.currentTarget
     void closeFile(task.id, activeFile).then(() => {

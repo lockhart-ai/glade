@@ -1,5 +1,5 @@
 export * from './menus'
-export { SHORTCUT_HINTS, ShortcutAction } from './shortcutHints'
+export { SHORTCUT_HINTS, ShortcutAction, shortcutHints, useShortcutHints, type ShortcutHints } from './shortcutHints'
 export {
   ContextMenu,
   isContextMenuKey,

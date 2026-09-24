@@ -1,4 +1,4 @@
-import { matchesFilter, parseTaskFilter, TaskFilter } from '../../shared/attention'
+import { matchesFilter, needsYou, parseTaskFilter, TaskFilter } from '../../shared/attention'
 import { TaskState, UiStateKey, type Task, type UiStateEntry } from '../../shared/domain'
 import type { UiStateValues } from '../store/state'
 
@@ -112,6 +112,18 @@ export function selectionAfterDeleting(order: readonly string[], deletedId: stri
   const index = order.indexOf(deletedId)
   if (index === -1) return null
   return order[index + 1] ?? order[index - 1] ?? null
+}
+
+/**
+ * The task Next task that needs you (⌘⌥↓) selects: the first after `selectedId` down the sections that needs you,
+ * going round from the top at the end; the first that does with nothing (or a hidden task) selected. Null when no
+ * other task needs you.
+ */
+export function nextNeedingYou(sections: readonly TaskSection[], selectedId: string | null): string | null {
+  const order = sections.flatMap(({ tasks }) => tasks)
+  const index = order.findIndex(({ id }) => id === selectedId)
+  const around = [...order.slice(index + 1), ...order.slice(0, index + 1)]
+  return around.find((task) => task.id !== selectedId && needsYou(task))?.id ?? null
 }
 
 /** Which way ⌥↑ / ⌥↓ moves the selection. */

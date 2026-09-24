@@ -1,9 +1,15 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render as renderUnwrapped, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { MenuEntryKind, type MenuEntry } from '../components'
+import { storeWrapper } from '../store/test-wrapper'
 import { ContextMenu, isContextMenuKey, useContextMenu } from './useContextMenu'
 
-const NO_MODIFIERS = { shiftKey: false, metaKey: false, altKey: false, ctrlKey: false }
+/** Renders under a store, where the keymap comes from. */
+function render(ui: React.ReactElement) {
+  return renderUnwrapped(ui, { wrapper: storeWrapper().wrapper })
+}
+
+const NO_MODIFIERS = { code: '', shiftKey: false, metaKey: false, altKey: false, ctrlKey: false }
 
 describe('isContextMenuKey', () => {
   it.each([
