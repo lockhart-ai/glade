@@ -40,12 +40,14 @@ export interface ToolCallMenuProps {
 
 /**
  * The context menu of the tool calls inside it, one for them all: in the tool log, and in the Subagents tab's logs.
- * Copy command and Copy output put the call's command or output on the clipboard, and Open file shows its file in the
- * Files tab.
+ * Copy command and Copy output put the call's command or output on the clipboard, Open file shows its file in the
+ * Files tab, and Run again in terminal puts a Bash call's command at the terminal's prompt, for you to look over and
+ * run.
  */
 export function ToolCallMenu({ taskId, rootPath, children }: ToolCallMenuProps): React.JSX.Element {
   const menu = useContextMenu<ToolCallEvent>()
   const showFile = useGladeStore((state) => state.showFile)
+  const runInTerminal = useGladeStore((state) => state.runInTerminal)
   const { run, copy } = useMenuCommands()
   const entries = (call: ToolCallEvent) => {
     const target = toolCallMenuTarget(call, rootPath)
@@ -59,6 +61,10 @@ export function ToolCallMenu({ taskId, rootPath, children }: ToolCallMenuProps):
       openFile: () => {
         const { file } = target
         if (file !== null) run(() => showFile(taskId, file))
+      },
+      runInTerminal: () => {
+        const { command } = target
+        if (command !== null) run(() => runInTerminal(command))
       },
     })
   }

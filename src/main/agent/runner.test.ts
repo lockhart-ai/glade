@@ -55,6 +55,7 @@ import {
 } from './runner'
 import { systemPromptAppend } from './system-prompt'
 import * as sdk from './test-sdk-messages'
+import { fakeTerminalOptions } from '../terminal/fake-pty'
 
 let database: TestDatabase
 let workspace: Workspace
@@ -81,6 +82,7 @@ beforeEach(() => {
     openPath: () => Promise.resolve(''),
     revealPath: () => undefined,
     writeClipboard: () => Promise.resolve(),
+    terminal: fakeTerminalOptions(),
     agentBackend: backend,
   }))
   glade = createBridge(ipc.renderer)
@@ -107,6 +109,7 @@ function relaunch(): void {
     openPath: () => Promise.resolve(''),
     revealPath: () => undefined,
     writeClipboard: () => Promise.resolve(),
+    terminal: fakeTerminalOptions(),
     agentBackend: backend,
   }))
   glade = createBridge(ipc.renderer)
@@ -186,6 +189,9 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.TaskOpenRequested:
       case EventType.OpenFilesChanged:
       case EventType.FileShown:
+      case EventType.TerminalTabsChanged:
+      case EventType.TerminalOutput:
+      case EventType.TerminalCleared:
         return [event.type]
     }
   })
@@ -2452,6 +2458,9 @@ describe('several tasks at once', () => {
         return event.questionSet.taskId
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
+      case EventType.TerminalTabsChanged:
+      case EventType.TerminalOutput:
+      case EventType.TerminalCleared:
         return null
     }
   }
@@ -2480,6 +2489,9 @@ describe('several tasks at once', () => {
       case EventType.FileShown:
       case EventType.TodosChanged:
       case EventType.ArtifactsChanged:
+      case EventType.TerminalTabsChanged:
+      case EventType.TerminalOutput:
+      case EventType.TerminalCleared:
         return [event.type]
     }
   }

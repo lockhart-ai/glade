@@ -56,7 +56,7 @@ it('lands in the empty workspace once a folder is chosen', async () => {
   expect(sidebar).not.toHaveTextContent('Tasks will appear here')
 })
 
-it('renders the window layout with the workspace, the chat, and a placeholder in each other region', async () => {
+it('renders the window layout with the workspace, the chat, the task panel and the terminal', async () => {
   // With no task selected there is no task header.
   await renderApp([sampleWorkspace('w1')])
 
@@ -80,8 +80,9 @@ it('renders the window layout with the workspace, the chat, and a placeholder in
   expect(within(panel).getByRole('tab', { name: /^Tool calls/ })).toHaveAttribute('aria-selected', 'true')
 
   const terminal = screen.getByRole('region', { name: 'Terminal' })
-  expect(terminal).toHaveTextContent('Terminal tabs')
-  expect(within(terminal).getByText('Terminal')).toBeInTheDocument()
+  expect(within(terminal).getByRole('group', { name: 'Terminal tabs' })).toBeEmptyDOMElement()
+  expect(within(terminal).getByRole('button', { name: 'New terminal' })).toBeInTheDocument()
+  expect(terminal).toHaveTextContent('No terminal open. Start one with + or ⌘T.')
 })
 
 it("puts the selected task's context meter in the input bar", async () => {
@@ -129,9 +130,9 @@ it('collapses the bottom bar to its tab row, and toggles the panels from the key
   const terminal = screen.getByRole('region', { name: 'Terminal' })
 
   fireEvent.click(within(terminal).getByRole('button', { name: 'Collapse bottom panel' }))
-  expect(within(terminal).queryByText('Terminal')).toBeNull()
+  expect(within(terminal).getByText(/^No terminal open/)).not.toBeVisible()
   fireEvent.keyDown(window, { code: 'KeyJ', key: 'j', metaKey: true })
-  expect(within(terminal).getByText('Terminal')).toBeInTheDocument()
+  expect(within(terminal).getByText(/^No terminal open/)).toBeVisible()
 
   fireEvent.keyDown(window, { code: 'KeyB', key: 'b', metaKey: true })
   expect(screen.queryByRole('navigation', { name: 'Tasks' })).toBeNull()

@@ -16,7 +16,14 @@ import {
 import { noOpenFiles } from '../../shared/files'
 import { applyEvent, idFromUiState, withHistory, withOpenedWorkspace } from './reducer'
 import { INITIAL_DATA, type GladeData } from './state'
-import { sampleMessage, sampleQuestionSet, sampleQueuedMessage, sampleTask, sampleWorkspace } from './test-bridge'
+import {
+  sampleMessage,
+  sampleQuestionSet,
+  sampleQueuedMessage,
+  sampleTask,
+  sampleTerminalTab,
+  sampleWorkspace,
+} from './test-bridge'
 
 const state: GladeData = Object.freeze({
   ...INITIAL_DATA,
@@ -403,6 +410,18 @@ describe('withOpenedWorkspace', () => {
   it('keeps a selected task in the same workspace, or none', () => {
     expect(withOpenedWorkspace({ ...state, selectedTaskId: 't1' }, sampleWorkspace('w1')).selectedTaskId).toBe('t1')
     expect(withOpenedWorkspace(state, opened).uiState).toEqual({ [UiStateKey.ActiveWorkspaceId]: 'w2' })
+  })
+})
+
+describe('the terminal', () => {
+  it('takes the tabs from each change, whole', () => {
+    const tabs = [sampleTerminalTab('a', { running: true })]
+    expect(applyEvent(state, { type: EventType.TerminalTabsChanged, tabs }).terminalTabs).toBe(tabs)
+  })
+
+  it('leaves a tab’s output and clearing to its terminal, out of the store', () => {
+    expect(applyEvent(state, { type: EventType.TerminalOutput, tabId: 'a', offset: 0, data: '$ ' })).toBe(state)
+    expect(applyEvent(state, { type: EventType.TerminalCleared, tabId: 'a' })).toBe(state)
   })
 })
 

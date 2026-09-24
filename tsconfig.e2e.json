@@ -18,6 +18,7 @@
     "src/shared/bridge.ts",
     "src/shared/domain.ts",
     "src/shared/ready.ts",
-    "src/shared/search.ts"
+    "src/shared/search.ts",
+    "src/shared/terminal.ts"
   ]
 }

@@ -71,7 +71,7 @@ describe('a tool call’s context menu', () => {
     const copied: string[] = []
     await renderLog(copied)
 
-    expect(await open(/^Done\s*Bash/)).toEqual(['Copy command', 'Copy output'])
+    expect(await open(/^Done\s*Bash/)).toEqual(['Copy command', 'Copy output', 'Run again in terminal'])
     fireEvent.click(screen.getByRole('menuitem', { name: 'Copy command' }))
     await act(() => Promise.resolve())
     await choose(/^Done\s*Bash/, 'Copy output')
@@ -86,6 +86,16 @@ describe('a tool call’s context menu', () => {
 
     expect(store.getState().openFiles.t1?.activePath).toBe('src/date.ts')
     expect(store.getState().uiState[UiStateKey.RightPanelTab]).toBe('files')
+  })
+
+  it('puts a Bash call’s command at the terminal’s prompt, in a new tab when there is none, without running it', async () => {
+    const { store } = await renderLog()
+
+    await choose(/^Done\s*Bash/, 'Run again in terminal')
+
+    const [tab] = store.getState().terminalTabs
+    expect(tab?.cwd).toBe('/code/w1')
+    expect(store.getState().terminalPaste).toEqual({ tabId: tab?.id, text: 'npm test', request: 1 })
   })
 
   it('opens nothing for a call with nothing to act on yet', async () => {

@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
 import { Chat } from './chat'
-import { classNames } from './components/classNames'
 import { ContextMeter } from './context-meter'
 import { ToastProvider } from './components'
 import { FirstRun } from './first-run/FirstRun'
@@ -26,16 +25,7 @@ import { useRightPanelShortcuts } from './shortcuts/useRightPanelShortcuts'
 import { useSearchShortcut } from './shortcuts/useSearchShortcut'
 import { TaskPanel } from './right-panel'
 import { RelaunchNotice } from './relaunch-notice'
-
-interface PlaceholderProps {
-  label: string
-  className?: string
-}
-
-/** A labelled empty region, standing in for content that later tickets build. */
-function Placeholder({ label, className }: PlaceholderProps): React.JSX.Element {
-  return <div className={classNames(styles.placeholder, className)}>{label}</div>
-}
+import { Terminal, TerminalTabs, useTerminalShortcuts } from './terminal'
 
 interface WindowProps {
   /** The sidebar, or nothing while it's collapsed. */
@@ -47,11 +37,12 @@ interface WindowProps {
 }
 
 /**
- * The window frame, with the bottom bar's placeholder until the terminal ticket fills it. The bottom bar collapses to
- * its tab row.
+ * The window frame, with the global terminal in the bottom bar, which collapses to its tab row. The terminal's own
+ * shortcuts (⌃` and ⌘T) work wherever the focus is.
  */
 function Window({ sidebar, task, banner, overlay }: WindowProps): React.JSX.Element {
   const bottomBar = usePanel(Panel.BottomBar)
+  useTerminalShortcuts()
   return (
     <AppShell
       banner={banner}
@@ -62,8 +53,8 @@ function Window({ sidebar, task, banner, overlay }: WindowProps): React.JSX.Elem
       bottomBar={
         <BottomBar
           collapsed={bottomBar.collapsed}
-          terminalTabs={<Placeholder label="Terminal tabs" className={styles.tabs} />}
-          terminal={<Placeholder label="Terminal" className={styles.fill} />}
+          terminalTabs={<TerminalTabs />}
+          terminal={<Terminal />}
           toggle={<PanelToggle panel={Panel.BottomBar} />}
         />
       }

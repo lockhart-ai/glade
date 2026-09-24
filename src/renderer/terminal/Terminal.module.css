@@ -1,0 +1,29 @@
+/* The terminal card's body, from docs/design/html/task-workspace.html: the screens, inset on the window background. */
+.screens {
+  flex-grow: 1;
+  min-height: 0;
+  position: relative;
+}
+
+/* Each tab's screen fills the body; only the tab showing is visible. */
+.screen {
+  position: absolute;
+  inset: 12px 8px 8px 16px;
+}
+
+.hidden {
+  visibility: hidden;
+}
+
+/* xterm's own scroll area takes the design's background too. */
+.screen :global(.xterm-viewport) {
+  background: var(--color-bg) !important;
+}
+
+.empty {
+  margin: auto;
+  padding: 10px 8px;
+  text-align: center;
+  font-size: var(--font-size-secondary);
+  color: var(--color-faint);
+}

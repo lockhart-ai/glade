@@ -356,3 +356,26 @@ export function deleteTaskDialog(page: Page) {
     confirm: dialog.getByRole('button', { name: 'Delete' }),
   }
 }
+
+/**
+ * The terminal in the bottom bar: its tab row, the screen of the tab showing and the rename field. A tab's button is
+ * named by its title, after "Running" while a program runs in it; `rows` are the lines of the screen showing, as
+ * xterm.js draws them.
+ */
+export function terminal(page: Page) {
+  const region = regions(page).terminal
+  const tabRow = region.getByRole('group', { name: 'Terminal tabs' })
+  const screen = region.locator('[data-testid="terminal-screen"][data-active="true"]')
+  return {
+    region,
+    /** Each tab's button, in order. */
+    tabs: tabRow.locator('button[aria-pressed]'),
+    tab: (name: string | RegExp) => tabRow.locator('button[aria-pressed]').filter({ hasText: name }),
+    close: (name: string) => tabRow.getByRole('button', { name: `Close ${name}` }),
+    newTab: region.getByRole('button', { name: 'New terminal' }),
+    renameField: region.getByRole('textbox', { name: 'Terminal name' }),
+    empty: region.getByText('No terminal open'),
+    screen,
+    rows: screen.locator('.xterm-rows > div'),
+  }
+}

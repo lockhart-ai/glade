@@ -4,9 +4,11 @@ import { UiStateKey, type OpenFiles, type UiStateEntry, type Workspace } from '.
 import { collapsedEntry, isCollapsed, Panel } from '../panels/panels'
 import { PanelTab, parsePanelTab } from '../right-panel/panelModel'
 import { listedTaskIds, selectionAfterDeleting } from '../task-list/sections'
+import { activeTerminalTab, commandToPaste, cycledTab } from '../terminal/terminalModel'
+import type { TerminalTab } from '../../shared/terminal'
 import { describeFailure, loadSnapshot } from './hydrate'
 import { applyEvent, withHistory, withOpenedWorkspace } from './reducer'
-import { HydrationStatus, INITIAL_DATA, type GladeState } from './state'
+import { HydrationStatus, INITIAL_DATA, type GladeState, type TerminalEvent } from './state'
 
 export type GladeStore = StoreApi<GladeState>
 
@@ -23,7 +25,14 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     // A task main asked to open while a snapshot loaded, opened once it has.
     let openWhenLoaded: string | null = null
 
+    // Each terminal tab's terminals, which hear its output straight from main's events, never through the store.
+    const terminalListeners = new Map<string, Set<(event: TerminalEvent) => void>>()
+
     const onEvent = (event: GladeEvent): void => {
+      if (event.type === EventType.TerminalOutput || event.type === EventType.TerminalCleared) {
+        for (const listener of terminalListeners.get(event.tabId) ?? []) listener(event)
+        return
+      }
       if (event.type === EventType.TaskOpenRequested) {
         if (pending === null) void get().selectTask(event.taskId)
         else openWhenLoaded = event.taskId
@@ -51,6 +60,30 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         void setUiState({ key: UiStateKey.RightPanelTab, value: tab })
       }
       if (isCollapsed(uiState, Panel.RightPanel)) void setUiState(collapsedEntry(Panel.RightPanel, false))
+    }
+
+    // Main broadcasts the new tab too; adding it from the answer as well means it's there whichever arrives first.
+    const withTerminalTab = (tab: TerminalTab): void => {
+      if (get().terminalTabs.some(({ id }) => id === tab.id)) return
+      set(({ terminalTabs }) => ({ terminalTabs: [...terminalTabs, tab] }))
+    }
+
+    const requestTerminalFocus = (): void => {
+      set(({ terminalFocusRequest }) => ({ terminalFocusRequest: terminalFocusRequest + 1 }))
+    }
+
+    // Opens the bottom bar if it's collapsed, so the terminal shows.
+    const showBottomBar = async (): Promise<void> => {
+      if (isCollapsed(get().uiState, Panel.BottomBar)) await setUiState(collapsedEntry(Panel.BottomBar, false))
+    }
+
+    // Shows a new terminal tab, with the focus in it.
+    const showNewTerminal = async (tab: TerminalTab): Promise<TerminalTab> => {
+      withTerminalTab(tab)
+      await setUiState({ key: UiStateKey.TerminalTab, value: tab.id })
+      await showBottomBar()
+      requestTerminalFocus()
+      return tab
     }
 
     const applyOpenFiles = ({ openFiles }: { openFiles: OpenFiles }): void => {
@@ -322,6 +355,121 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       async openSearchResult(taskId) {
         await get().selectTask(taskId)
         set(({ matchRevealRequest }) => ({ matchRevealRequest: matchRevealRequest + 1 }))
+      },
+
+      async createTerminal() {
+        const { tab } = await bridge.invoke(CommandName.TerminalCreate, { workspaceId: get().selectedWorkspaceId })
+        return showNewTerminal(tab)
+      },
+
+      async selectTerminal(tabId) {
+        await setUiState({ key: UiStateKey.TerminalTab, value: tabId })
+        requestTerminalFocus()
+      },
+
+      async cycleTerminal(step) {
+        const { terminalTabs, uiState } = get()
+        const active = activeTerminalTab(terminalTabs, uiState)
+        if (active === undefined) return
+        const next = cycledTab(
+          terminalTabs.map(({ id }) => id),
+          active.id,
+          step,
+        )
+        if (next === undefined || next === active.id) return
+        await setUiState({ key: UiStateKey.TerminalTab, value: next })
+        requestTerminalFocus()
+      },
+
+      async duplicateTerminal(tabId) {
+        const { tab } = await bridge.invoke(CommandName.TerminalDuplicate, { id: tabId })
+        await showNewTerminal(tab)
+      },
+
+      async closeTerminal(tabId) {
+        const { terminalTabs, uiState } = get()
+        const closingActive = activeTerminalTab(terminalTabs, uiState)?.id === tabId
+        const next = selectionAfterDeleting(
+          terminalTabs.map(({ id }) => id),
+          tabId,
+        )
+        await bridge.invoke(CommandName.TerminalClose, { id: tabId })
+        // Main's terminal.tabsChanged normally arrives first; make sure the tab is gone either way.
+        set((state) => ({ terminalTabs: state.terminalTabs.filter(({ id }) => id !== tabId) }))
+        if (!closingActive || next === null) return
+        await setUiState({ key: UiStateKey.TerminalTab, value: next })
+        requestTerminalFocus()
+      },
+
+      startTerminalRename(tabId) {
+        set({ renamingTerminalId: tabId })
+      },
+
+      cancelTerminalRename() {
+        set({ renamingTerminalId: null })
+      },
+
+      async renameTerminal(tabId, name) {
+        const trimmed = name.trim()
+        if (trimmed === '') return false
+        const tab = get().terminalTabs.find(({ id }) => id === tabId)
+        if (tab !== undefined && trimmed !== tab.name) {
+          await bridge.invoke(CommandName.TerminalRename, { id: tabId, name: trimmed })
+        }
+        if (get().renamingTerminalId === tabId) set({ renamingTerminalId: null })
+        return true
+      },
+
+      async clearTerminal(tabId) {
+        await bridge.invoke(CommandName.TerminalClear, { id: tabId })
+      },
+
+      async interruptTerminal(tabId) {
+        await bridge.invoke(CommandName.TerminalInterrupt, { id: tabId })
+      },
+
+      attachTerminal(tabId, { cols, rows }) {
+        return bridge.invoke(CommandName.TerminalAttach, { id: tabId, cols, rows })
+      },
+
+      async writeTerminal(tabId, data) {
+        await bridge.invoke(CommandName.TerminalWrite, { id: tabId, data })
+      },
+
+      async resizeTerminal(tabId, { cols, rows }) {
+        await bridge.invoke(CommandName.TerminalResize, { id: tabId, cols, rows })
+      },
+
+      subscribeTerminal(tabId, listener) {
+        const listeners = terminalListeners.get(tabId) ?? new Set()
+        listeners.add(listener)
+        terminalListeners.set(tabId, listeners)
+        return () => {
+          listeners.delete(listener)
+          if (listeners.size === 0) terminalListeners.delete(tabId)
+        }
+      },
+
+      async focusTerminal() {
+        if (get().terminalTabs.length === 0) {
+          await get().createTerminal()
+          return
+        }
+        await showBottomBar()
+        requestTerminalFocus()
+      },
+
+      async runInTerminal(command) {
+        const { terminalTabs, uiState } = get()
+        const tab = activeTerminalTab(terminalTabs, uiState) ?? (await get().createTerminal())
+        await showBottomBar()
+        set(({ terminalPaste }) => ({
+          terminalPaste: { tabId: tab.id, text: commandToPaste(command), request: (terminalPaste?.request ?? 0) + 1 },
+        }))
+      },
+
+      takeTerminalPaste(request) {
+        if (get().terminalPaste?.request === request) set({ terminalPaste: null })
       },
     }
   })

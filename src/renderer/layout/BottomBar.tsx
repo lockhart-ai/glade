@@ -15,8 +15,8 @@ export interface BottomBarProps {
 }
 
 /**
- * The full-width bar along the bottom of the window. For now it holds only the terminal card. Collapsed, the card
- * keeps only its tab row, whose toggle shows it again.
+ * The full-width bar along the bottom of the window, holding the terminal card. Collapsed, the card shows only its tab
+ * row, whose toggle shows it again; the terminal stays in the page, hidden, so its shells' screens keep what they show.
  */
 export function BottomBar({ terminalTabs, terminal, toggle, collapsed = false }: BottomBarProps): React.JSX.Element {
   return (
@@ -26,7 +26,9 @@ export function BottomBar({ terminalTabs, terminal, toggle, collapsed = false }:
           {terminalTabs}
           {toggle}
         </div>
-        {!collapsed && <div className={styles.content}>{terminal}</div>}
+        <div className={styles.content} hidden={collapsed}>
+          {terminal}
+        </div>
       </Card>
     </div>
   )

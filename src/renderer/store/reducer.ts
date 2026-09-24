@@ -36,6 +36,7 @@ export function withUiState(state: GladeData, entry: UiStateEntry): GladeData {
     case UiStateKey.RightPanelCollapsed:
     case UiStateKey.SidebarCollapsed:
     case UiStateKey.BottomBarCollapsed:
+    case UiStateKey.TerminalTab:
       return next
   }
 }
@@ -185,5 +186,14 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, todos: { ...state.todos, [event.taskId]: event.todos } }
     case EventType.ArtifactsChanged:
       return { ...state, artifacts: { ...state.artifacts, [event.taskId]: event.artifacts } }
+    case EventType.TerminalTabsChanged: {
+      const { renamingTerminalId } = state
+      const renaming = event.tabs.some(({ id }) => id === renamingTerminalId) ? renamingTerminalId : null
+      return { ...state, terminalTabs: event.tabs, renamingTerminalId: renaming }
+    }
+    case EventType.TerminalOutput:
+    case EventType.TerminalCleared:
+      // A terminal's output goes straight to its terminal (see `subscribeTerminal` in `./store`), not into the store.
+      return state
   }
 }

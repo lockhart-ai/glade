@@ -10,6 +10,7 @@ import {
   queuedMessageMenu,
   subagentMenu,
   taskMenu,
+  terminalTabMenu,
   todoMenu,
   toolCallMenu,
   type MenuAction,
@@ -98,10 +99,9 @@ const CASES: readonly Case[] = [
     target: 'Tool call',
     entries: toolCallMenu(
       { command: 'npm test', output: '148 passed', file: 'src/date.ts' },
-      spies('copyCommand', 'copyOutput', 'openFile'),
+      spies('copyCommand', 'copyOutput', 'openFile', 'runInTerminal'),
     ),
-    // The terminal is P8.
-    leftOut: ['Run again in terminal'],
+    leftOut: [],
   },
   {
     target: 'File tab / file',
@@ -121,6 +121,11 @@ const CASES: readonly Case[] = [
     leftOut: [],
   },
   {
+    target: 'Terminal tab',
+    entries: terminalTabMenu(spies('rename', 'duplicate', 'clear', 'kill', 'close')),
+    leftOut: [],
+  },
+  {
     target: 'Todo',
     entries: todoMenu(spies('copy', 'ask')),
     // Claude Code keeps the list: an edit of Glade's own would be overwritten by the agent's next change to it.
@@ -133,18 +138,29 @@ describe('the context menus', () => {
     expect(written(entries)).toEqual(without(referenceItems(target), leftOut))
   })
 
-  it.each(CASES)('$target: puts its destructive items last, in pink', ({ entries }) => {
-    const destructive = items(entries).map((item) => item.variant === MenuItemVariant.Destructive)
-    expect(destructive).toEqual([...destructive].sort((a, b) => Number(a) - Number(b)))
-  })
+  // The design puts a terminal tab's Close after its pink Kill process.
+  it.each(CASES.filter(({ target }) => target !== 'Terminal tab'))(
+    '$target: puts its destructive items last, in pink',
+    ({ entries }) => {
+      const destructive = items(entries).map((item) => item.variant === MenuItemVariant.Destructive)
+      expect(destructive).toEqual([...destructive].sort((a, b) => Number(a) - Number(b)))
+    },
+  )
 
-  it('marks deleting a task, removing a queued message or an artifact, and stopping a subagent as destructive, and nothing else', () => {
+  it('marks deleting a task, removing a queued message or an artifact, stopping a subagent and killing a process as destructive, and nothing else', () => {
     const labels = CASES.flatMap(({ entries }) =>
       items(entries)
         .filter((item) => item.variant === MenuItemVariant.Destructive)
         .map((item) => item.label),
     )
-    expect(labels).toEqual(['Delete task…', 'Delete task…', 'Remove', 'Remove from artifacts', 'Stop subagent'])
+    expect(labels).toEqual([
+      'Delete task…',
+      'Delete task…',
+      'Remove',
+      'Remove from artifacts',
+      'Stop subagent',
+      'Kill process',
+    ])
   })
 
   it('shows the keys from the one table of shortcut hints', () => {
@@ -152,11 +168,11 @@ describe('the context menus', () => {
     expect(new Set(shown)).toEqual(new Set(Object.values(SHORTCUT_HINTS)))
   })
 
-  it('left out only the target that isn’t built: terminal tabs (P8)', () => {
+  it('covers every target in the reference', () => {
     const targets = REFERENCE.split('\n')
       .filter((line) => line.startsWith('| ') && !line.startsWith('| Target') && !line.startsWith('|---'))
       .map((line) => line.split('|')[1]?.trim())
-    expect(targets.filter((target) => !CASES.some((c) => c.target === target))).toEqual(['Terminal tab'])
+    expect(targets.filter((target) => !CASES.some((c) => c.target === target))).toEqual([])
   })
 })
 
@@ -190,7 +206,12 @@ describe('agentReplyMenu', () => {
 
 describe('toolCallMenu', () => {
   it('has only the items the call has something for', () => {
-    const actions = spies('copyCommand', 'copyOutput', 'openFile')
+    const actions = spies('copyCommand', 'copyOutput', 'openFile', 'runInTerminal')
+    expect(written(toolCallMenu({ command: 'npm test', output: null, file: null }, actions))).toEqual([
+      'Copy command',
+      '—',
+      'Run again in terminal',
+    ])
     expect(written(toolCallMenu({ command: null, output: 'src/date.ts', file: null }, actions))).toEqual([
       'Copy output',
     ])

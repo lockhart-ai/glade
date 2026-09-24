@@ -10,6 +10,9 @@ import { createBroadcast, createDispatcher, type EventTarget } from './dispatche
 import type { Emit } from './events'
 import { createHandlers } from './handlers'
 import { REQUEST_SCHEMAS } from './requests'
+import type { SpawnPty } from '../terminal/pty'
+import type { TerminalShell } from '../terminal/shell'
+import { createTerminals, type Terminals } from '../terminal/terminals'
 
 /** The part of Electron's `ipcMain` the bridge uses, so tests can stand in a fake. */
 export interface MainIpc {
@@ -35,6 +38,17 @@ export interface BridgeOptions {
   readonly notifyReply?: NotifyReply
   /** Whether the network is up, for resuming a task paused offline (the runner's `isOnline`). Always up by default. */
   readonly isOnline?: () => boolean
+  /** What the terminal tabs run their shells with. */
+  readonly terminal: TerminalOptions
+}
+
+/** How the terminal tabs run their shells. */
+export interface TerminalOptions {
+  /** Starts a shell in a pseudo-terminal: node-pty in the app, a fake in unit tests. */
+  readonly spawn: SpawnPty
+  readonly shell: TerminalShell
+  /** Where a shell starts with no workspace, or when its folder is gone. */
+  readonly fallbackCwd: string
 }
 
 /** What the bridge started, for the app to shut down. */
@@ -42,6 +56,8 @@ export interface RegisteredBridge {
   readonly runner: AgentRunner
   /** Broadcasts an event to the windows. */
   readonly emit: Emit
+  /** The terminal tabs, whose shells end when the app quits. */
+  readonly terminals: Terminals
 }
 
 /**
@@ -59,6 +75,7 @@ export function registerBridge({
   agentBackend,
   notifyReply,
   isOnline,
+  terminal,
 }: BridgeOptions): RegisteredBridge {
   const emit = createBroadcast(EVENT_CHANNEL, targets)
   // One broker for the agent's questions: the Glade tools' `ask` waits on it, and the runner answers through it.
@@ -73,10 +90,11 @@ export function registerBridge({
     // Each session gets its own Glade tools, built for its task.
     mcpServers: (task) => ({ [GLADE_SERVER]: createGladeMcpServer({ db, emit, questions }, task.id) }),
   })
+  const terminals = createTerminals({ db, emit, ...terminal })
   const dispatch = createDispatcher(
-    createHandlers({ db, emit, chooseFolder, openPath, revealPath, writeClipboard, runner }),
+    createHandlers({ db, emit, chooseFolder, openPath, revealPath, writeClipboard, runner, terminals }),
     REQUEST_SCHEMAS,
   )
   ipc.handle(COMMAND_CHANNEL, (_event, command, request) => dispatch(command, request))
-  return { runner, emit }
+  return { runner, emit, terminals }
 }

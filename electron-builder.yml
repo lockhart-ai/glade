@@ -13,6 +13,13 @@ files:
   - '!out/testing/**/*'
   - '!out/e2e-results/**/*'
   - package.json
+  # node-pty (the terminal) ships prebuilt binaries for every platform, and its sources: keep only Apple silicon's.
+  - '!node_modules/node-pty/prebuilds/{win32,linux,darwin-x64}*/**'
+  - '!node_modules/node-pty/{deps,src,third_party,scripts,binding.gyp}'
+# node-pty starts each shell through its spawn-helper executable, which must be a real file, outside the asar archive
+# (node-pty looks for it in app.asar.unpacked).
+asarUnpack:
+  - node_modules/node-pty/prebuilds/darwin-arm64/**
 mac:
   target:
     - target: dmg
@@ -28,6 +35,6 @@ mac:
   hardenedRuntime: false
 # Glade-0.1.0-arm64.dmg, Glade-0.1.0-arm64.zip
 artifactName: ${productName}-${version}-${arch}.${ext}
-# Nothing to rebuild for Electron: better-sqlite3 is a Node-API addon with prebuilt binaries, which load under both
-# Node and Electron (see src/main/db/database.ts).
+# Nothing to rebuild for Electron: better-sqlite3 and node-pty are Node-API addons with prebuilt binaries, which load
+# under both Node and Electron (see src/main/db/database.ts and docs/decisions.md).
 npmRebuild: false

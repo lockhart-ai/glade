@@ -13,6 +13,7 @@ import { openTaskWithoutWindow } from './attention'
 import { getTask } from '../db/repositories/tasks'
 import { getUiState, setUiState } from '../db/repositories/ui-state'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
+import { fakeTerminalOptions } from '../terminal/fake-pty'
 
 let database: TestDatabase
 let first: Task
@@ -36,6 +37,7 @@ function launch(): void {
     openPath: () => Promise.resolve(''),
     revealPath: () => undefined,
     writeClipboard: () => Promise.resolve(),
+    terminal: fakeTerminalOptions(),
     agentBackend: backend,
     notifyReply: (taskId, reply) => notified.push([taskId, reply]),
   }))

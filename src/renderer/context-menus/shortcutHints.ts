@@ -12,6 +12,9 @@ export enum ShortcutAction {
   Copy = 'copy',
   CloseFileTab = 'close_file_tab',
   OpenInEditor = 'open_in_editor',
+  ClearTerminal = 'clear_terminal',
+  KillProcess = 'kill_process',
+  CloseTerminalTab = 'close_terminal_tab',
 }
 
 export const SHORTCUT_HINTS: Readonly<Record<ShortcutAction, string>> = {
@@ -23,4 +26,7 @@ export const SHORTCUT_HINTS: Readonly<Record<ShortcutAction, string>> = {
   [ShortcutAction.Copy]: '⌘C',
   [ShortcutAction.CloseFileTab]: '⌘W',
   [ShortcutAction.OpenInEditor]: '⌘⇧E',
+  [ShortcutAction.ClearTerminal]: '⌘K',
+  [ShortcutAction.KillProcess]: '⌃C',
+  [ShortcutAction.CloseTerminalTab]: '⌘W',
 }

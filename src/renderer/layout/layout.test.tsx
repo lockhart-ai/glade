@@ -225,6 +225,7 @@ describe('BottomBar', () => {
     const tabs = within(screen.getByRole('region', { name: 'Terminal' })).getByTestId('terminal-tabs')
     expect(tabs).toHaveTextContent('ShellsShow bottom panel')
     expect(tabs).toHaveClass(moduleClass(bottomBarStyles, 'alone'))
-    expect(screen.queryByText('Prompt')).toBeNull()
+    // The terminal stays in the page, hidden, so its screens keep what they show.
+    expect(screen.getByText('Prompt')).not.toBeVisible()
   })
 })

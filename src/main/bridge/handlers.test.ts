@@ -11,6 +11,8 @@ import { addArtifact } from '../db/repositories/artifacts'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { updateTask } from '../db/repositories/tasks'
 import { setUiState } from '../db/repositories/ui-state'
+import { createFakeSpawner, fakeTerminalOptions, type FakeSpawner } from '../terminal/fake-pty'
+import { createTerminals } from '../terminal/terminals'
 import { createHandlers, type Handlers } from './handlers'
 
 let database: TestDatabase
@@ -21,6 +23,7 @@ let openPath: Mock<(path: string) => Promise<string>>
 let revealPath: Mock<(path: string) => void>
 let writeClipboard: Mock<(text: string) => Promise<void>>
 let handlers: Handlers
+let spawner: FakeSpawner
 
 beforeEach(() => {
   database = openTestDatabase()
@@ -31,7 +34,18 @@ beforeEach(() => {
   revealPath = vi.fn()
   writeClipboard = vi.fn(() => Promise.resolve())
   const runner = createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() })
-  handlers = createHandlers({ db: database.db, emit, chooseFolder, openPath, revealPath, writeClipboard, runner })
+  spawner = createFakeSpawner()
+  const terminals = createTerminals({ db: database.db, emit, ...fakeTerminalOptions(spawner) })
+  handlers = createHandlers({
+    db: database.db,
+    emit,
+    chooseFolder,
+    openPath,
+    revealPath,
+    writeClipboard,
+    runner,
+    terminals,
+  })
 })
 
 afterEach(() => {
@@ -183,5 +197,45 @@ describe('search.query', () => {
       ],
     })
     expect(handlers[CommandName.SearchQuery]({ workspaceId: workspace.id, text: '' })).toEqual({ results: [] })
+  })
+})
+
+describe('the terminal commands', () => {
+  it('starts a new tab in the workspace root, or the fallback folder with none, and refuses an unknown workspace', async () => {
+    const workspace = sampleWorkspace(database.db, root)
+    const { tab } = await handlers[CommandName.TerminalCreate]({ workspaceId: workspace.id })
+    expect(tab).toMatchObject({ cwd: root, name: null, process: 'zsh', running: false })
+    const { tab: homeless } = await handlers[CommandName.TerminalCreate]({ workspaceId: null })
+    expect(homeless.cwd).toBe(tmpdir())
+    await expect(async () => handlers[CommandName.TerminalCreate]({ workspaceId: 'gone' })).rejects.toMatchObject({
+      code: BridgeErrorCode.NotFound,
+    })
+    expect((await handlers[CommandName.TerminalList]({})).tabs.map(({ id }) => id)).toEqual([tab.id, homeless.id])
+  })
+
+  it('runs a tab: attaches, types, resizes, renames, clears, interrupts, duplicates and closes it', async () => {
+    const { tab } = await handlers[CommandName.TerminalCreate]({ workspaceId: null })
+    expect(await handlers[CommandName.TerminalAttach]({ id: tab.id, cols: 80, rows: 24 })).toEqual({
+      output: '',
+      end: 0,
+    })
+    const [pty] = spawner.spawned
+    if (pty === undefined) throw new Error('No shell started')
+    pty.output('$ ')
+    expect(await handlers[CommandName.TerminalWrite]({ id: tab.id, data: 'ls\r' })).toBeNull()
+    expect(pty.written).toEqual(['ls\r'])
+    expect(await handlers[CommandName.TerminalResize]({ id: tab.id, cols: 100, rows: 30 })).toBeNull()
+    expect(pty.size).toEqual({ cols: 100, rows: 30 })
+    expect(await handlers[CommandName.TerminalRename]({ id: tab.id, name: '  server ' })).toBeNull()
+    expect((await handlers[CommandName.TerminalList]({})).tabs[0]?.name).toBe('server')
+    expect(await handlers[CommandName.TerminalClear]({ id: tab.id })).toBeNull()
+    expect(emit).toHaveBeenCalledWith({ type: EventType.TerminalCleared, tabId: tab.id })
+    expect(await handlers[CommandName.TerminalInterrupt]({ id: tab.id })).toBeNull()
+    expect(pty.interrupts).toBe(1)
+    const { tab: copy } = await handlers[CommandName.TerminalDuplicate]({ id: tab.id })
+    expect(copy).toMatchObject({ name: 'server', cwd: tab.cwd })
+    expect(await handlers[CommandName.TerminalClose]({ id: tab.id })).toBeNull()
+    expect(pty.killed).toBe(true)
+    expect((await handlers[CommandName.TerminalList]({})).tabs.map(({ id }) => id)).toEqual([copy.id])
   })
 })

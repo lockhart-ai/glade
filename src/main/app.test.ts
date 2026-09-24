@@ -19,6 +19,7 @@ import { sampleTask, sampleWorkspace } from './db/repositories/test-database'
 import { CHOOSE_FOLDER_OPTIONS } from './dialogs'
 import type { RecordingNotifier } from './notifications/recording-notifier'
 import { markRunning } from './relaunch'
+import { createFakeSpawner } from './terminal/fake-pty'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
 
 type Handler = (...args: unknown[]) => unknown
@@ -103,6 +104,7 @@ const electron = vi.hoisted(() => {
       }),
       dock: { hide: vi.fn() },
       getPath: vi.fn((name: string): string => {
+        if (name === 'home') return '/Users/sample'
         if (name !== 'userData') throw new Error(`unexpected getPath(${name})`)
         return electron.app.userData
       }),
@@ -363,6 +365,25 @@ describe('startApp', () => {
 
     expect(backend.session.sent.map(({ text }) => text)).toEqual(['Hi'])
     expect(backend.session.closed).toBe(true)
+  })
+
+  it('runs the terminal tabs’ shells as your login shell, from your home folder, and ends them when the app quits', async () => {
+    vi.stubEnv('SHELL', '/bin/zsh')
+    const spawner = createFakeSpawner()
+    startApp({ spawnPty: spawner.spawn })
+    await Promise.resolve()
+    await Promise.resolve()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    const created = (await handler?.({}, CommandName.TerminalCreate, { workspaceId: null })) as {
+      value: { tab: { id: string; cwd: string } }
+    }
+    expect(created.value.tab.cwd).toBe('/Users/sample')
+    await handler?.({}, CommandName.TerminalAttach, { id: created.value.tab.id, cols: 80, rows: 24 })
+    expect(spawner.spawned[0]?.options).toMatchObject({ file: '/bin/zsh', args: ['-l'] })
+    appHandler('will-quit')()
+
+    expect(spawner.spawned[0]?.killed).toBe(true)
   })
 
   it('resumes the turns it last quit in before opening the window', async () => {
@@ -817,6 +838,24 @@ describe('startApp in e2e mode', () => {
     // Otherwise it's the normal app, which the test quits.
     expect(electron.app.exit).not.toHaveBeenCalled()
     expect(electron.appHandlers.has('will-quit')).toBe(true)
+  })
+
+  it('runs the terminal tabs’ shells as a plain bash, from its throwaway data folder', async () => {
+    askForE2e()
+    const spawner = createFakeSpawner()
+    startApp({ spawnPty: spawner.spawn })
+    await Promise.resolve()
+    await Promise.resolve()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    const created = (await handler?.({}, CommandName.TerminalCreate, { workspaceId: null })) as {
+      value: { tab: { cwd: string } }
+    }
+
+    expect(created.value.tab.cwd).toBe(electron.app.userData)
+    const tab = (await handler?.({}, CommandName.TerminalList, {})) as { value: { tabs: { id: string }[] } }
+    await handler?.({}, CommandName.TerminalAttach, { id: tab.value.tabs[0]?.id, cols: 80, rows: 24 })
+    expect(spawner.spawned[0]?.options).toMatchObject({ file: '/bin/bash', args: ['--noprofile', '--norc'] })
   })
 
   it('answers the folder dialog with the folder the test chose, without showing it', async () => {

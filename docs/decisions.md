@@ -42,6 +42,16 @@
   Modules with the design tokens as CSS variables, Zustand (renderer store), better-sqlite3 (main process), Vitest +
   React Testing Library (unit/integration, 100% line coverage), ESLint (typescript-eslint) + Prettier, electron-builder
   (packaging), xterm.js + node-pty (terminal).
+- **Terminal internals:** main owns the shells, one node-pty pseudo-terminal per tab, each your login shell (`$SHELL
+  -l`) started in the root of the workspace you're looking at. The renderer draws them with xterm.js (`@xterm/xterm`
+  and its fit addon) and reaches them only through typed, zod-validated bridge commands (attach, type, resize, clear,
+  interrupt, close): it can't name a program or a folder to run, only type into a shell you opened. node-pty is a
+  Node-API addon with prebuilt macOS binaries, so it loads under Node and Electron alike and needs no rebuild
+  (`npmRebuild: false`, as for better-sqlite3); `scripts/fix-node-pty.mjs` makes its prebuilt spawn-helper executable
+  after install (1.1.0 ships it without the bit), and electron-builder unpacks it from the asar archive. Unit tests run
+  on a fake pseudo-terminal; only the app and the e2e specs start real shells (e2e mode runs a plain bash). Tabs,
+  names, folders and each tab's last 100,000 characters of output live in SQLite; a relaunch shows that output above a
+  new shell under a dim "restored" divider, since processes don't survive a restart.
 - **Icons:** Font Awesome (free regular + solid SVG icons via the official React packages), bundled locally; regular
   style preferred to match the designs' thin strokes.
 - **Overlays:** Floating UI (`@floating-ui/react`) positions menus and popovers and handles their focus, dismissal and
