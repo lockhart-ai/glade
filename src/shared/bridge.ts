@@ -18,6 +18,7 @@ import type {
   QuestionSet,
   QueuedMessage,
   Task,
+  TodoList,
   ToolEvent,
   UiStateEntry,
   UiStateKey,
@@ -230,6 +231,8 @@ export interface TasksHistoryResponse {
   readonly questionSets: readonly QuestionSet[]
   /** The files open in its Files tab. */
   readonly openFiles: OpenFiles
+  /** The agent's todo list (the Todos tab), as its tool log leaves it; null when it has kept none. */
+  readonly todos: TodoList | null
 }
 
 /**
@@ -406,6 +409,7 @@ export enum EventType {
   QuestionWithdrawn = 'question.withdrawn',
   OpenFilesChanged = 'openFiles.changed',
   FileShown = 'file.shown',
+  TodosChanged = 'todos.changed',
 }
 
 export interface UiStateChangedEvent {
@@ -499,6 +503,13 @@ export interface FileShownEvent {
   readonly line: number | null
 }
 
+/** A todo tool call of the agent's finished, which changed its todo list. Carries the whole list as it now is. */
+export interface TodosChangedEvent {
+  readonly type: EventType.TodosChanged
+  readonly taskId: string
+  readonly todos: TodoList | null
+}
+
 /** Everything main broadcasts to the windows. */
 export type GladeEvent =
   | UiStateChangedEvent
@@ -514,6 +525,7 @@ export type GladeEvent =
   | QuestionWithdrawnEvent
   | OpenFilesChangedEvent
   | FileShownEvent
+  | TodosChangedEvent
 
 export type EventListener = (event: GladeEvent) => void
 

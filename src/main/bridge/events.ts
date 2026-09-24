@@ -5,6 +5,7 @@ import {
   type QuestionSet,
   type QueuedMessage,
   type Task,
+  type TodoList,
   type ToolEvent,
 } from '../../shared/domain'
 
@@ -52,4 +53,9 @@ export function emitQuestionSet(emit: Emit, questionSet: QuestionSet): void {
 /** Tells every window a task's message queue changed, with the whole queue as it now is. */
 export function emitQueueChanged(emit: Emit, taskId: string, queuedMessages: readonly QueuedMessage[]): void {
   emit({ type: EventType.QueueChanged, taskId, queuedMessages })
+}
+
+/** Tells every window a task's todo list changed, with the whole list as it now is. */
+export function emitTodosChanged(emit: Emit, taskId: string, todos: TodoList | null): void {
+  emit({ type: EventType.TodosChanged, taskId, todos })
 }

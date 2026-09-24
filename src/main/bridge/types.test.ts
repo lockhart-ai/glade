@@ -19,6 +19,7 @@ import {
   type Message,
   type OpenFiles,
   type QuestionSet,
+  type TodoList,
   type QueuedMessage,
   type Task,
   type ToolEvent,
@@ -49,6 +50,7 @@ const TASK_HANDLERS = {
     queuedMessages: [],
     questionSets: [],
     openFiles: { taskId: 't', paths: [], activePath: null },
+    todos: null,
   }),
   [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
@@ -120,6 +122,7 @@ describe('the command map', () => {
       readonly queuedMessages: readonly QueuedMessage[]
       readonly questionSets: readonly QuestionSet[]
       readonly openFiles: OpenFiles
+      readonly todos: TodoList | null
     }>()
     expectTypeOf(glade.invoke(CommandName.QueueAdd, { taskId: 't', text: 'Hi' })).resolves.toEqualTypeOf<{
       readonly queuedMessage: QueuedMessage
@@ -304,6 +307,9 @@ describe('events', () => {
           break
         case EventType.FileShown:
           expectTypeOf(event.line).toEqualTypeOf<number | null>()
+          break
+        case EventType.TodosChanged:
+          expectTypeOf(event.todos).toEqualTypeOf<TodoList | null>()
           break
       }
     })

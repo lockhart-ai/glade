@@ -11,6 +11,7 @@ import type {
   QuestionSet,
   QueuedMessage,
   Task,
+  TodoList,
   ToolEvent,
   UiStateEntry,
   UiStateKey,
@@ -88,6 +89,11 @@ export interface GladeData {
   readonly questionSets: Readonly<Record<string, readonly QuestionSet[]>>
   /** The files open in each task's Files tab, by task id: loaded with its logs, then kept current by events. */
   readonly openFiles: Readonly<Record<string, OpenFiles>>
+  /**
+   * Each task's todo list (the Todos tab), by task id, null when the agent has kept none: loaded with its logs, then
+   * kept current by events.
+   */
+  readonly todos: Readonly<Record<string, TodoList | null>>
   readonly uiState: UiStateValues
   /**
    * The latest request to show a turn in the tool log; null until one is made. A one-off UI intent, so it's the one
@@ -207,6 +213,7 @@ export const INITIAL_DATA: GladeData = {
   queuedMessages: {},
   questionSets: {},
   openFiles: {},
+  todos: {},
   uiState: {},
   toolLogFocus: null,
   inputFocusRequest: 0,

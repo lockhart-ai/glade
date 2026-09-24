@@ -366,3 +366,16 @@ export function interruptPausedToolCalls(db: Database, taskId: string): ToolCall
     updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Interrupted, output }),
   )
 }
+
+/** A task's calls to any of the named tools, in the order they were made. */
+export function listToolCallsNamed(db: Database, taskId: string, names: readonly string[]): ToolCallEvent[] {
+  if (names.length === 0) return []
+  return db
+    .prepare(
+      `SELECT ${COLUMNS} FROM tool_events
+      WHERE task_id = ? AND kind = 'tool_call' AND tool_name IN (${names.map(() => '?').join(', ')})
+      ORDER BY seq`,
+    )
+    .all(taskId, ...names)
+    .map((raw) => parseToolCall(new Row('tool_events', raw)))
+}

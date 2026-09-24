@@ -39,6 +39,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
       queuedMessages: [],
       questionSets: [],
       openFiles: { taskId: 't', paths: [], activePath: null },
+      todos: null,
     }),
     [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
     [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),

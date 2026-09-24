@@ -8,7 +8,9 @@ import { RightPanel } from '../layout'
 import { selectSelectedTask, selectSelectedWorkspace } from '../store/state'
 import { useGladeStore } from '../store/react'
 import { SubagentsTab } from '../subagents'
+import { Todos } from '../todos'
 import { ToolLog, type TurnFocus } from '../tool-log'
+import { NOW_REFRESH_MS, useNow } from '../task-list/useNow'
 import { formatCount, isPanelCollapsed, PanelTab, parsePanelTab, parsePanelWidth } from './panelModel'
 import { PANEL_TAB_DEFINITIONS } from './panelTabs'
 import styles from './TaskPanel.module.css'
@@ -17,9 +19,8 @@ const TABS_ID = 'task-panel'
 
 /** What each tab not built yet shows. */
 const EMPTY_STATES: Readonly<
-  Record<Exclude<PanelTab, PanelTab.ToolCalls | PanelTab.Files | PanelTab.Subagents>, string>
+  Record<Exclude<PanelTab, PanelTab.ToolCalls | PanelTab.Files | PanelTab.Todos | PanelTab.Subagents>, string>
 > = {
-  [PanelTab.Todos]: 'No todos yet.',
   [PanelTab.Artifacts]: 'No artifacts yet.',
 }
 
@@ -27,9 +28,9 @@ const NO_TOOL_EVENTS: readonly ToolEvent[] = []
 
 /**
  * The right panel of the task card: the tab bar (Tool calls, Files, Todos, Artifacts, Subagents, each with its count)
- * and the selected tab. Tool calls, Files and Subagents are built so far; the others show an empty state. The selected
- * tab, the width and whether the panel is collapsed are kept in UI state, for the whole window; collapsed, the panel
- * shows nothing.
+ * and the selected tab. Tool calls, Files, Todos and Subagents are built so far; Artifacts shows an empty state. The
+ * selected tab, the width and whether the panel is collapsed are kept in UI state, for the whole window; collapsed,
+ * the panel shows nothing.
  * When the chat asks to show a turn of the selected task (its tool-call chip), the store opens Tool calls and the log
  * scrolls to that turn; when the agent shows a file (`show_file`), the store opens Files and the viewer marks its line.
  */
@@ -38,12 +39,15 @@ export function TaskPanel(): React.JSX.Element | null {
   const rootPath = useGladeStore((state) => selectSelectedWorkspace(state)?.rootPath)
   const events =
     useGladeStore((state) => (task === undefined ? undefined : state.toolEvents[task.id])) ?? NO_TOOL_EVENTS
+  const todos = useGladeStore((state) => (task === undefined ? undefined : state.todos[task.id]))
   const counts = useGladeStore(
     useShallow((state) =>
       PANEL_TAB_DEFINITIONS.map(({ count }) => (task === undefined ? undefined : formatCount(count(state, task.id)))),
     ),
   )
   const tab = useGladeStore((state) => parsePanelTab(state.uiState[UiStateKey.RightPanelTab]))
+  // Only the Todos tab shows a relative time ("updated 4m ago").
+  const now = useNow(tab === PanelTab.Todos ? NOW_REFRESH_MS : null)
   const width = useGladeStore((state) => parsePanelWidth(state.uiState[UiStateKey.RightPanelWidth]))
   const collapsed = useGladeStore((state) => isPanelCollapsed(state.uiState[UiStateKey.RightPanelCollapsed]))
   const setUiState = useGladeStore((state) => state.setUiState)
@@ -114,6 +118,8 @@ export function TaskPanel(): React.JSX.Element | null {
             />
           )
         )
+      case PanelTab.Todos:
+        return task !== undefined && <Todos list={todos} now={now} />
       case PanelTab.Subagents:
         return task !== undefined && <SubagentsTab key={task.id} events={events} rootPath={rootPath} />
       case PanelTab.Files:
@@ -128,7 +134,6 @@ export function TaskPanel(): React.JSX.Element | null {
             />
           )
         )
-      case PanelTab.Todos:
       case PanelTab.Artifacts:
         return <p className={styles.empty}>{EMPTY_STATES[tab]}</p>
     }

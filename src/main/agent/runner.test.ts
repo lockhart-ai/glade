@@ -12,6 +12,7 @@ import {
   MessageRole,
   TaskActivity,
   TaskState,
+  TodoState,
   ToolCallState,
   ToolEventKind,
   QuestionKind,
@@ -166,6 +167,8 @@ function drainEvents(): (readonly unknown[])[] {
         return [event.type, event.task.activity, event.task.sessionId, event.task.contextUsedTokens]
       case EventType.QueueChanged:
         return [event.type, event.queuedMessages.map(({ body }) => body)]
+      case EventType.TodosChanged:
+        return [event.type, event.todos?.items.map(({ text, state }) => [text, state]) ?? null]
       case EventType.QuestionOpened:
       case EventType.QuestionAnswered:
       case EventType.QuestionWithdrawn:
@@ -324,6 +327,7 @@ describe('a turn', () => {
       queuedMessages: [],
       questionSets: [],
       openFiles: { taskId: task.id, paths: [], activePath: null },
+      todos: null,
     })
   })
 
@@ -387,6 +391,43 @@ describe('a turn', () => {
     await settle()
 
     expect(toolLog()[1]).toMatchObject({ state: ToolCallState.Error, output: 'File does not exist.' })
+  })
+})
+
+describe('the todo list', () => {
+  it("broadcasts the task's list each time a todo tool call finishes, and loads it with the task's history", async () => {
+    await send('Move the uploads to S3.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_01', 'TodoWrite', {
+        todos: [
+          { content: 'Find the uploads', status: 'in_progress', activeForm: 'Finding the uploads' },
+          { content: 'Copy the files', status: 'pending', activeForm: 'Copying the files' },
+        ],
+      }),
+    )
+    await settle()
+    // Running, it hasn't changed anything yet.
+    expect(drainEvents().filter(([type]) => type === EventType.TodosChanged)).toEqual([])
+
+    backend.session.emit(
+      sdk.toolResult('toolu_01', 'Todos have been modified successfully.'),
+      sdk.toolUse('toolu_02', 'Bash', { command: 'ls uploads' }),
+      sdk.toolResult('toolu_02', 'a.png'),
+      sdk.toolUse('toolu_03', 'TodoWrite', { todos: 'broken' }),
+      sdk.toolResult('toolu_03', 'InputValidationError', true),
+      sdk.result('Found them.'),
+    )
+    await settle()
+
+    const todos = [
+      ['Find the uploads', TodoState.Doing],
+      ['Copy the files', TodoState.Todo],
+    ]
+    expect(drainEvents().filter(([type]) => type === EventType.TodosChanged)).toEqual([[EventType.TodosChanged, todos]])
+    const { todos: loaded } = await glade.invoke(CommandName.TasksHistory, { id: task.id })
+    expect(loaded?.items.map(({ text, state }) => [text, state])).toEqual(todos)
+    expect(loaded?.items[0]?.note).toBe('Finding the uploads')
   })
 })
 
@@ -2287,6 +2328,7 @@ describe('several tasks at once', () => {
       case EventType.TaskOpenRequested:
       case EventType.QueueChanged:
       case EventType.FileShown:
+      case EventType.TodosChanged:
         return event.taskId
       case EventType.OpenFilesChanged:
         return event.openFiles.taskId
@@ -2321,6 +2363,7 @@ describe('several tasks at once', () => {
       case EventType.TaskOpenRequested:
       case EventType.OpenFilesChanged:
       case EventType.FileShown:
+      case EventType.TodosChanged:
         return [event.type]
     }
   }

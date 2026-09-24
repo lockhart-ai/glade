@@ -80,7 +80,6 @@ tool error and opens nothing.
 | `set_objective` | `{ objective: string }` | Distils the objective from the first message. Set once. |
 | `set_status` | `{ status: string }` | Rewrites the status summary shown in the header and the task list. Becomes the outcome on Done. |
 | `ask` | `{ questions: Question[] }` | Shows a rich question card in the chat and blocks until answered. See below. |
-| `todos` | `{ items: { text, state: "todo" \| "doing" \| "done" \| "waiting", note? }[] }` | Replaces the Todos tab list. (Or map the SDK's own TodoWrite tool instead — decide in P5-03.) |
 | `add_artifact` | `{ path: string, title: string }` | Declares a file as a deliverable of the task (Artifacts tab). |
 | `show_file` | `{ path: string, line?: number }` | Opens a file in the Files tab for the user. |
 
@@ -95,6 +94,24 @@ type Question =
 
 Answers return as JSON keyed by question index. The user can ignore the card and reply in words instead; that answers
 it too.
+
+## Todos: Claude Code's own tools, not a Glade tool (P5-03)
+
+The draft had a `todos` tool. Instead, the Todos tab maps the todo tools Claude Code already gives the model, which it
+uses without being asked, so the system prompt says nothing about todos (`src/main/todos/`):
+
+- **`TaskCreate` / `TaskUpdate`** are what the bundled Claude Code (2.1.281) exposes: a probe's `system/init` listed
+  `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate` and no `TodoWrite`. `TaskCreate { subject, activeForm? }` adds a
+  pending item, and its result reads `Task #<id> created successfully: <subject>`; `TaskUpdate { taskId, status?,
+  subject?, activeForm? }` changes one, and status `deleted` removes it.
+- **`TodoWrite { todos: { content, status, activeForm }[] }`**, the older tool, replaces the whole list. Claude Code
+  offers it instead when its task tools are off (`CLAUDE_CODE_ENABLE_TASKS=false` in the environment).
+
+`pending`, `in_progress` and `completed` map to todo, doing and done; a doing item's `activeForm` is its note. Only the
+main agent's successful calls count. The list isn't stored on its own: main works it out from the task's tool log
+(`todoListFor`), sends it with `tasks.history`, and broadcasts `todos.changed` when a todo tool call finishes. The calls
+stay in the tool log like any others. The domain's `waiting` state (purple in the design) has no source in Claude
+Code's tools, so nothing sets it yet.
 
 ## Not tools — from SDK events
 

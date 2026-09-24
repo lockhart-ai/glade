@@ -105,6 +105,12 @@ describe('readSeed', () => {
     expect(paused.every((task) => task.activity === TaskActivity.Paused)).toBe(true)
   })
 
+  it('reads the todos fixture, which opens the Todos tab', () => {
+    const seed = readSeed(join(FIXTURES, 'todos.json'))
+    expect(seed.panelTab).toBe('todos')
+    expect(seed.tasks.find((task) => task.selected)?.title).toBe('Move image uploads to S3')
+  })
+
   it('reads the compaction fixture', () => {
     const selected = readSeed(join(FIXTURES, 'compaction.json')).tasks.find((task) => task.selected)
     expect(selected?.toolEvents?.filter((event) => event.kind === ToolEventKind.Compaction)).toMatchObject([

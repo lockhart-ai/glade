@@ -4,6 +4,7 @@ import {
   UiStateKey,
   type Message,
   type QuestionSet,
+  type TodoList,
   type ToolEvent,
   type UiStateEntry,
   type Workspace,
@@ -82,7 +83,14 @@ export function withHistory(state: GladeData, taskId: string, history: TasksHist
     },
     // Like the queue, open files change in place: the loaded ones are as new as any event before them.
     openFiles: { ...state.openFiles, [taskId]: history.openFiles },
+    todos: { ...state.todos, [taskId]: newerTodos(history.todos, state.todos[taskId]) },
   }
+}
+
+/** The loaded todo list, unless an event already brought a newer one. */
+function newerTodos(loaded: TodoList | null, current: TodoList | null | undefined): TodoList | null {
+  if (current === undefined || current === null) return loaded
+  return loaded === null || current.updatedAt > loaded.updatedAt ? current : loaded
 }
 
 /**
@@ -131,5 +139,7 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       const { taskId, path, line } = event
       return { ...state, fileFocus: { taskId, path, line, request: (state.fileFocus?.request ?? 0) + 1 } }
     }
+    case EventType.TodosChanged:
+      return { ...state, todos: { ...state.todos, [event.taskId]: event.todos } }
   }
 }
