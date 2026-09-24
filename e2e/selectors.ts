@@ -118,5 +118,7 @@ export function inputBar(page: Page) {
     field: bar.getByRole('textbox', { name: 'Message the agent' }),
     send: bar.getByRole('button', { name: 'Send', exact: true }),
     stop: bar.getByRole('button', { name: 'Stop', exact: true }),
+    /** The context meter, at the right of the settings row. */
+    contextMeter: bar.getByTestId('context-meter-slot').getByRole('meter', { name: 'Context used' }),
   }
 }
