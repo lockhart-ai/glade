@@ -4,9 +4,11 @@ import {
   DividerKind,
   QuestionReplyKind,
   QuestionSetState,
+  TodoState,
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  type TodoList,
   type ToolCallEvent,
   type ToolEvent,
 } from '../../shared/domain'
@@ -132,6 +134,7 @@ describe("a task's logs", () => {
       toolEvents: [divider, call],
       queuedMessages: [],
       questionSets: [],
+      todos: null,
     })
 
     expect(applyEvent(loaded, { type: EventType.ToolEventUpdated, toolEvent: done }).toolEvents).toEqual({
@@ -155,12 +158,14 @@ describe("a task's logs", () => {
       toolEvents: [divider, call],
       queuedMessages: [],
       questionSets: [],
+      todos: null,
     })
 
     expect(next.messages.t1).toEqual([early, late])
     expect(next.toolEvents.t1).toEqual([divider, call])
     expect(
-      withHistory(state, 't2', { messages: [], toolEvents: [], queuedMessages: [], questionSets: [] }).messages,
+      withHistory(state, 't2', { messages: [], toolEvents: [], queuedMessages: [], questionSets: [], todos: null })
+        .messages,
     ).toEqual({ t2: [] })
   })
 })
@@ -181,6 +186,7 @@ describe("a task's queue", () => {
       toolEvents: [],
       queuedMessages: [second],
       questionSets: [],
+      todos: null,
     })
     expect(loaded.queuedMessages).toEqual({ t1: [second] })
   })
@@ -211,8 +217,41 @@ describe("a task's questions", () => {
     ] as const
     expect(closed.reduce(applyEvent, asked).questionSets.t1).toEqual([answered, withdrawn])
 
-    const empty = { messages: [], toolEvents: [], queuedMessages: [] }
+    const empty = { messages: [], toolEvents: [], queuedMessages: [], todos: null }
     expect(withHistory(state, 't1', { ...empty, questionSets: [answered] }).questionSets).toEqual({ t1: [answered] })
+  })
+})
+
+describe("a task's todo list", () => {
+  const list = (text: string, updatedAt: number): TodoList => ({
+    items: [{ text, state: TodoState.Todo, note: null }],
+    updatedAt,
+  })
+  const history = (todos: TodoList | null) => ({
+    messages: [],
+    toolEvents: [],
+    queuedMessages: [],
+    questionSets: [],
+    todos,
+  })
+
+  it('takes the list from each change, whole', () => {
+    const changed = applyEvent(state, { type: EventType.TodosChanged, taskId: 't1', todos: list('Copy', 5_000) })
+    expect(changed.todos).toEqual({ t1: list('Copy', 5_000) })
+    expect(applyEvent(changed, { type: EventType.TodosChanged, taskId: 't1', todos: null }).todos).toEqual({ t1: null })
+  })
+
+  it('loads the list with the history, unless a change already brought a newer one', () => {
+    expect(withHistory(state, 't1', history(list('Copy', 5_000))).todos).toEqual({ t1: list('Copy', 5_000) })
+    expect(withHistory(state, 't1', history(null)).todos).toEqual({ t1: null })
+
+    const changed = applyEvent(state, { type: EventType.TodosChanged, taskId: 't1', todos: list('Check', 6_000) })
+    expect(withHistory(changed, 't1', history(list('Copy', 5_000))).todos).toEqual({ t1: list('Check', 6_000) })
+    expect(withHistory(changed, 't1', history(null)).todos).toEqual({ t1: list('Check', 6_000) })
+    expect(withHistory(changed, 't1', history(list('Ship', 6_000))).todos).toEqual({ t1: list('Ship', 6_000) })
+
+    const cleared = applyEvent(state, { type: EventType.TodosChanged, taskId: 't1', todos: null })
+    expect(withHistory(cleared, 't1', history(list('Copy', 5_000))).todos).toEqual({ t1: list('Copy', 5_000) })
   })
 })
 

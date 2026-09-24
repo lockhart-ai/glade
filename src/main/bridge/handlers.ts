@@ -12,6 +12,7 @@ import { createWorkspaceAt, openWorkspace } from '../workspaces/workspaces'
 import { editQueuedMessage, removeQueuedMessage } from '../tasks/queue'
 import { noteUiStateSet } from '../tasks/attention'
 import { createTask, markTaskDone, reopenTask, updateTaskFromUser } from '../tasks/service'
+import { todoListFor } from '../todos/todos'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
 
@@ -63,6 +64,7 @@ export function createHandlers(context: HandlerContext): Handlers {
         toolEvents: listToolEvents(db, id),
         queuedMessages: listQueuedMessages(db, id),
         questionSets: listQuestionSets(db, id),
+        todos: todoListFor(db, id),
       }
     },
     [CommandName.QueueAdd]: ({ taskId, text }) => ({ queuedMessage: runner.queue(taskId, text) }),

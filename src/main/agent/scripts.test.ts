@@ -8,6 +8,7 @@ import {
   MessageRole,
   PauseReason,
   TaskActivity,
+  TodoState,
   ToolCallState,
   ToolEventKind,
   type Task,
@@ -23,9 +24,17 @@ import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { createQuestionBroker } from '../questions/questions'
+import { todoListFor } from '../todos/todos'
 import { createAgentRunner, STOPPED_NOTE, type AgentRunner } from './runner'
 import { createGladeMcpServer, GLADE_SERVER } from './glade-tools'
-import { AGENT_SCRIPT_NAMES, AGENT_SCRIPTS, RELEASE_NOTES_QUESTIONS, type AgentScriptName } from './scripts'
+import {
+  AGENT_SCRIPT_NAMES,
+  AGENT_SCRIPTS,
+  DELETE_LOCAL_COPIES_QUESTION,
+  RELEASE_NOTES_QUESTIONS,
+  S3_PLAN,
+  type AgentScriptName,
+} from './scripts'
 import { OFFLINE_FIRST_CHECK_MS } from './pauses'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
 
@@ -483,5 +492,39 @@ describe('AGENT_SCRIPTS', () => {
       [MessageRole.Agent, 1],
     ])
     expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, asking: false })
+  })
+
+  it('keeps-todos: plans with TaskCreate, checks items off with TaskUpdate, and asks partway through', async () => {
+    const agent = start('keeps-todos')
+    await sendAndWaitAnHour(agent, 'Move the image uploads to S3.')
+
+    const states = (): TodoState[] | undefined => todoListFor(database.db, task.id)?.items.map(({ state }) => state)
+    const { Done, Doing, Todo } = TodoState
+    const open = getOpenQuestionSet(database.db, task.id)
+    expect(open?.questions).toEqual([DELETE_LOCAL_COPIES_QUESTION])
+    expect(todoListFor(database.db, task.id)?.items.map(({ text }) => text)).toEqual(
+      S3_PLAN.map((item) => item.subject),
+    )
+    expect(states()).toEqual([Done, Done, Done, Doing, Todo, Todo, Todo])
+    expect(todoListFor(database.db, task.id)?.items[3]?.note).toBe('Copying files · 1,240 of 3,900')
+
+    agent.answer(open?.id ?? '', { 0: 'Keep them for now' })
+    await vi.waitFor(() => {
+      expect(reply()).toMatch(/^All 3,900 files are on S3/)
+    })
+    expect(states()).toEqual([Done, Done, Done, Done, Done, Done, Todo])
+    expect(calls().filter(({ name }) => name === 'TaskCreate')).toHaveLength(7)
+  })
+
+  it('writes-todos: keeps its list with TodoWrite, checking each item off', async () => {
+    await send(start('writes-todos'), 'Fix the flaky login test.')
+
+    expect(reply()).toMatch(/passes 200 runs in a row\.$/)
+    expect(todoListFor(database.db, task.id)?.items).toEqual([
+      { text: 'Reproduce the flake', state: TodoState.Done, note: null },
+      { text: 'Fix the race', state: TodoState.Done, note: null },
+      { text: 'Run the test 200 times', state: TodoState.Done, note: null },
+    ])
+    expect(calls().filter(({ name }) => name === 'TodoWrite')).toHaveLength(3)
   })
 })

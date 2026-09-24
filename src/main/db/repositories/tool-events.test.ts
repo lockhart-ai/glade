@@ -9,6 +9,7 @@ import {
   failRunningCompactions,
   interruptPausedToolCalls,
   interruptRunningToolCalls,
+  listToolCallsNamed,
   listToolEvents,
   updateCompaction,
   updateToolCall,
@@ -326,5 +327,32 @@ describe('compactions', () => {
     expect(failRunningCompactions(test.db, task.id)).toEqual([{ ...cut, state: ToolCallState.Error }])
     expect(listToolEvents(test.db, task.id)).toEqual([{ ...cut, state: ToolCallState.Error }, finished])
     expect(failRunningCompactions(test.db, task.id)).toEqual([])
+  })
+})
+
+describe('listToolCallsNamed', () => {
+  it("lists a task's calls to the named tools, in order, and nothing else", () => {
+    const write = (toolUseId: string) => ({ ...bashCall(toolUseId), name: 'TodoWrite', input: { todos: [] } })
+    const first = appendToolCall(test.db, write('toolu_1'), 3_000)
+    appendToolCall(test.db, bashCall('toolu_2'), 3_100)
+    appendNarration(test.db, { taskId: task.id, turn: 1, text: 'Next.' }, 3_200)
+    const create = appendToolCall(
+      test.db,
+      { ...bashCall('toolu_3'), name: 'TaskCreate', input: { subject: 'Ship it' } },
+      3_300,
+    )
+    const done = updateToolCall(test.db, {
+      taskId: task.id,
+      toolUseId: 'toolu_3',
+      state: ToolCallState.Done,
+      output: 'Task #1 created successfully: Ship it',
+    })
+    const other = sampleTask(test.db, task.workspaceId)
+    appendToolCall(test.db, { ...write('toolu_4'), taskId: other.id }, 3_400)
+
+    expect(listToolCallsNamed(test.db, task.id, ['TodoWrite', 'TaskCreate'])).toEqual([first, done])
+    expect(done.id).toBe(create.id)
+    expect(listToolCallsNamed(test.db, task.id, ['Grep'])).toEqual([])
+    expect(listToolCallsNamed(test.db, task.id, [])).toEqual([])
   })
 })

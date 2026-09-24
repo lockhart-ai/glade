@@ -24,6 +24,7 @@ import {
   type QuestionSet,
   type QueuedMessage,
   type Task,
+  type TodoList,
   type ToolEvent,
   type UiStateEntry,
   type Workspace,
@@ -45,6 +46,8 @@ export interface FakeMain {
   readonly queuedMessages?: QueuedMessage[]
   /** Every task's question sets; none when left out. `questions.answer` answers one, without checking the answers. */
   readonly questionSets?: QuestionSet[]
+  /** Each task's todo list, by task id; none when left out. */
+  readonly todos?: Readonly<Record<string, TodoList>>
 }
 
 export interface FakeBridge {
@@ -127,6 +130,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       toolEvents: (main.toolEvents ?? []).filter((event) => event.taskId === id),
       queuedMessages: queueOf(id),
       questionSets: (main.questionSets ?? []).filter((set) => set.taskId === id),
+      todos: main.todos?.[id] ?? null,
     }),
     [CommandName.QueueAdd]: ({ taskId, text }) => {
       queued += 1
