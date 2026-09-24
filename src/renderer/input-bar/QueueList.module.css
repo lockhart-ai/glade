@@ -1,0 +1,84 @@
+/* The message queue above the input, from docs/design/html/02-agent-working.html. */
+.queue {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid var(--color-inner-border);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--color-faint);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-inner-border);
+  border-radius: 8px;
+}
+
+.position {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-faint);
+}
+
+.body {
+  flex-grow: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13.5px;
+  color: var(--color-text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The text being edited, in the row's place and type: one line to start, growing with what you type. */
+.row .editor {
+  flex-grow: 1;
+  min-width: 0;
+  max-height: 160px;
+  field-sizing: content;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--color-text);
+}
+
+.row .editor:hover,
+.row .editor:focus {
+  border: 0;
+  outline: none;
+}

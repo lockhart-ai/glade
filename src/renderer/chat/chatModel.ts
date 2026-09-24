@@ -136,11 +136,13 @@ function dividerEntry(task: Task, divider: DividerEvent, turn: number): DividerE
 
 /**
  * Whether a divider shows before a message. A marked done divider closes its turn, so it goes before the next turn's
- * message; a restart or reopened divider goes after its turn's message and before its reply.
+ * message; a restart or reopened divider goes after the message that started its turn and before its reply, and
+ * before any queued message delivered into the turn after it.
  */
 function dividerComesBefore({ kind, divider }: DividerEntry, message: Message): boolean {
   if (kind === ChatEntryKind.MarkedDone) return message.turn > divider.turn
-  return message.turn > divider.turn || (message.turn === divider.turn && message.role === MessageRole.Agent)
+  if (message.turn !== divider.turn) return message.turn > divider.turn
+  return message.role === MessageRole.Agent || message.createdAt > divider.createdAt
 }
 
 /**

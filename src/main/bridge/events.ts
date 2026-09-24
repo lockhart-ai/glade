@@ -1,5 +1,5 @@
 import { EventType, type GladeEvent } from '../../shared/bridge'
-import type { Message, Task, ToolEvent } from '../../shared/domain'
+import type { Message, QueuedMessage, Task, ToolEvent } from '../../shared/domain'
 
 /** Sends an event to every window. */
 export type Emit = (event: GladeEvent) => void
@@ -22,4 +22,9 @@ export function emitToolEventAppended(emit: Emit, toolEvent: ToolEvent): void {
 /** Tells every window a tool log entry changed. */
 export function emitToolEventUpdated(emit: Emit, toolEvent: ToolEvent): void {
   emit({ type: EventType.ToolEventUpdated, toolEvent })
+}
+
+/** Tells every window a task's message queue changed, with the whole queue as it now is. */
+export function emitQueueChanged(emit: Emit, taskId: string, queuedMessages: readonly QueuedMessage[]): void {
+  emit({ type: EventType.QueueChanged, taskId, queuedMessages })
 }

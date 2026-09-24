@@ -9,7 +9,7 @@
  *   rejecting with a `BridgeError`. `BridgeError` is a plain object, not an `Error`: `contextBridge` copies an `Error`
  *   thrown into the renderer's world but drops its extra properties, so `code` wouldn't survive.
  */
-import type { Effort, Message, Task, ToolEvent, UiStateEntry, UiStateKey, Workspace } from './domain'
+import type { Effort, Message, QueuedMessage, Task, ToolEvent, UiStateEntry, UiStateKey, Workspace } from './domain'
 
 /** The name the bridge is exposed under on `window`. */
 export const BRIDGE_KEY = 'glade'
@@ -35,6 +35,9 @@ export enum CommandName {
   TasksSend = 'tasks.send',
   TasksStop = 'tasks.stop',
   TasksHistory = 'tasks.history',
+  QueueAdd = 'queue.add',
+  QueueEdit = 'queue.edit',
+  QueueRemove = 'queue.remove',
   UiStateGet = 'uiState.get',
   UiStateGetAll = 'uiState.getAll',
   UiStateSet = 'uiState.set',
@@ -138,7 +141,11 @@ export interface TaskResponse {
  * the new turn's. Answers once the message is saved and handed to the agent, not when the turn ends: the turn's
  * progress arrives as `message.appended`, `toolEvent.appended`, `toolEvent.updated` and `task.updated` events.
  *
- * Fails with `busy` while the agent is working on a turn, and `not_found` when there's no such task.
+ * Messages waiting in the task's queue (a turn that was stopped or failed leaves them there) go first, in order, then
+ * this one: all of them start the turn, and each is saved to the chat log.
+ *
+ * Fails with `busy` while the agent is working on a turn (queue the message with `queue.add` instead), and `not_found`
+ * when there's no such task.
  */
 export interface TasksSendRequest {
   readonly id: string
@@ -161,10 +168,44 @@ export interface TasksSendResponse {
  */
 export type TasksStopRequest = TaskIdRequest
 
-/** A task's chat log and tool log, each in the order they were appended. */
+/** A task's chat log and tool log, each in the order they were appended, and its message queue. */
 export interface TasksHistoryResponse {
   readonly messages: readonly Message[]
   readonly toolEvents: readonly ToolEvent[]
+  /** The messages waiting to be delivered, in the order they will be. */
+  readonly queuedMessages: readonly QueuedMessage[]
+}
+
+/**
+ * Adds the user's message to the end of a task's queue, for the agent to get after its current step: when the running
+ * turn's current tool calls have their results, or when the turn ends. Until then it can be edited or removed. When
+ * the task's agent isn't working (the turn ended just before the message arrived), the queue is delivered at once,
+ * starting a turn, as `tasks.send` would. Broadcasts `queue.changed`. Fails with `not_found` when there's no such task.
+ */
+export interface QueueAddRequest {
+  readonly taskId: string
+  /** Markdown. Not blank. */
+  readonly text: string
+}
+
+/** Changes the text of a message still waiting in its queue. Broadcasts `queue.changed`. */
+export interface QueueEditRequest {
+  readonly id: string
+  /** Markdown. Not blank. */
+  readonly text: string
+}
+
+/** Removes a message still waiting in its queue. Broadcasts `queue.changed`. */
+export interface QueueRemoveRequest {
+  readonly id: string
+}
+
+/**
+ * `queue.add` and `queue.edit` answer with the queued message as it now is. `queue.edit` and `queue.remove` fail with
+ * `not_found` when the message isn't queued any more: it was delivered or removed.
+ */
+export interface QueuedMessageResponse {
+  readonly queuedMessage: QueuedMessage
 }
 
 export interface UiStateGetRequest {
@@ -204,6 +245,9 @@ export interface CommandMap {
   [CommandName.TasksSend]: CommandSpec<TasksSendRequest, TasksSendResponse>
   [CommandName.TasksStop]: CommandSpec<TasksStopRequest, TaskResponse>
   [CommandName.TasksHistory]: CommandSpec<TaskIdRequest, TasksHistoryResponse>
+  [CommandName.QueueAdd]: CommandSpec<QueueAddRequest, QueuedMessageResponse>
+  [CommandName.QueueEdit]: CommandSpec<QueueEditRequest, QueuedMessageResponse>
+  [CommandName.QueueRemove]: CommandSpec<QueueRemoveRequest, null>
   [CommandName.UiStateGet]: CommandSpec<UiStateGetRequest, UiStateGetResponse>
   [CommandName.UiStateGetAll]: CommandSpec<EmptyRequest, UiStateGetAllResponse>
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>
@@ -221,6 +265,7 @@ export enum EventType {
   MessageAppended = 'message.appended',
   ToolEventAppended = 'toolEvent.appended',
   ToolEventUpdated = 'toolEvent.updated',
+  QueueChanged = 'queue.changed',
 }
 
 export interface UiStateChangedEvent {
@@ -258,6 +303,16 @@ export interface ToolEventUpdatedEvent {
   readonly toolEvent: ToolEvent
 }
 
+/**
+ * A task's message queue changed: a message was added, edited or removed, or the queue was delivered. Carries the
+ * whole queue as it now is, in order.
+ */
+export interface QueueChangedEvent {
+  readonly type: EventType.QueueChanged
+  readonly taskId: string
+  readonly queuedMessages: readonly QueuedMessage[]
+}
+
 /** Everything main broadcasts to the windows. */
 export type GladeEvent =
   | UiStateChangedEvent
@@ -266,6 +321,7 @@ export type GladeEvent =
   | MessageAppendedEvent
   | ToolEventAppendedEvent
   | ToolEventUpdatedEvent
+  | QueueChangedEvent
 
 export type EventListener = (event: GladeEvent) => void
 

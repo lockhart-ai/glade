@@ -118,7 +118,17 @@ describe('parsing SDK messages', () => {
         totalCostUsd: 0.0285,
         usage: { inputTokens: 28, outputTokens: 553, cacheReadInputTokens: 58094, cacheCreationInputTokens: 9443 },
         contextWindows: { [sdk.MODEL]: sdk.CONTEXT_WINDOW },
+        userMessageUuids: null,
       },
+    ])
+  })
+
+  it('reads the user messages a result answered, when it says', () => {
+    expect(parse(sdk.result('Done.', { user_message_uuids: ['m1', 'm2'] }))).toEqual([
+      expect.objectContaining({ userMessageUuids: ['m1', 'm2'] }),
+    ])
+    expect(parse(sdk.result('Done.', { user_message_uuids: 'm1' }))).toEqual([
+      expect.objectContaining({ userMessageUuids: null }),
     ])
   })
 
@@ -154,6 +164,7 @@ describe('parsing SDK messages', () => {
         totalCostUsd: null,
         usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
         contextWindows: {},
+        userMessageUuids: null,
       },
     ])
   })

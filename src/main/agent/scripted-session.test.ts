@@ -304,6 +304,43 @@ describe('ScriptedSession', () => {
     expect(played.idles()).toBe(3)
   })
 
+  it('folds a message sent mid-turn into the turn: it drops its steps left and plays the next turn’s instead', async () => {
+    const played = play([
+      [init(), say('Copying.'), ...tool('copy', 'Bash', { command: 'copy' }, 'copied'), delay(100), say('Never.')],
+      [init(), say('Keeping the filenames.'), result()],
+    ])
+    played.session.send('Copy the files.', 'user-1')
+    await flush()
+    played.session.send('Keep the filenames.', 'user-2')
+    expect(played.idles()).toBe(1)
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(played.raw.filter((message) => message.subtype === 'init')).toHaveLength(1)
+    expect(played.events.filter((event) => event.kind === AgentEventKind.Text).map((event) => event.text)).toEqual([
+      'Copying.',
+      'Keeping the filenames.',
+    ])
+    expect(played.raw.at(-1)).toMatchObject({
+      type: 'result',
+      result: 'Keeping the filenames.',
+      user_message_uuids: ['user-1', 'user-2'],
+    })
+    expect(played.idles()).toBe(2)
+  })
+
+  it('does not fold a message into an interrupted turn: it plays its own turn after', async () => {
+    const played = play([[waitForInterrupt()], [say('Back.'), result()]])
+    played.session.send('a', 'user-1')
+    await flush()
+    await played.session.interrupt()
+    played.session.send('b', 'user-2')
+    await flush()
+    expect(played.raw.filter((message) => message.type === 'result').map((message) => message.result)).toEqual([
+      '',
+      'Back.',
+    ])
+  })
+
   it('runs the turns after a settings change on its model, as the SDK does', async () => {
     const played = play([[init(), say('Hi.'), result()]])
     played.session.send('a', 'user-1')

@@ -3,7 +3,7 @@
  * Main (and SQLite behind it) stays the source of truth; nothing here is kept only in memory.
  */
 import type { TaskUserPatch } from '../../shared/bridge'
-import type { Message, Task, ToolEvent, UiStateEntry, UiStateKey, Workspace } from '../../shared/domain'
+import type { Message, QueuedMessage, Task, ToolEvent, UiStateEntry, UiStateKey, Workspace } from '../../shared/domain'
 
 export enum HydrationStatus {
   Loading = 'loading',
@@ -54,6 +54,8 @@ export interface GladeData {
   readonly messages: Readonly<Record<string, readonly Message[]>>
   /** Each task's tool log, by task id: loaded when the task is selected, then kept current by events. */
   readonly toolEvents: Readonly<Record<string, readonly ToolEvent[]>>
+  /** Each task's message queue, in order, by task id: loaded with its logs, then kept current by events. */
+  readonly queuedMessages: Readonly<Record<string, readonly QueuedMessage[]>>
   readonly uiState: UiStateValues
   /**
    * The latest request to show a turn in the tool log; null until one is made. A one-off UI intent, so it's the one
@@ -113,6 +115,15 @@ export interface GladeActions {
    */
   sendMessage: (taskId: string, text: string) => Promise<void>
   /**
+   * Queues the user's message for the task's agent, which gets it after its current step. Resolves once main has
+   * saved it; the queue arrives as an event.
+   */
+  queueMessage: (taskId: string, text: string) => Promise<void>
+  /** Changes a queued message's text. Rejects with `not_found` once it has been delivered or removed. */
+  editQueuedMessage: (id: string, text: string) => Promise<void>
+  /** Removes a queued message. Rejects with `not_found` once it has been delivered or removed. */
+  removeQueuedMessage: (id: string) => Promise<void>
+  /**
    * Stops the task's agent: interrupts its running turn. Resolves once the turn has ended; the task, back to waiting on
    * you, arrives as an event. Does nothing when the agent isn't working.
    */
@@ -133,6 +144,7 @@ export const INITIAL_DATA: GladeData = {
   selectedTaskId: null,
   messages: {},
   toolEvents: {},
+  queuedMessages: {},
   uiState: {},
   toolLogFocus: null,
   inputFocusRequest: 0,

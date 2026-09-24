@@ -329,7 +329,9 @@ push({ type: "user", uuid: crypto.randomUUID(), parent_tool_use_id: null,
 - Run one `query()` per open task, in streaming-input mode, and keep it alive between turns.
 - Keep the P2 message queue in SQLite. Only push a message into the SDK when Glade decides to deliver it.
 - To deliver "after the current step" while still allowing edits until then, P2 can push from a `PostToolBatch` hook,
-  or simply on `result`. Worth a decision in P2.
+  or simply on `result`. **Decided (P2-02):** the runner pushes the queue when the turn's top-level tool calls all have
+  their results (the stream's `tool_result`s, no hook), and on `result`, where what's still queued starts the next
+  turn. A result's `user_message_uuids` says which pushed messages it answered; see the runner's module comment.
 
 ## 3. Custom tools [verified]
 

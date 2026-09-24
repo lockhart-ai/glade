@@ -119,6 +119,19 @@ export interface Message {
   readonly summary: TurnSummary | null
 }
 
+/**
+ * A message the user sent while the agent was working, waiting in the task's queue to be delivered after the agent's
+ * current step (`docs/decisions.md`). It can be edited or removed until then; once delivered it leaves the queue and
+ * becomes a user message in the chat log.
+ */
+export interface QueuedMessage {
+  readonly id: string
+  readonly taskId: string
+  /** Markdown. */
+  readonly body: string
+  readonly createdAt: EpochMs
+}
+
 /** The variants of a tool log entry. */
 export enum ToolEventKind {
   /** The agent's working notes between tool calls ("preamble"). */

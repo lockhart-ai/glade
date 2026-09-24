@@ -16,6 +16,7 @@ import {
   TaskState,
   UiStateKey,
   type Message,
+  type QueuedMessage,
   type Task,
   type ToolEvent,
   type UiStateEntry,
@@ -37,7 +38,10 @@ const TASK_HANDLERS = {
   [CommandName.TasksUpdate]: () => ({ task: {} as Task }),
   [CommandName.TasksSend]: () => ({ message: {} as Message }),
   [CommandName.TasksStop]: () => ({ task: {} as Task }),
-  [CommandName.TasksHistory]: () => ({ messages: [], toolEvents: [] }),
+  [CommandName.TasksHistory]: () => ({ messages: [], toolEvents: [], queuedMessages: [] }),
+  [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
+  [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
+  [CommandName.QueueRemove]: () => null,
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
   [CommandName.TasksCreate]: REQUEST_SCHEMAS[CommandName.TasksCreate],
@@ -47,6 +51,9 @@ const TASK_SCHEMAS = {
   [CommandName.TasksSend]: REQUEST_SCHEMAS[CommandName.TasksSend],
   [CommandName.TasksStop]: REQUEST_SCHEMAS[CommandName.TasksStop],
   [CommandName.TasksHistory]: REQUEST_SCHEMAS[CommandName.TasksHistory],
+  [CommandName.QueueAdd]: REQUEST_SCHEMAS[CommandName.QueueAdd],
+  [CommandName.QueueEdit]: REQUEST_SCHEMAS[CommandName.QueueEdit],
+  [CommandName.QueueRemove]: REQUEST_SCHEMAS[CommandName.QueueRemove],
 } satisfies Partial<RequestSchemas>
 
 describe('the command map', () => {
@@ -87,7 +94,15 @@ describe('the command map', () => {
     expectTypeOf(glade.invoke(CommandName.TasksHistory, { id: 't' })).resolves.toEqualTypeOf<{
       readonly messages: readonly Message[]
       readonly toolEvents: readonly ToolEvent[]
+      readonly queuedMessages: readonly QueuedMessage[]
     }>()
+    expectTypeOf(glade.invoke(CommandName.QueueAdd, { taskId: 't', text: 'Hi' })).resolves.toEqualTypeOf<{
+      readonly queuedMessage: QueuedMessage
+    }>()
+    expectTypeOf(glade.invoke(CommandName.QueueEdit, { id: 'q', text: 'Hi' })).resolves.toEqualTypeOf<{
+      readonly queuedMessage: QueuedMessage
+    }>()
+    expectTypeOf(glade.invoke(CommandName.QueueRemove, { id: 'q' })).resolves.toBeNull()
     expectTypeOf<CommandRequest<CommandName.UiStateSet>>().toEqualTypeOf<UiStateEntry>()
     expectTypeOf(
       glade.invoke(CommandName.UiStateSet, { key: UiStateKey.ActiveWorkspaceId, value: '' }),
@@ -242,6 +257,9 @@ describe('events', () => {
         case EventType.ToolEventAppended:
         case EventType.ToolEventUpdated:
           expectTypeOf(event.toolEvent).toEqualTypeOf<ToolEvent>()
+          break
+        case EventType.QueueChanged:
+          expectTypeOf(event.queuedMessages).toEqualTypeOf<readonly QueuedMessage[]>()
           break
       }
     })
