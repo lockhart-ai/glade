@@ -175,7 +175,7 @@ export function dividerTime(at: EpochMs, previous: EpochMs | undefined): string 
   return `${day}, ${clockTime(at)}`
 }
 
-/** What a divider says before its time: "turn 2", "marked done", "reopened", "resumed". */
+/** What a divider says before its time: "turn 2", "marked done", "reopened", "resumed after restart". */
 export function dividerLabel(divider: Pick<DividerEvent, 'dividerKind' | 'turn'>): string {
   switch (divider.dividerKind) {
     case DividerKind.Turn:
@@ -185,7 +185,7 @@ export function dividerLabel(divider: Pick<DividerEvent, 'dividerKind' | 'turn'>
     case DividerKind.Reopened:
       return 'reopened'
     case DividerKind.Resumed:
-      return 'resumed'
+      return 'resumed after restart'
   }
 }
 

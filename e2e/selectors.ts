@@ -71,6 +71,8 @@ export function chat(page: Page) {
     log,
     userMessages: log.getByRole('article', { name: 'You' }),
     agentReplies: log.getByRole('article', { name: 'Agent' }),
+    /** Where Glade restarted and resumed a turn. */
+    restarts: log.getByRole('separator', { name: 'Glade restarted' }),
   }
 }
 

@@ -663,9 +663,10 @@ describe('startApp in e2e mode', () => {
     expect(createSdkBackend).not.toHaveBeenCalled()
   })
 
-  it('fills the database from the seed fixture before opening the window', async () => {
+  it('fills the database from the seed fixture before opening the window, without resuming what it seeds', async () => {
     const seed = join(electron.app.userData, 'seed.json')
-    writeFileSync(seed, JSON.stringify({ workspace: { name: 'Acme API', rootPath: '/code/api' }, tasks: [] }))
+    const working = { title: 'Working', activity: 'working', minutesAgo: 0 }
+    writeFileSync(seed, JSON.stringify({ workspace: { name: 'Acme API', rootPath: '/code/api' }, tasks: [working] }))
     askForE2e({ seed })
 
     await startAndWaitUntilReady()
@@ -675,6 +676,7 @@ describe('startApp in e2e mode', () => {
     const db = new Database(join(electron.app.userData, 'glade.db'), { readonly: true })
     try {
       expect(db.prepare('SELECT name FROM workspaces').all()).toEqual([{ name: 'Acme API' }])
+      expect(db.prepare('SELECT activity FROM tasks').all()).toEqual([{ activity: 'working' }])
     } finally {
       db.close()
     }

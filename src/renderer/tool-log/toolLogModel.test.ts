@@ -153,7 +153,7 @@ describe('dividers', () => {
     expect(dividerLabel({ dividerKind: DividerKind.Turn, turn: 2 })).toBe('turn 2')
     expect(dividerLabel({ dividerKind: DividerKind.MarkedDone, turn: 2 })).toBe('marked done')
     expect(dividerLabel({ dividerKind: DividerKind.Reopened, turn: 2 })).toBe('reopened')
-    expect(dividerLabel({ dividerKind: DividerKind.Resumed, turn: 2 })).toBe('resumed')
+    expect(dividerLabel({ dividerKind: DividerKind.Resumed, turn: 2 })).toBe('resumed after restart')
   })
 
   it('show the date too when the day changed since the entry before', () => {
