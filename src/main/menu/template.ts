@@ -3,26 +3,25 @@
  * Edit, View, Workspace, Task, Window and Help. Pure, so it can be checked without Electron: the app hands the template
  * to `Menu.buildFromTemplate`.
  *
- * Every item of Glade's own runs a `Command` in the window, and each has the key the keymap gives it (`KEYMAP`): the
- * menu bar is what answers those keys, so the window doesn't also listen for them. An item whose command can't run
- * now is disabled, and its key does nothing.
+ * Every item of Glade's own runs a `Command` in the window, and each has the key the keymap gives it now
+ * (`keymap.ts`, with the bindings you've changed, which the window reports in `MenuState`): the menu bar is what answers
+ * those keys, so the window doesn't also listen for them. An item whose command can't run now is disabled, and its key
+ * does nothing.
  */
 import type { MenuItemConstructorOptions } from 'electron'
 import {
   appCommand,
   AppCommandId,
-  KEYMAP,
   pinLabel,
-  switchWorkspaceAccelerator,
   taskCommand,
   TaskCommandId,
   workspaceCommand,
   WorkspaceCommandId,
-  type Accelerator,
   type Command,
   type CommandId,
   type MenuState,
 } from '../../shared/commands'
+import { acceleratorOf, hasShortcut, resolveKeymap, type Accelerator, type Keymap } from '../../shared/keymap'
 
 /** Runs a command in the window. */
 export type RunCommand = (command: Command) => void
@@ -41,6 +40,12 @@ export function switchItemId(workspaceId: string): string {
   return `${WorkspaceCommandId.Switch}:${workspaceId}`
 }
 
+/** What the menu bar's items are built with: the commands they run and the keys they answer. */
+interface Build {
+  readonly run: RunCommand
+  readonly keymap: Keymap
+}
+
 /**
  * An item that runs a command, with its key: disabled when `command` is null, for a command that can't run now. Its
  * id is the command's (`id`), so it can be found in the built menu.
@@ -49,8 +54,8 @@ function commandItem(
   label: string,
   id: CommandId,
   command: Command | null,
-  run: RunCommand,
-  accelerator: Accelerator | undefined = KEYMAP[id],
+  { run, keymap }: Build,
+  accelerator: Accelerator | undefined = keyOf(keymap, id),
 ): MenuItemConstructorOptions {
   return {
     id,
@@ -63,13 +68,22 @@ function commandItem(
   }
 }
 
-function gladeMenu({ appName }: MenuOptions, run: RunCommand): MenuItemConstructorOptions {
+/**
+ * A menu bar command's key in `keymap`, or none for a command without one. Workspace settings… shares Settings…' key,
+ * as the design shows it; the key opens Settings, the first of the two in the menu bar.
+ */
+function keyOf(keymap: Keymap, id: CommandId): Accelerator | undefined {
+  const shortcut = id === WorkspaceCommandId.Settings ? AppCommandId.Settings : id
+  return hasShortcut(shortcut) ? acceleratorOf(keymap, shortcut) : undefined
+}
+
+function gladeMenu({ appName }: MenuOptions, build: Build): MenuItemConstructorOptions {
   return {
     label: appName,
     submenu: [
       { role: 'about', label: `About ${appName}` },
       SEPARATOR,
-      commandItem('Settings…', AppCommandId.Settings, appCommand(AppCommandId.Settings), run),
+      commandItem('Settings…', AppCommandId.Settings, appCommand(AppCommandId.Settings), build),
       SEPARATOR,
       { role: 'hide', label: `Hide ${appName}` },
       { role: 'hideOthers' },
@@ -80,15 +94,15 @@ function gladeMenu({ appName }: MenuOptions, run: RunCommand): MenuItemConstruct
   }
 }
 
-function fileMenu(state: MenuState, run: RunCommand): MenuItemConstructorOptions {
+function fileMenu(state: MenuState, build: Build): MenuItemConstructorOptions {
   const shown = state.shownWorkspaceId !== null
   return {
     label: 'File',
     submenu: [
-      commandItem('New task', AppCommandId.NewTask, shown ? appCommand(AppCommandId.NewTask) : null, run),
+      commandItem('New task', AppCommandId.NewTask, shown ? appCommand(AppCommandId.NewTask) : null, build),
       SEPARATOR,
       // ⌘W: the window closes the file or terminal tab that has the focus, or else itself.
-      commandItem('Close', AppCommandId.Close, appCommand(AppCommandId.Close), run),
+      commandItem('Close', AppCommandId.Close, appCommand(AppCommandId.Close), build),
     ],
   }
 }
@@ -108,9 +122,9 @@ function editMenu(): MenuItemConstructorOptions {
   }
 }
 
-function viewMenu({ panels }: MenuState, { developer }: MenuOptions, run: RunCommand): MenuItemConstructorOptions {
+function viewMenu({ panels }: MenuState, { developer }: MenuOptions, build: Build): MenuItemConstructorOptions {
   const toggle = (label: string, id: AppCommandId, available: boolean): MenuItemConstructorOptions =>
-    commandItem(label, id, available ? appCommand(id) : null, run)
+    commandItem(label, id, available ? appCommand(id) : null, build)
   return {
     label: 'View',
     submenu: [
@@ -128,11 +142,11 @@ function viewMenu({ panels }: MenuState, { developer }: MenuOptions, run: RunCom
   }
 }
 
-function workspaceMenu(state: MenuState, run: RunCommand): MenuItemConstructorOptions {
+function workspaceMenu(state: MenuState, build: Build): MenuItemConstructorOptions {
   const { workspaces, shownWorkspaceId: shown } = state
   const onShown = (id: WorkspaceCommandId): Command | null => (shown === null ? null : workspaceCommand(id, shown))
   const item = (label: string, id: WorkspaceCommandId): MenuItemConstructorOptions =>
-    commandItem(label, id, onShown(id), run)
+    commandItem(label, id, onShown(id), build)
   return {
     label: 'Workspace',
     submenu: [
@@ -145,16 +159,16 @@ function workspaceMenu(state: MenuState, run: RunCommand): MenuItemConstructorOp
             workspace.name,
             WorkspaceCommandId.Switch,
             workspaceCommand(WorkspaceCommandId.Switch, workspace.id),
-            run,
-            switchWorkspaceAccelerator(index + 1),
+            build,
+            acceleratorOf(build.keymap, WorkspaceCommandId.Switch, index + 1),
           ),
           id: switchItemId(workspace.id),
           type: 'checkbox' as const,
           checked: workspace.id === shown,
         })),
       },
-      commandItem('New workspace…', AppCommandId.NewWorkspace, appCommand(AppCommandId.NewWorkspace), run),
-      commandItem('Open folder as workspace…', AppCommandId.OpenFolder, appCommand(AppCommandId.OpenFolder), run),
+      commandItem('New workspace…', AppCommandId.NewWorkspace, appCommand(AppCommandId.NewWorkspace), build),
+      commandItem('Open folder as workspace…', AppCommandId.OpenFolder, appCommand(AppCommandId.OpenFolder), build),
       SEPARATOR,
       item('Rename workspace…', WorkspaceCommandId.Rename),
       item('Change root folder…', WorkspaceCommandId.ChangeRoot),
@@ -168,11 +182,11 @@ function workspaceMenu(state: MenuState, run: RunCommand): MenuItemConstructorOp
 }
 
 /** The Task menu: the selected task's actions, as its context menu has them, each disabled when it doesn't apply. */
-function taskMenu({ task }: MenuState, run: RunCommand): MenuItemConstructorOptions {
+function taskMenu({ task }: MenuState, build: Build): MenuItemConstructorOptions {
   const on = (id: TaskCommandId, applies: boolean): Command | null =>
     task !== null && applies ? taskCommand(id, task.id) : null
   const item = (label: string, id: TaskCommandId, applies: boolean): MenuItemConstructorOptions =>
-    commandItem(label, id, on(id, applies), run)
+    commandItem(label, id, on(id, applies), build)
   return {
     label: 'Task',
     submenu: [
@@ -191,15 +205,19 @@ function taskMenu({ task }: MenuState, run: RunCommand): MenuItemConstructorOpti
   }
 }
 
-/** The menu bar for what the window shows, each of Glade's items running its command through `run`. */
+/**
+ * The menu bar for what the window shows, each of Glade's items running its command through `run` and answering its
+ * key in the keymap, with the bindings `state` carries.
+ */
 export function menuTemplate(state: MenuState, options: MenuOptions, run: RunCommand): MenuItemConstructorOptions[] {
+  const build: Build = { run, keymap: resolveKeymap(state.keyBindings) }
   return [
-    gladeMenu(options, run),
-    fileMenu(state, run),
+    gladeMenu(options, build),
+    fileMenu(state, build),
     editMenu(),
-    viewMenu(state, options, run),
-    workspaceMenu(state, run),
-    taskMenu(state, run),
+    viewMenu(state, options, build),
+    workspaceMenu(state, build),
+    taskMenu(state, build),
     { role: 'windowMenu' },
     { role: 'help', submenu: [] },
   ]

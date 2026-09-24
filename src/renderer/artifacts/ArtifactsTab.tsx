@@ -157,30 +157,33 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
   const revealFile = useGladeStore((state) => state.revealFile)
   const removeArtifact = useGladeStore((state) => state.removeArtifact)
   const menu = useContextMenu<string>()
-  const { run, copy } = useMenuCommands()
+  const { run, copy, hints } = useMenuCommands()
   if (artifacts.length === 0) return <p className={styles.empty}>{NO_ARTIFACTS}</p>
 
   const entries = (path: string) =>
-    artifactMenu({
-      open: () => {
-        run(() => showFile(taskId, path))
+    artifactMenu(
+      {
+        open: () => {
+          run(() => showFile(taskId, path))
+        },
+        openInEditor: () => {
+          run(() => openInEditor(taskId, path))
+        },
+        copyContents: () => {
+          run(() => copyFile(taskId, path))
+        },
+        copyPath: () => {
+          copy(rootPath === undefined ? path : absolutePath(rootPath, path))
+        },
+        reveal: () => {
+          run(() => revealFile(taskId, path))
+        },
+        remove: () => {
+          run(() => removeArtifact(taskId, path))
+        },
       },
-      openInEditor: () => {
-        run(() => openInEditor(taskId, path))
-      },
-      copyContents: () => {
-        run(() => copyFile(taskId, path))
-      },
-      copyPath: () => {
-        copy(rootPath === undefined ? path : absolutePath(rootPath, path))
-      },
-      reveal: () => {
-        run(() => revealFile(taskId, path))
-      },
-      remove: () => {
-        run(() => removeArtifact(taskId, path))
-      },
-    })
+      hints,
+    )
 
   return (
     <ul className={styles.artifacts} aria-label="Artifacts">

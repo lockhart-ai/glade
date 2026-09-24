@@ -1,10 +1,10 @@
 /**
- * The app's commands and the keys that run them: one table the menu bar's accelerators and the shortcut hints the
- * window shows are both read from, so they can't disagree. A command runs in the renderer, whichever way it's asked
- * for: main sends the menu bar's (and so its keys') as `menu.command` events.
- *
- * The keymap registry (P7-04) grows this into every shortcut in `docs/keymap.md`, rebindable in Settings.
+ * The app's commands. A command runs in the renderer, whichever way it's asked for: main sends the menu bar's (and so
+ * its keys') as `menu.command` events, and the window's own key dispatcher runs the rest (`WindowCommandId`). The keys
+ * that run each one are in the keymap (`keymap.ts`), which the menu bar's accelerators, the window's dispatcher and
+ * every hint read, so they can't disagree, and which Settings › Keyboard rebinds.
  */
+import type { KeyBindingOverrides } from './keymap'
 
 /** What a command acts on. */
 export enum CommandScope {
@@ -52,6 +52,38 @@ export enum TaskCommandId {
   Delete = 'task.delete',
 }
 
+/**
+ * The commands the window runs from its own keys, not the menu bar's: the ones that act on what has the focus, or that
+ * the menu bar has no item for.
+ */
+export enum WindowCommandId {
+  JumpToTask = 'window.jumpToTask',
+  SearchTasks = 'window.searchTasks',
+  NextTask = 'window.nextTask',
+  PreviousTask = 'window.previousTask',
+  NextTaskNeedingYou = 'window.nextTaskNeedingYou',
+  ContextMenu = 'window.contextMenu',
+  Send = 'window.send',
+  NewLine = 'window.newLine',
+  StopAgent = 'window.stopAgent',
+  CompactContext = 'window.compactContext',
+  EditLastQueued = 'window.editLastQueued',
+  FocusInput = 'window.focusInput',
+  ShowPanelTab = 'window.showPanelTab',
+  OpenInEditor = 'window.openInEditor',
+  FocusTerminal = 'window.focusTerminal',
+  NewTerminalTab = 'window.newTerminalTab',
+  NextTerminalTab = 'window.nextTerminalTab',
+  PreviousTerminalTab = 'window.previousTerminalTab',
+  ClearTerminal = 'window.clearTerminal',
+  KillProcess = 'window.killProcess',
+  MenuMove = 'window.menuMove',
+  MenuChoose = 'window.menuChoose',
+  MenuClose = 'window.menuClose',
+  SelectAnswer = 'window.selectAnswer',
+}
+
+/** The commands the menu bar runs. */
 export type CommandId = AppCommandId | WorkspaceCommandId | TaskCommandId
 
 export interface AppCommand {
@@ -84,68 +116,6 @@ export function workspaceCommand(id: WorkspaceCommandId, workspaceId: string): W
 
 export function taskCommand(id: TaskCommandId, taskId: string): TaskCommand {
   return { scope: CommandScope.Task, id, taskId }
-}
-
-/**
- * A key combination, as Electron's menus take it (`CmdOrCtrl+Shift+P`): its modifiers in the order the window shows
- * them, then the key.
- */
-export type Accelerator = string
-
-/**
- * The keys that run commands (`docs/keymap.md`). A command with none has no shortcut. Workspace settings shares ⌘,
- * with Settings, as the design shows it; the key opens Settings, the first of the two in the menu bar.
- */
-export const KEYMAP: Readonly<Partial<Record<CommandId, Accelerator>>> = {
-  [AppCommandId.Settings]: 'CmdOrCtrl+,',
-  [AppCommandId.NewTask]: 'CmdOrCtrl+N',
-  [AppCommandId.Close]: 'CmdOrCtrl+W',
-  [AppCommandId.NewWorkspace]: 'CmdOrCtrl+Shift+N',
-  [AppCommandId.OpenFolder]: 'CmdOrCtrl+O',
-  [AppCommandId.ToggleSidebar]: 'CmdOrCtrl+B',
-  [AppCommandId.ToggleRightPanel]: 'CmdOrCtrl+Alt+B',
-  [AppCommandId.ToggleBottomBar]: 'CmdOrCtrl+J',
-  [WorkspaceCommandId.Settings]: 'CmdOrCtrl+,',
-  [WorkspaceCommandId.Close]: 'CmdOrCtrl+Shift+W',
-  [TaskCommandId.TogglePin]: 'CmdOrCtrl+Shift+P',
-  [TaskCommandId.Rename]: 'F2',
-  [TaskCommandId.MarkUnread]: 'CmdOrCtrl+Shift+U',
-  [TaskCommandId.MarkDone]: 'CmdOrCtrl+Shift+D',
-}
-
-/** How many workspaces have a key to switch to them: ⌘1 – ⌘9. */
-export const SWITCH_KEYS = 9
-
-/** The key that switches to the workspace at `position` (from 1, oldest first): ⌘1 – ⌘9, or none past the ninth. */
-export function switchWorkspaceAccelerator(position: number): Accelerator | undefined {
-  return Number.isInteger(position) && position >= 1 && position <= SWITCH_KEYS
-    ? `CmdOrCtrl+${String(position)}`
-    : undefined
-}
-
-const MODIFIER_SYMBOLS: Readonly<Record<string, string>> = {
-  CmdOrCtrl: '⌘',
-  Command: '⌘',
-  Cmd: '⌘',
-  Alt: '⌥',
-  Option: '⌥',
-  Shift: '⇧',
-  Ctrl: '⌃',
-  Control: '⌃',
-}
-
-/** A key combination as the window shows it beside a menu item or in a tooltip: `CmdOrCtrl+Shift+P` is `⌘⇧P`. */
-export function shortcutHint(accelerator: Accelerator): string {
-  return accelerator
-    .split('+')
-    .map((part) => MODIFIER_SYMBOLS[part] ?? part.toUpperCase())
-    .join('')
-}
-
-/** The hint for a command's key; empty when it has none. */
-export function commandHint(id: CommandId): string {
-  const accelerator = KEYMAP[id]
-  return accelerator === undefined ? '' : shortcutHint(accelerator)
 }
 
 /** The label of the item that pins a task, or unpins a pinned one, in the menu bar and the task's context menu. */
@@ -191,6 +161,8 @@ export interface MenuState {
   /** The selected task; null for none. */
   readonly task: MenuTask | null
   readonly panels: MenuPanels
+  /** The shortcuts you've rebound (Settings › Keyboard), so the menu bar's items show and answer the current keys. */
+  readonly keyBindings: KeyBindingOverrides
 }
 
 /** The menu bar before the window reports anything: nothing to act on. */
@@ -199,4 +171,5 @@ export const EMPTY_MENU_STATE: MenuState = {
   shownWorkspaceId: null,
   task: null,
   panels: { sidebar: false, rightPanel: false, bottomBar: false },
+  keyBindings: {},
 }

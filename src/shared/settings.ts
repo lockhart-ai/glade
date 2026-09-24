@@ -4,6 +4,7 @@
  * acts on them; the renderer shows and changes them through the bridge. Each one saves as soon as it changes.
  */
 import { Effort } from './domain'
+import type { KeyBindingOverrides } from './keymap'
 import { MODEL_OPTIONS } from './models'
 
 export interface Settings {
@@ -19,6 +20,8 @@ export interface Settings {
   readonly notifications: boolean
   /** Whether those notifications make a sound. */
   readonly notificationSound: boolean
+  /** The shortcuts you've rebound in Settings › Keyboard (`keymap.ts`); the rest keep their defaults. */
+  readonly keyBindings: KeyBindingOverrides
 }
 
 /** The settings you change at once: the ones left out keep their value. */
@@ -32,4 +35,5 @@ export const DEFAULT_SETTINGS: Settings = {
   taskTitles: true,
   notifications: true,
   notificationSound: false,
+  keyBindings: {},
 }

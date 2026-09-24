@@ -1,10 +1,9 @@
-import { AppCommandId, commandHint, TaskCommandId } from '../../shared/commands'
+import { useMemo } from 'react'
+import { AppCommandId, TaskCommandId, WindowCommandId } from '../../shared/commands'
+import { DEFAULT_KEYMAP, formatBinding, type Keymap, type ShortcutId } from '../../shared/keymap'
+import { useKeymap } from '../commands/hooks'
 
-/**
- * The keys the context menus show beside their items, from `docs/keymap.md`: the ones the menu bar answers come from
- * its keymap (`KEYMAP`), so the two always agree. The keymap registry (P7-04), which makes every shortcut rebindable,
- * grows that keymap to cover the rest.
- */
+/** The keys the context menus show beside their items. */
 export enum ShortcutAction {
   /** Opens what the focused row is: a task, or a subagent's log. */
   Open = 'open',
@@ -17,13 +16,33 @@ export enum ShortcutAction {
   OpenInEditor = 'open_in_editor',
 }
 
-export const SHORTCUT_HINTS: Readonly<Record<ShortcutAction, string>> = {
-  [ShortcutAction.Open]: '↵',
-  [ShortcutAction.TogglePin]: commandHint(TaskCommandId.TogglePin),
-  [ShortcutAction.Rename]: commandHint(TaskCommandId.Rename),
-  [ShortcutAction.MarkUnread]: commandHint(TaskCommandId.MarkUnread),
-  [ShortcutAction.MarkDone]: commandHint(TaskCommandId.MarkDone),
-  [ShortcutAction.Copy]: '⌘C',
-  [ShortcutAction.CloseFileTab]: commandHint(AppCommandId.Close),
-  [ShortcutAction.OpenInEditor]: '⌘⇧E',
+/** The command whose binding each hint shows. Copy is the Edit menu's ⌘C, which no command has. */
+const HINT_COMMANDS: Readonly<Record<Exclude<ShortcutAction, ShortcutAction.Copy>, ShortcutId>> = {
+  [ShortcutAction.Open]: WindowCommandId.MenuChoose,
+  [ShortcutAction.TogglePin]: TaskCommandId.TogglePin,
+  [ShortcutAction.Rename]: TaskCommandId.Rename,
+  [ShortcutAction.MarkUnread]: TaskCommandId.MarkUnread,
+  [ShortcutAction.MarkDone]: TaskCommandId.MarkDone,
+  [ShortcutAction.CloseFileTab]: AppCommandId.Close,
+  [ShortcutAction.OpenInEditor]: WindowCommandId.OpenInEditor,
+}
+
+/** What each hint shows. */
+export type ShortcutHints = Readonly<Record<ShortcutAction, string>>
+
+/** The hints for a keymap: each command's current binding, so a shortcut you've rebound shows as you bound it. */
+export function shortcutHints(keymap: Keymap): ShortcutHints {
+  const hints = Object.fromEntries(
+    Object.entries(HINT_COMMANDS).map(([action, id]) => [action, formatBinding(id, keymap)]),
+  ) as Record<Exclude<ShortcutAction, ShortcutAction.Copy>, string>
+  return { ...hints, [ShortcutAction.Copy]: '⌘C' }
+}
+
+/** The hints with every shortcut at its default. */
+export const SHORTCUT_HINTS: ShortcutHints = shortcutHints(DEFAULT_KEYMAP)
+
+/** The hints for the keymap as it now is. */
+export function useShortcutHints(): ShortcutHints {
+  const keymap = useKeymap()
+  return useMemo(() => shortcutHints(keymap), [keymap])
 }

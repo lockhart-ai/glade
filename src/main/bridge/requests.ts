@@ -159,6 +159,7 @@ const menuUpdateRequest = z.strictObject({
     })
     .nullable(),
   panels: z.strictObject({ sidebar: z.boolean(), rightPanel: z.boolean(), bottomBar: z.boolean() }),
+  keyBindings: SETTING_SCHEMAS.keyBindings,
 }) satisfies z.ZodType<MenuUpdateRequest>
 
 export const REQUEST_SCHEMAS = {

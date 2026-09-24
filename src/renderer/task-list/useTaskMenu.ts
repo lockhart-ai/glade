@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import type { MenuEntry } from '../components'
-import { taskMenu } from '../context-menus'
+import { taskMenu, useShortcutHints } from '../context-menus'
 import { useGladeStore } from '../store/react'
 import { useTaskActions } from './useTaskActions'
 
@@ -12,13 +12,14 @@ import { useTaskActions } from './useTaskActions'
 export function useTaskMenu(): (taskId: string) => readonly MenuEntry[] {
   const tasks = useGladeStore((state) => state.tasks)
   const actionsFor = useTaskActions()
+  const hints = useShortcutHints()
 
   return useCallback(
     (taskId: string) => {
       const task = tasks[taskId]
       const actions = actionsFor(taskId)
-      return task === undefined || actions === null ? [] : taskMenu(task, actions)
+      return task === undefined || actions === null ? [] : taskMenu(task, actions, hints)
     },
-    [tasks, actionsFor],
+    [tasks, actionsFor, hints],
   )
 }

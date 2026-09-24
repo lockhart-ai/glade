@@ -14,7 +14,9 @@ import {
   toolCallMenu,
   type MenuAction,
 } from './menus'
-import { SHORTCUT_HINTS } from './shortcutHints'
+import { TaskCommandId, WindowCommandId } from '../../shared/commands'
+import { resolveKeymap } from '../../shared/keymap'
+import { SHORTCUT_HINTS, ShortcutAction, shortcutHints } from './shortcutHints'
 
 /** The items the reference (`docs/context-menus.md`) lists for a target, as `label shortcut` strings, with `—` for each separator. */
 function referenceItems(target: string): string[] {
@@ -80,12 +82,12 @@ interface Case {
 const CASES: readonly Case[] = [
   {
     target: 'Task (active), sidebar row',
-    entries: taskMenu({ state: TaskState.Active, pinned: false }, TASK_ACTIONS),
+    entries: taskMenu({ state: TaskState.Active, pinned: false }, TASK_ACTIONS, SHORTCUT_HINTS),
     leftOut: [],
   },
   {
     target: 'Task (done), row or search result',
-    entries: taskMenu({ state: TaskState.Done, pinned: false }, TASK_ACTIONS),
+    entries: taskMenu({ state: TaskState.Done, pinned: false }, TASK_ACTIONS, SHORTCUT_HINTS),
     leftOut: [],
   },
   {
@@ -107,12 +109,16 @@ const CASES: readonly Case[] = [
     target: 'File tab / file',
     entries: fileTabMenu(
       spies('close', 'closeOthers', 'closeAll', 'openInEditor', 'reveal', 'copyPath', 'copyRelativePath'),
+      SHORTCUT_HINTS,
     ),
     leftOut: [],
   },
   {
     target: 'Artifact',
-    entries: artifactMenu(spies('open', 'openInEditor', 'copyContents', 'copyPath', 'reveal', 'remove')),
+    entries: artifactMenu(
+      spies('open', 'openInEditor', 'copyContents', 'copyPath', 'reveal', 'remove'),
+      SHORTCUT_HINTS,
+    ),
     leftOut: [],
   },
   {
@@ -147,7 +153,7 @@ describe('the context menus', () => {
     expect(labels).toEqual(['Delete task…', 'Delete task…', 'Remove', 'Remove from artifacts', 'Stop subagent'])
   })
 
-  it('shows the keys from the one table of shortcut hints', () => {
+  it('shows the keys of the shortcut hints, which are the keymap’s defaults until you rebind them', () => {
     const shown = CASES.flatMap(({ entries }) => items(entries).flatMap((item) => item.shortcut ?? []))
     expect(new Set(shown)).toEqual(new Set(Object.values(SHORTCUT_HINTS)))
   })
@@ -160,15 +166,43 @@ describe('the context menus', () => {
   })
 })
 
+describe('shortcutHints', () => {
+  it('shows each command’s current binding, and ⌘C for Copy', () => {
+    const keymap = resolveKeymap({
+      [TaskCommandId.TogglePin]: 'Meta+Alt+P',
+      [WindowCommandId.OpenInEditor]: 'Ctrl+E',
+    })
+    const hints = shortcutHints(keymap)
+
+    expect(hints).toEqual({
+      ...SHORTCUT_HINTS,
+      [ShortcutAction.TogglePin]: '⌘⌥P',
+      [ShortcutAction.OpenInEditor]: '⌃E',
+    })
+    expect(SHORTCUT_HINTS[ShortcutAction.Copy]).toBe('⌘C')
+    expect(written(taskMenu({ state: TaskState.Active, pinned: true }, TASK_ACTIONS, hints))).toContain('Unpin ⌘⌥P')
+    expect(
+      written(
+        fileTabMenu(
+          spies('close', 'closeOthers', 'closeAll', 'openInEditor', 'reveal', 'copyPath', 'copyRelativePath'),
+          hints,
+        ),
+      ),
+    ).toContain('Open in editor ⌃E')
+  })
+})
+
 describe('taskMenu', () => {
   it('unpins a pinned task', () => {
     expect(pinLabel(true)).toBe('Unpin')
-    expect(written(taskMenu({ state: TaskState.Active, pinned: true }, TASK_ACTIONS))).toContain('Unpin ⌘⇧P')
-    expect(written(taskMenu({ state: TaskState.Done, pinned: true }, TASK_ACTIONS))).toContain('Unpin')
+    expect(written(taskMenu({ state: TaskState.Active, pinned: true }, TASK_ACTIONS, SHORTCUT_HINTS))).toContain(
+      'Unpin ⌘⇧P',
+    )
+    expect(written(taskMenu({ state: TaskState.Done, pinned: true }, TASK_ACTIONS, SHORTCUT_HINTS))).toContain('Unpin')
   })
 
   it('runs each item’s action', () => {
-    const labels = (state: TaskState) => items(taskMenu({ state, pinned: false }, TASK_ACTIONS))
+    const labels = (state: TaskState) => items(taskMenu({ state, pinned: false }, TASK_ACTIONS, SHORTCUT_HINTS))
     for (const item of [...labels(TaskState.Active), ...labels(TaskState.Done)]) item.onSelect()
     expect(TASK_ACTIONS.open).toHaveBeenCalledTimes(2)
     expect(TASK_ACTIONS.markDone).toHaveBeenCalledOnce()

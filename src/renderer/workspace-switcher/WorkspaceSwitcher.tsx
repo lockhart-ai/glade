@@ -1,7 +1,9 @@
 import { faCheck } from '@fortawesome/free-solid-svg-icons'
 import { useState, type ReactNode } from 'react'
-import { AppCommandId, commandHint, WorkspaceCommandId } from '../../shared/commands'
+import { AppCommandId } from '../../shared/commands'
 import type { Task, Workspace } from '../../shared/domain'
+import { formatBinding } from '../../shared/keymap'
+import { useKeymap } from '../commands/hooks'
 import { Icon, IconSize, Menu, MenuAnchorKind, MenuEntryKind, type MenuEntry } from '../components'
 import { classNames } from '../components/classNames'
 import { SidebarHeader } from '../layout/SidebarHeader'
@@ -59,6 +61,7 @@ export function WorkspaceSwitcher({ collapseButton }: WorkspaceSwitcherProps): R
   const tasks = useGladeStore((state) => state.tasks)
   const openSettings = useGladeStore((state) => state.openSettings)
   const { add, open: switchTo, reveal } = useWorkspaceActions()
+  const keymap = useKeymap()
   // The header's button while the switcher is open; null while it's closed.
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const open = anchor !== null
@@ -81,14 +84,14 @@ export function WorkspaceSwitcher({ collapseButton }: WorkspaceSwitcherProps): R
     {
       kind: MenuEntryKind.Item,
       label: 'New workspace…',
-      shortcut: commandHint(AppCommandId.NewWorkspace),
+      shortcut: formatBinding(AppCommandId.NewWorkspace, keymap),
       className: styles.action,
       onSelect: add,
     },
     {
       kind: MenuEntryKind.Item,
       label: 'Open folder as workspace…',
-      shortcut: commandHint(AppCommandId.OpenFolder),
+      shortcut: formatBinding(AppCommandId.OpenFolder, keymap),
       className: styles.action,
       onSelect: add,
     },
@@ -96,7 +99,7 @@ export function WorkspaceSwitcher({ collapseButton }: WorkspaceSwitcherProps): R
     {
       kind: MenuEntryKind.Item,
       label: 'Workspace settings…',
-      shortcut: commandHint(WorkspaceCommandId.Settings),
+      shortcut: formatBinding(AppCommandId.Settings, keymap),
       className: styles.action,
       onSelect: () => {
         openSettings(SettingsSection.Workspace)

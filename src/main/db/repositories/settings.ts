@@ -1,8 +1,19 @@
 import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
 import { Effort } from '../../../shared/domain'
+import { hasShortcut, parseChord, type KeyBindingOverrides } from '../../../shared/keymap'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../../shared/settings'
 import { Row } from './rows'
+
+/**
+ * The shortcuts you've rebound: a stored chord per command. A command this version doesn't know (a newer version's), or
+ * a chord that doesn't parse, is dropped, so that command keeps its default.
+ */
+const keyBindingsSchema = z
+  .record(z.string(), z.string())
+  .transform((bindings): KeyBindingOverrides =>
+    Object.fromEntries(Object.entries(bindings).filter(([id, chord]) => hasShortcut(id) && parseChord(chord) !== null)),
+  )
 
 /** How each setting's JSON value parses. A key missing here fails the typecheck. */
 export const SETTING_SCHEMAS: { readonly [K in keyof Settings]: z.ZodType<Settings[K]> } = {
@@ -12,6 +23,7 @@ export const SETTING_SCHEMAS: { readonly [K in keyof Settings]: z.ZodType<Settin
   taskTitles: z.boolean(),
   notifications: z.boolean(),
   notificationSound: z.boolean(),
+  keyBindings: keyBindingsSchema,
 }
 
 /** A stored value as its setting, or undefined when it isn't valid JSON of the right shape. */
@@ -47,6 +59,7 @@ export function getSettings(db: Database): Settings {
     taskTitles: read('taskTitles'),
     notifications: read('notifications'),
     notificationSound: read('notificationSound'),
+    keyBindings: read('keyBindings'),
   }
 }
 

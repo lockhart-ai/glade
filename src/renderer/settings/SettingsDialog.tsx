@@ -17,11 +17,11 @@ import {
   AgentSection,
   AppearanceSection,
   GeneralSection,
-  KeyboardSection,
   NotificationsSection,
   PluginsSection,
   WorkspaceSection,
 } from './SettingsSections'
+import { KeyboardSection } from './KeyboardSection'
 import styles from './SettingsDialog.module.css'
 
 interface NavItemProps {

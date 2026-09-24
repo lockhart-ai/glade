@@ -32,5 +32,6 @@ export function menuStateOf(state: GladeData): MenuState {
     shownWorkspaceId: shown?.id ?? null,
     task: task === undefined ? null : menuTask(state, task),
     panels: { sidebar: shown !== undefined, rightPanel: shown !== undefined, bottomBar: true },
+    keyBindings: state.settings.keyBindings,
   }
 }

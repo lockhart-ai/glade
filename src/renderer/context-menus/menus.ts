@@ -6,17 +6,18 @@
 import { pinLabel } from '../../shared/commands'
 import { TaskState, type Task } from '../../shared/domain'
 import { MenuEntryKind, MenuItemVariant, type MenuEntry, type MenuItem } from '../components'
-import { SHORTCUT_HINTS, ShortcutAction } from './shortcutHints'
+import { SHORTCUT_HINTS, ShortcutAction, type ShortcutHints } from './shortcutHints'
 
 /** Runs a menu item. */
 export type MenuAction = () => void
 
-function item(label: string, onSelect: MenuAction, shortcut?: ShortcutAction): MenuItem {
+/** An item, with the keys of its shortcut as `hints` show them (the defaults, unless the builder is given others). */
+function item(label: string, onSelect: MenuAction, shortcut?: ShortcutAction, hints = SHORTCUT_HINTS): MenuItem {
   return {
     kind: MenuEntryKind.Item,
     label,
     onSelect,
-    ...(shortcut === undefined ? {} : { shortcut: SHORTCUT_HINTS[shortcut] }),
+    ...(shortcut === undefined ? {} : { shortcut: hints[shortcut] }),
   }
 }
 
@@ -55,21 +56,25 @@ export { pinLabel }
 
 /**
  * A task's menu, on its row in the task list: an active task's can mark it unread or done, a done task's can reopen it
- * and copy its outcome.
+ * and copy its outcome. `hints` are the shortcuts' current keys.
  */
-export function taskMenu(task: Pick<Task, 'state' | 'pinned'>, actions: TaskMenuActions): MenuEntry[] {
-  const open = [item('Open', actions.open, ShortcutAction.Open)]
+export function taskMenu(
+  task: Pick<Task, 'state' | 'pinned'>,
+  actions: TaskMenuActions,
+  hints: ShortcutHints,
+): MenuEntry[] {
+  const open = [item('Open', actions.open, ShortcutAction.Open, hints)]
   const remove = [destructive('Delete task…', actions.delete)]
   switch (task.state) {
     case TaskState.Active:
       return groups(
         open,
         [
-          item(pinLabel(task.pinned), actions.togglePin, ShortcutAction.TogglePin),
-          item('Rename…', actions.rename, ShortcutAction.Rename),
-          item('Mark as unread', actions.markUnread, ShortcutAction.MarkUnread),
+          item(pinLabel(task.pinned), actions.togglePin, ShortcutAction.TogglePin, hints),
+          item('Rename…', actions.rename, ShortcutAction.Rename, hints),
+          item('Mark as unread', actions.markUnread, ShortcutAction.MarkUnread, hints),
         ],
-        [item('Mark done', actions.markDone, ShortcutAction.MarkDone)],
+        [item('Mark done', actions.markDone, ShortcutAction.MarkDone, hints)],
         [item('Copy link to task', actions.copyLink)],
         remove,
       )
@@ -161,16 +166,16 @@ export interface FileTabMenuActions {
   readonly copyRelativePath: MenuAction
 }
 
-/** A file tab's menu, in the Files tab. */
-export function fileTabMenu(actions: FileTabMenuActions): MenuEntry[] {
+/** A file tab's menu, in the Files tab. `hints` are the shortcuts' current keys. */
+export function fileTabMenu(actions: FileTabMenuActions, hints: ShortcutHints): MenuEntry[] {
   return groups(
     [
-      item('Close', actions.close, ShortcutAction.CloseFileTab),
+      item('Close', actions.close, ShortcutAction.CloseFileTab, hints),
       item('Close others', actions.closeOthers),
       item('Close all', actions.closeAll),
     ],
     [
-      item('Open in editor', actions.openInEditor, ShortcutAction.OpenInEditor),
+      item('Open in editor', actions.openInEditor, ShortcutAction.OpenInEditor, hints),
       item('Reveal in Finder', actions.reveal),
       item('Copy path', actions.copyPath),
       item('Copy relative path', actions.copyRelativePath),
@@ -188,12 +193,15 @@ export interface ArtifactMenuActions {
   readonly remove: MenuAction
 }
 
-/** An artifact's menu, in the Artifacts tab: its card's buttons, and more. Removing it leaves the file alone. */
-export function artifactMenu(actions: ArtifactMenuActions): MenuEntry[] {
+/**
+ * An artifact's menu, in the Artifacts tab: its card's buttons, and more. Removing it leaves the file alone. `hints` are
+ * the shortcuts' current keys.
+ */
+export function artifactMenu(actions: ArtifactMenuActions, hints: ShortcutHints): MenuEntry[] {
   return groups(
     [
-      item('Open', actions.open, ShortcutAction.Open),
-      item('Open in editor', actions.openInEditor, ShortcutAction.OpenInEditor),
+      item('Open', actions.open, ShortcutAction.Open, hints),
+      item('Open in editor', actions.openInEditor, ShortcutAction.OpenInEditor, hints),
     ],
     [
       item('Copy contents', actions.copyContents),

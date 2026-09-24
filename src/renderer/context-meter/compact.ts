@@ -4,9 +4,6 @@ import { useToast } from '../components'
 import { describeFailure } from '../store/hydrate'
 import { useGladeStore } from '../store/react'
 
-/** The shortcut that compacts the selected task, as the popover shows it (`docs/keymap.md`). */
-export const COMPACT_SHORTCUT = '⌘⇧K'
-
 /**
  * Whether a task can be compacted now: it's active, its agent isn't working (Compact now is off while it works, rather
  * than waiting behind its turn) or paused, and its agent has a session, so there's something to compact.

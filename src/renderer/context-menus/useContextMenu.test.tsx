@@ -1,9 +1,17 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render as renderUnwrapped, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { WindowCommandId } from '../../shared/commands'
+import { resolveKeymap } from '../../shared/keymap'
 import { MenuEntryKind, type MenuEntry } from '../components'
+import { storeWrapper } from '../store/test-wrapper'
 import { ContextMenu, isContextMenuKey, useContextMenu } from './useContextMenu'
 
-const NO_MODIFIERS = { shiftKey: false, metaKey: false, altKey: false, ctrlKey: false }
+/** Renders under a store, where the keymap comes from. */
+function render(ui: React.ReactElement) {
+  return renderUnwrapped(ui, { wrapper: storeWrapper().wrapper })
+}
+
+const NO_MODIFIERS = { code: '', shiftKey: false, metaKey: false, altKey: false, ctrlKey: false }
 
 describe('isContextMenuKey', () => {
   it.each([
@@ -17,6 +25,14 @@ describe('isContextMenuKey', () => {
     [{ ...NO_MODIFIERS, key: 'Enter' }, false],
   ])('%o opens a context menu: %s', (event, opens) => {
     expect(isContextMenuKey(event)).toBe(opens)
+  })
+
+  it('takes Context menu’s keys once you rebind it, and the context-menu key still', () => {
+    const keymap = resolveKeymap({ [WindowCommandId.ContextMenu]: 'Ctrl+M' })
+
+    expect(isContextMenuKey({ ...NO_MODIFIERS, key: 'm', code: 'KeyM', ctrlKey: true }, keymap)).toBe(true)
+    expect(isContextMenuKey({ ...NO_MODIFIERS, key: 'F10', shiftKey: true }, keymap)).toBe(false)
+    expect(isContextMenuKey({ ...NO_MODIFIERS, key: 'ContextMenu' }, keymap)).toBe(true)
   })
 })
 

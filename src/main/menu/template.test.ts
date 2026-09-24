@@ -4,8 +4,6 @@ import {
   appCommand,
   AppCommandId,
   EMPTY_MENU_STATE,
-  KEYMAP,
-  switchWorkspaceAccelerator,
   taskCommand,
   TaskCommandId,
   workspaceCommand,
@@ -13,6 +11,7 @@ import {
   type MenuState,
   type MenuTask,
 } from '../../shared/commands'
+import { acceleratorOf, COMMANDS, DEFAULT_KEYMAP, KeyScope } from '../../shared/keymap'
 import { menuTemplate, switchItemId, type MenuOptions } from './template'
 
 const OPTIONS: MenuOptions = { appName: 'Glade', developer: false }
@@ -37,6 +36,7 @@ const STATE: MenuState = {
   shownWorkspaceId: 'w1',
   task: TASK,
   panels: { sidebar: true, rightPanel: true, bottomBar: true },
+  keyBindings: {},
 }
 
 function build(state: MenuState = STATE, options: MenuOptions = OPTIONS) {
@@ -137,6 +137,28 @@ describe('the menu bar', () => {
     expect(item(items, 'Rename workspace…').accelerator).toBeUndefined()
   })
 
+  it('answers the keys you’ve rebound in Settings › Keyboard, which the window reports', () => {
+    const { template } = build({
+      ...STATE,
+      keyBindings: {
+        [AppCommandId.Settings]: 'Ctrl+Alt+S',
+        [WorkspaceCommandId.Switch]: 'Ctrl+1',
+        [TaskCommandId.MarkDone]: 'Meta+Alt+D',
+        [AppCommandId.ToggleSidebar]: 'F6',
+      },
+    })
+
+    expect(item(menu(template, 'Glade'), 'Settings…').accelerator).toBe('Ctrl+Alt+S')
+    // Workspace settings… shares Settings…' key.
+    expect(item(menu(template, 'Workspace'), 'Workspace settings…').accelerator).toBe('Ctrl+Alt+S')
+    expect(
+      submenu(item(menu(template, 'Workspace'), 'Switch workspace')).map(({ accelerator }) => accelerator),
+    ).toEqual(['Ctrl+1', 'Ctrl+2', 'Ctrl+3'])
+    expect(item(menu(template, 'Task'), 'Mark done').accelerator).toBe('CmdOrCtrl+Alt+D')
+    expect(item(menu(template, 'View'), 'Toggle task list').accelerator).toBe('F6')
+    expect(item(menu(template, 'File'), 'New task').accelerator).toBe('CmdOrCtrl+N')
+  })
+
   it('lists every workspace under Switch workspace, oldest first, with ⌘1 – ⌘9 and a check on the one shown', () => {
     const { template, run } = build()
     const switcher = item(menu(template, 'Workspace'), 'Switch workspace')
@@ -164,7 +186,7 @@ describe('the menu bar', () => {
     const keys = submenu(item(menu(template, 'Workspace'), 'Switch workspace')).map(({ accelerator }) => accelerator)
 
     expect(keys).toEqual([
-      ...Array.from({ length: 9 }, (_, index) => switchWorkspaceAccelerator(index + 1)),
+      ...Array.from({ length: 9 }, (_, index) => `CmdOrCtrl+${String(index + 1)}`),
       undefined,
       undefined,
     ])
@@ -236,16 +258,16 @@ describe('the menu bar', () => {
       '—',
       '(togglefullscreen)',
     ])
-    for (const [menuLabel, label, id] of [
-      ['File', 'New task', AppCommandId.NewTask],
-      ['File', 'Close', AppCommandId.Close],
-      ['Glade', 'Settings…', AppCommandId.Settings],
-      ['View', 'Toggle task list', AppCommandId.ToggleSidebar],
-      ['View', 'Toggle right panel', AppCommandId.ToggleRightPanel],
-      ['View', 'Toggle bottom bar', AppCommandId.ToggleBottomBar],
+    for (const [menuLabel, label, id, accelerator] of [
+      ['File', 'New task', AppCommandId.NewTask, 'CmdOrCtrl+N'],
+      ['File', 'Close', AppCommandId.Close, 'CmdOrCtrl+W'],
+      ['Glade', 'Settings…', AppCommandId.Settings, 'CmdOrCtrl+,'],
+      ['View', 'Toggle task list', AppCommandId.ToggleSidebar, 'CmdOrCtrl+B'],
+      ['View', 'Toggle right panel', AppCommandId.ToggleRightPanel, 'CmdOrCtrl+Alt+B'],
+      ['View', 'Toggle bottom bar', AppCommandId.ToggleBottomBar, 'CmdOrCtrl+J'],
     ] as const) {
       const entry = item(menu(template, menuLabel), label)
-      expect(entry.accelerator).toBe(KEYMAP[id])
+      expect(entry.accelerator).toBe(accelerator)
       click(entry)
       expect(run).toHaveBeenLastCalledWith(appCommand(id))
     }
@@ -353,5 +375,22 @@ describe('the menu bar', () => {
 
     const repeated = keys.filter((key, index) => keys.indexOf(key) !== index)
     expect(repeated).toEqual(['CmdOrCtrl+,'])
+  })
+
+  it('has an item for each command the keymap leaves to the menu bar, with its key', () => {
+    const keys = new Map<string, string | undefined>()
+    const collect = (items: MenuItemConstructorOptions[]): void => {
+      for (const each of items) {
+        if (typeof each.id === 'string' && !keys.has(each.id)) keys.set(each.id, each.accelerator)
+        if (Array.isArray(each.submenu)) collect(each.submenu)
+      }
+    }
+    collect(build().template)
+
+    for (const { id } of COMMANDS.filter(({ scope }) => scope === KeyScope.MenuBar)) {
+      // Switch workspace's are on each workspace's item, the first ⌘1.
+      const shown = id === WorkspaceCommandId.Switch ? keys.get(switchItemId('w1')) : keys.get(id)
+      expect({ id, key: shown }).toEqual({ id, key: acceleratorOf(DEFAULT_KEYMAP, id, 1) })
+    }
   })
 })

@@ -2,17 +2,14 @@ import { describe, expect, it } from 'vitest'
 import {
   appCommand,
   AppCommandId,
-  commandHint,
   CommandScope,
-  KEYMAP,
   pinLabel,
-  shortcutHint,
-  switchWorkspaceAccelerator,
   taskCommand,
   TaskCommandId,
   workspaceCommand,
   WorkspaceCommandId,
 } from './commands'
+import { commandDefinition, DEFAULT_KEYMAP, formatBinding, hasShortcut, KeyScope } from './keymap'
 
 describe('commands', () => {
   it('say what they act on', () => {
@@ -30,9 +27,25 @@ describe('commands', () => {
   })
 })
 
-describe('the keymap', () => {
-  it('has the keys docs/keymap.md gives the menu bar’s commands', () => {
-    expect(Object.fromEntries(Object.entries(KEYMAP).map(([id, keys]) => [id, shortcutHint(keys)]))).toEqual({
+describe('the menu bar’s keys', () => {
+  it('are the keymap’s defaults for its commands, as docs/keymap.md gives them', () => {
+    const ids = [
+      AppCommandId.Settings,
+      AppCommandId.NewTask,
+      AppCommandId.Close,
+      AppCommandId.NewWorkspace,
+      AppCommandId.OpenFolder,
+      AppCommandId.ToggleSidebar,
+      AppCommandId.ToggleRightPanel,
+      AppCommandId.ToggleBottomBar,
+      WorkspaceCommandId.Switch,
+      WorkspaceCommandId.Close,
+      TaskCommandId.TogglePin,
+      TaskCommandId.Rename,
+      TaskCommandId.MarkUnread,
+      TaskCommandId.MarkDone,
+    ] as const
+    expect(Object.fromEntries(ids.map((id) => [id, formatBinding(id, DEFAULT_KEYMAP)]))).toEqual({
       [AppCommandId.Settings]: '⌘,',
       [AppCommandId.NewTask]: '⌘N',
       [AppCommandId.Close]: '⌘W',
@@ -41,28 +54,16 @@ describe('the keymap', () => {
       [AppCommandId.ToggleSidebar]: '⌘B',
       [AppCommandId.ToggleRightPanel]: '⌘⌥B',
       [AppCommandId.ToggleBottomBar]: '⌘J',
-      [WorkspaceCommandId.Settings]: '⌘,',
+      [WorkspaceCommandId.Switch]: '⌘1 – ⌘9',
       [WorkspaceCommandId.Close]: '⌘⇧W',
       [TaskCommandId.TogglePin]: '⌘⇧P',
       [TaskCommandId.Rename]: 'F2',
       [TaskCommandId.MarkUnread]: '⌘⇧U',
       [TaskCommandId.MarkDone]: '⌘⇧D',
     })
-  })
-
-  it('switches to the first nine workspaces with ⌘1 – ⌘9, and no others', () => {
-    expect(switchWorkspaceAccelerator(1)).toBe('CmdOrCtrl+1')
-    expect(switchWorkspaceAccelerator(9)).toBe('CmdOrCtrl+9')
-    expect(switchWorkspaceAccelerator(0)).toBeUndefined()
-    expect(switchWorkspaceAccelerator(10)).toBeUndefined()
-    expect(switchWorkspaceAccelerator(1.5)).toBeUndefined()
-  })
-
-  it('shows keys with the macOS symbols, and nothing for a command without one', () => {
-    expect(shortcutHint('Command+Option+Control+K')).toBe('⌘⌥⌃K')
-    expect(shortcutHint('Cmd+Alt+Ctrl+Shift+.')).toBe('⌘⌥⌃⇧.')
-    expect(commandHint(TaskCommandId.MarkDone)).toBe('⌘⇧D')
-    expect(commandHint(TaskCommandId.Reopen)).toBe('')
+    for (const id of ids) expect(commandDefinition(id).scope).toBe(KeyScope.MenuBar)
+    expect(hasShortcut(TaskCommandId.Reopen)).toBe(false)
+    expect(hasShortcut(WorkspaceCommandId.Settings)).toBe(false)
   })
 })
 

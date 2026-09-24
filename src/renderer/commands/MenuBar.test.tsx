@@ -5,17 +5,14 @@ import {
   appCommand,
   AppCommandId,
   EMPTY_MENU_STATE,
-  KEYMAP,
-  SWITCH_KEYS,
-  switchWorkspaceAccelerator,
   taskCommand,
   TaskCommandId,
   workspaceCommand,
   WorkspaceCommandId,
-  type Accelerator,
   type Command,
   type MenuState,
 } from '../../shared/commands'
+import { acceleratorOf, COMMANDS, DEFAULT_KEYMAP, KeyScope, type Accelerator } from '../../shared/keymap'
 import { TaskActivity, TaskState, UiStateKey, type Task, type UiStateEntry } from '../../shared/domain'
 import { taskLink } from '../../shared/taskLink'
 import { App } from '../App'
@@ -110,6 +107,7 @@ describe('what the menu bar shows', () => {
           canCopyOutcome: false,
         },
         panels: { sidebar: true, rightPanel: true, bottomBar: true },
+        keyBindings: {},
       })
     })
     const reports = rendered.main.menuStates?.length ?? 0
@@ -128,6 +126,16 @@ describe('what the menu bar shows', () => {
     })
     await waitFor(() => {
       expect(lastMenuState(rendered)?.task?.canMarkDone).toBe(true)
+    })
+  })
+
+  it('reports the shortcuts you rebind, so the menu bar answers the new keys', async () => {
+    const rendered = await renderApp()
+
+    await act(() => rendered.store.getState().updateSettings({ keyBindings: { [TaskCommandId.MarkDone]: 'Ctrl+D' } }))
+
+    await waitFor(() => {
+      expect(lastMenuState(rendered)?.keyBindings).toEqual({ [TaskCommandId.MarkDone]: 'Ctrl+D' })
     })
   })
 
@@ -433,13 +441,16 @@ function keyPress(accelerator: Accelerator): KeyboardEventInit {
   }
 }
 
-/** Every key the menu bar answers: the keymap's, and ⌘1 – ⌘9. */
-const MENU_KEYS: readonly Accelerator[] = [
-  ...new Set([
-    ...Object.values(KEYMAP),
-    ...Array.from({ length: SWITCH_KEYS }, (_, index) => switchWorkspaceAccelerator(index + 1) ?? ''),
-  ]),
-]
+/** Every key the menu bar answers: its commands' in the keymap, ⌘1 – ⌘9 each. */
+const MENU_KEYS: readonly Accelerator[] = COMMANDS.filter(({ scope }) => scope === KeyScope.MenuBar).flatMap(
+  ({ id, digits }) =>
+    digits === undefined
+      ? [acceleratorOf(DEFAULT_KEYMAP, id) ?? '']
+      : Array.from(
+          { length: digits.to - digits.from + 1 },
+          (_, index) => acceleratorOf(DEFAULT_KEYMAP, id, digits.from + index) ?? '',
+        ),
+)
 
 describe('the menu bar’s keys', () => {
   it('are left to the menu bar: the window never takes one, so each runs its command once', async () => {
