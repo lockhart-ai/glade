@@ -3,6 +3,7 @@
 // here, so they all read and write the same persisted state.
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import { UiStateKey, type UiStateEntry } from '../../shared/domain'
+import { CommandId } from '../../shared/keymap'
 import type { UiStateValues } from '../store/state'
 import { bottomBarIcon, rightPanelIcon, sidebarIcon } from './panelIcons'
 
@@ -27,7 +28,8 @@ export interface PanelDefinition {
   /** The button's name while the panel is collapsed. */
   readonly showLabel: string
   /** The shortcut that toggles it, as the tooltip shows it (docs/keymap.md). */
-  readonly shortcut: string
+  /** The command that toggles it, whose keys its tooltip shows. */
+  readonly command: CommandId
   readonly icon: IconDefinition
 }
 
@@ -39,7 +41,7 @@ export function panelDefinition(panel: Panel): PanelDefinition {
         key: UiStateKey.SidebarCollapsed,
         collapseLabel: 'Collapse task list',
         showLabel: 'Show task list',
-        shortcut: '⌘B',
+        command: CommandId.ToggleTaskList,
         icon: sidebarIcon,
       }
     case Panel.RightPanel:
@@ -47,7 +49,7 @@ export function panelDefinition(panel: Panel): PanelDefinition {
         key: UiStateKey.RightPanelCollapsed,
         collapseLabel: 'Collapse side panel',
         showLabel: 'Show side panel',
-        shortcut: '⌘⌥B',
+        command: CommandId.ToggleRightPanel,
         icon: rightPanelIcon,
       }
     case Panel.BottomBar:
@@ -55,7 +57,7 @@ export function panelDefinition(panel: Panel): PanelDefinition {
         key: UiStateKey.BottomBarCollapsed,
         collapseLabel: 'Collapse bottom panel',
         showLabel: 'Show bottom panel',
-        shortcut: '⌘J',
+        command: CommandId.ToggleBottomBar,
         icon: bottomBarIcon,
       }
   }

@@ -1,5 +1,6 @@
 import { act, fireEvent, render as renderUnwrapped, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { CommandId, resolveKeymap } from '../../shared/keymap'
 import { MenuEntryKind, type MenuEntry } from '../components'
 import { storeWrapper } from '../store/test-wrapper'
 import { ContextMenu, isContextMenuKey, useContextMenu } from './useContextMenu'
@@ -23,6 +24,14 @@ describe('isContextMenuKey', () => {
     [{ ...NO_MODIFIERS, key: 'Enter' }, false],
   ])('%o opens a context menu: %s', (event, opens) => {
     expect(isContextMenuKey(event)).toBe(opens)
+  })
+
+  it('takes Context menu’s keys once you rebind it, and the context-menu key still', () => {
+    const keymap = resolveKeymap({ [CommandId.ContextMenu]: 'Ctrl+M' })
+
+    expect(isContextMenuKey({ ...NO_MODIFIERS, key: 'm', code: 'KeyM', ctrlKey: true }, keymap)).toBe(true)
+    expect(isContextMenuKey({ ...NO_MODIFIERS, key: 'F10', shiftKey: true }, keymap)).toBe(false)
+    expect(isContextMenuKey({ ...NO_MODIFIERS, key: 'ContextMenu' }, keymap)).toBe(true)
   })
 })
 

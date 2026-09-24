@@ -110,11 +110,8 @@ function sameModifiers(a: KeyChord, b: KeyChord): boolean {
 const MODIFIER_KEYS = new Set(['Meta', 'Control', 'Alt', 'Shift', 'CapsLock', 'Fn', 'FnLock', 'OS', 'Hyper', 'Super'])
 
 /** The letter or digit of a physical key (`KeyB` is B, `Digit2` is 2), or undefined for any other key. */
-function physicalKey(code: string | undefined): string | undefined {
-  return /^(?:Key([A-Z])|Digit(\d))$/
-    .exec(code ?? '')
-    ?.slice(1)
-    .find((part) => part !== undefined)
+function physicalKey(code: string): string | undefined {
+  return /^(?:Key|Digit)([A-Z0-9])$/.exec(code)?.[1]
 }
 
 /** What a key press is: the parts of a `KeyboardEvent` that make its chord. */
@@ -511,7 +508,7 @@ export function withBinding(overrides: KeyBindingOverrides, id: CommandId, chord
 
 /** The overrides once command `id` is back at its default. */
 export function withDefault(overrides: KeyBindingOverrides, id: CommandId): KeyBindingOverrides {
-  return Object.fromEntries(Object.entries(overrides).filter(([key]) => key !== id))
+  return Object.fromEntries((Object.entries(overrides) as [CommandId, string][]).filter(([key]) => key !== id))
 }
 
 /**

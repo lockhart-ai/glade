@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef } from 'react'
 import {
   CommandId,
+  DEFAULT_KEYMAP,
   formatBinding,
   matchCommand,
   commandDefinition,
   resolveKeymap,
   chordFromEvent,
+  serializeChord,
   type Keymap,
   type KeyPress,
 } from '../../shared/keymap'
@@ -56,9 +58,22 @@ export function useKeymap(): Keymap {
   return useMemo(() => resolveKeymap(overrides), [overrides])
 }
 
-/** How a command's current binding shows, e.g. `⌘⇧P`, for a hint beside a button or menu item. */
-export function useBindingLabel(id: CommandId): string {
-  return formatBinding(id, useKeymap())
+/** A command's current binding, for a hint beside a button or menu item. */
+export interface BindingHint {
+  /** As a keycap shows it, e.g. `⌘⇧P`. */
+  readonly label: string
+  /** As `aria-keyshortcuts` names it, e.g. `Meta+Shift+P`. */
+  readonly ariaKeyShortcuts: string
+}
+
+/** A command's binding in a keymap (the defaults, unless you pass another), for a hint. */
+export function bindingHint(id: CommandId, keymap: Keymap = DEFAULT_KEYMAP): BindingHint {
+  return { label: formatBinding(id, keymap), ariaKeyShortcuts: keymap[id].map(serializeChord).join(' ') }
+}
+
+/** A command's current binding, for a hint beside a button or menu item. */
+export function useBinding(id: CommandId): BindingHint {
+  return bindingHint(id, useKeymap())
 }
 
 /**

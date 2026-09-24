@@ -58,6 +58,11 @@ export class CommandRegistry {
     }
   }
 
+  /** Whether something mounted can run the command just now. */
+  has(id: CommandId): boolean {
+    return this.handlers.has(id)
+  }
+
   /** Runs a command as its keys would (a menu item's click, say); false when nothing registered can run it. */
   run(id: CommandId, match: CommandMatch = NO_DIGIT): boolean {
     const handler = this.handlers.get(id)?.at(-1)

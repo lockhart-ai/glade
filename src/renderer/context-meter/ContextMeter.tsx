@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import type { Task } from '../../shared/domain'
+import { CommandId } from '../../shared/keymap'
+import { bindingHint, useBinding, type BindingHint } from '../commands/hooks'
 import { Button, ButtonSize, Popover } from '../components'
 import { classNames } from '../components/classNames'
 import { useGladeStore } from '../store/react'
 import { selectSelectedTask } from '../store/state'
 import styles from './ContextMeter.module.css'
-import { canCompact, COMPACT_SHORTCUT, useCompact } from './compact'
+import { canCompact, useCompact } from './compact'
 import { contextReading, type ContextReading } from './format'
 
 /** The ring's radius, in the 16px icon's units. */
@@ -64,6 +66,8 @@ export interface ContextDetailsProps extends ContextMeterViewProps {
   /** Whether Compact now is offered: the agent is idle and has a session to compact. */
   readonly compactable: boolean
   readonly onCompact: () => void
+  /** Compact context's keys, shown beside Compact now: its default (⌘⇧K) unless given the current ones. */
+  readonly shortcut?: BindingHint
 }
 
 /**
@@ -75,6 +79,7 @@ export function ContextDetails({
   windowTokens,
   compactable,
   onCompact,
+  shortcut = bindingHint(CommandId.CompactContext),
 }: ContextDetailsProps): React.JSX.Element {
   const reading = contextReading(usedTokens, windowTokens)
   const threshold = `${String(reading.thresholdPercent)}%`
@@ -99,10 +104,15 @@ export function ContextDetails({
         chat and tool log stay here.
       </p>
       <div className={styles.actions}>
-        <Button size={ButtonSize.Small} disabled={!compactable} aria-keyshortcuts="Meta+Shift+K" onClick={onCompact}>
+        <Button
+          size={ButtonSize.Small}
+          disabled={!compactable}
+          aria-keyshortcuts={shortcut.ariaKeyShortcuts}
+          onClick={onCompact}
+        >
           Compact now
         </Button>
-        <span className={styles.shortcut}>{COMPACT_SHORTCUT}</span>
+        <span className={styles.shortcut}>{shortcut.label}</span>
       </div>
     </div>
   )
@@ -113,6 +123,7 @@ interface TaskContextMeterProps {
 }
 
 function TaskContextMeter({ task }: TaskContextMeterProps): React.JSX.Element {
+  const shortcut = useBinding(CommandId.CompactContext)
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null)
   const [open, setOpen] = useState(false)
   const compact = useCompact()
@@ -148,6 +159,7 @@ function TaskContextMeter({ task }: TaskContextMeterProps): React.JSX.Element {
             setOpen(false)
             void compact(task.id)
           }}
+          shortcut={shortcut}
         />
       </Popover>
     </>

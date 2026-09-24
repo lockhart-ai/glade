@@ -258,10 +258,7 @@ describe('TaskList', () => {
   })
 
   it('stays put on ⌘⌥↓ when no other task needs you', async () => {
-    const { store, fake } = await renderList(
-      [TASKS[1] as Task, TASKS[2] as Task],
-      [{ key: UiStateKey.SelectedTaskId, value: 'a1' }],
-    )
+    const { store, fake } = await renderList(TASKS.slice(1, 3), [{ key: UiStateKey.SelectedTaskId, value: 'a1' }])
     fake.invoke.mockClear()
 
     expect(fireEvent.keyDown(window, { key: 'ArrowDown', altKey: true, metaKey: true })).toBe(false)

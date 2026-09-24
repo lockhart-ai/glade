@@ -6,6 +6,8 @@ import { Markdown } from '../chat/Markdown'
 import { clockTime } from '../chat/chatModel'
 import { Button, ButtonSize, ButtonVariant, Segmented, type SegmentedOption } from '../components'
 import { useGladeStore } from '../store/react'
+import { CommandId } from '../../shared/keymap'
+import { useBinding } from '../commands/hooks'
 import { FileTouch, formatSize, isMarkdown, type TouchedFile } from './filesModel'
 import { highlight, languageOf, sourceLines } from './highlight'
 import { BLOCK_LINES, SourceView, type HighlightedBlocks } from './SourceView'
@@ -77,6 +79,7 @@ function Notice({ children }: { children: React.ReactNode }): React.JSX.Element 
 export function FileViewer({ taskId, path, touched, focusLine, focusRequest }: FileViewerProps): React.JSX.Element {
   const readFile = useGladeStore((state) => state.readFile)
   const openInEditor = useGladeStore((state) => state.openInEditor)
+  const openInEditorKeys = useBinding(CommandId.OpenInEditor)
   const [loaded, setLoaded] = useState<Loaded>({ state: 'loading' })
   const [mode, setMode] = useState(MarkdownMode.Source)
   const [colored, setColored] = useState<Colored>({ lines: [], blocks: [] })
@@ -139,8 +142,8 @@ export function FileViewer({ taskId, path, touched, focusLine, focusRequest }: F
           variant={ButtonVariant.Ghost}
           size={ButtonSize.Small}
           icon={faArrowUpRightFromSquare}
-          aria-keyshortcuts="Meta+Shift+E"
-          title="Open in editor (⌘⇧E)"
+          aria-keyshortcuts={openInEditorKeys.ariaKeyShortcuts}
+          title={`Open in editor (${openInEditorKeys.label})`}
           onClick={() => void openInEditor(taskId, path)}
         >
           Open in editor
