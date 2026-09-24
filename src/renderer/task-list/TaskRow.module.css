@@ -79,12 +79,12 @@
   gap: 6px;
 }
 
-/* A search result's snippet (07-search.html): up to two lines, where the status line is one. */
+/* A search result's snippet (07-search.html): up to three lines, where the status line is one. */
 .snippet {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   overflow: hidden;
   padding-left: 16px;
   font-size: var(--font-size-secondary-sm);

@@ -11,7 +11,7 @@ const OPEN = '\u0002'
 const CLOSE = '\u0003'
 const ELLIPSIS = '…'
 /** Roughly how many words a snippet shows around its match. */
-const SNIPPET_TOKENS = 12
+const SNIPPET_TOKENS = 10
 
 /**
  * How much a match in each field counts for, multiplying FTS5's bm25 rank: a word in the title says more about the
