@@ -1,4 +1,6 @@
+import { faChevronDown, faTableColumns } from '@fortawesome/free-solid-svg-icons'
 import type { Workspace } from '../../shared/domain'
+import { Button, ButtonVariant, Icon } from '../components'
 import { shortenHomePath } from '../paths'
 import styles from './SidebarHeader.module.css'
 
@@ -7,7 +9,10 @@ export interface SidebarHeaderProps {
   workspace?: Workspace
 }
 
-/** The top of the sidebar: the workspace's initial in a badge, its name, and its root folder. */
+/**
+ * The top of the sidebar: the workspace's initial in a badge, its name, and its root folder, with the switcher's
+ * chevron and the button that collapses the task list. Both show but do nothing yet (the switcher comes in P7).
+ */
 export function SidebarHeader({ workspace }: SidebarHeaderProps): React.JSX.Element {
   return (
     <section className={styles.header} aria-label="Workspace">
@@ -21,7 +26,16 @@ export function SidebarHeader({ workspace }: SidebarHeaderProps): React.JSX.Elem
             {workspace === undefined ? 'Open a folder to begin' : shortenHomePath(workspace.rootPath)}
           </span>
         </span>
+        <span className={styles.chevron}>
+          <Icon icon={faChevronDown} />
+        </span>
       </div>
+      <Button
+        variant={ButtonVariant.Icon}
+        icon={faTableColumns}
+        aria-label="Collapse task list"
+        title="Collapse task list"
+      />
     </section>
   )
 }

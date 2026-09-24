@@ -15,6 +15,10 @@ export function withUiState(state: GladeData, entry: UiStateEntry): GladeData {
       return { ...next, selectedWorkspaceId: idFromUiState(entry.value) }
     case UiStateKey.SelectedTaskId:
       return { ...next, selectedTaskId: idFromUiState(entry.value) }
+    case UiStateKey.PinnedSectionCollapsed:
+    case UiStateKey.ActiveSectionCollapsed:
+    case UiStateKey.DoneSectionCollapsed:
+      return next
   }
 }
 

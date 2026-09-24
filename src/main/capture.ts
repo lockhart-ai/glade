@@ -33,6 +33,8 @@ export interface CaptureSpec {
   readonly shots: readonly CaptureShot[]
   /** How long the whole capture may take before it gives up. */
   readonly timeoutMs: number
+  /** A JSON fixture of sample data (see `./capture-seed`) to fill the throwaway database with; none for a fresh app. */
+  readonly seed?: string | undefined
 }
 
 /** The largest window side, in pixels, a capture may ask for. */
@@ -59,6 +61,7 @@ function captureSpecSchema(minimum: MinimumSize): z.ZodType<CaptureSpec> {
       )
       .min(1),
     timeoutMs: z.int().positive(),
+    seed: z.string().refine(isAbsolute, 'must be an absolute path').optional(),
   })
 }
 

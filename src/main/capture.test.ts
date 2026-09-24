@@ -56,6 +56,9 @@ describe('readCaptureSpec', () => {
   it('reads a valid spec', () => {
     expect(readCaptureSpec(env(spec()), false, MINIMUM)).toEqual(spec())
     expect(readCaptureSpec(env(spec({ route: '' })), false, MINIMUM)).toEqual(spec({ route: '' }))
+    expect(readCaptureSpec(env(spec({ seed: '/code/fixture.json' })), false, MINIMUM)).toEqual(
+      spec({ seed: '/code/fixture.json' }),
+    )
   })
 
   it('rejects a spec that is not JSON', () => {
@@ -76,6 +79,7 @@ describe('readCaptureSpec', () => {
     ['a file name that is not a PNG', spec({ shots: [{ width: 1100, height: 700, file: 'a.jpg' }] })],
     ['no shots', spec({ shots: [] })],
     ['no timeout', spec({ timeoutMs: 0 })],
+    ['a relative seed path', spec({ seed: 'fixture.json' })],
     ['an unknown field', { ...spec(), show: true }],
   ])('rejects %s', (_, value) => {
     expect(() => readCaptureSpec(env(value), false, MINIMUM)).toThrow(/^GLADE_CAPTURE is invalid: /)

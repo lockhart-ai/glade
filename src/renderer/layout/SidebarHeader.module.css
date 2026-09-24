@@ -58,3 +58,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.chevron {
+  display: flex;
+  color: var(--color-faint);
+}

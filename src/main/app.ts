@@ -10,6 +10,7 @@ import {
   type MinimumSize,
 } from './capture'
 import { openAppDatabase, type AppDatabase } from './db/database'
+import { applySeed, readSeed } from './capture-seed'
 import { chooseFolder } from './dialogs'
 import { checkSecurity, describeViolations } from './security'
 
@@ -115,6 +116,23 @@ async function runCapture(window: BrowserWindow, capture: CaptureSpec, database:
   app.exit(exitCode)
 }
 
+/**
+ * Fills a capture's throwaway database from its seed fixture, if it has one. Returns false, having closed the database
+ * and exited with an error, when the fixture can't be applied.
+ */
+function seedCapture(capture: CaptureSpec, database: AppDatabase): boolean {
+  if (capture.seed === undefined) return true
+  try {
+    applySeed(database.db, readSeed(capture.seed))
+    return true
+  } catch (error) {
+    console.error(`Glade capture failed: ${(error as Error).message}`)
+    database.db.close()
+    app.exit(1)
+    return false
+  }
+}
+
 /** The screenshot run asked for through the environment, set up before the app is ready; `null` in a normal run. */
 function startCapture(): CaptureSpec | null {
   const capture = readCaptureSpec(process.env, app.isPackaged, WINDOW_MIN_SIZE)
@@ -168,7 +186,7 @@ export function startApp(): void {
     })
 
     if (capture !== null) {
-      void runCapture(createWindow(capture), capture, database)
+      if (seedCapture(capture, database)) void runCapture(createWindow(capture), capture, database)
       return
     }
 
