@@ -19,7 +19,10 @@ its PR, and sends back fixes. Jared approves and merges. This SOP starts simple 
    Closes #N
    ```
 
-   Don't merge your own PR. Report back to the supervisor with the PR link, how you checked each acceptance criterion,
+   Then arm auto-merge (squash) on it, using the glade-team identity described in `CLAUDE.md`: `gh pr merge <N> --auto
+   --squash`. It merges once Jared approves and checks pass.
+
+   Never merge directly. Report back to the supervisor with the PR link, how you checked each acceptance criterion,
    and any decisions or open questions.
 
 Review fixes go on the same branch as new commits; don't force-push.
