@@ -38,6 +38,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.QuestionsAnswer]: () => ({ questionSet: {} as QuestionSet }),
     [CommandName.UiStateGet]: () => Promise.resolve({ value: 'async' }),
     [CommandName.UiStateGetAll]: () => ({ entries: [] }),
+    [CommandName.SearchQuery]: () => ({ results: [] }),
     [CommandName.UiStateSet]: () => null,
     ...overrides,
   }

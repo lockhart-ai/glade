@@ -32,6 +32,7 @@ import { useNow } from '../task-list/useNow'
 import { QuestionCard } from '../questions/QuestionCard'
 import { ErrorCard } from './ErrorCard'
 import { Markdown } from './Markdown'
+import { Highlighted, useSearchHighlight } from '../search/Highlight'
 import { useStickToBottom } from './useStickToBottom'
 import styles from './Chat.module.css'
 
@@ -39,16 +40,23 @@ const NO_MESSAGES: readonly Message[] = []
 const NO_TOOL_EVENTS: readonly ToolEvent[] = []
 const NO_QUESTION_SETS: readonly QuestionSet[] = []
 
-function UserMessage({ message }: UserEntry): React.JSX.Element {
+/** What the sidebar's search marks in the chat (`useSearchHighlight`). */
+interface HighlightProps {
+  readonly highlight: RegExp | null
+}
+
+function UserMessage({ message, highlight }: UserEntry & HighlightProps): React.JSX.Element {
   return (
     <article aria-label="You" className={styles.user}>
-      <div className={styles.bubble}>{message.body}</div>
+      <div className={styles.bubble}>
+        <Highlighted text={message.body} pattern={highlight} />
+      </div>
       <span className={styles.meta}>you · {clockTime(message.createdAt)}</span>
     </article>
   )
 }
 
-interface AgentReplyProps {
+interface AgentReplyProps extends HighlightProps {
   readonly entry: AgentEntry
   readonly onShowTurn: (turn: number) => void
 }
@@ -73,12 +81,17 @@ function TurnSummary({ line }: TurnSummaryProps): React.JSX.Element {
   )
 }
 
-function AgentReply({ entry: { message, style, toolCalls }, onShowTurn }: AgentReplyProps): React.JSX.Element {
+function AgentReply({
+  entry: { message, style, toolCalls },
+  onShowTurn,
+  highlight,
+}: AgentReplyProps): React.JSX.Element {
   const summary = message.summary === null ? null : summaryLine(message.summary)
   return (
     <article aria-label="Agent" className={styles.agent}>
       <Markdown
         source={message.body}
+        highlight={highlight}
         className={classNames(styles.reply, style === ReplyStyle.Question && styles.question)}
       />
       {(toolCalls > 0 || summary !== null) && (
@@ -105,10 +118,10 @@ function AgentReply({ entry: { message, style, toolCalls }, onShowTurn }: AgentR
 }
 
 /** The agent's questions: what it said just before asking, if anything, then the question card. */
-function AgentQuestions({ questionSet, lead }: QuestionEntry): React.JSX.Element {
+function AgentQuestions({ questionSet, lead, highlight }: QuestionEntry & HighlightProps): React.JSX.Element {
   return (
     <div className={styles.agent}>
-      {lead !== null && <Markdown source={lead} className={styles.reply} />}
+      {lead !== null && <Markdown source={lead} className={styles.reply} highlight={highlight} />}
       <QuestionCard questionSet={questionSet} />
       <span className={styles.meta}>agent · {clockTime(questionSet.createdAt)}</span>
     </div>
@@ -225,6 +238,7 @@ export function Chat(): React.JSX.Element {
     task?.id,
   )
   const isNew = task !== undefined && entries.length === 0 && narration === null
+  const highlight = useSearchHighlight()
 
   return (
     <div ref={ref} onScroll={onScroll} role="log" aria-label="Conversation" className={styles.scroller}>
@@ -233,7 +247,7 @@ export function Chat(): React.JSX.Element {
         {entries.map((entry) => {
           switch (entry.kind) {
             case ChatEntryKind.User:
-              return <UserMessage key={entry.message.id} {...entry} />
+              return <UserMessage key={entry.message.id} {...entry} highlight={highlight} />
             case ChatEntryKind.Restarted:
               return <RestartDivider key={entry.divider.id} {...entry} />
             case ChatEntryKind.MarkedDone:
@@ -251,12 +265,13 @@ export function Chat(): React.JSX.Element {
                 </ChatDivider>
               )
             case ChatEntryKind.Question:
-              return <AgentQuestions key={entry.questionSet.id} {...entry} />
+              return <AgentQuestions key={entry.questionSet.id} {...entry} highlight={highlight} />
             case ChatEntryKind.Agent:
               return (
                 <AgentReply
                   key={entry.message.id}
                   entry={entry}
+                  highlight={highlight}
                   onShowTurn={(turn) => {
                     focusTurn(entry.message.taskId, turn)
                   }}

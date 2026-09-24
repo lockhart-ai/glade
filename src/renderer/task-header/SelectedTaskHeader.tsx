@@ -22,6 +22,7 @@ import {
 } from './headerModel'
 import styles from './SelectedTaskHeader.module.css'
 import { useMarkDone } from './useMarkDone'
+import { Highlighted, useSearchHighlight } from '../search/Highlight'
 
 const NO_TOOL_EVENTS: readonly ToolEvent[] = []
 
@@ -54,6 +55,7 @@ interface HeaderProps {
 
 function Header({ task }: HeaderProps): React.JSX.Element {
   const now = useNow()
+  const highlight = useSearchHighlight()
   const updateTask = useGladeStore((state) => state.updateTask)
   const markDone = useMarkDone()
   const toast = useToast()
@@ -77,7 +79,9 @@ function Header({ task }: HeaderProps): React.JSX.Element {
       <div className={styles.top}>
         <div className={styles.heading}>
           <div className={styles.titleRow}>
-            <h1 className={styles.title}>{task.title === '' ? <Empty>{EMPTY_TITLE}</Empty> : task.title}</h1>
+            <h1 className={styles.title}>
+              {task.title === '' ? <Empty>{EMPTY_TITLE}</Empty> : <Highlighted text={task.title} pattern={highlight} />}
+            </h1>
             <Button
               variant={ButtonVariant.Icon}
               icon={faThumbtack}
@@ -116,14 +120,18 @@ function Header({ task }: HeaderProps): React.JSX.Element {
       </div>
       <div className={styles.fields}>
         <FieldRow label="Objective" className={styles.objective}>
-          {task.objective === '' ? <Empty>{EMPTY_OBJECTIVE}</Empty> : task.objective}
+          {task.objective === '' ? (
+            <Empty>{EMPTY_OBJECTIVE}</Empty>
+          ) : (
+            <Highlighted text={task.objective} pattern={highlight} />
+          )}
         </FieldRow>
         <FieldRow label={done ? 'Outcome' : 'Status'} className={styles.status}>
           {task.status === '' ? (
             <Empty>{EMPTY_STATUS}</Empty>
           ) : (
             <>
-              {task.status}
+              <Highlighted text={task.status} pattern={highlight} />
               {!done && task.statusUpdatedAt !== null && (
                 <span className={styles.updated}> · {formatAgo(task.statusUpdatedAt, now)}</span>
               )}

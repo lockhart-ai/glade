@@ -192,6 +192,19 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       focusInput() {
         set(({ inputFocusRequest }) => ({ inputFocusRequest: inputFocusRequest + 1 }))
       },
+
+      setSearchText(text) {
+        set({ searchText: text })
+      },
+
+      focusSearch() {
+        set(({ searchFocusRequest }) => ({ searchFocusRequest: searchFocusRequest + 1 }))
+      },
+
+      async searchTasks(workspaceId, text) {
+        const { results } = await bridge.invoke(CommandName.SearchQuery, { workspaceId, text })
+        return results
+      },
     }
   })
 }

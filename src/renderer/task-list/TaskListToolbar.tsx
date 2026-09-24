@@ -1,5 +1,5 @@
 import { faMagnifyingGlass, faPlus } from '@fortawesome/free-solid-svg-icons'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { needsYou, parseTaskFilter, TaskFilter } from '../../shared/attention'
 import { UiStateKey, type Task } from '../../shared/domain'
 import { classNames } from '../components/classNames'
@@ -36,6 +36,11 @@ interface ChipProps {
   children: React.ReactNode
 }
 
+/** Whether the search field's text makes a search, so the sidebar shows results in place of the task list. */
+export function isSearching(text: string): boolean {
+  return text.trim() !== ''
+}
+
 /** One filter chip: pressed while its filter is the chosen one. */
 function Chip({ filter, chosen, onChoose, children }: ChipProps): React.JSX.Element {
   const on = filter === chosen
@@ -55,7 +60,9 @@ function Chip({ filter, chosen, onChoose, children }: ChipProps): React.JSX.Elem
 
 /**
  * Above the task list: the search field and the New task button, then the All · Needs you · Unread filter chips, which
- * filter the task list and remember the choice. The search field doesn't filter yet.
+ * filter the task list and remember the choice. Typing in the search field searches the workspace, and the sidebar
+ * shows the results in place of the list (and no chips); Esc, or emptying the field, ends the search. ⌘F focuses the
+ * field, selecting what's in it (`focusSearch`).
  */
 export function TaskListToolbar({ workspaceId }: TaskListToolbarProps): React.JSX.Element {
   const tasks = useGladeStore((state) => state.tasks)
@@ -63,6 +70,15 @@ export function TaskListToolbar({ workspaceId }: TaskListToolbarProps): React.JS
   const counts = useMemo(() => countChips(Object.values(tasks), workspaceId), [tasks, workspaceId])
   const chosen = useGladeStore((state) => parseTaskFilter(state.uiState[UiStateKey.TaskFilter]))
   const setUiState = useGladeStore((state) => state.setUiState)
+  const searchText = useGladeStore((state) => state.searchText)
+  const setSearchText = useGladeStore((state) => state.setSearchText)
+  const searchFocusRequest = useGladeStore((state) => state.searchFocusRequest)
+  const searchField = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (searchFocusRequest === 0) return
+    searchField.current?.focus()
+    searchField.current?.select()
+  }, [searchFocusRequest])
   const choose = (filter: TaskFilter): void => {
     if (filter !== chosen) void setUiState({ key: UiStateKey.TaskFilter, value: filter })
   }
@@ -76,6 +92,16 @@ export function TaskListToolbar({ workspaceId }: TaskListToolbarProps): React.JS
           placeholder="Search"
           icon={faMagnifyingGlass}
           className={styles.search}
+          ref={searchField}
+          value={searchText}
+          onChange={(event) => {
+            setSearchText(event.target.value)
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== 'Escape' || searchText === '') return
+            event.preventDefault()
+            setSearchText('')
+          }}
         />
         <Button
           variant={ButtonVariant.Dark}
@@ -86,17 +112,19 @@ export function TaskListToolbar({ workspaceId }: TaskListToolbarProps): React.JS
           onClick={() => void newTask()}
         />
       </div>
-      <div className={styles.chips} role="group" aria-label="Filter tasks">
-        <Chip filter={TaskFilter.All} chosen={chosen} onChoose={choose}>
-          All
-        </Chip>
-        <Chip filter={TaskFilter.NeedsYou} chosen={chosen} onChoose={choose}>
-          Needs you<span className={classNames(styles.count, styles.needsYou)}>{counts.needsYou}</span>
-        </Chip>
-        <Chip filter={TaskFilter.Unread} chosen={chosen} onChoose={choose}>
-          Unread<span className={classNames(styles.count, styles.unread)}>{counts.unread}</span>
-        </Chip>
-      </div>
+      {!isSearching(searchText) && (
+        <div className={styles.chips} role="group" aria-label="Filter tasks">
+          <Chip filter={TaskFilter.All} chosen={chosen} onChoose={choose}>
+            All
+          </Chip>
+          <Chip filter={TaskFilter.NeedsYou} chosen={chosen} onChoose={choose}>
+            Needs you<span className={classNames(styles.count, styles.needsYou)}>{counts.needsYou}</span>
+          </Chip>
+          <Chip filter={TaskFilter.Unread} chosen={chosen} onChoose={choose}>
+            Unread<span className={classNames(styles.count, styles.unread)}>{counts.unread}</span>
+          </Chip>
+        </div>
+      )}
     </div>
   )
 }

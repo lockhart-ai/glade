@@ -9,6 +9,7 @@ import {
   type QueueEditRequest,
   type QueueRemoveRequest,
   type QuestionsAnswerRequest,
+  type SearchQueryRequest,
   type TaskIdRequest,
   type TasksCreateRequest,
   type TasksRetryRequest,
@@ -83,6 +84,11 @@ const uiStateSetRequest = z.strictObject({
   value: z.string(),
 }) satisfies z.ZodType<UiStateSetRequest>
 
+const searchQueryRequest = z.strictObject({
+  workspaceId: z.string(),
+  text: z.string(),
+}) satisfies z.ZodType<SearchQueryRequest>
+
 export const REQUEST_SCHEMAS = {
   [CommandName.WorkspacesList]: emptyRequest,
   [CommandName.WorkspacesCreate]: workspacesCreateRequest,
@@ -105,6 +111,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.UiStateGet]: uiStateGetRequest,
   [CommandName.UiStateGetAll]: emptyRequest,
   [CommandName.UiStateSet]: uiStateSetRequest,
+  [CommandName.SearchQuery]: searchQueryRequest,
 } as const satisfies RequestSchemas
 
 /** A short, readable account of why a request didn't parse: each problem as `field: message`, joined by `; `. */

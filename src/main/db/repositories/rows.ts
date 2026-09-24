@@ -48,6 +48,12 @@ export class Row {
     return Number.isSafeInteger(value) && typeof value === 'number' ? value : this.fail(column, 'an integer', value)
   }
 
+  /** Any finite number, such as FTS5's rank. */
+  real(column: string): number {
+    const value = this.value(column)
+    return typeof value === 'number' && Number.isFinite(value) ? value : this.fail(column, 'a number', value)
+  }
+
   nullableInteger(column: string): number | null {
     return this.value(column) === null ? null : this.integer(column)
   }

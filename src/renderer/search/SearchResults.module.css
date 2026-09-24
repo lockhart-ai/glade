@@ -1,0 +1,40 @@
+/* From docs/design/html/07-search.html. */
+.results {
+  flex-grow: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0 12px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  font-weight: 400;
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.note {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.5;
+  color: var(--color-faint);
+}

@@ -529,4 +529,26 @@ describe("a task's logs", () => {
     expect(store.getState().inputFocusRequest).toBe(2)
     expect(invoke.mock.calls).toHaveLength(calls)
   })
+
+  it('keeps the search text and asks the search field for the focus, without calling main', async () => {
+    const { store, invoke } = await hydrated()
+    const calls = invoke.mock.calls.length
+    expect(store.getState()).toMatchObject({ searchText: '', searchFocusRequest: 0 })
+
+    store.getState().setSearchText('Retry-After')
+    store.getState().focusSearch()
+    store.getState().focusSearch()
+
+    expect(store.getState()).toMatchObject({ searchText: 'Retry-After', searchFocusRequest: 2 })
+    expect(invoke.mock.calls).toHaveLength(calls)
+  })
+
+  it('searches a workspace through main', async () => {
+    const { store, invoke } = await hydrated()
+
+    const results = await store.getState().searchTasks('w1', 'rate')
+
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.SearchQuery, { workspaceId: 'w1', text: 'rate' })
+    expect(results.map(({ taskId }) => taskId)).toEqual(['t1'])
+  })
 })

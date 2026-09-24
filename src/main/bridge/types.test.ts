@@ -53,6 +53,7 @@ const TASK_HANDLERS = {
   [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueRemove]: () => null,
   [CommandName.QuestionsAnswer]: () => ({ questionSet: {} as QuestionSet }),
+  [CommandName.SearchQuery]: () => ({ results: [] }),
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
   [CommandName.TasksCreate]: REQUEST_SCHEMAS[CommandName.TasksCreate],
@@ -68,6 +69,7 @@ const TASK_SCHEMAS = {
   [CommandName.QueueEdit]: REQUEST_SCHEMAS[CommandName.QueueEdit],
   [CommandName.QueueRemove]: REQUEST_SCHEMAS[CommandName.QueueRemove],
   [CommandName.QuestionsAnswer]: REQUEST_SCHEMAS[CommandName.QuestionsAnswer],
+  [CommandName.SearchQuery]: REQUEST_SCHEMAS[CommandName.SearchQuery],
 } satisfies Partial<RequestSchemas>
 
 describe('the command map', () => {

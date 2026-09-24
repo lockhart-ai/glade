@@ -29,6 +29,7 @@ import {
   type UiStateEntry,
   type Workspace,
 } from '../../shared/domain'
+import { highlightParts, highlightPattern, SearchField, type SearchResult } from '../../shared/search'
 
 export type FakeHandlers = {
   readonly [C in CommandName]: (request: CommandRequest<C>) => CommandResponse<C> | Promise<CommandResponse<C>>
@@ -179,7 +180,37 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       emit({ type: EventType.UiStateChanged, entry })
       return null
     },
+    [CommandName.SearchQuery]: ({ workspaceId, text }) => ({ results: fakeSearch(main, workspaceId, text) }),
   }
+}
+
+/**
+ * A stand-in for main's search: the workspace's tasks, in list order, whose title, objective, status or a message
+ * matches `highlightPattern(text)`, each with the whole first matching field (other than the title) as its snippet.
+ */
+function fakeSearch(main: FakeMain, workspaceId: string, text: string): SearchResult[] {
+  const pattern = highlightPattern(text)
+  if (pattern === null) return []
+  const results: SearchResult[] = []
+  for (const task of main.tasks) {
+    if (task.workspaceId !== workspaceId) continue
+    const fields: [SearchField, string][] = [
+      [SearchField.Objective, task.objective],
+      [SearchField.Status, task.status],
+      ...(main.messages ?? [])
+        .filter((message) => message.taskId === task.id)
+        .map((message): [SearchField, string] => [SearchField.Message, message.body]),
+      [SearchField.Title, task.title],
+    ]
+    for (const [field, body] of fields) {
+      const snippet = highlightParts(body, pattern)
+      if (snippet.some((part) => part.match)) {
+        results.push({ taskId: task.id, field, snippet })
+        break
+      }
+    }
+  }
+  return results
 }
 
 /** A bridge over `main`'s data. Pass `overrides` to change how single commands answer. */
