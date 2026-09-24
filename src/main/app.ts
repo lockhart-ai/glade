@@ -140,16 +140,17 @@ async function runCapture(window: BrowserWindow, capture: CaptureSpec, database:
 }
 
 /**
- * Fills a capture's throwaway database from its seed fixture, if it has one. Returns false, having closed the database
- * and exited with an error, when the fixture can't be applied.
+ * Fills a test mode's throwaway database from its seed fixture, if it has one. Returns false, having closed the
+ * database and exited with an error, when the fixture can't be applied.
  */
-function seedCapture(capture: CaptureSpec, database: AppDatabase): boolean {
-  if (capture.seed === undefined) return true
+function seedTestMode(testMode: NonNullable<TestMode>, database: AppDatabase): boolean {
+  const { seed } = testMode.spec
+  if (seed === undefined) return true
   try {
-    applySeed(database.db, readSeed(capture.seed))
+    applySeed(database.db, readSeed(seed))
     return true
   } catch (error) {
-    console.error(`Glade capture failed: ${(error as Error).message}`)
+    console.error(`Glade ${testMode.kind} failed: ${(error as Error).message}`)
     database.db.close()
     app.exit(1)
     return false
@@ -233,8 +234,9 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
           : () => chooseFolder(dialog, BrowserWindow.getFocusedWindow()),
     })
 
+    if (testMode !== null && !seedTestMode(testMode, database)) return
     if (testMode?.kind === TestModeKind.Capture) {
-      if (seedCapture(testMode.spec, database)) void runCapture(createWindow(testMode), testMode.spec, database)
+      void runCapture(createWindow(testMode), testMode.spec, database)
       return
     }
 

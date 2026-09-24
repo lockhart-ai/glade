@@ -29,6 +29,16 @@ export interface LaunchOptions {
   readonly route?: string
   /** What the folder dialog answers with, until `chooseFolder` changes it. Cancelled by default. */
   readonly chosenFolder?: string
+  /**
+   * A sample-data fixture (a JSON file in `e2e/seeds/`, see `src/main/capture-seed.ts`) to fill the database with
+   * before the window opens. Pass it on a test's first launch only.
+   */
+  readonly seed?: string
+}
+
+/** The path of a sample-data fixture in `e2e/seeds/`, by file name. */
+export function seedPath(name: string): string {
+  return resolve(__dirname, 'seeds', name)
 }
 
 /** A running app: its main process, and its window's page. */
@@ -105,10 +115,10 @@ export const test = base.extend<Fixtures>({
       }
     }
 
-    await use(async ({ route = '', chosenFolder } = {}) => {
+    await use(async ({ route = '', chosenFolder, seed } = {}) => {
       const app = await electron.launch({
         args: [MAIN],
-        env: appEnv({ userData, route }, chosenFolder),
+        env: appEnv({ userData, route, ...(seed === undefined ? {} : { seed }) }, chosenFolder),
         ...(RECORD_DIR === undefined
           ? {}
           : { recordVideo: { dir: testInfo.outputPath('video'), size: E2E_WINDOW_SIZE, showActions: {} } }),
