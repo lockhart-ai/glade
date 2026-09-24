@@ -52,7 +52,9 @@
  * turn. The tool log gets a running Compact row at once, filled in when the SDK's `compact_boundary` reports the tokens
  * before and after; if the turn ends without one, the row ends as an error. The context usage drops to the tokens after
  * straight away (`getContextUsage()` is stale after a compaction), and follows the next assistant message from there.
- * A compaction the SDK does on its own, at its auto-compact threshold, is logged when its boundary arrives.
+ * A compaction the SDK does on its own, at its auto-compact threshold in the middle of a turn, gets a running Compact
+ * row (automatic) when the SDK says it's compacting, filled in the same way; the turn then carries on to its reply. A
+ * compaction the SDK says failed ends its row as an error straight away.
  *
  * **Resume on launch.** A turn the app quit or crashed in is left working in the database. On launch,
  * `resumeInterrupted` carries each one on: it resumes the task's SDK session by its saved id (`docs/sdk-notes.md` §8),
@@ -177,7 +179,7 @@ interface Turn {
   readonly awaiting: Set<string>
   /** Whether the user asked to stop the turn. */
   stopping: boolean
-  /** The id of the running Compact row of a compaction you asked for, until the SDK reports it; null otherwise. */
+  /** The id of the running Compact row, until the SDK reports how the compaction went; null otherwise. */
   compaction: string | null
   /** Resolves once the turn has ended, however it ended. */
   readonly ended: Promise<void>
@@ -329,7 +331,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     setActivity(taskId, TaskActivity.Waiting)
   }
 
-  /** Ends the compaction you asked for as an error, if the SDK never reported it. */
+  /** Ends the running compaction as an error, if the SDK never reported it or says it failed. */
   const failCompaction = (turn: Turn): void => {
     if (turn.compaction === null) return
     const id = turn.compaction
@@ -341,8 +343,28 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   /**
-   * Logs a compaction the SDK reports: fills in the one you asked for, or adds one it did on its own. The context usage
-   * drops to what it reports is left.
+   * The SDK started compacting. A compaction you asked for already has its row; one the SDK started on its own, at its
+   * threshold, gets a running automatic one now, so the working line says it's compacting.
+   */
+  const onCompacting = (taskId: string, turn: Turn): void => {
+    const task = getTask(db, taskId)
+    if (task === undefined || turn.compaction !== null) return
+    const compaction = appendCompaction(db, {
+      taskId,
+      turn: turn.number,
+      trigger: CompactionTrigger.Auto,
+      state: ToolCallState.Running,
+      preTokens: null,
+      postTokens: null,
+      windowTokens: task.contextWindowTokens,
+    })
+    emitToolEventAppended(emit, compaction)
+    turn.compaction = compaction.id
+  }
+
+  /**
+   * Logs a compaction the SDK reports: fills in its running row, or adds one if the SDK never said it was compacting.
+   * The context usage drops to what it reports is left.
    */
   const onCompacted = (taskId: string, turn: Turn, event: CompactedEvent): void => {
     const task = getTask(db, taskId)
@@ -462,8 +484,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           updateTaskFromRunner(context, taskId, { contextUsedTokens: event.tokens })
         }
         return
+      case AgentEventKind.Compacting:
+        onCompacting(taskId, turn)
+        return
       case AgentEventKind.Compacted:
         onCompacted(taskId, turn, event)
+        return
+      case AgentEventKind.CompactionFailed:
+        failCompaction(turn)
         return
       case AgentEventKind.TurnFinished:
         recordContextWindow(taskId, live, event)

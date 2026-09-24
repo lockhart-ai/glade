@@ -123,6 +123,8 @@ export interface CompactStep {
   readonly postTokens?: number
   /** `manual` by default. */
   readonly trigger?: 'manual' | 'auto'
+  /** How long it compacts for, in milliseconds, between the compacting status and the boundary: no time by default. */
+  readonly ms?: number
 }
 
 export type ScriptStep =
@@ -399,6 +401,54 @@ const longContext: AgentScript = {
   compactTurn: [init(), delay(BEAT_MS * 4), compact(), result({ text: '' })],
 }
 
+/**
+ * A long turn that crosses the SDK's auto-compact threshold (967k of the default model's 1M window) part way through:
+ * the SDK compacts on its own, in the middle of the turn, and the turn carries on from the summary to its reply. Its
+ * steps take their time, so a spec or a recording sees the meter past the threshold and the compaction running.
+ */
+const autoCompaction: AgentScript = {
+  name: 'auto-compaction',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      say("I'll copy the existing uploads to the bucket, check a sample, then update the stored paths."),
+      ...describeTask(
+        'Move image uploads to S3',
+        'Move user image uploads from local disk to S3, and copy the existing files over.',
+        'Copying the existing files.',
+      ),
+      fillContext(0.6),
+      ...tool(
+        'copy',
+        'Bash',
+        { command: 'python scripts/copy_media_to_s3.py', description: 'Copy the existing uploads to S3' },
+        'copied 3,900 of 3,900',
+      ),
+      delay(BEAT_MS),
+      fillContext(0.97),
+      ...tool(
+        'sample',
+        'Bash',
+        { command: 'python scripts/check_media_sample.py --count 50', description: 'Check a sample against the disk' },
+        '50 of 50 match',
+      ),
+      delay(BEAT_MS * 4),
+      compact({ trigger: 'auto', postTokens: 41_000, ms: BEAT_MS * 4 }),
+      gladeTool('status-paths', 'set_status', { status: 'All files copied and spot-checked. Updating stored paths.' }),
+      ...tool(
+        'paths',
+        'Bash',
+        { command: 'python manage.py update_media_paths', description: 'Update the stored paths' },
+        'Updated 3,900 paths.',
+      ),
+      delay(BEAT_MS),
+      say('All 3,900 files are copied, 50 random ones match byte for byte, and the stored paths point at the bucket.'),
+      result(),
+    ],
+  ],
+}
+
 /** A turn that fails on an API error after it has started working. */
 const failingTurn: AgentScript = {
   name: 'failing-turn',
@@ -483,6 +533,7 @@ export const AGENT_SCRIPT_NAMES = [
   'failing-turn',
   'copy-in-batches',
   'long-context',
+  'auto-compaction',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -495,4 +546,5 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'failing-turn': failingTurn,
   'copy-in-batches': copyInBatches,
   'long-context': longContext,
+  'auto-compaction': autoCompaction,
 }

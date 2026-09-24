@@ -399,6 +399,7 @@ describe('ScriptedSession', () => {
     expect(played.events.filter((event) => event.kind !== AgentEventKind.SessionStarted)).toEqual([
       expect.objectContaining({ kind: AgentEventKind.Text, text: 'Full.' }),
       expect.objectContaining({ kind: AgentEventKind.TurnFinished, result: 'Full.' }),
+      { kind: AgentEventKind.Compacting },
       { kind: AgentEventKind.Compacted, trigger: CompactionTrigger.Manual, preTokens: 194_000, postTokens: 38_800 },
       expect.objectContaining({ kind: AgentEventKind.TurnFinished, result: '', userMessageUuids: ['compact-1'] }),
       expect.objectContaining({ kind: AgentEventKind.Text, text: 'After.' }),
@@ -407,6 +408,25 @@ describe('ScriptedSession', () => {
     expect(played.contextUsed).toEqual([194_000, 38_800])
     expect(played.warnings).toEqual([])
     expect(played.idles()).toBe(3)
+  })
+
+  it('compacts on its own in the middle of a turn, taking the time a compaction step gives it', async () => {
+    const played = play([
+      [fillContext(0.97), say('Full.'), compact({ trigger: 'auto', ms: 5_000 }), say('Carrying on.'), result()],
+    ])
+    played.session.send('Go', 'user-1')
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(played.events.at(-1)).toEqual({ kind: AgentEventKind.Compacting })
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(played.events.filter((event) => event.kind !== AgentEventKind.SessionStarted)).toEqual([
+      expect.objectContaining({ kind: AgentEventKind.Text, text: 'Full.' }),
+      { kind: AgentEventKind.Compacting },
+      { kind: AgentEventKind.Compacted, trigger: CompactionTrigger.Auto, preTokens: 194_000, postTokens: 38_800 },
+      expect.objectContaining({ kind: AgentEventKind.Text, text: 'Carrying on.' }),
+      expect.objectContaining({ kind: AgentEventKind.TurnFinished, result: 'Carrying on.' }),
+    ])
+    expect(played.contextUsed).toEqual([194_000, 38_800])
   })
 
   it("plays the script's own compact turn, and a compaction step's given count and trigger", async () => {
@@ -488,6 +508,21 @@ describe('ScriptedSession', () => {
       expect(played.raw.filter((message) => message.parent_tool_use_id === 'toolu_id2_1_agent')).toHaveLength(2)
       // Idle once for the wait, not again when the turn ends.
       expect(played.idles()).toBe(1)
+    })
+
+    it('cuts a compaction short, leaving the context as it was', async () => {
+      const played = play([
+        [fillContext(0.97), say('Full.'), compact({ trigger: 'auto', ms: 60_000 }), say('Never.'), result()],
+      ])
+      played.session.send('Go', 'user-1')
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(played.events.at(-1)).toEqual({ kind: AgentEventKind.Compacting })
+
+      await played.session.interrupt()
+      await flush()
+      expect(played.events.map((event) => event.kind)).not.toContain(AgentEventKind.Compacted)
+      expect(played.events.at(-1)).toMatchObject({ kind: AgentEventKind.TurnFinished, isError: true })
+      expect(played.contextUsed).toEqual([194_000])
     })
 
     it('does nothing between turns', async () => {
