@@ -8,6 +8,7 @@ import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
 import {
   AgentErrorKind,
+  CompactionTrigger,
   DividerKind,
   MessageRole,
   PauseReason,
@@ -26,7 +27,13 @@ import { serializeRelaunchNotice } from '../shared/relaunchNotice'
 import { appendMessage } from './db/repositories/messages'
 import { appendQueuedMessage } from './db/repositories/queued-messages'
 import { createTask, updateTask } from './db/repositories/tasks'
-import { appendDivider, appendNarration, appendToolCall, updateToolCall } from './db/repositories/tool-events'
+import {
+  appendCompaction,
+  appendDivider,
+  appendNarration,
+  appendToolCall,
+  updateToolCall,
+} from './db/repositories/tool-events'
 import { setUiState } from './db/repositories/ui-state'
 import { createWorkspace } from './db/repositories/workspaces'
 import { DEFAULT_EFFORT, DEFAULT_MODEL } from './tasks/defaults'
@@ -53,14 +60,14 @@ export interface SeedNarration {
   readonly minutesAgo: number
 }
 
-/** A sample tool call. It's still running unless it has an output, and done with it unless it `failed`. */
+/** A sample tool call. It's still running unless it has an output, and done with it unless it has another `state`. */
 export interface SeedToolCall {
   readonly kind: ToolEventKind.ToolCall
   readonly name: string
   readonly input: ToolInput
   readonly output?: string | undefined
-  /** Whether the call failed; its output is then the error. */
-  readonly failed?: boolean | undefined
+  /** How the call ended, with its output: done unless given (e.g. `error`, when its output is the error). */
+  readonly state?: FinishedToolCallState | undefined
   /** Its `tool_use` id, for a subagent's calls to name as their parent; generated when not given. */
   readonly toolUseId?: string | undefined
   /** The `toolUseId` of the `Agent` call whose subagent made this call; top level when not given. */
@@ -77,8 +84,27 @@ export interface SeedDivider {
   readonly minutesAgo: number
 }
 
+/** A sample compaction (`CompactionEvent`), done unless it has another `state`. */
+export interface SeedCompaction {
+  readonly kind: ToolEventKind.Compaction
+  readonly trigger: CompactionTrigger
+  readonly state?: ToolCallState | undefined
+  readonly preTokens: number | null
+  readonly postTokens: number | null
+  readonly windowTokens: number
+  readonly turn: number
+  readonly minutesAgo: number
+}
+
 /** One sample tool log entry. */
-export type SeedToolEvent = SeedNarration | SeedToolCall | SeedDivider
+export type SeedToolEvent = SeedNarration | SeedToolCall | SeedDivider | SeedCompaction
+
+/** The states a sample tool call with an output can end in: any but running. */
+export type FinishedToolCallState = Exclude<ToolCallState, ToolCallState.Running>
+
+const FINISHED_TOOL_CALL_STATES = Object.values(ToolCallState).filter(
+  (state): state is FinishedToolCallState => state !== ToolCallState.Running,
+)
 
 /** One sample task. Its times are relative to the capture, so relative times read the same on every run. */
 export interface SeedTask {
@@ -146,13 +172,23 @@ const seedToolEventSchema: z.ZodType<SeedToolEvent> = z.discriminatedUnion('kind
     name: z.string(),
     input: z.record(z.string(), z.unknown()),
     output: z.string().optional(),
-    failed: z.boolean().optional(),
+    state: z.enum(FINISHED_TOOL_CALL_STATES).optional(),
     toolUseId: z.string().optional(),
     parentToolUseId: z.string().optional(),
     turn,
     minutesAgo,
   }),
   z.strictObject({ kind: z.literal(ToolEventKind.Divider), dividerKind: z.enum(DividerKind), turn, minutesAgo }),
+  z.strictObject({
+    kind: z.literal(ToolEventKind.Compaction),
+    trigger: z.enum(CompactionTrigger),
+    state: z.enum(ToolCallState).optional(),
+    preTokens: count.nullable(),
+    postTokens: count.nullable(),
+    windowTokens: z.int().positive(),
+    turn,
+    minutesAgo,
+  }),
 ])
 
 const seedErrorSchema = z.strictObject({
@@ -232,10 +268,14 @@ function seedToolEvent(db: Database, taskId: string, event: SeedToolEvent, at: E
       const { name, input, output, turn } = event
       const toolUseId = event.toolUseId ?? seedId
       appendToolCall(db, { taskId, turn, name, input, toolUseId, parentToolUseId: event.parentToolUseId ?? null }, at)
-      if (output !== undefined) {
-        const state = event.failed === true ? ToolCallState.Error : ToolCallState.Done
-        updateToolCall(db, { taskId, toolUseId, state, output })
-      }
+      if (output !== undefined)
+        updateToolCall(db, { taskId, toolUseId, state: event.state ?? ToolCallState.Done, output })
+      return
+    }
+    case ToolEventKind.Compaction: {
+      const { trigger, preTokens, postTokens, windowTokens, turn } = event
+      const state = event.state ?? ToolCallState.Done
+      appendCompaction(db, { taskId, turn, trigger, state, preTokens, postTokens, windowTokens }, at)
       return
     }
   }

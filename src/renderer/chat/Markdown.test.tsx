@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
-import { expect, it } from 'vitest'
-import { Markdown } from './Markdown'
+import { describe, expect, it } from 'vitest'
+import { InlineMarkdown, Markdown } from './Markdown'
 
 function renderMarkdown(source: string): HTMLElement {
   const { container } = render(<Markdown source={source} className="extra" />)
@@ -59,4 +59,35 @@ it('drops raw HTML tags, keeping only the text between them', () => {
   expect(root.querySelector('img, script, div div')).toBeNull()
   expect(root).toHaveTextContent('Before alert(1) after')
   expect(root).not.toHaveTextContent('block')
+})
+
+describe('InlineMarkdown', () => {
+  function renderInline(source: string): HTMLElement {
+    const { container } = render(
+      <p>
+        <InlineMarkdown source={source} />
+      </p>,
+    )
+    return container.firstElementChild as HTMLElement
+  }
+
+  it('keeps inline code and emphasis, inline', () => {
+    const root = renderInline('Uses `django-storages`, *not* **boto** directly.')
+
+    expect(screen.getByText('django-storages').tagName).toBe('CODE')
+    expect(screen.getByText('not').tagName).toBe('EM')
+    expect(screen.getByText('boto').tagName).toBe('STRONG')
+    expect(root.children).toHaveLength(3)
+    expect(root).toHaveTextContent('Uses django-storages, not boto directly.')
+  })
+
+  it('shows links, images, headings, lists and blocks as their text, and runs paragraphs on', () => {
+    const root = renderInline(
+      '# Plan\n\nSee [the docs](https://example.com) and ![a diagram](https://example.com/d.png).\n\n- one\n- two\n\n```\nmake\n```\n\n<b>raw</b>',
+    )
+
+    expect(root.querySelector('a, img, h1, ul, li, pre, b, p')).toBeNull()
+    expect(root).toHaveTextContent('Plan See the docs and a diagram. one two make raw')
+    expect(root.querySelector('code')).toHaveTextContent('make')
+  })
 })

@@ -246,6 +246,56 @@ describe('TaskPanel', () => {
       expect(screen.getByLabelText('Glob output')).toHaveTextContent(/^$/)
     })
 
+    it('shows a call a pause cut off in purple, and one a quit cut off like a finished call', async () => {
+      await renderPanel({
+        toolEvents: [
+          call('c1', {
+            name: 'Bash',
+            input: { command: 'python copy.py' },
+            state: ToolCallState.Interrupted,
+            output: 'Glade quit before this tool call finished.',
+          }),
+          call('c2', {
+            name: 'Bash',
+            input: { command: 'python copy.py --resume' },
+            state: ToolCallState.Paused,
+            output: 'The task paused before this tool call finished.',
+          }),
+        ],
+      })
+
+      const interrupted = row(/^Interrupted\s*Bash/)
+      expect(interrupted).toHaveTextContent(/Interrupted$/)
+      expect(within(interrupted).getByRole('img', { name: 'Interrupted' })).toHaveAttribute('data-state', 'done')
+      expect(interrupted.parentElement).toHaveAttribute('data-state', ToolCallState.Interrupted)
+      expect(interrupted.parentElement?.className).not.toMatch(/error/)
+      fireEvent.click(interrupted)
+      expect(screen.getByLabelText('Bash output')).toHaveTextContent('Glade quit before this tool call finished.')
+
+      const paused = row(/^Paused\s*Bash/)
+      expect(paused).toHaveTextContent(/Paused$/)
+      expect(within(paused).getByRole('img', { name: 'Paused' })).toHaveAttribute('data-state', 'waiting')
+      expect(paused.parentElement?.className).toMatch(/paused/)
+    })
+
+    it('shows inline code and emphasis in the agent’s notes, and nothing that loads or links', async () => {
+      await renderPanel({
+        toolEvents: [
+          narration(
+            'n1',
+            1,
+            'The project uses `django-storages` for *static* files. See [the docs](https://example.com) ![logo](https://example.com/x.png)',
+          ),
+        ],
+      })
+
+      const note = within(log()).getByText(/The project uses/)
+      expect(within(note).getByText('django-storages').tagName).toBe('CODE')
+      expect(within(note).getByText('static').tagName).toBe('EM')
+      expect(note).toHaveTextContent('The project uses django-storages for static files. See the docs logo 10:43')
+      expect(note.querySelector('a, img')).toBeNull()
+    })
+
     it('marks where each turn after the first starts, and what else happened', async () => {
       await renderPanel({
         toolEvents: [...TURN_ONE, divider('d2', 2), call('c3', { turn: 2 }), divider('d3', 2, DividerKind.MarkedDone)],
