@@ -249,7 +249,10 @@ The tool is named `Agent` in `tool_use` (the init `tools` list shows `Task`). A 
 - Every message from inside a subagent has `parent_tool_use_id` set to the `Agent` tool_use id. Top-level messages
   have `null`.
 - By default only the subagent's tool calls and results are forwarded. `forwardSubagentText: true` also forwards its
-  text and thinking [docs].
+  text and thinking [verified, SDK 0.3.281 on Haiku]: each text block comes as an `assistant` message with
+  `parent_tool_use_id` set and `content: [{ "type": "text", "text": "…" }]`, the same shape as a top-level one. Its
+  prompt also arrives, as a `user` message with a text block and the parent id; its thinking blocks came with empty
+  `thinking` text.
 - `agentProgressSummaries: true` adds a one-line `summary` to `task_progress` about every 30s [docs].
 - Background Bash commands use the same `task_*` events with `task_type: "local_bash"`, plus
   `system/background_tasks_changed` [verified].
@@ -523,5 +526,5 @@ log or as a truncated reply, and show the turn as stopped rather than failed (`t
   block tools.
 - **The `env` option replaces the environment.** Passing `env` without spreading `process.env` drops `PATH`/`HOME` and
   the login.
-- **Not exercised:** the API-key path, `api_retry`, real auto-compaction (the `"auto"` trigger), usage-limit errors,
-  and `forwardSubagentText`. Their shapes above come from the types.
+- **Not exercised:** the API-key path, `api_retry`, real auto-compaction (the `"auto"` trigger) and usage-limit
+  errors. Their shapes above come from the types.

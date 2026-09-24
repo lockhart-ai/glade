@@ -62,7 +62,14 @@ export interface ToolCallResult {
   readonly taskId: string
   readonly toolUseId: string
   readonly state: ToolCallState
-  readonly output: string
+  /** Null only when a call that never got a result changes state. */
+  readonly output: string | null
+}
+
+/** A tool call as `toolCallsIn` finds it: its `tool_use` id and output. */
+interface ToolCallOutput {
+  readonly toolUseId: string
+  readonly output: string | null
 }
 
 /** A `tool_events` row's columns, as named parameters. The ones a variant doesn't use are null. */
@@ -305,13 +312,14 @@ export function listToolEvents(db: Database, taskId: string): ToolEvent[] {
 }
 
 /**
- * Records a tool call's result, arrived at `now`, and returns the call updated. Throws if the task has no call with
- * that id.
+ * Records a tool call's result, arrived at `now`, and returns the call updated. A call that has already finished (a
+ * paused one, later interrupted) keeps the time it first did. Throws if the task has no call with that id.
  */
 export function updateToolCall(db: Database, result: ToolCallResult, now: EpochMs = Date.now()): ToolCallEvent {
   const row: unknown = db
     .prepare(
-      `UPDATE tool_events SET tool_state = @state, tool_output = @output, finished_at = @finishedAt
+      `UPDATE tool_events SET tool_state = @state, tool_output = @output,
+        finished_at = COALESCE(finished_at, @finishedAt)
       WHERE task_id = @taskId AND tool_use_id = @toolUseId AND kind = 'tool_call'
       RETURNING ${COLUMNS}`,
     )
@@ -320,21 +328,41 @@ export function updateToolCall(db: Database, result: ToolCallResult, now: EpochM
   return parseToolCall(new Row('tool_events', row))
 }
 
+/** A task's tool calls in a state, with their output, in log order. */
+function toolCallsIn(db: Database, taskId: string, state: ToolCallState): ToolCallOutput[] {
+  return db
+    .prepare(
+      `SELECT tool_use_id, tool_output FROM tool_events
+      WHERE task_id = ? AND kind = 'tool_call' AND tool_state = ? ORDER BY seq`,
+    )
+    .all(taskId, state)
+    .map((raw) => {
+      const row = new Row('tool_events', raw)
+      return { toolUseId: row.text('tool_use_id'), output: row.nullableText('tool_output') }
+    })
+}
+
 /**
- * Records every tool call of a task that is still running as an error at `now`, e.g. the calls of a turn the app died
- * in, and returns them updated, in log order.
+ * Records every tool call of a task that is still running as interrupted, e.g. the calls of a turn the app died in,
+ * with `output` saying why, and returns them updated, in log order.
  */
-export function failRunningToolCalls(
+export function interruptRunningToolCalls(
   db: Database,
   taskId: string,
   output: string,
   now: EpochMs = Date.now(),
 ): ToolCallEvent[] {
-  const running = db
-    .prepare(
-      `SELECT tool_use_id FROM tool_events WHERE task_id = ? AND kind = 'tool_call' AND tool_state = ? ORDER BY seq`,
-    )
-    .all(taskId, ToolCallState.Running)
-    .map((raw) => new Row('tool_events', raw).text('tool_use_id'))
-  return running.map((toolUseId) => updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Error, output }, now))
+  return toolCallsIn(db, taskId, ToolCallState.Running).map(({ toolUseId }) =>
+    updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Interrupted, output }, now),
+  )
+}
+
+/**
+ * Records every paused tool call of a task as interrupted, once the task works again: the pause is behind it. Each
+ * keeps its output. Returns them updated, in log order.
+ */
+export function interruptPausedToolCalls(db: Database, taskId: string): ToolCallEvent[] {
+  return toolCallsIn(db, taskId, ToolCallState.Paused).map(({ toolUseId, output }) =>
+    updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Interrupted, output }),
+  )
 }

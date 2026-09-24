@@ -3,6 +3,8 @@ import {
   CompactionTrigger,
   DividerKind,
   MessageRole,
+  QuestionKind,
+  QuestionSetState,
   TaskActivity,
   TaskState,
   ToolCallState,
@@ -10,6 +12,7 @@ import {
   type CompactionEvent,
   type DividerEvent,
   type Message,
+  type QuestionSet,
   type ToolEvent,
 } from '../../shared/domain'
 import { sampleTask } from '../store/test-bridge'
@@ -23,6 +26,7 @@ import {
   dayAndTime,
   durationLabel,
   markedDoneLabel,
+  questionLead,
   REOPENED_LABEL,
   ReplyStyle,
   restartLabel,
@@ -35,10 +39,11 @@ import {
 
 const task = sampleTask('t1', 'w1')
 
-/** Each entry's message id, or its divider's id. */
+/** Each entry's message id, or its divider's or question set's id. */
 function kinds(entries: readonly ChatEntry[]): unknown[] {
   return entries.map((entry) => {
     if ('message' in entry) return entry.message.id
+    if ('questionSet' in entry) return entry.questionSet.id
     return 'compaction' in entry ? entry.compaction.id : entry.divider.id
   })
 }
@@ -185,6 +190,93 @@ describe('chatEntries', () => {
       expect(labels(working)).toEqual(['Glade restarted · 14:26', 'Glade restarted · 14:26 · resuming'])
       expect(labels(chatEntries(task, running, events))).toEqual(['Glade restarted · 14:26', 'Glade restarted · 14:26'])
     })
+  })
+})
+
+describe('question cards', () => {
+  const asked = (id: string, turn: number, createdAt: number): QuestionSet => ({
+    id,
+    taskId: 't1',
+    turn,
+    questions: [{ kind: QuestionKind.Pills, prompt: 'Credit?', options: ['Yes', 'No'] }],
+    state: QuestionSetState.Open,
+    reply: null,
+    createdAt,
+    closedAt: null,
+  })
+  const at = <T extends Message | ToolEvent>(entry: T, createdAt: number): T => ({ ...entry, createdAt })
+  const ask = (id: string, turn: number, createdAt: number): ToolEvent => ({
+    id,
+    taskId: 't1',
+    turn,
+    createdAt,
+    kind: ToolEventKind.ToolCall,
+    name: 'mcp__glade__ask',
+    input: {},
+    output: null,
+    state: ToolCallState.Running,
+    finishedAt: null,
+    toolUseId: `use-${id}`,
+    parentToolUseId: null,
+  })
+
+  it("shows each where it was asked: after its turn's earlier messages, before later ones and the reply", () => {
+    const messages = [
+      message('ask', MessageRole.User, 1),
+      at(message('in-words', MessageRole.User, 1), 3_000),
+      at(message('reply-1', MessageRole.Agent, 1), 4_000),
+      at(message('follow-up', MessageRole.User, 2), 5_000),
+    ]
+    const sets = [asked('q2', 2, 6_000), asked('q1', 1, 2_000)]
+    expect(kinds(chatEntries(task, messages, [], sets))).toEqual([
+      'ask',
+      'q1',
+      'in-words',
+      'reply-1',
+      'follow-up',
+      'q2',
+    ])
+  })
+
+  it('goes before a divider that came after it, and after one that came before it', () => {
+    const resumed: DividerEvent = {
+      id: 'r1',
+      taskId: 't1',
+      turn: 1,
+      createdAt: 3_000,
+      kind: ToolEventKind.Divider,
+      dividerKind: DividerKind.Resumed,
+    }
+    const messages = [message('ask', MessageRole.User, 1), at(message('reply-1', MessageRole.Agent, 1), 4_000)]
+    expect(kinds(chatEntries(task, messages, [resumed], [asked('q1', 1, 2_000)]))).toEqual([
+      'ask',
+      'q1',
+      'r1',
+      'reply-1',
+    ])
+    expect(kinds(chatEntries(task, messages, [resumed], [asked('q1', 1, 3_500)]))).toEqual([
+      'ask',
+      'r1',
+      'q1',
+      'reply-1',
+    ])
+    expect(kinds(chatEntries(task, messages.slice(0, 1), [resumed], [asked('q1', 1, 2_000)]))).toEqual([
+      'ask',
+      'q1',
+      'r1',
+    ])
+  })
+
+  it("leads with the narration just before the ask call, if nothing came between, and only from the set's turn", () => {
+    const set = asked('q1', 2, 5_000)
+    const said = at(narration('n1', 2, 'A few choices are yours.'), 4_000)
+    expect(questionLead(set, [said, ask('c1', 2, 4_500)])).toBe('A few choices are yours.')
+    expect(questionLead(set, [said, at(toolCall('c0', 2), 4_200), ask('c1', 2, 4_500)])).toBeNull()
+    expect(questionLead(set, [at(narration('n0', 1, 'Earlier.'), 1_000)])).toBeNull()
+    expect(questionLead(set, [at(narration('n2', 2, 'Later.'), 6_000)])).toBeNull()
+    expect(questionLead(set, [])).toBeNull()
+    const [entry] = chatEntries(task, [], [said], [set])
+    expect(entry).toEqual({ kind: ChatEntryKind.Question, questionSet: set, lead: 'A few choices are yours.' })
   })
 })
 

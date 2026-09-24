@@ -140,18 +140,28 @@ export function resultSummary(call: ToolCallEvent): string {
       return firstLine(call.output ?? '') || 'Failed'
     case ToolCallState.Done:
       return doneSummary(call, call.output ?? '')
+    case ToolCallState.Paused:
+      return 'Paused'
+    case ToolCallState.Interrupted:
+      return 'Interrupted'
   }
 }
 
-/** The dot a tool call shows: running blue, done slate, error pink. */
+/**
+ * The dot a tool call shows: running blue, done slate, error pink, paused purple (17-usage-limit.html), and interrupted
+ * slate, since a call cut off by a crash didn't fail (18-relaunch.html).
+ */
 export function callIndicator(state: ToolCallState): TaskIndicator {
   switch (state) {
     case ToolCallState.Running:
       return TaskIndicator.Working
     case ToolCallState.Done:
+    case ToolCallState.Interrupted:
       return TaskIndicator.Done
     case ToolCallState.Error:
       return TaskIndicator.Error
+    case ToolCallState.Paused:
+      return TaskIndicator.Waiting
   }
 }
 
@@ -164,6 +174,10 @@ export function callStateLabel(state: ToolCallState): string {
       return 'Done'
     case ToolCallState.Error:
       return 'Failed'
+    case ToolCallState.Paused:
+      return 'Paused'
+    case ToolCallState.Interrupted:
+      return 'Interrupted'
   }
 }
 
@@ -240,7 +254,10 @@ export function compactionResult({ state, trigger }: CompactionEvent): string {
   switch (state) {
     case ToolCallState.Running:
       return 'Compacting…'
+    // A compaction the app quit in ends as an error; it's never paused or interrupted, but would read the same.
     case ToolCallState.Error:
+    case ToolCallState.Paused:
+    case ToolCallState.Interrupted:
       return "Didn't finish"
     case ToolCallState.Done:
       return trigger === CompactionTrigger.Auto ? 'Automatic · resuming from a summary' : 'Resuming from a summary'

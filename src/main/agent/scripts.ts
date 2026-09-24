@@ -771,7 +771,10 @@ const copyInBatches: AgentScript = {
   ],
 }
 
-/** The questions `asks-a-question` asks before it drafts the release notes: a choice with sketches, and two pills. */
+/**
+ * The questions `asks-a-question` asks before it drafts the release notes: a choice with sketches, two pills, and an
+ * optional text question.
+ */
 export const RELEASE_NOTES_QUESTIONS: readonly Question[] = [
   {
     kind: QuestionKind.Choice,
@@ -781,13 +784,13 @@ export const RELEASE_NOTES_QUESTIONS: readonly Question[] = [
         id: 'by-type',
         label: 'By type',
         detail: 'Features, fixes, internal. Matches the 2.3 notes.',
-        sketch: '## Features\n- …\n## Fixes\n- …\n## Internal\n- …',
+        sketch: '# Features\n- Rate limits on /search\n# Fixes\n- Login redirect loop',
       },
       {
         id: 'by-area',
         label: 'By area',
         detail: 'API, dashboard, admin. Easier for integrators to scan.',
-        sketch: '## API\n- …\n## Dashboard\n- …\n## Admin\n- …',
+        sketch: '# API\n- Rate limits on /search\n# Dashboard\n- Login redirect loop',
       },
     ],
   },
@@ -797,6 +800,12 @@ export const RELEASE_NOTES_QUESTIONS: readonly Question[] = [
     options: ['Features', 'Internal changes', 'Leave it out'],
   },
   { kind: QuestionKind.Pills, prompt: 'Credit contributors?', options: ['GitHub handles', 'Full names', 'No credits'] },
+  {
+    kind: QuestionKind.Text,
+    prompt: 'Anything to call out in the upgrade guide?',
+    placeholder: 'e.g. the new 429s on /search',
+    optional: true,
+  },
 ]
 
 /**
@@ -810,13 +819,14 @@ const asksAQuestion: AgentScript = {
     [
       ...turnStart(),
       delay(BEAT_MS),
-      say('41 PRs since v2.3.0. Before I draft the notes, a few questions.'),
       ...describeTask(
         'Draft release notes for 2.4',
         'Draft release notes for 2.4 from the PRs merged since the 2.3 tag, grouped into features, fixes and ' +
           'internal changes.',
-        'Waiting on three layout and credit questions.',
+        'Waiting on layout, credit and upgrade guide questions.',
       ),
+      // Said just before asking, so the question card leads with it.
+      say('41 PRs since v2.3.0. A few choices are yours before I draft the notes.'),
       ask('questions', RELEASE_NOTES_QUESTIONS),
       delay(BEAT_MS),
       gladeTool('status-drafted', 'set_status', { status: 'Release notes drafted in docs/releases/2.4.md.' }),

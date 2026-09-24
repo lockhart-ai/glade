@@ -3,7 +3,7 @@
  * the calls and notes nested under it (`parentToolUseId`) are what it did. See `docs/sdk-notes.md`, "Subagents".
  *
  * There's no "queued" subagent: nothing in the stream says a subagent is waiting for a slot (`docs/sdk-notes.md`), so
- * every subagent is running, done or failed.
+ * every subagent is running, paused, done, interrupted or failed.
  */
 import { TaskIndicator } from '../../shared/taskIndicator'
 import { ToolCallState, ToolEventKind, type EpochMs, type ToolCallEvent, type ToolEvent } from '../../shared/domain'
@@ -15,9 +15,14 @@ const SUBAGENT_TOOLS: ReadonlySet<string> = new Set(['Agent', 'Task'])
 /** What a subagent is called when its call names neither a description nor a type. */
 export const UNNAMED_SUBAGENT = 'Subagent'
 
+/** A subagent's status: its `Agent` call's state (see `ToolCallState`). */
 export enum SubagentStatus {
   Running = 'running',
+  /** Cut off by a pause the task is still in. */
+  Paused = 'paused',
   Done = 'done',
+  /** Cut off by Glade quitting, or by a pause the task has resumed from: not a failure. */
+  Interrupted = 'interrupted',
   Error = 'error',
 }
 
@@ -83,6 +88,10 @@ function subagentStatus(state: ToolCallState): SubagentStatus {
       return SubagentStatus.Done
     case ToolCallState.Error:
       return SubagentStatus.Error
+    case ToolCallState.Paused:
+      return SubagentStatus.Paused
+    case ToolCallState.Interrupted:
+      return SubagentStatus.Interrupted
   }
 }
 
@@ -133,7 +142,7 @@ function subagentCalls(rows: readonly (ToolLogRow | SubagentRow)[]): CallRow[] {
 }
 
 /**
- * A task's subagents: running ones first, then done, then failed, each in the order they started. `rootPath` makes
+ * A task's subagents: running ones first, then paused, done, interrupted and failed, each in the order they started. `rootPath` makes
  * file arguments relative to the workspace root.
  */
 export function deriveSubagents(events: readonly ToolEvent[], rootPath?: string): Subagent[] {
@@ -177,24 +186,31 @@ export function metaLine(subagent: Subagent, now: EpochMs): string {
   return elapsed === null ? calls : `${formatElapsed(elapsed)} · ${calls}`
 }
 
-/** What a subagent's status is called: "Running", "Done", "Failed". */
+/** What a subagent's status is called: "Running", "Paused", "Done", "Interrupted", "Failed". */
 export function statusLabel(status: SubagentStatus): string {
   switch (status) {
     case SubagentStatus.Running:
       return 'Running'
+    case SubagentStatus.Paused:
+      return 'Paused'
     case SubagentStatus.Done:
       return 'Done'
+    case SubagentStatus.Interrupted:
+      return 'Interrupted'
     case SubagentStatus.Error:
       return 'Failed'
   }
 }
 
-/** The dot a subagent shows: running blue, done slate, failed pink. */
+/** The dot a subagent shows, as its call's in the tool log: running blue, paused purple, failed pink, else slate. */
 export function statusIndicator(status: SubagentStatus): TaskIndicator {
   switch (status) {
     case SubagentStatus.Running:
       return TaskIndicator.Working
+    case SubagentStatus.Paused:
+      return TaskIndicator.Waiting
     case SubagentStatus.Done:
+    case SubagentStatus.Interrupted:
       return TaskIndicator.Done
     case SubagentStatus.Error:
       return TaskIndicator.Error

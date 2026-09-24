@@ -56,9 +56,9 @@ test('force-quit mid-turn, relaunch: the task resumes its session and finishes t
   expect(durationMs).toBeLessThan(60_000)
   await expect(chat(window).turnSummaries).toHaveText(`Finished in ${String(Math.round(durationMs / 1000))}s`)
 
-  // The tool log keeps what the first run did: the command the quit cut off failed, then the turn resumed.
+  // The tool log keeps what the first run did: the quit cut a command off, then the turn resumed.
   const panel = taskPanel(window)
-  await expect(panel.call(/^Failed\s*Bash/)).toBeVisible()
+  await expect(panel.call(/^Interrupted\s*Bash/)).toBeVisible()
   await expect(panel.dividers.filter({ hasText: /^resumed after restart/ })).toHaveCount(1)
   await expect(panel.call(/^Done\s*Bash/)).toBeVisible()
   await expect(panel.log).toContainText('Glade restarted mid-run, so I am running the suite again.')

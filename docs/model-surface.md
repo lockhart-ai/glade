@@ -25,8 +25,27 @@ model as a tool error and changes nothing. Each write goes through `updateTaskFr
 `mcp__glade__ask` takes `{ questions: Question[] }`, with `Question` exactly as drafted below (`QuestionKind` and the
 question interfaces in `src/shared/domain.ts`; the zod schema in `src/main/questions/schema.ts`). Beyond the draft:
 every text is trimmed and must not be empty, there is at least one question, a choice or pills question has at least
-two options, and a choice's option ids and a question's pills are each unique. The format of `sketch` is open: a short
-text sketch for now.
+two options, and a choice's option ids and a question's pills are each unique.
+
+**Sketch format** (P4-02): an option's `sketch` is a few short lines of plain text, up to about 6 lines of 40
+characters, drawn as is, monospaced, in a small frame above the option's label (`03-rich-question.png`). Whitespace
+is kept and lines don't wrap (a long one is cut off). A line starting with `#` is a heading: its marks are dropped and
+it's shown in the accent blue; every other line is shown muted. Nothing else is Markdown. For a layout, e.g.:
+
+```
+# Features
+- …
+# Fixes
+- …
+```
+
+**The card** (P4-02, `src/renderer/questions/QuestionCard.tsx`): each question with its option cards (radios, or
+checkboxes with `multiple`), pills (the same) or text field, "N of M answered" and Send answers, which is enabled once
+every question but an optional text one has an answer. Keyboard: Tab moves between the questions (one stop each) and
+Send, ← → between a question's options, ↑ ↓ between questions, 1–9 pick the focused question's options, Space the
+focused one, and ↵ sends. Once closed, the card shows each answer, or that it was answered in your words, or that it
+was withdrawn. A set opened in a task you aren't viewing marks it unread and sends a notification, as a final reply
+does, with its first question as the body.
 
 - **It blocks.** The handler saves an open question set (`QuestionSet`, table `question_sets`) and waits until it's
   answered, however long that takes (`src/main/questions/questions.ts`). Meanwhile the task waits on you: its activity

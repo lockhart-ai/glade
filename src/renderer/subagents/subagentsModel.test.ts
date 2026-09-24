@@ -209,7 +209,9 @@ describe('statuses', () => {
   it('have a label and a dot each', () => {
     expect(Object.values(SubagentStatus).map((status) => [statusLabel(status), statusIndicator(status)])).toEqual([
       ['Running', TaskIndicator.Working],
+      ['Paused', TaskIndicator.Waiting],
       ['Done', TaskIndicator.Done],
+      ['Interrupted', TaskIndicator.Done],
       ['Failed', TaskIndicator.Error],
     ])
   })
@@ -225,7 +227,17 @@ describe('statuses', () => {
       { status: SubagentStatus.Running, label: '3 running' },
       { status: SubagentStatus.Done, label: '1 done' },
     ])
-    expect(tally(deriveSubagents([agent('a', 'A', { state: ToolCallState.Error })]))).toEqual([
+    expect(
+      tally(
+        deriveSubagents([
+          agent('a', 'A', { state: ToolCallState.Error }),
+          agent('b', 'B', { state: ToolCallState.Interrupted }),
+          agent('c', 'C', { state: ToolCallState.Paused }),
+        ]),
+      ),
+    ).toEqual([
+      { status: SubagentStatus.Paused, label: '1 paused' },
+      { status: SubagentStatus.Interrupted, label: '1 interrupted' },
       { status: SubagentStatus.Error, label: '1 failed' },
     ])
     expect(anyRunning(subagents)).toBe(true)

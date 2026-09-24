@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ToolCallState, ToolEventKind, type ToolEvent } from '../../shared/domain'
 import { clockTime } from '../chat/chatModel'
+import { InlineMarkdown } from '../chat/Markdown'
 import { useStickToBottom } from '../chat/useStickToBottom'
 import { classNames } from '../components/classNames'
 import { moduleClass } from '../components/moduleClass'
@@ -128,7 +129,7 @@ function Compaction({ compaction, turnStart }: CompactionRow & TurnStartProps): 
   )
 }
 
-/** One of the agent's working notes between tool calls. */
+/** One of the agent's working notes between tool calls, with its inline code and emphasis. */
 function Narration({
   narration,
   turnStart,
@@ -136,7 +137,8 @@ function Narration({
 }: NarrationRow & TurnStartProps & DensityProps): React.JSX.Element {
   return (
     <p className={classNames(styles.narration, compact && styles.compact)} {...{ [TURN_START]: turnStart }}>
-      {narration.text} <span className={styles.narrationTime}>{clockTime(narration.createdAt)}</span>
+      <InlineMarkdown source={narration.text} />{' '}
+      <span className={styles.narrationTime}>{clockTime(narration.createdAt)}</span>
     </p>
   )
 }

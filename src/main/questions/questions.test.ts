@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
 import {
   MessageRole,
@@ -9,10 +9,12 @@ import {
   type Question,
   type QuestionReply,
   type Task,
+  UiStateKey,
 } from '../../shared/domain'
 import { appendMessage } from '../db/repositories/messages'
 import { appendQuestionSet, getQuestionSet } from '../db/repositories/question-sets'
 import { getTask } from '../db/repositories/tasks'
+import { setUiState } from '../db/repositories/ui-state'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { createQuestionBroker, toolResultFor, type QuestionBroker } from './questions'
 
@@ -29,6 +31,8 @@ let broker: QuestionBroker
 beforeEach(() => {
   database = openTestDatabase()
   task = sampleTask(database.db, sampleWorkspace(database.db).id)
+  // You're viewing the task, so its questions notify nothing; see "notifications" below for one you aren't.
+  setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: task.id })
   events = []
   broker = createQuestionBroker({ db: database.db, emit: (event) => events.push(event) })
 })
@@ -70,6 +74,39 @@ describe('toolResultFor', () => {
     expect(toolResultFor({ kind: QuestionReplyKind.FreeText, text: 'By type, "please".' })).toBe(
       '{"freeText":"By type, \\"please\\"."}',
     )
+  })
+})
+
+describe('the question broker: notifications', () => {
+  it("marks a task you aren't viewing unread and notifies its first question, once per set", () => {
+    setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: 'another-task' })
+    const notify = vi.fn()
+    const notifying = createQuestionBroker({ db: database.db, emit: (event) => events.push(event) }, notify)
+    const questions: Question[] = [...QUESTIONS, { kind: QuestionKind.Text, prompt: 'Anything else?', optional: true }]
+
+    void notifying.ask(task.id, questions)
+
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledWith(task.id, 'Credit contributors?')
+    expect(current().unread).toBe(true)
+  })
+
+  it('notifies nothing for the task you are viewing, and leaves it read', () => {
+    const notify = vi.fn()
+    const notifying = createQuestionBroker({ db: database.db, emit: (event) => events.push(event) }, notify)
+
+    void notifying.ask(task.id, QUESTIONS)
+
+    expect(notify).not.toHaveBeenCalled()
+    expect(current().unread).toBe(false)
+  })
+
+  it('marks the task unread without a notifier to call', () => {
+    setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: 'another-task' })
+
+    void broker.ask(task.id, QUESTIONS)
+
+    expect(current().unread).toBe(true)
   })
 })
 

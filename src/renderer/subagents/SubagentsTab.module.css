@@ -46,8 +46,13 @@
   background: var(--color-blue);
 }
 
-.tallyDot.done {
+.tallyDot.done,
+.tallyDot.interrupted {
   background: var(--color-slate);
+}
+
+.tallyDot.paused {
+  background: var(--color-purple);
 }
 
 .tallyDot.error {
@@ -118,6 +123,10 @@
 
 .running .status {
   color: var(--color-blue-text);
+}
+
+.paused .status {
+  color: var(--color-purple);
 }
 
 .error .status {

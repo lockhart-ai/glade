@@ -1,0 +1,139 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "tasks": [
+    {
+      "title": "Draft release notes for 2.4",
+      "status": "Waiting on you: two questions",
+      "pinned": true,
+      "minutesAgo": 25
+    },
+    {
+      "title": "Investigate slow dashboard query",
+      "status": "Added an index; 2.1s down to 90ms",
+      "state": "done",
+      "pinned": true,
+      "minutesAgo": 7200
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "status": "Waiting on you: pick a limit for /search",
+      "minutesAgo": 4
+    },
+    {
+      "title": "Move image uploads to S3",
+      "objective": "Move user image uploads from local disk to S3. New uploads go straight to the bucket; copy the existing files over and update their stored paths.",
+      "status": "All files copied and spot-checked. Updating stored paths: batch 6 of 8.",
+      "activity": "working",
+      "minutesAgo": 0,
+      "startedMinutesAgo": 109,
+      "selected": true,
+      "contextUsedTokens": 194000,
+      "contextWindowTokens": 200000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Move user image uploads from local disk to S3. New uploads go straight to the bucket; copy the existing files over and update their stored paths.",
+          "turn": 1,
+          "minutesAgo": 109
+        },
+        {
+          "role": "agent",
+          "body": "All 3,900 files are copied and 50 random ones match byte for byte. Next I'll update the stored paths in the database.",
+          "turn": 1,
+          "minutesAgo": 3,
+          "summary": { "durationMs": 4320000, "filesChanged": 3, "linesAdded": 142, "linesRemoved": 18 }
+        },
+        {
+          "role": "user",
+          "body": "Go ahead.",
+          "turn": 2,
+          "minutesAgo": 1
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "narration",
+          "text": "Context is at 99%. Saving my notes to the task file before compacting.",
+          "turn": 1,
+          "minutesAgo": 31
+        },
+        {
+          "kind": "tool_call",
+          "name": "Edit",
+          "input": {
+            "file_path": "/Users/sample/code/api/.glade/tasks/move-image-uploads-to-s3/CLAUDE.md",
+            "old_string": "## Progress\n- Copying existing files\n- Next: spot-check\n- Then: stored paths",
+            "new_string": "## Progress\n- Copied 3,900 of 3,900 files\n- Spot-checked 50: all match\n- Stored paths: update in batches of 500\n- Script: scripts/copy_media_to_s3.py\n- Script: manage.py update_media_paths\n- Bucket: acme-api-media\n- Region: us-east-1\n- Keys: media/<yyyy>/<mm>/<uuid>\n- Old files stay on disk until the paths are live\n- Rollback: revert STORAGES in base.py\n- Tests: pytest tests/media -q\n- Watch: runserver log for 404s\n- Batch size: 500\n- Batches: 8\n- Done so far: 5\n- Left: 3\n- Then: mark done"
+          },
+          "output": "The file .glade/tasks/move-image-uploads-to-s3/CLAUDE.md has been updated.",
+          "turn": 1,
+          "minutesAgo": 31
+        },
+        {
+          "kind": "compaction",
+          "trigger": "auto",
+          "preTokens": 198000,
+          "postTokens": 41000,
+          "windowTokens": 200000,
+          "turn": 1,
+          "minutesAgo": 30
+        },
+        {
+          "kind": "divider",
+          "dividerKind": "turn",
+          "turn": 2,
+          "minutesAgo": 1
+        },
+        {
+          "kind": "narration",
+          "text": "Updating paths in batches of 500.",
+          "turn": 2,
+          "minutesAgo": 1
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "python manage.py update_media_paths --batch-size 500",
+            "description": "Update the stored paths in batches"
+          },
+          "turn": 2,
+          "minutesAgo": 0
+        }
+      ]
+    },
+    {
+      "title": "Fix flaky login test",
+      "status": "Found the race; fix passes 200 local runs",
+      "activity": "working",
+      "minutesAgo": 9
+    },
+    {
+      "title": "Upgrade Django to 5.2",
+      "status": "Upgraded; two deprecations fixed",
+      "state": "done",
+      "minutesAgo": 2880
+    },
+    {
+      "title": "Remove unused feature flags",
+      "status": "Removed 9 flags and their checks",
+      "state": "done",
+      "minutesAgo": 5760
+    },
+    {
+      "title": "Set up nightly backups",
+      "status": "Nightly dump, 14-day retention",
+      "state": "done",
+      "minutesAgo": 10080
+    },
+    {
+      "title": "Add CSV export to reports",
+      "status": "Export endpoint and button shipped",
+      "state": "done",
+      "minutesAgo": 30240
+    }
+  ]
+}

@@ -7,7 +7,8 @@ import {
   appendNarration,
   appendToolCall,
   failRunningCompactions,
-  failRunningToolCalls,
+  interruptPausedToolCalls,
+  interruptRunningToolCalls,
   listToolEvents,
   updateCompaction,
   updateToolCall,
@@ -184,8 +185,8 @@ describe('updateToolCall', () => {
   })
 })
 
-describe('failRunningToolCalls', () => {
-  it("records only this task's running calls as errors, in log order", () => {
+describe('interruptRunningToolCalls', () => {
+  it("records only this task's running calls as interrupted, in log order", () => {
     const first = appendToolCall(test.db, bashCall('toolu_1'))
     appendToolCall(test.db, bashCall('toolu_done'))
     updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_done', state: ToolCallState.Done, output: 'ok' })
@@ -193,20 +194,48 @@ describe('failRunningToolCalls', () => {
     const other = sampleTask(test.db, task.workspaceId)
     appendToolCall(test.db, { ...bashCall('toolu_other'), taskId: other.id })
 
-    const failed = failRunningToolCalls(test.db, task.id, 'Glade quit.', 9_000)
+    const interrupted = interruptRunningToolCalls(test.db, task.id, 'Glade quit.', 9_000)
 
-    const error = { state: ToolCallState.Error, output: 'Glade quit.', finishedAt: 9_000 }
-    expect(failed).toEqual([
-      { ...first, ...error },
-      { ...second, ...error },
+    const note = { state: ToolCallState.Interrupted, output: 'Glade quit.', finishedAt: 9_000 }
+    expect(interrupted).toEqual([
+      { ...first, ...note },
+      { ...second, ...note },
     ])
     expect(listToolEvents(test.db, task.id).map((event) => 'state' in event && event.state)).toEqual([
-      ToolCallState.Error,
+      ToolCallState.Interrupted,
       ToolCallState.Done,
-      ToolCallState.Error,
+      ToolCallState.Interrupted,
     ])
     expect(listToolEvents(test.db, other.id)).toMatchObject([{ state: ToolCallState.Running }])
-    expect(failRunningToolCalls(test.db, task.id, 'Glade quit.')).toEqual([])
+    expect(interruptRunningToolCalls(test.db, task.id, 'Glade quit.')).toEqual([])
+  })
+})
+
+describe('interruptPausedToolCalls', () => {
+  it("records only this task's paused calls as interrupted, keeping their output, in log order", () => {
+    const paused = { state: ToolCallState.Paused, output: 'The task paused.' }
+    const first = appendToolCall(test.db, bashCall('toolu_1'))
+    updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_1', ...paused }, 4_000)
+    appendToolCall(test.db, bashCall('toolu_error'))
+    updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_error', state: ToolCallState.Error, output: 'no' })
+    const second = appendToolCall(test.db, bashCall('toolu_2'))
+    updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_2', state: ToolCallState.Paused, output: null }, 5_000)
+    const other = sampleTask(test.db, task.workspaceId)
+    appendToolCall(test.db, { ...bashCall('toolu_other'), taskId: other.id })
+    updateToolCall(test.db, { taskId: other.id, toolUseId: 'toolu_other', ...paused })
+
+    // Each keeps the time it paused at, which is when it stopped.
+    expect(interruptPausedToolCalls(test.db, task.id)).toEqual([
+      { ...first, state: ToolCallState.Interrupted, output: 'The task paused.', finishedAt: 4_000 },
+      { ...second, state: ToolCallState.Interrupted, output: null, finishedAt: 5_000 },
+    ])
+    expect(listToolEvents(test.db, task.id).map((event) => 'state' in event && event.state)).toEqual([
+      ToolCallState.Interrupted,
+      ToolCallState.Error,
+      ToolCallState.Interrupted,
+    ])
+    expect(listToolEvents(test.db, other.id)).toMatchObject([{ state: ToolCallState.Paused }])
+    expect(interruptPausedToolCalls(test.db, task.id)).toEqual([])
   })
 })
 

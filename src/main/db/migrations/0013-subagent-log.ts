@@ -4,12 +4,12 @@ import type { Migration } from '../migrate'
  * Lets the tool log say what each subagent is doing, for the Subagents tab: a narration can name the `Agent` call
  * whose subagent wrote it (`parent_tool_use_id`, as a tool call can), and a tool call records when its result arrived
  * (`finished_at`, null while it runs and for calls logged before this migration), so a subagent's elapsed time stops
- * when it finishes. SQLite can't change a table's CHECK constraints, so the table is rebuilt as in migration 8: copied
- * into a new one with the new rules and column, then swapped in. Nothing references `tool_events`, so dropping the old
- * one is safe.
+ * when it finishes. SQLite can't change a table's CHECK constraints, so the table is rebuilt as in migrations 8 and 12
+ * (keeping 12's tool call states): copied into a new one with the new rules and column, then swapped in. Nothing
+ * references `tool_events`, so dropping the old one is safe.
  */
 export const subagentLogMigration: Migration = {
-  version: 12,
+  version: 13,
   name: 'Log subagent notes and when tool calls finish',
   up(db) {
     db.exec(`
@@ -28,7 +28,7 @@ export const subagentLogMigration: Migration = {
         tool_output TEXT,
         finished_at INTEGER,
         -- tool_call and compaction
-        tool_state TEXT CHECK (tool_state IN ('running', 'done', 'error')),
+        tool_state TEXT CHECK (tool_state IN ('running', 'done', 'error', 'paused', 'interrupted')),
         tool_use_id TEXT,
         -- tool_call and narration
         parent_tool_use_id TEXT,
