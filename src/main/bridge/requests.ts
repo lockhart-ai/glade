@@ -5,6 +5,7 @@ import {
   CommandName,
   type CommandRequest,
   type EmptyRequest,
+  type FileRequest,
   type QueueAddRequest,
   type QueueEditRequest,
   type QueueRemoveRequest,
@@ -22,6 +23,7 @@ import {
   type WorkspacesOpenRequest,
 } from '../../shared/bridge'
 import { Effort, UiStateKey } from '../../shared/domain'
+import { isWorkspaceRelativePath } from '../../shared/files'
 import { questionAnswersSchema } from '../questions/schema'
 
 /**
@@ -77,6 +79,13 @@ const questionsAnswerRequest = z.strictObject({
   answers: questionAnswersSchema,
 }) satisfies z.ZodType<QuestionsAnswerRequest>
 
+const fileRequest = z.strictObject({
+  taskId: z.string(),
+  path: z
+    .string()
+    .refine(isWorkspaceRelativePath, 'Expected a normalized path relative to the workspace root, inside it'),
+}) satisfies z.ZodType<FileRequest>
+
 const uiStateGetRequest = z.strictObject({ key: z.enum(UiStateKey) }) satisfies z.ZodType<UiStateGetRequest>
 
 const uiStateSetRequest = z.strictObject({
@@ -108,6 +117,10 @@ export const REQUEST_SCHEMAS = {
   [CommandName.QueueEdit]: queueEditRequest,
   [CommandName.QueueRemove]: queueRemoveRequest,
   [CommandName.QuestionsAnswer]: questionsAnswerRequest,
+  [CommandName.FilesRead]: fileRequest,
+  [CommandName.FilesOpen]: fileRequest,
+  [CommandName.FilesClose]: fileRequest,
+  [CommandName.FilesOpenInEditor]: fileRequest,
   [CommandName.UiStateGet]: uiStateGetRequest,
   [CommandName.UiStateGetAll]: emptyRequest,
   [CommandName.UiStateSet]: uiStateSetRequest,

@@ -27,7 +27,7 @@ export const SEARCH_TRIGGERS = [
  * them again (`SEARCH_TRIGGERS` lists them; a test checks the latest schema has them all).
  */
 export const searchIndexMigration: Migration = {
-  version: 14,
+  version: 15,
   name: 'Index tasks and messages for search',
   up(db) {
     db.exec(`

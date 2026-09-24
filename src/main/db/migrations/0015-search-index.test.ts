@@ -6,7 +6,7 @@ import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { searchTasks } from '../repositories/search'
 import { MIGRATIONS } from '.'
-import { SEARCH_TRIGGERS, searchIndexMigration } from './0014-search-index'
+import { SEARCH_TRIGGERS, searchIndexMigration } from './0015-search-index'
 
 let dir: string
 
@@ -18,13 +18,13 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-it('is migration 14', () => {
-  expect(MIGRATIONS[13]).toBe(searchIndexMigration)
+it('is migration 15', () => {
+  expect(MIGRATIONS[14]).toBe(searchIndexMigration)
 })
 
 it('indexes the tasks and messages already there', () => {
   const db = openDatabase(join(dir, 'glade.db'))
-  migrate(db, MIGRATIONS.slice(0, 13))
+  migrate(db, MIGRATIONS.slice(0, 14))
   db.prepare("INSERT INTO workspaces VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)").run()
   db.prepare(
     `INSERT INTO tasks (id, workspace_id, title, objective, status, state, activity, pinned, unread, model, effort,

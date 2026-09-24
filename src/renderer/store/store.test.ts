@@ -3,6 +3,7 @@ import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shar
 import {
   DividerKind,
   Effort,
+  FileContentKind,
   MessageRole,
   QuestionSetState,
   TaskActivity,
@@ -550,5 +551,53 @@ describe("a task's logs", () => {
 
     expect(invoke).toHaveBeenLastCalledWith(CommandName.SearchQuery, { workspaceId: 'w1', text: 'rate' })
     expect(results.map(({ taskId }) => taskId)).toEqual(['t1'])
+  })
+})
+
+describe('files', () => {
+  it('opens and closes files through main, applying its answer, and reads a file without keeping it', async () => {
+    const data: FakeMain = {
+      ...main(),
+      files: { 'README.md': { kind: FileContentKind.Text, text: '# Acme API\n', truncated: false, size: 11 } },
+      openedInEditor: [],
+    }
+    // The open-files commands answer without broadcasting here, so the store must apply the answers itself.
+    const { store, invoke } = await hydrated(data)
+    const quiet = fakeBridge(data, {
+      [CommandName.FilesOpen]: ({ taskId, path }) => ({ openFiles: { taskId, paths: [path], activePath: path } }),
+      [CommandName.FilesClose]: ({ taskId }) => ({ openFiles: { taskId, paths: [], activePath: null } }),
+    })
+    const quietStore = createGladeStore(quiet.bridge)
+    await quietStore.getState().hydrate()
+
+    await quietStore.getState().openFile('t1', 'README.md')
+    expect(quietStore.getState().openFiles.t1).toEqual({ taskId: 't1', paths: ['README.md'], activePath: 'README.md' })
+    await quietStore.getState().closeFile('t1', 'README.md')
+    expect(quietStore.getState().openFiles.t1).toEqual({ taskId: 't1', paths: [], activePath: null })
+
+    await expect(store.getState().readFile('t1', 'README.md')).resolves.toMatchObject({ text: '# Acme API\n' })
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.FilesRead, { taskId: 't1', path: 'README.md' })
+    await store.getState().openInEditor('t1', 'README.md')
+    expect(data.openedInEditor).toEqual(['README.md'])
+  })
+
+  it('opens the right panel at Files when the agent shows a file of the selected task, and not for another', async () => {
+    const { store, emit } = await hydrated(
+      main([
+        { key: UiStateKey.SelectedTaskId, value: 't1' },
+        { key: UiStateKey.RightPanelCollapsed, value: 'true' },
+      ]),
+    )
+
+    emit({ type: EventType.FileShown, taskId: 't2', path: 'README.md', line: null })
+    expect(store.getState().uiState[UiStateKey.RightPanelTab]).toBeUndefined()
+    expect(store.getState().fileFocus).toEqual({ taskId: 't2', path: 'README.md', line: null, request: 1 })
+
+    emit({ type: EventType.FileShown, taskId: 't1', path: 'docs/rate-limits.md', line: 8 })
+    expect(store.getState().uiState).toMatchObject({
+      [UiStateKey.RightPanelTab]: 'files',
+      [UiStateKey.RightPanelCollapsed]: 'false',
+    })
+    expect(store.getState().fileFocus).toEqual({ taskId: 't1', path: 'docs/rate-limits.md', line: 8, request: 2 })
   })
 })

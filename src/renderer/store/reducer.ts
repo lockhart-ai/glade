@@ -81,6 +81,8 @@ export function withHistory(state: GladeData, taskId: string, history: TasksHist
       ...state.questionSets,
       [taskId]: merged<QuestionSet>(history.questionSets, state.questionSets[taskId]),
     },
+    // Like the queue, open files change in place: the loaded ones are as new as any event before them.
+    openFiles: { ...state.openFiles, [taskId]: history.openFiles },
     todos: { ...state.todos, [taskId]: newerTodos(history.todos, state.todos[taskId]) },
   }
 }
@@ -131,6 +133,12 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
     case EventType.QuestionAnswered:
     case EventType.QuestionWithdrawn:
       return { ...state, questionSets: withReplaced(state.questionSets, event.questionSet) }
+    case EventType.OpenFilesChanged:
+      return { ...state, openFiles: { ...state.openFiles, [event.openFiles.taskId]: event.openFiles } }
+    case EventType.FileShown: {
+      const { taskId, path, line } = event
+      return { ...state, fileFocus: { taskId, path, line, request: (state.fileFocus?.request ?? 0) + 1 } }
+    }
     case EventType.TodosChanged:
       return { ...state, todos: { ...state.todos, [event.taskId]: event.todos } }
   }

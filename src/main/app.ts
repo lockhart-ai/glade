@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, net, Notification, type WebPreferences } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, net, Notification, shell, type WebPreferences } from 'electron'
 import { EventType } from '../shared/bridge'
 import type { AgentBackend } from './agent/backend'
 import { createSdkBackend } from './agent/sdk-backend'
@@ -19,6 +19,7 @@ import { firstUserMessageOfSession } from './db/repositories/messages'
 import { applySeed, readSeed } from './capture-seed'
 import { chooseFolder } from './dialogs'
 import {
+  createE2eEditor,
   createE2eNetwork,
   E2E_NOTIFIER_GLOBAL,
   E2E_WINDOW_SIZE,
@@ -27,6 +28,7 @@ import {
   readE2eSpec,
   type E2eSpec,
 } from './e2e'
+import type { OpenPath } from './files/files'
 import { createElectronNotifier } from './notifications/electron-notifier'
 import { createReplyNotifications } from './notifications/notifications'
 import type { Notifier } from './notifications/notifier'
@@ -243,6 +245,16 @@ function createNotifier(testMode: TestMode): Notifier {
   return recording
 }
 
+/**
+ * What Open in editor opens a file with: the app macOS opens its kind of file with. A test mode never opens one: e2e
+ * mode records the paths instead, for the spec to read (`E2E_EDITOR_GLOBAL`), and a capture ignores them.
+ */
+function createOpenPath(testMode: TestMode): OpenPath {
+  if (testMode === null) return (path) => shell.openPath(path)
+  if (testMode.kind === TestModeKind.E2e) return createE2eEditor()
+  return () => Promise.resolve('')
+}
+
 /** What opening a task from its notification needs from the running app. */
 interface OpenTaskContext {
   readonly testMode: TestMode
@@ -343,6 +355,7 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
         testMode?.kind === TestModeKind.E2e
           ? () => Promise.resolve(e2eChosenFolder(process.env))
           : () => chooseFolder(dialog, BrowserWindow.getFocusedWindow()),
+      openPath: createOpenPath(testMode),
       notifyReply,
       // Whether the network is up, for resuming a task paused offline. In e2e mode, the spec decides.
       isOnline: testMode?.kind === TestModeKind.E2e ? createE2eNetwork() : net.isOnline.bind(net),

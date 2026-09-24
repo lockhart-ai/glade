@@ -4,7 +4,9 @@
  */
 import type { TaskUserPatch } from '../../shared/bridge'
 import type {
+  FileContent,
   Message,
+  OpenFiles,
   QuestionAnswers,
   QuestionSet,
   QueuedMessage,
@@ -53,6 +55,19 @@ export interface ToolLogFocus {
   readonly request: number
 }
 
+/**
+ * A request to show a file in the Files tab, at a line: made by the agent's `show_file`, and acted on by the Files tab.
+ * `request` goes up by one with every request, like `ToolLogFocus`'s.
+ */
+export interface FileFocus {
+  readonly taskId: string
+  /** Relative to the task's workspace root. */
+  readonly path: string
+  /** From 1; null for the top of the file. */
+  readonly line: number | null
+  readonly request: number
+}
+
 /** Everything the store holds. `applyEvent` maps one of these to the next. */
 export interface GladeData {
   readonly hydration: Hydration
@@ -73,6 +88,8 @@ export interface GladeData {
    * current by events.
    */
   readonly questionSets: Readonly<Record<string, readonly QuestionSet[]>>
+  /** The files open in each task's Files tab, by task id: loaded with its logs, then kept current by events. */
+  readonly openFiles: Readonly<Record<string, OpenFiles>>
   /**
    * Each task's todo list (the Todos tab), by task id, null when the agent has kept none: loaded with its logs, then
    * kept current by events.
@@ -89,6 +106,11 @@ export interface GladeData {
    * until the first. The input bar focuses its field each time this changes. A one-off UI intent, like `toolLogFocus`.
    */
   readonly inputFocusRequest: number
+  /**
+   * The latest request to show a file in the Files tab (the agent's `show_file`); null until one is made. A one-off UI
+   * intent, like `toolLogFocus`: the file it opened is kept in `openFiles`.
+   */
+  readonly fileFocus: FileFocus | null
   /**
    * What's typed in the sidebar's search field; empty while not searching. While it isn't blank, the sidebar lists the
    * search's results instead of the tasks, and the selected task's header and chat highlight its matches. Not mirrored
@@ -177,6 +199,14 @@ export interface GladeActions {
   focusTurn: (taskId: string, turn: number) => void
   /** Asks the input bar to focus its message field (see `inputFocusRequest`). */
   focusInput: () => void
+  /** Opens a file in a task's Files tab and shows it (`files.open`). */
+  openFile: (taskId: string, path: string) => Promise<void>
+  /** Closes a file's tab in a task's Files tab (`files.close`). */
+  closeFile: (taskId: string, path: string) => Promise<void>
+  /** Reads a file of a task's workspace for the viewer (`files.read`). Not kept in the store: the viewer holds it. */
+  readFile: (taskId: string, path: string) => Promise<FileContent>
+  /** Opens a file of a task's workspace in the app macOS opens its kind of file with (`files.openInEditor`). */
+  openInEditor: (taskId: string, path: string) => Promise<void>
   /** Sets the sidebar's search text (see `searchText`); an empty string ends the search. */
   setSearchText: (text: string) => void
   /** Asks the sidebar's search field to take the focus (see `searchFocusRequest`). */
@@ -197,10 +227,12 @@ export const INITIAL_DATA: GladeData = {
   toolEvents: {},
   queuedMessages: {},
   questionSets: {},
+  openFiles: {},
   todos: {},
   uiState: {},
   toolLogFocus: null,
   inputFocusRequest: 0,
+  fileFocus: null,
   searchText: '',
   searchFocusRequest: 0,
 }

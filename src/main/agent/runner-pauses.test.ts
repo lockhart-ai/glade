@@ -48,6 +48,7 @@ function launch(): void {
     db: database.db,
     targets: () => [ipc.window],
     chooseFolder: () => Promise.resolve(null),
+    openPath: () => Promise.resolve(''),
     agentBackend: backend,
     isOnline: () => online,
   }))

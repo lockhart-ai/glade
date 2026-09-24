@@ -1,4 +1,4 @@
-import { useCallback, useRef, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useRef, type CSSProperties, type KeyboardEventHandler, type ReactNode } from 'react'
 import { Card, CardLevel } from '../components'
 import {
   MIN_CHAT_WIDTH,
@@ -19,6 +19,8 @@ export interface RightPanelProps {
   width: number
   /** The width you dragged the handle to (or moved it to with the arrow keys), to keep. */
   onWidthChange: (width: number) => void
+  /** A key pressed while the focus is in the panel, e.g. ⌘W to close the file showing. */
+  onKeyDown?: KeyboardEventHandler<HTMLDivElement>
 }
 
 /** The custom property the panel's width is set through; the stylesheet caps it to the room there is. */
@@ -44,7 +46,7 @@ function availableWidth(card: HTMLElement): number {
  * left edge that resizes it. While you drag, the width changes in place without re-rendering the panel's content; it's
  * handed to `onWidthChange` when you let go.
  */
-export function RightPanel({ tabs, children, width, onWidthChange }: RightPanelProps): React.JSX.Element {
+export function RightPanel({ tabs, children, width, onWidthChange, onKeyDown }: RightPanelProps): React.JSX.Element {
   const slot = useRef<HTMLDivElement>(null)
 
   const bounds = useCallback((): WidthBounds => {
@@ -65,7 +67,13 @@ export function RightPanel({ tabs, children, width, onWidthChange }: RightPanelP
         onResize={showWidth}
         onResizeEnd={onWidthChange}
       />
-      <Card level={CardLevel.Nested} role="complementary" aria-label="Task panel" className={styles.panel}>
+      <Card
+        level={CardLevel.Nested}
+        role="complementary"
+        aria-label="Task panel"
+        className={styles.panel}
+        onKeyDown={onKeyDown}
+      >
         <div className={styles.tabs} data-testid="right-panel-tabs">
           {tabs}
         </div>

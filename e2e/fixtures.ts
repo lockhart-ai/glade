@@ -12,10 +12,12 @@ import { _electron as electron, test as base, type ElectronApplication, type Pag
 import type { AgentScriptName } from '../src/main/agent/scripts'
 import {
   E2E_CHOSEN_FOLDER_ENV,
+  E2E_EDITOR_GLOBAL,
   E2E_ENV,
   E2E_NETWORK_GLOBAL,
   E2E_NOTIFIER_GLOBAL,
   E2E_WINDOW_SIZE,
+  type E2eEditor,
   type E2eNetwork,
   type E2eSpec,
 } from '../src/main/e2e'
@@ -220,6 +222,14 @@ export async function replyToNotification({ app }: Glade, index: number, text: s
     },
     { name: E2E_NOTIFIER_GLOBAL, index, text },
   )
+}
+
+/**
+ * The files Open in editor opened so far, oldest first, by their real paths. An e2e run never opens a real editor: main
+ * records them in its place (`E2E_EDITOR_GLOBAL`).
+ */
+export async function openedInEditor({ app }: Glade): Promise<string[]> {
+  return app.evaluate((_, name) => [...(Reflect.get(globalThis, name) as E2eEditor).opened], E2E_EDITOR_GLOBAL)
 }
 
 /**
