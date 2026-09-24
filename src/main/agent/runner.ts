@@ -370,7 +370,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const notifyReply = options.notifyReply ?? (() => undefined)
   const isOnline = options.isOnline ?? (() => true)
   const context = { db, emit }
-  const questions = options.questions ?? createQuestionBroker(context)
+  const questions = options.questions ?? createQuestionBroker(context, notifyReply)
   const sessions = new Map<string, LiveSession>()
   // Resumes a paused turn when its pause is due.
   const timers = createPauseTimers((taskId) => {

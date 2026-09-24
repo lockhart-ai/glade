@@ -14,6 +14,7 @@ import {
   ToolEventKind,
   UiStateKey,
   type Message,
+  type QuestionSet,
   type Task,
   type TaskError,
   type ToolEvent,
@@ -21,7 +22,7 @@ import {
 import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
-import { fakeBridge, sampleTask, sampleWorkspace, type FakeBridge } from '../store/test-bridge'
+import { fakeBridge, sampleQuestionSet, sampleTask, sampleWorkspace, type FakeBridge } from '../store/test-bridge'
 import { clockTime } from './chatModel'
 import { Chat } from './Chat'
 
@@ -76,12 +77,17 @@ interface Setup {
   readonly task?: Partial<Task>
   readonly messages?: Message[]
   readonly toolEvents?: ToolEvent[]
+  readonly questionSets?: QuestionSet[]
   readonly selected?: boolean
 }
 
-async function renderChat({ task = {}, messages = [], toolEvents = [], selected = true }: Setup = {}): Promise<
-  FakeBridge & { store: GladeStore }
-> {
+async function renderChat({
+  task = {},
+  messages = [],
+  toolEvents = [],
+  questionSets = [],
+  selected = true,
+}: Setup = {}): Promise<FakeBridge & { store: GladeStore }> {
   const fake = fakeBridge({
     workspaces: [sampleWorkspace('w1')],
     tasks: [{ ...sampleTask('t1', 'w1'), ...task }],
@@ -91,6 +97,7 @@ async function renderChat({ task = {}, messages = [], toolEvents = [], selected 
     ],
     messages,
     toolEvents,
+    questionSets,
   })
   const store = createGladeStore(fake.bridge)
   render(
@@ -109,6 +116,23 @@ function conversation(): HTMLElement {
 }
 
 describe('Chat', () => {
+  it("shows the agent's questions as a card after your message, led by what it said just before asking", async () => {
+    const set = { ...sampleQuestionSet('q1', 't1'), createdAt: REPLIED_AT }
+    await renderChat({
+      task: { activity: TaskActivity.Waiting, asking: true },
+      messages: [ASK],
+      toolEvents: [{ ...narration('n1', 1, 'A few choices are **yours**.'), createdAt: REPLIED_AT }],
+      questionSets: [set],
+    })
+
+    const card = within(conversation()).getByRole('form', { name: 'Questions from the agent' })
+    expect(card).toHaveTextContent('2 questions before I finish')
+    const group = card.parentElement ?? card
+    expect(group).toHaveTextContent(`A few choices are yours.2 questions before I finish`)
+    expect(group).toHaveTextContent(`agent · ${clockTime(REPLIED_AT)}`)
+    expect(within(group).getByText('yours').tagName).toBe('STRONG')
+  })
+
   it('asks a task with no messages what the agent should do, and where it will work', async () => {
     await renderChat()
 

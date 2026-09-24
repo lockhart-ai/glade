@@ -368,7 +368,10 @@ export interface ChoiceOption {
   readonly label: string
   /** A line under the label. */
   readonly detail?: string
-  /** A small sketch of what the option would look like. */
+  /**
+   * A small sketch of what the option would look like: a few short lines of plain text, shown as is in a small
+   * monospace frame, with lines starting with `#` as headings (`docs/model-surface.md`).
+   */
   readonly sketch?: string
 }
 
