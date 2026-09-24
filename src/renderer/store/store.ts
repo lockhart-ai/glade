@@ -135,6 +135,10 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       focusTurn(taskId, turn) {
         set(({ toolLogFocus }) => ({ toolLogFocus: { taskId, turn, request: (toolLogFocus?.request ?? 0) + 1 } }))
       },
+
+      focusInput() {
+        set(({ inputFocusRequest }) => ({ inputFocusRequest: inputFocusRequest + 1 }))
+      },
     }
   })
 }
