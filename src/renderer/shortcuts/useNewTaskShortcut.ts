@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useGladeStore } from '../store/react'
 import { useNewTask } from '../task-list/useNewTask'
 
 /** Whether the key is ⌘N with no other modifier. */
@@ -7,10 +8,11 @@ function isNewTaskKey(event: KeyboardEvent): boolean {
 }
 
 /**
- * ⌘N creates a new task in the workspace, as the + button does, wherever the focus is. Must be used under a
- * `ToastProvider`.
+ * ⌘N creates a new task in the selected workspace, as the + button does, wherever the focus is. It does nothing while
+ * no workspace is open. Must be used under a `ToastProvider`.
  */
-export function useNewTaskShortcut(workspaceId: string): void {
+export function useNewTaskShortcut(): void {
+  const workspaceId = useGladeStore((state) => state.selectedWorkspaceId)
   const newTask = useNewTask(workspaceId)
 
   useEffect(() => {
@@ -24,15 +26,4 @@ export function useNewTaskShortcut(workspaceId: string): void {
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [newTask])
-}
-
-export interface NewTaskShortcutProps {
-  /** The workspace ⌘N creates tasks in. */
-  readonly workspaceId: string
-}
-
-/** Turns on ⌘N while a workspace is open. Renders nothing. */
-export function NewTaskShortcut({ workspaceId }: NewTaskShortcutProps): null {
-  useNewTaskShortcut(workspaceId)
-  return null
 }

@@ -107,6 +107,11 @@ export interface GladeActions {
    * events. Rejects with `busy` while the agent is working.
    */
   sendMessage: (taskId: string, text: string) => Promise<void>
+  /**
+   * Stops the task's agent: interrupts its running turn. Resolves once the turn has ended; the task, back to waiting on
+   * you, arrives as an event. Does nothing when the agent isn't working.
+   */
+  stopTask: (taskId: string) => Promise<void>
   /** Asks the tool log to show a task's turn (see `ToolLogFocus`). */
   focusTurn: (taskId: string, turn: number) => void
   /** Asks the input bar to focus its message field (see `inputFocusRequest`). */

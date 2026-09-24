@@ -13,18 +13,23 @@ import {
   type FakeBridge,
   type FakeHandlers,
 } from '../store/test-bridge'
-import { NewTaskShortcut } from './useNewTaskShortcut'
+import { useNewTaskShortcut } from './useNewTaskShortcut'
+
+function Harness(): React.JSX.Element {
+  useNewTaskShortcut()
+  return <textarea aria-label="Message the agent" />
+}
 
 interface Rendered extends FakeBridge {
   readonly store: GladeStore
   readonly unmount: () => void
 }
 
-async function renderShortcut(overrides: Partial<FakeHandlers> = {}): Promise<Rendered> {
+async function renderShortcut(overrides: Partial<FakeHandlers> = {}, withWorkspace = true): Promise<Rendered> {
   const fake = fakeBridge(
     {
-      workspaces: [sampleWorkspace('w1')],
-      tasks: [sampleTask('t1', 'w1', 'Fix flaky login test')],
+      workspaces: withWorkspace ? [sampleWorkspace('w1')] : [],
+      tasks: withWorkspace ? [sampleTask('t1', 'w1', 'Fix flaky login test')] : [],
       uiState: [
         { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
         { key: UiStateKey.SelectedTaskId, value: 't1' },
@@ -37,8 +42,7 @@ async function renderShortcut(overrides: Partial<FakeHandlers> = {}): Promise<Re
   const { unmount } = render(
     <GladeStoreProvider store={store}>
       <ToastProvider>
-        <NewTaskShortcut workspaceId="w1" />
-        <textarea aria-label="Message the agent" />
+        <Harness />
       </ToastProvider>
     </GladeStoreProvider>,
   )
@@ -105,7 +109,17 @@ describe('⌘N', () => {
     expect(store.getState().inputFocusRequest).toBe(0)
   })
 
-  it('stops listening once the workspace closes', async () => {
+  it('does nothing while no workspace is open', async () => {
+    const { invoke, store } = await renderShortcut({}, false)
+    const calls = invoke.mock.calls.length
+
+    expect(pressCommandN()).toBe(false)
+    await act(() => Promise.resolve())
+    expect(invoke.mock.calls).toHaveLength(calls)
+    expect(store.getState().inputFocusRequest).toBe(0)
+  })
+
+  it('stops listening once unmounted', async () => {
     const { invoke, unmount } = await renderShortcut()
     const calls = invoke.mock.calls.length
     unmount()

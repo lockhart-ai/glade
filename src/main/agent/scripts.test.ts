@@ -13,7 +13,8 @@ import { listMessages } from '../db/repositories/messages'
 import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
-import { createAgentRunner, type AgentRunner } from './runner'
+import { createAgentRunner, STOPPED_NOTE, type AgentRunner } from './runner'
+import { REJECTED_TOOL_OUTPUT } from './scripted-session'
 import { createGladeMcpServer, GLADE_SERVER } from './glade-tools'
 import { AGENT_SCRIPT_NAMES, AGENT_SCRIPTS, type AgentScriptName } from './scripts'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
@@ -140,12 +141,19 @@ describe('AGENT_SCRIPTS', () => {
     await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
     expect(activity()).toBe(TaskActivity.Working)
 
-    await agent.interrupt(task.id)
+    const stopped = agent.stop(task.id)
     await vi.runAllTimersAsync()
-    await new Promise((resolve) => setImmediate(resolve))
-    expect(calls().at(-1)).toMatchObject({ name: 'Bash', state: ToolCallState.Error })
-    expect(activity()).toBe(TaskActivity.Error)
+    await expect(stopped).resolves.toMatchObject({ activity: TaskActivity.Waiting })
+    expect(calls().at(-1)).toMatchObject({ name: 'Bash', state: ToolCallState.Error, output: REJECTED_TOOL_OUTPUT })
+    expect(listToolEvents(database.db, task.id).at(-1)).toMatchObject({
+      kind: ToolEventKind.Narration,
+      text: STOPPED_NOTE,
+    })
     expect(reply()).toBeUndefined()
+
+    await send(agent, 'Only run the unit tests.')
+    expect(reply()).toBe('Understood. I stopped the suite and will only run the unit tests.')
+    expect(activity()).toBe(TaskActivity.Waiting)
   })
 
   it('failing-turn: fails on an API error after its first tool call', async () => {
