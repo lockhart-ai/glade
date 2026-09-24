@@ -6,6 +6,7 @@ import { listMessages } from '../db/repositories/messages'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { listQuestionSets } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
+import { searchTasks } from '../db/repositories/search'
 import { getTask, listTasks } from '../db/repositories/tasks'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
@@ -148,5 +149,6 @@ export function createHandlers(context: HandlerContext): Handlers {
       noteUiStateSet(context, entry)
       return null
     },
+    [CommandName.SearchQuery]: ({ workspaceId, text }) => ({ results: searchTasks(db, workspaceId, text) }),
   }
 }

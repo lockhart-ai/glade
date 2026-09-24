@@ -61,6 +61,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.ArtifactsRemove]: () => null,
     [CommandName.UiStateGet]: () => Promise.resolve({ value: 'async' }),
     [CommandName.UiStateGetAll]: () => ({ entries: [] }),
+    [CommandName.SearchQuery]: () => ({ results: [] }),
     [CommandName.UiStateSet]: () => null,
     ...overrides,
   }

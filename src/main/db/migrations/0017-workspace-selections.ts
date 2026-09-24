@@ -6,7 +6,7 @@ import type { Migration } from '../migrate'
  * and with its task when the task is deleted.
  */
 export const workspaceSelectionsMigration: Migration = {
-  version: 16,
+  version: 17,
   name: 'Add each workspace’s selected task',
   up(db) {
     db.exec(`

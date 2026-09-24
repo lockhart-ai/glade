@@ -312,6 +312,24 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
           inputInsertion: { taskId, text, request: (inputInsertion?.request ?? 0) + 1 },
         }))
       },
+
+      setSearchText(text) {
+        set({ searchText: text })
+      },
+
+      focusSearch() {
+        set(({ searchFocusRequest }) => ({ searchFocusRequest: searchFocusRequest + 1 }))
+      },
+
+      async searchTasks(workspaceId, text) {
+        const { results } = await bridge.invoke(CommandName.SearchQuery, { workspaceId, text })
+        return results
+      },
+
+      async openSearchResult(taskId) {
+        await get().selectTask(taskId)
+        set(({ matchRevealRequest }) => ({ matchRevealRequest: matchRevealRequest + 1 }))
+      },
     }
   })
 }

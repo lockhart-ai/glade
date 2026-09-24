@@ -26,6 +26,7 @@ import type {
   UiStateKey,
   Workspace,
 } from './domain'
+import type { SearchResult } from './search'
 
 /** The name the bridge is exposed under on `window`. */
 export const BRIDGE_KEY = 'glade'
@@ -72,6 +73,7 @@ export enum CommandName {
   UiStateGet = 'uiState.get',
   UiStateGetAll = 'uiState.getAll',
   UiStateSet = 'uiState.set',
+  SearchQuery = 'search.query',
 }
 
 /** The request of a command that takes no arguments: pass `{}`. */
@@ -432,6 +434,21 @@ export interface UiStateGetAllResponse {
 /** Sets one UI state value. Broadcasts `uiState.changed`. */
 export type UiStateSetRequest = UiStateEntry
 
+/**
+ * Searches a workspace's tasks: their titles, objectives, statuses (outcomes once done) and chat messages, yours and
+ * the agent's. What you type is plain text, never query syntax (see `src/shared/search.ts`): every word must appear
+ * in the same field or message, each matching as a prefix, so results come as you type.
+ */
+export interface SearchQueryRequest {
+  readonly workspaceId: string
+  readonly text: string
+}
+
+export interface SearchQueryResponse {
+  /** One per matching task, best match first; empty when the text has no words. */
+  readonly results: readonly SearchResult[]
+}
+
 /** One command's request and response types. */
 export interface CommandSpec<Request, Response> {
   readonly request: Request
@@ -473,6 +490,7 @@ export interface CommandMap {
   [CommandName.UiStateGet]: CommandSpec<UiStateGetRequest, UiStateGetResponse>
   [CommandName.UiStateGetAll]: CommandSpec<EmptyRequest, UiStateGetAllResponse>
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>
+  [CommandName.SearchQuery]: CommandSpec<SearchQueryRequest, SearchQueryResponse>
 }
 
 export type CommandRequest<C extends CommandName> = CommandMap[C]['request']

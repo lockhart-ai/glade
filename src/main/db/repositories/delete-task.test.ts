@@ -73,6 +73,8 @@ const FILLED_TABLES = [
   'open_files',
   'question_sets',
   'queued_messages',
+  // The search index's rows for its fields and messages, which a new task and `fillTask`'s message make.
+  'search_documents',
   'tool_events',
   'workspace_selections',
 ]

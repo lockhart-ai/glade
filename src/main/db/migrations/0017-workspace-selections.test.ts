@@ -3,15 +3,15 @@ import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { getWorkspaceSelection } from '../repositories/workspace-selections'
 import { MIGRATIONS } from '.'
-import { workspaceSelectionsMigration } from './0016-workspace-selections'
+import { workspaceSelectionsMigration } from './0017-workspace-selections'
 
-it('is migration 16', () => {
-  expect(MIGRATIONS[15]).toBe(workspaceSelectionsMigration)
+it('is migration 17', () => {
+  expect(MIGRATIONS[16]).toBe(workspaceSelectionsMigration)
 })
 
 it('starts every workspace with no selection, keeps one per workspace, and drops it with its task or workspace', () => {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 15))
+  migrate(db, MIGRATIONS.slice(0, 16))
   db.prepare("INSERT INTO workspaces VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)").run()
   const insertTask = db.prepare(
     `INSERT INTO tasks (id, workspace_id, title, objective, status, state, activity, pinned, unread, model, effort,

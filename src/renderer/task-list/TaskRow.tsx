@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { TaskState, UNTITLED_TASK_TITLE, type EpochMs, type Task } from '../../shared/domain'
+import type { TextPart } from '../../shared/search'
 import { TaskIndicator, taskIndicator } from '../../shared/taskIndicator'
 import { errorStatusLine } from '../../shared/taskError'
 import { classNames } from '../components/classNames'
 import type { ContextMenuTargetProps } from '../context-menus'
 import { Dot } from '../components'
 import { isPaused, pausedStatusLine } from '../pause/pauseModel'
+import { Highlighted, Marked } from '../search/Highlight'
 import { formatRelativeTime } from './relativeTime'
 import styles from './TaskRow.module.css'
 
@@ -20,6 +22,10 @@ export interface TaskRowProps {
   now: EpochMs
   selected: boolean
   onSelect: (taskId: string) => void
+  /** A search result's: what to mark in the title (from `highlightPattern`). */
+  highlight?: RegExp | null
+  /** A search result's: the snippet shown, wrapped, instead of the status line. */
+  snippet?: readonly TextPart[] | null
   /** Whether the title is being renamed (F2): the row shows a text field in its place. */
   renaming?: boolean
   /** Saves the new title; resolves false when it's refused (blank), and the field stays. */
@@ -105,18 +111,20 @@ function statusLine(task: Task, now: EpochMs): string {
 /**
  * One task in the list: its state dot, title, relative time, and one line of status ("Error: API overloaded · retry?"
  * while an error has stopped its agent, "Paused: usage limit · resumes 11:42" while it's paused). Unread rows are bold.
+ * As a search result, its title has the matches marked, and a snippet around a match can take the status line's place.
  */
 export function TaskRow({
   task,
   now,
   selected,
   onSelect,
+  highlight = null,
+  snippet = null,
   renaming = false,
   onRename,
   onCancelRename,
   menuTarget,
 }: TaskRowProps): React.JSX.Element {
-  const status = statusLine(task, now)
   const time = (
     <span className={styles.time}>
       {formatRelativeTime(task.updatedAt, now)}
@@ -128,6 +136,7 @@ export function TaskRow({
     selected && styles.selected,
     task.unread && styles.unread,
     task.state === TaskState.Done && styles.done,
+    snippet !== null && styles.result,
   )
   if (renaming && onRename !== undefined && onCancelRename !== undefined) {
     return (
@@ -137,7 +146,7 @@ export function TaskRow({
           <RenameField task={task} onRename={onRename} onCancel={onCancelRename} />
           {time}
         </span>
-        <span className={styles.status}>{status}</span>
+        <span className={styles.status}>{statusLine(task, now)}</span>
       </div>
     )
   }
@@ -153,10 +162,18 @@ export function TaskRow({
     >
       <span className={styles.line}>
         <Dot state={taskIndicator(task)} />
-        <span className={styles.title}>{task.title === '' ? UNTITLED : task.title}</span>
+        <span className={styles.title}>
+          <Highlighted text={task.title === '' ? UNTITLED : task.title} pattern={highlight} />
+        </span>
         {time}
       </span>
-      <span className={styles.status}>{status}</span>
+      {snippet === null ? (
+        <span className={styles.status}>{statusLine(task, now)}</span>
+      ) : (
+        <span className={styles.snippet}>
+          <Marked parts={snippet} />
+        </span>
+      )}
     </button>
   )
 }
