@@ -136,8 +136,18 @@ function doneAtAfter(current: Task, state: TaskState, now: EpochMs): EpochMs | n
 }
 
 /**
+ * Whether a patch changes only whether the task is unread. Reading a task, or marking it unread, isn't a change to the
+ * task, so it doesn't stamp `updatedAt`: the task keeps its place and its relative time in the task list.
+ */
+function onlyUnread(patch: TaskPatch): boolean {
+  return (
+    patch.unread !== undefined && Object.entries(patch).every(([key, value]) => key === 'unread' || value === undefined)
+  )
+}
+
+/**
  * Changes a task's fields, stamps `updatedAt` (and `statusUpdatedAt` when the status changes), and returns it updated.
- * Throws if there's no such task.
+ * A patch of only `unread` leaves `updatedAt` alone (see `onlyUnread`). Throws if there's no such task.
  */
 export function updateTask(db: Database, id: string, patch: TaskPatch, now: EpochMs = Date.now()): Task {
   const current = getTask(db, id)
@@ -157,7 +167,7 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
     unread: patch.unread ?? current.unread,
     model,
     effort: patch.effort ?? current.effort,
-    updatedAt: now,
+    updatedAt: onlyUnread(patch) ? current.updatedAt : now,
     doneAt: doneAtAfter(current, state, now),
     sessionId: patch.sessionId === undefined ? current.sessionId : patch.sessionId,
     contextUsedTokens: patch.contextUsedTokens ?? current.contextUsedTokens,

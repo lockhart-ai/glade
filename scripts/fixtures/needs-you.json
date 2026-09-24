@@ -1,0 +1,134 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "tasks": [
+    {
+      "title": "Draft release notes for 2.4",
+      "status": "Waiting on you: two questions",
+      "pinned": true,
+      "minutesAgo": 25
+    },
+    {
+      "title": "Investigate slow dashboard query",
+      "status": "Added an index; 2.1s down to 90ms",
+      "state": "done",
+      "pinned": true,
+      "minutesAgo": 7200
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "status": "Waiting on you: pick a limit for /search",
+      "minutesAgo": 4
+    },
+    {
+      "title": "Move image uploads to S3",
+      "objective": "Move user image uploads from local disk to S3. New uploads go straight to the bucket; copy the existing files over and update their stored paths.",
+      "status": "Storage switched to S3 and new uploads verified. Copying existing files: 1,240 of 3,900 done.",
+      "activity": "working",
+      "minutesAgo": 0,
+      "startedMinutesAgo": 21,
+      "selected": true,
+      "contextUsedTokens": 122000,
+      "contextWindowTokens": 200000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Move user image uploads from local disk to S3. New uploads go straight to the bucket; copy the existing files over and update their stored paths.",
+          "turn": 1,
+          "minutesAgo": 21
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "narration",
+          "text": "The project already uses `django-storages` for static files, so I'll add an S3 backend for media.",
+          "turn": 1,
+          "minutesAgo": 20
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": {
+            "file_path": "config/settings/base.py"
+          },
+          "output": "     1\tfrom rest_framework import viewsets\n     2\tfrom rest_framework.permissions import IsAuthenticated\n     3\t\n     4\tfrom .models import Item\n     5\tfrom .serializers import ItemSerializer\n     6\t\n     7\t\n     8\tclass ItemViewSet(viewsets.ModelViewSet):\n     9\t    queryset = Item.objects.all()\n    10\t    serializer_class = ItemSerializer\n    11\t    permission_classes = [IsAuthenticated]\n    12\t\n    13\tfrom rest_framework import viewsets\n    14\tfrom rest_framework.permissions import IsAuthenticated\n    15\t\n    16\tfrom .models import Item\n    17\tfrom .serializers import ItemSerializer\n    18\t\n    19\t\n    20\tclass ItemViewSet(viewsets.ModelViewSet):\n    21\t    queryset = Item.objects.all()\n    22\t    serializer_class = ItemSerializer\n    23\t    permission_classes = [IsAuthenticated]\n    24\t\n    25\tfrom rest_framework import viewsets\n    26\tfrom rest_framework.permissions import IsAuthenticated\n    27\t\n    28\tfrom .models import Item\n    29\tfrom .serializers import ItemSerializer\n    30\t\n    31\t\n    32\tclass ItemViewSet(viewsets.ModelViewSet):\n    33\t    queryset = Item.objects.all()\n    34\t    serializer_class = ItemSerializer\n    35\t    permission_classes = [IsAuthenticated]\n    36\t\n    37\tfrom rest_framework import viewsets\n    38\tfrom rest_framework.permissions import IsAuthenticated\n    39\t\n    40\tfrom .models import Item\n    41\tfrom .serializers import ItemSerializer\n    42\t\n    43\t\n    44\tclass ItemViewSet(viewsets.ModelViewSet):\n    45\t    queryset = Item.objects.all()\n    46\t    serializer_class = ItemSerializer\n    47\t    permission_classes = [IsAuthenticated]\n    48\t\n    49\tfrom rest_framework import viewsets\n    50\tfrom rest_framework.permissions import IsAuthenticated\n    51\t\n    52\tfrom .models import Item\n    53\tfrom .serializers import ItemSerializer\n    54\t\n    55\t\n    56\tclass ItemViewSet(viewsets.ModelViewSet):\n    57\t    queryset = Item.objects.all()\n    58\t    serializer_class = ItemSerializer\n    59\t    permission_classes = [IsAuthenticated]\n    60\t\n    61\tfrom rest_framework import viewsets\n    62\tfrom rest_framework.permissions import IsAuthenticated\n    63\t\n    64\tfrom .models import Item\n    65\tfrom .serializers import ItemSerializer\n    66\t\n    67\t\n    68\tclass ItemViewSet(viewsets.ModelViewSet):\n    69\t    queryset = Item.objects.all()\n    70\t    serializer_class = ItemSerializer\n    71\t    permission_classes = [IsAuthenticated]\n    72\t\n    73\tfrom rest_framework import viewsets\n    74\tfrom rest_framework.permissions import IsAuthenticated\n    75\t\n    76\tfrom .models import Item\n    77\tfrom .serializers import ItemSerializer\n    78\t\n    79\t\n    80\tclass ItemViewSet(viewsets.ModelViewSet):\n    81\t    queryset = Item.objects.all()\n    82\t    serializer_class = ItemSerializer\n    83\t    permission_classes = [IsAuthenticated]\n    84\t\n    85\tfrom rest_framework import viewsets\n    86\tfrom rest_framework.permissions import IsAuthenticated\n    87\t\n    88\tfrom .models import Item\n    89\tfrom .serializers import ItemSerializer\n    90\t\n    91\t\n    92\tclass ItemViewSet(viewsets.ModelViewSet):\n    93\t    queryset = Item.objects.all()\n    94\t    serializer_class = ItemSerializer\n    95\t    permission_classes = [IsAuthenticated]\n    96\t\n    97\tfrom rest_framework import viewsets\n    98\tfrom rest_framework.permissions import IsAuthenticated\n    99\t\n   100\tfrom .models import Item\n   101\tfrom .serializers import ItemSerializer\n   102\t\n   103\t\n   104\tclass ItemViewSet(viewsets.ModelViewSet):\n   105\t    queryset = Item.objects.all()\n   106\t    serializer_class = ItemSerializer\n   107\t    permission_classes = [IsAuthenticated]\n   108\t\n   109\tfrom rest_framework import viewsets\n   110\tfrom rest_framework.permissions import IsAuthenticated\n   111\t\n   112\tfrom .models import Item\n   113\tfrom .serializers import ItemSerializer\n   114\t\n   115\t\n   116\tclass ItemViewSet(viewsets.ModelViewSet):\n   117\t    queryset = Item.objects.all()\n   118\t    serializer_class = ItemSerializer\n   119\t    permission_classes = [IsAuthenticated]\n   120\t\n   121\tfrom rest_framework import viewsets\n   122\tfrom rest_framework.permissions import IsAuthenticated\n   123\t\n   124\tfrom .models import Item\n   125\tfrom .serializers import ItemSerializer\n   126\t\n   127\t\n   128\tclass ItemViewSet(viewsets.ModelViewSet):\n   129\t    queryset = Item.objects.all()\n   130\t    serializer_class = ItemSerializer\n   131\t    permission_classes = [IsAuthenticated]\n   132\t\n   133\tfrom rest_framework import viewsets\n   134\tfrom rest_framework.permissions import IsAuthenticated\n   135\t\n   136\tfrom .models import Item\n   137\tfrom .serializers import ItemSerializer\n   138\t\n   139\t\n   140\tclass ItemViewSet(viewsets.ModelViewSet):\n   141\t    queryset = Item.objects.all()\n   142\t    serializer_class = ItemSerializer\n   143\t    permission_classes = [IsAuthenticated]\n   144\t\n   145\tfrom rest_framework import viewsets\n   146\tfrom rest_framework.permissions import IsAuthenticated\n   147\t\n   148\tfrom .models import Item\n   149\tfrom .serializers import ItemSerializer\n   150\t\n   151\t\n   152\tclass ItemViewSet(viewsets.ModelViewSet):\n   153\t    queryset = Item.objects.all()\n   154\t    serializer_class = ItemSerializer\n   155\t    permission_classes = [IsAuthenticated]\n   156\t\n   157\tfrom rest_framework import viewsets\n   158\tfrom rest_framework.permissions import IsAuthenticated\n   159\t\n   160\tfrom .models import Item\n   161\tfrom .serializers import ItemSerializer\n   162\t\n   163\t\n   164\tclass ItemViewSet(viewsets.ModelViewSet):\n   165\t    queryset = Item.objects.all()\n   166\t    serializer_class = ItemSerializer\n   167\t    permission_classes = [IsAuthenticated]\n   168\t\n   169\tfrom rest_framework import viewsets\n   170\tfrom rest_framework.permissions import IsAuthenticated\n   171\t\n   172\tfrom .models import Item\n   173\tfrom .serializers import ItemSerializer\n   174\t\n   175\t\n   176\tclass ItemViewSet(viewsets.ModelViewSet):\n   177\t    queryset = Item.objects.all()\n   178\t    serializer_class = ItemSerializer\n   179\t    permission_classes = [IsAuthenticated]\n   180\t\n   181\tfrom rest_framework import viewsets\n   182\tfrom rest_framework.permissions import IsAuthenticated\n   183\t\n   184\tfrom .models import Item\n   185\tfrom .serializers import ItemSerializer\n   186\t\n   187\t\n   188\tclass ItemViewSet(viewsets.ModelViewSet):\n   189\t    queryset = Item.objects.all()\n   190\t    serializer_class = ItemSerializer\n   191\t    permission_classes = [IsAuthenticated]\n   192\t\n   193\tfrom rest_framework import viewsets\n   194\tfrom rest_framework.permissions import IsAuthenticated\n   195\t\n   196\tfrom .models import Item\n   197\tfrom .serializers import ItemSerializer\n   198\t\n   199\t\n   200\tclass ItemViewSet(viewsets.ModelViewSet):\n   201\t    queryset = Item.objects.all()\n   202\t    serializer_class = ItemSerializer\n   203\t    permission_classes = [IsAuthenticated]\n   204\t\n   205\tfrom rest_framework import viewsets\n   206\tfrom rest_framework.permissions import IsAuthenticated\n   207\t\n   208\tfrom .models import Item\n   209\tfrom .serializers import ItemSerializer\n   210\t\n   211\t\n   212\tclass ItemViewSet(viewsets.ModelViewSet):\n   213\t    queryset = Item.objects.all()\n   214\t    serializer_class = ItemSerializer\n   215\t    permission_classes = [IsAuthenticated]\n   216\t\n   217\tfrom rest_framework import viewsets\n   218\tfrom rest_framework.permissions import IsAuthenticated\n   219\t\n   220\tfrom .models import Item\n   221\tfrom .serializers import ItemSerializer\n   222\t\n   223\t\n   224\tclass ItemViewSet(viewsets.ModelViewSet):\n   225\t    queryset = Item.objects.all()\n   226\t    serializer_class = ItemSerializer\n   227\t    permission_classes = [IsAuthenticated]\n   228\t\n   229\tfrom rest_framework import viewsets\n   230\tfrom rest_framework.permissions import IsAuthenticated\n   231\t\n   232\tfrom .models import Item\n   233\tfrom .serializers import ItemSerializer\n   234\t\n   235\t\n   236\tclass ItemViewSet(viewsets.ModelViewSet):\n   237\t    queryset = Item.objects.all()\n   238\t    serializer_class = ItemSerializer\n   239\t    permission_classes = [IsAuthenticated]\n   240\t\n   241\tfrom rest_framework import viewsets\n   242\tfrom rest_framework.permissions import IsAuthenticated\n   243\t\n   244\tfrom .models import Item\n   245\tfrom .serializers import ItemSerializer\n   246\t\n   247\t\n   248\tclass ItemViewSet(viewsets.ModelViewSet):\n   249\t    queryset = Item.objects.all()\n   250\t    serializer_class = ItemSerializer\n   251\t    permission_classes = [IsAuthenticated]\n   252\t\n   253\tfrom rest_framework import viewsets\n   254\tfrom rest_framework.permissions import IsAuthenticated\n   255\t\n   256\tfrom .models import Item\n   257\tfrom .serializers import ItemSerializer\n   258\t\n   259\t\n   260\tclass ItemViewSet(viewsets.ModelViewSet):\n   261\t    queryset = Item.objects.all()\n   262\t    serializer_class = ItemSerializer\n   263\t    permission_classes = [IsAuthenticated]\n   264\t\n   265\tfrom rest_framework import viewsets\n   266\tfrom rest_framework.permissions import IsAuthenticated\n   267\t\n   268\tfrom .models import Item\n   269\tfrom .serializers import ItemSerializer\n   270\t\n   271\t\n   272\tclass ItemViewSet(viewsets.ModelViewSet):\n   273\t    queryset = Item.objects.all()\n   274\t    serializer_class = ItemSerializer\n   275\t    permission_classes = [IsAuthenticated]\n   276\t\n   277\tfrom rest_framework import viewsets\n   278\tfrom rest_framework.permissions import IsAuthenticated\n   279\t\n   280\tfrom .models import Item\n   281\tfrom .serializers import ItemSerializer\n   282\t\n   283\t\n   284\tclass ItemViewSet(viewsets.ModelViewSet):\n   285\t    queryset = Item.objects.all()\n   286\t    serializer_class = ItemSerializer\n   287\t    permission_classes = [IsAuthenticated]\n   288\t\n   289\tfrom rest_framework import viewsets\n   290\tfrom rest_framework.permissions import IsAuthenticated\n   291\t\n   292\tfrom .models import Item\n   293\tfrom .serializers import ItemSerializer\n   294\t\n   295\t\n   296\tclass ItemViewSet(viewsets.ModelViewSet):\n   297\t    queryset = Item.objects.all()\n   298\t    serializer_class = ItemSerializer\n   299\t    permission_classes = [IsAuthenticated]\n   300\t\n   301\tfrom rest_framework import viewsets\n   302\tfrom rest_framework.permissions import IsAuthenticated\n   303\t\n   304\tfrom .models import Item\n   305\tfrom .serializers import ItemSerializer\n   306\t\n   307\t\n   308\tclass ItemViewSet(viewsets.ModelViewSet):\n   309\t    queryset = Item.objects.all()\n   310\t    serializer_class = ItemSerializer\n   311\t    permission_classes = [IsAuthenticated]\n   312\t\n   313\tfrom rest_framework import viewsets\n   314\tfrom rest_framework.permissions import IsAuthenticated\n   315\t\n   316\tfrom .models import Item\n   317\tfrom .serializers import ItemSerializer\n   318\t\n   319\t\n   320\tclass ItemViewSet(viewsets.ModelViewSet):\n   321\t    queryset = Item.objects.all()\n   322\t    serializer_class = ItemSerializer\n   323\t    permission_classes = [IsAuthenticated]\n   324\t\n   325\tfrom rest_framework import viewsets\n   326\tfrom rest_framework.permissions import IsAuthenticated\n   327\t\n   328\tfrom .models import Item\n   329\tfrom .serializers import ItemSerializer\n   330\t\n   331\t\n   332\tclass ItemViewSet(viewsets.ModelViewSet):\n   333\t    queryset = Item.objects.all()\n   334\t    serializer_class = ItemSerializer\n   335\t    permission_classes = [IsAuthenticated]\n   336\t\n   337\tfrom rest_framework import viewsets\n   338\tfrom rest_framework.permissions import IsAuthenticated\n   339\t\n   340\tfrom .models import Item\n   341\tfrom .serializers import ItemSerializer\n   342\t\n   343\t\n   344\tclass ItemViewSet(viewsets.ModelViewSet):\n   345\t    queryset = Item.objects.all()\n   346\t    serializer_class = ItemSerializer\n   347\t    permission_classes = [IsAuthenticated]\n   348\t\n   349\tfrom rest_framework import viewsets\n   350\tfrom rest_framework.permissions import IsAuthenticated\n   351\t\n   352\tfrom .models import Item\n   353\tfrom .serializers import ItemSerializer\n   354\t\n   355\t\n   356\tclass ItemViewSet(viewsets.ModelViewSet):\n   357\t    queryset = Item.objects.all()\n   358\t    serializer_class = ItemSerializer\n   359\t    permission_classes = [IsAuthenticated]\n   360\t\n   361\tfrom rest_framework import viewsets\n   362\tfrom rest_framework.permissions import IsAuthenticated\n   363\t\n   364\tfrom .models import Item\n   365\tfrom .serializers import ItemSerializer\n   366\t\n   367\t\n   368\tclass ItemViewSet(viewsets.ModelViewSet):\n   369\t    queryset = Item.objects.all()\n   370\t    serializer_class = ItemSerializer\n   371\t    permission_classes = [IsAuthenticated]\n   372\t\n   373\tfrom rest_framework import viewsets\n   374\tfrom rest_framework.permissions import IsAuthenticated\n   375\t\n   376\tfrom .models import Item\n   377\tfrom .serializers import ItemSerializer\n   378\t\n   379\t\n   380\tclass ItemViewSet(viewsets.ModelViewSet):\n   381\t    queryset = Item.objects.all()\n   382\t    serializer_class = ItemSerializer\n   383\t    permission_classes = [IsAuthenticated]\n   384\t\n   385\tfrom rest_framework import viewsets\n   386\tfrom rest_framework.permissions import IsAuthenticated\n   387\t\n   388\tfrom .models import Item\n   389\tfrom .serializers import ItemSerializer\n   390\t\n   391\t\n   392\tclass ItemViewSet(viewsets.ModelViewSet):\n   393\t    queryset = Item.objects.all()\n   394\t    serializer_class = ItemSerializer\n   395\t    permission_classes = [IsAuthenticated]\n   396\t\n   397\tfrom rest_framework import viewsets\n   398\tfrom rest_framework.permissions import IsAuthenticated\n   399\t\n   400\tfrom .models import Item\n   401\tfrom .serializers import ItemSerializer\n   402\t",
+          "turn": 1,
+          "minutesAgo": 20
+        },
+        {
+          "kind": "tool_call",
+          "name": "Edit",
+          "input": {
+            "file_path": "config/settings/base.py"
+          },
+          "output": "+9 −1",
+          "turn": 1,
+          "minutesAgo": 18
+        },
+        {
+          "kind": "narration",
+          "text": "Backend configured. Uploading a test image to check new uploads land in the bucket.",
+          "turn": 1,
+          "minutesAgo": 11
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "python manage.py shell -c 'upload_test()'"
+          },
+          "output": "Uploaded and read back 1 file",
+          "turn": 1,
+          "minutesAgo": 10
+        },
+        {
+          "kind": "narration",
+          "text": "Copying files, 1,240 of 3,900",
+          "turn": 1,
+          "minutesAgo": 1
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "python scripts/copy_media_to_s3.py"
+          },
+          "turn": 1,
+          "minutesAgo": 1
+        }
+      ]
+    },
+    {
+      "title": "Fix flaky login test",
+      "status": "Waiting on you: run it against Postgres too, or ship the fix as is?",
+      "unread": true,
+      "minutesAgo": 0
+    },
+    {
+      "title": "Upgrade Django to 5.2",
+      "status": "Upgraded; two deprecations fixed",
+      "state": "done",
+      "minutesAgo": 2880
+    },
+    {
+      "title": "Remove unused feature flags",
+      "status": "Removed 9 flags and their checks",
+      "state": "done",
+      "minutesAgo": 5760
+    },
+    {
+      "title": "Set up nightly backups",
+      "status": "Nightly dump, 14-day retention",
+      "state": "done",
+      "minutesAgo": 10080
+    },
+    {
+      "title": "Add CSV export to reports",
+      "status": "Export endpoint and button shipped",
+      "state": "done",
+      "minutesAgo": 30240
+    }
+  ]
+}

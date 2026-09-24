@@ -7,6 +7,7 @@ import { listToolEvents } from '../db/repositories/tool-events'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
 import { listWorkspaces } from '../db/repositories/workspaces'
 import { createWorkspaceAt, openWorkspace } from '../workspaces/workspaces'
+import { noteUiStateSet } from '../tasks/attention'
 import { createTask, markTaskDone, reopenTask, updateTaskFromUser } from '../tasks/service'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
@@ -59,6 +60,7 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.UiStateSet]: (entry) => {
       setUiState(db, entry)
       emit({ type: EventType.UiStateChanged, entry })
+      noteUiStateSet(context, entry)
       return null
     },
   }

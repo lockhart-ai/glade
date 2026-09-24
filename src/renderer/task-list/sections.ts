@@ -1,3 +1,4 @@
+import { matchesFilter, TaskFilter } from '../../shared/attention'
 import { TaskState, UiStateKey, type Task, type UiStateEntry } from '../../shared/domain'
 import type { UiStateValues } from '../store/state'
 
@@ -75,13 +76,17 @@ function byRecency(a: Task, b: Task): number {
 }
 
 /**
- * Splits a workspace's tasks into the Pinned, Active and Done sections, each most recently updated first. A pinned task
- * appears only under Pinned, whatever its state.
+ * Splits a workspace's tasks that pass the filter into the Pinned, Active and Done sections, each most recently updated
+ * first. A pinned task appears only under Pinned, whatever its state.
  */
-export function sectionTasks(tasks: Iterable<Task>, workspaceId: string): TaskSection[] {
+export function sectionTasks(
+  tasks: Iterable<Task>,
+  workspaceId: string,
+  filter: TaskFilter = TaskFilter.All,
+): TaskSection[] {
   const grouped = new Map<SectionId, Task[]>(SECTION_ORDER.map((id) => [id, []]))
   for (const task of tasks) {
-    if (task.workspaceId === workspaceId) grouped.get(sectionOf(task))?.push(task)
+    if (task.workspaceId === workspaceId && matchesFilter(task, filter)) grouped.get(sectionOf(task))?.push(task)
   }
   return SECTION_ORDER.map((id) => ({ id, tasks: (grouped.get(id) ?? []).sort(byRecency) }))
 }

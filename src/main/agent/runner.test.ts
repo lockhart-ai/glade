@@ -11,6 +11,7 @@ import {
   TaskState,
   ToolCallState,
   ToolEventKind,
+  UiStateKey,
   type Task,
   type ToolEvent,
   type Workspace,
@@ -21,6 +22,7 @@ import { listMessages } from '../db/repositories/messages'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
+import { setUiState } from '../db/repositories/ui-state'
 import { FakeAgentBackend, settle } from './fake-backend'
 import { GLADE_SERVER } from './glade-tools'
 import {
@@ -47,6 +49,8 @@ beforeEach(() => {
   database = openTestDatabase()
   workspace = sampleWorkspace(database.db)
   task = sampleTask(database.db, workspace.id)
+  // The window is viewing the task, so its replies don't make it unread (see `../tasks/attention.test.ts`).
+  setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: task.id })
   backend = new FakeAgentBackend()
   const ipc = fakeIpcPair()
   ;({ runner } = registerBridge({

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { TaskState, UiStateKey, type Task } from '../../shared/domain'
+import { TaskFilter } from '../../shared/attention'
+import { TaskActivity, TaskState, UiStateKey, type Task } from '../../shared/domain'
 import { sampleTask } from '../store/test-bridge'
 import {
   collapsedValue,
@@ -51,6 +52,21 @@ describe('sectionTasks', () => {
     const sections = sectionTasks([task('b', 5), task('a', 5)], 'w1')
 
     expect(ids(sections[1]?.tasks ?? [])).toEqual(['a', 'b'])
+  })
+
+  it('keeps only the tasks that pass the filter, in every section', () => {
+    const tasks = [
+      task('waiting', 1, { sessionId: 'session-1' }),
+      task('unread', 2, { activity: TaskActivity.Working, unread: true }),
+      task('pinned-errored', 3, { pinned: true, activity: TaskActivity.Error }),
+      task('done-unread', 4, { state: TaskState.Done, unread: true }),
+    ]
+    const shown = (filter: TaskFilter): string[][] =>
+      sectionTasks(tasks, 'w1', filter).map(({ tasks: sectioned }) => ids(sectioned))
+
+    expect(shown(TaskFilter.NeedsYou)).toEqual([['pinned-errored'], ['waiting'], []])
+    expect(shown(TaskFilter.Unread)).toEqual([[], ['unread'], ['done-unread']])
+    expect(shown(TaskFilter.All)).toEqual(sectionTasks(tasks, 'w1').map(({ tasks: sectioned }) => ids(sectioned)))
   })
 
   it('has every section even when empty', () => {
