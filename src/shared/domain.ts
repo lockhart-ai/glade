@@ -156,7 +156,7 @@ export enum MessageRole {
  * counts come from the turn's file-editing tool calls (`src/main/agent/turn-summary.ts`).
  */
 export interface TurnSummary {
-  /** How long the turn ran, as the SDK's `result` reports it; null when it doesn't. */
+  /** How long the turn ran, wall-clock, from its first user message to its reply; null when that's unknown. */
   readonly durationMs: number | null
   /** The distinct files the turn's edits changed. */
   readonly filesChanged: number
@@ -196,6 +196,8 @@ export enum ToolEventKind {
   Narration = 'narration',
   ToolCall = 'tool_call',
   Divider = 'divider',
+  /** The session's context was compacted: its older turns replaced with a summary for the agent. */
+  Compaction = 'compaction',
 }
 
 export enum ToolCallState {
@@ -255,8 +257,34 @@ export interface DividerEvent extends ToolEventBase {
  */
 export const API_TOOL_NAME = 'API'
 
-/** One tool log entry. Append-only, except that a tool call's state and output are filled in when its result arrives. */
-export type ToolEvent = NarrationEvent | ToolCallEvent | DividerEvent
+/** What started a compaction: you (Compact now, ⌘⇧K), or the SDK at its auto-compact threshold. */
+export enum CompactionTrigger {
+  Manual = 'manual',
+  Auto = 'auto',
+}
+
+/**
+ * A compaction of the session's context (`docs/sdk-notes.md` §5): the tool log's Compact row and the chat's
+ * "Compacted · 198k → 41k" divider. A manual one is logged as running when it's asked for and filled in when the SDK
+ * reports it done; one that never reports ends as an error.
+ */
+export interface CompactionEvent extends ToolEventBase {
+  readonly kind: ToolEventKind.Compaction
+  readonly trigger: CompactionTrigger
+  readonly state: ToolCallState
+  /** The context before, in tokens, as the SDK reports it; null until it does. */
+  readonly preTokens: number | null
+  /** The context after, in tokens, as the SDK reports it; null until it does, or when it doesn't. */
+  readonly postTokens: number | null
+  /** The task's context window when it compacted, so the chat can say how full it was. */
+  readonly windowTokens: number
+}
+
+/**
+ * One tool log entry. Append-only, except that a tool call's state and output are filled in when its result arrives,
+ * and a compaction's state and token counts when it finishes.
+ */
+export type ToolEvent = NarrationEvent | ToolCallEvent | DividerEvent | CompactionEvent
 
 /** The keys of the app's persisted UI state. Each value is a string. */
 export enum UiStateKey {

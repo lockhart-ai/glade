@@ -3,15 +3,15 @@ import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { getTask } from '../repositories/tasks'
 import { MIGRATIONS } from '.'
-import { taskErrorMigration } from './0008-task-error'
+import { taskErrorMigration } from './0009-task-error'
 
-it('is migration 8', () => {
-  expect(MIGRATIONS[7]).toBe(taskErrorMigration)
+it('is migration 9', () => {
+  expect(MIGRATIONS[8]).toBe(taskErrorMigration)
 })
 
 it('gives existing tasks no error and no retry', () => {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 7))
+  migrate(db, MIGRATIONS.slice(0, 8))
   db.prepare("INSERT INTO workspaces VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)").run()
   db.prepare(
     `INSERT INTO tasks (id, workspace_id, title, objective, status, state, activity, pinned, unread, model, effort,

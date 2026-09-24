@@ -6,7 +6,7 @@ import type { Migration } from '../migrate'
  * none; the tasks repository parses them. Existing tasks have neither.
  */
 export const taskErrorMigration: Migration = {
-  version: 8,
+  version: 9,
   name: 'Add the task error and API retry',
   up(db) {
     db.exec(`

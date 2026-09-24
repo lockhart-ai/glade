@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { clickNotification, expect, notifications, test } from './fixtures'
+import { clickNotification, expect, notifications, replyToNotification, test } from './fixtures'
 import { chat, firstRun, inputBar, taskHeader, taskList } from './selectors'
 
 /** Task A's first message: it plays `multi-tool-turn`, which titles the task and replies after a dozen tool calls. */
@@ -11,8 +11,10 @@ const ASK_RETRIES = 'How does the client retry?'
 const A_TITLE = 'Fix the flaky date test'
 /** The title B's agent gives it. */
 const B_TITLE = 'Explain the retry policy'
+/** What you reply to A's notification: A's agent answers it with its second turn. */
+const FOLLOW_UP = 'Does the report header need the same fix?'
 
-test("a reply in a task you aren't viewing sends one notification, and clicking it opens that task", async ({
+test("a reply in a task you aren't viewing sends a notification you can reply to, and clicking it opens that task", async ({
   launch,
   tempFolder,
 }) => {
@@ -51,13 +53,26 @@ test("a reply in a task you aren't viewing sends one notification, and clicking 
   await expect(header.title).toHaveText(B_TITLE)
   expect(await notifications(glade)).toHaveLength(1)
 
-  // Clicking A's notification opens A, as clicking its row does: selected, read, its chat loaded.
-  await clickNotification(glade, 0)
+  // Replying from A's notification sends the reply to A, as its input bar would, and leaves you on B. A's agent answers
+  // it, in a task you still aren't viewing: another notification.
+  await replyToNotification(glade, 0, FOLLOW_UP)
+  await expect.poll(() => notifications(glade)).toHaveLength(2)
+  const [, answer] = await notifications(glade)
+  expect(answer).toMatchObject({ title: A_TITLE })
+  expect(answer?.body).toMatch(/^The report header already goes through formatDate/)
+  await expect(header.title).toHaveText(B_TITLE)
+  await expect(replies).toHaveCount(1)
+
+  // Clicking A's notification opens A, as clicking its row does: selected, read, its chat loaded, the reply in it.
+  await clickNotification(glade, 1)
   await expect(rowA).toHaveAttribute('aria-current', 'true')
   await expect(header.title).toHaveText(A_TITLE)
   await expect(rowA.getByRole('img', { name: 'Unread' })).toHaveCount(0)
   await expect(list.filter('Unread')).toHaveText('Unread0')
   await expect(replies.first()).toContainText('The failing test was a timezone bug')
+  await expect(chat(window).userMessages).toHaveCount(2)
+  await expect(chat(window).userMessages.last()).toContainText(FOLLOW_UP)
+  await expect(replies.last()).toContainText('The report header already goes through formatDate')
 
   // The window stays hidden throughout: an e2e run never shows it.
   const visible = await glade.app.evaluate(({ BrowserWindow }) =>

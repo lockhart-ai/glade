@@ -46,8 +46,24 @@ describe('summarizeTurn', () => {
       call('Read', { file_path: 'src/date.ts' }),
       call('Bash', { command: 'npm test' }),
     ]
-    expect(summarizeTurn(8_000, events)).toEqual({ durationMs: 8_000, filesChanged: 0, linesAdded: 0, linesRemoved: 0 })
-    expect(summarizeTurn(null, [])).toEqual({ durationMs: null, filesChanged: 0, linesAdded: 0, linesRemoved: 0 })
+    expect(summarizeTurn({ startedAt: 2_000, finishedAt: 10_000 }, events)).toEqual({
+      durationMs: 8_000,
+      filesChanged: 0,
+      linesAdded: 0,
+      linesRemoved: 0,
+    })
+  })
+
+  it('is wall-clock time from the start to the finish, unknown without a start, and never negative', () => {
+    // Say the app quit mid-turn and resumed it an hour later: the whole span counts.
+    expect(summarizeTurn({ startedAt: 1_000, finishedAt: 3_601_000 }, []).durationMs).toBe(3_600_000)
+    expect(summarizeTurn({ startedAt: null, finishedAt: 5_000 }, [])).toEqual({
+      durationMs: null,
+      filesChanged: 0,
+      linesAdded: 0,
+      linesRemoved: 0,
+    })
+    expect(summarizeTurn({ startedAt: 5_000, finishedAt: 4_000 }, []).durationMs).toBe(0)
   })
 
   it('counts each editing tool, and distinct paths', () => {
@@ -67,7 +83,7 @@ describe('summarizeTurn', () => {
       call('NotebookEdit', { notebook_path: 'notes.ipynb', cell_id: 'c2', edit_mode: 'delete' }),
     ]
     // Edit: +2 −1, +0 −1. MultiEdit: +1 −1, +1 −0. Write: +3. NotebookEdit: +2.
-    expect(summarizeTurn(1_000, events)).toEqual({
+    expect(summarizeTurn({ startedAt: 0, finishedAt: 1_000 }, events)).toEqual({
       durationMs: 1_000,
       filesChanged: 5,
       linesAdded: 9,
@@ -84,6 +100,11 @@ describe('summarizeTurn', () => {
       call('MultiEdit', { file_path: 'e.ts', edits: 'nope' }),
       call('constructor', { file_path: 'f.ts' }),
     ]
-    expect(summarizeTurn(1_000, events)).toEqual({ durationMs: 1_000, filesChanged: 1, linesAdded: 1, linesRemoved: 0 })
+    expect(summarizeTurn({ startedAt: 0, finishedAt: 1_000 }, events)).toEqual({
+      durationMs: 1_000,
+      filesChanged: 1,
+      linesAdded: 1,
+      linesRemoved: 0,
+    })
   })
 })

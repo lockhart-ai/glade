@@ -24,6 +24,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.TasksSend]: () => ({ message: {} as Message }),
     [CommandName.TasksStop]: () => ({ task: {} as Task }),
     [CommandName.TasksRetry]: () => ({ task: {} as Task }),
+    [CommandName.TasksCompact]: () => ({ task: {} as Task }),
     [CommandName.TasksHistory]: () => ({ messages: [], toolEvents: [], queuedMessages: [] }),
     [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
     [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),

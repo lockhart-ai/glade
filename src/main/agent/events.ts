@@ -9,7 +9,7 @@
  * a turn that has already finished.
  */
 import { z } from 'zod'
-import type { ToolInput } from '../../shared/domain'
+import { CompactionTrigger, type ToolInput } from '../../shared/domain'
 
 export enum AgentEventKind {
   /** The session is running: it names its SDK session id. Arrives at the start of every turn. */
@@ -20,6 +20,8 @@ export enum AgentEventKind {
   ToolResult = 'tool_result',
   /** How full the context is: what the agent's latest top-level message used. */
   ContextUsed = 'context_used',
+  /** The session's context was compacted (`compact_boundary`), manually or automatically. */
+  Compacted = 'compacted',
   /** The turn ended, successfully or not. Exactly one per turn. */
   TurnFinished = 'turn_finished',
   /** The agent process failed, or its session ended while a turn was running. No `TurnFinished` follows. */
@@ -68,6 +70,18 @@ export interface ContextUsedEvent {
   readonly kind: AgentEventKind.ContextUsed
   /** The prompt the model just saw, in tokens: the message's input, cache read and cache creation tokens. */
   readonly tokens: number
+}
+
+export interface CompactedEvent {
+  readonly kind: AgentEventKind.Compacted
+  readonly trigger: CompactionTrigger
+  /** The context before, in tokens. */
+  readonly preTokens: number
+  /**
+   * The context after, in tokens: the new baseline until the next assistant message (`docs/sdk-notes.md`, "Usage and
+   * context size"). Null when the SDK doesn't say.
+   */
+  readonly postTokens: number | null
 }
 
 /** A turn's token usage, for its main loop only. */
@@ -135,6 +149,7 @@ export type AgentEvent =
   | ToolCallStartedEvent
   | ToolResultEvent
   | ContextUsedEvent
+  | CompactedEvent
   | TurnFinishedEvent
   | SessionFailedEvent
   | ApiRetryEvent
@@ -173,6 +188,19 @@ const apiRetryMessage = z.looseObject({
   retry_delay_ms: z.number().nonnegative().catch(0),
   error_status: z.int().nullable().catch(null),
   error: z.string().catch('unknown'),
+})
+
+const tokenCount = z.number().int().nonnegative()
+
+const compactBoundaryMessage = z.looseObject({
+  type: z.literal('system'),
+  subtype: z.literal('compact_boundary'),
+  compact_metadata: z.looseObject({
+    trigger: z.enum(CompactionTrigger),
+    pre_tokens: tokenCount,
+    // Optional in the SDK's types; a malformed one is as good as missing.
+    post_tokens: tokenCount.optional().catch(undefined),
+  }),
 })
 
 const parentToolUseId = z.string().nullable().optional()
@@ -237,6 +265,11 @@ const modelUsage = z.looseObject({ contextWindow: z.number().int().positive() })
 
 function fromInit(message: z.infer<typeof initMessage>): AgentEvent[] {
   return [{ kind: AgentEventKind.SessionStarted, sessionId: message.session_id, model: message.model }]
+}
+
+function fromCompactBoundary(message: z.infer<typeof compactBoundaryMessage>): AgentEvent[] {
+  const { trigger, pre_tokens, post_tokens } = message.compact_metadata
+  return [{ kind: AgentEventKind.Compacted, trigger, preTokens: pre_tokens, postTokens: post_tokens ?? null }]
 }
 
 /** A top-level message's usage says how full the context is (`docs/sdk-notes.md`, "Usage and context size"). */
@@ -393,6 +426,9 @@ export function createSdkMessageParser(log: AgentLog): (raw: unknown) => AgentEv
       case 'system':
         if (subtype === 'init') return parsed(initMessage, raw, log, 'system/init', fromInit)
         if (subtype === 'api_retry') return parsed(apiRetryMessage, raw, log, 'system/api_retry', fromApiRetry)
+        if (subtype === 'compact_boundary') {
+          return parsed(compactBoundaryMessage, raw, log, 'system/compact_boundary', fromCompactBoundary)
+        }
         return []
       case 'assistant':
         return parsed(assistantMessage, raw, log, 'assistant', (message) => fromAssistant(message, log))

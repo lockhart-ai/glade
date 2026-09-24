@@ -1,1 +1,1 @@
-export { ContextMeter, ContextMeterView } from './ContextMeter'
+export { ContextDetails, ContextMeter, ContextMeterView } from './ContextMeter'

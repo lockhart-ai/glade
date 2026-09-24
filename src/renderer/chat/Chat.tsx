@@ -9,6 +9,7 @@ import {
   ChatEntryKind,
   chatEntries,
   clockTime,
+  compactedLabel,
   markedDoneLabel,
   REOPENED_LABEL,
   ReplyStyle,
@@ -198,6 +199,12 @@ export function Chat(): React.JSX.Element {
               return <RestartDivider key={entry.divider.id} {...entry} />
             case ChatEntryKind.MarkedDone:
               return <MarkedDoneDivider key={entry.divider.id} {...entry} />
+            case ChatEntryKind.Compacted:
+              return (
+                <ChatDivider key={entry.compaction.id} name="Compacted">
+                  {compactedLabel(entry)}
+                </ChatDivider>
+              )
             case ChatEntryKind.Reopened:
               return (
                 <ChatDivider key={entry.divider.id} name="Reopened">

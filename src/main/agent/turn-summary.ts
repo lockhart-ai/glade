@@ -1,7 +1,10 @@
 /**
- * A finished turn's summary, from its tool log: how long it ran, and the files and lines its file-editing tool calls
- * changed ("Finished in 24m 10s · 4 files +61 −3").
+ * A finished turn's summary: how long it ran, and the files and lines its file-editing tool calls changed ("Finished in
+ * 24m 10s · 4 files +61 −3").
  *
+ * - The duration is wall-clock time, from the turn's start (its first user message) to its reply: what you waited for.
+ *   A turn the app quit in and resumed on relaunch counts from when it started, not from the resume, since the SDK's
+ *   own `duration_ms` only covers the resumed part.
  * - The file-editing tools are `Edit`, `MultiEdit`, `Write` and `NotebookEdit`, whether the agent or one of its
  *   subagents called them. Only calls that finished count: a failed edit changed nothing.
  * - Files are distinct paths (`file_path`, or `notebook_path` for a notebook).
@@ -12,7 +15,7 @@
  */
 import { diffLines } from 'diff'
 import { z } from 'zod'
-import { ToolCallState, ToolEventKind, type ToolEvent, type TurnSummary } from '../../shared/domain'
+import { ToolCallState, ToolEventKind, type EpochMs, type ToolEvent, type TurnSummary } from '../../shared/domain'
 
 interface LineChanges {
   readonly added: number
@@ -76,8 +79,17 @@ const EDITING_TOOLS = new Map<string, z.ZodType<FileEdit>>([
   ],
 ])
 
-/** The summary of a turn that ran for `durationMs`, from the tool log entries of that turn. */
-export function summarizeTurn(durationMs: number | null, toolEvents: readonly ToolEvent[]): TurnSummary {
+/** When a turn started and finished. */
+export interface TurnSpan {
+  /** When the turn's first user message was sent; null if it has none, and then the duration is unknown. */
+  readonly startedAt: EpochMs | null
+  readonly finishedAt: EpochMs
+}
+
+/** The summary of a turn that ran over `span`, from the tool log entries of that turn. */
+export function summarizeTurn({ startedAt, finishedAt }: TurnSpan, toolEvents: readonly ToolEvent[]): TurnSummary {
+  // A clock set back mid-turn can't make it negative.
+  const durationMs = startedAt === null ? null : Math.max(0, finishedAt - startedAt)
   const files = new Set<string>()
   let added = 0
   let removed = 0

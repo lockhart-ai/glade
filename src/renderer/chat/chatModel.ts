@@ -3,14 +3,19 @@
  * reply per turn; the tool log (narration, tool calls, dividers) never appears in the chat except as the working line's
  * latest narration, the tool-call count under each reply (beside the turn's summary, saved on the reply), and three of its dividers: "Glade restarted" where a turn was
  * resumed after the app quit (`docs/design/html/18-relaunch.html`), and "Marked done" and "Reopened by your message"
- * where a message reopened a done task (`docs/design/html/06-reopen.html`).
+ * where a message reopened a done task (`docs/design/html/06-reopen.html`). Its compactions show as "Compacted ·
+ * 198k → 41k" dividers (`docs/design/html/19-compaction.html`).
  */
+import { formatTokens } from '../context-meter/format'
 import {
+  CompactionTrigger,
   DividerKind,
   MessageRole,
   TaskActivity,
   TaskState,
+  ToolCallState,
   ToolEventKind,
+  type CompactionEvent,
   type DividerEvent,
   type EpochMs,
   type Message,
@@ -39,6 +44,8 @@ export enum ChatEntryKind {
   MarkedDone = 'marked_done',
   /** Where your message reopened the task, after that message. */
   Reopened = 'reopened',
+  /** Where the context was compacted. */
+  Compacted = 'compacted',
 }
 
 export interface UserEntry {
@@ -74,11 +81,17 @@ export interface ReopenedEntry {
   readonly divider: DividerEvent
 }
 
+export interface CompactedEntry {
+  readonly kind: ChatEntryKind.Compacted
+  /** The tool log's compaction, finished. */
+  readonly compaction: CompactionEvent
+}
+
 /** One entry in the chat: a message, or a divider. */
-export type ChatEntry = UserEntry | AgentEntry | RestartedEntry | MarkedDoneEntry | ReopenedEntry
+export type ChatEntry = UserEntry | AgentEntry | RestartedEntry | MarkedDoneEntry | ReopenedEntry | CompactedEntry
 
 /** The chat's entries that are dividers. */
-export type DividerEntry = RestartedEntry | MarkedDoneEntry | ReopenedEntry
+export type DividerEntry = RestartedEntry | MarkedDoneEntry | ReopenedEntry | CompactedEntry
 
 /** The turn in progress or last run: the latest message's turn, or 0 before any message. */
 export function currentTurn(messages: readonly Message[]): number {
@@ -135,12 +148,37 @@ function dividerEntry(task: Task, divider: DividerEvent, turn: number): DividerE
   }
 }
 
+/** The chat's entry for a compaction, or null for one that hasn't finished (or never did). */
+function compactionEntry(compaction: CompactionEvent): CompactedEntry | null {
+  return compaction.state === ToolCallState.Done ? { kind: ChatEntryKind.Compacted, compaction } : null
+}
+
+/** The chat's entry for a tool log entry, or null for one it doesn't show. */
+function toolEventEntry(task: Task, event: ToolEvent, turn: number): DividerEntry | null {
+  switch (event.kind) {
+    case ToolEventKind.Divider:
+      return dividerEntry(task, event, turn)
+    case ToolEventKind.Compaction:
+      return compactionEntry(event)
+    case ToolEventKind.Narration:
+    case ToolEventKind.ToolCall:
+      return null
+  }
+}
+
 /**
  * Whether a divider shows before a message. A marked done divider closes its turn, so it goes before the next turn's
  * message; a restart or reopened divider goes after the message that started its turn and before its reply, and
- * before any queued message delivered into the turn after it.
+ * before any queued message delivered into the turn after it. A compaction goes where it happened: before the
+ * messages of later turns, and of its own turn, those that came after it.
  */
-function dividerComesBefore({ kind, divider }: DividerEntry, message: Message): boolean {
+function dividerComesBefore(entry: DividerEntry, message: Message): boolean {
+  if (entry.kind === ChatEntryKind.Compacted) {
+    const { compaction } = entry
+    if (message.turn !== compaction.turn) return message.turn > compaction.turn
+    return message.createdAt > compaction.createdAt
+  }
+  const { kind, divider } = entry
   if (kind === ChatEntryKind.MarkedDone) return message.turn > divider.turn
   if (message.turn !== divider.turn) return message.turn > divider.turn
   return message.role === MessageRole.Agent || message.createdAt > divider.createdAt
@@ -156,7 +194,7 @@ export function chatEntries(task: Task, messages: readonly Message[], toolEvents
   const last = messages.at(-1)
   const turn = currentTurn(messages)
   const dividers = toolEvents.flatMap((event) => {
-    const entry = event.kind === ToolEventKind.Divider ? dividerEntry(task, event, turn) : null
+    const entry = toolEventEntry(task, event, turn)
     return entry === null ? [] : [entry]
   })
   const entries: ChatEntry[] = []
@@ -182,8 +220,30 @@ export function restartLabel({ divider, resuming }: RestartedEntry): string {
 }
 
 /**
+ * What a compaction divider says: "Compacted · 198k → 41k", or "Compacted automatically at 99% · 198k → 41k" for one
+ * the SDK did on its own at its threshold. "from 198k" when the SDK didn't say what was left.
+ */
+export function compactedLabel({ compaction }: CompactedEntry): string {
+  const { trigger, preTokens, postTokens, windowTokens } = compaction
+  const before = formatTokens(preTokens ?? 0)
+  const tokens = postTokens === null ? `from ${before}` : `${before} → ${formatTokens(postTokens)}`
+  switch (trigger) {
+    case CompactionTrigger.Manual:
+      return `Compacted · ${tokens}`
+    case CompactionTrigger.Auto: {
+      const percent = windowTokens > 0 ? Math.round(((preTokens ?? 0) / windowTokens) * 100) : 0
+      return `Compacted automatically at ${String(percent)}% · ${tokens}`
+    }
+  }
+}
+
+/** What the working line says while the context is being compacted. */
+export const COMPACTING_NARRATION = 'Compacting the context'
+
+/**
  * What the working line says while a turn runs: the latest narration of the current turn, or null when the task isn't
- * working. The narration is empty until the agent's first note of the turn arrives.
+ * working. The narration is empty until the agent's first note of the turn arrives. While the context is being
+ * compacted, it says so.
  */
 export function workingNarration(
   task: Task,
@@ -191,6 +251,8 @@ export function workingNarration(
   toolEvents: readonly ToolEvent[],
 ): string | null {
   if (task.activity !== TaskActivity.Working) return null
+  const last = toolEvents.at(-1)
+  if (last?.kind === ToolEventKind.Compaction && last.state === ToolCallState.Running) return COMPACTING_NARRATION
   const turn = currentTurn(messages)
   const latest = toolEvents.findLast(
     (event): event is NarrationEvent => event.kind === ToolEventKind.Narration && event.turn === turn,
@@ -231,7 +293,7 @@ export interface SummaryLine {
 
 /**
  * What the summary under a turn's final reply says: "Finished in 24m 10s · 4 files +61 −3". The files part is left out
- * when the turn changed none, and the duration when the SDK didn't report one; null when there's nothing to say.
+ * when the turn changed none, and the duration when it's unknown; null when there's nothing to say.
  */
 export function summaryLine(summary: TurnSummary): SummaryLine | null {
   const { durationMs, filesChanged } = summary

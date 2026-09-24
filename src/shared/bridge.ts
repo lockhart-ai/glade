@@ -35,6 +35,7 @@ export enum CommandName {
   TasksSend = 'tasks.send',
   TasksStop = 'tasks.stop',
   TasksRetry = 'tasks.retry',
+  TasksCompact = 'tasks.compact',
   TasksHistory = 'tasks.history',
   QueueAdd = 'queue.add',
   QueueEdit = 'queue.edit',
@@ -184,6 +185,18 @@ export interface TasksRetryRequest {
   readonly model?: string
 }
 
+/**
+ * Compacts the task's context now (Compact now, ⌘⇧K): sends its session `/compact` (`docs/sdk-notes.md` §5), which
+ * replaces older turns with a summary for the agent. Nothing goes to the chat log. The agent works while it compacts,
+ * so messages sent meanwhile are queued. The tool log gets a running Compact row, filled in with the tokens before and
+ * after when the SDK reports it done, and the task's context usage drops to the tokens after. Answers with the task
+ * once compaction has started, not when it ends.
+ *
+ * Fails with `busy` while the agent is working, `invalid_transition` for a done task or one whose agent has no session
+ * yet (nothing to compact), and `not_found` when there's no such task.
+ */
+export type TasksCompactRequest = TaskIdRequest
+
 /** A task's chat log and tool log, each in the order they were appended, and its message queue. */
 export interface TasksHistoryResponse {
   readonly messages: readonly Message[]
@@ -261,6 +274,7 @@ export interface CommandMap {
   [CommandName.TasksSend]: CommandSpec<TasksSendRequest, TasksSendResponse>
   [CommandName.TasksStop]: CommandSpec<TasksStopRequest, TaskResponse>
   [CommandName.TasksRetry]: CommandSpec<TasksRetryRequest, TaskResponse>
+  [CommandName.TasksCompact]: CommandSpec<TasksCompactRequest, TaskResponse>
   [CommandName.TasksHistory]: CommandSpec<TaskIdRequest, TasksHistoryResponse>
   [CommandName.QueueAdd]: CommandSpec<QueueAddRequest, QueuedMessageResponse>
   [CommandName.QueueEdit]: CommandSpec<QueueEditRequest, QueuedMessageResponse>
@@ -315,7 +329,7 @@ export interface ToolEventAppendedEvent {
   readonly toolEvent: ToolEvent
 }
 
-/** A tool log entry changed: a tool call's result arrived. Carries the whole entry as it now is. */
+/** A tool log entry changed: a tool call's result arrived, or a compaction finished. Carries the whole entry as it now is. */
 export interface ToolEventUpdatedEvent {
   readonly type: EventType.ToolEventUpdated
   readonly toolEvent: ToolEvent

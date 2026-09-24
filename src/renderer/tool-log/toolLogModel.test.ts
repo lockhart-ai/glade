@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CompactionTrigger,
   DividerKind,
   ToolCallState,
   ToolEventKind,
+  type CompactionEvent,
   type DividerEvent,
   type NarrationEvent,
   type ToolCallEvent,
@@ -12,6 +14,8 @@ import {
   argumentSummary,
   callIndicator,
   callStateLabel,
+  compactionArgument,
+  compactionResult,
   dividerLabel,
   dividerTime,
   lineCount,
@@ -206,6 +210,44 @@ describe('toolLogRows', () => {
       children: [{ name: 'Grep', children: [] }, { name: 'Read' }],
     })
     expect(rows[2]).toMatchObject({ name: 'Bash', children: [] })
+  })
+})
+
+describe('compactions', () => {
+  const compaction = (change: Partial<CompactionEvent> = {}): CompactionEvent => ({
+    id: 'k1',
+    taskId: 't1',
+    turn: 1,
+    createdAt: AT,
+    kind: ToolEventKind.Compaction,
+    trigger: CompactionTrigger.Manual,
+    state: ToolCallState.Done,
+    preTokens: 198_000,
+    postTokens: 41_000,
+    windowTokens: 200_000,
+    ...change,
+  })
+
+  it('sit in the log as rows of their own, and count as no tool call', () => {
+    const rows = toolLogRows([narration('n1', 1), compaction()])
+    expect(rows[1]).toEqual({ kind: ToolEventKind.Compaction, compaction: compaction() })
+    expect(toolCallCount([compaction()])).toBe(0)
+  })
+
+  it('show the tokens before and after once done', () => {
+    expect(compactionArgument(compaction())).toBe('198k → 41k tokens')
+    expect(compactionArgument(compaction({ postTokens: null }))).toBe('from 198k tokens')
+    expect(compactionArgument(compaction({ state: ToolCallState.Running, preTokens: null }))).toBe('')
+    expect(compactionArgument(compaction({ state: ToolCallState.Error }))).toBe('')
+  })
+
+  it('say whether they are compacting, finished or never did', () => {
+    expect(compactionResult(compaction({ state: ToolCallState.Running }))).toBe('Compacting…')
+    expect(compactionResult(compaction({ state: ToolCallState.Error }))).toBe("Didn't finish")
+    expect(compactionResult(compaction())).toBe('Resuming from a summary')
+    expect(compactionResult(compaction({ trigger: CompactionTrigger.Auto }))).toBe(
+      'Automatic · resuming from a summary',
+    )
   })
 })
 

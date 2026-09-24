@@ -48,8 +48,8 @@ State dot colours: blue = working, purple = waiting on you, slate = done, pink =
 
 A task you aren't looking at can still need you. Glade marks it unread, counts it under "Needs you", and sends a
 **native macOS notification** for any agent message in a task you're not viewing — even while Glade is focused. The
-notification shows the task name and the start of the message. Sound is off by default; Focus and Do Not Disturb are
-left to the OS.
+notification shows the task name and the start of the message, with **Open task** and an inline **Reply** that sends
+your answer to the task without opening Glade. Sound is off by default; Focus and Do Not Disturb are left to the OS.
 
 ## Everything else
 

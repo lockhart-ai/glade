@@ -1,4 +1,31 @@
-/* The context meter, from docs/design/html/task-workspace.html. Its font and colour come from the input bar's slot. */
+/*
+ * The context meter, from docs/design/html/task-workspace.html, and its popover, from 19-compaction.html. The meter's
+ * font and colour come from the input bar's slot.
+ */
+.trigger {
+  display: flex;
+  align-items: center;
+  height: var(--touch-target-dense);
+  padding: 0 4px;
+  margin: 0 -4px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.trigger:hover,
+.trigger[aria-expanded='true'] {
+  background: var(--color-raised);
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 1px;
+}
+
 .meter {
   display: flex;
   align-items: center;
@@ -20,6 +47,92 @@
   stroke-linecap: round;
 }
 
+/* Near the auto-compact threshold, the ring turns purple (19-compaction.html). */
+.near .arc {
+  stroke: var(--color-purple);
+}
+
 .percent {
   color: var(--color-text);
+}
+
+.popover {
+  width: 370px;
+}
+
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.title {
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.usage {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.usagePercent {
+  color: var(--color-blue-text);
+}
+
+.near .usagePercent {
+  color: var(--color-purple);
+}
+
+.bar {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--color-bg);
+}
+
+.fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--color-blue-text);
+}
+
+.near .fill {
+  background: var(--color-purple);
+}
+
+/* Where the SDK compacts automatically. */
+.marker {
+  position: absolute;
+  top: -2px;
+  width: 2px;
+  height: 12px;
+  background: var(--color-text);
+}
+
+.note {
+  margin: 0;
+  font-size: var(--font-size-secondary);
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shortcut {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-faint);
 }

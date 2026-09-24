@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MessageRole, type Task } from '../../../shared/domain'
-import { appendMessage, lastTurn, listMessages } from './messages'
+import { appendMessage, lastTurn, listMessages, turnStartedAt } from './messages'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 
 let test: TestDatabase
@@ -100,5 +100,20 @@ describe('lastTurn', () => {
     appendMessage(test.db, { taskId: task.id, role: MessageRole.User, body: 'Fix it.', turn: 2 })
 
     expect(lastTurn(test.db, task.id)).toBe(2)
+  })
+})
+
+describe('turnStartedAt', () => {
+  it("is when the turn's first user message was sent, or null for a turn with none", () => {
+    const other = sampleTask(test.db, task.workspaceId)
+    appendMessage(test.db, { taskId: other.id, role: MessageRole.User, body: 'Elsewhere', turn: 1 }, 1_000)
+    appendMessage(test.db, { taskId: task.id, role: MessageRole.User, body: 'Hi', turn: 1 }, 2_000)
+    appendMessage(test.db, { taskId: task.id, role: MessageRole.User, body: 'And this.', turn: 1 }, 3_000)
+    appendMessage(test.db, { taskId: task.id, role: MessageRole.Agent, body: 'Hello.', turn: 1 }, 4_000)
+    appendMessage(test.db, { taskId: task.id, role: MessageRole.Agent, body: 'Unasked.', turn: 2 }, 5_000)
+
+    expect(turnStartedAt(test.db, task.id, 1)).toBe(2_000)
+    expect(turnStartedAt(test.db, task.id, 2)).toBeNull()
+    expect(turnStartedAt(test.db, task.id, 3)).toBeNull()
   })
 })

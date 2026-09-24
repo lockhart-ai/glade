@@ -4,7 +4,10 @@
  * model. The test modes' agent backend (`./test-mode-backend`) starts these.
  *
  * - Turns run one after another, in the order their messages were sent. The runner's `RESUME_PROMPT` runs the
- *   script's resume turn, if it has one.
+ *   script's resume turn, if it has one. `/compact` runs its compact turn (by default `DEFAULT_COMPACT_TURN`), which
+ *   isn't one of the script's turns: the message after it runs the next of those.
+ * - Each assistant message reports the context the session has used: 22,846 tokens unless a step fills it, and what
+ *   a compaction left after one.
  * - A message sent while a turn is playing is folded into it, as the SDK folds a message pushed mid-turn: before its
  *   next step, the turn drops the steps it has left and plays the script's next turn instead (without its init), and
  *   its `result` answers every message it took.
@@ -22,8 +25,8 @@ import { AsyncQueue } from './async-queue'
 import type { AgentSession, AgentSessionOptions, AgentSessionSettings } from './backend'
 import { GLADE_SERVER } from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
-import { RESUME_PROMPT } from './runner'
-import { ScriptStepKind, type AgentScript, type ScriptStep, type ScriptTurn } from './scripts'
+import { COMPACT_COMMAND, RESUME_PROMPT } from './runner'
+import { DEFAULT_COMPACT_TURN, ScriptStepKind, type AgentScript, type ScriptStep, type ScriptTurn } from './scripts'
 
 /** Picks the script a session plays from the first message sent to it. Throws when it has none for that message. */
 export type ScriptChooser = (firstMessage: string) => AgentScript
@@ -46,13 +49,21 @@ export function gladeToolName(tool: string): string {
   return `mcp__${GLADE_SERVER}__${tool}`
 }
 
-/** The model's token usage on each assistant message, and the turn's on its `result`. Made up, but realistic. */
+/**
+ * The model's token usage on each assistant message, and the turn's on its `result`. Made up, but realistic. An
+ * assistant message reads the rest of the context the session has used from the cache.
+ */
 const MESSAGE_USAGE = {
   input_tokens: 10,
   cache_creation_input_tokens: 1272,
   cache_read_input_tokens: 21564,
   output_tokens: 1,
 }
+/** The context a session has used until a step fills or compacts it: 22,846 tokens. */
+const INITIAL_CONTEXT_TOKENS =
+  MESSAGE_USAGE.input_tokens + MESSAGE_USAGE.cache_creation_input_tokens + MESSAGE_USAGE.cache_read_input_tokens
+/** How long a compaction says it took. */
+const COMPACT_DURATION_MS = 21_483
 const TURN_USAGE = {
   input_tokens: 28,
   cache_creation_input_tokens: 9443,
@@ -110,6 +121,8 @@ export class ScriptedSession implements AgentSession {
   private readonly tools: McpToolCaller
   /** The model the session runs on: its start's, until `configure` changes it for the turns after. */
   private model: string
+  /** The context the session has used, in tokens, as its assistant messages report it. */
+  private contextTokens = INITIAL_CONTEXT_TOKENS
 
   constructor(private readonly options: ScriptedSessionOptions) {
     this.model = options.session.model
@@ -121,13 +134,7 @@ export class ScriptedSession implements AgentSession {
 
   send(text: string, uuid: string): void {
     const script = this.chooseScript(text)
-    const turn =
-      script === null
-        ? []
-        : text === RESUME_PROMPT && script.resumeTurn !== undefined
-          ? script.resumeTurn
-          : (script.turns[Math.min(this.turnsRun, script.turns.length - 1)] ?? [])
-    this.turnsRun += 1
+    const turn = script === null ? [] : this.turnFor(script, text)
     const playing = this.turn
     if (playing !== null && !playing.isInterrupted && !this.stopped) {
       playing.uuids.push(uuid)
@@ -138,6 +145,14 @@ export class ScriptedSession implements AgentSession {
     }
     const number = this.turnsRun
     this.queue = this.queue.then(() => this.play(turn, number, uuid))
+  }
+
+  /** The script turn a message runs: see the module comment. */
+  private turnFor(script: AgentScript, text: string): ScriptTurn {
+    if (text === COMPACT_COMMAND) return script.compactTurn ?? DEFAULT_COMPACT_TURN
+    this.turnsRun += 1
+    if (text === RESUME_PROMPT && script.resumeTurn !== undefined) return script.resumeTurn
+    return script.turns[Math.min(this.turnsRun - 1, script.turns.length - 1)] ?? []
   }
 
   /** The script to play, picked on the first message; null, having killed the session, when there's none for it. */
@@ -282,7 +297,36 @@ export class ScriptedSession implements AgentSession {
         this.idle(turn)
         await turn.interrupted
         return
+      case ScriptStepKind.FillContext:
+        this.contextTokens = Math.round(contextWindowFor(this.model) * step.fraction)
+        return
+      case ScriptStepKind.Compact:
+        this.compact(step.postTokens ?? Math.round(this.contextTokens / 5), step.trigger ?? 'manual')
+        return
     }
+  }
+
+  /** Compacts the context to `postTokens`, streaming what the SDK does (`docs/sdk-notes.md`, Compaction). */
+  private compact(postTokens: number, trigger: 'manual' | 'auto'): void {
+    const metadata = {
+      trigger,
+      pre_tokens: this.contextTokens,
+      post_tokens: postTokens,
+      duration_ms: COMPACT_DURATION_MS,
+    }
+    this.contextTokens = postTokens
+    this.push({ type: 'system', subtype: 'status', status: 'compacting', uuid: randomUUID() })
+    this.push({ type: 'system', subtype: 'status', status: null, compact_result: 'success', uuid: randomUUID() })
+    this.push({ type: 'system', subtype: 'compact_boundary', compact_metadata: metadata, uuid: randomUUID() })
+    this.push({
+      type: 'user',
+      parent_tool_use_id: null,
+      isSynthetic: true,
+      message: {
+        role: 'user',
+        content: 'This session is being continued from a previous conversation that ran out of context. Summary: …',
+      },
+    })
   }
 
   /** The session is over: its stream throws `error`. */
@@ -342,7 +386,10 @@ export class ScriptedSession implements AgentSession {
         model: this.model,
         stop_reason: null,
         content: [block],
-        usage: MESSAGE_USAGE,
+        usage: {
+          ...MESSAGE_USAGE,
+          cache_read_input_tokens: this.contextTokens - INITIAL_CONTEXT_TOKENS + MESSAGE_USAGE.cache_read_input_tokens,
+        },
       },
       ...extra,
     })

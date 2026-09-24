@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CompactionTrigger,
   DividerKind,
   MessageRole,
   TaskActivity,
   TaskState,
   ToolCallState,
   ToolEventKind,
+  type CompactionEvent,
   type DividerEvent,
   type Message,
   type ToolEvent,
@@ -15,6 +17,8 @@ import {
   ChatEntryKind,
   chatEntries,
   clockTime,
+  COMPACTING_NARRATION,
+  compactedLabel,
   currentTurn,
   dayAndTime,
   durationLabel,
@@ -33,7 +37,10 @@ const task = sampleTask('t1', 'w1')
 
 /** Each entry's message id, or its divider's id. */
 function kinds(entries: readonly ChatEntry[]): unknown[] {
-  return entries.map((entry) => ('message' in entry ? entry.message.id : entry.divider.id))
+  return entries.map((entry) => {
+    if ('message' in entry) return entry.message.id
+    return 'compaction' in entry ? entry.compaction.id : entry.divider.id
+  })
 }
 
 function message(id: string, role: MessageRole, turn: number): Message {
@@ -219,6 +226,72 @@ describe('after a reopen', () => {
     const [entry] = chatEntries(task, [], [at(DividerKind.MarkedDone, 'done', 1)])
     expect(entry?.kind === ChatEntryKind.MarkedDone && markedDoneLabel(entry)).toBe('Marked done · Sep 23, 11:26')
     expect(REOPENED_LABEL).toBe('Reopened by your message')
+  })
+})
+
+describe('after a compaction', () => {
+  const compaction = (id: string, turn: number, createdAt: number, change: Partial<CompactionEvent> = {}) =>
+    ({
+      id,
+      taskId: 't1',
+      turn,
+      createdAt,
+      kind: ToolEventKind.Compaction,
+      trigger: CompactionTrigger.Manual,
+      state: ToolCallState.Done,
+      preTokens: 198_000,
+      postTokens: 41_000,
+      windowTokens: 200_000,
+      ...change,
+    }) satisfies CompactionEvent
+  const at = (id: string, role: MessageRole, turn: number, createdAt: number): Message => ({
+    ...message(id, role, turn),
+    createdAt,
+  })
+  const messages = [
+    at('ask', MessageRole.User, 1, 1_000),
+    at('reply-1', MessageRole.Agent, 1, 2_000),
+    at('next', MessageRole.User, 2, 4_000),
+    at('reply-2', MessageRole.Agent, 2, 6_000),
+  ]
+
+  it('shows a divider where it happened: after the turn you compacted, or mid-turn before the reply', () => {
+    const manual = compaction('manual', 1, 3_000)
+    const auto = compaction('auto', 2, 5_000, { trigger: CompactionTrigger.Auto, preTokens: 198_000 })
+    const entries = chatEntries(task, messages, [manual, auto])
+    expect(kinds(entries)).toEqual(['ask', 'reply-1', 'manual', 'next', 'auto', 'reply-2'])
+    expect(entries[2]).toEqual({ kind: ChatEntryKind.Compacted, compaction: manual })
+  })
+
+  it('keeps a compaction after the last message at the end', () => {
+    expect(kinds(chatEntries(task, messages, [compaction('last', 2, 7_000)])).at(-1)).toBe('last')
+  })
+
+  it('shows no divider for a compaction that is running or never finished', () => {
+    const events = [
+      compaction('running', 2, 7_000, { state: ToolCallState.Running, preTokens: null, postTokens: null }),
+      compaction('failed', 2, 7_000, { state: ToolCallState.Error, preTokens: null, postTokens: null }),
+    ]
+    expect(kinds(chatEntries(task, messages, events))).toEqual(['ask', 'reply-1', 'next', 'reply-2'])
+  })
+
+  it('says what it went from and to, and at how full the context was when the SDK did it on its own', () => {
+    const label = (change: Partial<CompactionEvent>) =>
+      compactedLabel({ kind: ChatEntryKind.Compacted, compaction: compaction('c', 1, 1_000, change) })
+    expect(label({})).toBe('Compacted · 198k → 41k')
+    expect(label({ postTokens: null })).toBe('Compacted · from 198k')
+    expect(label({ trigger: CompactionTrigger.Auto })).toBe('Compacted automatically at 99% · 198k → 41k')
+    expect(label({ trigger: CompactionTrigger.Auto, windowTokens: 0, preTokens: null })).toBe(
+      'Compacted automatically at 0% · 0k → 41k',
+    )
+  })
+
+  it('makes the working line say it is compacting while it runs', () => {
+    const working = { ...task, activity: TaskActivity.Working }
+    const running = compaction('c', 2, 7_000, { state: ToolCallState.Running })
+    expect(workingNarration(working, messages, [narration('n', 2, 'Old note'), running])).toBe(COMPACTING_NARRATION)
+    expect(workingNarration(working, messages, [running, narration('n', 2, 'New note')])).toBe('New note')
+    expect(workingNarration(working, messages, [narration('n', 2, 'Note'), compaction('d', 2, 7_000)])).toBe('Note')
   })
 })
 

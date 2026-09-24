@@ -184,3 +184,33 @@ export function interruptMarker(duringTool = false): unknown {
 export function abortedResult(terminalReason: 'aborted_streaming' | 'aborted_tools' = 'aborted_streaming'): unknown {
   return result('', { subtype: 'error_during_execution', is_error: true, terminal_reason: terminalReason })
 }
+
+/**
+ * What a manual `/compact` streams before its result (`docs/sdk-notes.md`, Compaction): the compacting status, its
+ * outcome, the boundary with the tokens before and after, and the summary the session continues from.
+ */
+export function compaction(preTokens: number, postTokens: number, trigger: 'manual' | 'auto' = 'manual'): unknown[] {
+  return [
+    { type: 'system', subtype: 'status', status: 'compacting', session_id: SESSION_ID },
+    { type: 'system', subtype: 'status', status: null, compact_result: 'success', session_id: SESSION_ID },
+    compactBoundary({ trigger, pre_tokens: preTokens, post_tokens: postTokens, duration_ms: 21483 }),
+    {
+      type: 'user',
+      session_id: SESSION_ID,
+      message: {
+        role: 'user',
+        content: 'This session is being continued from a previous conversation that ran out of context. Summary: …',
+      },
+    },
+  ]
+}
+
+/** A `compact_boundary` with the given metadata. */
+export function compactBoundary(metadata: Record<string, unknown>): unknown {
+  return { type: 'system', subtype: 'compact_boundary', session_id: SESSION_ID, compact_metadata: metadata }
+}
+
+/** The result a `/compact` ends with: no model turns and no reply. */
+export function compactResult(): unknown {
+  return result('', { num_turns: 0, duration_ms: 21483 })
+}

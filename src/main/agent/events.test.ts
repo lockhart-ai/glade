@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { CompactionTrigger } from '../../shared/domain'
 import { AgentEventKind, createSdkMessageParser, type AgentEvent } from './events'
 import * as sdk from './test-sdk-messages'
 
@@ -106,6 +107,26 @@ describe('parsing SDK messages', () => {
     expect(parse({ type: 'user', message: { content: echo } })).toEqual([])
   })
 
+  it('reads a compaction from its boundary, and nothing from the messages around it', () => {
+    expect(sdk.compaction(198_000, 41_000).flatMap((message) => parse(message))).toEqual([
+      { kind: AgentEventKind.Compacted, trigger: CompactionTrigger.Manual, preTokens: 198_000, postTokens: 41_000 },
+    ])
+    expect(parse(sdk.compactBoundary({ trigger: 'auto', pre_tokens: 167_500, post_tokens: 30_000 }))).toEqual([
+      { kind: AgentEventKind.Compacted, trigger: CompactionTrigger.Auto, preTokens: 167_500, postTokens: 30_000 },
+    ])
+  })
+
+  it('reads a compaction without a usable post-compaction count as one whose count is unknown', () => {
+    const { parse: parseQuietly, warn } = parser()
+    expect(parseQuietly(sdk.compactBoundary({ trigger: 'manual', pre_tokens: 198_000 }))).toEqual([
+      { kind: AgentEventKind.Compacted, trigger: CompactionTrigger.Manual, preTokens: 198_000, postTokens: null },
+    ])
+    expect(parseQuietly(sdk.compactBoundary({ trigger: 'manual', pre_tokens: 198_000, post_tokens: -1 }))).toEqual([
+      expect.objectContaining({ postTokens: null }),
+    ])
+    expect(warn).not.toHaveBeenCalled()
+  })
+
   it('reads a successful result with its usage, duration and cost', () => {
     expect(parse(sdk.result('Done.'))).toEqual([
       {
@@ -202,7 +223,7 @@ describe('parsing SDK messages', () => {
       ...sdk.turnStartNoise(),
       { type: 'stream_event', event: {} },
       { type: 'tool_progress', elapsed_time_seconds: 3 },
-      { type: 'system', subtype: 'compact_boundary' },
+      { type: 'system', subtype: 'status', status: 'compacting' },
     ]) {
       expect(parseQuietly(message)).toEqual([])
     }
@@ -226,6 +247,12 @@ describe('parsing SDK messages', () => {
     ['an API retry with no attempt', { type: 'system', subtype: 'api_retry', max_retries: 3 }, 'system/api_retry'],
     ['an assistant message with no content', { type: 'assistant', message: {} }, 'assistant'],
     ['a user message with no message', { type: 'user' }, 'user'],
+    ['a compact boundary with no metadata', { type: 'system', subtype: 'compact_boundary' }, 'system/compact_boundary'],
+    [
+      'a compact boundary with an unknown trigger',
+      sdk.compactBoundary({ trigger: 'sometimes', pre_tokens: 1 }),
+      'system/compact_boundary',
+    ],
   ])('drops %s, logging why', (_case, raw, logged) => {
     const { parse: parseBad, warn } = parser()
 
