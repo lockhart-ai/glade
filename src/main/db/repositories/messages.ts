@@ -71,3 +71,12 @@ export function lastTurn(db: Database, taskId: string): number {
   const turn: unknown = db.prepare('SELECT COALESCE(MAX(turn), 0) FROM messages WHERE task_id = ?').pluck().get(taskId)
   return typeof turn === 'number' ? turn : 0
 }
+
+/** When a task's turn started: its first user message's `createdAt`, or null when it has none. */
+export function turnStartedAt(db: Database, taskId: string, turn: number): EpochMs | null {
+  const startedAt: unknown = db
+    .prepare('SELECT MIN(created_at) FROM messages WHERE task_id = ? AND turn = ? AND role = ?')
+    .pluck()
+    .get(taskId, turn, MessageRole.User)
+  return typeof startedAt === 'number' ? startedAt : null
+}

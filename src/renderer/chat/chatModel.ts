@@ -216,7 +216,7 @@ export interface SummaryLine {
 
 /**
  * What the summary under a turn's final reply says: "Finished in 24m 10s · 4 files +61 −3". The files part is left out
- * when the turn changed none, and the duration when the SDK didn't report one; null when there's nothing to say.
+ * when the turn changed none, and the duration when it's unknown; null when there's nothing to say.
  */
 export function summaryLine(summary: TurnSummary): SummaryLine | null {
   const { durationMs, filesChanged } = summary

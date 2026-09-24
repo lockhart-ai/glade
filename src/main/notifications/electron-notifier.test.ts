@@ -1,9 +1,10 @@
 import type { NotificationConstructorOptions } from 'electron'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createElectronNotifier, type NativeNotification } from './electron-notifier'
-import type { TaskNotification } from './notifier'
+import type { NotificationHandlers, TaskNotification } from './notifier'
 
-type Listener = () => void
+// Each event's listener takes its own details, so the fake takes any listener and passes whatever it's fired with.
+type Listener = (details: never) => void
 
 class FakeNotification implements NativeNotification {
   static supported = true
@@ -22,8 +23,8 @@ class FakeNotification implements NativeNotification {
     return this
   }
 
-  fire(event: string): void {
-    this.listeners.get(event)?.()
+  fire(event: string, details?: unknown): void {
+    this.listeners.get(event)?.(details as never)
   }
 }
 
@@ -32,6 +33,10 @@ const NOTIFICATION: TaskNotification = {
   title: 'Fix the login redirect',
   body: 'It was a race.',
   silent: true,
+}
+
+function handlers() {
+  return { onOpen: vi.fn(), onReply: vi.fn() } satisfies NotificationHandlers
 }
 
 beforeEach(() => {
@@ -47,29 +52,57 @@ function onlyNotification(): FakeNotification {
 }
 
 describe('createElectronNotifier', () => {
-  it('shows a native notification with the title and body, silent, with no icon of its own', () => {
-    createElectronNotifier(FakeNotification).show(NOTIFICATION, vi.fn())
+  it('shows a native notification with the title and body, silent, with an Open task action and an inline reply', () => {
+    createElectronNotifier(FakeNotification).show(NOTIFICATION, handlers())
 
     const notification = onlyNotification()
-    expect(notification.options).toEqual({ title: 'Fix the login redirect', body: 'It was a race.', silent: true })
+    expect(notification.options).toEqual({
+      title: 'Fix the login redirect',
+      body: 'It was a race.',
+      silent: true,
+      actions: [{ type: 'button', text: 'Open task' }],
+      hasReply: true,
+      replyPlaceholder: 'Reply…',
+    })
     expect(notification.show).toHaveBeenCalledOnce()
   })
 
-  it('calls back when the notification is clicked, and only then', () => {
-    const onClick = vi.fn()
-    createElectronNotifier(FakeNotification).show(NOTIFICATION, onClick)
+  it('opens the task when the notification is clicked, and only then', () => {
+    const on = handlers()
+    createElectronNotifier(FakeNotification).show(NOTIFICATION, on)
     const notification = onlyNotification()
 
     notification.fire('close')
     notification.fire('failed')
-    expect(onClick).not.toHaveBeenCalled()
+    expect(on.onOpen).not.toHaveBeenCalled()
     notification.fire('click')
-    expect(onClick).toHaveBeenCalledOnce()
+    expect(on.onOpen).toHaveBeenCalledOnce()
+    expect(on.onReply).not.toHaveBeenCalled()
+  })
+
+  it('opens the task when its Open task action is chosen, as a click does', () => {
+    const on = handlers()
+    createElectronNotifier(FakeNotification).show(NOTIFICATION, on)
+
+    onlyNotification().fire('action', { actionIndex: 0 })
+
+    expect(on.onOpen).toHaveBeenCalledOnce()
+    expect(on.onReply).not.toHaveBeenCalled()
+  })
+
+  it('answers the task with the inline reply, without opening it', () => {
+    const on = handlers()
+    createElectronNotifier(FakeNotification).show(NOTIFICATION, on)
+
+    onlyNotification().fire('reply', { reply: 'Yes, and add a test.' })
+
+    expect(on.onReply).toHaveBeenCalledExactlyOnceWith('Yes, and add a test.')
+    expect(on.onOpen).not.toHaveBeenCalled()
   })
 
   it('shows nothing where the OS does not support notifications', () => {
     FakeNotification.supported = false
-    createElectronNotifier(FakeNotification).show(NOTIFICATION, vi.fn())
+    createElectronNotifier(FakeNotification).show(NOTIFICATION, handlers())
     expect(FakeNotification.made).toEqual([])
   })
 })

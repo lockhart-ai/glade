@@ -203,3 +203,13 @@ export async function clickNotification({ app }: Glade, index: number): Promise<
     { name: E2E_NOTIFIER_GLOBAL, index },
   )
 }
+
+/** Sends `text` from the `index`th notification's inline reply, as the OS would when you reply to it. */
+export async function replyToNotification({ app }: Glade, index: number, text: string): Promise<void> {
+  await app.evaluate(
+    (_, { name, index, text }) => {
+      ;(Reflect.get(globalThis, name) as RecordingNotifier).reply(index, text)
+    },
+    { name: E2E_NOTIFIER_GLOBAL, index, text },
+  )
+}
