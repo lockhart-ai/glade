@@ -1,0 +1,42 @@
+// Request schemas live on the main side only, so the renderer never bundles zod for them.
+import { z } from 'zod'
+import {
+  CommandName,
+  type CommandRequest,
+  type EmptyRequest,
+  type UiStateGetRequest,
+  type UiStateSetRequest,
+} from '../../shared/bridge'
+import { UiStateKey } from '../../shared/domain'
+
+/**
+ * A zod schema for each command's request, which arrives from the renderer as `unknown`. The named interfaces in
+ * `shared/bridge.ts` stay the source of truth: each schema must parse to its command's request type, and a command
+ * without a schema fails the typecheck. (`types.test.ts` also checks the other way: no schema parses extra fields.)
+ */
+export type RequestSchemas = { readonly [C in CommandName]: z.ZodType<CommandRequest<C>> }
+
+const emptyRequest = z.strictObject({}) satisfies z.ZodType<EmptyRequest>
+
+const uiStateGetRequest = z.strictObject({ key: z.enum(UiStateKey) }) satisfies z.ZodType<UiStateGetRequest>
+
+const uiStateSetRequest = z.strictObject({
+  key: z.enum(UiStateKey),
+  value: z.string(),
+}) satisfies z.ZodType<UiStateSetRequest>
+
+export const REQUEST_SCHEMAS = {
+  [CommandName.WorkspacesList]: emptyRequest,
+  [CommandName.UiStateGet]: uiStateGetRequest,
+  [CommandName.UiStateSet]: uiStateSetRequest,
+} as const satisfies RequestSchemas
+
+/** A short, readable account of why a request didn't parse: each problem as `field: message`, joined by `; `. */
+export function describeIssues(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => {
+      const path = issue.path.map(String).join('.')
+      return path === '' ? issue.message : `${path}: ${issue.message}`
+    })
+    .join('; ')
+}

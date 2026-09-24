@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { COMMAND_CHANNEL, CommandName, EVENT_CHANNEL, EventType } from '../shared/bridge'
+import { UiStateKey } from '../shared/domain'
 import { MIGRATIONS } from './db/migrations'
 
 type Handler = (...args: unknown[]) => unknown
@@ -19,6 +21,7 @@ const electron = vi.hoisted(() => {
     readonly loadURL = vi.fn(() => Promise.resolve())
     readonly loadFile = vi.fn(() => Promise.resolve())
     readonly webContents = {
+      send: vi.fn(),
       windowOpenHandler: undefined as Handler | undefined,
       setWindowOpenHandler: vi.fn((handler: Handler) => {
         this.webContents.windowOpenHandler = handler
@@ -58,10 +61,16 @@ const electron = vi.hoisted(() => {
       exit: vi.fn(),
     },
     dialog: { showErrorBox: vi.fn() },
+    ipcMain: { handle: vi.fn<(channel: string, listener: Handler) => void>() },
   }
 })
 
-vi.mock('electron', () => ({ app: electron.app, BrowserWindow: electron.FakeWindow, dialog: electron.dialog }))
+vi.mock('electron', () => ({
+  app: electron.app,
+  BrowserWindow: electron.FakeWindow,
+  dialog: electron.dialog,
+  ipcMain: electron.ipcMain,
+}))
 
 const { startApp, WINDOW_WEB_PREFERENCES } = await import('./app')
 
@@ -222,6 +231,19 @@ describe('startApp', () => {
     } finally {
       db.close()
     }
+  })
+
+  it('answers commands and broadcasts their events to every open window', async () => {
+    await startAndWaitUntilReady()
+    const window = onlyWindow()
+    expect(electron.ipcMain.handle).toHaveBeenCalledOnce()
+    const [channel, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+    expect(channel).toBe(COMMAND_CHANNEL)
+
+    const entry = { key: UiStateKey.ActiveWorkspaceId, value: 'workspace-1' }
+    await expect(handler?.({}, CommandName.UiStateSet, entry)).resolves.toEqual({ ok: true, value: null })
+
+    expect(window.webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, { type: EventType.UiStateChanged, entry })
   })
 
   it('closes the database when the app quits', async () => {

@@ -1,5 +1,6 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, type WebPreferences } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, type WebPreferences } from 'electron'
+import { registerBridge } from './bridge'
 import { openAppDatabase, type AppDatabase } from './db/database'
 import { checkSecurity, describeViolations } from './security'
 
@@ -83,7 +84,7 @@ function createWindow(): void {
 
 /**
  * Starts the app: once Electron is ready, checks the window security settings, opens and migrates the database (closed
- * again on quit), then opens the main window.
+ * again on quit), registers the bridge the renderer talks to main through, then opens the main window.
  */
 export function startApp(): void {
   void app.whenReady().then(() => {
@@ -104,6 +105,12 @@ export function startApp(): void {
     }
     app.on('will-quit', () => {
       opening.database.db.close()
+    })
+
+    registerBridge({
+      ipc: ipcMain,
+      db: opening.database.db,
+      targets: () => BrowserWindow.getAllWindows().map((window) => window.webContents),
     })
 
     createWindow()
