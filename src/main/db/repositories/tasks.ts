@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
 import { Effort, TaskActivity, TaskState, type EpochMs, type Task } from '../../../shared/domain'
+import { contextWindowFor } from '../../../shared/contextWindow'
 import { Row } from './rows'
 
 export interface NewTask {
@@ -25,10 +26,13 @@ export interface TaskPatch {
   readonly model?: string
   readonly effort?: Effort
   readonly sessionId?: string | null
+  readonly contextUsedTokens?: number
+  /** The window the SDK reported. Changing the model without one resets it to what the new model's id gives. */
+  readonly contextWindowTokens?: number
 }
 
 const COLUMNS = `id, workspace_id, title, objective, status, status_updated_at, state, activity, pinned, unread, model,
-  effort, created_at, updated_at, done_at, session_id`
+  effort, created_at, updated_at, done_at, session_id, context_used_tokens, context_window_tokens`
 
 const TASK_STATES = Object.values(TaskState)
 const TASK_ACTIVITIES = Object.values(TaskActivity)
@@ -36,6 +40,7 @@ const EFFORTS = Object.values(Effort)
 
 function parseTask(raw: unknown): Task {
   const row = new Row('tasks', raw)
+  const model = row.text('model')
   return {
     id: row.text('id'),
     workspaceId: row.text('workspace_id'),
@@ -47,12 +52,15 @@ function parseTask(raw: unknown): Task {
     activity: row.oneOf('activity', TASK_ACTIVITIES),
     pinned: row.flag('pinned'),
     unread: row.flag('unread'),
-    model: row.text('model'),
+    model,
     effort: row.oneOf('effort', EFFORTS),
     createdAt: row.integer('created_at'),
     updatedAt: row.integer('updated_at'),
     doneAt: row.nullableInteger('done_at'),
     sessionId: row.nullableText('session_id'),
+    contextUsedTokens: row.integer('context_used_tokens'),
+    // Null until the SDK reports the window, e.g. for a task from before there was a context meter.
+    contextWindowTokens: row.nullableInteger('context_window_tokens') ?? contextWindowFor(model),
   }
 }
 
@@ -85,10 +93,13 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     updatedAt: now,
     doneAt: null,
     sessionId: null,
+    contextUsedTokens: 0,
+    contextWindowTokens: contextWindowFor(input.model),
   }
   db.prepare(
     `INSERT INTO tasks (${COLUMNS}) VALUES (@id, @workspaceId, @title, @objective, @status, @statusUpdatedAt, @state,
-      @activity, @pinned, @unread, @model, @effort, @createdAt, @updatedAt, @doneAt, @sessionId)`,
+      @activity, @pinned, @unread, @model, @effort, @createdAt, @updatedAt, @doneAt, @sessionId, @contextUsedTokens,
+      @contextWindowTokens)`,
   ).run(toParams(task))
   return task
 }
@@ -125,6 +136,7 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
   if (current === undefined) throw new Error(`No task ${id}`)
   const state = patch.state ?? current.state
   const status = patch.status ?? current.status
+  const model = patch.model ?? current.model
   const updated: Task = {
     ...current,
     title: patch.title ?? current.title,
@@ -135,16 +147,20 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
     activity: patch.activity ?? current.activity,
     pinned: patch.pinned ?? current.pinned,
     unread: patch.unread ?? current.unread,
-    model: patch.model ?? current.model,
+    model,
     effort: patch.effort ?? current.effort,
     updatedAt: now,
     doneAt: doneAtAfter(current, state, now),
     sessionId: patch.sessionId === undefined ? current.sessionId : patch.sessionId,
+    contextUsedTokens: patch.contextUsedTokens ?? current.contextUsedTokens,
+    contextWindowTokens:
+      patch.contextWindowTokens ?? (model === current.model ? current.contextWindowTokens : contextWindowFor(model)),
   }
   db.prepare(
     `UPDATE tasks SET title = @title, objective = @objective, status = @status, status_updated_at = @statusUpdatedAt,
       state = @state, activity = @activity, pinned = @pinned, unread = @unread, model = @model, effort = @effort,
-      updated_at = @updatedAt, done_at = @doneAt, session_id = @sessionId
+      updated_at = @updatedAt, done_at = @doneAt, session_id = @sessionId, context_used_tokens = @contextUsedTokens,
+      context_window_tokens = @contextWindowTokens
     WHERE id = @id`,
   ).run(toParams(updated))
   return updated

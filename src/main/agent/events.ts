@@ -18,6 +18,8 @@ export enum AgentEventKind {
   Text = 'text',
   ToolCallStarted = 'tool_call_started',
   ToolResult = 'tool_result',
+  /** How full the context is: what the agent's latest top-level message used. */
+  ContextUsed = 'context_used',
   /** The turn ended, successfully or not. Exactly one per turn. */
   TurnFinished = 'turn_finished',
   /** The agent process failed, or its session ended while a turn was running. No `TurnFinished` follows. */
@@ -55,6 +57,12 @@ export interface ToolResultEvent {
   readonly isError: boolean
 }
 
+export interface ContextUsedEvent {
+  readonly kind: AgentEventKind.ContextUsed
+  /** The prompt the model just saw, in tokens: the message's input, cache read and cache creation tokens. */
+  readonly tokens: number
+}
+
 /** A turn's token usage, for its main loop only. */
 export interface TurnUsage {
   readonly inputTokens: number
@@ -77,6 +85,8 @@ export interface TurnFinishedEvent {
   readonly usage: TurnUsage | null
   /** The estimated cost of the whole session so far, in US dollars. */
   readonly totalCostUsd: number | null
+  /** The context window of each model the session has used, in tokens, by the model id the SDK reports. */
+  readonly contextWindows: Readonly<Record<string, number>>
 }
 
 export interface SessionFailedEvent {
@@ -86,7 +96,13 @@ export interface SessionFailedEvent {
 
 /** Everything the runner reacts to. */
 export type AgentEvent =
-  SessionStartedEvent | TextEvent | ToolCallStartedEvent | ToolResultEvent | TurnFinishedEvent | SessionFailedEvent
+  | SessionStartedEvent
+  | TextEvent
+  | ToolCallStartedEvent
+  | ToolResultEvent
+  | ContextUsedEvent
+  | TurnFinishedEvent
+  | SessionFailedEvent
 
 /** Where parsing reports what it drops. */
 export interface AgentLog {
@@ -131,10 +147,19 @@ const toolResultBlock = z.looseObject({
   is_error: z.boolean().optional(),
 })
 
+const count = z.number().catch(0)
+const usage = z.looseObject({
+  input_tokens: count,
+  output_tokens: count,
+  cache_read_input_tokens: count,
+  cache_creation_input_tokens: count,
+})
+
 const assistantMessage = z.looseObject({
   type: z.literal('assistant'),
   parent_tool_use_id: parentToolUseId,
-  message: z.looseObject({ content: z.array(block) }),
+  // A message without usage (or with a malformed one) still has content worth showing.
+  message: z.looseObject({ content: z.array(block), usage: usage.optional().catch(undefined) }),
 })
 
 const userMessage = z.looseObject({
@@ -143,14 +168,6 @@ const userMessage = z.looseObject({
   // Replays of earlier messages, when a session asks for them, aren't news.
   isReplay: z.boolean().optional(),
   message: z.looseObject({ content: z.union([z.string(), z.array(block)]) }),
-})
-
-const count = z.number().catch(0)
-const usage = z.looseObject({
-  input_tokens: count,
-  output_tokens: count,
-  cache_read_input_tokens: count,
-  cache_creation_input_tokens: count,
 })
 
 // Every field is optional or falls back: see the module comment.
@@ -163,15 +180,26 @@ const resultMessage = z.looseObject({
   duration_ms: z.number().nullable().catch(null),
   usage: usage.nullable().catch(null),
   total_cost_usd: z.number().nullable().catch(null),
+  modelUsage: z.record(z.string(), z.unknown()).catch({}),
 })
+
+const modelUsage = z.looseObject({ contextWindow: z.number().int().positive() })
 
 function fromInit(message: z.infer<typeof initMessage>): AgentEvent[] {
   return [{ kind: AgentEventKind.SessionStarted, sessionId: message.session_id, model: message.model }]
 }
 
+/** A top-level message's usage says how full the context is (`docs/sdk-notes.md`, "Usage and context size"). */
+function contextUsed(parent: string | null, messageUsage: z.infer<typeof usage> | undefined): AgentEvent[] {
+  if (parent !== null || messageUsage === undefined) return []
+  const tokens =
+    messageUsage.input_tokens + messageUsage.cache_read_input_tokens + messageUsage.cache_creation_input_tokens
+  return [{ kind: AgentEventKind.ContextUsed, tokens }]
+}
+
 function fromAssistant(message: z.infer<typeof assistantMessage>, log: AgentLog): AgentEvent[] {
   const parent = message.parent_tool_use_id ?? null
-  return message.message.content.flatMap((raw): AgentEvent[] => {
+  const blocks = message.message.content.flatMap((raw): AgentEvent[] => {
     switch (raw.type) {
       case 'text': {
         const text = textBlock.safeParse(raw)
@@ -192,6 +220,7 @@ function fromAssistant(message: z.infer<typeof assistantMessage>, log: AgentLog)
         return []
     }
   })
+  return [...contextUsed(parent, message.message.usage), ...blocks]
 }
 
 /** A tool result's text: its string content, or its text blocks joined. */
@@ -226,6 +255,16 @@ function fromUser(message: z.infer<typeof userMessage>, log: AgentLog): AgentEve
   })
 }
 
+/** Each model's context window from a result's `modelUsage`, skipping any entry without one. */
+function contextWindows(entries: Readonly<Record<string, unknown>>): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(entries).flatMap(([model, raw]) => {
+      const entry = modelUsage.safeParse(raw)
+      return entry.success ? [[model, entry.data.contextWindow]] : []
+    }),
+  )
+}
+
 function fromResult(message: z.infer<typeof resultMessage>): AgentEvent[] {
   const { usage: turnUsage } = message
   return [
@@ -237,6 +276,7 @@ function fromResult(message: z.infer<typeof resultMessage>): AgentEvent[] {
       terminalReason: message.terminal_reason,
       durationMs: message.duration_ms,
       totalCostUsd: message.total_cost_usd,
+      contextWindows: contextWindows(message.modelUsage),
       usage:
         turnUsage === null
           ? null

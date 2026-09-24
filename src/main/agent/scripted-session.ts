@@ -10,6 +10,7 @@
  * - A `Fail` step kills the session: its message stream throws, and it plays nothing more.
  */
 import { randomUUID } from 'node:crypto'
+import { contextWindowFor } from '../../shared/contextWindow'
 import type { ToolInput } from '../../shared/domain'
 import { AsyncQueue } from './async-queue'
 import type { AgentSession, AgentSessionOptions } from './backend'
@@ -336,11 +337,28 @@ export class ScriptedSession implements AgentSession {
       duration_api_ms: durationMs,
       total_cost_usd: this.costUsd,
       usage: TURN_USAGE,
-      modelUsage: {},
+      modelUsage: this.modelUsage(),
       permission_denials: [],
       user_message_uuids: [uuid],
       ...fields,
     })
+  }
+
+  /** The session's usage by model, as a `result` reports it: all of it on the session's model. */
+  private modelUsage(): Record<string, unknown> {
+    const { model } = this.options.session
+    return {
+      [model]: {
+        inputTokens: TURN_USAGE.input_tokens,
+        outputTokens: TURN_USAGE.output_tokens,
+        cacheReadInputTokens: TURN_USAGE.cache_read_input_tokens,
+        cacheCreationInputTokens: TURN_USAGE.cache_creation_input_tokens,
+        webSearchRequests: 0,
+        costUSD: this.costUsd,
+        contextWindow: contextWindowFor(model),
+        maxOutputTokens: 32_000,
+      },
+    }
   }
 
   /** Ends an interrupted turn as the SDK does. */

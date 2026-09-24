@@ -22,10 +22,12 @@ export interface AgentTaskPatch {
   readonly status?: string
 }
 
-/** The fields the agent runner keeps current: what the agent is doing, and its SDK session id. */
+/** The fields the agent runner keeps current: what the agent is doing, its SDK session id, and its context usage. */
 export interface RunnerTaskPatch {
   readonly activity?: TaskActivity
   readonly sessionId?: string
+  readonly contextUsedTokens?: number
+  readonly contextWindowTokens?: number
 }
 
 function existing(db: Database, id: string): Task {
@@ -86,6 +88,6 @@ export function updateTaskFromAgent(context: TaskServiceContext, id: string, pat
 /** Records what the agent runner learned: the task's activity or its SDK session id. */
 export function updateTaskFromRunner(context: TaskServiceContext, id: string, patch: RunnerTaskPatch): Task {
   existing(context.db, id)
-  const { activity, sessionId } = patch
-  return write(context, id, { activity, sessionId })
+  const { activity, sessionId, contextUsedTokens, contextWindowTokens } = patch
+  return write(context, id, { activity, sessionId, contextUsedTokens, contextWindowTokens })
 }
