@@ -60,9 +60,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
 
     // Main broadcasts what opening changed as events; applying the answer too keeps the store right whichever arrives
     // first.
+    // The task main restored as the workspace's selection has its logs loaded, as selecting it would.
     const open = async (workspaceId: string): Promise<Workspace> => {
-      const { workspace } = await bridge.invoke(CommandName.WorkspacesOpen, { id: workspaceId })
-      set((state) => withOpenedWorkspace(state, workspace))
+      const { workspace, selectedTaskId } = await bridge.invoke(CommandName.WorkspacesOpen, { id: workspaceId })
+      set((state) => withOpenedWorkspace(state, workspace, selectedTaskId))
+      if (selectedTaskId !== null) await get().loadHistory(selectedTaskId)
       return workspace
     }
 
@@ -79,8 +81,21 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         return path
       },
 
+      async addWorkspace() {
+        const { path } = await bridge.invoke(CommandName.DialogChooseFolder, {})
+        return path === null ? null : get().createWorkspace(path)
+      },
+
       async openWorkspace(workspaceId) {
         await open(workspaceId)
+      },
+
+      async revealWorkspace(workspaceId) {
+        await bridge.invoke(CommandName.WorkspacesReveal, { id: workspaceId })
+      },
+
+      openWorkspaceSettings() {
+        set(({ workspaceSettingsRequest }) => ({ workspaceSettingsRequest: workspaceSettingsRequest + 1 }))
       },
 
       async hydrate() {
@@ -113,15 +128,6 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
           await get().loadHistory(selectedTaskId)
         } catch (error) {
           set({ hydration: { status: HydrationStatus.Failed, message: describeFailure(error) } })
-        }
-      },
-
-      async selectWorkspace(workspaceId) {
-        const { selectedTaskId, tasks } = get()
-        await setUiState({ key: UiStateKey.ActiveWorkspaceId, value: workspaceId ?? NONE })
-        const task = selectedTaskId === null ? undefined : tasks[selectedTaskId]
-        if (task !== undefined && task.workspaceId !== workspaceId) {
-          await setUiState({ key: UiStateKey.SelectedTaskId, value: NONE })
         }
       },
 

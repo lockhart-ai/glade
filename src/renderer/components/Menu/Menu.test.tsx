@@ -285,4 +285,34 @@ describe('Menu', () => {
     expect(high.querySelector(`.${cls('check')}`)).not.toBeNull()
     expect(screen.queryByRole('menuitem')).toBeNull()
   })
+
+  it('shows an item’s own content in place of its label, still named and chosen by its label', async () => {
+    const choose = vi.fn()
+    render(
+      <Menu
+        label="Workspaces"
+        open
+        onClose={() => undefined}
+        anchor={{ kind: MenuAnchorKind.Point, x: 0, y: 0 }}
+        entries={[
+          {
+            kind: MenuEntryKind.Item,
+            label: 'Acme API',
+            checked: true,
+            content: <span>A Acme API 3 active</span>,
+            className: 'row',
+            onSelect: choose,
+          },
+        ]}
+      />,
+    )
+    await settleFloating()
+
+    const item = screen.getByRole('menuitemradio', { name: 'Acme API' })
+    expect(item).toHaveTextContent('A Acme API 3 active')
+    expect(item).toHaveClass(cls('item'), 'row')
+    expect(item.querySelector(`.${cls('check')}`)).toBeNull()
+    fireEvent.click(item)
+    expect(choose).toHaveBeenCalledOnce()
+  })
 })

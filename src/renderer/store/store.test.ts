@@ -164,39 +164,66 @@ describe('openWorkspace', () => {
   })
 })
 
-describe('selectWorkspace', () => {
-  it('selects the workspace at once and writes it back to main', async () => {
-    const { store, data, invoke } = await hydrated()
-
-    const writing = store.getState().selectWorkspace('w2')
-    expect(store.getState().selectedWorkspaceId).toBe('w2')
-    await writing
-
-    expect(invoke).toHaveBeenCalledWith(CommandName.UiStateSet, { key: UiStateKey.ActiveWorkspaceId, value: 'w2' })
-    expect(data.uiState).toEqual([{ key: UiStateKey.ActiveWorkspaceId, value: 'w2' }])
-  })
-
-  it('deselects the selected task when it is in another workspace', async () => {
-    const { store, data } = await hydrated()
+describe('switching workspaces', () => {
+  it("shows the task last selected in the workspace, with its logs, from main's answer", async () => {
+    const data = {
+      ...main(),
+      messages: [sampleMessage('m2', 't2', 'Add rate limiting')],
+      workspaceSelections: { w2: 't2' },
+    }
+    const { store, invoke } = await hydrated(data)
     await store.getState().selectTask('t1')
 
-    await store.getState().selectWorkspace('w2')
+    await store.getState().openWorkspace('w2')
 
-    expect(store.getState().selectedTaskId).toBeNull()
-    expect(data.uiState).toContainEqual({ key: UiStateKey.SelectedTaskId, value: '' })
+    expect(store.getState()).toMatchObject({ selectedWorkspaceId: 'w2', selectedTaskId: 't2' })
+    expect(invoke).toHaveBeenCalledWith(CommandName.TasksHistory, { id: 't2' })
+    expect(store.getState().messages.t2?.map(({ id }) => id)).toEqual(['m2'])
   })
 
-  it('keeps the selected task when it is in the workspace, and stores no workspace as the empty string', async () => {
-    const { store, data } = await hydrated()
+  it('shows no task when the workspace has none selected', async () => {
+    const { store } = await hydrated()
     await store.getState().selectTask('t1')
 
-    await store.getState().selectWorkspace('w1')
-    expect(store.getState().selectedTaskId).toBe('t1')
+    await store.getState().openWorkspace('w2')
 
-    await store.getState().selectWorkspace(null)
-    expect(store.getState().selectedWorkspaceId).toBeNull()
-    expect(store.getState().selectedTaskId).toBeNull()
-    expect(data.uiState).toContainEqual({ key: UiStateKey.ActiveWorkspaceId, value: '' })
+    expect(store.getState()).toMatchObject({ selectedWorkspaceId: 'w2', selectedTaskId: null })
+  })
+})
+
+describe('addWorkspace', () => {
+  it('adds the chosen folder as a workspace and opens it', async () => {
+    const { store } = await hydrated()
+    const fake = fakeBridge(main(), { [CommandName.DialogChooseFolder]: () => ({ path: '/code/blog' }) })
+    const chosen = createGladeStore(fake.bridge)
+    await chosen.getState().hydrate()
+
+    await expect(chosen.getState().addWorkspace()).resolves.toMatchObject({ id: 'w3', rootPath: '/code/blog' })
+    expect(chosen.getState().selectedWorkspaceId).toBe('w3')
+    await expect(store.getState().addWorkspace()).resolves.toBeNull()
+  })
+})
+
+describe('revealWorkspace', () => {
+  it('asks main to show the root in Finder', async () => {
+    const revealedWorkspaces: string[] = []
+    const { store } = await hydrated({ ...main(), revealedWorkspaces })
+
+    await store.getState().revealWorkspace('w2')
+
+    expect(revealedWorkspaces).toEqual(['w2'])
+  })
+})
+
+describe('openWorkspaceSettings', () => {
+  it('counts each request for the workspace settings', async () => {
+    const { store } = await hydrated()
+    expect(store.getState().workspaceSettingsRequest).toBe(0)
+
+    store.getState().openWorkspaceSettings()
+    store.getState().openWorkspaceSettings()
+
+    expect(store.getState().workspaceSettingsRequest).toBe(2)
   })
 })
 

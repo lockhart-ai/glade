@@ -8,6 +8,7 @@ import { FakeAgentBackend } from '../agent/fake-backend'
 import { createAgentRunner } from '../agent/runner'
 import { addArtifact } from '../db/repositories/artifacts'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
+import { getTask, updateTask } from '../db/repositories/tasks'
 import { setUiState } from '../db/repositories/ui-state'
 import { createHandlers, type Handlers } from './handlers'
 
@@ -68,6 +69,44 @@ describe('workspaces.open', () => {
       { type: EventType.UiStateChanged, entry: { key: UiStateKey.ActiveWorkspaceId, value: workspace.id } },
       { type: EventType.UiStateChanged, entry: { key: UiStateKey.SelectedTaskId, value: '' } },
     ])
+  })
+
+  it('restores the task last selected in the workspace, which is then read', async () => {
+    const acme = sampleWorkspace(database.db)
+    const web = sampleWorkspace(database.db, '/code/acme-web')
+    const inAcme = sampleTask(database.db, acme.id)
+    const inWeb = sampleTask(database.db, web.id)
+    await handlers[CommandName.WorkspacesOpen]({ id: acme.id })
+    await handlers[CommandName.UiStateSet]({ key: UiStateKey.SelectedTaskId, value: inAcme.id })
+    await handlers[CommandName.WorkspacesOpen]({ id: web.id })
+    await handlers[CommandName.UiStateSet]({ key: UiStateKey.SelectedTaskId, value: inWeb.id })
+    updateTask(database.db, inAcme.id, { unread: true })
+    emit.mockClear()
+
+    const opened = await handlers[CommandName.WorkspacesOpen]({ id: acme.id })
+
+    expect(opened.selectedTaskId).toBe(inAcme.id)
+    expect(emit).toHaveBeenCalledWith({
+      type: EventType.UiStateChanged,
+      entry: { key: UiStateKey.SelectedTaskId, value: inAcme.id },
+    })
+    expect(getTask(database.db, inAcme.id)?.unread).toBe(false)
+    expect((await handlers[CommandName.WorkspacesOpen]({ id: web.id })).selectedTaskId).toBe(inWeb.id)
+  })
+})
+
+describe('workspaces.reveal', () => {
+  it('shows the workspace root in Finder', () => {
+    const workspace = sampleWorkspace(database.db)
+
+    expect(handlers[CommandName.WorkspacesReveal]({ id: workspace.id })).toBeNull()
+
+    expect(revealPath).toHaveBeenCalledExactlyOnceWith('/code/acme-api')
+  })
+
+  it('refuses an unknown workspace', () => {
+    expect(() => handlers[CommandName.WorkspacesReveal]({ id: 'gone' })).toThrow('No workspace gone')
+    expect(revealPath).not.toHaveBeenCalled()
   })
 })
 

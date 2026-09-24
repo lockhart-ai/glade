@@ -49,7 +49,7 @@ describe('SidebarHeader', () => {
     expect(header).toHaveTextContent('Aacme API~/code/api')
   })
 
-  it('shows the switcher chevron and the collapse button, which do nothing yet', () => {
+  it('shows the switcher chevron and the collapse button, inert without a switcher', () => {
     render(<SidebarHeader workspace={sampleWorkspace('w1')} />)
 
     const header = screen.getByRole('region', { name: 'Workspace' })

@@ -13,7 +13,7 @@ import {
   useRole,
   useTypeahead,
 } from '@floating-ui/react'
-import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { faCheck } from '@fortawesome/free-solid-svg-icons'
 import { classNames } from '../classNames'
 import { Icon, IconSize } from '../Icon/Icon'
@@ -46,6 +46,13 @@ export interface MenuItem {
    * right. Leave it out for a plain action.
    */
   checked?: boolean
+  /**
+   * What the item shows in place of its label, shortcut and check, for an item with more to it than a label (a
+   * workspace in the switcher). `label` still names it, for typeahead and assistive technology.
+   */
+  content?: ReactNode
+  /** A class for the item's button, to lay out its `content`. */
+  className?: string
   /** Runs when the item is chosen, after the menu closes. */
   onSelect: () => void
 }
@@ -206,9 +213,11 @@ export function Menu({ label, entries, anchor, open, onClose, className }: MenuP
                     role={entry.checked === undefined ? 'menuitem' : 'menuitemradio'}
                     aria-checked={entry.checked}
                     tabIndex={-1}
+                    aria-label={entry.content === undefined ? undefined : entry.label}
                     className={classNames(
                       styles.item,
                       entry.variant === MenuItemVariant.Destructive && styles.destructive,
+                      entry.className,
                     )}
                     {...getItemProps({
                       onClick: () => {
@@ -223,14 +232,20 @@ export function Menu({ label, entries, anchor, open, onClose, className }: MenuP
                       },
                     })}
                   >
-                    <span className={styles.label}>
-                      {entry.icon !== undefined && (
-                        <Icon icon={entry.icon} size={IconSize.Medium} className={styles.icon} />
-                      )}
-                      {entry.label}
-                    </span>
-                    {entry.shortcut !== undefined && <kbd className={styles.shortcut}>{entry.shortcut}</kbd>}
-                    {entry.checked === true && <Icon icon={faCheck} size={IconSize.Medium} className={styles.check} />}
+                    {entry.content ?? (
+                      <>
+                        <span className={styles.label}>
+                          {entry.icon !== undefined && (
+                            <Icon icon={entry.icon} size={IconSize.Medium} className={styles.icon} />
+                          )}
+                          {entry.label}
+                        </span>
+                        {entry.shortcut !== undefined && <kbd className={styles.shortcut}>{entry.shortcut}</kbd>}
+                        {entry.checked === true && (
+                          <Icon icon={faCheck} size={IconSize.Medium} className={styles.check} />
+                        )}
+                      </>
+                    )}
                   </button>
                 )
               }
