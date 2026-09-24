@@ -1,6 +1,8 @@
 // Test helpers: an in-memory stand-in for main behind `window.glade`, and made-up sample data.
 import { vi } from 'vitest'
 import {
+  bridgeError,
+  BridgeErrorCode,
   CommandName,
   EventType,
   type CommandRequest,
@@ -30,10 +32,25 @@ export interface FakeBridge {
   readonly listenerCount: () => number
 }
 
-/** Handlers answering from `main`, which `uiState.set` writes to (and broadcasts through `emit`) like main does. */
+/**
+ * Handlers answering from `main`, which `uiState.set` writes to (and broadcasts through `emit`) like main does.
+ * `workspaces.create` adds a workspace and `workspaces.open` answers with it opened at 5,000, neither broadcasting.
+ */
 export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void): FakeHandlers {
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: [...main.workspaces] }),
+    // Workspace commands answer without broadcasting, so tests see the store apply the answer itself.
+    [CommandName.WorkspacesCreate]: ({ rootPath }) => {
+      const workspace = { ...sampleWorkspace(`w${String(main.workspaces.length + 1)}`), rootPath }
+      main.workspaces.push(workspace)
+      return { workspace, created: true }
+    },
+    [CommandName.WorkspacesOpen]: ({ id }) => {
+      const current = main.workspaces.find((workspace) => workspace.id === id)
+      if (current === undefined) return refuse(bridgeError(BridgeErrorCode.NotFound, `No workspace ${id}`))
+      return { workspace: { ...current, lastOpenedAt: 5_000 } }
+    },
+    [CommandName.DialogChooseFolder]: () => ({ path: null }),
     [CommandName.TasksList]: ({ workspaceId }) => ({
       tasks: main.tasks.filter((task) => task.workspaceId === workspaceId),
     }),

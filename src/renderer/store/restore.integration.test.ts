@@ -2,7 +2,7 @@
 // fake IPC pair, against the real main-side dispatcher, handlers and repositories on a database in a temporary folder.
 // The app is "restarted" by closing the database and hydrating a fresh store against it reopened.
 // Runs in the main Vitest project (Node), since it needs better-sqlite3.
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
@@ -10,8 +10,10 @@ import { registerBridge } from '../../main/bridge'
 import { fakeIpcPair } from '../../main/bridge/fake-ipc'
 import { openAppDatabase, type AppDatabase } from '../../main/db/database'
 import { sampleTask, sampleWorkspace } from '../../main/db/repositories/test-database'
-import { createWorkspace } from '../../main/db/repositories/workspaces'
+import { createWorkspace, getWorkspace } from '../../main/db/repositories/workspaces'
+import { STARTER_CLAUDE_MD } from '../../main/workspaces/starter-claude-md'
 import { createBridge } from '../../preload/bridge'
+import { bridgeError, BridgeErrorCode, CommandName, type GladeBridge } from '../../shared/bridge'
 import type { Task, Workspace } from '../../shared/domain'
 import { HydrationStatus } from './state'
 import { createGladeStore, type GladeStore } from './store'
@@ -21,6 +23,8 @@ let open: AppDatabase[]
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'glade-restore-'))
+  // The database lives apart from the workspace roots made in `dir`.
+  mkdirSync(join(dir, 'data'))
   open = []
 })
 
@@ -30,14 +34,20 @@ afterEach(() => {
 })
 
 /** Starts the app: opens the database in `dir`, wires main's bridge to it and hydrates a fresh store. */
-async function launch(): Promise<{ database: AppDatabase; store: GladeStore }> {
-  const database = openAppDatabase(dir)
+async function launch(): Promise<{ database: AppDatabase; glade: GladeBridge; store: GladeStore }> {
+  const database = openAppDatabase(join(dir, 'data'))
   open.push(database)
   const ipc = fakeIpcPair()
-  registerBridge({ ipc: ipc.main, db: database.db, targets: () => [ipc.window] })
-  const store = createGladeStore(createBridge(ipc.renderer))
+  registerBridge({
+    ipc: ipc.main,
+    db: database.db,
+    targets: () => [ipc.window],
+    chooseFolder: () => Promise.resolve(null),
+  })
+  const glade = createBridge(ipc.renderer)
+  const store = createGladeStore(glade)
   await store.getState().hydrate()
-  return { database, store }
+  return { database, glade, store }
 }
 
 function quit(database: AppDatabase): void {
@@ -55,7 +65,8 @@ it('restores the selected workspace and task after a restart', async () => {
   quit(first.database)
 
   const second = await launch()
-  expect(second.store.getState()).toMatchObject({ selectedWorkspaceId: null, selectedTaskId: null })
+  // Nothing selected yet, so the most recently opened workspace is shown.
+  expect(second.store.getState()).toMatchObject({ selectedWorkspaceId: workspaces[1]?.id, selectedTaskId: null })
   await second.store.getState().selectWorkspace(workspaces[0]?.id ?? null)
   await second.store.getState().selectTask(tasks[1]?.id ?? null)
   quit(second.database)
@@ -82,4 +93,75 @@ it('restores a cleared task selection as none', async () => {
 
   const third = await launch()
   expect(third.store.getState()).toMatchObject({ selectedWorkspaceId: workspace.id, selectedTaskId: null })
+})
+
+/** Makes a folder to be a workspace root. */
+function folder(name: string): string {
+  const path = join(dir, name)
+  mkdirSync(path)
+  return path
+}
+
+it('creates a workspace in a folder: a database row, the starter CLAUDE.md, and the event in the store', async () => {
+  const { database, glade, store } = await launch()
+  const root = folder('acme-api')
+
+  const { workspace, created } = await glade.invoke(CommandName.WorkspacesCreate, { rootPath: root })
+
+  expect(created).toBe(true)
+  expect(workspace).toMatchObject({ name: 'acme-api', rootPath: root })
+  expect(getWorkspace(database.db, workspace.id)).toEqual(workspace)
+  expect(readFileSync(join(root, 'CLAUDE.md'), 'utf8')).toBe(STARTER_CLAUDE_MD)
+  expect(readdirSync(root)).toEqual(['CLAUDE.md'])
+  // Only the workspace.updated event could have put it in the store.
+  expect(store.getState().workspaces).toEqual([workspace])
+})
+
+it('never touches a CLAUDE.md the root already has', async () => {
+  const { store } = await launch()
+  const root = folder('acme-api')
+  writeFileSync(join(root, 'CLAUDE.md'), '# Mine\n')
+
+  await store.getState().createWorkspace(root)
+
+  expect(readFileSync(join(root, 'CLAUDE.md'), 'utf8')).toBe('# Mine\n')
+})
+
+it('refuses a root that is not a folder with a typed error', async () => {
+  const { glade } = await launch()
+  const path = join(dir, 'missing')
+
+  await expect(glade.invoke(CommandName.WorkspacesCreate, { rootPath: path })).rejects.toEqual(
+    bridgeError(BridgeErrorCode.InvalidRootPath, `workspaces.create: ${path} is not a folder`),
+  )
+  await expect(glade.invoke(CommandName.WorkspacesCreate, { rootPath: 'acme-api' })).rejects.toMatchObject({
+    code: BridgeErrorCode.InvalidRequest,
+  })
+})
+
+it('reopens the last opened workspace after a restart', async () => {
+  const first = await launch()
+  const api = await first.store.getState().createWorkspace(folder('acme-api'))
+  const web = await first.store.getState().createWorkspace(folder('acme-web'))
+  expect(first.store.getState().selectedWorkspaceId).toBe(web.id)
+  await first.store.getState().openWorkspace(api.id)
+  quit(first.database)
+
+  const second = await launch()
+  expect(second.store.getState().selectedWorkspaceId).toBe(api.id)
+  expect(second.store.getState().workspaces.find(({ id }) => id === api.id)?.lastOpenedAt).toBeGreaterThanOrEqual(
+    web.lastOpenedAt,
+  )
+
+  // With the stored selection gone, the most recently opened workspace is shown.
+  second.database.db.prepare('DELETE FROM ui_state').run()
+  quit(second.database)
+  const third = await launch()
+  expect(third.store.getState().selectedWorkspaceId).toBe(api.id)
+})
+
+it('starts with no workspace when there are none: the first-run state', async () => {
+  const { store } = await launch()
+
+  expect(store.getState()).toMatchObject({ workspaces: [], selectedWorkspaceId: null })
 })

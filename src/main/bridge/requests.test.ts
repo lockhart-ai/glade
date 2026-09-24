@@ -9,6 +9,11 @@ const BAD_KEY = 'key: Invalid option: expected one of "active_workspace_id"|"sel
 describe('REQUEST_SCHEMAS', () => {
   it('parses valid requests', () => {
     expect(REQUEST_SCHEMAS[CommandName.WorkspacesList].parse({})).toEqual({})
+    expect(REQUEST_SCHEMAS[CommandName.WorkspacesCreate].parse({ rootPath: '/code/acme-api' })).toEqual({
+      rootPath: '/code/acme-api',
+    })
+    expect(REQUEST_SCHEMAS[CommandName.WorkspacesOpen].parse({ id: 'w' })).toEqual({ id: 'w' })
+    expect(REQUEST_SCHEMAS[CommandName.DialogChooseFolder].parse({})).toEqual({})
     expect(REQUEST_SCHEMAS[CommandName.TasksList].parse({ workspaceId: 'w' })).toEqual({ workspaceId: 'w' })
     expect(REQUEST_SCHEMAS[CommandName.UiStateGet].parse({ key: KEY })).toEqual({ key: KEY })
     expect(REQUEST_SCHEMAS[CommandName.UiStateGetAll].parse({})).toEqual({})
@@ -28,6 +33,27 @@ describe('REQUEST_SCHEMAS', () => {
       {},
       'workspaceId: Invalid input: expected string, received undefined',
     ],
+    [
+      'a relative root path',
+      CommandName.WorkspacesCreate,
+      { rootPath: 'code/acme-api' },
+      'rootPath: Expected an absolute path',
+    ],
+    ['an empty root path', CommandName.WorkspacesCreate, { rootPath: '' }, 'rootPath: Expected an absolute path'],
+    [
+      'a missing root path',
+      CommandName.WorkspacesCreate,
+      {},
+      'rootPath: Invalid input: expected string, received undefined',
+    ],
+    ['a workspace name', CommandName.WorkspacesCreate, { rootPath: '/code', name: 'x' }, 'Unrecognized key: "name"'],
+    [
+      'a missing workspace id',
+      CommandName.WorkspacesOpen,
+      {},
+      'id: Invalid input: expected string, received undefined',
+    ],
+    ['arguments to dialog.chooseFolder', CommandName.DialogChooseFolder, { title: 'x' }, 'Unrecognized key: "title"'],
     ['arguments to uiState.getAll', CommandName.UiStateGetAll, { key: KEY }, 'Unrecognized key: "key"'],
     ['an unknown key', CommandName.UiStateSet, { key: 'theme', value: 'dark' }, BAD_KEY],
     [

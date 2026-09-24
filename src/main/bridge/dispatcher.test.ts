@@ -2,12 +2,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import { UiStateKey } from '../../shared/domain'
 import { createBroadcast, createDispatcher } from './dispatcher'
+import { CommandError } from './errors'
 import type { Handlers } from './handlers'
 import { REQUEST_SCHEMAS } from './requests'
 
 function handlers(overrides: Partial<Handlers> = {}): Handlers {
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: [] }),
+    [CommandName.WorkspacesCreate]: () => {
+      throw new Error('not in these tests')
+    },
+    [CommandName.WorkspacesOpen]: () => {
+      throw new Error('not in these tests')
+    },
+    [CommandName.DialogChooseFolder]: () => ({ path: null }),
     [CommandName.TasksList]: () => ({ tasks: [] }),
     [CommandName.UiStateGet]: () => Promise.resolve({ value: 'async' }),
     [CommandName.UiStateGetAll]: () => ({ entries: [] }),
@@ -97,6 +105,23 @@ describe('createDispatcher', () => {
       ok: false,
       error: bridgeError(BridgeErrorCode.Internal, 'workspaces.list failed: bug'),
     })
+  })
+
+  it("answers a handler's CommandError with its own code, without logging it", async () => {
+    const dispatch = createDispatcher(
+      handlers({
+        [CommandName.WorkspacesOpen]: () => {
+          throw new CommandError(BridgeErrorCode.NotFound, 'No workspace gone')
+        },
+      }),
+      REQUEST_SCHEMAS,
+    )
+
+    await expect(dispatch('workspaces.open', { id: 'gone' })).resolves.toEqual({
+      ok: false,
+      error: bridgeError(BridgeErrorCode.NotFound, 'workspaces.open: No workspace gone'),
+    })
+    expect(console.error).not.toHaveBeenCalled()
   })
 })
 

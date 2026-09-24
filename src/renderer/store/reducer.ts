@@ -24,6 +24,21 @@ function withWorkspace(workspaces: readonly Workspace[], workspace: Workspace): 
     : [...workspaces, workspace]
 }
 
+/**
+ * What `workspaces.open` does, as main broadcasts it: the workspace as it now is, shown, and the selected task
+ * deselected if it's in another workspace.
+ */
+export function withOpenedWorkspace(state: GladeData, workspace: Workspace): GladeData {
+  const shown = withUiState(
+    { ...state, workspaces: withWorkspace(state.workspaces, workspace) },
+    { key: UiStateKey.ActiveWorkspaceId, value: workspace.id },
+  )
+  const task = shown.selectedTaskId === null ? undefined : shown.tasks[shown.selectedTaskId]
+  return task !== undefined && task.workspaceId !== workspace.id
+    ? withUiState(shown, { key: UiStateKey.SelectedTaskId, value: '' })
+    : shown
+}
+
 /** Applies one event from main to the store's state. Pure: returns the next state and leaves `state` alone. */
 export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
   switch (event.type) {

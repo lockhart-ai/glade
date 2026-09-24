@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { COMMAND_CHANNEL, CommandName, EVENT_CHANNEL, EventType } from '../shared/bridge'
 import { UiStateKey } from '../shared/domain'
 import { MIGRATIONS } from './db/migrations'
+import { CHOOSE_FOLDER_OPTIONS } from './dialogs'
 
 type Handler = (...args: unknown[]) => unknown
 
@@ -40,6 +41,7 @@ const electron = vi.hoisted(() => {
     }
 
     static getAllWindows = vi.fn(() => windows)
+    static getFocusedWindow = vi.fn((): FakeWindow | null => windows[0] ?? null)
   }
 
   return {
@@ -60,7 +62,10 @@ const electron = vi.hoisted(() => {
       quit: vi.fn(),
       exit: vi.fn(),
     },
-    dialog: { showErrorBox: vi.fn() },
+    dialog: {
+      showErrorBox: vi.fn(),
+      showOpenDialog: vi.fn(() => Promise.resolve({ canceled: false, filePaths: ['/code/acme-api'] })),
+    },
     ipcMain: { handle: vi.fn<(channel: string, listener: Handler) => void>() },
   }
 })
@@ -244,6 +249,18 @@ describe('startApp', () => {
     await expect(handler?.({}, CommandName.UiStateSet, entry)).resolves.toEqual({ ok: true, value: null })
 
     expect(window.webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, { type: EventType.UiStateChanged, entry })
+  })
+
+  it('shows the open-folder dialog as a sheet on the focused window', async () => {
+    await startAndWaitUntilReady()
+    const window = onlyWindow()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    await expect(handler?.({}, CommandName.DialogChooseFolder, {})).resolves.toEqual({
+      ok: true,
+      value: { path: '/code/acme-api' },
+    })
+    expect(electron.dialog.showOpenDialog).toHaveBeenCalledWith(window, CHOOSE_FOLDER_OPTIONS)
   })
 
   it('closes the database when the app quits', async () => {

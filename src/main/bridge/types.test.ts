@@ -18,6 +18,7 @@ import { REQUEST_SCHEMAS, type RequestSchemas } from './requests'
 const noop = (...values: unknown[]): unknown[] => values
 /** A stand-in: these tests are about types, so what it answers doesn't matter. */
 const glade: GladeBridge = { invoke: () => Promise.resolve({} as never), subscribe: () => noop }
+const WORKSPACE: Workspace = { id: 'w', name: 'Acme API', rootPath: '/code/acme-api', createdAt: 1, lastOpenedAt: 1 }
 
 describe('the command map', () => {
   it('types invoke from the map: its request and its response', () => {
@@ -29,6 +30,16 @@ describe('the command map', () => {
     }>()
     expectTypeOf(glade.invoke(CommandName.TasksList, { workspaceId: 'w' })).resolves.toEqualTypeOf<{
       readonly tasks: readonly Task[]
+    }>()
+    expectTypeOf(glade.invoke(CommandName.WorkspacesCreate, { rootPath: '/code/acme-api' })).resolves.toEqualTypeOf<{
+      readonly workspace: Workspace
+      readonly created: boolean
+    }>()
+    expectTypeOf(glade.invoke(CommandName.WorkspacesOpen, { id: 'w' })).resolves.toEqualTypeOf<{
+      readonly workspace: Workspace
+    }>()
+    expectTypeOf(glade.invoke(CommandName.DialogChooseFolder, {})).resolves.toEqualTypeOf<{
+      readonly path: string | null
     }>()
     expectTypeOf(glade.invoke(CommandName.UiStateGetAll, {})).resolves.toEqualTypeOf<{
       readonly entries: readonly UiStateEntry[]
@@ -50,6 +61,10 @@ describe('the command map', () => {
     void glade.invoke(CommandName.UiStateGetAll, { key: UiStateKey.ActiveWorkspaceId })
     // @ts-expect-error: workspaces.list takes no arguments.
     void glade.invoke(CommandName.WorkspacesList, { all: true })
+    // @ts-expect-error: workspaces.create needs a root path.
+    void glade.invoke(CommandName.WorkspacesCreate, {})
+    // @ts-expect-error: workspaces.open takes the workspace's id, not its root.
+    void glade.invoke(CommandName.WorkspacesOpen, { rootPath: '/code/acme-api' })
     // @ts-expect-error: not a command.
     void glade.invoke('tasks.explode', {})
   })
@@ -66,12 +81,18 @@ describe('the command map', () => {
     // @ts-expect-error: uiState.set has no schema.
     const missing: RequestSchemas = {
       [CommandName.WorkspacesList]: z.strictObject({}),
+      [CommandName.WorkspacesCreate]: z.strictObject({ rootPath: z.string() }),
+      [CommandName.WorkspacesOpen]: z.strictObject({ id: z.string() }),
+      [CommandName.DialogChooseFolder]: z.strictObject({}),
       [CommandName.TasksList]: z.strictObject({ workspaceId: z.string() }),
       [CommandName.UiStateGet]: z.strictObject({ key: z.enum(UiStateKey) }),
       [CommandName.UiStateGetAll]: z.strictObject({}),
     }
     const wrong: RequestSchemas = {
       [CommandName.WorkspacesList]: z.strictObject({}),
+      [CommandName.WorkspacesCreate]: z.strictObject({ rootPath: z.string() }),
+      [CommandName.WorkspacesOpen]: z.strictObject({ id: z.string() }),
+      [CommandName.DialogChooseFolder]: z.strictObject({}),
       [CommandName.TasksList]: z.strictObject({ workspaceId: z.string() }),
       [CommandName.UiStateGetAll]: z.strictObject({}),
       // @ts-expect-error: uiState.get's key is a UiStateKey, not any string.
@@ -85,6 +106,9 @@ describe('the command map', () => {
     // @ts-expect-error: uiState.set has no handler.
     const handlers: Handlers = {
       [CommandName.WorkspacesList]: () => ({ workspaces: [] }),
+      [CommandName.WorkspacesCreate]: () => ({ workspace: WORKSPACE, created: true }),
+      [CommandName.WorkspacesOpen]: () => ({ workspace: WORKSPACE }),
+      [CommandName.DialogChooseFolder]: () => ({ path: null }),
       [CommandName.TasksList]: () => ({ tasks: [] }),
       [CommandName.UiStateGet]: () => ({ value: null }),
       [CommandName.UiStateGetAll]: () => ({ entries: [] }),
@@ -95,6 +119,9 @@ describe('the command map', () => {
   it('refuses a handler whose response disagrees with the map', () => {
     const handlers: Handlers = {
       [CommandName.WorkspacesList]: () => ({ workspaces: [] }),
+      [CommandName.WorkspacesCreate]: () => ({ workspace: WORKSPACE, created: true }),
+      [CommandName.WorkspacesOpen]: () => ({ workspace: WORKSPACE }),
+      [CommandName.DialogChooseFolder]: () => ({ path: null }),
       [CommandName.TasksList]: () => ({ tasks: [] }),
       [CommandName.UiStateGetAll]: () => ({ entries: [] }),
       // @ts-expect-error: uiState.get answers `{ value }`, not a bare string.
@@ -107,6 +134,9 @@ describe('the command map', () => {
   it('refuses a handler that reads a request field the map does not have', () => {
     const handlers: Handlers = {
       [CommandName.WorkspacesList]: () => ({ workspaces: [] }),
+      [CommandName.WorkspacesCreate]: () => ({ workspace: WORKSPACE, created: true }),
+      [CommandName.WorkspacesOpen]: () => ({ workspace: WORKSPACE }),
+      [CommandName.DialogChooseFolder]: () => ({ path: null }),
       [CommandName.TasksList]: () => ({ tasks: [] }),
       [CommandName.UiStateGetAll]: () => ({ entries: [] }),
       // @ts-expect-error: uiState.get's request has `key`, not `name`.

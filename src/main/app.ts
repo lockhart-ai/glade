@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, type WebPreferences } from 'electron'
 import { registerBridge } from './bridge'
 import { openAppDatabase, type AppDatabase } from './db/database'
+import { chooseFolder } from './dialogs'
 import { checkSecurity, describeViolations } from './security'
 
 /** The `bg` design token, so the window never flashes white before the renderer paints. */
@@ -111,6 +112,7 @@ export function startApp(): void {
       ipc: ipcMain,
       db: opening.database.db,
       targets: () => BrowserWindow.getAllWindows().map((window) => window.webContents),
+      chooseFolder: () => chooseFolder(dialog, BrowserWindow.getFocusedWindow()),
     })
 
     createWindow()

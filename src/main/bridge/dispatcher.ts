@@ -6,6 +6,7 @@ import {
   type CommandResponse,
   type GladeEvent,
 } from '../../shared/bridge'
+import { CommandError } from './errors'
 import type { Emit, Handlers } from './handlers'
 import { describeIssues, type RequestSchemas } from './requests'
 
@@ -45,6 +46,9 @@ export function createDispatcher(handlers: Handlers, schemas: RequestSchemas): D
     try {
       return await run(handlers, schemas, command, request)
     } catch (error) {
+      if (error instanceof CommandError) {
+        return { ok: false, error: bridgeError(error.code, `${command}: ${error.message}`) }
+      }
       console.error(`Command ${command} failed`, error)
       return { ok: false, error: bridgeError(BridgeErrorCode.Internal, `${command} failed: ${describe(error)}`) }
     }
