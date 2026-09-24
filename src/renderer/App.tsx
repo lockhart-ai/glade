@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Chat } from './chat'
 import { classNames } from './components/classNames'
 import { ToastProvider } from './components'
 import { FirstRun } from './first-run/FirstRun'
@@ -70,7 +71,7 @@ function Layout(): React.JSX.Element {
               <Placeholder label="Task header" className={styles.header} />
             </TaskHeader>
           }
-          chat={<Placeholder label="Chat" className={styles.fill} />}
+          chat={<Chat />}
           inputBar={<Placeholder label="Input bar" className={styles.inputBar} />}
           rightPanel={
             <RightPanel tabs={<Placeholder label="Tabs" className={styles.tabs} />}>
