@@ -1,7 +1,7 @@
 /**
  * What the chat shows, worked out from a task's logs. The chat log holds only the user's messages and the agent's final
  * reply per turn; the tool log (narration, tool calls, dividers) never appears in the chat except as the working line's
- * latest narration, the tool-call count under each reply, and three of its dividers: "Glade restarted" where a turn was
+ * latest narration, the tool-call count under each reply (beside the turn's summary, saved on the reply), and three of its dividers: "Glade restarted" where a turn was
  * resumed after the app quit (`docs/design/html/18-relaunch.html`), and "Marked done" and "Reopened by your message"
  * where a message reopened a done task (`docs/design/html/06-reopen.html`).
  */
@@ -17,6 +17,7 @@ import {
   type NarrationEvent,
   type Task,
   type ToolEvent,
+  type TurnSummary,
 } from '../../shared/domain'
 
 /** How an agent reply is styled. */
@@ -192,6 +193,39 @@ export function workingNarration(
     (event): event is NarrationEvent => event.kind === ToolEventKind.Narration && event.turn === turn,
   )
   return latest?.text ?? ''
+}
+
+/** How long a turn ran: "8s", "24m 10s", "1h 2m", to the nearest second. */
+export function durationLabel(ms: number): string {
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60) return `${String(seconds)}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${String(minutes)}m ${String(seconds % 60)}s`
+  return `${String(Math.floor(minutes / 60))}h ${String(minutes % 60)}m`
+}
+
+/** What a turn summary line says, in its parts: the text before the line counts, and the counts, if any. */
+export interface SummaryLine {
+  /** "Finished in 24m 10s · 4 files", "Finished in 8s", or "1 file" when the duration is unknown. */
+  readonly text: string
+  /** "+61" and "−3" (a true minus sign), when the turn changed files. */
+  readonly lines: { readonly added: string; readonly removed: string } | null
+}
+
+/**
+ * What the summary under a turn's final reply says: "Finished in 24m 10s · 4 files +61 −3". The files part is left out
+ * when the turn changed none, and the duration when the SDK didn't report one; null when there's nothing to say.
+ */
+export function summaryLine(summary: TurnSummary): SummaryLine | null {
+  const { durationMs, filesChanged } = summary
+  const parts = [
+    ...(durationMs === null ? [] : [`Finished in ${durationLabel(durationMs)}`]),
+    ...(filesChanged === 0 ? [] : [`${String(filesChanged)} file${filesChanged === 1 ? '' : 's'}`]),
+  ]
+  if (parts.length === 0) return null
+  const lines =
+    filesChanged === 0 ? null : { added: `+${String(summary.linesAdded)}`, removed: `−${String(summary.linesRemoved)}` }
+  return { text: parts.join(' · '), lines }
 }
 
 /** "7 tool calls", "1 tool call". */

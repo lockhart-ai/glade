@@ -45,6 +45,10 @@ describe('readE2eSpec', () => {
     expect(readE2eSpec(env(spec({ agentScript: 'long-running' })), false)).toEqual(
       spec({ agentScript: 'long-running' }),
     )
+    const byFirstMessage = { 'Run the suite.': 'long-running', 'Fix the bug.': 'multi-tool-turn' } as const
+    expect(readE2eSpec(env(spec({ agentScriptsByFirstMessage: byFirstMessage })), false)).toEqual(
+      spec({ agentScriptsByFirstMessage: byFirstMessage }),
+    )
     expect(readE2eSpec(env(spec({ seed: '/repo/e2e/seeds/a.json' })), false)).toEqual(
       spec({ seed: '/repo/e2e/seeds/a.json' }),
     )
@@ -62,6 +66,7 @@ describe('readE2eSpec', () => {
     ['a seed that is not an absolute path', spec({ seed: 'e2e/seeds/a.json' })],
     ['an unknown field', { ...spec(), show: true }],
     ['an unknown agent script', { ...spec(), agentScript: 'nope' }],
+    ['an unknown agent script for a first message', { ...spec(), agentScriptsByFirstMessage: { 'Hi.': 'nope' } }],
   ])('rejects %s', (_, value) => {
     expect(() => readE2eSpec(env(value), false)).toThrow(/^GLADE_E2E is invalid: /)
   })
