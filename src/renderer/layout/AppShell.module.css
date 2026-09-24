@@ -1,0 +1,25 @@
+.shell {
+  position: relative;
+  box-sizing: border-box;
+  height: 100vh;
+  padding: var(--space-outer);
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) min(var(--bottom-bar-height), var(--bottom-bar-max-height));
+  gap: var(--space-outer);
+  overflow: hidden;
+}
+
+/* The outer padding along the top edge drags the window (the title bar is hidden). */
+.dragStrip {
+  position: absolute;
+  inset: 0 0 auto;
+  height: var(--space-outer);
+  -webkit-app-region: drag;
+}
+
+.top {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  gap: var(--space-outer);
+}

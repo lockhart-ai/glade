@@ -1,0 +1,32 @@
+.bar {
+  min-height: 0;
+  display: flex;
+  gap: var(--space-outer);
+}
+
+.terminal {
+  flex-grow: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tabs {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-inner-border);
+}
+
+/* The terminal draws on the window background, inset into the card. */
+.content {
+  flex-grow: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+}

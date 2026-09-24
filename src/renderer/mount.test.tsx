@@ -14,7 +14,7 @@ it('renders the app into the root element', () => {
     mountApp(root)
   })
 
-  expect(screen.getByRole('main')).toHaveTextContent('Glade')
+  expect(screen.getByRole('main', { name: 'Task' })).toBeInTheDocument()
 })
 
 it('renders another page when given one', () => {
