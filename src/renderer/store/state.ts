@@ -40,9 +40,9 @@ export interface GladeData {
   readonly tasks: Readonly<Record<string, Task>>
   readonly selectedWorkspaceId: string | null
   readonly selectedTaskId: string | null
-  /** Each task's chat messages, by task id. Filled in by P1's chat. */
+  /** Each task's chat messages, by task id: loaded when the task is selected, then kept current by events. */
   readonly messages: Readonly<Record<string, readonly Message[]>>
-  /** Each task's tool log, by task id. Filled in by P1's chat. */
+  /** Each task's tool log, by task id: loaded when the task is selected, then kept current by events. */
   readonly toolEvents: Readonly<Record<string, readonly ToolEvent[]>>
   readonly uiState: UiStateValues
 }
@@ -57,8 +57,13 @@ export interface GladeActions {
   hydrate(): Promise<void>
   /** Shows a workspace, or none. Deselects the selected task if it's in another workspace. */
   selectWorkspace(workspaceId: string | null): Promise<void>
-  /** Selects a task, or none. Selecting a task in another workspace shows that workspace too. */
+  /**
+   * Selects a task, or none, and loads its chat log and tool log. Selecting a task in another workspace shows that
+   * workspace too.
+   */
   selectTask(taskId: string | null): Promise<void>
+  /** Loads a task's chat log and tool log from main. */
+  loadHistory(taskId: string): Promise<void>
   setUiState(entry: UiStateEntry): Promise<void>
   /** Creates an active, empty task in the workspace and selects it. Resolves with the new task. */
   createTask(workspaceId: string): Promise<Task>
@@ -68,6 +73,11 @@ export interface GladeActions {
   reopenTask(taskId: string): Promise<void>
   /** Changes the user's fields of a task: its title, pin, unread flag, model or effort. */
   updateTask(taskId: string, patch: TaskUserPatch): Promise<void>
+  /**
+   * Sends the user's message to the task's agent. Resolves once main has saved it; the message and the turn arrive as
+   * events. Rejects with `busy` while the agent is working.
+   */
+  sendMessage(taskId: string, text: string): Promise<void>
 }
 
 export interface GladeState extends GladeData, GladeActions {}

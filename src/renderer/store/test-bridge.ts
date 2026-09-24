@@ -10,7 +10,17 @@ import {
   type GladeBridge,
   type GladeEvent,
 } from '../../shared/bridge'
-import { Effort, TaskState, type Task, type UiStateEntry, type Workspace } from '../../shared/domain'
+import {
+  Effort,
+  MessageRole,
+  TaskActivity,
+  TaskState,
+  type Message,
+  type Task,
+  type ToolEvent,
+  type UiStateEntry,
+  type Workspace,
+} from '../../shared/domain'
 
 export type FakeHandlers = {
   readonly [C in CommandName]: (request: CommandRequest<C>) => CommandResponse<C> | Promise<CommandResponse<C>>
@@ -20,6 +30,10 @@ export interface FakeMain {
   readonly workspaces: Workspace[]
   readonly tasks: Task[]
   readonly uiState: UiStateEntry[]
+  /** Every task's chat messages; none when left out. */
+  readonly messages?: Message[]
+  /** Every task's tool log entries; none when left out. */
+  readonly toolEvents?: ToolEvent[]
 }
 
 export interface FakeBridge {
@@ -32,9 +46,11 @@ export interface FakeBridge {
 
 /**
  * Handlers answering from `main`, which `uiState.set` and the task commands write to (and broadcast through `emit`)
- * like main does. The task commands don't check transitions; main's own tests cover those.
+ * like main does. The task commands don't check transitions, and `tasks.send` only saves and broadcasts the message;
+ * main's own tests cover the rest.
  */
 export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void): FakeHandlers {
+  let sent = 0
   const writeTask = (id: string, change: Partial<Task>): { task: Task } => {
     const index = main.tasks.findIndex((task) => task.id === id)
     const current = main.tasks[index]
@@ -58,6 +74,17 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     [CommandName.TasksMarkDone]: ({ id }) => writeTask(id, { state: TaskState.Done, doneAt: 3_000 }),
     [CommandName.TasksReopen]: ({ id }) => writeTask(id, { state: TaskState.Active, doneAt: null }),
     [CommandName.TasksUpdate]: ({ id, patch }) => writeTask(id, patch),
+    [CommandName.TasksSend]: ({ id, text }) => {
+      sent += 1
+      const message = sampleMessage(`sent-${String(sent)}`, id, text)
+      main.messages?.push(message)
+      emit({ type: EventType.MessageAppended, message })
+      return { message }
+    },
+    [CommandName.TasksHistory]: ({ id }) => ({
+      messages: (main.messages ?? []).filter((message) => message.taskId === id),
+      toolEvents: (main.toolEvents ?? []).filter((event) => event.taskId === id),
+    }),
     [CommandName.UiStateGet]: ({ key }) => ({ value: main.uiState.find((entry) => entry.key === key)?.value ?? null }),
     [CommandName.UiStateGetAll]: () => ({ entries: [...main.uiState] }),
     [CommandName.UiStateSet]: (entry) => {
@@ -112,6 +139,7 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
     objective: '',
     status: '',
     state: TaskState.Active,
+    activity: TaskActivity.Waiting,
     pinned: false,
     unread: false,
     model: 'claude-sample-1',
@@ -121,4 +149,8 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
     doneAt: null,
     sessionId: null,
   }
+}
+
+export function sampleMessage(id: string, taskId: string, body = 'Add rate limiting to the public API.'): Message {
+  return { id, taskId, role: MessageRole.User, body, turn: 1, createdAt: 3_000 }
 }

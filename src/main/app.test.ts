@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { COMMAND_CHANNEL, CommandName, EVENT_CHANNEL, EventType } from '../shared/bridge'
 import { UiStateKey } from '../shared/domain'
 import { CAPTURE_ENV, type CaptureSpec } from './capture'
+import { FakeAgentBackend } from './agent/fake-backend'
 import { MIGRATIONS } from './db/migrations'
+import { sampleTask, sampleWorkspace } from './db/repositories/test-database'
 
 type Handler = (...args: unknown[]) => unknown
 
@@ -263,6 +265,23 @@ describe('startApp', () => {
     await expect(handler?.({}, CommandName.UiStateSet, entry)).resolves.toEqual({ ok: true, value: null })
 
     expect(window.webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, { type: EventType.UiStateChanged, entry })
+  })
+
+  it('runs the agents on the backend it was started with, and closes their sessions when the app quits', async () => {
+    const backend = new FakeAgentBackend()
+    startApp({ createAgentBackend: () => backend })
+    await Promise.resolve()
+    await Promise.resolve()
+    const db = new Database(join(electron.app.userData, 'glade.db'))
+    const task = sampleTask(db, sampleWorkspace(db).id)
+    db.close()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    await expect(handler?.({}, CommandName.TasksSend, { id: task.id, text: 'Hi' })).resolves.toMatchObject({ ok: true })
+    appHandler('will-quit')()
+
+    expect(backend.session.sent.map(({ text }) => text)).toEqual(['Hi'])
+    expect(backend.session.closed).toBe(true)
   })
 
   it('closes the database when the app quits', async () => {

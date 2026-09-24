@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { Effort, TaskState, UiStateKey } from '../../shared/domain'
+import { DividerKind, Effort, MessageRole, TaskState, ToolEventKind, UiStateKey } from '../../shared/domain'
 import { HydrationStatus, selectSelectedTask, selectSelectedWorkspace } from './state'
 import { createGladeStore } from './store'
-import { fakeBridge, refuse, sampleTask, sampleWorkspace, type FakeMain } from './test-bridge'
+import { fakeBridge, refuse, sampleMessage, sampleTask, sampleWorkspace, type FakeMain } from './test-bridge'
 
 function main(uiState: FakeMain['uiState'] = []): FakeMain {
   return {
@@ -197,5 +197,84 @@ describe('task actions', () => {
       [CommandName.TasksReopen, { id: 't1' }],
       [CommandName.TasksUpdate, { id: 't1', patch: { pinned: true, effort: Effort.Low } }],
     ])
+  })
+})
+
+describe("a task's logs", () => {
+  it("loads the selected task's chat and tool log, then follows its events", async () => {
+    const first = sampleMessage('m1', 't1')
+    const divider = {
+      kind: ToolEventKind.Divider,
+      id: 'e1',
+      taskId: 't1',
+      turn: 1,
+      createdAt: 3_000,
+      dividerKind: DividerKind.Turn,
+    } as const
+    const { store, emit } = await hydrated({
+      ...main(),
+      messages: [first, sampleMessage('m9', 't2')],
+      toolEvents: [divider, { ...divider, id: 'e9', taskId: 't2' }],
+    })
+
+    await store.getState().selectTask('t1')
+    expect(store.getState().messages).toEqual({ t1: [first] })
+    expect(store.getState().toolEvents).toEqual({ t1: [divider] })
+
+    const reply = { ...sampleMessage('m2', 't1', 'Done.'), role: MessageRole.Agent }
+    emit({ type: EventType.MessageAppended, message: reply })
+    expect(store.getState().messages.t1).toEqual([first, reply])
+  })
+
+  it('loads nothing when the selection is cleared', async () => {
+    const { store, invoke } = await hydrated()
+
+    await store.getState().selectTask(null)
+
+    expect(invoke.mock.calls.some(([command]) => command === CommandName.TasksHistory)).toBe(false)
+  })
+
+  it("loads the restored task's logs on hydrating, and only then", async () => {
+    const message = sampleMessage('m1', 't1')
+    const restored = main([
+      { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+      { key: UiStateKey.SelectedTaskId, value: 't1' },
+    ])
+    const { store } = await hydrated({ ...restored, messages: [message] })
+    expect(store.getState().messages).toEqual({ t1: [message] })
+
+    const { invoke } = await hydrated(main())
+    expect(invoke.mock.calls.some(([command]) => command === CommandName.TasksHistory)).toBe(false)
+  })
+
+  it("says why when the restored task's logs can't be loaded", async () => {
+    const failure = bridgeError(BridgeErrorCode.Internal, 'tasks.history failed: disk full')
+    const restored = main([
+      { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+      { key: UiStateKey.SelectedTaskId, value: 't1' },
+    ])
+    const { bridge } = fakeBridge(restored, { [CommandName.TasksHistory]: () => refuse(failure) })
+    const store = createGladeStore(bridge)
+
+    await store.getState().hydrate()
+
+    expect(store.getState().hydration).toEqual({ status: HydrationStatus.Failed, message: failure.message })
+  })
+
+  it('sends a message through main, and the store follows its event', async () => {
+    const { store, invoke } = await hydrated()
+
+    await store.getState().sendMessage('t1', 'Add rate limiting.')
+
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.TasksSend, { id: 't1', text: 'Add rate limiting.' })
+    expect(store.getState().messages.t1?.map(({ body }) => body)).toEqual(['Add rate limiting.'])
+  })
+
+  it("rejects with main's error when the agent is busy", async () => {
+    const busy = bridgeError(BridgeErrorCode.Busy, 'tasks.send: The agent is working')
+    const { bridge } = fakeBridge(main(), { [CommandName.TasksSend]: () => refuse(busy) })
+    const store = createGladeStore(bridge)
+
+    await expect(store.getState().sendMessage('t1', 'Hi')).rejects.toBe(busy)
   })
 })

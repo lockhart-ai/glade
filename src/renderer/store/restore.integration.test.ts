@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
+import { FakeAgentBackend } from '../../main/agent/fake-backend'
 import { registerBridge } from '../../main/bridge'
 import { fakeIpcPair } from '../../main/bridge/fake-ipc'
 import { openAppDatabase, type AppDatabase } from '../../main/db/database'
@@ -34,7 +35,12 @@ async function launch(): Promise<{ database: AppDatabase; store: GladeStore }> {
   const database = openAppDatabase(dir)
   open.push(database)
   const ipc = fakeIpcPair()
-  registerBridge({ ipc: ipc.main, db: database.db, targets: () => [ipc.window] })
+  registerBridge({
+    ipc: ipc.main,
+    db: database.db,
+    targets: () => [ipc.window],
+    agentBackend: new FakeAgentBackend(),
+  })
   const store = createGladeStore(createBridge(ipc.renderer))
   await store.getState().hydrate()
   return { database, store }

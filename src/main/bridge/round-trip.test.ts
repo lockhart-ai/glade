@@ -11,6 +11,7 @@ import {
   type GladeEvent,
 } from '../../shared/bridge'
 import { TaskState, UiStateKey } from '../../shared/domain'
+import { FakeAgentBackend } from '../agent/fake-backend'
 import { getTask } from '../db/repositories/tasks'
 import { getUiState } from '../db/repositories/ui-state'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
@@ -23,7 +24,12 @@ let glade: GladeBridge
 beforeEach(() => {
   database = openTestDatabase()
   const ipc = fakeIpcPair()
-  registerBridge({ ipc: ipc.main, db: database.db, targets: () => [ipc.window] })
+  registerBridge({
+    ipc: ipc.main,
+    db: database.db,
+    targets: () => [ipc.window],
+    agentBackend: new FakeAgentBackend(),
+  })
   glade = createBridge(ipc.renderer)
 })
 

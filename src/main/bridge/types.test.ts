@@ -11,7 +11,16 @@ import {
   type GladeBridge,
   type GladeEvent,
 } from '../../shared/bridge'
-import { Effort, TaskState, UiStateKey, type Task, type UiStateEntry, type Workspace } from '../../shared/domain'
+import {
+  Effort,
+  TaskState,
+  UiStateKey,
+  type Message,
+  type Task,
+  type ToolEvent,
+  type UiStateEntry,
+  type Workspace,
+} from '../../shared/domain'
 import type { Handlers } from './handlers'
 import { REQUEST_SCHEMAS, type RequestSchemas } from './requests'
 
@@ -25,12 +34,16 @@ const TASK_HANDLERS = {
   [CommandName.TasksMarkDone]: () => ({ task: {} as Task }),
   [CommandName.TasksReopen]: () => ({ task: {} as Task }),
   [CommandName.TasksUpdate]: () => ({ task: {} as Task }),
+  [CommandName.TasksSend]: () => ({ message: {} as Message }),
+  [CommandName.TasksHistory]: () => ({ messages: [], toolEvents: [] }),
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
   [CommandName.TasksCreate]: REQUEST_SCHEMAS[CommandName.TasksCreate],
   [CommandName.TasksMarkDone]: REQUEST_SCHEMAS[CommandName.TasksMarkDone],
   [CommandName.TasksReopen]: REQUEST_SCHEMAS[CommandName.TasksReopen],
   [CommandName.TasksUpdate]: REQUEST_SCHEMAS[CommandName.TasksUpdate],
+  [CommandName.TasksSend]: REQUEST_SCHEMAS[CommandName.TasksSend],
+  [CommandName.TasksHistory]: REQUEST_SCHEMAS[CommandName.TasksHistory],
 } satisfies Partial<RequestSchemas>
 
 describe('the command map', () => {
@@ -55,6 +68,13 @@ describe('the command map', () => {
     expectTypeOf(
       glade.invoke(CommandName.TasksUpdate, { id: 't', patch: { pinned: true, effort: Effort.Low } }),
     ).resolves.toEqualTypeOf<{ readonly task: Task }>()
+    expectTypeOf(glade.invoke(CommandName.TasksSend, { id: 't', text: 'Hi' })).resolves.toEqualTypeOf<{
+      readonly message: Message
+    }>()
+    expectTypeOf(glade.invoke(CommandName.TasksHistory, { id: 't' })).resolves.toEqualTypeOf<{
+      readonly messages: readonly Message[]
+      readonly toolEvents: readonly ToolEvent[]
+    }>()
     expectTypeOf<CommandRequest<CommandName.UiStateSet>>().toEqualTypeOf<UiStateEntry>()
     expectTypeOf(
       glade.invoke(CommandName.UiStateSet, { key: UiStateKey.ActiveWorkspaceId, value: '' }),
@@ -82,6 +102,8 @@ describe('the command map', () => {
     void glade.invoke(CommandName.TasksUpdate, { id: 't', patch: { status: 'Done' } })
     // @ts-expect-error: the effort must be an Effort.
     void glade.invoke(CommandName.TasksUpdate, { id: 't', patch: { effort: 'huge' } })
+    // @ts-expect-error: tasks.send needs the message's text.
+    void glade.invoke(CommandName.TasksSend, { id: 't' })
     // @ts-expect-error: not a command.
     void glade.invoke('tasks.explode', {})
   })
@@ -181,6 +203,13 @@ describe('events', () => {
           break
         case EventType.TaskUpdated:
           expectTypeOf(event.task).toEqualTypeOf<Task>()
+          break
+        case EventType.MessageAppended:
+          expectTypeOf(event.message).toEqualTypeOf<Message>()
+          break
+        case EventType.ToolEventAppended:
+        case EventType.ToolEventUpdated:
+          expectTypeOf(event.toolEvent).toEqualTypeOf<ToolEvent>()
           break
       }
     })

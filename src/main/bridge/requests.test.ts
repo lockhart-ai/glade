@@ -16,6 +16,9 @@ describe('REQUEST_SCHEMAS', () => {
     const patch = { title: 'Rate limits', pinned: true, unread: false, model: 'claude-sample-2', effort: Effort.Max }
     expect(REQUEST_SCHEMAS[CommandName.TasksUpdate].parse({ id: 't', patch })).toEqual({ id: 't', patch })
     expect(REQUEST_SCHEMAS[CommandName.TasksUpdate].parse({ id: 't', patch: {} })).toEqual({ id: 't', patch: {} })
+    const send = { id: 't', text: ' Fix the **flaky** test.\n' }
+    expect(REQUEST_SCHEMAS[CommandName.TasksSend].parse(send)).toEqual(send)
+    expect(REQUEST_SCHEMAS[CommandName.TasksHistory].parse({ id: 't' })).toEqual({ id: 't' })
     expect(REQUEST_SCHEMAS[CommandName.UiStateGet].parse({ key: KEY })).toEqual({ key: KEY })
     expect(REQUEST_SCHEMAS[CommandName.UiStateGetAll].parse({})).toEqual({})
     expect(REQUEST_SCHEMAS[CommandName.UiStateSet].parse({ key: KEY, value: '' })).toEqual({ key: KEY, value: '' })
@@ -64,6 +67,18 @@ describe('REQUEST_SCHEMAS', () => {
       CommandName.TasksUpdate,
       { id: 't', patch: { model: '' } },
       'patch.model: Too small: expected string to have >=1 characters',
+    ],
+    [
+      'a blank message',
+      CommandName.TasksSend,
+      { id: 't', text: ' \n\t' },
+      'text: Expected a message that is not blank',
+    ],
+    [
+      'a message with no text',
+      CommandName.TasksSend,
+      { id: 't' },
+      'text: Invalid input: expected string, received undefined',
     ],
     ['arguments to uiState.getAll', CommandName.UiStateGetAll, { key: KEY }, 'Unrecognized key: "key"'],
     ['an unknown key', CommandName.UiStateSet, { key: 'theme', value: 'dark' }, BAD_KEY],

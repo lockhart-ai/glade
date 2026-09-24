@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
-import { Effort, TaskState, type Task, type Workspace } from '../../shared/domain'
+import { Effort, TaskActivity, TaskState, type Task, type Workspace } from '../../shared/domain'
 import { CommandFailure } from '../bridge/errors'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
@@ -10,6 +10,7 @@ import {
   markTaskDone,
   reopenTask,
   updateTaskFromAgent,
+  updateTaskFromRunner,
   updateTaskFromUser,
   type TaskServiceContext,
 } from './service'
@@ -66,6 +67,7 @@ describe('createTask', () => {
       objective: '',
       status: '',
       state: TaskState.Active,
+      activity: TaskActivity.Waiting,
       pinned: false,
       unread: false,
       model: DEFAULT_MODEL,
@@ -175,11 +177,26 @@ describe('updating fields', () => {
   })
 })
 
+describe('updateTaskFromRunner', () => {
+  it("records the agent's activity and session id, leaving everything else alone", () => {
+    const task = busyTask()
+    vi.setSystemTime(7_000)
+
+    const working = updateTaskFromRunner(context, task.id, { activity: TaskActivity.Working, sessionId: 'session-2' })
+    const errored = updateTaskFromRunner(context, task.id, { activity: TaskActivity.Error })
+
+    expect(working).toEqual({ ...task, activity: TaskActivity.Working, sessionId: 'session-2', updatedAt: 7_000 })
+    expect(errored).toEqual({ ...working, activity: TaskActivity.Error })
+    expect(events).toEqual([working, errored].map((updated) => ({ type: EventType.TaskUpdated, task: updated })))
+  })
+})
+
 it.each([
   ['markTaskDone', (id: string) => markTaskDone(context, id)],
   ['reopenTask', (id: string) => reopenTask(context, id)],
   ['updateTaskFromUser', (id: string) => updateTaskFromUser(context, id, { pinned: true })],
   ['updateTaskFromAgent', (id: string) => updateTaskFromAgent(context, id, { status: 'Done.' })],
+  ['updateTaskFromRunner', (id: string) => updateTaskFromRunner(context, id, { activity: TaskActivity.Working })],
 ])('%s refuses a task that does not exist', (_name, write) => {
   expectFailure(() => write('no-such-task'), BridgeErrorCode.NotFound, 'No task no-such-task')
   expect(events).toEqual([])
