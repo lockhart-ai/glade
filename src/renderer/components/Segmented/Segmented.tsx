@@ -10,6 +10,8 @@ export interface SegmentedOption<T extends string> {
   label: string
   /** An icon before the label. */
   icon?: IconDefinition
+  /** Shown but can't be chosen, e.g. a choice the app doesn't offer yet. The arrow keys skip it. */
+  disabled?: boolean
 }
 
 export interface SegmentedProps<T extends string> {
@@ -54,7 +56,10 @@ export function Segmented<T extends string>({
     if (step === undefined) return
 
     event.preventDefault()
-    const next = (index + step + options.length) % options.length
+    // The next option that can be chosen, wrapping at the ends; this one, which has the focus, at the latest.
+    let next = index
+    do next = (next + step + options.length) % options.length
+    while (options[next]?.disabled === true)
     const option = options[next]
     // Always defined: the index is taken modulo the number of options, and this option received the key press.
     if (option === undefined) return
@@ -81,7 +86,7 @@ export function Segmented<T extends string>({
             role="radio"
             aria-checked={checked}
             tabIndex={index === tabStop ? 0 : -1}
-            disabled={disabled}
+            disabled={disabled || option.disabled === true}
             className={styles.option}
             onClick={() => {
               onChange(option.value)

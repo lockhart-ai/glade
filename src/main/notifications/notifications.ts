@@ -1,7 +1,8 @@
 /**
  * Native notifications (`docs/product.md`, "Attention"): an agent reply in a task you aren't viewing sends one, even
  * while Glade is focused. It shows the task's name and the start of the reply, makes no sound, and leaves Focus and Do
- * Not Disturb to the OS. Clicking it, or its Open task action, opens Glade on that task; its inline Reply sends what you
+ * Not Disturb to the OS. Settings › Notifications can turn them off, or their sound on (`../db/repositories/settings`),
+ * which takes effect from the next reply. Clicking it, or its Open task action, opens Glade on that task; its inline Reply sends what you
  * type to the task, as the input bar would, without opening the window (`docs/design/screens/04-needs-you.png`).
  *
  * Which replies notify is the unread rule's call (`../tasks/attention`): exactly the ones that arrive in a task you
@@ -14,16 +15,12 @@ import { BridgeErrorCode } from '../../shared/bridge'
 import { TaskActivity, TaskState, UNTITLED_TASK_TITLE, type Task } from '../../shared/domain'
 import type { AgentRunner } from '../agent/runner'
 import { CommandFailure } from '../bridge/errors'
+import { getSettings } from '../db/repositories/settings'
 import { getTask } from '../db/repositories/tasks'
 import type { Notifier, TaskNotification } from './notifier'
 
-/** How notifications look and sound. One place, until settings can change them (P7). */
-export const NOTIFICATION_DEFAULTS = {
-  /** Sound is off by default. */
-  silent: true,
-  /** The most characters of the reply a notification's body shows, the ellipsis included. */
-  bodyLength: 100,
-} as const
+/** The most characters of the reply a notification's body shows, the ellipsis included. */
+export const NOTIFICATION_BODY_LENGTH = 100
 
 /** What to do with an agent reply that arrived in a task you aren't viewing. */
 export type NotifyReply = (taskId: string, reply: string) => void
@@ -74,13 +71,16 @@ export function truncate(text: string, length: number): string {
   return `${kept.replace(/[\s,;:]+$/, '')}${ELLIPSIS}`
 }
 
-/** The notification for an agent reply in a task: its title, and the start of the reply as plain text. */
-export function replyNotification(task: Pick<Task, 'id' | 'title'>, reply: string): TaskNotification {
+/**
+ * The notification for an agent reply in a task: its title, and the start of the reply as plain text. It makes a sound
+ * only when `sound` is on.
+ */
+export function replyNotification(task: Pick<Task, 'id' | 'title'>, reply: string, sound = false): TaskNotification {
   return {
     taskId: task.id,
     title: task.title === '' ? UNTITLED_TASK_TITLE : task.title,
-    body: truncate(plainText(reply), NOTIFICATION_DEFAULTS.bodyLength),
-    silent: NOTIFICATION_DEFAULTS.silent,
+    body: truncate(plainText(reply), NOTIFICATION_BODY_LENGTH),
+    silent: !sound,
   }
 }
 
@@ -120,7 +120,8 @@ export interface ReplyNotificationsOptions {
 }
 
 /**
- * Notifies each reply it's given with `notifier`: its Open task action (or a click) opens the reply's task, and its
+ * Notifies each reply it's given with `notifier`, unless notifications are off in the settings, making a sound only
+ * when they have it on: its Open task action (or a click) opens the reply's task, and its
  * inline reply is sent to the task (`sendToTask`), leaving the window as it is.
  */
 export function createReplyNotifications({
@@ -133,7 +134,9 @@ export function createReplyNotifications({
   return (taskId, reply) => {
     const task = getTask(db, taskId)
     if (task === undefined) return
-    notifier.show(replyNotification(task, reply), {
+    const settings = getSettings(db)
+    if (!settings.notifications) return
+    notifier.show(replyNotification(task, reply, settings.notificationSound), {
       onOpen: () => {
         openTask(taskId)
       },

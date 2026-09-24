@@ -42,6 +42,20 @@ export interface CaptureSpec {
   readonly conversation?: CaptureConversation
   /** A JSON fixture of sample data (see `./capture-seed`) to fill the throwaway database with; none for a fresh app. */
   readonly seed?: string | undefined
+  /**
+   * Keys to press in the page, in order, once it's ready and before capturing, e.g. ⌘, to capture the Settings modal.
+   * None by default.
+   */
+  readonly presses?: readonly CaptureKeyPress[] | undefined
+}
+
+/** One key press, as a `keydown` on the page's window: its `key` and modifiers. */
+export interface CaptureKeyPress {
+  readonly key: string
+  readonly metaKey: boolean
+  readonly shiftKey: boolean
+  readonly altKey: boolean
+  readonly ctrlKey: boolean
 }
 
 export interface CaptureConversation {
@@ -78,6 +92,17 @@ function captureSpecSchema(minimum: MinimumSize): z.ZodType<CaptureSpec> {
       .strictObject({ agentScript: z.enum(AGENT_SCRIPT_NAMES), message: z.string().trim().min(1) })
       .optional(),
     seed: z.string().refine(isAbsolute, 'must be an absolute path').optional(),
+    presses: z
+      .array(
+        z.strictObject({
+          key: z.string().min(1),
+          metaKey: z.boolean(),
+          shiftKey: z.boolean(),
+          altKey: z.boolean(),
+          ctrlKey: z.boolean(),
+        }),
+      )
+      .optional(),
   })
 }
 
@@ -152,13 +177,23 @@ function waitForSize(width: number, height: number): string {
 })`
 }
 
+/** Presses a key (in the page) where the app listens for its shortcuts, then waits for it to paint what it did. */
+function pressKey(press: CaptureKeyPress): string {
+  return `new Promise((resolve) => {
+  window.dispatchEvent(new KeyboardEvent('keydown', { ...${JSON.stringify(press)}, bubbles: true, cancelable: true }))
+  requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))
+})`
+}
+
 /**
- * Captures each shot in `spec`: waits for the renderer to say it's ready, then for each shot resizes the window,
+ * Captures each shot in `spec`: waits for the renderer to say it's ready, presses the spec's keys, then for each shot
+ * resizes the window,
  * waits for the page to lay out at that size, and writes a PNG of it at exactly that size (a Retina display captures
  * at 2x, which is scaled down, so the PNGs match the 1x design screens). Returns the files written.
  */
 export async function captureShots(window: CaptureWindow, spec: CaptureSpec): Promise<string[]> {
   await window.webContents.executeJavaScript(WAIT_UNTIL_READY)
+  for (const press of spec.presses ?? []) await window.webContents.executeJavaScript(pressKey(press))
   mkdirSync(spec.outDir, { recursive: true })
 
   const files: string[] = []

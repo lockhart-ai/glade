@@ -184,5 +184,7 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, todos: { ...state.todos, [event.taskId]: event.todos } }
     case EventType.ArtifactsChanged:
       return { ...state, artifacts: { ...state.artifacts, [event.taskId]: event.artifacts } }
+    case EventType.SettingsChanged:
+      return { ...state, settings: event.settings }
   }
 }

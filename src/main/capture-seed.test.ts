@@ -25,7 +25,7 @@ import { listTasks } from './db/repositories/tasks'
 import { getUiState } from './db/repositories/ui-state'
 import { listWorkspaces } from './db/repositories/workspaces'
 import { openTestDatabase, type TestDatabase } from './db/repositories/test-database'
-import { DEFAULT_EFFORT, DEFAULT_MODEL } from './tasks/defaults'
+import { DEFAULT_SETTINGS } from '../shared/settings'
 
 const FIXTURES = join(import.meta.dirname, '..', '..', 'scripts', 'fixtures')
 const FIXTURE = join(FIXTURES, 'task-workspace.json')
@@ -190,8 +190,8 @@ describe('applySeed', () => {
         state: TaskState.Active,
         pinned: false,
         unread: false,
-        model: DEFAULT_MODEL,
-        effort: DEFAULT_EFFORT,
+        model: DEFAULT_SETTINGS.defaultModel,
+        effort: DEFAULT_SETTINGS.defaultEffort,
         createdAt: NOW - 42 * MINUTE,
         updatedAt: NOW - 4 * MINUTE,
         statusUpdatedAt: NOW - 4 * MINUTE,

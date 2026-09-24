@@ -70,6 +70,18 @@ describe('Segmented', () => {
     expect(screen.getByRole('radio', { name: OPTIONS.find((option) => option.value === to)?.label })).toHaveFocus()
   })
 
+  it('shows an option that cannot be chosen, and the arrow keys skip it', () => {
+    const onChange = vi.fn()
+    const options = OPTIONS.map((option) => ({ ...option, disabled: option.value === Effort.Medium }))
+    render(<Segmented label="Effort" options={options} value={Effort.Low} onChange={onChange} />)
+
+    expect(screen.getByRole('radio', { name: 'Medium' })).toBeDisabled()
+    expect(screen.getByRole('radio', { name: 'Low' })).toBeEnabled()
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'Low' }), { key: 'ArrowRight' })
+
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(Effort.High)
+  })
+
   it('ignores other keys', () => {
     const onChange = renderEffort(Effort.Low)
     fireEvent.keyDown(screen.getByRole('radio', { name: 'Low' }), { key: 'a' })

@@ -14,7 +14,8 @@ import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { appendToolCall, listToolEvents, updateToolCall } from '../db/repositories/tool-events'
 import { getUiState, setUiState } from '../db/repositories/ui-state'
-import { DEFAULT_EFFORT, DEFAULT_MODEL } from './defaults'
+import { DEFAULT_SETTINGS } from '../../shared/settings'
+import { updateSettings } from '../db/repositories/settings'
 import {
   createTask,
   deleteTask,
@@ -83,8 +84,8 @@ describe('createTask', () => {
       activity: TaskActivity.Waiting,
       pinned: false,
       unread: false,
-      model: DEFAULT_MODEL,
-      effort: DEFAULT_EFFORT,
+      model: DEFAULT_SETTINGS.defaultModel,
+      effort: DEFAULT_SETTINGS.defaultEffort,
       createdAt: 5_000,
       updatedAt: 5_000,
       doneAt: null,
@@ -96,9 +97,17 @@ describe('createTask', () => {
       asking: false,
       pause: null,
     })
-    expect(DEFAULT_EFFORT).toBe(Effort.High)
+    expect(DEFAULT_SETTINGS.defaultEffort).toBe(Effort.High)
     expect(getTask(database.db, task.id)).toEqual(task)
     expect(events).toEqual([{ type: EventType.TaskUpdated, task }])
+  })
+
+  it('starts a task on the default model and effort Settings has now', () => {
+    updateSettings(database.db, { defaultModel: 'claude-haiku-4-5', defaultEffort: Effort.Low })
+
+    const task = createTask(context, workspace.id)
+
+    expect(task).toMatchObject({ model: 'claude-haiku-4-5', effort: Effort.Low })
   })
 
   it('refuses a workspace that does not exist', () => {

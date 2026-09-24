@@ -23,7 +23,7 @@ import {
 import { interruptPausedToolCalls } from '../db/repositories/tool-events'
 import { getUiState, setUiState } from '../db/repositories/ui-state'
 import { getWorkspace } from '../db/repositories/workspaces'
-import { DEFAULT_EFFORT, DEFAULT_MODEL } from './defaults'
+import { getSettings } from '../db/repositories/settings'
 import { applyTransition, TaskTransition } from './taskLifecycle'
 
 export interface TaskServiceContext {
@@ -73,12 +73,16 @@ function move(context: TaskServiceContext, id: string, transition: TaskTransitio
   return write(context, id, { state: result.to })
 }
 
-/** Creates an active task in the workspace: empty title, objective and status, and the default model and effort. */
+/**
+ * Creates an active task in the workspace: empty title, objective and status, and the model and effort Settings has
+ * as the defaults for new tasks.
+ */
 export function createTask(context: TaskServiceContext, workspaceId: string): Task {
   if (getWorkspace(context.db, workspaceId) === undefined) {
     throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${workspaceId}`)
   }
-  const task = insertTask(context.db, { workspaceId, model: DEFAULT_MODEL, effort: DEFAULT_EFFORT })
+  const { defaultModel, defaultEffort } = getSettings(context.db)
+  const task = insertTask(context.db, { workspaceId, model: defaultModel, effort: defaultEffort })
   emitTaskUpdated(context.emit, task)
   return task
 }
