@@ -55,8 +55,8 @@ spacing), `docs/keymap.md`, `docs/context-menus.md`.
 
 ## Stack
 
-Electron, TypeScript, SQLite, the Claude Agent SDK (TypeScript), electron-vite, React, CSS Modules, Zustand, better-
-sqlite3, Vitest + Testing Library, ESLint + Prettier, electron-builder, xterm.js + node-pty. See `docs/decisions.md`.
+Electron, TypeScript, SQLite, the Claude Agent SDK (TypeScript), electron-vite, React, CSS Modules, Zustand,
+better-sqlite3, Vitest + Testing Library, ESLint + Prettier, electron-builder, xterm.js + node-pty. See `docs/decisions.md`.
 Prefer well-established, widely adopted libraries and idiomatic use of them; don't pull in small or obscure packages.
 
 ## Open source: what gets committed
