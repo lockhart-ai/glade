@@ -1,6 +1,6 @@
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
-import { FloatingPortal } from '@floating-ui/react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { Button, ButtonSize, ButtonVariant } from '../Button/Button'
 import { classNames } from '../classNames'
 import { Icon, IconSize } from '../Icon/Icon'
@@ -44,6 +44,28 @@ interface ShownToast extends ToastOptions {
 
 const ToastContext = createContext<ToastApi | null>(null)
 
+/** Registers a `ToastAnchor`'s element with its provider; returns the call that unregisters it. */
+type RegisterAnchor = (element: HTMLElement) => () => void
+
+const ToastAnchorContext = createContext<RegisterAnchor | null>(null)
+
+export interface ToastAnchorProps {
+  /** Classes for the anchor, e.g. to set where the toasts sit relative to it. */
+  className?: string
+}
+
+/**
+ * Where the nearest `ToastProvider` shows its toasts: they stand centred on the anchor, stacked upwards from its
+ * top edge. Put it in a positioned container, e.g. on the input bar so the toasts sit above it, centred on the chat
+ * column. While several anchors are mounted, the latest one wins; with none, the toasts sit at the bottom of the window.
+ */
+export function ToastAnchor({ className }: ToastAnchorProps): React.JSX.Element {
+  const register = useContext(ToastAnchorContext)
+  if (register === null) throw new Error('ToastAnchor must be used inside a ToastProvider')
+  const ref = useCallback((element: HTMLDivElement) => register(element), [register])
+  return <div ref={ref} className={classNames(styles.anchor, className)} data-testid="toast-anchor" />
+}
+
 /** The toast API from the nearest `ToastProvider`. */
 export function useToast(): ToastApi {
   const api = useContext(ToastContext)
@@ -52,8 +74,8 @@ export function useToast(): ToastApi {
 }
 
 /**
- * Holds the toasts for everything inside it and shows them in a region at the bottom of the window, newest last.
- * Each toast dismisses itself after its timeout.
+ * Holds the toasts for everything inside it and shows them in a region, newest last: at the latest mounted
+ * `ToastAnchor`, or at the bottom of the window while there is none. Each toast dismisses itself after its timeout.
  */
 export function ToastProvider({ children, className }: ToastProviderProps): React.JSX.Element {
   const [toasts, setToasts] = useState<readonly ShownToast[]>([])
@@ -72,21 +94,31 @@ export function ToastProvider({ children, className }: ToastProviderProps): Reac
 
   const api = useMemo<ToastApi>(() => ({ show, dismiss }), [show, dismiss])
 
+  const [anchors, setAnchors] = useState<readonly HTMLElement[]>([])
+  const registerAnchor = useCallback<RegisterAnchor>((element) => {
+    setAnchors((current) => [...current, element])
+    return () => {
+      setAnchors((current) => current.filter((anchor) => anchor !== element))
+    }
+  }, [])
+  const anchor = anchors.at(-1)
+
   return (
     <ToastContext.Provider value={api}>
-      {children}
-      <FloatingPortal>
+      <ToastAnchorContext.Provider value={registerAnchor}>{children}</ToastAnchorContext.Provider>
+      {createPortal(
         <div
           role="region"
           aria-label="Notifications"
           aria-live="polite"
-          className={classNames(styles.region, className)}
+          className={classNames(styles.region, anchor === undefined ? styles.window : styles.anchored, className)}
         >
           {toasts.map((toast) => (
             <Toast key={toast.id} toast={toast} onDismiss={dismiss} />
           ))}
-        </div>
-      </FloatingPortal>
+        </div>,
+        anchor ?? document.body,
+      )}
     </ToastContext.Provider>
   )
 }

@@ -27,9 +27,11 @@ export { Textarea, type TextareaProps } from './Textarea/Textarea'
 export { Toggle, type ToggleProps } from './Toggle/Toggle'
 export {
   DEFAULT_TOAST_TIMEOUT,
+  ToastAnchor,
   ToastProvider,
   useToast,
   type ToastAction,
+  type ToastAnchorProps,
   type ToastApi,
   type ToastOptions,
   type ToastProviderProps,

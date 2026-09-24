@@ -12,6 +12,7 @@ import { useGladeStore } from './store/react'
 import { SelectedTaskHeader } from './task-header'
 import { TaskList, TaskListToolbar } from './task-list'
 import { useNewTaskShortcut } from './shortcuts/useNewTaskShortcut'
+import { useMarkDoneShortcut } from './shortcuts/useMarkDoneShortcut'
 import { useStopShortcut } from './shortcuts/useStopShortcut'
 import { TaskPanel } from './tool-log'
 
@@ -66,6 +67,7 @@ function Layout(): React.JSX.Element {
   const workspace = useGladeStore(selectSelectedWorkspace)
   useNewTaskShortcut()
   useStopShortcut()
+  useMarkDoneShortcut()
   return (
     <Window
       sidebar={

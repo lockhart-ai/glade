@@ -2,7 +2,7 @@ import { faCheck } from '@fortawesome/free-solid-svg-icons'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { moduleClass } from '../moduleClass'
-import { DEFAULT_TOAST_TIMEOUT, ToastProvider, useToast, type ToastApi } from './Toast'
+import { DEFAULT_TOAST_TIMEOUT, ToastAnchor, ToastProvider, useToast, type ToastApi } from './Toast'
 import styles from './Toast.module.css'
 
 const cls = (name: string): string => moduleClass(styles, name)
@@ -132,6 +132,58 @@ describe('Toast', () => {
 
     expect(screen.queryByText('First')).toBeNull()
     expect(screen.getByText('Second')).toBeInTheDocument()
+  })
+
+  it('sits at the bottom of the window while no anchor is mounted', () => {
+    renderProvider()
+
+    expect(region().parentElement).toBe(document.body)
+    expect(region()).toHaveClass(cls('window'))
+  })
+
+  it('moves to the latest mounted anchor, and back as anchors unmount', () => {
+    let api: ToastApi | undefined
+    function Capture(): null {
+      api = useToast()
+      return null
+    }
+    function Anchors({ count }: { readonly count: number }): React.JSX.Element {
+      return (
+        <ToastProvider>
+          <Capture />
+          <div data-testid="first">
+            <ToastAnchor className="above-input" />
+          </div>
+          {count > 1 && (
+            <div data-testid="second">
+              <ToastAnchor />
+            </div>
+          )}
+        </ToastProvider>
+      )
+    }
+    const { rerender } = render(<Anchors count={2} />)
+    act(() => {
+      api?.show({ message: 'Copied.' })
+    })
+
+    const second = within(screen.getByTestId('second')).getByTestId('toast-anchor')
+    expect(second).toHaveClass(cls('anchor'))
+    expect(region().parentElement).toBe(second)
+    expect(region()).toHaveClass(cls('anchored'))
+    expect(region()).toHaveTextContent('Copied.')
+
+    rerender(<Anchors count={1} />)
+    const first = within(screen.getByTestId('first')).getByTestId('toast-anchor')
+    expect(first).toHaveClass(cls('anchor'), 'above-input')
+    expect(region().parentElement).toBe(first)
+    expect(region()).toHaveTextContent('Copied.')
+  })
+
+  it('refuses an anchor outside a provider', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    expect(() => render(<ToastAnchor />)).toThrow('ToastAnchor must be used inside a ToastProvider')
   })
 
   it('refuses to work outside a provider', () => {

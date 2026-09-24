@@ -96,6 +96,15 @@ export function chat(page: Page) {
   }
 }
 
+/** The toasts at the bottom of the window, e.g. Mark done's Undo. */
+export function toasts(page: Page) {
+  const region = page.getByRole('region', { name: 'Notifications' })
+  return {
+    region,
+    undo: region.getByRole('button', { name: 'Undo' }),
+  }
+}
+
 /** The component gallery (`#gallery`, dev and e2e builds only). */
 export function gallery(page: Page) {
   return {

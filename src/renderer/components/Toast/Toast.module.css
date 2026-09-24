@@ -1,6 +1,4 @@
 .region {
-  position: fixed;
-  bottom: 24px;
   left: 50%;
   z-index: 20;
   display: flex;
@@ -9,6 +7,26 @@
   gap: 8px;
   transform: translateX(-50%);
   pointer-events: none;
+}
+
+/* With no anchor mounted: the bottom of the window. */
+.window {
+  position: fixed;
+  bottom: 24px;
+}
+
+/* Stacked upwards from the anchor's top edge, as in docs/design/html/05-mark-done.html. */
+.anchored {
+  position: absolute;
+  bottom: 100%;
+}
+
+/* A zero-height line across its positioned container; its user sets `top` or `bottom` to where toasts stand. */
+.anchor {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 0;
 }
 
 .toast {

@@ -70,8 +70,11 @@ it('renders the window layout with the workspace, the chat, and a placeholder in
   expect(
     within(within(main).getByRole('region', { name: 'Chat' })).getByRole('log', { name: 'Conversation' }),
   ).toBeInTheDocument()
-  // No task is selected, so the input bar is empty.
-  expect(within(main).getByTestId('input-bar')).toBeEmptyDOMElement()
+  // No task is selected, so the input bar is empty but for the toasts, which stand above it.
+  const inputBar = within(main).getByTestId('input-bar')
+  expect(inputBar).toHaveTextContent(/^$/)
+  expect(within(inputBar).queryByRole('textbox')).toBeNull()
+  expect(within(inputBar).getByRole('region', { name: 'Notifications' })).toBeInTheDocument()
 
   const panel = within(main).getByRole('complementary', { name: 'Task panel' })
   expect(within(panel).getByRole('tab', { name: /^Tool calls/ })).toHaveAttribute('aria-selected', 'true')

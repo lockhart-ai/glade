@@ -1,4 +1,4 @@
-import { TaskState, type EpochMs, type Task } from '../../shared/domain'
+import { TaskActivity, TaskState, type EpochMs, type Task } from '../../shared/domain'
 import { TaskIndicator, taskIndicator } from '../../shared/taskIndicator'
 import { clockTime } from '../chat/chatModel'
 
@@ -35,6 +35,16 @@ export function formatDay(at: EpochMs): string {
 /** A task is new until the agent sets any of its title, objective or status from the first message. */
 export function isNewTask(task: Pick<Task, 'title' | 'objective' | 'status'>): boolean {
   return task.title === '' && task.objective === '' && task.status === ''
+}
+
+/** The header offers Mark done on an active task once the agent has set it up from the first message. */
+export function offersMarkDone(task: Pick<Task, 'state' | 'title' | 'objective' | 'status'>): boolean {
+  return task.state === TaskState.Active && !isNewTask(task)
+}
+
+/** Mark done works only while the agent isn't working: stop it first, so a turn never runs on in a done task. */
+export function canMarkDone(task: Pick<Task, 'state' | 'activity' | 'title' | 'objective' | 'status'>): boolean {
+  return offersMarkDone(task) && task.activity !== TaskActivity.Working
 }
 
 /** The status pill's label: `Active · working`, `Active · waiting on you`, `Active · stopped by an error`, `Done · Sep 23`. */

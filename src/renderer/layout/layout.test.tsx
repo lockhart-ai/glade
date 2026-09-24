@@ -1,5 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { ToastProvider } from '../components'
 import { sampleWorkspace } from '../store/test-bridge'
 import { AppShell, BottomBar, RightPanel, Sidebar, SidebarHeader, TaskCard, TaskHeader } from '.'
 
@@ -56,12 +57,14 @@ describe('SidebarHeader', () => {
 describe('TaskCard', () => {
   it('is the main landmark holding the header, chat, input bar and right panel', () => {
     render(
-      <TaskCard
-        header={<p>Header slot</p>}
-        chat={<p>Chat slot</p>}
-        inputBar={<p>Input slot</p>}
-        rightPanel={<p>Panel slot</p>}
-      />,
+      <ToastProvider>
+        <TaskCard
+          header={<p>Header slot</p>}
+          chat={<p>Chat slot</p>}
+          inputBar={<p>Input slot</p>}
+          rightPanel={<p>Panel slot</p>}
+        />
+      </ToastProvider>,
     )
 
     const main = screen.getByRole('main', { name: 'Task' })
@@ -69,6 +72,17 @@ describe('TaskCard', () => {
     expect(within(main).getByRole('region', { name: 'Chat' })).toHaveTextContent('Chat slot')
     expect(within(main).getByTestId('input-bar')).toHaveTextContent('Input slot')
     expect(within(main).getByText('Panel slot')).toBeInTheDocument()
+  })
+
+  it('shows toasts above the input bar', () => {
+    render(
+      <ToastProvider>
+        <TaskCard header={null} chat={null} inputBar={<p>Input slot</p>} rightPanel={null} />
+      </ToastProvider>,
+    )
+
+    const anchor = within(screen.getByTestId('input-bar')).getByTestId('toast-anchor')
+    expect(within(anchor).getByRole('region', { name: 'Notifications' })).toBeInTheDocument()
   })
 })
 

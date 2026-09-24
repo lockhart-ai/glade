@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Card } from '../components'
+import { Card, ToastAnchor } from '../components'
 import styles from './TaskCard.module.css'
 
 export interface TaskCardProps {
@@ -13,7 +13,10 @@ export interface TaskCardProps {
   rightPanel: ReactNode
 }
 
-/** The task card: the header, chat and input bar in a column, with the right panel card beside them. */
+/**
+ * The task card: the header, chat and input bar in a column, with the right panel card beside them. Toasts stand above
+ * the input bar, centred on the chat column, so it must be used under a `ToastProvider`.
+ */
 export function TaskCard({ header, chat, inputBar, rightPanel }: TaskCardProps): React.JSX.Element {
   return (
     <Card role="main" aria-label="Task" className={styles.task}>
@@ -23,6 +26,7 @@ export function TaskCard({ header, chat, inputBar, rightPanel }: TaskCardProps):
           {chat}
         </section>
         <div className={styles.inputBar} data-testid="input-bar">
+          <ToastAnchor className={styles.toastAnchor} />
           {inputBar}
         </div>
       </div>
