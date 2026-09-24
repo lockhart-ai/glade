@@ -63,7 +63,7 @@ export interface FakeMain {
   readonly stoppedSubagents?: string[]
   /** Each task's todo list, by task id; none when left out. */
   readonly todos?: Readonly<Record<string, TodoList>>
-  /** Every task's artifacts; none when left out. */
+  /** Every task's artifacts; none when left out. `artifacts.remove` removes one, from the fake's own copy. */
   readonly artifacts?: readonly Artifact[]
   /** What `files.info` answers with, by path, for any task; missing when left out. */
   readonly fileInfo?: Readonly<Record<string, FileInfo>>
@@ -100,6 +100,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
   const notQueued = (id: string): Promise<never> =>
     refuse(bridgeError(BridgeErrorCode.NotFound, `No queued message ${id}`))
   const openFiles = main.openFiles ?? []
+  const artifacts = [...(main.artifacts ?? [])]
   const openFilesOf = (taskId: string): OpenFiles =>
     openFiles.find((open) => open.taskId === taskId) ?? noOpenFiles(taskId)
   const changeOpenFiles = (taskId: string, change: (open: OpenFiles) => OpenFiles): { openFiles: OpenFiles } => {
@@ -175,7 +176,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       questionSets: (main.questionSets ?? []).filter((set) => set.taskId === id),
       openFiles: openFilesOf(id),
       todos: main.todos?.[id] ?? null,
-      artifacts: (main.artifacts ?? []).filter((artifact) => artifact.taskId === id),
+      artifacts: artifacts.filter((artifact) => artifact.taskId === id),
     }),
     [CommandName.QueueAdd]: ({ taskId, text }) => {
       queued += 1
@@ -233,6 +234,17 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     },
     [CommandName.FilesReveal]: ({ path }) => {
       main.revealed?.push(path)
+      return null
+    },
+    [CommandName.ArtifactsRemove]: ({ taskId, path }) => {
+      const index = artifacts.findIndex((artifact) => artifact.taskId === taskId && artifact.path === path)
+      if (index === -1) return refuse(bridgeError(BridgeErrorCode.NotFound, `No artifact ${path}`))
+      artifacts.splice(index, 1)
+      emit({
+        type: EventType.ArtifactsChanged,
+        taskId,
+        artifacts: artifacts.filter((artifact) => artifact.taskId === taskId),
+      })
       return null
     },
     [CommandName.ClipboardWriteText]: ({ text }) => {

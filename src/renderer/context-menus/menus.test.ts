@@ -4,6 +4,7 @@ import { TaskState } from '../../shared/domain'
 import { MenuEntryKind, MenuItemVariant, type MenuEntry, type MenuItem } from '../components'
 import {
   agentReplyMenu,
+  artifactMenu,
   fileTabMenu,
   pinLabel,
   queuedMessageMenu,
@@ -110,6 +111,11 @@ const CASES: readonly Case[] = [
     leftOut: [],
   },
   {
+    target: 'Artifact',
+    entries: artifactMenu(spies('open', 'openInEditor', 'copyContents', 'copyPath', 'reveal', 'remove')),
+    leftOut: [],
+  },
+  {
     target: 'Subagent',
     entries: subagentMenu({ expanded: false }, { ...spies('toggleLog', 'copyLog'), stop: vi.fn() }),
     leftOut: [],
@@ -132,13 +138,13 @@ describe('the context menus', () => {
     expect(destructive).toEqual([...destructive].sort((a, b) => Number(a) - Number(b)))
   })
 
-  it('marks deleting a task, removing a queued message and stopping a subagent as destructive, and nothing else', () => {
+  it('marks deleting a task, removing a queued message or an artifact, and stopping a subagent as destructive, and nothing else', () => {
     const labels = CASES.flatMap(({ entries }) =>
       items(entries)
         .filter((item) => item.variant === MenuItemVariant.Destructive)
         .map((item) => item.label),
     )
-    expect(labels).toEqual(['Delete task…', 'Delete task…', 'Remove', 'Stop subagent'])
+    expect(labels).toEqual(['Delete task…', 'Delete task…', 'Remove', 'Remove from artifacts', 'Stop subagent'])
   })
 
   it('shows the keys from the one table of shortcut hints', () => {
@@ -146,11 +152,11 @@ describe('the context menus', () => {
     expect(new Set(shown)).toEqual(new Set(Object.values(SHORTCUT_HINTS)))
   })
 
-  it('left out only the targets that aren’t built: artifacts (P5-04) and terminal tabs (P8)', () => {
+  it('left out only the target that isn’t built: terminal tabs (P8)', () => {
     const targets = REFERENCE.split('\n')
       .filter((line) => line.startsWith('| ') && !line.startsWith('| Target') && !line.startsWith('|---'))
       .map((line) => line.split('|')[1]?.trim())
-    expect(targets.filter((target) => !CASES.some((c) => c.target === target))).toEqual(['Artifact', 'Terminal tab'])
+    expect(targets.filter((target) => !CASES.some((c) => c.target === target))).toEqual(['Terminal tab'])
   })
 })
 

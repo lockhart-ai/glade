@@ -254,6 +254,8 @@ export interface GladeActions {
    * panel opens at Files too, even when it was collapsed or on another tab.
    */
   showFile: (taskId: string, path: string) => Promise<void>
+  /** Takes a file off a task's artifacts (`artifacts.remove`); the file stays. */
+  removeArtifact: (taskId: string, path: string) => Promise<void>
   /** Stops one of a task's running subagents, by the `Agent` call that started it (`subagents.stop`). */
   stopSubagent: (taskId: string, toolUseId: string) => Promise<void>
   /** Puts text on the clipboard (`clipboard.writeText`). */

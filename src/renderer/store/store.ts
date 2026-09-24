@@ -289,6 +289,10 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         showPanelTab(taskId, PanelTab.Files)
       },
 
+      async removeArtifact(taskId, path) {
+        await bridge.invoke(CommandName.ArtifactsRemove, { taskId, path })
+      },
+
       async stopSubagent(taskId, toolUseId) {
         await bridge.invoke(CommandName.SubagentsStop, { taskId, toolUseId })
       },

@@ -8,7 +8,7 @@ import { createSdkBackend, sdkOptions, userMessage } from './sdk-backend'
 const sdk = vi.hoisted(() => {
   const session = {
     interrupt: vi.fn(() => Promise.resolve(undefined)),
-    stopTask: vi.fn((_taskId: string) => Promise.resolve(undefined)),
+    stopTask: vi.fn<(taskId: string) => Promise<void>>(() => Promise.resolve(undefined)),
     setModel: vi.fn<(model?: string) => Promise<void>>(() => Promise.resolve(undefined)),
     applyFlagSettings: vi.fn<(settings: unknown) => Promise<void>>(() => Promise.resolve(undefined)),
     close: vi.fn(),

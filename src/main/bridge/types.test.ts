@@ -69,6 +69,7 @@ const TASK_HANDLERS = {
   [CommandName.FilesInfo]: () => ({ info: { kind: FileInfoKind.Missing } }),
   [CommandName.FilesCopy]: () => null,
   [CommandName.FilesReveal]: () => null,
+  [CommandName.ArtifactsRemove]: () => null,
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
   [CommandName.TasksCreate]: REQUEST_SCHEMAS[CommandName.TasksCreate],
@@ -93,6 +94,7 @@ const TASK_SCHEMAS = {
   [CommandName.FilesInfo]: REQUEST_SCHEMAS[CommandName.FilesInfo],
   [CommandName.FilesCopy]: REQUEST_SCHEMAS[CommandName.FilesCopy],
   [CommandName.FilesReveal]: REQUEST_SCHEMAS[CommandName.FilesReveal],
+  [CommandName.ArtifactsRemove]: REQUEST_SCHEMAS[CommandName.ArtifactsRemove],
 } satisfies Partial<RequestSchemas>
 
 describe('the command map', () => {

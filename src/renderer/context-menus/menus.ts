@@ -180,6 +180,32 @@ export function fileTabMenu(actions: FileTabMenuActions): MenuEntry[] {
   )
 }
 
+/** What an artifact's menu can do. */
+export interface ArtifactMenuActions {
+  readonly open: MenuAction
+  readonly openInEditor: MenuAction
+  readonly copyContents: MenuAction
+  readonly copyPath: MenuAction
+  readonly reveal: MenuAction
+  readonly remove: MenuAction
+}
+
+/** An artifact's menu, in the Artifacts tab: its card's buttons, and more. Removing it leaves the file alone. */
+export function artifactMenu(actions: ArtifactMenuActions): MenuEntry[] {
+  return groups(
+    [
+      item('Open', actions.open, ShortcutAction.Open),
+      item('Open in editor', actions.openInEditor, ShortcutAction.OpenInEditor),
+    ],
+    [
+      item('Copy contents', actions.copyContents),
+      item('Copy path', actions.copyPath),
+      item('Reveal in Finder', actions.reveal),
+    ],
+    [destructive('Remove from artifacts', actions.remove)],
+  )
+}
+
 /** What a subagent's menu can do. */
 export interface SubagentMenuActions {
   readonly toggleLog: MenuAction

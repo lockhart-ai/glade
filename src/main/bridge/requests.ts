@@ -3,6 +3,7 @@ import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import {
   CommandName,
+  type ArtifactsRemoveRequest,
   type ClipboardWriteTextRequest,
   type CommandRequest,
   type EmptyRequest,
@@ -97,6 +98,11 @@ const fileRequest = z.strictObject({
     .refine(isWorkspaceRelativePath, 'Expected a normalized path relative to the workspace root, inside it'),
 }) satisfies z.ZodType<FileRequest>
 
+const artifactsRemoveRequest = z.strictObject({
+  taskId: z.string(),
+  path: z.string(),
+}) satisfies z.ZodType<ArtifactsRemoveRequest>
+
 const clipboardWriteTextRequest = z.strictObject({ text: z.string() }) satisfies z.ZodType<ClipboardWriteTextRequest>
 
 const uiStateGetRequest = z.strictObject({ key: z.enum(UiStateKey) }) satisfies z.ZodType<UiStateGetRequest>
@@ -135,6 +141,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.FilesInfo]: fileRequest,
   [CommandName.FilesCopy]: fileRequest,
   [CommandName.FilesReveal]: fileRequest,
+  [CommandName.ArtifactsRemove]: artifactsRemoveRequest,
   [CommandName.UiStateGet]: uiStateGetRequest,
   [CommandName.UiStateGetAll]: emptyRequest,
   [CommandName.UiStateSet]: uiStateSetRequest,

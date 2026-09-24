@@ -9,6 +9,7 @@ import {
   type FileInfo,
   type ToolEvent,
 } from '../../shared/domain'
+import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import {
@@ -77,7 +78,9 @@ async function renderTab({
   })
   render(
     <GladeStoreProvider store={store}>
-      <ArtifactsTab taskId="t1" now={NOW} />
+      <ToastProvider>
+        <ArtifactsTab taskId="t1" now={NOW} />
+      </ToastProvider>
     </GladeStoreProvider>,
   )
   return { ...fake, store, main }
@@ -249,5 +252,76 @@ describe('ArtifactsTab', () => {
       expect(card('Release notes 2.4')).toHaveTextContent('Markdown · 140 lines · just now')
     })
     expect(invoke).toHaveBeenCalledWith(CommandName.FilesInfo, { taskId: 't1', path: NOTES.path })
+  })
+})
+
+describe('an artifact’s context menu', () => {
+  async function choose(title: string, label: string): Promise<void> {
+    fireEvent.contextMenu(card(title))
+    await act(() => Promise.resolve())
+    // The label, then its shortcut if any: "Open" isn't "Open in editor".
+    fireEvent.click(screen.getByRole('menuitem', { name: new RegExp(`^${label}(?![ a-z])`) }))
+    await act(() => Promise.resolve())
+  }
+
+  it('has the reference’s items, and opens on ⇧F10 from the card’s buttons', async () => {
+    await renderTab()
+
+    fireEvent.keyDown(button('Upgrade guide', 'Open'), { key: 'F10', shiftKey: true })
+    await act(() => Promise.resolve())
+
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'Open↵',
+      'Open in editor⌘⇧E',
+      'Copy contents',
+      'Copy path',
+      'Reveal in Finder',
+      'Remove from artifacts',
+    ])
+  })
+
+  it('opens the file in the Files tab or the editor, copies it or its path, and reveals it', async () => {
+    const { store, invoke, main } = await renderTab()
+
+    await choose('Upgrade guide', 'Open')
+    await waitFor(() => {
+      expect(store.getState().uiState[UiStateKey.RightPanelTab]).toBe('files')
+    })
+    expect(store.getState().openFiles.t1?.activePath).toBe(GUIDE.path)
+
+    await choose('Upgrade guide', 'Open in editor')
+    expect(invoke).toHaveBeenCalledWith(CommandName.FilesOpenInEditor, { taskId: 't1', path: GUIDE.path })
+
+    await choose('Upgrade guide', 'Copy contents')
+    await choose('Upgrade guide', 'Copy path')
+    await choose('Upgrade guide', 'Reveal in Finder')
+    expect(main.copied).toEqual([GUIDE.path, `${sampleWorkspace('w1').rootPath}/${GUIDE.path}`])
+    expect(main.revealed).toEqual([GUIDE.path])
+  })
+
+  it('removes an artifact, leaving the others', async () => {
+    await renderTab()
+
+    await choose('Upgrade guide', 'Remove from artifacts')
+
+    await waitFor(() => {
+      expect(screen.queryByRole('listitem', { name: 'Upgrade guide' })).toBeNull()
+    })
+    expect(screen.getAllByRole('listitem').map((element) => element.getAttribute('aria-label'))).toEqual([
+      'Release notes 2.4',
+      'Announcement email',
+    ])
+  })
+
+  it('shows a toast when an item fails', async () => {
+    await renderTab({
+      overrides: {
+        [CommandName.ArtifactsRemove]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'Not an artifact')),
+      },
+    })
+
+    await choose('Upgrade guide', 'Remove from artifacts')
+
+    expect(await screen.findByText('Not an artifact')).toBeInTheDocument()
   })
 })

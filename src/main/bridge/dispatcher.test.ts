@@ -57,6 +57,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.FilesInfo]: () => ({ info: { kind: FileInfoKind.Missing } }),
     [CommandName.FilesCopy]: () => null,
     [CommandName.FilesReveal]: () => null,
+    [CommandName.ArtifactsRemove]: () => null,
     [CommandName.UiStateGet]: () => Promise.resolve({ value: 'async' }),
     [CommandName.UiStateGetAll]: () => ({ entries: [] }),
     [CommandName.UiStateSet]: () => null,

@@ -1,11 +1,21 @@
 // The context menus (docs/context-menus.md), end to end with the scripted agent: an agent reply's, a tool call's, a
-// file tab's, a subagent's, a queued message's and a todo's. The task row's menu is in task-actions.spec.ts. Nothing
+// file tab's, a subagent's, a queued message's, a todo's and an artifact's. The task row's menu is in task-actions.spec.ts. Nothing
 // reaches the real clipboard or Finder: e2e mode records what the menus copy and reveal (`desktop`).
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { desktop, expect, test, type Glade } from './fixtures'
-import { chat, contextMenu, filesTab, firstRun, inputBar, subagentsTab, taskList, taskPanel } from './selectors'
+import {
+  artifactsTab,
+  chat,
+  contextMenu,
+  filesTab,
+  firstRun,
+  inputBar,
+  subagentsTab,
+  taskList,
+  taskPanel,
+} from './selectors'
 
 /** Opens the workspace at `root`, starts a task and sends it `message`. */
 async function startTask(window: Page, message: string): Promise<void> {
@@ -159,4 +169,50 @@ test('context menus: copy a todo, and ask the agent about it', async ({ launch, 
   const bar = inputBar(window)
   await expect(bar.field).toHaveValue('About the todo “Reproduce the flake”: ')
   await expect(bar.field).toBeFocused()
+})
+
+test('context menus: open, copy, reveal and remove an artifact', async ({ launch, tempFolder }) => {
+  const root = join(tempFolder(), 'acme-api')
+  for (const path of ['docs/releases/2.4.md', 'docs/releases/2.4-upgrade.md']) {
+    mkdirSync(dirname(join(root, path)), { recursive: true })
+    writeFileSync(join(root, path), `# ${path}\n`)
+  }
+  const glade = await launch({ agentScript: 'declares-artifacts', chosenFolder: root })
+  const { window } = glade
+  await startTask(window, 'Draft release notes for 2.4, with a short upgrade guide.')
+  await expect(chat(window).agentReplies).toHaveCount(1)
+  const panel = taskPanel(window)
+  const artifacts = artifactsTab(window)
+  await panel.tab(/^Artifacts/).click()
+  await expect(artifacts.cards).toHaveCount(2)
+
+  const menu = contextMenu(window, 'Artifact actions')
+  await artifacts.card('Upgrade guide').click({ button: 'right' })
+  await expect(menu.items).toHaveText([
+    'Open↵',
+    'Open in editor⌘⇧E',
+    'Copy contents',
+    'Copy path',
+    'Reveal in Finder',
+    'Remove from artifacts',
+  ])
+  await menu.item('Copy path').click()
+  await expect.poll(async () => (await desktop(glade)).copied).toEqual([join(root, 'docs/releases/2.4-upgrade.md')])
+  await artifacts.card('Upgrade guide').click({ button: 'right' })
+  await menu.item('Reveal in Finder').click()
+  await expect
+    .poll(async () => (await desktop(glade)).revealed)
+    .toEqual([realpathSync(join(root, 'docs', 'releases', '2.4-upgrade.md'))])
+
+  // Remove from artifacts takes the card away; the file stays.
+  await artifacts.card('Upgrade guide').click({ button: 'right' })
+  await menu.item('Remove from artifacts').click()
+  await expect(artifacts.cards).toHaveCount(1)
+  await expect(panel.tab(/^Artifacts/)).toHaveText('Artifacts 1')
+
+  // Open shows the other in the Files tab.
+  await artifacts.card('Release notes 2.4').click({ button: 'right' })
+  await menu.item('Open').click()
+  await expect(panel.tab(/^Files/)).toHaveAttribute('aria-selected', 'true')
+  await expect(filesTab(window).tab('2.4.md')).toHaveAttribute('aria-pressed', 'true')
 })

@@ -27,6 +27,7 @@ import {
   type WriteClipboard,
 } from '../files/files'
 import { todoListFor } from '../todos/todos'
+import { removeTaskArtifact } from '../artifacts/artifacts'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
 
@@ -118,6 +119,10 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.FilesReveal]: async ({ taskId, path }) => {
       await revealTaskFile(context, taskId, path)
+      return null
+    },
+    [CommandName.ArtifactsRemove]: ({ taskId, path }) => {
+      removeTaskArtifact(context, taskId, path)
       return null
     },
     [CommandName.ClipboardWriteText]: async ({ text }) => {

@@ -677,15 +677,22 @@ describe("a task's logs", () => {
 })
 
 describe('context menu actions', () => {
-  it('copies text and stops a subagent through main', async () => {
-    const data: FakeMain = { ...main(), copied: [], stoppedSubagents: [] }
+  it('copies text, stops a subagent and removes an artifact through main', async () => {
+    const data: FakeMain = {
+      ...main(),
+      copied: [],
+      stoppedSubagents: [],
+      artifacts: [{ taskId: 't1', path: 'docs/notes.md', title: 'Notes', addedAt: 1, updatedAt: 1 }],
+    }
     const { store } = await hydrated(data)
 
     await store.getState().copyText('glade://task/t1')
     await store.getState().stopSubagent('t1', 'toolu_02')
+    await store.getState().removeArtifact('t1', 'docs/notes.md')
 
     expect(data.copied).toEqual(['glade://task/t1'])
     expect(data.stoppedSubagents).toEqual(['toolu_02'])
+    expect(store.getState().artifacts.t1).toEqual([])
   })
 
   it('asks the input bar to add text, as a new request each time, without calling main', async () => {

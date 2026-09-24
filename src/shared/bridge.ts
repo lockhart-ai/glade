@@ -67,6 +67,7 @@ export enum CommandName {
   FilesInfo = 'files.info',
   FilesCopy = 'files.copy',
   FilesReveal = 'files.reveal',
+  ArtifactsRemove = 'artifacts.remove',
   UiStateGet = 'uiState.get',
   UiStateGetAll = 'uiState.getAll',
   UiStateSet = 'uiState.set',
@@ -391,6 +392,16 @@ export type FilesCopyRequest = FileRequest
  */
 export type FilesRevealRequest = FileRequest
 
+/**
+ * Takes a file off a task's artifacts (Remove from artifacts); the file itself stays. Broadcasts `artifacts.changed`.
+ * Fails with `not_found` when the file isn't one of the task's artifacts.
+ */
+export interface ArtifactsRemoveRequest {
+  readonly taskId: string
+  /** Relative to the task's workspace root, as the artifact has it. */
+  readonly path: string
+}
+
 /** Puts text on the clipboard (the context menus' Copy items). */
 export interface ClipboardWriteTextRequest {
   readonly text: string
@@ -449,6 +460,7 @@ export interface CommandMap {
   [CommandName.FilesInfo]: CommandSpec<FilesInfoRequest, FilesInfoResponse>
   [CommandName.FilesCopy]: CommandSpec<FilesCopyRequest, null>
   [CommandName.FilesReveal]: CommandSpec<FilesRevealRequest, null>
+  [CommandName.ArtifactsRemove]: CommandSpec<ArtifactsRemoveRequest, null>
   [CommandName.UiStateGet]: CommandSpec<UiStateGetRequest, UiStateGetResponse>
   [CommandName.UiStateGetAll]: CommandSpec<EmptyRequest, UiStateGetAllResponse>
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>
