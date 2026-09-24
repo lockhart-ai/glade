@@ -101,7 +101,7 @@ export enum MessageRole {
  * counts come from the turn's file-editing tool calls (`src/main/agent/turn-summary.ts`).
  */
 export interface TurnSummary {
-  /** How long the turn ran, as the SDK's `result` reports it; null when it doesn't. */
+  /** How long the turn ran, wall-clock, from its first user message to its reply; null when that's unknown. */
   readonly durationMs: number | null
   /** The distinct files the turn's edits changed. */
   readonly filesChanged: number

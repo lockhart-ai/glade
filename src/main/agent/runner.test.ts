@@ -415,8 +415,18 @@ describe('the turn summary', () => {
     return listMessages(database.db, task.id).at(-1)?.summary
   }
 
+  // The duration is wall-clock time, so the clock is the test's: each turn starts at 100s.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'], now: 100_000 })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it("saves the reply with the turn's duration and the files its finished edits changed, across a relaunch", async () => {
     await send('Fix the date formatting.')
+    vi.setSystemTime(1_550_000)
     backend.session.emit(
       sdk.init(),
       sdk.toolUse('toolu_01', 'Edit', { file_path: 'src/date.ts', old_string: 'a\nb', new_string: 'a\nc\nd' }),
@@ -444,6 +454,7 @@ describe('the turn summary', () => {
     await settle()
 
     const summary = { durationMs: 1_450_000, filesChanged: 2, linesAdded: 6, linesRemoved: 2 }
+    expect(listMessages(database.db, task.id).at(-1)?.createdAt).toBe(1_550_000)
     expect(lastSummary()).toEqual(summary)
     const appended = events.filter((event) => event.type === EventType.MessageAppended).at(-1)
     expect(appended).toMatchObject({ message: { role: MessageRole.Agent, summary } })
@@ -457,8 +468,9 @@ describe('the turn summary', () => {
     })
   })
 
-  it("counts only this turn's edits, and keeps a missing duration missing", async () => {
+  it("counts only this turn's edits and time, whatever duration the SDK reports", async () => {
     await send('Fix it.')
+    vi.setSystemTime(107_000)
     backend.session.emit(
       sdk.init(),
       sdk.toolUse('toolu_01', 'Write', { file_path: 'a.ts', content: 'a\n' }),
@@ -466,15 +478,37 @@ describe('the turn summary', () => {
       sdk.result('Fixed.'),
     )
     await settle()
-    expect(lastSummary()).toEqual({ durationMs: 7620, filesChanged: 1, linesAdded: 1, linesRemoved: 0 })
+    expect(lastSummary()).toEqual({ durationMs: 7_000, filesChanged: 1, linesAdded: 1, linesRemoved: 0 })
 
+    vi.setSystemTime(200_000)
     await send('Thanks.')
+    vi.setSystemTime(203_000)
     backend.session.emit(sdk.init(), sdk.result('You are welcome.', { duration_ms: null }))
     await settle()
-    expect(lastSummary()).toEqual({ durationMs: null, filesChanged: 0, linesAdded: 0, linesRemoved: 0 })
+    expect(lastSummary()).toEqual({ durationMs: 3_000, filesChanged: 0, linesAdded: 0, linesRemoved: 0 })
   })
 
-  it('counts the edits a resumed turn made before the app quit', async () => {
+  it('times a turn from its first message, not from messages queued into it', async () => {
+    await send('Fix it.')
+    backend.session.emit(sdk.init(), sdk.toolUse('toolu_01', 'Bash', { command: 'npm test' }))
+    await settle()
+    vi.setSystemTime(104_000)
+    await glade.invoke(CommandName.QueueAdd, { taskId: task.id, text: 'And the docs.' })
+    backend.session.emit(sdk.toolResult('toolu_01', '148 passed'))
+    await settle()
+    vi.setSystemTime(109_000)
+    backend.session.emit(sdk.result('Fixed, docs too.'))
+    await settle()
+
+    expect(chat()).toEqual([
+      { role: MessageRole.User, body: 'Fix it.', turn: 1 },
+      { role: MessageRole.User, body: 'And the docs.', turn: 1 },
+      { role: MessageRole.Agent, body: 'Fixed, docs too.', turn: 1 },
+    ])
+    expect(lastSummary()).toMatchObject({ durationMs: 9_000 })
+  })
+
+  it('counts the edits a resumed turn made before the app quit, and the time since it started', async () => {
     await send('Fix it.')
     backend.session.emit(
       sdk.init(),
@@ -483,8 +517,11 @@ describe('the turn summary', () => {
     )
     await settle()
 
+    // The app quits and is relaunched 80s into the turn; the resumed part takes the 8s the SDK reports.
+    vi.setSystemTime(180_000)
     relaunch()
     runner.resumeInterrupted()
+    vi.setSystemTime(188_000)
     backend.session.emit(
       sdk.init(),
       sdk.toolUse('toolu_02', 'Write', { file_path: 'b.ts', content: 'c\n' }),
@@ -493,7 +530,7 @@ describe('the turn summary', () => {
     )
     await settle()
 
-    expect(lastSummary()).toEqual({ durationMs: 8_000, filesChanged: 2, linesAdded: 3, linesRemoved: 0 })
+    expect(lastSummary()).toEqual({ durationMs: 88_000, filesChanged: 2, linesAdded: 3, linesRemoved: 0 })
   })
 })
 

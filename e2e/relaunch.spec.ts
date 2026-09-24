@@ -29,11 +29,12 @@ test('force-quit mid-turn, relaunch: the task resumes its session and finishes t
   await bar.field.press('Enter')
   await expect(taskPanel(first.window).call(/^Running\s*Bash/)).toBeVisible()
   await expect.poll(async () => (await onlyTask(first.window))?.activity).toBe(TaskActivity.Working)
-  const sessionId = (await onlyTask(first.window))?.sessionId
+  const { id: taskId, sessionId } = (await onlyTask(first.window)) ?? {}
   expect(sessionId).toBeTruthy()
 
   // Force-quit in the middle of the turn: nothing runs on the way out.
   await first.kill()
+  const killedAt = Date.now()
 
   // On relaunch the task is still selected, and its turn carries on in the same session.
   const { window } = await launch({ agentScript: 'long-running' })
@@ -45,6 +46,15 @@ test('force-quit mid-turn, relaunch: the task resumes its session and finishes t
   await expect(agentReplies).toHaveCount(1)
   await expect(agentReplies.first()).toContainText('The end-to-end suite passes: all 41 tests.')
   await expect(restarts.first()).toHaveText(/^Glade restarted · \d\d:\d\d$/)
+
+  // The turn's summary times all of it, from your message to the reply, not just the part after the relaunch.
+  const { messages } = await invoke(window, CommandName.TasksHistory, { id: taskId ?? '' })
+  const [sent, reply] = messages
+  const durationMs = reply?.summary?.durationMs ?? 0
+  expect(durationMs).toBe((reply?.createdAt ?? 0) - (sent?.createdAt ?? 0))
+  expect(durationMs).toBeGreaterThanOrEqual(killedAt - (sent?.createdAt ?? 0))
+  expect(durationMs).toBeLessThan(60_000)
+  await expect(chat(window).turnSummaries).toHaveText(`Finished in ${String(Math.round(durationMs / 1000))}s`)
 
   // The tool log keeps what the first run did: the command the quit cut off failed, then the turn resumed.
   const panel = taskPanel(window)
