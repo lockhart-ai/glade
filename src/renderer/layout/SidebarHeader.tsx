@@ -1,19 +1,23 @@
-import { faChevronDown, faTableColumns } from '@fortawesome/free-solid-svg-icons'
+import { faChevronDown } from '@fortawesome/free-solid-svg-icons'
+import type { ReactNode } from 'react'
 import type { Workspace } from '../../shared/domain'
-import { Button, ButtonVariant, Icon } from '../components'
+import { Icon } from '../components'
 import { shortenHomePath } from '../paths'
 import styles from './SidebarHeader.module.css'
 
 export interface SidebarHeaderProps {
   /** The workspace the window shows; none before the first one is opened. */
   workspace?: Workspace
+  /** The button that collapses the task list (see `PanelToggle`), where the window offers it. */
+  collapseButton?: ReactNode
 }
 
 /**
  * The top of the sidebar: the workspace's initial in a badge, its name, and its root folder, with the switcher's
- * chevron and the button that collapses the task list. Both show but do nothing yet (the switcher comes in P7).
+ * chevron and the button that collapses the task list. The chevron shows but does nothing yet (the switcher comes in
+ * P7).
  */
-export function SidebarHeader({ workspace }: SidebarHeaderProps): React.JSX.Element {
+export function SidebarHeader({ workspace, collapseButton }: SidebarHeaderProps): React.JSX.Element {
   return (
     <section className={styles.header} aria-label="Workspace">
       <div className={styles.workspace}>
@@ -30,12 +34,7 @@ export function SidebarHeader({ workspace }: SidebarHeaderProps): React.JSX.Elem
           <Icon icon={faChevronDown} />
         </span>
       </div>
-      <Button
-        variant={ButtonVariant.Icon}
-        icon={faTableColumns}
-        aria-label="Collapse task list"
-        title="Collapse task list"
-      />
+      {collapseButton}
     </section>
   )
 }

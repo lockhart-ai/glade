@@ -272,6 +272,30 @@ describe('⌘F', () => {
     expect(searchField()).toHaveFocus()
   })
 
+  it('shows a collapsed sidebar, with the search it was showing, and focuses the field', async () => {
+    const { store } = await renderApp()
+    type('flaky')
+    fireEvent.keyDown(window, { key: 'b', metaKey: true })
+    expect(screen.queryByRole('navigation', { name: 'Tasks' })).toBeNull()
+
+    fireEvent.keyDown(window, { key: 'f', metaKey: true })
+
+    expect(store.getState().uiState[UiStateKey.SidebarCollapsed]).toBe('false')
+    expect(searchField()).toHaveFocus()
+    expect(searchField()).toHaveValue('flaky')
+  })
+
+  it('leaves the focus alone when the sidebar comes back by other means after a ⌘F', async () => {
+    await renderApp()
+    fireEvent.keyDown(window, { key: 'f', metaKey: true })
+    fireEvent.keyDown(window, { key: 'b', metaKey: true })
+    screen.getByRole('button', { name: 'Show task list' }).focus()
+
+    fireEvent.keyDown(window, { key: 'b', metaKey: true })
+
+    expect(searchField()).not.toHaveFocus()
+  })
+
   it.each([
     ['F alone', { metaKey: false }],
     ['⌥⌘F', { altKey: true }],
