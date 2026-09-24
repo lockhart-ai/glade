@@ -159,7 +159,7 @@ function appHandler(event: string): Handler {
  * Starts the app on a fake agent with two tasks, the second one selected, and has the first one's agent reply. Resolves
  * with the tasks' ids.
  */
-async function replyInUnviewedTask(): Promise<{ replied: string; viewed: string }> {
+async function replyInUnviewedTask(): Promise<{ replied: string; viewed: string; backend: FakeAgentBackend }> {
   const backend = new FakeAgentBackend()
   startApp({ createAgentBackend: () => backend })
   await Promise.resolve()
@@ -175,7 +175,7 @@ async function replyInUnviewedTask(): Promise<{ replied: string; viewed: string 
   await handler?.({}, CommandName.TasksSend, { id: replied.id, text: 'Why does it redirect twice?' })
   backend.session.emit(sdk.init(), sdk.text('It was a **race**.'), sdk.result('It was a **race**.'))
   await settle()
-  return { replied: replied.id, viewed: viewed.id }
+  return { replied: replied.id, viewed: viewed.id, backend }
 }
 
 /** The one native notification made. */
@@ -377,8 +377,53 @@ describe('startApp', () => {
     await replyInUnviewedTask()
 
     const notification = onlyNotification()
-    expect(notification.options).toEqual({ title: 'Fix the login redirect', body: 'It was a race.', silent: true })
+    expect(notification.options).toEqual({
+      title: 'Fix the login redirect',
+      body: 'It was a race.',
+      silent: true,
+      actions: [{ type: 'button', text: 'Open task' }],
+      hasReply: true,
+      replyPlaceholder: 'Reply…',
+    })
     expect(notification.show).toHaveBeenCalledOnce()
+  })
+
+  it("sends a notification's inline reply to its task's agent, leaving the window alone", async () => {
+    const { replied, backend } = await replyInUnviewedTask()
+    const window = onlyWindow()
+    window.webContents.send.mockClear()
+
+    const reply = onlyNotification().listeners.get('reply')
+    reply?.({ reply: 'Add a test for it.' })
+    // The agent is working on that now, so a second reply waits in the queue.
+    reply?.({ reply: 'And a changelog entry.' })
+
+    expect(backend.session.sent.map(({ text }) => text)).toEqual(['Why does it redirect twice?', 'Add a test for it.'])
+    const db = new Database(join(electron.app.userData, 'glade.db'), { readonly: true })
+    try {
+      expect(db.prepare('SELECT body FROM queued_messages WHERE task_id = ?').all(replied)).toEqual([
+        { body: 'And a changelog entry.' },
+      ])
+    } finally {
+      db.close()
+    }
+    expect(window.show).not.toHaveBeenCalled()
+    expect(window.focus).not.toHaveBeenCalled()
+    expect(window.webContents.send).not.toHaveBeenCalledWith(EVENT_CHANNEL, {
+      type: EventType.TaskOpenRequested,
+      taskId: replied,
+    })
+  })
+
+  it("opens the task when its notification's Open task action is chosen", async () => {
+    const { replied } = await replyInUnviewedTask()
+
+    onlyNotification().listeners.get('action')?.({ actionIndex: 0 })
+
+    expect(onlyWindow().webContents.send).toHaveBeenLastCalledWith(EVENT_CHANNEL, {
+      type: EventType.TaskOpenRequested,
+      taskId: replied,
+    })
   })
 
   it("brings the window up and asks it to open the task when the task's notification is clicked", async () => {

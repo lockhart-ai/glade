@@ -316,6 +316,11 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
       openTask: (taskId) => {
         openTaskFromNotification(taskId, { testMode, database, bridge })
       },
+      // The bridge's runner, once it's registered: a notification is only shown after that.
+      runner: {
+        send: (taskId, text) => bridge.runner.send(taskId, text),
+        queue: (taskId, text) => bridge.runner.queue(taskId, text),
+      },
     })
     const bridge: RegisteredBridge = registerBridge({
       ipc: ipcMain,

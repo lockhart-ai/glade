@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { BridgeErrorCode } from '../../shared/bridge'
+import { TaskActivity, TaskState } from '../../shared/domain'
+import { CommandFailure } from '../bridge/errors'
 import { updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import {
@@ -6,9 +9,16 @@ import {
   NOTIFICATION_DEFAULTS,
   plainText,
   replyNotification,
+  sendToTask,
   truncate,
+  type ReplyRunner,
 } from './notifications'
 import { createRecordingNotifier } from './recording-notifier'
+
+/** A runner that records what it's sent and queued. The runner's own tests cover what it does with them. */
+function fakeRunner() {
+  return { send: vi.fn(), queue: vi.fn() } satisfies ReplyRunner
+}
 
 describe('plainText', () => {
   it.each([
@@ -105,7 +115,8 @@ describe('createReplyNotifications', () => {
     updateTask(database.db, task.id, { title: 'Fix the login redirect' })
     const notifier = createRecordingNotifier()
     const openTask = vi.fn()
-    const notify = createReplyNotifications({ db: database.db, notifier, openTask })
+    const runner = fakeRunner()
+    const notify = createReplyNotifications({ db: database.db, notifier, openTask, runner })
 
     notify(task.id, 'It was a **race**.')
 
@@ -115,11 +126,107 @@ describe('createReplyNotifications', () => {
     expect(openTask).not.toHaveBeenCalled()
     notifier.click(0)
     expect(openTask).toHaveBeenCalledExactlyOnceWith(task.id)
+    expect(runner.send).not.toHaveBeenCalled()
+  })
+
+  it('sends its inline reply to the task, without opening it', () => {
+    const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+    const notifier = createRecordingNotifier()
+    const openTask = vi.fn()
+    const runner = fakeRunner()
+    createReplyNotifications({ db: database.db, notifier, openTask, runner })(task.id, 'Should I also fix the header?')
+
+    notifier.reply(0, 'Yes, please.')
+
+    expect(runner.send).toHaveBeenCalledExactlyOnceWith(task.id, 'Yes, please.')
+    expect(openTask).not.toHaveBeenCalled()
+  })
+
+  it("logs a reply it couldn't send, such as to a task deleted since", () => {
+    const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+    const notifier = createRecordingNotifier()
+    const failure = new CommandFailure(BridgeErrorCode.NotFound, `No task ${task.id}`)
+    const runner = fakeRunner()
+    runner.send.mockImplementation(() => {
+      throw failure
+    })
+    const log = { warn: vi.fn() }
+    createReplyNotifications({ db: database.db, notifier, openTask: vi.fn(), runner, log })(task.id, 'Done.')
+
+    notifier.reply(0, 'Thanks.')
+
+    expect(log.warn).toHaveBeenCalledExactlyOnceWith(
+      `Couldn't send the reply from a notification to task ${task.id}`,
+      failure,
+    )
   })
 
   it('shows nothing for a task that no longer exists', () => {
     const notifier = createRecordingNotifier()
-    createReplyNotifications({ db: database.db, notifier, openTask: vi.fn() })('gone', 'Done.')
+    createReplyNotifications({ db: database.db, notifier, openTask: vi.fn(), runner: fakeRunner() })('gone', 'Done.')
     expect(notifier.shown).toEqual([])
+  })
+})
+
+describe('sendToTask', () => {
+  let database: TestDatabase
+  let taskId: string
+
+  beforeEach(() => {
+    database = openTestDatabase()
+    taskId = sampleTask(database.db, sampleWorkspace(database.db).id).id
+  })
+
+  afterEach(() => {
+    database.close()
+  })
+
+  it('sends the message, trimmed, as the next turn when the agent is waiting on you', () => {
+    const runner = fakeRunner()
+    sendToTask(database.db, runner, taskId, '  Yes, please.\n')
+    expect(runner.send).toHaveBeenCalledExactlyOnceWith(taskId, 'Yes, please.')
+    expect(runner.queue).not.toHaveBeenCalled()
+  })
+
+  it('sends to a done task, which reopens it, as the input bar does', () => {
+    updateTask(database.db, taskId, { state: TaskState.Done, activity: TaskActivity.Working })
+    const runner = fakeRunner()
+    sendToTask(database.db, runner, taskId, 'One more thing.')
+    expect(runner.send).toHaveBeenCalledExactlyOnceWith(taskId, 'One more thing.')
+  })
+
+  it('queues the message while the agent works', () => {
+    updateTask(database.db, taskId, { activity: TaskActivity.Working })
+    const runner = fakeRunner()
+    sendToTask(database.db, runner, taskId, 'And the docs.')
+    expect(runner.queue).toHaveBeenCalledExactlyOnceWith(taskId, 'And the docs.')
+    expect(runner.send).not.toHaveBeenCalled()
+  })
+
+  it('queues the message after all when the agent has just started working', () => {
+    const runner = fakeRunner()
+    runner.send.mockImplementation(() => {
+      throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working')
+    })
+    sendToTask(database.db, runner, taskId, 'And the docs.')
+    expect(runner.queue).toHaveBeenCalledExactlyOnceWith(taskId, 'And the docs.')
+  })
+
+  it('throws any other failure', () => {
+    const runner = fakeRunner()
+    runner.send.mockImplementation(() => {
+      throw new Error('boom')
+    })
+    expect(() => {
+      sendToTask(database.db, runner, taskId, 'Hi')
+    }).toThrow('boom')
+    expect(runner.queue).not.toHaveBeenCalled()
+  })
+
+  it('sends nothing for a blank reply', () => {
+    const runner = fakeRunner()
+    sendToTask(database.db, runner, taskId, '  \n ')
+    expect(runner.send).not.toHaveBeenCalled()
+    expect(runner.queue).not.toHaveBeenCalled()
   })
 })
