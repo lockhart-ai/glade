@@ -2,10 +2,13 @@
 // Captures PNGs of the app from inside Electron, in a window that is never shown, with a throwaway data folder.
 //
 //   npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <file base name>]
+//                         [--seed <fixture.json>]
 //
 // Builds the app into out/testing (see scripts/test-build.mjs, which keeps dev-only pages such as the gallery), then
 // launches Electron on it with the capture spec in GLADE_CAPTURE (see src/main/capture.ts), and a fresh temp folder
-// for the app's data, removed afterwards. Writes one PNG per size, named <name>-<width>x<height>.png.
+// for the app's data, removed afterwards. Writes one PNG per size, named <name>-<width>x<height>.png. With --seed, the
+// app fills that data folder's database from a JSON fixture of sample data first (see src/main/capture-seed.ts and
+// scripts/fixtures/), so the capture shows a populated app rather than the first-run screen.
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -19,7 +22,9 @@ const TIMEOUT_MS = 60_000
 
 function fail(message) {
   console.error(`screenshot: ${message}`)
-  console.error('usage: npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <name>]')
+  console.error(
+    'usage: npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <name>] [--seed <fixture>]',
+  )
   process.exit(2)
 }
 
@@ -37,6 +42,7 @@ try {
       size: { type: 'string', multiple: true },
       route: { type: 'string', default: '' },
       name: { type: 'string' },
+      seed: { type: 'string' },
     },
   }))
 } catch (error) {
@@ -54,6 +60,7 @@ const spec = {
     return { width, height, file: `${name}-${String(width)}x${String(height)}.png` }
   }),
   timeoutMs: TIMEOUT_MS,
+  ...(values.seed === undefined ? {} : { seed: resolve(values.seed) }),
 }
 
 if (!buildForTests()) {

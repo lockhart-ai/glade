@@ -1,0 +1,45 @@
+{
+  "workspace": { "name": "Acme API", "rootPath": "/Users/sample/code/api" },
+  "tasks": [
+    {
+      "title": "Draft release notes for 2.4",
+      "status": "Waiting on you: two questions",
+      "pinned": true,
+      "minutesAgo": 25
+    },
+    {
+      "title": "Investigate slow dashboard query",
+      "status": "Added an index; 2.1s down to 90ms",
+      "state": "done",
+      "pinned": true,
+      "minutesAgo": 7200
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "objective": "Add per-key rate limiting to the public API so one client can't starve the others.",
+      "status": "Waiting on you: pick a limit for /search",
+      "minutesAgo": 4,
+      "selected": true
+    },
+    {
+      "title": "Move image uploads to S3",
+      "status": "Copying existing files, 1,240 of 3,900",
+      "activity": "working",
+      "minutesAgo": 0
+    },
+    {
+      "title": "Fix flaky login test",
+      "status": "Found the race; fix passes 200 local runs",
+      "activity": "working",
+      "minutesAgo": 9
+    },
+    { "title": "Upgrade to Django 5.2", "status": "Upgraded; all tests pass", "state": "done", "minutesAgo": 1440 },
+    { "title": "Add OpenAPI docs", "status": "Schema served at /api/schema", "state": "done", "minutesAgo": 2880 },
+    {
+      "title": "Remove the legacy v1 endpoints",
+      "status": "Removed; clients moved to v2",
+      "state": "done",
+      "minutesAgo": 10080
+    }
+  ]
+}
