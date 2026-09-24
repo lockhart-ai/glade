@@ -6,6 +6,7 @@ import { getTask, listTasks } from '../db/repositories/tasks'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
 import { listWorkspaces } from '../db/repositories/workspaces'
+import { createWorkspaceAt, openWorkspace } from '../workspaces/workspaces'
 import { createTask, markTaskDone, reopenTask, updateTaskFromUser } from '../tasks/service'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
@@ -21,13 +22,27 @@ export type Handlers = {
 export interface HandlerContext {
   readonly db: Database
   readonly emit: Emit
+  /** Shows the native open-folder dialog; resolves with the chosen path, or null when cancelled. */
+  readonly chooseFolder: () => Promise<string | null>
   readonly runner: AgentRunner
 }
 
 export function createHandlers(context: HandlerContext): Handlers {
-  const { db, emit, runner } = context
+  const { db, emit, chooseFolder, runner } = context
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
+    [CommandName.WorkspacesCreate]: ({ rootPath }) => {
+      const creation = createWorkspaceAt(db, rootPath)
+      if (creation.created) emit({ type: EventType.WorkspaceUpdated, workspace: creation.workspace })
+      return creation
+    },
+    [CommandName.WorkspacesOpen]: ({ id }) => {
+      const { workspace, uiState } = openWorkspace(db, id)
+      emit({ type: EventType.WorkspaceUpdated, workspace })
+      for (const entry of uiState) emit({ type: EventType.UiStateChanged, entry })
+      return { workspace }
+    },
+    [CommandName.DialogChooseFolder]: async () => ({ path: await chooseFolder() }),
     [CommandName.TasksList]: ({ workspaceId }) => ({ tasks: listTasks(db, workspaceId) }),
     [CommandName.TasksCreate]: ({ workspaceId }) => ({ task: createTask(context, workspaceId) }),
     [CommandName.TasksMarkDone]: ({ id }) => ({ task: markTaskDone(context, id) }),

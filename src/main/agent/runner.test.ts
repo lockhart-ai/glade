@@ -44,6 +44,7 @@ beforeEach(() => {
     ipc: ipc.main,
     db: database.db,
     targets: () => [ipc.window],
+    chooseFolder: () => Promise.resolve(null),
     agentBackend: backend,
   }))
   glade = createBridge(ipc.renderer)

@@ -54,30 +54,39 @@ export interface GladeData {
  */
 export interface GladeActions {
   /** Subscribes to main's events (once) and loads a fresh snapshot of main's state. Never rejects. */
-  hydrate(): Promise<void>
+  hydrate: () => Promise<void>
+  /**
+   * Adds a workspace rooted at `rootPath` (or finds the one already there) and opens it. Rejects with the
+   * `BridgeError` when the root isn't an existing folder.
+   */
+  createWorkspace: (rootPath: string) => Promise<Workspace>
+  /** Asks for a folder with the native dialog, which can also create one. Resolves with its path, or null if cancelled. */
+  chooseFolder: () => Promise<string | null>
+  /** Opens a workspace: records it as last opened and shows it, deselecting a task in another workspace. */
+  openWorkspace: (workspaceId: string) => Promise<void>
   /** Shows a workspace, or none. Deselects the selected task if it's in another workspace. */
-  selectWorkspace(workspaceId: string | null): Promise<void>
+  selectWorkspace: (workspaceId: string | null) => Promise<void>
   /**
    * Selects a task, or none, and loads its chat log and tool log. Selecting a task in another workspace shows that
    * workspace too.
    */
-  selectTask(taskId: string | null): Promise<void>
+  selectTask: (taskId: string | null) => Promise<void>
   /** Loads a task's chat log and tool log from main. */
-  loadHistory(taskId: string): Promise<void>
-  setUiState(entry: UiStateEntry): Promise<void>
+  loadHistory: (taskId: string) => Promise<void>
+  setUiState: (entry: UiStateEntry) => Promise<void>
   /** Creates an active, empty task in the workspace and selects it. Resolves with the new task. */
-  createTask(workspaceId: string): Promise<Task>
+  createTask: (workspaceId: string) => Promise<Task>
   /** Marks an active task done. */
-  markTaskDone(taskId: string): Promise<void>
+  markTaskDone: (taskId: string) => Promise<void>
   /** Reopens a done task. Straight after `markTaskDone`, this is Undo: it restores every field but `updatedAt`. */
-  reopenTask(taskId: string): Promise<void>
+  reopenTask: (taskId: string) => Promise<void>
   /** Changes the user's fields of a task: its title, pin, unread flag, model or effort. */
-  updateTask(taskId: string, patch: TaskUserPatch): Promise<void>
+  updateTask: (taskId: string, patch: TaskUserPatch) => Promise<void>
   /**
    * Sends the user's message to the task's agent. Resolves once main has saved it; the message and the turn arrive as
    * events. Rejects with `busy` while the agent is working.
    */
-  sendMessage(taskId: string, text: string): Promise<void>
+  sendMessage: (taskId: string, text: string) => Promise<void>
 }
 
 export interface GladeState extends GladeData, GladeActions {}

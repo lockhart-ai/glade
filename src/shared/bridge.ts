@@ -24,6 +24,9 @@ export const EVENT_CHANNEL = 'glade:event'
 
 export enum CommandName {
   WorkspacesList = 'workspaces.list',
+  WorkspacesCreate = 'workspaces.create',
+  WorkspacesOpen = 'workspaces.open',
+  DialogChooseFolder = 'dialog.chooseFolder',
   TasksList = 'tasks.list',
   TasksCreate = 'tasks.create',
   TasksMarkDone = 'tasks.markDone',
@@ -42,6 +45,41 @@ export type EmptyRequest = Record<string, never>
 export interface WorkspacesListResponse {
   /** Every workspace, oldest first. */
   readonly workspaces: readonly Workspace[]
+}
+
+/**
+ * Adds a workspace rooted at an existing folder, named after the folder. If a workspace already has that root, answers
+ * with it instead of adding another. Writes a starter `CLAUDE.md` into a new workspace's root when it has none.
+ * Broadcasts `workspace.updated` when a workspace is added. Fails with `invalid_root_path` when the root isn't an
+ * existing directory.
+ */
+export interface WorkspacesCreateRequest {
+  /** An absolute path to an existing directory. */
+  readonly rootPath: string
+}
+
+export interface WorkspacesCreateResponse {
+  readonly workspace: Workspace
+  /** False when a workspace with that root already existed and is the one answered with. */
+  readonly created: boolean
+}
+
+/**
+ * Opens a workspace: records it as last opened and makes it the window's workspace (deselecting a task in another
+ * workspace). Broadcasts `workspace.updated` and `uiState.changed`. Fails with `not_found` for an unknown id.
+ */
+export interface WorkspacesOpenRequest {
+  readonly id: string
+}
+
+export interface WorkspacesOpenResponse {
+  readonly workspace: Workspace
+}
+
+/** Shows the native open-folder dialog, which can also create a new folder. */
+export interface DialogChooseFolderResponse {
+  /** The chosen folder's absolute path; null when the dialog was cancelled. */
+  readonly path: string | null
 }
 
 export interface TasksListRequest {
@@ -144,6 +182,9 @@ export interface CommandSpec<Request, Response> {
 /** Each command's request and response. Add a command here and the handler registry won't typecheck until it has one. */
 export interface CommandMap {
   [CommandName.WorkspacesList]: CommandSpec<EmptyRequest, WorkspacesListResponse>
+  [CommandName.WorkspacesCreate]: CommandSpec<WorkspacesCreateRequest, WorkspacesCreateResponse>
+  [CommandName.WorkspacesOpen]: CommandSpec<WorkspacesOpenRequest, WorkspacesOpenResponse>
+  [CommandName.DialogChooseFolder]: CommandSpec<EmptyRequest, DialogChooseFolderResponse>
   [CommandName.TasksList]: CommandSpec<TasksListRequest, TasksListResponse>
   [CommandName.TasksCreate]: CommandSpec<TasksCreateRequest, TaskResponse>
   [CommandName.TasksMarkDone]: CommandSpec<TaskIdRequest, TaskResponse>
@@ -175,6 +216,7 @@ export interface UiStateChangedEvent {
   readonly entry: UiStateEntry
 }
 
+/** A workspace was added or changed. Carries the whole workspace as it now is. */
 export interface WorkspaceUpdatedEvent {
   readonly type: EventType.WorkspaceUpdated
   readonly workspace: Workspace
@@ -225,12 +267,14 @@ export enum BridgeErrorCode {
   UnknownCommand = 'unknown_command',
   /** The request doesn't match the command's request type. */
   InvalidRequest = 'invalid_request',
-  /** The command names something that doesn't exist, such as a deleted task. */
+  /** The command names something that doesn't exist, such as a deleted task or workspace. */
   NotFound = 'not_found',
   /** The command asks for a state change the thing's current state doesn't allow, such as reopening an active task. */
   InvalidTransition = 'invalid_transition',
   /** The agent is working on a turn, so it can't take another message yet. */
   Busy = 'busy',
+  /** A workspace root that isn't an existing directory. */
+  InvalidRootPath = 'invalid_root_path',
   /** The handler threw. */
   Internal = 'internal',
 }

@@ -12,6 +12,7 @@ import {
   type MinimumSize,
 } from './capture'
 import { openAppDatabase, type AppDatabase } from './db/database'
+import { chooseFolder } from './dialogs'
 import { checkSecurity, describeViolations } from './security'
 
 /** The `bg` design token, so the window never flashes white before the renderer paints. */
@@ -175,6 +176,7 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
       db: database.db,
       targets: () => BrowserWindow.getAllWindows().map((window) => window.webContents),
       agentBackend: createAgentBackend(),
+      chooseFolder: () => chooseFolder(dialog, BrowserWindow.getFocusedWindow()),
     })
 
     if (capture !== null) {

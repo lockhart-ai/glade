@@ -9,6 +9,13 @@ import { REQUEST_SCHEMAS } from './requests'
 function handlers(overrides: Partial<Handlers> = {}): Handlers {
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: [] }),
+    [CommandName.WorkspacesCreate]: () => {
+      throw new Error('not in these tests')
+    },
+    [CommandName.WorkspacesOpen]: () => {
+      throw new Error('not in these tests')
+    },
+    [CommandName.DialogChooseFolder]: () => ({ path: null }),
     [CommandName.TasksList]: () => ({ tasks: [] }),
     [CommandName.TasksCreate]: () => ({ task: {} as Task }),
     [CommandName.TasksMarkDone]: () => ({ task: {} as Task }),

@@ -1,6 +1,6 @@
 // The bridge end to end: the preload's `window.glade` over a fake IPC pair standing in for Electron's, against the real
 // main-side registry, handlers and repositories on a temporary database.
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { createBridge } from '../../preload/bridge'
 import {
   bridgeError,
@@ -20,14 +20,17 @@ import { fakeIpcPair } from './fake-ipc'
 
 let database: TestDatabase
 let glade: GladeBridge
+let chooseFolder: Mock<() => Promise<string | null>>
 
 beforeEach(() => {
   database = openTestDatabase()
+  chooseFolder = vi.fn(() => Promise.resolve('/code/acme-api'))
   const ipc = fakeIpcPair()
   registerBridge({
     ipc: ipc.main,
     db: database.db,
     targets: () => [ipc.window],
+    chooseFolder,
     agentBackend: new FakeAgentBackend(),
   })
   glade = createBridge(ipc.renderer)
@@ -103,6 +106,23 @@ describe('the bridge', () => {
     )
     expect(events).toEqual([])
     expect(database.db.prepare('SELECT COUNT(*) FROM ui_state').pluck().get()).toBe(0)
+  })
+
+  it('answers dialog.chooseFolder with the folder the dialog chose', async () => {
+    await expect(glade.invoke(CommandName.DialogChooseFolder, {})).resolves.toEqual({ path: '/code/acme-api' })
+    expect(chooseFolder).toHaveBeenCalledOnce()
+  })
+
+  it('opens a workspace, and refuses an unknown one with a typed error', async () => {
+    const workspace = sampleWorkspace(database.db)
+
+    const { workspace: opened } = await glade.invoke(CommandName.WorkspacesOpen, { id: workspace.id })
+
+    expect(opened.lastOpenedAt).toBeGreaterThanOrEqual(workspace.lastOpenedAt)
+    expect(getUiState(database.db, UiStateKey.ActiveWorkspaceId)).toBe(workspace.id)
+    await expect(glade.invoke(CommandName.WorkspacesOpen, { id: 'gone' })).rejects.toEqual(
+      bridgeError(BridgeErrorCode.NotFound, 'workspaces.open: No workspace gone'),
+    )
   })
 
   it('creates a task, marks it done and reopens it, broadcasting task.updated each time', async () => {

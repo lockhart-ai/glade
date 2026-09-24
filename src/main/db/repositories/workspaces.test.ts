@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { openTestDatabase, sampleWorkspace, type TestDatabase } from './test-database'
-import { createWorkspace, getWorkspace, listWorkspaces, updateWorkspace } from './workspaces'
+import { createWorkspace, getWorkspace, getWorkspaceByRoot, listWorkspaces, updateWorkspace } from './workspaces'
 
 let test: TestDatabase
 
@@ -42,6 +42,15 @@ describe('createWorkspace', () => {
 describe('getWorkspace', () => {
   it('is undefined for an unknown id', () => {
     expect(getWorkspace(test.db, 'missing')).toBeUndefined()
+  })
+})
+
+describe('getWorkspaceByRoot', () => {
+  it('finds the workspace with that root, or none', () => {
+    const workspace = sampleWorkspace(test.db, '/code/acme-api')
+
+    expect(getWorkspaceByRoot(test.db, '/code/acme-api')).toEqual(workspace)
+    expect(getWorkspaceByRoot(test.db, '/code/acme-web')).toBeUndefined()
   })
 })
 

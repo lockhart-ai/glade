@@ -1,37 +1,65 @@
-import { act, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName } from '../shared/bridge'
+import type { Workspace } from '../shared/domain'
 import { App } from './App'
 import { GladeStoreProvider } from './store/react'
 import { createGladeStore, type GladeStore } from './store/store'
-import { fakeBridge, refuse, type FakeHandlers } from './store/test-bridge'
+import { fakeBridge, refuse, sampleWorkspace, type FakeHandlers } from './store/test-bridge'
 
-function renderApp(overrides: Partial<FakeHandlers> = {}): GladeStore {
-  const store = createGladeStore(fakeBridge({ workspaces: [], tasks: [], uiState: [] }, overrides).bridge)
+async function renderApp(workspaces: Workspace[], overrides: Partial<FakeHandlers> = {}): Promise<GladeStore> {
+  const store = createGladeStore(fakeBridge({ workspaces, tasks: [], uiState: [] }, overrides).bridge)
   render(
     <GladeStoreProvider store={store}>
       <App />
     </GladeStoreProvider>,
   )
+  await act(() => store.getState().hydrate())
   return store
 }
 
-it('shows a loading state until the store has loaded, then the window layout', async () => {
-  const store = renderApp()
+it('shows a loading state until the store has loaded', () => {
+  const store = createGladeStore(fakeBridge({ workspaces: [], tasks: [], uiState: [] }).bridge)
+  render(
+    <GladeStoreProvider store={store}>
+      <App />
+    </GladeStoreProvider>,
+  )
+
   expect(screen.getByRole('main')).toHaveTextContent('Loading…')
   expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'true')
   expect(screen.queryByRole('navigation')).toBeNull()
-
-  await act(() => store.getState().hydrate())
-
-  expect(screen.getByRole('main', { name: 'Task' })).not.toHaveAttribute('aria-busy')
 })
 
-it('renders the window layout with a placeholder in each region', async () => {
-  const store = renderApp()
-  await act(() => store.getState().hydrate())
+it('shows the first-run screen when there is no workspace', async () => {
+  await renderApp([])
 
-  expect(screen.getByRole('navigation', { name: 'Tasks' })).toHaveTextContent('Sidebar')
+  const sidebar = screen.getByRole('navigation', { name: 'Tasks' })
+  expect(within(sidebar).getByRole('region', { name: 'Workspace' })).toHaveTextContent(
+    'No workspaceOpen a folder to begin',
+  )
+  expect(sidebar).toHaveTextContent('Tasks will appear here once you open a workspace.')
+  expect(screen.getByRole('main', { name: 'Welcome' })).toBeInTheDocument()
+  expect(screen.queryByRole('main', { name: 'Task' })).toBeNull()
+  expect(screen.getByRole('region', { name: 'Terminal' })).toBeInTheDocument()
+})
+
+it('lands in the empty workspace once a folder is chosen', async () => {
+  await renderApp([], { [CommandName.DialogChooseFolder]: () => ({ path: '/Users/sam/code/acme-api' }) })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Open folder…' }))
+
+  expect(await screen.findByRole('main', { name: 'Task' })).toBeInTheDocument()
+  expect(screen.queryByRole('main', { name: 'Welcome' })).toBeNull()
+  const sidebar = screen.getByRole('navigation', { name: 'Tasks' })
+  expect(within(sidebar).getByRole('region', { name: 'Workspace' })).toHaveTextContent('Acme API~/code/acme-api')
+  expect(sidebar).not.toHaveTextContent('Tasks will appear here')
+})
+
+it('renders the window layout with the workspace and a placeholder in each region', async () => {
+  await renderApp([sampleWorkspace('w1')])
+
+  expect(screen.getByRole('region', { name: 'Workspace' })).toHaveTextContent('Acme API/code/w1')
 
   const main = screen.getByRole('main', { name: 'Task' })
   expect(within(main).getByRole('region', { name: 'Task header' })).toHaveTextContent('Task header')
@@ -48,11 +76,9 @@ it('renders the window layout with a placeholder in each region', async () => {
 })
 
 it('says why when the store could not load', async () => {
-  const store = renderApp({
+  await renderApp([], {
     [CommandName.WorkspacesList]: () => refuse(bridgeError(BridgeErrorCode.Internal, 'disk full')),
   })
-
-  await act(() => store.getState().hydrate())
 
   expect(screen.getByRole('main')).toHaveTextContent('Glade couldn’t load: disk full')
   expect(screen.queryByRole('navigation')).toBeNull()

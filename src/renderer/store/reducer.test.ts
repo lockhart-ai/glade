@@ -8,7 +8,7 @@ import {
   type ToolCallEvent,
   type ToolEvent,
 } from '../../shared/domain'
-import { applyEvent, idFromUiState, withHistory } from './reducer'
+import { applyEvent, idFromUiState, withHistory, withOpenedWorkspace } from './reducer'
 import { INITIAL_DATA, type GladeData } from './state'
 import { sampleMessage, sampleTask, sampleWorkspace } from './test-bridge'
 
@@ -143,6 +143,24 @@ describe("a task's logs", () => {
     expect(next.messages.t1).toEqual([early, late])
     expect(next.toolEvents.t1).toEqual([divider, call])
     expect(withHistory(state, 't2', { messages: [], toolEvents: [] }).messages).toEqual({ t2: [] })
+  })
+})
+
+describe('withOpenedWorkspace', () => {
+  const opened = { ...sampleWorkspace('w2'), lastOpenedAt: 5_000 }
+
+  it('records the workspace as it now is and shows it, deselecting a task in another workspace', () => {
+    const next = withOpenedWorkspace({ ...state, selectedTaskId: 't1' }, opened)
+
+    expect(next.workspaces).toEqual([sampleWorkspace('w1'), opened])
+    expect(next.selectedWorkspaceId).toBe('w2')
+    expect(next.selectedTaskId).toBeNull()
+    expect(next.uiState).toEqual({ [UiStateKey.ActiveWorkspaceId]: 'w2', [UiStateKey.SelectedTaskId]: '' })
+  })
+
+  it('keeps a selected task in the same workspace, or none', () => {
+    expect(withOpenedWorkspace({ ...state, selectedTaskId: 't1' }, sampleWorkspace('w1')).selectedTaskId).toBe('t1')
+    expect(withOpenedWorkspace(state, opened).uiState).toEqual({ [UiStateKey.ActiveWorkspaceId]: 'w2' })
   })
 })
 

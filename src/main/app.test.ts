@@ -9,6 +9,7 @@ import { CAPTURE_ENV, type CaptureSpec } from './capture'
 import { FakeAgentBackend } from './agent/fake-backend'
 import { MIGRATIONS } from './db/migrations'
 import { sampleTask, sampleWorkspace } from './db/repositories/test-database'
+import { CHOOSE_FOLDER_OPTIONS } from './dialogs'
 
 type Handler = (...args: unknown[]) => unknown
 
@@ -55,6 +56,7 @@ const electron = vi.hoisted(() => {
     }
 
     static getAllWindows = vi.fn(() => windows)
+    static getFocusedWindow = vi.fn((): FakeWindow | null => windows[0] ?? null)
   }
 
   return {
@@ -81,7 +83,10 @@ const electron = vi.hoisted(() => {
       quit: vi.fn(),
       exit: vi.fn(),
     },
-    dialog: { showErrorBox: vi.fn() },
+    dialog: {
+      showErrorBox: vi.fn(),
+      showOpenDialog: vi.fn(() => Promise.resolve({ canceled: false, filePaths: ['/code/acme-api'] })),
+    },
     ipcMain: { handle: vi.fn<(channel: string, listener: Handler) => void>() },
   }
 })
@@ -282,6 +287,18 @@ describe('startApp', () => {
 
     expect(backend.session.sent.map(({ text }) => text)).toEqual(['Hi'])
     expect(backend.session.closed).toBe(true)
+  })
+
+  it('shows the open-folder dialog as a sheet on the focused window', async () => {
+    await startAndWaitUntilReady()
+    const window = onlyWindow()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    await expect(handler?.({}, CommandName.DialogChooseFolder, {})).resolves.toEqual({
+      ok: true,
+      value: { path: '/code/acme-api' },
+    })
+    expect(electron.dialog.showOpenDialog).toHaveBeenCalledWith(window, CHOOSE_FOLDER_OPTIONS)
   })
 
   it('closes the database when the app quits', async () => {

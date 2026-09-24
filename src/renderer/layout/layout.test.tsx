@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { AppShell, BottomBar, RightPanel, Sidebar, TaskCard, TaskHeader } from '.'
+import { sampleWorkspace } from '../store/test-bridge'
+import { AppShell, BottomBar, RightPanel, Sidebar, SidebarHeader, TaskCard, TaskHeader } from '.'
 
 describe('AppShell', () => {
   it('renders the sidebar, task card and bottom bar slots', () => {
@@ -20,6 +21,27 @@ describe('Sidebar', () => {
     const nav = screen.getByRole('navigation', { name: 'Tasks' })
     expect(nav).toHaveTextContent('Tasks list')
     expect(within(nav).getByTestId('sidebar-title-bar')).toBeEmptyDOMElement()
+  })
+})
+
+describe('SidebarHeader', () => {
+  it('shows the workspace initial, name and root shortened to ~', () => {
+    render(<SidebarHeader workspace={{ ...sampleWorkspace('w1', 'acme API'), rootPath: '/Users/sam/code/api' }} />)
+
+    const header = screen.getByRole('region', { name: 'Workspace' })
+    expect(header).toHaveTextContent('Aacme API~/code/api')
+  })
+
+  it('says to open a folder when there is no workspace', () => {
+    render(<SidebarHeader />)
+
+    expect(screen.getByRole('region', { name: 'Workspace' })).toHaveTextContent('?No workspaceOpen a folder to begin')
+  })
+
+  it('shows a ? badge for a workspace without a name', () => {
+    render(<SidebarHeader workspace={sampleWorkspace('w1', '')} />)
+
+    expect(screen.getByRole('region', { name: 'Workspace' })).toHaveTextContent('?/code/w1')
   })
 })
 

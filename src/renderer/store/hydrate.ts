@@ -1,14 +1,24 @@
 import { CommandName, isBridgeError, type GladeBridge } from '../../shared/bridge'
-import type { Task } from '../../shared/domain'
+import type { Task, Workspace } from '../../shared/domain'
 import { withUiState } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeData } from './state'
 
+/** The most recently opened workspace (the oldest of a tie), or undefined when there are none. */
+export function lastOpenedWorkspace(workspaces: readonly Workspace[]): Workspace | undefined {
+  return workspaces.reduce<Workspace | undefined>(
+    (latest, workspace) => (latest === undefined || workspace.lastOpenedAt > latest.lastOpenedAt ? workspace : latest),
+    undefined,
+  )
+}
+
 /**
  * Drops a restored selection that no longer points at anything: a workspace that's gone, or a task that's gone or
- * isn't in the selected workspace.
+ * isn't in the selected workspace. With no workspace selected, shows the most recently opened one; with no workspaces
+ * at all, none (the first-run state).
  */
 export function restoreSelection(state: GladeData): GladeData {
-  const workspace = state.workspaces.find(({ id }) => id === state.selectedWorkspaceId)
+  const workspace =
+    state.workspaces.find(({ id }) => id === state.selectedWorkspaceId) ?? lastOpenedWorkspace(state.workspaces)
   const task = state.selectedTaskId === null ? undefined : state.tasks[state.selectedTaskId]
   return {
     ...state,
