@@ -42,6 +42,8 @@
   Modules with the design tokens as CSS variables, Zustand (renderer store), better-sqlite3 (main process), Vitest +
   React Testing Library (unit/integration, 100% line coverage), ESLint (typescript-eslint) + Prettier, electron-builder
   (packaging), xterm.js + node-pty (terminal).
+- **Validation:** zod at every boundary (IPC requests, SDK events, tool inputs, JSON from disk); schemas are checked
+  against the named interfaces.
 
 ## Open
 

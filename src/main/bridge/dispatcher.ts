@@ -7,7 +7,7 @@ import {
   type GladeEvent,
 } from '../../shared/bridge'
 import type { Emit, Handlers } from './handlers'
-import { InvalidRequestError, type RequestParsers } from './requests'
+import { describeIssues, type RequestSchemas } from './requests'
 
 /** Runs a command that arrived over IPC. Never throws: every failure comes back as a `BridgeResult` error. */
 export type Dispatch = (command: unknown, request: unknown) => Promise<BridgeResult<unknown>>
@@ -22,28 +22,28 @@ function describe(error: unknown): string {
 
 async function run<C extends CommandName>(
   handlers: Handlers,
-  parsers: RequestParsers,
+  schemas: RequestSchemas,
   command: C,
   raw: unknown,
 ): Promise<BridgeResult<CommandResponse<C>>> {
-  let request
-  try {
-    request = parsers[command](raw)
-  } catch (error) {
-    if (!(error instanceof InvalidRequestError)) throw error
-    return { ok: false, error: bridgeError(BridgeErrorCode.InvalidRequest, `${command}: ${error.message}`) }
+  const parsed = schemas[command].safeParse(raw)
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: bridgeError(BridgeErrorCode.InvalidRequest, `${command}: ${describeIssues(parsed.error)}`),
+    }
   }
-  return { ok: true, value: await handlers[command](request) }
+  return { ok: true, value: await handlers[command](parsed.data) }
 }
 
 /** Validates each request at the boundary, then hands it to the command's handler. */
-export function createDispatcher(handlers: Handlers, parsers: RequestParsers): Dispatch {
+export function createDispatcher(handlers: Handlers, schemas: RequestSchemas): Dispatch {
   return async (command, request) => {
     if (!isCommandName(command)) {
       return { ok: false, error: bridgeError(BridgeErrorCode.UnknownCommand, `Unknown command ${String(command)}`) }
     }
     try {
-      return await run(handlers, parsers, command, request)
+      return await run(handlers, schemas, command, request)
     } catch (error) {
       console.error(`Command ${command} failed`, error)
       return { ok: false, error: bridgeError(BridgeErrorCode.Internal, `${command} failed: ${describe(error)}`) }

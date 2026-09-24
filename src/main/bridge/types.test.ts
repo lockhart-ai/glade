@@ -2,6 +2,7 @@
 // source of truth, so a request or response that disagrees with it on either side of the bridge fails the typecheck.
 // Each `@ts-expect-error` fails the typecheck if its line stops being an error.
 import { describe, expectTypeOf, it } from 'vitest'
+import { z } from 'zod'
 import {
   CommandName,
   EventType,
@@ -12,7 +13,7 @@ import {
 } from '../../shared/bridge'
 import { UiStateKey, type UiStateEntry, type Workspace } from '../../shared/domain'
 import type { Handlers } from './handlers'
-import type { RequestParsers } from './requests'
+import { REQUEST_SCHEMAS, type RequestSchemas } from './requests'
 
 const noop = (...values: unknown[]): unknown[] => values
 /** A stand-in: these tests are about types, so what it answers doesn't matter. */
@@ -51,6 +52,21 @@ describe('the command map', () => {
     noop(workspaces)
   })
 
+  it('refuses a schema registry missing a command, or a schema that disagrees with the map', () => {
+    // @ts-expect-error: uiState.set has no schema.
+    const missing: RequestSchemas = {
+      [CommandName.WorkspacesList]: z.strictObject({}),
+      [CommandName.UiStateGet]: z.strictObject({ key: z.enum(UiStateKey) }),
+    }
+    const wrong: RequestSchemas = {
+      [CommandName.WorkspacesList]: z.strictObject({}),
+      // @ts-expect-error: uiState.get's key is a UiStateKey, not any string.
+      [CommandName.UiStateGet]: z.strictObject({ key: z.string() }),
+      [CommandName.UiStateSet]: z.strictObject({ key: z.enum(UiStateKey), value: z.string() }),
+    }
+    noop(missing, wrong)
+  })
+
   it('refuses a handler registry missing a command', () => {
     // @ts-expect-error: uiState.set has no handler.
     const handlers: Handlers = {
@@ -80,11 +96,14 @@ describe('the command map', () => {
     noop(handlers)
   })
 
-  it('makes the request parsers produce each command request type, for every command', () => {
-    expectTypeOf<ReturnType<RequestParsers[CommandName.UiStateSet]>>().toEqualTypeOf<
-      CommandRequest<CommandName.UiStateSet>
-    >()
-    expectTypeOf<keyof RequestParsers>().toEqualTypeOf<CommandName>()
+  it('has a request schema for every command that parses to exactly its request interface', () => {
+    // Each schema's output and its request interface are assignable both ways: no field missing, none extra.
+    type Matches<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
+    type SchemaMatches = {
+      [C in CommandName]: Matches<z.output<(typeof REQUEST_SCHEMAS)[C]>, CommandRequest<C>>
+    }
+    expectTypeOf<SchemaMatches[CommandName]>().toEqualTypeOf<true>()
+    expectTypeOf<keyof typeof REQUEST_SCHEMAS>().toEqualTypeOf<CommandName>()
     expectTypeOf<keyof Handlers>().toEqualTypeOf<CommandName>()
     expectTypeOf<Awaited<ReturnType<Handlers[CommandName.UiStateGet]>>>().toEqualTypeOf<
       CommandResponse<CommandName.UiStateGet>

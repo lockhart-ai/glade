@@ -3,7 +3,7 @@ import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shar
 import { UiStateKey } from '../../shared/domain'
 import { createBroadcast, createDispatcher } from './dispatcher'
 import type { Handlers } from './handlers'
-import { REQUEST_PARSERS } from './requests'
+import { REQUEST_SCHEMAS } from './requests'
 
 function handlers(overrides: Partial<Handlers> = {}): Handlers {
   return {
@@ -25,7 +25,7 @@ afterEach(() => {
 describe('createDispatcher', () => {
   it('runs the command handler with the parsed request, waiting for async handlers', async () => {
     const get = vi.fn(() => Promise.resolve({ value: 'async' }))
-    const dispatch = createDispatcher(handlers({ [CommandName.UiStateGet]: get }), REQUEST_PARSERS)
+    const dispatch = createDispatcher(handlers({ [CommandName.UiStateGet]: get }), REQUEST_SCHEMAS)
 
     await expect(dispatch('uiState.get', { key: 'active_workspace_id' })).resolves.toEqual({
       ok: true,
@@ -35,7 +35,7 @@ describe('createDispatcher', () => {
   })
 
   it.each([undefined, 42, 'workspaces.delete'])('refuses the unknown command %j', async (command) => {
-    const dispatch = createDispatcher(handlers(), REQUEST_PARSERS)
+    const dispatch = createDispatcher(handlers(), REQUEST_SCHEMAS)
 
     await expect(dispatch(command, {})).resolves.toEqual({
       ok: false,
@@ -45,11 +45,14 @@ describe('createDispatcher', () => {
 
   it('refuses an invalid request without running the handler', async () => {
     const set = vi.fn(() => null)
-    const dispatch = createDispatcher(handlers({ [CommandName.UiStateSet]: set }), REQUEST_PARSERS)
+    const dispatch = createDispatcher(handlers({ [CommandName.UiStateSet]: set }), REQUEST_SCHEMAS)
 
     await expect(dispatch('uiState.set', { key: 'active_workspace_id' })).resolves.toEqual({
       ok: false,
-      error: bridgeError(BridgeErrorCode.InvalidRequest, 'uiState.set: value: expected a string'),
+      error: bridgeError(
+        BridgeErrorCode.InvalidRequest,
+        'uiState.set: value: Invalid input: expected string, received undefined',
+      ),
     })
     expect(set).not.toHaveBeenCalled()
   })
@@ -62,7 +65,7 @@ describe('createDispatcher', () => {
           throw failure
         },
       }),
-      REQUEST_PARSERS,
+      REQUEST_SCHEMAS,
     )
 
     await expect(dispatch('uiState.set', { key: 'active_workspace_id', value: 'x' })).resolves.toEqual({
@@ -72,15 +75,17 @@ describe('createDispatcher', () => {
     expect(console.error).toHaveBeenCalledWith('Command uiState.set failed', failure)
   })
 
-  it('reports a rejected handler or a parser bug as an internal error', async () => {
-    const dispatch = createDispatcher(handlers({ [CommandName.UiStateGet]: () => Promise.reject(new Error('gone')) }), {
-      ...REQUEST_PARSERS,
-      [CommandName.WorkspacesList]: () => {
-        // Not an `InvalidRequestError`, and not even an `Error`.
-        // eslint-disable-next-line @typescript-eslint/only-throw-error
-        throw 'bug'
-      },
-    })
+  it('reports a rejected handler, or one that throws a non-Error, as an internal error', async () => {
+    const dispatch = createDispatcher(
+      handlers({
+        [CommandName.UiStateGet]: () => Promise.reject(new Error('gone')),
+        [CommandName.WorkspacesList]: () => {
+          // eslint-disable-next-line @typescript-eslint/only-throw-error
+          throw 'bug'
+        },
+      }),
+      REQUEST_SCHEMAS,
+    )
 
     await expect(dispatch('uiState.get', { key: 'active_workspace_id' })).resolves.toEqual({
       ok: false,

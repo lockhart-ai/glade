@@ -115,7 +115,10 @@ describe('the bridge', () => {
     const request = { key: 'no_such_key', value: 1 } as never
 
     await expect(glade.invoke(CommandName.UiStateSet, request)).rejects.toEqual(
-      bridgeError(BridgeErrorCode.InvalidRequest, 'uiState.set: key: expected a UI state key'),
+      bridgeError(
+        BridgeErrorCode.InvalidRequest,
+        'uiState.set: key: Invalid input: expected "active_workspace_id"; value: Invalid input: expected string, received number',
+      ),
     )
     expect(events).toEqual([])
     expect(database.db.prepare('SELECT COUNT(*) FROM ui_state').pluck().get()).toBe(0)
