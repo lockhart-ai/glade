@@ -1,0 +1,16 @@
+{
+  "settings": { "controlEnabled": true },
+  "workspace": {
+    "id": "3c1d2e4f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+    "name": "Acme Ops",
+    "rootPath": "/Users/sample/code/ops"
+  },
+  "tasks": [
+    {
+      "title": "Port my Claude Code sessions",
+      "objective": "Bring my past Claude Code sessions into Glade.",
+      "minutesAgo": 5,
+      "selected": true
+    }
+  ]
+}
