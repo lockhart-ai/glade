@@ -7,15 +7,38 @@
   padding: var(--space-inset) var(--space-inset) var(--space-md);
 }
 
+/*
+ * The workspace's badge starts on the sidebar's left edge, where the search field and the filter chips do (#253). The
+ * button around it draws nothing until hovered, so it reaches out past that edge by its border and its left padding,
+ * which is the same as its top and bottom so its hover box wraps the badge evenly.
+ */
 .workspace {
   flex-grow: 1;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--space-md);
-  padding: var(--space-xs) var(--space-item);
+  margin-left: calc(-1 * (var(--space-xs) + 1px));
+  padding: var(--space-xs) var(--space-item) var(--space-xs) var(--space-xs);
   border: 1px solid transparent;
   border-radius: var(--radius-menu);
+}
+
+/*
+ * The collapse button's icon, as drawn, ends on the sidebar's right edge, where New task does (#253). The button is a
+ * smaller square than other icon buttons so its hover box still fits inside the card, and it reaches out past that edge
+ * by the room around its 16px icon: 4px either side of the icon's box, and the 2.6 units of the icon's 24-unit grid
+ * beyond the drawn outline (src/renderer/panels/panelIcons.ts).
+ */
+.collapse {
+  flex-shrink: 0;
+  display: flex;
+  margin-right: calc(-1 * (var(--space-xs) + 16px * 2.6 / 24));
+}
+
+.collapse > button {
+  width: 24px;
+  height: 24px;
 }
 
 /* The button that opens the switcher. */
