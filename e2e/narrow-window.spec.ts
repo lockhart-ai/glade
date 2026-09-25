@@ -95,13 +95,16 @@ test('narrow window: the panel tabs fade where more of them scroll, the input ba
 
   // The tabs don't all fit: the row fades at the end with more past it, and at the start once it has scrolled there.
   const panel = taskPanel(window)
+  // (The strip around the row, with its chevrons, carries which ends overflow.)
   const tabRow = panel.panel.getByRole('tablist', { name: 'Task panels' })
-  await expect(tabRow).toHaveAttribute('data-overflow-end', 'true')
-  await expect(tabRow).toHaveAttribute('data-overflow-start', 'false')
+  const tabStrip = tabRow.locator('..')
+  await expect(tabStrip).toHaveAttribute('data-overflow-end', 'true')
+  await expect(tabStrip).toHaveAttribute('data-overflow-start', 'false')
   await tabRow.hover()
   await window.mouse.wheel(400, 0)
-  await expect(tabRow).toHaveAttribute('data-overflow-start', 'true')
-  await expect(tabRow).toHaveAttribute('data-overflow-end', 'false')
+  await expect(tabStrip).toHaveAttribute('data-overflow-start', 'true')
+  await expect(tabStrip).toHaveAttribute('data-overflow-end', 'false')
+  await expect(panel.panel.getByRole('button', { name: 'Scroll tabs left' })).toBeVisible()
   // Whole but for a subpixel at the rounded end.
   await expect(panel.tab('Subagents')).toBeInViewport({ ratio: 0.98 })
 
