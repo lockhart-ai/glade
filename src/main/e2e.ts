@@ -100,21 +100,43 @@ export function createE2eDesktop(): {
  */
 export const E2E_AGENT_GLOBAL = '__gladeE2eAgent'
 
+/** What a session of e2e mode's scripted agent was started with, as the SDK backend would hand it to the SDK. */
+export interface E2eAgentSession {
+  /** What Glade appends to Claude Code's system prompt. */
+  readonly systemPromptAppend: string
+  /** The session it resumed, or null for a new one. */
+  readonly resumeSessionId: string | null
+}
+
 /** What e2e mode's scripted agent was sent (`E2E_AGENT_GLOBAL`), oldest first. */
 export interface E2eAgent {
   /** Each message's content, as the SDK backend would hand it to the agent. */
   readonly received: UserContent[]
+  /** Each session started or resumed. */
+  readonly sessions: E2eAgentSession[]
+}
+
+/** What records the scripted agent's sessions and messages for a spec (`createE2eAgent`). */
+export interface E2eAgentRecorder {
+  readonly onSent: (content: UserContent) => void
+  readonly onStart: (session: E2eAgentSession) => void
 }
 
 /**
  * Puts an empty `E2eAgent` on the global object for a spec to read (`E2E_AGENT_GLOBAL`), and answers with what hears
- * each message the scripted agent is sent: it records the message's content.
+ * each session the scripted agent starts and each message it's sent: it records the session's options and the
+ * message's content.
  */
-export function createE2eAgent(): (content: UserContent) => void {
-  const agent: E2eAgent = { received: [] }
+export function createE2eAgent(): E2eAgentRecorder {
+  const agent: E2eAgent = { received: [], sessions: [] }
   Reflect.set(globalThis, E2E_AGENT_GLOBAL, agent)
-  return (content) => {
-    agent.received.push(content)
+  return {
+    onSent: (content) => {
+      agent.received.push(content)
+    },
+    onStart: ({ systemPromptAppend, resumeSessionId }) => {
+      agent.sessions.push({ systemPromptAppend, resumeSessionId })
+    },
   }
 }
 

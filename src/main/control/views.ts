@@ -2,6 +2,7 @@
  * What the control API says of workspaces, tasks and chats (`docs/control-api.md`, "Types"): plain JSON, made from the
  * rows the window reads, with the fields another agent needs and nothing of the window's own.
  */
+import { join } from 'node:path'
 import type { Database } from 'better-sqlite3'
 import { needsYou } from '../../shared/attention'
 import {
@@ -23,6 +24,8 @@ import {
 } from '../../shared/domain'
 import { toolDisplayName } from '../../shared/toolName'
 import { argumentSummary } from '../../shared/toolSummary'
+import { listArtifacts } from '../db/repositories/artifacts'
+import { getExternalId, getHandoff } from '../db/repositories/backfills'
 import { lastTurn, turnStartedAt } from '../db/repositories/messages'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import type { TaskCounts } from '../db/repositories/tasks'
@@ -65,6 +68,19 @@ export interface TaskDetailPause {
   readonly resumesAt: EpochMs
 }
 
+/** A task's handoff note, from a backfill: Markdown, and when it was set. */
+export interface TaskDetailHandoff {
+  readonly body: string
+  readonly addedAt: EpochMs
+}
+
+/** One of a task's artifacts: its file's absolute path, its title, and when it was first declared or registered. */
+export interface TaskDetailArtifact {
+  readonly path: string
+  readonly title: string
+  readonly addedAt: EpochMs
+}
+
 /** A task as its header card and its sidebar row show it. */
 export interface TaskDetail extends TaskSummary {
   readonly workspace: WorkspaceSummary
@@ -88,6 +104,12 @@ export interface TaskDetail extends TaskSummary {
   readonly createdAt: EpochMs
   /** The SDK's id for its agent's session; null before its first turn. */
   readonly sessionId: string | null
+  /** Its handoff note (the Backfilled card); null when it has none. */
+  readonly handoff: TaskDetailHandoff | null
+  /** Its artifacts (the Artifacts tab), in the order they were first declared. */
+  readonly artifacts: readonly TaskDetailArtifact[]
+  /** The caller's own id it was created with (`create_task`'s `externalId`); null when it has none. */
+  readonly externalId: string | null
 }
 
 /** A message in the chat. */
@@ -166,7 +188,19 @@ export function taskDetail(db: Database, task: Task, workspace: WorkspaceSummary
     turns: lastTurn(db, task.id),
     createdAt: task.createdAt,
     sessionId: task.sessionId,
+    handoff: handoffOf(db, task.id),
+    artifacts: listArtifacts(db, task.id).map(({ path, title, addedAt }) => ({
+      path: join(workspace.rootPath, path),
+      title,
+      addedAt,
+    })),
+    externalId: getExternalId(db, task.id),
   }
+}
+
+function handoffOf(db: Database, taskId: string): TaskDetailHandoff | null {
+  const handoff = getHandoff(db, taskId)
+  return handoff === undefined ? null : { body: handoff.body, addedAt: handoff.addedAt }
 }
 
 function chatMessage(message: Message): ChatMessage {

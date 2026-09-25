@@ -281,6 +281,7 @@ import {
 import { checkedOffline, createPauseTimers, pauseFor, pauseReason, type UsageLimit } from './pauses'
 import { describeSdkMessage } from './sdk-message-log'
 import { systemPromptAppend } from './system-prompt'
+import { getHandoff } from '../db/repositories/backfills'
 import { summarizeTurn } from './turn-summary'
 
 export interface AgentRunnerOptions {
@@ -1395,7 +1396,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       effort: task.effort,
       permissionMode: task.permissionMode,
       resumeSessionId: task.sessionId,
-      systemPromptAppend: systemPromptAppend(task, getSettings(db), CONTROL_SERVER in servers),
+      systemPromptAppend: systemPromptAppend(
+        task,
+        getSettings(db),
+        CONTROL_SERVER in servers,
+        getHandoff(db, task.id) ?? null,
+      ),
       mcpServers: servers,
       allowedRules,
       log: agentLog(task.id),

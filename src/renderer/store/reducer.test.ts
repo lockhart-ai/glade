@@ -151,6 +151,7 @@ describe('a deleted task', () => {
       todos: { t1: null },
       openFiles: { t1: { taskId: 't1', paths: ['README.md'], activePath: 'README.md' } },
       artifacts: { t1: [{ taskId: 't1', path: 'README.md', title: 'Readme', addedAt: 1, updatedAt: 1 }] },
+      handoffs: { t1: { taskId: 't1', body: '## Where it got to', addedAt: 1 } },
       toolLogFocus: { taskId: 't1', turn: 1, request: 1 },
       fileFocus: { taskId: 't1', path: 'README.md', line: null, request: 1 },
       renamingTaskId: 't1',
@@ -170,6 +171,7 @@ describe('a deleted task', () => {
       todos: {},
       openFiles: {},
       artifacts: {},
+      handoffs: {},
       toolLogFocus: null,
       fileFocus: null,
       renamingTaskId: null,
@@ -221,6 +223,7 @@ describe("a task's logs", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
+      handoff: null,
     })
 
     expect(applyEvent(loaded, { type: EventType.ToolEventUpdated, toolEvent: done }).toolEvents).toEqual({
@@ -248,6 +251,7 @@ describe("a task's logs", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
+      handoff: null,
     })
 
     expect(next.messages.t1).toEqual([early, late])
@@ -262,6 +266,7 @@ describe("a task's logs", () => {
         openFiles: noOpenFiles('t2'),
         todos: null,
         artifacts: [],
+        handoff: null,
       }).messages,
     ).toEqual({ t2: [] })
   })
@@ -287,6 +292,7 @@ describe("a task's queue", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
+      handoff: null,
     })
     expect(loaded.queuedMessages).toEqual({ t1: [second] })
   })
@@ -325,6 +331,7 @@ describe("a task's questions", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
+      handoff: null,
     }
     expect(withHistory(state, 't1', { ...empty, questionSets: [answered] }).questionSets).toEqual({ t1: [answered] })
   })
@@ -367,6 +374,7 @@ describe("a task's permission requests", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
+      handoff: null,
     }
     // A request opened while the history loaded stays, after the loaded ones.
     const loaded = withHistory(asked, 't1', { ...empty, permissionRequests: [denied] })
@@ -392,6 +400,7 @@ describe("a task's open files", () => {
       permissionRequests: [],
       todos: null,
       artifacts: [],
+      handoff: null,
     }
     expect(withHistory(changed, 't1', { ...empty, openFiles: noOpenFiles('t1') }).openFiles).toEqual({
       t1: noOpenFiles('t1'),
@@ -426,6 +435,7 @@ describe("a task's artifacts", () => {
     openFiles: noOpenFiles('t1'),
     todos: null,
     artifacts,
+    handoff: null,
   })
 
   it('takes the whole list from each change, and from a history load unless a change brought a newer one', () => {
@@ -456,6 +466,7 @@ describe("a task's todo list", () => {
     openFiles: noOpenFiles('t1'),
     todos,
     artifacts: [],
+    handoff: null,
   })
 
   it('takes the list from each change, whole', () => {

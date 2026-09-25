@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DividerKind, MessageRole, QuestionKind, type Task, type Workspace } from '../../../shared/domain'
 import { GIF, PNG } from '../../../shared/test-images'
 import { addArtifact } from './artifacts'
+import { setExternalId, setHandoff } from './backfills'
 import { appendMessage } from './messages'
 import { setOpenFiles } from './open-files'
 import { appendPermissionRequest } from './permission-requests'
@@ -82,6 +83,8 @@ function fillTask(db: Database, task: Task): void {
     suppressAlwaysAllowRule: false,
   })
   addTaskPermissionRule(db, { taskId, rule: { toolName: 'Bash', ruleContent: 'npm test *' } })
+  setHandoff(db, taskId, '## Where it got to')
+  setExternalId(db, taskId, `notes/${taskId}`)
 }
 
 /** The tables `fillTask` writes to. A new table that belongs to a task fails the test below until it's added here. */
@@ -96,6 +99,8 @@ const FILLED_TABLES = [
   'queued_messages',
   // The search index's rows for its fields and messages, which a new task and `fillTask`'s message make.
   'search_documents',
+  // Its handoff note and the caller's own id for it, from a backfill through the control API.
+  'task_backfills',
   // The permission rules granted it with Allow for this task.
   'task_permission_rules',
   'tool_events',

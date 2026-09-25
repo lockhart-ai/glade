@@ -412,6 +412,14 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
         ],
       },
     ],
+    [EventType.HandoffChanged]: [
+      {
+        type: EventType.HandoffChanged,
+        taskId: created.id,
+        handoff: { taskId: created.id, body: secret('handoff'), addedAt: 1 },
+      },
+      { type: EventType.HandoffChanged, taskId: created.id, handoff: null },
+    ],
     [EventType.TaskOpenRequested]: [{ type: EventType.TaskOpenRequested, taskId: created.id }],
     [EventType.UiStateChanged]: [
       { type: EventType.UiStateChanged, entry: { key: UiStateKey.RelaunchNotice, value: secret('ui_state') } },

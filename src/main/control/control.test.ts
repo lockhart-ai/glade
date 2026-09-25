@@ -181,6 +181,9 @@ describe('get_task', () => {
         turns: 1,
         createdAt: before.createdAt,
         sessionId: 'session-1',
+        handoff: null,
+        artifacts: [],
+        externalId: null,
       },
     })
     // A read never marks a task read, and tells no window anything.

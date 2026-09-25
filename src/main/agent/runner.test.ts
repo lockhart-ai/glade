@@ -198,6 +198,8 @@ function drainEvents(): (readonly unknown[])[] {
         return [event.type, event.todos?.items.map(({ text, state }) => [text, state]) ?? null]
       case EventType.ArtifactsChanged:
         return [event.type, event.artifacts.map(({ path }) => path)]
+      case EventType.HandoffChanged:
+        return [event.type, event.handoff?.body ?? null]
       case EventType.QuestionOpened:
       case EventType.QuestionAnswered:
       case EventType.QuestionWithdrawn:
@@ -378,6 +380,7 @@ describe('a turn', () => {
       openFiles: { taskId: task.id, paths: [], activePath: null },
       todos: null,
       artifacts: [],
+      handoff: null,
     })
   })
 
@@ -2814,6 +2817,7 @@ describe('several tasks at once', () => {
       case EventType.FileShown:
       case EventType.TodosChanged:
       case EventType.ArtifactsChanged:
+      case EventType.HandoffChanged:
         return event.taskId
       case EventType.OpenFilesChanged:
         return event.openFiles.taskId
@@ -2869,6 +2873,7 @@ describe('several tasks at once', () => {
       case EventType.FileShown:
       case EventType.TodosChanged:
       case EventType.ArtifactsChanged:
+      case EventType.HandoffChanged:
       case EventType.TerminalTabsChanged:
       case EventType.TerminalOutput:
       case EventType.TerminalCleared:

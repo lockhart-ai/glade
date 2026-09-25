@@ -760,6 +760,23 @@ export interface Artifact {
   readonly updatedAt: EpochMs
 }
 
+/** How long a task's handoff note may be: 32 KB of UTF-8. */
+export const MAX_HANDOFF_BYTES = 32 * 1024
+
+/**
+ * A task's handoff note (`docs/control-api.md`, "Backfilling past tasks"): Markdown saying what the task was, where it
+ * got to, what was decided, what's next and where its notes live, set through the control API when a past task is
+ * backfilled. Its agent always has it in its system prompt, and the chat shows it on the Backfilled card. The window
+ * never changes it.
+ */
+export interface TaskHandoff {
+  readonly taskId: string
+  /** Markdown, at most `MAX_HANDOFF_BYTES` of UTF-8. */
+  readonly body: string
+  /** When it was last set. */
+  readonly addedAt: EpochMs
+}
+
 /** What looking at an artifact's file found. */
 export enum FileInfoKind {
   /** A text file: its lines are counted. */

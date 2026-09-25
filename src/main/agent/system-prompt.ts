@@ -3,7 +3,7 @@
  * objective and status current with the Glade tools (`./glade-tools`), and when to ask the user with `ask`. Anything about files on disk comes from
  * the workspace's CLAUDE.md, not from here (`docs/model-surface.md`).
  */
-import type { Task } from '../../shared/domain'
+import type { Task, TaskHandoff } from '../../shared/domain'
 import { CONTROL_SERVER } from '../control/names'
 import { ALL_UPKEEP, GladeTool, type AgentUpkeep } from './glade-tools'
 
@@ -16,12 +16,37 @@ export const CONTROL_TOOLS_LINE =
   "they list, read, create, change, message and delete Glade's tasks. Use them only when the user asks you to work " +
   'with Glade or its other tasks.'
 
+/** The heading the handoff note goes under in the prompt. */
+export const HANDOFF_HEADING = 'Handoff for this task (backfilled from earlier notes)'
+
+/**
+ * What the prompt says of a task's handoff note (`docs/control-api.md`, "Backfilling past tasks"): the note itself,
+ * under a short heading, and that the paths it names are real. It's in the prompt, not the chat, so it survives
+ * compaction.
+ */
+export function handoffSection(handoff: TaskHandoff): string {
+  return [
+    `## ${HANDOFF_HEADING}`,
+    '',
+    'This task was worked on before it was in Glade. This note says what it was, where it got to, the decisions ' +
+      "made, what's next, and where its notes, artifacts and history are. Pick up from here. The paths it names are " +
+      'real: read them when you need more than the note says.',
+    '',
+    handoff.body,
+  ].join('\n')
+}
+
 /**
  * The prompt for `task`'s session. With `upkeep` turned off in Settings, it leaves out asking for a title or a status,
  * as the session's Glade tools leave out the tools for them. With `control`, the session has the `glade-control`
- * tools, and the prompt says so in one line.
+ * tools, and the prompt says so in one line. With a `handoff`, the prompt ends with it (`handoffSection`).
  */
-export function systemPromptAppend(task: Task, upkeep: AgentUpkeep = ALL_UPKEEP, control = false): string {
+export function systemPromptAppend(
+  task: Task,
+  upkeep: AgentUpkeep = ALL_UPKEEP,
+  control = false,
+  handoff: TaskHandoff | null = null,
+): string {
   const named = task.title !== ''
   const lines = [
     'You are running inside Glade, a desktop app that runs Claude agent sessions as tasks.',
@@ -56,5 +81,6 @@ export function systemPromptAppend(task: Task, upkeep: AgentUpkeep = ALL_UPKEEP,
       'with its path and a short title, so it shows in the Artifacts tab and stays with the task after it is done.',
   )
   if (control) lines.push('', CONTROL_TOOLS_LINE)
+  if (handoff !== null) lines.push('', handoffSection(handoff))
   return lines.join('\n')
 }

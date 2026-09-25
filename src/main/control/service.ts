@@ -8,25 +8,28 @@
  * turn into the same codes.
  */
 import type { Database } from 'better-sqlite3'
-import { BridgeErrorCode } from '../../shared/bridge'
+import { BridgeErrorCode, EventType } from '../../shared/bridge'
 import { TaskState, type Effort, type PermissionMode, type Task } from '../../shared/domain'
 import type { AgentRunner } from '../agent/runner'
-import type { Emit } from '../bridge/events'
+import { emitTaskUpdated, type Emit } from '../bridge/events'
 import { CommandFailure } from '../bridge/errors'
+import { addArtifact, listArtifacts } from '../db/repositories/artifacts'
+import { findTaskByExternalId, getHandoff, setExternalId, setHandoff } from '../db/repositories/backfills'
 import { lastTurn, listMessages } from '../db/repositories/messages'
 import { searchTaskIds } from '../db/repositories/search'
-import { countTasksByWorkspace, getTasks, listTaskIds } from '../db/repositories/tasks'
+import { countTasksByWorkspace, getTasks, listTaskIds, updateTask } from '../db/repositories/tasks'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { getWorkspace, listWorkspaces } from '../db/repositories/workspaces'
 import {
   changeTask,
-  createTask,
   deleteTask,
+  insertNewTask,
   markTaskDone,
   reopenTask,
   requireTask,
   type TaskChange,
 } from '../tasks/service'
+import { checkArtifacts, startedAt as startedAtOf, type ArtifactRegistration, type CheckedArtifact } from './backfill'
 import { ControlError, ControlErrorCode } from './errors'
 import { createListings } from './listings'
 import {
@@ -92,6 +95,31 @@ export interface NewTaskRequest {
   readonly model?: string
   readonly effort?: Effort
   readonly permissionMode?: PermissionMode
+  /** Its handoff note, Markdown, for a past task backfilled (`docs/control-api.md`, "Backfilling past tasks"). */
+  readonly handoff?: string
+  /** Files of its workspace to register as its artifacts, by absolute path. */
+  readonly artifacts?: readonly ArtifactRegistration[]
+  /**
+   * When it started, as an ISO 8601 date: its created time, and its done time too when it's created done. Now by
+   * default.
+   */
+  readonly startedAt?: string
+  /** Done creates it done, which takes no first message; active by default. */
+  readonly state?: TaskState
+  /** The caller's own id for it: creating a task with an id another already has answers with that task instead. */
+  readonly externalId?: string
+}
+
+/** What `create_task` did: the task, and whether it made it (false when a task already had its `externalId`). */
+export interface CreatedTask {
+  readonly task: TaskDetail
+  readonly created: boolean
+}
+
+/** The changes `update_task` makes: the task's fields, its handoff note (null clears it) and artifacts to register. */
+export interface TaskUpdate extends TaskChange {
+  readonly handoff?: string | null
+  readonly artifacts?: readonly ArtifactRegistration[]
 }
 
 /** What sending a message did with it, as the input bar decides. */
@@ -118,8 +146,8 @@ export interface ControlService {
   listTasks(request: TaskListRequest): TaskPage
   getTask(id: string): TaskDetail
   getChat(request: ChatRequest): ChatPage
-  createTask(request: NewTaskRequest): TaskDetail
-  updateTask(id: string, change: TaskChange): TaskDetail
+  createTask(request: NewTaskRequest): Promise<CreatedTask>
+  updateTask(id: string, update: TaskUpdate): Promise<TaskDetail>
   sendMessage(id: string, text: string): SentMessage
   stopTask(id: string): Promise<TaskDetail>
   markDone(id: string): TaskDetail
@@ -140,8 +168,9 @@ function stateOf(filter: TaskStateFilter): TaskState | null {
 }
 
 export function createControlService(context: ControlServiceContext): ControlService {
-  const { db, runner } = context
+  const { db, emit, runner } = context
   const listings = createListings(context.now)
+  const now = context.now ?? Date.now
 
   const summaryOf = (workspaceId: string): WorkspaceSummary => {
     const workspace = getWorkspace(db, workspaceId)
@@ -152,6 +181,16 @@ export function createControlService(context: ControlServiceContext): ControlSer
   const detail = (task: Task): TaskDetail => taskDetail(db, task, summaryOf(task.workspaceId))
 
   const detailOf = (id: string): TaskDetail => detail(requireTask(db, id))
+
+  const registerArtifacts = (taskId: string, checked: readonly CheckedArtifact[], at: number): void => {
+    for (const { path, title } of checked) addArtifact(db, { taskId, path, title }, at)
+  }
+
+  /** Tells every window a task's handoff note, or its artifacts, changed. */
+  const announceBackfill = (taskId: string, handoff: boolean, artifacts: boolean): void => {
+    if (handoff) emit({ type: EventType.HandoffChanged, taskId, handoff: getHandoff(db, taskId) ?? null })
+    if (artifacts) emit({ type: EventType.ArtifactsChanged, taskId, artifacts: listArtifacts(db, taskId) })
+  }
 
   /** The order a listing's first page fixes: the search's ranking, or pinned first then newest first. */
   const orderOf = (request: TaskListRequest): string[] => {
@@ -206,14 +245,56 @@ export function createControlService(context: ControlServiceContext): ControlSer
       }
     },
 
-    createTask({ workspaceId, message, ...fields }) {
-      const task = createTask(context, workspaceId, fields)
-      if (message !== undefined) runner.send(task.id, message)
-      return detailOf(task.id)
+    async createTask(request) {
+      const { workspaceId, message, handoff, artifacts = [], state = TaskState.Active, externalId, ...fields } = request
+      if (state === TaskState.Done && message !== undefined) {
+        throw new ControlError(
+          ControlErrorCode.InvalidInput,
+          'message: a task created done takes no first message; send it one with send_message to reopen it',
+        )
+      }
+      const existing = (): string | undefined =>
+        externalId === undefined ? undefined : findTaskByExternalId(db, externalId)
+      const found = existing()
+      if (found !== undefined) return { task: detailOf(found), created: false }
+      const at = now()
+      const started = request.startedAt === undefined ? at : startedAtOf(request.startedAt, at)
+      const checked = await checkArtifacts(summaryOf(workspaceId).rootPath, artifacts, 'artifacts')
+      const write = db.transaction((): { readonly id: string; readonly created: boolean } => {
+        // Another create with the same id may have finished while this one looked at the files.
+        const raced = existing()
+        if (raced !== undefined) return { id: raced, created: false }
+        const { id } = insertNewTask(db, workspaceId, fields, started)
+        if (externalId !== undefined) setExternalId(db, id, externalId)
+        if (handoff !== undefined) setHandoff(db, id, handoff, at)
+        registerArtifacts(id, checked, at)
+        if (state === TaskState.Done) updateTask(db, id, { state }, started)
+        return { id, created: true }
+      })
+      const { id, created } = write()
+      if (!created) return { task: detailOf(id), created }
+      emitTaskUpdated(emit, requireTask(db, id))
+      announceBackfill(id, handoff !== undefined, checked.length > 0)
+      if (message !== undefined) runner.send(id, message)
+      return { task: detailOf(id), created }
     },
 
-    updateTask(id, change) {
-      return detail(changeTask(context, id, change))
+    async updateTask(id, { handoff, artifacts = [], ...change }) {
+      const checked = await checkArtifacts(
+        summaryOf(requireTask(db, id).workspaceId).rootPath,
+        artifacts,
+        'patch.artifacts',
+      )
+      // A patch of only the handoff and artifacts leaves the task as it is, so it keeps its place in the sidebar.
+      const changesTask = Object.values(change).some((value) => value !== undefined)
+      const task = changesTask ? changeTask(context, id, change) : requireTask(db, id)
+      const at = now()
+      db.transaction(() => {
+        if (handoff !== undefined) setHandoff(db, id, handoff, at)
+        registerArtifacts(id, checked, at)
+      })()
+      announceBackfill(id, handoff !== undefined, checked.length > 0)
+      return detail(task)
     },
 
     sendMessage(id, text) {

@@ -17,6 +17,7 @@ import type { SettingsSection } from '../settings/sections'
 import type { Command, MenuState } from '../../shared/commands'
 import type {
   Artifact,
+  TaskHandoff,
   FileContent,
   FileInfo,
   Message,
@@ -167,6 +168,11 @@ export interface GladeData {
   readonly openFiles: Readonly<Record<string, OpenFiles>>
   /** Each task's artifacts (the Artifacts tab), by task id: loaded with its logs, then kept current by events. */
   readonly artifacts: Readonly<Record<string, readonly Artifact[]>>
+  /**
+   * Each task's handoff note (the Backfilled card), by task id, null when it has none: loaded with its logs, then kept
+   * current by events.
+   */
+  readonly handoffs: Readonly<Record<string, TaskHandoff | null>>
   /**
    * Each task's todo list (the Todos tab), by task id, null when the agent has kept none: loaded with its logs, then
    * kept current by events.
@@ -508,6 +514,7 @@ export const INITIAL_DATA: GladeData = {
   permissionRequests: {},
   openFiles: {},
   artifacts: {},
+  handoffs: {},
   todos: {},
   uiState: {},
   toolLogFocus: null,

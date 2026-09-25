@@ -27,7 +27,8 @@
  *   the session started with (`allowedRules`), or one an answer added (Allow for this task).
  * - A `ControlTool` step calls one of Glade's control tools (`glade-control`) through its real handler, once allowed:
  *   in the ask mode it asks the runner first, as Claude Code does for an MCP tool that isn't in its allowed tools, with
- *   the SDK saying the tool is on the in-process `glade-control` server.
+ *   the SDK saying the tool is on the in-process `glade-control` server. Its input can depend on the session's folder,
+ *   for a call that names files in it by absolute path.
  * - A `Fail` step kills the session: its message stream throws, and it plays nothing more.
  * - The script can be picked by the session's first message (a `ScriptChooser`), so different tasks can play different
  *   scripts. A chooser that has none for it kills the session as a `Fail` step would.
@@ -740,12 +741,13 @@ export class ScriptedSession implements AgentSession {
    */
   private async controlTool(turn: TurnState, step: ControlToolStep, uuid: string | null): Promise<void> {
     const name = controlToolName(step.tool)
-    this.toolUse(turn, step.id, name, step.input, null, uuid)
-    const answer = await this.permitted(turn, { id: step.id, name, input: step.input }, CONTROL_ORIGIN)
+    const input = typeof step.input === 'function' ? step.input(this.options.session.cwd) : step.input
+    this.toolUse(turn, step.id, name, input, null, uuid)
+    const answer = await this.permitted(turn, { id: step.id, name, input }, CONTROL_ORIGIN)
     if (answer === null) return
     switch (answer.behavior) {
       case ToolPermissionBehavior.Allow: {
-        const outcome = await this.tools.call(name, step.input)
+        const outcome = await this.tools.call(name, input)
         if (!turn.isInterrupted) this.toolResult(turn, step.id, outcome.output, outcome.isError)
         return
       }
