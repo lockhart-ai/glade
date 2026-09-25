@@ -29,6 +29,8 @@ illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
 | 20 · First run | No workspace yet: Open folder / Create a new folder. | ![20 · First run](screens/20-first-run.png) |
 | 21 · Settings | Modal; Agent section shown. | ![21 · Settings](screens/21-settings.png) |
 | 22 · Keymap | Every shortcut. Also in `../keymap.md`. | ![22 · Keymap](screens/22-keymap.png) |
+| 23 · Permission card | Ask before edits and commands: a subagent's Edit waiting on you, with Deny's note field open; cards collapsed to one line once allowed once, denied (with the note) or withdrawn. Built from the question card; no original design. | ![23 · Permission card](screens/23-permission-card.png) |
+| 24 · Permissions picker | The input bar's Permissions picker open on Allow all and Ask before edits and commands, over an open Bash card. | ![24 · Permissions picker](screens/24-permissions-picker.png) |
 | Interaction map | Every screen, state and action as a graph. | ![Interaction map](screens/interaction-map.png) |
 | Decisions | The decisions board. | ![Decisions](screens/decisions.png) |
 | Icon exploration | Variations of the chosen icon; W07 is the one. | ![Icon exploration](screens/icon-exploration.png) |
