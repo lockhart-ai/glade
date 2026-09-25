@@ -38,6 +38,10 @@ force-push.
 
 ### Tests
 
+- **Bug fixes recreate the bug.** A bug-fix PR adds a test that fails without the fix and passes with it, and the PR
+  description names that test.
+- **Features get stressed, not just covered.** A feature PR adds tests that push on it: edge cases, failure paths and
+  interactions with the rest of the app. 100% line coverage alone isn't enough.
 - **No real Claude API.** Unit and integration tests use the fake backend; e2e uses the scripted fake agent
   (`launch({ agentScript })`, scripts in `src/main/agent/scripts.ts`).
 - **UI changes need an e2e spec.** A PR that changes the UI adds or extends a Playwright spec in `e2e/` that drives the
@@ -61,6 +65,7 @@ force-push.
 ## Supervisor
 
 - **Review for real** against the issue, the designs and the media before approving. Send fixes back to the kitten.
+  A bug fix without a test that recreates the bug, or a feature whose tests only cover its lines, goes back too.
 - **Publish media** with `node scripts/publish-media.mjs <N> <folder>` (`--dry-run` first to check the new body). It
   pushes to the orphan `screenshots` branch and rewrites the PR's Screenshots and Recordings sections.
 - **Merge** by approving, then queueing with `node scripts/gh-team.mjs pr merge <N>`. Don't use `--auto`: it doesn't

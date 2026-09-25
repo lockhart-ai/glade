@@ -60,7 +60,9 @@ spacing), `docs/keymap.md`, `docs/context-menus.md`, `docs/releasing.md` (cuttin
 - **Tests:** unit and integration tests, with **100% line coverage** enforced in CI. Any exclusion from coverage is
   explicit and has a comment saying why. Tests never talk to the real Claude API: unit, integration and e2e tests all
   mock the agent layer (a global Vitest guard enforces it, and the e2e and capture modes always use the scripted test
-  backend). Real API calls are only for quick probes of a response shape and for Jared's manual testing.
+  backend). Real API calls are only for quick probes of a response shape and for Jared's manual testing. Coverage
+  isn't enough on its own: a bug fix adds a test that fails without the fix, and a feature adds tests that stress it
+  (edge cases, failure paths, interactions).
 
 ## Stack
 
