@@ -3,9 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  createE2eAgentEnvs,
   createE2eDesktop,
   createE2eEditor,
   createE2eNetwork,
+  E2E_AGENT_ENVS_GLOBAL,
   E2E_CHOSEN_FOLDER_ENV,
   E2E_DESKTOP_GLOBAL,
   E2E_EDITOR_GLOBAL,
@@ -15,6 +17,7 @@ import {
   E2eSpecError,
   prepareE2e,
   readE2eSpec,
+  type E2eAgentEnvs,
   type E2eDesktop,
   type E2eEditor,
   type E2eNetwork,
@@ -61,6 +64,9 @@ describe('readE2eSpec', () => {
     expect(readE2eSpec(env(spec({ seed: '/repo/e2e/seeds/a.json' })), false)).toEqual(
       spec({ seed: '/repo/e2e/seeds/a.json' }),
     )
+    expect(readE2eSpec(env(spec({ loginShell: '/tmp/glade-e2e/login-shell' })), false)).toEqual(
+      spec({ loginShell: '/tmp/glade-e2e/login-shell' }),
+    )
   })
 
   it('rejects a spec that is not JSON', () => {
@@ -73,6 +79,7 @@ describe('readE2eSpec', () => {
     ['the temp folder itself as the data folder', spec({ userData: tmpdir() })],
     ['a route that is not a hash', spec({ route: 'gallery' })],
     ['a seed that is not an absolute path', spec({ seed: 'e2e/seeds/a.json' })],
+    ['a login shell that is not an absolute path', spec({ loginShell: 'login-shell' })],
     ['an unknown field', { ...spec(), show: true }],
     ['an unknown agent script', { ...spec(), agentScript: 'nope' }],
     ['an unknown agent script for a first message', { ...spec(), agentScriptsByFirstMessage: { 'Hi.': 'nope' } }],
@@ -167,6 +174,24 @@ describe('createE2eDesktop', () => {
     expect(Reflect.get(globalThis, E2E_DESKTOP_GLOBAL) as E2eDesktop).toEqual({
       revealed: ['/code/acme-api/docs/notes.md'],
       copied: ['# Notes'],
+    })
+  })
+})
+
+describe('createE2eAgentEnvs', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, E2E_AGENT_ENVS_GLOBAL)
+  })
+
+  it("records each session's environment on the global object, oldest first", () => {
+    const record = createE2eAgentEnvs()
+    expect(Reflect.get(globalThis, E2E_AGENT_ENVS_GLOBAL) as E2eAgentEnvs).toEqual({ sessions: [] })
+
+    record({ PATH: '/opt/sample/bin:/usr/bin' })
+    record({ PATH: '/usr/bin' })
+
+    expect(Reflect.get(globalThis, E2E_AGENT_ENVS_GLOBAL) as E2eAgentEnvs).toEqual({
+      sessions: [{ PATH: '/opt/sample/bin:/usr/bin' }, { PATH: '/usr/bin' }],
     })
   })
 })
