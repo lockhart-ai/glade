@@ -34,6 +34,7 @@ import { useNow } from '../task-list/useNow'
 import { QuestionCard } from '../questions/QuestionCard'
 import { ErrorCard } from './ErrorCard'
 import { Markdown } from './Markdown'
+import { StoredImage } from '../images/StoredImage'
 import { Highlighted, useSearchHighlight } from '../search/Highlight'
 import { useRevealMatch } from '../search/useRevealMatch'
 import { useStickToBottom } from './useStickToBottom'
@@ -51,9 +52,18 @@ interface HighlightProps {
 function UserMessage({ message, highlight }: UserEntry & HighlightProps): React.JSX.Element {
   return (
     <article aria-label="You" className={styles.user}>
-      <div className={styles.bubble}>
-        <Highlighted text={message.body} pattern={highlight} />
-      </div>
+      {message.images.length > 0 && (
+        <div className={styles.images}>
+          {message.images.map((image) => (
+            <StoredImage key={image.id} image={image} className={styles.image} />
+          ))}
+        </div>
+      )}
+      {message.body !== '' && (
+        <div className={styles.bubble}>
+          <Highlighted text={message.body} pattern={highlight} />
+        </div>
+      )}
       <span className={styles.meta}>you · {clockTime(message.createdAt)}</span>
     </article>
   )

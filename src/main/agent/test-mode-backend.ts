@@ -10,6 +10,7 @@
  */
 import type { AgentBackend, AgentSession, AgentSessionOptions } from './backend'
 import { ScriptedSession, type ScriptChooser } from './scripted-session'
+import { userContent, type UserContent } from './user-content'
 import type { AgentScript } from './scripts'
 
 /** An agent session was started in a test mode that has no script for it. */
@@ -34,6 +35,11 @@ export interface TestModeScripts {
    * its script by, in place of the first message it's sent.
    */
   readonly firstMessageOf?: (sessionId: string) => string | undefined
+  /**
+   * Hears the content of every message a session is sent, as the SDK backend would hand it to the agent: its text, or
+   * its image content blocks then its text. E2e mode records it for a spec to read (`E2E_AGENT_GLOBAL`).
+   */
+  readonly onSent?: (content: UserContent) => void
 }
 
 /** Picks a session's script by its first message, falling back on the default. */
@@ -81,8 +87,9 @@ export function createTestModeAgentBackend(scripts: TestModeScripts): TestModeAg
       const session = new ScriptedSession({ script, session: options, onIdle: settle })
       return {
         messages: session.messages,
-        send(text, uuid) {
+        send(text, uuid, images) {
           busy += 1
+          scripts.onSent?.(userContent(text, images))
           session.send(text, uuid)
         },
         configure: (settings) => {

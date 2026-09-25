@@ -33,8 +33,8 @@ function failure(action: () => unknown): unknown {
 
 describe('addQueuedMessage', () => {
   it('adds to the end of the queue and broadcasts the whole queue', () => {
-    const first = addQueuedMessage(context(), task.id, 'Keep the original filenames.')
-    const second = addQueuedMessage(context(), task.id, 'Tell me how many files failed.')
+    const first = addQueuedMessage(context(), { taskId: task.id, body: 'Keep the original filenames.' })
+    const second = addQueuedMessage(context(), { taskId: task.id, body: 'Tell me how many files failed.' })
 
     expect(listQueuedMessages(database.db, task.id)).toEqual([first, second])
     expect(emit.mock.calls).toEqual([
@@ -44,15 +44,15 @@ describe('addQueuedMessage', () => {
   })
 
   it('fails with not_found for no such task', () => {
-    expect(failure(() => addQueuedMessage(context(), 'missing', 'Hi'))).toBe(BridgeErrorCode.NotFound)
+    expect(failure(() => addQueuedMessage(context(), { taskId: 'missing', body: 'Hi' }))).toBe(BridgeErrorCode.NotFound)
     expect(emit).not.toHaveBeenCalled()
   })
 })
 
 describe('editQueuedMessage', () => {
   it('changes the text in place and broadcasts the queue', () => {
-    const first = addQueuedMessage(context(), task.id, 'Keep the filenames.')
-    const second = addQueuedMessage(context(), task.id, 'Then report.')
+    const first = addQueuedMessage(context(), { taskId: task.id, body: 'Keep the filenames.' })
+    const second = addQueuedMessage(context(), { taskId: task.id, body: 'Then report.' })
     emit.mockReset()
 
     const edited = editQueuedMessage(context(), first.id, 'Keep the original filenames in the bucket keys.')
@@ -67,7 +67,7 @@ describe('editQueuedMessage', () => {
   })
 
   it('fails with not_found once the message has left the queue', () => {
-    const message = addQueuedMessage(context(), task.id, 'Hi')
+    const message = addQueuedMessage(context(), { taskId: task.id, body: 'Hi' })
     removeQueuedMessage(context(), message.id)
     emit.mockReset()
 
@@ -78,8 +78,8 @@ describe('editQueuedMessage', () => {
 
 describe('removeQueuedMessage', () => {
   it('removes the message and broadcasts the queue', () => {
-    const first = addQueuedMessage(context(), task.id, 'One')
-    const second = addQueuedMessage(context(), task.id, 'Two')
+    const first = addQueuedMessage(context(), { taskId: task.id, body: 'One' })
+    const second = addQueuedMessage(context(), { taskId: task.id, body: 'Two' })
     emit.mockReset()
 
     removeQueuedMessage(context(), first.id)

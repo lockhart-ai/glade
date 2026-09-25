@@ -2,8 +2,10 @@
 // decides about a session (its folder, model, prompt, settings, permissions) is here; see `docs/sdk-notes.md`.
 import { query, type Options, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { createRequire } from 'node:module'
+import type { ImageData } from '../../shared/images'
 import { AsyncQueue } from './async-queue'
 import type { AgentBackend, AgentSession, AgentSessionOptions } from './backend'
+import { userContent } from './user-content'
 
 /** Where the adapter reports a settings change the SDK refused. */
 export interface SdkBackendLog {
@@ -65,14 +67,14 @@ export function sdkOptions(
   }
 }
 
-/** The SDK user message for the user's next message, stamped as typed by a person. */
-export function userMessage(text: string, uuid: string): SDKUserMessage {
+/** The SDK user message for the user's next message and its images, stamped as typed by a person. */
+export function userMessage(text: string, uuid: string, images: readonly ImageData[] = []): SDKUserMessage {
   return {
     type: 'user',
     uuid: uuid as SDKUserMessage['uuid'],
     parent_tool_use_id: null,
     origin: { kind: 'human' },
-    message: { role: 'user', content: text },
+    message: { role: 'user', content: userContent(text, images) },
   }
 }
 
@@ -96,9 +98,9 @@ export function createSdkBackend(log: SdkBackendLog = console): AgentBackend {
       }
       return {
         messages: session,
-        send(text, uuid) {
+        send(text, uuid, images) {
           then(() => {
-            input.push(userMessage(text, uuid))
+            input.push(userMessage(text, uuid, images))
           })
         },
         configure({ model, effort }) {

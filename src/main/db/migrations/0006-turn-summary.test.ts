@@ -38,7 +38,7 @@ it('leaves existing messages without a summary, and refuses negative counts', ()
   migrate(db, MIGRATIONS)
 
   expect(listMessages(db, 't')).toEqual([
-    { id: 'm', taskId: 't', role: 'agent', body: 'Done.', turn: 1, createdAt: 5, summary: null },
+    { id: 'm', taskId: 't', role: 'agent', body: 'Done.', turn: 1, createdAt: 5, summary: null, images: [] },
   ])
   expect(() => db.prepare("UPDATE messages SET files_changed = -1 WHERE id = 'm'").run()).toThrow(
     'CHECK constraint failed',

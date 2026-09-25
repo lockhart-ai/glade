@@ -31,6 +31,7 @@ import { applySeed, readSeed } from './capture-seed'
 import { chooseFolder } from './dialogs'
 import {
   createE2eDesktop,
+  createE2eAgent,
   createE2eEditor,
   createE2eNetwork,
   E2E_NOTIFIER_GLOBAL,
@@ -253,6 +254,7 @@ function createTestModeAgent(testMode: NonNullable<TestMode>, db: AppDatabase['d
       Object.entries(byFirstMessage ?? {}).map(([message, script]) => [message, AGENT_SCRIPTS[script]]),
     ),
     firstMessageOf: (sessionId) => firstUserMessageOfSession(db, sessionId),
+    ...(testMode.kind === TestModeKind.E2e ? { onSent: createE2eAgent() } : {}),
   })
 }
 

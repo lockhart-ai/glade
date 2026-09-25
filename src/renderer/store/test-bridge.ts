@@ -37,6 +37,7 @@ import {
   type Workspace,
 } from '../../shared/domain'
 import { noOpenFiles, withClosedFile, withOpenedFile } from '../../shared/files'
+import type { ImageData, ImageRef } from '../../shared/images'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import { highlightParts, highlightPattern, SearchField, type SearchResult } from '../../shared/search'
 import type { TerminalTab } from '../../shared/terminal'
@@ -99,6 +100,11 @@ export interface FakeMain {
   readonly menuStates?: MenuState[]
   /** How many times `window.close` closed the window. */
   closedWindows?: number
+  /**
+   * The stored images `images.get` answers with, by id; `tasks.send` and `queue.add` add each message's images here,
+   * as `image-1`, `image-2`… None when left out.
+   */
+  readonly images?: Record<string, ImageData>
 }
 
 export interface FakeBridge {
@@ -123,6 +129,15 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
   let sent = 0
   let settings = main.settings ?? DEFAULT_SETTINGS
   let queued = 0
+  const images = main.images ?? {}
+  let stored = 0
+  const store = (added: readonly ImageData[] = []): ImageRef[] =>
+    added.map((image) => {
+      stored += 1
+      const id = `image-${String(stored)}`
+      images[id] = image
+      return { id, mediaType: image.mediaType }
+    })
   const queue = main.queuedMessages ?? []
   const queueOf = (taskId: string): QueuedMessage[] => queue.filter((message) => message.taskId === taskId)
   const queueChanged = (taskId: string): void => {
@@ -231,9 +246,9 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       emit({ type: EventType.TaskDeleted, taskId: id })
       return null
     },
-    [CommandName.TasksSend]: ({ id, text }) => {
+    [CommandName.TasksSend]: ({ id, text, images: added }) => {
       sent += 1
-      const message = sampleMessage(`sent-${String(sent)}`, id, text)
+      const message = { ...sampleMessage(`sent-${String(sent)}`, id, text), images: store(added) }
       main.messages?.push(message)
       emit({ type: EventType.MessageAppended, message })
       return { message }
@@ -256,9 +271,9 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       todos: main.todos?.[id] ?? null,
       artifacts: artifacts.filter((artifact) => artifact.taskId === id),
     }),
-    [CommandName.QueueAdd]: ({ taskId, text }) => {
+    [CommandName.QueueAdd]: ({ taskId, text, images: added }) => {
       queued += 1
-      const queuedMessage = sampleQueuedMessage(`queued-${String(queued)}`, taskId, text)
+      const queuedMessage = { ...sampleQueuedMessage(`queued-${String(queued)}`, taskId, text), images: store(added) }
       queue.push(queuedMessage)
       queueChanged(taskId)
       return { queuedMessage }
@@ -278,6 +293,10 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       if (removed === undefined) return notQueued(id)
       queueChanged(removed.taskId)
       return null
+    },
+    [CommandName.ImagesGet]: ({ id }) => {
+      const image = images[id]
+      return image === undefined ? refuse(bridgeError(BridgeErrorCode.NotFound, `No image ${id}`)) : { image }
     },
     [CommandName.QuestionsAnswer]: ({ id, answers }) => {
       const sets = main.questionSets ?? []
@@ -494,11 +513,11 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
 }
 
 export function sampleMessage(id: string, taskId: string, body = 'Add rate limiting to the public API.'): Message {
-  return { id, taskId, role: MessageRole.User, body, turn: 1, createdAt: 3_000, summary: null }
+  return { id, taskId, role: MessageRole.User, body, turn: 1, createdAt: 3_000, summary: null, images: [] }
 }
 
 export function sampleQueuedMessage(id: string, taskId: string, body = 'Keep the original filenames.'): QueuedMessage {
-  return { id, taskId, body, createdAt: 4_000 }
+  return { id, taskId, body, createdAt: 4_000, images: [] }
 }
 
 /** An open question set: a choice and a text question. */

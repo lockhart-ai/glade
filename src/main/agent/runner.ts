@@ -108,6 +108,10 @@
  * - a task in error, waiting on you or done has no turn running, so it's left as it is, queue and all: an error keeps
  *   its card and Retry.
  *
+ * **Images** pasted into a message are saved with it (`../db/repositories/images`), queued or sent, and go to the
+ * session with its text, each time it's handed over: when it's sent or delivered from the queue, retried, or sent to a
+ * new session on launch. A reply in words to the agent's questions can't carry images: its `ask` call takes text.
+ *
  * Every write is broadcast to the windows as it happens. Only the in-flight turn's bookkeeping (its held-back text and
  * running calls) is kept in memory.
  */
@@ -135,6 +139,7 @@ import {
   type Task,
   type TaskError,
 } from '../../shared/domain'
+import type { ImageData } from '../../shared/images'
 import { checkAnswers } from '../../shared/questions'
 import { apiRowArgument, apiRowResult } from '../../shared/taskError'
 import { CommandFailure } from '../bridge/errors'
@@ -146,6 +151,7 @@ import {
   emitToolEventUpdated,
   type Emit,
 } from '../bridge/events'
+import { ImageOwnerKind, imagesOf } from '../db/repositories/images'
 import { appendMessage, lastTurn, listMessages, turnStartedAt } from '../db/repositories/messages'
 import { getOpenQuestionSet, getQuestionSet, listOpenQuestionSets } from '../db/repositories/question-sets'
 import { listQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
@@ -214,12 +220,18 @@ export interface AgentRunnerOptions {
   readonly isOnline?: () => boolean
 }
 
+/** A message you sent: its text, and the images pasted into it, in order. */
+interface UserMessage {
+  readonly text: string
+  readonly images: readonly ImageData[]
+}
+
 export interface AgentRunner {
   /**
    * Saves the user's message and starts a turn with it. A done task is reopened first (see the module comment). Throws
    * a `CommandFailure`: `not_found` for no such task, `busy` while a turn is running or the task is paused.
    */
-  send(taskId: string, text: string): Message
+  send(taskId: string, text: string, images?: readonly ImageData[]): Message
   /**
    * Answers the task's open question set with the card's answers (see the module comment), once they're checked against
    * its questions. Answers with the set, answered. Throws a `CommandFailure`: `not_found` for no such set,
@@ -232,7 +244,7 @@ export interface AgentRunner {
    * When no turn is running, the queue is delivered at once, starting one, unless the task is paused: then it waits for
    * the task to resume. Throws a `CommandFailure` `not_found` for no such task.
    */
-  queue(taskId: string, text: string): QueuedMessage
+  queue(taskId: string, text: string, images?: readonly ImageData[]): QueuedMessage
   /**
    * Stops the task's running turn, and resolves with the task once the turn has ended. Does nothing for a task whose
    * agent isn't working. Throws a `CommandFailure` `not_found` for no such task.
@@ -537,22 +549,23 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     turn.running.set(toolUseId, parentToolUseId)
   }
 
+  /** Hands a user message to the session, with its images, stamped with its id (`uuid`) or a new one's. */
+  const hand = (live: LiveSession, message: Message, uuid: string = message.id): void => {
+    live.session.send(message.body, uuid, imagesOf(db, { kind: ImageOwnerKind.Message, id: message.id }))
+  }
+
   /**
    * Hands the task's queue to the session mid-turn, which folds it into the running turn (see the module comment). Each
    * message goes to the chat log as a user message of the turn.
    */
   const deliverQueue = (taskId: string, live: LiveSession, turn: Turn): void => {
-    const delivered = db.transaction(() =>
-      takeQueuedMessages(db, taskId).map(({ body }) =>
-        appendMessage(db, { taskId, role: MessageRole.User, body, turn: turn.number }),
-      ),
-    )()
+    const delivered = takeQueuedMessages(db, taskId, turn.number)
     if (delivered.length === 0) return
     emitQueueChanged(emit, taskId, [])
     for (const message of delivered) {
       emitMessageAppended(emit, message)
       turn.awaiting.add(message.id)
-      live.session.send(message.body, message.id)
+      hand(live, message)
     }
   }
 
@@ -908,7 +921,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     live.turn = newTurn(turn)
     for (const message of unanswered) {
       live.turn.awaiting.add(message.id)
-      live.session.send(message.body, message.id)
+      hand(live, message)
     }
     return true
   }
@@ -922,11 +935,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   /**
-   * Starts a turn with the task's queued messages, in order, then `text` if there is one: each is saved to the chat log
-   * as a user message of the new turn and handed to the session. A done task is reopened first (see the module
-   * comment). Answers with the messages, in order.
+   * Starts a turn with the task's queued messages, in order, then `sent` if there is one: each is saved to the chat log
+   * as a user message of the new turn, with its images, and handed to the session. A done task is reopened first (see
+   * the module comment). Answers with the messages, in order.
    */
-  const startTurn = (task: Task, live: LiveSession, text: string | null): Message[] => {
+  const startTurn = (task: Task, live: LiveSession, sent: UserMessage | null): Message[] => {
     const taskId = task.id
     applySettings(task, live)
 
@@ -947,9 +960,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           ]
         : []
       if (reopening) reopenTask({ db, emit: (event) => reopenEvents.push(event) }, taskId)
-      const queued = takeQueuedMessages(db, taskId)
-      const bodies = [...queued.map(({ body }) => body), ...(text === null ? [] : [text])]
-      const messages = bodies.map((body) => appendMessage(db, { taskId, role: MessageRole.User, body, turn }))
+      const queued = takeQueuedMessages(db, taskId, turn)
+      const messages = [
+        ...queued,
+        ...(sent === null
+          ? []
+          : [appendMessage(db, { taskId, role: MessageRole.User, body: sent.text, turn, images: sent.images })]),
+      ]
       const reopened = reopening ? [appendDivider(db, { taskId, turn, dividerKind: DividerKind.Reopened })] : []
       const divider = appendDivider(db, { taskId, turn, dividerKind: DividerKind.Turn })
       // Working in the same write as the turn's messages: if the app dies before the session gets them, the next
@@ -966,7 +983,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     live.turn = newTurn(turn)
     for (const message of messages) {
       live.turn.awaiting.add(message.id)
-      live.session.send(message.body, message.id)
+      hand(live, message)
     }
     return messages
   }
@@ -1036,12 +1053,20 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   const runner: AgentRunner = {
-    send(taskId, text) {
+    send(taskId, text, images = []) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
       // The agent waits on answers to its questions: the message answers them, rather than starting a turn.
       const open = getOpenQuestionSet(db, taskId)
-      if (open !== undefined) return answerInWords(open, text)
+      if (open !== undefined) {
+        if (images.length > 0) {
+          throw new CommandFailure(
+            BridgeErrorCode.InvalidRequest,
+            'An answer to the agent’s questions can’t have images',
+          )
+        }
+        return answerInWords(open, text)
+      }
       if ((sessions.get(taskId)?.turn ?? null) !== null) {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working; queue the message instead')
       }
@@ -1049,7 +1074,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The task is paused; queue the message instead')
       }
       // The message sent is the last of the turn's: any queued ones go before it.
-      const message = startTurn(task, sessions.get(taskId) ?? start(task), text).at(-1)
+      const message = startTurn(task, sessions.get(taskId) ?? start(task), { text, images }).at(-1)
       if (message === undefined) throw new Error(`The turn for task ${taskId} started without its message`)
       return message
     },
@@ -1065,10 +1090,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return replyTo(answerable(set), set, { kind: QuestionReplyKind.Answers, answers: checked.answers })
     },
 
-    queue(taskId, text) {
+    queue(taskId, text, images = []) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
-      const queued = addQueuedMessage(context, taskId, text)
+      const queued = addQueuedMessage(context, { taskId, body: text, images })
       // A paused task delivers its queue once it resumes.
       if (isPaused(task)) return queued
       const live = sessions.get(taskId)
@@ -1120,7 +1145,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const uuid = randomUUID()
       live.turn = newTurn(last.turn)
       live.turn.awaiting.add(uuid)
-      live.session.send(last.body, uuid)
+      hand(live, last, uuid)
       return getTask(db, taskId) ?? current
     },
 

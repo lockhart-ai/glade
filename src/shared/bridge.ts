@@ -27,6 +27,7 @@ import type {
   Workspace,
 } from './domain'
 import type { Command, MenuState } from './commands'
+import type { ImageData } from './images'
 import type { Settings, SettingsPatch } from './settings'
 import type { SearchResult } from './search'
 import type { TerminalTab } from './terminal'
@@ -65,6 +66,7 @@ export enum CommandName {
   QueueAdd = 'queue.add',
   QueueEdit = 'queue.edit',
   QueueRemove = 'queue.remove',
+  ImagesGet = 'images.get',
   QuestionsAnswer = 'questions.answer',
   FilesRead = 'files.read',
   FilesOpen = 'files.open',
@@ -251,12 +253,18 @@ export interface TaskResponse {
  * (`{ "freeText": … }`). It starts no turn, and the queue stays as it is. Broadcasts `question.answered`.
  *
  * Fails with `busy` while the agent is working on a turn or the task is paused (queue the message with `queue.add`
- * instead), and `not_found` when there's no such task.
+ * instead), `invalid_request` for images sent as an answer to questions (an answer is words), and `not_found` when
+ * there's no such task.
  */
 export interface TasksSendRequest {
   readonly id: string
-  /** Markdown. Not blank. */
+  /** Markdown. Blank only when there are images. */
   readonly text: string
+  /**
+   * The images pasted into the message, in order: each goes to the agent as an image content block, before the text.
+   * None when left out.
+   */
+  readonly images?: readonly ImageData[]
 }
 
 export interface TasksSendResponse {
@@ -339,8 +347,10 @@ export interface TasksHistoryResponse {
  */
 export interface QueueAddRequest {
   readonly taskId: string
-  /** Markdown. Not blank. */
+  /** Markdown. Blank only when there are images. */
   readonly text: string
+  /** The images pasted into the message, in order, which wait in the queue with it. None when left out. */
+  readonly images?: readonly ImageData[]
 }
 
 /** Changes the text of a message still waiting in its queue. Broadcasts `queue.changed`. */
@@ -361,6 +371,15 @@ export interface QueueRemoveRequest {
  */
 export interface QueuedMessageResponse {
   readonly queuedMessage: QueuedMessage
+}
+
+/** Fetches a stored image's bytes by id (`ImageRef.id`), to show it. Fails with `not_found` when there's no such image. */
+export interface ImagesGetRequest {
+  readonly id: string
+}
+
+export interface ImagesGetResponse {
+  readonly image: ImageData
 }
 
 /**
@@ -620,6 +639,7 @@ export interface CommandMap {
   [CommandName.QueueAdd]: CommandSpec<QueueAddRequest, QueuedMessageResponse>
   [CommandName.QueueEdit]: CommandSpec<QueueEditRequest, QueuedMessageResponse>
   [CommandName.QueueRemove]: CommandSpec<QueueRemoveRequest, null>
+  [CommandName.ImagesGet]: CommandSpec<ImagesGetRequest, ImagesGetResponse>
   [CommandName.QuestionsAnswer]: CommandSpec<QuestionsAnswerRequest, QuestionSetResponse>
   [CommandName.FilesRead]: CommandSpec<FilesReadRequest, FilesReadResponse>
   [CommandName.FilesOpen]: CommandSpec<FilesOpenRequest, OpenFilesResponse>

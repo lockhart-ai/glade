@@ -32,6 +32,7 @@ describe('appendMessage', () => {
       turn: 1,
       createdAt: 3_000,
       summary: null,
+      images: [],
     })
     expect(listMessages(test.db, task.id)).toEqual([message])
   })

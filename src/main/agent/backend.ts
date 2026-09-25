@@ -5,6 +5,7 @@
  */
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
 import type { Effort } from '../../shared/domain'
+import type { ImageData } from '../../shared/images'
 
 /**
  * In-process MCP servers to give a session, by server name, e.g. `{ glade: createSdkMcpServer({ name: 'glade', … }) }`.
@@ -38,8 +39,11 @@ export interface AgentSessionOptions extends AgentSessionSettings {
 export interface AgentSession {
   /** Every message the SDK emits, unparsed: the runner parses each one at the boundary. Iterate it once. */
   readonly messages: AsyncIterable<unknown>
-  /** Gives the agent the user's next message. `uuid` comes back on the turn's messages. */
-  send(text: string, uuid: string): void
+  /**
+   * Gives the agent the user's next message, with the images pasted into it, in order (none by default). `uuid` comes
+   * back on the turn's messages.
+   */
+  send(text: string, uuid: string, images?: readonly ImageData[]): void
   /**
    * Changes the model and effort for the turns after it: every message sent after this call runs with them. Call it
    * between turns, never mid-turn.

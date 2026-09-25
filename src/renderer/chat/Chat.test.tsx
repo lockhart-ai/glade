@@ -37,6 +37,7 @@ const ASK: Message = {
   turn: 1,
   createdAt: ASKED_AT,
   summary: null,
+  images: [],
 }
 const REPLY: Message = {
   id: 'm2',
@@ -46,6 +47,7 @@ const REPLY: Message = {
   turn: 1,
   createdAt: REPLIED_AT,
   summary: null,
+  images: [],
 }
 
 const PREAMBLE = 'Looking at how the API views are set up.'

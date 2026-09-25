@@ -8,6 +8,7 @@ import {
   type CommandRequest,
   type EmptyRequest,
   type FileRequest,
+  type ImagesGetRequest,
   type MenuUpdateRequest,
   type QueueAddRequest,
   type QueueEditRequest,
@@ -37,6 +38,7 @@ import {
 } from '../../shared/bridge'
 import { Effort, UiStateKey } from '../../shared/domain'
 import { isWorkspaceRelativePath } from '../../shared/files'
+import { hasImageSignature, ImageMediaType, MAX_IMAGE_BASE64_LENGTH, type ImageData } from '../../shared/images'
 import { MAX_TERMINAL_NAME, MAX_TERMINAL_SIZE, MAX_TERMINAL_WRITE } from '../../shared/terminal'
 import { SETTING_SCHEMAS } from '../db/repositories/settings'
 import { questionAnswersSchema } from '../questions/schema'
@@ -98,7 +100,33 @@ const tasksUpdateRequest = z.strictObject({
 /** A message's text, which mustn't be blank. */
 const messageText = notBlank('a message')
 
-const tasksSendRequest = z.strictObject({ id: z.string(), text: messageText }) satisfies z.ZodType<TasksSendRequest>
+/** Base64, as `Buffer.from(…, 'base64')` would otherwise read anything into some bytes. */
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/
+
+/** A pasted image: a type the agent takes, within the API's size limit, whose bytes are that type. */
+const image = z
+  .strictObject({
+    mediaType: z.enum(ImageMediaType),
+    data: z.string().min(1).max(MAX_IMAGE_BASE64_LENGTH).regex(BASE64, 'Expected base64'),
+  })
+  .refine(
+    ({ mediaType, data }) => hasImageSignature(mediaType, Buffer.from(data.slice(0, 64), 'base64')),
+    "Expected the image's bytes to be its type",
+  ) satisfies z.ZodType<ImageData>
+
+/** A message's text and images: its text can be blank only when it has images. */
+function withContent<T extends { readonly text: string; readonly images?: readonly ImageData[] | undefined }>(
+  schema: z.ZodType<T>,
+): z.ZodType<T> {
+  return schema.refine(({ text, images = [] }) => text.trim() !== '' || images.length > 0, {
+    message: 'Expected a message that is not blank',
+    path: ['text'],
+  })
+}
+
+const tasksSendRequest = withContent(
+  z.strictObject({ id: z.string(), text: z.string(), images: z.array(image).readonly().optional() }),
+) satisfies z.ZodType<TasksSendRequest>
 
 const tasksRetryRequest = z.strictObject({
   id: z.string(),
@@ -110,11 +138,15 @@ const subagentsStopRequest = z.strictObject({
   toolUseId: z.string(),
 }) satisfies z.ZodType<SubagentsStopRequest>
 
-const queueAddRequest = z.strictObject({ taskId: z.string(), text: messageText }) satisfies z.ZodType<QueueAddRequest>
+const queueAddRequest = withContent(
+  z.strictObject({ taskId: z.string(), text: z.string(), images: z.array(image).readonly().optional() }),
+) satisfies z.ZodType<QueueAddRequest>
 
 const queueEditRequest = z.strictObject({ id: z.string(), text: messageText }) satisfies z.ZodType<QueueEditRequest>
 
 const queueRemoveRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<QueueRemoveRequest>
+
+const imagesGetRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<ImagesGetRequest>
 
 const questionsAnswerRequest = z.strictObject({
   id: z.string(),
@@ -219,6 +251,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.QueueAdd]: queueAddRequest,
   [CommandName.QueueEdit]: queueEditRequest,
   [CommandName.QueueRemove]: queueRemoveRequest,
+  [CommandName.ImagesGet]: imagesGetRequest,
   [CommandName.QuestionsAnswer]: questionsAnswerRequest,
   [CommandName.FilesRead]: fileRequest,
   [CommandName.FilesOpen]: fileRequest,

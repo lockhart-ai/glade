@@ -53,6 +53,9 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
     [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
     [CommandName.QueueRemove]: () => null,
+    [CommandName.ImagesGet]: () => {
+      throw new Error('not in these tests')
+    },
     [CommandName.QuestionsAnswer]: () => ({ questionSet: {} as QuestionSet }),
     [CommandName.FilesRead]: () => ({ content: { kind: FileContentKind.Missing } }),
     [CommandName.FilesOpen]: () => ({ openFiles: {} as OpenFiles }),

@@ -1,6 +1,7 @@
 import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DividerKind, MessageRole, QuestionKind, type Task, type Workspace } from '../../../shared/domain'
+import { GIF, PNG } from '../../../shared/test-images'
 import { addArtifact } from './artifacts'
 import { appendMessage } from './messages'
 import { setOpenFiles } from './open-files'
@@ -44,7 +45,7 @@ function rowsOf(db: Database, table: string, taskId: string): number {
 /** Gives a task a row in every table that belongs to one. */
 function fillTask(db: Database, task: Task): void {
   const taskId = task.id
-  appendMessage(db, { taskId, role: MessageRole.User, body: 'Add rate limiting', turn: 1 })
+  appendMessage(db, { taskId, role: MessageRole.User, body: 'Add rate limiting', turn: 1, images: [PNG] })
   appendNarration(db, { taskId, turn: 1, text: 'Looking at the views.' })
   appendToolCall(db, {
     taskId,
@@ -55,7 +56,7 @@ function fillTask(db: Database, task: Task): void {
     parentToolUseId: null,
   })
   appendDivider(db, { taskId, turn: 1, dividerKind: DividerKind.Turn })
-  appendQueuedMessage(db, { taskId, body: 'Also cover /search' })
+  appendQueuedMessage(db, { taskId, body: 'Also cover /search', images: [GIF] })
   setOpenFiles(db, { taskId, paths: ['api/views.py'], activePath: 'api/views.py' })
   addArtifact(db, { taskId, path: 'docs/rate-limits.md', title: 'Rate limits' })
   setWorkspaceSelection(db, task.workspaceId, taskId)
@@ -69,6 +70,8 @@ function fillTask(db: Database, task: Task): void {
 /** The tables `fillTask` writes to. A new table that belongs to a task fails the test below until it's added here. */
 const FILLED_TABLES = [
   'artifacts',
+  // The images pasted into its messages, sent and queued.
+  'images',
   'messages',
   'open_files',
   'question_sets',

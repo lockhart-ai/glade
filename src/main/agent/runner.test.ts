@@ -270,6 +270,7 @@ describe('a turn', () => {
       {
         text: 'Find out why the login test is flaky.',
         uuid: userMessage?.id,
+        images: [],
         settings: { model: task.model, effort: task.effort },
       },
     ])
@@ -971,6 +972,7 @@ describe('resuming on launch', () => {
       {
         text: RESUME_PROMPT,
         uuid: expect.any(String) as unknown,
+        images: [],
         settings: { model: task.model, effort: task.effort },
       },
     ])
