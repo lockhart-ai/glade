@@ -3,7 +3,7 @@
  * page leaves a hole where it is. Capture mode waits for each view to settle over its slot in the page, captures it,
  * and pastes it into the page's capture, rounding its corners as the window does. Only ever runs in capture mode.
  */
-import { NATIVE_VIEW_SLOT_ATTRIBUTE } from '../shared/ready'
+import { NATIVE_VIEW_COVERED_ATTRIBUTE, NATIVE_VIEW_SLOT_ATTRIBUTE } from '../shared/ready'
 
 /** A rectangle in the window, in points. */
 export interface ViewRect {
@@ -38,8 +38,11 @@ export interface Bitmap {
   readonly height: number
 }
 
-/** Asks the page (as JSON) for the boxes of its showing slots, rounded to whole points as main places views. */
-export const SLOTS_SCRIPT = `JSON.stringify([...document.querySelectorAll('[${NATIVE_VIEW_SLOT_ATTRIBUTE}]')]
+/**
+ * Asks the page (as JSON) for the boxes of its showing slots, rounded to whole points as main places views. A slot an
+ * overlay covers has its view hidden, so it isn't showing.
+ */
+export const SLOTS_SCRIPT = `JSON.stringify([...document.querySelectorAll('[${NATIVE_VIEW_SLOT_ATTRIBUTE}]:not([${NATIVE_VIEW_COVERED_ATTRIBUTE}])')]
   .map((slot) => slot.getBoundingClientRect())
   .filter((box) => box.width > 0 && box.height > 0)
   .map((box) => ({ x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height) })))`

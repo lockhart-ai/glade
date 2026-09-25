@@ -5,12 +5,16 @@ import {
   clampSize,
   DEFAULT_BOTTOM_BAR_HEIGHT,
   DEFAULT_PANEL_WIDTH,
+  DEFAULT_PLUGIN_WIDTH,
   DEFAULT_SIDEBAR_WIDTH,
   MAX_SIDEBAR_WIDTH,
   MIN_BOTTOM_BAR_HEIGHT,
   MIN_CHAT_WIDTH,
   MIN_PANEL_WIDTH,
+  MIN_PLUGIN_WIDTH,
   MIN_SIDEBAR_WIDTH,
+  MIN_TERMINAL_WIDTH,
+  Pane,
   panelSize,
   parsePanelSize,
   sizeBounds,
@@ -25,8 +29,23 @@ describe('panelSize', () => {
     ])
   })
 
+  it('stores the plugin card’s width under its own key, starting at the design’s 680px', () => {
+    expect(panelSize(Pane.Plugin)).toEqual({
+      key: UiStateKey.PluginWidth,
+      initial: DEFAULT_PLUGIN_WIDTH,
+      min: MIN_PLUGIN_WIDTH,
+      max: undefined,
+    })
+    expect(DEFAULT_PLUGIN_WIDTH).toBe(680)
+  })
+
+  it('leaves the design’s plugin width room beside the terminal’s minimum in the smallest window', () => {
+    // The 1100px window less its outer padding and the gap between the two cards.
+    expect(DEFAULT_PLUGIN_WIDTH + MIN_TERMINAL_WIDTH).toBeLessThanOrEqual(1100 - 16 - 8)
+  })
+
   it('starts every panel within its own limits', () => {
-    for (const panel of PANELS) {
+    for (const panel of [...PANELS, Pane.Plugin]) {
       const { initial, min, max } = panelSize(panel)
       expect(initial).toBeGreaterThanOrEqual(min)
       expect(initial).toBeLessThanOrEqual(max ?? Infinity)
@@ -40,6 +59,8 @@ describe('sizeBounds', () => {
     expect(sizeBounds(Panel.BottomBar, 716.4)).toEqual({ min: MIN_BOTTOM_BAR_HEIGHT, max: 716 })
     expect(sizeBounds(Panel.Sidebar, 352)).toEqual({ min: MIN_SIDEBAR_WIDTH, max: 352 })
     expect(sizeBounds(Panel.Sidebar, 1172)).toEqual({ min: MIN_SIDEBAR_WIDTH, max: MAX_SIDEBAR_WIDTH })
+    expect(sizeBounds(Pane.Plugin, 1904 - 8 - MIN_TERMINAL_WIDTH)).toEqual({ min: MIN_PLUGIN_WIDTH, max: 1536 })
+    expect(sizeBounds(Pane.Plugin, 100)).toEqual({ min: MIN_PLUGIN_WIDTH, max: MIN_PLUGIN_WIDTH })
   })
 
   it('never goes below the panel’s minimum, even with no room at all', () => {
@@ -76,6 +97,9 @@ describe('parsePanelSize', () => {
     expect(parsePanelSize(Panel.Sidebar, '5000')).toBe(MAX_SIDEBAR_WIDTH)
     expect(parsePanelSize(Panel.BottomBar, '0')).toBe(MIN_BOTTOM_BAR_HEIGHT)
     expect(parsePanelSize(Panel.BottomBar, '640')).toBe(640)
+    expect(parsePanelSize(Pane.Plugin, '520')).toBe(520)
+    expect(parsePanelSize(Pane.Plugin, '12')).toBe(MIN_PLUGIN_WIDTH)
+    expect(parsePanelSize(Pane.Plugin, '9000')).toBe(9000)
   })
 
   it('falls back to the default when none is stored, or it isn’t a number', () => {
@@ -83,6 +107,7 @@ describe('parsePanelSize', () => {
       expect(parsePanelSize(Panel.Sidebar, value)).toBe(DEFAULT_SIDEBAR_WIDTH)
       expect(parsePanelSize(Panel.RightPanel, value)).toBe(DEFAULT_PANEL_WIDTH)
       expect(parsePanelSize(Panel.BottomBar, value)).toBe(DEFAULT_BOTTOM_BAR_HEIGHT)
+      expect(parsePanelSize(Pane.Plugin, value)).toBe(DEFAULT_PLUGIN_WIDTH)
     }
   })
 })

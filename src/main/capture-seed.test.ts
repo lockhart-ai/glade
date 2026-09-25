@@ -313,6 +313,15 @@ describe('applySeed', () => {
     expect(getUiState(db, UiStateKey.SelectedTaskId)).toBeUndefined()
     expect(getUiState(db, UiStateKey.RelaunchNotice)).toBeUndefined()
     expect(getUiState(db, UiStateKey.RightPanelTab)).toBeUndefined()
+    expect(getUiState(db, UiStateKey.PluginWidth)).toBeUndefined()
+  })
+
+  it('sets the plugin card’s width', () => {
+    const { db } = database
+
+    applySeed(db, { ...SEED, tasks: [], pluginWidth: 960 })
+
+    expect(getUiState(db, UiStateKey.PluginWidth)).toBe('960')
   })
 
   it('opens the right panel on the tab it names', () => {

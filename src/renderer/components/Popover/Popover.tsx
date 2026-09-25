@@ -12,6 +12,7 @@ import {
 } from '@floating-ui/react'
 import { useCallback, useLayoutEffect, type ReactNode } from 'react'
 import { classNames } from '../classNames'
+import { useOverlayRef } from '../overlays'
 import { Placement } from '../Placement'
 import styles from './Popover.module.css'
 
@@ -62,11 +63,13 @@ export function Popover({
     refs.setReference(anchor)
   }, [refs, anchor])
 
+  const overlay = useOverlayRef()
   const setFloating = useCallback(
     (node: HTMLElement | null) => {
       refs.setFloating(node)
+      overlay(node)
     },
-    [refs],
+    [refs, overlay],
   )
 
   const { getFloatingProps } = useInteractions([useDismiss(context), useRole(context, { role: 'dialog' })])

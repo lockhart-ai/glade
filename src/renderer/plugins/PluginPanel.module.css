@@ -1,0 +1,18 @@
+/*
+ * The plugin card's slot beside the terminal: the width you chose (or the design's 680px), capped so the terminal keeps
+ * its minimum width, but never below the card's own minimum. 100cqw is the bottom bar's width (it's a container,
+ * BottomBar.module.css). The slot is positioned for the handle in the gap on its left.
+ */
+.slot {
+  --plugin-shown-width: clamp(
+    var(--plugin-min-width),
+    var(--plugin-width),
+    100cqw - var(--terminal-min-width) - var(--space-outer)
+  );
+
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--plugin-shown-width);
+  min-height: 0;
+  display: flex;
+}

@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { Button, ButtonSize, ButtonVariant } from '../Button/Button'
 import { classNames } from '../classNames'
 import { Icon, IconSize } from '../Icon/Icon'
+import { useOverlayRef } from '../overlays'
 import { motionDuration } from '../../motion'
 import styles from './Toast.module.css'
 
@@ -161,6 +162,7 @@ interface ToastProps {
 
 function Toast({ toast, onDismiss }: ToastProps): React.JSX.Element {
   const { id, message, icon, action, timeout = DEFAULT_TOAST_TIMEOUT, leaving } = toast
+  const overlay = useOverlayRef()
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -172,7 +174,7 @@ function Toast({ toast, onDismiss }: ToastProps): React.JSX.Element {
   }, [id, timeout, onDismiss])
 
   return (
-    <div className={classNames(styles.toast, leaving && styles.leaving)} inert={leaving}>
+    <div ref={overlay} className={classNames(styles.toast, leaving && styles.leaving)} inert={leaving}>
       {icon !== undefined && <Icon icon={icon} size={IconSize.Medium} className={styles.icon} />}
       <span className={styles.message}>{message}</span>
       {action !== undefined && (

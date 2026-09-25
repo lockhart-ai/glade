@@ -428,6 +428,8 @@ export enum UiStateKey {
   BottomBarCollapsed = 'bottom_bar_collapsed',
   /** The bottom bar's height in CSS pixels while it's open, as you last dragged it. Unset means the design's default. */
   BottomBarHeight = 'bottom_bar_height',
+  /** The plugin card's width beside the terminal in CSS pixels, as you last dragged it. Unset means the design's default. */
+  PluginWidth = 'plugin_width',
   /** The id of the terminal tab the bottom bar shows. Unset, or a tab that's gone, means the first tab. */
   TerminalTab = 'terminal_tab',
 }

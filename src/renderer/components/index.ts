@@ -20,6 +20,7 @@ export {
   type MenuProps,
   type MenuSeparator,
 } from './Menu/Menu'
+export { isCovered, useOverlayRef, watchOverlays, type OverlayBox } from './overlays'
 export { Pill, type PillProps } from './Pill/Pill'
 export { Placement } from './Placement'
 export { Popover, type PopoverProps } from './Popover/Popover'

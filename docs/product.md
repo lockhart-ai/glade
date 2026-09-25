@@ -46,7 +46,8 @@ There are no follow-up tasks. One task can refer to another through its folder o
 
 Each resizable panel has a drag handle in the gap on its inner edge. Dragging it takes room from the chat or gives it
 back, within limits (the chat keeps its minimum width and height); collapsing a panel and showing it again brings it
-back at the size you left it, and a relaunch keeps every size.
+back at the size you left it, and a relaunch keeps every size. The plugin panel beside the terminal has one too, in
+the gap between them: it takes room from the terminal, which keeps its minimum width.
 
 State dot colours: blue = working, purple = waiting on you, slate = done, pink = error.
 

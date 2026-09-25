@@ -39,13 +39,16 @@ export function panelToggles(page: Page) {
 }
 
 /**
- * The drag handles that resize the task list and the bottom bar, in the gaps beside them, and the slots whose size they
- * set. (The right panel's is with it, in `taskPanel`.)
+ * The drag handles that resize the task list, the bottom bar and the plugin card beside the terminal, in the gaps beside
+ * them, and the slots whose size they set. (The right panel's is with it, in `taskPanel`.)
  */
 export function resizeHandles(page: Page) {
   return {
     taskList: page.getByRole('separator', { name: 'Resize task list' }),
     bottomBar: page.getByRole('separator', { name: 'Resize bottom panel' }),
+    plugin: page.getByRole('separator', { name: 'Resize plugin panel' }),
+    /** The plugin card's column beside the terminal, which is as wide as the card. */
+    pluginSlot: page.getByTestId('plugin-slot'),
     /** The sidebar card's column, which is as wide as the sidebar. */
     sidebarSlot: page.getByTestId('sidebar-slot'),
     /** The bottom bar's row, which is as tall as the bottom bar. */

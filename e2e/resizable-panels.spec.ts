@@ -2,7 +2,7 @@ import type { Locator, Page } from '@playwright/test'
 import { expect, seedPath, test } from './fixtures'
 import { chooseMenuItem } from './menu'
 import { panelToggles, regions, resizeHandles, taskPanel } from './selectors'
-import { boxOf, MIN_WINDOW, resize } from './window-layout'
+import { boxOf, drag, MIN_WINDOW, resize } from './window-layout'
 
 /** The window the e2e app opens at (src/main/e2e.ts), the design's. */
 const DESIGN_WINDOW = { width: 1920, height: 1200 } as const
@@ -38,18 +38,6 @@ function bottomBarRoom(height: number): number {
 
 const widthOf = async (locator: Locator): Promise<number> => (await boxOf(locator)).width
 const heightOf = async (locator: Locator): Promise<number> => (await boxOf(locator)).height
-
-/** Drags a handle by its middle, in steps, the way a hand would. */
-async function drag(window: Page, handle: Locator, dx: number, dy: number): Promise<void> {
-  const box = await boxOf(handle)
-  const x = box.x + box.width / 2
-  const y = box.y + box.height / 2
-  await window.mouse.move(x, y)
-  await window.mouse.down()
-  await window.mouse.move(x + dx / 2, y + dy / 2, { steps: 5 })
-  await window.mouse.move(x + dx, y + dy, { steps: 5 })
-  await window.mouse.up()
-}
 
 /** Waits for the sidebar and the bottom bar to show at these sizes. */
 async function expectSizes(window: Page, sidebar: number, bottomBar: number): Promise<void> {
