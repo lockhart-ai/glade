@@ -54,7 +54,7 @@ rebinds a shortcut by recording the keys you press; Reset puts back its default.
   exception: in the input bar's message field they switch tasks too, and the focus goes on to the new task's input bar.
   Other text fields (search, rename, Settings, a question's text answer, a Deny note, a queued message being edited)
   keep them, and so does the terminal, which sends them to the shell. Each task's input bar keeps its draft while you're
-  on another task.
+  on another task, and across a relaunch.
 - **Refused, with the reason under the row:** keys another command already has where both apply (the menu bar's and
   the window's shortcuts reach everywhere, Next / previous task's the message field too; the message field, menus,
   question cards and terminal each have their own keys); keys macOS or the app menu takes first (⌘Q, ⌘H, ⌘⌥H, ⌘M,

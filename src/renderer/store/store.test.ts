@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
+import { bridgeError, BridgeErrorCode, CommandName, EventType, type DraftsGetResponse } from '../../shared/bridge'
 import {
   DividerKind,
   Effort,
@@ -1033,6 +1033,67 @@ describe('context menu actions', () => {
     keep('t1', { text: '', images: [] })
     expect(store.getState().inputDrafts).toEqual({ t2: { text: '', images: [PNG] } })
     expect(invoke.mock.calls).toHaveLength(calls)
+  })
+
+  it('loads a task’s stored draft from main, keeping it, when it has none kept', async () => {
+    const data = { ...main(), drafts: { t1: { text: 'From before the relaunch', images: [PNG] } } }
+    const { store, invoke } = await hydrated(data)
+
+    await expect(store.getState().loadInputDraft('t1')).resolves.toEqual({
+      text: 'From before the relaunch',
+      images: [PNG],
+    })
+    expect(invoke).toHaveBeenCalledWith(CommandName.DraftsGet, { taskId: 't1' })
+    expect(store.getState().inputDrafts).toEqual({ t1: { text: 'From before the relaunch', images: [PNG] } })
+    await expect(store.getState().loadInputDraft('t2')).resolves.toBeNull()
+    expect(store.getState().inputDrafts).toEqual({ t1: { text: 'From before the relaunch', images: [PNG] } })
+  })
+
+  it('answers with the kept draft without asking main, and leaves one kept while main answered', async () => {
+    let answer: (response: DraftsGetResponse) => void = () => undefined
+    const fake = fakeBridge(main(), {
+      [CommandName.DraftsGet]: () =>
+        new Promise<DraftsGetResponse>((resolve) => {
+          answer = resolve
+        }),
+    })
+    const store = createGladeStore(fake.bridge)
+    await store.getState().hydrate()
+
+    const loading = store.getState().loadInputDraft('t1')
+    store.getState().keepInputDraft('t1', { text: 'Newer', images: [] })
+    answer({ draft: { text: 'Older', images: [] } })
+    await expect(loading).resolves.toEqual({ text: 'Older', images: [] })
+    expect(store.getState().inputDrafts).toEqual({ t1: { text: 'Newer', images: [] } })
+
+    const calls = fake.invoke.mock.calls.length
+    await expect(store.getState().loadInputDraft('t1')).resolves.toEqual({ text: 'Newer', images: [] })
+    expect(fake.invoke.mock.calls).toHaveLength(calls)
+  })
+
+  it('answers with no draft when main can’t read it', async () => {
+    const fake = fakeBridge(main(), {
+      [CommandName.DraftsGet]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No task t1')),
+    })
+    const store = createGladeStore(fake.bridge)
+    await store.getState().hydrate()
+    await expect(store.getState().loadInputDraft('t1')).resolves.toBeNull()
+    expect(store.getState().inputDrafts).toEqual({})
+  })
+
+  it('stores a draft in main, and carries on when it can’t', async () => {
+    const drafts = {}
+    const { store, invoke } = await hydrated({ ...main(), drafts })
+    await store.getState().saveInputDraft({ taskId: 't1', text: 'Keep this', images: [GIF] })
+    expect(invoke).toHaveBeenCalledWith(CommandName.DraftsSet, { taskId: 't1', text: 'Keep this', images: [GIF] })
+    expect(drafts).toEqual({ t1: { text: 'Keep this', images: [GIF] } })
+
+    const failing = fakeBridge(main(), {
+      [CommandName.DraftsSet]: () => refuse(bridgeError(BridgeErrorCode.Internal, 'database is locked')),
+    })
+    await expect(createGladeStore(failing.bridge).getState().saveInputDraft({ taskId: 't1', text: 'x' })).resolves.toBe(
+      undefined,
+    )
   })
 
   it('shows a file of the selected task in the Files tab, opening the right panel there', async () => {

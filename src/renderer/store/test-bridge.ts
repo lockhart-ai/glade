@@ -34,6 +34,7 @@ import {
   type Artifact,
   type FileContent,
   type FileInfo,
+  type InputDraft,
   type Message,
   type OpenFiles,
   type PermissionRequest,
@@ -68,6 +69,11 @@ export interface FakeMain {
   readonly toolEvents?: ToolEvent[]
   /** Every task's queued messages; none when left out. */
   readonly queuedMessages?: QueuedMessage[]
+  /**
+   * Each task's stored input draft, by task id; none when left out. `drafts.set` changes them as main does: images left
+   * out are kept, and an empty draft is removed.
+   */
+  readonly drafts?: Record<string, InputDraft>
   /** Every task's question sets; none when left out. `questions.answer` answers one, without checking the answers. */
   readonly questionSets?: QuestionSet[]
   /**
@@ -169,6 +175,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       return { id, mediaType: image.mediaType }
     })
   const queue = main.queuedMessages ?? []
+  const drafts = main.drafts ?? {}
   const queueOf = (taskId: string): QueuedMessage[] => queue.filter((message) => message.taskId === taskId)
   const queueChanged = (taskId: string): void => {
     emit({ type: EventType.QueueChanged, taskId, queuedMessages: queueOf(taskId) })
@@ -337,6 +344,13 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     [CommandName.ImagesGet]: ({ id }) => {
       const image = images[id]
       return image === undefined ? refuse(bridgeError(BridgeErrorCode.NotFound, `No image ${id}`)) : { image }
+    },
+    [CommandName.DraftsGet]: ({ taskId }) => ({ draft: drafts[taskId] ?? null }),
+    [CommandName.DraftsSet]: ({ taskId, text, images: given }) => {
+      const draft = { text, images: given ?? drafts[taskId]?.images ?? [] }
+      if (draft.text === '' && draft.images.length === 0) Reflect.deleteProperty(drafts, taskId)
+      else drafts[taskId] = draft
+      return null
     },
     [CommandName.PermissionsAnswer]: ({ id, decision }) => {
       const requests = main.permissionRequests ?? []

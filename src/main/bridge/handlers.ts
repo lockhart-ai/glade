@@ -4,6 +4,7 @@ import type { MenuState } from '../../shared/commands'
 import type { AgentRunner } from '../agent/runner'
 import { listArtifacts } from '../db/repositories/artifacts'
 import { getImage } from '../db/repositories/images'
+import { getInputDraft, setInputDraft } from '../db/repositories/input-drafts'
 import { listMessages } from '../db/repositories/messages'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { listPermissionRequests } from '../db/repositories/permission-requests'
@@ -170,6 +171,14 @@ export function createHandlers(context: HandlerContext): Handlers {
       const image = getImage(db, id)
       if (image === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No image ${id}`)
       return { image }
+    },
+    [CommandName.DraftsGet]: ({ taskId }) => {
+      requireTask(db, taskId)
+      return { draft: getInputDraft(db, taskId) ?? null }
+    },
+    [CommandName.DraftsSet]: (change) => {
+      setInputDraft(db, change)
+      return null
     },
     [CommandName.QuestionsAnswer]: ({ id, answers }) => ({ questionSet: runner.answer(id, answers) }),
     [CommandName.PermissionsAnswer]: ({ id, decision }) => ({

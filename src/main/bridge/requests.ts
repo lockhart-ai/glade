@@ -10,6 +10,8 @@ import {
   type CommandRequest,
   type EmptyRequest,
   type FileRequest,
+  type DraftsGetRequest,
+  type DraftsSetRequest,
   type ImagesGetRequest,
   type PermissionsAnswerRequest,
   type LogRendererErrorRequest,
@@ -172,6 +174,15 @@ const queueRemoveRequest = z.strictObject({ id: z.string() }) satisfies z.ZodTyp
 
 const imagesGetRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<ImagesGetRequest>
 
+const draftsGetRequest = z.strictObject({ taskId: z.string() }) satisfies z.ZodType<DraftsGetRequest>
+
+/** A draft can be anything typed, blank included: an empty one is removed. */
+const draftsSetRequest = z.strictObject({
+  taskId: z.string(),
+  text: z.string(),
+  images: z.array(image).readonly().optional(),
+}) satisfies z.ZodType<DraftsSetRequest>
+
 const questionsAnswerRequest = z.strictObject({
   id: z.string(),
   answers: questionAnswersSchema,
@@ -315,6 +326,8 @@ export const REQUEST_SCHEMAS = {
   [CommandName.QueueEdit]: queueEditRequest,
   [CommandName.QueueRemove]: queueRemoveRequest,
   [CommandName.ImagesGet]: imagesGetRequest,
+  [CommandName.DraftsGet]: draftsGetRequest,
+  [CommandName.DraftsSet]: draftsSetRequest,
   [CommandName.QuestionsAnswer]: questionsAnswerRequest,
   [CommandName.PermissionsAnswer]: permissionsAnswerRequest,
   [CommandName.FilesRead]: fileRequest,

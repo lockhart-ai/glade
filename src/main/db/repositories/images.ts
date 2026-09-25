@@ -1,5 +1,5 @@
-// The images pasted into messages (migration 20): each belongs to one message in the chat log or one waiting in the
-// queue, in the order it was pasted. Messages carry just their images' refs; the bytes are read on their own, to show
+// The images pasted into messages (migration 20): each belongs to one message in the chat log, one waiting in the
+// queue or a task's input draft (migration 27), in the order it was pasted. Messages carry just their images' refs; the bytes are read on their own, to show
 // an image or to hand it to the agent.
 import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
@@ -11,9 +11,11 @@ import { Row } from './rows'
 export enum ImageOwnerKind {
   Message = 'message',
   QueuedMessage = 'queued_message',
+  /** A task's input draft, by the task's id. */
+  Draft = 'draft',
 }
 
-/** The message or queued message an image belongs to. */
+/** The message, queued message or draft an image belongs to. */
 export interface ImageOwner {
   readonly kind: ImageOwnerKind
   readonly id: string
@@ -35,6 +37,8 @@ function ownerColumn(kind: ImageOwnerKind): string {
       return 'message_id'
     case ImageOwnerKind.QueuedMessage:
       return 'queued_message_id'
+    case ImageOwnerKind.Draft:
+      return 'draft_task_id'
   }
 }
 

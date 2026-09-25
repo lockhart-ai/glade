@@ -3,6 +3,7 @@
  * Main (and SQLite behind it) stays the source of truth; nothing here is kept only in memory.
  */
 import type {
+  DraftsSetRequest,
   PluginViewBounds,
   TaskUserPatch,
   TerminalAttachResponse,
@@ -19,6 +20,7 @@ import type {
   Artifact,
   FileContent,
   FileInfo,
+  InputDraft,
   Message,
   OpenFiles,
   PermissionDecision,
@@ -97,12 +99,6 @@ export interface InputInsertion {
   readonly taskId: string
   readonly text: string
   readonly request: number
-}
-
-/** What's in a task's input bar and not sent yet: its message field's text and the images pasted into it. */
-export interface InputDraft {
-  readonly text: string
-  readonly images: readonly ImageData[]
 }
 
 /**
@@ -220,9 +216,10 @@ export interface GladeData {
   /** The latest request to add text to a task's message field; null until one is made. A one-off UI intent. */
   readonly inputInsertion: InputInsertion | null
   /**
-   * Each task's unsent message, by task id, kept as its input bar goes (another task selected) so it's there again when
-   * the task comes back; none for a task whose draft is empty. Not mirrored from main, like `searchText`: a relaunch
-   * starts every input bar empty.
+   * Each task's unsent message, by task id, kept as its input bar goes (another task selected) so it's there again at
+   * once when the task comes back; none for a task whose draft is empty. Main stores each draft too (`drafts.set`, as
+   * you type), so a task the store has none for, after a relaunch or a crash, gets its draft from there
+   * (`loadInputDraft`).
    */
   readonly inputDrafts: Readonly<Record<string, InputDraft>>
   /**
@@ -453,6 +450,16 @@ export interface GladeActions {
   insertIntoInput: (taskId: string, text: string) => void
   /** Keeps a task's unsent message for when its input bar comes back (see `inputDrafts`); an empty one is forgotten. */
   keepInputDraft: (taskId: string, draft: InputDraft) => void
+  /**
+   * The task's draft as main stored it, for its input bar to start from when the store has none (see `inputDrafts`),
+   * kept in `inputDrafts` unless one was kept there meanwhile. Null when it has none, or when it can't be read.
+   */
+  loadInputDraft: (taskId: string) => Promise<InputDraft | null>
+  /**
+   * Stores a task's draft in main (`drafts.set`), for after a relaunch or a crash. A save that fails is left: the draft
+   * is still in the input bar, and its next save carries it.
+   */
+  saveInputDraft: (change: DraftsSetRequest) => Promise<void>
   /** Sets the sidebar's search text (see `searchText`); an empty string ends the search. */
   setSearchText: (text: string) => void
   /** Asks the sidebar's search field to take the focus (see `searchFocusRequest`). */

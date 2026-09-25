@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DividerKind, MessageRole, QuestionKind, type Task, type Workspace } from '../../../shared/domain'
 import { GIF, PNG } from '../../../shared/test-images'
 import { addArtifact } from './artifacts'
+import { setInputDraft } from './input-drafts'
 import { appendMessage } from './messages'
 import { setOpenFiles } from './open-files'
 import { appendPermissionRequest } from './permission-requests'
@@ -82,13 +83,16 @@ function fillTask(db: Database, task: Task): void {
     suppressAlwaysAllowRule: false,
   })
   addTaskPermissionRule(db, { taskId, rule: { toolName: 'Bash', ruleContent: 'npm test *' } })
+  setInputDraft(db, { taskId, text: 'And the admin views', images: [PNG] })
 }
 
 /** The tables `fillTask` writes to. A new table that belongs to a task fails the test below until it's added here. */
 const FILLED_TABLES = [
   'artifacts',
-  // The images pasted into its messages, sent and queued.
+  // The images pasted into its messages, sent and queued, and into its input draft.
   'images',
+  // Its unsent input draft.
+  'input_drafts',
   'messages',
   'open_files',
   'permission_requests',

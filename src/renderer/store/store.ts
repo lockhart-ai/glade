@@ -597,6 +597,29 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         })
       },
 
+      async loadInputDraft(taskId) {
+        const kept = get().inputDrafts[taskId]
+        if (kept !== undefined) return kept
+        try {
+          const { draft } = await bridge.invoke(CommandName.DraftsGet, { taskId })
+          if (draft === null) return null
+          // The bar may have kept a newer one as it went, while this was on its way.
+          if (!(taskId in get().inputDrafts)) get().keepInputDraft(taskId, draft)
+          return draft
+        } catch {
+          // Left out: the bar starts empty, as it would with none stored.
+          return null
+        }
+      },
+
+      async saveInputDraft(change) {
+        try {
+          await bridge.invoke(CommandName.DraftsSet, change)
+        } catch {
+          // Left: the draft is still in the input bar, and its next save carries it.
+        }
+      },
+
       setSearchText(text) {
         set({ searchText: text })
       },

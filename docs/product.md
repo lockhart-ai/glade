@@ -40,7 +40,8 @@ There are no follow-up tasks. One task can refer to another through its folder o
   relative time. Unread rows are bold with a blue dot. Resizable, collapsible.
 - **Task card** (centre) — a header card (title, pin toggle, status pill, objective, status, Mark done) floating above
   the chat, and the input bar at the bottom. The input bar has model, effort and permissions pickers and a context
-  meter at the right.
+  meter at the right. Each task keeps its unsent draft, text and pasted images, while you're on another task and
+  across a relaunch or a crash, until it's sent.
 - **Right panel** (inside the task card) — tabs: Tool calls, Files, Todos, Artifacts, Subagents. Resizable, collapsible.
 - **Bottom bar** (full width) — a global terminal with tabs, and a plugin panel (Nekomata). Resizable, collapsible.
 

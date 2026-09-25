@@ -64,6 +64,8 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.ImagesGet]: () => {
       throw new Error('not in these tests')
     },
+    [CommandName.DraftsGet]: () => ({ draft: null }),
+    [CommandName.DraftsSet]: () => null,
     [CommandName.QuestionsAnswer]: () => ({ questionSet: {} as QuestionSet }),
     [CommandName.PermissionsAnswer]: () => ({ permissionRequest: {} as PermissionRequest }),
     [CommandName.FilesRead]: () => ({ content: { kind: FileContentKind.Missing } }),
