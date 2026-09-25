@@ -3,9 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  createE2eAgent,
   createE2eDesktop,
   createE2eEditor,
   createE2eNetwork,
+  E2E_AGENT_GLOBAL,
   E2E_CHOSEN_FOLDER_ENV,
   E2E_DESKTOP_GLOBAL,
   E2E_EDITOR_GLOBAL,
@@ -15,6 +17,7 @@ import {
   E2eSpecError,
   prepareE2e,
   readE2eSpec,
+  type E2eAgent,
   type E2eDesktop,
   type E2eEditor,
   type E2eNetwork,
@@ -150,6 +153,23 @@ describe('createE2eEditor', () => {
     await expect(openPath('/code/acme-api/README.md')).resolves.toBe('')
 
     expect((Reflect.get(globalThis, E2E_EDITOR_GLOBAL) as E2eEditor).opened).toEqual(['/code/acme-api/README.md'])
+  })
+})
+
+describe('createE2eAgent', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, E2E_AGENT_GLOBAL)
+  })
+
+  it('records the content of each message the agent is sent on the global object', () => {
+    const onSent = createE2eAgent()
+
+    onSent('Hi')
+    onSent([{ type: 'text', text: 'Again' }])
+
+    expect(Reflect.get(globalThis, E2E_AGENT_GLOBAL) as E2eAgent).toEqual({
+      received: ['Hi', [{ type: 'text', text: 'Again' }]],
+    })
   })
 })
 

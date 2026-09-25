@@ -3,6 +3,7 @@ import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { Effort } from '../../shared/domain'
 import type { AgentSessionOptions } from './backend'
+import { GIF, JPEG, PNG } from '../../shared/test-images'
 import { claudeCodeExecutable, createSdkBackend, sdkOptions, userMessage } from './sdk-backend'
 
 const sdk = vi.hoisted(() => {
@@ -97,6 +98,18 @@ it("sends the user's message as a top-level message typed by a person", () => {
   })
 })
 
+it("sends the images pasted into the user's message as image content blocks, before its text", () => {
+  expect(userMessage('Compare these.', 'uuid-1', [PNG, JPEG]).message).toEqual({
+    role: 'user',
+    content: [
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG.data } },
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: JPEG.data } },
+      { type: 'text', text: 'Compare these.' },
+    ],
+  })
+  expect(userMessage('Hi', 'uuid-2', []).message.content).toBe('Hi')
+})
+
 it('starts one streaming-input query per session and pushes each message into it', async () => {
   const session = createSdkBackend().start(OPTIONS)
 
@@ -108,14 +121,14 @@ it('starts one streaming-input query per session and pushes each message into it
   const prompt = sdk.query.mock.calls[0]?.[0].prompt as AsyncIterable<SDKUserMessage>
 
   session.send('Hi', 'uuid-1')
-  session.send('Fix it.', 'uuid-2')
+  session.send('Fix it.', 'uuid-2', [GIF])
   await session.interrupt()
   await session.stopTask('b7f3')
   session.close()
 
   const pushed: SDKUserMessage[] = []
   for await (const message of prompt) pushed.push(message)
-  expect(pushed).toEqual([userMessage('Hi', 'uuid-1'), userMessage('Fix it.', 'uuid-2')])
+  expect(pushed).toEqual([userMessage('Hi', 'uuid-1'), userMessage('Fix it.', 'uuid-2', [GIF])])
   expect(sdk.session.interrupt).toHaveBeenCalledOnce()
   expect(sdk.session.stopTask).toHaveBeenCalledExactlyOnceWith('b7f3')
   expect(sdk.session.close).toHaveBeenCalledOnce()

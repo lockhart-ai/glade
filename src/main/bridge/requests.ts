@@ -109,10 +109,11 @@ const image = z
     mediaType: z.enum(ImageMediaType),
     data: z.string().min(1).max(MAX_IMAGE_BASE64_LENGTH).regex(BASE64, 'Expected base64'),
   })
-  .refine(
-    ({ mediaType, data }) => hasImageSignature(mediaType, Buffer.from(data.slice(0, 64), 'base64')),
-    "Expected the image's bytes to be its type",
-  ) satisfies z.ZodType<ImageData>
+  .refine(({ mediaType, data }) => hasImageSignature(mediaType, Buffer.from(data.slice(0, 64), 'base64')), {
+    message: "Expected the image's bytes to be its type",
+    // Only once its type and data are good: there's nothing to check otherwise.
+    when: ({ issues }) => issues.length === 0,
+  }) satisfies z.ZodType<ImageData>
 
 /** A message's text and images: its text can be blank only when it has images. */
 function withContent<T extends { readonly text: string; readonly images?: readonly ImageData[] | undefined }>(

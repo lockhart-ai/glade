@@ -13,6 +13,7 @@ import {
   UiStateKey,
 } from '../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
+import { GIF, JPEG, PNG } from '../../shared/test-images'
 import { SettingsSection } from '../settings/sections'
 import { HydrationStatus, selectSelectedTask, selectSelectedWorkspace } from './state'
 import { createGladeStore } from './store'
@@ -627,6 +628,49 @@ describe("a task's logs", () => {
 
     expect(invoke).toHaveBeenLastCalledWith(CommandName.TasksSend, { id: 't1', text: 'Add rate limiting.' })
     expect(store.getState().messages.t1?.map(({ body }) => body)).toEqual(['Add rate limiting.'])
+  })
+
+  it('sends and queues the images pasted into a message with it, and the store follows the events', async () => {
+    const { store, invoke } = await hydrated()
+
+    await store.getState().sendMessage('t1', 'Compare these.', [PNG, GIF])
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.TasksSend, {
+      id: 't1',
+      text: 'Compare these.',
+      images: [PNG, GIF],
+    })
+    await store.getState().queueMessage('t1', '', [JPEG])
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.QueueAdd, { taskId: 't1', text: '', images: [JPEG] })
+
+    const [sent] = store.getState().messages.t1 ?? []
+    expect(sent?.images).toEqual([
+      { id: 'image-1', mediaType: PNG.mediaType },
+      { id: 'image-2', mediaType: GIF.mediaType },
+    ])
+    expect(store.getState().queuedMessages.t1?.[0]?.images).toEqual([{ id: 'image-3', mediaType: JPEG.mediaType }])
+    // No images: the request leaves them out, as it always has.
+    await store.getState().sendMessage('t1', 'Plain.', [])
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.TasksSend, { id: 't1', text: 'Plain.' })
+  })
+
+  it('loads each stored image from main once, and again after it failed to load', async () => {
+    let fail = true
+    const { bridge, invoke } = fakeBridge(
+      { ...main(), images: { i1: PNG } },
+      {
+        [CommandName.ImagesGet]: ({ id }) =>
+          fail ? refuse(bridgeError(BridgeErrorCode.Internal, 'disk busy')) : { image: id === 'i1' ? PNG : GIF },
+      },
+    )
+    const store = createGladeStore(bridge)
+    const loads = () => invoke.mock.calls.filter(([command]) => command === CommandName.ImagesGet).length
+
+    await expect(store.getState().loadImage('i1')).rejects.toMatchObject({ code: BridgeErrorCode.Internal })
+    fail = false
+    expect(await store.getState().loadImage('i1')).toEqual(PNG)
+    expect(await store.getState().loadImage('i1')).toEqual(PNG)
+    expect(await store.getState().loadImage('i2')).toEqual(GIF)
+    expect(loads()).toBe(3)
   })
 
   it("rejects with main's error when the agent is busy", async () => {
