@@ -13,6 +13,8 @@
     "src/shared/**/*",
     // The design tooling's tested logic, which scripts/render-design.mjs imports.
     "scripts/lib/**/*",
+    // Read by scripts/lib/test-build.test.ts, which checks its global setup brings the test build up to date.
+    "playwright.config.ts",
     // The store is framework-free, so its integration test can run against the real main process under Node.
     "src/renderer/store/*.ts",
     // The right panel's state, which the store reads; plain functions, like the store.

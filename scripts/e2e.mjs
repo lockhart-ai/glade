@@ -4,14 +4,15 @@
 //   npm run test:e2e [-- <playwright test args>]
 //   npm run record -- --out <dir> [<playwright test args>]
 //
-// Builds the app into out/testing first when it's stale (see scripts/test-build.mjs). With --out (`npm run record`),
+// Playwright's global setup builds the app into out/testing first when it's stale (scripts/e2e-setup.mjs), so a bare
+// `npx playwright test` gets a fresh build too. With --out (`npm run record`),
 // Playwright records each launch of the app over the DevTools protocol (no OS capture, no visible window) as
 // <dir>/<spec>--<test>.webm, and this script converts each one to an .mp4 (for PRs) and a .gif, with ffmpeg-static.
 import { spawnSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
-import { buildForTests, ROOT, testBuildIsStale } from './test-build.mjs'
+import { ROOT } from './test-build.mjs'
 
 // --record and --out <dir> are ours (`npm run record` passes --record); everything else goes to `playwright test`.
 let args = process.argv.slice(2)
@@ -26,14 +27,6 @@ if (record !== (outAt !== -1) || (outAt !== -1 && (out === undefined || out.star
 }
 const recordDir = out === undefined ? undefined : resolve(out)
 const playwrightArgs = outAt === -1 ? args : [...args.slice(0, outAt), ...args.slice(outAt + 2)]
-
-if (testBuildIsStale()) {
-  console.log('e2e: building the app into out/testing')
-  if (!buildForTests()) {
-    console.error('e2e: the build failed')
-    process.exit(1)
-  }
-}
 
 const env = { ...process.env }
 if (recordDir !== undefined) {

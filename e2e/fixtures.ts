@@ -5,7 +5,7 @@
  * The app never touches real data: each test gets a fresh data folder in the system temp folder, removed afterwards.
  * Its window is never shown; Playwright drives it (and records it, under `npm run record`) over the DevTools protocol.
  */
-import { mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { _electron as electron, test as base, type ElectronApplication, type Page } from '@playwright/test'
@@ -226,6 +226,9 @@ export const test = base.extend<Fixtures>({
         ...(seed === undefined ? {} : { seed }),
         ...(loginShell === undefined ? {} : { loginShell }),
       }
+      // Electron on a missing script opens no window, and the launch would wait out the test's timeout. Playwright's
+      // global setup builds it (scripts/e2e-setup.mjs); say so if it's gone anyway.
+      if (!existsSync(MAIN)) throw new Error(`No test build at ${MAIN}: run the specs with npm run test:e2e`)
       const app = await electron.launch({
         args: [MAIN],
         env: appEnv(spec, chosenFolder, timeZone, env),
