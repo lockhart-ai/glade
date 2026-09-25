@@ -89,6 +89,14 @@ export enum ScriptStepKind {
    * In Allow all it runs without asking, as the SDK bypasses the check. Stop cuts the wait short.
    */
   Permission = 'permission',
+  /**
+   * A call to one of Glade's control tools (`mcp__glade-control__<tool>`, `docs/control-api.md`), which the session
+   * has while agents may control Glade: the `tool_use`, then, in the ask mode, the session asks the runner about it as
+   * Claude Code asks about any MCP tool not in its allowed tools (the runner lets the reads through without a card),
+   * then, allowed, the tool's registered handler runs the way the SDK runs it, and its `tool_result` follows. So the
+   * call really changes Glade. Denied, its result is the denial, as for a `Permission` step.
+   */
+  ControlTool = 'control_tool',
 }
 
 export interface InitStep {
@@ -254,6 +262,14 @@ export interface PermissionStep {
   readonly defaultToNo?: boolean
 }
 
+export interface ControlToolStep {
+  readonly kind: ScriptStepKind.ControlTool
+  readonly id: string
+  /** The tool's name on the `glade-control` server, e.g. `create_task`. */
+  readonly tool: string
+  readonly input: ToolInput
+}
+
 export type ScriptStep =
   | InitStep
   | TextStep
@@ -272,6 +288,7 @@ export type ScriptStep =
   | WakeStep
   | BackgroundStep
   | PermissionStep
+  | ControlToolStep
 
 export type ScriptTurn = readonly ScriptStep[]
 
@@ -329,6 +346,13 @@ export const tool = (
 
 export const gladeTool = (id: string, name: string, input: ToolInput): GladeToolStep => ({
   kind: ScriptStepKind.GladeTool,
+  id,
+  tool: name,
+  input,
+})
+
+export const controlTool = (id: string, name: string, input: ToolInput): ControlToolStep => ({
+  kind: ScriptStepKind.ControlTool,
   id,
   tool: name,
   input,
@@ -1925,6 +1949,62 @@ const scheduledCheck: AgentScript = {
   ],
 }
 
+/** What the `drives-glade` script's agent does to Glade through its control tools, and says. */
+export const DRIVES_GLADE = {
+  /** What the user asks it. */
+  prompt: 'Set up the release tasks.',
+  /** The seeded workspace (`e2e/seeds/control.json`). */
+  workspaceId: '0b6f7c2e-5a41-4d3e-9c8a-1f2e3d4c5b6a',
+  /** The task it makes, and the first message it sends it. */
+  created: { title: 'Draft the release notes', message: 'Draft the release notes for 2.4.' },
+  /** The seeded task it renames, gives a status and marks done. */
+  target: {
+    id: '7d9e8f10-2b3c-4a5d-8e6f-0a1b2c3d4e5f',
+    title: 'Tidy the changelog for 2.4',
+    status: 'The changelog for 2.4 is tidy.',
+  },
+  reply: 'I made "Draft the release notes" and started it, and marked the changelog task done.',
+} as const
+
+/**
+ * A turn that drives Glade through its control tools (`glade-control`): it lists the workspace's tasks, creates one
+ * with a first message (which starts it), renames another and gives it a status, then marks it done. In the ask mode
+ * the reads go ahead and each change waits on a permission card. The session needs the control tools: seed Settings'
+ * `controlEnabled`.
+ */
+const drivesGlade: AgentScript = {
+  name: 'drives-glade',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      say("I'll look at the workspace's tasks, then set up the release work."),
+      controlTool('list', 'list_tasks', { workspaceId: DRIVES_GLADE.workspaceId }),
+      controlTool('create', 'create_task', {
+        workspaceId: DRIVES_GLADE.workspaceId,
+        title: DRIVES_GLADE.created.title,
+        message: DRIVES_GLADE.created.message,
+      }),
+      controlTool('update', 'update_task', {
+        id: DRIVES_GLADE.target.id,
+        patch: { title: DRIVES_GLADE.target.title, status: DRIVES_GLADE.target.status },
+      }),
+      controlTool('done', 'mark_done', { id: DRIVES_GLADE.target.id }),
+      say(DRIVES_GLADE.reply),
+      result(),
+    ],
+  ],
+}
+
+/** What the `replies-briefly` script's agent says. */
+export const REPLIES_BRIEFLY = { reply: 'Here is a first draft of the release notes.' } as const
+
+/** A turn that only replies: no title, objective or status of its own, so what made the task keeps them. */
+const repliesBriefly: AgentScript = {
+  name: 'replies-briefly',
+  turns: [[...turnStart(), delay(BEAT_MS), say(REPLIES_BRIEFLY.reply), result()]],
+}
+
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
   'simple-reply',
@@ -1955,6 +2035,8 @@ export const AGENT_SCRIPT_NAMES = [
   'watches-ci',
   'checks-back-later',
   'scheduled-check',
+  'drives-glade',
+  'replies-briefly',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -1989,4 +2071,6 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'watches-ci': watchesCi,
   'checks-back-later': checksBackLater,
   'scheduled-check': scheduledCheck,
+  'drives-glade': drivesGlade,
+  'replies-briefly': repliesBriefly,
 }

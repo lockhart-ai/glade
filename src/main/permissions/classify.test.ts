@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { GLADE_SERVER, GladeTool } from '../agent/glade-tools'
+import { GLADE_SERVER, gladeOwnServers, GladeTool } from '../agent/glade-tools'
+import { CONTROL_SERVER, CONTROL_TOOL_ACCESS, ControlAccess, ControlToolName } from '../control/names'
 import { TodoTool } from '../todos/todos'
 import {
   permissionVerdict,
@@ -126,5 +127,52 @@ describe('permissionVerdict', () => {
     expect(
       verdict({ toolName: 'mcp__glade__ask', mcpServer: { name: GLADE_SERVER, source: 'sdk' }, matchedAskRule: true }),
     ).toBe(PermissionVerdict.Ask)
+  })
+
+  describe("Glade's control tools", () => {
+    /** A call to a `glade-control` tool, served by `source`. */
+    function control(tool: string, source = 'sdk'): ClassifiedCall {
+      return {
+        toolName: `mcp__${CONTROL_SERVER}__${tool}`,
+        mcpServer: { name: CONTROL_SERVER, source },
+        matchedAskRule: false,
+      }
+    }
+
+    it('allows the reads of the in-process glade-control server, and asks for every change', () => {
+      for (const tool of Object.values(ControlToolName)) {
+        const expected =
+          CONTROL_TOOL_ACCESS[tool] === ControlAccess.Read ? PermissionVerdict.Allow : PermissionVerdict.Ask
+        expect(verdict(control(tool)), tool).toBe(expected)
+      }
+      expect(
+        Object.values(ControlToolName).filter((tool) => verdict(control(tool)) === PermissionVerdict.Allow),
+      ).toEqual(['list_workspaces', 'list_tasks', 'get_task', 'get_chat'])
+    })
+
+    it.each(['user', 'project', 'plugin', 'claudeai'])(
+      'asks for every tool, reads included, of a glade-control server whose source is %s',
+      (source) => {
+        for (const tool of Object.values(ControlToolName)) {
+          expect(verdict(control(tool, source)), tool).toBe(PermissionVerdict.Ask)
+        }
+      },
+    )
+
+    it('asks for a tool of the in-process server that is not one of its reads, or not an MCP name at all', () => {
+      expect(verdict(control('drop_everything'))).toBe(PermissionVerdict.Ask)
+      expect(verdict({ ...control('list_tasks'), toolName: 'list_tasks' })).toBe(PermissionVerdict.Ask)
+    })
+
+    it('asks for a read a user permissions.ask rule forced', () => {
+      expect(verdict({ ...control('list_tasks'), matchedAskRule: true })).toBe(PermissionVerdict.Ask)
+    })
+
+    it("doesn't trust glade-control's changes even when told it's one of Glade's own servers", () => {
+      // What the runner passed before it kept its own servers to glade: every in-process server's name.
+      expect(permissionVerdict(control('delete_task'), gladeOwnServers({ glade: {}, [CONTROL_SERVER]: {} }))).toBe(
+        PermissionVerdict.Ask,
+      )
+    })
   })
 })

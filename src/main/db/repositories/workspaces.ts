@@ -4,6 +4,8 @@ import type { EpochMs, Workspace } from '../../../shared/domain'
 import { Row } from './rows'
 
 export interface NewWorkspace {
+  /** A new id unless given (a sample fixture's fixed one). */
+  readonly id?: string
   readonly name: string
   readonly rootPath: string
 }
@@ -30,7 +32,8 @@ function parseWorkspace(raw: unknown): Workspace {
 
 /** Adds a workspace, counting its creation as its first opening. Root paths are unique. */
 export function createWorkspace(db: Database, input: NewWorkspace, now: EpochMs = Date.now()): Workspace {
-  const workspace: Workspace = { id: randomUUID(), ...input, createdAt: now, lastOpenedAt: now }
+  const { id = randomUUID(), name, rootPath } = input
+  const workspace: Workspace = { id, name, rootPath, createdAt: now, lastOpenedAt: now }
   db.prepare(`INSERT INTO workspaces (${COLUMNS}) VALUES (@id, @name, @rootPath, @createdAt, @lastOpenedAt)`).run(
     workspace,
   )

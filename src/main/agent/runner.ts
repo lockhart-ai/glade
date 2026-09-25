@@ -260,7 +260,9 @@ import {
   type ToolPermissionAnswer,
   type ToolPermissionCall,
 } from './backend'
+import { CONTROL_SERVER } from '../control/names'
 import { classifyAgentError } from './error-classification'
+import { gladeOwnServers } from './glade-tools'
 import {
   AgentEventKind,
   createSdkMessageParser,
@@ -414,7 +416,7 @@ interface LiveSession {
   turn: Turn | null
   /** The model, effort and permission mode the session runs with now. */
   settings: AgentSessionSettings
-  /** The names of the session's in-process MCP servers: Glade's own, whose tools never ask. */
+  /** The names of the session's in-process MCP servers that are Glade's own, whose tools never ask: `glade` only. */
   readonly gladeServers: readonly string[]
   /** The permission requests the session's calls wait on, by id: whether each is a background subagent's. */
   readonly requests: Map<string, boolean>
@@ -1393,7 +1395,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       effort: task.effort,
       permissionMode: task.permissionMode,
       resumeSessionId: task.sessionId,
-      systemPromptAppend: systemPromptAppend(task, getSettings(db)),
+      systemPromptAppend: systemPromptAppend(task, getSettings(db), CONTROL_SERVER in servers),
       mcpServers: servers,
       allowedRules,
       log: agentLog(task.id),
@@ -1403,7 +1405,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       session,
       turn: null,
       settings: { model: task.model, effort: task.effort, permissionMode: task.permissionMode },
-      gladeServers: Object.keys(servers),
+      gladeServers: gladeOwnServers(servers),
       requests: new Map(),
       sdkModel: null,
       limit: null,

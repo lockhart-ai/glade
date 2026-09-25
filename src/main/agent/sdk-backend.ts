@@ -17,6 +17,7 @@ import type { Environment } from '../login-env'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
 import { permissionSuggestionSchema } from '../permissions/schema'
 import { AsyncQueue } from './async-queue'
+import { gladeOwnServers } from './glade-tools'
 import {
   ToolPermissionBehavior,
   type AgentBackend,
@@ -211,10 +212,11 @@ export function sdkOptions(
     permissionMode: sdkPermissionMode(options.permissionMode),
     allowDangerouslySkipPermissions: true,
     canUseTool: canUseToolFor(options.onToolPermission, options.log ?? SILENT_LOGGER),
-    // Glade's own tools never ask: Claude Code lets them through before `canUseTool` is called. Nor do the calls the
-    // task's granted rules cover (Allow for this task), which Claude Code matches itself, compound commands included.
+    // Glade's own tools never ask: Claude Code lets them through before `canUseTool` is called. Only `glade`'s: another
+    // in-process server's (`glade-control`) go to `canUseTool`, which decides them. Nor do the calls the task's granted
+    // rules cover (Allow for this task), which Claude Code matches itself, compound commands included.
     allowedTools: [
-      ...Object.keys(options.mcpServers).map((name) => `mcp__${name}`),
+      ...gladeOwnServers(options.mcpServers).map((name) => `mcp__${name}`),
       ...(options.allowedRules ?? []).map(permissionRuleString),
     ],
     // Behave like `claude` run in the workspace root: the workspace's CLAUDE.md, and the user's own settings.

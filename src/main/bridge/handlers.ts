@@ -10,7 +10,7 @@ import { listPermissionRequests } from '../db/repositories/permission-requests'
 import { listQuestionSets } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { searchTasks } from '../db/repositories/search'
-import { countDoneTasks, getTask, getTasks, listActiveTasks, listDoneTasks, listTasks } from '../db/repositories/tasks'
+import { countDoneTasks, getTasks, listActiveTasks, listDoneTasks, listTasks } from '../db/repositories/tasks'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
 import { getSettings, updateSettings } from '../db/repositories/settings'
@@ -27,7 +27,7 @@ import {
 } from '../workspaces/workspaces'
 import { editQueuedMessage, removeQueuedMessage } from '../tasks/queue'
 import { noteUiStateSet } from '../tasks/attention'
-import { createTask, deleteTask, markTaskDone, reopenTask, updateTaskFromUser } from '../tasks/service'
+import { changeTask, createTask, deleteTask, markTaskDone, reopenTask, requireTask } from '../tasks/service'
 import {
   closeTaskFile,
   copyTaskFile,
@@ -134,12 +134,7 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.TasksCreate]: ({ workspaceId }) => ({ task: createTask(context, workspaceId) }),
     [CommandName.TasksMarkDone]: ({ id }) => ({ task: markTaskDone(context, id) }),
     [CommandName.TasksReopen]: ({ id }) => ({ task: reopenTask(context, id) }),
-    [CommandName.TasksUpdate]: ({ id, patch }) => {
-      const task = updateTaskFromUser(context, id, patch)
-      // A running session takes the new mode from its next tool call, not its next turn.
-      if (patch.permissionMode !== undefined) runner.applyPermissionMode(id)
-      return { task }
-    },
+    [CommandName.TasksUpdate]: ({ id, patch }) => ({ task: changeTask(context, id, patch) }),
     [CommandName.TasksDelete]: ({ id }) => {
       deleteTask(context, id)
       return null
@@ -153,7 +148,7 @@ export function createHandlers(context: HandlerContext): Handlers {
       return null
     },
     [CommandName.TasksHistory]: ({ id }) => {
-      if (getTask(db, id) === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${id}`)
+      requireTask(db, id)
       return {
         messages: listMessages(db, id),
         toolEvents: listToolEvents(db, id),

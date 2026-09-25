@@ -35,6 +35,16 @@ export const ALL_UPKEEP: AgentUpkeep = { statusSummary: true, taskTitles: true }
 /** The server's name: the `glade` in `mcp__glade__set_title`. */
 export const GLADE_SERVER = 'glade'
 
+/**
+ * Which of a session's in-process MCP servers are Glade's own, whose tools never ask (`docs/decisions.md`, "Per-call
+ * permission review"): only `glade`. Its tools only touch the task itself. Another in-process server, such as
+ * `glade-control` (`../control`), whose tools change other tasks, isn't: its calls ask in the ask mode, as any other
+ * MCP server's do, bar the reads `../permissions/classify` lets through.
+ */
+export function gladeOwnServers(servers: Readonly<Record<string, unknown>>): string[] {
+  return Object.keys(servers).filter((name) => name === GLADE_SERVER)
+}
+
 /** The tools' names, as Glade defines them. Draft names: not yet confirmed with Jared. */
 export enum GladeTool {
   SetTitle = 'set_title',

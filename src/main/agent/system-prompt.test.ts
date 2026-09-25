@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Task } from '../../shared/domain'
 import { openTestDatabase, sampleTask, sampleWorkspace } from '../db/repositories/test-database'
-import { systemPromptAppend } from './system-prompt'
+import { CONTROL_TOOLS_LINE, systemPromptAppend } from './system-prompt'
 
 let task: Task
 
@@ -60,5 +60,14 @@ describe('systemPromptAppend', () => {
     expect(quiet).toContain('call set_title with a short name for the task and set_objective with its objective.')
     expect(quiet).not.toContain('set_status')
     expect(quiet).toContain('call ask instead')
+  })
+
+  it("says in one line, at the end, that the session has Glade's control tools, when it has them", () => {
+    const controlling = systemPromptAppend(task, undefined, true)
+
+    expect(controlling).toBe(`${systemPromptAppend(task)}\n\n${CONTROL_TOOLS_LINE}`)
+    expect(CONTROL_TOOLS_LINE).toContain('glade-control')
+    expect(CONTROL_TOOLS_LINE).toContain('only when the user asks')
+    expect(systemPromptAppend(task)).not.toContain('glade-control')
   })
 })
