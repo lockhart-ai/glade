@@ -30,7 +30,7 @@ can nest one level (header and right panel float inside the task card).
 ## Type
 
 - **Geist** for everything; **Geist Mono** for labels, timestamps, paths, code, tool calls.
-- Sizes: task title 26/600 · chat 14.5/1.6 · body 14 · secondary 12.5–13 · labels 11 mono uppercase, letter-spacing 0.08em.
+- Sizes: task title 20/600 · chat 14.5/1.6 · body 14 · secondary 12.5–13 · labels 11 mono uppercase, letter-spacing 0.08em.
 
 ## Spacing
 

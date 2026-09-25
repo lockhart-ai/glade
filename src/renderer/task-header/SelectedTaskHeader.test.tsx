@@ -191,6 +191,43 @@ describe('SelectedTaskHeader', () => {
     expect(field('Status')).toHaveAttribute('title', 'Throttle applied; 14 new tests pass.')
   })
 
+  it.each([
+    ['an active task', {}, 'Active · waiting on you'],
+    ['a task stopped by an error', { activity: TaskActivity.Error }, 'Active · stopped by an error'],
+    ['a done task', { state: TaskState.Done, doneAt: STARTED + 44 * MINUTE }, 'Done · Sep 23'],
+  ])(
+    'gives the pill its full label as a tooltip for %s, since it truncates on a crowded line',
+    async (_, task, label) => {
+      await renderHeader({ task })
+
+      expect(pill()).toHaveAttribute('title', label)
+      expect(pill()).toHaveTextContent(label)
+    },
+  )
+
+  it('puts the title, pin, pill and timing on one line above the divider, and the objective and status below it', async () => {
+    await renderHeader()
+
+    // The line: the heading's container holds the title, the pin toggle, the pill and the timing, in that order.
+    const title = within(header()).getByRole('heading', { level: 1 })
+    const line = title.parentElement?.parentElement
+    if (!(line instanceof HTMLElement)) throw new Error('The title has no line around it')
+    const onTheLine = within(line)
+    const pin = onTheLine.getByRole('button', { name: 'Pin task' })
+    const timing = onTheLine.getByText('started 42m ago')
+    expect(onTheLine.getByRole('status')).toBe(pill())
+    expect(title.compareDocumentPosition(pin)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(pin.compareDocumentPosition(pill())).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(pill().compareDocumentPosition(timing)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+
+    // Neither field is on that line; both come after it.
+    for (const name of ['Objective', 'Status']) {
+      const row = within(header()).getByRole('group', { name })
+      expect(line.contains(row)).toBe(false)
+      expect(timing.compareDocumentPosition(row)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    }
+  })
+
   it('gives stand-ins no tooltips', async () => {
     await renderHeader({ task: { title: '', objective: '', status: '', statusUpdatedAt: null, createdAt: NOW } })
 

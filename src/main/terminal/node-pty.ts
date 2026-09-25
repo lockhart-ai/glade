@@ -30,8 +30,8 @@ export const spawnNodePty: SpawnPty = ({ file, args, cwd, size, env }) => {
       pty.onData(listener)
     },
     onExit: (listener) => {
-      pty.onExit(() => {
-        listener()
+      pty.onExit(({ exitCode, signal }) => {
+        listener({ exitCode, signal: signal === undefined || signal === 0 ? null : signal })
       })
     },
     write: (data) => {

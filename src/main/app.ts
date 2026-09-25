@@ -43,7 +43,11 @@ import {
   type E2eSpec,
 } from './e2e'
 import type { OpenPath, RevealPath, WriteClipboard } from './files/files'
-import { definedEnv, resolveLoginEnv, type Environment } from './login-env'
+import { definedEnv, LoginEnvSource, resolveLoginEnv, type Environment, type LoginEnv } from './login-env'
+import { logCrashes } from './logging/crashes'
+import { createFileLogSink, type FileLogSinkOptions } from './logging/file-sink'
+import { redactEnv } from './logging/format'
+import { CONSOLE_LOGGER, createLogger, LogScope, type Logger, type LogSink } from './logging/logger'
 import { installAppMenu } from './menu/app-menu'
 import { createElectronNotifier } from './notifications/electron-notifier'
 import { createReplyNotifications } from './notifications/notifications'
@@ -51,6 +55,7 @@ import type { Notifier } from './notifications/notifier'
 import { createRecordingNotifier } from './notifications/recording-notifier'
 import { openTaskWithoutWindow } from './tasks/attention'
 import { markQuit, markRunning, noteRelaunch } from './relaunch'
+import { testModeLogsFolder } from './isolation'
 import { checkSecurity, describeViolations } from './security'
 import { seedConversation } from './capture-conversation'
 import type { TerminalOptions } from './bridge'
@@ -105,8 +110,8 @@ type TestMode =
   | null
 
 /** Logs why the app can't start and exits. Shows a dialog too, except in a test mode, which must never show anything. */
-function refuseToStart({ logSummary, message, detail }: StartFailure, testMode: TestMode): void {
-  console.error(`Glade refused to start: ${logSummary}\n${detail}`)
+function refuseToStart({ logSummary, message, detail }: StartFailure, testMode: TestMode, log: Logger): void {
+  log.error('refused to start', { reason: logSummary, detail })
   if (testMode === null) dialog.showErrorBox('Glade refused to start', `${message}\n\n${detail}`)
   app.exit(1)
 }
@@ -115,13 +120,14 @@ type DatabaseOpening =
   { readonly ok: true; readonly database: AppDatabase } | { readonly ok: false; readonly failure: StartFailure }
 
 /** Opens and migrates the database in the app's data folder, or says why it couldn't. */
-function openDatabase(): DatabaseOpening {
+function openDatabase(log: Logger): DatabaseOpening {
   try {
     const database = openAppDatabase(app.getPath('userData'))
     const { fromVersion, toVersion } = database.migration
-    console.log(`Database opened at ${database.file}; schema version ${String(fromVersion)} -> ${String(toVersion)}`)
+    log.info('database opened', { file: database.file, fromVersion, toVersion, migrated: fromVersion !== toVersion })
     return { ok: true, database }
   } catch (error) {
+    log.error("database couldn't be opened", { error })
     const detail = error instanceof Error ? describeError(error) : String(error)
     return {
       ok: false,
@@ -138,7 +144,8 @@ function describeError(error: Error): string {
  * Opens the main window: shown once it's ready, except in a test mode, where it's never shown (but still paints, so it
  * can be captured and recorded) and opens at the spec's route. In e2e mode it's the size of the recordings.
  */
-function createWindow(testMode: TestMode): BrowserWindow {
+function createWindow(testMode: TestMode, log: Logger): BrowserWindow {
+  log.info('window opening')
   const window = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -156,6 +163,13 @@ function createWindow(testMode: TestMode): BrowserWindow {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event) => {
     event.preventDefault()
+  })
+  // The window's own failures: its page not loading, or its process dying.
+  window.webContents.on('did-fail-load', (_event, code, description) => {
+    log.error("window's page failed to load", { code, description })
+  })
+  window.webContents.on('render-process-gone', (_event, details) => {
+    log.error("window's process is gone", { ...details })
   })
 
   if (testMode === null) {
@@ -182,10 +196,11 @@ interface CaptureContext {
   readonly database: AppDatabase
   readonly bridge: RegisteredBridge
   readonly agent: TestModeAgentBackend
+  readonly log: Logger
 }
 
 /** Fills the database from the spec's seed fixture and seeds its conversation, if it has them, then captures the page of a hidden window. Resolves with the files. */
-async function capture(spec: CaptureSpec, { database, bridge, agent }: CaptureContext): Promise<string[]> {
+async function capture(spec: CaptureSpec, { database, bridge, agent, log }: CaptureContext): Promise<string[]> {
   if (spec.seed !== undefined) applySeed(database.db, readSeed(spec.seed))
   if (spec.conversation !== undefined) {
     const context = {
@@ -197,7 +212,7 @@ async function capture(spec: CaptureSpec, { database, bridge, agent }: CaptureCo
     }
     await seedConversation(context, spec.conversation)
   }
-  return captureShots(createWindow({ kind: TestModeKind.Capture, spec }), spec)
+  return captureShots(createWindow({ kind: TestModeKind.Capture, spec }, log), spec)
 }
 
 /**
@@ -207,9 +222,9 @@ async function runCapture(spec: CaptureSpec, context: CaptureContext): Promise<v
   let exitCode = 0
   try {
     const files = await withTimeout(capture(spec, context), spec.timeoutMs)
-    for (const file of files) console.log(`Captured ${file}`)
+    for (const file of files) context.log.scoped(LogScope.TestMode).info('captured', { file })
   } catch (error) {
-    console.error(`Glade capture failed: ${error instanceof Error ? error.message : String(error)}`)
+    context.log.scoped(LogScope.TestMode).error('capture failed', { error })
     exitCode = 1
   }
   context.bridge.runner.close()
@@ -222,13 +237,13 @@ async function runCapture(spec: CaptureSpec, context: CaptureContext): Promise<v
  * Fills an e2e run's database from its seed fixture, if it has one, as a capture does. Returns false, having closed
  * the database and exited with an error, when the fixture can't be applied.
  */
-function seedE2e(spec: E2eSpec, database: AppDatabase): boolean {
+function seedE2e(spec: E2eSpec, database: AppDatabase, log: Logger): boolean {
   if (spec.seed === undefined) return true
   try {
     applySeed(database.db, readSeed(spec.seed))
     return true
   } catch (error) {
-    console.error(`Glade e2e failed: ${(error as Error).message}`)
+    log.scoped(LogScope.TestMode).error("the e2e seed couldn't be applied", { seed: spec.seed, error })
     database.db.close()
     app.exit(1)
     return false
@@ -258,6 +273,7 @@ function createTestModeAgent(
   testMode: NonNullable<TestMode>,
   db: AppDatabase['db'],
   env: Promise<Environment>,
+  log: Logger,
 ): TestModeAgentBackend {
   const name: AgentScriptName | undefined =
     testMode.kind === TestModeKind.Capture ? testMode.spec.conversation?.agentScript : testMode.spec.agentScript
@@ -272,6 +288,7 @@ function createTestModeAgent(
     },
     // An e2e spec reads the environment each session would have run in.
     testMode.kind === TestModeKind.E2e ? { env, onSessionEnv: createE2eAgentEnvs() } : undefined,
+    log.scoped(LogScope.Agent),
   )
 }
 
@@ -280,15 +297,32 @@ function createTestModeAgent(
  * reads yours, so what it does doesn't depend on the machine it runs on: it keeps the app's own, unless an e2e spec
  * names a login shell to read.
  */
-function agentEnv(testMode: TestMode): Promise<Environment> {
+function agentEnv(testMode: TestMode, log: Logger): Promise<Environment> {
   const base = process.env
   const read = (shell: string | undefined): Promise<Environment> =>
-    resolveLoginEnv({ shell, base, cwd: app.getPath('home') }).then(({ env }) => env)
+    resolveLoginEnv({ shell, base, cwd: app.getPath('home'), log }).then((result) => {
+      logAgentEnv(log, shell, result)
+      return result.env
+    })
   if (testMode === null) return read(base.SHELL)
   if (testMode.kind === TestModeKind.E2e && testMode.spec.loginShell !== undefined) {
     return read(testMode.spec.loginShell)
   }
-  return Promise.resolve(definedEnv(base))
+  const own = definedEnv(base)
+  logAgentEnv(log, undefined, { source: LoginEnvSource.Fallback, env: own, reason: 'a test mode keeps its own' })
+  return Promise.resolve(own)
+}
+
+/** Logs the environment the agents run in: where it came from and its PATH, and at debug the whole of it, redacted. */
+function logAgentEnv(log: Logger, shell: string | undefined, result: LoginEnv): void {
+  const reason = result.source === LoginEnvSource.Fallback ? { reason: result.reason } : {}
+  log.info('agent environment', {
+    source: result.source,
+    shell: shell ?? null,
+    ...reason,
+    PATH: result.env.PATH ?? null,
+  })
+  log.debug('agent environment variables', { env: redactEnv(result.env) })
 }
 
 /**
@@ -342,6 +376,7 @@ interface OpenTaskContext {
   readonly testMode: TestMode
   readonly database: AppDatabase
   readonly bridge: RegisteredBridge
+  readonly log: Logger
 }
 
 /**
@@ -349,11 +384,11 @@ interface OpenTaskContext {
  * open the task, as clicking its row does. With every window closed, it selects the task itself and opens a window on
  * it. A test mode's window stays hidden.
  */
-function openTaskFromNotification(taskId: string, { testMode, database, bridge }: OpenTaskContext): void {
+function openTaskFromNotification(taskId: string, { testMode, database, bridge, log }: OpenTaskContext): void {
   const [window] = BrowserWindow.getAllWindows()
   if (window === undefined) {
     openTaskWithoutWindow({ db: database.db, emit: bridge.emit }, taskId)
-    createWindow(testMode)
+    createWindow(testMode, log)
     return
   }
   if (testMode === null) {
@@ -374,6 +409,16 @@ export interface AppOptions {
   readonly createAgentBackend?: (options: SdkBackendOptions) => AgentBackend
   /** Starts the terminal tabs' shells in pseudo-terminals: node-pty by default; unit tests pass a fake. */
   readonly spawnPty?: SpawnPty
+  /** Makes where the log goes (`docs/logs.md`): the log file by default. */
+  readonly createLogSink?: (options: FileLogSinkOptions) => LogSink
+}
+
+/**
+ * Where the log goes: `~/Library/Logs/Glade/` (Electron's logs folder), or a test mode's throwaway data folder, so a
+ * test never writes to yours.
+ */
+function logsFolder(testMode: TestMode): string {
+  return testMode === null ? app.getPath('logs') : testModeLogsFolder(testMode.spec.userData)
 }
 
 /**
@@ -394,47 +439,70 @@ function terminalOptions(testMode: TestMode, spawn: SpawnPty): TerminalOptions {
  * same app with a throwaway data folder, in a window that is never shown, which captures its page and exits. An e2e
  * spec (see `./e2e`) runs the app as normal for Playwright to drive, with a throwaway data folder and a hidden window.
  */
-export function startApp({ createAgentBackend = createSdkBackend, spawnPty = spawnNodePty }: AppOptions = {}): void {
+export function startApp({
+  createAgentBackend = createSdkBackend,
+  spawnPty = spawnNodePty,
+  createLogSink = createFileLogSink,
+}: AppOptions = {}): void {
   let testMode: TestMode
   try {
     testMode = startTestMode()
   } catch (error) {
-    console.error(`Glade test mode failed: ${(error as Error).message}`)
+    // Before the test mode is set up there's no folder of its own to log to, and a test never logs to yours.
+    CONSOLE_LOGGER.scoped(LogScope.TestMode).error('test mode failed', { error })
     app.exit(1)
     return
   }
+  const log = createLogger({
+    // In development (and the test modes, which never run packaged) the log shows on the terminal too.
+    sink: createLogSink({ dir: logsFolder(testMode), toConsole: !app.isPackaged }),
+  })
+  const stopLoggingCrashes = logCrashes(process, log)
+  log.info('app starting', {
+    version: app.getVersion(),
+    electron: process.versions.electron,
+    node: process.versions.node,
+    platform: process.platform,
+    arch: process.arch,
+    packaged: app.isPackaged,
+    testMode: testMode?.kind ?? null,
+    agentBackend: testMode === null ? 'sdk' : 'scripted',
+    logs: logsFolder(testMode),
+  })
   // Read alongside Electron starting up, and without holding the window up: an agent session waits for it instead.
-  const env = agentEnv(testMode)
+  const env = agentEnv(testMode, log.scoped(LogScope.Env))
+  const refuse = (failure: StartFailure): void => {
+    stopLoggingCrashes()
+    refuseToStart(failure, testMode, log)
+  }
 
   void app.whenReady().then(() => {
     const security = checkSecurity(WINDOW_WEB_PREFERENCES)
     if (!security.ok) {
-      refuseToStart(
-        {
-          logSummary: 'insecure window settings',
-          message: "The window's security settings are not in effect.",
-          detail: describeViolations(security.violations),
-        },
-        testMode,
-      )
+      refuse({
+        logSummary: 'insecure window settings',
+        message: "The window's security settings are not in effect.",
+        detail: describeViolations(security.violations),
+      })
       return
     }
 
-    const opening = openDatabase()
+    const opening = openDatabase(log.scoped(LogScope.Db))
     if (!opening.ok) {
-      refuseToStart(opening.failure, testMode)
+      refuse(opening.failure)
       return
     }
     const { database } = opening
 
     // A test mode never reaches the real Claude API, whatever the app was started with: its agent plays a script.
-    const testAgent = testMode === null ? null : createTestModeAgent(testMode, database.db, env)
+    const testAgent = testMode === null ? null : createTestModeAgent(testMode, database.db, env, log)
     const notifyReply = createReplyNotifications({
       db: database.db,
       notifier: createNotifier(testMode),
       openTask: (taskId) => {
-        openTaskFromNotification(taskId, { testMode, database, bridge })
+        openTaskFromNotification(taskId, { testMode, database, bridge, log })
       },
+      log: log.scoped(LogScope.Notifications),
       // The bridge's runner, once it's registered: a notification is only shown after that.
       runner: {
         send: (taskId, text) => bridge.runner.send(taskId, text),
@@ -454,7 +522,7 @@ export function startApp({ createAgentBackend = createSdkBackend, spawnPty = spa
       ipc: ipcMain,
       db: database.db,
       targets: () => BrowserWindow.getAllWindows().map((window) => window.webContents),
-      agentBackend: testAgent ?? createAgentBackend({ env }),
+      agentBackend: testAgent ?? createAgentBackend({ env, log: log.scoped(LogScope.Agent) }),
       // A test can't click a native dialog, so in e2e mode it answers with the folder the test chose.
       chooseFolder:
         testMode?.kind === TestModeKind.E2e
@@ -472,20 +540,22 @@ export function startApp({ createAgentBackend = createSdkBackend, spawnPty = spa
       closeWindow: () => {
         BrowserWindow.getFocusedWindow()?.close()
       },
+      log,
     })
 
     const { runner } = bridge
 
     if (testMode?.kind === TestModeKind.Capture && testAgent !== null) {
-      void runCapture(testMode.spec, { database, bridge, agent: testAgent })
+      void runCapture(testMode.spec, { database, bridge, agent: testAgent, log })
       return
     }
     // Carry on the turns the app last quit or crashed in; the window loads what they save from the database, and the
     // relaunch notice when it crashed. An e2e seed is the state the window opens on, not a run the app quit in, so it
     // goes in afterwards.
     const crashed = markRunning(database.db)
+    if (crashed) log.warn('the app crashed or was killed last time')
     noteRelaunch(database.db, crashed, runner.resumeInterrupted())
-    if (testMode?.kind === TestModeKind.E2e && !seedE2e(testMode.spec, database)) {
+    if (testMode?.kind === TestModeKind.E2e && !seedE2e(testMode.spec, database, log)) {
       runner.close()
       return
     }
@@ -493,6 +563,8 @@ export function startApp({ createAgentBackend = createSdkBackend, spawnPty = spa
     backfillWorkspaceSelections(database.db)
 
     app.on('will-quit', () => {
+      log.info('app quitting')
+      stopLoggingCrashes()
       runner.close()
       // The shells end with the app; their tabs and recent output stay, for the next launch to show.
       if (database.db.open) bridge.terminals.shutdown()
@@ -501,10 +573,10 @@ export function startApp({ createAgentBackend = createSdkBackend, spawnPty = spa
       database.db.close()
     })
 
-    createWindow(testMode)
+    createWindow(testMode, log)
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow(testMode)
+      if (BrowserWindow.getAllWindows().length === 0) createWindow(testMode, log)
     })
   })
 

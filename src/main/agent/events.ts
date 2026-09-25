@@ -10,6 +10,7 @@
  */
 import { z } from 'zod'
 import { CompactionTrigger, type EpochMs, type ToolInput } from '../../shared/domain'
+import type { Logger } from '../logging/logger'
 
 export enum AgentEventKind {
   /** The session is running: it names its SDK session id. Arrives at the start of every turn. */
@@ -208,10 +209,8 @@ export type AgentEvent =
   | RateLimitEvent
   | SubagentStartedEvent
 
-/** Where parsing reports what it drops. */
-export interface AgentLog {
-  warn(message: string, ...details: unknown[]): void
-}
+/** Where parsing reports what it drops: the task's agent log (`../logging/logger`). */
+export type AgentLog = Pick<Logger, 'warn'>
 
 // SDK message types Glade knowingly doesn't use (yet). Dropped without a word; any other unknown type is logged.
 const IGNORED_TYPES: ReadonlySet<string> = new Set([
@@ -396,7 +395,7 @@ function fromAssistant(message: z.infer<typeof assistantMessage>, log: AgentLog)
       case 'text': {
         const text = textBlock.safeParse(raw)
         if (text.success) return [{ kind: AgentEventKind.Text, text: text.data.text, parentToolUseId: parent }]
-        log.warn('Dropped a malformed text block from the agent', text.error.message)
+        log.warn('Dropped a malformed text block from the agent', { problem: text.error.message })
         return []
       }
       case 'tool_use': {
@@ -405,7 +404,7 @@ function fromAssistant(message: z.infer<typeof assistantMessage>, log: AgentLog)
           const { id, name, input } = call.data
           return [{ kind: AgentEventKind.ToolCallStarted, toolUseId: id, name, input, parentToolUseId: parent }]
         }
-        log.warn('Dropped a malformed tool call from the agent', call.error.message)
+        log.warn('Dropped a malformed tool call from the agent', { problem: call.error.message })
         return []
       }
       default:
@@ -432,7 +431,7 @@ function fromUser(message: z.infer<typeof userMessage>, log: AgentLog): AgentEve
     if (raw.type !== 'tool_result') return []
     const result = toolResultBlock.safeParse(raw)
     if (!result.success) {
-      log.warn('Dropped a malformed tool result', result.error.message)
+      log.warn('Dropped a malformed tool result', { problem: result.error.message })
       return []
     }
     const { tool_use_id, content: output, is_error } = result.data
@@ -499,7 +498,7 @@ function parsed<T>(
 ) {
   const result = schema.safeParse(raw)
   if (result.success) return events(result.data)
-  log.warn(`Dropped a malformed ${what} message from the agent`, result.error.message)
+  log.warn(`Dropped a malformed ${what} message from the agent`, { problem: result.error.message })
   return []
 }
 
@@ -512,7 +511,7 @@ export function createSdkMessageParser(log: AgentLog): (raw: unknown) => AgentEv
   return (raw) => {
     const head = messageHead.safeParse(raw)
     if (!head.success) {
-      log.warn('Dropped an SDK message with no type', head.error.message)
+      log.warn('Dropped an SDK message with no type', { problem: head.error.message })
       return []
     }
     const { type, subtype } = head.data

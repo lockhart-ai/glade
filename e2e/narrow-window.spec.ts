@@ -7,7 +7,7 @@ import { boxOf, MIN_WINDOW, resize } from './window-layout'
  * The tallest the header may be in the smallest window: one line of title, the pill and timing, and one line each of
  * objective and status. Wrapped, it was about four times the lines and pushed the chat under the input bar.
  */
-const MAX_HEADER_HEIGHT = 200
+const MAX_HEADER_HEIGHT = 120
 
 /** The chat keeps at least this much height in the smallest window. */
 const MIN_CHAT_HEIGHT = 80

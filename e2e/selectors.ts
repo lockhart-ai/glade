@@ -112,6 +112,8 @@ export function taskHeader(page: Page) {
     pin: header.getByRole('button', { name: 'Pin task' }),
     unpin: header.getByRole('button', { name: 'Unpin task' }),
     markDone: header.getByRole('button', { name: 'Mark done' }),
+    /** When the task started or was created (or ran, once done), after the pill on the title's line. */
+    timing: header.getByText(/^(started|created|reopened) |^\d{1,2}:\d{2} – \d{1,2}:\d{2}$/),
     /** Shows the right panel again; there only while it's collapsed. */
     showSidePanel: header.getByRole('button', { name: 'Show side panel' }),
     /** A row's value, e.g. the objective. */

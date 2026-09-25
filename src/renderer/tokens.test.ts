@@ -38,7 +38,7 @@ describe('tokens.css', () => {
     expect(Object.fromEntries(cssDeclarations())).toMatchObject({
       '--font-sans': 'Geist, system-ui, sans-serif',
       '--font-mono': "'Geist Mono', ui-monospace, monospace",
-      '--font-size-title': '26px',
+      '--font-size-title': '20px',
       '--font-weight-title': '600',
       '--font-size-chat': '14.5px',
       '--line-height-chat': '1.6',
