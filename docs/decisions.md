@@ -111,6 +111,28 @@
   - These parts have no design screens. They're built from the existing tokens and components, and their PRs include
     screenshots for review.
 
+- **Programmatic control (P13, #219).** Details in `control-api.md`.
+  - Other agents can drive Glade through one MCP server, `glade-control`: list workspaces; list, read, create, update,
+    message, stop, mark done, reopen and delete tasks; list and import Claude Code sessions. Its tools are defined once
+    in main, over a **control service** that uses the same code as the window's commands, so the API and the UI
+    behave the same and every change reaches open windows.
+  - It's served two ways: **in-process** to Glade's own tasks, next to `glade` (behind tool search, not `alwaysLoad`),
+    and as a **Streamable HTTP endpoint** (the official `@modelcontextprotocol/sdk`) on `127.0.0.1` only, port 45233 by
+    default and configurable, falling back to the next nine when taken, behind a random bearer token kept in SQLite
+    that Settings can regenerate. Every request's `Host` and `Origin` are checked against DNS rebinding.
+  - **Settings › Control** has one switch, **Let agents control Glade**, off by default. When it's on it shows the
+    endpoint, a copy-ready `claude mcp add --transport http glade-control …` command with the token, Regenerate token,
+    the port, and a note that Glade's own tasks get the tools too.
+  - **Importing** a Claude Code transcript (`~/.claude/projects/<slug>/<sessionId>.jsonl`): Glade parses it itself,
+    tolerantly, into a task in the workspace whose root is the transcript's folder (failing when there's none, unless
+    the caller asks for that folder to be added as a workspace), with its title, chat, tool log and turn dividers at
+    their original times, done by default. The task keeps the session id, so a message resumes the Claude Code
+    session. Importing a session twice returns the same task.
+  - **Safety:** a task can't stop, delete or message itself through the API; deletes need `confirm: true`; calls are
+    rate limited per caller; everything is logged under `control`, never the token. In the ask mode, `glade-control`
+    tools that change things ask like other MCP tools; its reads (`list_*`, `get_*`) never ask when the SDK says the
+    server is Glade's in-process one.
+
 ## Open
 
 - Exact names and schemas for the model surface tools (a draft is in `model-surface.md`).

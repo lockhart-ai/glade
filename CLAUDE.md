@@ -16,8 +16,9 @@ Nimbalyst: the whole product is the lifecycle of a task plus the panels around i
 6. `docs/kitten-sop.md` — how a worker agent takes an issue from ticket to PR, and how the supervisor reviews, merges
    and releases.
 
-Reference docs: `docs/model-surface.md` (the tools the app gives the model), `docs/design/tokens.md` (colours, type,
-spacing), `docs/keymap.md`, `docs/context-menus.md`, `docs/releasing.md` (cutting a release).
+Reference docs: `docs/model-surface.md` (the tools the app gives the model), `docs/control-api.md` (the MCP API for
+other agents), `docs/design/tokens.md` (colours, type, spacing), `docs/keymap.md`, `docs/context-menus.md`,
+`docs/releasing.md` (cutting a release).
 
 ## Working rules
 
