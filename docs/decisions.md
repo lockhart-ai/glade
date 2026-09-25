@@ -137,8 +137,11 @@
     orders it, **done** at that date, and an **external id** (unique) that makes running the backfill again safe: the
     same id returns the task already made. A backfilled task never starts its agent by itself. The note shows on a
     **Backfilled** card at the top of the chat (collapsible, rendered Markdown, with the date it was added; never
-    edited in the window) and goes at the end of the system prompt of every session the task starts or resumes, so
-    compaction can't lose it. `update_task` sets or clears the note and adds artifacts without moving the task.
+    edited in the window) and goes at the end of the system prompt of a session Glade starts, so compaction can't lose
+    it. Claude Code keeps a resumed session's original prompt, so a session that started without the note, or with an
+    older one, is sent it once as a `[Glade: handoff for this task] … [end]` block ahead of the next message (the chat
+    shows only the message); what each session has been given is kept in SQLite. `update_task` sets or clears the note
+    and adds artifacts without moving the task.
   - **Safety:** a task can't stop, delete or message itself through the API; deletes need `confirm: true`; calls are
     rate limited per caller; everything is logged under `control`, never the token. In the ask mode, `glade-control`
     tools that change things ask like other MCP tools; its reads (`list_*`, `get_*`) never ask when the SDK says the

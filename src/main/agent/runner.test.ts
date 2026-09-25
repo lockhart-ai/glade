@@ -26,6 +26,7 @@ import {
   type QueuedMessage,
   UiStateKey,
   type Task,
+  type TaskHandoff,
   TaskErrorSource,
   type TaskError,
   type ToolEvent,
@@ -61,6 +62,7 @@ import {
 import { HANDOFF_HEADING, handoffSection, systemPromptAppend } from './system-prompt'
 import { updateSettings } from '../db/repositories/settings'
 import { setHandoff } from '../db/repositories/backfills'
+import { getSessionContext } from '../db/repositories/session-context'
 import * as sdk from './test-sdk-messages'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
 import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
@@ -880,45 +882,6 @@ describe('the session', () => {
 
     expect(toolLog()[1]).toEqual({ narration: 'The agent session ended unexpectedly.', turn: 1 })
     expect(current().activity).toBe(TaskActivity.Error)
-  })
-
-  it('gives every session a task starts or resumes its handoff note, and a task without one none', async () => {
-    const note = '## Where it got to\n\nThe v2 handlers are live; `subscription.*` is next.'
-    const handoff = setHandoff(database.db, task.id, note, 1_000)
-    if (handoff === undefined) throw new Error('No handoff')
-    const prompts = (): boolean[] =>
-      backend.sessions.map((session) => session.options.systemPromptAppend.includes(handoffSection(handoff)))
-
-    // The first message starts a session with the note at the end of its prompt.
-    await send('Pick this up.')
-    expect(backend.session.options.systemPromptAppend).toBe(systemPromptAppend(task, undefined, false, handoff))
-    backend.session.emit(sdk.init(), sdk.result('Picking it up.'))
-    await settle()
-
-    // A session that ended is resumed with it.
-    backend.session.end()
-    await settle()
-    await send('Carry on.')
-    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
-    backend.session.emit(sdk.text('Working on it.'), sdk.toolUse('toolu_01', 'Bash', { command: 'npm test' }))
-    await settle()
-
-    // So is the turn a relaunch carries on.
-    relaunch()
-    runner.resumeInterrupted()
-    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
-    expect(backend.session.sent.map(({ text }) => text)).toEqual([RESUME_PROMPT])
-    expect(prompts()).toEqual([true])
-    backend.session.emit(sdk.result('Done.'))
-    await settle()
-
-    // Cleared, the next session has none.
-    setHandoff(database.db, task.id, null)
-    backend.session.end()
-    await settle()
-    await send('One more thing.')
-    expect(prompts()).toEqual([true, false])
-    expect(backend.session.options.systemPromptAppend).not.toContain(HANDOFF_HEADING)
   })
 
   it('gives a task that never had a handoff note none', async () => {
@@ -2736,6 +2699,125 @@ describe('questions', () => {
       expect(getOpenQuestionSet(database.db, task.id)).toEqual(open)
       expect(chat()).toHaveLength(1)
     })
+  })
+})
+
+describe("a task's handoff note", () => {
+  const NOTE = '## Where it got to\n\nThe v2 handlers are live; `subscription.*` is next.'
+
+  /** Sets the task's note, as `update_task` does, answering with it. */
+  function setNote(body: string, at: number): TaskHandoff {
+    const handoff = setHandoff(database.db, task.id, body, at)
+    if (handoff === undefined) throw new Error('No handoff')
+    return handoff
+  }
+
+  /** What the session was sent, in order. */
+  function sentTexts(): string[] {
+    return backend.session.sent.map(({ text }) => text)
+  }
+
+  /** Ends the running turn with a reply, and lets the runner handle it. */
+  async function reply(text = 'Done.'): Promise<void> {
+    backend.session.emit(sdk.init(), sdk.result(text))
+    await settle()
+  }
+
+  it('goes in the system prompt of a session Glade starts, and its messages go as they are', async () => {
+    const handoff = setNote(NOTE, 1_000)
+
+    await send("Let's pick this up.")
+    await reply()
+    await send('Carry on.')
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(backend.session.options.systemPromptAppend).toBe(systemPromptAppend(task, undefined, false, handoff))
+    expect(sentTexts()).toEqual(["Let's pick this up.", 'Carry on.'])
+    expect(getSessionContext(database.db, task.id)).toEqual({ instructions: true, handoffAt: 1_000 })
+  })
+
+  it('goes once, ahead of the next message, to a resumed session that started without it', async () => {
+    await send('Find out why the login test is flaky.')
+    await reply()
+    backend.session.end()
+    await settle()
+    const handoff = setNote(NOTE, 5_000)
+
+    await send('Carry on.')
+
+    expect(backend.sessions).toHaveLength(2)
+    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
+    expect(sentTexts()).toEqual([`[Glade: handoff for this task]\n${handoffSection(handoff)}\n[end]\n\nCarry on.`])
+    // The chat keeps only what you wrote.
+    expect(chat().at(-1)).toEqual({ role: MessageRole.User, body: 'Carry on.', turn: 2 })
+    expect(events.filter((event) => event.type === EventType.MessageAppended).at(-1)).toMatchObject({
+      message: { body: 'Carry on.' },
+    })
+
+    await reply()
+    await send('And the logout test.')
+    expect(sentTexts().at(-1)).toBe('And the logout test.')
+  })
+
+  it('goes again, once, when it changes, to the session that had the one before', async () => {
+    setNote(NOTE, 1_000)
+    await send("Let's pick this up.")
+    await reply()
+    const changed = setNote('## Next\n\nShip it.', 2_000)
+
+    await send('Carry on.')
+    await reply()
+    await send('Anything else?')
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(sentTexts()).toEqual([
+      "Let's pick this up.",
+      `[Glade: handoff for this task]\n${handoffSection(changed)}\n[end]\n\nCarry on.`,
+      'Anything else?',
+    ])
+    expect(getSessionContext(database.db, task.id)).toEqual({ instructions: true, handoffAt: 2_000 })
+  })
+
+  it('is neither lost nor sent twice across relaunches between setting it and sending', async () => {
+    await send('Find out why the login test is flaky.')
+    await reply()
+    const handoff = setNote(NOTE, 5_000)
+
+    relaunch()
+    await send('Carry on.')
+    expect(sentTexts()).toEqual([`[Glade: handoff for this task]\n${handoffSection(handoff)}\n[end]\n\nCarry on.`])
+    await reply()
+
+    relaunch()
+    await send('Anything else?')
+    expect(sentTexts()).toEqual(['Anything else?'])
+  })
+
+  it("goes with the first of a turn's messages when the queue starts it", async () => {
+    await send('Find out why the login test is flaky.')
+    backend.session.emit(sdk.init())
+    await settle()
+    const handoff = setNote(NOTE, 5_000)
+    await glade.invoke(CommandName.QueueAdd, { taskId: task.id, text: 'Then the logout test.' })
+    await glade.invoke(CommandName.QueueAdd, { taskId: task.id, text: 'And the signup test.' })
+
+    await reply()
+
+    expect(sentTexts().slice(1)).toEqual([
+      `[Glade: handoff for this task]\n${handoffSection(handoff)}\n[end]\n\nThen the logout test.`,
+      'And the signup test.',
+    ])
+  })
+
+  it('sends nothing once it is cleared, nor for a task that never had one', async () => {
+    await send('Find out why the login test is flaky.')
+    await reply()
+    setNote(NOTE, 5_000)
+    setHandoff(database.db, task.id, null)
+
+    await send('Carry on.')
+
+    expect(sentTexts()).toEqual(['Find out why the login test is flaky.', 'Carry on.'])
   })
 })
 

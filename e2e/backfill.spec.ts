@@ -5,8 +5,7 @@
 // handoff note in its system prompt.
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { BACKFILLS_TASKS, REPLIES_BRIEFLY } from '../src/main/agent/scripts'
-import { HANDOFF_HEADING } from '../src/main/agent/system-prompt'
+import { BACKFILLS_TASKS, REPLIES_BRIEFLY, type BackfilledTaskSample } from '../src/main/agent/scripts'
 import { CommandName } from '../src/shared/bridge'
 import { TaskState } from '../src/shared/domain'
 import { agentSessions, expect, test } from './fixtures'
@@ -15,7 +14,19 @@ import { invoke } from './task-view'
 
 const PICK_UP = "Let's pick this up."
 const SCRIPTS = { [BACKFILLS_TASKS.prompt]: 'backfills-tasks', [PICK_UP]: 'replies-briefly' } as const
-const [BILLING, PDFS] = BACKFILLS_TASKS.tasks
+
+/** One of the tasks the script backfills. */
+function backfilled(index: number): BackfilledTaskSample {
+  const sample = BACKFILLS_TASKS.tasks[index]
+  if (sample === undefined) throw new Error(`The script backfills no task ${String(index)}`)
+  return sample
+}
+
+const BILLING = backfilled(0)
+const PDFS = backfilled(1)
+
+/** The heading the handoff note goes under in the system prompt (`HANDOFF_HEADING`). */
+const HANDOFF_HEADING = 'Handoff for this task (backfilled from earlier notes)'
 
 /**
  * Makes the workspace folder, with each backfilled task's notes in it, and a seed that opens it with agents allowed to

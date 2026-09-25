@@ -128,7 +128,11 @@ describe('create_task, backfilling a past task', () => {
       doneAt: MARCH_12_MS,
       sessionId: null,
     })
-    expect(getHandoff(app.database.db, id)).toEqual({ taskId: id, body: HANDOFF, addedAt: expect.any(Number) as unknown })
+    expect(getHandoff(app.database.db, id)).toEqual({
+      taskId: id,
+      body: HANDOFF,
+      addedAt: expect.any(Number) as unknown,
+    })
     expect(getHandoff(app.database.db, id)?.addedAt).toBeGreaterThan(MARCH_12_MS)
     expect(listArtifacts(app.database.db, id).map(({ path, title }) => [path, title])).toEqual([
       ['notes/billing/notes.md', 'Migration notes'],
@@ -158,8 +162,16 @@ describe('create_task, backfilling a past task', () => {
       createdAt: MARCH_12_MS,
       handoff: { body: HANDOFF, addedAt: expect.any(Number) as unknown },
       artifacts: [
-        { path: join(root, 'notes/billing/notes.md'), title: 'Migration notes', addedAt: expect.any(Number) as unknown },
-        { path: join(root, 'notes/billing/decisions.md'), title: 'decisions.md', addedAt: expect.any(Number) as unknown },
+        {
+          path: join(root, 'notes/billing/notes.md'),
+          title: 'Migration notes',
+          addedAt: expect.any(Number) as unknown,
+        },
+        {
+          path: join(root, 'notes/billing/decisions.md'),
+          title: 'decisions.md',
+          addedAt: expect.any(Number) as unknown,
+        },
       ],
       externalId: 'notes/billing',
     })

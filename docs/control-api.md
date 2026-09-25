@@ -292,10 +292,25 @@ both. The window never changes the note.
 handoff note rendered as Markdown (raw HTML dropped, nothing loaded, links not followed) and the date it was added. It
 starts open, and its line closes and opens it.
 
-**What the agent gets:** every session the task starts or resumes (a message, a relaunch, a turn that carries on) has
-the handoff note at the end of its system prompt, under "Handoff for this task (backfilled from earlier notes)", with a
-line saying the paths it names are real and it can read them. It's in the prompt, not the chat, so a compaction never
-loses it. A task without a note gets no such section.
+**What the agent gets:** a session Glade starts for the task has the handoff note at the end of its system prompt, under
+"Handoff for this task (backfilled from earlier notes)", with a line saying the paths it names are real and it can read
+them. It's in the prompt, not the chat, so a compaction never loses it, and the session keeps it when it's resumed.
+But Claude Code keeps the prompt a session started with when it resumes one (`sdk-notes.md` §8), so a session that
+started without the note, or with an older one (the note was set or changed with `update_task` after the task had a
+session), is sent it once, as a block ahead of the next message Glade sends it:
+
+```
+[Glade: handoff for this task]
+## Handoff for this task (backfilled from earlier notes)
+…
+[end]
+
+Let's pick this up.
+```
+
+The chat shows only your message. What each task's session has been given is kept in SQLite, so the block goes exactly
+once per version of the note, across relaunches. A cleared note sends nothing. A task without a note gets none of
+this.
 
 ### Example: one notes folder
 
