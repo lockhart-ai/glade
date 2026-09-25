@@ -31,7 +31,9 @@ export async function watchMotion(window: Page): Promise<void> {
     const seen = new WeakSet<Animation>()
     const noteAnimations = (): void => {
       for (const animation of document.getAnimations()) {
+        // An endless animation (the working line's pulsing dots) is no change of state, so it isn't one to record.
         if (!(animation instanceof CSSAnimation) || seen.has(animation)) continue
+        if (animation.effect?.getComputedTiming().iterations === Infinity) continue
         seen.add(animation)
         const duration = animation.effect?.getComputedTiming().duration
         record.animations.push({ name: animation.animationName, duration: typeof duration === 'number' ? duration : 0 })
@@ -76,9 +78,20 @@ export async function takeMotion(window: Page): Promise<MotionRecord> {
   }, RECORD)
 }
 
-/** The CSS animations running in the page now (not transitions, such as a hover's colour). */
+/**
+ * The CSS animations running in the page now that take something from one state to another: not transitions, such as a
+ * hover's colour, and not endless ones, such as the working line's pulsing dots.
+ */
 export function runningAnimations(window: Page): Promise<number> {
-  return window.evaluate(() => document.getAnimations().filter((animation) => animation instanceof CSSAnimation).length)
+  return window.evaluate(
+    () =>
+      document
+        .getAnimations()
+        .filter(
+          (animation) =>
+            animation instanceof CSSAnimation && animation.effect?.getComputedTiming().iterations !== Infinity,
+        ).length,
+  )
 }
 
 /** The animations in a record whose name has `name` in it (e.g. `panel-close`), with their durations. */
