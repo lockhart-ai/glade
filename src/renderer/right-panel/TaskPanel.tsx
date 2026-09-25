@@ -5,14 +5,14 @@ import { ArtifactsTab } from '../artifacts'
 import { TabPanel, Tabs, type TabItem } from '../components'
 import { FilesTab, type FileLineFocus } from '../files'
 import { RightPanel } from '../layout'
-import { Panel, PanelToggle, usePanel } from '../panels'
+import { Panel, PanelToggle, usePanel, usePanelSize } from '../panels'
 import { selectSelectedTask, selectSelectedWorkspace } from '../store/state'
 import { useGladeStore } from '../store/react'
 import { SubagentsTab } from '../subagents'
 import { Todos } from '../todos'
 import { ToolLog, type TurnFocus } from '../tool-log'
 import { NOW_REFRESH_MS, useNow } from '../task-list/useNow'
-import { formatCount, PanelTab, parsePanelTab, parsePanelWidth } from './panelModel'
+import { formatCount, PanelTab, parsePanelTab } from './panelModel'
 import { PANEL_TAB_DEFINITIONS } from './panelTabs'
 import styles from './TaskPanel.module.css'
 
@@ -41,7 +41,7 @@ export function TaskPanel(): React.JSX.Element | null {
   const tab = useGladeStore((state) => parsePanelTab(state.uiState[UiStateKey.RightPanelTab]))
   // Only the Todos and Artifacts tabs show relative times ("updated 4m ago", "12m ago").
   const now = useNow(tab === PanelTab.Todos || tab === PanelTab.Artifacts ? NOW_REFRESH_MS : null)
-  const width = useGladeStore((state) => parsePanelWidth(state.uiState[UiStateKey.RightPanelWidth]))
+  const { size: width, setSize: keepWidth } = usePanelSize(Panel.RightPanel)
   const { collapsed } = usePanel(Panel.RightPanel)
   const setUiState = useGladeStore((state) => state.setUiState)
   const toolLogFocus = useGladeStore((state) => state.toolLogFocus)
@@ -77,10 +77,6 @@ export function TaskPanel(): React.JSX.Element | null {
 
   const selectTab = (next: PanelTab): void => {
     if (next !== tab) void setUiState({ key: UiStateKey.RightPanelTab, value: next })
-  }
-
-  const keepWidth = (next: number): void => {
-    if (next !== width) void setUiState({ key: UiStateKey.RightPanelWidth, value: String(next) })
   }
 
   // Close (⌘W) closes the file showing in Files while the focus is in the panel; anywhere else it closes the window, as

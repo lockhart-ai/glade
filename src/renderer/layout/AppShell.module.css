@@ -1,4 +1,7 @@
-/* A column rather than a grid, so the banner, when there is one, takes its own height above the rest. */
+/*
+ * A column rather than a grid, so the banner, when there is one, takes its own height above the rest. The panels' sizes
+ * and limits are custom properties set by AppShell.tsx (from src/renderer/panels/panelSize.ts).
+ */
 .shell {
   position: relative;
   box-sizing: border-box;
@@ -14,15 +17,22 @@
   flex-shrink: 0;
 }
 
-.bottom {
-  height: min(var(--bottom-bar-height), var(--bottom-bar-max-height));
+/*
+ * The bottom bar takes the height you chose while the task card above it keeps its minimum height; in a shorter window
+ * it gives way, down to its own minimum.
+ */
+.shell > .bottom {
+  position: relative;
+  flex: 0 1 var(--bottom-bar-height);
+  min-height: var(--bottom-bar-min-height);
   display: grid;
   grid-template-rows: minmax(0, 1fr);
 }
 
 /* Collapsed to its tab row, the bottom bar takes only that row's height and the task card the rest. */
-.bottom.collapsed {
-  height: auto;
+.shell > .bottom.collapsed {
+  flex: 0 0 auto;
+  min-height: 0;
 }
 
 /*
@@ -36,15 +46,40 @@
   -webkit-app-region: drag;
 }
 
+/*
+ * The sidebar takes the width you chose while the task card beside it keeps its minimum width: room for its border
+ * (1px a side), its padding and the chat's minimum width, and the right panel's minimum beside it when it's open. In a
+ * narrower window the sidebar gives way, down to its own minimum.
+ */
 .shell > .top {
+  --task-min-width: calc(2px + 2 * var(--space-inset) + var(--chat-min-width));
+
   flex: 1 1 0;
-  min-height: 0;
+  min-height: var(--task-min-height);
   display: grid;
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  grid-template-columns: minmax(var(--sidebar-min-width), var(--sidebar-width)) minmax(var(--task-min-width), 1fr);
   gap: var(--space-outer);
+}
+
+.shell > .top[data-right-panel='true'] {
+  --task-min-width: calc(2px + 3 * var(--space-inset) + var(--chat-min-width) + var(--right-panel-min-width));
+}
+
+/* The task card's own minimum width, which the sidebar's handle reads to know how far it can go. */
+.top > :last-child {
+  min-width: var(--task-min-width);
 }
 
 /* The sidebar is collapsed: the task card takes the whole width. */
 .shell > .top.full {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(var(--task-min-width), 1fr);
+}
+
+/* Holds the sidebar card and the handle in the gap to its right. */
+.sidebarSlot {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
 }

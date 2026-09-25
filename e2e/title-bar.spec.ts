@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path'
 import type { Page } from '@playwright/test'
 import { expect, test, type Glade } from './fixtures'
 import { chooseMenuItem } from './menu'
-import { firstRun, panelToggles, regions, taskList } from './selectors'
+import { firstRun, panelToggles, regions, resizeHandles, taskList } from './selectors'
 import { boxOf, MIN_WINDOW, resize, type Box } from './window-layout'
 
 /** The design's sample workspace (scripts/fixtures/task-workspace.json): pinned, active and done tasks, one selected. */
@@ -91,9 +91,11 @@ async function expectTitleBarClear(glade: Glade, size: { width: number; height: 
   const row = { x: 0, y: 0, width: size.width, height: TITLE_BAR_HEIGHT - 1 }
   expect(await pointsNotOnTheTitleBar(window, gridOver(row, 16))).toEqual([])
 
-  // Every panel, and whatever of the task list's controls shows, starts below the row.
-  const below = [area.task, area.terminal]
-  if (await area.sidebar.isVisible()) below.push(area.sidebar, panelToggles(window).collapseTaskList)
+  // Every panel, whatever of the task list's controls shows, and the handles that resize the task list and the bottom
+  // bar start below the row.
+  const handles = resizeHandles(window)
+  const below = [area.task, area.terminal, handles.bottomBar]
+  if (await area.sidebar.isVisible()) below.push(area.sidebar, panelToggles(window).collapseTaskList, handles.taskList)
   else below.push(panelToggles(window).showTaskList)
   for (const locator of below) {
     const box = await boxOf(locator)

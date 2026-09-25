@@ -173,3 +173,51 @@ it('keeps the task list in the first-run window, where only the bottom bar colla
   })
   expect(screen.getByRole('button', { name: 'Show bottom panel' })).toBeInTheDocument()
 })
+
+it('sizes the task list and bottom bar from UI state, keeps the sizes you resize them to, and keeps them while collapsed', async () => {
+  const uiState = [
+    { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+    { key: UiStateKey.SidebarWidth, value: '400' },
+    { key: UiStateKey.BottomBarHeight, value: '250' },
+  ]
+  const store = createGladeStore(fakeBridge({ workspaces: [sampleWorkspace('w1')], tasks: [], uiState }).bridge)
+  render(
+    <GladeStoreProvider store={store}>
+      <App />
+    </GladeStoreProvider>,
+  )
+  await act(() => store.getState().hydrate())
+  const shell = screen.getByTestId('window-title-bar').parentElement
+  const size = (property: string): string | undefined => shell?.style.getPropertyValue(property)
+  expect(size('--sidebar-width')).toBe('400px')
+  expect(size('--bottom-bar-height')).toBe('250px')
+  // The task card's minimum width has room for the right panel while it shows.
+  const row = screen.getByRole('main', { name: 'Task' }).parentElement
+  expect(row).toHaveAttribute('data-right-panel', 'true')
+
+  // jsdom lays nothing out, so there's only room for each panel's minimum; the key press stores it.
+  fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize task list' }), { key: 'ArrowRight' })
+  fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize bottom panel' }), { key: 'ArrowUp' })
+  await act(async () => {
+    await Promise.resolve()
+  })
+  expect(store.getState().uiState).toMatchObject({
+    [UiStateKey.SidebarWidth]: '240',
+    [UiStateKey.BottomBarHeight]: '120',
+  })
+  expect(size('--sidebar-width')).toBe('240px')
+  expect(size('--bottom-bar-height')).toBe('120px')
+
+  // Collapsed and shown again, both come back at the size you left them.
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse task list' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse bottom panel' }))
+  expect(screen.queryByRole('separator', { name: 'Resize task list' })).toBeNull()
+  expect(screen.queryByRole('separator', { name: 'Resize bottom panel' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse side panel' }))
+  expect(row).toHaveAttribute('data-right-panel', 'false')
+  fireEvent.click(screen.getByRole('button', { name: 'Show task list' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Show bottom panel' }))
+  expect(screen.getByRole('separator', { name: 'Resize task list' })).toHaveAttribute('aria-valuenow', '240')
+  expect(screen.getByRole('separator', { name: 'Resize bottom panel' })).toHaveAttribute('aria-valuenow', '120')
+  expect(size('--sidebar-width')).toBe('240px')
+})

@@ -396,8 +396,12 @@ export enum UiStateKey {
   RightPanelCollapsed = 'right_panel_collapsed',
   /** Whether the sidebar (the task list) is collapsed: `'true'` or `'false'`. Unset means open. */
   SidebarCollapsed = 'sidebar_collapsed',
+  /** The sidebar's width in CSS pixels, as you last dragged it. Unset means the design's default. */
+  SidebarWidth = 'sidebar_width',
   /** Whether the bottom bar is collapsed to its tab row: `'true'` or `'false'`. Unset means open. */
   BottomBarCollapsed = 'bottom_bar_collapsed',
+  /** The bottom bar's height in CSS pixels while it's open, as you last dragged it. Unset means the design's default. */
+  BottomBarHeight = 'bottom_bar_height',
   /** The id of the terminal tab the bottom bar shows. Unset, or a tab that's gone, means the first tab. */
   TerminalTab = 'terminal_tab',
 }
