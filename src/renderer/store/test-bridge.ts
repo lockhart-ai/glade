@@ -32,6 +32,7 @@ import {
   TaskActivity,
   TaskState,
   LIVE_WATCHER_STATES,
+  WatcherKind,
   WatcherState,
   type Artifact,
   type TaskHandoff,
@@ -679,6 +680,30 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
     awaitingPermission: false,
     pause: null,
     importedAt: null,
+  }
+}
+
+/** A running `Monitor` on a PR's CI checks, started at 13:02 on 25 September 2026, unless `overrides` say otherwise. */
+export function sampleWatcher(id: string, taskId: string, overrides: Partial<Watcher> = {}): Watcher {
+  return {
+    id,
+    taskId,
+    kind: WatcherKind.Monitor,
+    toolUseId: `toolu-${id}`,
+    label: 'CI checks on PR #42',
+    detail: 'gh pr checks 42 --watch',
+    schedule: null,
+    recurring: true,
+    state: WatcherState.Running,
+    wakes: 0,
+    lastWokeAt: null,
+    lastOutput: null,
+    nextDueAt: null,
+    expiresAt: null,
+    outcome: null,
+    startedAt: new Date(2026, 8, 25, 13, 2).getTime(),
+    endedAt: null,
+    ...overrides,
   }
 }
 

@@ -1,12 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
-import {
-  LIVE_WATCHER_STATES,
-  WatcherKind,
-  WatcherState,
-  type EpochMs,
-  type Watcher,
-} from '../../../shared/domain'
+import { LIVE_WATCHER_STATES, WatcherKind, WatcherState, type EpochMs, type Watcher } from '../../../shared/domain'
 import { Row } from './rows'
 
 /** A watcher the agent just started: what the tool call that started it says. */

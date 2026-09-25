@@ -393,7 +393,10 @@ export class ScriptedSession implements AgentSession {
     return script.turns[Math.min(this.turnsRun - 1, script.turns.length - 1)] ?? []
   }
 
-  /** The script to play, picked on the first message; null, having killed the session, when there's none for it. */
+  /**
+   * The script to play, picked on the first message; null, having killed the session, when there's none for it. A
+   * resumed session starts with the script's restored jobs, as the SDK brings a session's cron jobs back.
+   */
   private chooseScript(firstMessage: string): AgentScript | null {
     if (this.script !== null || this.stopped) return this.script
     const { script } = this.options
@@ -401,6 +404,11 @@ export class ScriptedSession implements AgentSession {
       this.script = typeof script === 'function' ? script(firstMessage) : script
     } catch (error) {
       this.die(error instanceof Error ? error : new Error(String(error)))
+    }
+    if (this.options.session.resumeSessionId !== null) {
+      for (const job of this.script?.restoredJobs ?? []) {
+        this.jobs.push({ ...job, toolUseId: `restored-${job.id}`, wakeup: false })
+      }
     }
     return this.script
   }
@@ -1087,7 +1095,11 @@ export class ScriptedSession implements AgentSession {
    * something (`docs/sdk-notes.md` §13), which also keeps the job a `ScheduleWakeup` or `CronCreate` schedules, and
    * drops the one a `CronDelete` deletes. Undefined for any other tool, and a failed call.
    */
-  private toolDetails(call: RunningCall, isError: boolean): Record<string, unknown> | undefined {
+  private toolDetails(
+    call: RunningCall,
+    isError: boolean,
+    given: Readonly<Record<string, unknown>> | undefined,
+  ): Record<string, unknown> | undefined {
     if (isError) return undefined
     const { input, sdkId } = call
     const watch = this.watches.get(sdkId)
@@ -1103,7 +1115,7 @@ export class ScriptedSession implements AgentSession {
       case 'ScheduleWakeup':
         return this.scheduleWakeup(sdkId, input)
       case 'CronCreate':
-        return this.createCron(sdkId, input)
+        return this.createCron(sdkId, input, typeof given?.id === 'string' ? given.id : undefined)
       case 'CronDelete': {
         const id = typeof input.id === 'string' ? input.id : ''
         const index = this.jobs.findIndex((job) => job.id === id)
@@ -1139,10 +1151,10 @@ export class ScriptedSession implements AgentSession {
     return { scheduledFor, clampedDelaySeconds: delay, wasClamped: delay !== asked }
   }
 
-  /** A `CronCreate`: a job on its schedule, recurring unless it says not. */
-  private createCron(toolUseId: string, input: ToolInput): Record<string, unknown> {
+  /** A `CronCreate`: a job on its schedule, recurring unless it says not, with the id the script gives it, if any. */
+  private createCron(toolUseId: string, input: ToolInput, given: string | undefined): Record<string, unknown> {
     this.scheduled += 1
-    const id = `${this.idPrefix.slice(0, 6)}c${String(this.scheduled)}`
+    const id = given ?? `${this.idPrefix.slice(0, 6)}c${String(this.scheduled)}`
     const schedule = typeof input.cron === 'string' ? input.cron : ''
     const recurring = input.recurring !== false
     const prompt = typeof input.prompt === 'string' ? input.prompt : ''
@@ -1205,7 +1217,7 @@ export class ScriptedSession implements AgentSession {
         uuid: randomUUID(),
       })
     }
-    const made = call === undefined ? undefined : this.toolDetails(call, isError)
+    const made = call === undefined ? undefined : this.toolDetails(call, isError, details)
     const merged = made === undefined && details === undefined ? undefined : { ...made, ...details }
     this.pushToolResult(call?.sdkId ?? this.sdkToolId(turn, id), call?.parent ?? null, output, isError, merged)
     turn.afterResult = true

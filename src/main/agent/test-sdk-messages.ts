@@ -406,6 +406,98 @@ export function monitorEnded(toolUseId: string, sdkTaskId: string, description: 
 }
 
 /**
+ * What the SDK streams when the agent runs a command in the background (`Bash` with `run_in_background`,
+ * `docs/sdk-notes.md` §13): the call, its task starting (`local_bash`), and at once the call's result naming the task.
+ */
+export function backgroundCommandStarted(
+  toolUseId: string,
+  sdkTaskId: string,
+  description: string,
+  command: string,
+): unknown[] {
+  return [
+    toolUse(toolUseId, 'Bash', { command, description, run_in_background: true }),
+    {
+      type: 'system',
+      subtype: 'task_started',
+      task_id: sdkTaskId,
+      tool_use_id: toolUseId,
+      description,
+      is_backgrounded: true,
+      task_type: 'local_bash',
+      session_id: SESSION_ID,
+    },
+    {
+      ...(toolResult(toolUseId, `Command running in background with ID: ${sdkTaskId}.`) as object),
+      tool_use_result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: sdkTaskId },
+    },
+  ]
+}
+
+/** What the SDK streams when a background task ends, as the probe saw (`docs/sdk-notes.md` §13). */
+export function backgroundEnded(
+  toolUseId: string,
+  sdkTaskId: string,
+  status: 'completed' | 'failed' | 'stopped',
+  summary: string,
+): unknown[] {
+  return [
+    {
+      type: 'system',
+      subtype: 'task_updated',
+      task_id: sdkTaskId,
+      patch: { status: status === 'stopped' ? 'killed' : status, end_time: 1_790_000_000_000 },
+      session_id: SESSION_ID,
+    },
+    {
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: sdkTaskId,
+      tool_use_id: toolUseId,
+      status,
+      output_file: `tasks/${sdkTaskId}.output`,
+      summary,
+      session_id: SESSION_ID,
+    },
+  ]
+}
+
+/** A `ScheduleWakeup` call and its result, as the probe saw (`docs/sdk-notes.md` §11). */
+export function wakeupScheduled(toolUseId: string, input: Record<string, unknown>, scheduledFor: number): unknown[] {
+  return [
+    toolUse(toolUseId, 'ScheduleWakeup', input),
+    {
+      ...(toolResult(toolUseId, 'Next wakeup scheduled (in 300s).') as object),
+      tool_use_result: { scheduledFor, clampedDelaySeconds: 300, wasClamped: false },
+    },
+  ]
+}
+
+/** A `CronCreate` call and its result, as the probe saw. */
+export function cronCreated(
+  toolUseId: string,
+  input: Record<string, unknown>,
+  id: string,
+  humanSchedule: string,
+): unknown[] {
+  return [
+    toolUse(toolUseId, 'CronCreate', input),
+    {
+      ...(toolResult(toolUseId, `Scheduled job ${id} (${humanSchedule}).`) as object),
+      tool_use_result: { id, humanSchedule, recurring: input.recurring !== false, durable: false },
+    },
+  ]
+}
+
+/** A `CronDelete` call and its result. */
+export function cronDeleted(toolUseId: string, id: string): unknown[] {
+  return [
+    toolUse(toolUseId, 'CronDelete', { id }),
+    { ...(toolResult(toolUseId, `Cancelled job ${id}.`) as object), tool_use_result: { id } },
+  ]
+}
+
+/**
  * What the SDK streams when a `ScheduleWakeup` or `CronCreate` job fires, before the turn it starts: the job's prompt
  * starting as a command of the SDK's own (`docs/sdk-notes.md` §11). The prompt itself never shows.
  */
