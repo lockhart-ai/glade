@@ -44,6 +44,24 @@ const MAIN = resolve(__dirname, '..', 'out', 'testing', 'main', 'index.js')
  */
 const RECORD_DIR = process.env.GLADE_RECORD_DIR
 
+/**
+ * The hour of the day the app's clock reads during a test. Seeds and specs work in minutes before now, and a date
+ * label ("Sep 25, 00:03") shows up wherever those times straddle midnight; midday keeps them hours from it.
+ */
+const LOCAL_HOUR = 12
+
+/**
+ * A time zone in which it's now `hour` o'clock: a fixed-offset `Etc/GMT` zone (whole hours, no daylight saving; its
+ * sign is inverted, so `Etc/GMT-5` is UTC+5). The app runs in it, so its clock reads that hour whatever the host's.
+ */
+export function timeZoneAtHour(hour: number, now: Date = new Date()): string {
+  const ahead = (hour - now.getUTCHours() + 24) % 24
+  // The zones run from UTC-12 to UTC+14.
+  const offset = ahead > 14 ? ahead - 24 : ahead
+  if (offset === 0) return 'Etc/GMT'
+  return `Etc/GMT${offset > 0 ? '-' : '+'}${String(Math.abs(offset))}`
+}
+
 /** How to launch the app. */
 export interface LaunchOptions {
   /** The page's location hash, e.g. `#gallery`. The app itself by default. */
@@ -111,12 +129,14 @@ interface Fixtures {
 function appEnv(
   spec: E2eSpec,
   chosenFolder: string | undefined,
+  timeZone: string,
   overrides: Readonly<Record<string, string>>,
 ): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE' && key !== 'ELECTRON_RENDERER_URL') env[key] = value
   }
+  env.TZ = timeZone
   Object.assign(env, overrides)
   env[E2E_ENV] = JSON.stringify(spec)
   if (chosenFolder !== undefined) env[E2E_CHOSEN_FOLDER_ENV] = chosenFolder
@@ -149,6 +169,8 @@ export const test = base.extend<Fixtures>({
     const userData = tempFolder('glade-e2e-data-')
     const launched: Glade[] = []
     const name = videoName(testInfo.file, testInfo.title)
+    // Chosen once, so a test's relaunches share the zone even if the hour turns in between.
+    const timeZone = timeZoneAtHour(LOCAL_HOUR)
 
     /**
      * Closes a launched app, or kills it as a force-quit or crash would, and, when recording, keeps its video as
@@ -183,7 +205,7 @@ export const test = base.extend<Fixtures>({
       }
       const app = await electron.launch({
         args: [MAIN],
-        env: appEnv(spec, chosenFolder, env),
+        env: appEnv(spec, chosenFolder, timeZone, env),
         ...(RECORD_DIR === undefined
           ? {}
           : { recordVideo: { dir: testInfo.outputPath('video'), size: E2E_WINDOW_SIZE, showActions: {} } }),
