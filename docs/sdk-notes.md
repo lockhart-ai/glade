@@ -506,7 +506,47 @@ log or as a truncated reply, and show the turn as stopped rather than failed (`t
 - Glade's SQLite chat and tool log remain the source of truth for the UI. The SDK transcript is the model's memory.
 - A turn that was in flight when Glade died has no `result`. Mark it interrupted in SQLite, and don't auto-re-run it.
 
-## 9. Claude Code's todo tools [verified]
+## 9. Permissions [docs]
+
+Read from `sdk.d.ts` (0.3.281) for per-call permission review (P11, #68); nothing here has been run yet. P11-01
+probes the unverified parts and marks what it saw **[verified]**.
+
+- **Glade today** runs every session with `permissionMode: 'bypassPermissions'` and
+  `allowDangerouslySkipPermissions: true`. In that mode `canUseTool` is never called.
+- **`canUseTool(toolName, input, options)`** is called before a tool runs when the permission mode, rules and hooks
+  leave the call at "ask". It returns a `Promise<PermissionResult>`:
+  `{ behavior: 'allow', updatedInput?, updatedPermissions?, decisionClassification? }` or
+  `{ behavior: 'deny', message, interrupt?, decisionClassification? }`. `decisionClassification` is `user_temporary`
+  (allow once), `user_permanent` (always allow) or `user_reject` (deny). The promise can stay pending as long as it
+  likes: "permission prompts have no park deadline".
+- **`options`** carries `toolUseID` (one per call; parallel calls each ask separately), `agentID` (set for a
+  subagent's call), `signal` (aborted when the call is cancelled, e.g. by `interrupt()`), `suggestions`
+  (`PermissionUpdate[]` for "don't ask again", e.g. an `addRules` of `{ toolName: 'Bash', ruleContent: 'npm test:*' }`),
+  `blockedPath`, `decisionReason`, `title` / `displayName` / `description` (prompt text the CLI wrote), `mcpServer`
+  (`{ name, source }`; `source: 'sdk'` means an in-process server the host registered, the one to trust, not the name
+  prefix), `defaultToNo`, `suppressAlwaysAllowRule` and `matchedAskRule` (a user `permissions.ask` rule forced this).
+- **Modes:** `'default'` asks for anything not pre-approved (Claude Code already lets reads inside `cwd` through
+  without asking), `'acceptEdits'` also auto-allows file edits, `'dontAsk'` denies what isn't pre-approved, `'plan'`
+  runs no tools, `'auto'` lets a classifier decide. **`setPermissionMode(mode)`** changes a live session's mode in
+  streaming-input mode. Whether a session started in `bypassPermissions` can switch to `default` and back is not
+  documented; P11-01 probes it. If it can't, a mode change restarts the session with `resume`.
+- **Rules:** `allowedTools` / `disallowedTools` take rule strings such as `Bash(npm test:*)`, which the CLI matches
+  itself (it splits compound commands, so a prefix rule doesn't let `npm test && rm -rf x` through). A
+  `PermissionUpdate` returned with `destination: 'session'` lasts only as long as the Claude Code process: session
+  rules are gone after a relaunch. So Glade keeps a task's rules in SQLite, returns them as `updatedPermissions` when
+  granted, and passes them as `allowedTools` when it starts or resumes the task's session.
+- **The user's settings still apply** with `settingSources` including `"user"`: their `permissions.allow`/`deny`
+  rules and `PreToolUse` hooks decide before `canUseTool` is asked. Denials made without asking are reported on
+  `result.permission_denials` (authoritative) and, best effort, as a system event.
+- **No survival across a relaunch.** A pending `canUseTool` lives in Glade's process and the CLI subprocess waiting
+  on it. `reinitialize()` redelivers pending requests only to a CLI that is still running (after a transport gap);
+  once Glade quits, the subprocess is gone and the resumed transcript has a `tool_use` with no result, as with a
+  blocking `ask` (§8, `model-surface.md`). What can survive is Glade's own record of the request: the card, the task
+  needing you, and the decision, delivered to the resumed session as a message.
+- **`permissionPromptToolName`** (route prompts to an MCP tool) and **`permissionPrompts: 'none'`** (never ask) are
+  the alternatives; neither fits a card that waits for the user.
+
+## 10. Claude Code's todo tools [verified]
 
 Probed with SDK 0.3.281 (Claude Code 2.1.281) for #167: the `init` tool list of a one-message session in an empty temp
 folder, with no settings sources, per model and environment.

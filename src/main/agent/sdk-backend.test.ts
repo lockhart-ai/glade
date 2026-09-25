@@ -117,7 +117,7 @@ it("gives each session its own copy of the environment, since the SDK adds to th
 })
 
 // The bundled Claude Code leaves its todo tools off for SDK sessions on newer models unless this is set, and the Todos
-// tab reads them (#167, docs/sdk-notes.md §9).
+// tab reads them (#167, docs/sdk-notes.md §10).
 it("turns Claude Code's todo tools on for every session, whatever the model", () => {
   for (const model of ['claude-opus-5-5[1m]', 'claude-sonnet-5', 'claude-haiku-4-5']) {
     expect(sdkOptions({ ...OPTIONS, model }, ENV).env).toMatchObject({ CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' })
