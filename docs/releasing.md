@@ -16,7 +16,7 @@ of truth, and a pushed tag `vX.Y.Z` builds and publishes the release (`.github/w
    logs are, from 0.9.0 on:
 
    ```md
-   - **Logs:** `~/Library/Logs/Glade/main.log`, one JSON line per event, rotated at 5 MB. They stay on your Mac;
+   - **Logs:** `~/Library/Logs/glade/main.log`, one JSON line per event, rotated at 5 MB. They stay on your Mac;
      attach them to a bug report if you like (`docs/logs.md` says what's in them).
    ```
 

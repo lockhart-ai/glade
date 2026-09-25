@@ -5,8 +5,9 @@ what worked and what didn't. The logs stay on your Mac: nothing is sent anywhere
 
 ## Where they are
 
-- **The app:** `~/Library/Logs/Glade/main.log` (Electron's logs folder). Open it in Console.app, or
-  `tail -f ~/Library/Logs/Glade/main.log`.
+- **The app:** `~/Library/Logs/glade/main.log` (Electron's logs folder). Open it in Console.app, or
+  `tail -f ~/Library/Logs/glade/main.log`. The folder is named after the package, `glade`, in lower case, as the app's
+  data folder is (`~/Library/Application Support/glade/`): the packaged app has no `productName` of its own.
 - **Rotation:** once `main.log` passes 5 MB it becomes `main.1.log`, the old `main.1.log` becomes `main.2.log`, and so
   on. Five old files are kept (`main.1.log` is the newest); older ones are deleted.
 - **Development** (`npm run dev`): the same file, and every line on the terminal too.
@@ -46,7 +47,7 @@ One JSON object per line:
 | `notifications` | Each notification sent, opened and replied to, and ones not sent because notifications are off.          |
 | `terminal`      | Terminal tabs opening and closing, shells starting and exiting (with their exit code or signal).          |
 | `plugins`       | The plugins found each time the plugins folder is read (how many, and each invalid one with its reason), plugins turned on and off, and the folder failing to be read. The shown plugin's view made and destroyed (and why), the status it sets (debug), its event feed starting after each `ready` (debug: how many tasks the snapshot held), and what its sandbox refuses: requests, files outside its folder, navigation, new windows, permissions, downloads, and messages that are malformed or too many. |
-| `control`       | Each call to the `glade-control` tools (`control-api.md`): the tool, the caller (the calling task's id, or `http`, over MCP or `/v1`), the task it acts on, how long it took, and `ok` or the error code. The text of a message it sends at debug, cut short. The HTTP endpoint starting (host, port, and the chosen port when it fell back), stopping and failing to start; the token regenerated; each request refused before a tool saw it (why: bad host, origin or token, no token, no such path or tool, wrong method, too large, not JSON, rate limited; the status, method and path); and a request failing inside Glade. Never a token. |
+| `control`       | Each call to the `glade-control` tools ([`control-api.md`](control-api.md)): the tool, the caller (the calling task's id, or `http`, over MCP or `/v1`), the task it acts on, how long it took, and `ok` or the error code. The text of a message it sends at debug, cut short. The HTTP endpoint starting (host, port, and the chosen port when it fell back), stopping and failing to start; the token regenerated; each request refused before a tool saw it (why: bad host, origin or token, no token, no such path or tool, wrong method, too large, not JSON, rate limited; the status, method and path); and a request failing inside Glade. Never a token. |
 | `renderer`      | Errors in the window: uncaught errors, unhandled rejections, and errors React caught (with its component stack). |
 | `test-mode`     | The screenshot and e2e runs.                                                                              |
 
@@ -65,19 +66,19 @@ One JSON object per line:
 Everything about one task:
 
 ```sh
-grep '"taskId":"6431e16e' ~/Library/Logs/Glade/main.log
+grep '"taskId":"6431e16e' ~/Library/Logs/glade/main.log
 ```
 
 What went wrong:
 
 ```sh
-grep -E '"level":"(warn|error)"' ~/Library/Logs/Glade/main.log
+grep -E '"level":"(warn|error)"' ~/Library/Logs/glade/main.log
 ```
 
 With `jq`, a task's turns and tool calls:
 
 ```sh
-jq -c 'select(.taskId == "6431e16e-…" and (.scope == "runner" or .scope == "tools")) | [.time, .msg, .name, .state]' ~/Library/Logs/Glade/main.log
+jq -c 'select(.taskId == "6431e16e-…" and (.scope == "runner" or .scope == "tools")) | [.time, .msg, .name, .state]' ~/Library/Logs/glade/main.log
 ```
 
 ## How it's built
