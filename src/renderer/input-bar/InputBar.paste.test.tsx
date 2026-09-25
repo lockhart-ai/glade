@@ -300,7 +300,7 @@ describe('pasting images', () => {
     expect(await screen.findByText(/Couldn’t send your message/)).toBeInTheDocument()
   })
 
-  it('starts each task with no attachments', async () => {
+  it('keeps each task’s attachments with its draft, and gives them back when the task comes back', async () => {
     const fake = await renderBar()
     paste({ files: [imageFile(PNG)] })
     await attached(1)
@@ -308,7 +308,13 @@ describe('pasting images', () => {
     await act(() => fake.store.getState().selectTask('t2'))
     expect(thumbnails()).toEqual([])
     await act(() => fake.store.getState().selectTask('t1'))
-    expect(thumbnails()).toEqual([])
+    expect(thumbnails()).toEqual([imageDataUrl(PNG)])
+
+    // One pasted after the kept one is told apart from it.
+    paste({ files: [imageFile(GIF, 'wave.gif')] })
+    await attached(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Remove image 1' }))
+    expect(thumbnails()).toEqual([imageDataUrl(GIF)])
   })
 })
 

@@ -170,7 +170,7 @@ export type ShortcutId =
 
 /**
  * Where a command's shortcut applies, and who answers it: its "when". The menu bar answers its items' keys itself
- * (main builds its accelerators from this keymap), so the window never sees them; Window and OutsideTextFields
+ * (main builds its accelerators from this keymap), so the window never sees them; Window and MessageFieldOrOutsideTextFields
  * shortcuts go through the window's one key dispatcher; the others belong to the element that has the focus, which
  * reads the binding from here.
  */
@@ -179,8 +179,11 @@ export enum KeyScope {
   MenuBar = 'menu_bar',
   /** Anywhere in the window, typing in a text field included. */
   Window = 'window',
-  /** Anywhere but a text field, where the keys edit the text instead (⌥↑ moves the caret). */
-  OutsideTextFields = 'outside_text_fields',
+  /**
+   * The message field, and anywhere that isn't a text field. Other text fields keep the keys, since there they edit the
+   * text (⌥↑ moves the caret), and so does the terminal, whose field sends them to the shell.
+   */
+  MessageFieldOrOutsideTextFields = 'message_field_or_outside_text_fields',
   /** The focused item that has a context menu: a task's row, a reply, a file tab… */
   FocusedItem = 'focused_item',
   /** The chat's message field. */
@@ -196,7 +199,7 @@ export enum KeyScope {
 }
 
 /** The scopes the window's key dispatcher runs. */
-export const DISPATCHED_SCOPES: readonly KeyScope[] = [KeyScope.Window, KeyScope.OutsideTextFields]
+export const DISPATCHED_SCOPES: readonly KeyScope[] = [KeyScope.Window, KeyScope.MessageFieldOrOutsideTextFields]
 
 /** The scopes whose keys work wherever the focus is, so they mustn't type (see `bindingProblem`). */
 const GLOBAL_SCOPES: readonly KeyScope[] = [KeyScope.MenuBar, ...DISPATCHED_SCOPES]
@@ -265,7 +268,7 @@ function command(
 
 const NINE: DigitRange = { from: 1, to: 9 }
 const { Global, TaskList, Chat, Panels, Terminal, MenusAndDialogs } = KeymapArea
-const { MenuBar, Window, OutsideTextFields } = KeyScope
+const { MenuBar, Window, MessageFieldOrOutsideTextFields } = KeyScope
 
 /** Every command, in `docs/keymap.md`'s order. */
 export const COMMANDS: readonly CommandDefinition[] = [
@@ -277,8 +280,8 @@ export const COMMANDS: readonly CommandDefinition[] = [
   command(AppCommandId.OpenFolder, Global, 'Open folder as workspace', MenuBar, 'Meta+O'),
   command(WorkspaceCommandId.Switch, Global, 'Switch workspace', MenuBar, 'Meta+1', { digits: NINE }),
   command(WorkspaceCommandId.Close, Global, 'Close workspace', MenuBar, 'Meta+Shift+W'),
-  command(WindowCommandId.NextTask, TaskList, 'Next task', OutsideTextFields, 'Alt+ArrowDown'),
-  command(WindowCommandId.PreviousTask, TaskList, 'Previous task', OutsideTextFields, 'Alt+ArrowUp'),
+  command(WindowCommandId.NextTask, TaskList, 'Next task', MessageFieldOrOutsideTextFields, 'Alt+ArrowDown'),
+  command(WindowCommandId.PreviousTask, TaskList, 'Previous task', MessageFieldOrOutsideTextFields, 'Alt+ArrowUp'),
   command(WindowCommandId.NextTaskNeedingYou, TaskList, 'Next task that needs you', Window, 'Meta+Alt+ArrowDown'),
   command(TaskCommandId.Rename, TaskList, 'Rename', MenuBar, 'F2'),
   command(TaskCommandId.TogglePin, TaskList, 'Pin / unpin', MenuBar, 'Meta+Shift+P'),
@@ -458,14 +461,14 @@ function expandedChords(definition: CommandDefinition, bindings: readonly KeyCho
 
 /**
  * Whether one key press could reach both scopes. The menu bar's and the window's shortcuts reach the focus wherever it
- * is, except that one outside text fields doesn't reach the message field; the others each apply only to their own
- * element.
+ * is, except that one for the message field and outside text fields doesn't reach the terminal; the others each apply
+ * only to their own element.
  */
 function scopesOverlap(a: KeyScope, b: KeyScope): boolean {
   const anywhere: readonly KeyScope[] = [KeyScope.MenuBar, KeyScope.Window]
   if (a === b || anywhere.includes(a) || anywhere.includes(b)) return true
-  if (a === KeyScope.OutsideTextFields) return b !== KeyScope.MessageField
-  if (b === KeyScope.OutsideTextFields) return a !== KeyScope.MessageField
+  if (a === KeyScope.MessageFieldOrOutsideTextFields) return b !== KeyScope.Terminal
+  if (b === KeyScope.MessageFieldOrOutsideTextFields) return a !== KeyScope.Terminal
   return false
 }
 

@@ -25,6 +25,7 @@
     "src/shared/bridge.ts",
     "src/shared/doneList.ts",
     "src/shared/commands.ts",
+    "src/shared/control.ts",
     "src/shared/domain.ts",
     "src/shared/images.ts",
     "src/shared/models.ts",

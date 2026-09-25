@@ -8,8 +8,11 @@ import { ControlAccess } from './names'
 /** How many calls of each access a caller may make in a window. */
 export type RateLimits = Readonly<Record<ControlAccess, number>>
 
-/** 600 reads and 120 changes a minute. */
-export const CONTROL_RATE_LIMITS: RateLimits = { [ControlAccess.Read]: 600, [ControlAccess.Change]: 120 }
+/**
+ * 3,000 reads and 1,200 changes a minute: enough for a script backfilling hundreds of tasks at once not to be held up,
+ * while a caller that's gone wrong is still stopped.
+ */
+export const CONTROL_RATE_LIMITS: RateLimits = { [ControlAccess.Read]: 3000, [ControlAccess.Change]: 1200 }
 
 /** The window the limits count over. */
 export const RATE_WINDOW_MS = 60_000

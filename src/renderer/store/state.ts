@@ -13,6 +13,7 @@ import type {
 } from '../../shared/bridge'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../shared/settings'
 import type { InstalledPlugin } from '../../shared/plugins'
+import type { ControlStatus } from '../../shared/control'
 import type { SettingsSection } from '../settings/sections'
 import type { Command, MenuState } from '../../shared/commands'
 import type {
@@ -98,6 +99,12 @@ export interface InputInsertion {
   readonly taskId: string
   readonly text: string
   readonly request: number
+}
+
+/** What's in a task's input bar and not sent yet: its message field's text and the images pasted into it. */
+export interface InputDraft {
+  readonly text: string
+  readonly images: readonly ImageData[]
 }
 
 /**
@@ -217,8 +224,19 @@ export interface GladeData {
    * or answered when its view was placed; none until it sets one. Not saved: a plugin sets it again after `ready`.
    */
   readonly pluginStatuses: Readonly<Record<string, string>>
+  /**
+   * The control API's HTTP endpoint (Settings › Control), as main last answered (`control.status`, which the section asks
+   * for when it opens) or broadcast it; null until it's first read.
+   */
+  readonly controlStatus: ControlStatus | null
   /** The latest request to add text to a task's message field; null until one is made. A one-off UI intent. */
   readonly inputInsertion: InputInsertion | null
+  /**
+   * Each task's unsent message, by task id, kept as its input bar goes (another task selected) so it's there again when
+   * the task comes back; none for a task whose draft is empty. Not mirrored from main, like `searchText`: a relaunch
+   * starts every input bar empty.
+   */
+  readonly inputDrafts: Readonly<Record<string, InputDraft>>
   /**
    * What's typed in the sidebar's search field; empty while not searching. While it isn't blank, the sidebar lists the
    * search's results instead of the tasks, and the selected task's header and chat highlight its matches. Not mirrored
@@ -277,6 +295,10 @@ export interface GladeActions {
   setPluginEnabled: (id: string, enabled: boolean) => Promise<void>
   /** Opens the plugins folder in Finder (Open plugins folder). */
   openPluginsFolder: () => Promise<void>
+  /** Reads the control endpoint's status (`control.status`). */
+  loadControlStatus: () => Promise<void>
+  /** Replaces the control endpoint's token (Regenerate token, `control.regenerateToken`); the old one stops working. */
+  regenerateControlToken: () => Promise<void>
   /**
    * Puts a plugin's view over its card's body, in the page's CSS pixels, or hides it (`null`), and notes the status it
    * answers with (`plugins.placeView`).
@@ -445,6 +467,8 @@ export interface GladeActions {
   copyText: (text: string) => Promise<void>
   /** Asks the input bar to add text to a task's message field and focus it (see `inputInsertion`). */
   insertIntoInput: (taskId: string, text: string) => void
+  /** Keeps a task's unsent message for when its input bar comes back (see `inputDrafts`); an empty one is forgotten. */
+  keepInputDraft: (taskId: string, draft: InputDraft) => void
   /** Sets the sidebar's search text (see `searchText`); an empty string ends the search. */
   setSearchText: (text: string) => void
   /** Asks the sidebar's search field to take the focus (see `searchFocusRequest`). */
@@ -527,7 +551,9 @@ export const INITIAL_DATA: GladeData = {
   settingsSection: null,
   plugins: null,
   pluginStatuses: {},
+  controlStatus: null,
   inputInsertion: null,
+  inputDrafts: {},
   searchText: '',
   searchFocusRequest: 0,
   matchRevealRequest: 0,

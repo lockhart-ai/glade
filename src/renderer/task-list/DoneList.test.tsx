@@ -11,6 +11,7 @@ import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import { fakeBridge, sampleTask, sampleWorkspace, type FakeBridge, type FakeHandlers } from '../store/test-bridge'
 import { STUB_ROW_HEIGHT, STUB_VIEWPORT_HEIGHT } from '../test-layout'
+import { InputBar } from '../input-bar'
 import { TaskList, TaskListToolbar } from '.'
 
 const NOW = Date.UTC(2026, 8, 23, 11, 30)
@@ -52,6 +53,7 @@ async function renderList(
   tasks: Task[],
   uiState: UiStateEntry[] = [EXPANDED],
   overrides: Partial<FakeHandlers> = {},
+  withInputBar = false,
 ): Promise<Rendered> {
   const fake = fakeBridge(
     {
@@ -68,6 +70,7 @@ async function renderList(
       <ToastProvider>
         <TaskListToolbar workspaceId="w1" />
         <TaskList workspaceId="w1" />
+        {withInputBar && <InputBar />}
       </ToastProvider>
     </GladeStoreProvider>,
   )
@@ -281,6 +284,29 @@ describe('the Done section with more than a thousand tasks', () => {
     expect(section('Done').querySelector('[aria-current="true"]')).toHaveTextContent(
       `Done ${String(DONE_PAGE_SIZE - 1)}`,
     )
+  })
+
+  it('steps onto the next page with ⌥↓ from the input bar too, the focus going on to the next task’s', async () => {
+    const lastLoaded = doneId(DONE_PAGE_SIZE - 1)
+    const { store, fake } = await renderList(
+      manyDone(),
+      [EXPANDED, { key: UiStateKey.SelectedTaskId, value: lastLoaded }],
+      {},
+      true,
+    )
+    const field = (): HTMLElement => screen.getByRole('textbox', { name: 'Message the agent' })
+    act(() => {
+      field().focus()
+    })
+
+    expect(fireEvent.keyDown(field(), { key: 'ArrowDown', altKey: true })).toBe(false)
+
+    await vi.waitFor(() => {
+      expect(store.getState().selectedTaskId).toBe(doneId(DONE_PAGE_SIZE))
+      expect(field()).toHaveFocus()
+    })
+    expect(pageLoads(fake)).toBe(2)
+    expect(section('Done').querySelector('[aria-current="true"]')).toHaveTextContent(`Done ${String(DONE_PAGE_SIZE)}`)
   })
 
   it('goes to the very last done task with ⌥↑ when nothing is selected, loading every page', async () => {

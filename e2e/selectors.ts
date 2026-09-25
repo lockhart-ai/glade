@@ -426,6 +426,16 @@ export function settings(page: Page) {
     plugin: (name: string) =>
       dialog.getByRole('list', { name: 'Plugins' }).getByRole('listitem', { name, exact: true }),
     openPluginsFolder: dialog.getByRole('button', { name: 'Open plugins folder' }),
+    /** Control's endpoint URL, or "Not listening". */
+    endpoint: dialog.getByLabel('Endpoint URL'),
+    /** Control's `claude mcp add …` command, with the token. */
+    connectCommand: dialog.getByLabel('Connect command'),
+    copyCommand: dialog.getByRole('button', { name: 'Copy', exact: true }),
+    regenerateToken: dialog.getByRole('button', { name: 'Regenerate token' }),
+    /** Control's port field. */
+    port: dialog.getByRole('textbox', { name: 'Port' }),
+    /** What Control says of the port in use: that it isn't the one chosen, or why there's none. */
+    portNotice: dialog.getByRole('status'),
   }
 }
 

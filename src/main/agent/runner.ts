@@ -299,6 +299,8 @@ export interface AgentRunnerOptions {
   readonly permissions?: PermissionBroker
   /** The in-process MCP servers to give a task's session, such as the Glade tools (`./glade-tools`). None by default. */
   readonly mcpServers?: (task: Task) => AgentMcpServers
+  /** Variables to add to a task's session's environment as it starts. None by default. */
+  readonly sessionEnv?: (task: Task) => Readonly<Record<string, string>>
   /**
    * Where the runner logs its sessions and turns, in the runner's scope, and every SDK message, in the agent's
    * (`docs/logs.md`). Nothing by default.
@@ -650,6 +652,7 @@ function describeError(error: unknown): string {
 export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const { db, emit, backend } = options
   const mcpServers = options.mcpServers ?? (() => ({}))
+  const sessionEnv = options.sessionEnv ?? (() => ({}))
   const log = options.log ?? SILENT_LOGGER
   /** The runner's log for a task. */
   const taskLog = (taskId: string): Logger => log.with({ taskId })
@@ -1409,6 +1412,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       resumeSessionId: task.sessionId,
       systemPromptAppend: systemPromptAppend(task, getSettings(db), control, handoff),
       mcpServers: servers,
+      env: sessionEnv(task),
       allowedRules,
       log: agentLog(task.id),
       onToolPermission: (call) => decide(call),

@@ -29,6 +29,7 @@ illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
 | 20 · First run | No workspace yet: Open folder / Create a new folder. | ![20 · First run](screens/20-first-run.png) |
 | 21 · Settings | Modal; Agent section shown. | ![21 · Settings](screens/21-settings.png) |
 | 21 · Settings › Plugins | Plugins section: the plugins folder, one row per plugin with its toggle, an invalid one with its reason. | ![21 · Settings › Plugins](screens/21-settings-plugins.png) |
+| 21 · Settings › Control | Control section: Let agents control Glade on, the endpoint, the `claude mcp add` command with Copy, Regenerate token, the port with its fallback notice, and the note on Glade's own tasks. | ![21 · Settings › Control](screens/21-settings-control.png) |
 | 22 · Keymap | Every shortcut. Also in `../keymap.md`. | ![22 · Keymap](screens/22-keymap.png) |
 | 23 · Permission card | Ask before edits and commands: a Bash call waiting on you with Allow once, Allow for this task (its command prefix) and Deny, and a subagent's Edit with Deny's note field open; cards collapsed to one line once allowed once or denied (with the note). Built from the question card; no original design. | ![23 · Permission card](screens/23-permission-card.png) |
 | 24 · Permissions picker | The input bar's Permissions picker open on Allow all and Ask before edits and commands, over an open Bash card; above it, cards collapsed to one line once allowed once, allowed for this task or withdrawn. | ![24 · Permissions picker](screens/24-permissions-picker.png) |

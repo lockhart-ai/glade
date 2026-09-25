@@ -435,6 +435,19 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
       },
     ],
     [EventType.PluginStatusChanged]: [{ type: EventType.PluginStatusChanged, id: 'nekomata', text: secret('status') }],
+    [EventType.ControlChanged]: [
+      {
+        type: EventType.ControlChanged,
+        status: {
+          enabled: true,
+          chosenPort: 45233,
+          port: 45233,
+          url: 'http://127.0.0.1:45233/mcp',
+          token: secret('token'),
+          error: null,
+        },
+      },
+    ],
     [EventType.TerminalTabsChanged]: [
       {
         type: EventType.TerminalTabsChanged,

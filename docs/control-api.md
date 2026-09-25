@@ -2,14 +2,18 @@
 
 Glade can be driven by other agents: a chat in Claude Code, a script, or one of Glade's own tasks can list, read,
 create and change tasks, and port past Claude Code sessions in as tasks. It's one MCP server, **`glade-control`**,
-served two ways. Decided in `decisions.md` ("Programmatic control"); built in P13 (#219). Names and schemas are a draft
+served two ways, and the same tools as plain JSON for scripts. Decided in `decisions.md` ("Programmatic control"); built in P13 (#219). Names and schemas are a draft
 until P13 is released, then frozen.
 
 ## Turning it on
 
-Settings › Control has one switch, **Let agents control Glade**, off by default. While it's off, nothing is served:
-the endpoint isn't listening and new sessions don't get the tools. A session started while it was on keeps the tools,
-but every call is refused with `disabled` once it's off.
+Settings › Control (`docs/design/screens/21-settings-control.png`) has one switch, **Let agents control Glade**, off
+by default. While it's off, nothing is served: the endpoint isn't listening and new sessions don't get the tools. A
+session started while it was on keeps the tools, but every call is refused with `disabled` once it's off.
+
+The endpoint follows the switch: it starts when the switch goes on (and at launch, if it's on), stops when it goes off
+(dropping its connections), moves when the port changes, and closes when Glade quits. Changes are made one at a time
+in order, so flipping the switch quickly leaves one endpoint or none, never two.
 
 When it's on, the section shows:
 
@@ -21,7 +25,9 @@ When it's on, the section shows:
   ```
 
 - **Regenerate token**, which replaces the token at once (the old one stops working; copy the command again);
-- the port, which you can change;
+- the port, which you can change (1024–65535, saved when you press Return or leave the field), and, when it's taken,
+  a notice that Glade is listening on another and that a command copied before points at the old one, or, when every
+  port it tried is taken, the error;
 - a note that Glade's own tasks get the tools too, from their next session.
 
 ## Two transports, one server
@@ -35,8 +41,9 @@ served by:
   calling.
   Its tools aren't `alwaysLoad`: they sit behind tool search, so they cost no context until the agent looks for them.
   The system prompt gets one line saying they exist and are for when you ask.
-- **HTTP, for everything else.** A Streamable HTTP MCP endpoint (the official `@modelcontextprotocol/sdk`, stateless)
-  at `/mcp`, listening on `127.0.0.1` only.
+- **HTTP, for everything else.** A Streamable HTTP MCP endpoint (the official `@modelcontextprotocol/sdk`, stateless,
+  JSON answers rather than streams) at `/mcp`, listening on `127.0.0.1` only (`src/main/control/http.ts`). The same
+  server answers plain JSON at `/v1/tools` for scripts ("Scripting" below).
 
 Both call the same **control service** in main (`src/main/control/service.ts`), a typed layer over the code the window's commands use (the task
 service, the agent runner, the repositories). A change made through the API is the change the UI would make: same
@@ -52,7 +59,19 @@ checks, same events, so every open window updates at once.
   A missing or wrong token gets `401`.
 - **DNS rebinding:** the `Host` header must be `127.0.0.1:<port>` or `localhost:<port>`, and an `Origin` header, if
   there is one, must be `http://127.0.0.1:<port>` or `http://localhost:<port>`. Anything else gets `403`.
-- **Size:** request bodies over 1 MB get `413`.
+- **Size:** request bodies over 1 MB get `413`. A body is read and thrown away up to 16 MB, so the client reads the
+  answer; past that the connection is dropped.
+- **Paths:** `POST /mcp`, `GET /v1/tools` and `POST /v1/tools/<name>`. Any other path, or a tool that isn't one, gets
+  `404`; another method `405` (the endpoint is stateless, so there's no `GET /mcp` stream).
+- **Order:** `Host` and `Origin`, then the token, then the path and method, then the body's size and JSON (`400` if it
+  isn't JSON), then the rate limit. Nothing is said about paths before the token is right.
+- **No CORS:** no `Access-Control-*` header is ever sent, so a web page can't read an answer even if it could send.
+- **Rate limit:** the endpoint is one caller. Tool calls count as the control API counts them (a `rate_limited` tool
+  error over MCP, `429` over `/v1`); any other request (`initialize`, `tools/list`, `GET /v1/tools`) counts as a read,
+  and over the limit gets `429` with `Retry-After`. Notifications cost nothing.
+- **The token, regenerated,** is refused from the next request; nothing restarts and no connection is closed. A
+  refusal over MCP is JSON-RPC's error shape (`{ jsonrpc, error: { code: -32000, message }, id: null }`); over `/v1`
+  it's `{ error: { code, message } }` (below).
 
 ## Calls, results and errors
 
@@ -77,6 +96,93 @@ checks (`not_found`, `invalid_transition`, `confirm_required`). A tool name the 
 (MCP's invalid params), not a tool error.
 
 Times are epoch milliseconds. Ids are Glade's (UUIDs), except `sessionId`, which is the SDK's.
+
+## Scripting
+
+An agent porting hundreds of sessions in, or anything else that would take hundreds of tool calls, is better off
+writing a script. The endpoint serves the same tools as plain JSON beside `/mcp`, on the same server, behind the same
+token, `Host`/`Origin` checks, body limit, rate limits and logging, and through the same control API: a call over
+`/v1` is the call over MCP.
+
+- **`GET /v1/tools`** → `{ tools: [{ name, description, inputSchema }] }`, as `tools/list` gives them. It counts as a
+  read.
+- **`POST /v1/tools/<name>`** with the tool's input as the JSON body (none is `{}`) → `200` and the tool's result, the
+  `structuredContent` MCP gives. A failure is `{ "error": { "code", "message", "retryAfterMs"? } }` with a status that
+  fits its code:
+
+| Status | Codes |
+|---|---|
+| `400` | `invalid_input` (a body that isn't JSON too) |
+| `401` | `unauthorized`: no token, or a wrong one (with `WWW-Authenticate: Bearer`) |
+| `403` | `forbidden`, `disabled`, and a bad `Host` or `Origin` (`forbidden`) |
+| `404` | `not_found`, and a path or tool that isn't one |
+| `405` | `method_not_allowed` (with `Allow`) |
+| `409` | `invalid_transition`, `confirm_required` |
+| `413` | `too_large` |
+| `422` | `import_failed` |
+| `429` | `rate_limited`, with `Retry-After` in seconds and `retryAfterMs` |
+| `500` | `internal` |
+
+**Glade's own agents** get the endpoint in their environment while it listens, so a script they write and run with
+Bash needs no setup: `GLADE_CONTROL_URL` (the base URL, e.g. `http://127.0.0.1:45233`) and `GLADE_CONTROL_TOKEN`. A
+session gets them as it starts; with the switch off, or the endpoint not listening, they aren't set. A running session
+keeps the values it started with: after **Regenerate token** its old token is refused (`401`) until the task's next
+session, and after the port moves its URL is stale. The log redacts every `*_TOKEN` variable, and nothing logs them.
+
+With `curl`:
+
+```sh
+curl -s "$GLADE_CONTROL_URL/v1/tools/list_tasks" \
+  -H "Authorization: Bearer $GLADE_CONTROL_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"state": "active", "limit": 10}'
+```
+
+A Node script (`node backfill.mjs`) that backfills a done task per notes folder, idempotently by `externalId` (see
+"Backfilling past tasks"), and backs off on `429`. A refused call (`400` for `invalid_input`, e.g. an artifact that
+isn't a file of the workspace) throws with the error's message:
+
+```js
+const base = process.env.GLADE_CONTROL_URL
+const headers = { Authorization: `Bearer ${process.env.GLADE_CONTROL_TOKEN}`, 'Content-Type': 'application/json' }
+
+async function call(tool, input) {
+  for (;;) {
+    const response = await fetch(`${base}/v1/tools/${tool}`, { method: 'POST', headers, body: JSON.stringify(input) })
+    const body = await response.json()
+    if (response.status === 429) {
+      await new Promise((resolve) => setTimeout(resolve, body.error.retryAfterMs))
+      continue
+    }
+    if (!response.ok) throw new Error(`${tool}: ${body.error.code}: ${body.error.message}`)
+    return body
+  }
+}
+
+const { workspaces } = await call('list_workspaces', {})
+const workspaceId = workspaces.find((workspace) => workspace.name === 'Acme API').id
+const root = '/Users/sample/code/api'
+const folders = [
+  { folder: 'notes/rate-limits', title: 'Rate limit /search', started: '2026-03-12', handoff: '### Next\n\nAdd the Retry-After header.' },
+  { folder: 'notes/billing-webhooks', title: 'Migrate billing webhooks to v2', started: '2026-04-02', handoff: '### Next\n\nMap subscription.*.' },
+]
+// A few at a time; a folder already backfilled returns its task with created: false.
+for (let at = 0; at < folders.length; at += 10) {
+  const results = await Promise.all(
+    folders.slice(at, at + 10).map(({ folder, title, started, handoff }) =>
+      call('create_task', {
+        workspaceId,
+        externalId: folder,
+        title,
+        handoff,
+        artifacts: [{ path: `${root}/${folder}/notes.md`, title: 'Notes' }],
+        startedAt: started,
+        state: 'done',
+      }),
+    ),
+  )
+  for (const { task, created } of results) console.log(created ? 'backfilled' : 'already there', task.title)
+}
+```
 
 ### Types
 
@@ -385,13 +491,18 @@ To port everything in, an agent pages through `list_claude_code_sessions { impor
 - **A task can't turn on itself:** through the in-process server, a task can't stop, delete or send a message to
   itself (`forbidden`). It can read and update itself.
 - **Deletes need `confirm: true`.**
-- **Rate limits,** per caller (each task, and the HTTP endpoint as a whole): 600 reads and 120 changes a minute, in a
-  sliding window, counted apart. A refused call doesn't count. Imports count as changes.
+- **Rate limits,** per caller (each task, and the HTTP endpoint as a whole, MCP and `/v1` together): 3,000 reads and
+  1,200 changes a minute, in a sliding window, counted apart, so a script backfilling hundreds of tasks isn't held up.
+  A refused call doesn't count. Imports count as changes.
+- **The same name in your own config:** a Glade task's session never gets a `glade-control` server from the user's
+  Claude Code config (the command above, run in the workspace, adds one); only the in-process one, so each tool is
+  there once and calls as the task. See `sdk-notes.md` §12.
 - **Permissions:** in a task's ask mode (P11), `glade-control` tools that change things ask like any other MCP tool
   with side effects, since the server isn't `glade`. Its reads (`list_*`, `get_*`) never ask, when the SDK says the
   server is Glade's own in-process `glade-control`. The same tools reached through a user-configured HTTP server
   ask, reads included: a server's name proves nothing (`src/main/permissions/classify.ts`).
 - **Everything is logged** under the `control` scope (`logs.md`): each call's tool, caller (a task id, or `http`),
-  target task, how long it took and its outcome; the endpoint starting and stopping, its port, and refused requests
-  (bad token, host or origin, too big, rate limited), without the token. Message texts only at debug, cut short as
+  target task, how long it took and its outcome; the endpoint starting (its port, and the one chosen when it fell
+  back), stopping and failing to start; the token regenerated; and refused requests (why, the status, the method and
+  path), never with the token. Message texts only at debug, cut short as
   usual.

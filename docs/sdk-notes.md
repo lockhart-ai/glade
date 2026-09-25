@@ -914,6 +914,40 @@ ScheduleWakeup (CronCreate is the same):
 
 ---
 
+## 12. Two MCP servers with one name [verified]
+
+**What a task gets when the user's own Claude Code config also has a `glade-control` server** (P13-03): the command
+Settings › Control gives, `claude mcp add --transport http glade-control <url> --header …`, run in the workspace, adds
+one to the local config (or the user config with `-s user`), and Glade's session passes its in-process `glade-control`
+in `mcpServers` too.
+
+**How:** a throwaway script outside the repo. A temp `CLAUDE_CONFIG_DIR` with no login (so no API call is ever made:
+each turn ends "Not logged in"), a temp folder as the workspace, the bundled binary's own `claude mcp add` pointing at
+a local HTTP MCP server with one tool (`http_only_probe`), and a `query()` with `settingSources: ['user', 'project',
+'local']` and an in-process `glade-control` with another (`inproc_probe`). Two turns, reading `system/init` and
+`mcpServerStatus()` after each. SDK 0.3.281, Claude Code 2.1.281.
+
+**[verified] Without anything done about it, the two merge under the one name:**
+
+- The first `system/init` lists the server once, `{"name":"glade-control","status":"pending","source":"local"}`, with
+  only the in-process tool, while the HTTP one connects.
+- From the next turn on, `tools` has both, `mcp__glade-control__http_only_probe` and
+  `mcp__glade-control__inproc_probe`, and `mcpServerStatus()` reports one server, `source: "local"`, `type: "http"`,
+  with both tools. The same with `-s user` (`source: "user"`).
+- With Glade's real endpoint behind the user's server, every tool would be there twice under one name, the HTTP ones
+  calling Glade as `http` rather than as the task (so the self-guard wouldn't apply), and the server would no longer be
+  reported as the in-process one, so the ask mode would ask for its reads too.
+
+**[verified] Denying the name keeps the user's out and the in-process one in.** Passing
+`settings: { deniedMcpServers: [{ serverName: 'glade-control' }] }` in the SDK options (flag settings, whose
+`deniedMcpServers` merges with the user's own) leaves the user's server out: the HTTP server is never contacted, and
+both `system/init`s and `mcpServerStatus()` show one `glade-control`, `source: "sdk"`, `scope: "dynamic"`, with only
+the in-process tool. The denylist doesn't reach SDK servers. Denying by `serverUrl` does the same, but only for that
+URL.
+
+**Decided:** every session is started with `glade-control` denied by name (`src/main/agent/sdk-backend.ts`), whether
+the switch is on or off: a Glade task reaches Glade in-process or not at all, never through the user's config.
+
 ## Open risks
 
 - **Subscription auth policy.** Glade is login-based by decision, but the docs don't clearly permit this for a

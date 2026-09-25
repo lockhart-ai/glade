@@ -26,8 +26,7 @@ test('task list: new tasks show live, ⌥↑/⌥↓ move the selection, and a co
   await expect(list.section('Active')).toContainText('Active2')
   await expect(list.rows('Active').first()).toHaveAttribute('aria-current', 'true')
 
-  // ⌥↓ and ⌥↑ move through the list. A new task puts the focus in the input bar, whose text they'd move through
-  // instead, so leave it first.
+  // ⌥↓ and ⌥↑ move through the list, from outside the input bar too (task-switching.spec.ts drives them from it).
   await inputBar(glade.window).field.blur()
   await glade.window.keyboard.press('Alt+ArrowDown')
   await expect(list.rows('Active').nth(1)).toHaveAttribute('aria-current', 'true')

@@ -36,6 +36,13 @@ describe('isAppKey', () => {
     expect(isAppKey(DEFAULT_KEYMAP, keys('Control', 'ControlLeft', { ctrlKey: true }))).toBe(false)
   })
 
+  it('sends ⌥↑ / ⌥↓ to the shell, not to Next / previous task, however they’re bound', () => {
+    expect(isAppKey(DEFAULT_KEYMAP, keys('ArrowDown', 'ArrowDown', { altKey: true }))).toBe(false)
+    expect(isAppKey(DEFAULT_KEYMAP, keys('ArrowUp', 'ArrowUp', { altKey: true }))).toBe(false)
+    const rebound = resolveKeymap({ [WindowCommandId.NextTask]: 'Ctrl+Alt+J' })
+    expect(isAppKey(rebound, keys('∆', 'KeyJ', { ctrlKey: true, altKey: true }))).toBe(false)
+  })
+
   it('follows the keymap as you’ve bound it', () => {
     const rebound = resolveKeymap({ [WindowCommandId.FocusTerminal]: 'Ctrl+Alt+T' })
     expect(isAppKey(rebound, keys('`', 'Backquote', { ctrlKey: true }))).toBe(false)

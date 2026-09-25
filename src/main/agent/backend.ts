@@ -85,6 +85,11 @@ export interface AgentSessionOptions extends AgentSessionSettings {
   readonly systemPromptAppend: string
   readonly mcpServers: AgentMcpServers
   /**
+   * Variables added to the agent's environment, over the login shell's: the control endpoint's URL and token while
+   * agents may control Glade, so scripts the agent runs can call it. None by default.
+   */
+  readonly env?: Readonly<Record<string, string>>
+  /**
    * The permission rules the task was granted (Allow for this task): Claude Code lets the calls they cover through
    * without asking, in the ask mode. None by default.
    */

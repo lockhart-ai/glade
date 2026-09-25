@@ -276,6 +276,16 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.PluginsOpenFolder, {})
       },
 
+      async loadControlStatus() {
+        const { status } = await bridge.invoke(CommandName.ControlStatus, {})
+        set({ controlStatus: status })
+      },
+
+      async regenerateControlToken() {
+        const { status } = await bridge.invoke(CommandName.ControlRegenerateToken, {})
+        set({ controlStatus: status })
+      },
+
       async placePluginView(id, bounds) {
         const { status } = await bridge.invoke(CommandName.PluginsPlaceView, { id, bounds })
         set((state) => ({ pluginStatuses: { ...state.pluginStatuses, [id]: status } }))
@@ -587,6 +597,14 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         set(({ inputInsertion }) => ({
           inputInsertion: { taskId, text, request: (inputInsertion?.request ?? 0) + 1 },
         }))
+      },
+
+      keepInputDraft(taskId, draft) {
+        set(({ inputDrafts }) => {
+          const others = Object.fromEntries(Object.entries(inputDrafts).filter(([id]) => id !== taskId))
+          const empty = draft.text === '' && draft.images.length === 0
+          return { inputDrafts: empty ? others : { ...others, [taskId]: draft } }
+        })
       },
 
       setSearchText(text) {

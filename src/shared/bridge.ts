@@ -37,6 +37,7 @@ import type { SearchResult } from './search'
 import type { DoneCounts, DonePage, DonePageRequest } from './doneList'
 import type { TerminalTab } from './terminal'
 import type { InstalledPlugin } from './plugins'
+import type { ControlStatus } from './control'
 
 /** The name the bridge is exposed under on `window`. */
 export const BRIDGE_KEY = 'glade'
@@ -97,6 +98,8 @@ export enum CommandName {
   PluginsSetEnabled = 'plugins.setEnabled',
   PluginsOpenFolder = 'plugins.openFolder',
   PluginsPlaceView = 'plugins.placeView',
+  ControlStatus = 'control.status',
+  ControlRegenerateToken = 'control.regenerateToken',
   TerminalList = 'terminal.list',
   TerminalCreate = 'terminal.create',
   TerminalDuplicate = 'terminal.duplicate',
@@ -624,6 +627,15 @@ export interface PluginsSetEnabledRequest {
   readonly enabled: boolean
 }
 
+/**
+ * The control API's HTTP endpoint as Settings › Control shows it: whether the switch is on, the port chosen and the one
+ * in use, the URL, the token and any error. `control.status` answers with it; `control.regenerateToken` replaces the
+ * token (the old one is refused from the next request), answers with it and broadcasts `control.changed`.
+ */
+export interface ControlStatusResponse {
+  readonly status: ControlStatus
+}
+
 /** Opens the plugins folder in Finder (Open plugins folder), creating it if it's missing. */
 export type PluginsOpenFolderRequest = EmptyRequest
 
@@ -813,6 +825,8 @@ export interface CommandMap {
   [CommandName.SettingsUpdate]: CommandSpec<SettingsUpdateRequest, SettingsResponse>
   [CommandName.SearchQuery]: CommandSpec<SearchQueryRequest, SearchQueryResponse>
   [CommandName.PluginsList]: CommandSpec<EmptyRequest, PluginsResponse>
+  [CommandName.ControlStatus]: CommandSpec<EmptyRequest, ControlStatusResponse>
+  [CommandName.ControlRegenerateToken]: CommandSpec<EmptyRequest, ControlStatusResponse>
   [CommandName.PluginsSetEnabled]: CommandSpec<PluginsSetEnabledRequest, PluginsResponse>
   [CommandName.PluginsOpenFolder]: CommandSpec<PluginsOpenFolderRequest, null>
   [CommandName.PluginsPlaceView]: CommandSpec<PluginsPlaceViewRequest, PluginsPlaceViewResponse>
@@ -870,6 +884,7 @@ export enum EventType {
   SettingsChanged = 'settings.changed',
   PluginsChanged = 'plugins.changed',
   PluginStatusChanged = 'plugin.statusChanged',
+  ControlChanged = 'control.changed',
 }
 
 export interface UiStateChangedEvent {
@@ -1073,6 +1088,15 @@ export interface PluginStatusChangedEvent {
   readonly text: string
 }
 
+/**
+ * The control API's HTTP endpoint changed: it started, stopped or moved, failed to start, or its token was made or
+ * regenerated. Carries what Settings › Control shows, as it now is.
+ */
+export interface ControlChangedEvent {
+  readonly type: EventType.ControlChanged
+  readonly status: ControlStatus
+}
+
 /** Everything main broadcasts to the windows. */
 export type GladeEvent =
   | UiStateChangedEvent
@@ -1103,6 +1127,7 @@ export type GladeEvent =
   | SettingsChangedEvent
   | PluginsChangedEvent
   | PluginStatusChangedEvent
+  | ControlChangedEvent
 
 export type EventListener = (event: GladeEvent) => void
 
