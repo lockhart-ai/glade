@@ -1,4 +1,30 @@
-# Glade
+<p align="center">
+  <img src="docs/images/glade-icon.png" alt="The Glade app icon" width="128" height="128">
+</p>
+
+<h1 align="center">Glade</h1>
+
+<p align="center">
+  <strong>🌿 Run many Claude agents side by side, one task each, from first message to done.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/lockhart-ai/glade/actions/workflows/ci.yml"><img src="https://github.com/lockhart-ai/glade/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/lockhart-ai/glade/releases/latest"><img src="https://img.shields.io/github/v/release/lockhart-ai/glade?color=4c9a6a" alt="Latest release"></a>
+  <a href="https://github.com/lockhart-ai/glade/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/coverage-100%25%20lines-brightgreen" alt="Coverage: 100% of lines"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-blue" alt="Licence: MIT"></a>
+  <a href="#-install"><img src="https://img.shields.io/badge/platform-macOS%20%C2%B7%20Apple%20silicon-lightgrey?logo=apple" alt="Platform: macOS on Apple silicon"></a>
+</p>
+
+<p align="center">
+  <a href="https://www.electronjs.org/"><img src="https://img.shields.io/badge/Electron-44-47848F?logo=electron&logoColor=white" alt="Electron 44"></a>
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-6.0-3178C6?logo=typescript&logoColor=white" alt="TypeScript 6.0"></a>
+  <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white" alt="React 19"></a>
+  <a href="https://github.com/WiseLibs/better-sqlite3"><img src="https://img.shields.io/badge/SQLite-better--sqlite3%2013-003B57?logo=sqlite&logoColor=white" alt="SQLite via better-sqlite3 13"></a>
+  <a href="https://docs.claude.com/en/docs/agent-sdk/overview"><img src="https://img.shields.io/badge/Claude%20Agent%20SDK-0.3-D97757?logo=anthropic&logoColor=white" alt="Claude Agent SDK 0.3"></a>
+  <a href="https://vitest.dev/"><img src="https://img.shields.io/badge/Vitest-5-6E9F18?logo=vitest&logoColor=white" alt="Vitest 5"></a>
+  <a href="https://playwright.dev/"><img src="https://img.shields.io/badge/Playwright-1.63-2EAD33" alt="Playwright 1.63"></a>
+</p>
 
 Glade is a calm macOS app for running many Claude agent sessions as **tasks**. Each task has one objective and runs in
 a **workspace**, a folder you point Glade at. The agent names the task, keeps its status current as it works, asks you
@@ -10,17 +36,17 @@ it.
 
 ## Contents
 
-- [A quick tour](#a-quick-tour)
-- [Install](#install)
-- [Quick start](#quick-start)
-- [Highlights](#highlights)
-- [Documentation](#documentation)
-- [For AI agents](#for-ai-agents)
-- [Building from source](#building-from-source)
-- [Contributing](#contributing)
-- [Licence](#licence)
+- [A quick tour](#-a-quick-tour)
+- [Install](#-install)
+- [Quick start](#-quick-start)
+- [Highlights](#-highlights)
+- [Documentation](#-documentation)
+- [For AI agents](#-for-ai-agents)
+- [Building from source](#-building-from-source)
+- [Contributing](#-contributing)
+- [Licence](#-licence)
 
-## A quick tour
+## 🧭 A quick tour
 
 **Many tasks at once.** Each task runs its own agent session, with its own chat, tool log, files, todos and subagents.
 The sidebar shows which ones are working, which need you and which are done. A task can split its work across
@@ -51,7 +77,7 @@ create and update tasks, import your Claude Code history, or backfill past work 
 
 ![Settings › Control with Let agents control Glade on, the endpoint, and the command that connects Claude Code](docs/images/control.png)
 
-## Install
+## 📦 Install
 
 You need a Mac with Apple silicon, and [Claude Code](https://docs.claude.com/en/docs/claude-code) installed and logged
 in. Glade runs on your own Claude Code login (or `ANTHROPIC_API_KEY`, if you have one set). It never asks for or stores
@@ -71,7 +97,7 @@ your credentials.
 Each release's notes are in [docs/releases/](docs/releases/). Your workspaces and tasks carry over from one version to
 the next.
 
-## Quick start
+## 🚀 Quick start
 
 1. **Add a workspace.** On first launch Glade shows **Welcome to Glade**. Choose **Open folder…** and pick the folder
    you want your agents to work in (a project, or a folder of projects). If it has no `CLAUDE.md`, Glade writes a
@@ -87,25 +113,20 @@ the next.
 
 Press ⌘, for Settings, including every shortcut, which you can rebind.
 
-## Highlights
+## ✨ Highlights
 
-- **Tasks.** One objective, two states (Active and Done), an agent-maintained title, goal and status, pinning,
-  search across every chat in the workspace, and several workspaces side by side (⌘1–⌘9).
-- **Built to keep going.** Automatic and manual compaction, retries on a flaky API, usage limits and lost networks
-  that pause tasks instead of failing them, and crash recovery that resumes every task that was mid-turn.
-- **Questions.** Choices, pills and text, answered by mouse or keyboard, surviving a relaunch.
-- **Permissions.** Allow all, or ask before edits and commands, with per-task rules for what you've allowed.
-- **Right panel.** Tool calls, the files a task touched (with a read-only viewer), its todo list, the artifacts it
-  delivered, and its subagents.
-- **Terminal.** Tabs of your login shell in the bottom bar, kept with their scrollback across launches. Right-click a
-  Bash call in the tool log to run it again there.
-- **Plugins.** Small sandboxed web pages beside the terminal that get task and agent events, never your chat or files.
-  See [docs/plugin-api.md](docs/plugin-api.md).
-- **Control API and backfill.** An MCP server and a plain JSON endpoint, on this Mac only and behind a token, to
-  create, update and finish tasks from other agents and scripts, import Claude Code sessions, and backfill past tasks
-  with a handoff note the agent always has. See [docs/control-api.md](docs/control-api.md).
+| Feature | What you get |
+| --- | --- |
+| **Tasks** | One objective, two states (Active and Done), an agent-maintained title, goal and status, pinning, search across every chat in the workspace, and several workspaces side by side (⌘1–⌘9). |
+| **Built to keep going** | Automatic and manual compaction, retries on a flaky API, usage limits and lost networks that pause tasks instead of failing them, and crash recovery that resumes every task that was mid-turn. |
+| **Questions** | Choices, pills and text, answered by mouse or keyboard, surviving a relaunch. |
+| **Permissions** | Allow all, or ask before edits and commands, with per-task rules for what you've allowed. |
+| **Right panel** | Tool calls, the files a task touched (with a read-only viewer), its todo list, the artifacts it delivered, and its subagents. |
+| **Terminal** | Tabs of your login shell in the bottom bar, kept with their scrollback across launches. Right-click a Bash call in the tool log to run it again there. |
+| **Plugins** | Small sandboxed web pages beside the terminal that get task and agent events, never your chat or files. See [docs/plugin-api.md](docs/plugin-api.md). |
+| **Control API and backfill** | An MCP server and a plain JSON endpoint, on this Mac only and behind a token, to create, update and finish tasks from other agents and scripts, import Claude Code sessions, and backfill past tasks with a handoff note the agent always has. See [docs/control-api.md](docs/control-api.md). |
 
-## Documentation
+## 📚 Documentation
 
 - [docs/README.md](docs/README.md): the index of everything under `docs/`.
 - [docs/user-guide.md](docs/user-guide.md): how to use Glade, feature by feature.
@@ -117,13 +138,13 @@ Press ⌘, for Settings, including every shortcut, which you can rebind.
 - [docs/logs.md](docs/logs.md): what Glade logs, and where.
 - [docs/releases/](docs/releases/): release notes for every version.
 
-## For AI agents
+## 🤖 For AI agents
 
 If you're an agent reading this repo, start with [llms.txt](llms.txt), a short map of the docs written for you. To
 drive a running Glade (list, create, update or finish tasks, import Claude Code sessions, backfill past work), see
 [docs/control-api.md](docs/control-api.md); the user turns it on in Settings › Control.
 
-## Building from source
+## 🔧 Building from source
 
 You need macOS, Node 24 (see [.nvmrc](.nvmrc)), and Claude Code installed and logged in.
 
@@ -136,13 +157,13 @@ Since Electron 42, the `electron` package no longer downloads its binary on inst
 `install-electron` command. That lets `npm run dev` find the binary. `npm test`, `npm run test:e2e` and `npm run lint`
 run the checks CI runs; none of them talk to the real Claude API.
 
-## Contributing
+## 🤝 Contributing
 
 Glade is built in the open, and work is tracked in [GitHub issues](https://github.com/lockhart-ai/glade/issues). Start
 with [CLAUDE.md](CLAUDE.md) for the working rules and code conventions, [docs/decisions.md](docs/decisions.md) for what's
 already decided, and [docs/plan.md](docs/plan.md) for the phases. [docs/kitten-sop.md](docs/kitten-sop.md) describes how
 an issue goes from ticket to pull request. The designs to build to are in [docs/design/](docs/design/README.md).
 
-## Licence
+## 📄 Licence
 
 MIT. See [LICENSE](LICENSE).
