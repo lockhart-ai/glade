@@ -1,13 +1,20 @@
 # Kitten SOP
 
 Kittens are the worker agents that do the work on Glade. A supervisor agent dispatches each one with an issue, reviews
-its PR, and sends back fixes. Jared approves and merges. This SOP starts simple and grows as the codebase does.
+its PR, sends back fixes, and approves and merges it. This SOP starts simple and grows as the codebase does.
+
+## Kittens
 
 1. **Review your ticket.** Read `CLAUDE.md`, the issue, its phase's meta issue, and any docs and design screens it
    links. If something is unclear or contradicts the docs, stop and report the question instead of guessing.
 2. **Implement.** Work on a branch named after the issue (e.g. `p0-01-scaffold`), cut from the latest `main`. Meet
    every acceptance criterion. Commit messages are imperative and reference the ticket (`P0-01: …`).
-3. **Push up a PR.** Title `<id>: <issue title>`. The body is brief and ends with `Closes #N`:
+
+   Build what the designs show: `docs/design/screens/*.png`, with the exact CSS in `docs/design/html/*.html`. Where
+   they're silent, make the conservative call and list it under "Decisions" in your report.
+3. **Push up a PR.** Every `gh` call goes through `node scripts/gh-team.mjs <gh args>`. Title `<id>: <issue title>`.
+   The body is brief and ends at `Closes #N`, with no "Generated with Claude Code" footer or other attribution lines
+   (commit messages keep their Co-Authored-By trailer):
 
    ```
    Because:
@@ -16,44 +23,58 @@ its PR, and sends back fixes. Jared approves and merges. This SOP starts simple 
    This commit:
    - change
 
-   Screenshots: (when visual)
-
    Closes #N
    ```
 
-   The body ends at `Closes #N`: no "Generated with Claude Code" footer or other attribution lines. (Commit messages
-   keep their Co-Authored-By trailer.)
+   Don't arm auto-merge, queue the PR or poll it for merging: the supervisor approves, queues and merges it.
+4. **Check it.** Before reporting back, run `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test`
+   (100% line coverage), `npm run build` and `npm run test:e2e` locally, and wait for the required `ci` check to go
+   green on the PR (`node scripts/gh-team.mjs pr checks <N> --watch`). If it goes red, fix it with new commits.
+5. **Report back** briefly: the PR URL, how you checked each acceptance criterion, media paths, and decisions or open
+   questions.
 
-   Then arm auto-merge (squash) on it, using the glade-team identity described in `CLAUDE.md`: `gh pr merge <N> --auto
-   --squash`. It merges once Jared approves and checks pass.
+Review fixes go on the same branch as new commits. If you conflict with `main`, merge `origin/main` in; never rebase or
+force-push.
 
-   Before reporting back, run `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test`, `npm run
-   build` and `npm run test:e2e` locally, and wait for the required `ci` check to go green on the PR (`node scripts/gh-team.mjs pr checks <N>
-   --watch`). If it goes red, fix it with new commits.
+### Tests
 
-   Never merge directly. Report back to the supervisor with the PR link, how you checked each acceptance criterion,
-   and any decisions or open questions.
+- **No real Claude API.** Unit and integration tests use the fake backend; e2e uses the scripted fake agent
+  (`launch({ agentScript })`, scripts in `src/main/agent/scripts.ts`).
+- **UI changes need an e2e spec.** A PR that changes the UI adds or extends a Playwright spec in `e2e/` that drives the
+  real app through the workflow. Use the fixtures in `e2e/fixtures.ts` (`launch`, `tempFolder`, `chooseFolder`) and the
+  locators in `e2e/selectors.ts`, and wait on locators, never on timers.
+- **No visible windows or OS capture.** The app runs with a throwaway database in a window that is never shown. Never
+  use `npm run dev` for checks, or `screencapture`, `osascript` or System Events: they pop windows and permission
+  dialogs up on Jared's screen.
 
-   **Visual changes need screenshots.** If the PR changes anything you can see, take screenshots with `npm run
-   screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <name>]`, not `npm run dev` and remote
-   debugging. It captures from inside Electron, in a window that is never shown, with a throwaway database. Never use
-   OS-level capture or automation (`screencapture`, `osascript`, System Events): they pop windows and permission
-   dialogs up on Jared's screen. Compare the PNGs with the design screens. Never commit them to your feature branch or
-   main.
+### Screenshots and recordings
 
-   **UI changes need an e2e spec.** A PR that changes the UI adds or extends a Playwright spec in `e2e/` that drives
-   the real app through the workflow (`npm run test:e2e`; CI runs it too). Use the fixtures in `e2e/fixtures.ts`
-   (`launch`, `tempFolder`, `chooseFolder`) and the locators in `e2e/selectors.ts`, and wait on locators, never on
-   timers. The app runs with a throwaway database, in a window that is never shown.
+- **Visual changes need screenshots:** `npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery]
+  [--name <name>]`, with `--seed` fixtures from `scripts/fixtures/` or `--agent-script`. Compare them with the design
+  screens.
+- **Interactive changes need a recording:** `npm run record -- --out <dir> [-g <test title>]` writes a `.webm`, `.mp4`
+  and `.gif` per e2e test, over the DevTools protocol.
+- Save every PNG, GIF and MP4 to `out/pr-media/pr-<N>/` in your worktree (gitignored) and list their absolute paths in
+  your report. Never commit them, and never write the `Screenshots:` or `Recordings:` sections of the PR body: the
+  supervisor publishes them. When you edit a PR body yourself, fetch it first and change only `Because`/`This commit`.
 
-   **Interactive changes need a recording.** If the PR changes how something behaves, record the specs with `npm run
-   record -- --out <dir> [-g <test title>]`. It writes a `<spec>--<test>.webm`, `.mp4` and `.gif` per test, recorded
-   over the DevTools protocol, not OS capture.
+## Supervisor
 
-   **Screenshots and recordings.** Save every PNG, GIF and MP4 you capture (both above) to
-   `/private/tmp/claude-501/-Users-decker-Documents-glade/22a56592-db4d-4483-a6f8-3de038868265/scratchpad/pr-<N>/`
-   and list them in your report. The supervisor pushes them to the orphan `screenshots` branch under `pr-<N>/` and
-   owns the `Screenshots:` and `Recordings:` sections of the PR body; kittens never write or edit those sections. When
-   you edit a PR body yourself, such as for a review fix, fetch it first and change only `Because`/`This commit`.
+- **Review for real** against the issue, the designs and the media before approving. Send fixes back to the kitten.
+- **Publish media** with `node scripts/publish-media.mjs <N> <folder>` (`--dry-run` first to check the new body). It
+  pushes to the orphan `screenshots` branch and rewrites the PR's Screenshots and Recordings sections.
+- **Merge** by approving, then queueing with `node scripts/gh-team.mjs pr merge <N>`. Don't use `--auto`: it doesn't
+  enqueue a PR that's already mergeable.
+- **After every merge**, check the open PRs and the merge queue: others may now conflict or need re-queueing.
+- **Migration numbers** clash between parallel PRs. The second to land renumbers its migration.
 
-Review fixes go on the same branch as new commits; don't force-push.
+### Phase release
+
+1. **Verify** the phase's done-when criteria on `main`: all checks, coverage and the e2e suite.
+2. **Record the handback:** record the phase's workflows into a folder with an `index.txt` of
+   `name<TAB>caption<TAB>done-when` lines (one per recording) plus `compare-<screen>.png` app-vs-design images, then
+   `node scripts/publish-media.mjs --handback p<N>-handback <folder>`, which prints the comment markdown.
+3. **Bump the version** in a PR, per `docs/releasing.md`. Its release notes include a "Calls made without Jared (please
+   review)": every call made where the docs were silent.
+4. **Tag** the merged commit and push the tag.
+5. **Close the meta issue** with a comment: the release link, what was verified, and the handback markdown.

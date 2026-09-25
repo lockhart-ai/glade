@@ -13,7 +13,8 @@ Nimbalyst: the whole product is the lifecycle of a task plus the panels around i
 5. GitHub issues — work is tracked there, and they are canonical. Each phase has a meta issue with its "done when"
    criteria and its child issues. Pick the lowest-numbered open child issue in the earliest unfinished phase unless told
    otherwise.
-6. `docs/kitten-sop.md` — how a worker agent takes an issue from ticket to PR.
+6. `docs/kitten-sop.md` — how a worker agent takes an issue from ticket to PR, and how the supervisor reviews, merges
+   and releases.
 
 Reference docs: `docs/model-surface.md` (the tools the app gives the model), `docs/design/tokens.md` (colours, type,
 spacing), `docs/keymap.md`, `docs/context-menus.md`, `docs/releasing.md` (cutting a release).
