@@ -288,7 +288,7 @@ describe('import', () => {
     let checks = 0
     const db = database.db
     const prepare = db.prepare.bind(db)
-    db.prepare = ((source: string) => {
+    db.prepare = (source: string) => {
       if (source === 'SELECT id FROM tasks WHERE session_id = ?') {
         checks += 1
         // The check before reading and the one in the transaction miss it (it lands just after the first); the one
@@ -297,7 +297,7 @@ describe('import', () => {
         if (checks <= 2) return prepare("SELECT id FROM tasks WHERE session_id = ? AND id = 'none'")
       }
       return prepare(source)
-    })
+    }
 
     const result = await sessions.import(importInput())
 
