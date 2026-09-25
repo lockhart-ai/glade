@@ -1,6 +1,14 @@
 import { faSquare } from '@fortawesome/free-regular-svg-icons'
 import { faArrowUp } from '@fortawesome/free-solid-svg-icons'
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from 'react'
 import { BridgeErrorCode, isBridgeError } from '../../shared/bridge'
 import { Effort, TaskActivity, TaskState, type QueuedMessage, type Task } from '../../shared/domain'
 import { WindowCommandId } from '../../shared/commands'
@@ -10,7 +18,9 @@ import { Icon, IconSize, Textarea, useToast } from '../components'
 import { describeFailure } from '../store/hydrate'
 import { selectSelectedTask } from '../store/state'
 import { useGladeStore } from '../store/react'
+import { pastedFiles, readPastedFiles } from '../images/pasted'
 import { PAUSED_PLACEHOLDER } from '../pause/pauseModel'
+import { Attachments, type Attachment } from './Attachments'
 import { QueueList } from './QueueList'
 import { SettingPicker, type SettingOption } from './SettingPicker'
 import styles from './InputBar.module.css'
@@ -32,9 +42,14 @@ export const ASKING_PLACEHOLDER = 'Or reply in your own words…'
 export const DONE_PLACEHOLDER = 'Send a message to reopen this task…'
 export const ERROR_PLACEHOLDER = 'Reply, or press Retry…'
 export const QUEUE_PLACEHOLDER = 'Add a message. It will be queued until the agent finishes its current step.'
+/** Why images can't go while the agent's questions are open: a reply then answers them, and an answer is words. */
+export const ASKING_IMAGES_REFUSAL =
+  'Images can’t go with an answer to the agent’s questions. Answer in words, then send the images after.'
 
 /** A task's queue when it has none. */
 const NO_QUEUE: readonly QueuedMessage[] = []
+const NO_ATTACHMENTS: readonly Attachment[] = []
+const NO_REFUSALS: readonly string[] = []
 
 function isEffort(value: string): value is Effort {
   return Object.values<string>(Effort).includes(value)
@@ -117,7 +132,8 @@ interface TaskInputBarProps extends InputBarProps {
 
 /**
  * Where you talk to the task's agent: the model, effort and permissions settings above a message field. Send (↵) sends
- * and ⇧↵ adds a line. While the agent works, sending queues the message instead and Stop shows beside Send; while its turn
+ * and ⇧↵ adds a line. Pasting text inserts it at the caret, as plain text; pasting images attaches them to the message,
+ * as thumbnails above the field, and they go with it, alone or with text. Anything else pasted is refused, saying why. While the agent works, sending queues the message instead and Stop shows beside Send; while its turn
  * is paused, sending queues it too, until the task resumes. The queue
  * shows above the settings, where each message can be edited in place or removed; ↑ in the empty field edits the last.
  */
@@ -134,6 +150,9 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   const keymap = useKeymap()
   const field = useRef<HTMLTextAreaElement>(null)
   const [draft, setDraft] = useState('')
+  const [attachments, setAttachments] = useState(NO_ATTACHMENTS)
+  const [refusals, setRefusals] = useState(NO_REFUSALS)
+  const attached = useRef(0)
   const [sending, setSending] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const insertion = useGladeStore((state) => state.inputInsertion)
@@ -175,24 +194,53 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
 
   const send = async (): Promise<void> => {
     const text = draft.trim()
-    if (!canSend || text === '') return
+    const images = attachments.map(({ image }) => image)
+    if (!canSend || (text === '' && images.length === 0)) return
+    if (task.asking && images.length > 0) {
+      setRefusals([ASKING_IMAGES_REFUSAL])
+      return
+    }
     setSending(true)
     try {
       // A message to an agent waiting on answers to its questions answers them, so it's sent, whatever else holds the task.
-      if ((working || paused) && !task.asking) await queueMessage(task.id, text)
+      if ((working || paused) && !task.asking) await queueMessage(task.id, text, images)
       else {
         // The agent may have started working since the bar last heard: then the message waits in the queue.
-        await sendMessage(task.id, text).catch((error: unknown) => {
+        await sendMessage(task.id, text, images).catch((error: unknown) => {
           if (!isBusy(error)) throw error
-          return queueMessage(task.id, text)
+          return queueMessage(task.id, text, images)
         })
       }
       setDraft('')
+      setAttachments(NO_ATTACHMENTS)
+      setRefusals(NO_REFUSALS)
     } catch (error) {
       toast.show({ message: sendFailureMessage(error) })
     } finally {
       setSending(false)
     }
+  }
+
+  // A paste of text is left to the field, which inserts it at the caret as plain text. One of files attaches the images
+  // among them, and says why it didn't attach the rest.
+  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>): void => {
+    const files = pastedFiles(event.clipboardData)
+    if (files.length === 0) return
+    event.preventDefault()
+    void readPastedFiles(files).then(({ images, refusals: refused }) => {
+      const added = images.map((image) => {
+        attached.current += 1
+        return { key: attached.current, image }
+      })
+      setAttachments((current) => [...current, ...added])
+      setRefusals(refused)
+    })
+  }
+
+  const removeAttachment = (key: number): void => {
+    setAttachments((current) => current.filter((attachment) => attachment.key !== key))
+    setRefusals(NO_REFUSALS)
+    field.current?.focus()
   }
 
   const saveQueued = (id: string, text: string): void => {
@@ -276,6 +324,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
           {contextMeter}
         </div>
       </div>
+      <Attachments attachments={attachments} refusals={refusals} onRemove={removeAttachment} />
       <div className={styles.compose}>
         <Textarea
           ref={field}
@@ -287,6 +336,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
             setDraft(event.target.value)
           }}
           onKeyDown={onKeyDown}
+          onPaste={onPaste}
         />
         {working && (
           <button

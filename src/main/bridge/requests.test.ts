@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { CommandName, RendererErrorKind } from '../../shared/bridge'
 import { Effort, UiStateKey } from '../../shared/domain'
+import { MAX_IMAGE_BASE64_LENGTH, MAX_IMAGE_BYTES } from '../../shared/images'
+import { GIF, JPEG, PNG, WEBP } from '../../shared/test-images'
 import { describeIssues, REQUEST_SCHEMAS } from './requests'
 
 const KEY = UiStateKey.ActiveWorkspaceId
 const BAD_KEY =
-  'key: Invalid option: expected one of "active_workspace_id"|"selected_task_id"|"pinned_section_collapsed"|"active_section_collapsed"|"done_section_collapsed"|"task_filter"|"relaunch_notice"|"right_panel_tab"|"right_panel_width"|"right_panel_collapsed"|"sidebar_collapsed"|"bottom_bar_collapsed"|"terminal_tab"'
+  'key: Invalid option: expected one of "active_workspace_id"|"selected_task_id"|"pinned_section_collapsed"|"active_section_collapsed"|"done_section_collapsed"|"task_filter"|"relaunch_notice"|"right_panel_tab"|"right_panel_width"|"right_panel_collapsed"|"sidebar_collapsed"|"sidebar_width"|"bottom_bar_collapsed"|"bottom_bar_height"|"terminal_tab"'
 
 describe('REQUEST_SCHEMAS', () => {
   it('parses valid requests', () => {
@@ -48,6 +50,26 @@ describe('REQUEST_SCHEMAS', () => {
     expect(REQUEST_SCHEMAS[CommandName.SettingsUpdate].parse({ patch: {} })).toEqual({ patch: {} })
     const search = { workspaceId: 'w', text: '"Retry-After' }
     expect(REQUEST_SCHEMAS[CommandName.SearchQuery].parse(search)).toEqual(search)
+  })
+
+  it('parses messages with images, in order, and messages that are only images', () => {
+    const send = { id: 't', text: 'Compare these.', images: [PNG, JPEG, GIF, WEBP] }
+    expect(REQUEST_SCHEMAS[CommandName.TasksSend].parse(send)).toEqual(send)
+    const imagesOnly = { id: 't', text: '', images: [PNG] }
+    expect(REQUEST_SCHEMAS[CommandName.TasksSend].parse(imagesOnly)).toEqual(imagesOnly)
+    const queued = { taskId: 't', text: ' ', images: [GIF, GIF] }
+    expect(REQUEST_SCHEMAS[CommandName.QueueAdd].parse(queued)).toEqual(queued)
+    const textOnly = { taskId: 't', text: 'Keep the filenames.', images: [] }
+    expect(REQUEST_SCHEMAS[CommandName.QueueAdd].parse(textOnly)).toEqual(textOnly)
+    expect(REQUEST_SCHEMAS[CommandName.ImagesGet].parse({ id: 'i' })).toEqual({ id: 'i' })
+  })
+
+  it('takes an image right up to the API’s size limit', () => {
+    const png = Buffer.from(PNG.data, 'base64')
+    const data = Buffer.concat([png, Buffer.alloc(MAX_IMAGE_BYTES - png.length)]).toString('base64')
+    expect(data).toHaveLength(MAX_IMAGE_BASE64_LENGTH)
+    const send = { id: 't', text: '', images: [{ mediaType: PNG.mediaType, data }] }
+    expect(REQUEST_SCHEMAS[CommandName.TasksSend].safeParse(send).success).toBe(true)
   })
 
   it('parses an error the window sends to the log', () => {
@@ -201,6 +223,55 @@ describe('REQUEST_SCHEMAS', () => {
       { id: 't' },
       'text: Invalid input: expected string, received undefined',
     ],
+    [
+      'a blank message with no images',
+      CommandName.TasksSend,
+      { id: 't', text: ' ', images: [] },
+      'text: Expected a message that is not blank',
+    ],
+    [
+      'a blank queued message',
+      CommandName.QueueAdd,
+      { taskId: 't', text: '' },
+      'text: Expected a message that is not blank',
+    ],
+    [
+      'an image of a type the agent doesn’t take',
+      CommandName.TasksSend,
+      { id: 't', text: 'Scan', images: [{ mediaType: 'image/tiff', data: PNG.data }] },
+      'images.0.mediaType: Invalid option: expected one of "image/png"|"image/jpeg"|"image/gif"|"image/webp"',
+    ],
+    [
+      'an image over the API’s size limit',
+      CommandName.QueueAdd,
+      { taskId: 't', text: '', images: [{ mediaType: 'image/png', data: 'A'.repeat(MAX_IMAGE_BASE64_LENGTH + 4) }] },
+      'images.0.data: Too big: expected string to have <=5242880 characters',
+    ],
+    [
+      'an image that isn’t base64',
+      CommandName.TasksSend,
+      { id: 't', text: 'Hi', images: [{ mediaType: 'image/png', data: 'not base64!' }] },
+      'images.0.data: Expected base64',
+    ],
+    [
+      'an empty image',
+      CommandName.TasksSend,
+      { id: 't', text: 'Hi', images: [{ mediaType: 'image/png', data: '' }] },
+      'images.0.data: Too small: expected string to have >=1 characters',
+    ],
+    [
+      'an image whose bytes are another type',
+      CommandName.TasksSend,
+      { id: 't', text: 'Hi', images: [{ mediaType: 'image/png', data: JPEG.data }] },
+      "images.0: Expected the image's bytes to be its type",
+    ],
+    [
+      'an image with fields it doesn’t have',
+      CommandName.QueueAdd,
+      { taskId: 't', text: 'Hi', images: [{ ...GIF, name: 'shot.gif' }] },
+      'images.0: Unrecognized key: "name"',
+    ],
+    ['a missing image id', CommandName.ImagesGet, {}, 'id: Invalid input: expected string, received undefined'],
     [
       'answers that are neither text nor a list of text',
       CommandName.QuestionsAnswer,

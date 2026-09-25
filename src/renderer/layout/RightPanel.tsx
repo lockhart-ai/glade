@@ -1,14 +1,9 @@
 import { useCallback, useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import { CLOSE_REQUEST_EVENT } from '../commands/closeRequest'
 import { Card, CardLevel } from '../components'
-import {
-  MIN_CHAT_WIDTH,
-  MIN_PANEL_WIDTH,
-  PANEL_WIDTH_STEP,
-  widthBounds,
-  type WidthBounds,
-} from '../right-panel/panelModel'
-import { ResizeHandle } from './ResizeHandle'
+import { Panel } from '../panels/panels'
+import { MIN_CHAT_WIDTH, RESIZE_STEP, sizeBounds, type SizeBounds } from '../panels/panelSize'
+import { HandleEdge, ResizeHandle } from './ResizeHandle'
 import styles from './RightPanel.module.css'
 
 export interface RightPanelProps {
@@ -27,15 +22,14 @@ export interface RightPanelProps {
   onCloseRequest?: (event: Event) => void
 }
 
-/** The custom property the panel's width is set through; the stylesheet caps it to the room there is. */
+/**
+ * The custom property the panel's width is set through; the stylesheet caps it to the room there is, using the limits
+ * `AppShell` sets.
+ */
 const WIDTH_PROPERTY = '--right-panel-width'
 
 function widthStyle(width: number): CSSProperties {
-  return {
-    [WIDTH_PROPERTY]: `${String(width)}px`,
-    '--right-panel-min-width': `${String(MIN_PANEL_WIDTH)}px`,
-    '--chat-min-width': `${String(MIN_CHAT_WIDTH)}px`,
-  } as CSSProperties
+  return { [WIDTH_PROPERTY]: `${String(width)}px` } as CSSProperties
 }
 
 /** The room the panel and the chat share in `card`: its content width, less the gap between them. */
@@ -68,9 +62,10 @@ export function RightPanel({
     }
   }, [onCloseRequest])
 
-  const bounds = useCallback((): WidthBounds => {
+  // The chat keeps its minimum width, unless that would squeeze the panel below its own.
+  const bounds = useCallback((): SizeBounds => {
     const card = slot.current?.parentElement
-    return widthBounds(card == null ? 0 : availableWidth(card))
+    return sizeBounds(Panel.RightPanel, (card == null ? 0 : availableWidth(card)) - MIN_CHAT_WIDTH)
   }, [])
 
   const showWidth = useCallback((next: number) => {
@@ -80,9 +75,11 @@ export function RightPanel({
   return (
     <div ref={slot} className={styles.slot} style={widthStyle(width)} data-testid="right-panel">
       <ResizeHandle
-        width={width}
+        edge={HandleEdge.Left}
+        label="Resize side panel"
+        size={width}
         bounds={bounds}
-        step={PANEL_WIDTH_STEP}
+        step={RESIZE_STEP}
         onResize={showWidth}
         onResizeEnd={onWidthChange}
       />

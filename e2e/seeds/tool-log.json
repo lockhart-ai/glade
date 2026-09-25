@@ -9,20 +9,20 @@
       "minutesAgo": 0,
       "selected": true,
       "messages": [
-        { "role": "user", "body": "Add per-key rate limiting to the public API.", "turn": 1, "minutesAgo": 30 },
-        { "role": "agent", "body": "Tests pass. Should /search get a tighter limit?", "turn": 1, "minutesAgo": 20 },
-        { "role": "user", "body": "Give /search 60 a minute.", "turn": 2, "minutesAgo": 10 }
+        { "role": "user", "body": "Add per-key rate limiting to the public API.", "turn": 1, "minutesAgo": 90 },
+        { "role": "agent", "body": "Tests pass. Should /search get a tighter limit?", "turn": 1, "minutesAgo": 70 },
+        { "role": "user", "body": "Give /search 60 a minute.", "turn": 2, "minutesAgo": 0 }
       ],
       "toolEvents": [
-        { "kind": "divider", "dividerKind": "turn", "turn": 1, "minutesAgo": 30 },
-        { "kind": "narration", "text": "Looking at how the API views are set up.", "turn": 1, "minutesAgo": 29 },
+        { "kind": "divider", "dividerKind": "turn", "turn": 1, "minutesAgo": 90 },
+        { "kind": "narration", "text": "Looking at how the API views are set up.", "turn": 1, "minutesAgo": 89 },
         {
           "kind": "tool_call",
           "name": "Read",
           "input": { "file_path": "/Users/sample/code/api/api/views.py" },
           "output": "     1\tfrom rest_framework import viewsets\n     2\t\n     3\tclass ItemViewSet(viewsets.ModelViewSet):",
           "turn": 1,
-          "minutesAgo": 28
+          "minutesAgo": 88
         },
         {
           "kind": "tool_call",
@@ -31,7 +31,7 @@
           "output": "Throttling is configured in config/settings.py.",
           "toolUseId": "agent-1",
           "turn": 1,
-          "minutesAgo": 27
+          "minutesAgo": 87
         },
         {
           "kind": "tool_call",
@@ -40,7 +40,7 @@
           "output": "Found 1 file\nconfig/settings.py",
           "parentToolUseId": "agent-1",
           "turn": 1,
-          "minutesAgo": 26
+          "minutesAgo": 86
         },
         {
           "kind": "tool_call",
@@ -48,10 +48,10 @@
           "input": { "command": "pytest api/tests -q" },
           "output": "..............  [100%]\n14 passed in 3.2s",
           "turn": 1,
-          "minutesAgo": 22
+          "minutesAgo": 82
         },
-        { "kind": "divider", "dividerKind": "turn", "turn": 2, "minutesAgo": 10 },
-        { "kind": "narration", "text": "Giving /search its own throttle scope.", "turn": 2, "minutesAgo": 9 },
+        { "kind": "divider", "dividerKind": "turn", "turn": 2, "minutesAgo": 0 },
+        { "kind": "narration", "text": "Giving /search its own throttle scope.", "turn": 2, "minutesAgo": 0 },
         {
           "kind": "tool_call",
           "name": "Bash",
@@ -59,7 +59,7 @@
           "output": "SystemCheckError: api.E001 unknown throttle scope 'search'",
           "state": "error",
           "turn": 2,
-          "minutesAgo": 8
+          "minutesAgo": 0
         },
         {
           "kind": "tool_call",
@@ -67,14 +67,14 @@
           "input": { "status": "Giving /search its own limit" },
           "output": "Status updated.",
           "turn": 2,
-          "minutesAgo": 7
+          "minutesAgo": 0
         },
         {
           "kind": "tool_call",
           "name": "Edit",
           "input": { "file_path": "/Users/sample/code/api/config/settings.py", "old_string": "", "new_string": "" },
           "turn": 2,
-          "minutesAgo": 6
+          "minutesAgo": 0
         }
       ]
     }
