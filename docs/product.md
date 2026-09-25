@@ -54,10 +54,29 @@ State dot colours: blue = working, purple = waiting on you, slate = done, pink =
 
 ## Attention
 
-A task you aren't looking at can still need you. Glade marks it unread, counts it under "Needs you", and sends a
-**native macOS notification** for any agent message in a task you're not viewing — even while Glade is focused. The
-notification shows the task name and the start of the message, with **Open task** and an inline **Reply** that sends
-your answer to the task without opening Glade. Sound is off by default; Focus and Do Not Disturb are left to the OS.
+A task you aren't looking at can still need you. When its agent sends a **final reply**, **asks a question** (`ask`)
+or waits on a **permission card**, in a task you're not viewing, Glade marks the task unread, counts it under "Needs
+you" while it waits on you, and sends a **native macOS notification** — even while Glade is focused. Working notes and
+tool calls never notify. The notification shows the task name and the start of the reply (the first question, or the
+tool and what it acts on), with **Open task** and an inline **Reply** that sends your answer to the task without
+opening Glade. Settings › Notifications turns them off, or their sound on (off by default); Focus and Do Not Disturb
+are left to the OS.
+
+## Settings
+
+Settings (⌘,) opens on Agent. Changes save as you make them.
+
+- **General:** nothing to set yet.
+- **Agent:** the defaults for new tasks (model, effort and permissions: Ask first or Allow all; **Allow edits** is shown
+  but disabled, as it isn't a mode yet), and two switches for what the agent keeps current: **Status summary**
+  (`set_status` every turn) and **Task titles** (`set_title` from your first message). A session started with one off
+  gets neither the tool nor the system prompt's ask for it.
+- **Notifications:** notifications on or off, and their sound.
+- **Appearance:** nothing to set yet; Glade has one theme, dark.
+- **Keyboard:** every shortcut, rebindable (`keymap.md`).
+- **Plugins:** the plugins installed, each turned on or off, and their folder (`plugin-api.md`).
+- **Control:** whether other agents and scripts may drive Glade, and how to connect them (`control-api.md`).
+- **Workspace** (under its own heading, by the workspace's name): its name and root folder.
 
 ## Everything else
 

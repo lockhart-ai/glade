@@ -18,7 +18,7 @@ Nimbalyst: the whole product is the lifecycle of a task plus the panels around i
 
 Reference docs: `docs/model-surface.md` (the tools the app gives the model), `docs/control-api.md` (the MCP API for
 other agents), `docs/design/tokens.md` (colours, type, spacing), `docs/keymap.md`, `docs/context-menus.md`,
-`docs/releasing.md` (cutting a release).
+`docs/releasing.md` (cutting a release). `docs/README.md` indexes every doc; `llms.txt` points agents at them.
 
 ## Working rules
 

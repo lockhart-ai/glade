@@ -32,7 +32,7 @@ every text is trimmed and must not be empty, there is at least one question, a c
 two options, and a choice's option ids and a question's pills are each unique.
 
 **Sketch format** (P4-02): an option's `sketch` is a few short lines of plain text, up to about 6 lines of 40
-characters, drawn as is, monospaced, in a small frame above the option's label (`03-rich-question.png`). Whitespace
+characters, drawn as is, monospaced, in a small frame above the option's label ([`03-rich-question.png`](design/screens/03-rich-question.png)). Whitespace
 is kept and lines don't wrap (a long one is cut off). A line starting with `#` is a heading: its marks are dropped and
 it's shown in the accent blue; every other line is shown muted. Nothing else is Markdown. For a layout, e.g.:
 
@@ -132,9 +132,11 @@ Code's tools, so nothing sets it yet.
 
 While Settings › Control lets agents control Glade, each session also gets a second in-process server, `glade-control`
 (`src/main/control/`), bound to its task: the tools other agents drive Glade with, listing, reading, creating, changing,
-messaging and deleting tasks (`control-api.md`). Unlike `glade`'s, they aren't `alwaysLoad` (they sit behind tool
-search), and in the ask mode the ones that change things wait on a permission card; the reads don't. A task can't stop,
-delete or message itself through them.
+messaging and deleting tasks, and importing Claude Code sessions ([`control-api.md`](control-api.md)). Unlike
+`glade`'s, they aren't `alwaysLoad` (they sit behind tool search), and in the ask mode the ones that change things wait
+on a permission card; the reads don't. A task can't stop, delete or message itself through them. While the HTTP
+endpoint listens, the session also gets `GLADE_CONTROL_URL` and `GLADE_CONTROL_TOKEN` in its environment, for scripts
+it runs.
 
 ## Not tools — from SDK events
 
@@ -146,7 +148,8 @@ compaction, errors, turn duration and file/line counts (turn summary).
 The app's system prompt tells the agent its task id and title and how to use the tools above. Anything about files on
 disk (task folders, notes) comes from the workspace `CLAUDE.md`, not from Glade.
 
-It lives in `src/main/agent/system-prompt.ts` and is appended to Claude Code's own. For a new task it reads:
+It lives in `src/main/agent/system-prompt.ts` and is appended to Claude Code's own. For a new task, with every setting
+at its default, it reads:
 
 ```
 You are running inside Glade, a desktop app that runs Claude agent sessions as tasks.
@@ -158,11 +161,19 @@ The user sees the task through its title, objective and status. Keep them curren
 - Every turn, call set_status with one line on where the work stands, and again before you end the turn if that changed. When the task is done, the status is its outcome.
 
 When you need the user to decide something before you can go on, call ask instead of asking in your reply: it shows your questions on a card and waits for the answers. Ask everything you need at once, with choices or pills when the likely answers are known.
+
+When you make a deliverable the user asked for (a report, a document, a draft), call add_artifact with its path and a short title, so it shows in the Artifacts tab and stays with the task after it is done.
 ```
 
-With the control tools, the prompt ends with one more line: that the session has Glade's control tools (the
-`glade-control` server, found with tool search), and to use them only when the user asks to work with Glade or its
-other tasks.
-
 The "after the user's first message" line asks only for what isn't set yet, so a resumed session never renames a task
-the user has renamed.
+the user has renamed; with both set, the line goes. With Status summary or Task titles off in Settings › Agent, the
+prompt leaves out asking for it.
+
+Two more parts are added after that, each after a blank line, when they apply:
+
+- **The control tools:** while the session has them, one line: that it has Glade's control tools (the `glade-control`
+  MCP server; find them with tool search), which list, read, create, change, message and delete Glade's tasks, and to
+  use them only when the user asks to work with Glade or its other tasks.
+- **A handoff note:** for a task backfilled with one ([`control-api.md`](control-api.md#backfilling-past-tasks)), the
+  note under `## Handoff for this task (backfilled from earlier notes)`, after a line saying the task was worked on
+  before it was in Glade, to pick up from there, and that the paths the note names are real.
