@@ -11,11 +11,13 @@ import {
   type Task,
 } from '../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
-import { createBroadcast, createDispatcher } from './dispatcher'
+import { commandTaskId, createBroadcast, createDispatcher } from './dispatcher'
 import { CommandFailure } from './errors'
 import type { TerminalTab } from '../../shared/terminal'
 import type { Handlers } from './handlers'
 import { REQUEST_SCHEMAS } from './requests'
+import { LogLevel, LogScope } from '../logging/logger'
+import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
 
 function handlers(overrides: Partial<Handlers> = {}): Handlers {
   return {
@@ -30,6 +32,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.WorkspacesRemove]: () => null,
     [CommandName.MenuUpdate]: () => null,
     [CommandName.WindowClose]: () => null,
+    [CommandName.LogRendererError]: () => null,
     [CommandName.DialogChooseFolder]: () => ({ path: null }),
     [CommandName.TasksList]: () => ({ tasks: [] }),
     [CommandName.TasksCreate]: () => ({ task: {} as Task }),
@@ -87,8 +90,10 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
   }
 }
 
+let log: MemoryLog
+
 beforeEach(() => {
-  vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  log = createMemoryLog(LogScope.Ipc)
 })
 
 afterEach(() => {
@@ -139,13 +144,16 @@ describe('createDispatcher', () => {
         },
       }),
       REQUEST_SCHEMAS,
+      log.logger,
     )
 
     await expect(dispatch('uiState.set', { key: 'active_workspace_id', value: 'x' })).resolves.toEqual({
       ok: false,
       error: bridgeError(BridgeErrorCode.Internal, 'uiState.set failed: disk full'),
     })
-    expect(console.error).toHaveBeenCalledWith('Command uiState.set failed', failure)
+    expect(log.withMessage('command threw')).toEqual([
+      expect.objectContaining({ level: LogLevel.Error, fields: { command: 'uiState.set', error: failure } }),
+    ])
   })
 
   it("reports a handler's command failure with its own code, without logging it", async () => {
@@ -156,13 +164,14 @@ describe('createDispatcher', () => {
         },
       }),
       REQUEST_SCHEMAS,
+      log.logger,
     )
 
     await expect(dispatch('tasks.reopen', { id: 't1' })).resolves.toEqual({
       ok: false,
       error: bridgeError(BridgeErrorCode.InvalidTransition, "tasks.reopen: Can't reopen a task that is active"),
     })
-    expect(console.error).not.toHaveBeenCalled()
+    expect(log.withMessage('command threw')).toEqual([])
   })
 
   it('reports a rejected handler, or one that throws a non-Error, as an internal error', async () => {
@@ -203,5 +212,113 @@ describe('createBroadcast', () => {
     expect(first.send).toHaveBeenCalledTimes(2)
     expect(first.send).toHaveBeenCalledWith('channel', event)
     expect(second.send).toHaveBeenCalledOnce()
+  })
+})
+
+describe('the command log', () => {
+  it('logs each command at debug level: its name, its task, how long it took, and never its request', async () => {
+    const dispatch = createDispatcher(handlers(), REQUEST_SCHEMAS, log.logger)
+
+    await dispatch(CommandName.TasksSend, { id: 'task-1', text: 'my password is hunter2' })
+    await dispatch(CommandName.QueueAdd, { taskId: 'task-2', text: 'Also the docs.' })
+    await dispatch(CommandName.WorkspacesList, {})
+
+    expect(log.records.map(({ level, scope, message, fields }) => ({ level, scope, message, fields }))).toEqual([
+      {
+        level: LogLevel.Debug,
+        scope: LogScope.Ipc,
+        message: 'command',
+        fields: { command: 'tasks.send', taskId: 'task-1', durationMs: expect.any(Number) as unknown, ok: true },
+      },
+      {
+        level: LogLevel.Debug,
+        scope: LogScope.Ipc,
+        message: 'command',
+        fields: { command: 'queue.add', taskId: 'task-2', durationMs: expect.any(Number) as unknown, ok: true },
+      },
+      {
+        level: LogLevel.Debug,
+        scope: LogScope.Ipc,
+        message: 'command',
+        fields: { command: 'workspaces.list', durationMs: expect.any(Number) as unknown, ok: true },
+      },
+    ])
+    expect(JSON.stringify(log.records)).not.toContain('hunter2')
+  })
+
+  it("logs the task a new task's command made, and an id that isn't a task's", async () => {
+    const task = { id: 'task-new' } as Task
+    const dispatch = createDispatcher(
+      handlers({ [CommandName.TasksCreate]: () => ({ task }) }),
+      REQUEST_SCHEMAS,
+      log.logger,
+    )
+
+    await dispatch(CommandName.TasksCreate, { workspaceId: 'ws-1' })
+    await dispatch(CommandName.QueueRemove, { id: 'queued-1' })
+
+    expect(log.records.map(({ fields }) => fields)).toEqual([
+      expect.objectContaining({ command: 'tasks.create', taskId: 'task-new' }),
+      expect.objectContaining({ command: 'queue.remove', id: 'queued-1' }),
+    ])
+    expect(log.records[1]?.fields).not.toHaveProperty('taskId')
+  })
+
+  it('logs a failed command as a warning, with its code and why', async () => {
+    const dispatch = createDispatcher(
+      handlers({
+        [CommandName.TasksReopen]: () => {
+          throw new CommandFailure(BridgeErrorCode.InvalidTransition, "Can't reopen a task that is active")
+        },
+      }),
+      REQUEST_SCHEMAS,
+      log.logger,
+    )
+
+    await dispatch(CommandName.TasksReopen, { id: 't1' })
+    await dispatch(CommandName.UiStateSet, { key: 'active_workspace_id' })
+    await dispatch('tasks.explode', {})
+
+    expect(log.records.map(({ level, message, fields }) => ({ level, message, fields }))).toEqual([
+      {
+        level: LogLevel.Warn,
+        message: 'command failed',
+        fields: {
+          command: 'tasks.reopen',
+          taskId: 't1',
+          durationMs: expect.any(Number) as unknown,
+          ok: false,
+          code: BridgeErrorCode.InvalidTransition,
+          error: "tasks.reopen: Can't reopen a task that is active",
+        },
+      },
+      {
+        level: LogLevel.Warn,
+        message: 'command failed',
+        fields: expect.objectContaining({ command: 'uiState.set', code: BridgeErrorCode.InvalidRequest }) as unknown,
+      },
+      { level: LogLevel.Warn, message: 'unknown command', fields: { command: 'tasks.explode' } },
+    ])
+  })
+
+  it('logs nothing by default', async () => {
+    const spies = (['debug', 'info', 'warn', 'error', 'log'] as const).map((level) => vi.spyOn(console, level))
+
+    await createDispatcher(handlers(), REQUEST_SCHEMAS)(CommandName.WorkspacesList, {})
+
+    for (const spy of spies) expect(spy).not.toHaveBeenCalled()
+  })
+})
+
+describe('commandTaskId', () => {
+  it("finds a command's task in its request's taskId, a tasks command's id, or the task it answers with", () => {
+    const failed = { ok: false, error: bridgeError(BridgeErrorCode.Internal, 'x') } as const
+    expect(commandTaskId(CommandName.FilesRead, { taskId: 't1', path: 'a' })).toBe('t1')
+    expect(commandTaskId(CommandName.TasksStop, { id: 't2' })).toBe('t2')
+    expect(commandTaskId(CommandName.QueueEdit, { id: 'q1', text: 'x' })).toBeUndefined()
+    expect(commandTaskId(CommandName.TasksCreate, {}, { ok: true, value: { task: { id: 't3' } } })).toBe('t3')
+    expect(commandTaskId(CommandName.TasksCreate, {}, { ok: true, value: null })).toBeUndefined()
+    expect(commandTaskId(CommandName.TasksCreate, 'junk', failed)).toBeUndefined()
+    expect(commandTaskId(CommandName.TasksStop, { id: 7 })).toBeUndefined()
   })
 })
