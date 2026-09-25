@@ -200,16 +200,30 @@ const LABEL_INSET = 8
 /** How far the rows' values start from the title's left edge. */
 const VALUE_INSET = 68
 
+/** The least room between a row's label and its value. */
+const MIN_LABEL_GAP = 8
+
 /**
- * Checks a row's label is set in a little from the title's left edge (not the dot's), and its value starts at the
- * value column.
+ * Checks a row's label is set in a little from the title's left edge (not the dot's), its value starts at the value
+ * column, and the label's text fits its box, clear of the value by at least MIN_LABEL_GAP.
  */
 async function expectRowUnderTitle(window: Page, name: TaskHeaderField, title: Box): Promise<void> {
   const row = taskHeader(window).header.getByRole('group', { name })
-  const label = await boxOf(row.locator(':scope > div'))
+  const labelLocator = row.locator(':scope > div')
+  const label = await boxOf(labelLocator)
   const value = await boxOf(row.getByRole('paragraph'))
   expect(Math.abs(label.x - (title.x + LABEL_INSET))).toBeLessThanOrEqual(1)
   expect(Math.abs(value.x - (title.x + VALUE_INSET))).toBeLessThanOrEqual(1)
+  expect(value.x - (label.x + label.width)).toBeGreaterThanOrEqual(MIN_LABEL_GAP)
+
+  // Where the label's letters end: its text's width, less the letter spacing after the last letter, which is empty.
+  const textRight = await labelLocator.evaluate((element) => {
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    return range.getBoundingClientRect().right - Number.parseFloat(getComputedStyle(element).letterSpacing)
+  })
+  expect(textRight).toBeLessThanOrEqual(label.x + label.width)
+  expect(value.x - textRight).toBeGreaterThanOrEqual(MIN_LABEL_GAP)
 }
 
 /**

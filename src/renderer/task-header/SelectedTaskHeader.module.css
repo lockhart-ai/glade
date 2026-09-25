@@ -66,13 +66,13 @@
 .row {
   display: flex;
   align-items: baseline;
-  gap: var(--space-lg);
+  gap: var(--space-md);
 }
 
-/* Set in a little from the title's edge, as in the mockup; the values still start 68px after it. */
+/* Set in a little from the title's edge, as in the mockup, and wide enough for OUTCOME; the values start 68px after it. */
 .label {
   flex-shrink: 0;
-  width: 48px;
+  width: 52px;
   margin-left: var(--space-md);
   white-space: nowrap;
   font-family: var(--font-mono);
