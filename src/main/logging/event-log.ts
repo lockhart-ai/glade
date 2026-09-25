@@ -1,7 +1,7 @@
 /**
  * Logs what main tells the windows (`GladeEvent`s), since every change that matters to a task goes through them: a
  * task's state and activity changing, its error and pause, the chat's messages, the tool log's calls, questions asked
- * and answered, permission requests opened and answered, the queue, todos and artifacts. Each line carries the task's id. Message text, tool input and output,
+ * and answered, permission requests opened and answered, the queue, todos, artifacts and handoff notes. Each line carries the task's id. Message text, tool input and output,
  * and questions go in at debug level, cut short (`excerpt`); the rest at info.
  *
  * A task update carries the whole task, so what changed is found against the task as it was last seen: the tasks as
@@ -254,6 +254,9 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
         return
       case EventType.ArtifactsChanged:
         tools.info('artifacts changed', { taskId: event.taskId, artifacts: event.artifacts.length })
+        return
+      case EventType.HandoffChanged:
+        tools.info(event.handoff === null ? 'handoff cleared' : 'handoff set', { taskId: event.taskId })
         return
       case EventType.FileShown:
         tools.info('file shown', { taskId: event.taskId, path: event.path, line: event.line })

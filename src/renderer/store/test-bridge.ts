@@ -32,6 +32,7 @@ import {
   TaskActivity,
   TaskState,
   type Artifact,
+  type TaskHandoff,
   type FileContent,
   type FileInfo,
   type InputDraft,
@@ -94,6 +95,8 @@ export interface FakeMain {
   readonly todos?: Readonly<Record<string, TodoList>>
   /** Every task's artifacts; none when left out. `artifacts.remove` removes one, from the fake's own copy. */
   readonly artifacts?: readonly Artifact[]
+  /** Each task's handoff note, by task id; none when left out. */
+  readonly handoffs?: Readonly<Record<string, TaskHandoff>>
   /** What `files.info` answers with, by path, for any task; missing when left out. */
   readonly fileInfo?: Readonly<Record<string, FileInfo>>
   /** What was put on the clipboard, oldest first: the path of each file `files.copy` copied, and the text of each
@@ -340,6 +343,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       openFiles: openFilesOf(id),
       todos: main.todos?.[id] ?? null,
       artifacts: artifacts.filter((artifact) => artifact.taskId === id),
+      handoff: main.handoffs?.[id] ?? null,
     }),
     [CommandName.QueueAdd]: ({ taskId, text, images: added }) => {
       queued += 1

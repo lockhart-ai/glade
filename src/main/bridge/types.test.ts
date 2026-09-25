@@ -21,6 +21,7 @@ import {
   UiStateKey,
   type Message,
   type Artifact,
+  type TaskHandoff,
   type OpenFiles,
   type PermissionRequest,
   type QuestionSet,
@@ -75,6 +76,7 @@ const TASK_HANDLERS = {
     openFiles: { taskId: 't', paths: [], activePath: null },
     todos: null,
     artifacts: [],
+    handoff: null,
   }),
   [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
@@ -203,6 +205,7 @@ describe('the command map', () => {
       readonly openFiles: OpenFiles
       readonly todos: TodoList | null
       readonly artifacts: readonly Artifact[]
+      readonly handoff: TaskHandoff | null
     }>()
     expectTypeOf(glade.invoke(CommandName.QueueAdd, { taskId: 't', text: 'Hi' })).resolves.toEqualTypeOf<{
       readonly queuedMessage: QueuedMessage
@@ -407,6 +410,9 @@ describe('events', () => {
           break
         case EventType.ArtifactsChanged:
           expectTypeOf(event.artifacts).toEqualTypeOf<readonly Artifact[]>()
+          break
+        case EventType.HandoffChanged:
+          expectTypeOf(event.handoff).toEqualTypeOf<TaskHandoff | null>()
           break
         case EventType.TerminalTabsChanged:
           expectTypeOf(event.tabs).toEqualTypeOf<readonly TerminalTab[]>()

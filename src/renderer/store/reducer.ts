@@ -3,6 +3,7 @@ import type { TasksHistoryResponse } from '../../shared/bridge'
 import {
   UiStateKey,
   type Artifact,
+  type TaskHandoff,
   type EpochMs,
   type Message,
   type PermissionRequest,
@@ -100,7 +101,13 @@ export function withHistory(state: GladeData, taskId: string, history: TasksHist
     // Each change carries the whole list; the one declared in last is the newer.
     artifacts: { ...state.artifacts, [taskId]: newerArtifacts(history.artifacts, state.artifacts[taskId]) },
     todos: { ...state.todos, [taskId]: newerTodos(history.todos, state.todos[taskId]) },
+    handoffs: { ...state.handoffs, [taskId]: newerHandoff(history.handoff, state.handoffs[taskId]) },
   }
+}
+
+/** The loaded handoff note, unless an event already brought one set after it. */
+function newerHandoff(loaded: TaskHandoff | null, current: TaskHandoff | null | undefined): TaskHandoff | null {
+  return loaded !== null && current != null && current.addedAt > loaded.addedAt ? current : loaded
 }
 
 /** The loaded todo list, unless an event already brought a newer one. */
@@ -154,6 +161,7 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     todos: without(state.todos, taskId),
     openFiles: without(state.openFiles, taskId),
     artifacts: without(state.artifacts, taskId),
+    handoffs: without(state.handoffs, taskId),
     inputDrafts: without(state.inputDrafts, taskId),
     fileFocus: state.fileFocus?.taskId === taskId ? null : state.fileFocus,
     toolLogFocus: state.toolLogFocus?.taskId === taskId ? null : state.toolLogFocus,
@@ -225,6 +233,8 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, todos: { ...state.todos, [event.taskId]: event.todos } }
     case EventType.ArtifactsChanged:
       return { ...state, artifacts: { ...state.artifacts, [event.taskId]: event.artifacts } }
+    case EventType.HandoffChanged:
+      return { ...state, handoffs: { ...state.handoffs, [event.taskId]: event.handoff } }
     case EventType.TerminalTabsChanged: {
       const { renamingTerminalId } = state
       const renaming = event.tabs.some(({ id }) => id === renamingTerminalId) ? renamingTerminalId : null

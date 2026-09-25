@@ -3,6 +3,7 @@ import { BridgeErrorCode, CommandName, EventType, type CommandRequest, type Comm
 import type { MenuState } from '../../shared/commands'
 import type { AgentRunner } from '../agent/runner'
 import { listArtifacts } from '../db/repositories/artifacts'
+import { getHandoff } from '../db/repositories/backfills'
 import { getImage } from '../db/repositories/images'
 import { getInputDraft, setInputDraft } from '../db/repositories/input-drafts'
 import { listMessages } from '../db/repositories/messages'
@@ -162,6 +163,7 @@ export function createHandlers(context: HandlerContext): Handlers {
         openFiles: getOpenFiles(db, id),
         todos: todoListFor(db, id),
         artifacts: listArtifacts(db, id),
+        handoff: getHandoff(db, id) ?? null,
       }
     },
     [CommandName.QueueAdd]: ({ taskId, text, images }) => ({ queuedMessage: runner.queue(taskId, text, images) }),

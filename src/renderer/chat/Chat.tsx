@@ -42,6 +42,7 @@ import { QuestionCard } from '../questions/QuestionCard'
 import { PermissionCard } from '../permissions/PermissionCard'
 import { subagentOrigin } from '../permissions/permissionCardModel'
 import { ErrorCard } from './ErrorCard'
+import { HandoffCard } from './HandoffCard'
 import { Markdown } from './Markdown'
 import { StoredImage } from '../images/StoredImage'
 import { Highlighted, useSearchHighlight } from '../search/Highlight'
@@ -277,7 +278,7 @@ function NewTaskPrompt({ root }: NewTaskPromptProps): React.JSX.Element {
 }
 
 /**
- * The selected task's conversation: your messages and the agent's final reply per turn, never anything from within a
+ * The selected task's conversation, below its handoff note when it was backfilled (the Backfilled card): your messages and the agent's final reply per turn, never anything from within a
  * turn. While a turn runs, a working line shows the agent's latest narration, or which retry of a failed API request
  * is running; when an error stops the agent, its error card ends the conversation, and while its turn is paused, a
  * paused line saying when it resumes. It keeps to the bottom as the
@@ -298,6 +299,7 @@ export function Chat(): React.JSX.Element {
   const root = useGladeStore(
     (state) => state.workspaces.find((workspace) => workspace.id === task?.workspaceId)?.rootPath,
   )
+  const handoff = useGladeStore((state) => (task === undefined ? undefined : state.handoffs[task.id])) ?? null
 
   const entries = useMemo(
     () => (task === undefined ? [] : chatEntries(task, messages, toolEvents, questionSets, permissionRequests)),
@@ -314,7 +316,8 @@ export function Chat(): React.JSX.Element {
     `${String(entries.length)}:${working ?? ''}:${String(stopped)}:${paused ?? ''}:${questionSets.map(({ state }) => state).join()}:${permissionRequests.map(({ state }) => state).join()}`,
     task?.id,
   )
-  const isNew = task !== undefined && entries.length === 0 && narration === null
+  // A backfilled task shows its handoff note in place of what to write.
+  const isNew = task !== undefined && entries.length === 0 && narration === null && handoff === null
   const highlight = useSearchHighlight()
   useRevealMatch(ref)
 
@@ -322,6 +325,7 @@ export function Chat(): React.JSX.Element {
     <div ref={ref} onScroll={onScroll} role="log" aria-label="Conversation" className={styles.scroller}>
       {isNew && root !== undefined && <NewTaskPrompt root={root} />}
       <div className={styles.thread}>
+        {handoff !== null && <HandoffCard key={task?.id} handoff={handoff} />}
         {entries.map((entry) => {
           switch (entry.kind) {
             case ChatEntryKind.User:

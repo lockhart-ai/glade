@@ -43,6 +43,11 @@ export interface TestModeScripts {
    * its image content blocks then its text. E2e mode records it for a spec to read (`E2E_AGENT_GLOBAL`).
    */
   readonly onSent?: (content: UserContent) => void
+  /**
+   * Hears what every session is started with: its system prompt and the session it resumes. E2e mode records it for a
+   * spec to read (`E2E_AGENT_GLOBAL`).
+   */
+  readonly onStart?: (session: Pick<AgentSessionOptions, 'systemPromptAppend' | 'resumeSessionId'>) => void
 }
 
 /** The environment the sessions' agent processes would run in, as the real backend has it (`SdkBackendOptions`). */
@@ -96,6 +101,7 @@ export function createTestModeAgentBackend(
       }
       const { cwd, model, effort, resumeSessionId } = options
       ;(options.log ?? log).info('scripted agent starting', { cwd, model, effort, resumeSessionId })
+      scripts.onStart?.({ systemPromptAppend: options.systemPromptAppend, resumeSessionId })
       if (environment !== undefined) void environment.env.then(environment.onSessionEnv)
       const choose = chooser(scripts)
       const resumedFirst = resumeSessionId === null ? undefined : scripts.firstMessageOf?.(resumeSessionId)

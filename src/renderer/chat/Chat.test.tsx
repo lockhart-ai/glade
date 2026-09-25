@@ -17,6 +17,7 @@ import {
   type QuestionSet,
   type Task,
   type TaskError,
+  type TaskHandoff,
   type ToolEvent,
 } from '../../shared/domain'
 import { imageDataUrl, type ImageData } from '../../shared/images'
@@ -89,6 +90,8 @@ interface Setup {
   readonly copied?: string[]
   /** The stored images, by id. */
   readonly images?: Record<string, ImageData>
+  /** The task's handoff note; none when left out. */
+  readonly handoff?: TaskHandoff
 }
 
 async function renderChat({
@@ -99,6 +102,7 @@ async function renderChat({
   selected = true,
   copied,
   images = {},
+  handoff,
 }: Setup = {}): Promise<FakeBridge & { store: GladeStore }> {
   const fake = fakeBridge({
     workspaces: [sampleWorkspace('w1')],
@@ -112,6 +116,7 @@ async function renderChat({
     questionSets,
     images,
     ...(copied === undefined ? {} : { copied }),
+    ...(handoff === undefined ? {} : { handoffs: { t1: handoff } }),
   })
   const store = createGladeStore(fake.bridge)
   render(
@@ -155,6 +160,35 @@ describe('Chat', () => {
       'Describe it in your own words. The agent names the task and writes its objective from your first message. ' +
         'It works in the workspace root, /code/w1.',
     )
+  })
+
+  it("shows a backfilled task's handoff note at the top, in place of what to write", async () => {
+    const handoff = { taskId: 't1', body: '## Where it got to\n\nThe v2 handlers are live.', addedAt: ASKED_AT }
+    await renderChat({ task: { state: TaskState.Done }, handoff })
+
+    const card = within(conversation()).getByRole('region', { name: 'Backfilled' })
+    expect(card).toHaveTextContent('handoff from earlier notes, added Sep 23')
+    expect(within(card).getByRole('heading', { name: 'Where it got to' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'What should the agent do?' })).toBeNull()
+  })
+
+  it('keeps the handoff note above the conversation, and follows it as the control API changes it', async () => {
+    const handoff = { taskId: 't1', body: 'The v2 handlers are live.', addedAt: ASKED_AT }
+    const { emit } = await renderChat({ messages: [ASK, REPLY], handoff })
+
+    const thread = conversation().firstElementChild
+    expect(thread?.firstElementChild).toBe(screen.getByRole('region', { name: 'Backfilled' }))
+    expect(screen.getByRole('article', { name: 'You' })).toHaveTextContent(ASK.body)
+
+    act(() => {
+      emit({ type: EventType.HandoffChanged, taskId: 't1', handoff: { ...handoff, body: 'Subscriptions next.' } })
+    })
+    expect(screen.getByRole('region', { name: 'Backfilled' })).toHaveTextContent('Subscriptions next.')
+
+    act(() => {
+      emit({ type: EventType.HandoffChanged, taskId: 't1', handoff: null })
+    })
+    expect(screen.queryByRole('region', { name: 'Backfilled' })).toBeNull()
   })
 
   it('shows the workspace root from the home folder as ~', async () => {

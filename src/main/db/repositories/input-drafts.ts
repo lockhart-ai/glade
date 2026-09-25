@@ -1,4 +1,4 @@
-// Each task's input draft (migration 27): what's in its input bar and not sent yet, kept so it's there again after a
+// Each task's input draft (migration 28): what's in its input bar and not sent yet, kept so it's there again after a
 // relaunch or a crash. A task has at most one, and none while its input bar is empty. The draft's pasted images are in
 // `images`, owned by the draft (`ImageOwnerKind.Draft`, by the task's id).
 import type { Database } from 'better-sqlite3'

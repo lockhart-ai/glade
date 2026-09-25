@@ -22,6 +22,7 @@ import {
 } from '../shared/domain'
 import { applySeed, readSeed, type CaptureSeed } from './capture-seed'
 import { listArtifacts } from './db/repositories/artifacts'
+import { getHandoff } from './db/repositories/backfills'
 import { listMessages } from './db/repositories/messages'
 import { listPermissionRequests } from './db/repositories/permission-requests'
 import { getOpenFiles } from './db/repositories/open-files'
@@ -135,6 +136,20 @@ describe('readSeed', () => {
       )
     expect(states('relaunch.json')).toContain(ToolCallState.Interrupted)
     expect(states('usage-limit.json')).toContain(ToolCallState.Paused)
+  })
+
+  it('reads the backfilled fixtures: a past task done at its start, with its handoff note and its notes', () => {
+    for (const name of ['backfilled.json', 'backfilled-reopened.json']) {
+      const seed = readSeed(join(FIXTURES, name))
+      const selected = seed.tasks.find((task) => task.selected)
+      expect(selected?.handoff?.body).toContain('### Where it got to')
+      for (const { path } of selected?.artifacts ?? []) {
+        expect(existsSync(join(seed.workspace.rootPath, path))).toBe(true)
+      }
+    }
+    const done = readSeed(join(FIXTURES, 'backfilled.json')).tasks.find((task) => task.selected)
+    expect(done?.state).toBe(TaskState.Done)
+    expect(done?.startedMinutesAgo).toBe(done?.minutesAgo)
   })
 
   it('reads the artifacts fixture, its workspace holding the files it declares', () => {
@@ -260,6 +275,36 @@ describe('applySeed', () => {
     ])
     expect(getUiState(db, UiStateKey.ActiveWorkspaceId)).toBe(workspace?.id)
     expect(getUiState(db, UiStateKey.SelectedTaskId)).toBe(tasks[0]?.id)
+  })
+
+  it("sets a task's handoff note, when it was added", () => {
+    const { db } = database
+    const now = 100 * 60_000
+
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          {
+            title: 'Migrate billing webhooks',
+            minutesAgo: 50,
+            handoff: { body: '### Next\n\nShip it.', minutesAgo: 3 },
+          },
+          { title: 'Plain', minutesAgo: 0 },
+        ],
+      },
+      now,
+    )
+
+    const tasks = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    const byTitle = new Map(tasks.map((task) => [task.title, task.id]))
+    expect(getHandoff(db, byTitle.get('Migrate billing webhooks') ?? '')).toEqual({
+      taskId: byTitle.get('Migrate billing webhooks'),
+      body: '### Next\n\nShip it.',
+      addedAt: now - 3 * 60_000,
+    })
+    expect(getHandoff(db, byTitle.get('Plain') ?? '')).toBeUndefined()
   })
 
   it('declares a task’s artifacts, in order, marking each file that’s there as changed when it was declared', () => {

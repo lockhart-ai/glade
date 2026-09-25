@@ -354,6 +354,16 @@ describe('after a reopen', () => {
     expect(entries[4]).toEqual({ kind: ChatEntryKind.Reopened, divider: events[2] })
   })
 
+  it('shows marked done before the first message of a task done before its first turn (a backfill)', () => {
+    const backfilled = [
+      at(DividerKind.MarkedDone, 'done', 1, 500),
+      at(DividerKind.Reopened, 'reopened', 1, 2_000),
+      at(DividerKind.Turn, 't1', 1, 2_000),
+    ]
+    const entries = chatEntries(task, [message('pick-up', MessageRole.User, 1)], backfilled)
+    expect(kinds(entries)).toEqual(['done', 'pick-up', 'reopened'])
+  })
+
   it('keeps both dividers after the reopening message while its turn runs', () => {
     const working = chatEntries({ ...task, activity: TaskActivity.Working }, messages.slice(0, 3), events)
     expect(kinds(working)).toEqual(['ask', 'reply-1', 'done', 'reopen', 'reopened'])

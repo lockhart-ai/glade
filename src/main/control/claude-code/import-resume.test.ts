@@ -16,6 +16,8 @@ import {
 } from '../../../shared/domain'
 import { FakeAgentBackend, settle } from '../../agent/fake-backend'
 import type { AgentRunner } from '../../agent/runner'
+import { systemPromptAppend } from '../../agent/system-prompt'
+import { getSettings } from '../../db/repositories/settings'
 import * as sdk from '../../agent/test-sdk-messages'
 import { registerBridge } from '../../bridge'
 import { fakeIpcPair } from '../../bridge/fake-ipc'
@@ -84,7 +86,13 @@ it('resumes the imported session in the workspace root, reopening the task, with
 
   expect(backend.sessions).toHaveLength(1)
   expect(backend.session.options).toMatchObject({ resumeSessionId: SESSION_ID, cwd: workspace.rootPath })
-  expect(backend.session.sent.map((message) => message.text)).toEqual(['Now pin the zone in CI too.'])
+  // It started without Glade's prompt, and keeps the one it started with, so the message goes after it, once.
+  const imported = getTask(database.db, task.id)
+  if (imported === undefined) throw new Error('No task')
+  const prompt = systemPromptAppend(imported, getSettings(database.db), false)
+  expect(backend.session.sent.map((message) => message.text)).toEqual([
+    `[Glade: instructions for this session]\n${prompt}\n[end]\n\nNow pin the zone in CI too.`,
+  ])
   expect(getTask(database.db, task.id)).toMatchObject({ state: TaskState.Active, activity: TaskActivity.Working })
 
   // The session carries on under the same id, and the turn ends as any other.
@@ -115,4 +123,8 @@ it('resumes the imported session in the workspace root, reopening the task, with
     [DividerKind.Turn, 3],
   ])
   expect(getTask(database.db, task.id)).toMatchObject({ sessionId: SESSION_ID, activity: TaskActivity.Waiting })
+  expect(messages.at(-2)?.body).toBe('Now pin the zone in CI too.')
+
+  await glade.invoke(CommandName.TasksSend, { id: task.id, text: 'And in the release job.' })
+  expect(backend.session.sent.at(-1)?.text).toBe('And in the release job.')
 })

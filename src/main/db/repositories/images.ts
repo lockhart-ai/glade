@@ -1,5 +1,5 @@
 // The images pasted into messages (migration 20): each belongs to one message in the chat log, one waiting in the
-// queue or a task's input draft (migration 27), in the order it was pasted. Messages carry just their images' refs; the bytes are read on their own, to show
+// queue or a task's input draft (migration 28), in the order it was pasted. Messages carry just their images' refs; the bytes are read on their own, to show
 // an image or to hand it to the agent.
 import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'

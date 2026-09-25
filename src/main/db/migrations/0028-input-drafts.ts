@@ -8,7 +8,7 @@ import type { Migration } from '../migrate'
  * with its task, and its images with it.
  */
 export const inputDraftsMigration: Migration = {
-  version: 27,
+  version: 28,
   name: 'Add the input drafts',
   up(db) {
     db.exec(`

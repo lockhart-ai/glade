@@ -3,14 +3,14 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { MIGRATIONS } from '.'
-import { inputDraftsMigration } from './0027-input-drafts'
+import { inputDraftsMigration } from './0028-input-drafts'
 
 let db: Database
 
 /** A database at the schema before this migration: a task with a message and a queued message, each with an image. */
 beforeEach(() => {
   db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 26))
+  migrate(db, MIGRATIONS.slice(0, 27))
   db.prepare("INSERT INTO workspaces VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)").run()
   db.prepare(
     `INSERT INTO tasks (id, workspace_id, title, objective, status, state, activity, pinned, unread, model, effort,
@@ -50,8 +50,8 @@ function imageIds(): unknown[] {
   return db.prepare('SELECT id FROM images ORDER BY id').pluck().all()
 }
 
-it('is migration 27', () => {
-  expect(MIGRATIONS[26]).toBe(inputDraftsMigration)
+it('is migration 28', () => {
+  expect(MIGRATIONS[27]).toBe(inputDraftsMigration)
 })
 
 it('keeps every image as it was, bytes, owner and order', () => {

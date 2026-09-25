@@ -104,13 +104,16 @@ export function pillLabel(
 }
 
 /**
- * The time beside the pill: when a done task ran (`10:42 – 11:26`), when a reopened task was reopened and first done
+ * The time beside the pill: when a done task ran (`10:42 – 11:26`), or started for one backfilled done (`started Mar 12`), when a reopened task was reopened and first done
  * (`reopened just now · first done Sep 23`), otherwise how long ago an active task was started (`started 42m ago`), or
  * created while it's still new (`created just now`).
  */
 export function timing(task: Task, now: EpochMs, reopened: Reopening | null = null): string {
   if (task.state === TaskState.Done) {
-    return `${clockTime(task.createdAt)} – ${clockTime(task.doneAt ?? task.updatedAt)}`
+    const doneAt = task.doneAt ?? task.updatedAt
+    // A past task backfilled done (`create_task` with `startedAt`) has no span of its own: only when it started.
+    if (doneAt === task.createdAt) return `started ${formatDay(task.createdAt)}`
+    return `${clockTime(task.createdAt)} – ${clockTime(doneAt)}`
   }
   if (reopened !== null) {
     return `reopened ${formatAgo(reopened.reopenedAt, now)} · first done ${formatDay(reopened.firstDoneAt)}`

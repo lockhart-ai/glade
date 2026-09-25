@@ -26,6 +26,7 @@ import {
   type QueuedMessage,
   UiStateKey,
   type Task,
+  type TaskHandoff,
   TaskErrorSource,
   type TaskError,
   type ToolEvent,
@@ -58,8 +59,10 @@ import {
   STOPPED_NOTE,
   type AgentRunner,
 } from './runner'
-import { systemPromptAppend } from './system-prompt'
+import { HANDOFF_HEADING, handoffSection, systemPromptAppend } from './system-prompt'
 import { updateSettings } from '../db/repositories/settings'
+import { setHandoff } from '../db/repositories/backfills'
+import { getSessionContext } from '../db/repositories/session-context'
 import * as sdk from './test-sdk-messages'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
 import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
@@ -198,6 +201,8 @@ function drainEvents(): (readonly unknown[])[] {
         return [event.type, event.todos?.items.map(({ text, state }) => [text, state]) ?? null]
       case EventType.ArtifactsChanged:
         return [event.type, event.artifacts.map(({ path }) => path)]
+      case EventType.HandoffChanged:
+        return [event.type, event.handoff?.body ?? null]
       case EventType.QuestionOpened:
       case EventType.QuestionAnswered:
       case EventType.QuestionWithdrawn:
@@ -380,6 +385,7 @@ describe('a turn', () => {
       openFiles: { taskId: task.id, paths: [], activePath: null },
       todos: null,
       artifacts: [],
+      handoff: null,
     })
   })
 
@@ -878,6 +884,13 @@ describe('the session', () => {
 
     expect(toolLog()[1]).toEqual({ narration: 'The agent session ended unexpectedly.', turn: 1 })
     expect(current().activity).toBe(TaskActivity.Error)
+  })
+
+  it('gives a task that never had a handoff note none', async () => {
+    await send('Find out why the login test is flaky.')
+
+    expect(backend.session.options.systemPromptAppend).toBe(systemPromptAppend(task))
+    expect(backend.session.options.systemPromptAppend).not.toContain(HANDOFF_HEADING)
   })
 
   it('starts again quietly when the session ends between turns', async () => {
@@ -2691,6 +2704,171 @@ describe('questions', () => {
   })
 })
 
+describe("a task's handoff note", () => {
+  const NOTE = '## Where it got to\n\nThe v2 handlers are live; `subscription.*` is next.'
+
+  /** Sets the task's note, as `update_task` does, answering with it. */
+  function setNote(body: string, at: number): TaskHandoff {
+    const handoff = setHandoff(database.db, task.id, body, at)
+    if (handoff === undefined) throw new Error('No handoff')
+    return handoff
+  }
+
+  /** What the session was sent, in order. */
+  function sentTexts(): string[] {
+    return backend.session.sent.map(({ text }) => text)
+  }
+
+  /** Ends the running turn with a reply, and lets the runner handle it. */
+  async function reply(text = 'Done.'): Promise<void> {
+    backend.session.emit(sdk.init(), sdk.result(text))
+    await settle()
+  }
+
+  it('goes in the system prompt of a session Glade starts, and its messages go as they are', async () => {
+    const handoff = setNote(NOTE, 1_000)
+
+    await send("Let's pick this up.")
+    await reply()
+    await send('Carry on.')
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(backend.session.options.systemPromptAppend).toBe(systemPromptAppend(task, undefined, false, handoff))
+    expect(sentTexts()).toEqual(["Let's pick this up.", 'Carry on.'])
+    expect(getSessionContext(database.db, task.id)).toEqual({ instructions: true, handoffAt: 1_000 })
+  })
+
+  it('is still in the prompt of the session when it is resumed, or carried on after a relaunch, and not sent again', async () => {
+    const handoff = setNote(NOTE, 1_000)
+    await send("Let's pick this up.")
+    await reply()
+
+    // Resumed after its session ended.
+    backend.session.end()
+    await settle()
+    await send('Carry on.')
+    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
+    expect(backend.session.options.systemPromptAppend).toContain(handoffSection(handoff))
+    expect(sentTexts()).toEqual(['Carry on.'])
+    backend.session.emit(sdk.text('Working on it.'), sdk.toolUse('toolu_01', 'Bash', { command: 'npm test' }))
+    await settle()
+
+    // Carried on after a relaunch in the middle of its turn.
+    relaunch()
+    runner.resumeInterrupted()
+    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
+    expect(backend.session.options.systemPromptAppend).toContain(handoffSection(handoff))
+    expect(sentTexts()).toEqual([RESUME_PROMPT])
+  })
+
+  it('goes once, ahead of the next message, to a resumed session that started without it', async () => {
+    await send('Find out why the login test is flaky.')
+    await reply()
+    backend.session.end()
+    await settle()
+    const handoff = setNote(NOTE, 5_000)
+
+    await send('Carry on.')
+
+    expect(backend.sessions).toHaveLength(2)
+    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
+    expect(sentTexts()).toEqual([`[Glade: handoff for this task]\n${handoffSection(handoff)}\n[end]\n\nCarry on.`])
+    // The chat keeps only what you wrote.
+    expect(chat().at(-1)).toEqual({ role: MessageRole.User, body: 'Carry on.', turn: 2 })
+    expect(events.filter((event) => event.type === EventType.MessageAppended).at(-1)).toMatchObject({
+      message: { body: 'Carry on.' },
+    })
+
+    await reply()
+    await send('And the logout test.')
+    expect(sentTexts().at(-1)).toBe('And the logout test.')
+  })
+
+  it('goes again, once, when it changes, to the session that had the one before', async () => {
+    setNote(NOTE, 1_000)
+    await send("Let's pick this up.")
+    await reply()
+    const changed = setNote('## Next\n\nShip it.', 2_000)
+
+    await send('Carry on.')
+    await reply()
+    await send('Anything else?')
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(sentTexts()).toEqual([
+      "Let's pick this up.",
+      `[Glade: handoff for this task]\n${handoffSection(changed)}\n[end]\n\nCarry on.`,
+      'Anything else?',
+    ])
+    expect(getSessionContext(database.db, task.id)).toEqual({ instructions: true, handoffAt: 2_000 })
+  })
+
+  it('is neither lost nor sent twice across relaunches between setting it and sending', async () => {
+    await send('Find out why the login test is flaky.')
+    await reply()
+    const handoff = setNote(NOTE, 5_000)
+
+    relaunch()
+    await send('Carry on.')
+    expect(sentTexts()).toEqual([`[Glade: handoff for this task]\n${handoffSection(handoff)}\n[end]\n\nCarry on.`])
+    await reply()
+
+    relaunch()
+    await send('Anything else?')
+    expect(sentTexts()).toEqual(['Anything else?'])
+  })
+
+  it("goes with the first of a turn's messages when the queue starts it", async () => {
+    await send('Find out why the login test is flaky.')
+    backend.session.emit(sdk.init())
+    await settle()
+    const handoff = setNote(NOTE, 5_000)
+    await glade.invoke(CommandName.QueueAdd, { taskId: task.id, text: 'Then the logout test.' })
+    await glade.invoke(CommandName.QueueAdd, { taskId: task.id, text: 'And the signup test.' })
+
+    await reply()
+
+    expect(sentTexts().slice(1)).toEqual([
+      `[Glade: handoff for this task]\n${handoffSection(handoff)}\n[end]\n\nThen the logout test.`,
+      'And the signup test.',
+    ])
+  })
+
+  it("sends a session imported from Claude Code Glade's whole prompt, note and all, once, with its first message", async () => {
+    database.db.prepare('UPDATE tasks SET imported_at = 1, session_id = ? WHERE id = ?').run('cli-session', task.id)
+    const handoff = setNote(NOTE, 5_000)
+    const imported = current()
+
+    await send('Carry on where we left off.')
+    await reply()
+    await send('And the logout test.')
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(backend.session.options.resumeSessionId).toBe('cli-session')
+    const prompt = systemPromptAppend(imported, undefined, false, handoff)
+    expect(sentTexts()).toEqual([
+      `[Glade: instructions for this session]\n${prompt}\n[end]\n\nCarry on where we left off.`,
+      'And the logout test.',
+    ])
+    expect(chat().map((message) => (message as { body: string }).body)).toEqual([
+      'Carry on where we left off.',
+      'Done.',
+      'And the logout test.',
+    ])
+  })
+
+  it('sends nothing once it is cleared, nor for a task that never had one', async () => {
+    await send('Find out why the login test is flaky.')
+    await reply()
+    setNote(NOTE, 5_000)
+    setHandoff(database.db, task.id, null)
+
+    await send('Carry on.')
+
+    expect(sentTexts()).toEqual(['Find out why the login test is flaky.', 'Carry on.'])
+  })
+})
+
 describe('reopening by chatting', () => {
   const DONE_AT = Date.UTC(2026, 8, 23, 11, 26)
 
@@ -2749,6 +2927,26 @@ describe('reopening by chatting', () => {
       { role: MessageRole.Agent, body: 'The logout test is covered too.', turn: 2 },
     ])
     expect(current()).toMatchObject({ state: TaskState.Active, activity: TaskActivity.Waiting })
+  })
+
+  it('reopens a task done before its first turn, a past one backfilled, with its first message', async () => {
+    // Before, the marked done divider went in turn 0, which the tool log refuses, and the message failed.
+    updateTask(database.db, task.id, { state: TaskState.Done }, DONE_AT)
+
+    await send("Let's pick this up.")
+
+    expect(current()).toMatchObject({ state: TaskState.Active, doneAt: null, activity: TaskActivity.Working })
+    expect(chat()).toEqual([{ role: MessageRole.User, body: "Let's pick this up.", turn: 1 }])
+    expect(
+      listToolEvents(database.db, task.id).map((event) =>
+        event.kind === ToolEventKind.Divider ? [event.dividerKind, event.turn, event.createdAt] : event.kind,
+      ),
+    ).toEqual([
+      [DividerKind.MarkedDone, 1, DONE_AT],
+      [DividerKind.Reopened, 1, expect.any(Number)],
+      [DividerKind.Turn, 1, expect.any(Number)],
+    ])
+    expect(backend.session.sent.map(({ text }) => text)).toEqual(["Let's pick this up."])
   })
 
   it('resumes the saved session by its id when the live one is gone', async () => {
@@ -2816,6 +3014,7 @@ describe('several tasks at once', () => {
       case EventType.FileShown:
       case EventType.TodosChanged:
       case EventType.ArtifactsChanged:
+      case EventType.HandoffChanged:
         return event.taskId
       case EventType.OpenFilesChanged:
         return event.openFiles.taskId
@@ -2872,6 +3071,7 @@ describe('several tasks at once', () => {
       case EventType.FileShown:
       case EventType.TodosChanged:
       case EventType.ArtifactsChanged:
+      case EventType.HandoffChanged:
       case EventType.TerminalTabsChanged:
       case EventType.TerminalOutput:
       case EventType.TerminalCleared:
