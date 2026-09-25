@@ -3,6 +3,7 @@
  * Main (and SQLite behind it) stays the source of truth; nothing here is kept only in memory.
  */
 import type {
+  PluginViewBounds,
   TaskUserPatch,
   TerminalAttachResponse,
   TerminalClearedEvent,
@@ -205,6 +206,11 @@ export interface GladeData {
    * it opens) or broadcast them; null until it's first read.
    */
   readonly plugins: readonly InstalledPlugin[] | null
+  /**
+   * The status each plugin last set for its panel header, by id (`status`, cut to 40 characters), as main broadcast it
+   * or answered when its view was placed; none until it sets one. Not saved: a plugin sets it again after `ready`.
+   */
+  readonly pluginStatuses: Readonly<Record<string, string>>
   /** The latest request to add text to a task's message field; null until one is made. A one-off UI intent. */
   readonly inputInsertion: InputInsertion | null
   /**
@@ -265,6 +271,11 @@ export interface GladeActions {
   setPluginEnabled: (id: string, enabled: boolean) => Promise<void>
   /** Opens the plugins folder in Finder (Open plugins folder). */
   openPluginsFolder: () => Promise<void>
+  /**
+   * Puts a plugin's view over its card's body, in the page's CSS pixels, or hides it (`null`), and notes the status it
+   * answers with (`plugins.placeView`).
+   */
+  placePluginView: (id: string, bounds: PluginViewBounds | null) => Promise<void>
   /**
    * Asks for a folder with the native dialog and adds it as a workspace (or finds the one already there) and opens it:
    * New workspace… and Open folder as workspace…. Resolves with the workspace, or null if the dialog was cancelled.
@@ -508,6 +519,7 @@ export const INITIAL_DATA: GladeData = {
   settings: DEFAULT_SETTINGS,
   settingsSection: null,
   plugins: null,
+  pluginStatuses: {},
   inputInsertion: null,
   searchText: '',
   searchFocusRequest: 0,

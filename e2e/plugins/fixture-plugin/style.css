@@ -1,0 +1,46 @@
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: #0a0b0f;
+  color: #a6abbd;
+  font:
+    12.5px/1.6 ui-monospace,
+    monospace;
+}
+
+main {
+  padding: 12px 16px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font:
+    600 11px/1.4 system-ui,
+    sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a8fa5;
+}
+
+p {
+  margin: 0;
+}
+
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+li {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+li::before {
+  content: '← ';
+  color: #c8b2ff;
+}

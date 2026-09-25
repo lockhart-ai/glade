@@ -95,6 +95,7 @@ export enum CommandName {
   PluginsList = 'plugins.list',
   PluginsSetEnabled = 'plugins.setEnabled',
   PluginsOpenFolder = 'plugins.openFolder',
+  PluginsPlaceView = 'plugins.placeView',
   TerminalList = 'terminal.list',
   TerminalCreate = 'terminal.create',
   TerminalDuplicate = 'terminal.duplicate',
@@ -623,6 +624,30 @@ export interface PluginsSetEnabledRequest {
 /** Opens the plugins folder in Finder (Open plugins folder), creating it if it's missing. */
 export type PluginsOpenFolderRequest = EmptyRequest
 
+/** Where a plugin's view goes in the window, in the page's CSS pixels from its top left: the plugin card's body. */
+export interface PluginViewBounds {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
+/**
+ * Puts the shown plugin's view over the plugin card's body, creating it (and loading the plugin) the first time, or
+ * hides it with `bounds: null` while the card's body isn't showing. Only an enabled plugin has a view; one at a time,
+ * so placing another destroys the last. Fails with `not_found` for a plugin that isn't enabled.
+ */
+export interface PluginsPlaceViewRequest {
+  /** The plugin's id (its folder's name). */
+  readonly id: string
+  readonly bounds: PluginViewBounds | null
+}
+
+export interface PluginsPlaceViewResponse {
+  /** The status the plugin last set for its header; `''` for none. */
+  readonly status: string
+}
+
 export interface TerminalListResponse {
   /** Every terminal tab, in the tab row's order. */
   readonly tabs: readonly TerminalTab[]
@@ -787,6 +812,7 @@ export interface CommandMap {
   [CommandName.PluginsList]: CommandSpec<EmptyRequest, PluginsResponse>
   [CommandName.PluginsSetEnabled]: CommandSpec<PluginsSetEnabledRequest, PluginsResponse>
   [CommandName.PluginsOpenFolder]: CommandSpec<PluginsOpenFolderRequest, null>
+  [CommandName.PluginsPlaceView]: CommandSpec<PluginsPlaceViewRequest, PluginsPlaceViewResponse>
   [CommandName.TerminalList]: CommandSpec<EmptyRequest, TerminalListResponse>
   [CommandName.TerminalCreate]: CommandSpec<TerminalCreateRequest, TerminalTabResponse>
   /** Adds a tab after a terminal tab, with its name and folder, and a new shell. Broadcasts `terminal.tabsChanged`. */
@@ -839,6 +865,7 @@ export enum EventType {
   MenuCommand = 'menu.command',
   SettingsChanged = 'settings.changed',
   PluginsChanged = 'plugins.changed',
+  PluginStatusChanged = 'plugin.statusChanged',
 }
 
 export interface UiStateChangedEvent {
@@ -1024,6 +1051,14 @@ export interface PluginsChangedEvent {
   readonly plugins: readonly InstalledPlugin[]
 }
 
+/** A plugin set the status its panel header shows (`status`, cut to 40 characters), or its view was destroyed (`''`). */
+export interface PluginStatusChangedEvent {
+  readonly type: EventType.PluginStatusChanged
+  /** The plugin's id. */
+  readonly id: string
+  readonly text: string
+}
+
 /** Everything main broadcasts to the windows. */
 export type GladeEvent =
   | UiStateChangedEvent
@@ -1052,6 +1087,7 @@ export type GladeEvent =
   | MenuCommandEvent
   | SettingsChangedEvent
   | PluginsChangedEvent
+  | PluginStatusChangedEvent
 
 export type EventListener = (event: GladeEvent) => void
 

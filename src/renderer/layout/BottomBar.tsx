@@ -9,6 +9,8 @@ export interface BottomBarProps {
   terminalTabs?: ReactNode
   /** The terminal itself. */
   terminal?: ReactNode
+  /** The shown plugin's card, beside the terminal; with none, the terminal takes the whole bar. */
+  plugin?: ReactNode
   /** The button at the end of the tab row that collapses the bar and shows it again. */
   toggle?: ReactNode
   /** Whether the bar is collapsed to its tab row. */
@@ -21,7 +23,7 @@ export interface BottomBarProps {
 const COLLAPSED_HEIGHT_PROPERTY = '--bottom-bar-collapsed-height'
 
 /**
- * The full-width bar along the bottom of the window, holding the terminal card. Collapsed, the card shows only its tab
+ * The full-width bar along the bottom of the window, holding the terminal card and, beside it, the shown plugin's. Collapsed, the card shows only its tab
  * row, whose toggle shows it again; the terminal stays in the page, hidden, so its shells' screens keep what they show.
  *
  * It slides open and shut between its height and its tab row's. Meanwhile the card keeps its open height, so the
@@ -30,6 +32,7 @@ const COLLAPSED_HEIGHT_PROPERTY = '--bottom-bar-collapsed-height'
 export function BottomBar({
   terminalTabs,
   terminal,
+  plugin,
   toggle,
   collapsed = false,
   motion = MotionPhase.Shown,
@@ -58,6 +61,7 @@ export function BottomBar({
           {terminal}
         </div>
       </Card>
+      {plugin}
     </div>
   )
 }

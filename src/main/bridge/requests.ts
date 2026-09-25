@@ -40,6 +40,7 @@ import {
   type WorkspacesRemoveRequest,
   type SettingsUpdateRequest,
   type PluginsSetEnabledRequest,
+  type PluginsPlaceViewRequest,
   type WorkspacesUpdateRequest,
   type WorkspacesRevealRequest,
 } from '../../shared/bridge'
@@ -201,6 +202,22 @@ const pluginsSetEnabledRequest = z.strictObject({
   enabled: z.boolean(),
 }) satisfies z.ZodType<PluginsSetEnabledRequest>
 
+/** The largest a plugin view's side or offset can be, in CSS pixels: far bigger than any screen. */
+const MAX_VIEW_PIXELS = 100_000
+
+/** A plugin view's place in the window, in CSS pixels: whole or fractional, as `getBoundingClientRect` gives them. */
+const viewBounds = z.strictObject({
+  x: z.number().min(-MAX_VIEW_PIXELS).max(MAX_VIEW_PIXELS),
+  y: z.number().min(-MAX_VIEW_PIXELS).max(MAX_VIEW_PIXELS),
+  width: z.number().min(0).max(MAX_VIEW_PIXELS),
+  height: z.number().min(0).max(MAX_VIEW_PIXELS),
+})
+
+const pluginsPlaceViewRequest = z.strictObject({
+  id: z.string(),
+  bounds: viewBounds.nullable(),
+}) satisfies z.ZodType<PluginsPlaceViewRequest>
+
 const clipboardWriteTextRequest = z.strictObject({ text: z.string() }) satisfies z.ZodType<ClipboardWriteTextRequest>
 
 const uiStateGetRequest = z.strictObject({ key: z.enum(UiStateKey) }) satisfies z.ZodType<UiStateGetRequest>
@@ -318,6 +335,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.PluginsList]: emptyRequest,
   [CommandName.PluginsSetEnabled]: pluginsSetEnabledRequest,
   [CommandName.PluginsOpenFolder]: emptyRequest,
+  [CommandName.PluginsPlaceView]: pluginsPlaceViewRequest,
   [CommandName.TerminalList]: emptyRequest,
   [CommandName.TerminalCreate]: terminalCreateRequest,
   [CommandName.TerminalDuplicate]: terminalIdRequest,

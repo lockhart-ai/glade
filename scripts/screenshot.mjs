@@ -12,7 +12,8 @@
 // --click '[role="menu"] button:nth-of-type(4)' --click 'nav[aria-label="Settings sections"] button:nth-of-type(6)'`.
 //
 // With --plugins, the app starts with each folder's sample plugins (scripts/fixtures/plugins/valid and invalid)
-// copied into its plugins folder.
+// copied into its plugins folder. The first enabled one shows beside the terminal, its view pasted into the capture:
+// e2e/plugins has the fixture plugin, which lists Glade's messages.
 //
 // With --agent-script, the capture shows a live task: the app makes a workspace and a task, sends it the first
 // message, and lets the named agent script (src/main/agent/scripts.ts: simple-reply, multi-tool-turn, long-running,

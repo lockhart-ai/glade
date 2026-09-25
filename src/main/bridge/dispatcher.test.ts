@@ -93,6 +93,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.PluginsList]: () => ({ plugins: [] }),
     [CommandName.PluginsSetEnabled]: () => ({ plugins: [] }),
     [CommandName.PluginsOpenFolder]: () => null,
+    [CommandName.PluginsPlaceView]: () => ({ status: '' }),
     [CommandName.WorkspacesUpdate]: () => {
       throw new Error('not in these tests')
     },

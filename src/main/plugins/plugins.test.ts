@@ -230,3 +230,21 @@ describe('openFolder', () => {
     )
   })
 })
+
+describe('onUpdate', () => {
+  it('hears the plugins each time they are read or turned on or off, changed or not', async () => {
+    writePlugin(folder, 'pomodoro')
+    const onUpdate = vi.fn()
+    const installed = plugins({ onUpdate })
+
+    await installed.list()
+    await installed.list()
+    installed.setEnabled('pomodoro', false)
+
+    expect(onUpdate.mock.calls.map(([list]) => states(list as InstalledPlugin[]))).toEqual([
+      [['pomodoro', true]],
+      [['pomodoro', true]],
+      [['pomodoro', false]],
+    ])
+  })
+})

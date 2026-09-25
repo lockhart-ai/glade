@@ -259,6 +259,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.PluginsOpenFolder, {})
       },
 
+      async placePluginView(id, bounds) {
+        const { status } = await bridge.invoke(CommandName.PluginsPlaceView, { id, bounds })
+        set((state) => ({ pluginStatuses: { ...state.pluginStatuses, [id]: status } }))
+      },
+
       async revealWorkspace(workspaceId) {
         await bridge.invoke(CommandName.WorkspacesReveal, { id: workspaceId })
       },

@@ -56,3 +56,14 @@ export const MAX_PLUGIN_ICON_BYTES = 256 * 1024
 
 /** The largest `manifest.json` Glade reads. */
 export const MAX_PLUGIN_MANIFEST_BYTES = 64 * 1024
+
+/**
+ * The plugin the bottom bar shows beside the terminal: one at a time, the first enabled one by id; none when no valid
+ * plugin is on.
+ */
+export function shownPlugin(plugins: readonly InstalledPlugin[]): ValidPlugin | null {
+  const enabled = plugins.filter(
+    (plugin): plugin is ValidPlugin => plugin.status === PluginStatus.Valid && plugin.enabled,
+  )
+  return enabled.sort((a, b) => (a.folder < b.folder ? -1 : a.folder > b.folder ? 1 : 0))[0] ?? null
+}

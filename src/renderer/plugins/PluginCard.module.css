@@ -1,0 +1,102 @@
+/* The plugin card, from docs/design/html/task-workspace.html (`section aria-label="Nekomata"`), at its fixed width. */
+.card {
+  flex-shrink: 0;
+  width: 680px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/*
+ * The design's header is 45px; here it's the terminal's tab row's height, so the two cards' rows and dividers line up,
+ * and the bar collapses to one height.
+ */
+.header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-height: 30px;
+  padding: var(--space-sm) var(--space-md) var(--space-sm) 14px;
+  border-bottom: 1px solid var(--color-inner-border);
+}
+
+/* Collapsed, the header is all there is, as with the terminal's tab row. */
+.header.alone {
+  border-bottom: 0;
+}
+
+.icon {
+  flex-shrink: 0;
+  display: flex;
+  color: var(--color-purple);
+}
+
+.iconImage {
+  display: block;
+  width: 15px;
+  height: 15px;
+  object-fit: contain;
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-secondary);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.badge {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--color-inner-border);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+.spacer {
+  flex-grow: 1;
+}
+
+.status {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: var(--space-sm);
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.statusText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The design's dot is a green outside the tokens; teal is the nearest token. */
+.dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-teal);
+}
+
+/* The plugin's own view is drawn over this, by main; it shows the card's surface until the page paints. */
+.body {
+  flex-grow: 1;
+  min-height: 0;
+}
+
+.body[hidden] {
+  display: none;
+}

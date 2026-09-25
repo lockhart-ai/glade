@@ -5,6 +5,7 @@ import {
   BridgeErrorCode,
   CommandName,
   type LogRendererErrorRequest,
+  type PluginsPlaceViewRequest,
   EventType,
   type CommandRequest,
   type CommandResponse,
@@ -106,6 +107,10 @@ export interface FakeMain {
   plugins?: InstalledPlugin[]
   /** How many times `plugins.openFolder` opened the plugins folder. */
   openedPluginsFolder?: number
+  /** Where `plugins.placeView` put each plugin's view, oldest first. */
+  placedPluginViews?: PluginsPlaceViewRequest[]
+  /** The status `plugins.placeView` answers with for each plugin, by id; `''` when left out. */
+  pluginStatuses?: Record<string, string>
   /**
    * The terminal tabs, in order; none when left out. `terminal.create` adds `term-1`, `term-2`… at the end (starting in
    * the workspace's root, or `/Users/sample`), `terminal.duplicate` after the tab, and `terminal.rename` and
@@ -440,6 +445,14 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     [CommandName.PluginsOpenFolder]: () => {
       main.openedPluginsFolder = (main.openedPluginsFolder ?? 0) + 1
       return null
+    },
+    [CommandName.PluginsPlaceView]: (request) => {
+      const plugin = main.plugins?.find(({ folder }) => folder === request.id)
+      if (plugin?.status !== PluginStatus.Valid || !plugin.enabled) {
+        return refuse(bridgeError(BridgeErrorCode.NotFound, `No plugin ${request.id}`))
+      }
+      main.placedPluginViews = [...(main.placedPluginViews ?? []), request]
+      return { status: main.pluginStatuses?.[request.id] ?? '' }
     },
     [CommandName.TerminalList]: () => ({ tabs: [...terminalTabs] }),
     [CommandName.TerminalCreate]: ({ workspaceId }) => {

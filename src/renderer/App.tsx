@@ -6,7 +6,7 @@ import { FirstRun } from './first-run/FirstRun'
 import { InputBar } from './input-bar'
 import { PauseBanner } from './pause/PauseBanner'
 import { AppShell, BottomBar, Sidebar, SidebarHeader, TaskCard } from './layout'
-import { MotionPhase, usePresence } from './motion'
+import { isMoving, MotionPhase, usePresence } from './motion'
 import { Panel, PanelToggle, usePanel, usePanelSize } from './panels'
 import styles from './App.module.css'
 import { HydrationStatus, selectSelectedTask, selectSelectedWorkspace } from './store/state'
@@ -25,6 +25,7 @@ import { WorkspaceSwitcher } from './workspace-switcher/WorkspaceSwitcher'
 import { TaskPanel } from './right-panel'
 import { RelaunchNotice } from './relaunch-notice'
 import { Terminal, TerminalTabs, useTerminalShortcuts } from './terminal'
+import { PluginPanel } from './plugins'
 
 interface WindowProps {
   /** The sidebar, or nothing while it's collapsed. */
@@ -76,6 +77,7 @@ function Window({
           motion={bottomBarMotion}
           terminalTabs={<TerminalTabs />}
           terminal={<Terminal />}
+          plugin={<PluginPanel collapsed={bottomBarMotion === MotionPhase.Hidden} moving={isMoving(bottomBarMotion)} />}
           toggle={<PanelToggle panel={Panel.BottomBar} />}
         />
       }

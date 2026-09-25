@@ -46,8 +46,11 @@ const electron = vi.hoisted(() => {
       getSize: () => ({ width: 1100, height: 700 }),
       resize: vi.fn(),
       toPNG: () => Buffer.from('png'),
+      toBitmap: () => Buffer.alloc(1100 * 700 * 4),
     }),
   )
+  // What a capture finds in each new window: the native views over its page, and the slots the page has for them.
+  const captureScene = { views: [] as unknown[], slots: '[]' }
 
   class FakeWindow {
     readonly options: unknown
@@ -61,10 +64,17 @@ const electron = vi.hoisted(() => {
     readonly restore = vi.fn()
     readonly focus = vi.fn()
     readonly close = vi.fn()
+    // Where a plugin's view goes.
+    readonly contentView = { children: [] as unknown[], addChildView: vi.fn(), removeChildView: vi.fn() }
+    readonly removeListener = vi.fn()
+    readonly isDestroyed = (): boolean => false
     readonly webContents = {
       send: vi.fn(),
-      // The page is always ready, at whatever size it was asked for.
-      executeJavaScript: vi.fn(() => Promise.resolve(true)),
+      getZoomFactor: () => 1,
+      // The page is always ready, at whatever size it was asked for, with the slots the scene has.
+      executeJavaScript: vi.fn((code: string) =>
+        Promise.resolve(code.includes('data-native-view-slot') ? captureScene.slots : true),
+      ),
       capturePage,
       windowOpenHandler: undefined as Handler | undefined,
       setWindowOpenHandler: vi.fn((handler: Handler) => {
@@ -80,6 +90,7 @@ const electron = vi.hoisted(() => {
 
     constructor(options: unknown) {
       this.options = options
+      this.contentView.children.push(...captureScene.views)
       windows.push(this)
     }
 
@@ -102,9 +113,62 @@ const electron = vi.hoisted(() => {
     static isSupported = (): boolean => true
   }
 
+  // Plugin views and their sessions: made, never run.
+  const pluginViews: FakePluginView[] = []
+  class FakePluginView {
+    readonly setBackgroundColor = vi.fn()
+    readonly setBorderRadius = vi.fn()
+    readonly setVisible = vi.fn()
+    readonly setBounds = vi.fn()
+    readonly getBounds = vi.fn(() => ({ x: 100, y: 500, width: 600, height: 150 }))
+    readonly getVisible = vi.fn(() => true)
+    readonly webContents = {
+      isLoading: () => false,
+      enableDeviceEmulation: vi.fn(),
+      executeJavaScript: vi.fn(() => Promise.resolve(true)),
+      capturePage: vi.fn(() =>
+        Promise.resolve({
+          getSize: () => ({ width: 600, height: 150 }),
+          resize: vi.fn(),
+          toBitmap: () => Buffer.alloc(600 * 150 * 4, 200),
+        }),
+      ),
+      setWindowOpenHandler: vi.fn(),
+      on: vi.fn(),
+      ipc: { on: vi.fn() },
+      loadURL: vi.fn(() => Promise.resolve()),
+      send: vi.fn(),
+      isDestroyed: () => false,
+      close: vi.fn(),
+    }
+    constructor(readonly options: unknown) {
+      pluginViews.push(this)
+    }
+  }
+  const pluginSession = {
+    protocol: { handle: vi.fn() },
+    webRequest: { onBeforeRequest: vi.fn(), onHeadersReceived: vi.fn() },
+    setPermissionRequestHandler: vi.fn(),
+    setPermissionCheckHandler: vi.fn(),
+    setDevicePermissionHandler: vi.fn(),
+    setSpellCheckerEnabled: vi.fn(),
+    on: vi.fn(),
+  }
+
   return {
     appHandlers,
     windows,
+    captureScene,
+    nativeImage: {
+      createFromBitmap: vi.fn((_bitmap: Buffer, size: { width: number; height: number }) => ({
+        getSize: () => size,
+        resize: vi.fn(),
+        toPNG: () => Buffer.from('png with a plugin'),
+      })),
+    },
+    pluginViews,
+    FakePluginView,
+    session: { fromPartition: vi.fn(() => pluginSession) },
     capturePage,
     FakeWindow,
     notifications,
@@ -139,6 +203,7 @@ const electron = vi.hoisted(() => {
       showOpenDialog: vi.fn(() => Promise.resolve({ canceled: false, filePaths: ['/code/acme-api'] })),
     },
     ipcMain: { handle: vi.fn<(channel: string, listener: Handler) => void>() },
+    protocol: { registerSchemesAsPrivileged: vi.fn() },
     shell: { openPath: vi.fn(() => Promise.resolve('')), showItemInFolder: vi.fn() },
     clipboard: { writeText: vi.fn(() => Promise.resolve()) },
     // The menu bar: each built menu is its template, and the one set last is the menu bar.
@@ -154,6 +219,10 @@ vi.mock('electron', () => ({
   BrowserWindow: electron.FakeWindow,
   dialog: electron.dialog,
   ipcMain: electron.ipcMain,
+  protocol: electron.protocol,
+  session: electron.session,
+  nativeImage: electron.nativeImage,
+  WebContentsView: electron.FakePluginView,
   Notification: electron.FakeNotification,
   net: { isOnline: () => true },
   shell: electron.shell,
@@ -242,6 +311,11 @@ function testModeLogs(): string {
   return join(electron.app.userData, 'logs')
 }
 
+/** An IPC event from the first window's page, as the command channel hears one. */
+function fromWindow(): { sender: unknown } {
+  return { sender: electron.windows[0]?.webContents }
+}
+
 /** Starts the app and lets the `whenReady` callback run. */
 async function startAndWaitUntilReady(): Promise<void> {
   startApp()
@@ -278,8 +352,8 @@ async function replyInUnviewedTask(): Promise<{ replied: string; viewed: string;
   const viewed = sampleTask(db, workspace.id)
   db.close()
   const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
-  await handler?.({}, CommandName.UiStateSet, { key: UiStateKey.SelectedTaskId, value: viewed.id })
-  await handler?.({}, CommandName.TasksSend, { id: replied.id, text: 'Why does it redirect twice?' })
+  await handler?.(fromWindow(), CommandName.UiStateSet, { key: UiStateKey.SelectedTaskId, value: viewed.id })
+  await handler?.(fromWindow(), CommandName.TasksSend, { id: replied.id, text: 'Why does it redirect twice?' })
   backend.session.emit(sdk.init(), sdk.text('It was a **race**.'), sdk.result('It was a **race**.'))
   await settle()
   return { replied: replied.id, viewed: viewed.id, backend }
@@ -318,7 +392,8 @@ beforeEach(() => {
 afterEach(() => {
   // Close the database the way quitting the app does, so the temp folder can go.
   electron.appHandlers.get('will-quit')?.()
-  rmSync(electron.app.userData, { recursive: true, force: true })
+  // The plugins folder read at startup may still be making the folder while it goes: retry until it's done.
+  rmSync(electron.app.userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
   rmSync(electron.app.logs, { recursive: true, force: true })
   // The app watches for crashes until it quits; one that never got that far leaves its listeners behind.
   for (const listener of process.listeners('uncaughtExceptionMonitor')) {
@@ -480,6 +555,32 @@ describe('startApp', () => {
     }
   })
 
+  it('shows an enabled plugin in its own view in the window, and ends it when the app quits', async () => {
+    writePlugin(join(electron.app.userData, 'plugins'), 'pomodoro')
+    await startAndWaitUntilReady()
+    await vi.waitFor(() => {
+      expect(logged('plugins found')).toHaveLength(1)
+    })
+    const window = onlyWindow()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    const bounds = { x: 600, y: 520, width: 680, height: 255 }
+    await expect(handler?.(fromWindow(), CommandName.PluginsPlaceView, { id: 'pomodoro', bounds })).resolves.toEqual({
+      ok: true,
+      value: { status: '' },
+    })
+
+    const [view] = electron.pluginViews
+    expect(electron.pluginViews).toHaveLength(1)
+    expect(window.contentView.addChildView).toHaveBeenCalledWith(view)
+    expect(view?.webContents.loadURL).toHaveBeenCalledWith('glade-plugin://pomodoro/index.html')
+    expect(view?.setBounds).toHaveBeenCalledWith(bounds)
+    expect(view?.options).toMatchObject({ webPreferences: { sandbox: true, devTools: true } })
+
+    appHandler('will-quit')()
+    expect(view?.webContents.close).toHaveBeenCalledOnce()
+  })
+
   it('answers commands and broadcasts their events to every open window', async () => {
     await startAndWaitUntilReady()
     const window = onlyWindow()
@@ -488,9 +589,34 @@ describe('startApp', () => {
     expect(channel).toBe(COMMAND_CHANNEL)
 
     const entry = { key: UiStateKey.ActiveWorkspaceId, value: 'workspace-1' }
-    await expect(handler?.({}, CommandName.UiStateSet, entry)).resolves.toEqual({ ok: true, value: null })
+    await expect(handler?.(fromWindow(), CommandName.UiStateSet, entry)).resolves.toEqual({ ok: true, value: null })
 
     expect(window.webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, { type: EventType.UiStateChanged, entry })
+  })
+
+  it("refuses commands that don't come from a window's page, such as a plugin's", async () => {
+    await startAndWaitUntilReady()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+    const entry = { key: UiStateKey.ActiveWorkspaceId, value: 'workspace-1' }
+
+    expect(() => handler?.({ sender: { plugin: true } }, CommandName.UiStateSet, entry)).toThrow(
+      "Commands come from Glade's window only",
+    )
+    expect(() => handler?.(null, CommandName.UiStateSet, entry)).toThrow()
+    expect(onlyWindow().webContents.send).not.toHaveBeenCalled()
+    expect(logged('command refused: not from the window')).toEqual([
+      expect.objectContaining({ scope: 'ipc', command: CommandName.UiStateSet }),
+      expect.objectContaining({ scope: 'ipc', command: CommandName.UiStateSet }),
+    ])
+  })
+
+  it('registers the plugin scheme as a standard, secure one before the app is ready', () => {
+    electron.app.whenReady.mockReturnValueOnce(new Promise(() => undefined))
+    startApp()
+
+    expect(electron.protocol.registerSchemesAsPrivileged).toHaveBeenCalledWith([
+      { scheme: 'glade-plugin', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+    ])
   })
 
   it('sets the menu bar, rebuilds it from what the window shows, and sends its commands to the window', async () => {
@@ -511,7 +637,7 @@ describe('startApp', () => {
     expect(fileMenu()[0]?.enabled).toBe(false)
 
     const state = { ...EMPTY_MENU_STATE, workspaces: [{ id: 'w1', name: 'Acme API' }], shownWorkspaceId: 'w1' }
-    await expect(handler?.({}, CommandName.MenuUpdate, state)).resolves.toEqual({ ok: true, value: null })
+    await expect(handler?.(fromWindow(), CommandName.MenuUpdate, state)).resolves.toEqual({ ok: true, value: null })
     expect(fileMenu()[0]?.enabled).toBe(true)
     fileMenu()[0]?.click()
 
@@ -525,7 +651,7 @@ describe('startApp', () => {
     await startAndWaitUntilReady()
     const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
 
-    await expect(handler?.({}, CommandName.WindowClose, {})).resolves.toEqual({ ok: true, value: null })
+    await expect(handler?.(fromWindow(), CommandName.WindowClose, {})).resolves.toEqual({ ok: true, value: null })
 
     expect(onlyWindow().close).toHaveBeenCalledOnce()
   })
@@ -540,7 +666,9 @@ describe('startApp', () => {
     db.close()
     const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
 
-    await expect(handler?.({}, CommandName.TasksSend, { id: task.id, text: 'Hi' })).resolves.toMatchObject({ ok: true })
+    await expect(handler?.(fromWindow(), CommandName.TasksSend, { id: task.id, text: 'Hi' })).resolves.toMatchObject({
+      ok: true,
+    })
     appHandler('will-quit')()
 
     expect(backend.session.sent.map(({ text }) => text)).toEqual(['Hi'])
@@ -555,11 +683,11 @@ describe('startApp', () => {
     await Promise.resolve()
     const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
 
-    const created = (await handler?.({}, CommandName.TerminalCreate, { workspaceId: null })) as {
+    const created = (await handler?.(fromWindow(), CommandName.TerminalCreate, { workspaceId: null })) as {
       value: { tab: { id: string; cwd: string } }
     }
     expect(created.value.tab.cwd).toBe('/Users/sample')
-    await handler?.({}, CommandName.TerminalAttach, { id: created.value.tab.id, cols: 80, rows: 24 })
+    await handler?.(fromWindow(), CommandName.TerminalAttach, { id: created.value.tab.id, cols: 80, rows: 24 })
     expect(spawner.spawned[0]?.options).toMatchObject({ file: '/bin/zsh', args: ['-l'] })
     appHandler('will-quit')()
 
@@ -601,12 +729,12 @@ describe('startApp', () => {
     const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
     const other = mkdtempSync(join(tmpdir(), 'glade-web-'))
     try {
-      const added = (await handler?.({}, CommandName.WorkspacesCreate, { rootPath: other })) as {
+      const added = (await handler?.(fromWindow(), CommandName.WorkspacesCreate, { rootPath: other })) as {
         ok: true
         value: { workspace: { id: string } }
       }
-      await handler?.({}, CommandName.WorkspacesOpen, { id: added.value.workspace.id })
-      expect(await handler?.({}, CommandName.WorkspacesOpen, { id: acme.id })).toMatchObject({
+      await handler?.(fromWindow(), CommandName.WorkspacesOpen, { id: added.value.workspace.id })
+      expect(await handler?.(fromWindow(), CommandName.WorkspacesOpen, { id: acme.id })).toMatchObject({
         ok: true,
         value: { selectedTaskId: task.id },
       })
@@ -827,7 +955,9 @@ describe('startApp', () => {
     db.close()
     const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
     // The SDK's session waits for the environment, so the test's guard on the real SDK is never reached.
-    await expect(handler?.({}, CommandName.TasksSend, { id: task.id, text: 'Hi' })).resolves.toMatchObject({ ok: true })
+    await expect(handler?.(fromWindow(), CommandName.TasksSend, { id: task.id, text: 'Hi' })).resolves.toMatchObject({
+      ok: true,
+    })
     expect(createSdkBackend).toHaveBeenCalledOnce()
   })
 
@@ -836,7 +966,7 @@ describe('startApp', () => {
     const window = onlyWindow()
     const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
 
-    await expect(handler?.({}, CommandName.DialogChooseFolder, {})).resolves.toEqual({
+    await expect(handler?.(fromWindow(), CommandName.DialogChooseFolder, {})).resolves.toEqual({
       ok: true,
       value: { path: '/code/acme-api' },
     })
@@ -853,8 +983,8 @@ describe('startApp', () => {
       db.close()
       const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
 
-      await handler?.({}, CommandName.FilesReveal, { taskId, path: 'notes.md' })
-      await handler?.({}, CommandName.FilesCopy, { taskId, path: 'notes.md' })
+      await handler?.(fromWindow(), CommandName.FilesReveal, { taskId, path: 'notes.md' })
+      await handler?.(fromWindow(), CommandName.FilesCopy, { taskId, path: 'notes.md' })
 
       expect(electron.shell.showItemInFolder).toHaveBeenCalledExactlyOnceWith(join(root, 'notes.md'))
       expect(electron.clipboard.writeText).toHaveBeenCalledExactlyOnceWith('# Notes\n')
@@ -1012,7 +1142,7 @@ describe('startApp logging', () => {
     await startAndWaitUntilReady()
     const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
 
-    await handler?.({}, CommandName.LogRendererError, {
+    await handler?.(fromWindow(), CommandName.LogRendererError, {
       kind: RendererErrorKind.ReactCaught,
       message: 'TypeError: task is undefined',
       stack: 'TypeError: task is undefined\n    at TaskHeader',
@@ -1140,6 +1270,26 @@ describe('startApp in capture mode', () => {
     expect(electron.app.exit).toHaveBeenCalledWith(0)
     expect(electron.appHandlers.has('activate')).toBe(false)
     expect(electron.appHandlers.has('will-quit')).toBe(false)
+  })
+
+  it("pastes a plugin's view into the capture of the page, which leaves it out", async () => {
+    askForCapture()
+    const view = new electron.FakePluginView({})
+    electron.pluginViews.length = 0
+    electron.captureScene.views = [view]
+    electron.captureScene.slots = JSON.stringify([{ x: 100, y: 500, width: 600, height: 150 }])
+    try {
+      await startAndWaitUntilReady()
+      await waitForExit()
+    } finally {
+      electron.captureScene.views = []
+      electron.captureScene.slots = '[]'
+    }
+
+    expect(electron.app.exit).toHaveBeenCalledWith(0)
+    expect(view.webContents.capturePage).toHaveBeenCalledWith({ x: 0, y: 0, width: 600, height: 150 })
+    expect(electron.nativeImage.createFromBitmap).toHaveBeenCalledWith(expect.any(Buffer), { width: 1100, height: 700 })
+    expect(readFileSync(join(outDir, 'gallery-1100x700.png'), 'utf8')).toBe('png with a plugin')
   })
 
   it('opens the route on the dev server when there is one', async () => {
@@ -1303,13 +1453,13 @@ describe('startApp in e2e mode', () => {
     await Promise.resolve()
     const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
 
-    const created = (await handler?.({}, CommandName.TerminalCreate, { workspaceId: null })) as {
+    const created = (await handler?.(fromWindow(), CommandName.TerminalCreate, { workspaceId: null })) as {
       value: { tab: { cwd: string } }
     }
 
     expect(created.value.tab.cwd).toBe(electron.app.userData)
-    const tab = (await handler?.({}, CommandName.TerminalList, {})) as { value: { tabs: { id: string }[] } }
-    await handler?.({}, CommandName.TerminalAttach, { id: tab.value.tabs[0]?.id, cols: 80, rows: 24 })
+    const tab = (await handler?.(fromWindow(), CommandName.TerminalList, {})) as { value: { tabs: { id: string }[] } }
+    await handler?.(fromWindow(), CommandName.TerminalAttach, { id: tab.value.tabs[0]?.id, cols: 80, rows: 24 })
     expect(spawner.spawned[0]?.options).toMatchObject({ file: '/bin/bash', args: ['--noprofile', '--norc'] })
   })
 
@@ -1319,12 +1469,12 @@ describe('startApp in e2e mode', () => {
     const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
 
     vi.stubEnv(E2E_CHOSEN_FOLDER_ENV, '/tmp/acme-api')
-    await expect(handler?.({}, CommandName.DialogChooseFolder, {})).resolves.toEqual({
+    await expect(handler?.(fromWindow(), CommandName.DialogChooseFolder, {})).resolves.toEqual({
       ok: true,
       value: { path: '/tmp/acme-api' },
     })
     vi.stubEnv(E2E_CHOSEN_FOLDER_ENV, undefined)
-    await expect(handler?.({}, CommandName.DialogChooseFolder, {})).resolves.toEqual({
+    await expect(handler?.(fromWindow(), CommandName.DialogChooseFolder, {})).resolves.toEqual({
       ok: true,
       value: { path: null },
     })
@@ -1343,7 +1493,7 @@ describe('startApp in e2e mode', () => {
     db.close()
     const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
 
-    await expect(handler?.({}, CommandName.TasksSend, { id: task.id, text: 'Hi' })).resolves.toMatchObject({
+    await expect(handler?.(fromWindow(), CommandName.TasksSend, { id: task.id, text: 'Hi' })).resolves.toMatchObject({
       ok: false,
     })
 
@@ -1368,7 +1518,9 @@ describe('startApp in e2e mode', () => {
     const task = sampleTask(db, sampleWorkspace(db, electron.app.userData).id)
     const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
 
-    await expect(handler?.({}, CommandName.TasksSend, { id: task.id, text: 'Hi' })).resolves.toMatchObject({ ok: true })
+    await expect(handler?.(fromWindow(), CommandName.TasksSend, { id: task.id, text: 'Hi' })).resolves.toMatchObject({
+      ok: true,
+    })
 
     await vi.waitFor(() => {
       expect(db.prepare("SELECT body FROM messages WHERE role = 'agent'").all()).toEqual([
@@ -1386,7 +1538,7 @@ describe('startApp in e2e mode', () => {
     const task = sampleTask(db, sampleWorkspace(db, electron.app.userData).id)
     const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
 
-    await handler?.({}, CommandName.TasksSend, { id: task.id, text: 'How does it retry?' })
+    await handler?.(fromWindow(), CommandName.TasksSend, { id: task.id, text: 'How does it retry?' })
 
     await vi.waitFor(() => {
       expect(db.prepare("SELECT body FROM messages WHERE role = 'agent'").all()).toEqual([
@@ -1421,7 +1573,7 @@ describe('startApp in e2e mode', () => {
     const task = sampleTask(db, sampleWorkspace(db, electron.app.userData).id)
     db.close()
     const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
-    await handler?.({}, CommandName.TasksSend, { id: task.id, text: 'Hi' })
+    await handler?.(fromWindow(), CommandName.TasksSend, { id: task.id, text: 'Hi' })
     const envs = Reflect.get(globalThis, E2E_AGENT_ENVS_GLOBAL) as E2eAgentEnvs
     await vi.waitFor(() => {
       expect(envs.sessions).toHaveLength(1)
@@ -1507,7 +1659,7 @@ describe('startApp in e2e mode', () => {
     const replied = sampleTask(db, sampleWorkspace(db, electron.app.userData).id).id
     db.close()
     const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
-    await handler?.({}, CommandName.TasksSend, { id: replied, text: 'How does it retry?' })
+    await handler?.(fromWindow(), CommandName.TasksSend, { id: replied, text: 'How does it retry?' })
 
     await vi.waitFor(() => {
       expect(notifier.shown).toEqual([

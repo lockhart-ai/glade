@@ -10,6 +10,16 @@ import { z } from 'zod'
 import { PLUGINS_FOLDER_NAME } from '../shared/plugins'
 import { READY_ATTRIBUTE } from '../shared/ready'
 import { AGENT_SCRIPT_NAMES, type AgentScriptName } from './agent/scripts'
+import {
+  CAPTURE_POLL_MS,
+  composeViews,
+  delay,
+  parseSlots,
+  SLOTS_SCRIPT,
+  viewsSettled,
+  type Bitmap,
+  type CaptureView,
+} from './capture-views'
 import { isInTempFolder, isolateApp, type IsolatedApp } from './isolation'
 
 /** The environment variable that carries the capture spec, as JSON. */
@@ -168,6 +178,8 @@ export interface CaptureWindow {
     executeJavaScript(code: string): Promise<unknown>
     capturePage(): Promise<CaptureImage>
   }
+  /** The native views over the page, such as a plugin's, which its capture leaves out; none by default. */
+  nativeViews?(): readonly CaptureView[]
 }
 
 /** The parts of a `NativeImage` a capture uses. */
@@ -175,7 +187,11 @@ export interface CaptureImage {
   getSize(): { width: number; height: number }
   resize(options: { width: number; height: number; quality: 'best' }): CaptureImage
   toPNG(): Buffer
+  toBitmap(): Buffer
 }
+
+/** Makes an image from raw BGRA pixels (Electron's `nativeImage.createFromBitmap`), to paste native views into. */
+export type ImageFromBitmap = (bitmap: Bitmap) => CaptureImage
 
 /** Waits (in the page) until the renderer has marked itself ready. */
 const WAIT_UNTIL_READY = `new Promise((resolve) => {
@@ -203,6 +219,28 @@ function pressKey(press: CaptureKeyPress): string {
 
 /** How long a click waits for its element to show up. */
 const CLICK_WAIT_MS = 5000
+
+/** How long a capture waits for the page's native views to settle over their slots. */
+const VIEW_WAIT_MS = 10_000
+
+/**
+ * The native views over the page, once each showing slot in the page has one over it and each has painted; none when
+ * the window has none to show.
+ */
+async function settledViews(window: CaptureWindow): Promise<readonly CaptureView[]> {
+  if (window.nativeViews === undefined) return []
+  const giveUp = Date.now() + VIEW_WAIT_MS
+  for (;;) {
+    const slots = parseSlots(await window.webContents.executeJavaScript(SLOTS_SCRIPT))
+    const views = window.nativeViews()
+    if (viewsSettled(slots, views)) {
+      for (const view of views) if (view.visible) await view.settle()
+      return views
+    }
+    if (Date.now() > giveUp) throw new Error("The page's native views didn't settle over their slots")
+    await delay(CAPTURE_POLL_MS)
+  }
+}
 
 /**
  * Clicks an element (in the page) once it shows up, then waits until nothing on the page is busy, its animations have
@@ -237,10 +275,15 @@ function clickElement(selector: string): string {
  * Captures each shot in `spec`: waits for the renderer to say it's ready, presses the spec's keys and clicks its
  * elements, then for each shot
  * resizes the window,
- * waits for the page to lay out at that size, and writes a PNG of it at exactly that size (a Retina display captures
- * at 2x, which is scaled down, so the PNGs match the 1x design screens). Returns the files written.
+ * waits for the page to lay out at that size (and any native view, such as a plugin's, to settle over its slot, to be
+ * pasted in with `fromBitmap`), and writes a PNG of it at exactly that size (a Retina display captures at 2x, which is
+ * scaled down, so the PNGs match the 1x design screens). Returns the files written.
  */
-export async function captureShots(window: CaptureWindow, spec: CaptureSpec): Promise<string[]> {
+export async function captureShots(
+  window: CaptureWindow,
+  spec: CaptureSpec,
+  fromBitmap?: ImageFromBitmap,
+): Promise<string[]> {
   await window.webContents.executeJavaScript(WAIT_UNTIL_READY)
   for (const press of spec.presses ?? []) await window.webContents.executeJavaScript(pressKey(press))
   for (const selector of spec.clicks ?? []) await window.webContents.executeJavaScript(clickElement(selector))
@@ -250,7 +293,13 @@ export async function captureShots(window: CaptureWindow, spec: CaptureSpec): Pr
   for (const { width, height, file } of spec.shots) {
     window.setContentSize(width, height)
     await window.webContents.executeJavaScript(waitForSize(width, height))
-    const captured = await window.webContents.capturePage()
+    const views = await settledViews(window)
+    // With a plugin's view (or any other native view) over the page, it's pasted into the page's capture.
+    const page = await window.webContents.capturePage()
+    const captured =
+      fromBitmap === undefined || views.every(({ visible }) => !visible)
+        ? page
+        : fromBitmap(await composeViews(page, width, views))
     const size = captured.getSize()
     const image =
       size.width === width && size.height === height ? captured : captured.resize({ width, height, quality: 'best' })

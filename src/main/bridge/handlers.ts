@@ -16,6 +16,7 @@ import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state
 import { getSettings, updateSettings } from '../db/repositories/settings'
 import { getWorkspace, listWorkspaces } from '../db/repositories/workspaces'
 import type { Plugins } from '../plugins/plugins'
+import type { PluginViews } from '../plugins/views'
 import type { Terminals } from '../terminal/terminals'
 import {
   changeWorkspace,
@@ -73,6 +74,8 @@ export interface HandlerContext {
   readonly terminals: Terminals
   /** The plugins in the plugins folder. */
   readonly plugins: Plugins
+  /** The shown plugin's view. */
+  readonly pluginViews: PluginViews
   /** Where errors in the window are logged (`log.rendererError`). Nothing by default. */
   readonly log?: Logger
 }
@@ -86,7 +89,7 @@ function terminalRoot(db: Database, workspaceId: string | null): string | null {
 }
 
 export function createHandlers(context: HandlerContext): Handlers {
-  const { db, emit, chooseFolder, runner, writeClipboard, terminals, plugins } = context
+  const { db, emit, chooseFolder, runner, writeClipboard, terminals, plugins, pluginViews } = context
   const renderer = (context.log ?? SILENT_LOGGER).scoped(LogScope.Renderer)
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
@@ -223,6 +226,7 @@ export function createHandlers(context: HandlerContext): Handlers {
       await plugins.openFolder()
       return null
     },
+    [CommandName.PluginsPlaceView]: ({ id, bounds }) => pluginViews.place(id, bounds),
     [CommandName.TerminalList]: () => ({ tabs: terminals.list() }),
     [CommandName.TerminalCreate]: ({ workspaceId }) => ({ tab: terminals.create(terminalRoot(db, workspaceId)) }),
     [CommandName.TerminalDuplicate]: ({ id }) => ({ tab: terminals.duplicate(id) }),
