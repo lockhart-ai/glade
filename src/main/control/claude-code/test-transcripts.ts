@@ -23,7 +23,7 @@ export function ms(seconds: number): number {
 }
 
 /** What every conversation line carries, overridable. */
-function common(seconds: number, cwd: string, extra: TranscriptLine): TranscriptLine {
+function common(seconds: number, timestamp: string, cwd: string, extra: TranscriptLine): TranscriptLine {
   return {
     parentUuid: null,
     isSidechain: false,
@@ -34,7 +34,7 @@ function common(seconds: number, cwd: string, extra: TranscriptLine): Transcript
     version: '2.1.281',
     gitBranch: 'main',
     uuid: `uuid-${String(seconds)}`,
-    timestamp: at(seconds),
+    timestamp,
     ...extra,
   }
 }
@@ -43,7 +43,16 @@ function common(seconds: number, cwd: string, extra: TranscriptLine): Transcript
 export class TranscriptBuilder {
   readonly lines: TranscriptLine[] = []
 
-  constructor(readonly cwd: string) {}
+  /** @param start When its second 0 is: 10:00 UTC on a made-up day (`at(0)`) by default. */
+  constructor(
+    readonly cwd: string,
+    readonly start: number = ms(0),
+  ) {}
+
+  /** The ISO time `seconds` after the session's start. */
+  private stamp(seconds: number): string {
+    return new Date(this.start + seconds * 1000).toISOString()
+  }
 
   /** Adds a line as it is. */
   raw(line: TranscriptLine): this {
@@ -54,14 +63,19 @@ export class TranscriptBuilder {
   /** Your prompt: a string, or content blocks. */
   prompt(seconds: number, content: string | readonly TranscriptLine[], extra: TranscriptLine = {}): this {
     return this.raw(
-      common(seconds, this.cwd, { type: 'user', message: { role: 'user', content }, promptId: 'p', ...extra }),
+      common(seconds, this.stamp(seconds), this.cwd, {
+        type: 'user',
+        message: { role: 'user', content },
+        promptId: 'p',
+        ...extra,
+      }),
     )
   }
 
   /** One of the agent's content blocks, as Claude Code writes each in its own line. */
   assistant(seconds: number, block: TranscriptLine, extra: TranscriptLine = {}): this {
     return this.raw(
-      common(seconds, this.cwd, {
+      common(seconds, this.stamp(seconds), this.cwd, {
         type: 'assistant',
         requestId: 'req_1',
         message: {
@@ -98,7 +112,7 @@ export class TranscriptBuilder {
     extra: TranscriptLine = {},
   ): this {
     return this.raw(
-      common(seconds, this.cwd, {
+      common(seconds, this.stamp(seconds), this.cwd, {
         type: 'user',
         message: { role: 'user', content: [{ tool_use_id: id, type: 'tool_result', content, is_error: isError }] },
         toolUseResult: { stdout: typeof content === 'string' ? content : '', stderr: '', interrupted: false },
@@ -109,7 +123,7 @@ export class TranscriptBuilder {
 
   compaction(seconds: number, trigger: string, preTokens: number): this {
     this.raw(
-      common(seconds, this.cwd, {
+      common(seconds, this.stamp(seconds), this.cwd, {
         type: 'system',
         subtype: 'compact_boundary',
         content: 'Conversation compacted',
@@ -125,8 +139,18 @@ export class TranscriptBuilder {
 
   /** Claude Code's own lines that aren't conversation: an attachment and a queue operation. */
   noise(seconds: number): this {
-    this.raw(common(seconds, this.cwd, { type: 'attachment', attachment: { type: 'date', date: '2026-09-01' } }))
-    return this.raw({ type: 'queue-operation', operation: 'dequeue', timestamp: at(seconds), sessionId: SESSION_ID })
+    this.raw(
+      common(seconds, this.stamp(seconds), this.cwd, {
+        type: 'attachment',
+        attachment: { type: 'date', date: '2026-09-01' },
+      }),
+    )
+    return this.raw({
+      type: 'queue-operation',
+      operation: 'dequeue',
+      timestamp: this.stamp(seconds),
+      sessionId: SESSION_ID,
+    })
   }
 
   aiTitle(title: string): this {

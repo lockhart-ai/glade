@@ -69,6 +69,11 @@ export function withCountedChange(state: GladeData, previous: Task | undefined, 
   return { ...state, doneCounts: { ...state.doneCounts, [previous.workspaceId]: counts } }
 }
 
+/** Sets a workspace's Done counts to what main says they are. */
+export function withDoneCounts(state: GladeData, workspaceId: string, counts: DoneCounts): GladeData {
+  return { ...state, doneCounts: { ...state.doneCounts, [workspaceId]: counts } }
+}
+
 /** Forgets a removed workspace's Done counts and pages. */
 export function withoutDoneLists(state: GladeData, workspaceId: string): GladeData {
   const keys = new Set(Object.values(TaskFilter).map((filter) => doneListKey(workspaceId, filter)))

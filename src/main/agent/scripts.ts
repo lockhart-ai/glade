@@ -2005,6 +2005,36 @@ const repliesBriefly: AgentScript = {
   turns: [[...turnStart(), delay(BEAT_MS), say(REPLIES_BRIEFLY.reply), result()]],
 }
 
+/** What the `ports-sessions` script's agent imports from Claude Code, and says. */
+export const PORTS_SESSIONS = {
+  /** What the user asks it. */
+  prompt: 'Port my Claude Code session in.',
+  /** The invented session it imports (`e2e/import-sessions.spec.ts` writes its transcript). */
+  sessionId: '5b2f8c1e-4d7a-4e3b-9f10-2a6c8d9e0f11',
+  reply: 'I imported your Claude Code session about the rate limit tests. It is under Done.',
+} as const
+
+/**
+ * A turn that ports a Claude Code session into Glade through the control tools (`glade-control`): it lists the
+ * sessions not yet in Glade, then imports the one, adding its folder as a workspace, and says so.
+ */
+const portsSessions: AgentScript = {
+  name: 'ports-sessions',
+  turns: [
+    [
+      ...turnStart(),
+      say("I'll look for sessions that aren't in Glade yet."),
+      controlTool('list', 'list_claude_code_sessions', { imported: false }),
+      controlTool('import', 'import_claude_code_session', {
+        sessionId: PORTS_SESSIONS.sessionId,
+        createWorkspace: true,
+      }),
+      say(PORTS_SESSIONS.reply),
+      result(),
+    ],
+  ],
+}
+
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
   'simple-reply',
@@ -2037,6 +2067,7 @@ export const AGENT_SCRIPT_NAMES = [
   'scheduled-check',
   'drives-glade',
   'replies-briefly',
+  'ports-sessions',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -2073,4 +2104,5 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'scheduled-check': scheduledCheck,
   'drives-glade': drivesGlade,
   'replies-briefly': repliesBriefly,
+  'ports-sessions': portsSessions,
 }
