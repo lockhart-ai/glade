@@ -13,14 +13,14 @@ async function startFailingTask(window: Page): Promise<void> {
   await bar.field.press('Enter')
 }
 
-/** Checks the task shows it was stopped by an overloaded API: the card, the pill, the row and the tool log. */
+/** Checks the task shows it was stopped by an overloaded API: the card, the header's state dot, the row and the tool log. */
 async function expectStoppedByError(window: Page): Promise<void> {
   const { errorCard, agentReplies } = chat(window)
   await expect(errorCard).toContainText('The agent stopped')
   await expect(errorCard).toContainText('The API returned 529 overloaded. Glade retried 3 times over')
   await expect(errorCard).toContainText('Nothing is lost: the chat, tool log and files are as they were.')
   await expect(agentReplies).toHaveCount(0)
-  await expect(taskHeader(window).pill).toHaveText('Active · stopped by an error')
+  await expect(taskHeader(window).stateDot).toHaveAccessibleName('Active · stopped by an error')
   const row = taskList(window).taskRow('Fix flaky login test')
   await expect(row).toContainText('Error: API overloaded · retry?')
   await expect(taskList(window).dot(row)).toHaveAttribute('data-state', 'error')
@@ -36,7 +36,7 @@ async function expectRecovered(window: Page): Promise<void> {
   await expect(errorCard).toHaveCount(0)
   // The retry resumed the same turn: your message wasn't sent again into the chat.
   await expect(userMessages).toHaveCount(1)
-  await expect(taskHeader(window).pill).toHaveText('Active · waiting on you')
+  await expect(taskHeader(window).stateDot).toHaveAccessibleName('Active · waiting on you')
   await expect(taskList(window).taskRow('Fix flaky login test')).toContainText(
     'Fixed the race in the test; it passes 200 times on Postgres.',
   )

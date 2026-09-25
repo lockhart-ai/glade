@@ -28,7 +28,7 @@ test('reopen by chatting: a message in a done task reopens it and the agent carr
   await bar.field.fill('The date test is flaky. Can you fix it?')
   await bar.field.press('Enter')
   await expect(conversation.agentReplies).toHaveCount(1)
-  await expect(header.pill).toHaveText('Active · waiting on you')
+  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
 
   // Mark it done: the row moves to Done, the Undo toast shows, and the input bar says a message reopens it. Marking
   // done adds no divider.
@@ -36,7 +36,7 @@ test('reopen by chatting: a message in a done task reopens it and the agent carr
   await list.sectionHeader('Done').click()
   await header.markDone.click()
   await expect(undo).toBeVisible()
-  await expect(header.pill).toHaveText(/^Done · /)
+  await expect(header.stateDot).toHaveAccessibleName(/^Done · /)
   await expect(list.rows('Done')).toHaveCount(1)
   await expect(list.rows('Active')).toHaveCount(0)
   await expect(bar.field).toHaveAttribute('placeholder', 'Send a message to reopen this task…')
@@ -50,7 +50,7 @@ test('reopen by chatting: a message in a done task reopens it and the agent carr
   await expect(region).toBeEmpty()
   await expect(list.rows('Active')).toHaveCount(1)
   await expect(list.rows('Done')).toHaveCount(0)
-  await expect(header.pill).toHaveText(/^Active · /)
+  await expect(header.stateDot).toHaveAccessibleName(/^Active · /)
   await expect(header.header).toContainText(/reopened just now · first done [A-Z][a-z]{2} \d{1,2}/)
   await expect(header.markDone).toBeVisible()
 
@@ -61,8 +61,8 @@ test('reopen by chatting: a message in a done task reopens it and the agent carr
   // The agent answers in the same conversation, and the task waits on you again.
   await expect(conversation.agentReplies).toHaveCount(2)
   await expect(conversation.agentReplies.nth(1)).toContainText('The report header already goes through')
-  await expect(header.pill).toHaveText('Active · waiting on you')
-  await expect(header.field('Status')).toContainText('The report header uses the UTC date too.')
+  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
+  await expect(header.field('Now')).toContainText('The report header uses the UTC date too.')
   expect(await chatOrder(conversation.log)).toEqual(['You', 'Agent', 'Marked done', 'You', 'Reopened', 'Agent'])
 
   // The tool log has the dividers too, before the new turn's.

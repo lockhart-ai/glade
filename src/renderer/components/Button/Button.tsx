@@ -15,6 +15,8 @@ export enum ButtonVariant {
   Danger = 'danger',
   /** A square, borderless icon-only button (e.g. Pin task). Give it an `icon` and an `aria-label`. */
   Icon = 'icon',
+  /** An icon button in a square with a strong outline (e.g. the task header's Mark done). Give it an `aria-label`. */
+  IconOutline = 'iconOutline',
 }
 
 export enum ButtonSize {
@@ -44,7 +46,7 @@ export function Button({
   children,
   ...rest
 }: ButtonProps): React.JSX.Element {
-  const isIconButton = variant === ButtonVariant.Icon
+  const isIconButton = variant === ButtonVariant.Icon || variant === ButtonVariant.IconOutline
 
   return (
     <button

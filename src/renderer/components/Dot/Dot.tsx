@@ -6,12 +6,21 @@ export interface DotProps {
   state: TaskIndicator
   /** Names the dot for screen readers. Without one the dot is decorative, for when nearby text says the same. */
   label?: string
+  /** A tooltip, for a dot that stands in for text (the task header's state dot shows its label). */
+  title?: string
   className?: string
 }
 
 /** An 8px dot in a task state's colour: working blue, waiting purple, done slate, error pink. */
-export function Dot({ state, label, className }: DotProps): React.JSX.Element {
+export function Dot({ state, label, title, className }: DotProps): React.JSX.Element {
   const accessibility = label === undefined ? { 'aria-hidden': true } : { role: 'img', 'aria-label': label }
 
-  return <span className={classNames(styles.dot, styles[state], className)} data-state={state} {...accessibility} />
+  return (
+    <span
+      className={classNames(styles.dot, styles[state], className)}
+      data-state={state}
+      title={title}
+      {...accessibility}
+    />
+  )
 }

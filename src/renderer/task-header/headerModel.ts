@@ -21,24 +21,42 @@ export const EMPTY_OBJECTIVE = 'Set by your first message.'
 export const EMPTY_STATUS = 'Nothing yet.'
 
 /**
- * How long ago `at` was, as the header says it: `just now` under a minute, then `4m ago`, `1h 49m ago` (`2h ago` on the
- * hour) and `3d ago`, each rounded down. A time in the future (a clock that moved back) counts as just now.
+ * How old something made at `at` is, as the header shows it beside the title and on the Now row: `now` under a minute,
+ * then `4m`, `1h 49m` (`2h` on the hour) and `3d`, each rounded down. A time in the future (a clock that moved back)
+ * counts as now.
  */
-export function formatAgo(at: EpochMs, now: EpochMs): string {
+export function formatAge(at: EpochMs, now: EpochMs): string {
   const elapsed = now - at
-  if (elapsed < MINUTE) return 'just now'
-  if (elapsed < HOUR) return `${String(Math.floor(elapsed / MINUTE))}m ago`
+  if (elapsed < MINUTE) return 'now'
+  if (elapsed < HOUR) return `${String(Math.floor(elapsed / MINUTE))}m`
   if (elapsed < DAY) {
     const hours = Math.floor(elapsed / HOUR)
     const minutes = Math.floor((elapsed % HOUR) / MINUTE)
-    return minutes === 0 ? `${String(hours)}h ago` : `${String(hours)}h ${String(minutes)}m ago`
+    return minutes === 0 ? `${String(hours)}h` : `${String(hours)}h ${String(minutes)}m`
   }
-  return `${String(Math.floor(elapsed / DAY))}d ago`
+  return `${String(Math.floor(elapsed / DAY))}d`
 }
 
-/** A day as the done pill shows it, e.g. `Sep 23`. */
+/** How long ago `at` was, in words: `just now` under a minute, then `4m ago`, `1h 49m ago` and `3d ago` (see formatAge). */
+export function formatAgo(at: EpochMs, now: EpochMs): string {
+  const age = formatAge(at, now)
+  return age === 'now' ? 'just now' : `${age} ago`
+}
+
+/** A day as the done task's state dot says it, e.g. `Sep 23`. */
 export function formatDay(at: EpochMs): string {
   return new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+/** A full date and time, as the age's tooltip gives it, e.g. `Sep 23, 2026, 10:42 AM`. */
+export function formatFullDate(at: EpochMs): string {
+  return new Date(at).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }
 
 /** A task is new until the agent sets any of its title, objective or status from the first message. */
@@ -82,11 +100,11 @@ export function reopening(toolEvents: readonly ToolEvent[]): Reopening | null {
 }
 
 /**
- * The status pill's label: `Active · working`, `Active · waiting on you`, `Active · stopped by an error`, `Done · Sep 23`,
- * `Active · reopened` while the agent works on the message that reopened the task, and `Active · paused` while its
- * turn is paused (docs/design/html/17-usage-limit.html).
+ * What the state dot says, as its tooltip and accessible name: `Active · working`, `Active · waiting on you`,
+ * `Active · stopped by an error`, `Done · Sep 23`, `Active · reopened` while the agent works on the message that reopened
+ * the task, and `Active · paused` while its turn is paused (docs/design/html/17-usage-limit.html).
  */
-export function pillLabel(
+export function stateLabel(
   task: Pick<Task, 'state' | 'activity' | 'doneAt' | 'updatedAt'>,
   reopened: Reopening | null = null,
 ): string {
@@ -104,16 +122,25 @@ export function pillLabel(
 }
 
 /**
- * The time beside the pill: when a done task ran (`10:42 – 11:26`), when a reopened task was reopened and first done
- * (`reopened just now · first done Sep 23`), otherwise how long ago an active task was started (`started 42m ago`), or
- * created while it's still new (`created just now`).
+ * The muted text after the title: an active task's age (`42m`, or `now` just after it's created), or the clock times a
+ * done task ran between (`10:42 – 11:26`).
  */
-export function timing(task: Task, now: EpochMs, reopened: Reopening | null = null): string {
+export function age(task: Pick<Task, 'state' | 'createdAt' | 'doneAt' | 'updatedAt'>, now: EpochMs): string {
   if (task.state === TaskState.Done) {
     return `${clockTime(task.createdAt)} – ${clockTime(task.doneAt ?? task.updatedAt)}`
   }
+  return formatAge(task.createdAt, now)
+}
+
+/**
+ * The age's tooltip, in full dates: when the task was started (created, while it's still new), when a reopened task
+ * was first done and reopened, and when a done task was done.
+ */
+export function ageTitle(task: Task, reopened: Reopening | null = null): string {
+  const parts = [`${isNewTask(task) ? 'Created' : 'Started'} ${formatFullDate(task.createdAt)}`]
   if (reopened !== null) {
-    return `reopened ${formatAgo(reopened.reopenedAt, now)} · first done ${formatDay(reopened.firstDoneAt)}`
+    parts.push(`first done ${formatFullDate(reopened.firstDoneAt)}`, `reopened ${formatFullDate(reopened.reopenedAt)}`)
   }
-  return `${isNewTask(task) ? 'created' : 'started'} ${formatAgo(task.createdAt, now)}`
+  if (task.state === TaskState.Done) parts.push(`done ${formatFullDate(task.doneAt ?? task.updatedAt)}`)
+  return parts.join(' · ')
 }

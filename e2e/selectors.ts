@@ -117,24 +117,34 @@ export function searchResults(page: Page) {
   }
 }
 
-/** A labelled row of the task header. */
-export type TaskHeaderField = 'Objective' | 'Status' | 'Outcome'
+/** A labelled row of the task header: the goal (the objective), then what it's doing now (its outcome once done). */
+export type TaskHeaderField = 'Goal' | 'Now' | 'Outcome'
 
-/** The selected task's header: its title, pin toggle, status pill, Mark done, and objective and status rows. */
+/**
+ * The selected task's header: its state dot, title and age, pin toggle and Mark done, and its goal and now (or outcome)
+ * rows.
+ */
 export function taskHeader(page: Page) {
   const header = regions(page).taskHeader
   return {
     header,
     title: header.getByRole('heading', { level: 1 }),
-    pill: header.getByRole('status'),
+    /**
+     * The state dot before the title: an image named by the task's state (e.g. `Active · waiting on you`), which is also
+     * its tooltip, whose `data-state` is the indicator its sidebar row's dot shows.
+     */
+    stateDot: header.locator('[data-state]'),
     pin: header.getByRole('button', { name: 'Pin task' }),
     unpin: header.getByRole('button', { name: 'Unpin task' }),
+    /** An icon-only button, named by its label. */
     markDone: header.getByRole('button', { name: 'Mark done' }),
-    /** When the task started or was created (or ran, once done), after the pill on the title's line. */
-    timing: header.getByText(/^(started|created|reopened) |^\d{1,2}:\d{2} – \d{1,2}:\d{2}$/),
+    /** After the title: the task's age (`· 42m`), or when it ran once done (`· 10:42 – 11:26`), full dates as tooltip. */
+    age: header.getByText(/^· /),
+    /** How long ago the agent set the status (e.g. `4m`), at the end of the Now row. */
+    statusAge: header.getByRole('group', { name: 'Now' }).locator(':scope > span'),
     /** Shows the right panel again; there only while it's collapsed. */
     showSidePanel: header.getByRole('button', { name: 'Show side panel' }),
-    /** A row's value, e.g. the objective. */
+    /** A row's value, e.g. the goal. */
     field: (name: TaskHeaderField) => header.getByRole('group', { name }).getByRole('paragraph'),
   }
 }

@@ -10,7 +10,10 @@ import {
   type Task,
   type ToolEvent,
 } from '../../shared/domain'
+import { TaskIndicator } from '../../shared/taskIndicator'
 import { DEFAULT_TOAST_TIMEOUT, ToastProvider } from '../components'
+import dotStyles from '../components/Dot/Dot.module.css'
+import { moduleClass } from '../components/moduleClass'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore } from '../store/store'
 import {
@@ -23,6 +26,7 @@ import {
 } from '../store/test-bridge'
 import { NOW_REFRESH_MS } from '../task-list/useNow'
 import { SelectedTaskHeader } from './SelectedTaskHeader'
+import styles from './SelectedTaskHeader.module.css'
 import { MARKED_DONE_MESSAGE } from './useMarkDone'
 
 const MINUTE = 60_000
@@ -94,8 +98,21 @@ function toasts(): HTMLElement {
   return screen.getByRole('region', { name: 'Notifications' })
 }
 
-function pill(): HTMLElement {
-  return within(header()).getByRole('status')
+/** The state dot before the title: an image named by the state. (The buttons' icons are hidden from assistive tech.) */
+function dot(): HTMLElement {
+  return within(header()).getByRole('img')
+}
+
+/** The muted age after the title, e.g. `· 42m`. */
+function age(): HTMLElement {
+  return within(header()).getByText(/^· /)
+}
+
+/** How long ago the agent set the status, at the end of the Now row. */
+function statusAge(): HTMLElement | null {
+  const row = within(header()).queryByRole('group', { name: 'Now' })
+  const last = row?.lastElementChild
+  return last instanceof HTMLElement && last.tagName === 'SPAN' ? last : null
 }
 
 beforeEach(() => {
@@ -114,16 +131,32 @@ describe('SelectedTaskHeader', () => {
     expect(screen.queryByRole('region', { name: 'Task header' })).toBeNull()
   })
 
-  it('shows an active task’s title, pill, start time, objective and status with when it changed', async () => {
+  it('shows an active task’s state dot, title, age, goal, and status with when it changed', async () => {
     await renderHeader()
 
     expect(within(header()).getByRole('heading', { level: 1 })).toHaveTextContent('Add rate limiting to public API')
     expect(within(header()).getByRole('button', { name: 'Pin task' })).toHaveAttribute('aria-pressed', 'false')
-    expect(pill()).toHaveTextContent('Active · waiting on you')
-    expect(header()).toHaveTextContent('started 42m ago')
-    expect(field('Objective')).toHaveTextContent('Add per-key rate limiting to the public API.')
-    expect(field('Status')).toHaveTextContent('Throttle applied; 14 new tests pass. · 4m ago')
+    expect(dot()).toHaveAccessibleName('Active · waiting on you')
+    expect(age()).toHaveTextContent(/^· 42m$/)
+    expect(field('Goal')).toHaveTextContent(/^Add per-key rate limiting to the public API\.$/)
+    expect(field('Now')).toHaveTextContent(/^Throttle applied; 14 new tests pass\.$/)
+    expect(statusAge()).toHaveTextContent(/^4m$/)
     expect(within(header()).getByRole('button', { name: 'Mark done' })).toBeInTheDocument()
+    // No pill any more: the dot says the state.
+    expect(within(header()).queryByRole('status')).toBeNull()
+    expect(within(header()).queryByText('Active · waiting on you')).toBeNull()
+  })
+
+  it('labels the rows Goal and Now in mono caps, with no Objective or Status', async () => {
+    await renderHeader()
+
+    const labels = within(header())
+      .getAllByRole('group')
+      .map((row) => row.firstElementChild)
+    expect(labels.map((label) => label?.textContent)).toEqual(['Goal', 'Now'])
+    for (const label of labels) expect(label).toHaveClass(moduleClass(styles, 'label'))
+    expect(within(header()).queryByRole('group', { name: 'Objective' })).toBeNull()
+    expect(within(header()).queryByRole('group', { name: 'Status' })).toBeNull()
   })
 
   it('shows a reopened task as reopened, with when it was first done', async () => {
@@ -144,102 +177,163 @@ describe('SelectedTaskHeader', () => {
       ],
     })
 
-    expect(pill()).toHaveTextContent('Active · reopened')
-    expect(header()).toHaveTextContent('reopened just now · first done Sep 23')
+    expect(dot()).toHaveAccessibleName('Active · reopened')
+    expect(dot()).toHaveAttribute('title', 'Active · reopened')
+    expect(dot()).toHaveAttribute('data-state', TaskIndicator.Working)
+    expect(age()).toHaveTextContent(/^· 42m$/)
+    expect(age()).toHaveAttribute(
+      'title',
+      'Started Sep 23, 2026, 10:42 AM · first done Sep 23, 2026, 11:26 AM · reopened Sep 23, 2026, 11:24 AM',
+    )
     expect(within(header()).getByRole('button', { name: 'Mark done' })).toBeInTheDocument()
   })
 
   it.each([
-    [TaskActivity.Working, 'Active · working'],
-    [TaskActivity.Waiting, 'Active · waiting on you'],
-    [TaskActivity.Error, 'Active · stopped by an error'],
-  ])('shows the pill for an agent that is %s', async (activity, label) => {
-    await renderHeader({ task: { activity } })
+    ['working', { activity: TaskActivity.Working }, TaskIndicator.Working, 'Active · working'],
+    ['paused', { activity: TaskActivity.Paused }, TaskIndicator.Working, 'Active · paused'],
+    ['waiting on you', { activity: TaskActivity.Waiting }, TaskIndicator.Waiting, 'Active · waiting on you'],
+    ['stopped by an error', { activity: TaskActivity.Error }, TaskIndicator.Error, 'Active · stopped by an error'],
+    [
+      'done',
+      { state: TaskState.Done, activity: TaskActivity.Waiting, doneAt: STARTED + 44 * MINUTE },
+      TaskIndicator.Done,
+      'Done · Sep 23',
+    ],
+    [
+      'done while it was stopped by an error',
+      { state: TaskState.Done, activity: TaskActivity.Error, doneAt: STARTED + 44 * MINUTE },
+      TaskIndicator.Done,
+      'Done · Sep 23',
+    ],
+  ])(
+    'colours and names the dot like the sidebar row’s for a task that is %s',
+    async (_, task: Partial<Task>, indicator, label) => {
+      await renderHeader({ task })
 
-    expect(pill()).toHaveTextContent(label)
-  })
+      // The sidebar row's Dot: the same state, so the same colour class.
+      expect(dot()).toHaveAttribute('data-state', indicator)
+      expect(dot()).toHaveClass(moduleClass(dotStyles, 'dot'), moduleClass(dotStyles, indicator))
+      expect(dot()).toHaveClass(moduleClass(styles, 'dot'))
+      expect(dot()).toHaveAccessibleName(label)
+      expect(dot()).toHaveAttribute('title', label)
+      expect(dot()).toBeEmptyDOMElement()
+    },
+  )
 
   it('shows a done task’s day, when it ran and its outcome, without Mark done', async () => {
     await renderHeader({ task: { state: TaskState.Done, doneAt: STARTED + 44 * MINUTE } })
 
-    expect(pill()).toHaveTextContent('Done · Sep 23')
-    expect(header()).toHaveTextContent('10:42 – 11:26')
+    expect(dot()).toHaveAccessibleName('Done · Sep 23')
+    expect(age()).toHaveTextContent(/^· 10:42 – 11:26$/)
+    expect(age()).toHaveAttribute('title', 'Started Sep 23, 2026, 10:42 AM · done Sep 23, 2026, 11:26 AM')
     expect(field('Outcome')).toHaveTextContent(/^Throttle applied; 14 new tests pass\.$/)
-    expect(within(header()).queryByRole('group', { name: 'Status' })).toBeNull()
+    expect(within(header()).queryByRole('group', { name: 'Now' })).toBeNull()
     expect(within(header()).queryByRole('button', { name: 'Mark done' })).toBeNull()
+    // The pin stays; an outcome has no age at the end of its row.
+    expect(within(header()).getByRole('button', { name: 'Pin task' })).toBeInTheDocument()
+    expect(within(header()).getByRole('group', { name: 'Outcome' }).lastElementChild?.tagName).toBe('P')
   })
 
   it('shows stand-ins for a new task’s empty fields, without Mark done', async () => {
     await renderHeader({ task: { title: '', objective: '', status: '', statusUpdatedAt: null, createdAt: NOW } })
 
     expect(within(header()).getByRole('heading', { level: 1 })).toHaveTextContent('New task')
-    expect(header()).toHaveTextContent('created just now')
-    expect(field('Objective')).toHaveTextContent('Set by your first message.')
-    expect(field('Status')).toHaveTextContent(/^Nothing yet\.$/)
+    expect(age()).toHaveTextContent(/^· now$/)
+    expect(age()).toHaveAttribute('title', 'Created Sep 23, 2026, 11:24 AM')
+    expect(field('Goal')).toHaveTextContent('Set by your first message.')
+    expect(field('Now')).toHaveTextContent(/^Nothing yet\.$/)
+    expect(statusAge()).toBeNull()
     expect(within(header()).queryByRole('button', { name: 'Mark done' })).toBeNull()
   })
 
-  it('gives the title, timing, objective and status their full text as tooltips, since they clamp in a small window', async () => {
+  it('gives the title, goal and status their full text as tooltips, and the age its full date, since they clamp in a small window', async () => {
     await renderHeader()
 
-    expect(within(header()).getByText('started 42m ago')).toHaveAttribute('title', 'started 42m ago')
+    expect(age()).toHaveAttribute('title', 'Started Sep 23, 2026, 10:42 AM')
     expect(within(header()).getByRole('heading', { level: 1 })).toHaveAttribute(
       'title',
       'Add rate limiting to public API',
     )
-    expect(field('Objective')).toHaveAttribute('title', 'Add per-key rate limiting to the public API.')
-    expect(field('Status')).toHaveAttribute('title', 'Throttle applied; 14 new tests pass.')
+    expect(field('Goal')).toHaveAttribute('title', 'Add per-key rate limiting to the public API.')
+    expect(field('Now')).toHaveAttribute('title', 'Throttle applied; 14 new tests pass.')
   })
 
-  it.each([
-    ['an active task', {}, 'Active · waiting on you'],
-    ['a task stopped by an error', { activity: TaskActivity.Error }, 'Active · stopped by an error'],
-    ['a done task', { state: TaskState.Done, doneAt: STARTED + 44 * MINUTE }, 'Done · Sep 23'],
-  ])(
-    'gives the pill its full label as a tooltip for %s, since it truncates on a crowded line',
-    async (_, task, label) => {
-      await renderHeader({ task })
-
-      expect(pill()).toHaveAttribute('title', label)
-      expect(pill()).toHaveTextContent(label)
-    },
-  )
-
-  it('puts the title, pin, pill and timing on one line above the divider, and the objective and status below it', async () => {
+  it('names the icon-only buttons and gives them tooltips', async () => {
     await renderHeader()
 
-    // The line: the heading's container holds the title, the pin toggle, the pill and the timing, in that order.
-    const title = within(header()).getByRole('heading', { level: 1 })
-    const line = title.parentElement?.parentElement
-    if (!(line instanceof HTMLElement)) throw new Error('The title has no line around it')
-    const onTheLine = within(line)
-    const pin = onTheLine.getByRole('button', { name: 'Pin task' })
-    const timing = onTheLine.getByText('started 42m ago')
-    expect(onTheLine.getByRole('status')).toBe(pill())
-    expect(title.compareDocumentPosition(pin)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
-    expect(pin.compareDocumentPosition(pill())).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
-    expect(pill().compareDocumentPosition(timing)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    const pin = within(header()).getByRole('button', { name: 'Pin task' })
+    const markDone = within(header()).getByRole('button', { name: 'Mark done' })
+    expect(pin).toHaveAttribute('title', 'Pin task')
+    expect(markDone).toHaveAttribute('title', 'Mark done')
+    // Icon only: no text, just the check in a circle.
+    expect(markDone).toHaveTextContent(/^$/)
+    expect(markDone.querySelector('svg')).toHaveAttribute('data-icon', 'circle-check')
+    expect(pin.querySelector('svg')).toHaveAttribute('data-icon', 'thumbtack')
+  })
 
-    // Neither field is on that line; both come after it.
-    for (const name of ['Objective', 'Status']) {
-      const row = within(header()).getByRole('group', { name })
-      expect(line.contains(row)).toBe(false)
-      expect(timing.compareDocumentPosition(row)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  it('keeps the buttons in the tab order, as real buttons', async () => {
+    await renderHeader()
+
+    for (const name of ['Pin task', 'Mark done']) {
+      const button = within(header()).getByRole('button', { name })
+      expect(button.tagName).toBe('BUTTON')
+      expect(button).toHaveAttribute('type', 'button')
+      expect(button).not.toHaveAttribute('tabindex')
+      button.focus()
+      expect(button).toHaveFocus()
     }
+  })
+
+  it('names the pin Unpin task with its tooltip while the task is pinned', async () => {
+    await renderHeader({ task: { pinned: true } })
+
+    const unpin = within(header()).getByRole('button', { name: 'Unpin task' })
+    expect(unpin).toHaveAttribute('title', 'Unpin task')
+    expect(unpin).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('puts the dot, title and age on one line with the pin and Mark done after them, and the rows below', async () => {
+    await renderHeader()
+
+    const title = within(header()).getByRole('heading', { level: 1 })
+    const heading = title.parentElement
+    const line = heading?.parentElement
+    if (!(heading instanceof HTMLElement) || !(line instanceof HTMLElement)) throw new Error('The title has no line')
+    expect([...heading.children]).toEqual([dot(), title, age()])
+    const pin = within(line).getByRole('button', { name: 'Pin task' })
+    const markDone = within(line).getByRole('button', { name: 'Mark done' })
+    expect([...line.children]).toEqual([heading, pin, markDone])
+
+    // Neither row is on that line; both come after it, with no divider between.
+    const fields = within(header()).getByRole('group', { name: 'Goal' }).parentElement
+    expect(fields).toHaveClass(moduleClass(styles, 'fields'))
+    expect(fields).not.toHaveClass(moduleClass(styles, 'afterToggle'))
+    expect(line.nextElementSibling).toBe(fields)
+    expect(within(header()).queryByRole('separator')).toBeNull()
+  })
+
+  it('puts the status’s age at the end of the Now row, after the status', async () => {
+    await renderHeader()
+
+    const row = within(header()).getByRole('group', { name: 'Now' })
+    expect(row.lastElementChild).toBe(statusAge())
+    expect(statusAge()).toHaveClass(moduleClass(styles, 'updated'))
+    expect(field('Now').compareDocumentPosition(statusAge() as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })
 
   it('gives stand-ins no tooltips', async () => {
     await renderHeader({ task: { title: '', objective: '', status: '', statusUpdatedAt: null, createdAt: NOW } })
 
     expect(within(header()).getByRole('heading', { level: 1 })).not.toHaveAttribute('title')
-    expect(field('Objective')).not.toHaveAttribute('title')
-    expect(field('Status')).not.toHaveAttribute('title')
+    expect(field('Goal')).not.toHaveAttribute('title')
+    expect(field('Now')).not.toHaveAttribute('title')
   })
 
   it('leaves out when the status changed if that isn’t known', async () => {
     await renderHeader({ task: { statusUpdatedAt: null } })
 
-    expect(field('Status')).toHaveTextContent(/^Throttle applied; 14 new tests pass\.$/)
+    expect(field('Now')).toHaveTextContent(/^Throttle applied; 14 new tests pass\.$/)
+    expect(statusAge()).toBeNull()
   })
 
   it('pins and unpins the task', async () => {
@@ -261,7 +355,7 @@ describe('SelectedTaskHeader', () => {
 
     fireEvent.click(within(header()).getByRole('button', { name: 'Mark done' }))
 
-    expect(await within(header()).findByText(/^Done · /)).toBeInTheDocument()
+    expect(await within(header()).findByRole('img', { name: /^Done · / })).toBeInTheDocument()
     expect(invoke).toHaveBeenCalledWith(CommandName.TasksMarkDone, { id: 't1' })
     expect(field('Outcome')).toHaveTextContent('Throttle applied; 14 new tests pass.')
     expect(within(header()).queryByRole('button', { name: 'Mark done' })).toBeNull()
@@ -303,11 +397,12 @@ describe('SelectedTaskHeader', () => {
 
     expect(await within(header()).findByRole('button', { name: 'Mark done' })).toBeEnabled()
     expect(invoke).toHaveBeenCalledWith(CommandName.TasksReopen, { id: 't1' })
-    expect(pill()).toHaveTextContent('Active · waiting on you')
+    expect(dot()).toHaveAccessibleName('Active · waiting on you')
     expect(within(header()).getByRole('heading', { level: 1 })).toHaveTextContent('Add rate limiting to public API')
     expect(within(header()).getByRole('button', { name: 'Unpin task' })).toBeInTheDocument()
-    expect(field('Objective')).toHaveTextContent('Add per-key rate limiting to the public API.')
-    expect(field('Status')).toHaveTextContent('Throttle applied; 14 new tests pass. · 4m ago')
+    expect(field('Goal')).toHaveTextContent('Add per-key rate limiting to the public API.')
+    expect(field('Now')).toHaveTextContent(/^Throttle applied; 14 new tests pass\.$/)
+    expect(statusAge()).toHaveTextContent('4m')
     expect(toasts()).toBeEmptyDOMElement()
   })
 
@@ -322,7 +417,7 @@ describe('SelectedTaskHeader', () => {
     fireEvent.click(await within(toasts()).findByRole('button', { name: 'Undo' }))
 
     expect(await screen.findByText('Already active')).toBeInTheDocument()
-    expect(pill()).toHaveTextContent(/^Done · /)
+    expect(dot()).toHaveAccessibleName(/^Done · /)
   })
 
   it('takes the Undo toast away after a few seconds, leaving the task done', async () => {
@@ -339,7 +434,7 @@ describe('SelectedTaskHeader', () => {
     })
 
     expect(toasts()).toBeEmptyDOMElement()
-    expect(pill()).toHaveTextContent(/^Done · /)
+    expect(dot()).toHaveAccessibleName(/^Done · /)
   })
 
   it('disables Mark done while the agent is working', async () => {
@@ -362,7 +457,7 @@ describe('SelectedTaskHeader', () => {
     fireEvent.click(within(header()).getByRole('button', { name: 'Mark done' }))
 
     expect(await screen.findByText('Already done')).toBeInTheDocument()
-    expect(pill()).toHaveTextContent('Active · waiting on you')
+    expect(dot()).toHaveAccessibleName('Active · waiting on you')
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
   })
 
@@ -396,9 +491,11 @@ describe('SelectedTaskHeader', () => {
     })
 
     expect(within(header()).getByRole('heading', { level: 1 })).toHaveTextContent('Rate limit the public API')
-    expect(pill()).toHaveTextContent('Active · working')
-    expect(field('Objective')).toHaveTextContent('Limit each API key.')
-    expect(field('Status')).toHaveTextContent('Running the tests. · just now')
+    expect(dot()).toHaveAccessibleName('Active · working')
+    expect(dot()).toHaveAttribute('data-state', TaskIndicator.Working)
+    expect(field('Goal')).toHaveTextContent('Limit each API key.')
+    expect(field('Now')).toHaveTextContent(/^Running the tests\.$/)
+    expect(statusAge()).toHaveTextContent(/^now$/)
   })
 
   it('moves its relative times on as time passes', async () => {
@@ -408,8 +505,8 @@ describe('SelectedTaskHeader', () => {
       vi.advanceTimersByTime(2 * NOW_REFRESH_MS)
     })
 
-    expect(header()).toHaveTextContent('started 43m ago')
-    expect(field('Status')).toHaveTextContent('· 5m ago')
+    expect(age()).toHaveTextContent(/^· 43m$/)
+    expect(statusAge()).toHaveTextContent(/^5m$/)
   })
 
   it('shows the side panel again from a button while it’s collapsed', async () => {
@@ -433,6 +530,10 @@ describe('SelectedTaskHeader', () => {
 
     const show = screen.getByRole('button', { name: 'Show task list' })
     expect(show.compareDocumentPosition(screen.getByRole('heading'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    // The rows move over with the title, to stay lined up with it.
+    expect(within(header()).getByRole('group', { name: 'Goal' }).parentElement).toHaveClass(
+      moduleClass(styles, 'afterToggle'),
+    )
     fireEvent.click(show)
 
     expect(invoke).toHaveBeenCalledWith(CommandName.UiStateSet, { key: UiStateKey.SidebarCollapsed, value: 'false' })

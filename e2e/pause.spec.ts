@@ -50,7 +50,7 @@ test('a usage limit pauses tasks behind one banner, and they resume on their own
 
   // The selected task says so in its header, chat and input bar, with no error card.
   const { pausedLine, errorCard, agentReplies } = chat(window)
-  await expect(taskHeader(window).pill).toHaveText('Active · paused')
+  await expect(taskHeader(window).stateDot).toHaveAccessibleName('Active · paused')
   await expect(pausedLine).toHaveText(/^Paused · resumes at \d\d:\d\d$/)
   await expect(errorCard).toHaveCount(0)
   const bar = inputBar(window)
@@ -74,7 +74,7 @@ test('a usage limit pauses tasks behind one banner, and they resume on their own
   await expect(bar.queued).toHaveCount(0)
   await expect(chat(window).userMessages.last()).toHaveText(/Keep the original filenames\./)
   for (const row of await rows.all()) await expect(row).toContainText('All 3,900 files copied to S3.')
-  await expect(taskHeader(window).pill).toHaveText('Active · waiting on you')
+  await expect(taskHeader(window).stateDot).toHaveAccessibleName('Active · waiting on you')
 })
 
 test('Switch model moves the paused tasks to another model and resumes them now', async ({ launch, tempFolder }) => {
@@ -117,5 +117,5 @@ test('losing the network pauses the task, and it resumes on its own once the net
   // Glade checks for the network 5 seconds after it went, then 10 seconds after that.
   await expect(banner).toHaveCount(0, { timeout: 30_000 })
   await expect(chat(window).agentReplies).toContainText([FINISHED])
-  await expect(taskHeader(window).pill).toHaveText('Active · waiting on you')
+  await expect(taskHeader(window).stateDot).toHaveAccessibleName('Active · waiting on you')
 })

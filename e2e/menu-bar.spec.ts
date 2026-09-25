@@ -53,7 +53,7 @@ test('menu bar: its Workspace menu, switching workspaces, Mark done, Toggle task
   await expect(chat(window).agentReplies).toHaveCount(1)
   await chooseMenuItem(glade, 'Task', 'Mark done')
   await expect(toasts(window).region).toContainText('Marked done.')
-  await expect(header.pill).toHaveText(/^Done · /)
+  await expect(header.stateDot).toHaveAccessibleName(/^Done · /)
   await expect(list.rows('Done')).toHaveCount(1)
   // Now it's done, the Task menu offers Reopen instead.
   await expect.poll(async () => (await menuItem(glade, 'Task', 'Mark done')).enabled).toBe(false)
@@ -96,5 +96,5 @@ test('menu bar: its Workspace menu, switching workspaces, Mark done, Toggle task
   await expect(firstRun(relaunched.window).openFolder).toBeVisible()
   await chooseMenuItem(relaunched, 'Workspace', 'Switch workspace', 'acme-api')
   await expect(regions(relaunched.window).workspace).toContainText('acme-api')
-  await expect(taskHeader(relaunched.window).pill).toHaveText(/^Done · /)
+  await expect(taskHeader(relaunched.window).stateDot).toHaveAccessibleName(/^Done · /)
 })
