@@ -11,6 +11,7 @@ import { basename, join, resolve } from 'node:path'
 import { _electron as electron, test as base, type ElectronApplication, type Page } from '@playwright/test'
 import type { AgentScriptName } from '../src/main/agent/scripts'
 import {
+  E2E_AGENT_ENVS_GLOBAL,
   E2E_CHOSEN_FOLDER_ENV,
   E2E_DESKTOP_GLOBAL,
   E2E_EDITOR_GLOBAL,
@@ -18,6 +19,7 @@ import {
   E2E_NETWORK_GLOBAL,
   E2E_NOTIFIER_GLOBAL,
   E2E_WINDOW_SIZE,
+  type E2eAgentEnvs,
   type E2eDesktop,
   type E2eEditor,
   type E2eNetwork,
@@ -59,6 +61,13 @@ export interface LaunchOptions {
    * before the window opens. Pass it on a test's first launch only.
    */
   readonly seed?: string
+  /**
+   * A login shell for the app to read its agents' environment from (a script standing in for `$SHELL` and its
+   * profile). None by default: the agents run in the app's own environment.
+   */
+  readonly loginShell?: string
+  /** Environment variables to launch the app with, over the test runner's own, e.g. launchd's bare `PATH`. */
+  readonly env?: Readonly<Record<string, string>>
 }
 
 /** The path of a sample-data fixture in `e2e/seeds/`, by file name. */
@@ -93,11 +102,16 @@ interface Fixtures {
 }
 
 /** Environment for the app: the e2e spec, and nothing that would make it run as Node or load a dev server. */
-function appEnv(spec: E2eSpec, chosenFolder: string | undefined): Record<string, string> {
+function appEnv(
+  spec: E2eSpec,
+  chosenFolder: string | undefined,
+  overrides: Readonly<Record<string, string>>,
+): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE' && key !== 'ELECTRON_RENDERER_URL') env[key] = value
   }
+  Object.assign(env, overrides)
   env[E2E_ENV] = JSON.stringify(spec)
   if (chosenFolder !== undefined) env[E2E_CHOSEN_FOLDER_ENV] = chosenFolder
   return env
@@ -151,17 +165,19 @@ export const test = base.extend<Fixtures>({
       }
     }
 
-    await use(async ({ route = '', chosenFolder, agentScript, agentScriptsByFirstMessage, seed } = {}) => {
+    await use(async (options = {}) => {
+      const { route = '', chosenFolder, agentScript, agentScriptsByFirstMessage, seed, loginShell, env = {} } = options
       const spec: E2eSpec = {
         userData,
         route,
         ...(agentScript === undefined ? {} : { agentScript }),
         ...(agentScriptsByFirstMessage === undefined ? {} : { agentScriptsByFirstMessage }),
         ...(seed === undefined ? {} : { seed }),
+        ...(loginShell === undefined ? {} : { loginShell }),
       }
       const app = await electron.launch({
         args: [MAIN],
-        env: appEnv(spec, chosenFolder),
+        env: appEnv(spec, chosenFolder, env),
         ...(RECORD_DIR === undefined
           ? {}
           : { recordVideo: { dir: testInfo.outputPath('video'), size: E2E_WINDOW_SIZE, showActions: {} } }),
@@ -257,4 +273,12 @@ export async function setOnline({ app }: Glade, online: boolean): Promise<void> 
     },
     { name: E2E_NETWORK_GLOBAL, value: online },
   )
+}
+
+/**
+ * The environment each agent session started would have run in, oldest first: the app's e2e agents play scripts and
+ * spawn nothing, so they record it instead.
+ */
+export async function agentEnvs({ app }: Glade): Promise<E2eAgentEnvs> {
+  return app.evaluate((_, name) => Reflect.get(globalThis, name) as E2eAgentEnvs, E2E_AGENT_ENVS_GLOBAL)
 }
