@@ -9,7 +9,7 @@
   border: 0;
   border-radius: 11px;
   cursor: pointer;
-  transition: background-color 120ms ease;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease);
 }
 
 .toggle[aria-checked='true'] {
@@ -42,7 +42,7 @@
   height: 16px;
   border-radius: 8px;
   background: var(--color-text);
-  transition: left 120ms ease;
+  transition: left var(--motion-duration-fast) var(--motion-ease);
 }
 
 .toggle[aria-checked='true'] .thumb {

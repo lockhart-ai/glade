@@ -48,7 +48,7 @@
   height: 44px;
   border-radius: 2px;
   background: var(--color-strong);
-  transition: background-color 120ms ease;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease);
 }
 
 .handle[data-edge='top'] .grip {

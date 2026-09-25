@@ -10,8 +10,18 @@
   border-radius: var(--radius-nested);
   box-shadow: var(--shadow-menu);
   color: var(--color-text);
+  /* It fades in from a touch smaller (docs/design/tokens.md, Motion); it closes at once. */
+  animation: popover-in var(--motion-duration-fast) var(--motion-ease);
 }
 
 .popover:focus {
   outline: none;
+}
+
+/* `scale` rather than `transform`, which Floating UI positions it by. */
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    scale: 0.97;
+  }
 }
