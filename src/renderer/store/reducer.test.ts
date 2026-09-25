@@ -11,6 +11,7 @@ import {
   ToolEventKind,
   UiStateKey,
   type Artifact,
+  type TaskHandoff,
   type TodoList,
   type ToolCallEvent,
   type ToolEvent,
@@ -449,6 +450,39 @@ describe("a task's artifacts", () => {
     expect(withHistory(changed, 't1', history([artifact('a.md', 5)])).artifacts.t1).toHaveLength(2)
     expect(withHistory(changed, 't1', history([artifact('a.md', 12)])).artifacts.t1).toEqual([artifact('a.md', 12)])
     expect(withHistory(state, 't1', history([])).artifacts).toEqual({ t1: [] })
+  })
+})
+
+describe("a task's handoff note", () => {
+  const note = (body: string, addedAt: number): TaskHandoff => ({ taskId: 't1', body, addedAt })
+  const history = (handoff: TaskHandoff | null) => ({
+    messages: [],
+    toolEvents: [],
+    queuedMessages: [],
+    questionSets: [],
+    permissionRequests: [],
+    openFiles: noOpenFiles('t1'),
+    todos: null,
+    artifacts: [],
+    handoff,
+  })
+
+  it('takes the note from each change, and a cleared one as none', () => {
+    const changed = applyEvent(state, { type: EventType.HandoffChanged, taskId: 't1', handoff: note('Next', 5) })
+    expect(changed.handoffs).toEqual({ t1: note('Next', 5) })
+    expect(applyEvent(changed, { type: EventType.HandoffChanged, taskId: 't1', handoff: null }).handoffs).toEqual({
+      t1: null,
+    })
+  })
+
+  it('loads the note with the history, unless a change already brought one set after it', () => {
+    expect(withHistory(state, 't1', history(note('Loaded', 5))).handoffs).toEqual({ t1: note('Loaded', 5) })
+    expect(withHistory(state, 't1', history(null)).handoffs).toEqual({ t1: null })
+
+    const changed = applyEvent(state, { type: EventType.HandoffChanged, taskId: 't1', handoff: note('Newer', 9) })
+    expect(withHistory(changed, 't1', history(note('Loaded', 5))).handoffs.t1).toEqual(note('Newer', 9))
+    expect(withHistory(changed, 't1', history(note('Loaded', 12))).handoffs.t1).toEqual(note('Loaded', 12))
+    expect(withHistory(changed, 't1', history(null)).handoffs.t1).toBeNull()
   })
 })
 

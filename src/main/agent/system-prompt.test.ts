@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Task } from '../../shared/domain'
 import { openTestDatabase, sampleTask, sampleWorkspace } from '../db/repositories/test-database'
-import { CONTROL_TOOLS_LINE, systemPromptAppend } from './system-prompt'
+import { CONTROL_TOOLS_LINE, HANDOFF_HEADING, handoffSection, systemPromptAppend } from './system-prompt'
 
 let task: Task
 
@@ -69,5 +69,26 @@ describe('systemPromptAppend', () => {
     expect(CONTROL_TOOLS_LINE).toContain('glade-control')
     expect(CONTROL_TOOLS_LINE).toContain('only when the user asks')
     expect(systemPromptAppend(task)).not.toContain('glade-control')
+  })
+
+  it("ends with the task's handoff note under its heading, saying its paths are real, when it has one", () => {
+    const body = '## Where it got to\n\n```sh\nnpm run replay -- --since 2026-03-01\n```\n\nNotes: /code/acme-api/notes/'
+    const handoff = { taskId: task.id, body, addedAt: 1_000 }
+
+    const prompt = systemPromptAppend(task, undefined, true, handoff)
+
+    expect(prompt).toBe(`${systemPromptAppend(task, undefined, true)}\n\n${handoffSection(handoff)}`)
+    expect(handoffSection(handoff)).toBe(
+      [
+        `## ${HANDOFF_HEADING}`,
+        '',
+        'This task was worked on before it was in Glade. This note says what it was, where it got to, the decisions ' +
+          "made, what's next, and where its notes, artifacts and history are. Pick up from here. The paths it names " +
+          'are real: read them when you need more than the note says.',
+        '',
+        body,
+      ].join('\n'),
+    )
+    expect(systemPromptAppend(task)).not.toContain(HANDOFF_HEADING)
   })
 })

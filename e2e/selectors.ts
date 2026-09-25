@@ -271,6 +271,10 @@ export function chat(page: Page) {
     compacted: log.getByRole('separator', { name: 'Compacted' }),
     /** The live line while the agent works. */
     working: log.getByRole('status'),
+    /** A backfilled task's handoff note, at the top: the Backfilled card. */
+    handoffCard: log.getByRole('region', { name: 'Backfilled' }),
+    /** The Backfilled card's line, which opens and closes it. */
+    handoffToggle: log.getByRole('region', { name: 'Backfilled' }).getByRole('button', { name: /^Backfilled/ }),
     /** What a task with no messages yet asks. */
     newTaskPrompt: log.getByRole('heading', { name: 'What should the agent do?' }),
     /** The live line while a turn runs: "Working · …", or "Retrying (2 of 3)…". */

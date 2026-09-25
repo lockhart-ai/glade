@@ -54,6 +54,20 @@ describe('createTestModeAgentBackend', () => {
     session.close()
   })
 
+  it("tells what each session starts with: its system prompt and the session it resumes", () => {
+    const script: AgentScript = { name: 'test', turns: [[init(), result()]] }
+    const onStart = vi.fn()
+    const backend = createTestModeAgentBackend({ script, onStart })
+
+    backend.start({ ...OPTIONS, systemPromptAppend: 'Handoff for this task' }).close()
+    backend.start({ ...OPTIONS, resumeSessionId: 'session-1' }).close()
+
+    expect(onStart.mock.calls).toEqual([
+      [{ systemPromptAppend: 'Handoff for this task', resumeSessionId: null }],
+      [{ systemPromptAppend: '', resumeSessionId: 'session-1' }],
+    ])
+  })
+
   it('fails loudly when a session starts with no script, and logs why', () => {
     const log = createMemoryLog()
     const backend = createTestModeAgentBackend({ script: null }, undefined, log.logger)

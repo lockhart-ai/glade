@@ -58,8 +58,9 @@ import {
   STOPPED_NOTE,
   type AgentRunner,
 } from './runner'
-import { systemPromptAppend } from './system-prompt'
+import { HANDOFF_HEADING, handoffSection, systemPromptAppend } from './system-prompt'
 import { updateSettings } from '../db/repositories/settings'
+import { setHandoff } from '../db/repositories/backfills'
 import * as sdk from './test-sdk-messages'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
 import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
@@ -879,6 +880,52 @@ describe('the session', () => {
 
     expect(toolLog()[1]).toEqual({ narration: 'The agent session ended unexpectedly.', turn: 1 })
     expect(current().activity).toBe(TaskActivity.Error)
+  })
+
+  it("gives every session a task starts or resumes its handoff note, and a task without one none", async () => {
+    const note = '## Where it got to\n\nThe v2 handlers are live; `subscription.*` is next.'
+    const handoff = setHandoff(database.db, task.id, note, 1_000)
+    if (handoff === undefined) throw new Error('No handoff')
+    const prompts = (): boolean[] =>
+      backend.sessions.map((session) => session.options.systemPromptAppend.includes(handoffSection(handoff)))
+
+    // The first message starts a session with the note at the end of its prompt.
+    await send('Pick this up.')
+    expect(backend.session.options.systemPromptAppend).toBe(systemPromptAppend(task, undefined, false, handoff))
+    backend.session.emit(sdk.init(), sdk.result('Picking it up.'))
+    await settle()
+
+    // A session that ended is resumed with it.
+    backend.session.end()
+    await settle()
+    await send('Carry on.')
+    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
+    backend.session.emit(sdk.text('Working on it.'), sdk.toolUse('toolu_01', 'Bash', { command: 'npm test' }))
+    await settle()
+
+    // So is the turn a relaunch carries on.
+    relaunch()
+    runner.resumeInterrupted()
+    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
+    expect(backend.session.sent.map(({ text }) => text)).toEqual([RESUME_PROMPT])
+    expect(prompts()).toEqual([true])
+    backend.session.emit(sdk.result('Done.'))
+    await settle()
+
+    // Cleared, the next session has none.
+    setHandoff(database.db, task.id, null)
+    backend.session.end()
+    await settle()
+    await send('One more thing.')
+    expect(prompts()).toEqual([true, false])
+    expect(backend.session.options.systemPromptAppend).not.toContain(HANDOFF_HEADING)
+  })
+
+  it('gives a task that never had a handoff note none', async () => {
+    await send('Find out why the login test is flaky.')
+
+    expect(backend.session.options.systemPromptAppend).toBe(systemPromptAppend(task))
+    expect(backend.session.options.systemPromptAppend).not.toContain(HANDOFF_HEADING)
   })
 
   it('starts again quietly when the session ends between turns', async () => {
@@ -2750,6 +2797,26 @@ describe('reopening by chatting', () => {
       { role: MessageRole.Agent, body: 'The logout test is covered too.', turn: 2 },
     ])
     expect(current()).toMatchObject({ state: TaskState.Active, activity: TaskActivity.Waiting })
+  })
+
+  it('reopens a task done before its first turn, a past one backfilled, with its first message', async () => {
+    // Before, the marked done divider went in turn 0, which the tool log refuses, and the message failed.
+    updateTask(database.db, task.id, { state: TaskState.Done }, DONE_AT)
+
+    await send("Let's pick this up.")
+
+    expect(current()).toMatchObject({ state: TaskState.Active, doneAt: null, activity: TaskActivity.Working })
+    expect(chat()).toEqual([{ role: MessageRole.User, body: "Let's pick this up.", turn: 1 }])
+    expect(
+      listToolEvents(database.db, task.id).map((event) =>
+        event.kind === ToolEventKind.Divider ? [event.dividerKind, event.turn, event.createdAt] : event.kind,
+      ),
+    ).toEqual([
+      [DividerKind.MarkedDone, 1, DONE_AT],
+      [DividerKind.Reopened, 1, expect.any(Number)],
+      [DividerKind.Turn, 1, expect.any(Number)],
+    ])
+    expect(backend.session.sent.map(({ text }) => text)).toEqual(["Let's pick this up."])
   })
 
   it('resumes the saved session by its id when the live one is gone', async () => {

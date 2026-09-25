@@ -210,7 +210,7 @@ function toolEventEntry(task: Task, event: ToolEvent, turn: number): DividerEntr
 
 /**
  * Whether a divider shows before a message. A marked done divider closes its turn, so it goes before the next turn's
- * message; a restart or reopened divider goes after the message that started its turn and before its reply, and
+ * message (or, for a task done before its first turn, before the message of the turn it's in, which came after it); a restart or reopened divider goes after the message that started its turn and before its reply, and
  * before any queued message delivered into the turn after it. A compaction goes where it happened: before the
  * messages of later turns, and of its own turn, those that came after it.
  */
@@ -221,7 +221,9 @@ function dividerComesBefore(entry: DividerEntry, message: Message): boolean {
     return message.createdAt > compaction.createdAt
   }
   const { kind, divider } = entry
-  if (kind === ChatEntryKind.MarkedDone) return message.turn > divider.turn
+  if (kind === ChatEntryKind.MarkedDone) {
+    return message.turn > divider.turn || (message.turn === divider.turn && message.createdAt > divider.createdAt)
+  }
   if (message.turn !== divider.turn) return message.turn > divider.turn
   return message.role === MessageRole.Agent || message.createdAt > divider.createdAt
 }

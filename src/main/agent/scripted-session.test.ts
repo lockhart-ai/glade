@@ -826,6 +826,20 @@ describe('ScriptedSession', () => {
       ])
     })
 
+    it("makes an input from the session's folder, for a call that names files there", async () => {
+      const played = play(
+        [[init(), controlTool('make', 'create_task', (cwd) => ({ workspaceId: `${cwd}/notes` })), result()]],
+        { session: { ...SESSION, mcpServers: { glade: gladeServer(), [CONTROL_SERVER]: controlServer() } } },
+      )
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      expect(created).toEqual([{ workspaceId: `${SESSION.cwd}/notes` }])
+      expect(played.events).toContainEqual(
+        expect.objectContaining({ kind: AgentEventKind.ToolCallStarted, input: { workspaceId: `${SESSION.cwd}/notes` } }),
+      )
+    })
+
     it('asks in the ask mode, saying the tool is on the in-process glade-control server, then runs it once allowed', async () => {
       const calls: ToolPermissionCall[] = []
       const played = controlling(PermissionMode.AskBeforeEdits, (call) => {

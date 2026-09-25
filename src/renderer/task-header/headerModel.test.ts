@@ -100,6 +100,10 @@ describe('timing', () => {
     expect(timing({ ...task, state: TaskState.Done, doneAt: DONE }, DONE)).toBe('10:42 – 11:26')
     expect(timing({ ...task, state: TaskState.Done, doneAt: null, updatedAt: DONE }, DONE)).toBe('10:42 – 11:26')
   })
+
+  it('gives only the day a past task backfilled done started, since it has no span of its own', () => {
+    expect(timing({ ...task, state: TaskState.Done, doneAt: STARTED }, DONE)).toBe('started Sep 23')
+  })
 })
 
 describe('reopening', () => {

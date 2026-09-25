@@ -1511,12 +1511,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const reopenEvents: GladeEvent[] = []
     const workingEvents: GladeEvent[] = []
     const { queued, messages, dividers } = db.transaction(() => {
-      // Reopening clears `doneAt`, so the marked done divider keeps it: it's the time the chat and header show.
+      // Reopening clears `doneAt`, so the marked done divider keeps it: it's the time the chat and header show. It
+      // closes the task's last turn; a task done before its first (a past task backfilled done) has none to close, so
+      // it goes in the new turn, before its message.
       const markedDone = reopening
         ? [
             appendDivider(
               db,
-              { taskId, turn: turn - 1, dividerKind: DividerKind.MarkedDone },
+              { taskId, turn: Math.max(turn - 1, 1), dividerKind: DividerKind.MarkedDone },
               task.doneAt ?? task.updatedAt,
             ),
           ]
