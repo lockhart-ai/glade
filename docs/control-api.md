@@ -1,15 +1,19 @@
-# Control API (draft)
+# Control API
 
 Glade can be driven by other agents: a chat in Claude Code, a script, or one of Glade's own tasks can list, read,
 create and change tasks, and port past Claude Code sessions in as tasks. It's one MCP server, **`glade-control`**,
-served two ways, and the same tools as plain JSON for scripts. Decided in `decisions.md` ("Programmatic control"); built in P13 (#219). Names and schemas are a draft
-until P13 is released, then frozen.
+served two ways, and the same tools as plain JSON for scripts. Decided in [`decisions.md`](decisions.md) ("Programmatic
+control"); built in P13 (#219) and released in v0.12.0, which froze its names and schemas.
+
+**To connect:** turn on Settings › Control › **Let agents control Glade**, copy the `claude mcp add …` command it
+shows, and run it ("Turning it on"). A script uses the same endpoint's `/v1/tools` with the same token ("Scripting").
 
 ## Turning it on
 
-Settings › Control (`docs/design/screens/21-settings-control.png`) has one switch, **Let agents control Glade**, off
-by default. While it's off, nothing is served: the endpoint isn't listening and new sessions don't get the tools. A
-session started while it was on keeps the tools, but every call is refused with `disabled` once it's off.
+Settings › Control ([`21-settings-control.png`](design/screens/21-settings-control.png)) has one switch, **Let
+agents control Glade**, off by default. While it's off, nothing is served: the endpoint isn't listening and new
+sessions don't get the tools. A session started while it was on keeps the tools, but every call is refused with
+`disabled` once it's off.
 
 The endpoint follows the switch: it starts when the switch goes on (and at launch, if it's on), stops when it goes off
 (dropping its connections), moves when the port changes, and closes when Glade quits. Changes are made one at a time
@@ -206,8 +210,8 @@ interface TaskDetail extends TaskSummary {
   model: string; effort: 'low' | 'medium' | 'high' | 'max'
   permissionMode: 'allow_all' | 'ask_before_edits'
   contextUsedTokens: number; contextWindowTokens: number
-  error: { kind: string; details: string } | null
-  pause: { reason: string; resumesAt: number } | null
+  error: { kind: 'transient' | 'permanent' | 'usage_limit' | 'offline'; details: string } | null
+  pause: { reason: 'usage_limit' | 'offline'; resumesAt: number } | null
   queuedMessages: number; turns: number
   createdAt: number; sessionId: string | null
   handoff: { body: string; addedAt: number } | null        // its handoff note, from a backfill (P13-04)
@@ -337,8 +341,8 @@ session first, and deselecting it if it's shown); nothing on disk is touched. Wi
 ### `list_claude_code_sessions`
 
 ```ts
-{ cwd?: string                 // only sessions started in this folder
-  query?: string               // matched against the title and first prompt
+{ cwd?: string                 // only sessions started in this folder, by absolute path
+  query?: string               // matched, ignoring case, against the title and first prompt
   imported?: boolean           // true: only ones already in Glade; false: only ones that aren't
   cursor?: string; limit?: number }   // 1–200, default 50
 → { sessions: ClaudeCodeSession[]; nextCursor: string | null }
@@ -354,15 +358,20 @@ interface ClaudeCodeSession {
 }
 ```
 
-Newest first. It reads the top-level `*.jsonl` files in `~/.claude/projects/*/` (under `$CLAUDE_CONFIG_DIR` when that
-is set), not subagent transcripts. A Glade task's own session is listed too, with its `taskId`: Claude Code writes
-those transcripts as well. A session with no messages, or whose transcript doesn't say its folder, can't be imported
-and isn't listed.
+Newest first (by `lastActivityAt`, then `sessionId`). It reads the top-level `*.jsonl` files in `~/.claude/projects/*/`
+(`$CLAUDE_CONFIG_DIR/projects/*/` when that is set), not subagent transcripts. A Glade task's own session is listed
+too, with its `taskId`: Claude Code writes those transcripts as well. A session with no messages, or whose transcript
+doesn't say its folder, can't be imported and isn't listed; nor is one whose transcript can't be read.
+
+Unlike `list_tasks`', this cursor is where the last page ended, not a listing kept in memory: it never expires, but a
+session with new activity between pages moves ahead of it, so the pages after it leave that session out. A cursor
+Glade didn't make isn't refused: the listing starts from the top.
 
 ### `import_claude_code_session`
 
 ```ts
-{ sessionId: string } | { path: string }   // a path must be a .jsonl under the projects folder
+{ sessionId: string } | { path: string }   // one or the other; a path must be a .jsonl in a project's folder
+                                           // (directly: <projects>/<folder>/<sessionId>.jsonl)
 & { state?: 'done' | 'active'              // default 'done'
     createWorkspace?: boolean }            // default false
 → { task: TaskDetail; imported: boolean; skipped: { lines: number; images: number } }
@@ -395,14 +404,14 @@ A backfilled task never starts its agent by itself: only a `message` given with 
 later, does. `update_task` sets, replaces or clears (`null`) the handoff note and adds artifacts; `get_task` returns
 both. The window never changes the note.
 
-**What the user sees:** a **Backfilled** card at the top of the task's chat (`design/html/25-backfilled.html`), with the
+**What the user sees:** a **Backfilled** card at the top of the task's chat ([`25-backfilled.html`](design/html/25-backfilled.html)), with the
 handoff note rendered as Markdown (raw HTML dropped, nothing loaded, links not followed) and the date it was added. It
 starts open, and its line closes and opens it.
 
 **What the agent gets:** a session Glade starts for the task has the handoff note at the end of its system prompt, under
 "Handoff for this task (backfilled from earlier notes)", with a line saying the paths it names are real and it can read
 them. It's in the prompt, not the chat, so a compaction never loses it, and the session keeps it when it's resumed.
-But Claude Code keeps the prompt a session started with when it resumes one (`sdk-notes.md` §8), so a session that
+But Claude Code keeps the prompt a session started with when it resumes one ([`sdk-notes.md` §8](sdk-notes.md#8-resume-verified)), so a session that
 started without the note, or with an older one (the note was set or changed with `update_task` after the task had a
 session), is sent it once, as a block ahead of the next message Glade sends it:
 
@@ -468,14 +477,14 @@ Glade reads the transcript itself, line by line, each line parsed with zod and a
   - Left out: thinking, subagents' own transcripts (their `Agent` call is still in the log), meta messages, slash
     commands and their output, interruption markers, and images (counted in `skipped.images`; a prompt that was only
     images shows as "[Image]").
-- **Resumed sessions keep their system prompt** (`sdk-notes.md` §8): an imported session has Glade's tools, but not
+- **Resumed sessions keep their system prompt** ([`sdk-notes.md` §8](sdk-notes.md#8-resume-verified)): an imported session has Glade's tools, but not
   the lines Glade adds to its system prompt, so its agent keeps the title and status current only when asked.
 - **Model:** the last one the transcript used, if Glade offers it, else Settings' default. Effort and permission mode:
   Settings' defaults.
 - **State:** done by default, stamped with the last entry's time; `state: 'active'` imports it active.
 - **Resuming:** the task keeps the transcript's `sessionId`, so the next message you send resumes that Claude Code
   session (the SDK's `resume`, in the same folder), with everything the model knew. Turn numbers carry on from the
-  imported ones. A resumed session keeps the system prompt it started with (`sdk-notes.md` §8), which isn't Glade's,
+  imported ones. A resumed session keeps the system prompt it started with ([`sdk-notes.md` §8](sdk-notes.md#8-resume-verified)), which isn't Glade's,
   so that first message goes after a block with Glade's prompt (`[Glade: instructions for this session] … [end]`),
   once; the chat shows only your message.
 - **Idempotent:** a session already in Glade (imported, or a Glade task's own) isn't imported again.
@@ -496,12 +505,12 @@ To port everything in, an agent pages through `list_claude_code_sessions { impor
   A refused call doesn't count. Imports count as changes.
 - **The same name in your own config:** a Glade task's session never gets a `glade-control` server from the user's
   Claude Code config (the command above, run in the workspace, adds one); only the in-process one, so each tool is
-  there once and calls as the task. See `sdk-notes.md` §12.
+  there once and calls as the task. See [`sdk-notes.md` §12](sdk-notes.md#12-two-mcp-servers-with-one-name-verified).
 - **Permissions:** in a task's ask mode (P11), `glade-control` tools that change things ask like any other MCP tool
   with side effects, since the server isn't `glade`. Its reads (`list_*`, `get_*`) never ask, when the SDK says the
   server is Glade's own in-process `glade-control`. The same tools reached through a user-configured HTTP server
   ask, reads included: a server's name proves nothing (`src/main/permissions/classify.ts`).
-- **Everything is logged** under the `control` scope (`logs.md`): each call's tool, caller (a task id, or `http`),
+- **Everything is logged** under the `control` scope ([`logs.md`](logs.md#scopes)): each call's tool, caller (a task id, or `http`),
   target task, how long it took and its outcome; the endpoint starting (its port, and the one chosen when it fell
   back), stopping and failing to start; the token regenerated; and refused requests (why, the status, the method and
   path), never with the token. Message texts only at debug, cut short as

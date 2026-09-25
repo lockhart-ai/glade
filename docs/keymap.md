@@ -58,7 +58,7 @@ rebinds a shortcut by recording the keys you press; Reset puts back its default.
 - **Refused, with the reason under the row:** keys another command already has where both apply (the menu bar's and
   the window's shortcuts reach everywhere, Next / previous task's the message field too; the message field, menus,
   question cards and terminal each have their own keys); keys macOS or the app menu takes first (⌘Q, ⌘H, ⌘⌥H, ⌘M,
-  ⌘Tab, ⌘⇧Tab, ⌘Space, the Edit menu's ⌘Z, ⌘⇧Z, ⌘X, ⌘C, ⌘V and ⌘A, and the View menu's ⌘0, ⌘+, ⌘=, ⌘- and ⌃⌘F); and,
+  ⌘⇥, ⌘⇧⇥, ⌘Space, the Edit menu's ⌘Z, ⌘⇧Z, ⌘X, ⌘C, ⌘V and ⌘A, and the View menu's ⌘0, ⌘+, ⌘=, ⌘- and ⌃⌘F); and,
   for a shortcut that works in text fields too, keys without ⌘, ⌃ or ⌥ (F-keys excepted).
 - **Fixed:** New line (⇧↵), Close file tab (⌘W, the menu bar's Close, which closes the window when no tab has the
   focus), Kill process (⌃C, which the terminal sends to the shell), and the menus' and dialogs' Move, Choose, Close and
