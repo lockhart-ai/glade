@@ -56,6 +56,8 @@ force-push.
 - **Visual changes need screenshots:** `npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery]
   [--name <name>]`, with `--seed` fixtures from `scripts/fixtures/` or `--agent-script`. Compare them with the design
   screens.
+- **`--press` can't reach menu accelerators** in capture mode (⌘, for Settings, ⌘J or ⌘B for panels). Collapse panels
+  with the seed's `collapsed` field, and open Settings by clicks (`scripts/screenshot.mjs` has the path).
 - **Interactive changes need a recording:** `npm run record -- --out <dir> [-g <test title>]` writes a `.webm`, `.mp4`
   and `.gif` per e2e test, over the DevTools protocol.
 - Save every PNG, GIF and MP4 to `out/pr-media/pr-<N>/` in your worktree (gitignored) and list their absolute paths in

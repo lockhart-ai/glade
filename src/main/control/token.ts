@@ -16,7 +16,7 @@ export const CONTROL_TOKEN_KEY = 'controlToken'
 const TOKEN_BYTES = 32
 
 /** A token as stored: JSON of a base64url string of `TOKEN_BYTES` bytes. */
-const storedToken = z.string().regex(/^[A-Za-z0-9_-]{43}$/)
+export const storedToken = z.string().regex(/^[A-Za-z0-9_-]{43}$/)
 
 /** A new token. */
 export function newControlToken(): string {
@@ -39,7 +39,7 @@ export function readControlToken(db: Database): string | null {
 }
 
 /** Stores `token`, replacing the one before. */
-function storeControlToken(db: Database, token: string): void {
+export function storeControlToken(db: Database, token: string): void {
   db.prepare(
     'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value',
   ).run(CONTROL_TOKEN_KEY, JSON.stringify(token))
