@@ -31,6 +31,12 @@
   height: var(--bottom-bar-height);
 }
 
+/* The plugin card beside it keeps the open height too, and slides with it; its view is hidden meanwhile. */
+.bar.moving > :not(.terminal) {
+  align-self: flex-start;
+  height: var(--bottom-bar-height);
+}
+
 .tabs {
   flex-shrink: 0;
   display: flex;

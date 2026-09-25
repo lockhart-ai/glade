@@ -6,7 +6,15 @@ const TEST_MODE = 'testing'
 
 export default defineConfig(({ mode }) => ({
   main: {},
-  preload: {},
+  preload: {
+    build: {
+      rollupOptions: {
+        // The window's preload, and a plugin view's (`src/preload/plugin.ts`). Each is sandboxed, so it can't load a
+        // shared chunk: they import nothing from each other.
+        input: { index: 'src/preload/index.ts', plugin: 'src/preload/plugin.ts' },
+      },
+    },
+  },
   renderer: {
     plugins: [react()],
     // Screenshots and e2e tests can reach the dev-only pages too, such as the component gallery.

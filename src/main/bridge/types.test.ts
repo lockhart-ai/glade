@@ -104,6 +104,7 @@ const TASK_HANDLERS = {
   [CommandName.PluginsList]: () => ({ plugins: [] }),
   [CommandName.PluginsSetEnabled]: () => ({ plugins: [] }),
   [CommandName.PluginsOpenFolder]: () => null,
+  [CommandName.PluginsPlaceView]: () => ({ status: '' }),
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
   [CommandName.TasksCreate]: REQUEST_SCHEMAS[CommandName.TasksCreate],
@@ -412,6 +413,9 @@ describe('events', () => {
           break
         case EventType.PluginsChanged:
           expectTypeOf(event.plugins).toEqualTypeOf<readonly InstalledPlugin[]>()
+          break
+        case EventType.PluginStatusChanged:
+          expectTypeOf(event.text).toEqualTypeOf<string>()
           break
       }
     })

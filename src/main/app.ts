@@ -6,9 +6,12 @@ import {
   dialog,
   ipcMain,
   Menu,
+  nativeImage,
   net,
   Notification,
+  protocol,
   shell,
+  WebContentsView,
   type Point,
   type WebPreferences,
 } from 'electron'
@@ -59,6 +62,8 @@ import { openTaskWithoutWindow } from './tasks/attention'
 import { markQuit, markRunning, noteRelaunch } from './relaunch'
 import { testModeLogsFolder } from './isolation'
 import { checkSecurity, describeViolations } from './security'
+import { createElectronPluginViews, PLUGIN_VIEW_RADIUS, registerPluginScheme } from './plugins/electron-view'
+import { captureViewOf, type CaptureView } from './capture-views'
 import { seedConversation } from './capture-conversation'
 import type { TerminalOptions } from './bridge'
 import { spawnNodePty } from './terminal/node-pty'
@@ -214,7 +219,23 @@ async function capture(spec: CaptureSpec, { database, bridge, agent, log }: Capt
     }
     await seedConversation(context, spec.conversation)
   }
-  return captureShots(createWindow({ kind: TestModeKind.Capture, spec }, log), spec)
+  const window = createWindow({ kind: TestModeKind.Capture, spec }, log)
+  // A plugin's view is drawn over the page, so the capture of the page leaves it out: it's pasted in.
+  const nativeViews = (): CaptureView[] =>
+    window.contentView.children
+      .filter((child) => child instanceof WebContentsView)
+      .map((view) => captureViewOf(view, PLUGIN_VIEW_RADIUS))
+  return captureShots(
+    {
+      setContentSize: (width, height) => {
+        window.setContentSize(width, height)
+      },
+      webContents: window.webContents,
+      nativeViews,
+    },
+    spec,
+    ({ data, width, height }) => nativeImage.createFromBitmap(data, { width, height }),
+  )
 }
 
 /**
@@ -374,6 +395,12 @@ function createDesktop(testMode: TestMode): Desktop {
   return { revealPath: () => undefined, writeClipboard: () => Promise.resolve() }
 }
 
+/** Whether an IPC event came from one of Glade's windows' own pages, and not a plugin's (or anything else). */
+function isFromWindow(event: unknown): boolean {
+  const sender: unknown = typeof event === 'object' && event !== null ? Reflect.get(event, 'sender') : undefined
+  return BrowserWindow.getAllWindows().some((window) => window.webContents === sender)
+}
+
 /** What opening a task from its notification needs from the running app. */
 interface OpenTaskContext {
   readonly testMode: TestMode
@@ -461,6 +488,8 @@ export function startApp({
     sink: createLogSink({ dir: logsFolder(testMode), toConsole: !app.isPackaged }),
   })
   const stopLoggingCrashes = logCrashes(process, log)
+  // Before the app is ready, as Electron requires: a plugin's page is served under its own scheme.
+  registerPluginScheme(protocol)
   log.info('app starting', {
     version: app.getVersion(),
     electron: process.versions.electron,
@@ -539,6 +568,15 @@ export function startApp({
       terminal: terminalOptions(testMode, spawnPty),
       // In the data folder, so a test mode's is in its throwaway one.
       pluginsFolder: join(app.getPath('userData'), PLUGINS_FOLDER_NAME),
+      // The shown plugin goes in Glade's window, over the plugin card; its DevTools never open in a packaged app.
+      createPluginView: createElectronPluginViews({
+        window: () => BrowserWindow.getAllWindows()[0],
+        devTools: !app.isPackaged,
+        offscreen: testMode?.kind === TestModeKind.Capture,
+        log: log.scoped(LogScope.Plugins),
+      }),
+      appVersion: app.getVersion(),
+      isTrustedSender: isFromWindow,
       updateMenu: (state) => {
         appMenu.update(state)
       },
@@ -573,6 +611,7 @@ export function startApp({
       log.info('app quitting')
       stopLoggingCrashes()
       runner.close()
+      bridge.pluginViews.close()
       // The shells end with the app; their tabs and recent output stay, for the next launch to show.
       if (database.db.open) bridge.terminals.shutdown()
       // Quitting can get here again once the database is closed; the mark went with the first time.

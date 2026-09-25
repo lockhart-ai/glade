@@ -461,6 +461,30 @@ describe('BottomBar', () => {
     expect(within(terminal).getByTestId('terminal-tabs')).not.toHaveClass(moduleClass(bottomBarStyles, 'alone'))
   })
 
+  it('holds the plugin card beside the terminal card, after it in the bar', () => {
+    render(
+      <BottomBar
+        terminal={<pre>Prompt</pre>}
+        plugin={
+          <section role="region" aria-label="Nekomata">
+            Cats
+          </section>
+        }
+      />,
+    )
+
+    const terminal = screen.getByRole('region', { name: 'Terminal' })
+    const plugin = screen.getByRole('region', { name: 'Nekomata' })
+    expect(plugin.parentElement).toBe(terminal.parentElement)
+    expect(terminal.nextElementSibling).toBe(plugin)
+  })
+
+  it('has the terminal card alone without a plugin', () => {
+    render(<BottomBar terminal={<pre>Prompt</pre>} />)
+
+    expect(screen.getByRole('region', { name: 'Terminal' }).parentElement?.children).toHaveLength(1)
+  })
+
   it('keeps only its tab row, with the toggle at its end, while collapsed', () => {
     render(
       <BottomBar

@@ -14,6 +14,7 @@ import {
   type CaptureSpec,
   type CaptureWindow,
 } from './capture'
+import type { CaptureView } from './capture-views'
 
 const MINIMUM = { width: 1100, height: 700 }
 
@@ -165,6 +166,7 @@ describe('captureShots', () => {
       getSize: () => ({ width, height }),
       resize: vi.fn(({ width: w, height: h }: { width: number; height: number }) => fakeImage(w, h)),
       toPNG: () => Buffer.from(`png ${String(width)}x${String(height)}`),
+      toBitmap: () => Buffer.alloc(width * height * 4),
     }
   }
 
@@ -275,6 +277,111 @@ describe('captureShots', () => {
     await captureShots(window, spec({ shots: [{ width: 1100, height: 700, file: 'a.png' }] }))
 
     expect(window.scripts.at(-1)).toContain('window.innerWidth === 1100 && window.innerHeight === 700')
+  })
+})
+
+describe('captureShots with native views', () => {
+  function bitmapImage(width: number, height: number, value: number): CaptureImage {
+    return {
+      getSize: () => ({ width, height }),
+      resize: ({ width: w, height: h }) => bitmapImage(w, h, value),
+      toPNG: () => Buffer.from(`png ${String(width)}x${String(height)} ${String(value)}`),
+      toBitmap: () => Buffer.alloc(width * height * 4, value),
+    }
+  }
+
+  function windowWith(views: () => CaptureView[], slots: () => unknown) {
+    let size = { width: 0, height: 0 }
+    const calls: string[] = []
+    const window: CaptureWindow = {
+      setContentSize: (width, height) => {
+        size = { width, height }
+      },
+      webContents: {
+        executeJavaScript: (code: string) => {
+          if (code.includes('data-native-view-slot')) {
+            calls.push('find slots')
+            return Promise.resolve(slots())
+          }
+          return Promise.resolve(true)
+        },
+        capturePage: () => Promise.resolve(bitmapImage(size.width, size.height, 10)),
+      },
+      nativeViews: views,
+    }
+    return { window, calls }
+  }
+
+  const slot = { x: 100, y: 500, width: 600, height: 150 }
+  const shot = [{ width: 1100, height: 700, file: 'a.png' }]
+
+  function pluginView(bounds = slot, visible = true): CaptureView & { settled: number } {
+    const captured: CaptureView & { settled: number } = {
+      bounds,
+      visible,
+      radius: 15,
+      settled: 0,
+      settle: () => {
+        captured.settled += 1
+        return Promise.resolve()
+      },
+      capture: () => Promise.resolve(bitmapImage(bounds.width, bounds.height, 200)),
+    }
+    return captured
+  }
+
+  it('waits for each view to settle over its slot, then pastes it into the capture', async () => {
+    const view = pluginView()
+    // The view isn't over its slot yet the first time the page is asked.
+    const placed = [false, true]
+    const { window, calls } = windowWith(
+      () => [placed.shift() === true ? view : pluginView({ ...slot, x: 0 })],
+      () => JSON.stringify([slot]),
+    )
+    const fromBitmap = vi.fn(({ width, height }: { width: number; height: number }) => bitmapImage(width, height, 7))
+
+    const [file] = await captureShots(window, spec({ shots: shot }), fromBitmap)
+
+    expect(calls).toEqual(['find slots', 'find slots'])
+    expect(view.settled).toBe(1)
+    expect(fromBitmap).toHaveBeenCalledOnce()
+    const [bitmap] = fromBitmap.mock.calls[0] ?? []
+    expect(bitmap).toMatchObject({ width: 1100, height: 700 })
+    expect(readFileSync(file ?? '', 'utf8')).toBe('png 1100x700 7')
+  })
+
+  it('captures the page alone when it has no slot showing, or no way to paste', async () => {
+    const hidden = pluginView(slot, false)
+    const { window } = windowWith(
+      () => [hidden],
+      () => '[]',
+    )
+    const fromBitmap = vi.fn()
+
+    const [file] = await captureShots(window, spec({ shots: shot }), fromBitmap)
+    const [other] = await captureShots(window, spec({ shots: [{ ...shot[0], file: 'b.png' }] as typeof shot }))
+
+    expect(fromBitmap).not.toHaveBeenCalled()
+    expect(hidden.settled).toBe(0)
+    expect(readFileSync(file ?? '', 'utf8')).toBe('png 1100x700 10')
+    expect(readFileSync(other ?? '', 'utf8')).toBe('png 1100x700 10')
+  })
+
+  it('gives up when a view never settles over its slot', async () => {
+    vi.useFakeTimers()
+    try {
+      const { window } = windowWith(
+        () => [],
+        () => JSON.stringify([slot]),
+      )
+      const capturing = captureShots(window, spec({ shots: shot }), vi.fn())
+      const failed = expect(capturing).rejects.toThrow("The page's native views didn't settle over their slots")
+
+      await vi.advanceTimersByTimeAsync(11_000)
+      await failed
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

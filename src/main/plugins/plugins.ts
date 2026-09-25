@@ -18,6 +18,8 @@ export interface PluginsContext {
   readonly folder: string
   /** Opens the folder in Finder (Electron's `shell.openPath`). */
   readonly openPath: OpenPath
+  /** Hears the plugins each time they're read or one is turned on or off, changed or not: the plugin views. */
+  readonly onUpdate?: (plugins: readonly InstalledPlugin[]) => void
   readonly log?: Logger
 }
 
@@ -37,7 +39,7 @@ export interface Plugins {
   openFolder(): Promise<void>
 }
 
-export function createPlugins({ db, emit, folder, openPath, log = SILENT_LOGGER }: PluginsContext): Plugins {
+export function createPlugins({ db, emit, folder, openPath, onUpdate, log = SILENT_LOGGER }: PluginsContext): Plugins {
   let last: InstalledPlugin[] | null = null
 
   const withStates = (found: readonly FoundPlugin[]): InstalledPlugin[] => {
@@ -50,6 +52,7 @@ export function createPlugins({ db, emit, folder, openPath, log = SILENT_LOGGER 
   const update = (plugins: InstalledPlugin[]): void => {
     const changed = last !== null && !isDeepStrictEqual(last, plugins)
     last = plugins
+    onUpdate?.(plugins)
     if (changed) emit({ type: EventType.PluginsChanged, plugins })
   }
 

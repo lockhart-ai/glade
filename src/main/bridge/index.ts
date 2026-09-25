@@ -14,6 +14,7 @@ import { createEventLog } from '../logging/event-log'
 import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import { createPermissionBroker } from '../permissions/permissions'
 import { createPlugins, type Plugins } from '../plugins/plugins'
+import { createPluginViews, type CreatePluginView, type PluginViews } from '../plugins/views'
 import { createQuestionBroker } from '../questions/questions'
 import { createBroadcast, createDispatcher, type EventTarget } from './dispatcher'
 import type { Emit } from './events'
@@ -55,6 +56,15 @@ export interface BridgeOptions {
   readonly terminal: TerminalOptions
   /** The plugins folder, `<userData>/plugins`: a test mode's is in its throwaway data folder. */
   readonly pluginsFolder: string
+  /** Makes the shown plugin's view (`../plugins/electron-view`). None by default: placing it does nothing. */
+  readonly createPluginView?: CreatePluginView
+  /** Glade's version, which plugins are told in `hello`. */
+  readonly appVersion?: string
+  /**
+   * Whether a command came from Glade's own window, given the IPC event: a plugin's page, or anything else, can't send
+   * one. Every sender is by default.
+   */
+  readonly isTrustedSender?: (event: unknown) => boolean
   /**
    * Where the bridge logs its commands and events, and the runner and terminals what they do (`docs/logs.md`).
    * Nothing by default.
@@ -80,6 +90,8 @@ export interface RegisteredBridge {
   readonly terminals: Terminals
   /** The plugins in the plugins folder. */
   readonly plugins: Plugins
+  /** The shown plugin's view, which ends when the app quits. */
+  readonly pluginViews: PluginViews
 }
 
 /** Every task, in every workspace: what the event log knows of them to begin with. */
@@ -104,6 +116,9 @@ export function registerBridge({
   isOnline,
   terminal,
   pluginsFolder,
+  createPluginView,
+  appVersion = '0.0.0',
+  isTrustedSender = () => true,
   updateMenu,
   closeWindow,
   log = SILENT_LOGGER,
@@ -134,7 +149,23 @@ export function registerBridge({
     }),
   })
   const terminals = createTerminals({ db, emit, ...terminal, log: log.scoped(LogScope.Terminal) })
-  const plugins = createPlugins({ db, emit, folder: pluginsFolder, openPath, log: log.scoped(LogScope.Plugins) })
+  const pluginViews = createPluginViews({
+    emit,
+    folder: pluginsFolder,
+    appVersion,
+    createView: createPluginView,
+    log: log.scoped(LogScope.Plugins),
+  })
+  const plugins = createPlugins({
+    db,
+    emit,
+    folder: pluginsFolder,
+    openPath,
+    onUpdate: (list) => {
+      pluginViews.update(list)
+    },
+    log: log.scoped(LogScope.Plugins),
+  })
   const dispatch = createDispatcher(
     createHandlers({
       db,
@@ -148,11 +179,18 @@ export function registerBridge({
       closeWindow,
       terminals,
       plugins,
+      pluginViews,
       log,
     }),
     REQUEST_SCHEMAS,
     log.scoped(LogScope.Ipc),
   )
-  ipc.handle(COMMAND_CHANNEL, (_event, command, request) => dispatch(command, request))
-  return { runner, emit, terminals, plugins }
+  ipc.handle(COMMAND_CHANNEL, (event, command, request) => {
+    if (!isTrustedSender(event)) {
+      log.scoped(LogScope.Ipc).warn('command refused: not from the window', { command: String(command) })
+      throw new Error("Commands come from Glade's window only")
+    }
+    return dispatch(command, request)
+  })
+  return { runner, emit, terminals, plugins, pluginViews }
 }

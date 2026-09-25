@@ -188,8 +188,9 @@ about the machine. A plugin sees what the task list, tool log and Subagents tab 
 | `ready` | none | Asks for `hello` and a `snapshot`. |
 | `status` | `text: string` | Sets the short status at the right of the panel header (Nekomata's "5 cats · 4 kittens"), up to 40 characters; `''` clears it. |
 
-Anything else, or a message that fails its schema, is dropped and logged. A plugin can't open tasks, send messages or
-change anything in Glade.
+Anything else, or a message that fails its schema, is dropped and logged. So is a message longer than 16 KB as JSON,
+and any beyond a burst of 50, then 20 a second: a flood is cut off, not queued. A plugin can't open tasks, send
+messages or change anything in Glade.
 
 ## Versioning
 

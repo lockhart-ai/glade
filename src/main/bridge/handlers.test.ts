@@ -18,6 +18,9 @@ import { setUiState } from '../db/repositories/ui-state'
 import { createFakeSpawner, fakeTerminalOptions, type FakeSpawner } from '../terminal/fake-pty'
 import { createPlugins } from '../plugins/plugins'
 import { writePlugin } from '../plugins/test-plugins'
+import { createFakePluginViews, type FakePluginViews } from '../plugins/fake-view'
+import { createPluginViews, type PluginViews } from '../plugins/views'
+import type { Plugins } from '../plugins/plugins'
 import { PluginStatus } from '../../shared/plugins'
 import { createTerminals } from '../terminal/terminals'
 import { createHandlers, type Handlers } from './handlers'
@@ -33,6 +36,23 @@ let revealPath: Mock<(path: string) => void>
 let writeClipboard: Mock<(text: string) => Promise<void>>
 let handlers: Handlers
 let spawner: FakeSpawner
+let views: FakePluginViews
+
+/** The plugins in the test's plugins folder, with their views made by `views`. */
+function pluginsWithViews(): { plugins: Plugins; pluginViews: PluginViews } {
+  const folder = join(root, 'plugins')
+  const pluginViews = createPluginViews({ emit, folder, appVersion: '1.2.3', createView: views.create })
+  const plugins = createPlugins({
+    db: database.db,
+    emit,
+    folder,
+    openPath,
+    onUpdate: (list) => {
+      pluginViews.update(list)
+    },
+  })
+  return { plugins, pluginViews }
+}
 
 beforeEach(() => {
   database = openTestDatabase()
@@ -42,6 +62,7 @@ beforeEach(() => {
   openPath = vi.fn(() => Promise.resolve(''))
   revealPath = vi.fn()
   writeClipboard = vi.fn(() => Promise.resolve())
+  views = createFakePluginViews()
   const runner = createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() })
   spawner = createFakeSpawner()
   const terminals = createTerminals({ db: database.db, emit, ...fakeTerminalOptions(spawner) })
@@ -54,7 +75,7 @@ beforeEach(() => {
     writeClipboard,
     runner,
     terminals,
-    plugins: createPlugins({ db: database.db, emit, folder: join(root, 'plugins'), openPath }),
+    ...pluginsWithViews(),
   })
 })
 
@@ -111,7 +132,7 @@ describe('menu.update and window.close', () => {
       updateMenu,
       closeWindow,
       terminals: createTerminals({ db: database.db, emit, ...fakeTerminalOptions() }),
-      plugins: createPlugins({ db: database.db, emit, folder: join(root, 'plugins'), openPath }),
+      ...pluginsWithViews(),
     })
 
     expect(await withApp[CommandName.MenuUpdate](EMPTY_MENU_STATE)).toBeNull()
@@ -401,7 +422,7 @@ describe('log.rendererError', () => {
       writeClipboard,
       runner: createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() }),
       terminals: createTerminals({ db: database.db, emit, ...fakeTerminalOptions(spawner) }),
-      plugins: createPlugins({ db: database.db, emit, folder: join(root, 'plugins'), openPath }),
+      ...pluginsWithViews(),
       log: log.logger,
     })
     const error = {
@@ -450,5 +471,37 @@ describe('plugins', () => {
 
     expect(await handlers[CommandName.PluginsOpenFolder]({})).toBeNull()
     expect(openPath).toHaveBeenCalledExactlyOnceWith(join(root, 'plugins'))
+  })
+})
+
+describe('plugins.placeView', () => {
+  const bounds = { x: 700, y: 540, width: 680, height: 255 }
+
+  it("puts an enabled plugin's view over its card, and answers with its status", async () => {
+    writePlugin(join(root, 'plugins'), 'pomodoro')
+    await handlers[CommandName.PluginsList]({})
+
+    expect(await handlers[CommandName.PluginsPlaceView]({ id: 'pomodoro', bounds })).toEqual({ status: '' })
+    expect(views.last()).toMatchObject({ bounds, spec: { folder: join(root, 'plugins', 'pomodoro') } })
+
+    views.last().post({ type: 'status', text: '3 pomodoros' })
+    expect(await handlers[CommandName.PluginsPlaceView]({ id: 'pomodoro', bounds: null })).toEqual({
+      status: '3 pomodoros',
+    })
+    expect(views.last().bounds).toBeNull()
+  })
+
+  it('destroys the view when the plugin is turned off, and refuses to place it', async () => {
+    writePlugin(join(root, 'plugins'), 'pomodoro')
+    await handlers[CommandName.PluginsList]({})
+    await handlers[CommandName.PluginsPlaceView]({ id: 'pomodoro', bounds })
+
+    await handlers[CommandName.PluginsSetEnabled]({ id: 'pomodoro', enabled: false })
+
+    expect(views.last().destroyed).toBe(true)
+    await expect(
+      Promise.resolve().then(() => handlers[CommandName.PluginsPlaceView]({ id: 'pomodoro', bounds })),
+    ).rejects.toMatchObject({ code: BridgeErrorCode.NotFound })
+    expect(views.views).toHaveLength(1)
   })
 })

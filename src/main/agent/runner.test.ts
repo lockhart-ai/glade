@@ -220,6 +220,7 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.TerminalCleared:
       case EventType.SettingsChanged:
       case EventType.PluginsChanged:
+      case EventType.PluginStatusChanged:
         return [event.type]
     }
   })
@@ -2832,6 +2833,7 @@ describe('several tasks at once', () => {
       case EventType.MenuCommand:
       case EventType.SettingsChanged:
       case EventType.PluginsChanged:
+      case EventType.PluginStatusChanged:
         return null
     }
   }
@@ -2871,6 +2873,7 @@ describe('several tasks at once', () => {
       case EventType.TerminalCleared:
       case EventType.SettingsChanged:
       case EventType.PluginsChanged:
+      case EventType.PluginStatusChanged:
         return [event.type]
     }
   }
