@@ -53,6 +53,8 @@ export enum LogScope {
   Terminal = 'terminal',
   /** The plugins found in the plugins folder, and turned on and off. */
   Plugins = 'plugins',
+  /** Calls to the `glade-control` tools other agents drive Glade with (`docs/control-api.md`). */
+  Control = 'control',
   /** Errors in the window, forwarded by the renderer. */
   Renderer = 'renderer',
   /** The screenshot and e2e test modes. */

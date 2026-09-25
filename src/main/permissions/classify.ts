@@ -5,14 +5,20 @@
  *
  * - **Allowed at once:** reads and searches, Claude Code's todo and subagent tools, the agent's follow-up tools that
  *   only schedule the agent itself (`ScheduleWakeup`, `CronCreate`, `CronDelete`, `CronList`) or only tell you or list
- *   its agents (`PushNotification`, `ListAgents`), and Glade's own tools. A Glade tool is one on an in-process server
- *   Glade registered: the SDK says `mcpServer.source` is `sdk` and the server's name is one of Glade's. The tool's name
- *   prefix proves nothing: any server can call itself anything.
+ *   its agents (`PushNotification`, `ListAgents`), Glade's own tools, and the reads of Glade's control tools
+ *   (`glade-control`'s `list_*` and `get_*`, `docs/control-api.md`). A Glade tool is one on an in-process server Glade
+ *   registered: the SDK says `mcpServer.source` is `sdk` and the server's name is one of Glade's own (`glade`, whose
+ *   tools only touch the task itself), or `glade-control` for its reads. The tool's name prefix proves nothing: any
+ *   server can call itself anything.
  * - **Ask:** `Bash`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `Monitor` (it runs a shell command, as `Bash` does),
- *   `RemoteTrigger` and `SendMessage` (they reach outside), other MCP servers' tools, and any tool Glade doesn't know.
+ *   `RemoteTrigger` and `SendMessage` (they reach outside), `glade-control`'s tools that change things (they change
+ *   other tasks), other MCP servers' tools (a `glade-control` that isn't Glade's in-process one included, reads and
+ *   all), and any tool Glade doesn't know.
  * - A call a user `permissions.ask` rule forced (`matchedAskRule`) always asks, even a read: that's what the rule is for.
  */
 import type { McpServerOrigin } from '../agent/backend'
+import { parseMcpToolName } from '../agent/mcp-tool-caller'
+import { CONTROL_SERVER, isControlRead } from '../control/names'
 
 /** Whether a tool call waits on you. */
 export enum PermissionVerdict {
@@ -84,13 +90,23 @@ export interface ClassifiedCall {
   readonly matchedAskRule: boolean
 }
 
-/** Whether a call waits on you in the ask mode. `gladeServers` names Glade's own in-process MCP servers. */
+/** Whether an MCP tool call to an in-process server Glade registered goes ahead without asking. */
+function hostToolAllowed(toolName: string, server: string, gladeServers: readonly string[]): boolean {
+  if (gladeServers.includes(server)) return true
+  const tool = parseMcpToolName(toolName)?.tool
+  return server === CONTROL_SERVER && tool !== undefined && isControlRead(tool)
+}
+
+/**
+ * Whether a call waits on you in the ask mode. `gladeServers` names Glade's own in-process MCP servers: `glade` only
+ * (`gladeOwnServers`), not `glade-control`, whose reads alone go ahead.
+ */
 export function permissionVerdict(call: ClassifiedCall, gladeServers: readonly string[]): PermissionVerdict {
   if (call.matchedAskRule) return PermissionVerdict.Ask
   const { mcpServer } = call
   if (mcpServer !== null) {
-    const gladeOwn = mcpServer.source === HOST_SOURCE && gladeServers.includes(mcpServer.name)
-    return gladeOwn ? PermissionVerdict.Allow : PermissionVerdict.Ask
+    const allowed = mcpServer.source === HOST_SOURCE && hostToolAllowed(call.toolName, mcpServer.name, gladeServers)
+    return allowed ? PermissionVerdict.Allow : PermissionVerdict.Ask
   }
   // An MCP tool the SDK didn't say the server of isn't one Glade can vouch for.
   if (call.toolName.startsWith('mcp__')) return PermissionVerdict.Ask

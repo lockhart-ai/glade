@@ -52,7 +52,8 @@ import {
 } from './db/repositories/tool-events'
 import { setUiState } from './db/repositories/ui-state'
 import { createWorkspace } from './db/repositories/workspaces'
-import { DEFAULT_SETTINGS } from '../shared/settings'
+import { DEFAULT_SETTINGS, type SettingsPatch } from '../shared/settings'
+import { SETTING_SCHEMAS, updateSettings } from './db/repositories/settings'
 
 const MINUTE = 60_000
 
@@ -153,6 +154,8 @@ const FINISHED_TOOL_CALL_STATES = Object.values(ToolCallState).filter(
 
 /** One sample task. Its times are relative to the capture, so relative times read the same on every run. */
 export interface SeedTask {
+  /** A fixed id, for a spec whose agent script names the task; a new one unless given. */
+  readonly id?: string | undefined
   readonly title: string
   readonly objective?: string | undefined
   readonly status?: string | undefined
@@ -224,8 +227,10 @@ export interface CaptureSeed {
    * The workspace. Its root is usually made up (the Files tab then finds no files); a relative root is a folder beside
    * the fixture, for a capture that shows files.
    */
-  readonly workspace: { readonly name: string; readonly rootPath: string }
+  readonly workspace: { readonly id?: string | undefined; readonly name: string; readonly rootPath: string }
   readonly tasks: readonly SeedTask[]
+  /** Settings to change from their defaults, e.g. `controlEnabled`; none unless given. */
+  readonly settings?: SettingsPatch | undefined
   /** The right panel's tab to open on (`PanelTab`, e.g. `subagents`); Tool calls unless given. */
   readonly panelTab?: string | undefined
   /** The right panel's width, in CSS pixels; the default unless given. */
@@ -304,7 +309,8 @@ const seedPauseSchema = z.strictObject({
 }) satisfies z.ZodType<SeedPause>
 
 const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
-  workspace: z.strictObject({ name: z.string(), rootPath: z.string() }),
+  workspace: z.strictObject({ id: z.string().optional(), name: z.string(), rootPath: z.string() }),
+  settings: z.strictObject(SETTING_SCHEMAS).partial().optional(),
   panelTab: z.string().optional(),
   panelWidth: z.int().positive().optional(),
   pluginWidth: z.int().positive().optional(),
@@ -317,6 +323,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
     .optional(),
   tasks: z.array(
     z.strictObject({
+      id: z.string().optional(),
       title: z.string(),
       objective: z.string().optional(),
       status: z.string().optional(),
@@ -487,6 +494,7 @@ function seedPermissionRequest(db: Database, taskId: string, request: SeedPermis
 /** Writes a seed into the database as if it had been used up to `now`: the workspace open, the selected task shown. */
 export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.now()): void {
   db.transaction(() => {
+    if (seed.settings !== undefined) updateSettings(db, seed.settings)
     const workspace = createWorkspace(db, seed.workspace, now)
     setUiState(db, { key: UiStateKey.ActiveWorkspaceId, value: workspace.id })
     if (seed.panelTab !== undefined) setUiState(db, { key: UiStateKey.RightPanelTab, value: seed.panelTab })
@@ -508,6 +516,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       const at = now - sample.minutesAgo * MINUTE
       const createdAt = now - (sample.startedMinutesAgo ?? sample.minutesAgo) * MINUTE
       const newTask = {
+        ...(sample.id === undefined ? {} : { id: sample.id }),
         workspaceId: workspace.id,
         model: DEFAULT_SETTINGS.defaultModel,
         effort: DEFAULT_SETTINGS.defaultEffort,

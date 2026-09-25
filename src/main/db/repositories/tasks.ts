@@ -23,6 +23,8 @@ import type { DoneCounts, DonePage, DonePageRequest } from '../../../shared/done
 import { Row, RowError } from './rows'
 
 export interface NewTask {
+  /** A new id unless given (a sample fixture's fixed one). */
+  readonly id?: string
   readonly workspaceId: string
   readonly model: string
   readonly effort: Effort
@@ -160,7 +162,7 @@ function toParams(task: Task): Record<string, string | number | null> {
 export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now()): Task {
   const status = input.status ?? ''
   const task: Task = {
-    id: randomUUID(),
+    id: input.id ?? randomUUID(),
     workspaceId: input.workspaceId,
     title: input.title ?? '',
     objective: input.objective ?? '',
@@ -229,6 +231,42 @@ export function countDoneTasks(db: Database, workspaceId: string): DoneCounts {
     .get({ workspaceId })
   const counts = new Row('tasks', row)
   return { all: counts.integer('total'), unread: counts.integer('unread') }
+}
+
+/** How many active and done tasks a workspace has. */
+export interface TaskCounts {
+  readonly active: number
+  readonly done: number
+}
+
+/** How many active and done tasks each workspace has, by its id; a workspace with none isn't in it. */
+export function countTasksByWorkspace(db: Database): Map<string, TaskCounts> {
+  const counts = new Map<string, TaskCounts>()
+  const rows = db
+    .prepare(
+      `SELECT workspace_id, SUM(state = @active) AS active, SUM(state = @done) AS done FROM tasks GROUP BY workspace_id`,
+    )
+    .all({ active: TaskState.Active, done: TaskState.Done })
+  for (const raw of rows) {
+    const row = new Row('tasks', raw)
+    counts.set(row.text('workspace_id'), { active: row.integer('active'), done: row.integer('done') })
+  }
+  return counts
+}
+
+/**
+ * The ids of the tasks in a workspace (or in every workspace, for null) in a state (or in either, for null), pinned
+ * first, then most recently updated first, ties by id.
+ */
+export function listTaskIds(db: Database, workspaceId: string | null, state: TaskState | null): string[] {
+  const ids: unknown[] = db
+    .prepare(
+      `SELECT id FROM tasks WHERE (@workspaceId IS NULL OR workspace_id = @workspaceId)
+        AND (@state IS NULL OR state = @state) ORDER BY pinned DESC, updated_at DESC, id`,
+    )
+    .pluck()
+    .all({ workspaceId, state })
+  return ids.filter((id): id is string => typeof id === 'string')
 }
 
 /** What a filter chip adds to the Done section's query. Done tasks never need you. */

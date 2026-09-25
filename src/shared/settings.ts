@@ -24,6 +24,11 @@ export interface Settings {
   readonly notificationSound: boolean
   /** The shortcuts you've rebound in Settings › Keyboard (`keymap.ts`); the rest keep their defaults. */
   readonly keyBindings: KeyBindingOverrides
+  /**
+   * Whether other agents may drive Glade through its `glade-control` tools (Settings › Control, Let agents control
+   * Glade; `docs/control-api.md`). Off, every call is refused, and new sessions don't get the tools.
+   */
+  readonly controlEnabled: boolean
 }
 
 /** The settings you change at once: the ones left out keep their value. */
@@ -31,7 +36,7 @@ export type SettingsPatch = Partial<Settings>
 
 /**
  * The settings before you change any: the SDK's default model (the picker's first) at high effort, allowing every tool
- * call, notifying silently.
+ * call, notifying silently, and with no agent allowed to control Glade.
  */
 export const DEFAULT_SETTINGS: Settings = {
   defaultModel: MODEL_OPTIONS[0].id,
@@ -42,4 +47,5 @@ export const DEFAULT_SETTINGS: Settings = {
   notifications: true,
   notificationSound: false,
   keyBindings: {},
+  controlEnabled: false,
 }

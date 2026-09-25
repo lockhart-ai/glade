@@ -51,12 +51,13 @@ const ID_SPAN = 1_000_000_000_000
  * gets its best match's `FIELD_PRIORITY`, and its snippet key (`SNIPPET_ORDER` × `ID_SPAN` + id) picks its best
  * snippet, the latest of those as good.
  */
-const RANKED_SQL = `
+function rankedSql(scope: string): string {
+  return `
   WITH matches AS (
     SELECT search_documents.task_id, search_documents.id, search_documents.field
     FROM search_fts
     JOIN search_documents ON search_documents.id = search_fts.rowid
-    WHERE search_fts MATCH ? AND search_documents.workspace_id = ?
+    WHERE search_fts MATCH ? ${scope}
   ),
   matched_tasks AS (
     SELECT task_id, MIN(${fieldCase(FIELD_PRIORITY)}) AS priority,
@@ -68,7 +69,14 @@ const RANKED_SQL = `
   FROM matched_tasks
   JOIN search_documents ON search_documents.id = matched_tasks.snippet_key % ${String(ID_SPAN)}
   JOIN tasks ON tasks.id = matched_tasks.task_id
-  ORDER BY matched_tasks.priority, tasks.updated_at DESC`
+  ORDER BY matched_tasks.priority, tasks.updated_at DESC, tasks.id`
+}
+
+/** Ranks one workspace's matching tasks. */
+const RANKED_SQL = rankedSql('AND search_documents.workspace_id = ?')
+
+/** Ranks every workspace's matching tasks. */
+const RANKED_EVERYWHERE_SQL = rankedSql('')
 
 /** A matching task, and the document its snippet comes from. */
 interface Ranked {
@@ -139,4 +147,18 @@ export function searchTasks(db: Database, workspaceId: string, text: string): Se
     field,
     snippet: snippetOf.get(documentId) ?? [],
   }))
+}
+
+/**
+ * The ids of the tasks matching `text`, best first, as `searchTasks` ranks them: in one workspace, or in every
+ * workspace for null (ranked together, by the field of their best match, then the most recently updated). No snippets.
+ */
+export function searchTaskIds(db: Database, workspaceId: string | null, text: string): string[] {
+  const query = ftsQuery(text)
+  if (query === null) return []
+  const rows =
+    workspaceId === null
+      ? db.prepare(RANKED_EVERYWHERE_SQL).all(query)
+      : db.prepare(RANKED_SQL).all(query, workspaceId)
+  return rows.map((raw) => parseRanked(raw).taskId)
 }

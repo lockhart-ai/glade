@@ -5,6 +5,8 @@ import { BridgeErrorCode, EventType, type TaskUserPatch } from '../../shared/bri
 import {
   UiStateKey,
   type ApiRetry,
+  type Effort,
+  type PermissionMode,
   type Task,
   type TaskActivity,
   type TaskError,
@@ -55,7 +57,8 @@ export interface RunnerTaskPatch {
   readonly pause?: TaskPause | null
 }
 
-function existing(db: Database, id: string): Task {
+/** The task, as it is now. Throws a `CommandFailure` `not_found` for no such task. */
+export function requireTask(db: Database, id: string): Task {
   const task = getTask(db, id)
   if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${id}`)
   return task
@@ -68,25 +71,36 @@ function write(context: TaskServiceContext, id: string, patch: TaskPatch): Task 
 }
 
 function move(context: TaskServiceContext, id: string, transition: TaskTransition): Task {
-  const result = applyTransition(existing(context.db, id).state, transition)
+  const result = applyTransition(requireTask(context.db, id).state, transition)
   if (!result.ok) throw new CommandFailure(BridgeErrorCode.InvalidTransition, result.error.message)
   return write(context, id, { state: result.to })
 }
 
+/** What a new task can start with besides Settings' defaults: the control API's `create_task` sets these. */
+export interface NewTaskFields {
+  readonly title?: string
+  readonly objective?: string
+  readonly model?: string
+  readonly effort?: Effort
+  readonly permissionMode?: PermissionMode
+}
+
 /**
  * Creates an active task in the workspace: empty title, objective and status, and the model, effort and permission mode
- * Settings has as the defaults for new tasks.
+ * Settings has as the defaults for new tasks, unless `fields` gives them.
  */
-export function createTask(context: TaskServiceContext, workspaceId: string): Task {
+export function createTask(context: TaskServiceContext, workspaceId: string, fields: NewTaskFields = {}): Task {
   if (getWorkspace(context.db, workspaceId) === undefined) {
     throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${workspaceId}`)
   }
   const { defaultModel, defaultEffort, defaultPermissionMode } = getSettings(context.db)
   const task = insertTask(context.db, {
     workspaceId,
-    model: defaultModel,
-    effort: defaultEffort,
-    permissionMode: defaultPermissionMode,
+    model: fields.model ?? defaultModel,
+    effort: fields.effort ?? defaultEffort,
+    permissionMode: fields.permissionMode ?? defaultPermissionMode,
+    ...(fields.title === undefined ? {} : { title: fields.title }),
+    ...(fields.objective === undefined ? {} : { objective: fields.objective }),
   })
   emitTaskUpdated(context.emit, task)
   return task
@@ -112,14 +126,40 @@ export function reopenTask(context: TaskServiceContext, id: string): Task {
 
 /** Applies the user's changes to a task: its title, pin, unread flag, model, effort or permission mode. */
 export function updateTaskFromUser(context: TaskServiceContext, id: string, patch: TaskUserPatch): Task {
-  existing(context.db, id)
+  requireTask(context.db, id)
   const { title, pinned, unread, model, effort, permissionMode } = patch
   return write(context, id, { title, pinned, unread, model, effort, permissionMode })
 }
 
+/**
+ * The changes a person, or an agent driving Glade (`update_task`, `docs/control-api.md`), can make to a task: the
+ * user's, and its objective and status, which the window leaves to the task's own agent.
+ */
+export interface TaskChange extends TaskUserPatch {
+  readonly objective?: string
+  readonly status?: string
+}
+
+/** What changing a task needs besides the database: the runner, to tell a live session its new permission mode. */
+export interface TaskChangeContext extends TaskServiceContext {
+  readonly runner: Pick<AgentRunner, 'applyPermissionMode'>
+}
+
+/**
+ * Changes a task (`tasks.update`, and the control API's `update_task`) in one write. A new permission mode reaches the
+ * task's running session at once: it applies from the agent's next tool call, not its next turn.
+ */
+export function changeTask(context: TaskChangeContext, id: string, change: TaskChange): Task {
+  requireTask(context.db, id)
+  const { title, objective, status, pinned, unread, model, effort, permissionMode } = change
+  const task = write(context, id, { title, objective, status, pinned, unread, model, effort, permissionMode })
+  if (permissionMode !== undefined) context.runner.applyPermissionMode(id)
+  return task
+}
+
 /** Applies the agent's changes to a task: its title, objective or status. */
 export function updateTaskFromAgent(context: TaskServiceContext, id: string, patch: AgentTaskPatch): Task {
-  existing(context.db, id)
+  requireTask(context.db, id)
   const { title, objective, status } = patch
   return write(context, id, { title, objective, status })
 }
@@ -129,14 +169,14 @@ export function updateTaskFromAgent(context: TaskServiceContext, id: string, pat
  * pause.
  */
 export function updateTaskFromRunner(context: TaskServiceContext, id: string, patch: RunnerTaskPatch): Task {
-  existing(context.db, id)
+  requireTask(context.db, id)
   const { activity, sessionId, contextUsedTokens, contextWindowTokens, error, retrying, pause } = patch
   return write(context, id, { activity, sessionId, contextUsedTokens, contextWindowTokens, error, retrying, pause })
 }
 
 /** Marks a task read or unread. This isn't a change to the task, so its `updatedAt` stays as it is. */
 export function setTaskUnread(context: TaskServiceContext, id: string, unread: boolean): Task {
-  existing(context.db, id)
+  requireTask(context.db, id)
   return write(context, id, { unread })
 }
 
@@ -152,7 +192,7 @@ export interface TaskDeletionContext extends TaskServiceContext {
  */
 export function deleteTask(context: TaskDeletionContext, id: string): void {
   const { db, emit, runner } = context
-  existing(db, id)
+  requireTask(db, id)
   runner.discard(id)
   const deselect = getUiState(db, UiStateKey.SelectedTaskId) === id
   db.transaction(() => {
