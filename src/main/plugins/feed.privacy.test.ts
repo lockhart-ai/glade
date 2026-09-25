@@ -237,6 +237,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
     id: 'request-1',
     state: PermissionRequestState.Open,
     denyNote: null,
+    grantedRule: null,
     createdAt: 4_000,
     closedAt: null,
   }
@@ -368,6 +369,15 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
       {
         type: EventType.PermissionAnswered,
         permissionRequest: { ...request, state: PermissionRequestState.Denied, denyNote: secret('deny_note') },
+      },
+      {
+        type: EventType.PermissionAnswered,
+        permissionRequest: {
+          ...request,
+          id: 'request-3',
+          state: PermissionRequestState.Allowed,
+          grantedRule: { toolName: 'Bash', ruleContent: secret('granted_rule') },
+        },
       },
     ],
     [EventType.PermissionWithdrawn]: [
