@@ -4,6 +4,7 @@ import {
   bridgeError,
   BridgeErrorCode,
   CommandName,
+  type LogRendererErrorRequest,
   EventType,
   type CommandRequest,
   type CommandResponse,
@@ -99,6 +100,8 @@ export interface FakeMain {
   readonly menuStates?: MenuState[]
   /** How many times `window.close` closed the window. */
   closedWindows?: number
+  /** The errors the window sent to the main log (`log.rendererError`), oldest first. */
+  readonly rendererErrors?: LogRendererErrorRequest[]
 }
 
 export interface FakeBridge {
@@ -393,6 +396,10 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     },
     [CommandName.WindowClose]: () => {
       main.closedWindows = (main.closedWindows ?? 0) + 1
+      return null
+    },
+    [CommandName.LogRendererError]: (error) => {
+      main.rendererErrors?.push(error)
       return null
     },
   }

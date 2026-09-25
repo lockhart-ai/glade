@@ -12,6 +12,7 @@ import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, EventType } from '../../shared/bridge'
 import type { TerminalTab } from '../../shared/terminal'
 import { CommandFailure } from '../bridge/errors'
+import { CONSOLE_LOGGER, type Logger } from '../logging/logger'
 import type { Emit } from '../bridge/events'
 import {
   addTerminalTab,
@@ -21,7 +22,7 @@ import {
   saveTerminalScrollback,
 } from '../db/repositories/terminal-tabs'
 import { isRunningProgram, processName } from './foreground'
-import type { Pty, SpawnPty, TerminalSize } from './pty'
+import type { Pty, PtyExit, SpawnPty, TerminalSize } from './pty'
 import { shellName, type TerminalShell } from './shell'
 
 /** How much of a tab's recent output is kept, and restored on relaunch, in characters. */
@@ -71,6 +72,8 @@ export interface TerminalsContext {
   readonly shell: TerminalShell
   /** Where a shell starts when its folder is gone, or when there's no workspace: the home folder. */
   readonly fallbackCwd: string
+  /** Where tabs opening and closing, and shells starting and exiting, are logged. The console by default. */
+  readonly log?: Logger
 }
 
 /** The terminal tabs. Every method that names a tab throws a `not_found` `CommandFailure` when there's no such tab. */
@@ -127,7 +130,14 @@ function isDirectory(path: string): boolean {
 }
 
 /** Loads the terminal tabs from the database, each with its old output and, when it had some, the restored divider. */
-export function createTerminals({ db, emit, spawn, shell, fallbackCwd }: TerminalsContext): Terminals {
+export function createTerminals({
+  db,
+  emit,
+  spawn,
+  shell,
+  fallbackCwd,
+  log = CONSOLE_LOGGER,
+}: TerminalsContext): Terminals {
   const idleName = shellName(shell)
   let shuttingDown = false
   let poll: NodeJS.Timeout | null = null
@@ -212,32 +222,31 @@ export function createTerminals({ db, emit, spawn, shell, fallbackCwd }: Termina
   }
 
   // The shell exited on its own (`exit`, or it couldn't start): its tab goes, as a Terminal.app window would.
-  const exited = (tab: LiveTab): void => {
+  const exited = (tab: LiveTab, { exitCode, signal }: PtyExit): void => {
+    log.info('shell exited', { tabId: tab.id, exitCode, signal, closing: shuttingDown || !tabs.includes(tab) })
     if (shuttingDown || !tabs.includes(tab)) return
     tab.pty = null
     remove(tab)
   }
 
   const start = (tab: LiveTab, size: TerminalSize): Pty => {
-    const pty = spawn({
-      file: shell.file,
-      args: shell.args,
-      cwd: isDirectory(tab.cwd) ? tab.cwd : fallbackCwd,
-      size,
-      env: shell.env,
-    })
+    const cwd = isDirectory(tab.cwd) ? tab.cwd : fallbackCwd
+    log.info('shell starting', { tabId: tab.id, shell: shell.file, args: shell.args, cwd, size })
+    const pty = spawn({ file: shell.file, args: shell.args, cwd, size, env: shell.env })
     tab.pty = pty
     pty.onData((data) => {
       if (tab.pty === pty) append(tab, data)
     })
-    pty.onExit(() => {
-      if (tab.pty === pty) exited(tab)
+    pty.onExit((exit) => {
+      if (tab.pty === pty) exited(tab, exit)
+      else log.info('shell exited', { tabId: tab.id, ...exit, closing: true })
     })
     poll ??= setInterval(checkProcesses, PROCESS_POLL_MS)
     return pty
   }
 
   const remove = (tab: LiveTab): void => {
+    log.info('terminal tab closed', { tabId: tab.id })
     tabs.splice(tabs.indexOf(tab), 1)
     removeTerminalTab(db, tab.id)
     stopPolling()
@@ -262,6 +271,7 @@ export function createTerminals({ db, emit, spawn, shell, fallbackCwd }: Termina
     }
     const index = after === null ? -1 : tabs.findIndex((candidate) => candidate.id === after)
     tabs.splice(index === -1 ? tabs.length : index + 1, 0, tab)
+    log.info('terminal tab opened', { tabId: id, cwd, after })
     tabsChanged()
     return view(tab)
   }
@@ -320,6 +330,7 @@ export function createTerminals({ db, emit, spawn, shell, fallbackCwd }: Termina
     },
 
     shutdown: () => {
+      log.info('terminals shutting down', { tabs: tabs.length, running: tabs.filter((tab) => tab.pty !== null).length })
       shuttingDown = true
       saveNow()
       if (poll !== null) clearInterval(poll)

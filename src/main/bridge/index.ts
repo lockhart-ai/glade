@@ -1,12 +1,17 @@
 import type { Database } from 'better-sqlite3'
 import { COMMAND_CHANNEL, EVENT_CHANNEL } from '../../shared/bridge'
 import type { MenuState } from '../../shared/commands'
+import type { Task } from '../../shared/domain'
 import type { AgentBackend } from '../agent/backend'
 import { createGladeMcpServer, GLADE_SERVER } from '../agent/glade-tools'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
 import type { OpenPath, RevealPath, WriteClipboard } from '../files/files'
 import type { NotifyReply } from '../notifications/notifications'
 import { getSettings } from '../db/repositories/settings'
+import { listTasks } from '../db/repositories/tasks'
+import { listWorkspaces } from '../db/repositories/workspaces'
+import { createEventLog } from '../logging/event-log'
+import { CONSOLE_LOGGER, LogScope, type Logger } from '../logging/logger'
 import { createQuestionBroker } from '../questions/questions'
 import { createBroadcast, createDispatcher, type EventTarget } from './dispatcher'
 import type { Emit } from './events'
@@ -46,6 +51,11 @@ export interface BridgeOptions {
   readonly closeWindow?: () => void
   /** What the terminal tabs run their shells with. */
   readonly terminal: TerminalOptions
+  /**
+   * Where the bridge logs its commands and events, and the runner and terminals what they do (`docs/logs.md`). The
+   * console by default.
+   */
+  readonly log?: Logger
 }
 
 /** How the terminal tabs run their shells. */
@@ -66,6 +76,11 @@ export interface RegisteredBridge {
   readonly terminals: Terminals
 }
 
+/** Every task, in every workspace: what the event log knows of them to begin with. */
+function allTasks(db: Database): Task[] {
+  return listWorkspaces(db).flatMap((workspace) => listTasks(db, workspace.id))
+}
+
 /**
  * Answers the renderer's commands on the command channel and broadcasts events on the event channel, with an agent
  * runner on `agentBackend` for the tasks' agents.
@@ -84,8 +99,15 @@ export function registerBridge({
   terminal,
   updateMenu,
   closeWindow,
+  log = CONSOLE_LOGGER,
 }: BridgeOptions): RegisteredBridge {
-  const emit = createBroadcast(EVENT_CHANNEL, targets)
+  const broadcast = createBroadcast(EVENT_CHANNEL, targets)
+  // Every event is logged on its way to the windows: it's how a task's changes reach the log.
+  const logEvent = createEventLog(log, allTasks(db))
+  const emit: Emit = (event) => {
+    logEvent(event)
+    broadcast(event)
+  }
   // One broker for the agent's questions: the Glade tools' `ask` waits on it, and the runner answers through it.
   const questions = createQuestionBroker({ db, emit }, notifyReply)
   const runner = createAgentRunner({
@@ -95,12 +117,13 @@ export function registerBridge({
     notifyReply,
     questions,
     isOnline,
+    log: log.scoped(LogScope.Runner),
     // Each session gets its own Glade tools, built for its task, with the upkeep Settings has on as it starts.
     mcpServers: (task) => ({
       [GLADE_SERVER]: createGladeMcpServer({ db, emit, questions }, task.id, getSettings(db)),
     }),
   })
-  const terminals = createTerminals({ db, emit, ...terminal })
+  const terminals = createTerminals({ db, emit, ...terminal, log: log.scoped(LogScope.Terminal) })
   const dispatch = createDispatcher(
     createHandlers({
       db,
@@ -113,8 +136,10 @@ export function registerBridge({
       updateMenu,
       closeWindow,
       terminals,
+      log,
     }),
     REQUEST_SCHEMAS,
+    log.scoped(LogScope.Ipc),
   )
   ipc.handle(COMMAND_CHANNEL, (_event, command, request) => dispatch(command, request))
   return { runner, emit, terminals }

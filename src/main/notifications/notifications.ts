@@ -17,6 +17,7 @@ import type { AgentRunner } from '../agent/runner'
 import { CommandFailure } from '../bridge/errors'
 import { getSettings } from '../db/repositories/settings'
 import { getTask } from '../db/repositories/tasks'
+import { CONSOLE_LOGGER, type Logger } from '../logging/logger'
 import type { Notifier, TaskNotification } from './notifier'
 
 /** The most characters of the reply a notification's body shows, the ellipsis included. */
@@ -116,7 +117,8 @@ export interface ReplyNotificationsOptions {
   readonly openTask: (taskId: string) => void
   /** What a notification's inline reply is sent through, without opening the window. */
   readonly runner: ReplyRunner
-  readonly log?: Pick<Console, 'warn'>
+  /** Where each notification sent, clicked and replied to is logged. The console by default. */
+  readonly log?: Logger
 }
 
 /**
@@ -129,22 +131,30 @@ export function createReplyNotifications({
   notifier,
   openTask,
   runner,
-  log = console,
+  log = CONSOLE_LOGGER,
 }: ReplyNotificationsOptions): NotifyReply {
   return (taskId, reply) => {
     const task = getTask(db, taskId)
     if (task === undefined) return
+    const withTask = log.with({ taskId })
     const settings = getSettings(db)
-    if (!settings.notifications) return
-    notifier.show(replyNotification(task, reply, settings.notificationSound), {
+    if (!settings.notifications) {
+      withTask.debug('notification not sent: notifications are off')
+      return
+    }
+    const notification = replyNotification(task, reply, settings.notificationSound)
+    withTask.info('notification sent', { title: notification.title, silent: notification.silent })
+    notifier.show(notification, {
       onOpen: () => {
+        withTask.info('notification opened')
         openTask(taskId)
       },
       onReply: (text) => {
+        withTask.info('notification replied to', { chars: text.length })
         try {
           sendToTask(db, runner, taskId, text)
         } catch (error) {
-          log.warn(`Couldn't send the reply from a notification to task ${taskId}`, error)
+          withTask.warn("couldn't send the reply from a notification", { error })
         }
       },
     })

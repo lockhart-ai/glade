@@ -30,6 +30,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.WorkspacesRemove]: () => null,
     [CommandName.MenuUpdate]: () => null,
     [CommandName.WindowClose]: () => null,
+    [CommandName.LogRendererError]: () => null,
     [CommandName.DialogChooseFolder]: () => ({ path: null }),
     [CommandName.TasksList]: () => ({ tasks: [] }),
     [CommandName.TasksCreate]: () => ({ task: {} as Task }),

@@ -2,8 +2,11 @@
 import { basename } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { TerminalOptions } from '../bridge'
-import type { Pty, PtyOptions, SpawnPty, TerminalSize } from './pty'
+import type { Pty, PtyExit, PtyOptions, SpawnPty, TerminalSize } from './pty'
 import type { TerminalShell } from './shell'
+
+/** SIGHUP's number: what a killed shell exits with. */
+const SIGHUP = 1
 
 /** A pseudo-terminal that outputs and exits when its test says, and records what it's asked to do. */
 export class FakePty implements Pty {
@@ -16,7 +19,7 @@ export class FakePty implements Pty {
   interrupts = 0
   killed = false
   private readonly dataListeners: ((data: string) => void)[] = []
-  private readonly exitListeners: (() => void)[] = []
+  private readonly exitListeners: ((exit: PtyExit) => void)[] = []
 
   constructor(readonly options: PtyOptions) {
     this.process = basename(options.file)
@@ -28,16 +31,16 @@ export class FakePty implements Pty {
     for (const listener of this.dataListeners) listener(data)
   }
 
-  /** Ends the shell, as `exit` would. */
-  exit(): void {
-    for (const listener of this.exitListeners) listener()
+  /** Ends the shell, as `exit` would: with code 0 by default. */
+  exit(exit: PtyExit = { exitCode: 0, signal: null }): void {
+    for (const listener of this.exitListeners) listener(exit)
   }
 
   onData(listener: (data: string) => void): void {
     this.dataListeners.push(listener)
   }
 
-  onExit(listener: () => void): void {
+  onExit(listener: (exit: PtyExit) => void): void {
     this.exitListeners.push(listener)
   }
 
@@ -56,7 +59,7 @@ export class FakePty implements Pty {
   /** Ends the shell, which then exits, as a real one does on SIGHUP. */
   kill(): void {
     this.killed = true
-    this.exit()
+    this.exit({ exitCode: 0, signal: SIGHUP })
   }
 }
 
