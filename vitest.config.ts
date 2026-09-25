@@ -14,6 +14,8 @@ export default defineConfig({
             'src/shared/**/*.test.ts',
             // Integration tests of the renderer's store against the real main process, which needs Node.
             'src/renderer/**/*.integration.test.ts',
+            // The design tooling's tested logic (scripts/lib), which the scripts run with Node's type stripping.
+            'scripts/lib/**/*.test.ts',
           ],
           // No test may talk to the real Claude API; see src/shared/agent-sdk-guard.ts.
           setupFiles: ['src/shared/agent-sdk-guard.ts'],
@@ -36,7 +38,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       // Measure every source file, not just the ones a test imports, so an untested file counts as uncovered.
-      include: ['src/**/*.{ts,tsx}'],
+      include: ['src/**/*.{ts,tsx}', 'scripts/lib/**/*.mts'],
       exclude: [
         'src/**/*.test.{ts,tsx}',
         'src/**/*.d.ts',

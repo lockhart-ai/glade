@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { PermissionDecisionKind, PermissionRequestState, type PermissionRequest } from '../../shared/domain'
 import { Button, ButtonVariant, Icon, IconSize, Input, useToast } from '../components'
 import { classNames } from '../components/classNames'
+import { APPEAR_WINDOW_MS } from '../questions/QuestionCard'
 import { describeFailure } from '../store/hydrate'
 import { useGladeStore } from '../store/react'
 import {
@@ -112,6 +113,8 @@ interface OpenCardProps {
   readonly body: PermissionBody
   readonly subagent: SubagentOrigin | null
   readonly autoFocus: boolean
+  /** Whether it has just asked: it then rises and fades in, as the question card does. */
+  readonly appear: boolean
 }
 
 /**
@@ -120,7 +123,7 @@ interface OpenCardProps {
  * stop, ← → between them: it's Allow once, so ↵ approves, unless the SDK says a stray key mustn't (`defaultToNo`), when
  * it's Deny. Given `autoFocus`, the card takes the focus as it opens, unless you're somewhere else in the window.
  */
-function OpenCard({ request, body, subagent, autoFocus }: OpenCardProps): React.JSX.Element {
+function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps): React.JSX.Element {
   const answerPermission = useGladeStore((state) => state.answerPermission)
   const toast = useToast()
   const initial = request.defaultToNo ? Action.Deny : Action.Allow
@@ -198,7 +201,7 @@ function OpenCard({ request, body, subagent, autoFocus }: OpenCardProps): React.
     <form
       ref={card}
       aria-label={PERMISSION_CARD_NAME}
-      className={classNames(styles.card, styles.open)}
+      className={classNames(styles.card, styles.open, appear && styles.appearing)}
       onSubmit={(event) => {
         event.preventDefault()
         answer(true)
@@ -301,16 +304,18 @@ interface ClosedCardProps {
   readonly state: keyof typeof CLOSED_ICON
   readonly outcome: string
   readonly rootPath: string | undefined
+  /** Whether it has just closed, in view: it then fades in over the open card it replaces. */
+  readonly fadeIn: boolean
 }
 
 /** A closed card, in one line: the call, and that it was allowed once, denied (with your note) or withdrawn. */
-function ClosedCard({ request, state, outcome, rootPath }: ClosedCardProps): React.JSX.Element {
+function ClosedCard({ request, state, outcome, rootPath, fadeIn }: ClosedCardProps): React.JSX.Element {
   const summary = callSummary(request, rootPath)
   return (
     <section
       aria-label={PERMISSION_CARD_NAME}
       title={`${summary} · ${outcome}`}
-      className={classNames(styles.closed, CLOSED_CLASS[state])}
+      className={classNames(styles.closed, CLOSED_CLASS[state], fadeIn && styles.justClosed)}
     >
       <Icon icon={CLOSED_ICON[state]} size={IconSize.Medium} className={styles.closedIcon} />
       <span className={styles.summary}>{summary}</span>
@@ -334,13 +339,18 @@ export interface PermissionCardProps {
 
 /**
  * A tool call waiting on your OK, in the chat (`docs/design/html/23-permission-card.html`): open, the card you answer
- * it on; answered or withdrawn, one line saying what happened.
+ * it on; answered or withdrawn, one line saying what happened. Like the question card, one that has just asked rises and
+ * fades in, and one that closes while it's showing fades to its line.
  */
 export function PermissionCard({ request, rootPath, subagent, autoFocus = false }: PermissionCardProps) {
   const { state } = request
+  // Whether it was open when it showed, so its closing happens in view, and whether it had just asked.
+  const [shownOpen] = useState(state === PermissionRequestState.Open)
+  const [appear] = useState(() => Date.now() - request.createdAt < APPEAR_WINDOW_MS)
   if (state === PermissionRequestState.Open) {
     const body = permissionBody(request, rootPath)
-    return <OpenCard request={request} body={body} subagent={subagent} autoFocus={autoFocus} />
+    return <OpenCard request={request} body={body} subagent={subagent} autoFocus={autoFocus} appear={appear} />
   }
-  return <ClosedCard request={request} state={state} outcome={closedOutcome(request) ?? ''} rootPath={rootPath} />
+  const outcome = closedOutcome(request) ?? ''
+  return <ClosedCard request={request} state={state} outcome={outcome} rootPath={rootPath} fadeIn={shownOpen} />
 }

@@ -18,6 +18,29 @@
   border-color: var(--color-question-border);
 }
 
+/* Asked while you're looking, it rises and fades in (docs/design/tokens.md, Motion), as the question card does. */
+.appearing {
+  animation: card-in var(--motion-duration) var(--motion-ease);
+}
+
+/* Answered or withdrawn while you're looking, it fades to its line. */
+.justClosed {
+  animation: card-fade var(--motion-duration) var(--motion-ease);
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
+@keyframes card-fade {
+  from {
+    opacity: 0;
+  }
+}
+
 .title {
   display: flex;
   align-items: center;

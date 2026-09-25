@@ -26,7 +26,10 @@ import {
   type FakeHandlers,
 } from '../store/test-bridge'
 import { TRIMMED_LINES } from './permissionCardModel'
+import { moduleClass } from '../components/moduleClass'
+import { APPEAR_WINDOW_MS } from '../questions/QuestionCard'
 import { NOTE_PLACEHOLDER } from './PermissionCard'
+import styles from './PermissionCard.module.css'
 
 /** The sample workspace's root, which paths show relative to. */
 const ROOT = '/code/w1'
@@ -483,5 +486,33 @@ describe('stress', () => {
       fake.emit({ type: EventType.PermissionAnswered, permissionRequest: closed })
     })
     expect(closedCards()[0]).toHaveTextContent('allowed once')
+  })
+})
+
+describe('motion', () => {
+  const cls = (name: string): string => moduleClass(styles, name)
+
+  it('rises in when it has just asked, and stays put when the chat opens on an older one', async () => {
+    await renderChat([
+      request('p1', { createdAt: Date.now() }),
+      request('p2', { createdAt: Date.now() - APPEAR_WINDOW_MS }),
+    ])
+    // The older one shows first.
+    expect(card(0)).not.toHaveClass(cls('appearing'))
+    expect(card(1)).toHaveClass(cls('appearing'))
+  })
+
+  it('fades to its line when it closes while showing, but not when it was already closed', async () => {
+    const { fake } = await renderChat([request('p1'), request('p2', { state: PermissionRequestState.Allowed })])
+    act(() => {
+      fake.emit({
+        type: EventType.PermissionWithdrawn,
+        permissionRequest: { ...request('p1'), state: PermissionRequestState.Withdrawn, closedAt: 4_000 },
+      })
+    })
+
+    const [withdrawn, allowed] = closedCards()
+    expect(withdrawn).toHaveClass(cls('justClosed'), cls('withdrawn'))
+    expect(allowed).not.toHaveClass(cls('justClosed'))
   })
 })
