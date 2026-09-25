@@ -1440,6 +1440,94 @@ const backgroundSubagents: AgentScript = {
   ],
 }
 
+/** What `subagent-calls` says when its turn ends. */
+export const SUBAGENT_CALLS_REPLY =
+  'The 2.4 notes are drafted: the API rate limit goes first under features. The dashboard cache check failed, and the ' +
+  'link check is still going in the background.'
+
+/**
+ * Whose tool calls are whose: the agent reads the changelog itself, starts two subagents in the foreground that make
+ * their calls interleaved (the API one starts a nested subagent of its own; one of the dashboard one's calls fails),
+ * writes the draft itself, and starts a third in the background that checks the links and finishes after the turn.
+ */
+const subagentCalls: AgentScript = {
+  name: 'subagent-calls',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Draft release notes for 2.4',
+        'Draft release notes for 2.4 from the PRs merged since the 2.3 tag.',
+        'Sorting the PRs with two subagents.',
+      ),
+      ...tool('changelog', 'Read', { file_path: 'CHANGELOG.md' }, '# Changelog\n\n## 2.3.0\n…'),
+      toolUse('api', 'Agent', {
+        description: 'API changes',
+        prompt: 'Sort the API PRs merged since v2.3.0 into features, fixes and internal changes.',
+        subagent_type: 'general-purpose',
+      }),
+      toolUse('dashboard', 'Agent', {
+        description: 'Dashboard changes',
+        prompt: 'Sort the dashboard PRs merged since v2.3.0 into features, fixes and internal changes.',
+        subagent_type: 'general-purpose',
+      }),
+      say('Listing the merged API PRs.', 'api'),
+      toolUse('api-list', 'Bash', { command: 'gh pr list --label api --state merged' }, 'api'),
+      toolUse('dashboard-cache', 'Bash', { command: 'redis-cli -h staging-cache info stats' }, 'dashboard'),
+      delay(BEAT_MS),
+      toolResult('api-list', '1409\tAdd per-key throttles\n1402\tRate limit the public API'),
+      toolResult('dashboard-cache', 'Could not connect to Redis at staging-cache:6379: Connection refused', true),
+      toolUse('api-pr', 'Agent', { description: 'Read PR 1402', prompt: 'Summarise PR 1402.' }, 'api'),
+      ...tool(
+        'api-pr-view',
+        'Bash',
+        { command: 'gh pr view 1402 --json title,body' },
+        '{"title":"Rate limit"}',
+        'api-pr',
+      ),
+      ...tool(
+        'dashboard-list',
+        'Bash',
+        { command: 'gh pr list --label dashboard' },
+        '1418\tNew chart query',
+        'dashboard',
+      ),
+      ...tool('api-pr-read', 'Read', { file_path: 'api/throttles.py' }, 'RATE = 10', 'api-pr'),
+      delay(BEAT_MS),
+      toolResult('api-pr', 'PR 1402 rate limits the public API to 10 requests a second.'),
+      ...tool('dashboard-read', 'Read', { file_path: 'web/charts.ts' }, 'export const query = …', 'dashboard'),
+      toolResult('dashboard', "#1418 is a feature. Couldn't check the cache: Redis refused the connection."),
+      toolResult('api', '#1402 and #1409 are features: the public API is rate limited.'),
+      ...tool(
+        'draft',
+        'Write',
+        { file_path: 'docs/releases/2.4.md', content: '# 2.4\n\n## Features\n\n- Rate limits (#1402)\n' },
+        'File created successfully at: docs/releases/2.4.md',
+      ),
+      background(
+        'links',
+        {
+          description: 'Check links in the 2.3 notes',
+          prompt: 'Check every link in docs/releases/2.3.md.',
+          subagent_type: 'general-purpose',
+        },
+        [
+          delay(BEAT_MS * 2),
+          ...tool('links-read', 'Read', { file_path: 'docs/releases/2.3.md' }, '# 2.3\n…', 'links'),
+          delay(BEAT_MS * 2),
+          ...tool('links-curl', 'Bash', { command: 'curl -sI https://example.com/docs/limits' }, 'HTTP/2 200', 'links'),
+          delay(BEAT_MS * 2),
+        ],
+        { summary: 'Every link in the 2.3 notes works.' },
+      ),
+      gladeTool('status-drafted', 'set_status', { status: 'Drafted the 2.4 notes.' }),
+      say(SUBAGENT_CALLS_REPLY),
+      result(),
+    ],
+  ],
+}
+
 /** What the `asks-permission` script's agent does and says. */
 export const ASKS_PERMISSION = {
   edit: {
@@ -1509,6 +1597,7 @@ export const AGENT_SCRIPT_NAMES = [
   'writes-todos',
   'finishes-in-background',
   'background-subagents',
+  'subagent-calls',
   'asks-permission',
 ] as const
 
@@ -1536,5 +1625,6 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'writes-todos': writesTodos,
   'finishes-in-background': finishesInBackground,
   'background-subagents': backgroundSubagents,
+  'subagent-calls': subagentCalls,
   'asks-permission': asksPermission,
 }

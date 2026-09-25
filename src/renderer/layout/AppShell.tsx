@@ -74,7 +74,8 @@ function shellStyle(sidebarWidth: number, bottomBarHeight: number): CSSPropertie
 
 /**
  * The window frame: a flat background with the sidebar and task card side by side above the bottom bar, under the
- * app-wide banner when there is one. The title bar is hidden, so the outer padding along the top edge drags the window.
+ * app-wide banner when there is one. They all start below the title bar row, which holds the macOS traffic lights and
+ * drags the window.
  *
  * The sidebar and the bottom bar each have a drag handle on the edge facing the task card. Dragging one takes room from
  * the task card, or gives it back, down to the task card's minimum: the chat keeps its minimum width (and the right
@@ -128,7 +129,7 @@ export function AppShell({
 
   return (
     <div ref={shell} className={styles.shell} style={shellStyle(sidebarWidth, bottomBarHeight)}>
-      <div className={styles.dragStrip} data-testid="window-drag-strip" />
+      <div className={styles.titleBar} data-testid="window-title-bar" />
       {banner}
       <div
         ref={top}

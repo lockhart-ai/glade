@@ -5,15 +5,15 @@ import { migrate } from '../migrate'
 import { listPermissionRequests } from '../repositories/permission-requests'
 import { getTask } from '../repositories/tasks'
 import { MIGRATIONS } from '.'
-import { permissionRequestsMigration } from './0021-permission-requests'
+import { permissionRequestsMigration } from './0022-permission-requests'
 
-it('is migration 21', () => {
-  expect(MIGRATIONS[20]).toBe(permissionRequestsMigration)
+it('is migration 22', () => {
+  expect(MIGRATIONS[21]).toBe(permissionRequestsMigration)
 })
 
 it('keeps every existing task at Allow all with no requests, drops requests with their task, and checks the columns', () => {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 20))
+  migrate(db, MIGRATIONS.slice(0, 21))
   db.prepare(
     "INSERT INTO workspaces (id, name, root_path, created_at, last_opened_at) VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)",
   ).run()

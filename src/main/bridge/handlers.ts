@@ -10,7 +10,7 @@ import { listPermissionRequests } from '../db/repositories/permission-requests'
 import { listQuestionSets } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { searchTasks } from '../db/repositories/search'
-import { getTask, listTasks } from '../db/repositories/tasks'
+import { countDoneTasks, getTask, getTasks, listActiveTasks, listDoneTasks, listTasks } from '../db/repositories/tasks'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
 import { getSettings, updateSettings } from '../db/repositories/settings'
@@ -119,6 +119,12 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.DialogChooseFolder]: async () => ({ path: await chooseFolder() }),
     [CommandName.TasksList]: ({ workspaceId }) => ({ tasks: listTasks(db, workspaceId) }),
+    [CommandName.TasksListActive]: ({ workspaceId }) => ({
+      tasks: listActiveTasks(db, workspaceId),
+      done: countDoneTasks(db, workspaceId),
+    }),
+    [CommandName.TasksListDone]: (request) => listDoneTasks(db, request),
+    [CommandName.TasksGet]: ({ ids }) => ({ tasks: getTasks(db, ids) }),
     [CommandName.TasksCreate]: ({ workspaceId }) => ({ task: createTask(context, workspaceId) }),
     [CommandName.TasksMarkDone]: ({ id }) => ({ task: markTaskDone(context, id) }),
     [CommandName.TasksReopen]: ({ id }) => ({ task: reopenTask(context, id) }),

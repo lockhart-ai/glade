@@ -8,7 +8,7 @@ import type { Migration } from '../migrate'
  * JSON array; the permission requests repository parses them.
  */
 export const permissionRequestsMigration: Migration = {
-  version: 21,
+  version: 22,
   name: 'Add the permission mode and permission requests',
   up(db) {
     db.exec(`

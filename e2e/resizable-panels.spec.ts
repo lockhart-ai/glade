@@ -20,6 +20,9 @@ const MIN_TASK_HEIGHT = 460
 const OUTER = 8
 const INSET = 8
 
+/** The title bar row across the top of the window (`--title-bar-height`), in place of the outer padding there. */
+const TITLE_BAR_HEIGHT = 32
+
 /** The task card at its narrowest: its border and padding, the chat's minimum, the gap and the right panel's minimum. */
 const MIN_TASK_WIDTH = 2 + 2 * INSET + MIN_CHAT_WIDTH + INSET + MIN_PANEL_WIDTH
 
@@ -28,9 +31,9 @@ function sidebarRoom(width: number): number {
   return Math.min(SIDEBAR.max, width - 3 * OUTER - MIN_TASK_WIDTH)
 }
 
-/** The tallest the bottom bar can be in a window this tall: all but the task card's minimum and the gaps. */
+/** The tallest the bottom bar can be in a window this tall: all but the title bar row, the task card's minimum and the gaps. */
 function bottomBarRoom(height: number): number {
-  return height - 3 * OUTER - MIN_TASK_HEIGHT
+  return height - TITLE_BAR_HEIGHT - 2 * OUTER - MIN_TASK_HEIGHT
 }
 
 const widthOf = async (locator: Locator): Promise<number> => (await boxOf(locator)).width

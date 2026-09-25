@@ -18,6 +18,8 @@ import {
   type TaskPause,
 } from '../../../shared/domain'
 import { contextWindowFor } from '../../../shared/contextWindow'
+import { TaskFilter } from '../../../shared/attention'
+import type { DoneCounts, DonePage, DonePageRequest } from '../../../shared/doneList'
 import { Row, RowError } from './rows'
 
 export interface NewTask {
@@ -201,6 +203,71 @@ export function listTasks(db: Database, workspaceId: string): Task[] {
   return db
     .prepare(`SELECT ${SELECTED} FROM tasks WHERE workspace_id = ? ORDER BY updated_at DESC, id`)
     .all(workspaceId)
+    .map(parseTask)
+}
+
+/**
+ * A workspace's tasks outside the Done section: its active tasks, and its pinned ones whatever their state, most
+ * recently updated first.
+ */
+export function listActiveTasks(db: Database, workspaceId: string): Task[] {
+  return db
+    .prepare(
+      `SELECT ${SELECTED} FROM tasks WHERE workspace_id = ? AND (state = ? OR pinned = 1) ORDER BY updated_at DESC, id`,
+    )
+    .all(workspaceId, TaskState.Active)
+    .map(parseTask)
+}
+
+/** The Done section: a workspace's done tasks that aren't pinned (a pinned task shows under Pinned). */
+const DONE_SECTION = `workspace_id = @workspaceId AND state = '${TaskState.Done}' AND pinned = 0`
+
+/** How many tasks a workspace's Done section holds, and how many of them are unread. */
+export function countDoneTasks(db: Database, workspaceId: string): DoneCounts {
+  const row: unknown = db
+    .prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(unread), 0) AS unread FROM tasks WHERE ${DONE_SECTION}`)
+    .get({ workspaceId })
+  const counts = new Row('tasks', row)
+  return { all: counts.integer('total'), unread: counts.integer('unread') }
+}
+
+/** What a filter chip adds to the Done section's query. Done tasks never need you. */
+function doneFilter(filter: TaskFilter): string {
+  switch (filter) {
+    case TaskFilter.All:
+      return ''
+    case TaskFilter.Unread:
+      return 'AND unread = 1'
+    case TaskFilter.NeedsYou:
+      return 'AND 0'
+  }
+}
+
+/**
+ * A page of a workspace's Done section under a filter chip, most recently updated first and ties by id, starting just
+ * after `after` (keyset pagination on the `tasks_done_list` index). It reads one task more than the page holds to
+ * tell whether more follow.
+ */
+export function listDoneTasks(db: Database, request: DonePageRequest): DonePage {
+  const { workspaceId, filter, after, limit } = request
+  // "After" in the list's order: older, or as old with a later id. The first half is a range the index can seek to.
+  const keyset = after === null ? '' : 'AND updated_at <= @updatedAt AND (updated_at < @updatedAt OR id > @id)'
+  const rows = db
+    .prepare(
+      `SELECT ${SELECTED} FROM tasks WHERE ${DONE_SECTION} ${doneFilter(filter)} ${keyset}
+      ORDER BY updated_at DESC, id LIMIT @limit`,
+    )
+    .all({ workspaceId, limit: limit + 1, ...(after === null ? {} : { updatedAt: after.updatedAt, id: after.id }) })
+    .map(parseTask)
+  return { tasks: rows.slice(0, limit), hasMore: rows.length > limit }
+}
+
+/** The tasks with these ids that exist, in no particular order. */
+export function getTasks(db: Database, ids: readonly string[]): Task[] {
+  if (ids.length === 0) return []
+  return db
+    .prepare(`SELECT ${SELECTED} FROM tasks WHERE id IN (SELECT value FROM json_each(?))`)
+    .all(JSON.stringify(ids))
     .map(parseTask)
 }
 

@@ -1,5 +1,8 @@
 import { CommandName, isBridgeError, type GladeBridge } from '../../shared/bridge'
 import { UiStateKey, type Task, type Workspace } from '../../shared/domain'
+import { parseTaskFilter } from '../../shared/attention'
+import { DONE_PAGE_SIZE, type DoneCounts } from '../../shared/doneList'
+import { withDonePage, withLoadedTasks } from './doneLists'
 import { withUiState } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeData } from './state'
 
@@ -31,8 +34,10 @@ export function restoreSelection(state: GladeData): GladeData {
 }
 
 /**
- * Loads main's state: every workspace, every workspace's tasks, the terminal tabs, the UI state and the settings, with
- * the selection restored.
+ * Loads main's state: every workspace, each one's tasks outside the Done section and how many are in it, the terminal
+ * tabs, the UI state and the settings, with the selection restored. The selected task is loaded wherever it is, and the
+ * shown workspace's Done section has its first page loaded under the filter chip chosen, so the task list is whole
+ * from the first frame.
  */
 export async function loadSnapshot(bridge: GladeBridge): Promise<GladeData> {
   const [{ workspaces }, { entries }, { tabs: terminalTabs }, { settings }] = await Promise.all([
@@ -42,19 +47,40 @@ export async function loadSnapshot(bridge: GladeBridge): Promise<GladeData> {
     bridge.invoke(CommandName.SettingsGet, {}),
   ])
   const lists = await Promise.all(
-    workspaces.map((workspace) => bridge.invoke(CommandName.TasksList, { workspaceId: workspace.id })),
+    workspaces.map((workspace) => bridge.invoke(CommandName.TasksListActive, { workspaceId: workspace.id })),
   )
   const tasks: Record<string, Task> = {}
-  for (const task of lists.flatMap((list) => list.tasks)) tasks[task.id] = task
-  const loaded: GladeData = {
+  const doneCounts: Record<string, DoneCounts> = {}
+  for (const [index, list] of lists.entries()) {
+    for (const task of list.tasks) tasks[task.id] = task
+    const workspace = workspaces[index]
+    if (workspace !== undefined) doneCounts[workspace.id] = list.done
+  }
+  const loaded = entries.reduce(withUiState, {
     ...INITIAL_DATA,
     hydration: { status: HydrationStatus.Ready },
     workspaces,
     tasks,
+    doneCounts,
     terminalTabs,
     settings,
-  }
-  return restoreSelection(entries.reduce(withUiState, loaded))
+  } satisfies GladeData)
+  const selected = loaded.selectedTaskId
+  const found =
+    selected === null || selected in tasks
+      ? loaded
+      : withLoadedTasks(loaded, (await bridge.invoke(CommandName.TasksGet, { ids: [selected] })).tasks)
+  const restored = restoreSelection(found)
+  const workspaceId = restored.selectedWorkspaceId
+  if (workspaceId === null) return restored
+  const filter = parseTaskFilter(restored.uiState[UiStateKey.TaskFilter])
+  const page = await bridge.invoke(CommandName.TasksListDone, {
+    workspaceId,
+    filter,
+    after: null,
+    limit: DONE_PAGE_SIZE,
+  })
+  return withDonePage(restored, workspaceId, filter, page)
 }
 
 /** A readable reason for a failed load: a `BridgeError`'s or `Error`'s message, or the value itself. */

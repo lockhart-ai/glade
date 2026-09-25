@@ -33,6 +33,7 @@ import type { Command, MenuState } from './commands'
 import type { ImageData } from './images'
 import type { Settings, SettingsPatch } from './settings'
 import type { SearchResult } from './search'
+import type { DoneCounts, DonePage, DonePageRequest } from './doneList'
 import type { TerminalTab } from './terminal'
 
 /** The name the bridge is exposed under on `window`. */
@@ -55,6 +56,9 @@ export enum CommandName {
   WorkspacesRemove = 'workspaces.remove',
   DialogChooseFolder = 'dialog.chooseFolder',
   TasksList = 'tasks.list',
+  TasksListActive = 'tasks.listActive',
+  TasksListDone = 'tasks.listDone',
+  TasksGet = 'tasks.get',
   TasksCreate = 'tasks.create',
   TasksMarkDone = 'tasks.markDone',
   TasksReopen = 'tasks.reopen',
@@ -192,6 +196,35 @@ export interface TasksListRequest {
 
 export interface TasksListResponse {
   /** The workspace's tasks, most recently updated first. */
+  readonly tasks: readonly Task[]
+}
+
+/**
+ * A workspace's tasks outside the Done section, which the window loads whole: its active tasks and its pinned ones,
+ * whatever their state. The Done section can grow to thousands, so it comes a page at a time (`tasks.listDone`), and
+ * this answers only how many it holds (see `src/shared/doneList.ts`).
+ */
+export type TasksListActiveRequest = TasksListRequest
+
+export interface TasksListActiveResponse {
+  /** Its active and pinned tasks, most recently updated first. */
+  readonly tasks: readonly Task[]
+  /** How many tasks its Done section holds. */
+  readonly done: DoneCounts
+}
+
+/** A page of a workspace's Done section under a filter chip, starting just after the page before's last task. */
+export type TasksListDoneRequest = DonePageRequest
+
+export type TasksListDoneResponse = DonePage
+
+/** Tasks by id, e.g. a done task a search found that the window hasn't loaded a page of yet. */
+export interface TasksGetRequest {
+  readonly ids: readonly string[]
+}
+
+export interface TasksGetResponse {
+  /** The ones that exist, in no particular order. */
   readonly tasks: readonly Task[]
 }
 
@@ -688,6 +721,9 @@ export interface CommandMap {
   [CommandName.WorkspacesRemove]: CommandSpec<WorkspacesRemoveRequest, null>
   [CommandName.DialogChooseFolder]: CommandSpec<EmptyRequest, DialogChooseFolderResponse>
   [CommandName.TasksList]: CommandSpec<TasksListRequest, TasksListResponse>
+  [CommandName.TasksListActive]: CommandSpec<TasksListActiveRequest, TasksListActiveResponse>
+  [CommandName.TasksListDone]: CommandSpec<TasksListDoneRequest, TasksListDoneResponse>
+  [CommandName.TasksGet]: CommandSpec<TasksGetRequest, TasksGetResponse>
   [CommandName.TasksCreate]: CommandSpec<TasksCreateRequest, TaskResponse>
   [CommandName.TasksMarkDone]: CommandSpec<TaskIdRequest, TaskResponse>
   [CommandName.TasksReopen]: CommandSpec<TaskIdRequest, TaskResponse>

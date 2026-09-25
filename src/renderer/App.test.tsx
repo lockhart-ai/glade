@@ -187,7 +187,7 @@ it('sizes the task list and bottom bar from UI state, keeps the sizes you resize
     </GladeStoreProvider>,
   )
   await act(() => store.getState().hydrate())
-  const shell = screen.getByTestId('window-drag-strip').parentElement
+  const shell = screen.getByTestId('window-title-bar').parentElement
   const size = (property: string): string | undefined => shell?.style.getPropertyValue(property)
   expect(size('--sidebar-width')).toBe('400px')
   expect(size('--bottom-bar-height')).toBe('250px')

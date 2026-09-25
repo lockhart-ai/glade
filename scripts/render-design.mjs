@@ -17,7 +17,9 @@ import { fileURLToPath } from 'node:url'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const HTML = join(ROOT, 'docs/design/html')
 const SCREENS = join(ROOT, 'docs/design/screens')
-const TIMEOUT_MS = 120_000
+const TIMEOUT_MS = 180_000
+/** How long a screen settles after its fonts and layout are ready, before it is captured. */
+const SETTLE_MS = 1000
 
 /** The screen's size: the first `width: Npx; height: Npx` in its markup. */
 function sizeOf(file) {
@@ -100,6 +102,9 @@ async function renderInElectron() {
           check()
         }))`,
     )
+    // The hidden window can still hand back a frame without its text for a moment after that (it did for about half
+    // the screens), so let it settle before capturing.
+    await new Promise((resolve) => setTimeout(resolve, SETTLE_MS))
     // A Retina display captures at 2x; scale it down so the PNG is at 1x, like the screens have always been.
     const image = await window.webContents.capturePage()
     const png = image.resize({ width: screen.width, height: screen.height, quality: 'best' }).toPNG()

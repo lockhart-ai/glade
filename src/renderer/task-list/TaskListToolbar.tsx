@@ -5,6 +5,8 @@ import { UiStateKey, type Task } from '../../shared/domain'
 import { classNames } from '../components/classNames'
 import { Button, ButtonVariant, Input } from '../components'
 import { useGladeStore } from '../store/react'
+import { doneCountsFor } from '../store/doneLists'
+import { isInDoneSection, type DoneCounts } from '../../shared/doneList'
 import { AppCommandId } from '../../shared/commands'
 import { useBinding } from '../commands/hooks'
 import { useNewTask } from './useNewTask'
@@ -20,11 +22,15 @@ interface ChipCounts {
   readonly unread: number
 }
 
-function countChips(tasks: Iterable<Task>, workspaceId: string): ChipCounts {
+/**
+ * What each chip counts in a workspace: its tasks outside the Done section, which are all loaded, and its Done
+ * section's unread tasks as main counts them, however few of them have loaded. (No done task needs you.)
+ */
+function countChips(tasks: Iterable<Task>, workspaceId: string, done: DoneCounts): ChipCounts {
   let needs = 0
-  let unread = 0
+  let unread = done.unread
   for (const task of tasks) {
-    if (task.workspaceId !== workspaceId) continue
+    if (task.workspaceId !== workspaceId || isInDoneSection(task)) continue
     if (needsYou(task)) needs += 1
     if (task.unread) unread += 1
   }
@@ -70,7 +76,8 @@ export function TaskListToolbar({ workspaceId }: TaskListToolbarProps): React.JS
   const tasks = useGladeStore((state) => state.tasks)
   const newTask = useNewTask(workspaceId)
   const newTaskKeys = useBinding(AppCommandId.NewTask)
-  const counts = useMemo(() => countChips(Object.values(tasks), workspaceId), [tasks, workspaceId])
+  const done = useGladeStore((state) => doneCountsFor(state, workspaceId))
+  const counts = useMemo(() => countChips(Object.values(tasks), workspaceId, done), [tasks, workspaceId, done])
   const chosen = useGladeStore((state) => parseTaskFilter(state.uiState[UiStateKey.TaskFilter]))
   const setUiState = useGladeStore((state) => state.setUiState)
   const searchText = useGladeStore((state) => state.searchText)
