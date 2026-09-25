@@ -3,10 +3,11 @@
  * never shown, captures the page at each requested size with `capturePage()`, writes the PNGs and exits. It never
  * runs in a packaged app.
  */
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { z } from 'zod'
+import { PLUGINS_FOLDER_NAME } from '../shared/plugins'
 import { READY_ATTRIBUTE } from '../shared/ready'
 import { AGENT_SCRIPT_NAMES, type AgentScriptName } from './agent/scripts'
 import { isInTempFolder, isolateApp, type IsolatedApp } from './isolation'
@@ -47,6 +48,16 @@ export interface CaptureSpec {
    * None by default.
    */
   readonly presses?: readonly CaptureKeyPress[] | undefined
+  /**
+   * Elements to click in the page, by CSS selector, in order, after the key presses and before capturing, e.g. a
+   * Settings section's nav button. Each waits until nothing on the page is busy (`aria-busy="true"`). None by default.
+   */
+  readonly clicks?: readonly string[] | undefined
+  /**
+   * Folders of sample plugins (see `scripts/fixtures/plugins/`) whose plugins are copied into the data folder's plugins
+   * folder before the app starts, so the capture shows them. None by default.
+   */
+  readonly plugins?: readonly string[] | undefined
 }
 
 /** One key press, as a `keydown` on the page's window: its `key` and modifiers. */
@@ -103,6 +114,8 @@ function captureSpecSchema(minimum: MinimumSize): z.ZodType<CaptureSpec> {
         }),
       )
       .optional(),
+    clicks: z.array(z.string().min(1)).optional(),
+    plugins: z.array(z.string().refine(isAbsolute, 'must be an absolute path')).optional(),
   })
 }
 
@@ -142,6 +155,9 @@ export function prepareCapture(app: CaptureApp, spec: CaptureSpec): void {
     isolateApp(app, { mode: 'capture', userData: spec.userData, reuse: false })
   } catch (error) {
     throw new CaptureSpecError((error as Error).message)
+  }
+  for (const plugins of spec.plugins ?? []) {
+    cpSync(plugins, join(spec.userData, PLUGINS_FOLDER_NAME), { recursive: true, verbatimSymlinks: true })
   }
 }
 
@@ -185,8 +201,41 @@ function pressKey(press: CaptureKeyPress): string {
 })`
 }
 
+/** How long a click waits for its element to show up. */
+const CLICK_WAIT_MS = 5000
+
 /**
- * Captures each shot in `spec`: waits for the renderer to say it's ready, presses the spec's keys, then for each shot
+ * Clicks an element (in the page) once it shows up, then waits until nothing on the page is busy, its animations have
+ * finished and it has painted.
+ * Rejects when nothing matches the selector in time.
+ */
+function clickElement(selector: string): string {
+  return `new Promise((resolve, reject) => {
+  const selector = ${JSON.stringify(selector)}
+  const giveUp = Date.now() + ${String(CLICK_WAIT_MS)}
+  const painted = () => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)))
+  // Once nothing is busy, the transitions the click started (a toggle sliding over) finish before the capture.
+  const settle = () => document.querySelector('[aria-busy="true"]') === null
+    ? Promise.all(document.getAnimations().map((animation) => animation.finished)).then(painted, painted)
+    : setTimeout(settle, 20)
+  const click = () => {
+    const element = document.querySelector(selector)
+    if (element instanceof HTMLElement) {
+      element.click()
+      requestAnimationFrame(settle)
+    } else if (Date.now() > giveUp) {
+      reject(new Error('Nothing to click at ' + selector))
+    } else {
+      setTimeout(click, 20)
+    }
+  }
+  click()
+})`
+}
+
+/**
+ * Captures each shot in `spec`: waits for the renderer to say it's ready, presses the spec's keys and clicks its
+ * elements, then for each shot
  * resizes the window,
  * waits for the page to lay out at that size, and writes a PNG of it at exactly that size (a Retina display captures
  * at 2x, which is scaled down, so the PNGs match the 1x design screens). Returns the files written.
@@ -194,6 +243,7 @@ function pressKey(press: CaptureKeyPress): string {
 export async function captureShots(window: CaptureWindow, spec: CaptureSpec): Promise<string[]> {
   await window.webContents.executeJavaScript(WAIT_UNTIL_READY)
   for (const press of spec.presses ?? []) await window.webContents.executeJavaScript(pressKey(press))
+  for (const selector of spec.clicks ?? []) await window.webContents.executeJavaScript(clickElement(selector))
   mkdirSync(spec.outDir, { recursive: true })
 
   const files: string[] = []

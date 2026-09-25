@@ -13,6 +13,7 @@ import {
   type WebPreferences,
 } from 'electron'
 import { EventType } from '../shared/bridge'
+import { PLUGINS_FOLDER_NAME } from '../shared/plugins'
 import type { AgentBackend } from './agent/backend'
 import { createSdkBackend, type SdkBackendOptions } from './agent/sdk-backend'
 import { AGENT_SCRIPTS, type AgentScriptName } from './agent/scripts'
@@ -536,6 +537,8 @@ export function startApp({
       // Whether the network is up, for resuming a task paused offline. In e2e mode, the spec decides.
       isOnline: testMode?.kind === TestModeKind.E2e ? createE2eNetwork() : net.isOnline.bind(net),
       terminal: terminalOptions(testMode, spawnPty),
+      // In the data folder, so a test mode's is in its throwaway one.
+      pluginsFolder: join(app.getPath('userData'), PLUGINS_FOLDER_NAME),
       updateMenu: (state) => {
         appMenu.update(state)
       },
@@ -563,6 +566,8 @@ export function startApp({
     }
     // A database from before each workspace kept its own selection still has only the window's; carry it over.
     backfillWorkspaceSelections(database.db)
+    // The plugins are read when Glade starts, noting the new ones, and again each time Settings › Plugins opens.
+    void bridge.plugins.list()
 
     app.on('will-quit', () => {
       log.info('app quitting')

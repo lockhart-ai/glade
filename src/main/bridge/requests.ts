@@ -39,6 +39,7 @@ import {
   type WorkspacesOpenRequest,
   type WorkspacesRemoveRequest,
   type SettingsUpdateRequest,
+  type PluginsSetEnabledRequest,
   type WorkspacesUpdateRequest,
   type WorkspacesRevealRequest,
 } from '../../shared/bridge'
@@ -195,6 +196,11 @@ const artifactsRemoveRequest = z.strictObject({
   path: z.string(),
 }) satisfies z.ZodType<ArtifactsRemoveRequest>
 
+const pluginsSetEnabledRequest = z.strictObject({
+  id: z.string(),
+  enabled: z.boolean(),
+}) satisfies z.ZodType<PluginsSetEnabledRequest>
+
 const clipboardWriteTextRequest = z.strictObject({ text: z.string() }) satisfies z.ZodType<ClipboardWriteTextRequest>
 
 const uiStateGetRequest = z.strictObject({ key: z.enum(UiStateKey) }) satisfies z.ZodType<UiStateGetRequest>
@@ -309,6 +315,9 @@ export const REQUEST_SCHEMAS = {
   [CommandName.SettingsGet]: emptyRequest,
   [CommandName.SettingsUpdate]: settingsUpdateRequest,
   [CommandName.SearchQuery]: searchQueryRequest,
+  [CommandName.PluginsList]: emptyRequest,
+  [CommandName.PluginsSetEnabled]: pluginsSetEnabledRequest,
+  [CommandName.PluginsOpenFolder]: emptyRequest,
   [CommandName.TerminalList]: emptyRequest,
   [CommandName.TerminalCreate]: terminalCreateRequest,
   [CommandName.TerminalDuplicate]: terminalIdRequest,

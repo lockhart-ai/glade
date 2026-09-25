@@ -36,6 +36,7 @@ import { FakeAgentBackend, settle, type AskedPermission, type PermissionCallFiel
 import { GLADE_SERVER } from './glade-tools'
 import { PERMISSION_WITHDRAWN_NOTE, permissionDeniedMessage, STOPPED_NOTE, type AgentRunner } from './runner'
 import * as sdk from './test-sdk-messages'
+import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
 
 let database: TestDatabase
 let workspace: Workspace
@@ -60,6 +61,7 @@ function launch(): void {
     revealPath: () => undefined,
     writeClipboard: () => Promise.resolve(),
     terminal: fakeTerminalOptions(),
+    pluginsFolder: UNREAD_PLUGINS_FOLDER,
     agentBackend: backend,
     notifyReply,
   }))

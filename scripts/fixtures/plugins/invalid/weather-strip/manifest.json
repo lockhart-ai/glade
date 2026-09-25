@@ -1,0 +1,7 @@
+{
+  "id": "weather-strip",
+  "name": "Weather Strip",
+  "version": "0.1.0",
+  "entry": "../shared/index.html",
+  "icon": "icon.svg"
+}

@@ -70,6 +70,10 @@ describe('REQUEST_SCHEMAS', () => {
     expect(REQUEST_SCHEMAS[CommandName.SettingsUpdate].parse({ patch: {} })).toEqual({ patch: {} })
     const search = { workspaceId: 'w', text: '"Retry-After' }
     expect(REQUEST_SCHEMAS[CommandName.SearchQuery].parse(search)).toEqual(search)
+    expect(REQUEST_SCHEMAS[CommandName.PluginsList].parse({})).toEqual({})
+    expect(REQUEST_SCHEMAS[CommandName.PluginsOpenFolder].parse({})).toEqual({})
+    const toggle = { id: 'pomodoro', enabled: false }
+    expect(REQUEST_SCHEMAS[CommandName.PluginsSetEnabled].parse(toggle)).toEqual(toggle)
   })
 
   it('refuses a Done page of no tasks, too many, an unknown filter or a malformed cursor', () => {
@@ -147,6 +151,12 @@ describe('REQUEST_SCHEMAS', () => {
       CommandName.SearchQuery,
       { workspaceId: 'w' },
       'text: Invalid input: expected string, received undefined',
+    ],
+    [
+      'a plugin toggle without its state',
+      CommandName.PluginsSetEnabled,
+      { id: 'pomodoro' },
+      'enabled: Invalid input: expected boolean, received undefined',
     ],
     [
       'a missing workspace id',

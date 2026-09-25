@@ -33,6 +33,7 @@ import { markRunning } from './relaunch'
 import type { FileLogSinkOptions } from './logging/file-sink'
 import { createFakeSpawner } from './terminal/fake-pty'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
+import { writePlugin } from './plugins/test-plugins'
 
 type Handler = (...args: unknown[]) => unknown
 
@@ -456,6 +457,24 @@ describe('startApp', () => {
     const db = new Database(file, { readonly: true })
     try {
       expect(db.prepare('SELECT MAX(version) FROM schema_version').pluck().get()).toBe(MIGRATIONS.length)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('reads the plugins folder in the data folder when it starts, turning on the plugins it finds', async () => {
+    writePlugin(join(electron.app.userData, 'plugins'), 'pomodoro')
+
+    await startAndWaitUntilReady()
+
+    await vi.waitFor(() => {
+      expect(logged('plugins found')).toEqual([
+        expect.objectContaining({ scope: 'plugins', folder: join(electron.app.userData, 'plugins'), valid: 1 }),
+      ])
+    })
+    const db = new Database(join(electron.app.userData, 'glade.db'), { readonly: true })
+    try {
+      expect(db.prepare('SELECT id, enabled FROM plugins').all()).toEqual([{ id: 'pomodoro', enabled: 1 }])
     } finally {
       db.close()
     }

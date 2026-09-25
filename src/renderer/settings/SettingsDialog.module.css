@@ -222,6 +222,68 @@
   color: var(--color-pink);
 }
 
+/* Settings › Plugins: docs/design/html/21-settings-plugins.html. */
+.pluginList {
+  display: flex;
+  flex-direction: column;
+}
+
+.pluginRow {
+  gap: 16px;
+}
+
+/* A plugin's icon, on a tile. */
+.pluginTile {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--color-raised);
+  border: 1px solid var(--color-strong);
+  border-radius: var(--radius-button);
+  color: var(--color-muted);
+}
+
+/* An invalid plugin's tile: a warning, in pink. */
+.invalidTile {
+  background: color-mix(in srgb, var(--color-pink) 10%, var(--color-inner));
+  border-color: color-mix(in srgb, var(--color-pink) 25%, var(--color-inner));
+  color: var(--color-pink);
+}
+
+.pluginIcon {
+  display: block;
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.pluginVersion {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-faint);
+}
+
+/* Why a plugin is invalid. */
+.pluginReason {
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.45;
+  color: var(--color-pink);
+  overflow-wrap: anywhere;
+}
+
+/* Settings › Plugins with none installed. */
+.empty {
+  margin: 0;
+  padding: 16px 0;
+  font-size: var(--font-size-secondary);
+  color: var(--color-faint);
+}
+
 /* Settings › Keyboard: one group per area of the app, as docs/design/screens/22-keymap.png lays them out. */
 .keyGroup {
   flex-shrink: 0;

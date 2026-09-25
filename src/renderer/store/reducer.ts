@@ -229,5 +229,7 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return state
     case EventType.SettingsChanged:
       return { ...state, settings: event.settings }
+    case EventType.PluginsChanged:
+      return { ...state, plugins: event.plugins }
   }
 }

@@ -3,10 +3,16 @@
 //
 //   npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <file base name>]
 //                         [--seed <fixture.json>] [--agent-script <name> [--message <first message>]]
-//                         [--press <key> ...]
+//                         [--press <key> ...] [--click <selector> ...] [--plugins <folder> ...]
 //
 // With --press (e.g. `--press Meta+,` for the Settings modal), the app presses each key in the page, in order, once it's
 // ready and before capturing: a key name as KeyboardEvent.key has it, after any of Meta+, Shift+, Alt+ and Control+.
+// With --click, it then clicks each element, by CSS selector, in order, once it shows up, waiting each time until
+// nothing is busy. Settings › Plugins, with one workspace: `--click 'button[aria-label="Switch workspace"]'
+// --click '[role="menu"] button:nth-of-type(4)' --click 'nav[aria-label="Settings sections"] button:nth-of-type(6)'`.
+//
+// With --plugins, the app starts with each folder's sample plugins (scripts/fixtures/plugins/valid and invalid)
+// copied into its plugins folder.
 //
 // With --agent-script, the capture shows a live task: the app makes a workspace and a task, sends it the first
 // message, and lets the named agent script (src/main/agent/scripts.ts: simple-reply, multi-tool-turn, long-running,
@@ -33,7 +39,8 @@ function fail(message) {
   console.error(`screenshot: ${message}`)
   console.error(
     'usage: npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <name>] ' +
-      '[--seed <fixture>] [--agent-script <name> [--message <text>]] [--press <key> ...]',
+      '[--seed <fixture>] [--agent-script <name> [--message <text>]] [--press <key> ...] [--click <selector> ...] ' +
+      '[--plugins <folder> ...]',
   )
   process.exit(2)
 }
@@ -74,6 +81,8 @@ try {
       message: { type: 'string', default: DEFAULT_MESSAGE },
       seed: { type: 'string' },
       press: { type: 'string', multiple: true },
+      click: { type: 'string', multiple: true },
+      plugins: { type: 'string', multiple: true },
     },
   }))
 } catch (error) {
@@ -96,6 +105,8 @@ const spec = {
   ...(agentScript === undefined ? {} : { conversation: { agentScript, message: values.message } }),
   ...(values.seed === undefined ? {} : { seed: resolve(values.seed) }),
   ...(values.press === undefined ? {} : { presses: values.press.map(parsePress) }),
+  ...(values.click === undefined ? {} : { clicks: values.click }),
+  ...(values.plugins === undefined ? {} : { plugins: values.plugins.map((folder) => resolve(folder)) }),
 }
 
 if (!buildForTests()) {

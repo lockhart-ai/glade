@@ -31,6 +31,7 @@ import { testModeLogsFolder } from '../src/main/isolation'
 import { LOG_FILE_NAME } from '../src/main/logging/file-sink'
 import type { TaskNotification } from '../src/main/notifications/notifier'
 import type { RecordingNotifier } from '../src/main/notifications/recording-notifier'
+import { PLUGINS_FOLDER_NAME } from '../src/shared/plugins'
 import { READY_ATTRIBUTE } from '../src/shared/ready'
 
 export { expect } from '@playwright/test'
@@ -128,6 +129,11 @@ interface Fixtures {
   launch: (options?: LaunchOptions) => Promise<Glade>
   /** Makes an empty folder in the system temp folder, removed after the test. */
   tempFolder: (prefix?: string) => string
+  /**
+   * The test's throwaway data folder, which every launch in the test uses: a spec can put things in it before a launch,
+   * such as plugins in its plugins folder (`pluginsFolder`).
+   */
+  userData: string
 }
 
 /** Environment for the app: the e2e spec, and nothing that would make it run as Node or load a dev server. */
@@ -170,8 +176,11 @@ export const test = base.extend<Fixtures>({
     for (const folder of folders) rmSync(folder, { recursive: true, force: true })
   },
 
-  launch: async ({ tempFolder }, use, testInfo) => {
-    const userData = tempFolder('glade-e2e-data-')
+  userData: async ({ tempFolder }, use) => {
+    await use(tempFolder('glade-e2e-data-'))
+  },
+
+  launch: async ({ userData }, use, testInfo) => {
     const launched: Glade[] = []
     const name = videoName(testInfo.file, testInfo.title)
     // Chosen once, so a test's relaunches share the zone even if the hour turns in between.
@@ -333,4 +342,9 @@ export async function setOnline({ app }: Glade, online: boolean): Promise<void> 
  */
 export async function agentEnvs({ app }: Glade): Promise<E2eAgentEnvs> {
   return app.evaluate((_, name) => Reflect.get(globalThis, name) as E2eAgentEnvs, E2E_AGENT_ENVS_GLOBAL)
+}
+
+/** The plugins folder in a test's data folder (`userData`), where Glade looks for plugins. */
+export function pluginsFolder(userData: string): string {
+  return join(userData, PLUGINS_FOLDER_NAME)
 }

@@ -65,6 +65,7 @@ import { fakeTerminalOptions } from '../terminal/fake-pty'
 import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
 import { LogLevel, LogScope } from '../logging/logger'
 import { AgentEventKind } from './events'
+import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
 
 let database: TestDatabase
 let workspace: Workspace
@@ -98,6 +99,7 @@ beforeEach(() => {
     revealPath: () => undefined,
     writeClipboard: () => Promise.resolve(),
     terminal: fakeTerminalOptions(),
+    pluginsFolder: UNREAD_PLUGINS_FOLDER,
     agentBackend: backend,
     log: log.logger,
   }))
@@ -126,6 +128,7 @@ function relaunch(): void {
     revealPath: () => undefined,
     writeClipboard: () => Promise.resolve(),
     terminal: fakeTerminalOptions(),
+    pluginsFolder: UNREAD_PLUGINS_FOLDER,
     agentBackend: backend,
     log: log.logger,
   }))
@@ -216,6 +219,7 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.TerminalOutput:
       case EventType.TerminalCleared:
       case EventType.SettingsChanged:
+      case EventType.PluginsChanged:
         return [event.type]
     }
   })
@@ -2827,6 +2831,7 @@ describe('several tasks at once', () => {
       case EventType.WorkspaceRemoved:
       case EventType.MenuCommand:
       case EventType.SettingsChanged:
+      case EventType.PluginsChanged:
         return null
     }
   }
@@ -2865,6 +2870,7 @@ describe('several tasks at once', () => {
       case EventType.TerminalOutput:
       case EventType.TerminalCleared:
       case EventType.SettingsChanged:
+      case EventType.PluginsChanged:
         return [event.type]
     }
   }

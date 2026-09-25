@@ -21,6 +21,7 @@ import { fakeTerminalOptions } from '../terminal/fake-pty'
 import { FakeAgentBackend, settle } from './fake-backend'
 import { RESTARTED_TOOL_NOTE, type AgentRunner } from './runner'
 import * as sdk from './test-sdk-messages'
+import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
 
 let database: TestDatabase
 let workspace: Workspace
@@ -42,6 +43,7 @@ function launch(): void {
     revealPath: () => undefined,
     writeClipboard: () => Promise.resolve(),
     terminal: fakeTerminalOptions(),
+    pluginsFolder: UNREAD_PLUGINS_FOLDER,
     agentBackend: backend,
   }))
   glade = createBridge(ipc.renderer)

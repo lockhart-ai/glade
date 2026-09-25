@@ -82,7 +82,7 @@ describe('SettingsDialog', () => {
 
     expect(store.getState().settingsSection).toBe(SettingsSection.Plugins)
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Plugins')
-    expect(screen.getByText('No plugins installed.')).toBeInTheDocument()
+    expect(await screen.findByText('No plugins installed.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Plugins' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByRole('button', { name: 'Agent' })).not.toHaveAttribute('aria-current')
 

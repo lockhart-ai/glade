@@ -33,6 +33,7 @@ import {
 } from '../../shared/domain'
 import { ImageMediaType } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
+import type { InstalledPlugin } from '../../shared/plugins'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import type { Handlers } from './handlers'
 import { REQUEST_SCHEMAS, type RequestSchemas } from './requests'
@@ -100,6 +101,9 @@ const TASK_HANDLERS = {
   [CommandName.TerminalClear]: () => null,
   [CommandName.TerminalInterrupt]: () => null,
   [CommandName.TerminalClose]: () => null,
+  [CommandName.PluginsList]: () => ({ plugins: [] }),
+  [CommandName.PluginsSetEnabled]: () => ({ plugins: [] }),
+  [CommandName.PluginsOpenFolder]: () => null,
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
   [CommandName.TasksCreate]: REQUEST_SCHEMAS[CommandName.TasksCreate],
@@ -405,6 +409,9 @@ describe('events', () => {
           break
         case EventType.SettingsChanged:
           expectTypeOf(event.settings).toEqualTypeOf<Settings>()
+          break
+        case EventType.PluginsChanged:
+          expectTypeOf(event.plugins).toEqualTypeOf<readonly InstalledPlugin[]>()
           break
       }
     })

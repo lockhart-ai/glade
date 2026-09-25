@@ -273,6 +273,9 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
       case EventType.SettingsChanged:
         app.info('settings changed', { settings: event.settings })
         return
+      case EventType.PluginsChanged:
+        // The plugins log themselves as they're read and turned on or off.
+        return
       case EventType.UiStateChanged:
         app.debug('ui state changed', { key: event.entry.key, value: excerpt(event.entry.value) })
         return

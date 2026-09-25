@@ -51,6 +51,8 @@ export enum LogScope {
   Notifications = 'notifications',
   /** The terminal tabs and their shells. */
   Terminal = 'terminal',
+  /** The plugins found in the plugins folder, and turned on and off. */
+  Plugins = 'plugins',
   /** Errors in the window, forwarded by the renderer. */
   Renderer = 'renderer',
   /** The screenshot and e2e test modes. */

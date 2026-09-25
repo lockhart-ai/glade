@@ -1,0 +1,7 @@
+{
+  "id": "tide-clock",
+  "name": "Tide Clock",
+  "version": "1.2.0",
+  "entry": "app/index.html",
+  "icon": "icon.svg"
+}

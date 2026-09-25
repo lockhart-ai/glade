@@ -15,6 +15,7 @@ import { getUiState, setUiState } from '../db/repositories/ui-state'
 import { getWorkspaceSelection } from '../db/repositories/workspace-selections'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
+import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
 
 let database: TestDatabase
 let first: Task
@@ -39,6 +40,7 @@ function launch(): void {
     revealPath: () => undefined,
     writeClipboard: () => Promise.resolve(),
     terminal: fakeTerminalOptions(),
+    pluginsFolder: UNREAD_PLUGINS_FOLDER,
     agentBackend: backend,
     notifyReply: (taskId, reply) => notified.push([taskId, reply]),
   }))

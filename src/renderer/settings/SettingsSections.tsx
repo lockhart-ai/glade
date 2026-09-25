@@ -1,7 +1,8 @@
-import { faChevronDown } from '@fortawesome/free-solid-svg-icons'
-import { useState, type ReactNode } from 'react'
+import { faChevronDown, faPuzzlePiece, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Effort } from '../../shared/domain'
 import { EFFORT_NAMES, MODEL_OPTIONS, modelName } from '../../shared/models'
+import { PluginStatus, type InstalledPlugin } from '../../shared/plugins'
 import type { Settings, SettingsPatch } from '../../shared/settings'
 import {
   Button,
@@ -18,6 +19,7 @@ import {
   type MenuEntry,
   type SegmentedOption,
 } from '../components'
+import { classNames } from '../components/classNames'
 import { shortenHomePath } from '../paths'
 import { describeFailure } from '../store/hydrate'
 import { selectSelectedWorkspace } from '../store/state'
@@ -225,9 +227,122 @@ export function AppearanceSection(): React.JSX.Element {
   return <Intro>Glade has one theme, dark. Nothing to change here yet.</Intro>
 }
 
-/** The plugin API is for later, so there are none to show. */
+interface PluginRowProps {
+  plugin: InstalledPlugin
+  onToggle: (id: string, enabled: boolean) => void
+}
+
+/** One plugin: its icon, name and version, and its toggle; or, for an invalid one, its folder and why. */
+function PluginRow({ plugin, onToggle }: PluginRowProps): React.JSX.Element {
+  switch (plugin.status) {
+    case PluginStatus.Valid: {
+      const { manifest } = plugin
+      return (
+        <div role="listitem" aria-label={manifest.name} className={classNames(styles.row, styles.pluginRow)}>
+          <span className={styles.pluginTile} aria-hidden="true">
+            {plugin.iconUrl === null ? (
+              <Icon icon={faPuzzlePiece} size={IconSize.Medium} />
+            ) : (
+              <img className={styles.pluginIcon} src={plugin.iconUrl} alt="" />
+            )}
+          </span>
+          <div className={styles.rowText}>
+            <span className={styles.rowName}>{manifest.name}</span>
+            <span className={styles.pluginVersion}>{manifest.version}</span>
+          </div>
+          <Toggle
+            label={manifest.name}
+            checked={plugin.enabled}
+            onChange={(enabled) => {
+              onToggle(plugin.folder, enabled)
+            }}
+          />
+        </div>
+      )
+    }
+    case PluginStatus.Invalid:
+      return (
+        <div role="listitem" aria-label={plugin.folder} className={classNames(styles.row, styles.pluginRow)}>
+          <span className={classNames(styles.pluginTile, styles.invalidTile)} aria-hidden="true">
+            <Icon icon={faTriangleExclamation} size={IconSize.Medium} />
+          </span>
+          <div className={styles.rowText}>
+            <span className={styles.rowName}>{plugin.folder}</span>
+            <span className={styles.pluginReason}>{plugin.reason}</span>
+          </div>
+        </div>
+      )
+  }
+}
+
+/**
+ * The plugins in the plugins folder (`docs/design/screens/21-settings-plugins.png`), which is read again each time
+ * this opens: a row per plugin with its toggle, an invalid one with why, and Open plugins folder.
+ */
 export function PluginsSection(): React.JSX.Element {
-  return <Intro>No plugins installed.</Intro>
+  const plugins = useGladeStore((state) => state.plugins)
+  const loadPlugins = useGladeStore((state) => state.loadPlugins)
+  const setPluginEnabled = useGladeStore((state) => state.setPluginEnabled)
+  const openPluginsFolder = useGladeStore((state) => state.openPluginsFolder)
+  // Whether the folder has been read since this opened: until then, the list may be out of date.
+  const [read, setRead] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const attempt = async (action: () => Promise<void>): Promise<void> => {
+    setError(null)
+    try {
+      await action()
+    } catch (failure) {
+      setError(describeFailure(failure))
+    }
+  }
+
+  useEffect(() => {
+    // Aborted when the section closes before the folder has been read.
+    const closed = new AbortController()
+    void (async () => {
+      try {
+        await loadPlugins()
+      } catch (failure) {
+        if (!closed.signal.aborted) setError(describeFailure(failure))
+      }
+      if (!closed.signal.aborted) setRead(true)
+    })()
+    return () => {
+      closed.abort()
+    }
+  }, [loadPlugins])
+
+  return (
+    <>
+      <Intro>
+        Plugins show beside the terminal. Glade looks for new ones each time this opens. Changes save automatically.
+      </Intro>
+      <SettingRow
+        name="Plugins folder"
+        description="Copy a plugin's folder here to install it; delete it to remove it."
+      >
+        <Button size={ButtonSize.Small} onClick={() => void attempt(openPluginsFolder)}>
+          Open plugins folder
+        </Button>
+      </SettingRow>
+      <div role="list" aria-label="Plugins" aria-busy={!read} className={styles.pluginList}>
+        {plugins?.map((plugin) => (
+          <PluginRow
+            key={plugin.folder}
+            plugin={plugin}
+            onToggle={(id, enabled) => void attempt(() => setPluginEnabled(id, enabled))}
+          />
+        ))}
+      </div>
+      {read && plugins?.length === 0 && <p className={styles.empty}>No plugins installed.</p>}
+      {error !== null && (
+        <p role="alert" className={styles.error}>
+          {error}
+        </p>
+      )}
+    </>
+  )
 }
 
 /** The workspace you're in: its name and root folder. Changing the root moves nothing on disk. */

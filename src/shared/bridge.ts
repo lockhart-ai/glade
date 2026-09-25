@@ -35,6 +35,7 @@ import type { Settings, SettingsPatch } from './settings'
 import type { SearchResult } from './search'
 import type { DoneCounts, DonePage, DonePageRequest } from './doneList'
 import type { TerminalTab } from './terminal'
+import type { InstalledPlugin } from './plugins'
 
 /** The name the bridge is exposed under on `window`. */
 export const BRIDGE_KEY = 'glade'
@@ -91,6 +92,9 @@ export enum CommandName {
   SettingsGet = 'settings.get',
   SettingsUpdate = 'settings.update',
   SearchQuery = 'search.query',
+  PluginsList = 'plugins.list',
+  PluginsSetEnabled = 'plugins.setEnabled',
+  PluginsOpenFolder = 'plugins.openFolder',
   TerminalList = 'terminal.list',
   TerminalCreate = 'terminal.create',
   TerminalDuplicate = 'terminal.duplicate',
@@ -595,6 +599,30 @@ export interface SearchQueryResponse {
   readonly results: readonly SearchResult[]
 }
 
+/**
+ * The plugins in the plugins folder (`<userData>/plugins`, `docs/plugin-api.md`), which is read again for it, and
+ * created if it's missing: each one's manifest and whether it's on, or why it's invalid, in order of folder name. A
+ * plugin found for the first time is turned on. Broadcasts `plugins.changed` when the list differs from the last time
+ * the folder was read. Settings › Plugins asks for it each time it opens.
+ */
+export interface PluginsResponse {
+  readonly plugins: readonly InstalledPlugin[]
+}
+
+/**
+ * Turns a plugin on or off; the state is saved, and kept if its folder is removed, in case it comes back. Answers with
+ * the plugins as they now are, and broadcasts `plugins.changed`. Fails with `not_found` for a plugin that wasn't valid
+ * the last time the folder was read.
+ */
+export interface PluginsSetEnabledRequest {
+  /** The plugin's id (its folder's name). */
+  readonly id: string
+  readonly enabled: boolean
+}
+
+/** Opens the plugins folder in Finder (Open plugins folder), creating it if it's missing. */
+export type PluginsOpenFolderRequest = EmptyRequest
+
 export interface TerminalListResponse {
   /** Every terminal tab, in the tab row's order. */
   readonly tabs: readonly TerminalTab[]
@@ -756,6 +784,9 @@ export interface CommandMap {
   [CommandName.SettingsGet]: CommandSpec<EmptyRequest, SettingsResponse>
   [CommandName.SettingsUpdate]: CommandSpec<SettingsUpdateRequest, SettingsResponse>
   [CommandName.SearchQuery]: CommandSpec<SearchQueryRequest, SearchQueryResponse>
+  [CommandName.PluginsList]: CommandSpec<EmptyRequest, PluginsResponse>
+  [CommandName.PluginsSetEnabled]: CommandSpec<PluginsSetEnabledRequest, PluginsResponse>
+  [CommandName.PluginsOpenFolder]: CommandSpec<PluginsOpenFolderRequest, null>
   [CommandName.TerminalList]: CommandSpec<EmptyRequest, TerminalListResponse>
   [CommandName.TerminalCreate]: CommandSpec<TerminalCreateRequest, TerminalTabResponse>
   /** Adds a tab after a terminal tab, with its name and folder, and a new shell. Broadcasts `terminal.tabsChanged`. */
@@ -807,6 +838,7 @@ export enum EventType {
   TerminalCleared = 'terminal.cleared',
   MenuCommand = 'menu.command',
   SettingsChanged = 'settings.changed',
+  PluginsChanged = 'plugins.changed',
 }
 
 export interface UiStateChangedEvent {
@@ -983,6 +1015,15 @@ export interface SettingsChangedEvent {
   readonly settings: Settings
 }
 
+/**
+ * The plugins changed: one was turned on or off, or reading the plugins folder found it changed (a plugin added,
+ * removed or edited). Carries them all as they now are.
+ */
+export interface PluginsChangedEvent {
+  readonly type: EventType.PluginsChanged
+  readonly plugins: readonly InstalledPlugin[]
+}
+
 /** Everything main broadcasts to the windows. */
 export type GladeEvent =
   | UiStateChangedEvent
@@ -1010,6 +1051,7 @@ export type GladeEvent =
   | TerminalClearedEvent
   | MenuCommandEvent
   | SettingsChangedEvent
+  | PluginsChangedEvent
 
 export type EventListener = (event: GladeEvent) => void
 

@@ -11,6 +11,7 @@ import type {
   WorkspaceUserPatch,
 } from '../../shared/bridge'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../shared/settings'
+import type { InstalledPlugin } from '../../shared/plugins'
 import type { SettingsSection } from '../settings/sections'
 import type { Command, MenuState } from '../../shared/commands'
 import type {
@@ -192,6 +193,11 @@ export interface GladeData {
   readonly settings: Settings
   /** The section the Settings modal shows; null while it's closed. A one-off UI intent. */
   readonly settingsSection: SettingsSection | null
+  /**
+   * The plugins in the plugins folder, as main last read it (`plugins.list`, which Settings › Plugins asks for each time
+   * it opens) or broadcast them; null until it's first read.
+   */
+  readonly plugins: readonly InstalledPlugin[] | null
   /** The latest request to add text to a task's message field; null until one is made. A one-off UI intent. */
   readonly inputInsertion: InputInsertion | null
   /**
@@ -246,6 +252,12 @@ export interface GladeActions {
   openSettings: (section?: SettingsSection) => void
   /** Closes the Settings modal. */
   closeSettings: () => void
+  /** Reads the plugins folder again (`plugins.list`), finding plugins added, removed or changed since. */
+  loadPlugins: () => Promise<void>
+  /** Turns a plugin on or off (`plugins.setEnabled`); the change saves at once. */
+  setPluginEnabled: (id: string, enabled: boolean) => Promise<void>
+  /** Opens the plugins folder in Finder (Open plugins folder). */
+  openPluginsFolder: () => Promise<void>
   /**
    * Asks for a folder with the native dialog and adds it as a workspace (or finds the one already there) and opens it:
    * New workspace… and Open folder as workspace…. Resolves with the workspace, or null if the dialog was cancelled.
@@ -482,6 +494,7 @@ export const INITIAL_DATA: GladeData = {
   removingWorkspaceId: null,
   settings: DEFAULT_SETTINGS,
   settingsSection: null,
+  plugins: null,
   inputInsertion: null,
   searchText: '',
   searchFocusRequest: 0,
