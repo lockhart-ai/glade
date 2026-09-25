@@ -1,6 +1,6 @@
 import { faChevronDown } from '@fortawesome/free-solid-svg-icons'
 import { useState, type ReactNode } from 'react'
-import { Effort } from '../../shared/domain'
+import { Effort, PermissionMode } from '../../shared/domain'
 import { EFFORT_NAMES, MODEL_OPTIONS, modelName } from '../../shared/models'
 import type { Settings, SettingsPatch } from '../../shared/settings'
 import {
@@ -67,22 +67,43 @@ const EFFORT_OPTIONS: readonly SegmentedOption<Effort>[] = Object.values(Effort)
   label: EFFORT_NAMES[effort],
 }))
 
-/** What the agent may do without asking. Only Allow all is offered for now (`docs/decisions.md`). */
-enum Permission {
+/**
+ * What the agent may do without asking, as the design's Permissions setting offers it: Ask first is the ask mode
+ * (`PermissionMode.AskBeforeEdits`), Allow all is Allow all, and Allow edits isn't a mode yet, so it's disabled
+ * (`docs/decisions.md`, "Per-call permission review").
+ */
+export enum Permission {
   AskFirst = 'ask_first',
   AllowEdits = 'allow_edits',
   AllowAll = 'allow_all',
 }
 
 const PERMISSION_OPTIONS: readonly SegmentedOption<Permission>[] = [
-  { value: Permission.AskFirst, label: 'Ask first', disabled: true },
+  { value: Permission.AskFirst, label: 'Ask first' },
   { value: Permission.AllowEdits, label: 'Allow edits', disabled: true },
   { value: Permission.AllowAll, label: 'Allow all' },
 ]
 
-/** Nothing to do: the one permission that can be chosen is the one already chosen. */
-function keepPermission(): void {
-  // Allow all is fixed until per-call review exists (a Later item in docs/decisions.md).
+/** The option a permission mode shows as. */
+function permissionOf(mode: PermissionMode): Permission {
+  switch (mode) {
+    case PermissionMode.AllowAll:
+      return Permission.AllowAll
+    case PermissionMode.AskBeforeEdits:
+      return Permission.AskFirst
+  }
+}
+
+/** The permission mode an option stands for; null for Allow edits, which can't be chosen. */
+export function permissionModeOf(permission: Permission): PermissionMode | null {
+  switch (permission) {
+    case Permission.AskFirst:
+      return PermissionMode.AskBeforeEdits
+    case Permission.AllowAll:
+      return PermissionMode.AllowAll
+    case Permission.AllowEdits:
+      return null
+  }
 }
 
 interface ModelPickerProps {
@@ -162,8 +183,11 @@ export function AgentSection(): React.JSX.Element {
         <Segmented
           label="Permissions"
           options={PERMISSION_OPTIONS}
-          value={Permission.AllowAll}
-          onChange={keepPermission}
+          value={permissionOf(settings.defaultPermissionMode)}
+          onChange={(permission) => {
+            const defaultPermissionMode = permissionModeOf(permission)
+            if (defaultPermissionMode !== null) update({ defaultPermissionMode })
+          }}
         />
       </SettingRow>
       <SettingRow

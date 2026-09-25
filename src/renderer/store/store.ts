@@ -452,6 +452,10 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.QuestionsAnswer, { id, answers })
       },
 
+      async answerPermission(id, decision) {
+        await bridge.invoke(CommandName.PermissionsAnswer, { id, decision })
+      },
+
       async editQueuedMessage(id, text) {
         await bridge.invoke(CommandName.QueueEdit, { id, text })
       },

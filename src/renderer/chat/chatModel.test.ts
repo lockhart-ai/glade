@@ -12,10 +12,11 @@ import {
   type CompactionEvent,
   type DividerEvent,
   type Message,
+  type PermissionRequest,
   type QuestionSet,
   type ToolEvent,
 } from '../../shared/domain'
-import { sampleTask } from '../store/test-bridge'
+import { samplePermissionRequest, sampleTask } from '../store/test-bridge'
 import {
   ChatEntryKind,
   chatEntries,
@@ -39,11 +40,12 @@ import {
 
 const task = sampleTask('t1', 'w1')
 
-/** Each entry's message id, or its divider's or question set's id. */
+/** Each entry's message id, or its divider's, question set's or permission request's id. */
 function kinds(entries: readonly ChatEntry[]): unknown[] {
   return entries.map((entry) => {
     if ('message' in entry) return entry.message.id
     if ('questionSet' in entry) return entry.questionSet.id
+    if ('request' in entry) return entry.request.id
     return 'compaction' in entry ? entry.compaction.id : entry.divider.id
   })
 }
@@ -283,6 +285,42 @@ describe('question cards', () => {
     expect(questionLead(set, [])).toBeNull()
     const [entry] = chatEntries(task, [], [said], [set])
     expect(entry).toEqual({ kind: ChatEntryKind.Question, questionSet: set, lead: 'A few choices are yours.' })
+  })
+})
+
+describe('permission cards', () => {
+  const at = <T extends Message>(entry: T, createdAt: number): T => ({ ...entry, createdAt })
+  const requested = (id: string, turn: number, createdAt: number): PermissionRequest => ({
+    ...samplePermissionRequest(id, 't1'),
+    turn,
+    createdAt,
+  })
+  const asked = (id: string, turn: number, createdAt: number): QuestionSet => ({
+    id,
+    taskId: 't1',
+    turn,
+    questions: [{ kind: QuestionKind.Pills, prompt: 'Credit?', options: ['Yes', 'No'] }],
+    state: QuestionSetState.Open,
+    reply: null,
+    createdAt,
+    closedAt: null,
+  })
+
+  it("show where they asked, in the order they asked, among the turn's messages and the questions", () => {
+    const messages = [
+      message('ask', MessageRole.User, 1),
+      at(message('queued', MessageRole.User, 1), 3_000),
+      at(message('reply-1', MessageRole.Agent, 1), 4_000),
+      at(message('follow-up', MessageRole.User, 2), 5_000),
+    ]
+    const requests = [requested('p3', 2, 6_000), requested('p2', 1, 2_500), requested('p1', 1, 2_000)]
+    const entries = chatEntries(task, messages, [], [asked('q1', 1, 2_200)], requests)
+    expect(kinds(entries)).toEqual(['ask', 'p1', 'q1', 'p2', 'queued', 'reply-1', 'follow-up', 'p3'])
+    expect(entries[1]).toEqual({ kind: ChatEntryKind.Permission, request: requests[2] })
+  })
+
+  it('shows with no messages yet, as for a turn the agent started on its own', () => {
+    expect(kinds(chatEntries(task, [], [], [], [requested('p1', 1, 2_000)]))).toEqual(['p1'])
   })
 })
 
