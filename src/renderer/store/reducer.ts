@@ -35,7 +35,9 @@ export function withUiState(state: GladeData, entry: UiStateEntry): GladeData {
     case UiStateKey.RightPanelWidth:
     case UiStateKey.RightPanelCollapsed:
     case UiStateKey.SidebarCollapsed:
+    case UiStateKey.SidebarWidth:
     case UiStateKey.BottomBarCollapsed:
+    case UiStateKey.BottomBarHeight:
     case UiStateKey.TerminalTab:
       return next
   }
