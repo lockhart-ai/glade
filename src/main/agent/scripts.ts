@@ -388,13 +388,6 @@ const multiToolTurn: AgentScript = {
         prompt: 'Find the tests that depend on the local timezone.',
         subagent_type: 'Explore',
       }),
-      emit({
-        type: 'system',
-        subtype: 'task_started',
-        task_type: 'local_agent',
-        subagent_type: 'Explore',
-        description: 'Find flaky tests',
-      }),
       ...tool('explore-grep', 'Grep', { pattern: 'new Date\\(', path: 'test' }, 'test/date.test.ts', 'explore'),
       ...tool('explore-read', 'Read', { file_path: 'test/date.test.ts' }, "it('formats', () => { … })", 'explore'),
       toolResult('explore', 'test/date.test.ts builds its dates in local time.'),

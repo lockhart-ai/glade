@@ -16,6 +16,8 @@
  *   `aborted_streaming`).
  * - A `Wake` step has the agent start a turn of its own later, with no message sent (see `ScriptStepKind.Wake`). It
  *   waits for the turn playing to end, like a message sent meanwhile, and a message sent while it plays is folded in.
+ * - An `Agent` (or `Task`) call starts its subagent as a task, as the SDK does: a `task_started` after the call, and a
+ *   `task_updated` and `task_notification` (completed, or failed for an error) just before its result.
  * - A `Background` step starts a subagent in the background (see `ScriptStepKind.Background`): its `Agent` call returns
  *   at once, and the subagent plays its steps alongside the session's turns, until it ends and notifies the agent, which
  *   may then start a turn of its own. `stopTask` stops it by its task id; closing the session stops it without a word.
@@ -102,6 +104,9 @@ export const LAUNCHED_OUTPUT =
   'Async agent launched successfully. The agent is working in the background. You will be notified automatically ' +
   'when it completes.'
 
+/** The tools that start a subagent: `Agent` in `tool_use` (the init tools list calls it `Task`). */
+const SUBAGENT_TOOLS: ReadonlySet<string> = new Set(['Agent', 'Task'])
+
 /** How many tokens a background subagent says it has used, per tool call it has made. Made up. */
 const SUBAGENT_TOKENS_PER_CALL = 1_150
 
@@ -180,8 +185,10 @@ export class ScriptedSession implements AgentSession {
   private turnsRun = 0
   /** How many turns the agent has started on its own. */
   private wakes = 0
-  /** How many subagents the session has started in the background. */
+  /** How many subagents the session has started, in the background or not: what numbers their task ids. */
   private backgrounds = 0
+  /** The SDK task id of each subagent a turn waits on, by its `Agent` call's SDK id, until its call's result. */
+  private readonly foreground = new Map<string, string>()
   /** The background subagents playing, by their SDK task id: each plays as a turn of its own, to interrupt. */
   private readonly running = new Map<string, TurnState>()
   /** The script the session plays: picked on its first message. */
@@ -444,9 +451,8 @@ export class ScriptedSession implements AgentSession {
     this.backgrounds += 1
     const taskId = `a${this.idPrefix}${String(this.backgrounds)}`
     const input: ToolInput = { ...step.input, run_in_background: true }
-    this.toolUse(turn, step.id, 'Agent', input, null, uuid)
     const agentId = this.sdkToolId(turn, step.id)
-    turn.running.delete(step.id)
+    this.assistant(turn, { type: 'tool_use', id: agentId, name: 'Agent', input }, null, uuid)
     const description = typeof input.description === 'string' ? input.description : ''
     this.push({
       type: 'system',
@@ -699,11 +705,58 @@ export class ScriptedSession implements AgentSession {
     const sdkParent = parent === null ? null : this.sdkToolId(turn, parent)
     turn.running.set(id, { sdkId, parent: sdkParent })
     this.assistant(turn, { type: 'tool_use', id: sdkId, name, input }, sdkParent, uuid)
+    if (SUBAGENT_TOOLS.has(name)) this.startForeground(sdkId, input)
+  }
+
+  /**
+   * A subagent the turn waits on starts as a task, as the SDK starts one (`docs/sdk-notes.md`, "Subagents"): its
+   * `task_started`, not backgrounded.
+   */
+  private startForeground(agentId: string, input: ToolInput): void {
+    this.backgrounds += 1
+    const taskId = `a${this.idPrefix}${String(this.backgrounds)}`
+    this.foreground.set(agentId, taskId)
+    this.push({
+      type: 'system',
+      subtype: 'task_started',
+      task_id: taskId,
+      tool_use_id: agentId,
+      description: typeof input.description === 'string' ? input.description : '',
+      subagent_type: input.subagent_type ?? 'general-purpose',
+      is_backgrounded: false,
+      spawn_depth: 1,
+      task_type: 'local_agent',
+      prompt: input.prompt,
+      uuid: randomUUID(),
+    })
   }
 
   private toolResult(turn: TurnState, id: string, output: string, isError: boolean): void {
     const call = turn.running.get(id)
     turn.running.delete(id)
+    const taskId = call === undefined ? undefined : this.foreground.get(call.sdkId)
+    // A subagent the turn waited on ends before its call's result, as the SDK ends one.
+    if (call !== undefined && taskId !== undefined) {
+      this.foreground.delete(call.sdkId)
+      const status = isError ? 'failed' : 'completed'
+      this.push({
+        type: 'system',
+        subtype: 'task_updated',
+        task_id: taskId,
+        patch: { status, end_time: Date.now() },
+        uuid: randomUUID(),
+      })
+      this.push({
+        type: 'system',
+        subtype: 'task_notification',
+        task_id: taskId,
+        tool_use_id: call.sdkId,
+        status,
+        output_file: `tasks/${taskId}.output`,
+        summary: output,
+        uuid: randomUUID(),
+      })
+    }
     this.pushToolResult(call?.sdkId ?? this.sdkToolId(turn, id), call?.parent ?? null, output, isError)
     turn.afterResult = true
   }

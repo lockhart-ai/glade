@@ -45,6 +45,7 @@ import {
 } from './scripts'
 import { OFFLINE_FIRST_CHECK_MS } from './pauses'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
+import type { AgentLog } from './events'
 
 let database: TestDatabase
 let task: Task
@@ -55,9 +56,11 @@ let backend: TestModeAgentBackend
 interface Listeners {
   readonly emit?: (event: GladeEvent) => void
   readonly notifyReply?: NotifyReply
+  /** Where the runner reports what it drops or ignores; the console by default. */
+  readonly log?: AgentLog
 }
 
-function start(name: AgentScriptName, { emit = () => undefined, notifyReply }: Listeners = {}): AgentRunner {
+function start(name: AgentScriptName, { emit = () => undefined, notifyReply, log }: Listeners = {}): AgentRunner {
   backend = createTestModeAgentBackend({ script: AGENT_SCRIPTS[name] })
   const base = { db: database.db, emit }
   const questions = createQuestionBroker(base)
@@ -66,6 +69,7 @@ function start(name: AgentScriptName, { emit = () => undefined, notifyReply }: L
     ...context,
     backend,
     ...(notifyReply === undefined ? {} : { notifyReply }),
+    ...(log === undefined ? {} : { log }),
     // The real Glade tools, as the app gives every session.
     mcpServers: (forTask) => ({ [GLADE_SERVER]: createGladeMcpServer(context, forTask.id) }),
   })
@@ -118,6 +122,24 @@ describe('AGENT_SCRIPTS', () => {
   it('names each script by its key', () => {
     expect(Object.keys(AGENT_SCRIPTS)).toEqual(AGENT_SCRIPT_NAMES)
     for (const name of AGENT_SCRIPT_NAMES) expect(AGENT_SCRIPTS[name].name).toBe(name)
+  })
+
+  it.each(AGENT_SCRIPT_NAMES)('%s: streams only messages the runner can read, every turn of it', async (name) => {
+    const warnings: string[] = []
+    const agent = start(name, { log: { warn: (message) => warnings.push(message) } })
+    for (const [index] of AGENT_SCRIPTS[name].turns.entries()) {
+      // A turn still working (waiting to be stopped, say) is stopped first, so the next message starts a turn.
+      if (activity() === TaskActivity.Working) {
+        const stopped = agent.stop(task.id)
+        await vi.advanceTimersByTimeAsync(0)
+        await stopped
+      }
+      if (activity() === TaskActivity.Paused) break
+      agent.send(task.id, `Message ${String(index + 1)}.`)
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+    }
+    // What the parser drops, it says so about: nothing a script plays should be dropped.
+    expect(warnings.filter((message) => message.startsWith('Dropped') || message.startsWith('Ignored SDK'))).toEqual([])
   })
 
   it('simple-reply: sets the title, objective and status, then replies', async () => {

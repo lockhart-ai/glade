@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { CompactionTrigger, Effort, QuestionKind, QuestionReplyKind } from '../../shared/domain'
 import type { AgentSessionOptions } from './backend'
-import { AgentEventKind, createSdkMessageParser, type AgentEvent } from './events'
+import { AgentEventKind, createSdkMessageParser, TaskOutcome, type AgentEvent } from './events'
 import { answeredAfterRestart, COMPACT_COMMAND, RESUME_PROMPT } from './runner'
 import {
   gladeToolName,
@@ -220,6 +220,29 @@ describe('ScriptedSession', () => {
     ])
   })
 
+  it('ends a subagent the turn waited on as failed when its call fails', async () => {
+    const played = play([
+      [
+        toolUse('agent', 'Task', { description: 'Look', prompt: 'Look around.' }),
+        toolResult('agent', 'Gave up.', true),
+      ],
+    ])
+    played.session.send('Go', 'user-1')
+    await flush()
+
+    expect(played.raw.find((message) => message.subtype === 'task_started')).toMatchObject({
+      tool_use_id: 'toolu_id2_1_agent',
+      description: 'Look',
+      prompt: 'Look around.',
+      subagent_type: 'general-purpose',
+      is_backgrounded: false,
+      task_type: 'local_agent',
+    })
+    expect(played.events).toContainEqual(
+      expect.objectContaining({ kind: AgentEventKind.TaskFinished, outcome: TaskOutcome.Failed, summary: 'Gave up.' }),
+    )
+  })
+
   it('streams tool calls and results with unique ids, one assistant message per round, subagent calls nested', async () => {
     const played = play([
       [
@@ -259,6 +282,8 @@ describe('ScriptedSession', () => {
         input: { description: 'Look' },
         parentToolUseId: null,
       },
+      // A subagent the turn waits on starts as a task, and ends before its call's result.
+      { kind: AgentEventKind.SubagentStarted, sdkTaskId: 'aid21', toolUseId: `${prefix}agent`, background: false },
       {
         kind: AgentEventKind.ToolCallStarted,
         toolUseId: `${prefix}inner`,
@@ -268,6 +293,13 @@ describe('ScriptedSession', () => {
       },
       { kind: AgentEventKind.ToolResult, toolUseId: `${prefix}inner`, output: 'hit', isError: false, launched: false },
       { kind: AgentEventKind.Text, text: 'Subagent text', parentToolUseId: `${prefix}agent` },
+      {
+        kind: AgentEventKind.TaskFinished,
+        sdkTaskId: 'aid21',
+        toolUseId: `${prefix}agent`,
+        outcome: TaskOutcome.Completed,
+        summary: 'Found it.',
+      },
       {
         kind: AgentEventKind.ToolResult,
         toolUseId: `${prefix}agent`,
@@ -602,7 +634,7 @@ describe('ScriptedSession', () => {
 
       await played.session.interrupt()
       await flush()
-      expect(played.events.slice(2)).toEqual([
+      expect(played.events.slice(3)).toEqual([
         {
           kind: AgentEventKind.ToolResult,
           toolUseId: 'toolu_id2_1_agent',
