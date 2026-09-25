@@ -98,6 +98,11 @@ export function taskList(page: Page) {
     renameField: sidebar.getByRole('textbox', { name: 'Task title' }),
     /** A row's state dot, whose `data-state` is the task's indicator (working, waiting, done or error). */
     dot: (row: Locator) => row.locator('[data-state]'),
+    /**
+     * A row's todo progress (`3/7`), named `3 of 7 todos done · Now: …` (its tooltip too); `data-done` once every item is
+     * done. There only while the agent keeps a list.
+     */
+    todoProgress: (row: Locator) => row.getByRole('img', { name: /todos done/ }),
   }
 }
 

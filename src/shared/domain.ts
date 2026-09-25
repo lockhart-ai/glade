@@ -206,6 +206,11 @@ export interface Task {
   readonly pause: TaskPause | null
   /** When the task was imported from a Claude Code session; null for a task made in Glade. */
   readonly importedAt: EpochMs | null
+  /**
+   * Its todo list in brief, for its row in the task list; null while the agent keeps no list (or an empty one). Main
+   * keeps it in step with the todo list the tool log leaves, which the Todos tab shows (see `src/main/todos`).
+   */
+  readonly todos: TodoSummary | null
 }
 
 /** Who wrote a chat message. */
@@ -404,6 +409,15 @@ export interface TodoList {
   readonly items: readonly Todo[]
   /** When the agent last changed it: the time of its latest todo tool call. */
   readonly updatedAt: EpochMs
+}
+
+/** A todo list in brief: how far through it the agent is (the task row's `3/7`), and what it's working on now. */
+export interface TodoSummary {
+  readonly done: number
+  /** Every item, done or not; never 0 (an empty list has no summary). */
+  readonly total: number
+  /** The text of each item being worked on now, in the list's order. */
+  readonly doing: readonly string[]
 }
 
 /** The keys of the app's persisted UI state. Each value is a string. */

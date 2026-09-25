@@ -47,6 +47,7 @@ import { setUiState } from '../db/repositories/ui-state'
 import { FakeAgentBackend, settle, type FakeAgentSession } from './fake-backend'
 import { GLADE_SERVER } from './glade-tools'
 import { needsYou } from '../../shared/attention'
+import { todoProgress } from '../../shared/todoSummary'
 import {
   COMPACT_COMMAND,
   answeredAfterRestart,
@@ -486,6 +487,49 @@ describe('the todo list', () => {
     const { todos: loaded } = await glade.invoke(CommandName.TasksHistory, { id: task.id })
     expect(loaded?.items.map(({ text, state }) => [text, state])).toEqual(todos)
     expect(loaded?.items[0]?.note).toBe('Finding the uploads')
+  })
+
+  it("keeps the task's todo progress up to date for its row, telling the windows each time it changes", async () => {
+    /** The todo progress in each `task.updated` since the last call. */
+    const progressUpdates = (): unknown[] =>
+      events.splice(0).flatMap((event) => (event.type === EventType.TaskUpdated ? [event.task.todos] : []))
+
+    await send('Move the uploads to S3.')
+    progressUpdates()
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_01', 'TaskCreate', { subject: 'Find the uploads', description: 'Find the uploads' }),
+      sdk.toolResult('toolu_01', 'Task #1 created successfully: Find the uploads'),
+      sdk.toolUse('toolu_02', 'TaskCreate', { subject: 'Copy the files', description: 'Copy the files' }),
+      sdk.toolResult('toolu_02', 'Task #2 created successfully: Copy the files'),
+      sdk.toolUse('toolu_03', 'TaskUpdate', { taskId: '1', status: 'in_progress' }),
+      sdk.toolResult('toolu_03', 'Updated task #1 status'),
+      // Only the note changes: the row says the same.
+      sdk.toolUse('toolu_04', 'TaskUpdate', { taskId: '1', activeForm: 'Finding the uploads' }),
+      sdk.toolResult('toolu_04', 'Updated task #1'),
+      sdk.toolUse('toolu_05', 'TaskUpdate', { taskId: '1', status: 'completed' }),
+      sdk.toolResult('toolu_05', 'Updated task #1 status'),
+    )
+    await settle()
+
+    expect(progressUpdates().filter((todos) => todos !== null)).toEqual([
+      { done: 0, total: 1, doing: [] },
+      { done: 0, total: 2, doing: [] },
+      { done: 0, total: 2, doing: ['Find the uploads'] },
+      { done: 1, total: 2, doing: [] },
+    ])
+    expect(current().todos).toEqual({ done: 1, total: 2, doing: [] })
+    const { todos: tab } = await glade.invoke(CommandName.TasksHistory, { id: task.id })
+    expect(todoProgress(tab)).toEqual({ done: 1, total: 2, doing: 0 })
+
+    // The list the agent clears leaves the row with none.
+    backend.session.emit(
+      sdk.toolUse('toolu_06', 'TodoWrite', { todos: [] }),
+      sdk.toolResult('toolu_06', 'Todos have been modified successfully.'),
+      sdk.result('Done.'),
+    )
+    await settle()
+    expect(current().todos).toBeNull()
   })
 })
 

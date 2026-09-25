@@ -124,8 +124,10 @@ uses without being asked, so the system prompt says nothing about todos (`src/ma
 
 `pending`, `in_progress` and `completed` map to todo, doing and done; a doing item's `activeForm` is its note. Only the
 main agent's successful calls count. The list isn't stored on its own: main works it out from the task's tool log
-(`todoListFor`), sends it with `tasks.history`, and broadcasts `todos.changed` when a todo tool call finishes. The calls
-stay in the tool log like any others. The domain's `waiting` state (purple in the design) has no source in Claude
+(`todoListFor`), sends it with `tasks.history`, and broadcasts `todos.changed` when a todo tool call finishes. Each
+task also keeps a summary of it (`todos` on the task: done, total and the items in progress), updated at the same
+moment and sent with `task.updated` when it changes, so the task list's rows show the progress without each task's
+history (#246). The calls stay in the tool log like any others. The domain's `waiting` state (purple in the design) has no source in Claude
 Code's tools, so nothing sets it yet.
 
 ## Glade's control tools: `glade-control` (P13-01)

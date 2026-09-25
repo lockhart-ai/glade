@@ -207,6 +207,24 @@ describe('import', () => {
     expect(events).toEqual([{ type: EventType.TaskUpdated, task }])
   })
 
+  it("keeps the session's todo progress on the task, for its row", async () => {
+    const session = new TranscriptBuilder(cwd)
+      .prompt(0, 'Move the uploads to S3.')
+      .toolUse(1, 'toolu_1', 'TaskCreate', { subject: 'Find the uploads', description: 'Find the uploads' })
+      .toolResult(2, 'toolu_1', 'Task #1 created successfully: Find the uploads')
+      .toolUse(3, 'toolu_2', 'TaskCreate', { subject: 'Copy the files', description: 'Copy the files' })
+      .toolResult(4, 'toolu_2', 'Task #2 created successfully: Copy the files')
+      .toolUse(5, 'toolu_3', 'TaskUpdate', { taskId: '1', status: 'completed' })
+      .toolResult(6, 'toolu_3', 'Updated task #1 status')
+    writeTranscript(projects, cwd, session.toJsonl())
+
+    const { task } = await sessions.import(importInput())
+
+    expect(task.todos).toEqual({ done: 1, total: 2, doing: [] })
+    expect(getTask(database.db, task.id)?.todos).toEqual(task.todos)
+    expect(events).toEqual([{ type: EventType.TaskUpdated, task }])
+  })
+
   it('imports by path too, and active when asked', async () => {
     const path = writeTranscript(projects, cwd, plainChat(cwd).toJsonl())
     const { task } = await sessions.import(importInput({ session: { path }, state: TaskState.Active }))

@@ -41,6 +41,7 @@ import {
 } from '../../db/repositories/tool-events'
 import { getWorkspaceByRoot, listWorkspaces } from '../../db/repositories/workspaces'
 import { truncate } from '../../notifications/notifications'
+import { refreshTodos } from '../../todos/todos'
 import { createWorkspaceAt } from '../../workspaces/workspaces'
 import { ControlError, ControlErrorCode } from '../errors'
 import type { ClaudeCodeSessionPage } from '../service'
@@ -422,6 +423,8 @@ async function importSession(
     )
     const windowTokens = contextWindowFor(model)
     for (const turn of transcript.turns) writeTurn(db, created.id, turn, windowTokens, transcript.startedAt)
+    // The session's todo calls leave a list, as a Glade task's do: its row shows the progress.
+    refreshTodos(db, created.id)
     const task = updateTask(
       db,
       created.id,

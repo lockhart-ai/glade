@@ -657,6 +657,7 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
     awaitingPermission: false,
     pause: null,
     importedAt: null,
+    todos: null,
   }
 }
 
