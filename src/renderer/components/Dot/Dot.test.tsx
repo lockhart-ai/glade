@@ -29,4 +29,14 @@ describe('Dot', () => {
 
     expect(screen.getByRole('img', { name: 'Waiting on you' })).not.toHaveAttribute('aria-hidden')
   })
+
+  it('takes a tooltip, and has none without one', () => {
+    const { rerender } = render(
+      <Dot state={TaskIndicator.Error} label="Active · stopped by an error" title="Stopped" />,
+    )
+    expect(screen.getByRole('img')).toHaveAttribute('title', 'Stopped')
+
+    rerender(<Dot state={TaskIndicator.Error} label="Active · stopped by an error" />)
+    expect(screen.getByRole('img')).not.toHaveAttribute('title')
+  })
 })

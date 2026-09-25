@@ -1,0 +1,46 @@
+{
+  "workspace": { "name": "Acme API", "rootPath": "/Users/sample/code/api" },
+  "tasks": [
+    {
+      "title": "Move image uploads to S3",
+      "objective": "Move user image uploads from local disk to S3.",
+      "status": "Copying existing files: 1,240 of 3,900 done.",
+      "activity": "working",
+      "minutesAgo": 0,
+      "startedMinutesAgo": 21
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "objective": "Add per-key rate limiting to the public API so one client can't starve the others.",
+      "status": "Needs a decision on the /search limit before finishing.",
+      "activity": "waiting",
+      "minutesAgo": 4,
+      "startedMinutesAgo": 42,
+      "selected": true
+    },
+    {
+      "title": "Fix flaky login test",
+      "objective": "test_login_redirect fails about one run in ten on CI.",
+      "status": "Was confirming on Postgres when the API became overloaded.",
+      "activity": "error",
+      "minutesAgo": 1,
+      "startedMinutesAgo": 35
+    },
+    {
+      "title": "Sync the billing webhooks",
+      "objective": "Replay the missed billing webhooks from last night.",
+      "status": "Replaying 212 of 530. Paused by the usage limit.",
+      "activity": "paused",
+      "minutesAgo": 2,
+      "startedMinutesAgo": 90
+    },
+    {
+      "title": "Investigate slow dashboard query",
+      "objective": "Find out why the dashboard takes two seconds to load.",
+      "status": "Added an index; 2.1s down to 90ms.",
+      "state": "done",
+      "minutesAgo": 7200,
+      "startedMinutesAgo": 7260
+    }
+  ]
+}

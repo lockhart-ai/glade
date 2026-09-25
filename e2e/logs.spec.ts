@@ -65,7 +65,7 @@ test('logs: a scripted task can be followed through the log from its first messa
   await bar.field.press('Enter')
   await expect(chat(window).agentReplies).toHaveCount(1)
   await taskHeader(window).markDone.click()
-  await expect(taskHeader(window).pill).toHaveText(/^Done · /)
+  await expect(taskHeader(window).stateDot).toHaveAccessibleName(/^Done · /)
   const { workspaces } = await invoke(window, CommandName.WorkspacesList, {})
   const { tasks } = await invoke(window, CommandName.TasksList, { workspaceId: workspaces[0]?.id ?? '' })
   const taskId = tasks[0]?.id ?? ''

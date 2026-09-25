@@ -82,8 +82,13 @@ test('an agent backfills past tasks; the user opens one, sees its handoff and ar
   await expect(list.rows('Done')).toHaveText([new RegExp(`^${PDFS.title}`), new RegExp(`^${BILLING.title}`)])
   await list.row('Done', BILLING.title).click()
   await expect(header.title).toHaveText(BILLING.title)
-  await expect(header.pill).toHaveText(/^Done · Mar \d+$/)
-  await expect(header.timing).toHaveText(/^started Mar \d+$/)
+  await expect(header.stateDot).toHaveAccessibleName(/^Done · Mar \d+$/)
+  await expect(header.stateDot).toHaveAttribute('data-state', 'done')
+  // Backfilled done, it has no span of its own: only the day it started, with the full date as its tooltip.
+  await expect(header.age).toHaveText(/^· started Mar \d+$/)
+  await expect(header.age).toHaveAttribute('title', /^Started Mar \d+, \d{4}, \d{1,2}:\d{2} [AP]M$/)
+  await expect(header.markDone).toHaveCount(0)
+  await expect(header.field('Outcome')).toBeVisible()
   await expect(conversation.newTaskPrompt).toHaveCount(0)
 
   // The Backfilled card: the handoff note, rendered, open until its line closes it.
@@ -109,7 +114,7 @@ test('an agent backfills past tasks; the user opens one, sees its handoff and ar
   await bar.field.fill(PICK_UP)
   await bar.field.press('Enter')
   await expect(conversation.agentReplies.last()).toContainText(REPLIES_BRIEFLY.reply)
-  await expect(header.pill).toHaveText(/^Active/)
+  await expect(header.stateDot).toHaveAccessibleName(/^Active/)
   await expect(conversation.markedDone).toHaveCount(1)
   await expect(conversation.reopened).toHaveCount(1)
   await expect(conversation.handoffCard).toBeVisible()

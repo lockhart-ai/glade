@@ -28,7 +28,7 @@ test('reopen by chatting: a message in a done task reopens it and the agent carr
   await bar.field.fill('The date test is flaky. Can you fix it?')
   await bar.field.press('Enter')
   await expect(conversation.agentReplies).toHaveCount(1)
-  await expect(header.pill).toHaveText('Active · waiting on you')
+  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
 
   // Mark it done: the row moves to Done, the Undo toast shows, and the input bar says a message reopens it. Marking
   // done adds no divider.
@@ -36,22 +36,26 @@ test('reopen by chatting: a message in a done task reopens it and the agent carr
   await list.sectionHeader('Done').click()
   await header.markDone.click()
   await expect(undo).toBeVisible()
-  await expect(header.pill).toHaveText(/^Done · /)
+  await expect(header.stateDot).toHaveAccessibleName(/^Done · /)
   await expect(list.rows('Done')).toHaveCount(1)
   await expect(list.rows('Active')).toHaveCount(0)
   await expect(bar.field).toHaveAttribute('placeholder', 'Send a message to reopen this task…')
   await expect(conversation.markedDone).toHaveCount(0)
 
   // A message reopens it while the Undo toast is still up: the toast goes, the row moves back to Active, and the
-  // header says when it was reopened and first done.
+  // header keeps the task's age, and its tooltip says when it was first done and reopened.
   await bar.field.fill('Check the report header too.')
   await bar.field.press('Enter')
   await expect(undo).toHaveCount(0)
   await expect(region).toBeEmpty()
   await expect(list.rows('Active')).toHaveCount(1)
   await expect(list.rows('Done')).toHaveCount(0)
-  await expect(header.pill).toHaveText(/^Active · /)
-  await expect(header.header).toContainText(/reopened just now · first done [A-Z][a-z]{2} \d{1,2}/)
+  await expect(header.stateDot).toHaveAccessibleName(/^Active · /)
+  await expect(header.age).toHaveText('· now')
+  await expect(header.age).toHaveAttribute(
+    'title',
+    /^Started .* · first done .* · reopened [A-Z][a-z]{2} \d{1,2}, \d{4}/,
+  )
   await expect(header.markDone).toBeVisible()
 
   // The chat marks when it was done, before your message, and that your message reopened it, after it.
@@ -61,8 +65,8 @@ test('reopen by chatting: a message in a done task reopens it and the agent carr
   // The agent answers in the same conversation, and the task waits on you again.
   await expect(conversation.agentReplies).toHaveCount(2)
   await expect(conversation.agentReplies.nth(1)).toContainText('The report header already goes through')
-  await expect(header.pill).toHaveText('Active · waiting on you')
-  await expect(header.field('Status')).toContainText('The report header uses the UTC date too.')
+  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
+  await expect(header.field('Now')).toContainText('The report header uses the UTC date too.')
   expect(await chatOrder(conversation.log)).toEqual(['You', 'Agent', 'Marked done', 'You', 'Reopened', 'Agent'])
 
   // The tool log has the dividers too, before the new turn's.

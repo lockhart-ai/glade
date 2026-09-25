@@ -72,7 +72,7 @@ test('artifacts: the agent declares deliverables; Open, Copy and Reveal; they st
   // Marked done, the task keeps its artifacts.
   const header = taskHeader(window)
   await header.markDone.click()
-  await expect(header.pill).toHaveText(/^Done · /)
+  await expect(header.stateDot).toHaveAccessibleName(/^Done · /)
   await window.keyboard.press('Meta+Alt+Digit4')
   await expect(panel.tab(/^Artifacts/)).toHaveText('Artifacts 2')
   await expect(artifacts.cards).toHaveCount(2)
@@ -82,7 +82,7 @@ test('artifacts: the agent declares deliverables; Open, Copy and Reveal; they st
   const relaunched = await launch()
   const again = artifactsTab(relaunched.window)
   const againPanel = taskPanel(relaunched.window)
-  await expect(taskHeader(relaunched.window).pill).toHaveText(/^Done · /)
+  await expect(taskHeader(relaunched.window).stateDot).toHaveAccessibleName(/^Done · /)
   await expect(againPanel.tab(/^Artifacts/)).toHaveText('Artifacts 2')
   await expect(again.cards).toHaveCount(2)
   await expect(again.card('Release notes 2.4')).toContainText('Markdown · 9 lines')

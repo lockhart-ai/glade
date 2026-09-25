@@ -80,7 +80,8 @@
   background: color-mix(in srgb, var(--color-pink) 22%, transparent);
 }
 
-.icon {
+.icon,
+.iconOutline {
   width: 30px;
   height: 30px;
   padding: 0;
@@ -89,9 +90,16 @@
   color: var(--color-faint);
 }
 
-.icon:hover:enabled {
+.icon:hover:enabled,
+.iconOutline:hover:enabled {
   background: var(--color-raised);
   color: var(--color-text);
+}
+
+/* Mark done in the task header, from docs/design/html/task-workspace.html. */
+.iconOutline {
+  border-color: var(--color-strong);
+  color: var(--color-muted);
 }
 
 /* A pressed icon toggle (e.g. a pinned task's pin), from docs/design/html/03-rich-question.html. */

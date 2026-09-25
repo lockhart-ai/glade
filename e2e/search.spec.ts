@@ -44,7 +44,7 @@ test('search: results replace the list as you type, with the matches marked; ope
   await search.row('Add rate limiting to public API').click()
   await expect(search.row('Add rate limiting to public API')).toHaveAttribute('aria-current', 'true')
   await expect(header.title).toHaveText('Add rate limiting to public API')
-  await expect(search.marks(header.field('Objective'))).toHaveText(['Retry-After'])
+  await expect(search.marks(header.field('Goal'))).toHaveText(['Retry-After'])
   await expect(search.marks(header.field('Outcome'))).toHaveText(['Retry-After'])
   await expect(search.marks(conversation.userMessages)).toHaveText(['Retry-After'])
   await expect(search.marks(conversation.agentReplies)).toHaveText(['Retry-After'])

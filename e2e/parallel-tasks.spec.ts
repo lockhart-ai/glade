@@ -32,7 +32,7 @@ test('two tasks work at once, each with its own chat and tool log, and stopping 
   await bar.field.fill(RUN_SUITE)
   await bar.field.press('Enter')
   await expect(panel.call(/^Running\s*Bash/)).toBeVisible()
-  await expect(header.pill).toHaveText('Active · working')
+  await expect(header.stateDot).toHaveAccessibleName('Active · working')
 
   // Task B runs a whole turn while A keeps working.
   await list.newTask.click()
@@ -43,7 +43,7 @@ test('two tasks work at once, each with its own chat and tool log, and stopping 
   await expect(agentReplies).toHaveCount(1)
   await expect(agentReplies.first()).toContainText('The failing test was a timezone bug')
   await expect(header.title).toHaveText('Fix the flaky date test')
-  await expect(header.pill).toHaveText('Active · waiting on you')
+  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
   await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 10')
   await expect(panel.log.getByRole('button', { name: /^Done/ })).toHaveCount(10)
   await expect(panel.call(/Bash\s*npm run test:e2e/)).toHaveCount(0)
@@ -57,7 +57,7 @@ test('two tasks work at once, each with its own chat and tool log, and stopping 
   // Back to A: its own chat and tool log, still working, with nothing of B's.
   await rowA.click()
   await expect(header.title).toHaveText('Run the e2e suite')
-  await expect(header.pill).toHaveText('Active · working')
+  await expect(header.stateDot).toHaveAccessibleName('Active · working')
   await expect(userMessages).toHaveCount(1)
   await expect(userMessages.first()).toContainText(RUN_SUITE)
   await expect(agentReplies).toHaveCount(0)
@@ -78,13 +78,13 @@ test('two tasks work at once, each with its own chat and tool log, and stopping 
   await rowA.click()
   await expect(header.title).toHaveText('Run the e2e suite')
   await bar.stop.click()
-  await expect(header.pill).toHaveText('Active · waiting on you')
+  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
   await expect(panel.call(/^Failed\s*Bash/)).toHaveAccessibleName(/You stopped the agent\.$/)
   await expect(list.dot(rowA)).toHaveAttribute('data-state', 'waiting')
 
   await rowB.click()
   await expect(header.title).toHaveText('Fix the flaky date test')
-  await expect(header.pill).toHaveText('Active · waiting on you')
+  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
   await expect(agentReplies).toHaveCount(1)
   await expect(panel.log.getByRole('button', { name: /^Done/ })).toHaveCount(10)
   await expect(panel.call(/^Failed/)).toHaveCount(0)

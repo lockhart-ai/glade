@@ -1,4 +1,4 @@
-import { faBell } from '@fortawesome/free-regular-svg-icons'
+import { faBell, faCircleCheck } from '@fortawesome/free-regular-svg-icons'
 import {
   faCheck,
   faChevronDown,
@@ -146,6 +146,10 @@ function ButtonSection(): React.JSX.Element {
         <Button variant={ButtonVariant.Icon} aria-label="New task" icon={faPlus} />
         <Button variant={ButtonVariant.Icon} aria-label="Close settings" icon={faXmark} />
         <Button variant={ButtonVariant.Icon} aria-label="Disabled" icon={faPlus} disabled />
+      </Row>
+      <Row name="Icon outline">
+        <Button variant={ButtonVariant.IconOutline} aria-label="Mark done" title="Mark done" icon={faCircleCheck} />
+        <Button variant={ButtonVariant.IconOutline} aria-label="Disabled" icon={faCircleCheck} disabled />
       </Row>
       <Row name="Sizes">
         <Button size={ButtonSize.Small}>Small</Button>

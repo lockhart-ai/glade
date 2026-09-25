@@ -4,10 +4,13 @@ import { chat, inputBar, regions, settings, taskHeader, taskPanel } from './sele
 import { boxOf, MIN_WINDOW, resize } from './window-layout'
 
 /**
- * The tallest the header may be in the smallest window: one line of title, the pill and timing, and one line each of
- * objective and status. Wrapped, it was about four times the lines and pushed the chat under the input bar.
+ * The tallest the header may be in the smallest window: one line of dot, title and age, and one line each of goal and
+ * status. Wrapped, it was about four times the lines and pushed the chat under the input bar.
  */
-const MAX_HEADER_HEIGHT = 120
+const MAX_HEADER_HEIGHT = 100
+
+/** One line of goal or status: 14px at a line-height of 1.5. */
+const FIELD_LINE_HEIGHT = 21
 
 /** The chat keeps at least this much height in the smallest window. */
 const MIN_CHAT_HEIGHT = 80
@@ -53,11 +56,21 @@ test('narrow window: the header stays compact and the chat stays visible and scr
   await expect(header.title).toHaveText(/^Add per-key rate limiting/)
   await resize(glade, MIN_WINDOW.width, MIN_WINDOW.height)
 
-  // The long title truncates to one line, with the whole of it as a tooltip; so do the objective and status.
+  // The long title truncates to one line, with the whole of it as a tooltip; so do the goal and status, a line each.
   await expect(header.title).toHaveAttribute('title', /give the search endpoint its own tighter limit$/)
   expect(await header.title.evaluate((title) => title.scrollWidth > title.clientWidth)).toBe(true)
-  await expect(header.field('Objective')).toHaveAttribute('title', /without a deploy\.$/)
-  await expect(header.field('Status')).toHaveAttribute('title', /before finishing\.$/)
+  await expect(header.field('Goal')).toHaveAttribute('title', /without a deploy\.$/)
+  await expect(header.field('Now')).toHaveAttribute('title', /before finishing\.$/)
+  for (const name of ['Goal', 'Now'] as const) {
+    const field = header.field(name)
+    expect((await boxOf(field)).height).toBeLessThanOrEqual(FIELD_LINE_HEIGHT + 1)
+    expect(await field.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
+  }
+  // The state dot, the icon buttons and the status's age all stay whole beside the truncated text.
+  for (const whole of [header.stateDot, header.pin, header.markDone, header.statusAge]) {
+    await expect(whole).toBeInViewport({ ratio: 1 })
+  }
+  await expect(header.stateDot).toHaveAttribute('title', 'Active · waiting on you')
 
   // With the side panel at its default width (held down by the chat's minimum in this window)…
   await expectChatClearOfTheHeader(glade)

@@ -2,14 +2,17 @@ import { describe, expect, it } from 'vitest'
 import { DividerKind, TaskActivity, TaskState, ToolEventKind, type ToolEvent } from '../../shared/domain'
 import { sampleTask } from '../store/test-bridge'
 import {
+  age,
+  ageTitle,
   canMarkDone,
+  formatAge,
   formatAgo,
   formatDay,
+  formatFullDate,
   isNewTask,
   offersMarkDone,
-  pillLabel,
   reopening,
-  timing,
+  stateLabel,
   type Reopening,
 } from './headerModel'
 
@@ -17,6 +20,27 @@ const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 const STARTED = new Date(2026, 8, 23, 10, 42).getTime()
 const DONE = new Date(2026, 8, 23, 11, 26).getTime()
+
+describe('formatAge', () => {
+  it.each([
+    [0, 'now'],
+    [59_999, 'now'],
+    [-5 * MINUTE, 'now'],
+    [MINUTE, '1m'],
+    [4 * MINUTE + 30_000, '4m'],
+    [42 * MINUTE, '42m'],
+    [59 * MINUTE + 59_999, '59m'],
+    [HOUR, '1h'],
+    [2 * HOUR, '2h'],
+    [HOUR + 49 * MINUTE, '1h 49m'],
+    [23 * HOUR + 59 * MINUTE, '23h 59m'],
+    [24 * HOUR, '1d'],
+    [80 * HOUR, '3d'],
+    [400 * 24 * HOUR, '400d'],
+  ])('gives %i ms as %s', (elapsed, expected) => {
+    expect(formatAge(1_000_000_000 - elapsed, 1_000_000_000)).toBe(expected)
+  })
+})
 
 describe('formatAgo', () => {
   it.each([
@@ -38,6 +62,13 @@ describe('formatAgo', () => {
 describe('formatDay', () => {
   it('gives the month and day', () => {
     expect(formatDay(DONE)).toBe('Sep 23')
+  })
+})
+
+describe('formatFullDate', () => {
+  it('gives the date, year and time', () => {
+    expect(formatFullDate(STARTED)).toBe('Sep 23, 2026, 10:42 AM')
+    expect(formatFullDate(new Date(2027, 0, 5, 21, 7).getTime())).toBe('Jan 5, 2027, 9:07 PM')
   })
 })
 
@@ -66,7 +97,7 @@ describe('offersMarkDone and canMarkDone', () => {
   })
 })
 
-describe('pillLabel', () => {
+describe('stateLabel', () => {
   const active = { state: TaskState.Active, doneAt: null, updatedAt: STARTED }
 
   it.each([
@@ -75,34 +106,73 @@ describe('pillLabel', () => {
     [TaskActivity.Error, 'Active · stopped by an error'],
     [TaskActivity.Paused, 'Active · paused'],
   ])('labels an active task that is %s', (activity, expected) => {
-    expect(pillLabel({ ...active, activity })).toBe(expected)
+    expect(stateLabel({ ...active, activity })).toBe(expected)
   })
 
   it('labels a done task with the day it was done', () => {
     const done = { state: TaskState.Done, activity: TaskActivity.Waiting, updatedAt: STARTED }
-    expect(pillLabel({ ...done, doneAt: DONE })).toBe('Done · Sep 23')
-    expect(pillLabel({ ...done, doneAt: null })).toBe('Done · Sep 23')
+    expect(stateLabel({ ...done, doneAt: DONE })).toBe('Done · Sep 23')
+    expect(stateLabel({ ...done, doneAt: null })).toBe('Done · Sep 23')
   })
 })
 
-describe('timing', () => {
+describe('age', () => {
   const task = { ...sampleTask('t1', 'w1', 'Add rate limiting'), createdAt: STARTED, updatedAt: STARTED }
 
-  it('says how long ago an active task was started', () => {
-    expect(timing(task, STARTED + 42 * MINUTE)).toBe('started 42m ago')
+  it('says how old an active task is', () => {
+    expect(age(task, STARTED + 42 * MINUTE)).toBe('42m')
+    expect(age(task, STARTED + HOUR + 49 * MINUTE)).toBe('1h 49m')
+    expect(age(task, STARTED + 3 * 24 * HOUR)).toBe('3d')
   })
 
-  it('says a new task was created', () => {
-    expect(timing({ ...task, title: '' }, STARTED + 10_000)).toBe('created just now')
+  it('says a task created under a minute ago is new', () => {
+    expect(age(task, STARTED + 10_000)).toBe('now')
   })
 
   it('gives the clock times a done task ran between', () => {
-    expect(timing({ ...task, state: TaskState.Done, doneAt: DONE }, DONE)).toBe('10:42 – 11:26')
-    expect(timing({ ...task, state: TaskState.Done, doneAt: null, updatedAt: DONE }, DONE)).toBe('10:42 – 11:26')
+    expect(age({ ...task, state: TaskState.Done, doneAt: DONE }, DONE)).toBe('10:42 – 11:26')
+    expect(age({ ...task, state: TaskState.Done, doneAt: null, updatedAt: DONE }, DONE)).toBe('10:42 – 11:26')
+  })
+})
+
+describe('ageTitle', () => {
+  const task = { ...sampleTask('t1', 'w1', 'Add rate limiting'), createdAt: STARTED, updatedAt: STARTED }
+
+  it('gives the full date an active task was started', () => {
+    expect(ageTitle(task)).toBe('Started Sep 23, 2026, 10:42 AM')
   })
 
-  it('gives only the day a past task backfilled done started, since it has no span of its own', () => {
-    expect(timing({ ...task, state: TaskState.Done, doneAt: STARTED }, DONE)).toBe('started Sep 23')
+  it('says a new task was created', () => {
+    expect(ageTitle({ ...task, title: '' })).toBe('Created Sep 23, 2026, 10:42 AM')
+  })
+
+  it('adds when a done task was done', () => {
+    expect(ageTitle({ ...task, state: TaskState.Done, doneAt: DONE })).toBe(
+      'Started Sep 23, 2026, 10:42 AM · done Sep 23, 2026, 11:26 AM',
+    )
+    expect(ageTitle({ ...task, state: TaskState.Done, doneAt: null, updatedAt: DONE })).toBe(
+      'Started Sep 23, 2026, 10:42 AM · done Sep 23, 2026, 11:26 AM',
+    )
+  })
+
+  it('gives a past task backfilled done only its start, since it has no span of its own', () => {
+    expect(ageTitle({ ...task, state: TaskState.Done, doneAt: STARTED })).toBe('Started Sep 23, 2026, 10:42 AM')
+    expect(ageTitle({ ...task, state: TaskState.Done, doneAt: null, updatedAt: STARTED })).toBe(
+      'Started Sep 23, 2026, 10:42 AM',
+    )
+  })
+})
+
+describe('age of a past task backfilled done', () => {
+  const task = { ...sampleTask('t1', 'w1', 'Add rate limiting'), createdAt: STARTED, updatedAt: STARTED }
+
+  it('gives only the day it started, since it has no span of its own', () => {
+    expect(age({ ...task, state: TaskState.Done, doneAt: STARTED }, DONE)).toBe('started Sep 23')
+    expect(age({ ...task, state: TaskState.Done, doneAt: null, updatedAt: STARTED }, DONE)).toBe('started Sep 23')
+    // A minute apart is a real span.
+    expect(age({ ...task, state: TaskState.Done, doneAt: STARTED + MINUTE }, DONE)).toBe('10:42 – 10:43')
+    // An active task made at the same moment is aged as usual.
+    expect(age(task, STARTED + 3 * MINUTE)).toBe('3m')
   })
 })
 
@@ -157,16 +227,22 @@ describe('a reopened task', () => {
 
   it('says it was reopened while the agent works on the reopening message, and its usual label otherwise', () => {
     const active = { state: TaskState.Active, doneAt: null, updatedAt: STARTED }
-    expect(pillLabel({ ...active, activity: TaskActivity.Working }, reopened)).toBe('Active · reopened')
-    expect(pillLabel({ ...active, activity: TaskActivity.Working }, { ...reopened, latestTurn: false })).toBe(
+    expect(stateLabel({ ...active, activity: TaskActivity.Working }, reopened)).toBe('Active · reopened')
+    expect(stateLabel({ ...active, activity: TaskActivity.Working }, { ...reopened, latestTurn: false })).toBe(
       'Active · working',
     )
-    expect(pillLabel({ ...active, activity: TaskActivity.Waiting }, reopened)).toBe('Active · waiting on you')
+    expect(stateLabel({ ...active, activity: TaskActivity.Waiting }, reopened)).toBe('Active · waiting on you')
   })
 
-  it('shows when it was reopened and first done, until it is done again', () => {
-    expect(timing(task, STARTED + HOUR, reopened)).toBe('reopened just now · first done Sep 23')
-    expect(timing(task, STARTED + 2 * HOUR + 5 * MINUTE, reopened)).toBe('reopened 1h 5m ago · first done Sep 23')
-    expect(timing({ ...task, state: TaskState.Done, doneAt: DONE }, DONE, reopened)).toBe('10:42 – 11:26')
+  it('keeps its age, and its tooltip adds when it was first done and reopened', () => {
+    const REOPENED = new Date(2026, 8, 25, 9, 14).getTime()
+    const again: Reopening = { ...reopened, reopenedAt: REOPENED }
+    expect(age(task, REOPENED)).toBe('1d')
+    expect(ageTitle(task, again)).toBe(
+      'Started Sep 23, 2026, 10:42 AM · first done Sep 23, 2026, 11:26 AM · reopened Sep 25, 2026, 9:14 AM',
+    )
+    expect(ageTitle({ ...task, state: TaskState.Done, doneAt: REOPENED + HOUR }, again)).toBe(
+      'Started Sep 23, 2026, 10:42 AM · first done Sep 23, 2026, 11:26 AM · reopened Sep 25, 2026, 9:14 AM · done Sep 25, 2026, 10:14 AM',
+    )
   })
 })

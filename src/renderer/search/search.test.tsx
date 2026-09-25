@@ -246,7 +246,7 @@ describe('opening a result', () => {
       'true',
     )
     const header = screen.getByRole('region', { name: 'Task header' })
-    expect(marked(within(header).getByRole('group', { name: 'Objective' }))).toContain('with a [Retry-After] header.')
+    expect(marked(within(header).getByRole('group', { name: 'Goal' }))).toContain('with a [Retry-After] header.')
     const chat = await screen.findByRole('log', { name: 'Conversation' })
     await waitFor(() => {
       expect(chat.querySelectorAll('mark')).toHaveLength(2)

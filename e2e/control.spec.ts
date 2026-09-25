@@ -50,7 +50,7 @@ test("a task's agent creates, renames and marks done other tasks, and the sideba
   // The renamed task: done, its status now its outcome.
   await list.row('Done', DRIVES_GLADE.target.title).click()
   await expect(header.title).toHaveText(DRIVES_GLADE.target.title)
-  await expect(header.pill).toHaveText(/^Done/)
+  await expect(header.stateDot).toHaveAccessibleName(/^Done/)
   await expect(header.field('Outcome')).toHaveText(DRIVES_GLADE.target.status)
 
   // The created task: its title as given, its first message sent, and its agent's reply.
