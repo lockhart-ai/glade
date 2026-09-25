@@ -64,6 +64,7 @@ it('logs the agent process starting, where and on what, in the session’s own l
         permissionMode: PermissionMode.AllowAll,
         resumeSessionId: 'session-1',
         mcpServers: ['glade'],
+        allowedTools: ['mcp__glade'],
         PATH: '/opt/homebrew/bin:/usr/bin:/bin',
       },
     }),

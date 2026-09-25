@@ -1,7 +1,15 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { Effort, MessageRole, TaskActivity, TaskState, UiStateKey, type Task } from '../../shared/domain'
+import {
+  Effort,
+  MessageRole,
+  PermissionMode,
+  TaskActivity,
+  TaskState,
+  UiStateKey,
+  type Task,
+} from '../../shared/domain'
 import { WindowCommandId } from '../../shared/commands'
 import { ToastProvider } from '../components'
 import { settleFloating } from '../components/settleFloating'
@@ -468,7 +476,61 @@ describe('InputBar', () => {
       expect(screen.getByRole('button', { name: 'Effort: Max' })).toBeInTheDocument()
     })
 
-    it('does nothing when you choose the current model or effort, or Allow all', async () => {
+    it('switches the task between Allow all and Ask before edits and commands, with the current one checked', async () => {
+      const fake = await renderBar()
+      fireEvent.click(screen.getByRole('button', { name: 'Permissions: Allow all' }))
+      await settleFloating()
+
+      const menu = screen.getByRole('menu', { name: 'Permissions' })
+      expect(
+        within(menu)
+          .getAllByRole('menuitemradio')
+          .map((item) => [item.textContent, item.getAttribute('aria-checked')]),
+      ).toEqual([
+        ['Allow all', 'true'],
+        ['Ask before edits and commands', 'false'],
+      ])
+      fireEvent.keyDown(menu, { key: 'Escape' })
+      await settleFloating()
+
+      await choose('Permissions: Allow all', 'Ask before edits and commands')
+      expect(screen.getByRole('button', { name: 'Permissions: Ask before edits and commands' })).toBeInTheDocument()
+      await choose('Permissions: Ask before edits and commands', 'Allow all')
+
+      expect(updates(fake)).toEqual([
+        { id: 't1', patch: { permissionMode: PermissionMode.AskBeforeEdits } },
+        { id: 't1', patch: { permissionMode: PermissionMode.AllowAll } },
+      ])
+      expect(screen.getByRole('button', { name: 'Permissions: Allow all' })).toBeInTheDocument()
+    })
+
+    it('shows the task’s own permission mode, checked', async () => {
+      await renderBar({ task: { permissionMode: PermissionMode.AskBeforeEdits } })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Permissions: Ask before edits and commands' }))
+      await settleFloating()
+
+      const menu = screen.getByRole('menu', { name: 'Permissions' })
+      expect(within(menu).getByRole('menuitemradio', { name: 'Ask before edits and commands' })).toHaveAttribute(
+        'aria-checked',
+        'true',
+      )
+    })
+
+    it('says so in a toast when the permission mode can’t change', async () => {
+      await renderBar({
+        overrides: { [CommandName.TasksUpdate]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No task t1')) },
+      })
+
+      await choose('Permissions: Allow all', 'Ask before edits and commands')
+
+      expect(screen.getByRole('region', { name: 'Notifications' })).toHaveTextContent(
+        'Couldn’t change the permissions: No task t1',
+      )
+      expect(screen.getByRole('button', { name: 'Permissions: Allow all' })).toBeInTheDocument()
+    })
+
+    it('does nothing when you choose the current model, effort or permission mode', async () => {
       const fake = await renderBar()
 
       await choose('Model: Opus 5.5', 'Opus 5.5')

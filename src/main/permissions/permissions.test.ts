@@ -2,13 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
 import {
   PermissionDecisionKind,
+  PermissionDestination,
   PermissionRequestState,
+  PermissionRuleBehavior,
+  PermissionUpdateType,
   TaskActivity,
   UiStateKey,
+  type PermissionDecision,
   type Task,
 } from '../../shared/domain'
 import type { NewPermissionRequest } from '../db/repositories/permission-requests'
 import { getPermissionRequest, listPermissionRequests } from '../db/repositories/permission-requests'
+import { listTaskPermissionRules } from '../db/repositories/task-permission-rules'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { setUiState } from '../db/repositories/ui-state'
@@ -207,6 +212,124 @@ describe('the permission broker', () => {
     expect(current().awaitingPermission).toBe(true)
     // Answering it then just closes it: nothing waits on it.
     expect(broker.answer(pending.request.id, ALLOW_ONCE).state).toBe(PermissionRequestState.Allowed)
+  })
+})
+
+describe('the permission broker: Allow for this task', () => {
+  const FOR_TASK: PermissionDecision = { kind: PermissionDecisionKind.AllowForTask }
+  const NPM_TEST = { toolName: 'Bash', ruleContent: 'npm test *' }
+
+  /** A `Bash` call Claude Code suggests a rule for, as it does (for a settings file). */
+  function bash(toolUseId: string, ...ruleContents: string[]) {
+    return {
+      ...call(toolUseId),
+      suggestions: [
+        {
+          type: PermissionUpdateType.AddRules,
+          rules: ruleContents.map((ruleContent) => ({ toolName: 'Bash', ruleContent })),
+          behavior: PermissionRuleBehavior.Allow,
+          destination: PermissionDestination.LocalSettings,
+        },
+      ],
+    } satisfies NewPermissionRequest
+  }
+
+  const rules = (taskId = task.id): unknown[] => listTaskPermissionRules(database.db, taskId).map(({ rule }) => rule)
+
+  it('allows the call, and grants the task the rule, saved with the answer', async () => {
+    const pending = broker.request(bash('toolu_1', 'npm test *'))
+
+    const answered = broker.answer(pending.request.id, FOR_TASK)
+
+    expect(answered).toMatchObject({ state: PermissionRequestState.Allowed, grantedRule: NPM_TEST })
+    await expect(pending.decision).resolves.toEqual(FOR_TASK)
+    expect(rules()).toEqual([NPM_TEST])
+    expect(drain()).toEqual([
+      [EventType.PermissionOpened, PermissionRequestState.Open],
+      [EventType.TaskUpdated, TaskActivity.Waiting, true],
+      [EventType.PermissionAnswered, PermissionRequestState.Allowed],
+      [EventType.TaskUpdated, TaskActivity.Waiting, false],
+    ])
+  })
+
+  it('grants the whole tool when no rule is suggested, as for an Edit', () => {
+    const pending = broker.request(call('toolu_1', 'Edit', { file_path: 'CHANGELOG.md' }))
+
+    broker.answer(pending.request.id, FOR_TASK)
+
+    expect(rules()).toEqual([{ toolName: 'Edit' }])
+  })
+
+  it('keeps one rule when the same one is granted twice, as with a second card for the same call', async () => {
+    const first = broker.request(bash('toolu_1', 'npm test *'))
+    const second = broker.request(bash('toolu_2', 'npm test *'))
+
+    broker.answer(first.request.id, FOR_TASK)
+    // The second card stayed open, and can be answered on its own, the same way or another.
+    expect(getPermissionRequest(database.db, second.request.id)?.state).toBe(PermissionRequestState.Open)
+    expect(broker.isWaiting(second.request.id)).toBe(true)
+    broker.answer(second.request.id, FOR_TASK)
+
+    await expect(second.decision).resolves.toEqual(FOR_TASK)
+    expect(rules()).toEqual([NPM_TEST])
+  })
+
+  it('refuses it where it isn’t offered, granting nothing and leaving the request open', () => {
+    const suppressed = broker.request({ ...bash('toolu_1', 'npm test *'), suppressAlwaysAllowRule: true })
+    const noRule = broker.request(call('toolu_2'))
+    const compound = broker.request(bash('toolu_3', 'npm test *', 'rm -rf build'))
+
+    for (const { request } of [suppressed, noRule, compound]) {
+      expect(failure(() => broker.answer(request.id, FOR_TASK))).toBe(BridgeErrorCode.InvalidRequest)
+      expect(getPermissionRequest(database.db, request.id)?.state).toBe(PermissionRequestState.Open)
+      expect(broker.isWaiting(request.id)).toBe(true)
+    }
+    expect(rules()).toEqual([])
+    // Allow once still answers them.
+    expect(broker.answer(suppressed.request.id, ALLOW_ONCE).grantedRule).toBeNull()
+  })
+
+  it('refuses it on a request that is gone or closed, before asking whether it would grant anything', () => {
+    const answered = broker.request(call('toolu_1'))
+    broker.answer(answered.request.id, ALLOW_ONCE)
+
+    expect(failure(() => broker.answer('missing', FOR_TASK))).toBe(BridgeErrorCode.NotFound)
+    expect(failure(() => broker.answer(answered.request.id, FOR_TASK))).toBe(BridgeErrorCode.InvalidTransition)
+    expect(rules()).toEqual([])
+  })
+
+  it('grants a request left open by a relaunch, with nothing waiting on it', () => {
+    const pending = broker.request(bash('toolu_1', 'npm test *'))
+    broker.close()
+
+    broker.answer(pending.request.id, FOR_TASK)
+
+    expect(rules()).toEqual([NPM_TEST])
+  })
+
+  it('grants each task its own rules, and many of them', () => {
+    const other = sampleTask(database.db, task.workspaceId)
+    const many = Array.from({ length: 50 }, (_, index) => `make step-${String(index)} *`)
+    for (const [index, content] of many.entries()) {
+      broker.answer(broker.request(bash(`toolu_${String(index)}`, content)).request.id, FOR_TASK)
+    }
+    broker.answer(broker.request({ ...call('toolu_other', 'Edit'), taskId: other.id }).request.id, FOR_TASK)
+
+    expect(rules()).toEqual(many.map((ruleContent) => ({ toolName: 'Bash', ruleContent })))
+    expect(rules(other.id)).toEqual([{ toolName: 'Edit' }])
+  })
+
+  it('saves neither the answer nor the rule when saving the rule fails', () => {
+    const pending = broker.request(bash('toolu_1', 'npm test *'))
+    database.db.exec(
+      `CREATE TRIGGER no_rules BEFORE INSERT ON task_permission_rules BEGIN SELECT RAISE(ABORT, 'full'); END`,
+    )
+
+    expect(() => broker.answer(pending.request.id, FOR_TASK)).toThrow(/full/)
+
+    expect(getPermissionRequest(database.db, pending.request.id)?.state).toBe(PermissionRequestState.Open)
+    expect(broker.isWaiting(pending.request.id)).toBe(true)
+    expect(rules()).toEqual([])
   })
 })
 

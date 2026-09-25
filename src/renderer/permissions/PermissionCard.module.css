@@ -1,0 +1,214 @@
+/*
+ * The permission card, from docs/design/html/23-permission-card.html: the question card's shape and highlight
+ * (../questions/QuestionCard.module.css). The removed and added lines' tints are the design's own mixes of --color-pink
+ * and --color-teal.
+ */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--color-inner);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-nested);
+  box-shadow: var(--shadow-nested);
+}
+
+.open {
+  border-color: var(--color-question-border);
+}
+
+/* Asked while you're looking, it rises and fades in (docs/design/tokens.md, Motion), as the question card does. */
+.appearing {
+  animation: card-in var(--motion-duration) var(--motion-ease);
+}
+
+/* Answered or withdrawn while you're looking, it fades to its line. */
+.justClosed {
+  animation: card-fade var(--motion-duration) var(--motion-ease);
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
+@keyframes card-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--font-size-secondary);
+  font-weight: 600;
+  color: var(--color-purple);
+}
+
+.titleText {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.subagent {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-faint);
+}
+
+.path {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-blue-text);
+  overflow-wrap: anywhere;
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 10px 0;
+  background: var(--color-bg);
+  border: 1px solid var(--color-inner-border);
+  border-radius: var(--radius-button);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.55;
+  color: var(--color-text);
+}
+
+.line {
+  padding: 0 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.removed {
+  background: color-mix(in srgb, var(--color-pink) 10%, transparent);
+  color: var(--color-pink);
+}
+
+.added {
+  background: color-mix(in srgb, var(--color-teal) 10%, transparent);
+  color: var(--color-teal);
+}
+
+.gap {
+  color: var(--color-faint);
+}
+
+.showAll {
+  align-self: flex-start;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-blue-text);
+  cursor: pointer;
+}
+
+.showAll:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 2px;
+}
+
+.description {
+  margin: 0;
+  font-size: var(--font-size-secondary);
+  color: var(--color-muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Allow for this task: may name a long command, which is cut short (the whole of it is its title). */
+.grant {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.grantSubject {
+  min-width: 0;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 1px 5px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-inner-border);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-secondary-sm);
+}
+
+.note {
+  flex-grow: 1;
+  min-width: 0;
+}
+
+/* Closed: one line, what the call was and what happened to it. */
+.closed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 14px;
+  background: var(--color-inner);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-nested);
+  font-size: var(--font-size-secondary);
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.closedIcon {
+  flex-shrink: 0;
+}
+
+.allowed .closedIcon {
+  color: var(--color-teal);
+}
+
+.denied .closedIcon {
+  color: var(--color-pink);
+}
+
+.withdrawn {
+  opacity: 0.6;
+}
+
+.withdrawn .closedIcon {
+  color: var(--color-faint);
+}
+
+.summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-text);
+}
+
+.dot {
+  flex-shrink: 0;
+  color: var(--color-faint);
+}
+
+.outcome {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

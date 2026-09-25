@@ -19,6 +19,7 @@ import {
   type Task,
   type ToolEvent,
 } from '../../shared/domain'
+import { permissionRuleString } from '../../shared/permissions'
 import { excerpt } from './format'
 import { LogScope, type LogFields, type Logger } from './logger'
 
@@ -191,7 +192,10 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
         withTask.debug('permission input', { toolUseId, input: jsonExcerpt(request.input) })
         return
       case PermissionRequestState.Allowed:
-        withTask.info('permission allowed', { toolUseId, toolName })
+        withTask.info('permission allowed', { toolUseId, toolName, forTask: request.grantedRule !== null })
+        if (request.grantedRule !== null) {
+          withTask.debug('permission rule granted', { rule: permissionRuleString(request.grantedRule) })
+        }
         return
       case PermissionRequestState.Denied:
         withTask.info('permission denied', { toolUseId, toolName, withNote: request.denyNote !== null })

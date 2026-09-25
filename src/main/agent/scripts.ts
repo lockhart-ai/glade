@@ -248,6 +248,10 @@ export interface PermissionStep {
   readonly suggestions?: readonly PermissionSuggestion[]
   /** Claude Code's subtitle for the call; none by default. */
   readonly description?: string
+  /** Claude Code's prompt sentence for the call, e.g. "Claude wants to edit a.txt"; none by default. */
+  readonly title?: string
+  /** Whether the prompt mustn't be approvable by a stray key; false by default. */
+  readonly defaultToNo?: boolean
 }
 
 export type ScriptStep =
@@ -277,7 +281,8 @@ export interface AgentScript {
   readonly turns: readonly ScriptTurn[]
   /**
    * What the agent does when Glade resumes its session to carry on a turn the app quit in: on launch (the runner's
-   * `RESUME_PROMPT`), or once you answer a question the app quit on (its `answeredAfterRestart` message). Without one,
+   * `RESUME_PROMPT`), or once you answer a question or the permission requests the app quit on (its
+   * `answeredAfterRestart` and `permissionsDecidedAfterRestart` messages). Without one,
    * that message runs the next turn like any other.
    */
   readonly resumeTurn?: ScriptTurn
@@ -390,6 +395,16 @@ export const bashSuggestions = (command: string): readonly PermissionSuggestion[
     destination: PermissionDestination.LocalSettings,
   },
   { type: PermissionUpdateType.SetMode, mode: 'acceptEdits', destination: PermissionDestination.Session },
+]
+
+/** What Claude Code suggests for a `Bash` call whose command it takes a prefix of: a prefix rule (as probed, §9). */
+export const bashPrefixSuggestions = (prefix: string): readonly PermissionSuggestion[] => [
+  {
+    type: PermissionUpdateType.AddRules,
+    rules: [{ toolName: 'Bash', ruleContent: `${prefix} *` }],
+    behavior: PermissionRuleBehavior.Allow,
+    destination: PermissionDestination.LocalSettings,
+  },
 ]
 
 /** How long a step "takes" in the library's scripts: long enough to see in a recording, short enough for a test. */
@@ -1590,6 +1605,159 @@ const asksPermission: AgentScript = {
   ],
 }
 
+/** What the `asks-permission-from-a-subagent` script's agent and subagent do and say. */
+export const SUBAGENT_PERMISSION = {
+  subagent: 'Upgrade guide',
+  title: 'Claude wants to create docs/upgrade-2.4.md',
+  file: 'docs/upgrade-2.4.md',
+  content:
+    '# Upgrading to 2.4\n\nClients that call /search more than 10 times a second now get 429 Too Many Requests.\n',
+  command: 'rm -rf dist',
+  reply: 'The upgrade guide is written up.',
+} as const
+
+/**
+ * A turn in which the agent's own `Bash` call asks permission, then a subagent's `Write`, which Claude Code marks as not
+ * to be approved by a stray key (`defaultToNo`) and titles; then the agent replies. In Allow all, nothing asks.
+ */
+const asksPermissionFromASubagent: AgentScript = {
+  name: 'asks-permission-from-a-subagent',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Write the 2.4 upgrade guide',
+        'Write the upgrade guide for 2.4, with a subagent drafting it.',
+        'Drafting the upgrade guide with a subagent.',
+      ),
+      permission('clean', 'Bash', { command: SUBAGENT_PERMISSION.command, description: 'Remove the old build' }, '', {
+        suggestions: bashSuggestions(SUBAGENT_PERMISSION.command),
+      }),
+      toolUse('guide', 'Agent', {
+        description: SUBAGENT_PERMISSION.subagent,
+        prompt: 'Write the 2.4 upgrade guide.',
+        subagent_type: 'general-purpose',
+      }),
+      permission(
+        'guide-write',
+        'Write',
+        { file_path: SUBAGENT_PERMISSION.file, content: SUBAGENT_PERMISSION.content },
+        `File created successfully at: ${SUBAGENT_PERMISSION.file}`,
+        { parent: 'guide', title: SUBAGENT_PERMISSION.title, defaultToNo: true, description: SUBAGENT_PERMISSION.file },
+      ),
+      toolResult('guide', 'Wrote the upgrade guide.'),
+      say(SUBAGENT_PERMISSION.reply),
+      result(),
+    ],
+  ],
+}
+
+/** What the `allows-for-task` script's agent does and says. */
+export const ALLOWS_FOR_TASK = {
+  prefix: 'npm test',
+  command: 'npm test',
+  watch: 'npm test -- --watch',
+  compound: 'npm test && rm -rf build',
+  edit: { file_path: 'CHANGELOG.md', old_string: '## Unreleased', new_string: '## Unreleased\n\n- Retries back off.' },
+  editAgain: { file_path: 'README.md', old_string: 'Retries: none', new_string: 'Retries: exponential backoff' },
+  reply: 'Ran the tests and noted the retry change in the changelog and the README.',
+} as const
+
+/** The edit step's suggestions, as Claude Code makes them for `Edit`: only a switch to `acceptEdits`. */
+const EDIT_SUGGESTIONS: readonly PermissionSuggestion[] = [
+  { type: PermissionUpdateType.SetMode, mode: 'acceptEdits', destination: PermissionDestination.Session },
+]
+
+/**
+ * A turn for Allow for this task, in the ask mode: `npm test` asks (suggesting the prefix rule `npm test *`), then
+ * `npm test -- --watch`, which that rule covers, then `npm test && rm -rf build`, which it doesn't; then two `Edit`s,
+ * the second of which a rule for `Edit` covers. Each message plays the same turn, so a later turn, or the task's
+ * session after a relaunch, shows which rules it still has.
+ */
+const allowsForTask: AgentScript = {
+  name: 'allows-for-task',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask('Run the tests', 'Run the tests and note the retry change.', 'Running the tests.'),
+      permission('test', 'Bash', { command: ALLOWS_FOR_TASK.command }, 'Tests  148 passed (148)', {
+        description: 'Run the test suite',
+        suggestions: bashPrefixSuggestions(ALLOWS_FOR_TASK.prefix),
+      }),
+      permission('watch', 'Bash', { command: ALLOWS_FOR_TASK.watch }, 'Watching for changes', {
+        description: 'Run the tests in watch mode',
+        suggestions: bashPrefixSuggestions(ALLOWS_FOR_TASK.prefix),
+      }),
+      permission('compound', 'Bash', { command: ALLOWS_FOR_TASK.compound }, 'Tests  148 passed (148)', {
+        description: 'Run the tests, then remove the build',
+        suggestions: bashPrefixSuggestions(ALLOWS_FOR_TASK.prefix),
+      }),
+      permission('edit', 'Edit', ALLOWS_FOR_TASK.edit, 'The file CHANGELOG.md has been updated.', {
+        description: 'CHANGELOG.md',
+        suggestions: EDIT_SUGGESTIONS,
+      }),
+      permission('edit-again', 'Edit', ALLOWS_FOR_TASK.editAgain, 'The file README.md has been updated.', {
+        description: 'README.md',
+        suggestions: EDIT_SUGGESTIONS,
+      }),
+      say(ALLOWS_FOR_TASK.reply),
+      result(),
+    ],
+  ],
+}
+
+/** What the `permission-at-quit` script's agent does and says. */
+export const PERMISSION_AT_QUIT = {
+  command: 'npm run db:migrate',
+  description: 'Run the database migrations',
+  output: 'Applied 3 migrations: 0041, 0042, 0043.',
+  resumed: 'Glade restarted before the migrations ran, so I am running them now.',
+  reply: 'The migrations ran after the restart: 0041 to 0043 are applied.',
+} as const
+
+/** The `permission-at-quit` script's command, as it asks each time. */
+const migrate = (id: string): PermissionStep =>
+  permission(
+    id,
+    'Bash',
+    { command: PERMISSION_AT_QUIT.command, description: PERMISSION_AT_QUIT.description },
+    PERMISSION_AT_QUIT.output,
+    {
+      description: PERMISSION_AT_QUIT.description,
+      suggestions: bashPrefixSuggestions(PERMISSION_AT_QUIT.command),
+    },
+  )
+
+/**
+ * A turn whose command waits on permission, for quitting with its card open. Once you decide on it after the relaunch,
+ * the resume turn makes the call again, with the same input: allowed, it runs without asking again, and the agent
+ * replies.
+ */
+const permissionAtQuit: AgentScript = {
+  name: 'permission-at-quit',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask('Run the migrations', 'Run the pending database migrations.', 'Running the migrations.'),
+      say("I'll run the pending database migrations."),
+      migrate('migrate'),
+      say('The migrations ran: 0041 to 0043 are applied.'),
+      result(),
+    ],
+  ],
+  resumeTurn: [
+    ...turnStart(),
+    delay(BEAT_MS),
+    say(PERMISSION_AT_QUIT.resumed),
+    migrate('migrate-again'),
+    say(PERMISSION_AT_QUIT.reply),
+    result(),
+  ],
+}
+
 /** What the follow-up scripts say, for their specs: `watches-ci`, `checks-back-later` and `scheduled-check`. */
 export const FOLLOW_UPS = {
   watching: "I'm watching the CI checks on PR #42. I'll report each one that fails, and when the run is done.",
@@ -1781,6 +1949,9 @@ export const AGENT_SCRIPT_NAMES = [
   'background-subagents',
   'subagent-calls',
   'asks-permission',
+  'asks-permission-from-a-subagent',
+  'allows-for-task',
+  'permission-at-quit',
   'watches-ci',
   'checks-back-later',
   'scheduled-check',
@@ -1812,6 +1983,9 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'background-subagents': backgroundSubagents,
   'subagent-calls': subagentCalls,
   'asks-permission': asksPermission,
+  'asks-permission-from-a-subagent': asksPermissionFromASubagent,
+  'allows-for-task': allowsForTask,
+  'permission-at-quit': permissionAtQuit,
   'watches-ci': watchesCi,
   'checks-back-later': checksBackLater,
   'scheduled-check': scheduledCheck,

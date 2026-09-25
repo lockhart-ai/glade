@@ -3,15 +3,15 @@ import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { getPluginStates } from '../repositories/plugins'
 import { MIGRATIONS } from '.'
-import { pluginsMigration } from './0023-plugins'
+import { pluginsMigration } from './0025-plugins'
 
-it('is migration 23', () => {
-  expect(MIGRATIONS[22]).toBe(pluginsMigration)
+it('is migration 25', () => {
+  expect(MIGRATIONS[24]).toBe(pluginsMigration)
 })
 
 it('starts with no plugins, keeps one row per plugin, and checks the enabled flag', () => {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 22))
+  migrate(db, MIGRATIONS.slice(0, 24))
 
   migrate(db, MIGRATIONS)
 

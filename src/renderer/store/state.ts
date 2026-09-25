@@ -20,6 +20,8 @@ import type {
   FileInfo,
   Message,
   OpenFiles,
+  PermissionDecision,
+  PermissionRequest,
   QuestionAnswers,
   QuestionSet,
   QueuedMessage,
@@ -155,6 +157,11 @@ export interface GladeData {
    * current by events.
    */
   readonly questionSets: Readonly<Record<string, readonly QuestionSet[]>>
+  /**
+   * Each task's permission requests (the permission cards), in the order its agent's tool calls made them, by task id:
+   * loaded with its logs, then kept current by events.
+   */
+  readonly permissionRequests: Readonly<Record<string, readonly PermissionRequest[]>>
   /** The files open in each task's Files tab, by task id: loaded with its logs, then kept current by events. */
   readonly openFiles: Readonly<Record<string, OpenFiles>>
   /** Each task's artifacts (the Artifacts tab), by task id: loaded with its logs, then kept current by events. */
@@ -366,6 +373,11 @@ export interface GladeActions {
    * main has them; the answered set arrives as an event. Rejects with `invalid_request` for answers that don't fit.
    */
   answerQuestions: (id: string, answers: QuestionAnswers) => Promise<void>
+  /**
+   * Answers an open permission request: Allow once, or Deny with an optional note (`permissions.answer`). Resolves once
+   * main has it; the answered request arrives as an event. Rejects with `invalid_transition` once it's closed.
+   */
+  answerPermission: (id: string, decision: PermissionDecision) => Promise<void>
   /** Changes a queued message's text. Rejects with `not_found` once it has been delivered or removed. */
   editQueuedMessage: (id: string, text: string) => Promise<void>
   /** Removes a queued message. Rejects with `not_found` once it has been delivered or removed. */
@@ -482,6 +494,7 @@ export const INITIAL_DATA: GladeData = {
   toolEvents: {},
   queuedMessages: {},
   questionSets: {},
+  permissionRequests: {},
   openFiles: {},
   artifacts: {},
   todos: {},

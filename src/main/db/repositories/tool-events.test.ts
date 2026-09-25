@@ -8,6 +8,7 @@ import {
   appendToolCall,
   failRunningCompactions,
   interruptPausedToolCalls,
+  interruptRunningToolCall,
   interruptRunningToolCalls,
   listToolCallsNamed,
   listToolEvents,
@@ -209,6 +210,23 @@ describe('interruptRunningToolCalls', () => {
     ])
     expect(listToolEvents(test.db, other.id)).toMatchObject([{ state: ToolCallState.Running }])
     expect(interruptRunningToolCalls(test.db, task.id, 'Glade quit.')).toEqual([])
+  })
+})
+
+describe('interruptRunningToolCall', () => {
+  it('records the one call as interrupted while it runs, and leaves any other alone', () => {
+    const call = appendToolCall(test.db, bashCall('toolu_1'))
+    appendToolCall(test.db, bashCall('toolu_2'))
+
+    const interrupted = interruptRunningToolCall(test.db, task.id, 'toolu_1', 'Glade quit.', 9_000)
+
+    expect(interrupted).toEqual({ ...call, state: ToolCallState.Interrupted, output: 'Glade quit.', finishedAt: 9_000 })
+    expect(interruptRunningToolCall(test.db, task.id, 'toolu_1', 'Again.')).toBeUndefined()
+    expect(interruptRunningToolCall(test.db, task.id, 'toolu_missing', 'Glade quit.')).toBeUndefined()
+    expect(listToolEvents(test.db, task.id).map((event) => 'state' in event && event.state)).toEqual([
+      ToolCallState.Interrupted,
+      ToolCallState.Running,
+    ])
   })
 })
 

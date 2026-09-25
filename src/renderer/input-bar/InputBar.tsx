@@ -10,7 +10,7 @@ import {
   type RefObject,
 } from 'react'
 import { BridgeErrorCode, isBridgeError } from '../../shared/bridge'
-import { Effort, TaskActivity, TaskState, type QueuedMessage, type Task } from '../../shared/domain'
+import { Effort, PermissionMode, TaskActivity, TaskState, type QueuedMessage, type Task } from '../../shared/domain'
 import { WindowCommandId } from '../../shared/commands'
 import { EFFORT_NAMES, MODEL_OPTIONS, modelName } from '../../shared/models'
 import { isCommandKey, useCommand, useKeymap } from '../commands/hooks'
@@ -31,9 +31,17 @@ const EFFORT_OPTIONS: readonly SettingOption[] = Object.values(Effort).map((effo
   name: EFFORT_NAMES[effort],
 }))
 
-/** Permissions are fixed for now: the one option is Allow all (`docs/decisions.md`). */
-const ALLOW_ALL = 'allow_all'
-const PERMISSION_OPTIONS: readonly SettingOption[] = [{ id: ALLOW_ALL, name: 'Allow all' }]
+/** What the permissions picker calls each mode (`docs/decisions.md`, "Per-call permission review"). */
+export const PERMISSION_MODE_NAMES: Readonly<Record<PermissionMode, string>> = {
+  [PermissionMode.AllowAll]: 'Allow all',
+  [PermissionMode.AskBeforeEdits]: 'Ask before edits and commands',
+}
+
+/** The permissions picker's options: Allow all, then the ask mode. */
+const PERMISSION_OPTIONS: readonly SettingOption[] = Object.values(PermissionMode).map((mode) => ({
+  id: mode,
+  name: PERMISSION_MODE_NAMES[mode],
+}))
 
 export const NEW_TASK_PLACEHOLDER = 'Describe the task…'
 export const REPLY_PLACEHOLDER = 'Reply…'
@@ -53,6 +61,10 @@ const NO_REFUSALS: readonly string[] = []
 
 function isEffort(value: string): value is Effort {
   return Object.values<string>(Effort).includes(value)
+}
+
+function isPermissionMode(value: string): value is PermissionMode {
+  return Object.values<string>(PermissionMode).includes(value)
 }
 
 /**
@@ -315,10 +327,14 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
         />
         <SettingPicker
           label="Permissions"
-          value="Allow all"
+          value={PERMISSION_MODE_NAMES[task.permissionMode]}
           options={PERMISSION_OPTIONS}
-          selectedId={ALLOW_ALL}
-          onChoose={() => undefined}
+          selectedId={task.permissionMode}
+          onChoose={(permissionMode) => {
+            if (isPermissionMode(permissionMode) && permissionMode !== task.permissionMode) {
+              void change('permissions', { permissionMode })
+            }
+          }}
         />
         <div className={styles.meter} data-testid="context-meter-slot">
           {contextMeter}
