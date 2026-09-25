@@ -258,6 +258,12 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
       case EventType.HandoffChanged:
         tools.info(event.handoff === null ? 'handoff cleared' : 'handoff set', { taskId: event.taskId })
         return
+      case EventType.WatchersChanged:
+        tools.info('watchers changed', {
+          taskId: event.taskId,
+          watchers: event.watchers.map(({ kind, state, wakes }) => `${kind} ${state} ${String(wakes)}`),
+        })
+        return
       case EventType.FileShown:
         tools.info('file shown', { taskId: event.taskId, path: event.path, line: event.line })
         return

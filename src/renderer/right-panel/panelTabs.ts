@@ -2,6 +2,7 @@ import type { GladeData } from '../store/state'
 import { subagentCount } from '../subagents/subagentsModel'
 import { toolCallCount } from '../tool-log/toolLogModel'
 import { todoProgress } from '../todos'
+import { liveWatcherCount } from '../watchers/watchersModel'
 import { PanelTab, type PanelCount } from './panelModel'
 
 /** What the tab bar needs to know about one tab, with its count, read from the store. */
@@ -35,4 +36,6 @@ export const PANEL_TAB_DEFINITIONS: readonly PanelTabDefinition[] = [
     label: 'Subagents',
     count: (state, taskId) => subagentCount(state.toolEvents[taskId] ?? []),
   },
+  // What's still live: running, or waiting to wake the agent (27-watchers.png: "Watchers 3").
+  { tab: PanelTab.Watchers, label: 'Watchers', count: (state, taskId) => liveWatcherCount(state.watchers[taskId]) },
 ]

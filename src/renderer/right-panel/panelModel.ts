@@ -1,13 +1,14 @@
 // The right panel's state, as it's stored in UI state: its selected tab. (Whether it's collapsed, and its width, are
 // `../panels`, with the other panels'.)
 
-/** The right panel's tabs, in the order the tab bar shows them (and ⌘⌥1–5 picks them). */
+/** The right panel's tabs, in the order the tab bar shows them (and ⌘⌥1–6 picks them). */
 export enum PanelTab {
   ToolCalls = 'tool-calls',
   Files = 'files',
   Todos = 'todos',
   Artifacts = 'artifacts',
   Subagents = 'subagents',
+  Watchers = 'watchers',
 }
 
 /** Every tab, in tab bar order. */
@@ -22,7 +23,7 @@ export function parsePanelTab(value: string | undefined): PanelTab {
   return value !== undefined && isPanelTab(value) ? value : PanelTab.ToolCalls
 }
 
-/** The tab ⌘⌥ and a digit picks: 1 is Tool calls, 5 is Subagents. Undefined for any other digit. */
+/** The tab ⌘⌥ and a digit picks: 1 is Tool calls, 6 is Watchers. Undefined for any other digit. */
 export function tabForDigit(digit: number): PanelTab | undefined {
   return PANEL_TABS[digit - 1]
 }

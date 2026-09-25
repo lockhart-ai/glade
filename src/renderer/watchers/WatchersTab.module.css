@@ -1,0 +1,185 @@
+/* The Watchers tab, from docs/design/html/27-watchers.html: the Subagents tab's rows, with Stop on the live ones. */
+.scroller {
+  flex-grow: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-lg) var(--space-inset);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.empty {
+  margin: auto 0;
+  padding: 10px 8px;
+  text-align: center;
+  font-size: var(--font-size-secondary);
+  color: var(--color-faint);
+}
+
+.tally {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  /* In line with the rows' content, inside their 1px border. */
+  padding: 0 calc(var(--space-item) + 1px) var(--space-md);
+  font-size: var(--font-size-secondary);
+  color: var(--color-muted);
+}
+
+.tallyPart {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tallyDot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 3px;
+  background: var(--color-slate);
+}
+
+.tallyDot.running {
+  background: var(--color-blue);
+}
+
+.tallyDot.scheduled,
+.tallyDot.suspended {
+  background: var(--color-purple);
+}
+
+/* An ended watcher sits flat; a live one is a card. */
+.row {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: var(--space-md) var(--space-item);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+}
+
+.row.live {
+  background: var(--color-inner-2);
+  border-color: var(--color-inner-border);
+}
+
+.titleLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 24px;
+}
+
+.name {
+  flex-grow: 1;
+  min-width: 0;
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.live .name {
+  color: var(--color-text);
+}
+
+.status {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+.running .status {
+  color: var(--color-blue-text);
+}
+
+.scheduled .status,
+.suspended .status {
+  color: var(--color-purple);
+}
+
+.failed .status {
+  color: var(--color-pink);
+}
+
+.stop {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-strong);
+  border-radius: 6px;
+  font: inherit;
+  font-size: var(--font-size-label);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.stop:hover {
+  background: var(--color-raised);
+}
+
+.stop:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 1px;
+}
+
+.line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding-left: 16px;
+}
+
+.kind {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.lineLabel {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-faint);
+}
+
+.what,
+.output {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.failed .output {
+  color: var(--color-pink);
+}
+
+.meta {
+  padding-left: 16px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}

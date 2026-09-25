@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { UiStateKey, type ToolEvent } from '../../shared/domain'
+import { UiStateKey, type ToolEvent, type Watcher } from '../../shared/domain'
 import { ArtifactsTab } from '../artifacts'
 import { TabPanel, Tabs, type TabItem } from '../components'
 import { FilesTab, type FileLineFocus } from '../files'
@@ -12,6 +12,7 @@ import { useGladeStore } from '../store/react'
 import { SubagentsTab } from '../subagents'
 import { Todos } from '../todos'
 import { ToolLog, type TurnFocus } from '../tool-log'
+import { WatchersTab } from '../watchers'
 import { NOW_REFRESH_MS, useNow } from '../task-list/useNow'
 import { formatCount, PanelTab, parsePanelTab } from './panelModel'
 import { PANEL_TAB_DEFINITIONS } from './panelTabs'
@@ -20,9 +21,11 @@ import styles from './TaskPanel.module.css'
 const TABS_ID = 'task-panel'
 
 const NO_TOOL_EVENTS: readonly ToolEvent[] = []
+const NO_WATCHERS: readonly Watcher[] = []
 
 /**
- * The right panel of the task card: the tab bar (Tool calls, Files, Todos, Artifacts, Subagents, each with its count)
+ * The right panel of the task card: the tab bar (Tool calls, Files, Todos, Artifacts, Subagents, Watchers, each with
+ * its count)
  * and the selected tab. The selected tab, the width and whether the panel is collapsed are kept in UI state, for the
  * whole window; collapsed, the panel shows nothing. It slides open and shut.
  * When the chat asks to show a turn of the selected task (its tool-call chip), the store opens Tool calls and the log
@@ -34,6 +37,7 @@ export function TaskPanel(): React.JSX.Element | null {
   const events =
     useGladeStore((state) => (task === undefined ? undefined : state.toolEvents[task.id])) ?? NO_TOOL_EVENTS
   const todos = useGladeStore((state) => (task === undefined ? undefined : state.todos[task.id]))
+  const watchers = useGladeStore((state) => (task === undefined ? undefined : state.watchers[task.id])) ?? NO_WATCHERS
   const counts = useGladeStore(
     useShallow((state) =>
       PANEL_TAB_DEFINITIONS.map(({ count }) => (task === undefined ? undefined : formatCount(count(state, task.id)))),
@@ -127,6 +131,8 @@ export function TaskPanel(): React.JSX.Element | null {
         )
       case PanelTab.Artifacts:
         return task !== undefined && <ArtifactsTab key={task.id} taskId={task.id} now={now} />
+      case PanelTab.Watchers:
+        return task !== undefined && <WatchersTab key={task.id} taskId={task.id} watchers={watchers} />
     }
   }
 

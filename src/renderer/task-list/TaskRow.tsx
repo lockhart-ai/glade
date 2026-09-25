@@ -1,3 +1,4 @@
+import { faEye } from '@fortawesome/free-regular-svg-icons'
 import { useEffect, useRef, useState } from 'react'
 import { TaskState, UNTITLED_TASK_TITLE, type EpochMs, type Task } from '../../shared/domain'
 import type { TextPart } from '../../shared/search'
@@ -5,9 +6,10 @@ import { TaskIndicator, taskIndicator } from '../../shared/taskIndicator'
 import { errorStatusLine } from '../../shared/taskError'
 import { classNames } from '../components/classNames'
 import type { ContextMenuTargetProps } from '../context-menus'
-import { Dot } from '../components'
+import { Dot, Icon, IconSize } from '../components'
 import { isPaused, pausedStatusLine } from '../pause/pauseModel'
 import { Highlighted, Marked } from '../search/Highlight'
+import { watchingLabel } from '../watchers/watchersModel'
 import { formatRelativeTime } from './relativeTime'
 import styles from './TaskRow.module.css'
 
@@ -34,6 +36,11 @@ export interface TaskRowProps {
   onCancelRename?: () => void
   /** What opens the task's context menu from the row: a right-click, or ⇧F10 while it has the focus. */
   menuTarget?: ContextMenuTargetProps
+  /**
+   * How many live watchers its agent has (the Watchers tab): the row shows an eye and the count beside its time, done
+   * or not, so a task waiting on you that's still watching something shows it. None by default.
+   */
+  watching?: number
 }
 
 interface RenameFieldProps {
@@ -109,7 +116,8 @@ function statusLine(task: Task, now: EpochMs): string {
 }
 
 /**
- * One task in the list: its state dot, title, relative time, and one line of status ("Error: API overloaded · retry?"
+ * One task in the list: its state dot, title, watcher mark (while its agent has live watchers), relative time, and one
+ * line of status ("Error: API overloaded · retry?"
  * while an error has stopped its agent, "Paused: usage limit · resumes 11:42" while it's paused). Unread rows are bold.
  * As a search result, its title has the matches marked, and a snippet around a match can take the status line's place.
  */
@@ -124,9 +132,21 @@ export function TaskRow({
   onRename,
   onCancelRename,
   menuTarget,
+  watching = 0,
 }: TaskRowProps): React.JSX.Element {
   const time = (
     <span className={styles.time}>
+      {watching > 0 && (
+        <span
+          className={styles.watching}
+          role="img"
+          aria-label={watchingLabel(watching)}
+          title={watchingLabel(watching)}
+        >
+          <Icon icon={faEye} size={IconSize.Small} />
+          {watching}
+        </span>
+      )}
       {formatRelativeTime(task.updatedAt, now)}
       {task.unread && <span className={styles.unreadDot} role="img" aria-label="Unread" />}
     </span>

@@ -145,6 +145,7 @@ describe('TaskPanel', () => {
       'Todos',
       'Artifacts',
       'Subagents',
+      'Watchers',
     ])
     expect(tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
   })

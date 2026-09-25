@@ -421,6 +421,9 @@ describe('events', () => {
         case EventType.HandoffChanged:
           expectTypeOf(event.handoff).toEqualTypeOf<TaskHandoff | null>()
           break
+        case EventType.WatchersChanged:
+          expectTypeOf(event.watchers).toEqualTypeOf<readonly Watcher[]>()
+          break
         case EventType.TerminalTabsChanged:
           expectTypeOf(event.tabs).toEqualTypeOf<readonly TerminalTab[]>()
           break

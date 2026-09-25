@@ -195,7 +195,8 @@ describe('matchCommand', () => {
   it('matches any digit of a range with its modifiers, and says which', () => {
     expect(match(WorkspaceCommandId.Switch, 'Meta+7')).toEqual({ digit: 7 })
     expect(match(WindowCommandId.ShowPanelTab, 'Meta+Alt+5')).toEqual({ digit: 5 })
-    expect(match(WindowCommandId.ShowPanelTab, 'Meta+Alt+6')).toBeNull()
+    expect(match(WindowCommandId.ShowPanelTab, 'Meta+Alt+6')).toEqual({ digit: 6 })
+    expect(match(WindowCommandId.ShowPanelTab, 'Meta+Alt+7')).toBeNull()
     expect(match(WorkspaceCommandId.Switch, 'Meta+0')).toBeNull()
     expect(match(WorkspaceCommandId.Switch, 'Meta+Shift+1')).toBeNull()
     expect(match(WorkspaceCommandId.Switch, 'Meta+K')).toBeNull()
@@ -303,7 +304,7 @@ describe('bindingProblem', () => {
     expect(say(AppCommandId.NewTask, 'Meta+Shift+P')).toBe('⌘⇧P is already used by Pin / unpin.')
     expect(say(AppCommandId.NewTask, 'Shift+N')).toBe('⇧N would type into text fields. Hold ⌘, ⌃ or ⌥ with it.')
     expect(say(WindowCommandId.ShowPanelTab, 'Meta+Alt+P')).toBe(
-      'Press a number key with the modifiers to use for 1 – 5.',
+      'Press a number key with the modifiers to use for 1 – 6.',
     )
   })
 })

@@ -16,6 +16,15 @@ export const CONTROL_TOOLS_LINE =
   "they list, read, create, change, message and delete Glade's tasks. Use them only when the user asks you to work " +
   'with Glade or its other tasks.'
 
+/**
+ * What the prompt says of long-lived watch scripts: to run them with the SDK's own background tools, which Glade
+ * follows in the Watchers tab (`docs/sdk-notes.md` §13), and not to background them in a shell, which nothing tracks.
+ */
+export const WATCHERS_LINE =
+  'When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the Monitor ' +
+  "tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows in the task's " +
+  'Watchers tab.'
+
 /** The heading the handoff note goes under in the prompt. */
 export const HANDOFF_HEADING = 'Handoff for this task (backfilled from earlier notes)'
 
@@ -79,6 +88,8 @@ export function systemPromptAppend(
     '',
     `When you make a deliverable the user asked for (a report, a document, a draft), call ${GladeTool.AddArtifact} ` +
       'with its path and a short title, so it shows in the Artifacts tab and stays with the task after it is done.',
+    '',
+    WATCHERS_LINE,
   )
   if (control) lines.push('', CONTROL_TOOLS_LINE)
   if (handoff !== null) lines.push('', handoffSection(handoff))

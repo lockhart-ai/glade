@@ -79,6 +79,8 @@ const TIMEOUT_SLACK_MS = 2_000
 const TASK_KINDS: readonly WatcherKind[] = [WatcherKind.Monitor, WatcherKind.Command]
 const JOB_KINDS: readonly WatcherKind[] = [WatcherKind.Wakeup, WatcherKind.Cron]
 
+const TASK_OUTCOMES: readonly TaskOutcome[] = Object.values(TaskOutcome)
+
 // The calls' inputs and the SDK's accounts of their results (`tool_use_result`), as far as the watchers read them.
 // A field of the wrong shape is as good as missing.
 const optionalText = z.string().optional().catch(undefined)
@@ -178,9 +180,9 @@ export function createWatcherTracker({ db, emit, now = Date.now }: WatcherTracke
   }
 
   /** Ends a task's watcher the way the SDK says its task ended; answers whether it had one live to end. */
-  const endTask = (watcher: StoredWatcher, status: string, summary: string): boolean => {
+  const endTask = (watcher: StoredWatcher, outcome: TaskOutcome, summary: string): boolean => {
     if (!isLive(watcher)) return false
-    switch (status) {
+    switch (outcome) {
       case TaskOutcome.Completed:
         updateWatcher(db, watcher.id, ending(WatcherState.Finished, summary))
         return true
@@ -190,8 +192,6 @@ export function createWatcherTracker({ db, emit, now = Date.now }: WatcherTracke
       case TaskOutcome.Stopped:
         updateWatcher(db, watcher.id, ending(WatcherState.Stopped, stoppedHow(watcher)))
         return true
-      default:
-        return false
     }
   }
 
@@ -205,7 +205,9 @@ export function createWatcherTracker({ db, emit, now = Date.now }: WatcherTracke
       lastWokeAt: now(),
       ...(line === null ? {} : { lastOutput: line }),
     })
-    if (notice.status !== null) endTask(watcher, notice.status, notice.summary ?? '')
+    // The ending's wake says how it ended too, in case its notification hasn't come.
+    const outcome = TASK_OUTCOMES.find((known) => known === notice.status)
+    if (outcome !== undefined) endTask(watcher, outcome, notice.summary ?? '')
     return true
   }
 

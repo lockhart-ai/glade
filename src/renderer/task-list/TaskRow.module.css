@@ -127,6 +127,14 @@
   color: var(--color-muted);
 }
 
+/* The eye and count of a task's live watchers, before its time (27-watchers.html). */
+.watching {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--color-faint);
+}
+
 .unreadDot {
   flex-shrink: 0;
   width: 7px;

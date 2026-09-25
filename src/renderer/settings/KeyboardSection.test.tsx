@@ -86,7 +86,7 @@ describe('KeyboardSection', () => {
     expect(keycap('Next task: ⌥↓')).toBeInTheDocument()
     expect(keycap('Previous task: ⌥↑')).toBeInTheDocument()
     expect(keycap('Tool calls · Files · Todos: ⌘⌥1–3')).toBeInTheDocument()
-    expect(keycap('Artifacts · Subagents: ⌘⌥4–5')).toBeInTheDocument()
+    expect(keycap('Artifacts · Subagents · Watchers: ⌘⌥4–6')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Reset/ })).not.toBeInTheDocument()
   })
 
@@ -226,7 +226,7 @@ describe('KeyboardSection', () => {
     startRecording('Switch workspace: ⌘1 – ⌘9')
     press({ key: '3', code: 'Digit3', ctrlKey: true })
     await act(() => Promise.resolve())
-    startRecording('Artifacts · Subagents: ⌘⌥4–5')
+    startRecording('Artifacts · Subagents · Watchers: ⌘⌥4–6')
     press({ key: '™', code: 'Digit2', ctrlKey: true, altKey: true })
     await act(() => Promise.resolve())
 
@@ -236,7 +236,7 @@ describe('KeyboardSection', () => {
     })
     expect(keycap('Switch workspace: ⌃1 – ⌃9')).toBeInTheDocument()
     expect(keycap('Tool calls · Files · Todos: ⌃⌥1–3')).toBeInTheDocument()
-    expect(keycap('Artifacts · Subagents: ⌃⌥4–5')).toBeInTheDocument()
+    expect(keycap('Artifacts · Subagents · Watchers: ⌃⌥4–6')).toBeInTheDocument()
     // One Reset on each row the range shows on.
     expect(screen.getAllByRole('button', { name: /^Reset Tool calls|^Reset Artifacts/ })).toHaveLength(2)
     expect(
