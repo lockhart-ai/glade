@@ -403,3 +403,11 @@ export function listToolCallsNamed(db: Database, taskId: string, names: readonly
     .all(taskId, ...names)
     .map((raw) => parseToolCall(new Row('tool_events', raw)))
 }
+
+/** A task's tool call by its `tool_use` id, or undefined when it has none. */
+export function getToolCall(db: Database, taskId: string, toolUseId: string): ToolCallEvent | undefined {
+  const raw: unknown = db
+    .prepare(`SELECT ${COLUMNS} FROM tool_events WHERE task_id = ? AND tool_use_id = ? AND kind = 'tool_call'`)
+    .get(taskId, toolUseId)
+  return raw === undefined ? undefined : parseToolCall(new Row('tool_events', raw))
+}

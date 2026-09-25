@@ -290,8 +290,8 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       case EventType.PermissionWithdrawn:
         permissionRequest(event.permissionRequest)
         return
-      // Not a plugin's business: what's said in the chat and queued for it, the Files, Todos and Artifacts tabs, the
-      // handoff note, the terminal, the window's own state, settings, plugins and the control endpoint (whose token no
+      // Not a plugin's business: what's said in the chat and queued for it, the Files, Todos, Artifacts and Watchers
+      // tabs, the handoff note, the terminal, the window's own state, settings, plugins and the control endpoint (whose token no
       // plugin may see). A removed workspace's tasks are deleted one by one.
       case EventType.WorkspaceRemoved:
       case EventType.MessageAppended:
@@ -299,6 +299,7 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       case EventType.TodosChanged:
       case EventType.ArtifactsChanged:
       case EventType.HandoffChanged:
+      case EventType.WatchersChanged:
       case EventType.FileShown:
       case EventType.OpenFilesChanged:
       case EventType.TaskOpenRequested:

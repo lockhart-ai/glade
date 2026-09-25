@@ -29,6 +29,7 @@ import type {
   ToolEvent,
   UiStateEntry,
   UiStateKey,
+  Watcher,
   Workspace,
 } from './domain'
 import type { Command, MenuState } from './commands'
@@ -73,6 +74,8 @@ export enum CommandName {
   TasksRetry = 'tasks.retry',
   TasksCompact = 'tasks.compact',
   SubagentsStop = 'subagents.stop',
+  WatchersListLive = 'watchers.listLive',
+  WatchersStop = 'watchers.stop',
   TasksHistory = 'tasks.history',
   QueueAdd = 'queue.add',
   QueueEdit = 'queue.edit',
@@ -375,6 +378,27 @@ export interface SubagentsStopRequest {
 }
 
 /**
+ * Every task's live watchers (running, scheduled, or waiting for their session to resume), in the order they started:
+ * what the task list's watcher marks show for tasks whose logs aren't loaded.
+ */
+export interface WatchersListLiveResponse {
+  readonly watchers: readonly Watcher[]
+}
+
+/**
+ * Stops one of a task's live watchers (Stop, in the Watchers tab), the SDK's own way where it has one: a monitor or
+ * background command's process is stopped (`stopTask`), and answers once the SDK has been asked; its end arrives as
+ * `watchers.changed`. A wakeup or cron job is stopped at once: it stays in the agent's session, but its fires are
+ * turned away (`docs/sdk-notes.md` §13). Broadcasts `watchers.changed`. Fails with `invalid_transition` for a watcher
+ * that has ended, or a monitor or command whose session isn't running, and `not_found` when there's no such watcher.
+ */
+export interface WatchersStopRequest {
+  readonly taskId: string
+  /** The watcher's id. */
+  readonly id: string
+}
+
+/**
  * A task's chat log and tool log, each in the order they were appended, its message queue, its questions and its
  * permission requests.
  */
@@ -395,6 +419,8 @@ export interface TasksHistoryResponse {
   readonly artifacts: readonly Artifact[]
   /** Its handoff note, from a backfill through the control API (the Backfilled card); null when it has none. */
   readonly handoff: TaskHandoff | null
+  /** What its agent left running or scheduled (the Watchers tab), live or ended, in the order they started. */
+  readonly watchers: readonly Watcher[]
 }
 
 /**
@@ -830,6 +856,8 @@ export interface CommandMap {
   [CommandName.TasksRetry]: CommandSpec<TasksRetryRequest, TaskResponse>
   [CommandName.TasksCompact]: CommandSpec<TasksCompactRequest, TaskResponse>
   [CommandName.SubagentsStop]: CommandSpec<SubagentsStopRequest, null>
+  [CommandName.WatchersListLive]: CommandSpec<EmptyRequest, WatchersListLiveResponse>
+  [CommandName.WatchersStop]: CommandSpec<WatchersStopRequest, null>
   [CommandName.TasksHistory]: CommandSpec<TaskIdRequest, TasksHistoryResponse>
   [CommandName.QueueAdd]: CommandSpec<QueueAddRequest, QueuedMessageResponse>
   [CommandName.QueueEdit]: CommandSpec<QueueEditRequest, QueuedMessageResponse>
@@ -907,6 +935,7 @@ export enum EventType {
   TodosChanged = 'todos.changed',
   ArtifactsChanged = 'artifacts.changed',
   HandoffChanged = 'handoff.changed',
+  WatchersChanged = 'watchers.changed',
   TerminalTabsChanged = 'terminal.tabsChanged',
   TerminalOutput = 'terminal.output',
   TerminalCleared = 'terminal.cleared',
@@ -1066,6 +1095,16 @@ export interface HandoffChangedEvent {
 }
 
 /**
+ * A task's watchers changed: the agent started one, one woke the agent, was stopped or ended. Carries every watcher of
+ * the task as it now is, in the order they started.
+ */
+export interface WatchersChangedEvent {
+  readonly type: EventType.WatchersChanged
+  readonly taskId: string
+  readonly watchers: readonly Watcher[]
+}
+
+/**
  * The terminal tabs changed: one was added, closed or renamed, or what's running in one changed (its running dot and
  * default name). Carries every tab as it now is, in order. A tab whose shell exits closes.
  */
@@ -1150,6 +1189,7 @@ export type GladeEvent =
   | TodosChangedEvent
   | ArtifactsChangedEvent
   | HandoffChangedEvent
+  | WatchersChangedEvent
   | TerminalTabsChangedEvent
   | TerminalOutputEvent
   | TerminalClearedEvent

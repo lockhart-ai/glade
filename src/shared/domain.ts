@@ -771,6 +771,84 @@ export interface Artifact {
   readonly updatedAt: EpochMs
 }
 
+/**
+ * What a watcher is: one of the SDK's own ways the agent leaves something running or scheduled that wakes it later
+ * (`docs/sdk-notes.md` §13). Glade builds none of them; it only follows the ones the agent starts.
+ */
+export enum WatcherKind {
+  /** A `Monitor` watch: a command whose output lines each wake the agent, until it exits or times out. */
+  Monitor = 'monitor',
+  /** A command running in the background (`Bash` with `run_in_background`): it wakes the agent when it ends. */
+  Command = 'command',
+  /** A `ScheduleWakeup`: it wakes the agent once, at its time. */
+  Wakeup = 'wakeup',
+  /** A `CronCreate` job: it wakes the agent at each time its schedule matches, or once. */
+  Cron = 'cron',
+}
+
+/** Where a watcher stands. */
+export enum WatcherState {
+  /** A monitor or command whose process is running. */
+  Running = 'running',
+  /** A wakeup or cron job waiting for its time. */
+  Scheduled = 'scheduled',
+  /**
+   * A cron job whose session isn't running, after a relaunch: the SDK brings it back when the task's session resumes
+   * (`docs/sdk-notes.md` §11), and it's scheduled again.
+   */
+  Suspended = 'suspended',
+  /** It ran its course: a command or monitor that exited, a wakeup or one-off job that fired. */
+  Finished = 'finished',
+  /** Its command exited with an error. */
+  Failed = 'failed',
+  /** You or the agent stopped it, it timed out, or it died with its session (a relaunch). */
+  Stopped = 'stopped',
+}
+
+/** The states a watcher is live in: it can still wake the agent, and Stop applies. */
+export const LIVE_WATCHER_STATES: readonly WatcherState[] = [
+  WatcherState.Running,
+  WatcherState.Scheduled,
+  WatcherState.Suspended,
+]
+
+/**
+ * Something the task's agent left running or scheduled with the SDK's own tools, as the Watchers tab lists it: a
+ * `Monitor` watch, a background command, a `ScheduleWakeup` or a `CronCreate` job. Glade follows it from the call
+ * that started it to its end, counting each time it wakes the agent.
+ */
+export interface Watcher {
+  readonly id: string
+  readonly taskId: string
+  readonly kind: WatcherKind
+  /** The tool call that started it. */
+  readonly toolUseId: string
+  /** What the agent called it: the call's description, a wakeup's reason, or a cron job's prompt. */
+  readonly label: string
+  /** What it runs: the command, or the prompt it wakes the agent with. */
+  readonly detail: string
+  /** A cron job's schedule, in words where the SDK gives them (`Every minute`); null for the other kinds. */
+  readonly schedule: string | null
+  /** Whether it can wake the agent more than once: a monitor, or a recurring cron job. */
+  readonly recurring: boolean
+  readonly state: WatcherState
+  /** How many times it has woken the agent. */
+  readonly wakes: number
+  /** When it last woke the agent; null until it has. */
+  readonly lastWokeAt: EpochMs | null
+  /** The last thing it reported: a monitor's last event line. Null until there's one. */
+  readonly lastOutput: string | null
+  /** When it's next due: a wakeup's time, a cron job's next match. Null for the others, and once it has ended. */
+  readonly nextDueAt: EpochMs | null
+  /** When a monitor times out; null for the other kinds, and a monitor with no timeout. */
+  readonly expiresAt: EpochMs | null
+  /** How it ended: what the SDK said, or who stopped it. Null while it's live. */
+  readonly outcome: string | null
+  readonly startedAt: EpochMs
+  /** When it ended; null while it's live. */
+  readonly endedAt: EpochMs | null
+}
+
 /** How long a task's handoff note may be: 32 KB of UTF-8. */
 export const MAX_HANDOFF_BYTES = 32 * 1024
 

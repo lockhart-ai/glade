@@ -124,6 +124,11 @@ export interface ToolResultStep {
   readonly id: string
   readonly output: string
   readonly isError?: boolean
+  /**
+   * What the SDK says of the result beside its text (`tool_use_result`), over what the session makes for the call's
+   * tool (see `ScriptedSession`): e.g. a `CronCreate` job's `humanSchedule`.
+   */
+  readonly details?: Readonly<Record<string, unknown>>
 }
 
 export interface GladeToolStep {
@@ -193,16 +198,27 @@ export interface LimitReachedStep {
   readonly resetInMs: number
 }
 
-/** What wakes the agent in a `Wake` step, and so what the SDK streams before the turn and says on its `result`. */
+/**
+ * What wakes the agent in a `Wake` step, and so what the SDK streams before the turn, what its prompt hook is told
+ * (`SessionHooks.onPrompt`, `docs/sdk-notes.md` §13), and what the turn's `result` says.
+ */
 export enum WakeCause {
   /**
    * A background task (a command, or a `Monitor`'s watch) ended: its `task_updated` and `task_notification`, carrying
-   * `summary`, come first, and the turn's `result` says `origin: task-notification`.
+   * `summary`, come first; the prompt hook is told its ending's `<task-notification>`; and the turn's `result` says
+   * `origin: task-notification`. A task that was stopped meanwhile never wakes it.
    */
   TaskEnded = 'task_ended',
-  /** A `Monitor` printed an event: nothing comes first, and the turn's `result` says `origin: task-notification`. */
+  /**
+   * A `Monitor` printed an event: nothing comes first, the prompt hook is told the event's `<task-notification>`, and
+   * the turn's `result` says `origin: task-notification`. A watch that was stopped meanwhile never wakes it.
+   */
   MonitorEvent = 'monitor_event',
-  /** A `ScheduleWakeup` or `CronCreate` job fired: nothing comes first, and the turn's `result` has no `origin`. */
+  /**
+   * A `ScheduleWakeup` or `CronCreate` job fired: its `command_lifecycle` comes first, the prompt hook is told its
+   * prompt, and the turn's `result` has no `origin`. A job the agent deleted never fires; one the hook turns away runs
+   * no turn (the SDK's informational message and a bare `result` instead).
+   */
   Scheduled = 'scheduled',
 }
 
@@ -212,10 +228,19 @@ export interface WakeStep {
   readonly cause?: WakeCause
   /** How long after this step the agent wakes, in milliseconds: no time by default. */
   readonly ms?: number
-  /** The script id of the tool call, in this turn, whose background task finished; none for a timer or wakeup. */
+  /**
+   * The script id of the tool call, in this turn, whose background task (a `Monitor`, or a `Bash` with
+   * `run_in_background`) finished or printed the event; none for a timer or wakeup.
+   */
   readonly task?: string
   /** What the task notification says finished, for a `TaskEnded` wake; the others stream no notification. */
   readonly summary?: string
+  /** How the task ended, for a `TaskEnded` wake: `completed` by default. */
+  readonly outcome?: BackgroundOutcome
+  /** The lines a `Monitor` printed, for a `MonitorEvent` wake (or with its ending, for a `TaskEnded` one). */
+  readonly event?: string
+  /** The script id of the `ScheduleWakeup` or `CronCreate` call, in this turn, whose job fired, for a `Scheduled` wake. */
+  readonly job?: string
   /** What the agent does in the turn it starts. */
   readonly turn: ScriptTurn
 }
@@ -329,11 +354,17 @@ export const toolUse = (id: string, name: string, input: ToolInput, parent?: str
   ...(parent === undefined ? {} : { parent }),
 })
 
-export const toolResult = (id: string, output: string, isError = false): ToolResultStep => ({
+export const toolResult = (
+  id: string,
+  output: string,
+  isError = false,
+  details?: Readonly<Record<string, unknown>>,
+): ToolResultStep => ({
   kind: ScriptStepKind.ToolResult,
   id,
   output,
   isError,
+  ...(details === undefined ? {} : { details }),
 })
 
 /** A tool call and its result, back to back. */

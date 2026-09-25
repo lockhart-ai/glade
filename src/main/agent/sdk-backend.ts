@@ -3,6 +3,7 @@
 import {
   query,
   type CanUseTool,
+  type HookCallback,
   type Options,
   type PermissionMode as SdkPermissionMode,
   type PermissionResult,
@@ -10,6 +11,7 @@ import {
   type SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
 import { createRequire } from 'node:module'
+import { z } from 'zod'
 import { PermissionMode, type PermissionSuggestion, type ToolInput } from '../../shared/domain'
 import { permissionRuleString } from '../../shared/permissions'
 import { CONTROL_SERVER_NAME } from '../../shared/control'
@@ -20,11 +22,14 @@ import { permissionSuggestionSchema } from '../permissions/schema'
 import { AsyncQueue } from './async-queue'
 import { gladeOwnServers } from './glade-tools'
 import {
+  PromptVerdict,
   ToolPermissionBehavior,
   type AgentBackend,
   type AgentSession,
   type AgentSessionOptions,
   type AgentSessionSettings,
+  type SessionHooks,
+  type SessionJob,
   type ToolPermissionAnswer,
   type ToolPermissionCall,
   type ToolPermissionHandler,
@@ -192,6 +197,60 @@ export function canUseToolFor(handler: ToolPermissionHandler | undefined, log: L
   }
 }
 
+/** Why a prompt was turned away, as the SDK says in its informational message; the model never sees it. */
+export const BLOCKED_PROMPT_REASON = 'You stopped this watcher in Glade.'
+
+const promptHookInput = z.looseObject({ prompt: z.string() })
+
+const sessionJob = z.looseObject({ id: z.string(), schedule: z.string(), recurring: z.boolean(), prompt: z.string() })
+
+const stopHookInput = z.looseObject({ session_crons: z.array(z.unknown()).optional().catch(undefined) })
+
+/** The jobs a `Stop` hook lists, skipping any of a shape Glade doesn't know. */
+function sessionJobs(input: unknown, log: Logger): SessionJob[] {
+  const parsed = stopHookInput.safeParse(input)
+  const listed = parsed.success ? (parsed.data.session_crons ?? []) : []
+  return listed.flatMap((raw) => {
+    const job = sessionJob.safeParse(raw)
+    if (job.success) {
+      const { id, schedule, recurring, prompt } = job.data
+      return [{ id, schedule, recurring, prompt }]
+    }
+    log.warn('ignored a scheduled job of a shape Glade does not know', { problem: job.error.message })
+    return []
+  })
+}
+
+/**
+ * The SDK hooks that tell `hooks` what the session does (`docs/sdk-notes.md` §13): each prompt that's about to start a
+ * turn (`UserPromptSubmit`), which it can turn away, and the jobs the session has scheduled at the end of each turn
+ * (`Stop`). A hook that fails lets the prompt through, and tells nothing.
+ */
+export function sdkHooks(hooks: SessionHooks, log: Logger = SILENT_LOGGER): NonNullable<Options['hooks']> {
+  const onPrompt: HookCallback = (input) => {
+    const parsed = promptHookInput.safeParse(input)
+    if (!parsed.success) return Promise.resolve({})
+    try {
+      if (hooks.onPrompt(parsed.data.prompt) === PromptVerdict.Block) {
+        log.info('prompt turned away', { prompt: parsed.data.prompt.slice(0, 200) })
+        return Promise.resolve({ decision: 'block', reason: BLOCKED_PROMPT_REASON })
+      }
+    } catch (error) {
+      log.error('failed to check a prompt', { error })
+    }
+    return Promise.resolve({})
+  }
+  const onStop: HookCallback = (input) => {
+    try {
+      hooks.onTurnEnded(sessionJobs(input, log))
+    } catch (error) {
+      log.error('failed to read the scheduled jobs', { error })
+    }
+    return Promise.resolve({})
+  }
+  return { UserPromptSubmit: [{ hooks: [onPrompt] }], Stop: [{ hooks: [onStop] }] }
+}
+
 /** The SDK options for a session that runs in `env`. */
 export function sdkOptions(
   options: AgentSessionOptions,
@@ -233,6 +292,8 @@ export function sdkOptions(
     disallowedTools: ['AskUserQuestion'],
     // A subagent's own text too, not just its tool calls: the Subagents tab shows the last thing each one said.
     forwardSubagentText: true,
+    // What the session's watchers do, which only its hooks tell (the Watchers tab, docs/sdk-notes.md §13).
+    ...(options.hooks === undefined ? {} : { hooks: sdkHooks(options.hooks, options.log ?? SILENT_LOGGER) }),
   }
 }
 

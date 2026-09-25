@@ -295,6 +295,7 @@ describe('ScriptedSession', () => {
         output: 'contents',
         isError: false,
         launched: false,
+        details: { stdout: 'contents', stderr: '', interrupted: false },
       },
       {
         kind: AgentEventKind.ToolCallStarted,
@@ -304,7 +305,14 @@ describe('ScriptedSession', () => {
         parentToolUseId: null,
       },
       // A subagent the turn waits on starts as a task, and ends before its call's result.
-      { kind: AgentEventKind.SubagentStarted, sdkTaskId: 'aid21', toolUseId: `${prefix}agent`, background: false },
+      {
+        kind: AgentEventKind.SubagentStarted,
+        sdkTaskId: 'aid21',
+        toolUseId: `${prefix}agent`,
+        background: false,
+        taskType: 'local_agent',
+        description: 'Look',
+      },
       {
         kind: AgentEventKind.ToolCallStarted,
         toolUseId: `${prefix}inner`,
@@ -312,7 +320,14 @@ describe('ScriptedSession', () => {
         input: { pattern: 'x' },
         parentToolUseId: `${prefix}agent`,
       },
-      { kind: AgentEventKind.ToolResult, toolUseId: `${prefix}inner`, output: 'hit', isError: false, launched: false },
+      {
+        kind: AgentEventKind.ToolResult,
+        toolUseId: `${prefix}inner`,
+        output: 'hit',
+        isError: false,
+        launched: false,
+        details: { stdout: 'hit', stderr: '', interrupted: false },
+      },
       { kind: AgentEventKind.Text, text: 'Subagent text', parentToolUseId: `${prefix}agent` },
       {
         kind: AgentEventKind.TaskFinished,
@@ -327,6 +342,7 @@ describe('ScriptedSession', () => {
         output: 'Found it.',
         isError: false,
         launched: false,
+        details: { stdout: 'Found it.', stderr: '', interrupted: false },
       },
       {
         kind: AgentEventKind.ToolResult,
@@ -334,6 +350,7 @@ describe('ScriptedSession', () => {
         output: 'orphan',
         isError: true,
         launched: false,
+        details: { stdout: '', stderr: 'orphan', interrupted: false },
       },
     ])
     const messageIds = played.raw
@@ -1113,6 +1130,7 @@ describe('ScriptedSession', () => {
           output: REJECTED_TOOL_OUTPUT,
           isError: true,
           launched: false,
+          details: { stdout: '', stderr: REJECTED_TOOL_OUTPUT, interrupted: false },
         },
         {
           kind: AgentEventKind.ToolResult,
@@ -1120,6 +1138,7 @@ describe('ScriptedSession', () => {
           output: REJECTED_TOOL_OUTPUT,
           isError: true,
           launched: false,
+          details: { stdout: '', stderr: REJECTED_TOOL_OUTPUT, interrupted: false },
         },
         expect.objectContaining({ kind: AgentEventKind.TurnFinished, terminalReason: 'aborted_tools' }),
       ])
@@ -1454,6 +1473,7 @@ describe('ScriptedSession', () => {
         output: LAUNCHED_OUTPUT,
         isError: false,
         launched: true,
+        details: expect.objectContaining({ status: 'async_launched' }) as unknown,
       })
       // The turn has ended while the subagent plays on.
       expect(played.raw.find((message) => message.type === 'result')).toMatchObject({ result: 'Started it.' })

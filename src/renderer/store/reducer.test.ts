@@ -227,6 +227,7 @@ describe("a task's logs", () => {
       todos: null,
       artifacts: [],
       handoff: null,
+      watchers: [],
     })
 
     expect(applyEvent(loaded, { type: EventType.ToolEventUpdated, toolEvent: done }).toolEvents).toEqual({
@@ -255,6 +256,7 @@ describe("a task's logs", () => {
       todos: null,
       artifacts: [],
       handoff: null,
+      watchers: [],
     })
 
     expect(next.messages.t1).toEqual([early, late])
@@ -270,6 +272,7 @@ describe("a task's logs", () => {
         todos: null,
         artifacts: [],
         handoff: null,
+        watchers: [],
       }).messages,
     ).toEqual({ t2: [] })
   })
@@ -296,6 +299,7 @@ describe("a task's queue", () => {
       todos: null,
       artifacts: [],
       handoff: null,
+      watchers: [],
     })
     expect(loaded.queuedMessages).toEqual({ t1: [second] })
   })
@@ -335,6 +339,7 @@ describe("a task's questions", () => {
       todos: null,
       artifacts: [],
       handoff: null,
+      watchers: [],
     }
     expect(withHistory(state, 't1', { ...empty, questionSets: [answered] }).questionSets).toEqual({ t1: [answered] })
   })
@@ -378,6 +383,7 @@ describe("a task's permission requests", () => {
       todos: null,
       artifacts: [],
       handoff: null,
+      watchers: [],
     }
     // A request opened while the history loaded stays, after the loaded ones.
     const loaded = withHistory(asked, 't1', { ...empty, permissionRequests: [denied] })
@@ -404,6 +410,7 @@ describe("a task's open files", () => {
       todos: null,
       artifacts: [],
       handoff: null,
+      watchers: [],
     }
     expect(withHistory(changed, 't1', { ...empty, openFiles: noOpenFiles('t1') }).openFiles).toEqual({
       t1: noOpenFiles('t1'),
@@ -439,6 +446,7 @@ describe("a task's artifacts", () => {
     todos: null,
     artifacts,
     handoff: null,
+    watchers: [],
   })
 
   it('takes the whole list from each change, and from a history load unless a change brought a newer one', () => {
@@ -467,6 +475,7 @@ describe("a task's handoff note", () => {
     todos: null,
     artifacts: [],
     handoff,
+    watchers: [],
   })
 
   it('takes the note from each change, and a cleared one as none', () => {
@@ -503,6 +512,7 @@ describe("a task's todo list", () => {
     todos,
     artifacts: [],
     handoff: null,
+    watchers: [],
   })
 
   it('takes the list from each change, whole', () => {

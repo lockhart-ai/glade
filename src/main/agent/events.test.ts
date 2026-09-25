@@ -86,7 +86,14 @@ describe('parsing SDK messages', () => {
 
   it('reads tool results with string content, text blocks or none', () => {
     expect(parse(sdk.toolResult('toolu_01', '12 passed'))).toEqual([
-      { kind: AgentEventKind.ToolResult, toolUseId: 'toolu_01', output: '12 passed', isError: false, launched: false },
+      {
+        kind: AgentEventKind.ToolResult,
+        toolUseId: 'toolu_01',
+        output: '12 passed',
+        isError: false,
+        launched: false,
+        details: { stdout: '12 passed', stderr: '', interrupted: false },
+      },
     ])
     const blocks = [
       { type: 'text', text: 'Line one.' },
@@ -100,11 +107,19 @@ describe('parsing SDK messages', () => {
         output: 'Line one.\nLine two.',
         isError: true,
         launched: false,
+        details: { stdout: '', stderr: '', interrupted: false },
       },
     ])
     const bare = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_03' }] } }
     expect(parse(bare)).toEqual([
-      { kind: AgentEventKind.ToolResult, toolUseId: 'toolu_03', output: '', isError: false, launched: false },
+      {
+        kind: AgentEventKind.ToolResult,
+        toolUseId: 'toolu_03',
+        output: '',
+        isError: false,
+        launched: false,
+        details: null,
+      },
     ])
   })
 
@@ -258,7 +273,14 @@ describe('parsing SDK messages', () => {
 
   it('reads a subagent started as a task, by the tool call that started it', () => {
     expect(parse({ type: 'system', subtype: 'task_started', task_id: 'b7f3', tool_use_id: 'toolu_02' })).toEqual([
-      { kind: AgentEventKind.SubagentStarted, sdkTaskId: 'b7f3', toolUseId: 'toolu_02', background: false },
+      {
+        kind: AgentEventKind.SubagentStarted,
+        sdkTaskId: 'b7f3',
+        toolUseId: 'toolu_02',
+        background: false,
+        taskType: null,
+        description: '',
+      },
     ])
     // A task no tool call started has no row to stop it from.
     expect(parse({ type: 'system', subtype: 'task_started', task_id: 'b7f4' })).toEqual([])
@@ -271,7 +293,14 @@ describe('parsing SDK messages', () => {
     const [call, started, launched] = sdk.backgroundLaunch('toolu_q', 'aq1', 'Profile the checkout queries')
     expect(parse(call)).toContainEqual(expect.objectContaining({ kind: AgentEventKind.ToolCallStarted, name: 'Agent' }))
     expect(parse(started)).toEqual([
-      { kind: AgentEventKind.SubagentStarted, sdkTaskId: 'aq1', toolUseId: 'toolu_q', background: true },
+      {
+        kind: AgentEventKind.SubagentStarted,
+        sdkTaskId: 'aq1',
+        toolUseId: 'toolu_q',
+        background: true,
+        taskType: 'local_agent',
+        description: 'Profile the checkout queries',
+      },
     ])
     expect(parse(launched)).toEqual([
       {
@@ -280,15 +309,22 @@ describe('parsing SDK messages', () => {
         output: 'Async agent launched.',
         isError: false,
         launched: true,
+        details: expect.objectContaining({ status: 'async_launched' }) as unknown,
       },
     ])
     // A background command isn't a subagent: its call's result is its own.
     const command = { type: 'system', subtype: 'task_started', task_id: 'b88t', tool_use_id: 'toolu_01' }
-    expect(parse({ ...command, task_type: 'local_bash', is_backgrounded: true })).toEqual([
-      { kind: AgentEventKind.SubagentStarted, sdkTaskId: 'b88t', toolUseId: 'toolu_01', background: false },
-    ])
-    expect(parse({ ...command, task_type: 42, is_backgrounded: 'yes' })).toEqual([
-      { kind: AgentEventKind.SubagentStarted, sdkTaskId: 'b88t', toolUseId: 'toolu_01', background: false },
+    const commandStarted = {
+      kind: AgentEventKind.SubagentStarted,
+      sdkTaskId: 'b88t',
+      toolUseId: 'toolu_01',
+      background: false,
+    }
+    expect(parse({ ...command, task_type: 'local_bash', is_backgrounded: true, description: 'Run the suite' })).toEqual(
+      [{ ...commandStarted, taskType: 'local_bash', description: 'Run the suite' }],
+    )
+    expect(parse({ ...command, task_type: 42, is_backgrounded: 'yes', description: 7 })).toEqual([
+      { ...commandStarted, taskType: null, description: '' },
     ])
 
     const updated = { type: 'system', subtype: 'task_updated', task_id: 'af1' }

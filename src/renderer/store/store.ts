@@ -589,6 +589,10 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.SubagentsStop, { taskId, toolUseId })
       },
 
+      async stopWatcher(taskId, id) {
+        await bridge.invoke(CommandName.WatchersStop, { taskId, id })
+      },
+
       async copyText(text) {
         await bridge.invoke(CommandName.ClipboardWriteText, { text })
       },

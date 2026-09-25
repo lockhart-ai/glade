@@ -75,6 +75,41 @@ export type ToolPermissionAnswer =
 /** Decides a tool call Claude Code asks about, however long that takes. */
 export type ToolPermissionHandler = (call: ToolPermissionCall) => Promise<ToolPermissionAnswer>
 
+/** Whether a prompt about to start a turn goes ahead (`SessionHooks.onPrompt`). */
+export enum PromptVerdict {
+  Allow = 'allow',
+  /** Turned away: the SDK runs no turn for it, and the model never sees it (`docs/sdk-notes.md` §13). */
+  Block = 'block',
+}
+
+/**
+ * A job the session has scheduled to wake itself (a `ScheduleWakeup` or `CronCreate`), as the SDK lists them at the end
+ * of each turn (the `Stop` hook's `session_crons`).
+ */
+export interface SessionJob {
+  /** The SDK's id for the job: what `CronDelete` takes. */
+  readonly id: string
+  /** Its 5-field cron expression: a one-off job's names its minute. */
+  readonly schedule: string
+  readonly recurring: boolean
+  /** The prompt it wakes the agent with. */
+  readonly prompt: string
+}
+
+/**
+ * What the session tells the host as it runs, through Claude Code's hooks (`docs/sdk-notes.md` §13), parsed at the SDK
+ * boundary: the prompts that start its turns, and the jobs it has scheduled.
+ */
+export interface SessionHooks {
+  /**
+   * A prompt is about to start a turn (`UserPromptSubmit`): one of the host's messages, a background task's wake (its
+   * `<task-notification>` blocks) or a scheduled job firing (its prompt). Answers whether it goes ahead.
+   */
+  readonly onPrompt: (prompt: string) => PromptVerdict
+  /** A turn ended (`Stop`): the jobs the session has scheduled now. */
+  readonly onTurnEnded: (jobs: readonly SessionJob[]) => void
+}
+
 /** How to start one task's agent session. */
 export interface AgentSessionOptions extends AgentSessionSettings {
   /** The folder the agent runs in: the workspace's root. */
@@ -101,6 +136,8 @@ export interface AgentSessionOptions extends AgentSessionSettings {
    * is denied: there's no one to ask.
    */
   readonly onToolPermission?: ToolPermissionHandler
+  /** What the session tells the host as it runs. Nothing is told by default, and every prompt goes ahead. */
+  readonly hooks?: SessionHooks
 }
 
 /**
@@ -124,8 +161,9 @@ export interface AgentSession {
   /** Interrupts the running turn, which then ends with an aborted result; the session stays alive. Stop uses it. */
   interrupt(): Promise<void>
   /**
-   * Stops one of the session's tasks, such as a subagent, by the SDK's id for it (`system/task_started`), leaving the
-   * turn running: the tool call that started it gets its result. Stop subagent uses it.
+   * Stops one of the session's tasks, such as a subagent or a background command, by the SDK's id for it
+   * (`system/task_started`), leaving the turn running: the tool call that started it gets its result. Stop subagent,
+   * and Stop on a running watcher, use it.
    */
   stopTask(sdkTaskId: string): Promise<void>
   /** Ends the session and its agent process. */

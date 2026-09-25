@@ -3,6 +3,7 @@ import { BridgeErrorCode, CommandName, EventType, type CommandRequest, type Comm
 import type { MenuState } from '../../shared/commands'
 import type { AgentRunner } from '../agent/runner'
 import { listArtifacts } from '../db/repositories/artifacts'
+import { listLiveWatchers, listWatchers, publicWatcher } from '../db/repositories/watchers'
 import { getHandoff } from '../db/repositories/backfills'
 import { getImage } from '../db/repositories/images'
 import { getInputDraft, setInputDraft } from '../db/repositories/input-drafts'
@@ -152,6 +153,11 @@ export function createHandlers(context: HandlerContext): Handlers {
       await runner.stopSubagent(taskId, toolUseId)
       return null
     },
+    [CommandName.WatchersListLive]: () => ({ watchers: listLiveWatchers(db).map(publicWatcher) }),
+    [CommandName.WatchersStop]: async ({ taskId, id }) => {
+      await runner.stopWatcher(taskId, id)
+      return null
+    },
     [CommandName.TasksHistory]: ({ id }) => {
       requireTask(db, id)
       return {
@@ -164,6 +170,7 @@ export function createHandlers(context: HandlerContext): Handlers {
         todos: todoListFor(db, id),
         artifacts: listArtifacts(db, id),
         handoff: getHandoff(db, id) ?? null,
+        watchers: listWatchers(db, id).map(publicWatcher),
       }
     },
     [CommandName.QueueAdd]: ({ taskId, text, images }) => ({ queuedMessage: runner.queue(taskId, text, images) }),

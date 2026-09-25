@@ -19,6 +19,7 @@ import type { SettingsSection } from '../settings/sections'
 import type { Command, MenuState } from '../../shared/commands'
 import type {
   Artifact,
+  Watcher,
   TaskHandoff,
   FileContent,
   FileInfo,
@@ -171,6 +172,11 @@ export interface GladeData {
   readonly openFiles: Readonly<Record<string, OpenFiles>>
   /** Each task's artifacts (the Artifacts tab), by task id: loaded with its logs, then kept current by events. */
   readonly artifacts: Readonly<Record<string, readonly Artifact[]>>
+  /**
+   * Each task's watchers (the Watchers tab), by task id: every task's live ones loaded on start, for the task list's
+   * marks; all of a task's loaded with its logs; then kept current by events.
+   */
+  readonly watchers: Readonly<Record<string, readonly Watcher[]>>
   /**
    * Each task's handoff note (the Backfilled card), by task id, null when it has none: loaded with its logs, then kept
    * current by events.
@@ -460,6 +466,8 @@ export interface GladeActions {
   removeArtifact: (taskId: string, path: string) => Promise<void>
   /** Stops one of a task's running subagents, by the `Agent` call that started it (`subagents.stop`). */
   stopSubagent: (taskId: string, toolUseId: string) => Promise<void>
+  /** Stops one of a task's live watchers (`watchers.stop`). */
+  stopWatcher: (taskId: string, id: string) => Promise<void>
   /** Puts text on the clipboard (`clipboard.writeText`). */
   copyText: (text: string) => Promise<void>
   /** Asks the input bar to add text to a task's message field and focus it (see `inputInsertion`). */
@@ -545,6 +553,7 @@ export const INITIAL_DATA: GladeData = {
   permissionRequests: {},
   openFiles: {},
   artifacts: {},
+  watchers: {},
   handoffs: {},
   todos: {},
   uiState: {},
