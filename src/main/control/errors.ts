@@ -20,6 +20,8 @@ export enum ControlErrorCode {
   RateLimited = 'rate_limited',
   /** The switch in Settings › Control is off. */
   Disabled = 'disabled',
+  /** The transcript can't be imported: the message says why (no such file, no messages, no workspace, …). */
+  ImportFailed = 'import_failed',
   /** Something went wrong in Glade itself. */
   Internal = 'internal',
 }

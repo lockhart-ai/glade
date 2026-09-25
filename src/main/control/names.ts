@@ -19,6 +19,8 @@ export enum ControlToolName {
   MarkDone = 'mark_done',
   ReopenTask = 'reopen_task',
   DeleteTask = 'delete_task',
+  ListClaudeCodeSessions = 'list_claude_code_sessions',
+  ImportClaudeCodeSession = 'import_claude_code_session',
 }
 
 /**
@@ -43,6 +45,8 @@ export const CONTROL_TOOL_ACCESS: Readonly<Record<ControlToolName, ControlAccess
   [ControlToolName.MarkDone]: ControlAccess.Change,
   [ControlToolName.ReopenTask]: ControlAccess.Change,
   [ControlToolName.DeleteTask]: ControlAccess.Change,
+  [ControlToolName.ListClaudeCodeSessions]: ControlAccess.Read,
+  [ControlToolName.ImportClaudeCodeSession]: ControlAccess.Change,
 }
 
 const TOOL_NAMES: ReadonlySet<string> = new Set(Object.values(ControlToolName))

@@ -147,7 +147,7 @@ describe('permissionVerdict', () => {
       }
       expect(
         Object.values(ControlToolName).filter((tool) => verdict(control(tool)) === PermissionVerdict.Allow),
-      ).toEqual(['list_workspaces', 'list_tasks', 'get_task', 'get_chat'])
+      ).toEqual(['list_workspaces', 'list_tasks', 'get_task', 'get_chat', 'list_claude_code_sessions'])
     })
 
     it.each(['user', 'project', 'plugin', 'claudeai'])(

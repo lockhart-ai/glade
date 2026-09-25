@@ -59,8 +59,19 @@ describe('createTask', () => {
       asking: false,
       awaitingPermission: false,
       pause: null,
+      importedAt: null,
     })
     expect(getTask(test.db, task.id)).toEqual(task)
+  })
+
+  it('records when a task was imported', () => {
+    const task = createTask(
+      test.db,
+      { workspaceId: workspace.id, model: 'claude-sample-1', effort: Effort.High, importedAt: 3_000 },
+      2_000,
+    )
+    expect(task.importedAt).toBe(3_000)
+    expect(getTask(test.db, task.id)?.importedAt).toBe(3_000)
   })
 
   it("starts with its model's context window", () => {

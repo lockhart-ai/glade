@@ -116,7 +116,8 @@ function current(id = task.id): Task {
 /** Starts a turn in the ask mode: the session has sent its init, and the turn is running. */
 async function startAsking(id = task.id, text = 'Run the migrations, then note them in the changelog.'): Promise<void> {
   await glade.invoke(CommandName.TasksSend, { id, text })
-  backend.session.emit(sdk.init())
+  // Each task has a session of its own.
+  backend.session.emit(sdk.init(id === task.id ? undefined : `session-${id}`))
   await settle()
 }
 
