@@ -169,7 +169,8 @@ it('leaves the tools the agent schedules its own follow-ups with on: none disall
   const followUpTools = ['Bash', 'Agent', 'Task', 'Monitor', 'ScheduleWakeup', 'CronCreate', 'CronDelete', 'TaskStop']
   expect(options.disallowedTools?.filter((tool) => followUpTools.includes(tool))).toEqual([])
   expect(options.tools).toBeUndefined()
-  expect(options.allowedTools).toBeUndefined()
+  // `allowedTools` only pre-approves Glade's own tools (P11-01): it doesn't limit which tools the session has.
+  expect(options.allowedTools?.filter((tool) => !tool.startsWith('mcp__'))).toEqual([])
   expect(options.env).not.toHaveProperty('CLAUDE_CODE_DISABLE_CRON')
   expect(options.env).not.toHaveProperty('CLAUDE_CODE_DISABLE_BACKGROUND_TASKS')
 })
