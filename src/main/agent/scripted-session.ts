@@ -3,8 +3,8 @@
  * steps become the SDK messages a real session would stream (shapes from `docs/sdk-notes.md` §2). Nothing runs a
  * model. The test modes' agent backend (`./test-mode-backend`) starts these.
  *
- * - Turns run one after another, in the order their messages were sent. The runner's `RESUME_PROMPT`, and its message
- *   answering a question the app quit on, run the script's resume turn, if it has one. `/compact` runs its compact turn (by default `DEFAULT_COMPACT_TURN`), which
+ * - Turns run one after another, in the order their messages were sent. The runner's `RESUME_PROMPT`, and its messages
+ *   answering a question or deciding permission requests the app quit on, run the script's resume turn, if it has one. `/compact` runs its compact turn (by default `DEFAULT_COMPACT_TURN`), which
  *   isn't one of the script's turns: the message after it runs the next of those.
  * - Each assistant message reports the context the session has used: 22,846 tokens unless a step fills it, and what
  *   a compaction left after one.
@@ -42,7 +42,12 @@ import {
 } from './backend'
 import { GLADE_SERVER, GladeTool } from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller, type McpToolOutcome } from './mcp-tool-caller'
-import { ANSWERED_AFTER_RESTART_PROMPT, COMPACT_COMMAND, RESUME_PROMPT } from './runner'
+import {
+  ANSWERED_AFTER_RESTART_PROMPT,
+  COMPACT_COMMAND,
+  PERMISSIONS_DECIDED_AFTER_RESTART_PROMPT,
+  RESUME_PROMPT,
+} from './runner'
 import { NO_ONE_TO_ASK, sdkPermissionMode } from './sdk-backend'
 import {
   DEFAULT_COMPACT_TURN,
@@ -276,7 +281,10 @@ export class ScriptedSession implements AgentSession {
   private turnFor(script: AgentScript, text: string): ScriptTurn {
     if (text === COMPACT_COMMAND) return script.compactTurn ?? DEFAULT_COMPACT_TURN
     this.turnsRun += 1
-    const resuming = text === RESUME_PROMPT || text.startsWith(ANSWERED_AFTER_RESTART_PROMPT)
+    const resuming =
+      text === RESUME_PROMPT ||
+      text.startsWith(ANSWERED_AFTER_RESTART_PROMPT) ||
+      text.startsWith(PERMISSIONS_DECIDED_AFTER_RESTART_PROMPT)
     if (resuming && script.resumeTurn !== undefined) return script.resumeTurn
     return script.turns[Math.min(this.turnsRun - 1, script.turns.length - 1)] ?? []
   }
