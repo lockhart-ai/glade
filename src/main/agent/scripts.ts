@@ -1193,8 +1193,8 @@ const declaresArtifacts: AgentScript = {
 
 /**
  * A build started in the background: the turn that starts it ends at once, and when the build finishes the agent
- * starts a turn of its own (a `wake`) to read its output and report, with no message from you. A message sent after
- * that gets a short reply.
+ * starts a turn of its own (a `wake`) to read its output and report, with no message from you. It takes a while to
+ * read the output, so a spec can see it working. A message sent after that gets a short reply.
  */
 const finishesInBackground: AgentScript = {
   name: 'finishes-in-background',
@@ -1219,7 +1219,10 @@ const finishesInBackground: AgentScript = {
           ...turnStart(),
           delay(BEAT_MS),
           say('The docs build finished. Checking its output for broken links.'),
-          ...tool('output', 'Read', { file_path: 'tasks/b4k2x9q.output' }, 'Built 48 pages.\nNo broken links.'),
+          // Long enough for a spec to see the task working on it, and to look away before it replies.
+          toolUse('output', 'Read', { file_path: 'tasks/b4k2x9q.output' }),
+          delay(BEAT_MS * 8),
+          toolResult('output', 'Built 48 pages.\nNo broken links.'),
           gladeTool('status-built', 'set_status', { status: 'The docs site is built, with no broken links.' }),
           say('The docs site built cleanly: 48 pages and no broken links.'),
           result(),

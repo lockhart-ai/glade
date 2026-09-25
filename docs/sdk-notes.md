@@ -325,6 +325,35 @@ See §7 for timing.
 If the interrupt lands during a tool, the tool gets a "user doesn't want to proceed" `tool_result`, the marker text is
 "[Request interrupted by user for tool use]", and `terminal_reason` is `"aborted_tools"`.
 
+### Turns the agent starts itself [verified]
+
+The SDK starts a turn with no user message when a background task finishes (and, per its types, for a timer, a
+scheduled wakeup or a message from another session). Probed on SDK 0.3.281 with Haiku: a turn ran `sleep 5 && echo …`
+with `run_in_background: true` and ended; about five seconds after its `result`, with nothing pushed, the session
+streamed:
+
+```
+system/task_updated       { task_id: "b88t…", patch: { status: "completed", end_time: … } }
+system/task_notification  { task_id: "b88t…", tool_use_id: "toolu_01…", status: "completed",
+                            output_file: "…/tasks/b88t….output", summary: "Background command \"…\" completed (exit code 0)" }
+system/init               ← a new turn, as for any other
+system/thinking_tokens …
+assistant [thinking]      ← no user_message_uuid on any of the turn's assistant messages
+assistant [text]
+result/success            { origin: { kind: "task-notification" }, … }  ← no user_message_uuid(s)
+```
+
+- The turn looks like any other but for what it answers: its `result` has no `user_message_uuid(s)`, and says why it
+  ran in `origin` (`task-notification`). The user turn's `result` had no `origin`.
+- Within a user turn, only its first assistant message carried `user_message_uuid`, so the assistant messages alone
+  can't tell the two kinds of turn apart.
+- The background command's own `task_started` (with `tool_use_id`, `task_type: "local_bash"`) came during the turn that
+  started it, and its `tool_result` ("Command running in background with ID: …") ended that call straight away.
+
+**Implication for Glade (P9-02):** the runner opens a turn when the agent's own top-level message (or an API error in
+its place) arrives between turns, rather than only when the user sends one. System messages, a stray result and
+anything from a subagent between turns still open nothing.
+
 ### Session id and resume
 
 `session_id` appears on every message. Store it from the first `system/init`. See §8.

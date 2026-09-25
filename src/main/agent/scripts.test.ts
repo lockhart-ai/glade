@@ -606,10 +606,15 @@ describe('AGENT_SCRIPTS', () => {
 
   it('finishes-in-background: reports back in a turn of its own when the build finishes, with no message from you', async () => {
     // Regression (#162): the turn the agent started on its own was dropped, text, tool calls, reply and all.
+    // The chat's messages and the task's activity changes, in the order they were broadcast.
     const heard: string[] = []
+    let activity: TaskActivity | null = null
     const emit = (event: GladeEvent): void => {
       if (event.type === EventType.MessageAppended) heard.push(`${event.message.role}: ${event.message.body}`)
-      if (event.type === EventType.TaskUpdated && heard.at(-1) !== event.task.activity) heard.push(event.task.activity)
+      if (event.type === EventType.TaskUpdated && activity !== event.task.activity) {
+        activity = event.task.activity
+        heard.push(activity)
+      }
     }
     const notifyReply = vi.fn<NotifyReply>()
     // You're looking elsewhere, so the reply marks the task unread and is notified.

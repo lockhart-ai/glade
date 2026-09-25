@@ -106,9 +106,19 @@ export type ChatEntry =
 /** The chat's entries that are dividers. */
 export type DividerEntry = RestartedEntry | MarkedDoneEntry | ReopenedEntry | CompactedEntry
 
-/** The turn in progress or last run: the latest message's turn, or 0 before any message. */
-export function currentTurn(messages: readonly Message[]): number {
-  return messages.reduce((turn, message) => Math.max(turn, message.turn), 0)
+/**
+ * The turn in progress or last run: the latest message's turn, or the latest turn divider's for a turn the agent started
+ * on its own, which has no message until it replies; 0 before either.
+ */
+export function currentTurn(messages: readonly Message[], toolEvents: readonly ToolEvent[] = []): number {
+  const byMessage = messages.reduce((turn, message) => Math.max(turn, message.turn), 0)
+  return toolEvents.reduce(
+    (turn, event) =>
+      event.kind === ToolEventKind.Divider && event.dividerKind === DividerKind.Turn
+        ? Math.max(turn, event.turn)
+        : turn,
+    byMessage,
+  )
 }
 
 /** The tool calls made in each turn by the agent itself (not by its subagents), by turn. */
@@ -240,7 +250,7 @@ export function chatEntries(
 ): ChatEntry[] {
   const counts = toolCallsByTurn(toolEvents)
   const last = messages.at(-1)
-  const turn = currentTurn(messages)
+  const turn = currentTurn(messages, toolEvents)
   const dividers = toolEvents.flatMap((event) => {
     const entry = toolEventEntry(task, event, turn)
     return entry === null ? [] : [entry]
@@ -319,7 +329,7 @@ export function workingNarration(
   if (task.activity !== TaskActivity.Working) return null
   const last = toolEvents.at(-1)
   if (last?.kind === ToolEventKind.Compaction && last.state === ToolCallState.Running) return COMPACTING_NARRATION
-  const turn = currentTurn(messages)
+  const turn = currentTurn(messages, toolEvents)
   const latest = toolEvents.findLast(
     (event): event is NarrationEvent =>
       event.kind === ToolEventKind.Narration && event.turn === turn && event.parentToolUseId === null,
