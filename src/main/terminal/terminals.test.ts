@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
 import { listTerminalTabs } from '../db/repositories/terminal-tabs'
 import { openTestDatabase, type TestDatabase } from '../db/repositories/test-database'
+import { LogScope } from '../logging/logger'
+import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
 import { createFakeSpawner, FAKE_SHELL, type FakePty, type FakeSpawner } from './fake-pty'
 import {
   createTerminals,
@@ -307,5 +309,67 @@ describe('across a relaunch', () => {
     expect(shell().killed).toBe(true)
     expect(listTerminalTabs(database.db).map((tab) => tab.id)).toEqual([id])
     expect(vi.getTimerCount()).toBe(0)
+  })
+})
+
+describe('the terminal log', () => {
+  /** Terminals that log to `log`. */
+  function logging(log: MemoryLog): Terminals {
+    terminals.shutdown()
+    spawner = createFakeSpawner()
+    terminals = createTerminals({
+      db: database.db,
+      emit,
+      spawn: spawner.spawn,
+      shell: FAKE_SHELL,
+      fallbackCwd: tmpdir(),
+      log: log.logger,
+    })
+    return terminals
+  }
+
+  it('logs tabs opening and closing, and shells starting and exiting, with how they exited', () => {
+    const log = createMemoryLog(LogScope.Terminal)
+    const tabs = logging(log)
+
+    const first = tabs.create(root)
+    tabs.attach(first.id, SIZE)
+    const second = tabs.duplicate(first.id)
+    tabs.attach(second.id, SIZE)
+    shell(0).exit({ exitCode: 127, signal: null })
+    tabs.close(second.id)
+
+    expect(log.records.map(({ message, fields }) => ({ message, fields }))).toEqual([
+      { message: 'terminal tab opened', fields: { tabId: first.id, cwd: root, after: null } },
+      {
+        message: 'shell starting',
+        fields: { tabId: first.id, shell: FAKE_SHELL.file, args: FAKE_SHELL.args, cwd: root, size: SIZE },
+      },
+      { message: 'terminal tab opened', fields: { tabId: second.id, cwd: root, after: first.id } },
+      expect.objectContaining({
+        message: 'shell starting',
+        fields: expect.objectContaining({ tabId: second.id }) as unknown,
+      }),
+      { message: 'shell exited', fields: { tabId: first.id, exitCode: 127, signal: null, closing: false } },
+      { message: 'terminal tab closed', fields: { tabId: first.id } },
+      { message: 'shell exited', fields: { tabId: second.id, exitCode: 0, signal: 1, closing: true } },
+      { message: 'terminal tab closed', fields: { tabId: second.id } },
+    ])
+    for (const record of log.records) expect(record.scope).toBe(LogScope.Terminal)
+  })
+
+  it('logs the shells ending with the app', () => {
+    const log = createMemoryLog(LogScope.Terminal)
+    const tabs = logging(log)
+    const tab = tabs.create(root)
+    tabs.create(root)
+    tabs.attach(tab.id, SIZE)
+
+    tabs.shutdown()
+
+    expect(log.records.slice(-2).map(({ message, fields }) => ({ message, fields }))).toEqual([
+      { message: 'terminals shutting down', fields: { tabs: 2, running: 1 } },
+      { message: 'shell exited', fields: { tabId: tab.id, exitCode: 0, signal: 1, closing: true } },
+    ])
   })
 })

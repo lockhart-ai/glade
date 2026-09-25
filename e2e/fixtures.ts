@@ -25,6 +25,8 @@ import {
   type E2eNetwork,
   type E2eSpec,
 } from '../src/main/e2e'
+import { testModeLogsFolder } from '../src/main/isolation'
+import { LOG_FILE_NAME } from '../src/main/logging/file-sink'
 import type { TaskNotification } from '../src/main/notifications/notifier'
 import type { RecordingNotifier } from '../src/main/notifications/recording-notifier'
 import { READY_ATTRIBUTE } from '../src/shared/ready'
@@ -88,6 +90,8 @@ export interface Glade {
   close(): Promise<void>
   /** Kills the app's process outright, as a force-quit or crash would: nothing gets to run on the way out. */
   kill(): Promise<void>
+  /** The app's log file (`docs/logs.md`), in the test's throwaway data folder: every launch in a test adds to it. */
+  readonly logFile: string
 }
 
 /**
@@ -205,6 +209,7 @@ export const test = base.extend<Fixtures>({
         window,
         close: () => (closing ??= closeApp(glade, index, false)),
         kill: () => (closing ??= closeApp(glade, index, true)),
+        logFile: join(testModeLogsFolder(userData), LOG_FILE_NAME),
       }
       launched.push(glade)
       await window.locator(`html[${READY_ATTRIBUTE}]`).waitFor({ state: 'attached' })

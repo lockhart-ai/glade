@@ -11,6 +11,7 @@ import { Effort } from '../../shared/domain'
 import { resolveLoginEnv } from '../login-env'
 import type { AgentSessionOptions } from './backend'
 import { createSdkBackend } from './sdk-backend'
+import { createMemoryLog } from '../logging/memory-sink'
 
 const sdk = vi.hoisted(() => ({
   query: vi.fn((params: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => {
@@ -62,7 +63,7 @@ function useLoginShell(profile: string): void {
 /** Starts a session as the app does: in the login shell's environment, read from Glade's own. */
 function startSession(): ReturnType<ReturnType<typeof createSdkBackend>['start']> {
   const env = resolveLoginEnv({ shell: process.env.SHELL, base: process.env, cwd: folder, log }).then(({ env }) => env)
-  return createSdkBackend({ env, log }).start(OPTIONS)
+  return createSdkBackend({ env, log: createMemoryLog().logger }).start(OPTIONS)
 }
 
 /** The environment the SDK spawned Claude Code with: the one it was given, or Glade's own when it wasn't given one. */

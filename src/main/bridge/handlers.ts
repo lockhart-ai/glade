@@ -38,6 +38,7 @@ import {
 } from '../files/files'
 import { todoListFor } from '../todos/todos'
 import { removeTaskArtifact } from '../artifacts/artifacts'
+import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
 
@@ -67,6 +68,8 @@ export interface HandlerContext {
   readonly closeWindow?: () => void
   /** The global terminal's tabs and their shells. */
   readonly terminals: Terminals
+  /** Where errors in the window are logged (`log.rendererError`). Nothing by default. */
+  readonly log?: Logger
 }
 
 /** The root of the workspace a new terminal tab starts in, or null for none. */
@@ -79,6 +82,7 @@ function terminalRoot(db: Database, workspaceId: string | null): string | null {
 
 export function createHandlers(context: HandlerContext): Handlers {
   const { db, emit, chooseFolder, runner, writeClipboard, terminals } = context
+  const renderer = (context.log ?? SILENT_LOGGER).scoped(LogScope.Renderer)
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
     [CommandName.WorkspacesCreate]: ({ rootPath }) => {
@@ -222,6 +226,10 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.WindowClose]: () => {
       context.closeWindow?.()
+      return null
+    },
+    [CommandName.LogRendererError]: (error) => {
+      renderer.error('renderer error', { ...error })
       return null
     },
   }
