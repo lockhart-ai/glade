@@ -11,7 +11,6 @@ import { TaskFilter } from '../../shared/attention'
 import { MAX_HANDOFF_BYTES, TaskActivity, TaskState, type Task, type Workspace } from '../../shared/domain'
 import { settle } from '../agent/fake-backend'
 import { HANDOFF_HEADING, handoffSection } from '../agent/system-prompt'
-import * as sdk from '../agent/test-sdk-messages'
 import { listArtifacts } from '../db/repositories/artifacts'
 import { getExternalId, getHandoff } from '../db/repositories/backfills'
 import { getTask, listTasks } from '../db/repositories/tasks'
@@ -129,7 +128,7 @@ describe('create_task, backfilling a past task', () => {
       doneAt: MARCH_12_MS,
       sessionId: null,
     })
-    expect(getHandoff(app.database.db, id)).toEqual({ taskId: id, body: HANDOFF, addedAt: expect.any(Number) })
+    expect(getHandoff(app.database.db, id)).toEqual({ taskId: id, body: HANDOFF, addedAt: expect.any(Number) as unknown })
     expect(getHandoff(app.database.db, id)?.addedAt).toBeGreaterThan(MARCH_12_MS)
     expect(listArtifacts(app.database.db, id).map(({ path, title }) => [path, title])).toEqual([
       ['notes/billing/notes.md', 'Migration notes'],
@@ -157,10 +156,10 @@ describe('create_task, backfilling a past task', () => {
       state: TaskState.Done,
       doneAt: MARCH_12_MS,
       createdAt: MARCH_12_MS,
-      handoff: { body: HANDOFF, addedAt: expect.any(Number) },
+      handoff: { body: HANDOFF, addedAt: expect.any(Number) as unknown },
       artifacts: [
-        { path: join(root, 'notes/billing/notes.md'), title: 'Migration notes', addedAt: expect.any(Number) },
-        { path: join(root, 'notes/billing/decisions.md'), title: 'decisions.md', addedAt: expect.any(Number) },
+        { path: join(root, 'notes/billing/notes.md'), title: 'Migration notes', addedAt: expect.any(Number) as unknown },
+        { path: join(root, 'notes/billing/decisions.md'), title: 'decisions.md', addedAt: expect.any(Number) as unknown },
       ],
       externalId: 'notes/billing',
     })
@@ -319,7 +318,7 @@ describe('what a backfill refuses', () => {
     )
   })
 
-  it("refuses a folder, a file outside the workspace, and a link that leads out of it", async () => {
+  it('refuses a folder, a file outside the workspace, and a link that leads out of it', async () => {
     mkdirSync(join(root, 'notes/billing'), { recursive: true })
     writeFileSync(join(outside, 'secret.md'), 'secret')
     symlinkSync(join(outside, 'secret.md'), join(root, 'notes/link.md'))
@@ -369,7 +368,7 @@ describe('update_task on a backfilled task', () => {
     const events = app.events.length
 
     const replaced = await client.call(ControlToolName.UpdateTask, { id, patch: { handoff: '## Next\n\nShip it.' } })
-    expect(taskOf(replaced).handoff).toEqual({ body: '## Next\n\nShip it.', addedAt: expect.any(Number) })
+    expect(taskOf(replaced).handoff).toEqual({ body: '## Next\n\nShip it.', addedAt: expect.any(Number) as unknown })
 
     const cleared = await client.call(ControlToolName.UpdateTask, { id, patch: { handoff: null } })
     expect(taskOf(cleared).handoff).toBeNull()
@@ -378,7 +377,7 @@ describe('update_task on a backfilled task', () => {
       {
         type: EventType.HandoffChanged,
         taskId: id,
-        handoff: { taskId: id, body: '## Next\n\nShip it.', addedAt: expect.any(Number) },
+        handoff: { taskId: id, body: '## Next\n\nShip it.', addedAt: expect.any(Number) as unknown },
       },
       { type: EventType.HandoffChanged, taskId: id, handoff: null },
     ])
@@ -400,7 +399,7 @@ describe('update_task on a backfilled task', () => {
 
     expect(taskOf(reply)).toMatchObject({
       status: 'Subscriptions next.',
-      artifacts: [{ path: plan, title: 'Plan', addedAt: expect.any(Number) }],
+      artifacts: [{ path: plan, title: 'Plan', addedAt: expect.any(Number) as unknown }],
     })
     expect(app.events.at(-1)).toEqual({
       type: EventType.ArtifactsChanged,

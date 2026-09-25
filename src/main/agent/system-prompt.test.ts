@@ -72,7 +72,8 @@ describe('systemPromptAppend', () => {
   })
 
   it("ends with the task's handoff note under its heading, saying its paths are real, when it has one", () => {
-    const body = '## Where it got to\n\n```sh\nnpm run replay -- --since 2026-03-01\n```\n\nNotes: /code/acme-api/notes/'
+    const body =
+      '## Where it got to\n\n```sh\nnpm run replay -- --since 2026-03-01\n```\n\nNotes: /code/acme-api/notes/'
     const handoff = { taskId: task.id, body, addedAt: 1_000 }
 
     const prompt = systemPromptAppend(task, undefined, true, handoff)

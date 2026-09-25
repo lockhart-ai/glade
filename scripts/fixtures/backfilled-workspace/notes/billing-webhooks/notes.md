@@ -1,0 +1,26 @@
+# Billing webhooks to v2
+
+- Step 0: checked the `invoice.created` payloads against the v2 schema.
+- Step 1: checked the `invoice.paid` payloads against the v2 schema.
+- Step 2: checked the `invoice.voided` payloads against the v2 schema.
+- Step 3: checked the `customer.created` payloads against the v2 schema.
+- Step 4: checked the `customer.updated` payloads against the v2 schema.
+- Step 5: checked the `customer.deleted` payloads against the v2 schema.
+- Step 6: checked the `invoice.created` payloads against the v2 schema.
+- Step 7: checked the `invoice.paid` payloads against the v2 schema.
+- Step 8: checked the `invoice.voided` payloads against the v2 schema.
+- Step 9: checked the `customer.created` payloads against the v2 schema.
+- Step 10: checked the `customer.updated` payloads against the v2 schema.
+- Step 11: checked the `customer.deleted` payloads against the v2 schema.
+- Step 12: checked the `invoice.created` payloads against the v2 schema.
+- Step 13: checked the `invoice.paid` payloads against the v2 schema.
+- Step 14: checked the `invoice.voided` payloads against the v2 schema.
+- Step 15: checked the `customer.created` payloads against the v2 schema.
+- Step 16: checked the `customer.updated` payloads against the v2 schema.
+- Step 17: checked the `customer.deleted` payloads against the v2 schema.
+- Step 18: checked the `invoice.created` payloads against the v2 schema.
+- Step 19: checked the `invoice.paid` payloads against the v2 schema.
+- Step 20: checked the `invoice.voided` payloads against the v2 schema.
+- Step 21: checked the `customer.created` payloads against the v2 schema.
+- Step 22: checked the `customer.updated` payloads against the v2 schema.
+- Step 23: checked the `customer.deleted` payloads against the v2 schema.

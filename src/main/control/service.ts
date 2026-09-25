@@ -286,7 +286,7 @@ export function createControlService(context: ControlServiceContext): ControlSer
         'patch.artifacts',
       )
       // A patch of only the handoff and artifacts leaves the task as it is, so it keeps its place in the sidebar.
-      const changesTask = Object.values(change).some((value) => value !== undefined)
+      const changesTask = Object.keys(change).length > 0
       const task = changesTask ? changeTask(context, id, change) : requireTask(db, id)
       const at = now()
       db.transaction(() => {

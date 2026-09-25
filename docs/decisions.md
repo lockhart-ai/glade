@@ -131,6 +131,14 @@
     the caller asks for that folder to be added as a workspace), with its title, chat, tool log and turn dividers at
     their original times, done by default. The task keeps the session id, so a message resumes the Claude Code
     session. Importing a session twice returns the same task.
+  - **Backfilling past tasks (P13-04):** `create_task` can make a past task from its notes: a Markdown **handoff
+    note** (at most 32 KB) kept with the task in SQLite, files of its workspace as its **artifacts** (the existing
+    artifacts store and tab, so only files inside the workspace, by absolute path), a **start date** that dates and
+    orders it, **done** at that date, and an **external id** (unique) that makes running the backfill again safe: the
+    same id returns the task already made. A backfilled task never starts its agent by itself. The note shows on a
+    **Backfilled** card at the top of the chat (collapsible, rendered Markdown, with the date it was added; never
+    edited in the window) and goes at the end of the system prompt of every session the task starts or resumes, so
+    compaction can't lose it. `update_task` sets or clears the note and adds artifacts without moving the task.
   - **Safety:** a task can't stop, delete or message itself through the API; deletes need `confirm: true`; calls are
     rate limited per caller; everything is logged under `control`, never the token. In the ask mode, `glade-control`
     tools that change things ask like other MCP tools; its reads (`list_*`, `get_*`) never ask when the SDK says the

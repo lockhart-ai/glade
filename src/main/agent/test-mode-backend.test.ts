@@ -54,7 +54,7 @@ describe('createTestModeAgentBackend', () => {
     session.close()
   })
 
-  it("tells what each session starts with: its system prompt and the session it resumes", () => {
+  it('tells what each session starts with: its system prompt and the session it resumes', () => {
     const script: AgentScript = { name: 'test', turns: [[init(), result()]] }
     const onStart = vi.fn()
     const backend = createTestModeAgentBackend({ script, onStart })

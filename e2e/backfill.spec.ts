@@ -103,9 +103,9 @@ test('an agent backfills past tasks; the user opens one, sees its handoff and ar
   await expect(conversation.reopened).toHaveCount(1)
   await expect(conversation.handoffCard).toBeVisible()
   const billing = tasks.find(({ title }) => title === BILLING.title)
-  expect((await invoke(window, CommandName.TasksList, { workspaceId: BACKFILLS_TASKS.workspaceId })).tasks).toContainEqual(
-    expect.objectContaining({ id: billing?.id, state: TaskState.Active }),
-  )
+  expect(
+    (await invoke(window, CommandName.TasksList, { workspaceId: BACKFILLS_TASKS.workspaceId })).tasks,
+  ).toContainEqual(expect.objectContaining({ id: billing?.id, state: TaskState.Active }))
   const prompts = (await agentSessions(glade)).map(({ systemPromptAppend }) => systemPromptAppend)
   expect(prompts).toHaveLength(2)
   expect(prompts[0]).not.toContain(HANDOFF_HEADING)

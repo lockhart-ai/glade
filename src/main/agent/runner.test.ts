@@ -882,7 +882,7 @@ describe('the session', () => {
     expect(current().activity).toBe(TaskActivity.Error)
   })
 
-  it("gives every session a task starts or resumes its handoff note, and a task without one none", async () => {
+  it('gives every session a task starts or resumes its handoff note, and a task without one none', async () => {
     const note = '## Where it got to\n\nThe v2 handlers are live; `subscription.*` is next.'
     const handoff = setHandoff(database.db, task.id, note, 1_000)
     if (handoff === undefined) throw new Error('No handoff')

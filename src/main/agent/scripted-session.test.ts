@@ -836,7 +836,10 @@ describe('ScriptedSession', () => {
 
       expect(created).toEqual([{ workspaceId: `${SESSION.cwd}/notes` }])
       expect(played.events).toContainEqual(
-        expect.objectContaining({ kind: AgentEventKind.ToolCallStarted, input: { workspaceId: `${SESSION.cwd}/notes` } }),
+        expect.objectContaining({
+          kind: AgentEventKind.ToolCallStarted,
+          input: { workspaceId: `${SESSION.cwd}/notes` },
+        }),
       )
     })
 

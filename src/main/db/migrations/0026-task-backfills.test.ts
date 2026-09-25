@@ -23,9 +23,7 @@ it('keeps one row per task, a unique external id, a handoff of at most 32 KB wit
   expect(() => insert.run({ taskId: t1, externalId: null, handoff: null, at: null })).toThrow(/UNIQUE/)
   expect(() => insert.run({ taskId: t2, externalId: 'notes/a', handoff: null, at: null })).toThrow(/UNIQUE/)
   // Two bytes each: one over 32 KB.
-  expect(() => insert.run({ taskId: t2, externalId: null, handoff: `${'é'.repeat(16_384)}a`, at: 2 })).toThrow(
-    /CHECK/,
-  )
+  expect(() => insert.run({ taskId: t2, externalId: null, handoff: `${'é'.repeat(16_384)}a`, at: 2 })).toThrow(/CHECK/)
   expect(() => insert.run({ taskId: t2, externalId: null, handoff: 'Notes', at: null })).toThrow(/CHECK/)
   expect(() => insert.run({ taskId: t2, externalId: null, handoff: null, at: 2 })).toThrow(/CHECK/)
   // Tasks without an external id don't clash.
