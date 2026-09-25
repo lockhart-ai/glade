@@ -24,7 +24,7 @@ import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import { fakeBridge, sampleTask, sampleWorkspace, type FakeBridge } from '../store/test-bridge'
 import { FOCUS_HIGHLIGHT_MS, HIGHLIGHT_CLASS } from '../tool-log/ToolLog'
-import { MIN_PANEL_WIDTH } from './panelModel'
+import { MIN_PANEL_WIDTH } from '../panels'
 import { TaskPanel } from './TaskPanel'
 
 const AT = new Date(2026, 8, 23, 10, 44).getTime()
@@ -184,7 +184,7 @@ describe('TaskPanel', () => {
     expect(slot.style.getPropertyValue('--right-panel-width')).toBe('600px')
 
     // Focused, → narrows the panel a step; jsdom lays nothing out, so there's only room for its minimum width.
-    const handle = screen.getByRole('separator', { name: 'Resize panel' })
+    const handle = screen.getByRole('separator', { name: 'Resize side panel' })
     fireEvent.keyDown(handle, { key: 'ArrowRight' })
     expect(store.getState().uiState[UiStateKey.RightPanelWidth]).toBe(String(MIN_PANEL_WIDTH))
     expect(slot.style.getPropertyValue('--right-panel-width')).toBe(`${String(MIN_PANEL_WIDTH)}px`)

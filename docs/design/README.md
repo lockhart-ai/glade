@@ -14,7 +14,7 @@ illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
 | 5 · Mark done | No dialog; Undo toast; the task moves to Done with its outcome. | ![5 · Mark done](screens/05-mark-done.png) |
 | 6 · Reopen by chatting | A message in a done task reopens it, with dividers in chat and log. | ![6 · Reopen by chatting](screens/06-reopen.png) |
 | 7 · Search | Results across titles, objectives, outcomes and chat logs; matches highlighted. | ![7 · Search](screens/07-search.png) |
-| 8 · Open a file | Files tab with open-file tabs, source/preview toggle, resizable panel. | ![8 · Open a file](screens/08-open-file.png) |
+| 8 · Open a file | Files tab with open-file tabs, source/preview toggle; the drag handles that resize the sidebar, right panel and bottom bar. | ![8 · Open a file](screens/08-open-file.png) |
 | 9 · Todos | The agent's checklist with progress. | ![9 · Todos](screens/09-todos.png) |
 | 10 · Artifacts | Deliverables with Open / Copy / Reveal. | ![10 · Artifacts](screens/10-artifacts.png) |
 | 11 · Subagents | Status and latest line per subagent; one expanded inline to its log. | ![11 · Subagents](screens/11-subagents.png) |

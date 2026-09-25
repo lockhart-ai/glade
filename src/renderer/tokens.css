@@ -87,13 +87,9 @@
   --touch-target-send: 44px;
 
   /*
-   * Window layout, from docs/design/html/task-workspace.html. Panels shrink in small windows (the max values). The
-   * right panel's width is resizable, so it's set from src/renderer/right-panel/panelModel.ts instead.
-   */
-  --sidebar-width: 300px;
-  --bottom-bar-height: 300px;
-  --bottom-bar-max-height: 30vh;
-  /*
+   * Window layout. The panels are resizable, so their sizes are set from src/renderer/panels/panelSize.ts instead, whose
+   * defaults are docs/design/html/task-workspace.html's.
+   *
    * The macOS traffic lights (titleBarStyle hiddenInset) sit over the top-left of the sidebar card, reaching about
    * 14px below its top edge. The sidebar keeps a strip this tall clear above its content.
    */
