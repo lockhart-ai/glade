@@ -2,10 +2,10 @@
 .row {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-2xs);
   width: 100%;
   box-sizing: border-box;
-  padding: 10px 12px;
+  padding: var(--space-item);
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-button);

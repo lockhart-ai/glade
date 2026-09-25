@@ -610,6 +610,92 @@ log or as a truncated reply, and show the turn as stopped rather than failed (`t
 - Glade's SQLite chat and tool log remain the source of truth for the UI. The SDK transcript is the model's memory.
 - A turn that was in flight when Glade died has no `result`. Mark it interrupted in SQLite, and don't auto-re-run it.
 
+## 9. Permissions [docs]
+
+Read from `sdk.d.ts` (0.3.281) for per-call permission review (P11, #68); nothing here has been run yet. P11-01
+probes the unverified parts and marks what it saw **[verified]**.
+
+- **Glade today** runs every session with `permissionMode: 'bypassPermissions'` and
+  `allowDangerouslySkipPermissions: true`. In that mode `canUseTool` is never called.
+- **`canUseTool(toolName, input, options)`** is called before a tool runs when the permission mode, rules and hooks
+  leave the call at "ask". It returns a `Promise<PermissionResult>`:
+  `{ behavior: 'allow', updatedInput?, updatedPermissions?, decisionClassification? }` or
+  `{ behavior: 'deny', message, interrupt?, decisionClassification? }`. `decisionClassification` is `user_temporary`
+  (allow once), `user_permanent` (always allow) or `user_reject` (deny). The promise can stay pending as long as it
+  likes: "permission prompts have no park deadline".
+- **`options`** carries `toolUseID` (one per call; parallel calls each ask separately), `agentID` (set for a
+  subagent's call), `signal` (aborted when the call is cancelled, e.g. by `interrupt()`), `suggestions`
+  (`PermissionUpdate[]` for "don't ask again", e.g. an `addRules` of `{ toolName: 'Bash', ruleContent: 'npm test:*' }`),
+  `blockedPath`, `decisionReason`, `title` / `displayName` / `description` (prompt text the CLI wrote), `mcpServer`
+  (`{ name, source }`; `source: 'sdk'` means an in-process server the host registered, the one to trust, not the name
+  prefix), `defaultToNo`, `suppressAlwaysAllowRule` and `matchedAskRule` (a user `permissions.ask` rule forced this).
+- **Modes:** `'default'` asks for anything not pre-approved (Claude Code already lets reads inside `cwd` through
+  without asking), `'acceptEdits'` also auto-allows file edits, `'dontAsk'` denies what isn't pre-approved, `'plan'`
+  runs no tools, `'auto'` lets a classifier decide. **`setPermissionMode(mode)`** changes a live session's mode in
+  streaming-input mode. Whether a session started in `bypassPermissions` can switch to `default` and back is not
+  documented; P11-01 probes it. If it can't, a mode change restarts the session with `resume`.
+- **Rules:** `allowedTools` / `disallowedTools` take rule strings such as `Bash(npm test:*)`, which the CLI matches
+  itself (it splits compound commands, so a prefix rule doesn't let `npm test && rm -rf x` through). A
+  `PermissionUpdate` returned with `destination: 'session'` lasts only as long as the Claude Code process: session
+  rules are gone after a relaunch. So Glade keeps a task's rules in SQLite, returns them as `updatedPermissions` when
+  granted, and passes them as `allowedTools` when it starts or resumes the task's session.
+- **The user's settings still apply** with `settingSources` including `"user"`: their `permissions.allow`/`deny`
+  rules and `PreToolUse` hooks decide before `canUseTool` is asked. Denials made without asking are reported on
+  `result.permission_denials` (authoritative) and, best effort, as a system event.
+- **No survival across a relaunch.** A pending `canUseTool` lives in Glade's process and the CLI subprocess waiting
+  on it. `reinitialize()` redelivers pending requests only to a CLI that is still running (after a transport gap);
+  once Glade quits, the subprocess is gone and the resumed transcript has a `tool_use` with no result, as with a
+  blocking `ask` (§8, `model-surface.md`). What can survive is Glade's own record of the request: the card, the task
+  needing you, and the decision, delivered to the resumed session as a message.
+- **`permissionPromptToolName`** (route prompts to an MCP tool) and **`permissionPrompts: 'none'`** (never ask) are
+  the alternatives; neither fits a card that waits for the user.
+
+## 10. Claude Code's todo tools [verified]
+
+Probed with SDK 0.3.281 (Claude Code 2.1.281) for #167: the `init` tool list of a one-message session in an empty temp
+folder, with no settings sources, per model and environment.
+
+| Model | Extra `env` | Todo tools in `init` |
+| --- | --- | --- |
+| `claude-haiku-4-5` | none | `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate` |
+| `claude-haiku-4-5` | `CLAUDE_CODE_ENABLE_TASKS=false` | `TodoWrite` |
+| `claude-sonnet-5` | none | none |
+| `claude-sonnet-5` | `CLAUDE_CODE_ENABLE_TASKS=1` | none |
+| `claude-sonnet-5` | `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` | `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate` |
+| `claude-sonnet-5` | `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`, `CLAUDE_CODE_ENABLE_TASKS=false` | `TodoWrite` |
+| `claude-opus-5-5[1m]` | none | none |
+| `claude-opus-5-5[1m]` | `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` | `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate` |
+
+How the bundled binary decides, from its code:
+
+- **Whether there are todo tools at all:** yes in an interactive session, or when the SDK's `tools` option names one of
+  them, or when the main model is unknown or on a fixed list of older models (Claude 3.x, Opus/Sonnet 4.0–4.7, Haiku
+  4.5), or when `CLAUDE_CODE_ENABLE_TODO_TOOLS` is true. So an SDK session on Opus 5.5 or Sonnet 5 has none, and the
+  model can't find them with `ToolSearch` either. The model is checked live, so a `setModel` mid-session changes it.
+- **Which ones:** `TaskCreate`/`TaskGet`/`TaskList`/`TaskUpdate` unless `CLAUDE_CODE_ENABLE_TASKS` is false, which
+  swaps in the older `TodoWrite`.
+- They are deferred tools (`shouldDefer`): the model loads them with `ToolSearch` (`select:TaskCreate,TaskUpdate`)
+  before its first call. `TaskStop` is unrelated (it stops a background task) and is always there.
+
+**Glade sets `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` in every session's `env`** (`SESSION_ENV` in `sdk-backend.ts`), and
+leaves `CLAUDE_CODE_ENABLE_TASKS` to the user.
+
+A real session built from Glade's `sdkOptions` (`claude-sonnet-5`), asked to keep a two-item list, made these calls,
+which match the Todos tab's schemas (`src/main/todos/schema.ts`) and the scripted backend's `keeps-todos` script:
+
+```text
+{ "name": "ToolSearch", "input": { "query": "select:TaskCreate,TaskUpdate", "max_results": 5 } }
+{ "name": "TaskCreate", "input": { "subject": "Say hello", "description": "Say hello" } }
+→ "Task #1 created successfully: Say hello"
+{ "name": "TaskUpdate", "input": { "taskId": "1", "status": "in_progress" } }
+→ "Updated task #1 status"
+{ "name": "TaskUpdate", "input": { "taskId": "1", "status": "completed" } }
+→ "Updated task #1 status"
+```
+
+`activeForm` is optional, and the model left it out here. Glade's parser and `deriveTodoList` turned these into "Say
+hello" done and "Say goodbye" todo.
+
 ---
 
 ## Open risks
