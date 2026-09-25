@@ -399,17 +399,88 @@ describe('TaskPanel', () => {
       expect(within(within(log()).getByRole('group', { name: 'Compact' })).getByLabelText('Done')).toBeInTheDocument()
     })
 
-    it('nests a subagent’s calls under the call that started it', async () => {
+    it('leaves a subagent’s calls out of the log: its Agent call is one row, and they’re in the Subagents tab', async () => {
       await renderPanel({
         toolEvents: [
-          call('agent', { name: 'Agent', input: { description: 'Find the settings' } }),
+          call('agent', { name: 'Agent', input: { description: 'Find the settings' }, output: 'In api/settings.py.' }),
           call('grep', { name: 'Grep', input: { pattern: 'THROTTLE' }, parentToolUseId: 'use-agent' }),
+          { ...narration('said', 1, 'Looking for the throttle settings.'), parentToolUseId: 'use-agent' },
         ],
       })
 
-      const group = screen.getByRole('group', { name: 'Agent subagent calls' })
-      expect(within(group).getByRole('button')).toHaveTextContent('GrepTHROTTLE')
-      expect(tab(/^Tool calls/)).toHaveTextContent('Tool calls 2')
+      expect(
+        within(log())
+          .getAllByRole('button')
+          .map((button) => button.textContent),
+      ).toEqual(['AgentFind the settings10:44In api/settings.py.'])
+      expect(log()).not.toHaveTextContent('THROTTLE')
+      expect(log()).not.toHaveTextContent('Looking for the throttle settings.')
+      expect(screen.queryByRole('group', { name: 'Agent subagent calls' })).toBeNull()
+      expect(tab(/^Tool calls/)).toHaveTextContent('Tool calls 1')
+
+      fireEvent.click(tab(/^Subagents/))
+      fireEvent.click(
+        within(screen.getByRole('group', { name: 'Find the settings' })).getAllByRole('button')[0] ?? log(),
+      )
+      const subagentLog = screen.getByRole('log', { name: 'Find the settings log' })
+      expect(subagentLog).toHaveTextContent('Looking for the throttle settings.')
+      expect(within(subagentLog).getByRole('button')).toHaveTextContent('GrepTHROTTLE')
+    })
+
+    it('keeps nested and interleaved subagents’ calls, and a failing one, out of the log, live', async () => {
+      const { emit } = await renderPanel({ toolEvents: [] })
+      const events: ToolEvent[] = [
+        call('outer', { name: 'Agent', input: { description: 'API changes' }, state: ToolCallState.Running }),
+        call('other', { name: 'Agent', input: { description: 'Dashboard changes' }, state: ToolCallState.Running }),
+        call('o1', { name: 'Bash', input: { command: 'gh pr list' }, parentToolUseId: 'use-outer' }),
+        call('x1', {
+          name: 'Bash',
+          input: { command: 'redis-cli info' },
+          state: ToolCallState.Error,
+          output: 'Connection refused',
+          parentToolUseId: 'use-other',
+        }),
+        call('inner', { name: 'Agent', input: { description: 'Read PR 1402' }, parentToolUseId: 'use-outer' }),
+        call('i1', { name: 'Grep', input: { pattern: 'ratelimit' }, parentToolUseId: 'use-inner' }),
+        call('own', { name: 'Grep', input: { pattern: 'CHANGELOG' }, output: 'CHANGELOG.md' }),
+        call('x2', { name: 'Read', input: { file_path: `${ROOT}/web/charts.ts` }, parentToolUseId: 'use-other' }),
+      ]
+      act(() => {
+        for (const toolEvent of events) emit({ type: EventType.ToolEventAppended, toolEvent })
+      })
+
+      expect(
+        within(log())
+          .getAllByRole('button')
+          .map((button) => button.textContent),
+      ).toEqual([
+        'AgentAPI changes10:44Running…',
+        'AgentDashboard changes10:44Running…',
+        'GrepCHANGELOG10:44CHANGELOG.md',
+      ])
+      expect(log()).not.toHaveTextContent(/gh pr list|redis-cli|Connection refused|ratelimit|charts\.ts|PR 1402/)
+      expect(tab(/^Tool calls/)).toHaveTextContent('Tool calls 3')
+      expect(tab(/^Subagents/)).toHaveTextContent('Subagents 3')
+
+      fireEvent.click(tab(/^Subagents/))
+      const open = (name: string): HTMLElement => {
+        fireEvent.click(within(screen.getByRole('group', { name })).getAllByRole('button')[0] ?? log())
+        return screen.getByRole('log', { name: `${name} log` })
+      }
+      const calls = (element: HTMLElement): string[] =>
+        within(element)
+          .getAllByRole('button')
+          .map((button) => button.textContent)
+      // Each subagent lists its own calls, in order; the nested one's sit under its Agent call, and in its own entry.
+      expect(calls(open('API changes'))).toEqual([
+        'Bashgh pr list10:44',
+        'AgentRead PR 140210:44',
+        'Grepratelimit10:44',
+      ])
+      expect(calls(open('Read PR 1402'))).toEqual(['Grepratelimit10:44'])
+      const dashboard = open('Dashboard changes')
+      expect(calls(dashboard)).toEqual(['Bashredis-cli info10:44', 'Readweb/charts.ts10:44'])
+      expect(within(dashboard).getByLabelText('Failed')).toBeInTheDocument()
     })
 
     it('streams new entries and results live', async () => {

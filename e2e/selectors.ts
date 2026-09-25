@@ -151,8 +151,6 @@ export function taskPanel(page: Page) {
     log,
     /** A tool call's row, by its accessible name: its state, name, argument, time and result. */
     call: (name: string | RegExp) => log.getByRole('button', { name }),
-    /** A subagent's calls, under the call that started it (by its name). */
-    subagentCalls: (name: string) => log.getByRole('group', { name: `${name} subagent calls` }),
     dividers: log.getByRole('separator'),
     /** Each compaction's Compact row: its name, the tokens before and after, its time and how it went. */
     compactions: log.getByRole('group', { name: 'Compact' }),

@@ -1,6 +1,7 @@
 /**
  * What the tool log shows, worked out from a task's tool events: each tool call's one-line argument and result, the
- * dividers' labels, and the order of the rows, with each subagent's calls nested under the call that started it.
+ * dividers' labels, and the order of the rows. The tool log shows the task's own agent (`parentLogRows`); the Subagents
+ * tab shows each subagent's calls nested under the call that started it (`toolLogRows`).
  */
 import { TaskIndicator } from '../../shared/taskIndicator'
 import { toolDisplayName } from '../../shared/toolName'
@@ -310,7 +311,30 @@ export function toolLogRows(events: readonly ToolEvent[]): ToolLogRow[] {
   return rows
 }
 
-/** How many tool calls a task's log holds, subagents' included: the Tool calls tab's count. */
+/**
+ * Whether the task's own agent logged an event, not one of its subagents: a subagent's calls and notes name the `Agent`
+ * call they belong to (`parentToolUseId`); the parent's, and every divider and compaction, don't.
+ */
+export function isParentEvent(event: ToolEvent): boolean {
+  switch (event.kind) {
+    case ToolEventKind.ToolCall:
+    case ToolEventKind.Narration:
+      return event.parentToolUseId === null
+    case ToolEventKind.Divider:
+    case ToolEventKind.Compaction:
+      return true
+  }
+}
+
+/**
+ * The tool log's rows for the task's own agent: its calls, notes, dividers and compactions, in order. What a subagent
+ * does belongs under it in the Subagents tab, not here, so an `Agent` call is a single row, with no calls under it.
+ */
+export function parentLogRows(events: readonly ToolEvent[]): ToolLogRow[] {
+  return toolLogRows(events.filter(isParentEvent))
+}
+
+/** How many tool calls the task's own agent has made, not its subagents: the Tool calls tab's count. */
 export function toolCallCount(events: readonly ToolEvent[]): number {
-  return events.filter((event) => event.kind === ToolEventKind.ToolCall).length
+  return events.filter((event) => event.kind === ToolEventKind.ToolCall && isParentEvent(event)).length
 }
