@@ -68,6 +68,11 @@ export interface LaunchOptions {
   readonly loginShell?: string
   /** Environment variables to launch the app with, over the test runner's own, e.g. launchd's bare `PATH`. */
   readonly env?: Readonly<Record<string, string>>
+  /**
+   * Whether the app animates (docs/design/tokens.md, Motion). Off by default: the window runs as with macOS's Reduce
+   * motion on, so every change lands at once and no test waits on an animation. Specs of the animations turn it on.
+   */
+  readonly motion?: boolean
 }
 
 /** The path of a sample-data fixture in `e2e/seeds/`, by file name. */
@@ -166,7 +171,16 @@ export const test = base.extend<Fixtures>({
     }
 
     await use(async (options = {}) => {
-      const { route = '', chosenFolder, agentScript, agentScriptsByFirstMessage, seed, loginShell, env = {} } = options
+      const {
+        route = '',
+        chosenFolder,
+        agentScript,
+        agentScriptsByFirstMessage,
+        seed,
+        loginShell,
+        env = {},
+        motion = false,
+      } = options
       const spec: E2eSpec = {
         userData,
         route,
@@ -183,6 +197,7 @@ export const test = base.extend<Fixtures>({
           : { recordVideo: { dir: testInfo.outputPath('video'), size: E2E_WINDOW_SIZE, showActions: {} } }),
       })
       const window = await app.firstWindow()
+      await window.emulateMedia({ reducedMotion: motion ? 'no-preference' : 'reduce' })
       const index = launched.length
       let closing: Promise<void> | undefined
       const glade: Glade = {

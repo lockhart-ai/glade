@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../components'
+import { MotionPhase } from '../motion'
+import panelMotionStyles from '../motion/PanelMotion.module.css'
 import { moduleClass } from '../components/moduleClass'
 import {
   MAX_SIDEBAR_WIDTH,
@@ -227,6 +229,40 @@ describe('AppShell', () => {
     expect(shell.style.getPropertyValue('--bottom-bar-height')).toBe('316px')
   })
 
+  it('slides the sidebar and the bottom bar with no handles while they move, the leaving one inert', () => {
+    const { rerender } = render(
+      <AppShell
+        {...SIZES}
+        sidebar={<p>Sidebar slot</p>}
+        sidebarMotion={MotionPhase.Leaving}
+        task={<p>Task slot</p>}
+        bottomBar={<p>Bottom slot</p>}
+        bottomBarMotion={MotionPhase.Entering}
+      />,
+    )
+    const sidebarSlot = screen.getByTestId('sidebar-slot')
+    expect(sidebarSlot.parentElement).toHaveClass(moduleClass(panelMotionStyles, 'leaving'))
+    expect(sidebarSlot).toHaveAttribute('data-motion', 'leaving')
+    expect(sidebarSlot).toHaveAttribute('inert')
+    expect(screen.getByTestId('bottom-bar-slot')).toHaveAttribute('data-motion', 'entering')
+    expect(screen.getByTestId('bottom-bar-slot')).not.toHaveAttribute('inert')
+    expect(screen.queryByRole('separator')).toBeNull()
+
+    rerender(
+      <AppShell
+        {...SIZES}
+        sidebar={<p>Sidebar slot</p>}
+        sidebarMotion={MotionPhase.Shown}
+        task={<p>Task slot</p>}
+        bottomBar={<p>Bottom slot</p>}
+        bottomBarMotion={MotionPhase.Shown}
+      />,
+    )
+    expect(sidebarSlot).not.toHaveAttribute('data-motion')
+    expect(sidebarSlot.parentElement).not.toHaveClass(moduleClass(panelMotionStyles, 'leaving'))
+    expect(screen.getAllByRole('separator')).toHaveLength(2)
+  })
+
   it('gives the bottom bar only its minimum when the row above can’t be measured', () => {
     const onBottomBarHeightChange = vi.fn()
     render(
@@ -401,6 +437,24 @@ describe('RightPanel', () => {
   })
 })
 
+describe('RightPanel motion', () => {
+  it('slides open and shut with no handle while it moves, inert on its way out', () => {
+    const { rerender } = render(<RightPanel width={440} onWidthChange={vi.fn()} motion={MotionPhase.Entering} />)
+    const slot = screen.getByTestId('right-panel')
+    expect(slot).toHaveClass(moduleClass(panelMotionStyles, 'entering'))
+    expect(slot).toHaveAttribute('data-motion', 'entering')
+    expect(screen.queryByRole('separator')).toBeNull()
+
+    rerender(<RightPanel width={440} onWidthChange={vi.fn()} motion={MotionPhase.Leaving} />)
+    expect(slot).toHaveClass(moduleClass(panelMotionStyles, 'leaving'))
+    expect(slot).toHaveAttribute('inert')
+
+    rerender(<RightPanel width={440} onWidthChange={vi.fn()} />)
+    expect(slot).not.toHaveAttribute('data-motion')
+    expect(screen.getByRole('separator', { name: 'Resize side panel' })).toBeInTheDocument()
+  })
+})
+
 describe('BottomBar', () => {
   it('holds the terminal card with its tab row and terminal', () => {
     render(<BottomBar terminalTabs={<span>Shells</span>} terminal={<pre>Prompt</pre>} />)
@@ -426,5 +480,31 @@ describe('BottomBar', () => {
     expect(tabs).toHaveClass(moduleClass(bottomBarStyles, 'alone'))
     // The terminal stays in the page, hidden, so its screens keep what they show.
     expect(screen.getByText('Prompt')).not.toBeVisible()
+  })
+
+  it('slides between its height and its tab row’s, measured as it starts, with the terminal showing', () => {
+    // jsdom lays nothing out: the tab row is 40px and the card has a 1px border.
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.testid === 'terminal-tabs') return 40
+      return this.getAttribute('role') === 'region' ? 302 : 0
+    })
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute('role') === 'region' ? 300 : 0
+    })
+    const { rerender } = render(<BottomBar terminal={<pre>Prompt</pre>} motion={MotionPhase.Shown} />)
+    const bar = screen.getByRole('region', { name: 'Terminal' }).parentElement
+    expect(bar).not.toHaveClass(moduleClass(bottomBarStyles, 'moving'))
+    expect(bar?.style.getPropertyValue('--bottom-bar-collapsed-height')).toBe('')
+
+    rerender(<BottomBar terminal={<pre>Prompt</pre>} motion={MotionPhase.Leaving} />)
+    expect(bar).toHaveClass(moduleClass(bottomBarStyles, 'moving'), moduleClass(panelMotionStyles, 'leaving'))
+    expect(bar?.style.getPropertyValue('--bottom-bar-collapsed-height')).toBe('42px')
+    expect(screen.getByText('Prompt')).toBeVisible()
+
+    rerender(<BottomBar collapsed terminal={<pre>Prompt</pre>} motion={MotionPhase.Hidden} />)
+    expect(bar).not.toHaveClass(moduleClass(bottomBarStyles, 'moving'))
+    rerender(<BottomBar terminal={<pre>Prompt</pre>} motion={MotionPhase.Entering} />)
+    expect(bar).toHaveClass(moduleClass(panelMotionStyles, 'entering'))
+    vi.restoreAllMocks()
   })
 })

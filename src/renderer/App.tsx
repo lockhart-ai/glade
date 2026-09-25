@@ -6,6 +6,7 @@ import { FirstRun } from './first-run/FirstRun'
 import { InputBar } from './input-bar'
 import { PauseBanner } from './pause/PauseBanner'
 import { AppShell, BottomBar, Sidebar, SidebarHeader, TaskCard } from './layout'
+import { MotionPhase, usePresence } from './motion'
 import { Panel, PanelToggle, usePanel, usePanelSize } from './panels'
 import styles from './App.module.css'
 import { HydrationStatus, selectSelectedTask, selectSelectedWorkspace } from './store/state'
@@ -28,6 +29,8 @@ import { Terminal, TerminalTabs, useTerminalShortcuts } from './terminal'
 interface WindowProps {
   /** The sidebar, or nothing while it's collapsed. */
   sidebar?: ReactNode
+  /** Whether the sidebar is sliding open or shut, or still. */
+  sidebarMotion?: MotionPhase
   task: ReactNode
   /** Whether the task card shows the right panel beside the chat (it does unless it's collapsed). */
   taskHasRightPanel?: boolean
@@ -37,11 +40,19 @@ interface WindowProps {
 }
 
 /**
- * The window frame, with the global terminal in the bottom bar, which collapses to its tab row. The sidebar and the
+ * The window frame, with the global terminal in the bottom bar, which slides shut to its tab row. The sidebar and the
  * bottom bar keep the sizes you drag them to. The terminal's own shortcuts (⌃` and ⌘T) work wherever the focus is.
  */
-function Window({ sidebar, task, taskHasRightPanel = false, banner, overlay }: WindowProps): React.JSX.Element {
+function Window({
+  sidebar,
+  sidebarMotion,
+  task,
+  taskHasRightPanel = false,
+  banner,
+  overlay,
+}: WindowProps): React.JSX.Element {
   const bottomBar = usePanel(Panel.BottomBar)
+  const bottomBarMotion = usePresence(!bottomBar.collapsed).phase
   const sidebarWidth = usePanelSize(Panel.Sidebar)
   const bottomBarHeight = usePanelSize(Panel.BottomBar)
   useTerminalShortcuts()
@@ -49,17 +60,20 @@ function Window({ sidebar, task, taskHasRightPanel = false, banner, overlay }: W
     <AppShell
       banner={banner}
       sidebar={sidebar}
+      sidebarMotion={sidebarMotion}
       sidebarWidth={sidebarWidth.size}
       onSidebarWidthChange={sidebarWidth.setSize}
       task={task}
       taskHasRightPanel={taskHasRightPanel}
       overlay={overlay}
-      bottomBarCollapsed={bottomBar.collapsed}
+      bottomBarCollapsed={bottomBarMotion === MotionPhase.Hidden}
+      bottomBarMotion={bottomBarMotion}
       bottomBarHeight={bottomBarHeight.size}
       onBottomBarHeightChange={bottomBarHeight.setSize}
       bottomBar={
         <BottomBar
-          collapsed={bottomBar.collapsed}
+          collapsed={bottomBarMotion === MotionPhase.Hidden}
+          motion={bottomBarMotion}
           terminalTabs={<TerminalTabs />}
           terminal={<Terminal />}
           toggle={<PanelToggle panel={Panel.BottomBar} />}
@@ -91,10 +105,12 @@ function FirstRunLayout(): React.JSX.Element {
 /**
  * The window layout: the sidebar, the task card and the bottom bar. While the sidebar is collapsed, a button at the top
  * left of the task card shows it again: at the start of the task header, or on a row of its own with no task selected.
+ * The sidebar slides open and shut, and stays on screen while it slides shut.
  */
 function Layout(): React.JSX.Element {
   const workspace = useGladeStore(selectSelectedWorkspace)
   const sidebar = usePanel(Panel.Sidebar)
+  const sidebarPresence = usePresence(!sidebar.collapsed)
   const rightPanel = usePanel(Panel.RightPanel)
   const hasTask = useGladeStore((state) => selectSelectedTask(state) !== undefined)
   const searching = useGladeStore((state) => isSearching(state.searchText))
@@ -106,8 +122,9 @@ function Layout(): React.JSX.Element {
   return (
     <Window
       banner={<PauseBanner />}
+      sidebarMotion={sidebarPresence.phase}
       sidebar={
-        sidebar.collapsed ? undefined : (
+        !sidebarPresence.mounted ? undefined : (
           <Sidebar>
             <WorkspaceSwitcher collapseButton={<PanelToggle panel={Panel.Sidebar} />} />
             {workspace !== undefined && (

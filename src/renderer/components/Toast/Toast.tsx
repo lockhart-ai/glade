@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { Button, ButtonSize, ButtonVariant } from '../Button/Button'
 import { classNames } from '../classNames'
 import { Icon, IconSize } from '../Icon/Icon'
+import { motionDuration } from '../../motion'
 import styles from './Toast.module.css'
 
 /** How long a toast stays up unless it says otherwise, in milliseconds. */
@@ -40,6 +41,8 @@ export interface ToastProviderProps {
 
 interface ShownToast extends ToastOptions {
   id: number
+  /** Dismissed, and fading out: it goes once it has. */
+  leaving: boolean
 }
 
 const ToastContext = createContext<ToastApi | null>(null)
@@ -76,19 +79,47 @@ export function useToast(): ToastApi {
 /**
  * Holds the toasts for everything inside it and shows them in a region, newest last: at the latest mounted
  * `ToastAnchor`, or at the bottom of the window while there is none. Each toast dismisses itself after its timeout.
+ * Toasts rise and fade in, and fade out when dismissed.
  */
 export function ToastProvider({ children, className }: ToastProviderProps): React.JSX.Element {
   const [toasts, setToasts] = useState<readonly ShownToast[]>([])
   const nextId = useRef(1)
+  // The timers that remove toasts once they've faded out, to cancel if the provider goes first.
+  const removals = useRef(new Set<ReturnType<typeof setTimeout>>())
 
-  const dismiss = useCallback((id: number): void => {
+  useEffect(() => {
+    const timers = removals.current
+    return () => {
+      for (const timer of timers) clearTimeout(timer)
+    }
+  }, [])
+
+  const remove = useCallback((id: number): void => {
     setToasts((current) => current.filter((toast) => toast.id !== id))
   }, [])
+
+  // A dismissed toast fades out, then goes; at once with Reduce motion on.
+  const dismiss = useCallback(
+    (id: number): void => {
+      const duration = motionDuration()
+      if (duration === 0) {
+        remove(id)
+        return
+      }
+      setToasts((current) => current.map((toast) => (toast.id === id ? { ...toast, leaving: true } : toast)))
+      const timer = setTimeout(() => {
+        removals.current.delete(timer)
+        remove(id)
+      }, duration)
+      removals.current.add(timer)
+    },
+    [remove],
+  )
 
   const show = useCallback((toast: ToastOptions): number => {
     const id = nextId.current
     nextId.current += 1
-    setToasts((current) => [...current, { ...toast, id }])
+    setToasts((current) => [...current, { ...toast, id, leaving: false }])
     return id
   }, [])
 
@@ -129,7 +160,7 @@ interface ToastProps {
 }
 
 function Toast({ toast, onDismiss }: ToastProps): React.JSX.Element {
-  const { id, message, icon, action, timeout = DEFAULT_TOAST_TIMEOUT } = toast
+  const { id, message, icon, action, timeout = DEFAULT_TOAST_TIMEOUT, leaving } = toast
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -141,7 +172,7 @@ function Toast({ toast, onDismiss }: ToastProps): React.JSX.Element {
   }, [id, timeout, onDismiss])
 
   return (
-    <div className={styles.toast}>
+    <div className={classNames(styles.toast, leaving && styles.leaving)} inert={leaving}>
       {icon !== undefined && <Icon icon={icon} size={IconSize.Medium} className={styles.icon} />}
       <span className={styles.message}>{message}</span>
       {action !== undefined && (

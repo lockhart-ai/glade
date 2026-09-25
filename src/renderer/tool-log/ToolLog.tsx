@@ -5,7 +5,7 @@ import { InlineMarkdown } from '../chat/Markdown'
 import { useStickToBottom } from '../chat/useStickToBottom'
 import { classNames } from '../components/classNames'
 import { moduleClass } from '../components/moduleClass'
-import { Dot } from '../components'
+import { Collapse, Dot } from '../components'
 import {
   argumentSummary,
   callIndicator,
@@ -100,11 +100,11 @@ function Call({ row, rootPath, turnStart, compact = false }: CallProps): React.J
           </span>
           {!compact && <span className={styles.result}>{resultSummary(call)}</span>}
         </button>
-        {expanded && (
+        <Collapse open={expanded}>
           <pre className={styles.output} aria-label={`${name} output`}>
             {call.output ?? (call.state === ToolCallState.Running ? 'No output yet.' : '')}
           </pre>
-        )}
+        </Collapse>
       </div>
       {children.length > 0 && (
         <div role="group" aria-label={`${name} subagent calls`} className={styles.children}>

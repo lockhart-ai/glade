@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../shared/bridge'
 import { appCommand, AppCommandId } from '../shared/commands'
 import { UiStateKey, type Workspace } from '../shared/domain'
 import { App } from './App'
+import { MOTION_DURATION_PROPERTY } from './motion'
 import { GladeStoreProvider } from './store/react'
 import { createGladeStore, type GladeStore } from './store/store'
 import {
@@ -136,6 +137,41 @@ it('collapses the task list from its header, and shows it again from the top of 
   fireEvent.click(within(titleBar).getByRole('button', { name: 'Show task list' }))
   expect(screen.getByRole('navigation', { name: 'Tasks' })).toBeInTheDocument()
   expect(screen.queryByTestId('task-title-bar')).toBeNull()
+})
+
+it('keeps each panel on screen, inert, while it slides shut, and the terminal showing until the bar is shut', async () => {
+  document.documentElement.style.setProperty(MOTION_DURATION_PROPERTY, '200ms')
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    const { emit } = await renderApp([sampleWorkspace('w1')])
+    const terminal = screen.getByRole('region', { name: 'Terminal' })
+    act(() => {
+      emit({ type: EventType.MenuCommand, command: appCommand(AppCommandId.ToggleSidebar) })
+      emit({ type: EventType.MenuCommand, command: appCommand(AppCommandId.ToggleRightPanel) })
+      emit({ type: EventType.MenuCommand, command: appCommand(AppCommandId.ToggleBottomBar) })
+    })
+
+    // On their way out: still there, but nothing in them takes a click or the focus.
+    expect(screen.getByTestId('sidebar-slot')).toHaveAttribute('inert')
+    expect(screen.getByTestId('right-panel')).toHaveAttribute('inert')
+    expect(screen.getByTestId('bottom-bar-slot')).toHaveAttribute('inert')
+    expect(within(terminal).getByText(/^No terminal open/)).toBeVisible()
+    // The sidebar's button in the task card is there at once, to bring it back.
+    expect(
+      within(screen.getByRole('main', { name: 'Task' })).getByRole('button', { name: 'Show task list' }),
+    ).toBeInTheDocument()
+
+    act(() => {
+      vi.advanceTimersByTime(200)
+    })
+    expect(screen.queryByTestId('sidebar-slot')).toBeNull()
+    expect(screen.queryByTestId('right-panel')).toBeNull()
+    expect(screen.getByTestId('bottom-bar-slot')).not.toHaveAttribute('inert')
+    expect(within(terminal).getByText(/^No terminal open/)).not.toBeVisible()
+  } finally {
+    vi.useRealTimers()
+    document.documentElement.style.removeProperty(MOTION_DURATION_PROPERTY)
+  }
 })
 
 it('collapses the bottom bar to its tab row, and toggles the panels from the menu bar', async () => {

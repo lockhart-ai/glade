@@ -1,0 +1,40 @@
+/*
+ * Opens and closes by height (docs/design/tokens.md, Motion): a one-row grid whose row grows from 0fr to 1fr, the
+ * content's own height, with no need to measure it.
+ */
+.collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+
+.inner {
+  min-height: 0;
+  min-width: 0;
+}
+
+.entering > .inner,
+.leaving > .inner {
+  overflow: hidden;
+}
+
+.entering {
+  animation: collapse-open var(--motion-duration) var(--motion-ease);
+}
+
+.leaving {
+  animation: collapse-close var(--motion-duration) var(--motion-ease) forwards;
+}
+
+@keyframes collapse-open {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+
+@keyframes collapse-close {
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}

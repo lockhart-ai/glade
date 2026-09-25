@@ -4,7 +4,7 @@ import { parseTaskFilter, TaskFilter } from '../../shared/attention'
 import { UiStateKey } from '../../shared/domain'
 import { WindowCommandId } from '../../shared/commands'
 import { useCommands } from '../commands/hooks'
-import { Icon, IconSize } from '../components'
+import { Collapse, Icon, IconSize } from '../components'
 import { ContextMenu, useContextMenu } from '../context-menus'
 import { useGladeStore } from '../store/react'
 import {
@@ -124,7 +124,7 @@ interface SectionProps {
   children: React.ReactNode
 }
 
-/** A section header (chevron, name, count) that collapses the rows below it. */
+/** A section header (chevron, name, count) that collapses the rows below it, which slide open and shut. */
 function Section({ section, collapsed, onToggle, children }: SectionProps): React.JSX.Element {
   const listId = useId()
   const title = sectionTitle(section.id)
@@ -148,11 +148,11 @@ function Section({ section, collapsed, onToggle, children }: SectionProps): Reac
         </span>
         <span>{section.tasks.length}</span>
       </button>
-      {!collapsed && (
+      <Collapse open={!collapsed}>
         <ul id={listId} className={styles.rows}>
           {children}
         </ul>
-      )}
+      </Collapse>
     </section>
   )
 }

@@ -12,6 +12,25 @@
   overflow: hidden;
 }
 
+/*
+ * Sliding open or shut: from its tab row's height to the height you chose, or back, as --panel-open goes from 0 to 1
+ * (src/renderer/motion/PanelMotion.module.css). The card keeps the open height and slides under the window's bottom
+ * edge; the clip leaves its shadow alone above and beside it.
+ */
+.bar.moving {
+  height: calc(
+    var(--bottom-bar-collapsed-height) + (var(--bottom-bar-height) - var(--bottom-bar-collapsed-height)) *
+      var(--panel-open)
+  );
+  clip-path: inset(-100px -100px 0 -100px);
+}
+
+.bar.moving > .terminal {
+  flex: none;
+  align-self: flex-start;
+  height: var(--bottom-bar-height);
+}
+
 .tabs {
   flex-shrink: 0;
   display: flex;

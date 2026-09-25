@@ -1,5 +1,6 @@
 import { useCallback, useRef, type CSSProperties, type ReactNode } from 'react'
 import { classNames } from '../components/classNames'
+import { isMoving, MotionPhase, panelMotionAttributes, panelMotionClass } from '../motion'
 import { Panel } from '../panels/panels'
 import {
   MIN_BOTTOM_BAR_HEIGHT,
@@ -17,6 +18,8 @@ import styles from './AppShell.module.css'
 export interface AppShellProps {
   /** The sidebar card (see `Sidebar`), or nothing while it's collapsed: the task card then takes the whole width. */
   sidebar?: ReactNode
+  /** Whether the sidebar is sliding open or shut, or still. It's still (and shown) by default. */
+  sidebarMotion?: MotionPhase
   /** The width you chose for the sidebar, in CSS pixels. The layout caps it so the task card keeps its minimum. */
   sidebarWidth: number
   /** The sidebar width you dragged its handle to (or moved it to with the arrow keys), to keep. */
@@ -32,6 +35,11 @@ export interface AppShellProps {
   bottomBar: ReactNode
   /** Whether the bottom bar is collapsed to its tab row, which then takes only its own height. */
   bottomBarCollapsed?: boolean
+  /**
+   * Whether the bottom bar is sliding open or shut, or still. While it moves, the bar sizes itself (see `BottomBar`)
+   * and has no handle.
+   */
+  bottomBarMotion?: MotionPhase
   /**
    * The height you chose for the bottom bar while it's open, in CSS pixels. The layout caps it so the task card keeps
    * its minimum height. It's the bar's own, whatever the bar holds.
@@ -81,15 +89,20 @@ function shellStyle(sidebarWidth: number, bottomBarHeight: number): CSSPropertie
  * panel its own), and its minimum height. When the window shrinks, the task card gives up its room first, then the
  * sidebar and the bottom bar shrink towards their minimums. While you drag, the size changes in place without
  * re-rendering the panels; it's handed on when you let go.
+ *
+ * The sidebar and the bottom bar slide open and shut (`sidebarMotion`, `bottomBarMotion`); neither has a handle while
+ * it moves.
  */
 export function AppShell({
   sidebar,
+  sidebarMotion = MotionPhase.Shown,
   sidebarWidth,
   onSidebarWidthChange,
   task,
   taskHasRightPanel = false,
   bottomBar,
   bottomBarCollapsed = false,
+  bottomBarMotion = MotionPhase.Shown,
   bottomBarHeight,
   onBottomBarHeightChange,
   banner,
@@ -132,21 +145,28 @@ export function AppShell({
       {banner}
       <div
         ref={top}
-        className={classNames(styles.top, sidebar === undefined && styles.full)}
+        className={classNames(styles.top, sidebar === undefined ? styles.full : panelMotionClass(sidebarMotion))}
         data-right-panel={taskHasRightPanel}
       >
         {sidebar !== undefined && (
-          <div ref={sidebarSlot} className={styles.sidebarSlot} data-testid="sidebar-slot">
+          <div
+            ref={sidebarSlot}
+            className={styles.sidebarSlot}
+            data-testid="sidebar-slot"
+            {...panelMotionAttributes(sidebarMotion)}
+          >
             {sidebar}
-            <ResizeHandle
-              edge={HandleEdge.Right}
-              label="Resize task list"
-              size={sidebarWidth}
-              bounds={sidebarBounds}
-              step={RESIZE_STEP}
-              onResize={showSidebarWidth}
-              onResizeEnd={onSidebarWidthChange}
-            />
+            {!isMoving(sidebarMotion) && (
+              <ResizeHandle
+                edge={HandleEdge.Right}
+                label="Resize task list"
+                size={sidebarWidth}
+                bounds={sidebarBounds}
+                step={RESIZE_STEP}
+                onResize={showSidebarWidth}
+                onResizeEnd={onSidebarWidthChange}
+              />
+            )}
           </div>
         )}
         {task}
@@ -155,9 +175,10 @@ export function AppShell({
         ref={bottom}
         className={classNames(styles.bottom, bottomBarCollapsed && styles.collapsed)}
         data-testid="bottom-bar-slot"
+        {...panelMotionAttributes(bottomBarMotion)}
       >
         {bottomBar}
-        {!bottomBarCollapsed && (
+        {!bottomBarCollapsed && !isMoving(bottomBarMotion) && (
           <ResizeHandle
             edge={HandleEdge.Top}
             label="Resize bottom panel"

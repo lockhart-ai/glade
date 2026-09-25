@@ -95,6 +95,32 @@ describe('tokens.css', () => {
     expect(tokensMd).toContain('`space-item` = 8')
   })
 
+  it('declares the motion tokens from tokens.md, easing out', () => {
+    // Rows of the motion table, e.g. | `motion-duration` | 200ms | ... |
+    const rows = [...tokensMd.matchAll(/^\| `(motion-[\w-]+)` \| `?([^`|]+?)`? \|/gm)]
+    expect(rows.map(([, name = '', value = '']) => [`--${name}`, value])).toEqual([
+      ['--motion-duration', '200ms'],
+      ['--motion-duration-fast', '120ms'],
+      ['--motion-ease', 'cubic-bezier(0.2, 0, 0, 1)'],
+    ])
+    for (const [, name = '', value = ''] of rows) {
+      expect(tokensCss, name).toContain(`--${name}: ${value};`)
+    }
+  })
+
+  it('sets every motion duration to 0 with Reduce motion on, so nothing moves', () => {
+    const reduced = /@media \(prefers-reduced-motion: reduce\) \{\s*:root \{([^}]*)\}/.exec(tokensCss)?.[1] ?? ''
+    expect(reduced).toContain('--motion-duration: 0ms;')
+    expect(reduced).toContain('--motion-duration-fast: 0ms;')
+    expect(tokensMd).toContain('**Reduce motion**')
+  })
+
+  it('registers --panel-open as a number that starts open, so panels animate it', () => {
+    expect(tokensCss).toMatch(
+      /@property --panel-open \{\s*syntax: '<number>';\s*inherits: false;\s*initial-value: 1;\s*\}/,
+    )
+  })
+
   it('loads Geist and Geist Mono from bundled files only', () => {
     const sources = [...tokensCss.matchAll(/url\(([^)]+)\)/g)].map(([, url]) => url)
 

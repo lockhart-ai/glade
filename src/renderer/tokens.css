@@ -87,6 +87,15 @@
   --touch-target-send: 44px;
 
   /*
+   * Motion. Panels, sections and toasts take --motion-duration; menus, popovers and small controls the shorter
+   * --motion-duration-fast. Everything eases out. With Reduce motion on, both are 0ms (below), so nothing moves, and
+   * src/renderer/motion reads --motion-duration to know how long to keep something on screen while it leaves.
+   */
+  --motion-duration: 200ms;
+  --motion-duration-fast: 120ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /*
    * Window layout. The panels are resizable, so their sizes are set from src/renderer/panels/panelSize.ts instead, whose
    * defaults are docs/design/html/task-workspace.html's.
    *
@@ -99,4 +108,23 @@
    * instead, and its title row starts this far in from the card's content edge (25px in) to clear them.
    */
   --traffic-light-clearance: 60px;
+}
+
+/* macOS "Reduce motion": no movement. Everything that animates takes these tokens, so it all lands at once. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration: 0ms;
+    --motion-duration-fast: 0ms;
+  }
+}
+
+/*
+ * How far open a collapsible panel is, from 0 (collapsed) to 1 (open). Registered so it animates as a number: a
+ * panel's size is its open size times this, and only this animates, never the size itself, so dragging a panel's
+ * handle never waits on a transition. See src/renderer/motion/PanelMotion.module.css.
+ */
+@property --panel-open {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 1;
 }
