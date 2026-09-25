@@ -19,6 +19,8 @@ import { createFakeSpawner, fakeTerminalOptions, type FakeSpawner } from '../ter
 import { createPlugins } from '../plugins/plugins'
 import { writePlugin } from '../plugins/test-plugins'
 import { createFakePluginViews, type FakePluginViews } from '../plugins/fake-view'
+import { createPluginFeed } from '../plugins/feed'
+import { databaseFeedSource } from '../plugins/feed-source'
 import { createPluginViews, type PluginViews } from '../plugins/views'
 import type { Plugins } from '../plugins/plugins'
 import { PluginStatus } from '../../shared/plugins'
@@ -41,7 +43,8 @@ let views: FakePluginViews
 /** The plugins in the test's plugins folder, with their views made by `views`. */
 function pluginsWithViews(): { plugins: Plugins; pluginViews: PluginViews } {
   const folder = join(root, 'plugins')
-  const pluginViews = createPluginViews({ emit, folder, appVersion: '1.2.3', createView: views.create })
+  const feed = createPluginFeed({ source: databaseFeedSource(database.db), tasks: [] })
+  const pluginViews = createPluginViews({ emit, feed, folder, appVersion: '1.2.3', createView: views.create })
   const plugins = createPlugins({
     db: database.db,
     emit,
