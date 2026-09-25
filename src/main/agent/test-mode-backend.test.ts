@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Effort } from '../../shared/domain'
+import { Effort, PermissionMode } from '../../shared/domain'
 import type { AgentSessionOptions } from './backend'
 import { delay, init, result, say, waitForInterrupt, wake, type AgentScript } from './scripts'
 import { GIF, JPEG, PNG } from '../../shared/test-images'
@@ -12,6 +12,7 @@ const OPTIONS: AgentSessionOptions = {
   cwd: '/tmp/acme-api',
   model: 'claude-model',
   effort: Effort.High,
+  permissionMode: PermissionMode.AllowAll,
   resumeSessionId: null,
   systemPromptAppend: '',
   mcpServers: {},
@@ -225,7 +226,7 @@ describe('createTestModeAgentBackend', () => {
     const backend = createTestModeAgentBackend({ script })
     const session = backend.start(OPTIONS)
     const received = drain(session.messages)
-    session.configure({ model: 'claude-sample-2', effort: OPTIONS.effort })
+    session.configure({ model: 'claude-sample-2', effort: OPTIONS.effort, permissionMode: OPTIONS.permissionMode })
     session.send('a', 'user-1')
 
     await backend.whenIdle()

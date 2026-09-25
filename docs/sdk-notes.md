@@ -613,45 +613,87 @@ log or as a truncated reply, and show the turn as stopped rather than failed (`t
 - Glade's SQLite chat and tool log remain the source of truth for the UI. The SDK transcript is the model's memory.
 - A turn that was in flight when Glade died has no `result`. Mark it interrupted in SQLite, and don't auto-re-run it.
 
-## 9. Permissions [docs]
+## 9. Permissions
 
-Read from `sdk.d.ts` (0.3.281) for per-call permission review (P11, #68); nothing here has been run yet. P11-01
-probes the unverified parts and marks what it saw **[verified]**.
+Read from `sdk.d.ts` (0.3.281) for per-call permission review (P11, #68), then probed in P11-01: one scratch
+`query()` on `haiku` in a temp folder, `settingSources: []` so no user rules got in the way, started in
+`bypassPermissions` with `allowDangerouslySkipPermissions: true` and a `canUseTool` that logged each call. It switched
+the live session to `default` and back with `setPermissionMode`, between turns, and ran `Bash`, `Edit`, `Write`, `Read`,
+a denied call and a foreground subagent's call. What that run showed is marked **[verified]**; the rest is **[docs]**.
 
-- **Glade today** runs every session with `permissionMode: 'bypassPermissions'` and
-  `allowDangerouslySkipPermissions: true`. In that mode `canUseTool` is never called.
-- **`canUseTool(toolName, input, options)`** is called before a tool runs when the permission mode, rules and hooks
-  leave the call at "ask". It returns a `Promise<PermissionResult>`:
-  `{ behavior: 'allow', updatedInput?, updatedPermissions?, decisionClassification? }` or
-  `{ behavior: 'deny', message, interrupt?, decisionClassification? }`. `decisionClassification` is `user_temporary`
-  (allow once), `user_permanent` (always allow) or `user_reject` (deny). The promise can stay pending as long as it
-  likes: "permission prompts have no park deadline".
-- **`options`** carries `toolUseID` (one per call; parallel calls each ask separately), `agentID` (set for a
-  subagent's call), `signal` (aborted when the call is cancelled, e.g. by `interrupt()`), `suggestions`
-  (`PermissionUpdate[]` for "don't ask again", e.g. an `addRules` of `{ toolName: 'Bash', ruleContent: 'npm test:*' }`),
-  `blockedPath`, `decisionReason`, `title` / `displayName` / `description` (prompt text the CLI wrote), `mcpServer`
-  (`{ name, source }`; `source: 'sdk'` means an in-process server the host registered, the one to trust, not the name
-  prefix), `defaultToNo`, `suppressAlwaysAllowRule` and `matchedAskRule` (a user `permissions.ask` rule forced this).
-- **Modes:** `'default'` asks for anything not pre-approved (Claude Code already lets reads inside `cwd` through
-  without asking), `'acceptEdits'` also auto-allows file edits, `'dontAsk'` denies what isn't pre-approved, `'plan'`
-  runs no tools, `'auto'` lets a classifier decide. **`setPermissionMode(mode)`** changes a live session's mode in
-  streaming-input mode. Whether a session started in `bypassPermissions` can switch to `default` and back is not
-  documented; P11-01 probes it. If it can't, a mode change restarts the session with `resume`.
-- **Rules:** `allowedTools` / `disallowedTools` take rule strings such as `Bash(npm test:*)`, which the CLI matches
+- **Glade** runs Allow all as `permissionMode: 'bypassPermissions'` and the ask mode as `'default'`, always with
+  `allowDangerouslySkipPermissions: true` and a `canUseTool`, and with its own MCP servers in `allowedTools`
+  (`mcp__glade`, a server-wide rule [docs]) so their tools never ask (`src/main/agent/sdk-backend.ts`).
+- **[verified] `bypassPermissions` never calls `canUseTool`.** The SDK even warns about it when both are given
+  (`CLAUDE_SDK_CAN_USE_TOOL_SHADOWED`, a Node process warning), which is harmless: the callback is there for when the
+  session switches.
+- **[verified] A live session switches between `bypassPermissions` and `default` with `setPermissionMode`, both ways,**
+  without restarting: the next turn's `system/init` reports the new `permissionMode`, `canUseTool` is called from the
+  next call on after switching to `default`, and not at all after switching back. So a mode change needs no restart
+  with `resume`: Glade sends it through `configure`, in order with the messages after it, and it applies from the next
+  call, mid-turn too. (The probe switched between turns; mid-turn is by the docs.)
+- **[verified] What asks in `default`:** `Edit`, `Write` and `Bash` commands with side effects (`touch`, `mkdir`)
+  called `canUseTool`. Claude Code let `Read` of a file in `cwd` and read-only `Bash` (`echo`, `ls`) through without
+  asking. Glade decides the rest itself (`src/main/permissions/classify.ts`).
+- **[verified] The call shapes.** The `tool_use` streams first, then `canUseTool(toolName, input, options)` is called,
+  and the tool's `tool_result` follows once it's answered. Each call asks on its own, with its own `toolUseID` (the
+  `tool_use` id) and `requestId`. Haiku made its "parallel" Bash calls one after another, so two prompts at once weren't
+  seen; the docs say each call in one assistant message asks separately. What `options` carried:
+
+  ```jsonc
+  // Bash `touch two.txt`, in the session's own turn
+  {
+    "suggestions": [
+      { "type": "addRules", "rules": [{ "toolName": "Bash", "ruleContent": "touch two.txt" }],
+        "behavior": "allow", "destination": "localSettings" },
+      { "type": "addDirectories", "directories": ["/tmp/glade-probe"], "destination": "session" },
+      { "type": "setMode", "mode": "acceptEdits", "destination": "session" }
+    ],
+    "blockedPath": "/tmp/glade-probe/two.txt",
+    "displayName": "Bash",
+    "description": "Create an empty file named two.txt", // the command's own description
+    "toolUseID": "toolu_01…",
+    "requestId": "4dc0be03-…"
+  }
+  // Edit (and Write): only the file's name as the description, and a switch to acceptEdits as the one suggestion
+  { "suggestions": [{ "type": "setMode", "mode": "acceptEdits", "destination": "session" }],
+    "displayName": "Edit", "description": "a.txt", "toolUseID": "toolu_01…", "requestId": "a9ae62b2-…" }
+  ```
+
+  A multi-word command's rule is a prefix: `mkdir three` suggested `ruleContent: "mkdir three *"`. No `title`,
+  `decisionReason`, `mcpServer`, `defaultToNo`, `suppressAlwaysAllowRule` or `matchedAskRule` came with these calls;
+  their meaning is from the docs: `title` is a prompt sentence the CLI wrote; `mcpServer` is `{ name, source }` for an
+  `mcp__*` tool, and `source: 'sdk'` means an in-process server the host registered, the one to trust, never the name
+  prefix; `defaultToNo` means the prompt mustn't be approvable by a stray key; `suppressAlwaysAllowRule` means it
+  mustn't offer to remember; `matchedAskRule` means a user `permissions.ask` rule forced it.
+- **[verified] A subagent's call** asks the same way, with `agentID` set to the SDK's id for the subagent (e.g.
+  `ac2cfaf3cec2364e5`), not the `Agent` call's `tool_use` id; its `tool_use` streams first with `parent_tool_use_id`
+  set to the `Agent` call, which is how Glade finds which subagent it is. A background subagent's read-only calls went
+  through without asking too.
+- **[verified] Answers.** `{ behavior: 'allow', updatedInput, decisionClassification: 'user_temporary' }` runs the
+  call. `{ behavior: 'deny', message, decisionClassification: 'user_reject' }` doesn't: the call's `tool_result` is an
+  error whose text is exactly `message`, the model reads it (it repeated a note put in the message), the turn carries
+  on, and the `result` lists the call in `permission_denials`. `decisionClassification` is `user_temporary` (allow
+  once), `user_permanent` (always allow) or `user_reject` (deny) [docs]. The promise can stay pending as long as it
+  likes: "permission prompts have no park deadline" [docs].
+- **`signal`** is aborted when the call is cancelled, e.g. by `interrupt()` [docs]; Glade withdraws the request then.
+- **Other modes [docs]:** `'acceptEdits'` also auto-allows file edits, `'dontAsk'` denies what isn't pre-approved,
+  `'plan'` runs no tools, `'auto'` lets a classifier decide.
+- **Rules [docs]:** `allowedTools` / `disallowedTools` take rule strings such as `Bash(npm test:*)`, which the CLI matches
   itself (it splits compound commands, so a prefix rule doesn't let `npm test && rm -rf x` through). A
   `PermissionUpdate` returned with `destination: 'session'` lasts only as long as the Claude Code process: session
   rules are gone after a relaunch. So Glade keeps a task's rules in SQLite, returns them as `updatedPermissions` when
-  granted, and passes them as `allowedTools` when it starts or resumes the task's session.
-- **The user's settings still apply** with `settingSources` including `"user"`: their `permissions.allow`/`deny`
+  granted, and passes them as `allowedTools` when it starts or resumes the task's session (P11-03).
+- **The user's settings still apply [docs]** with `settingSources` including `"user"`: their `permissions.allow`/`deny`
   rules and `PreToolUse` hooks decide before `canUseTool` is asked. Denials made without asking are reported on
   `result.permission_denials` (authoritative) and, best effort, as a system event.
-- **No survival across a relaunch.** A pending `canUseTool` lives in Glade's process and the CLI subprocess waiting
-  on it. `reinitialize()` redelivers pending requests only to a CLI that is still running (after a transport gap);
-  once Glade quits, the subprocess is gone and the resumed transcript has a `tool_use` with no result, as with a
+- **No survival across a relaunch [docs].** A pending `canUseTool` lives in Glade's process and the CLI subprocess
+  waiting on it. `reinitialize()` redelivers pending requests only to a CLI that is still running (after a transport
+  gap); once Glade quits, the subprocess is gone and the resumed transcript has a `tool_use` with no result, as with a
   blocking `ask` (§8, `model-surface.md`). What can survive is Glade's own record of the request: the card, the task
-  needing you, and the decision, delivered to the resumed session as a message.
+  needing you, and the decision, delivered to the resumed session as a message (P11-04).
 - **`permissionPromptToolName`** (route prompts to an MCP tool) and **`permissionPrompts: 'none'`** (never ask) are
-  the alternatives; neither fits a card that waits for the user.
+  the alternatives [docs]; neither fits a card that waits for the user.
 
 ## 10. Claude Code's todo tools [verified]
 

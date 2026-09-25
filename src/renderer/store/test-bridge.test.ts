@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest'
 import { BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { TaskState, UiStateKey } from '../../shared/domain'
+import { PermissionDecisionKind, TaskState, UiStateKey } from '../../shared/domain'
 import { fakeBridge, sampleTask } from './test-bridge'
 
 it('answers uiState.get from its data, and stops delivering events once unsubscribed', async () => {
@@ -24,6 +24,15 @@ it('refuses to delete a task it does not have', async () => {
   const fake = fakeBridge({ workspaces: [], tasks: [], uiState: [] })
 
   await expect(fake.bridge.invoke(CommandName.TasksDelete, { id: 'missing' })).rejects.toMatchObject({
+    code: BridgeErrorCode.NotFound,
+  })
+})
+
+it('refuses to answer a permission request, since it has none', async () => {
+  const fake = fakeBridge({ workspaces: [], tasks: [], uiState: [] })
+  const decision = { kind: PermissionDecisionKind.AllowOnce } as const
+
+  await expect(fake.bridge.invoke(CommandName.PermissionsAnswer, { id: 'p1', decision })).rejects.toMatchObject({
     code: BridgeErrorCode.NotFound,
   })
 })

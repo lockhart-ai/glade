@@ -1,6 +1,7 @@
 import { faCheck } from '@fortawesome/free-solid-svg-icons'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MOTION_DURATION_PROPERTY } from '../../motion'
 import { moduleClass } from '../moduleClass'
 import { DEFAULT_TOAST_TIMEOUT, ToastAnchor, ToastProvider, useToast, type ToastApi } from './Toast'
 import styles from './Toast.module.css'
@@ -178,6 +179,78 @@ describe('Toast', () => {
     expect(first).toHaveClass(cls('anchor'), 'above-input')
     expect(region().parentElement).toBe(first)
     expect(region()).toHaveTextContent('Copied.')
+  })
+
+  describe('with motion on', () => {
+    beforeEach(() => {
+      document.documentElement.style.setProperty(MOTION_DURATION_PROPERTY, '200ms')
+    })
+
+    afterEach(() => {
+      document.documentElement.style.removeProperty(MOTION_DURATION_PROPERTY)
+    })
+
+    it('rises in, and fades out when dismissed, inert, before it goes', () => {
+      const api = renderProvider()
+      let id = 0
+      act(() => {
+        id = api.show({ message: 'Copied.' })
+      })
+      const toast = screen.getByText('Copied.').parentElement
+      expect(toast).toHaveClass(cls('toast'))
+      expect(toast).not.toHaveClass(cls('leaving'))
+
+      act(() => {
+        api.dismiss(id)
+      })
+      expect(toast).toHaveClass(cls('leaving'))
+      expect(toast).toHaveAttribute('inert')
+      act(() => {
+        vi.advanceTimersByTime(199)
+      })
+      expect(screen.getByText('Copied.')).toBeInTheDocument()
+      act(() => {
+        vi.advanceTimersByTime(1)
+      })
+      expect(screen.queryByText('Copied.')).toBeNull()
+    })
+
+    it('fades out on its own timeout too, leaving the others', () => {
+      const api = renderProvider()
+      act(() => {
+        api.show({ message: 'First', timeout: 1000 })
+        api.show({ message: 'Second', timeout: 5000 })
+      })
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      expect(screen.getByText('First').parentElement).toHaveClass(cls('leaving'))
+      expect(screen.getByText('Second').parentElement).not.toHaveClass(cls('leaving'))
+      act(() => {
+        vi.advanceTimersByTime(200)
+      })
+      expect(screen.queryByText('First')).toBeNull()
+      expect(screen.getByText('Second')).toBeInTheDocument()
+    })
+
+    it('forgets a fading toast if the provider goes first', () => {
+      let api: ToastApi | undefined
+      function Capture(): null {
+        api = useToast()
+        return null
+      }
+      const { unmount } = render(
+        <ToastProvider>
+          <Capture />
+        </ToastProvider>,
+      )
+      act(() => {
+        const id = api?.show({ message: 'Copied.' }) ?? 0
+        api?.dismiss(id)
+      })
+      unmount()
+      expect(vi.getTimerCount()).toBe(0)
+    })
   })
 
   it('refuses an anchor outside a provider', () => {

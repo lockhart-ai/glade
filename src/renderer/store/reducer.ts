@@ -199,6 +199,12 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
     case EventType.QuestionAnswered:
     case EventType.QuestionWithdrawn:
       return { ...state, questionSets: withReplaced(state.questionSets, event.questionSet) }
+    case EventType.PermissionOpened:
+    case EventType.PermissionAnswered:
+    case EventType.PermissionWithdrawn:
+      // Nothing shows permission requests yet: the permission card comes with P11-02. The task's `awaitingPermission`
+      // arrives with its `task.updated`.
+      return state
     case EventType.OpenFilesChanged:
       return { ...state, openFiles: { ...state.openFiles, [event.openFiles.taskId]: event.openFiles } }
     case EventType.FileShown: {

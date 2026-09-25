@@ -74,15 +74,20 @@ function move(context: TaskServiceContext, id: string, transition: TaskTransitio
 }
 
 /**
- * Creates an active task in the workspace: empty title, objective and status, and the model and effort Settings has
- * as the defaults for new tasks.
+ * Creates an active task in the workspace: empty title, objective and status, and the model, effort and permission mode
+ * Settings has as the defaults for new tasks.
  */
 export function createTask(context: TaskServiceContext, workspaceId: string): Task {
   if (getWorkspace(context.db, workspaceId) === undefined) {
     throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${workspaceId}`)
   }
-  const { defaultModel, defaultEffort } = getSettings(context.db)
-  const task = insertTask(context.db, { workspaceId, model: defaultModel, effort: defaultEffort })
+  const { defaultModel, defaultEffort, defaultPermissionMode } = getSettings(context.db)
+  const task = insertTask(context.db, {
+    workspaceId,
+    model: defaultModel,
+    effort: defaultEffort,
+    permissionMode: defaultPermissionMode,
+  })
   emitTaskUpdated(context.emit, task)
   return task
 }
@@ -105,11 +110,11 @@ export function reopenTask(context: TaskServiceContext, id: string): Task {
   return move(context, id, TaskTransition.Reopen)
 }
 
-/** Applies the user's changes to a task: its title, pin, unread flag, model or effort. */
+/** Applies the user's changes to a task: its title, pin, unread flag, model, effort or permission mode. */
 export function updateTaskFromUser(context: TaskServiceContext, id: string, patch: TaskUserPatch): Task {
   existing(context.db, id)
-  const { title, pinned, unread, model, effort } = patch
-  return write(context, id, { title, pinned, unread, model, effort })
+  const { title, pinned, unread, model, effort, permissionMode } = patch
+  return write(context, id, { title, pinned, unread, model, effort, permissionMode })
 }
 
 /** Applies the agent's changes to a task: its title, objective or status. */

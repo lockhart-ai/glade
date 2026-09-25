@@ -1,11 +1,32 @@
 // The SDK adapter, with the SDK's `query()` replaced: what it passes to the SDK, and how it drives the session.
-import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import type { CanUseTool, PermissionUpdate, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { beforeEach, expect, it, vi } from 'vitest'
-import { Effort } from '../../shared/domain'
+import {
+  Effort,
+  PermissionDestination,
+  PermissionMode,
+  PermissionRuleBehavior,
+  PermissionUpdateType,
+} from '../../shared/domain'
 import type { Environment } from '../login-env'
-import type { AgentSessionOptions } from './backend'
+import {
+  ToolPermissionBehavior,
+  type AgentSessionOptions,
+  type ToolPermissionAnswer,
+  type ToolPermissionCall,
+} from './backend'
 import { GIF, JPEG, PNG } from '../../shared/test-images'
-import { claudeCodeExecutable, createSdkBackend, sdkOptions, userMessage } from './sdk-backend'
+import {
+  canUseToolFor,
+  claudeCodeExecutable,
+  createSdkBackend,
+  NO_ONE_TO_ASK,
+  PERMISSION_FAILED,
+  sdkOptions,
+  sdkPermissionMode,
+  toolPermissionCall,
+  userMessage,
+} from './sdk-backend'
 import { createMemoryLog } from '../logging/memory-sink'
 import { LogLevel, LogScope } from '../logging/logger'
 
@@ -15,6 +36,7 @@ const sdk = vi.hoisted(() => {
     stopTask: vi.fn<(taskId: string) => Promise<void>>(() => Promise.resolve(undefined)),
     setModel: vi.fn<(model?: string) => Promise<void>>(() => Promise.resolve(undefined)),
     applyFlagSettings: vi.fn<(settings: unknown) => Promise<void>>(() => Promise.resolve(undefined)),
+    setPermissionMode: vi.fn<(mode: string) => Promise<void>>(() => Promise.resolve(undefined)),
     close: vi.fn(),
     // The session's stream: one message, then done.
     [Symbol.asyncIterator]: vi.fn(async function* () {
@@ -33,6 +55,7 @@ const OPTIONS: AgentSessionOptions = {
   cwd: '/code/acme-api',
   model: 'claude-sample-1',
   effort: Effort.High,
+  permissionMode: PermissionMode.AllowAll,
   resumeSessionId: null,
   systemPromptAppend: 'You are running inside Glade.',
   mcpServers: {},
@@ -57,6 +80,8 @@ it('runs the session in the workspace root, allowing all, with the workspace and
     effort: 'high',
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
+    canUseTool: expect.any(Function) as unknown,
+    allowedTools: [],
     settingSources: ['user', 'project', 'local'],
     systemPrompt: { type: 'preset', preset: 'claude_code', append: 'You are running inside Glade.' },
     mcpServers: {},
@@ -166,7 +191,7 @@ it('starts one streaming-input query per session, in the environment, and pushes
 
   expect(sdk.query).toHaveBeenCalledExactlyOnceWith({
     prompt: expect.anything() as unknown,
-    options: sdkOptions(OPTIONS, ENV),
+    options: { ...sdkOptions(OPTIONS, ENV), canUseTool: expect.any(Function) as unknown },
   })
   const streamed: unknown[] = []
   for await (const message of session.messages) streamed.push(message)
@@ -213,7 +238,7 @@ it('changes the model and effort before delivering the next message, never after
   const session = backendIn().start(OPTIONS)
 
   session.send('Hi', 'uuid-1')
-  session.configure({ model: 'claude-sample-2', effort: Effort.Max })
+  session.configure({ model: 'claude-sample-2', effort: Effort.Max, permissionMode: PermissionMode.AllowAll })
   session.send('Fix it.', 'uuid-2')
   const pushed = await pushedMessages(2)
 
@@ -227,7 +252,7 @@ it('still delivers the message, on the old settings, when the SDK refuses a chan
   const log = createMemoryLog(LogScope.Agent)
   const session = createSdkBackend({ env: Promise.resolve(ENV), log: log.logger }).start(OPTIONS)
 
-  session.configure({ model: 'claude-missing', effort: Effort.Low })
+  session.configure({ model: 'claude-missing', effort: Effort.Low, permissionMode: PermissionMode.AllowAll })
   session.send('Hi', 'uuid-1')
 
   expect(await pushedMessages(1)).toEqual(['Hi'])
@@ -254,7 +279,7 @@ it("doesn't start the agent until the environment is known, then does what was a
   const session = createSdkBackend({ env: env.promise }).start(OPTIONS)
 
   session.send('Hi', 'uuid-1')
-  session.configure({ model: 'claude-sample-2', effort: Effort.Max })
+  session.configure({ model: 'claude-sample-2', effort: Effort.Max, permissionMode: PermissionMode.AllowAll })
   session.send('Fix it.', 'uuid-2')
   const interrupted = session.interrupt()
   const stopped = session.stopTask('b7f3')
@@ -274,7 +299,7 @@ it("doesn't start the agent until the environment is known, then does what was a
 
   expect(sdk.query).toHaveBeenCalledExactlyOnceWith({
     prompt: expect.anything() as unknown,
-    options: sdkOptions(OPTIONS, ENV),
+    options: { ...sdkOptions(OPTIONS, ENV), canUseTool: expect.any(Function) as unknown },
   })
   expect(await pushedMessages(2)).toEqual(['Hi', 'Fix it.'])
   expect(sdk.session.setModel).toHaveBeenCalledExactlyOnceWith('claude-sample-2')
@@ -311,4 +336,208 @@ it("runs each session in the environment it's given, whatever Glade's own is", a
   expect(sdk.query.mock.calls[0]?.[0].options).toMatchObject({
     env: { PATH: '/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin', CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' },
   })
+})
+
+// Per-call permission review (docs/decisions.md; docs/sdk-notes.md §9).
+
+it('runs Allow all bypassing every check, and the ask mode in default, where Claude Code asks canUseTool', () => {
+  expect(sdkPermissionMode(PermissionMode.AllowAll)).toBe('bypassPermissions')
+  expect(sdkPermissionMode(PermissionMode.AskBeforeEdits)).toBe('default')
+  const asking = sdkOptions({ ...OPTIONS, permissionMode: PermissionMode.AskBeforeEdits }, ENV)
+  expect(asking).toMatchObject({ permissionMode: 'default', allowDangerouslySkipPermissions: true })
+  expect(asking.canUseTool).toEqual(expect.any(Function))
+})
+
+it("lets Glade's own MCP servers' tools through without asking, whatever the mode", () => {
+  const glade = { type: 'http' as const, url: 'http://127.0.0.1:1/mcp' }
+  for (const permissionMode of Object.values(PermissionMode)) {
+    expect(sdkOptions({ ...OPTIONS, permissionMode, mcpServers: { glade } }, ENV).allowedTools).toEqual(['mcp__glade'])
+  }
+})
+
+/** `canUseTool`'s options, as the SDK passes them for a plain call (the shape probed in §9). */
+function canUseOptions(extra: Partial<Parameters<CanUseTool>[2]> = {}): Parameters<CanUseTool>[2] {
+  return { signal: new AbortController().signal, toolUseID: 'toolu_1', requestId: 'request-1', ...extra }
+}
+
+it('parses a canUseTool call into Glade’s terms, keeping the suggestions it knows and logging the rest', () => {
+  const log = createMemoryLog(LogScope.Agent)
+  const signal = new AbortController().signal
+  const bashRule: PermissionUpdate = {
+    type: 'addRules',
+    rules: [{ toolName: 'Bash', ruleContent: 'npm test' }],
+    behavior: 'allow',
+    destination: 'localSettings',
+  }
+  const unknownSuggestion = { type: 'grantEverything', destination: 'session' }
+
+  const call = toolPermissionCall(
+    'Bash',
+    { command: 'npm test' },
+    canUseOptions({
+      signal,
+      agentID: 'ac2cfaf3cec2364e5',
+      title: 'Claude wants to run npm test',
+      displayName: 'Bash',
+      description: 'Run the test suite',
+      suggestions: [
+        bashRule,
+        unknownSuggestion as never,
+        { type: 'setMode', mode: 'acceptEdits', destination: 'session' },
+      ],
+      defaultToNo: true,
+      suppressAlwaysAllowRule: true,
+      matchedAskRule: { source: 'userSettings', toolName: 'Bash' },
+    }),
+    log.logger,
+  )
+
+  expect(call).toEqual({
+    toolName: 'Bash',
+    input: { command: 'npm test' },
+    toolUseId: 'toolu_1',
+    agentId: 'ac2cfaf3cec2364e5',
+    title: 'Claude wants to run npm test',
+    displayName: 'Bash',
+    description: 'Run the test suite',
+    suggestions: [
+      {
+        type: PermissionUpdateType.AddRules,
+        rules: [{ toolName: 'Bash', ruleContent: 'npm test' }],
+        behavior: PermissionRuleBehavior.Allow,
+        destination: PermissionDestination.LocalSettings,
+      },
+      { type: PermissionUpdateType.SetMode, mode: 'acceptEdits', destination: PermissionDestination.Session },
+    ],
+    defaultToNo: true,
+    suppressAlwaysAllowRule: true,
+    mcpServer: null,
+    matchedAskRule: true,
+    signal,
+  })
+  expect(log.withMessage('ignored a permission suggestion of a shape Glade does not know')).toEqual([
+    expect.objectContaining({ level: LogLevel.Warn, fields: { suggestion: unknownSuggestion } }),
+  ])
+})
+
+it('fills in what a bare canUseTool call leaves out, and keeps an MCP tool’s server as the SDK names it', () => {
+  expect(toolPermissionCall('Edit', { file_path: 'a.txt' }, canUseOptions())).toMatchObject({
+    agentId: null,
+    title: null,
+    displayName: null,
+    description: null,
+    suggestions: [],
+    defaultToNo: false,
+    suppressAlwaysAllowRule: false,
+    mcpServer: null,
+    matchedAskRule: false,
+  })
+  expect(
+    toolPermissionCall('mcp__glade__set_status', {}, canUseOptions({ mcpServer: { name: 'glade', source: 'sdk' } })),
+  ).toMatchObject({ mcpServer: { name: 'glade', source: 'sdk' } })
+})
+
+it('answers the SDK with what was decided: the input as it was, and a person’s decision classified as theirs', async () => {
+  const answers: ToolPermissionAnswer[] = [
+    { behavior: ToolPermissionBehavior.Allow, byUser: false },
+    { behavior: ToolPermissionBehavior.Allow, byUser: true },
+    { behavior: ToolPermissionBehavior.Deny, message: 'Denied: use pnpm.', byUser: true },
+    { behavior: ToolPermissionBehavior.Deny, message: 'Withdrawn.', byUser: false },
+  ]
+  const queue = [...answers]
+  const seen: ToolPermissionCall[] = []
+  const canUseTool = canUseToolFor((call) => {
+    seen.push(call)
+    const answer = queue.shift()
+    return answer === undefined ? Promise.reject(new Error('asked too often')) : Promise.resolve(answer)
+  }, createMemoryLog(LogScope.Agent).logger)
+  const input = { command: 'npm test' }
+
+  const results = []
+  while (results.length < answers.length) results.push(await canUseTool('Bash', input, canUseOptions()))
+
+  expect(results).toEqual([
+    { behavior: 'allow', updatedInput: input },
+    { behavior: 'allow', updatedInput: input, decisionClassification: 'user_temporary' },
+    { behavior: 'deny', message: 'Denied: use pnpm.', decisionClassification: 'user_reject' },
+    { behavior: 'deny', message: 'Withdrawn.' },
+  ])
+  expect(seen.map(({ toolName, toolUseId }) => [toolName, toolUseId])).toEqual(answers.map(() => ['Bash', 'toolu_1']))
+})
+
+it('denies a call with no one to ask about it, and one whose deciding failed, saying so', async () => {
+  const log = createMemoryLog(LogScope.Agent)
+
+  await expect(canUseToolFor(undefined, log.logger)('Bash', {}, canUseOptions())).resolves.toEqual({
+    behavior: 'deny',
+    message: NO_ONE_TO_ASK,
+  })
+  const failing = canUseToolFor(() => Promise.reject(new Error('database is locked')), log.logger)
+  await expect(failing('Edit', {}, canUseOptions())).resolves.toEqual({ behavior: 'deny', message: PERMISSION_FAILED })
+  expect(log.withMessage('failed to decide a tool call')).toEqual([
+    expect.objectContaining({
+      level: LogLevel.Error,
+      fields: { toolName: 'Edit', toolUseId: 'toolu_1', error: expect.any(Error) as unknown },
+    }),
+  ])
+})
+
+it('asks the handler it was started with about each call, through the SDK’s canUseTool', async () => {
+  const onToolPermission = vi.fn<(call: ToolPermissionCall) => Promise<ToolPermissionAnswer>>(() =>
+    Promise.resolve({ behavior: ToolPermissionBehavior.Allow, byUser: true }),
+  )
+  backendIn().start({ ...OPTIONS, permissionMode: PermissionMode.AskBeforeEdits, onToolPermission })
+  await settle()
+  const { canUseTool } = sdk.query.mock.calls[0]?.[0].options as { canUseTool: CanUseTool }
+
+  await expect(canUseTool('Write', { file_path: 'c.txt' }, canUseOptions())).resolves.toMatchObject({
+    behavior: 'allow',
+  })
+  expect(onToolPermission).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ toolName: 'Write', input: { file_path: 'c.txt' }, toolUseId: 'toolu_1' }),
+  )
+})
+
+it('switches a live session’s permission mode in order with its messages, and nothing else when only it changed', async () => {
+  const order: string[] = []
+  sdk.session.setPermissionMode.mockImplementation((mode: string) => {
+    order.push(`mode ${mode}`)
+    return Promise.resolve(undefined)
+  })
+  const log = createMemoryLog(LogScope.Agent)
+  const session = createSdkBackend({ env: Promise.resolve(ENV), log: log.logger }).start(OPTIONS)
+  const { model, effort } = OPTIONS
+
+  session.send('Hi', 'uuid-1')
+  session.configure({ model, effort, permissionMode: PermissionMode.AskBeforeEdits })
+  session.configure({ model, effort, permissionMode: PermissionMode.AllowAll })
+  session.send('Fix it.', 'uuid-2')
+  expect(await pushedMessages(2)).toEqual(['Hi', 'Fix it.'])
+
+  expect(order).toEqual(['mode default', 'mode bypassPermissions'])
+  expect(sdk.session.setModel).not.toHaveBeenCalled()
+  expect(sdk.session.applyFlagSettings).not.toHaveBeenCalled()
+  expect(log.withMessage('permission mode changed').map(({ fields }) => fields)).toEqual([
+    { permissionMode: PermissionMode.AskBeforeEdits },
+    { permissionMode: PermissionMode.AllowAll },
+  ])
+})
+
+it('changes the model and the permission mode together, and still delivers the message when the SDK refuses the mode', async () => {
+  sdk.session.setPermissionMode.mockRejectedValueOnce(new Error('mode refused'))
+  const log = createMemoryLog(LogScope.Agent)
+  const session = createSdkBackend({ env: Promise.resolve(ENV), log: log.logger }).start(OPTIONS)
+
+  session.configure({ model: 'claude-sample-2', effort: Effort.High, permissionMode: PermissionMode.AskBeforeEdits })
+  session.send('Hi', 'uuid-1')
+
+  expect(await pushedMessages(1)).toEqual(['Hi'])
+  expect(sdk.session.setModel).toHaveBeenCalledExactlyOnceWith('claude-sample-2')
+  expect(sdk.session.setPermissionMode).toHaveBeenCalledExactlyOnceWith('default')
+  expect(log.withMessage("the SDK refused the session's new permission mode")).toEqual([
+    expect.objectContaining({
+      level: LogLevel.Warn,
+      fields: { permissionMode: PermissionMode.AskBeforeEdits, error: expect.any(Error) as unknown },
+    }),
+  ])
 })

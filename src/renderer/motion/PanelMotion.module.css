@@ -1,0 +1,32 @@
+/*
+ * A collapsible panel sliding open and shut (docs/design/tokens.md, Motion). These animate --panel-open (tokens.css)
+ * on the element that sizes the panel, which multiplies its open size by it. Only that factor animates, never the size,
+ * so a drag of the panel's handle is never slowed by a transition.
+ */
+.entering {
+  animation: panel-open var(--motion-duration) var(--motion-ease);
+}
+
+.leaving {
+  animation: panel-close var(--motion-duration) var(--motion-ease) forwards;
+}
+
+@keyframes panel-open {
+  from {
+    --panel-open: 0;
+  }
+
+  to {
+    --panel-open: 1;
+  }
+}
+
+@keyframes panel-close {
+  from {
+    --panel-open: 1;
+  }
+
+  to {
+    --panel-open: 0;
+  }
+}

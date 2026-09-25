@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
-import { Effort } from '../../../shared/domain'
+import { Effort, PermissionMode } from '../../../shared/domain'
 import { hasShortcut, parseChord, type KeyBindingOverrides } from '../../../shared/keymap'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../../shared/settings'
 import { Row } from './rows'
@@ -19,6 +19,7 @@ const keyBindingsSchema = z
 export const SETTING_SCHEMAS: { readonly [K in keyof Settings]: z.ZodType<Settings[K]> } = {
   defaultModel: z.string().min(1),
   defaultEffort: z.enum(Effort),
+  defaultPermissionMode: z.enum(PermissionMode),
   statusSummary: z.boolean(),
   taskTitles: z.boolean(),
   notifications: z.boolean(),
@@ -55,6 +56,7 @@ export function getSettings(db: Database): Settings {
   return {
     defaultModel: read('defaultModel'),
     defaultEffort: read('defaultEffort'),
+    defaultPermissionMode: read('defaultPermissionMode'),
     statusSummary: read('statusSummary'),
     taskTitles: read('taskTitles'),
     notifications: read('notifications'),

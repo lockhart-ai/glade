@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { moduleClass } from '../components/moduleClass'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import {
   QuestionKind,
@@ -14,6 +15,8 @@ import { Chat } from '../chat/Chat'
 import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore } from '../store/store'
+import { APPEAR_WINDOW_MS } from './QuestionCard'
+import styles from './QuestionCard.module.css'
 import { fakeBridge, refuse, sampleMessage, sampleTask, sampleWorkspace, type FakeHandlers } from '../store/test-bridge'
 
 const LAYOUT: Question = {
@@ -352,5 +355,37 @@ describe('QuestionCard', () => {
     const closed = screen.getByRole('region', { name: 'Questions from the agent' })
     expect(closed).toHaveTextContent('1 question · withdrawn')
     expect(within(closed).queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  describe('motion', () => {
+    const cls = (name: string): string => moduleClass(styles, name)
+
+    it('rises in when it has just been asked', async () => {
+      await renderCard([questionSet([LAYOUT], { createdAt: Date.now() })])
+      expect(card()).toHaveClass(cls('appearing'))
+    })
+
+    it('stays put when the chat opens on a question asked a while ago', async () => {
+      await renderCard([questionSet([LAYOUT], { createdAt: Date.now() - APPEAR_WINDOW_MS })])
+      expect(card()).not.toHaveClass(cls('appearing'))
+    })
+
+    it('fades to its closed state when it closes while showing, but not when it was already closed', async () => {
+      const fake = await renderCard([questionSet([LAYOUT])])
+      act(() => {
+        fake.emit({
+          type: EventType.QuestionWithdrawn,
+          questionSet: questionSet([LAYOUT], { state: QuestionSetState.Withdrawn, closedAt: 6_000 }),
+        })
+      })
+      const justClosed = screen.getByRole('region', { name: 'Questions from the agent' })
+      expect(justClosed).toHaveClass(cls('justClosed'), cls('withdrawn'))
+    })
+
+    it('shows a card that was closed already without fading it', async () => {
+      await renderCard([questionSet([LAYOUT], { state: QuestionSetState.Withdrawn, closedAt: 6_000 })])
+      const closed = screen.getByRole('region', { name: 'Questions from the agent' })
+      expect(closed).not.toHaveClass(cls('justClosed'))
+    })
   })
 })

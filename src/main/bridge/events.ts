@@ -1,7 +1,9 @@
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import {
+  PermissionRequestState,
   QuestionSetState,
   type Message,
+  type PermissionRequest,
   type QuestionSet,
   type QueuedMessage,
   type Task,
@@ -46,6 +48,25 @@ export function emitQuestionSet(emit: Emit, questionSet: QuestionSet): void {
       return
     case QuestionSetState.Withdrawn:
       emit({ type: EventType.QuestionWithdrawn, questionSet })
+      return
+  }
+}
+
+/**
+ * Tells every window a permission request opened, was answered or was withdrawn, by its state: the event for each
+ * carries the request as it now is.
+ */
+export function emitPermissionRequest(emit: Emit, permissionRequest: PermissionRequest): void {
+  switch (permissionRequest.state) {
+    case PermissionRequestState.Open:
+      emit({ type: EventType.PermissionOpened, permissionRequest })
+      return
+    case PermissionRequestState.Allowed:
+    case PermissionRequestState.Denied:
+      emit({ type: EventType.PermissionAnswered, permissionRequest })
+      return
+    case PermissionRequestState.Withdrawn:
+      emit({ type: EventType.PermissionWithdrawn, permissionRequest })
       return
   }
 }

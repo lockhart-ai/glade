@@ -1,7 +1,7 @@
 /**
  * Logs what main tells the windows (`GladeEvent`s), since every change that matters to a task goes through them: a
  * task's state and activity changing, its error and pause, the chat's messages, the tool log's calls, questions asked
- * and answered, the queue, todos and artifacts. Each line carries the task's id. Message text, tool input and output,
+ * and answered, permission requests opened and answered, the queue, todos and artifacts. Each line carries the task's id. Message text, tool input and output,
  * and questions go in at debug level, cut short (`excerpt`); the rest at info.
  *
  * A task update carries the whole task, so what changed is found against the task as it was last seen: the tasks as
@@ -9,9 +9,11 @@
  */
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import {
+  PermissionRequestState,
   QuestionReplyKind,
   ToolCallState,
   ToolEventKind,
+  type PermissionRequest,
   type QuestionReply,
   type QuestionSet,
   type Task,
@@ -23,7 +25,18 @@ import { LogScope, type LogFields, type Logger } from './logger'
 /** The task's fields a change to which gets a line of its own. The others (context usage, unread…) are debug. */
 type WatchedField = Extract<
   keyof Task,
-  'state' | 'activity' | 'error' | 'pause' | 'retrying' | 'sessionId' | 'title' | 'model' | 'effort' | 'asking'
+  | 'state'
+  | 'activity'
+  | 'error'
+  | 'pause'
+  | 'retrying'
+  | 'sessionId'
+  | 'title'
+  | 'model'
+  | 'effort'
+  | 'permissionMode'
+  | 'asking'
+  | 'awaitingPermission'
 >
 
 const WATCHED: readonly WatchedField[] = [
@@ -36,7 +49,9 @@ const WATCHED: readonly WatchedField[] = [
   'title',
   'model',
   'effort',
+  'permissionMode',
   'asking',
+  'awaitingPermission',
 ]
 
 /** A value as JSON, cut short: for a tool's input, or a question set. */
@@ -69,6 +84,7 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
   const chat = log.scoped(LogScope.Chat)
   const tools = log.scoped(LogScope.Tools)
   const questions = log.scoped(LogScope.Questions)
+  const permissions = log.scoped(LogScope.Permissions)
   const terminal = log.scoped(LogScope.Terminal)
   const app = log.scoped(LogScope.App)
 
@@ -110,10 +126,14 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
       case 'asking':
         withTask.info(task.asking ? 'task asking' : 'task no longer asking')
         return
+      case 'awaitingPermission':
+        withTask.info(task.awaitingPermission ? 'task awaiting permission' : 'task no longer awaiting permission')
+        return
       case 'sessionId':
       case 'title':
       case 'model':
       case 'effort':
+      case 'permissionMode':
         withTask.info(`task ${key} changed`, { from: before[key], to: task[key] })
     }
   }
@@ -162,6 +182,27 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
     if (set.reply !== null) withTask.debug('question reply', { replyKind: set.reply.kind, reply: replyText(set.reply) })
   }
 
+  const permissionRequest = (request: PermissionRequest): void => {
+    const { id: permissionRequestId, taskId, turn, toolUseId, agentId, toolName, state } = request
+    const withTask = permissions.with({ taskId, permissionRequestId, turn })
+    switch (state) {
+      case PermissionRequestState.Open:
+        withTask.info('permission requested', { toolUseId, agentId, toolName })
+        withTask.debug('permission input', { toolUseId, input: jsonExcerpt(request.input) })
+        return
+      case PermissionRequestState.Allowed:
+        withTask.info('permission allowed', { toolUseId, toolName })
+        return
+      case PermissionRequestState.Denied:
+        withTask.info('permission denied', { toolUseId, toolName, withNote: request.denyNote !== null })
+        if (request.denyNote !== null) withTask.debug('permission deny note', { note: excerpt(request.denyNote) })
+        return
+      case PermissionRequestState.Withdrawn:
+        withTask.info('permission withdrawn', { toolUseId, toolName })
+        return
+    }
+  }
+
   return (event) => {
     switch (event.type) {
       case EventType.TaskUpdated:
@@ -198,6 +239,11 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
         return
       case EventType.QuestionWithdrawn:
         questionSet('questions withdrawn', event.questionSet)
+        return
+      case EventType.PermissionOpened:
+      case EventType.PermissionAnswered:
+      case EventType.PermissionWithdrawn:
+        permissionRequest(event.permissionRequest)
         return
       case EventType.TodosChanged:
         tools.info('todos changed', { taskId: event.taskId, todos: event.todos?.items.length ?? 0 })

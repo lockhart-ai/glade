@@ -112,6 +112,19 @@
  * task's session, with a resumed divider, and hands the agent the answer as a message (`answeredAfterRestart`) that
  * carries on the turn that asked; the agent never has to ask again.
  *
+ * **Permission review** (`docs/decisions.md`, "Per-call permission review"; `../permissions`). In Allow all, the session
+ * bypasses every check and no call ever asks. In the ask mode, Claude Code asks the runner about each call its rules and
+ * the user's settings leave at "ask" (`canUseTool`): reads, searches, the todo and subagent tools and Glade's own tools
+ * go ahead at once (`permissionVerdict`), and anything else opens a permission request and waits on it, however long it
+ * takes. Meanwhile the task waits on you (its activity is waiting, and `awaitingPermission` is true), though its turn
+ * is still running; parallel calls each get a request, and a message sent meanwhile is queued, since the call is still
+ * running. Allow once runs the call and Deny doesn't, telling the agent, with your note if you gave one; either way the
+ * turn carries on, working again once nothing else waits on you. Stop withdraws the turn's open requests first, so their
+ * calls don't hold it up, and a turn that ends some other way withdraws them too; the SDK cancelling a call withdraws
+ * its request. A background subagent's requests belong to it, not the turn: only its session closing withdraws them.
+ * Changing the mode (`applyPermissionMode`) tells the live session at once, so it applies from the next call, mid-turn
+ * too; a request already open stays open.
+ *
  * **Resume on launch.** A turn the app quit or crashed in is left working in the database: a turn's user messages and
  * its working activity are saved together, so none is left unanswered. On launch, `resumeInterrupted` carries each
  * one on: it resumes the task's SDK session by its saved id (`docs/sdk-notes.md` §8), adds a resumed divider to the
@@ -145,6 +158,8 @@ import {
   DividerKind,
   MessageRole,
   PauseReason,
+  PermissionDecisionKind,
+  PermissionMode,
   TaskActivity,
   TaskErrorSource,
   TaskState,
@@ -153,6 +168,8 @@ import {
   QuestionSetState,
   type ApiRetry,
   type Message,
+  type PermissionDecision,
+  type PermissionRequest,
   type QuestionAnswers,
   type QuestionReply,
   type QuestionSet,
@@ -194,12 +211,22 @@ import {
 import { getWorkspace } from '../db/repositories/workspaces'
 import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import type { NotifyReply } from '../notifications/notifications'
+import { permissionVerdict, PermissionVerdict } from '../permissions/classify'
+import { createPermissionBroker, type PermissionBroker } from '../permissions/permissions'
 import { createQuestionBroker, toolResultFor, type QuestionBroker } from '../questions/questions'
 import { addQueuedMessage } from '../tasks/queue'
 import { changesTodos, todoListFor } from '../todos/todos'
 import { noteAgentReply } from '../tasks/attention'
 import { reopenTask, updateTaskFromRunner, updateTaskFromUser, type TaskServiceContext } from '../tasks/service'
-import type { AgentBackend, AgentMcpServers, AgentSession, AgentSessionSettings } from './backend'
+import {
+  ToolPermissionBehavior,
+  type AgentBackend,
+  type AgentMcpServers,
+  type AgentSession,
+  type AgentSessionSettings,
+  type ToolPermissionAnswer,
+  type ToolPermissionCall,
+} from './backend'
 import { classifyAgentError } from './error-classification'
 import {
   AgentEventKind,
@@ -230,6 +257,8 @@ export interface AgentRunnerOptions {
    * them. A broker of its own by default.
    */
   readonly questions?: QuestionBroker
+  /** The permission requests the ask mode's tool calls wait on. A broker of its own by default. */
+  readonly permissions?: PermissionBroker
   /** The in-process MCP servers to give a task's session, such as the Glade tools (`./glade-tools`). None by default. */
   readonly mcpServers?: (task: Task) => AgentMcpServers
   /**
@@ -268,6 +297,17 @@ export interface AgentRunner {
    * the app quit on while its task's agent is working on something else.
    */
   answer(id: string, answers: QuestionAnswers): QuestionSet
+  /**
+   * Answers an open permission request (see the module comment): the call waiting on it runs, or is denied with your
+   * note. Answers with the request, closed. Throws a `CommandFailure`: `not_found` for no such request, and
+   * `invalid_transition` for one that isn't open any more.
+   */
+  answerPermission(id: string, decision: PermissionDecision): PermissionRequest
+  /**
+   * Tells the task's live session, if it has one, the task's permission mode now: it applies from the agent's next tool
+   * call, mid-turn too. A request already open stays open. Throws a `CommandFailure` `not_found` for no such task.
+   */
+  applyPermissionMode(taskId: string): void
   /**
    * Adds the user's message to the task's queue, for the agent to get after its current step (see the module comment).
    * When no turn is running, the queue is delivered at once, starting one, unless the task is paused: then it waits for
@@ -339,8 +379,12 @@ interface Turn {
 interface LiveSession {
   readonly session: AgentSession
   turn: Turn | null
-  /** The model and effort the session runs with now. */
+  /** The model, effort and permission mode the session runs with now. */
   settings: AgentSessionSettings
+  /** The names of the session's in-process MCP servers: Glade's own, whose tools never ask. */
+  readonly gladeServers: readonly string[]
+  /** The permission requests the session's calls wait on, by id: whether each is a background subagent's. */
+  readonly requests: Map<string, boolean>
   /**
    * The model the session last said it runs on (`system/init`), as the SDK names it there and in a turn's result, to
    * find its context window. Null until the first init.
@@ -399,6 +443,37 @@ export const ANSWERED_AFTER_RESTART_PROMPT =
 /** The message that hands the agent the answer to a question the app quit on. */
 export function answeredAfterRestart(reply: QuestionReply): string {
   return `${ANSWERED_AFTER_RESTART_PROMPT}\n\nTheir answers, as ask would have returned them:\n${toolResultFor(reply)}`
+}
+
+/** What the agent is told when you deny a tool call, with your note if you gave one. */
+export function permissionDeniedMessage(note: string | undefined): string {
+  const said = note?.trim() ?? ''
+  const denied = 'The user denied permission for this tool call, so it did not run.'
+  return said === '' ? denied : `${denied} They said: ${said}`
+}
+
+/** What the agent is told when a tool call's permission request closed without an answer. */
+export const PERMISSION_WITHDRAWN_NOTE =
+  'The permission request for this tool call was withdrawn before the user answered, so it did not run.'
+
+/** The answer to a call that goes ahead without asking. */
+const ALLOWED_WITHOUT_ASKING: ToolPermissionAnswer = { behavior: ToolPermissionBehavior.Allow, byUser: false }
+
+/** The answer to a call whose request closed without an answer, or never opened. */
+const WITHDRAWN: ToolPermissionAnswer = {
+  behavior: ToolPermissionBehavior.Deny,
+  message: PERMISSION_WITHDRAWN_NOTE,
+  byUser: false,
+}
+
+/** The answer your decision on a permission request gives its call. */
+function answerFor(decision: PermissionDecision): ToolPermissionAnswer {
+  switch (decision.kind) {
+    case PermissionDecisionKind.AllowOnce:
+      return { behavior: ToolPermissionBehavior.Allow, byUser: true }
+    case PermissionDecisionKind.Deny:
+      return { behavior: ToolPermissionBehavior.Deny, message: permissionDeniedMessage(decision.note), byUser: true }
+  }
 }
 
 /** What a tool call cut short by a pause says. */
@@ -479,6 +554,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const isOnline = options.isOnline ?? (() => true)
   const context = { db, emit }
   const questions = options.questions ?? createQuestionBroker(context, notifyReply)
+  const permissions = options.permissions ?? createPermissionBroker(context, notifyReply)
   const sessions = new Map<string, LiveSession>()
   // Resumes a paused turn when its pause is due.
   const timers = createPauseTimers((taskId) => {
@@ -676,14 +752,25 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   /**
-   * Forgets the session's turn, and lets whoever waits on it know it has ended. A question it asked that's still open
-   * is withdrawn: nothing is waiting on its answer any more.
+   * Withdraws the permission requests the session's calls wait on: the turn's, or with `background`, its background
+   * subagents' too.
+   */
+  const withdrawRequests = (live: LiveSession, background: boolean): void => {
+    for (const [id, isBackground] of [...live.requests]) {
+      if (background || !isBackground) permissions.withdraw(id)
+    }
+  }
+
+  /**
+   * Forgets the session's turn, and lets whoever waits on it know it has ended. A question it asked, or a permission
+   * request its calls made, that's still open is withdrawn: nothing is waiting on the answer any more.
    */
   const endTurn = (taskId: string, live: LiveSession, turn: Turn): void => {
     taskLog(taskId).info('turn ended', { turn: turn.number, stopped: turn.stopping })
     live.turn = null
     turn.end()
     questions.withdraw(taskId)
+    withdrawRequests(live, false)
   }
 
   const onTurnStopped = (taskId: string, turn: Turn): void => {
@@ -847,6 +934,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const onSessionFailed = (taskId: string, live: LiveSession, message: string): void => {
     agentLog(taskId).error('session failed', { message, turn: live.turn?.number ?? null })
     if (sessions.get(taskId) === live) sessions.delete(taskId)
+    // Whatever its calls waited on went with it.
+    withdrawRequests(live, true)
     // Its background subagents died with it.
     for (const toolUseId of [...live.background.keys()]) {
       finishBackground(taskId, live, toolUseId, ToolCallState.Error, message, message)
@@ -1081,6 +1170,68 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
   }
 
+  /** Whether something else holds the task's agent up on you: an open question, or another permission request. */
+  const waitsOnYou = (taskId: string): boolean => {
+    const task = getTask(db, taskId)
+    return task !== undefined && (task.asking || task.awaitingPermission)
+  }
+
+  /**
+   * Decides a tool call Claude Code asks about (see the module comment): at once, or once you answer the permission
+   * request it opens.
+   */
+  const decideToolCall = async (
+    taskId: string,
+    live: LiveSession,
+    call: ToolPermissionCall,
+  ): Promise<ToolPermissionAnswer> => {
+    const { toolName, toolUseId, agentId } = call
+    const { permissionMode } = live.settings
+    if (
+      permissionMode === PermissionMode.AllowAll ||
+      permissionVerdict(call, live.gladeServers) === PermissionVerdict.Allow
+    ) {
+      taskLog(taskId).debug('tool call allowed without asking', { toolName, toolUseId, permissionMode })
+      return ALLOWED_WITHOUT_ASKING
+    }
+    if (live.closed) return WITHDRAWN
+    // A background subagent's call belongs to the turn its `Agent` call was made in; any other, to the turn running.
+    const owner = live.backgroundCalls.get(toolUseId)
+    const turn =
+      (owner === undefined ? live.turn?.number : live.background.get(owner)) ?? Math.max(1, lastTurn(db, taskId))
+    const pending = permissions.request(
+      {
+        taskId,
+        turn,
+        toolUseId,
+        agentId,
+        toolName,
+        input: call.input,
+        title: call.title,
+        displayName: call.displayName,
+        description: call.description,
+        suggestions: call.suggestions,
+        defaultToNo: call.defaultToNo,
+        suppressAlwaysAllowRule: call.suppressAlwaysAllowRule,
+      },
+      call.signal,
+    )
+    const requestId = pending.request.id
+    taskLog(taskId).info('permission requested', { requestId, toolName, toolUseId, agentId, turn })
+    live.requests.set(requestId, owner !== undefined)
+    const decision = await pending.decision
+    live.requests.delete(requestId)
+    if (decision === null) {
+      taskLog(taskId).info('permission withdrawn', { requestId, toolUseId })
+      return WITHDRAWN
+    }
+    taskLog(taskId).info('permission answered', { requestId, toolUseId, decision: decision.kind })
+    // The turn carries on, unless it's over or stopping, or something else still waits on you.
+    const running = live.turn !== null && !live.turn.stopping && !live.closed
+    if (running && !waitsOnYou(taskId)) setActivity(taskId, TaskActivity.Working)
+    return answerFor(decision)
+  }
+
   /** Reads the session's messages for its whole life, handling each as it arrives. */
   const pump = async (taskId: string, live: LiveSession): Promise<void> => {
     const sdkLog = agentLog(taskId)
@@ -1110,22 +1261,30 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     agentLog(task.id).info(task.sessionId === null ? 'session starting' : 'session resuming', {
       model: task.model,
       effort: task.effort,
+      permissionMode: task.permissionMode,
       cwd: workspace.rootPath,
       resumeSessionId: task.sessionId,
     })
+    const servers = mcpServers(task)
+    // The session's calls are decided against the live session, which exists once the backend has started it.
+    let decide: (call: ToolPermissionCall) => Promise<ToolPermissionAnswer> = () => Promise.resolve(WITHDRAWN)
     const session = backend.start({
       cwd: workspace.rootPath,
       model: task.model,
       effort: task.effort,
+      permissionMode: task.permissionMode,
       resumeSessionId: task.sessionId,
       systemPromptAppend: systemPromptAppend(task, getSettings(db)),
-      mcpServers: mcpServers(task),
+      mcpServers: servers,
       log: agentLog(task.id),
+      onToolPermission: (call) => decide(call),
     })
     const live: LiveSession = {
       session,
       turn: null,
-      settings: { model: task.model, effort: task.effort },
+      settings: { model: task.model, effort: task.effort, permissionMode: task.permissionMode },
+      gladeServers: Object.keys(servers),
+      requests: new Map(),
       sdkModel: null,
       limit: null,
       closed: false,
@@ -1133,6 +1292,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       background: new Map(),
       backgroundCalls: new Map(),
     }
+    decide = (call) => decideToolCall(task.id, live, call)
     sessions.set(task.id, live)
     void pump(task.id, live)
     return live
@@ -1194,11 +1354,16 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     return true
   }
 
-  /** The pickers change the task, not the session: its current model and effort apply from the next turn on. */
+  /**
+   * The pickers change the task, not the session: its current model and effort apply from the next turn on (its
+   * permission mode already applies, from `applyPermissionMode`).
+   */
   const applySettings = (task: Task, live: LiveSession): void => {
-    if (live.settings.model !== task.model || live.settings.effort !== task.effort) {
-      agentLog(task.id).info('session settings changed', { model: task.model, effort: task.effort })
-      live.settings = { model: task.model, effort: task.effort }
+    const { model, effort, permissionMode } = task
+    const { settings } = live
+    if (settings.model !== model || settings.effort !== effort || settings.permissionMode !== permissionMode) {
+      agentLog(task.id).info('session settings changed', { model, effort, permissionMode })
+      live.settings = { model, effort, permissionMode }
       live.session.configure(live.settings)
     }
   }
@@ -1362,6 +1527,24 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return replyTo(answerable(set), set, { kind: QuestionReplyKind.Answers, answers: checked.answers })
     },
 
+    answerPermission(id, decision) {
+      return permissions.answer(id, decision)
+    },
+
+    applyPermissionMode(taskId) {
+      const task = getTask(db, taskId)
+      if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
+      const live = sessions.get(taskId)
+      if (live === undefined || live.settings.permissionMode === task.permissionMode) return
+      agentLog(taskId).info('permission mode changed', {
+        from: live.settings.permissionMode,
+        to: task.permissionMode,
+        turn: live.turn?.number ?? null,
+      })
+      live.settings = { ...live.settings, permissionMode: task.permissionMode }
+      live.session.configure(live.settings)
+    },
+
     queue(taskId, text, images = []) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
@@ -1382,8 +1565,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       if (live === undefined || turn === null) return task
       taskLog(taskId).info('stop requested', { turn: turn.number })
       turn.stopping = true
-      // An `ask` waiting on you would hold the turn up: it's withdrawn first, so its call returns.
+      // An `ask` or a permission request waiting on you would hold the turn up: they're withdrawn first, so their calls
+      // return.
       questions.withdraw(taskId)
+      withdrawRequests(live, false)
       await live.session.interrupt()
       await turn.ended
       return getTask(db, taskId) ?? task
@@ -1492,6 +1677,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
     discard(taskId) {
       questions.withdraw(taskId)
+      permissions.withdrawAll(taskId)
       timers.disarm(taskId)
       const live = sessions.get(taskId)
       if (live === undefined) return
@@ -1503,8 +1689,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     },
 
     close() {
-      // A question still open stays open for the next launch, though closing its session cancels the call.
+      // A question or permission request still open stays open for the next launch, though closing its session cancels
+      // the call.
       questions.close()
+      permissions.close()
       timers.close()
       for (const [taskId, live] of sessions) {
         agentLog(taskId).info('session closed', { reason: 'app closing', turn: live.turn?.number ?? null })

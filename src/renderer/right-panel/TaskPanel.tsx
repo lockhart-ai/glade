@@ -5,6 +5,7 @@ import { ArtifactsTab } from '../artifacts'
 import { TabPanel, Tabs, type TabItem } from '../components'
 import { FilesTab, type FileLineFocus } from '../files'
 import { RightPanel } from '../layout'
+import { usePresence } from '../motion'
 import { Panel, PanelToggle, usePanel, usePanelSize } from '../panels'
 import { selectSelectedTask, selectSelectedWorkspace } from '../store/state'
 import { useGladeStore } from '../store/react'
@@ -23,7 +24,7 @@ const NO_TOOL_EVENTS: readonly ToolEvent[] = []
 /**
  * The right panel of the task card: the tab bar (Tool calls, Files, Todos, Artifacts, Subagents, each with its count)
  * and the selected tab. The selected tab, the width and whether the panel is collapsed are kept in UI state, for the
- * whole window; collapsed, the panel shows nothing.
+ * whole window; collapsed, the panel shows nothing. It slides open and shut.
  * When the chat asks to show a turn of the selected task (its tool-call chip), the store opens Tool calls and the log
  * scrolls to that turn; when the agent shows a file (`show_file`), the store opens Files and the viewer marks its line.
  */
@@ -43,6 +44,7 @@ export function TaskPanel(): React.JSX.Element | null {
   const now = useNow(tab === PanelTab.Todos || tab === PanelTab.Artifacts ? NOW_REFRESH_MS : null)
   const { size: width, setSize: keepWidth } = usePanelSize(Panel.RightPanel)
   const { collapsed } = usePanel(Panel.RightPanel)
+  const presence = usePresence(!collapsed)
   const setUiState = useGladeStore((state) => state.setUiState)
   const toolLogFocus = useGladeStore((state) => state.toolLogFocus)
   const activeFile = useGladeStore((state) =>
@@ -90,7 +92,7 @@ export function TaskPanel(): React.JSX.Element | null {
     })
   }
 
-  if (collapsed) return null
+  if (!presence.mounted) return null
 
   const tabContent = (): React.ReactNode => {
     switch (tab) {
@@ -136,6 +138,7 @@ export function TaskPanel(): React.JSX.Element | null {
 
   return (
     <RightPanel
+      motion={presence.phase}
       width={width}
       onWidthChange={keepWidth}
       onCloseRequest={closeActiveFile}
