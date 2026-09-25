@@ -566,7 +566,12 @@ describe('startApp', () => {
   it("carries the window's selected task over as its workspace's selection, on a database from before workspaces kept one", async () => {
     const { db } = openAppDatabase(electron.app.userData, MIGRATIONS.slice(0, 16))
     const acme = sampleWorkspace(db)
-    const task = sampleTask(db, acme.id)
+    // A task as that schema stored one: the repository writes today's columns.
+    const task = { id: 'task-1' }
+    db.prepare(
+      `INSERT INTO tasks (id, workspace_id, title, objective, status, state, activity, pinned, unread, model, effort,
+        created_at, updated_at) VALUES (?, ?, '', '', '', 'active', 'waiting', 0, 0, 'claude-sample-1', 'medium', 2, 2)`,
+    ).run(task.id, acme.id)
     setUiState(db, { key: UiStateKey.ActiveWorkspaceId, value: acme.id })
     setUiState(db, { key: UiStateKey.SelectedTaskId, value: task.id })
     db.close()

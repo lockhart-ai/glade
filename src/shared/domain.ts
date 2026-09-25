@@ -130,6 +130,20 @@ export enum Effort {
   Max = 'max',
 }
 
+/**
+ * What a task's agent may do without asking you, set per task from the input bar's permissions picker
+ * (`docs/decisions.md`, "Per-call permission review").
+ */
+export enum PermissionMode {
+  /** Every tool call runs without asking. The default. */
+  AllowAll = 'allow_all',
+  /**
+   * Edits, writes, commands and any tool Glade doesn't know to be read-only wait for your OK on a permission request;
+   * reads, searches and Glade's own tools don't.
+   */
+  AskBeforeEdits = 'ask_before_edits',
+}
+
 /** What a task is called until its agent sets a title: in the task list, the header and its notifications. */
 export const UNTITLED_TASK_TITLE = 'New task'
 
@@ -156,6 +170,8 @@ export interface Task {
   /** The model id the task's session runs on, as the SDK names it. */
   readonly model: string
   readonly effort: Effort
+  /** What the agent may do without asking you. */
+  readonly permissionMode: PermissionMode
   readonly createdAt: EpochMs
   readonly updatedAt: EpochMs
   /** When the task was marked done; null while it's active. */
@@ -181,6 +197,11 @@ export interface Task {
    * Derived from the question sets, so it's always right, across restarts too.
    */
   readonly asking: boolean
+  /**
+   * Whether a tool call of the agent's waits on your OK: the task has an open permission request. Derived from the
+   * permission requests, so it's always right, across restarts too.
+   */
+  readonly awaitingPermission: boolean
   /** Why the agent's turn is paused and when it resumes, while its activity is paused; null otherwise. */
   readonly pause: TaskPause | null
 }
@@ -528,6 +549,133 @@ export interface QuestionSet {
   /** When it was answered or withdrawn; null while it's open. */
   readonly closedAt: EpochMs | null
 }
+
+/** Where a permission rule the SDK suggests would be saved (the SDK's `PermissionUpdateDestination`). */
+export enum PermissionDestination {
+  UserSettings = 'userSettings',
+  ProjectSettings = 'projectSettings',
+  LocalSettings = 'localSettings',
+  /** Only for as long as the agent's process runs. */
+  Session = 'session',
+  CliArg = 'cliArg',
+}
+
+/** What a permission rule does to the calls it matches (the SDK's `PermissionBehavior`). */
+export enum PermissionRuleBehavior {
+  Allow = 'allow',
+  Deny = 'deny',
+  Ask = 'ask',
+}
+
+/** A permission rule: a tool, and optionally what of it, e.g. `Bash` with `npm test:*` (the SDK's `PermissionRuleValue`). */
+export interface PermissionRule {
+  readonly toolName: string
+  readonly ruleContent?: string
+}
+
+/** The kinds of change to the permissions the SDK can suggest (the SDK's `PermissionUpdate['type']`). */
+export enum PermissionUpdateType {
+  AddRules = 'addRules',
+  ReplaceRules = 'replaceRules',
+  RemoveRules = 'removeRules',
+  SetMode = 'setMode',
+  AddDirectories = 'addDirectories',
+  RemoveDirectories = 'removeDirectories',
+}
+
+export interface PermissionRulesUpdate {
+  readonly type: PermissionUpdateType.AddRules | PermissionUpdateType.ReplaceRules | PermissionUpdateType.RemoveRules
+  readonly rules: readonly PermissionRule[]
+  readonly behavior: PermissionRuleBehavior
+  readonly destination: PermissionDestination
+}
+
+export interface PermissionModeUpdate {
+  readonly type: PermissionUpdateType.SetMode
+  /** The SDK's permission mode, e.g. `acceptEdits`. */
+  readonly mode: string
+  readonly destination: PermissionDestination
+}
+
+export interface PermissionDirectoriesUpdate {
+  readonly type: PermissionUpdateType.AddDirectories | PermissionUpdateType.RemoveDirectories
+  readonly directories: readonly string[]
+  readonly destination: PermissionDestination
+}
+
+/**
+ * A change to the permissions the SDK suggests with a request, so the same call wouldn't ask again (its
+ * `PermissionUpdate`), e.g. adding the rule `Bash(npm test)` (`docs/sdk-notes.md` §9).
+ */
+export type PermissionSuggestion = PermissionRulesUpdate | PermissionModeUpdate | PermissionDirectoriesUpdate
+
+/** Where a permission request is in its life. */
+export enum PermissionRequestState {
+  /** Waiting on your answer. */
+  Open = 'open',
+  /** You allowed the call. */
+  Allowed = 'allowed',
+  /** You denied the call. */
+  Denied = 'denied',
+  /** Closed without an answer: the turn was stopped, failed or ended, or the SDK cancelled the call. */
+  Withdrawn = 'withdrawn',
+}
+
+/**
+ * One tool call of the agent's that waits on your OK in the ask mode (`PermissionMode.AskBeforeEdits`), shown as a
+ * permission card in the chat. It stays open until you answer it or it's withdrawn.
+ */
+export interface PermissionRequest {
+  readonly id: string
+  readonly taskId: string
+  /** The turn the call was made in. */
+  readonly turn: number
+  /** The call's `tool_use` id, which its tool log row has too. */
+  readonly toolUseId: string
+  /** The SDK's id for the subagent that made the call (its `agentID`); null for the agent's own calls. */
+  readonly agentId: string | null
+  /** The tool's name as the SDK reports it (MCP tools arrive as `mcp__<server>__<tool>`). */
+  readonly toolName: string
+  readonly input: ToolInput
+  /** The prompt sentence Claude Code wrote for it, e.g. "Claude wants to edit a.txt"; null when it wrote none. */
+  readonly title: string | null
+  /** Claude Code's short name for the action, e.g. "Bash"; null when it gave none. */
+  readonly displayName: string | null
+  /** Claude Code's subtitle for it, e.g. the command's description or the file's name; null when it gave none. */
+  readonly description: string | null
+  /** What the SDK suggests would stop the same call asking again; none when it suggests nothing. */
+  readonly suggestions: readonly PermissionSuggestion[]
+  /** Whether the card must open on Deny, so a stray key can't approve the call. */
+  readonly defaultToNo: boolean
+  /** Whether the card mustn't offer to remember the answer: the rule would grant more than this call. */
+  readonly suppressAlwaysAllowRule: boolean
+  readonly state: PermissionRequestState
+  /** The note you denied it with; null when you gave none, and while it isn't denied. */
+  readonly denyNote: string | null
+  readonly createdAt: EpochMs
+  /** When it was answered or withdrawn; null while it's open. */
+  readonly closedAt: EpochMs | null
+}
+
+/** How you answer a permission request. */
+export enum PermissionDecisionKind {
+  /** Run this call, and ask again next time. */
+  AllowOnce = 'allow_once',
+  /** Don't run it: the agent is told, with your note if you gave one, and carries on. */
+  Deny = 'deny',
+}
+
+export interface AllowOnceDecision {
+  readonly kind: PermissionDecisionKind.AllowOnce
+}
+
+export interface DenyDecision {
+  readonly kind: PermissionDecisionKind.Deny
+  /** Goes back to the agent with the denial. */
+  readonly note?: string
+}
+
+export type PermissionDecision = AllowOnceDecision | DenyDecision
 
 /**
  * The files open in a task's Files tab, as tabs in the order they were opened, and the one showing. Each path is

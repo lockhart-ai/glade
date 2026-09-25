@@ -1,10 +1,16 @@
 import { createSdkMcpServer, tool as mcpTool } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import { CompactionTrigger, Effort, QuestionKind, QuestionReplyKind } from '../../shared/domain'
-import type { AgentSessionOptions } from './backend'
+import { CompactionTrigger, Effort, PermissionMode, QuestionKind, QuestionReplyKind } from '../../shared/domain'
+import {
+  ToolPermissionBehavior,
+  type AgentSessionOptions,
+  type ToolPermissionAnswer,
+  type ToolPermissionCall,
+} from './backend'
 import { AgentEventKind, createSdkMessageParser, TaskOutcome, type AgentEvent } from './events'
 import { answeredAfterRestart, COMPACT_COMMAND, RESUME_PROMPT } from './runner'
+import { NO_ONE_TO_ASK } from './sdk-backend'
 import {
   gladeToolName,
   LAUNCHED_OUTPUT,
@@ -22,6 +28,8 @@ import {
   fillContext,
   gladeTool,
   init,
+  permission,
+  bashSuggestions,
   result,
   say,
   tool,
@@ -67,6 +75,7 @@ const SESSION: AgentSessionOptions = {
   cwd: '/code/acme-api',
   model: 'claude-sample-1',
   effort: Effort.High,
+  permissionMode: PermissionMode.AllowAll,
   resumeSessionId: null,
   systemPromptAppend: '',
   mcpServers: {},
@@ -428,6 +437,234 @@ describe('ScriptedSession', () => {
     })
   })
 
+  describe('a permission step', () => {
+    const TEST = { command: 'npm test', description: 'Run the test suite' }
+
+    /** A session in the ask mode, whose calls wait on `decide`, which records each. */
+    function asking(turns: readonly ScriptTurn[], decide: (call: ToolPermissionCall) => Promise<ToolPermissionAnswer>) {
+      return play(turns, {
+        session: {
+          ...SESSION,
+          permissionMode: PermissionMode.AskBeforeEdits,
+          mcpServers: { glade: gladeServer() },
+          onToolPermission: decide,
+        },
+      })
+    }
+
+    /** An answer the test gives when it likes, and the calls asked about meanwhile. */
+    function decider(): {
+      readonly calls: ToolPermissionCall[]
+      readonly decide: (call: ToolPermissionCall) => Promise<ToolPermissionAnswer>
+      readonly give: (answer: ToolPermissionAnswer) => void
+    } {
+      const calls: ToolPermissionCall[] = []
+      let give: (answer: ToolPermissionAnswer) => void = () => undefined
+      return {
+        calls,
+        decide: (call) => {
+          calls.push(call)
+          return new Promise((resolve) => {
+            give = resolve
+          })
+        },
+        give: (answer) => {
+          give(answer)
+        },
+      }
+    }
+
+    it('runs straight through in Allow all, asking nothing, as the SDK bypasses the check', async () => {
+      const decide = vi.fn<(call: ToolPermissionCall) => Promise<ToolPermissionAnswer>>()
+      const played = play([[init(), permission('test', 'Bash', TEST, 'All passed.'), result()]], {
+        session: { ...SESSION, mcpServers: { glade: gladeServer() }, onToolPermission: decide },
+      })
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      expect(decide).not.toHaveBeenCalled()
+      expect(played.raw[0]).toMatchObject({ permissionMode: 'bypassPermissions' })
+      expect(played.events.slice(1, 3)).toEqual([
+        expect.objectContaining({ kind: AgentEventKind.ToolCallStarted, name: 'Bash', input: TEST }),
+        expect.objectContaining({ kind: AgentEventKind.ToolResult, output: 'All passed.', isError: false }),
+      ])
+    })
+
+    it('asks about the call in the ask mode, going idle while it waits, then plays its result once allowed', async () => {
+      const { calls, decide, give } = decider()
+      const played = asking(
+        [
+          [
+            init(),
+            permission('test', 'Bash', TEST, 'All passed.', {
+              description: 'Run the test suite',
+              suggestions: bashSuggestions('npm test'),
+            }),
+            say('Done.'),
+            result(),
+          ],
+        ],
+        decide,
+      )
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      expect(played.raw[0]).toMatchObject({ permissionMode: 'default' })
+      expect(played.idles()).toBe(1)
+      expect(calls).toEqual([
+        expect.objectContaining({
+          toolName: 'Bash',
+          input: TEST,
+          toolUseId: (played.events[1] as { toolUseId: string }).toolUseId,
+          agentId: null,
+          displayName: 'Bash',
+          description: 'Run the test suite',
+          suggestions: bashSuggestions('npm test'),
+        }),
+      ])
+      expect(played.events.slice(2)).toEqual([])
+
+      give({ behavior: ToolPermissionBehavior.Allow, byUser: true })
+      await flush()
+
+      expect(played.events.slice(2)).toEqual([
+        expect.objectContaining({ kind: AgentEventKind.ToolResult, output: 'All passed.', isError: false }),
+        expect.objectContaining({ kind: AgentEventKind.Text, text: 'Done.' }),
+        expect.objectContaining({ kind: AgentEventKind.TurnFinished, result: 'Done.' }),
+      ])
+      played.session.close()
+    })
+
+    it("plays a denial as the call's error result, and the turn plays on", async () => {
+      const { decide, give } = decider()
+      const played = asking(
+        [[init(), permission('test', 'Bash', TEST, 'Never.'), say('Understood.'), result()]],
+        decide,
+      )
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      give({ behavior: ToolPermissionBehavior.Deny, message: 'Denied: use pnpm.', byUser: true })
+      await flush()
+
+      expect(played.events.slice(2)).toEqual([
+        expect.objectContaining({ kind: AgentEventKind.ToolResult, output: 'Denied: use pnpm.', isError: true }),
+        expect.objectContaining({ kind: AgentEventKind.Text, text: 'Understood.' }),
+        expect.objectContaining({ kind: AgentEventKind.TurnFinished }),
+      ])
+    })
+
+    it("names a subagent's call by its subagent, and nests it under its Agent call", async () => {
+      const { calls, decide } = decider()
+      const played = asking(
+        [
+          [
+            init(),
+            toolUse('agent', 'Agent', { description: 'Run the tests', prompt: 'Run them.' }),
+            permission('test', 'Bash', TEST, 'All passed.', { parent: 'agent', agentId: 'ac2cfaf3' }),
+            permission('lint', 'Bash', { command: 'npm run lint' }, 'Clean.', { parent: 'agent' }),
+          ],
+        ],
+        decide,
+      )
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      expect(calls.map(({ agentId }) => agentId)).toEqual(['ac2cfaf3'])
+      const agentCall = played.events.find(
+        (event) => event.kind === AgentEventKind.ToolCallStarted && event.name === 'Agent',
+      )
+      expect(played.events).toContainEqual(
+        expect.objectContaining({
+          kind: AgentEventKind.ToolCallStarted,
+          name: 'Bash',
+          parentToolUseId: (agentCall as { toolUseId: string }).toolUseId,
+        }),
+      )
+      played.session.close()
+    })
+
+    it('makes up a subagent id for a nested call that gives none', async () => {
+      const { calls, decide, give } = decider()
+      const played = asking(
+        [
+          [
+            init(),
+            toolUse('agent', 'Agent', { prompt: 'Lint.' }),
+            permission('lint', 'Bash', {}, 'Clean.', { parent: 'agent' }),
+          ],
+        ],
+        decide,
+      )
+      played.session.send('Go', 'user-1')
+      await flush()
+      give({ behavior: ToolPermissionBehavior.Allow, byUser: true })
+      await flush()
+
+      expect(calls[0]?.agentId).toMatch(/^a.+agent$/)
+      played.session.close()
+    })
+
+    it('stops asking once configure switches it to Allow all, even mid-turn', async () => {
+      const { calls, decide, give } = decider()
+      const played = asking(
+        [
+          [
+            init(),
+            permission('first', 'Bash', TEST, 'Ran.'),
+            permission('second', 'Edit', { file_path: 'a.txt' }, 'Edited.'),
+            result(),
+          ],
+        ],
+        decide,
+      )
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      played.session.configure({
+        model: SESSION.model,
+        effort: SESSION.effort,
+        permissionMode: PermissionMode.AllowAll,
+      })
+      give({ behavior: ToolPermissionBehavior.Allow, byUser: true })
+      await flush()
+
+      expect(calls.map(({ toolName }) => toolName)).toEqual(['Bash'])
+      expect(played.events.filter((event) => event.kind === AgentEventKind.ToolResult)).toHaveLength(2)
+    })
+
+    it('cancels the call on an interrupt, and ends the turn as interrupted during a tool', async () => {
+      const { calls, decide, give } = decider()
+      const played = asking([[init(), permission('test', 'Bash', TEST, 'Never.'), say('Never.')]], decide)
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      await played.session.interrupt()
+      await flush()
+      // The runner withdraws it; the answer comes too late to count.
+      give({ behavior: ToolPermissionBehavior.Deny, message: 'Withdrawn.', byUser: false })
+      await flush()
+
+      expect(calls[0]?.signal.aborted).toBe(true)
+      expect(played.events.slice(2)).toEqual([
+        expect.objectContaining({ kind: AgentEventKind.ToolResult, output: REJECTED_TOOL_OUTPUT, isError: true }),
+        expect.objectContaining({ kind: AgentEventKind.TurnFinished, terminalReason: 'aborted_tools' }),
+      ])
+    })
+
+    it('denies the call when no one can be asked, as the SDK backend does', async () => {
+      const played = play([[init(), permission('test', 'Bash', TEST, 'Never.'), result()]], {
+        session: { ...SESSION, permissionMode: PermissionMode.AskBeforeEdits, mcpServers: { glade: gladeServer() } },
+      })
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      expect(played.events).toContainEqual(
+        expect.objectContaining({ kind: AgentEventKind.ToolResult, output: NO_ONE_TO_ASK, isError: true }),
+      )
+    })
+  })
+
   it('passes an emit step’s message through as is', async () => {
     const played = play([[emit({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } })]])
     played.session.send('Go', 'user-1')
@@ -489,7 +726,7 @@ describe('ScriptedSession', () => {
   it('runs the turns after a settings change on its model, as the SDK does', async () => {
     const played = play([[init(), say('Hi.'), result()]])
     played.session.send('a', 'user-1')
-    played.session.configure({ model: 'claude-sample-2', effort: Effort.Low })
+    played.session.configure({ model: 'claude-sample-2', effort: Effort.Low, permissionMode: PermissionMode.AllowAll })
     played.session.send('b', 'user-2')
     await flush()
 

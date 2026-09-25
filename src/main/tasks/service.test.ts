@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
 import {
   Effort,
+  PermissionMode,
   TaskActivity,
   TaskState,
   ToolCallState,
@@ -86,6 +87,7 @@ describe('createTask', () => {
       unread: false,
       model: DEFAULT_SETTINGS.defaultModel,
       effort: DEFAULT_SETTINGS.defaultEffort,
+      permissionMode: PermissionMode.AllowAll,
       createdAt: 5_000,
       updatedAt: 5_000,
       doneAt: null,
@@ -95,6 +97,7 @@ describe('createTask', () => {
       error: null,
       retrying: null,
       asking: false,
+      awaitingPermission: false,
       pause: null,
     })
     expect(DEFAULT_SETTINGS.defaultEffort).toBe(Effort.High)

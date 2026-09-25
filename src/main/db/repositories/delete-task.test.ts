@@ -5,6 +5,7 @@ import { GIF, PNG } from '../../../shared/test-images'
 import { addArtifact } from './artifacts'
 import { appendMessage } from './messages'
 import { setOpenFiles } from './open-files'
+import { appendPermissionRequest } from './permission-requests'
 import { appendQuestionSet } from './question-sets'
 import { appendQueuedMessage } from './queued-messages'
 import { deleteTask, getTask, listTasks } from './tasks'
@@ -65,6 +66,20 @@ function fillTask(db: Database, task: Task): void {
     turn: 1,
     questions: [{ kind: QuestionKind.Pills, prompt: 'Which limit?', options: ['120', '60'] }],
   })
+  appendPermissionRequest(db, {
+    taskId,
+    turn: 1,
+    toolUseId: `bash-${taskId}`,
+    agentId: null,
+    toolName: 'Bash',
+    input: { command: 'npm test' },
+    title: null,
+    displayName: 'Bash',
+    description: 'Run the tests',
+    suggestions: [],
+    defaultToNo: false,
+    suppressAlwaysAllowRule: false,
+  })
 }
 
 /** The tables `fillTask` writes to. A new table that belongs to a task fails the test below until it's added here. */
@@ -74,6 +89,7 @@ const FILLED_TABLES = [
   'images',
   'messages',
   'open_files',
+  'permission_requests',
   'question_sets',
   'queued_messages',
   // The search index's rows for its fields and messages, which a new task and `fillTask`'s message make.

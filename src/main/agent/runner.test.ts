@@ -10,6 +10,7 @@ import {
   DividerKind,
   Effort,
   MessageRole,
+  PermissionMode,
   TaskActivity,
   TaskState,
   TodoState,
@@ -74,6 +75,9 @@ let runner: AgentRunner
 let events: GladeEvent[]
 /** What the bridge, the runner and the agent logged. */
 let log: MemoryLog
+
+/** The permission mode every test here runs in unless it says otherwise. */
+const ALLOW_ALL = PermissionMode.AllowAll
 
 beforeEach(() => {
   log = createMemoryLog()
@@ -195,6 +199,10 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.QuestionAnswered:
       case EventType.QuestionWithdrawn:
         return [event.type, event.questionSet.state]
+      case EventType.PermissionOpened:
+      case EventType.PermissionAnswered:
+      case EventType.PermissionWithdrawn:
+        return [event.type, event.permissionRequest.state]
       case EventType.TaskDeleted:
         return [event.type, event.taskId]
       case EventType.UiStateChanged:
@@ -273,10 +281,12 @@ describe('a turn', () => {
       cwd: workspace.rootPath,
       model: task.model,
       effort: task.effort,
+      permissionMode: PermissionMode.AllowAll,
       resumeSessionId: null,
       systemPromptAppend: systemPromptAppend(task),
       mcpServers: { [GLADE_SERVER]: expect.objectContaining({ type: 'sdk', name: GLADE_SERVER }) as unknown },
       log: expect.objectContaining({ info: expect.any(Function) as unknown }) as unknown,
+      onToolPermission: expect.any(Function) as unknown,
     })
     const [userMessage] = listMessages(database.db, task.id)
     expect(backend.session.sent).toEqual([
@@ -284,7 +294,7 @@ describe('a turn', () => {
         text: 'Find out why the login test is flaky.',
         uuid: userMessage?.id,
         images: [],
-        settings: { model: task.model, effort: task.effort },
+        settings: { model: task.model, effort: task.effort, permissionMode: ALLOW_ALL },
       },
     ])
     expect(backend.session.configured).toEqual([])
@@ -358,6 +368,7 @@ describe('a turn', () => {
       toolEvents: listToolEvents(database.db, task.id),
       queuedMessages: [],
       questionSets: [],
+      permissionRequests: [],
       openFiles: { taskId: task.id, paths: [], activePath: null },
       todos: null,
       artifacts: [],
@@ -1297,7 +1308,7 @@ describe('resuming on launch', () => {
         text: RESUME_PROMPT,
         uuid: expect.any(String) as unknown,
         images: [],
-        settings: { model: task.model, effort: task.effort },
+        settings: { model: task.model, effort: task.effort, permissionMode: task.permissionMode },
       },
     ])
     expect(current().activity).toBe(TaskActivity.Working)
@@ -1531,9 +1542,9 @@ describe('tasks.send', () => {
 
     expect(backend.sessions).toHaveLength(1)
     expect(backend.session.sent.map(({ text, settings }) => [text, settings])).toEqual([
-      ['Find out why the login test is flaky.', { model: task.model, effort: task.effort }],
-      ['Fix it.', { model: 'claude-sample-2', effort: task.effort }],
-      ['Now add a test.', { model: 'claude-sample-2', effort: Effort.Low }],
+      ['Find out why the login test is flaky.', { model: task.model, effort: task.effort, permissionMode: ALLOW_ALL }],
+      ['Fix it.', { model: 'claude-sample-2', effort: task.effort, permissionMode: ALLOW_ALL }],
+      ['Now add a test.', { model: 'claude-sample-2', effort: Effort.Low, permissionMode: ALLOW_ALL }],
     ])
     expect(backend.session.configured).toHaveLength(2)
   })
@@ -1607,7 +1618,9 @@ describe('tasks.retry', () => {
     const retried = await retry('claude-sonnet-5')
 
     expect(retried).toMatchObject({ model: 'claude-sonnet-5', activity: TaskActivity.Working, error: null })
-    expect(backend.session.configured).toEqual([{ model: 'claude-sonnet-5', effort: current().effort }])
+    expect(backend.session.configured).toEqual([
+      { model: 'claude-sonnet-5', effort: current().effort, permissionMode: PermissionMode.AllowAll },
+    ])
     expect(backend.session.sent.at(-1)).toMatchObject({
       text: 'Find out why the login test is flaky.',
       settings: { model: 'claude-sonnet-5' },
@@ -2802,6 +2815,10 @@ describe('several tasks at once', () => {
       case EventType.QuestionAnswered:
       case EventType.QuestionWithdrawn:
         return event.questionSet.taskId
+      case EventType.PermissionOpened:
+      case EventType.PermissionAnswered:
+      case EventType.PermissionWithdrawn:
+        return event.permissionRequest.taskId
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
       case EventType.TerminalTabsChanged:
@@ -2830,6 +2847,10 @@ describe('several tasks at once', () => {
       case EventType.QuestionAnswered:
       case EventType.QuestionWithdrawn:
         return [event.type, event.questionSet.state]
+      case EventType.PermissionOpened:
+      case EventType.PermissionAnswered:
+      case EventType.PermissionWithdrawn:
+        return [event.type, event.permissionRequest.state]
       case EventType.UiStateChanged:
       case EventType.WorkspaceUpdated:
       case EventType.WorkspaceRemoved:

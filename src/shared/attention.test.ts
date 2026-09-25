@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { hasRun, matchesFilter, needsYou, parseTaskFilter, TaskFilter } from './attention'
 import { TaskActivity, TaskState, type Task } from './domain'
 
-type Attention = Pick<Task, 'state' | 'activity' | 'sessionId' | 'asking' | 'unread'>
+type Attention = Pick<Task, 'state' | 'activity' | 'sessionId' | 'asking' | 'awaitingPermission' | 'unread'>
 
 const RAN: Attention = {
   state: TaskState.Active,
   activity: TaskActivity.Waiting,
   sessionId: 'session-1',
   asking: false,
+  awaitingPermission: false,
   unread: false,
 }
 
@@ -35,6 +36,13 @@ describe('needsYou', () => {
       true,
     ],
     ['done, with a question still open', { ...RAN, state: TaskState.Done, asking: true }, false],
+    ['waiting on your OK for a tool call', { ...RAN, awaitingPermission: true }, true],
+    [
+      'waiting on your OK, whatever its activity says',
+      { ...RAN, activity: TaskActivity.Working, awaitingPermission: true },
+      true,
+    ],
+    ['done, with a permission request still open', { ...RAN, state: TaskState.Done, awaitingPermission: true }, false],
   ])('is %s → %s', (_, task, expected) => {
     expect(needsYou(task)).toBe(expected)
   })

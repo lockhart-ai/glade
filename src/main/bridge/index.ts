@@ -12,6 +12,7 @@ import { listTasks } from '../db/repositories/tasks'
 import { listWorkspaces } from '../db/repositories/workspaces'
 import { createEventLog } from '../logging/event-log'
 import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
+import { createPermissionBroker } from '../permissions/permissions'
 import { createQuestionBroker } from '../questions/questions'
 import { createBroadcast, createDispatcher, type EventTarget } from './dispatcher'
 import type { Emit } from './events'
@@ -110,12 +111,15 @@ export function registerBridge({
   }
   // One broker for the agent's questions: the Glade tools' `ask` waits on it, and the runner answers through it.
   const questions = createQuestionBroker({ db, emit }, notifyReply)
+  // The permission requests the ask mode's tool calls wait on, notified as questions are.
+  const permissions = createPermissionBroker({ db, emit }, notifyReply)
   const runner = createAgentRunner({
     db,
     emit,
     backend: agentBackend,
     notifyReply,
     questions,
+    permissions,
     isOnline,
     log: log.scoped(LogScope.Runner),
     // Each session gets its own Glade tools, built for its task, with the upkeep Settings has on as it starts.

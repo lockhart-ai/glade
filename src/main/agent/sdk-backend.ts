@@ -1,12 +1,31 @@
 // The real agent backend: a thin adapter from `AgentBackend` onto the Claude Agent SDK's `query()`. Everything Glade
 // decides about a session (its folder, model, prompt, settings, permissions) is here; see `docs/sdk-notes.md`.
-import { query, type Options, type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import {
+  query,
+  type CanUseTool,
+  type Options,
+  type PermissionMode as SdkPermissionMode,
+  type PermissionResult,
+  type Query,
+  type SDKUserMessage,
+} from '@anthropic-ai/claude-agent-sdk'
 import { createRequire } from 'node:module'
+import { PermissionMode, type PermissionSuggestion, type ToolInput } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
 import type { Environment } from '../login-env'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
+import { permissionSuggestionSchema } from '../permissions/schema'
 import { AsyncQueue } from './async-queue'
-import type { AgentBackend, AgentSession, AgentSessionOptions } from './backend'
+import {
+  ToolPermissionBehavior,
+  type AgentBackend,
+  type AgentSession,
+  type AgentSessionOptions,
+  type AgentSessionSettings,
+  type ToolPermissionAnswer,
+  type ToolPermissionCall,
+  type ToolPermissionHandler,
+} from './backend'
 import { userContent } from './user-content'
 
 /** How to make the real backend. */
@@ -59,6 +78,103 @@ export function claudeCodeExecutable(
  */
 export const SESSION_ENV: Environment = { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' }
 
+/**
+ * The SDK permission mode each of Glade's runs in (`docs/sdk-notes.md` §9): Allow all bypasses every check, so
+ * `canUseTool` is never called; the ask mode runs `default`, where Claude Code asks `canUseTool` about every call its
+ * rules and the user's settings leave at "ask".
+ */
+export function sdkPermissionMode(mode: PermissionMode): SdkPermissionMode {
+  switch (mode) {
+    case PermissionMode.AllowAll:
+      return 'bypassPermissions'
+    case PermissionMode.AskBeforeEdits:
+      return 'default'
+  }
+}
+
+/** What the agent is told when a call is denied because there was no one to ask about it. */
+export const NO_ONE_TO_ASK = 'Glade had no way to ask the user about this tool call, so it did not run.'
+
+/** What the agent is told when deciding a call failed. */
+export const PERMISSION_FAILED = 'Glade could not ask the user about this tool call, so it did not run.'
+
+/** The options `canUseTool` is called with. */
+type CanUseToolOptions = Parameters<CanUseTool>[2]
+
+/** The suggestions Glade knows the shape of; one it doesn't (a newer SDK's) is logged and left out. */
+function knownSuggestions(suggestions: readonly unknown[], log: Logger): PermissionSuggestion[] {
+  return suggestions.flatMap((suggestion) => {
+    const parsed = permissionSuggestionSchema.safeParse(suggestion)
+    if (parsed.success) return [parsed.data]
+    log.warn('ignored a permission suggestion of a shape Glade does not know', { suggestion })
+    return []
+  })
+}
+
+/** A `canUseTool` call, parsed into Glade's terms. */
+export function toolPermissionCall(
+  toolName: string,
+  input: ToolInput,
+  options: CanUseToolOptions,
+  log: Logger = SILENT_LOGGER,
+): ToolPermissionCall {
+  const { mcpServer } = options
+  return {
+    toolName,
+    input,
+    toolUseId: options.toolUseID,
+    agentId: options.agentID ?? null,
+    title: options.title ?? null,
+    displayName: options.displayName ?? null,
+    description: options.description ?? null,
+    suggestions: knownSuggestions(options.suggestions ?? [], log),
+    defaultToNo: options.defaultToNo === true,
+    suppressAlwaysAllowRule: options.suppressAlwaysAllowRule === true,
+    mcpServer: mcpServer === undefined ? null : { name: mcpServer.name, source: mcpServer.source },
+    matchedAskRule: options.matchedAskRule !== undefined,
+    signal: options.signal,
+  }
+}
+
+/**
+ * The SDK's result for Glade's answer. An allowed call runs with its input as it was; a person's decision is classified
+ * as one (allow once, or reject), and one Glade made itself isn't.
+ */
+export function sdkPermissionResult(answer: ToolPermissionAnswer, input: ToolInput): PermissionResult {
+  switch (answer.behavior) {
+    case ToolPermissionBehavior.Allow:
+      return {
+        behavior: 'allow',
+        updatedInput: { ...input },
+        ...(answer.byUser ? { decisionClassification: 'user_temporary' } : {}),
+      }
+    case ToolPermissionBehavior.Deny:
+      return {
+        behavior: 'deny',
+        message: answer.message,
+        ...(answer.byUser ? { decisionClassification: 'user_reject' } : {}),
+      }
+  }
+}
+
+/** `canUseTool` for a session: asks `handler` about each call, and denies it when there's none, or deciding fails. */
+export function canUseToolFor(handler: ToolPermissionHandler | undefined, log: Logger): CanUseTool {
+  return async (toolName, input, options) => {
+    const call = toolPermissionCall(toolName, input, options, log)
+    let answer: ToolPermissionAnswer
+    try {
+      answer =
+        handler === undefined
+          ? { behavior: ToolPermissionBehavior.Deny, message: NO_ONE_TO_ASK, byUser: false }
+          : await handler(call)
+    } catch (error) {
+      log.error('failed to decide a tool call', { toolName, toolUseId: call.toolUseId, error })
+      answer = { behavior: ToolPermissionBehavior.Deny, message: PERMISSION_FAILED, byUser: false }
+    }
+    return sdkPermissionResult(answer, input)
+  }
+}
+
 /** The SDK options for a session that runs in `env`. */
 export function sdkOptions(
   options: AgentSessionOptions,
@@ -75,9 +191,13 @@ export function sdkOptions(
     model: options.model,
     effort: options.effort,
     ...(options.resumeSessionId === null ? {} : { resume: options.resumeSessionId }),
-    // Allow all: no per-call permission review (docs/decisions.md).
-    permissionMode: 'bypassPermissions',
+    // Allow all bypasses every check; the ask mode asks `canUseTool` (docs/decisions.md, "Per-call permission review").
+    // Bypassing stays allowed whatever the mode starts as, so a live session can switch into it (docs/sdk-notes.md §9).
+    permissionMode: sdkPermissionMode(options.permissionMode),
     allowDangerouslySkipPermissions: true,
+    canUseTool: canUseToolFor(options.onToolPermission, options.log ?? SILENT_LOGGER),
+    // Glade's own tools never ask: Claude Code lets them through before `canUseTool` is called.
+    allowedTools: Object.keys(options.mcpServers).map((name) => `mcp__${name}`),
     // Behave like `claude` run in the workspace root: the workspace's CLAUDE.md, and the user's own settings.
     settingSources: ['user', 'project', 'local'],
     systemPrompt: { type: 'preset', preset: 'claude_code', append: options.systemPromptAppend },
@@ -106,8 +226,9 @@ export function userMessage(text: string, uuid: string, images: readonly ImageDa
  * session started before then takes messages and settings meanwhile, and delivers them in order once it runs.
  *
  * A settings change and the messages after it are delivered in order: the next message waits for `setModel` and
- * `applyFlagSettings` to finish (`docs/sdk-notes.md` §4). If the SDK refuses a change, the message still goes, on the
- * settings the session had.
+ * `applyFlagSettings` to finish (`docs/sdk-notes.md` §4), and for `setPermissionMode` when the permission mode changed
+ * (§9), each only when what it sets changed. If the SDK refuses a change, the message still goes, on the settings the
+ * session had.
  */
 export function createSdkBackend({ env, log: backendLog = SILENT_LOGGER }: SdkBackendOptions): AgentBackend {
   return {
@@ -121,6 +242,7 @@ export function createSdkBackend({ env, log: backendLog = SILENT_LOGGER }: SdkBa
           cwd: options.cwd,
           model: options.model,
           effort: options.effort,
+          permissionMode: options.permissionMode,
           resumeSessionId: options.resumeSessionId,
           mcpServers: Object.keys(options.mcpServers),
           PATH: resolved.PATH ?? null,
@@ -129,6 +251,12 @@ export function createSdkBackend({ env, log: backendLog = SILENT_LOGGER }: SdkBa
       })
       // Everything asked of the session so far, in order.
       let queue = Promise.resolve()
+      // The settings the session was last given: a change applies only what differs from them.
+      let given: AgentSessionSettings = {
+        model: options.model,
+        effort: options.effort,
+        permissionMode: options.permissionMode,
+      }
       const then = (step: () => Promise<void> | void): void => {
         queue = queue.then(step)
       }
@@ -141,14 +269,27 @@ export function createSdkBackend({ env, log: backendLog = SILENT_LOGGER }: SdkBa
             input.push(userMessage(text, uuid, images))
           })
         },
-        configure({ model, effort }) {
+        configure(settings) {
+          const before = given
+          given = settings
+          const { model, effort, permissionMode } = settings
           then(async () => {
             const session = await started
-            try {
-              await session.setModel(model)
-              await session.applyFlagSettings({ effortLevel: effort })
-            } catch (error) {
-              log.warn("the SDK refused the session's new settings", { model, effort, error })
+            if (model !== before.model || effort !== before.effort) {
+              try {
+                await session.setModel(model)
+                await session.applyFlagSettings({ effortLevel: effort })
+              } catch (error) {
+                log.warn("the SDK refused the session's new settings", { model, effort, error })
+              }
+            }
+            if (permissionMode !== before.permissionMode) {
+              try {
+                await session.setPermissionMode(sdkPermissionMode(permissionMode))
+                log.info('permission mode changed', { permissionMode })
+              } catch (error) {
+                log.warn("the SDK refused the session's new permission mode", { permissionMode, error })
+              }
             }
           })
         },

@@ -11,6 +11,7 @@ import {
   type EmptyRequest,
   type FileRequest,
   type ImagesGetRequest,
+  type PermissionsAnswerRequest,
   type LogRendererErrorRequest,
   type MenuUpdateRequest,
   type QueueAddRequest,
@@ -43,11 +44,12 @@ import {
 } from '../../shared/bridge'
 import { TaskFilter } from '../../shared/attention'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
-import { Effort, UiStateKey } from '../../shared/domain'
+import { Effort, PermissionMode, UiStateKey } from '../../shared/domain'
 import { isWorkspaceRelativePath } from '../../shared/files'
 import { hasImageSignature, ImageMediaType, MAX_IMAGE_BASE64_LENGTH, type ImageData } from '../../shared/images'
 import { MAX_TERMINAL_NAME, MAX_TERMINAL_SIZE, MAX_TERMINAL_WRITE } from '../../shared/terminal'
 import { SETTING_SCHEMAS } from '../db/repositories/settings'
+import { permissionDecisionSchema } from '../permissions/schema'
 import { questionAnswersSchema } from '../questions/schema'
 
 /**
@@ -112,6 +114,7 @@ const tasksUpdateRequest = z.strictObject({
     unread: z.boolean().optional(),
     model: z.string().min(1).optional(),
     effort: z.enum(Effort).optional(),
+    permissionMode: z.enum(PermissionMode).optional(),
   }),
 }) satisfies z.ZodType<TasksUpdateRequest>
 
@@ -171,6 +174,11 @@ const questionsAnswerRequest = z.strictObject({
   id: z.string(),
   answers: questionAnswersSchema,
 }) satisfies z.ZodType<QuestionsAnswerRequest>
+
+const permissionsAnswerRequest = z.strictObject({
+  id: z.string(),
+  decision: permissionDecisionSchema,
+}) satisfies z.ZodType<PermissionsAnswerRequest>
 
 const fileRequest = z.strictObject({
   taskId: z.string(),
@@ -285,6 +293,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.QueueRemove]: queueRemoveRequest,
   [CommandName.ImagesGet]: imagesGetRequest,
   [CommandName.QuestionsAnswer]: questionsAnswerRequest,
+  [CommandName.PermissionsAnswer]: permissionsAnswerRequest,
   [CommandName.FilesRead]: fileRequest,
   [CommandName.FilesOpen]: fileRequest,
   [CommandName.FilesClose]: fileRequest,
