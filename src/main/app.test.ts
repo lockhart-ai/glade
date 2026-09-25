@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { COMMAND_CHANNEL, CommandName, EVENT_CHANNEL, EventType } from '../shared/bridge'
+import { COMMAND_CHANNEL, CommandName, EVENT_CHANNEL, EventType, RendererErrorKind } from '../shared/bridge'
 import { appCommand, AppCommandId, EMPTY_MENU_STATE } from '../shared/commands'
 import { MessageRole, TaskActivity, UiStateKey } from '../shared/domain'
 import { CAPTURE_ENV, type CaptureSpec } from './capture'
@@ -30,6 +30,7 @@ import type { RecordingNotifier } from './notifications/recording-notifier'
 import type { SdkBackendOptions } from './agent/sdk-backend'
 import type { LoginEnvOptions } from './login-env'
 import { markRunning } from './relaunch'
+import type { FileLogSinkOptions } from './logging/file-sink'
 import { createFakeSpawner } from './terminal/fake-pty'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
 
@@ -111,6 +112,8 @@ const electron = vi.hoisted(() => {
       name: 'Glade',
       isPackaged: false,
       userData: '',
+      /** Electron's logs folder: a throwaway one, so a unit test never writes to yours. */
+      logs: '',
       setPath: vi.fn((name: string, path: string) => {
         if (name !== 'userData') throw new Error(`unexpected setPath(${name})`)
         electron.app.userData = path
@@ -118,9 +121,11 @@ const electron = vi.hoisted(() => {
       dock: { hide: vi.fn() },
       getPath: vi.fn((name: string): string => {
         if (name === 'home') return '/Users/sample'
+        if (name === 'logs') return electron.app.logs
         if (name !== 'userData') throw new Error(`unexpected getPath(${name})`)
         return electron.app.userData
       }),
+      getVersion: () => '0.0.0-sample',
       whenReady: vi.fn(() => Promise.resolve()),
       on: vi.fn((event: string, handler: Handler) => {
         appHandlers.set(event, handler)
@@ -192,7 +197,49 @@ function useRealLoginEnv(): void {
 /** launchd's PATH: what an app opened from Finder or the Dock starts with. */
 const LAUNCHD_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
 
+// The log file, watched, and kept off the terminal: a test reads the file instead.
+vi.mock('./logging/file-sink', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./logging/file-sink')>()
+  return {
+    ...original,
+    createFileLogSink: vi.fn((options: FileLogSinkOptions) =>
+      original.createFileLogSink({ ...options, toConsole: false }),
+    ),
+  }
+})
+const { createFileLogSink } = await import('./logging/file-sink')
+
 const { startApp, WINDOW_WEB_PREFERENCES } = await import('./app')
+
+/** A line of the log file, as JSON. */
+interface LogLine {
+  readonly time: string
+  readonly level: string
+  readonly scope: string
+  readonly taskId?: string
+  readonly msg: string
+  readonly [field: string]: unknown
+}
+
+/** The log file's lines: in Electron's logs folder, or in a test mode's data folder. */
+function logLines(dir: string = electron.app.logs): LogLine[] {
+  const file = join(dir, 'main.log')
+  if (!existsSync(file)) return []
+  return readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => line !== '')
+    .map((line) => JSON.parse(line) as LogLine)
+}
+
+/** The log file's lines saying `msg`. */
+function logged(msg: string, dir?: string): LogLine[] {
+  return logLines(dir).filter((line) => line.msg === msg)
+}
+
+/** A test mode's log folder, in its throwaway data folder. */
+function testModeLogs(): string {
+  return join(electron.app.userData, 'logs')
+}
 
 /** Starts the app and lets the `whenReady` callback run. */
 async function startAndWaitUntilReady(): Promise<void> {
@@ -247,7 +294,13 @@ function onlyNotification(): InstanceType<typeof electron.FakeNotification> {
 
 const originalPlatform = process.platform
 
+/** The crash listeners on `process` before each test, so the ones a test's app adds can go afterwards. */
+let exceptionListeners: NodeJS.UncaughtExceptionListener[]
+let rejectionListeners: NodeJS.UnhandledRejectionListener[]
+
 beforeEach(() => {
+  exceptionListeners = process.listeners('uncaughtExceptionMonitor')
+  rejectionListeners = process.listeners('unhandledRejection')
   vi.clearAllMocks()
   electron.appHandlers.clear()
   electron.windows.length = 0
@@ -255,6 +308,7 @@ beforeEach(() => {
   Reflect.deleteProperty(globalThis, E2E_NOTIFIER_GLOBAL)
   electron.app.isPackaged = false
   electron.app.userData = mkdtempSync(join(tmpdir(), 'glade-app-'))
+  electron.app.logs = mkdtempSync(join(tmpdir(), 'glade-app-logs-'))
   vi.stubEnv('ELECTRON_RENDERER_URL', undefined)
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
   vi.spyOn(console, 'log').mockImplementation(() => undefined)
@@ -264,6 +318,14 @@ afterEach(() => {
   // Close the database the way quitting the app does, so the temp folder can go.
   electron.appHandlers.get('will-quit')?.()
   rmSync(electron.app.userData, { recursive: true, force: true })
+  rmSync(electron.app.logs, { recursive: true, force: true })
+  // The app watches for crashes until it quits; one that never got that far leaves its listeners behind.
+  for (const listener of process.listeners('uncaughtExceptionMonitor')) {
+    if (!exceptionListeners.includes(listener)) process.off('uncaughtExceptionMonitor', listener)
+  }
+  for (const listener of process.listeners('unhandledRejection')) {
+    if (!rejectionListeners.includes(listener)) process.off('unhandledRejection', listener)
+  }
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
   Object.defineProperty(process, 'platform', { value: originalPlatform })
@@ -363,9 +425,14 @@ describe('startApp', () => {
       'Glade refused to start',
       "The window's security settings are not in effect.\n\nsandbox must be true (was false)",
     )
-    expect(console.error).toHaveBeenCalledWith(
-      'Glade refused to start: insecure window settings\nsandbox must be true (was false)',
-    )
+    expect(logged('refused to start')).toEqual([
+      expect.objectContaining({
+        level: 'error',
+        scope: 'app',
+        reason: 'insecure window settings',
+        detail: 'sandbox must be true (was false)',
+      }),
+    ])
     expect(electron.app.exit).toHaveBeenCalledWith(1)
     expect(electron.appHandlers.has('activate')).toBe(false)
   })
@@ -374,9 +441,16 @@ describe('startApp', () => {
     await startAndWaitUntilReady()
 
     const file = join(electron.app.userData, 'glade.db')
-    expect(console.log).toHaveBeenCalledWith(
-      `Database opened at ${file}; schema version 0 -> ${String(MIGRATIONS.length)}`,
-    )
+    expect(logged('database opened')).toEqual([
+      expect.objectContaining({
+        level: 'info',
+        scope: 'db',
+        file,
+        fromVersion: 0,
+        toVersion: MIGRATIONS.length,
+        migrated: true,
+      }),
+    ])
     expect(onlyWindow()).toBeDefined()
     const db = new Database(file, { readonly: true })
     try {
@@ -658,12 +732,48 @@ describe('startApp', () => {
   it('runs the agents on the Claude Agent SDK by default, in the login shell’s environment', async () => {
     await startAndWaitUntilReady()
 
-    expect(createSdkBackend).toHaveBeenCalledExactlyOnceWith({ env: expect.any(Promise) as unknown })
+    expect(createSdkBackend).toHaveBeenCalledExactlyOnceWith({
+      env: expect.any(Promise) as unknown,
+      log: expect.objectContaining({ info: expect.any(Function) as unknown }) as unknown,
+    })
     expect(resolveLoginEnv).toHaveBeenCalledExactlyOnceWith({
       shell: process.env.SHELL,
       base: process.env,
       cwd: '/Users/sample',
+      log: expect.objectContaining({ info: expect.any(Function) as unknown }) as unknown,
     })
+  })
+
+  it("logs the agents' environment, its PATH, and every variable but its secrets", async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-sample-secret')
+    vi.stubEnv('GH_TOKEN', 'ghp_sample_secret')
+    vi.stubEnv('DB_PASSWORD', 'hunter2-sample')
+    vi.stubEnv('EDITOR', 'vim')
+
+    await startAndWaitUntilReady()
+    await vi.waitFor(() => {
+      expect(logged('agent environment variables')).toHaveLength(1)
+    })
+
+    expect(logged('agent environment')).toEqual([
+      expect.objectContaining({
+        level: 'info',
+        scope: 'env',
+        source: 'fallback',
+        shell: process.env.SHELL,
+        PATH: process.env.PATH,
+      }),
+    ])
+    expect(logged('agent environment variables')[0]?.env).toMatchObject({
+      ANTHROPIC_API_KEY: '[redacted]',
+      GH_TOKEN: '[redacted]',
+      DB_PASSWORD: '[redacted]',
+      EDITOR: 'vim',
+    })
+    const log = readFileSync(join(electron.app.logs, 'main.log'), 'utf8')
+    expect(log).not.toContain('sk-ant-sample-secret')
+    expect(log).not.toContain('ghp_sample_secret')
+    expect(log).not.toContain('hunter2-sample')
   })
 
   it("gives the agents the login shell's PATH, read at startup from $SHELL, when opened with launchd's bare one", async () => {
@@ -751,9 +861,19 @@ describe('startApp', () => {
       'Glade refused to start',
       'The database could not be opened.\n\nCannot open database because the directory does not exist',
     )
-    expect(console.error).toHaveBeenCalledWith(
-      'Glade refused to start: could not open the database\nCannot open database because the directory does not exist',
-    )
+    expect(logged('refused to start')).toEqual([
+      expect.objectContaining({
+        reason: 'could not open the database',
+        detail: 'Cannot open database because the directory does not exist',
+      }),
+    ])
+    expect(logged("database couldn't be opened")).toEqual([
+      expect.objectContaining({
+        level: 'error',
+        scope: 'db',
+        error: expect.objectContaining({ name: 'TypeError' }) as unknown,
+      }),
+    ])
     expect(electron.app.exit).toHaveBeenCalledWith(1)
     expect(electron.appHandlers.has('will-quit')).toBe(false)
   })
@@ -784,6 +904,148 @@ describe('startApp', () => {
     Object.defineProperty(process, 'platform', { value: 'linux' })
     windowAllClosed()
     expect(electron.app.quit).toHaveBeenCalledOnce()
+  })
+})
+
+describe('startApp logging', () => {
+  it("logs to main.log in Electron's logs folder, and to the terminal outside a packaged app", async () => {
+    await startAndWaitUntilReady()
+
+    expect(createFileLogSink).toHaveBeenCalledExactlyOnceWith({ dir: electron.app.logs, toConsole: true })
+    expect(logged('app starting')).toEqual([
+      expect.objectContaining({
+        level: 'info',
+        scope: 'app',
+        version: '0.0.0-sample',
+        node: process.versions.node,
+        platform: process.platform,
+        arch: process.arch,
+        packaged: false,
+        testMode: null,
+        agentBackend: 'sdk',
+        logs: electron.app.logs,
+      }),
+    ])
+  })
+
+  it("keeps the packaged app's log off the terminal", async () => {
+    electron.app.isPackaged = true
+
+    await startAndWaitUntilReady()
+
+    expect(createFileLogSink).toHaveBeenCalledExactlyOnceWith({ dir: electron.app.logs, toConsole: false })
+  })
+
+  it('logs the app quitting, and stops watching for crashes', async () => {
+    await startAndWaitUntilReady()
+    const listening = process.listenerCount('unhandledRejection')
+
+    appHandler('will-quit')()
+
+    expect(logged('app quitting')).toHaveLength(1)
+    expect(process.listenerCount('unhandledRejection')).toBe(listening - 1)
+  })
+
+  it('logs uncaught exceptions and unhandled rejections in main', async () => {
+    await startAndWaitUntilReady()
+
+    // The app's own listeners, called as Node would: emitting the events would reach Vitest's too.
+    process.listeners('uncaughtExceptionMonitor').at(-1)?.(new Error('main blew up'), 'uncaughtException')
+    process.listeners('unhandledRejection').at(-1)?.(new Error('nobody caught this'), Promise.resolve())
+
+    expect(logged('uncaught exception')).toEqual([
+      expect.objectContaining({
+        level: 'error',
+        origin: 'uncaughtException',
+        error: expect.objectContaining({ message: 'main blew up' }) as unknown,
+      }),
+    ])
+    expect(logged('unhandled rejection')).toEqual([
+      expect.objectContaining({
+        level: 'error',
+        reason: expect.objectContaining({ message: 'nobody caught this' }) as unknown,
+      }),
+    ])
+  })
+
+  it("logs the window's page failing to load, and its process dying", async () => {
+    await startAndWaitUntilReady()
+    const window = onlyWindow()
+
+    window.handlers.get('did-fail-load')?.({}, -6, 'ERR_FILE_NOT_FOUND')
+    window.handlers.get('render-process-gone')?.({}, { reason: 'crashed', exitCode: 11 })
+
+    expect(logged("window's page failed to load")).toEqual([
+      expect.objectContaining({ level: 'error', code: -6, description: 'ERR_FILE_NOT_FOUND' }),
+    ])
+    expect(logged("window's process is gone")).toEqual([
+      expect.objectContaining({ level: 'error', reason: 'crashed', exitCode: 11 }),
+    ])
+  })
+
+  it('logs errors the window sends, in the renderer scope', async () => {
+    await startAndWaitUntilReady()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    await handler?.({}, CommandName.LogRendererError, {
+      kind: RendererErrorKind.ReactCaught,
+      message: 'TypeError: task is undefined',
+      stack: 'TypeError: task is undefined\n    at TaskHeader',
+      componentStack: '\n    at TaskHeader\n    at App',
+      source: null,
+    })
+
+    expect(logged('renderer error')).toEqual([
+      expect.objectContaining({
+        level: 'error',
+        scope: 'renderer',
+        kind: 'react_caught',
+        message: 'TypeError: task is undefined',
+        componentStack: '\n    at TaskHeader\n    at App',
+      }),
+    ])
+  })
+
+  it('follows a task from its message to the reply, each line with its id', async () => {
+    const { replied } = await replyInUnviewedTask()
+
+    const lines = logLines().filter((line) => line.taskId === replied)
+    const trail = lines.map(({ scope, msg }) => `${scope} ${msg}`)
+    expect(trail).toEqual(
+      expect.arrayContaining([
+        'chat message appended',
+        'runner turn started',
+        'agent session starting',
+        'agent sdk message',
+        'agent session id saved',
+        'runner turn result',
+        'runner turn ended',
+        'task task activity changed',
+        'notifications notification sent',
+        'ipc command',
+      ]),
+    )
+    const order = (entry: string): number => trail.indexOf(entry)
+    expect(order('agent session starting')).toBeLessThan(order('runner turn started'))
+    expect(order('runner turn started')).toBeLessThan(order('agent sdk message'))
+    expect(order('agent sdk message')).toBeLessThan(order('runner turn result'))
+    expect(order('runner turn result')).toBeLessThan(order('runner turn ended'))
+    expect(lines.find((line) => line.msg === 'message text' && line.role === 'agent')).toMatchObject({
+      level: 'debug',
+      text: 'It was a **race**.',
+    })
+  })
+
+  it("logs a test mode to its own throwaway folder, never Electron's", async () => {
+    vi.stubEnv(E2E_ENV, JSON.stringify({ userData: electron.app.userData, route: '' }))
+
+    await startAndWaitUntilReady()
+
+    expect(createFileLogSink).toHaveBeenCalledExactlyOnceWith({ dir: testModeLogs(), toConsole: true })
+    expect(logged('app starting', testModeLogs())).toEqual([
+      expect.objectContaining({ testMode: 'e2e', agentBackend: 'scripted' }),
+    ])
+    expect(logLines()).toEqual([])
   })
 })
 
@@ -845,7 +1107,9 @@ describe('startApp in capture mode', () => {
     expect(window.show).not.toHaveBeenCalled()
     expect(window.loadFile).toHaveBeenCalledWith(expect.stringMatching(/index\.html$/), { hash: 'gallery' })
     expect(readFileSync(join(outDir, 'gallery-1100x700.png'), 'utf8')).toBe('png')
-    expect(console.log).toHaveBeenCalledWith(`Captured ${join(outDir, 'gallery-1100x700.png')}`)
+    expect(logged('captured', testModeLogs())).toEqual([
+      expect.objectContaining({ scope: 'test-mode', file: join(outDir, 'gallery-1100x700.png') }),
+    ])
     expect(close).toHaveBeenCalledOnce()
     expect(createSdkBackend).not.toHaveBeenCalled()
     expect(electron.app.exit).toHaveBeenCalledWith(0)
@@ -870,7 +1134,9 @@ describe('startApp in capture mode', () => {
     await startAndWaitUntilReady()
     await waitForExit()
 
-    expect(console.error).toHaveBeenCalledWith('Glade capture failed: no page')
+    expect(logged('capture failed', testModeLogs())).toEqual([
+      expect.objectContaining({ level: 'error', error: expect.objectContaining({ message: 'no page' }) as unknown }),
+    ])
     expect(electron.app.exit).toHaveBeenCalledWith(1)
     expect(existsSync(join(outDir, 'gallery-1100x700.png'))).toBe(false)
   })
@@ -899,9 +1165,13 @@ describe('startApp in capture mode', () => {
     await startAndWaitUntilReady()
     await waitForExit()
 
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringMatching(/^Glade capture failed: the seed .* can't be read/),
-    )
+    expect(logged('capture failed', testModeLogs())).toEqual([
+      expect.objectContaining({
+        error: expect.objectContaining({
+          message: expect.stringMatching(/^the seed .* can't be read/) as unknown,
+        }) as unknown,
+      }),
+    ])
     expect(electron.windows).toHaveLength(0)
     expect(close).toHaveBeenCalledOnce()
     expect(electron.app.exit).toHaveBeenCalledWith(1)
@@ -912,9 +1182,11 @@ describe('startApp in capture mode', () => {
 
     startApp()
 
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringMatching(/^Glade test mode failed: GLADE_CAPTURE is not JSON/),
-    )
+    expect(console.error).toHaveBeenCalledWith('[test-mode] test mode failed', {
+      error: expect.objectContaining({
+        message: expect.stringMatching(/^GLADE_CAPTURE is not JSON/) as unknown,
+      }) as unknown,
+    })
     expect(electron.app.exit).toHaveBeenCalledWith(1)
     expect(electron.app.whenReady).not.toHaveBeenCalled()
     expect(electron.app.setPath).not.toHaveBeenCalled()
@@ -1050,7 +1322,15 @@ describe('startApp in e2e mode', () => {
       ok: false,
     })
 
-    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/^Glade test mode: An agent session started/))
+    expect(logged('no agent script for a session', testModeLogs())).toEqual([
+      expect.objectContaining({
+        level: 'error',
+        scope: 'agent',
+        error: expect.objectContaining({
+          message: expect.stringMatching(/^An agent session started/) as unknown,
+        }) as unknown,
+      }),
+    ])
     expect(createAgentBackend).not.toHaveBeenCalled()
     expect(createSdkBackend).not.toHaveBeenCalled()
     expect(backend.sessions).toHaveLength(0)
@@ -1183,7 +1463,13 @@ describe('startApp in e2e mode', () => {
 
     await startAndWaitUntilReady()
 
-    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/^Glade e2e failed: the seed .* can't be read/))
+    expect(logged("the e2e seed couldn't be applied", testModeLogs())).toEqual([
+      expect.objectContaining({
+        error: expect.objectContaining({
+          message: expect.stringMatching(/^the seed .* can't be read/) as unknown,
+        }) as unknown,
+      }),
+    ])
     expect(electron.windows).toHaveLength(0)
     expect(electron.app.exit).toHaveBeenCalledWith(1)
   })
@@ -1248,7 +1534,9 @@ describe('startApp in e2e mode', () => {
 
     startApp()
 
-    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/^Glade test mode failed: GLADE_E2E is invalid/))
+    expect(console.error).toHaveBeenCalledWith('[test-mode] test mode failed', {
+      error: expect.objectContaining({ message: expect.stringMatching(/^GLADE_E2E is invalid/) as unknown }) as unknown,
+    })
     expect(electron.app.exit).toHaveBeenCalledWith(1)
     expect(electron.app.whenReady).not.toHaveBeenCalled()
   })

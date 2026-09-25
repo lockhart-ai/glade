@@ -15,6 +15,8 @@ import {
   type ReplyRunner,
 } from './notifications'
 import { createRecordingNotifier } from './recording-notifier'
+import { createMemoryLog } from '../logging/memory-sink'
+import { LogLevel, LogScope } from '../logging/logger'
 
 /** A runner that records what it's sent and queued. The runner's own tests cover what it does with them. */
 function fakeRunner() {
@@ -178,21 +180,55 @@ describe('createReplyNotifications', () => {
     runner.send.mockImplementation(() => {
       throw failure
     })
-    const log = { warn: vi.fn() }
-    createReplyNotifications({ db: database.db, notifier, openTask: vi.fn(), runner, log })(task.id, 'Done.')
+    const log = createMemoryLog(LogScope.Notifications)
+    createReplyNotifications({ db: database.db, notifier, openTask: vi.fn(), runner, log: log.logger })(
+      task.id,
+      'Done.',
+    )
 
     notifier.reply(0, 'Thanks.')
 
-    expect(log.warn).toHaveBeenCalledExactlyOnceWith(
-      `Couldn't send the reply from a notification to task ${task.id}`,
-      failure,
-    )
+    expect(log.withMessage("couldn't send the reply from a notification")).toEqual([
+      expect.objectContaining({ level: LogLevel.Warn, fields: { taskId: task.id, error: failure } }),
+    ])
   })
 
   it('shows nothing for a task that no longer exists', () => {
     const notifier = createRecordingNotifier()
     createReplyNotifications({ db: database.db, notifier, openTask: vi.fn(), runner: fakeRunner() })('gone', 'Done.')
     expect(notifier.shown).toEqual([])
+  })
+
+  it('logs each notification sent, opened and replied to, and one not sent, without the reply', () => {
+    const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+    updateTask(database.db, task.id, { title: 'Fix the login redirect' })
+    const notifier = createRecordingNotifier()
+    const log = createMemoryLog(LogScope.Notifications)
+    const notify = createReplyNotifications({
+      db: database.db,
+      notifier,
+      openTask: vi.fn(),
+      runner: fakeRunner(),
+      log: log.logger,
+    })
+
+    notify(task.id, 'It was a race.')
+    notifier.click(0)
+    notifier.reply(0, 'Nice, thanks.')
+    updateSettings(database.db, { notifications: false })
+    notify(task.id, 'Done again.')
+
+    expect(log.records.map(({ level, message, fields }) => ({ level, message, fields }))).toEqual([
+      {
+        level: LogLevel.Info,
+        message: 'notification sent',
+        fields: { taskId: task.id, title: 'Fix the login redirect', silent: true },
+      },
+      { level: LogLevel.Info, message: 'notification opened', fields: { taskId: task.id } },
+      { level: LogLevel.Info, message: 'notification replied to', fields: { taskId: task.id, chars: 13 } },
+      { level: LogLevel.Debug, message: 'notification not sent: notifications are off', fields: { taskId: task.id } },
+    ])
+    expect(JSON.stringify(log.records)).not.toContain('race')
   })
 })
 
