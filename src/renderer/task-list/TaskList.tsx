@@ -5,7 +5,7 @@ import { UiStateKey, type Task } from '../../shared/domain'
 import { doneTotal, inDoneList } from '../../shared/doneList'
 import { WindowCommandId } from '../../shared/commands'
 import { useCommands } from '../commands/hooks'
-import { Icon, IconSize, useToast } from '../components'
+import { Collapse, Icon, IconSize, useToast } from '../components'
 import { ContextMenu, useContextMenu } from '../context-menus'
 import { doneCountsFor, doneListKey, isLoaded } from '../store/doneLists'
 import { describeFailure } from '../store/hydrate'
@@ -217,7 +217,7 @@ interface SectionProps {
   children: (listId: string) => React.ReactNode
 }
 
-/** A section header (chevron, name, count) that collapses the rows below it. */
+/** A section header (chevron, name, count) that collapses the rows below it, which slide open and shut. */
 function Section({ section, count, collapsed, onToggle, children }: SectionProps): React.JSX.Element {
   const listId = useId()
   const title = sectionTitle(section.id)
@@ -241,7 +241,7 @@ function Section({ section, count, collapsed, onToggle, children }: SectionProps
         </span>
         <span>{count}</span>
       </button>
-      {!collapsed && children(listId)}
+      <Collapse open={!collapsed}>{children(listId)}</Collapse>
     </section>
   )
 }

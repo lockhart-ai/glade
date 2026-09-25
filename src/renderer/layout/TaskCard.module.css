@@ -1,4 +1,6 @@
 .task {
+  /* A container, so the right panel can size itself by the room there is (cqw) while it slides. */
+  container-type: inline-size;
   min-height: 0;
   min-width: 0;
   padding: var(--space-inset);

@@ -68,5 +68,25 @@ And the insets that keep things on shared lines:
   Toasts `0 12px 32px rgba(0,0,0,.45)`.
 - Touch targets at least 28px in dense areas, 44px for the send button.
 
+## Motion
+
+State changes animate rather than jump: short, calm, easing out. Animate opacity, `transform` (or `translate` and
+`scale`) or a panel's size; nothing bounces or overshoots.
+
+| Token | Value | Use |
+|---|---|---|
+| `motion-duration` | 200ms | Panels collapsing and expanding, sections and rows opening, toasts, the question card |
+| `motion-duration-fast` | 120ms | Menus and popovers appearing, toggles, hover colours |
+| `motion-ease` | `cubic-bezier(0.2, 0, 0, 1)` | Everything: ease-out |
+
+- Panels (the sidebar, the right panel, the bottom bar) slide: their size animates while their content keeps its size
+  and is clipped, so nothing inside reflows. Only how open a panel is animates, never its size, so dragging a resize
+  handle follows the pointer at once.
+- Sections and rows (task list sections, tool calls, subagents) open and close by height with a fade.
+- Toasts rise 8px and fade in, and fade out. The question card rises and fades in when the agent asks, and cross-fades
+  to its answered state. Menus and popovers fade in from 97% scale; they close at once.
+- Things that are already on screen when a window or task opens don't animate in.
+- **Reduce motion** (macOS, `prefers-reduced-motion`): both durations are 0, so every change is instant.
+
 The exact markup for every screen is in `html/` — open a file to read the CSS values. After changing one, re-render
 its PNG in `screens/` with `npm run render-design -- <name>` (e.g. `task-workspace`; no names renders them all).

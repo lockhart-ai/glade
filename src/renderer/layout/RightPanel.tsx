@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import { CLOSE_REQUEST_EVENT } from '../commands/closeRequest'
 import { Card, CardLevel } from '../components'
+import { classNames } from '../components/classNames'
+import { isMoving, MotionPhase, panelMotionAttributes, panelMotionClass } from '../motion'
 import { Panel } from '../panels/panels'
 import { MIN_CHAT_WIDTH, RESIZE_STEP, sizeBounds, type SizeBounds } from '../panels/panelSize'
 import { HandleEdge, ResizeHandle } from './ResizeHandle'
@@ -20,6 +22,8 @@ export interface RightPanelProps {
    * when it closes something, such as the file showing.
    */
   onCloseRequest?: (event: Event) => void
+  /** Whether it's sliding open or shut, or still. It's still by default; it has no handle while it moves. */
+  motion?: MotionPhase
 }
 
 /**
@@ -43,6 +47,9 @@ function availableWidth(card: HTMLElement): number {
  * The nested card on the right of the task card: a tab row above the active tab's content, with a drag handle on its
  * left edge that resizes it. While you drag, the width changes in place without re-rendering the panel's content; it's
  * handed to `onWidthChange` when you let go.
+ *
+ * It slides open and shut: its column widens from nothing, or narrows to it, while the card keeps its width and slides
+ * under the task card's right edge.
  */
 export function RightPanel({
   tabs,
@@ -50,6 +57,7 @@ export function RightPanel({
   width,
   onWidthChange,
   onCloseRequest,
+  motion = MotionPhase.Shown,
 }: RightPanelProps): React.JSX.Element {
   const slot = useRef<HTMLDivElement>(null)
 
@@ -73,16 +81,24 @@ export function RightPanel({
   }, [])
 
   return (
-    <div ref={slot} className={styles.slot} style={widthStyle(width)} data-testid="right-panel">
-      <ResizeHandle
-        edge={HandleEdge.Left}
-        label="Resize side panel"
-        size={width}
-        bounds={bounds}
-        step={RESIZE_STEP}
-        onResize={showWidth}
-        onResizeEnd={onWidthChange}
-      />
+    <div
+      ref={slot}
+      className={classNames(styles.slot, panelMotionClass(motion))}
+      style={widthStyle(width)}
+      data-testid="right-panel"
+      {...panelMotionAttributes(motion)}
+    >
+      {!isMoving(motion) && (
+        <ResizeHandle
+          edge={HandleEdge.Left}
+          label="Resize side panel"
+          size={width}
+          bounds={bounds}
+          step={RESIZE_STEP}
+          onResize={showWidth}
+          onResizeEnd={onWidthChange}
+        />
+      )}
       <Card level={CardLevel.Nested} role="complementary" aria-label="Task panel" className={styles.panel}>
         <div className={styles.tabs} data-testid="right-panel-tabs">
           {tabs}

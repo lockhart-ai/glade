@@ -2,7 +2,7 @@ import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons
 import { useMemo, useState } from 'react'
 import type { EpochMs, ToolEvent } from '../../shared/domain'
 import { classNames } from '../components/classNames'
-import { Dot, Icon, IconSize } from '../components'
+import { Collapse, Dot, Icon, IconSize } from '../components'
 import {
   ContextMenu,
   subagentMenu,
@@ -91,7 +91,7 @@ function SubagentRow({ subagent, now, rootPath, expanded, onToggle, menuTarget }
         {!expanded && latest !== null && <Latest line={latest} />}
         <span className={styles.meta}>{metaLine(subagent, now)}</span>
       </button>
-      {expanded && (
+      <Collapse open={expanded}>
         <div role="log" aria-label={`${name} log`} className={styles.log}>
           {log.length === 0 ? (
             <p className={styles.nothingYet}>Nothing yet.</p>
@@ -99,7 +99,7 @@ function SubagentRow({ subagent, now, rootPath, expanded, onToggle, menuTarget }
             <SubagentRows rows={log} rootPath={rootPath} compact />
           )}
         </div>
-      )}
+      </Collapse>
     </div>
   )
 }

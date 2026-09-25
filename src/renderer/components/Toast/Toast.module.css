@@ -40,6 +40,25 @@
   box-shadow: var(--shadow-toast);
   white-space: nowrap;
   pointer-events: auto;
+  animation: toast-in var(--motion-duration) var(--motion-ease);
+}
+
+/* Dismissed: it fades out where it stands, then goes. */
+.leaving {
+  animation: toast-out var(--motion-duration) var(--motion-ease) forwards;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+  }
 }
 
 .icon {
