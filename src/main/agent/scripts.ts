@@ -381,6 +381,16 @@ export const bashSuggestions = (command: string): readonly PermissionSuggestion[
   { type: PermissionUpdateType.SetMode, mode: 'acceptEdits', destination: PermissionDestination.Session },
 ]
 
+/** What Claude Code suggests for a `Bash` call whose command it takes a prefix of: a prefix rule (as probed, §9). */
+export const bashPrefixSuggestions = (prefix: string): readonly PermissionSuggestion[] => [
+  {
+    type: PermissionUpdateType.AddRules,
+    rules: [{ toolName: 'Bash', ruleContent: `${prefix} *` }],
+    behavior: PermissionRuleBehavior.Allow,
+    destination: PermissionDestination.LocalSettings,
+  },
+]
+
 /** How long a step "takes" in the library's scripts: long enough to see in a recording, short enough for a test. */
 const BEAT_MS = 150
 
@@ -1627,6 +1637,61 @@ const asksPermissionFromASubagent: AgentScript = {
   ],
 }
 
+/** What the `allows-for-task` script's agent does and says. */
+export const ALLOWS_FOR_TASK = {
+  prefix: 'npm test',
+  command: 'npm test',
+  watch: 'npm test -- --watch',
+  compound: 'npm test && rm -rf build',
+  edit: { file_path: 'CHANGELOG.md', old_string: '## Unreleased', new_string: '## Unreleased\n\n- Retries back off.' },
+  editAgain: { file_path: 'README.md', old_string: 'Retries: none', new_string: 'Retries: exponential backoff' },
+  reply: 'Ran the tests and noted the retry change in the changelog and the README.',
+} as const
+
+/** The edit step's suggestions, as Claude Code makes them for `Edit`: only a switch to `acceptEdits`. */
+const EDIT_SUGGESTIONS: readonly PermissionSuggestion[] = [
+  { type: PermissionUpdateType.SetMode, mode: 'acceptEdits', destination: PermissionDestination.Session },
+]
+
+/**
+ * A turn for Allow for this task, in the ask mode: `npm test` asks (suggesting the prefix rule `npm test *`), then
+ * `npm test -- --watch`, which that rule covers, then `npm test && rm -rf build`, which it doesn't; then two `Edit`s,
+ * the second of which a rule for `Edit` covers. Each message plays the same turn, so a later turn, or the task's
+ * session after a relaunch, shows which rules it still has.
+ */
+const allowsForTask: AgentScript = {
+  name: 'allows-for-task',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask('Run the tests', 'Run the tests and note the retry change.', 'Running the tests.'),
+      permission('test', 'Bash', { command: ALLOWS_FOR_TASK.command }, 'Tests  148 passed (148)', {
+        description: 'Run the test suite',
+        suggestions: bashPrefixSuggestions(ALLOWS_FOR_TASK.prefix),
+      }),
+      permission('watch', 'Bash', { command: ALLOWS_FOR_TASK.watch }, 'Watching for changes', {
+        description: 'Run the tests in watch mode',
+        suggestions: bashPrefixSuggestions(ALLOWS_FOR_TASK.prefix),
+      }),
+      permission('compound', 'Bash', { command: ALLOWS_FOR_TASK.compound }, 'Tests  148 passed (148)', {
+        description: 'Run the tests, then remove the build',
+        suggestions: bashPrefixSuggestions(ALLOWS_FOR_TASK.prefix),
+      }),
+      permission('edit', 'Edit', ALLOWS_FOR_TASK.edit, 'The file CHANGELOG.md has been updated.', {
+        description: 'CHANGELOG.md',
+        suggestions: EDIT_SUGGESTIONS,
+      }),
+      permission('edit-again', 'Edit', ALLOWS_FOR_TASK.editAgain, 'The file README.md has been updated.', {
+        description: 'README.md',
+        suggestions: EDIT_SUGGESTIONS,
+      }),
+      say(ALLOWS_FOR_TASK.reply),
+      result(),
+    ],
+  ],
+}
+
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
   'simple-reply',
@@ -1652,6 +1717,7 @@ export const AGENT_SCRIPT_NAMES = [
   'subagent-calls',
   'asks-permission',
   'asks-permission-from-a-subagent',
+  'allows-for-task',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -1681,4 +1747,5 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'subagent-calls': subagentCalls,
   'asks-permission': asksPermission,
   'asks-permission-from-a-subagent': asksPermissionFromASubagent,
+  'allows-for-task': allowsForTask,
 }

@@ -10,6 +10,7 @@ import {
   PermissionDestination,
   PermissionMode,
   PermissionRequestState,
+  PermissionRuleBehavior,
   PermissionUpdateType,
   TaskActivity,
   ToolCallState,
@@ -26,6 +27,7 @@ import { fakeIpcPair } from '../bridge/fake-ipc'
 import { listPermissionRequests } from '../db/repositories/permission-requests'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { updateSettings } from '../db/repositories/settings'
+import { listTaskPermissionRules } from '../db/repositories/task-permission-rules'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
@@ -597,6 +599,163 @@ describe('answering', () => {
     await answer(BASH.toolUseId, ALLOW_ONCE)
 
     expect(current()).toMatchObject({ activity: TaskActivity.Waiting, awaitingPermission: false })
+  })
+})
+
+describe('Allow for this task', () => {
+  const FOR_TASK: PermissionDecision = { kind: PermissionDecisionKind.AllowForTask }
+  const NPM_TEST = { toolName: 'Bash', ruleContent: 'npm test *' }
+
+  /** A `Bash` call Claude Code suggests rules for (for a settings file, as it does). */
+  function bash(toolUseId: string, command: string, ...ruleContents: string[]): PermissionCallFields {
+    return {
+      toolUseId,
+      toolName: 'Bash',
+      input: { command },
+      suggestions: [
+        {
+          type: PermissionUpdateType.AddRules,
+          rules: ruleContents.map((ruleContent) => ({ toolName: 'Bash', ruleContent })),
+          behavior: PermissionRuleBehavior.Allow,
+          destination: PermissionDestination.LocalSettings,
+        },
+      ],
+    }
+  }
+
+  /** Ends the turn running, as the agent would once its calls are done. */
+  async function finishTurn(): Promise<void> {
+    backend.session.emit(sdk.text('Done.'), sdk.result('Done.'))
+    await settle()
+  }
+
+  /** Sends the task a message: its session, if it has none, starts (or resumes) with its rules. */
+  async function send(text = 'And the README too.'): Promise<void> {
+    await glade.invoke(CommandName.TasksSend, { id: task.id, text })
+    await settle()
+  }
+
+  it('runs the call and hands the session its rule, so later calls it covers stop asking at once', async () => {
+    await startAsking()
+    const asked = await callTool(bash('toolu_1', 'npm test', 'npm test *'))
+
+    const answered = await answer('toolu_1', FOR_TASK)
+    await settle()
+
+    expect(answered).toMatchObject({ state: PermissionRequestState.Allowed, grantedRule: NPM_TEST })
+    await expect(asked.answer).resolves.toEqual({ ...ALLOWED_BY_YOU, rule: NPM_TEST })
+    expect(listTaskPermissionRules(database.db, task.id).map(({ rule }) => rule)).toEqual([NPM_TEST])
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, awaitingPermission: false })
+    // The same session carries on: the rule reached it with the answer, with no restart.
+    expect(backend.sessions).toHaveLength(1)
+  })
+
+  it('grants a whole Edit; the task’s next session starts with it, and another task’s starts with none', async () => {
+    await startAsking()
+    const asked = await callTool(EDIT)
+    await answer(EDIT.toolUseId, FOR_TASK)
+    await expect(asked.answer).resolves.toEqual({ ...ALLOWED_BY_YOU, rule: { toolName: 'Edit' } })
+    await finishTurn()
+
+    const other = sampleTask(database.db, workspace.id)
+    updateTask(database.db, other.id, { permissionMode: PermissionMode.AskBeforeEdits })
+    await glade.invoke(CommandName.TasksSend, { id: other.id, text: 'Edit the changelog.' })
+    await settle()
+    expect(backend.session.options).toMatchObject({ allowedRules: [], permissionMode: PermissionMode.AskBeforeEdits })
+    const theirs = backend.session
+    theirs.emit(sdk.init())
+    await settle()
+    const asking = theirs.requestPermission({ ...EDIT, toolUseId: 'toolu_their_edit' })
+    await settle()
+    expect(listPermissionRequests(database.db, other.id).map(({ state }) => state)).toEqual([
+      PermissionRequestState.Open,
+    ])
+    expect(await isSettled(asking.answer)).toBe(false)
+  })
+
+  it("survives a relaunch: the resumed session gets the task's rules as allowedRules, once each", async () => {
+    await startAsking()
+    await callTool(bash('toolu_1', 'npm test', 'npm test *'))
+    await answer('toolu_1', FOR_TASK)
+    await callTool(EDIT)
+    await answer(EDIT.toolUseId, FOR_TASK)
+    // The same rule granted again, from a second call, is one rule.
+    await callTool(bash('toolu_2', 'npm test -- --ci', 'npm test *'))
+    await answer('toolu_2', FOR_TASK)
+    await finishTurn()
+    runner.close()
+    launch()
+
+    await send()
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(backend.session.options).toMatchObject({
+      resumeSessionId: sdk.SESSION_ID,
+      permissionMode: PermissionMode.AskBeforeEdits,
+      allowedRules: [NPM_TEST, { toolName: 'Edit' }],
+    })
+  })
+
+  it('keeps a second card for the same tool open when a rule is granted; it can still be answered, and asks nothing new', async () => {
+    await startAsking()
+    const first = await callTool(bash('toolu_1', 'npm test', 'npm test *'))
+    const second = await callTool(bash('toolu_2', 'npm test -- --watch', 'npm test *'))
+
+    await answer('toolu_1', FOR_TASK)
+    await settle()
+
+    await expect(first.answer).resolves.toMatchObject({ rule: NPM_TEST })
+    expect(only('toolu_2').state).toBe(PermissionRequestState.Open)
+    expect(await isSettled(second.answer)).toBe(false)
+    expect(current()).toMatchObject({ activity: TaskActivity.Waiting, awaitingPermission: true })
+
+    await answer('toolu_2', { kind: PermissionDecisionKind.Deny, note: 'Not in watch mode.' })
+    await settle()
+    await expect(second.answer).resolves.toMatchObject({ behavior: ToolPermissionBehavior.Deny })
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, awaitingPermission: false })
+    expect(listTaskPermissionRules(database.db, task.id).map(({ rule }) => rule)).toEqual([NPM_TEST])
+  })
+
+  it('fails with a bridge error where it isn’t offered, and the call still waits', async () => {
+    await startAsking()
+    const asked = await callTool(BASH)
+    const suppressed = await callTool({ ...bash('toolu_2', 'npm test', 'npm test *'), suppressAlwaysAllowRule: true })
+
+    for (const toolUseId of [BASH.toolUseId, 'toolu_2']) {
+      await expect(
+        glade.invoke(CommandName.PermissionsAnswer, { id: only(toolUseId).id, decision: FOR_TASK }),
+      ).rejects.toMatchObject({ code: BridgeErrorCode.InvalidRequest })
+    }
+    expect(await isSettled(asked.answer)).toBe(false)
+    expect(await isSettled(suppressed.answer)).toBe(false)
+    expect(listTaskPermissionRules(database.db, task.id)).toEqual([])
+  })
+
+  it('grants a request the app quit on: the next session starts with its rule', async () => {
+    await startAsking()
+    await callTool(bash('toolu_1', 'npm test', 'npm test *'))
+    runner.close()
+    launch()
+
+    await answer('toolu_1', FOR_TASK)
+    await send()
+
+    expect(backend.session.options.allowedRules).toEqual([NPM_TEST])
+  })
+
+  it('keeps the rules through Allow all and back, in the same session, and deletes them with the task', async () => {
+    await startAsking()
+    await callTool(bash('toolu_1', 'npm test', 'npm test *'))
+    await answer('toolu_1', FOR_TASK)
+    await setMode(PermissionMode.AllowAll)
+    await setMode(PermissionMode.AskBeforeEdits)
+    await settle()
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(listTaskPermissionRules(database.db, task.id)).toHaveLength(1)
+
+    await glade.invoke(CommandName.TasksDelete, { id: task.id })
+    expect(listTaskPermissionRules(database.db, task.id)).toEqual([])
   })
 })
 

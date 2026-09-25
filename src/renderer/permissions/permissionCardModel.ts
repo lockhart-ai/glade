@@ -1,7 +1,8 @@
 /**
  * What the permission card (`docs/design/html/23-permission-card.html`) works out from a permission request: what's
  * asked, the input shown for it (a command, a file's change or new content, or formatted JSON), trimmed to a readable
- * length with the rest behind "Show all", which subagent made the call, and what a closed card's one line says.
+ * length with the rest behind "Show all", which subagent made the call, what Allow for this task would grant, and what a
+ * closed card's one line says.
  */
 import {
   PermissionRequestState,
@@ -11,6 +12,7 @@ import {
   type ToolEvent,
   type ToolInput,
 } from '../../shared/domain'
+import { taskPermissionRule } from '../../shared/permissions'
 import { toolDisplayName } from '../../shared/toolName'
 import { subagentName } from '../subagents/subagentsModel'
 import { relativePath } from '../tool-log/toolLogModel'
@@ -263,13 +265,69 @@ export function callSummary(request: Pick<PermissionRequest, 'toolName' | 'input
   }
 }
 
-/** What a closed card says happened: "allowed once", "denied", "denied: “the note”", "withdrawn"; null while open. */
-export function closedOutcome(request: Pick<PermissionRequest, 'state' | 'denyNote'>): string | null {
+/** What Allow for this task grants, as the card names it. */
+export enum TaskGrantKind {
+  /** Every call to the tool: "Allow Edit for this task". */
+  Tool = 'tool',
+  /** Every command a prefix starts: "Allow `npm test` commands for this task". */
+  Prefix = 'prefix',
+  /** One command exactly, when that's the rule Claude Code suggests: "Allow `touch a.txt` for this task". */
+  Command = 'command',
+}
+
+export interface TaskGrant {
+  readonly kind: TaskGrantKind
+  /** The tool's name, the prefix, or the command. */
+  readonly subject: string
+}
+
+/** A rule's content that covers a prefix: `npm test *`, or the older `npm test:*`. */
+const PREFIX_RULE = /^(.+?)(?: \*|:\*)$/
+
+/**
+ * What Allow for this task would grant for a request (`taskPermissionRule`), or null when the card doesn't offer it:
+ * the whole tool, a command prefix, or one command.
+ */
+export function taskGrant(
+  request: Pick<PermissionRequest, 'toolName' | 'suggestions' | 'suppressAlwaysAllowRule'>,
+): TaskGrant | null {
+  const rule = taskPermissionRule(request)
+  if (rule === null) return null
+  const content = rule.ruleContent ?? ''
+  if (content === '') return { kind: TaskGrantKind.Tool, subject: toolDisplayName(rule.toolName) }
+  const prefix = PREFIX_RULE.exec(content)?.[1]
+  return prefix === undefined
+    ? { kind: TaskGrantKind.Command, subject: content }
+    : { kind: TaskGrantKind.Prefix, subject: prefix }
+}
+
+/** The words either side of what a grant names, e.g. "Allow" and "commands for this task". */
+export interface TaskGrantWords {
+  readonly before: string
+  readonly after: string
+}
+
+/** The words around a grant's subject on its button. */
+export function taskGrantWords(grant: TaskGrant): TaskGrantWords {
+  switch (grant.kind) {
+    case TaskGrantKind.Tool:
+    case TaskGrantKind.Command:
+      return { before: 'Allow', after: 'for this task' }
+    case TaskGrantKind.Prefix:
+      return { before: 'Allow', after: 'commands for this task' }
+  }
+}
+
+/**
+ * What a closed card says happened: "allowed once", "allowed for this task", "denied", "denied: “the note”",
+ * "withdrawn"; null while open.
+ */
+export function closedOutcome(request: Pick<PermissionRequest, 'state' | 'denyNote' | 'grantedRule'>): string | null {
   switch (request.state) {
     case PermissionRequestState.Open:
       return null
     case PermissionRequestState.Allowed:
-      return 'allowed once'
+      return request.grantedRule === null ? 'allowed once' : 'allowed for this task'
     case PermissionRequestState.Denied: {
       const note = nonBlank(request.denyNote)
       return note === null ? 'denied' : `denied: “${note}”`

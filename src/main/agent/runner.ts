@@ -124,6 +124,13 @@
  * Changing the mode (`applyPermissionMode`) tells the live session at once, so it applies from the next call, mid-turn
  * too; a request already open stays open.
  *
+ * Allow for this task runs the call and grants the task its rule (`taskPermissionRule`): the answer hands the rule to
+ * the live session, so the calls it covers stop asking at once, and every session the task starts or resumes from then
+ * on, across relaunches, starts with the task's rules (`allowedRules`). Claude Code matches them itself, compound
+ * commands included. Another request already open for a call the rule covers stays open, to be answered as it is: its
+ * call was asked about before the rule existed. In Allow all nothing asks anyway, and back in the ask mode the rules
+ * apply again.
+ *
  * **Resume on launch.** A turn the app quit or crashed in is left working in the database: a turn's user messages and
  * its working activity are saved together, so none is left unanswered. On launch, `resumeInterrupted` carries each
  * one on: it resumes the task's SDK session by its saved id (`docs/sdk-notes.md` §8), adds a resumed divider to the
@@ -177,6 +184,7 @@ import {
   type TaskError,
 } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
+import { taskPermissionRule } from '../../shared/permissions'
 import { checkAnswers } from '../../shared/questions'
 import { apiRowArgument, apiRowResult } from '../../shared/taskError'
 import { CommandFailure } from '../bridge/errors'
@@ -191,6 +199,7 @@ import {
 import { ImageOwnerKind, imagesOf } from '../db/repositories/images'
 import { appendMessage, lastTurn, listMessages, turnStartedAt } from '../db/repositories/messages'
 import { getOpenQuestionSet, getQuestionSet, listOpenQuestionSets } from '../db/repositories/question-sets'
+import { listTaskPermissionRules } from '../db/repositories/task-permission-rules'
 import { listQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
 import { getSettings } from '../db/repositories/settings'
 import { getTask, listPausedTasks, listWorkingTasks } from '../db/repositories/tasks'
@@ -465,11 +474,19 @@ const WITHDRAWN: ToolPermissionAnswer = {
   byUser: false,
 }
 
-/** The answer your decision on a permission request gives its call. */
-function answerFor(decision: PermissionDecision): ToolPermissionAnswer {
+/**
+ * The answer your decision on a permission request gives its call: Allow for this task with the rule it granted, which
+ * the session then adds.
+ */
+function answerFor(decision: PermissionDecision, request: PermissionRequest): ToolPermissionAnswer {
   switch (decision.kind) {
     case PermissionDecisionKind.AllowOnce:
       return { behavior: ToolPermissionBehavior.Allow, byUser: true }
+    case PermissionDecisionKind.AllowForTask: {
+      // The broker only accepts Allow for this task on a request it grants a rule for.
+      const rule = taskPermissionRule(request)
+      return { behavior: ToolPermissionBehavior.Allow, byUser: true, ...(rule === null ? {} : { rule }) }
+    }
     case PermissionDecisionKind.Deny:
       return { behavior: ToolPermissionBehavior.Deny, message: permissionDeniedMessage(decision.note), byUser: true }
   }
@@ -1228,7 +1245,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     // The turn carries on, unless it's over or stopping, or something else still waits on you.
     const running = live.turn !== null && !live.turn.stopping && !live.closed
     if (running && !waitsOnYou(taskId)) setActivity(taskId, TaskActivity.Working)
-    return answerFor(decision)
+    return answerFor(decision, pending.request)
   }
 
   /** Reads the session's messages for its whole life, handling each as it arrives. */
@@ -1257,10 +1274,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const start = (task: Task): LiveSession => {
     const workspace = getWorkspace(db, task.workspaceId)
     if (workspace === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${task.workspaceId}`)
+    const allowedRules = listTaskPermissionRules(db, task.id).map(({ rule }) => rule)
     agentLog(task.id).info(task.sessionId === null ? 'session starting' : 'session resuming', {
       model: task.model,
       effort: task.effort,
       permissionMode: task.permissionMode,
+      allowedRules: allowedRules.length,
       cwd: workspace.rootPath,
       resumeSessionId: task.sessionId,
     })
@@ -1275,6 +1294,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       resumeSessionId: task.sessionId,
       systemPromptAppend: systemPromptAppend(task, getSettings(db)),
       mcpServers: servers,
+      allowedRules,
       log: agentLog(task.id),
       onToolPermission: (call) => decide(call),
     })

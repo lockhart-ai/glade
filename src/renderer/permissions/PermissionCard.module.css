@@ -129,8 +129,28 @@
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+/* Allow for this task: may name a long command, which is cut short (the whole of it is its title). */
+.grant {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.grantSubject {
+  min-width: 0;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 1px 5px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-inner-border);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-secondary-sm);
 }
 
 .note {

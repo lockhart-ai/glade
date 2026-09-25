@@ -11,6 +11,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk'
 import { createRequire } from 'node:module'
 import { PermissionMode, type PermissionSuggestion, type ToolInput } from '../../shared/domain'
+import { permissionRuleString } from '../../shared/permissions'
 import type { ImageData } from '../../shared/images'
 import type { Environment } from '../login-env'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
@@ -138,16 +139,29 @@ export function toolPermissionCall(
 
 /**
  * The SDK's result for Glade's answer. An allowed call runs with its input as it was; a person's decision is classified
- * as one (allow once, or reject), and one Glade made itself isn't.
+ * as one (allow once, always allow, or reject), and one Glade made itself isn't. A rule granted with Allow for this
+ * task goes to the session (`destination: 'session'`), never to a settings file: it applies to the calls after this one
+ * at once, and dies with the agent's process, so Glade passes it as `allowedTools` whenever the task's session starts
+ * (`docs/sdk-notes.md` §9).
  */
 export function sdkPermissionResult(answer: ToolPermissionAnswer, input: ToolInput): PermissionResult {
   switch (answer.behavior) {
-    case ToolPermissionBehavior.Allow:
+    case ToolPermissionBehavior.Allow: {
+      const { rule } = answer
+      if (rule !== undefined) {
+        return {
+          behavior: 'allow',
+          updatedInput: { ...input },
+          updatedPermissions: [{ type: 'addRules', rules: [{ ...rule }], behavior: 'allow', destination: 'session' }],
+          decisionClassification: 'user_permanent',
+        }
+      }
       return {
         behavior: 'allow',
         updatedInput: { ...input },
         ...(answer.byUser ? { decisionClassification: 'user_temporary' } : {}),
       }
+    }
     case ToolPermissionBehavior.Deny:
       return {
         behavior: 'deny',
@@ -196,8 +210,12 @@ export function sdkOptions(
     permissionMode: sdkPermissionMode(options.permissionMode),
     allowDangerouslySkipPermissions: true,
     canUseTool: canUseToolFor(options.onToolPermission, options.log ?? SILENT_LOGGER),
-    // Glade's own tools never ask: Claude Code lets them through before `canUseTool` is called.
-    allowedTools: Object.keys(options.mcpServers).map((name) => `mcp__${name}`),
+    // Glade's own tools never ask: Claude Code lets them through before `canUseTool` is called. Nor do the calls the
+    // task's granted rules cover (Allow for this task), which Claude Code matches itself, compound commands included.
+    allowedTools: [
+      ...Object.keys(options.mcpServers).map((name) => `mcp__${name}`),
+      ...(options.allowedRules ?? []).map(permissionRuleString),
+    ],
     // Behave like `claude` run in the workspace root: the workspace's CLAUDE.md, and the user's own settings.
     settingSources: ['user', 'project', 'local'],
     systemPrompt: { type: 'preset', preset: 'claude_code', append: options.systemPromptAppend },
@@ -245,6 +263,7 @@ export function createSdkBackend({ env, log: backendLog = SILENT_LOGGER }: SdkBa
           permissionMode: options.permissionMode,
           resumeSessionId: options.resumeSessionId,
           mcpServers: Object.keys(options.mcpServers),
+          allowedTools: sdk.allowedTools ?? [],
           PATH: resolved.PATH ?? null,
         })
         return query({ prompt: input, options: sdk })

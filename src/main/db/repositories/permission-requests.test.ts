@@ -69,6 +69,7 @@ describe('permission requests', () => {
       ...subagentBash(),
       state: PermissionRequestState.Open,
       denyNote: null,
+      grantedRule: null,
       createdAt: 3_000,
       closedAt: null,
     })
@@ -132,5 +133,36 @@ describe('permission requests', () => {
       .run(request.id)
 
     expect(() => getPermissionRequest(test.db, request.id)).toThrow(RowError)
+  })
+
+  it('keeps the rule a request was allowed for the task with, and none for any other answer', () => {
+    const forTask = appendPermissionRequest(test.db, subagentBash(), 1)
+    const denied = appendPermissionRequest(test.db, subagentBash(), 2)
+    const rule = { toolName: 'Bash', ruleContent: 'npm test *' }
+
+    expect(
+      closePermissionRequest(test.db, forTask.id, { state: PermissionRequestState.Allowed, grantedRule: rule }, 10),
+    ).toMatchObject({ state: PermissionRequestState.Allowed, grantedRule: rule, closedAt: 10 })
+    expect(getPermissionRequest(test.db, forTask.id)?.grantedRule).toEqual(rule)
+    expect(
+      closePermissionRequest(test.db, denied.id, { state: PermissionRequestState.Denied, note: null }),
+    ).toMatchObject({ grantedRule: null })
+    // A whole tool's rule, with no content.
+    const edit = appendPermissionRequest(test.db, { ...subagentBash(), toolName: 'Edit' }, 3)
+    closePermissionRequest(test.db, edit.id, {
+      state: PermissionRequestState.Allowed,
+      grantedRule: { toolName: 'Edit' },
+    })
+    expect(getPermissionRequest(test.db, edit.id)?.grantedRule).toEqual({ toolName: 'Edit' })
+  })
+
+  it('refuses a row whose granted rule is not a rule', () => {
+    const request = appendPermissionRequest(test.db, subagentBash())
+    test.db.prepare(`UPDATE permission_requests SET granted_rule = '{"ruleContent":"x"}' WHERE id = ?`).run(request.id)
+
+    expect(() => getPermissionRequest(test.db, request.id)).toThrow(RowError)
+    expect(() =>
+      test.db.prepare(`UPDATE permission_requests SET granted_rule = '[]' WHERE id = ?`).run(request.id),
+    ).toThrow(/CHECK/)
   })
 })

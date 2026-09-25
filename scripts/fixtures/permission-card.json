@@ -121,6 +121,19 @@
         {
           "toolName": "Bash",
           "input": {
+            "command": "npm run lint",
+            "description": "Lint the release notes"
+          },
+          "toolUseId": "lint",
+          "suggestedRule": "npm run lint *",
+          "state": "allowed",
+          "forTask": true,
+          "turn": 1,
+          "minutesAgo": 16
+        },
+        {
+          "toolName": "Bash",
+          "input": {
             "command": "rm -rf dist",
             "description": "Remove the old build"
           },
@@ -149,7 +162,8 @@
           },
           "toolUseId": "tests",
           "turn": 1,
-          "minutesAgo": 2
+          "minutesAgo": 2,
+          "suggestedRule": "npm test *"
         },
         {
           "toolName": "Edit",

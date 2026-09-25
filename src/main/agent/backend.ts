@@ -4,7 +4,7 @@
  * mode) pass a scripted one instead.
  */
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
-import type { Effort, PermissionMode, PermissionSuggestion, ToolInput } from '../../shared/domain'
+import type { Effort, PermissionMode, PermissionRule, PermissionSuggestion, ToolInput } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
 import type { Logger } from '../logging/logger'
 
@@ -65,10 +65,11 @@ export enum ToolPermissionBehavior {
 
 /**
  * The answer to a tool call: run it, or don't, with the message the agent gets. `byUser` says a person decided it (Allow
- * once, Deny), rather than Glade allowing it without asking, or withdrawing it.
+ * once, Allow for this task, Deny), rather than Glade allowing it without asking, or withdrawing it. `rule` is the rule
+ * Allow for this task granted: the session adds it, so the calls it covers stop asking at once.
  */
 export type ToolPermissionAnswer =
-  | { readonly behavior: ToolPermissionBehavior.Allow; readonly byUser: boolean }
+  | { readonly behavior: ToolPermissionBehavior.Allow; readonly byUser: boolean; readonly rule?: PermissionRule }
   | { readonly behavior: ToolPermissionBehavior.Deny; readonly message: string; readonly byUser: boolean }
 
 /** Decides a tool call Claude Code asks about, however long that takes. */
@@ -83,6 +84,11 @@ export interface AgentSessionOptions extends AgentSessionSettings {
   /** Appended to Claude Code's own system prompt. */
   readonly systemPromptAppend: string
   readonly mcpServers: AgentMcpServers
+  /**
+   * The permission rules the task was granted (Allow for this task): Claude Code lets the calls they cover through
+   * without asking, in the ask mode. None by default.
+   */
+  readonly allowedRules?: readonly PermissionRule[]
   /** Where the backend logs the session's agent process: the task's agent log. The backend's own by default. */
   readonly log?: Logger
   /**

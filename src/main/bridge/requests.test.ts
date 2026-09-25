@@ -45,6 +45,7 @@ describe('REQUEST_SCHEMAS', () => {
     expect(REQUEST_SCHEMAS[CommandName.QuestionsAnswer].parse(answer)).toEqual(answer)
     for (const decision of [
       { kind: PermissionDecisionKind.AllowOnce },
+      { kind: PermissionDecisionKind.AllowForTask },
       { kind: PermissionDecisionKind.Deny },
       { kind: PermissionDecisionKind.Deny, note: 'Use pnpm.' },
     ]) {
@@ -319,7 +320,7 @@ describe('REQUEST_SCHEMAS', () => {
       'a permission decision it doesn’t know',
       CommandName.PermissionsAnswer,
       { id: 'p', decision: { kind: 'allow_forever' } },
-      "decision.kind: Invalid discriminator value. Expected 'allow_once' | 'deny'",
+      "decision.kind: Invalid discriminator value. Expected 'allow_once' | 'allow_for_task' | 'deny'",
     ],
     [
       'a note on Allow once',

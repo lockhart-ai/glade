@@ -23,6 +23,7 @@ import {
   NO_ONE_TO_ASK,
   PERMISSION_FAILED,
   sdkOptions,
+  sdkPermissionResult,
   sdkPermissionMode,
   toolPermissionCall,
   userMessage,
@@ -453,6 +454,48 @@ it('answers the SDK with what was decided: the input as it was, and a person’s
     { behavior: 'deny', message: 'Withdrawn.' },
   ])
   expect(seen.map(({ toolName, toolUseId }) => [toolName, toolUseId])).toEqual(answers.map(() => ['Bash', 'toolu_1']))
+})
+
+it('hands a rule granted for the task to the session only, classified as always allowed, never to a settings file', async () => {
+  const input = { command: 'npm test -- --watch' }
+  const prefix = { toolName: 'Bash', ruleContent: 'npm test *' }
+  const canUseTool = canUseToolFor(
+    () => Promise.resolve({ behavior: ToolPermissionBehavior.Allow, byUser: true, rule: prefix }),
+    createMemoryLog(LogScope.Agent).logger,
+  )
+
+  const result = await canUseTool('Bash', input, canUseOptions())
+
+  const updates: PermissionUpdate[] = [{ type: 'addRules', rules: [prefix], behavior: 'allow', destination: 'session' }]
+  expect(result).toEqual({
+    behavior: 'allow',
+    updatedInput: input,
+    updatedPermissions: updates,
+    decisionClassification: 'user_permanent',
+  })
+  // A whole tool's rule goes without content.
+  expect(
+    sdkPermissionResult({ behavior: ToolPermissionBehavior.Allow, byUser: true, rule: { toolName: 'Edit' } }, {}),
+  ).toMatchObject({ updatedPermissions: [{ type: 'addRules', rules: [{ toolName: 'Edit' }] }] })
+})
+
+it("passes the task's granted rules as allowedTools on every start and resume, after Glade's own servers", () => {
+  const glade = { type: 'http' as const, url: 'http://127.0.0.1:1/mcp' }
+  const allowedRules = [
+    { toolName: 'Bash', ruleContent: 'npm test *' },
+    { toolName: 'Edit' },
+    { toolName: 'Bash', ruleContent: "touch 'a(1).txt'" },
+  ]
+  for (const resumeSessionId of [null, 'session-1']) {
+    for (const permissionMode of Object.values(PermissionMode)) {
+      expect(
+        sdkOptions({ ...OPTIONS, resumeSessionId, permissionMode, mcpServers: { glade }, allowedRules }, ENV)
+          .allowedTools,
+      ).toEqual(['mcp__glade', 'Bash(npm test *)', 'Edit', "Bash(touch 'a\\(1\\).txt')"])
+    }
+  }
+  // Never as settings: the SDK's settings sources stay the user's own.
+  expect(sdkOptions({ ...OPTIONS, allowedRules }, ENV).settingSources).toEqual(['user', 'project', 'local'])
 })
 
 it('denies a call with no one to ask about it, and one whose deciding failed, saying so', async () => {

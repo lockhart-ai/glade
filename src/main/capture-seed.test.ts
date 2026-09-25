@@ -8,8 +8,11 @@ import {
   DividerKind,
   MessageRole,
   PauseReason,
+  PermissionDestination,
   PermissionMode,
   PermissionRequestState,
+  PermissionRuleBehavior,
+  PermissionUpdateType,
   TaskActivity,
   TaskErrorSource,
   TaskState,
@@ -23,6 +26,7 @@ import { listMessages } from './db/repositories/messages'
 import { listPermissionRequests } from './db/repositories/permission-requests'
 import { getOpenFiles } from './db/repositories/open-files'
 import { listQueuedMessages } from './db/repositories/queued-messages'
+import { listTaskPermissionRules } from './db/repositories/task-permission-rules'
 import { listToolEvents } from './db/repositories/tool-events'
 import { listTasks } from './db/repositories/tasks'
 import { getUiState } from './db/repositories/ui-state'
@@ -155,11 +159,14 @@ describe('readSeed', () => {
     expect(task?.permissionMode).toBe(PermissionMode.AskBeforeEdits)
     expect(task?.permissionRequests?.map((request) => request.state ?? 'open')).toEqual([
       PermissionRequestState.Allowed,
+      PermissionRequestState.Allowed,
       PermissionRequestState.Denied,
       PermissionRequestState.Withdrawn,
       'open',
       'open',
     ])
+    expect(task?.permissionRequests?.filter((request) => request.forTask === true)).toHaveLength(1)
+    expect(task?.permissionRequests?.find((request) => request.toolUseId === 'tests')?.suggestedRule).toBe('npm test *')
   })
 
   it('reads the e2e tool log fixture', () => {
@@ -440,7 +447,23 @@ describe('applySeed', () => {
               { ...base, toolUseId: 'withdrawn', state: PermissionRequestState.Withdrawn },
               {
                 ...base,
+                toolUseId: 'for-task',
+                suggestedRule: 'npm test *',
+                state: PermissionRequestState.Allowed,
+                forTask: true,
+              },
+              {
+                ...base,
+                toolName: 'Edit',
+                input: { file_path: 'a.md' },
+                toolUseId: 'edit',
+                state: PermissionRequestState.Allowed,
+                forTask: true,
+              },
+              {
+                ...base,
                 toolUseId: 'open',
+                suggestedRule: 'npm test *',
                 agentId: 'a1',
                 title: 'Claude wants to run npm test',
                 description: 'Run the tests',
@@ -465,8 +488,18 @@ describe('applySeed', () => {
       { toolUseId: 'denied', state: PermissionRequestState.Denied, denyNote: 'Not yet' },
       { toolUseId: 'bare-denied', state: PermissionRequestState.Denied, denyNote: null },
       { toolUseId: 'withdrawn', state: PermissionRequestState.Withdrawn },
+      { toolUseId: 'for-task', grantedRule: { toolName: 'Bash', ruleContent: 'npm test *' } },
+      { toolUseId: 'edit', grantedRule: { toolName: 'Edit' } },
       {
         toolUseId: 'open',
+        suggestions: [
+          {
+            type: PermissionUpdateType.AddRules,
+            rules: [{ toolName: 'Bash', ruleContent: 'npm test *' }],
+            behavior: PermissionRuleBehavior.Allow,
+            destination: PermissionDestination.LocalSettings,
+          },
+        ],
         agentId: 'a1',
         title: 'Claude wants to run npm test',
         description: 'Run the tests',
@@ -476,6 +509,30 @@ describe('applySeed', () => {
         closedAt: null,
       },
     ])
+    expect(listPermissionRequests(db, asking?.id ?? '')[0]?.grantedRule).toBeNull()
+    expect(listTaskPermissionRules(db, asking?.id ?? '').map(({ rule }) => rule)).toEqual([
+      { toolName: 'Bash', ruleContent: 'npm test *' },
+      { toolName: 'Edit' },
+    ])
+  })
+
+  it('refuses a sample allowed for the task that no rule could be granted for', () => {
+    const request = {
+      toolName: 'Bash',
+      input: { command: 'npm test' },
+      toolUseId: 'bare',
+      state: PermissionRequestState.Allowed,
+      forTask: true,
+      turn: 1,
+      minutesAgo: 1,
+    }
+    expect(() => {
+      applySeed(
+        database.db,
+        { ...SEED, tasks: [{ title: 'Run the tests', minutesAgo: 0, permissionRequests: [request] }] },
+        NOW,
+      )
+    }).toThrow(/can't be allowed for the task/)
   })
 
   it('writes what stopped a task’s agent', () => {
