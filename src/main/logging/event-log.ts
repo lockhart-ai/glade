@@ -21,7 +21,12 @@ import { excerpt } from './format'
 import { LogScope, type LogFields, type Logger } from './logger'
 
 /** The task's fields a change to which gets a line of its own. The others (context usage, unread…) are debug. */
-const WATCHED: readonly (keyof Task)[] = [
+type WatchedField = Extract<
+  keyof Task,
+  'state' | 'activity' | 'error' | 'pause' | 'retrying' | 'sessionId' | 'title' | 'model' | 'effort' | 'asking'
+>
+
+const WATCHED: readonly WatchedField[] = [
   'state',
   'activity',
   'error',
@@ -77,12 +82,12 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
       return
     }
     const changed = changedFields(before, task)
-    const watched = changed.filter((key) => WATCHED.includes(key))
+    const watched = changed.filter((key): key is WatchedField => (WATCHED as readonly string[]).includes(key))
     for (const key of watched) taskChanged(withTask, key, before, task)
     if (watched.length === 0 && changed.length > 0) withTask.debug('task updated', { changed })
   }
 
-  const taskChanged = (withTask: Logger, key: keyof Task, before: Task, task: Task): void => {
+  const taskChanged = (withTask: Logger, key: WatchedField, before: Task, task: Task): void => {
     switch (key) {
       case 'state':
         withTask.info('task state changed', { from: before.state, to: task.state })
@@ -105,7 +110,10 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
       case 'asking':
         withTask.info(task.asking ? 'task asking' : 'task no longer asking')
         return
-      default:
+      case 'sessionId':
+      case 'title':
+      case 'model':
+      case 'effort':
         withTask.info(`task ${key} changed`, { from: before[key], to: task[key] })
     }
   }

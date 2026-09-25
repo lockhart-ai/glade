@@ -78,8 +78,14 @@ export function createFileLogSink({
   }
   consoleTransport.format = '{text}'
   consoleTransport.level = toConsole ? 'debug' : false
-  log.transports.ipc.level = false
-  log.transports.remote.level = false
+  // Errors and warnings to stderr, the rest to stdout, as the same line the file gets.
+  consoleTransport.writeFn = ({ message }) => {
+    const print = message.level === 'error' ? console.error : message.level === 'warn' ? console.warn : console.log
+    print(...(message.data as unknown[]))
+  }
+  // Only the file and the terminal: nothing is sent anywhere (electron-log can also post to a server, or over IPC).
+  Reflect.deleteProperty(log.transports, 'ipc')
+  Reflect.deleteProperty(log.transports, 'remote')
   return {
     file,
     write(record) {

@@ -164,7 +164,7 @@ import {
   updateToolCall,
 } from '../db/repositories/tool-events'
 import { getWorkspace } from '../db/repositories/workspaces'
-import { CONSOLE_LOGGER, LogScope, type Logger } from '../logging/logger'
+import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import type { NotifyReply } from '../notifications/notifications'
 import { createQuestionBroker, toolResultFor, type QuestionBroker } from '../questions/questions'
 import { addQueuedMessage } from '../tasks/queue'
@@ -204,7 +204,7 @@ export interface AgentRunnerOptions {
   readonly mcpServers?: (task: Task) => AgentMcpServers
   /**
    * Where the runner logs its sessions and turns, in the runner's scope, and every SDK message, in the agent's
-   * (`docs/logs.md`). The console by default.
+   * (`docs/logs.md`). Nothing by default.
    */
   readonly log?: Logger
   /**
@@ -391,7 +391,7 @@ function describeError(error: unknown): string {
 export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const { db, emit, backend } = options
   const mcpServers = options.mcpServers ?? (() => ({}))
-  const log = options.log ?? CONSOLE_LOGGER
+  const log = options.log ?? SILENT_LOGGER
   /** The runner's log for a task. */
   const taskLog = (taskId: string): Logger => log.with({ taskId })
   /** The agent's log for a task: its session and SDK messages. */
@@ -892,6 +892,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       resumeSessionId: task.sessionId,
       systemPromptAppend: systemPromptAppend(task, getSettings(db)),
       mcpServers: mcpServers(task),
+      log: agentLog(task.id),
     })
     const live: LiveSession = {
       session,

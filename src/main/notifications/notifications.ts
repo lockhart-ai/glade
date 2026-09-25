@@ -17,7 +17,7 @@ import type { AgentRunner } from '../agent/runner'
 import { CommandFailure } from '../bridge/errors'
 import { getSettings } from '../db/repositories/settings'
 import { getTask } from '../db/repositories/tasks'
-import { CONSOLE_LOGGER, type Logger } from '../logging/logger'
+import { SILENT_LOGGER, type Logger } from '../logging/logger'
 import type { Notifier, TaskNotification } from './notifier'
 
 /** The most characters of the reply a notification's body shows, the ellipsis included. */
@@ -117,7 +117,7 @@ export interface ReplyNotificationsOptions {
   readonly openTask: (taskId: string) => void
   /** What a notification's inline reply is sent through, without opening the window. */
   readonly runner: ReplyRunner
-  /** Where each notification sent, clicked and replied to is logged. The console by default. */
+  /** Where each notification sent, clicked and replied to is logged. Nothing by default. */
   readonly log?: Logger
 }
 
@@ -131,7 +131,7 @@ export function createReplyNotifications({
   notifier,
   openTask,
   runner,
-  log = CONSOLE_LOGGER,
+  log = SILENT_LOGGER,
 }: ReplyNotificationsOptions): NotifyReply {
   return (taskId, reply) => {
     const task = getTask(db, taskId)

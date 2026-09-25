@@ -5,6 +5,7 @@
  */
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
 import type { Effort } from '../../shared/domain'
+import type { Logger } from '../logging/logger'
 
 /**
  * In-process MCP servers to give a session, by server name, e.g. `{ glade: createSdkMcpServer({ name: 'glade', … }) }`.
@@ -29,6 +30,8 @@ export interface AgentSessionOptions extends AgentSessionSettings {
   /** Appended to Claude Code's own system prompt. */
   readonly systemPromptAppend: string
   readonly mcpServers: AgentMcpServers
+  /** Where the backend logs the session's agent process: the task's agent log. The backend's own by default. */
+  readonly log?: Logger
 }
 
 /**

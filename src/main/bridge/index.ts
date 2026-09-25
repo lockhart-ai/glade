@@ -11,7 +11,7 @@ import { getSettings } from '../db/repositories/settings'
 import { listTasks } from '../db/repositories/tasks'
 import { listWorkspaces } from '../db/repositories/workspaces'
 import { createEventLog } from '../logging/event-log'
-import { CONSOLE_LOGGER, LogScope, type Logger } from '../logging/logger'
+import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import { createQuestionBroker } from '../questions/questions'
 import { createBroadcast, createDispatcher, type EventTarget } from './dispatcher'
 import type { Emit } from './events'
@@ -52,8 +52,8 @@ export interface BridgeOptions {
   /** What the terminal tabs run their shells with. */
   readonly terminal: TerminalOptions
   /**
-   * Where the bridge logs its commands and events, and the runner and terminals what they do (`docs/logs.md`). The
-   * console by default.
+   * Where the bridge logs its commands and events, and the runner and terminals what they do (`docs/logs.md`).
+   * Nothing by default.
    */
   readonly log?: Logger
 }
@@ -99,7 +99,7 @@ export function registerBridge({
   terminal,
   updateMenu,
   closeWindow,
-  log = CONSOLE_LOGGER,
+  log = SILENT_LOGGER,
 }: BridgeOptions): RegisteredBridge {
   const broadcast = createBroadcast(EVENT_CHANNEL, targets)
   // Every event is logged on its way to the windows: it's how a task's changes reach the log.

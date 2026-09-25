@@ -50,7 +50,12 @@ function block(raw: unknown): Json {
     case 'tool_use':
       return { type: 'tool_use', ...pick(part, ['name', 'id']) }
     case 'tool_result':
-      return { type: 'tool_result', toolUseId: part.tool_use_id, isError: part.is_error === true, chars: chars(part.content) }
+      return {
+        type: 'tool_result',
+        toolUseId: part.tool_use_id,
+        isError: part.is_error === true,
+        chars: chars(part.content),
+      }
     default:
       return { type: part.type }
   }
@@ -114,7 +119,10 @@ function rateLimit(message: Json): Json {
 
 /** Whether a message says something failed: an API error in place of a reply, or a turn that ended on an error. */
 function failed(message: Json): boolean {
-  return (message.type === 'assistant' && message.error !== undefined) || (message.type === 'result' && message.is_error === true)
+  return (
+    (message.type === 'assistant' && message.error !== undefined) ||
+    (message.type === 'result' && message.is_error === true)
+  )
 }
 
 /** The log line for an SDK message, as it arrived. */

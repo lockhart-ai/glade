@@ -4,12 +4,17 @@
  */
 import { readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { isAbsolute, relative } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
 
 /** Whether `path` is an absolute path inside (not at) the system temp folder. */
 export function isInTempFolder(path: string): boolean {
   const inside = relative(tmpdir(), path)
   return isAbsolute(path) && inside !== '' && !inside.startsWith('..') && !isAbsolute(inside)
+}
+
+/** Where a test mode writes its log: in its throwaway data folder, so a test never writes to your logs folder. */
+export function testModeLogsFolder(userData: string): string {
+  return join(userData, 'logs')
 }
 
 /** The parts of Electron's `app` that a test mode sets up before the app is ready. */

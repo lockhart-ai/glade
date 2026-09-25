@@ -6,7 +6,7 @@ import {
   type CommandResponse,
   type GladeEvent,
 } from '../../shared/bridge'
-import { CONSOLE_LOGGER, type LogFields, type Logger } from '../logging/logger'
+import { SILENT_LOGGER, type LogFields, type Logger } from '../logging/logger'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
 import type { Handlers } from './handlers'
@@ -50,7 +50,11 @@ function stringField(value: unknown, key: string): string | undefined {
  * The task a command is about, for the log: its request's `taskId`, a `tasks.*` command's `id`, or the task it answers
  * with (`tasks.create`). Undefined for a command about no task.
  */
-export function commandTaskId(command: CommandName, request: unknown, result?: BridgeResult<unknown>): string | undefined {
+export function commandTaskId(
+  command: CommandName,
+  request: unknown,
+  result?: BridgeResult<unknown>,
+): string | undefined {
   const own = stringField(request, 'taskId') ?? (command.startsWith('tasks.') ? stringField(request, 'id') : undefined)
   if (own !== undefined || result?.ok !== true) return own
   return stringField(Reflect.get(Object(result.value), 'task'), 'id')
@@ -71,7 +75,7 @@ function commandFields(command: CommandName, request: unknown, result: BridgeRes
  * Validates each request at the boundary, then hands it to the command's handler. Every command is logged, with its
  * task and how it went, but never its request, which may be anything you typed.
  */
-export function createDispatcher(handlers: Handlers, schemas: RequestSchemas, log: Logger = CONSOLE_LOGGER): Dispatch {
+export function createDispatcher(handlers: Handlers, schemas: RequestSchemas, log: Logger = SILENT_LOGGER): Dispatch {
   const answer = async (command: CommandName, request: unknown): Promise<BridgeResult<unknown>> => {
     try {
       return await run(handlers, schemas, command, request)
@@ -88,9 +92,10 @@ export function createDispatcher(handlers: Handlers, schemas: RequestSchemas, lo
       log.warn('unknown command', { command: String(command) })
       return { ok: false, error: bridgeError(BridgeErrorCode.UnknownCommand, `Unknown command ${String(command)}`) }
     }
-    const started = Date.now()
+    const started = performance.now()
     const result = await answer(command, request)
-    const fields = { ...commandFields(command, request, result), durationMs: Date.now() - started }
+    const durationMs = Math.round(performance.now() - started)
+    const fields = { ...commandFields(command, request, result), durationMs }
     if (result.ok) log.debug('command', { ...fields, ok: true })
     else log.warn('command failed', { ...fields, ok: false, code: result.error.code, error: result.error.message })
     return result

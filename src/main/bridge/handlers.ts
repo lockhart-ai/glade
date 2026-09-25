@@ -38,7 +38,7 @@ import {
 } from '../files/files'
 import { todoListFor } from '../todos/todos'
 import { removeTaskArtifact } from '../artifacts/artifacts'
-import { CONSOLE_LOGGER, LogScope, type Logger } from '../logging/logger'
+import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
 
@@ -68,7 +68,7 @@ export interface HandlerContext {
   readonly closeWindow?: () => void
   /** The global terminal's tabs and their shells. */
   readonly terminals: Terminals
-  /** Where errors in the window are logged (`log.rendererError`). The console by default. */
+  /** Where errors in the window are logged (`log.rendererError`). Nothing by default. */
   readonly log?: Logger
 }
 
@@ -82,7 +82,7 @@ function terminalRoot(db: Database, workspaceId: string | null): string | null {
 
 export function createHandlers(context: HandlerContext): Handlers {
   const { db, emit, chooseFolder, runner, writeClipboard, terminals } = context
-  const renderer = (context.log ?? CONSOLE_LOGGER).scoped(LogScope.Renderer)
+  const renderer = (context.log ?? SILENT_LOGGER).scoped(LogScope.Renderer)
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
     [CommandName.WorkspacesCreate]: ({ rootPath }) => {

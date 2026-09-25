@@ -127,8 +127,11 @@ export const CONSOLE_SINK: LogSink = {
   },
 }
 
-/**
- * What a part of main logs to when it isn't handed a logger: the console. The app always hands one over, so this is
- * only ever for tests that don't care what's logged.
- */
+/** A logger that prints on the console: for where there's no log file (yet), such as a test mode failing to start. */
 export const CONSOLE_LOGGER: Logger = createLogger({ sink: CONSOLE_SINK })
+
+/**
+ * What a part of main logs to when it isn't handed a logger: nowhere. The app always hands one over, so this is only
+ * ever for tests that don't look at what's logged.
+ */
+export const SILENT_LOGGER: Logger = createLogger({ sink: { write: () => undefined } })

@@ -12,7 +12,7 @@ import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, EventType } from '../../shared/bridge'
 import type { TerminalTab } from '../../shared/terminal'
 import { CommandFailure } from '../bridge/errors'
-import { CONSOLE_LOGGER, type Logger } from '../logging/logger'
+import { SILENT_LOGGER, type Logger } from '../logging/logger'
 import type { Emit } from '../bridge/events'
 import {
   addTerminalTab,
@@ -72,7 +72,7 @@ export interface TerminalsContext {
   readonly shell: TerminalShell
   /** Where a shell starts when its folder is gone, or when there's no workspace: the home folder. */
   readonly fallbackCwd: string
-  /** Where tabs opening and closing, and shells starting and exiting, are logged. The console by default. */
+  /** Where tabs opening and closing, and shells starting and exiting, are logged. Nothing by default. */
   readonly log?: Logger
 }
 
@@ -136,7 +136,7 @@ export function createTerminals({
   spawn,
   shell,
   fallbackCwd,
-  log = CONSOLE_LOGGER,
+  log = SILENT_LOGGER,
 }: TerminalsContext): Terminals {
   const idleName = shellName(shell)
   let shuttingDown = false
