@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { MessageRole, type Task } from '../../../shared/domain'
+import { DividerKind, MessageRole, type Task } from '../../../shared/domain'
 import { appendMessage, firstUserMessageOfSession, lastTurn, listMessages, turnStartedAt } from './messages'
 import { updateTask } from './tasks'
+import { appendDivider, appendNarration } from './tool-events'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 
 let test: TestDatabase
@@ -102,6 +103,20 @@ describe('lastTurn', () => {
 
     expect(lastTurn(test.db, task.id)).toBe(2)
   })
+
+  it('counts a turn the agent started on its own by its turn divider, before it has any message', () => {
+    const other = sampleTask(test.db, task.workspaceId)
+    appendDivider(test.db, { taskId: other.id, turn: 9, dividerKind: DividerKind.Turn })
+    appendMessage(test.db, { taskId: task.id, role: MessageRole.User, body: 'Hi', turn: 1 })
+    appendDivider(test.db, { taskId: task.id, turn: 1, dividerKind: DividerKind.Turn })
+    appendDivider(test.db, { taskId: task.id, turn: 2, dividerKind: DividerKind.Turn })
+    expect(lastTurn(test.db, task.id)).toBe(2)
+
+    // Only a turn divider starts a turn: other dividers and notes belong to one.
+    appendDivider(test.db, { taskId: task.id, turn: 3, dividerKind: DividerKind.Reopened })
+    appendNarration(test.db, { taskId: task.id, turn: 4, text: 'A note.' })
+    expect(lastTurn(test.db, task.id)).toBe(2)
+  })
 })
 
 describe('turnStartedAt', () => {
@@ -116,6 +131,17 @@ describe('turnStartedAt', () => {
     expect(turnStartedAt(test.db, task.id, 1)).toBe(2_000)
     expect(turnStartedAt(test.db, task.id, 2)).toBeNull()
     expect(turnStartedAt(test.db, task.id, 3)).toBeNull()
+  })
+
+  it("is when a turn the agent started on its own opened, its turn divider's time", () => {
+    appendMessage(test.db, { taskId: task.id, role: MessageRole.User, body: 'Hi', turn: 1 }, 2_000)
+    appendDivider(test.db, { taskId: task.id, turn: 1, dividerKind: DividerKind.Turn }, 2_001)
+    appendDivider(test.db, { taskId: task.id, turn: 2, dividerKind: DividerKind.Turn }, 6_000)
+    appendDivider(test.db, { taskId: task.id, turn: 2, dividerKind: DividerKind.Resumed }, 5_000)
+    appendMessage(test.db, { taskId: task.id, role: MessageRole.Agent, body: 'Built.', turn: 2 }, 7_000)
+
+    expect(turnStartedAt(test.db, task.id, 1)).toBe(2_000)
+    expect(turnStartedAt(test.db, task.id, 2)).toBe(6_000)
   })
 })
 

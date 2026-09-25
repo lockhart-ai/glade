@@ -325,6 +325,35 @@ See §7 for timing.
 If the interrupt lands during a tool, the tool gets a "user doesn't want to proceed" `tool_result`, the marker text is
 "[Request interrupted by user for tool use]", and `terminal_reason` is `"aborted_tools"`.
 
+### Turns the agent starts itself [verified]
+
+The SDK starts a turn with no user message when a background task finishes (and, per its types, for a timer, a
+scheduled wakeup or a message from another session). Probed on SDK 0.3.281 with Haiku: a turn ran `sleep 5 && echo …`
+with `run_in_background: true` and ended; about five seconds after its `result`, with nothing pushed, the session
+streamed:
+
+```
+system/task_updated       { task_id: "b88t…", patch: { status: "completed", end_time: … } }
+system/task_notification  { task_id: "b88t…", tool_use_id: "toolu_01…", status: "completed",
+                            output_file: "…/tasks/b88t….output", summary: "Background command \"…\" completed (exit code 0)" }
+system/init               ← a new turn, as for any other
+system/thinking_tokens …
+assistant [thinking]      ← no user_message_uuid on any of the turn's assistant messages
+assistant [text]
+result/success            { origin: { kind: "task-notification" }, … }  ← no user_message_uuid(s)
+```
+
+- The turn looks like any other but for what it answers: its `result` has no `user_message_uuid(s)`, and says why it
+  ran in `origin` (`task-notification`). The user turn's `result` had no `origin`.
+- Within a user turn, only its first assistant message carried `user_message_uuid`, so the assistant messages alone
+  can't tell the two kinds of turn apart.
+- The background command's own `task_started` (with `tool_use_id`, `task_type: "local_bash"`) came during the turn that
+  started it, and its `tool_result` ("Command running in background with ID: …") ended that call straight away.
+
+**Implication for Glade (P9-02):** the runner opens a turn when the agent's own top-level message (or an API error in
+its place) arrives between turns, rather than only when the user sends one. System messages, a stray result and
+anything from a subagent between turns still open nothing.
+
 ### Session id and resume
 
 `session_id` appears on every message. Store it from the first `system/init`. See §8.
@@ -505,6 +534,46 @@ log or as a truncated reply, and show the turn as stopped rather than failed (`t
   anyway, since tasks run in the workspace root.
 - Glade's SQLite chat and tool log remain the source of truth for the UI. The SDK transcript is the model's memory.
 - A turn that was in flight when Glade died has no `result`. Mark it interrupted in SQLite, and don't auto-re-run it.
+
+## 9. Permissions [docs]
+
+Read from `sdk.d.ts` (0.3.281) for per-call permission review (P11, #68); nothing here has been run yet. P11-01
+probes the unverified parts and marks what it saw **[verified]**.
+
+- **Glade today** runs every session with `permissionMode: 'bypassPermissions'` and
+  `allowDangerouslySkipPermissions: true`. In that mode `canUseTool` is never called.
+- **`canUseTool(toolName, input, options)`** is called before a tool runs when the permission mode, rules and hooks
+  leave the call at "ask". It returns a `Promise<PermissionResult>`:
+  `{ behavior: 'allow', updatedInput?, updatedPermissions?, decisionClassification? }` or
+  `{ behavior: 'deny', message, interrupt?, decisionClassification? }`. `decisionClassification` is `user_temporary`
+  (allow once), `user_permanent` (always allow) or `user_reject` (deny). The promise can stay pending as long as it
+  likes: "permission prompts have no park deadline".
+- **`options`** carries `toolUseID` (one per call; parallel calls each ask separately), `agentID` (set for a
+  subagent's call), `signal` (aborted when the call is cancelled, e.g. by `interrupt()`), `suggestions`
+  (`PermissionUpdate[]` for "don't ask again", e.g. an `addRules` of `{ toolName: 'Bash', ruleContent: 'npm test:*' }`),
+  `blockedPath`, `decisionReason`, `title` / `displayName` / `description` (prompt text the CLI wrote), `mcpServer`
+  (`{ name, source }`; `source: 'sdk'` means an in-process server the host registered, the one to trust, not the name
+  prefix), `defaultToNo`, `suppressAlwaysAllowRule` and `matchedAskRule` (a user `permissions.ask` rule forced this).
+- **Modes:** `'default'` asks for anything not pre-approved (Claude Code already lets reads inside `cwd` through
+  without asking), `'acceptEdits'` also auto-allows file edits, `'dontAsk'` denies what isn't pre-approved, `'plan'`
+  runs no tools, `'auto'` lets a classifier decide. **`setPermissionMode(mode)`** changes a live session's mode in
+  streaming-input mode. Whether a session started in `bypassPermissions` can switch to `default` and back is not
+  documented; P11-01 probes it. If it can't, a mode change restarts the session with `resume`.
+- **Rules:** `allowedTools` / `disallowedTools` take rule strings such as `Bash(npm test:*)`, which the CLI matches
+  itself (it splits compound commands, so a prefix rule doesn't let `npm test && rm -rf x` through). A
+  `PermissionUpdate` returned with `destination: 'session'` lasts only as long as the Claude Code process: session
+  rules are gone after a relaunch. So Glade keeps a task's rules in SQLite, returns them as `updatedPermissions` when
+  granted, and passes them as `allowedTools` when it starts or resumes the task's session.
+- **The user's settings still apply** with `settingSources` including `"user"`: their `permissions.allow`/`deny`
+  rules and `PreToolUse` hooks decide before `canUseTool` is asked. Denials made without asking are reported on
+  `result.permission_denials` (authoritative) and, best effort, as a system event.
+- **No survival across a relaunch.** A pending `canUseTool` lives in Glade's process and the CLI subprocess waiting
+  on it. `reinitialize()` redelivers pending requests only to a CLI that is still running (after a transport gap);
+  once Glade quits, the subprocess is gone and the resumed transcript has a `tool_use` with no result, as with a
+  blocking `ask` (§8, `model-surface.md`). What can survive is Glade's own record of the request: the card, the task
+  needing you, and the decision, delivered to the resumed session as a message.
+- **`permissionPromptToolName`** (route prompts to an MCP tool) and **`permissionPrompts: 'none'`** (never ask) are
+  the alternatives; neither fits a card that waits for the user.
 
 ---
 
