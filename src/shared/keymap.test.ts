@@ -253,11 +253,19 @@ describe('bindingProblem', () => {
       kind: BindingProblemKind.Conflict,
       command: WindowCommandId.PreviousTask,
     })
+    // ⌥↑ / ⌥↓ reach the message field too, so its keys can't be theirs.
+    expect(problem(WindowCommandId.Send, 'Alt+ArrowDown')).toEqual({
+      kind: BindingProblemKind.Conflict,
+      command: WindowCommandId.NextTask,
+    })
+    expect(problem(WindowCommandId.PreviousTask, 'Enter')).toEqual({ kind: BindingProblemKind.NeedsModifier })
+    expect(problem(WindowCommandId.PreviousTask, 'Alt+Enter')).toBeNull()
   })
 
   it('lets keys be shared where they can’t both apply', () => {
-    // The message field is a text field, where the task list's ⌥↑ / ⌥↓ don't reach.
-    expect(problem(WindowCommandId.Send, 'Alt+ArrowDown')).toBeNull()
+    // The terminal keeps its keys: the task list's ⌥↑ / ⌥↓ don't reach it.
+    expect(problem(WindowCommandId.ClearTerminal, 'Alt+ArrowDown')).toBeNull()
+    expect(problem(WindowCommandId.NextTask, 'Meta+K')).toBeNull()
     expect(problem(WindowCommandId.NextTask, 'Alt+Enter')).toBeNull()
     expect(problem(WindowCommandId.EditLastQueued, 'ArrowDown')).toBeNull()
     expect(problem(WindowCommandId.ContextMenu, 'Meta+K')).toBeNull()

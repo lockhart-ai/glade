@@ -62,7 +62,9 @@ function commandsFor(area: string, keys: string): CommandDefinition[] {
 }
 
 /** Where each command the dispatcher doesn't run is handled: the menu bar, or the element with the focus. */
-const HANDLED_BY_FOCUS: Readonly<Record<Exclude<KeyScope, KeyScope.Window | KeyScope.OutsideTextFields>, string>> = {
+const HANDLED_BY_FOCUS: Readonly<
+  Record<Exclude<KeyScope, KeyScope.Window | KeyScope.MessageFieldOrOutsideTextFields>, string>
+> = {
   [KeyScope.FocusedItem]: 'useContextMenu',
   [KeyScope.MessageField]: 'InputBar',
   [KeyScope.RightPanel]: 'TaskPanel',

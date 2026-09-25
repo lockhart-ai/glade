@@ -49,11 +49,17 @@ dispatcher (`src/renderer/commands`) answers the rest, or the focused element do
 rebinds a shortcut by recording the keys you press; Reset puts back its default. Bindings you change are stored as the
 `keyBindings` setting, and both the menu bar and the window follow them at once.
 
+- **Where they apply:** the menu bar's and the window's shortcuts work wherever the focus is, typing in a text field
+  included. Next / previous task (⌥↓ / ⌥↑) work anywhere but a text field, where they'd move the caret, with one
+  exception: in the input bar's message field they switch tasks too, and the focus goes on to the new task's input bar.
+  Other text fields (search, rename, Settings, a question's text answer, a Deny note, a queued message being edited)
+  keep them, and so does the terminal, which sends them to the shell. Each task's input bar keeps its draft while you're
+  on another task.
 - **Refused, with the reason under the row:** keys another command already has where both apply (the menu bar's and
-  the window's shortcuts reach everywhere; the message field, menus, question cards and terminal each have their own
-  keys); keys macOS or the app menu takes first (⌘Q, ⌘H, ⌘⌥H, ⌘M, ⌘Tab, ⌘⇧Tab, ⌘Space, the Edit menu's ⌘Z, ⌘⇧Z,
-  ⌘X, ⌘C, ⌘V and ⌘A, and the View menu's ⌘0, ⌘+, ⌘=, ⌘- and ⌃⌘F); and, for a shortcut that works in text fields too,
-  keys without ⌘, ⌃ or ⌥ (F-keys excepted).
+  the window's shortcuts reach everywhere, Next / previous task's the message field too; the message field, menus,
+  question cards and terminal each have their own keys); keys macOS or the app menu takes first (⌘Q, ⌘H, ⌘⌥H, ⌘M,
+  ⌘Tab, ⌘⇧Tab, ⌘Space, the Edit menu's ⌘Z, ⌘⇧Z, ⌘X, ⌘C, ⌘V and ⌘A, and the View menu's ⌘0, ⌘+, ⌘=, ⌘- and ⌃⌘F); and,
+  for a shortcut that works in text fields too, keys without ⌘, ⌃ or ⌥ (F-keys excepted).
 - **Fixed:** New line (⇧↵), Close file tab (⌘W, the menu bar's Close, which closes the window when no tab has the
   focus), Kill process (⌃C, which the terminal sends to the shell), and the menus' and dialogs' Move, Choose, Close and
   question-card answers (1 – 9).

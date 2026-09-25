@@ -572,6 +572,14 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         }))
       },
 
+      keepInputDraft(taskId, draft) {
+        set(({ inputDrafts }) => {
+          const others = Object.fromEntries(Object.entries(inputDrafts).filter(([id]) => id !== taskId))
+          const empty = draft.text === '' && draft.images.length === 0
+          return { inputDrafts: empty ? others : { ...others, [taskId]: draft } }
+        })
+      },
+
       setSearchText(text) {
         set({ searchText: text })
       },
