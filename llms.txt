@@ -1,0 +1,50 @@
+# Glade
+
+> Glade is a macOS desktop app for running many Claude agent sessions as tasks. Each task has one objective, runs in a
+> workspace (a named root folder), and is either active or done. Other agents and scripts can drive it through its
+> control API: one MCP server, `glade-control`, served on 127.0.0.1 behind a bearer token, with the same tools as plain
+> JSON at `/v1/tools`.
+
+To drive Glade, the user turns on Settings › Control › **Let agents control Glade** (off by default). Settings then
+shows the command that connects Claude Code to it, with the token filled in:
+
+```
+claude mcp add --transport http glade-control http://127.0.0.1:45233/mcp --header "Authorization: Bearer <token>"
+```
+
+45233 is the default port. Glade's own tasks get the tools without that, in-process, and their agents get
+`GLADE_CONTROL_URL` and `GLADE_CONTROL_TOKEN` in their environment, for scripts that call
+`POST $GLADE_CONTROL_URL/v1/tools/<name>`.
+
+## Driving Glade
+
+- [Control API](https://github.com/lockhart-ai/glade/blob/main/docs/control-api.md): turning it on and connecting, the HTTP endpoint and its limits, every tool with its input and result, the error codes, scripting over `/v1`, backfilling past tasks and importing Claude Code sessions.
+
+## Using Glade
+
+- [User guide](https://github.com/lockhart-ai/glade/blob/main/docs/user-guide.md): using Glade day to day, from a first task to marking it done.
+- [README](https://github.com/lockhart-ai/glade/blob/main/README.md): what Glade is, installing it, and building it from source.
+- [Keymap](https://github.com/lockhart-ai/glade/blob/main/docs/keymap.md): every keyboard shortcut, and rebinding them.
+- [Context menus](https://github.com/lockhart-ai/glade/blob/main/docs/context-menus.md): what right-clicking each thing offers.
+- [Logs](https://github.com/lockhart-ai/glade/blob/main/docs/logs.md): where Glade's log is, the shape of a line, and what each scope logs.
+
+## Extending Glade
+
+- [Plugin API](https://github.com/lockhart-ai/glade/blob/main/docs/plugin-api.md): a plugin's manifest and sandbox, the events Glade sends its page and the messages it can post back.
+- [Model surface](https://github.com/lockhart-ai/glade/blob/main/docs/model-surface.md): the tools Glade gives each task's agent (`set_title`, `set_status`, `ask`, …) and what it adds to the system prompt.
+
+## Contributing
+
+- [CLAUDE.md](https://github.com/lockhart-ai/glade/blob/main/CLAUDE.md): working rules, code conventions and the stack.
+- [Docs index](https://github.com/lockhart-ai/glade/blob/main/docs/README.md): every doc, grouped for users, reference and contributors.
+- [Product](https://github.com/lockhart-ai/glade/blob/main/docs/product.md): the concepts and how the app behaves.
+- [Decisions](https://github.com/lockhart-ai/glade/blob/main/docs/decisions.md): everything already decided.
+- [Plan](https://github.com/lockhart-ai/glade/blob/main/docs/plan.md): the phases, in order.
+- [Kitten SOP](https://github.com/lockhart-ai/glade/blob/main/docs/kitten-sop.md): how a worker agent takes an issue to a PR.
+
+## Optional
+
+- [Design](https://github.com/lockhart-ai/glade/blob/main/docs/design/README.md): every screen, with screenshots and markup.
+- [Design tokens](https://github.com/lockhart-ai/glade/blob/main/docs/design/tokens.md): colours, type, spacing and motion.
+- [Releasing](https://github.com/lockhart-ai/glade/blob/main/docs/releasing.md): cutting a release.
+- [SDK notes](https://github.com/lockhart-ai/glade/blob/main/docs/sdk-notes.md): how the Claude Agent SDK behaves, as Glade relies on it.

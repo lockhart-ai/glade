@@ -1,7 +1,7 @@
 # Context menus
 
 Right-click anything that can be acted on. Menus mirror the on-screen buttons plus less common actions; destructive
-items sit last, in pink. ![Context menus](design/screens/13-context-menus.png)
+items are in pink and sit last, bar the terminal tab's Close. ![Context menus](design/screens/13-context-menus.png)
 
 | Target | Items |
 |---|---|
@@ -14,6 +14,15 @@ items sit last, in pink. ![Context menus](design/screens/13-context-menus.png)
 | Artifact | Open ↵ · Open in editor ⌘⇧E · — · Copy contents · Copy path · Reveal in Finder · — · Remove from artifacts |
 | Subagent | Expand log ↵ · Copy log · — · Stop subagent |
 | Terminal tab | Rename… · Duplicate · Clear ⌘K · — · Kill process ⌃C · Close ⌘W |
-| Todo | Copy · Ask agent about this · — · Mark done myself · Remove |
+| Todo | Copy · Ask agent about this |
 
-Delete task always confirms before deleting.
+Some items show only when they apply: Pin to top reads Unpin on a pinned task; Show this turn's tool calls needs a
+turn with tool calls; a tool call's Copy command, Copy output, Open file and Run again in terminal need a command, an
+output or a file; Expand log reads Collapse log when the log is open; and Stop subagent shows while it runs. Delete
+task always confirms before deleting.
+
+**Copy link to task** copies a `glade://task/<id>` link, which names the task but doesn't open anything yet: Glade
+doesn't register the `glade:` scheme with macOS (`src/shared/taskLink.ts`).
+
+**Todos** have no Mark done or Remove: the agent keeps the list with Claude Code's own todo tools, so changing it is
+the agent's job. Ask agent about this puts the todo in your message to it.

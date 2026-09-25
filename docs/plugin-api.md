@@ -1,11 +1,11 @@
 # Plugin API
 
 A plugin is a small web page that Glade shows beside the terminal in the bottom bar and keeps up to date with what the
-tasks and their agents are doing. Nekomata, the cat cafe in `design/screens/task-workspace.png`, is the first one.
-Decided in `decisions.md` ("Plugins"); built in P12 (#66).
+tasks and their agents are doing. Nekomata, the cat cafe in [`task-workspace.png`](design/screens/task-workspace.png), is the first one.
+Decided in [`decisions.md`](decisions.md) ("Plugins"); built in P12 (#66).
 
-This is **version 1** as built (P12-02 and P12-04). It's frozen when P12 is released (v0.11.0); until then a name or
-field may still change, and after it only as "Versioning" below allows. The types are in `src/shared/plugin-api.ts`,
+This is **version 1**, built in P12-02 and P12-04 and frozen since P12 was released (v0.11.0): it changes only as
+"Versioning" below allows. The types are in `src/shared/plugin-api.ts`,
 which imports nothing, and their zod schemas in `src/shared/plugin-api-schema.ts`: a plugin can copy both.
 
 ## Installing
@@ -163,7 +163,7 @@ interface PluginSubagent {
   /** The tool_use id of the `Agent` call that started it: what its calls' and notes' `subagentId` say. */
   readonly id: string
   readonly taskId: string
-  /** Its description, else its type, as the Subagents tab shows it. */
+  /** Its description, else its type, else `Subagent`, as the Subagents tab shows it. */
   readonly name: string
   /** `stopped` is one cut off by Glade quitting or the task pausing: not a failure. */
   readonly state: 'running' | 'done' | 'failed' | 'stopped'
