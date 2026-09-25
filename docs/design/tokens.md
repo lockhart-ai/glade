@@ -69,4 +69,6 @@ And the insets that keep things on shared lines:
 - Touch targets at least 28px in dense areas, 44px for the send button.
 
 The exact markup for every screen is in `html/` — open a file to read the CSS values. After changing one, re-render
-its PNG in `screens/` with `npm run render-design -- <name>` (e.g. `task-workspace`; no names renders them all).
+its PNG in `screens/` with `npm run render-design -- <name>` (e.g. `task-workspace`; no names renders them all). It
+retries a capture that comes back without its text, and fails if none has it. CI runs `npm run check-design`, which
+fails if any screen renders without its text or a committed PNG is missing its text.
