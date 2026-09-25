@@ -16,6 +16,12 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 </style>
 </helmet>
 <div style="position: relative; width: 1920px; height: 1200px; box-sizing: border-box; padding: 8px; gap: 8px; display: flex; flex-direction: column; background: #0A0B0F; color: #E6E8F0; font-family: Geist, system-ui, sans-serif; overflow: hidden">
+<div aria-label="Resize task list" style="position: absolute; left: 308px; top: 8px; width: 8px; height: 876px; display: flex; align-items: center; justify-content: center; cursor: col-resize">
+<div style="width: 4px; height: 44px; border-radius: 2px; background: #343850"></div>
+</div>
+<div aria-label="Resize bottom panel" style="position: absolute; left: 8px; right: 8px; top: 884px; height: 8px; display: flex; align-items: center; justify-content: center; cursor: row-resize">
+<div style="width: 44px; height: 4px; border-radius: 2px; background: #343850"></div>
+</div>
 <div style="flex-grow: 1; min-height: 0; display: flex; gap: 8px">
 <aside style="flex-shrink: 0; width: 300px; box-sizing: border-box; background: #14151C; border: 1px solid #272A37; border-radius: 16px; overflow: hidden; display: flex; flex-direction: column">
 <div style="display: flex; align-items: center; gap: 4px; padding: 20px 8px 8px 8px">
@@ -131,7 +137,7 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 </main>
 </div>
 <div style="position: relative; flex-shrink: 0; width: 780px; display: flex">
-<div aria-label="Resize panel" style="position: absolute; left: -10px; top: 0; bottom: 0; width: 8px; display: flex; align-items: center; justify-content: center; cursor: col-resize">
+<div aria-label="Resize side panel" style="position: absolute; left: -8px; top: 0; bottom: 0; width: 8px; display: flex; align-items: center; justify-content: center; cursor: col-resize">
 <div style="width: 4px; height: 44px; border-radius: 2px; background: #343850"></div>
 </div>
 <aside style="flex-grow: 1; min-width: 0; box-sizing: border-box; background: #1C1E28; border: 1px solid #2E3242; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.25); overflow: hidden; display: flex; flex-direction: column">
