@@ -42,6 +42,8 @@ import {
 import { getWorkspaceByRoot, listWorkspaces } from '../../db/repositories/workspaces'
 import { truncate } from '../../notifications/notifications'
 import { createWorkspaceAt } from '../../workspaces/workspaces'
+import { ControlError, ControlErrorCode } from '../errors'
+import type { ClaudeCodeSessionPage } from '../service'
 import { SessionLogKind, type ClaudeCodeTranscript, type SessionTurn, type SkippedCounts } from './session'
 import {
   findTranscript,
@@ -62,24 +64,6 @@ export const NO_RESULT_NOTE = 'The Claude Code transcript has no result for this
 export const FIRST_PROMPT_LENGTH = 200
 export const TITLE_LENGTH = 80
 export const OBJECTIVE_LENGTH = 500
-
-/** Why listing or importing failed, as the control API names it. */
-export enum ClaudeCodeErrorCode {
-  /** No session with that id. */
-  NotFound = 'not_found',
-  /** The transcript can't be imported: the message says why. */
-  ImportFailed = 'import_failed',
-}
-
-export class ClaudeCodeError extends Error {
-  constructor(
-    readonly code: ClaudeCodeErrorCode,
-    message: string,
-  ) {
-    super(message)
-    this.name = 'ClaudeCodeError'
-  }
-}
 
 /** One Claude Code session, as `list_claude_code_sessions` lists it. */
 export interface ClaudeCodeSession {
@@ -111,11 +95,6 @@ export interface ListClaudeCodeSessionsInput {
   readonly cursor?: string | undefined
   /** 1–200. */
   readonly limit: number
-}
-
-export interface ClaudeCodeSessionPage {
-  readonly sessions: readonly ClaudeCodeSession[]
-  readonly nextCursor: string | null
 }
 
 /** Which session to import: by its id, or by its transcript's path. */
@@ -283,19 +262,19 @@ async function listSessions(
 async function transcriptFor(projectsDir: string, ref: ClaudeCodeSessionRef): Promise<TranscriptFile> {
   if ('sessionId' in ref) {
     const file = await findTranscript(projectsDir, ref.sessionId)
-    if (file === undefined) throw new ClaudeCodeError(ClaudeCodeErrorCode.NotFound, `No session ${ref.sessionId}`)
+    if (file === undefined) throw new ControlError(ControlErrorCode.NotFound, `No session ${ref.sessionId}`)
     return file
   }
   const lookup = await transcriptAt(projectsDir, ref.path)
   if (lookup.ok) return lookup.file
   switch (lookup.problem) {
     case TranscriptProblem.OutsideProjects:
-      throw new ClaudeCodeError(
-        ClaudeCodeErrorCode.ImportFailed,
+      throw new ControlError(
+        ControlErrorCode.ImportFailed,
         `${ref.path} is not a Claude Code transcript: it must be a .jsonl file in a project's folder in ${projectsDir}`,
       )
     case TranscriptProblem.Missing:
-      throw new ClaudeCodeError(ClaudeCodeErrorCode.ImportFailed, `No such file: ${ref.path}`)
+      throw new ControlError(ControlErrorCode.ImportFailed, `No such file: ${ref.path}`)
   }
 }
 
@@ -379,7 +358,7 @@ interface Written {
 /**
  * Imports a Claude Code session as a task (see the module comment and `docs/control-api.md`).
  *
- * @throws ClaudeCodeError `not_found` for no session with that id, and `import_failed` for a path Glade may not read,
+ * @throws ControlError `not_found` for no session with that id, and `import_failed` for a path Glade may not read,
  *   a transcript with no messages, or a folder that no longer exists or no workspace has (without `createWorkspace`).
  */
 async function importSession(
@@ -398,14 +377,14 @@ async function importSession(
   const transcript = await readTranscript(file)
   const { cwd } = transcript
   if (transcript.messages === 0) {
-    throw new ClaudeCodeError(ClaudeCodeErrorCode.ImportFailed, `The session ${file.sessionId} has no messages`)
+    throw new ControlError(ControlErrorCode.ImportFailed, `The session ${file.sessionId} has no messages`)
   }
   if (cwd === null) {
-    throw new ClaudeCodeError(ClaudeCodeErrorCode.ImportFailed, `The session ${file.sessionId} doesn't say its folder`)
+    throw new ControlError(ControlErrorCode.ImportFailed, `The session ${file.sessionId} doesn't say its folder`)
   }
   const root = resolve(cwd)
   if (!isDirectory(root)) {
-    throw new ClaudeCodeError(ClaudeCodeErrorCode.ImportFailed, `The session's folder ${root} no longer exists`)
+    throw new ControlError(ControlErrorCode.ImportFailed, `The session's folder ${root} no longer exists`)
   }
 
   const now = context.now?.() ?? Date.now()
@@ -417,8 +396,8 @@ async function importSession(
     let added: Workspace | null = null
     if (workspace === undefined) {
       if (!input.createWorkspace) {
-        throw new ClaudeCodeError(
-          ClaudeCodeErrorCode.ImportFailed,
+        throw new ControlError(
+          ControlErrorCode.ImportFailed,
           `No workspace has the session's folder ${root} as its root; import it with createWorkspace to add one`,
         )
       }

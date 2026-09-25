@@ -31,9 +31,8 @@ import { getTask, updateTask } from '../../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../../db/repositories/test-database'
 import { listToolEvents } from '../../db/repositories/tool-events'
 import { listWorkspaces } from '../../db/repositories/workspaces'
+import { ControlError, ControlErrorCode } from '../errors'
 import {
-  ClaudeCodeError,
-  ClaudeCodeErrorCode,
   createClaudeCodeSessions,
   decodeCursor,
   encodeCursor,
@@ -105,14 +104,14 @@ function importInput(overrides: Partial<ImportClaudeCodeSessionInput> = {}): Imp
 
 async function importFails(
   input: ImportClaudeCodeSessionInput,
-  code: ClaudeCodeErrorCode,
+  code: ControlErrorCode,
   message: RegExp,
 ): Promise<void> {
   const failure = await sessions.import(input).then(
     () => null,
     (error: unknown) => error,
   )
-  expect(failure).toBeInstanceOf(ClaudeCodeError)
+  expect(failure).toBeInstanceOf(ControlError)
   expect(failure).toMatchObject({ code, message: expect.stringMatching(message) as unknown })
 }
 
@@ -330,7 +329,7 @@ describe('import', () => {
     mkdirSync(other)
     writeTranscript(projects, other, plainChat(other).toJsonl())
 
-    await importFails(importInput(), ClaudeCodeErrorCode.ImportFailed, /No workspace has the session's folder/)
+    await importFails(importInput(), ControlErrorCode.ImportFailed, /No workspace has the session's folder/)
     expect(taskCount()).toBe(0)
     expect(existsSync(join(other, 'CLAUDE.md'))).toBe(false)
 
@@ -349,7 +348,7 @@ describe('import', () => {
     const sub = join(cwd, 'packages', 'client')
     mkdirSync(sub, { recursive: true })
     writeTranscript(projects, sub, plainChat(sub).toJsonl())
-    await importFails(importInput(), ClaudeCodeErrorCode.ImportFailed, /No workspace/)
+    await importFails(importInput(), ControlErrorCode.ImportFailed, /No workspace/)
     // A trailing slash is the same folder.
     rmSync(join(projects, projectSlug(sub)), { recursive: true })
     writeTranscript(projects, cwd, plainChat(`${cwd}/`).toJsonl())
@@ -361,23 +360,23 @@ describe('import', () => {
     writeTranscript(projects, gone, plainChat(gone).toJsonl())
     sampleWorkspace(database.db, gone)
     for (const createWorkspace of [false, true]) {
-      await importFails(importInput({ createWorkspace }), ClaudeCodeErrorCode.ImportFailed, /no longer exists/)
+      await importFails(importInput({ createWorkspace }), ControlErrorCode.ImportFailed, /no longer exists/)
     }
     expect(taskCount()).toBe(0)
   })
 
   it('fails for a session with no messages, or that says no folder', async () => {
     writeTranscript(projects, cwd, new TranscriptBuilder(cwd).noise(0).toJsonl())
-    await importFails(importInput(), ClaudeCodeErrorCode.ImportFailed, /has no messages/)
+    await importFails(importInput(), ControlErrorCode.ImportFailed, /has no messages/)
     writeTranscript(projects, cwd, '{"type":"user","message":{"content":"Hi"}}\n')
-    await importFails(importInput(), ClaudeCodeErrorCode.ImportFailed, /doesn't say its folder/)
+    await importFails(importInput(), ControlErrorCode.ImportFailed, /doesn't say its folder/)
   })
 
   it('fails for no such session, and for a path outside the projects folder, with .., or through a symlink', async () => {
-    await importFails(importInput(), ClaudeCodeErrorCode.NotFound, /No session/)
+    await importFails(importInput(), ControlErrorCode.NotFound, /No session/)
     await importFails(
       importInput({ session: { path: join(projects, 'acme', 'missing.jsonl') } }),
-      ClaudeCodeErrorCode.ImportFailed,
+      ControlErrorCode.ImportFailed,
       /No such file/,
     )
     const outside = join(root, 'outside.jsonl')
@@ -392,7 +391,7 @@ describe('import', () => {
     ]) {
       await importFails(
         importInput({ session: { path } }),
-        ClaudeCodeErrorCode.ImportFailed,
+        ControlErrorCode.ImportFailed,
         /not a Claude Code transcript/,
       )
     }
