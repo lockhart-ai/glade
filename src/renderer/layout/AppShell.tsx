@@ -22,7 +22,8 @@ export interface AppShellProps {
 
 /**
  * The window frame: a flat background with the sidebar and task card side by side above the bottom bar, under the
- * app-wide banner when there is one. The title bar is hidden, so the outer padding along the top edge drags the window.
+ * app-wide banner when there is one. They all start below the title bar row, which holds the macOS traffic lights and
+ * drags the window.
  */
 export function AppShell({
   sidebar,
@@ -34,7 +35,7 @@ export function AppShell({
 }: AppShellProps): React.JSX.Element {
   return (
     <div className={styles.shell}>
-      <div className={styles.dragStrip} data-testid="window-drag-strip" />
+      <div className={styles.titleBar} data-testid="window-title-bar" />
       {banner}
       <div className={classNames(styles.top, sidebar === undefined && styles.full)}>
         {sidebar}

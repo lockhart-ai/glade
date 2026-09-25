@@ -1,7 +1,10 @@
-/* The relaunch notice, from docs/design/html/18-relaunch.html: over the window's top right corner. */
+/*
+ * The relaunch notice, from docs/design/html/18-relaunch.html: over the window's top right corner, below the title bar
+ * row so it never takes the row's drag.
+ */
 .notice {
   position: absolute;
-  top: 24px;
+  top: calc(var(--title-bar-height) + var(--space-xl));
   right: 24px;
   z-index: 5;
   box-sizing: border-box;

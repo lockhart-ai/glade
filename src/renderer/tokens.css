@@ -94,13 +94,8 @@
   --bottom-bar-height: 300px;
   --bottom-bar-max-height: 30vh;
   /*
-   * The macOS traffic lights (titleBarStyle hiddenInset) sit over the top-left of the sidebar card, reaching about
-   * 14px below its top edge. The sidebar keeps a strip this tall clear above its content.
+   * The title bar row across the top of the window, in place of the outer padding there. The macOS traffic lights sit
+   * in it (TRAFFIC_LIGHT_POSITION in src/main/app.ts centres them), and the cards start below it.
    */
-  --title-bar-inset: 16px;
-  /*
-   * They reach about 75px in from the window's left edge. With the sidebar collapsed they float over the task card
-   * instead, and its title row starts this far in from the card's content edge (25px in) to clear them.
-   */
-  --traffic-light-clearance: 60px;
+  --title-bar-height: 32px;
 }

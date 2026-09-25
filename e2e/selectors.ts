@@ -7,6 +7,8 @@ import type { Locator, Page } from '@playwright/test'
 /** The window's regions (see src/renderer/layout and src/renderer/App.tsx). */
 export function regions(page: Page) {
   return {
+    /** The empty row across the top of the window that holds the macOS traffic lights and drags the window. */
+    titleBar: page.getByTestId('window-title-bar'),
     sidebar: page.getByRole('navigation', { name: 'Tasks' }),
     /** The top of the sidebar: the workspace's name and root folder. */
     workspace: page.getByRole('region', { name: 'Workspace' }),

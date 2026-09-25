@@ -286,7 +286,8 @@ describe('startApp', () => {
       minWidth: 1100,
       minHeight: 700,
       show: false,
-      titleBarStyle: 'hiddenInset',
+      titleBarStyle: 'hidden',
+      trafficLightPosition: { x: 12, y: 8 },
       backgroundColor: '#0A0B0F',
       webPreferences: WINDOW_WEB_PREFERENCES,
     })
