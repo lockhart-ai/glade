@@ -120,7 +120,7 @@ export function createTestModeAgentBackend(
           session.configure(settings)
         },
         interrupt: () => session.interrupt(),
-        stopTask: () => session.stopTask(),
+        stopTask: (sdkTaskId) => session.stopTask(sdkTaskId),
         close: () => {
           session.close()
         },

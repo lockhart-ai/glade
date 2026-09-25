@@ -357,6 +357,14 @@ export function interruptRunningToolCalls(
   )
 }
 
+/** The ids of the tasks with a tool call still running, e.g. a background subagent's when the app quit. */
+export function listTasksWithRunningToolCalls(db: Database): string[] {
+  return db
+    .prepare(`SELECT DISTINCT task_id FROM tool_events WHERE kind = 'tool_call' AND tool_state = ? ORDER BY task_id`)
+    .all(ToolCallState.Running)
+    .map((raw) => new Row('tool_events', raw).text('task_id'))
+}
+
 /**
  * Records every paused tool call of a task as interrupted, once the task works again: the pause is behind it. Each
  * keeps its output. Returns them updated, in log order.
