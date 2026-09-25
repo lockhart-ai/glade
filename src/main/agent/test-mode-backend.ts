@@ -10,6 +10,7 @@
  * Nothing is spawned, but each session reports the environment a real one's agent process would have run in.
  */
 import type { Environment } from '../login-env'
+import { SILENT_LOGGER, type Logger } from '../logging/logger'
 import type { AgentBackend, AgentSession, AgentSessionOptions } from './backend'
 import { ScriptedSession, type ScriptChooser } from './scripted-session'
 import type { AgentScript } from './scripts'
@@ -63,6 +64,7 @@ function chooser({ script, byFirstMessage = new Map() }: TestModeScripts): Scrip
 export function createTestModeAgentBackend(
   scripts: TestModeScripts,
   environment?: TestModeEnvironment,
+  log: Logger = SILENT_LOGGER,
 ): TestModeAgentBackend {
   let busy = 0
   let waiters: (() => void)[] = []
@@ -83,12 +85,13 @@ export function createTestModeAgentBackend(
         const error = new UnscriptedAgentError(
           `An agent session started in ${options.cwd} in a test mode, which never runs the real agent and has no agent script.`,
         )
-        console.error(`Glade test mode: ${error.message}`)
+        log.error('no agent script for a session', { cwd: options.cwd, error })
         throw error
       }
+      const { cwd, model, effort, resumeSessionId } = options
+      ;(options.log ?? log).info('scripted agent starting', { cwd, model, effort, resumeSessionId })
       if (environment !== undefined) void environment.env.then(environment.onSessionEnv)
       const choose = chooser(scripts)
-      const { resumeSessionId } = options
       const resumedFirst = resumeSessionId === null ? undefined : scripts.firstMessageOf?.(resumeSessionId)
       const script: ScriptChooser = resumedFirst === undefined ? choose : () => choose(resumedFirst)
       // A turn the agent starts on its own keeps the session busy, like a message sent.
