@@ -54,6 +54,7 @@ import type { TerminalOptions } from './bridge'
 import { spawnNodePty } from './terminal/node-pty'
 import type { SpawnPty } from './terminal/pty'
 import { loginShell, testShell } from './terminal/shell'
+import { backfillWorkspaceSelections } from './workspaces/workspaces'
 
 /** The `bg` design token, so the window never flashes white before the renderer paints. */
 const WINDOW_BACKGROUND = '#0A0B0F'
@@ -451,6 +452,8 @@ export function startApp({ createAgentBackend = createSdkBackend, spawnPty = spa
       runner.close()
       return
     }
+    // A database from before each workspace kept its own selection still has only the window's; carry it over.
+    backfillWorkspaceSelections(database.db)
 
     app.on('will-quit', () => {
       runner.close()

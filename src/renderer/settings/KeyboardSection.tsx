@@ -77,7 +77,7 @@ export function KeyboardSection(): React.JSX.Element {
     const { fixed } = commandDefinition(key.command)
     if (fixed !== undefined)
       return (
-        <Kbd key={key.command} title={FIXED_REASONS[fixed]}>
+        <Kbd key={key.command} className={styles.fixedKey} title={FIXED_REASONS[fixed]}>
           {keys}
         </Kbd>
       )

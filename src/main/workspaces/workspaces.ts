@@ -124,6 +124,21 @@ export function noteSelection(db: Database, entry: UiStateEntry): void {
   if (task !== undefined) setWorkspaceSelection(db, task.workspaceId, task.id)
 }
 
+/**
+ * Carries the selection over from before each workspace kept its own (migration 17): until then only the window's one
+ * selected task was stored, so after the upgrade no workspace had a selection until a task was selected again. Records
+ * that task as its workspace's selection when the workspace has none yet. Runs on every launch; once a workspace has a
+ * selection, or the selected task is gone or none is selected, it changes nothing.
+ */
+export function backfillWorkspaceSelections(db: Database): void {
+  db.prepare(
+    `INSERT INTO workspace_selections (workspace_id, task_id)
+    SELECT tasks.workspace_id, tasks.id FROM ui_state JOIN tasks ON tasks.id = ui_state.value
+    WHERE ui_state.key = ?
+      AND NOT EXISTS (SELECT 1 FROM workspace_selections WHERE workspace_selections.workspace_id = tasks.workspace_id)`,
+  ).run(UiStateKey.SelectedTaskId)
+}
+
 /** What removing a workspace needs: the database, the windows to tell, and the runner whose sessions it closes. */
 export interface WorkspaceRemovalContext {
   readonly db: Database
