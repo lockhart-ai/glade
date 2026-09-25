@@ -38,6 +38,7 @@ function task(id: string, updatedAt: number, change: Partial<Task> = {}): Task {
     asking: false,
     awaitingPermission: false,
     pause: null,
+    importedAt: null,
     ...change,
   }
 }
