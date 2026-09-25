@@ -36,7 +36,7 @@ const TOGGLES: Readonly<Record<PanelName, string>> = {
 const MIN_CHAT_HEIGHT = 80
 
 /** The window's outer padding (`--space-outer`). */
-const OUTER = 12
+const OUTER = 8
 
 /** How far down the window the traffic lights reach (`--title-bar-inset` below the top card's edge). */
 const TRAFFIC_LIGHTS_BOTTOM = OUTER + 16

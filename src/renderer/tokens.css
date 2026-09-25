@@ -57,8 +57,23 @@
   --font-size-label: 11px;
   --letter-spacing-label: 0.08em;
 
-  /* Shape and spacing */
-  --space-outer: 12px;
+  /*
+   * Spacing: one scale, and the insets built from it. Panels share one inset (--space-inset) from their edge to the
+   * cards, rows and fields inside them, and those items share one inner padding (--space-item), so their content lines
+   * up down a panel.
+   */
+  --space-2xs: 2px;
+  --space-xs: 4px;
+  --space-sm: 6px;
+  --space-md: 8px;
+  --space-lg: 12px;
+  --space-xl: 16px;
+  --space-2xl: 24px;
+  --space-outer: var(--space-md);
+  --space-inset: var(--space-md);
+  --space-item: var(--space-md);
+
+  /* Shape */
   --radius-card: 16px;
   --radius-nested: 12px;
   --radius-button: 8px;

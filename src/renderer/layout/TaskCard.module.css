@@ -1,9 +1,9 @@
 .task {
   min-height: 0;
   min-width: 0;
-  padding: var(--space-outer);
+  padding: var(--space-inset);
   display: flex;
-  gap: var(--space-outer);
+  gap: var(--space-inset);
 }
 
 .column {
@@ -12,7 +12,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-outer);
+  gap: var(--space-inset);
 }
 
 /*
@@ -20,7 +20,7 @@
  * reaching --title-bar-inset below the card's top edge. The column starts just below them.
  */
 .column.belowTrafficLights {
-  padding-top: calc(var(--title-bar-inset) - var(--space-outer) + 4px);
+  padding-top: calc(var(--title-bar-inset) - var(--space-inset) + var(--space-xs));
 }
 
 /*
@@ -50,7 +50,6 @@
 .inputBar {
   position: relative;
   flex-shrink: 0;
-  padding: 0 8px 8px;
 }
 
 /* Toasts stand clear of the input bar, over the end of the chat (docs/design/html/05-mark-done.html). */

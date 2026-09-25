@@ -3,10 +3,10 @@
   flex-grow: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px 10px;
+  padding: var(--space-lg) var(--space-inset);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-sm);
 }
 
 .empty {
@@ -24,7 +24,8 @@
   align-items: center;
   gap: 12px;
   margin: 0;
-  padding: 0 4px 8px;
+  /* In line with the rows' content, inside their 1px border. */
+  padding: 0 calc(var(--space-item) + 1px) var(--space-md);
   font-size: var(--font-size-secondary);
   color: var(--color-muted);
 }
@@ -81,7 +82,7 @@
   flex-direction: column;
   gap: 7px;
   width: 100%;
-  padding: 11px 12px;
+  padding: var(--space-md) var(--space-item);
   background: transparent;
   border: 0;
   border-radius: 10px;
