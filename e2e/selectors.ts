@@ -339,6 +339,19 @@ export function inputBar(page: Page) {
         .getByRole('button', { name: `${name} queued message` }),
     /** The field of the queued message being edited in place. */
     queuedEditor: bar.getByRole('textbox', { name: 'Queued message' }),
+    /** The images pasted into the message being written, as thumbnails above the field, in order. */
+    attachedImages: bar.getByRole('list', { name: 'Attached images' }).getByRole('img'),
+    /** An attached image's remove button, by its number. */
+    removeImage: (position: number) => bar.getByRole('button', { name: `Remove image ${String(position)}` }),
+    /** Why something pasted wasn't attached, one line each. */
+    refusals: bar.getByRole('alert'),
+    /** A queued message's images, by its number. */
+    queuedImages: (position: number) =>
+      bar
+        .getByRole('region', { name: 'Queued messages' })
+        .getByRole('listitem')
+        .nth(position - 1)
+        .getByRole('img'),
     /** The context meter, at the right of the settings row. */
     contextMeter: bar.getByTestId('context-meter-slot').getByRole('meter', { name: 'Context used' }),
     /** The button the context meter is, which opens its popover. */
