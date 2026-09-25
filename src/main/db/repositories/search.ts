@@ -49,7 +49,7 @@ const ID_SPAN = 1_000_000_000_000
  * Every matching task, best first, each with the document its snippet comes from. All in SQL, so however many fields
  * and messages match (a one-letter prefix matches most of a big workspace), only a row per task comes back. Each task
  * gets its best match's `FIELD_PRIORITY`, and its snippet key (`SNIPPET_ORDER` × `ID_SPAN` + id) picks its best
- * snippet, the latest of those as good.
+ * snippet, the latest of those as good. `scope` narrows the matches, e.g. to one workspace's.
  */
 function rankedSql(scope: string): string {
   return `
@@ -157,8 +157,6 @@ export function searchTaskIds(db: Database, workspaceId: string | null, text: st
   const query = ftsQuery(text)
   if (query === null) return []
   const rows =
-    workspaceId === null
-      ? db.prepare(RANKED_EVERYWHERE_SQL).all(query)
-      : db.prepare(RANKED_SQL).all(query, workspaceId)
+    workspaceId === null ? db.prepare(RANKED_EVERYWHERE_SQL).all(query) : db.prepare(RANKED_SQL).all(query, workspaceId)
   return rows.map((raw) => parseRanked(raw).taskId)
 }

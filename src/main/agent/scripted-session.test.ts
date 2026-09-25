@@ -18,7 +18,9 @@ import {
 import { AgentEventKind, createSdkMessageParser, TaskOutcome, type AgentEvent } from './events'
 import { answeredAfterRestart, COMPACT_COMMAND, RESUME_PROMPT } from './runner'
 import { NO_ONE_TO_ASK } from './sdk-backend'
+import { CONTROL_SERVER } from '../control/names'
 import {
+  controlToolName,
   gladeToolName,
   LAUNCHED_OUTPUT,
   REJECTED_TOOL_OUTPUT,
@@ -30,6 +32,7 @@ import {
   ask,
   background,
   compact,
+  controlTool,
   delay,
   emit,
   fail,
@@ -766,6 +769,117 @@ describe('ScriptedSession', () => {
       expect(played.events).toContainEqual(
         expect.objectContaining({ kind: AgentEventKind.ToolResult, output: NO_ONE_TO_ASK, isError: true }),
       )
+    })
+  })
+
+  describe('a control tool step', () => {
+    /** The inputs the fake control server's `create_task` was called with. */
+    let created: unknown[]
+
+    /** A stand-in for Glade's control server, with the real server's name and a `create_task` tool. */
+    function controlServer() {
+      return createSdkMcpServer({
+        name: CONTROL_SERVER,
+        tools: [
+          mcpTool('create_task', 'Create a task.', { workspaceId: z.string() }, (input) => {
+            created.push(input)
+            return Promise.resolve({ content: [{ type: 'text', text: '{"task":{"id":"t-1"}}' }] })
+          }),
+        ],
+      })
+    }
+
+    /** A session with both servers, in `permissionMode`, whose calls `decide` decides. */
+    function controlling(
+      permissionMode: PermissionMode,
+      decide?: (call: ToolPermissionCall) => Promise<ToolPermissionAnswer>,
+    ) {
+      return play([[init(), controlTool('make', 'create_task', { workspaceId: 'w-1' }), say('Made it.'), result()]], {
+        session: {
+          ...SESSION,
+          permissionMode,
+          mcpServers: { glade: gladeServer(), [CONTROL_SERVER]: controlServer() },
+          ...(decide === undefined ? {} : { onToolPermission: decide }),
+        },
+      })
+    }
+
+    beforeEach(() => {
+      created = []
+    })
+
+    it('calls the tool through its real handler, without asking, in Allow all', async () => {
+      const decide = vi.fn<(call: ToolPermissionCall) => Promise<ToolPermissionAnswer>>()
+      const played = controlling(PermissionMode.AllowAll, decide)
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      expect(decide).not.toHaveBeenCalled()
+      expect(created).toEqual([{ workspaceId: 'w-1' }])
+      expect(played.events.slice(1, 3)).toEqual([
+        expect.objectContaining({
+          kind: AgentEventKind.ToolCallStarted,
+          name: controlToolName('create_task'),
+          input: { workspaceId: 'w-1' },
+        }),
+        expect.objectContaining({ kind: AgentEventKind.ToolResult, output: '{"task":{"id":"t-1"}}', isError: false }),
+      ])
+    })
+
+    it('asks in the ask mode, saying the tool is on the in-process glade-control server, then runs it once allowed', async () => {
+      const calls: ToolPermissionCall[] = []
+      const played = controlling(PermissionMode.AskBeforeEdits, (call) => {
+        calls.push(call)
+        expect(created).toEqual([])
+        return Promise.resolve({ behavior: ToolPermissionBehavior.Allow, byUser: true })
+      })
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      expect(calls).toEqual([
+        expect.objectContaining({
+          toolName: 'mcp__glade-control__create_task',
+          mcpServer: { name: CONTROL_SERVER, source: 'sdk' },
+          input: { workspaceId: 'w-1' },
+        }),
+      ])
+      expect(created).toEqual([{ workspaceId: 'w-1' }])
+      expect(played.events).toContainEqual(expect.objectContaining({ kind: AgentEventKind.TurnFinished }))
+    })
+
+    it('plays the denial as the call’s error result, never running it, and the turn plays on', async () => {
+      const played = controlling(PermissionMode.AskBeforeEdits, () =>
+        Promise.resolve({ behavior: ToolPermissionBehavior.Deny, message: 'Not now.', byUser: true }),
+      )
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      expect(created).toEqual([])
+      expect(played.events).toContainEqual(
+        expect.objectContaining({ kind: AgentEventKind.ToolResult, output: 'Not now.', isError: true }),
+      )
+      expect(played.events).toContainEqual(expect.objectContaining({ kind: AgentEventKind.Text, text: 'Made it.' }))
+    })
+
+    it('never runs the call when the turn is interrupted while it waits', async () => {
+      // The runner withdraws the request when the SDK cancels the call; its answer comes too late to count.
+      const played = controlling(
+        PermissionMode.AskBeforeEdits,
+        (call) =>
+          new Promise((resolve) => {
+            call.signal.addEventListener('abort', () => {
+              resolve({ behavior: ToolPermissionBehavior.Allow, byUser: false })
+            })
+          }),
+      )
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      await played.session.interrupt()
+      await flush()
+
+      expect(created).toEqual([])
+      expect(played.events.at(-1)).toMatchObject({ kind: AgentEventKind.TurnFinished, terminalReason: 'aborted_tools' })
     })
   })
 

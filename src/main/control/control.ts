@@ -81,14 +81,22 @@ export function createControl(options: ControlOptions): Control {
   const log = options.log ?? SILENT_LOGGER
   const limiter = options.limiter ?? createRateLimiter()
   const tools = options.tools ?? CONTROL_TOOLS
-  const now = options.now ?? Date.now
+  const now = options.now ?? (() => Date.now())
   const service = createControlService(options)
   const byName = new Map(tools.map((tool) => [tool.name as string, tool]))
 
   /** Runs a call through the switch, the rate limit, the input check and the self-guard. */
-  const run = async (tool: ControlTool, caller: ControlCaller, input: unknown, attempt: Attempt): Promise<ControlResult> => {
+  const run = async (
+    tool: ControlTool,
+    caller: ControlCaller,
+    input: unknown,
+    attempt: Attempt,
+  ): Promise<ControlResult> => {
     if (!getSettings(db).controlEnabled) {
-      throw new ControlError(ControlErrorCode.Disabled, 'Agents may not control Glade: turn it on in Settings › Control')
+      throw new ControlError(
+        ControlErrorCode.Disabled,
+        'Agents may not control Glade: turn it on in Settings › Control',
+      )
     }
     const rate = limiter.take(callerKey(caller), tool.access)
     if (!rate.ok) {

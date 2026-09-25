@@ -33,7 +33,7 @@ export interface RateLimiterOptions {
 export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter {
   const limits = options.limits ?? CONTROL_RATE_LIMITS
   const windowMs = options.windowMs ?? RATE_WINDOW_MS
-  const now = options.now ?? Date.now
+  const now = options.now ?? (() => Date.now())
   const calls = new Map<string, number[]>()
   return {
     take(caller, access) {

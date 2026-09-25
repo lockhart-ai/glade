@@ -130,7 +130,19 @@ export function workspaceSummary(workspace: Workspace, counts: TaskCounts = NO_T
 
 export function taskSummary(task: Task): TaskSummary {
   const { id, workspaceId, title, status, state, activity, pinned, unread, updatedAt, doneAt } = task
-  return { id, workspaceId, title, status, state, activity, needsYou: needsYou(task), pinned, unread, updatedAt, doneAt }
+  return {
+    id,
+    workspaceId,
+    title,
+    status,
+    state,
+    activity,
+    needsYou: needsYou(task),
+    pinned,
+    unread,
+    updatedAt,
+    doneAt,
+  }
 }
 
 /** A task in full, in its workspace. */

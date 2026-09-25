@@ -18,10 +18,12 @@ import { getUiState, setUiState } from '../db/repositories/ui-state'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { updateSettings } from '../db/repositories/settings'
 import {
+  changeTask,
   createTask,
   deleteTask,
   markTaskDone,
   reopenTask,
+  requireTask,
   updateTaskFromAgent,
   updateTaskFromRunner,
   updateTaskFromUser,
@@ -111,6 +113,22 @@ describe('createTask', () => {
     const task = createTask(context, workspace.id)
 
     expect(task).toMatchObject({ model: 'claude-haiku-4-5', effort: Effort.Low })
+  })
+
+  it('starts a task with the fields it is given in place of the defaults, in one write', () => {
+    const fields = {
+      title: 'Release notes',
+      objective: 'Notes for 2.4.',
+      model: 'claude-haiku-4-5',
+      effort: Effort.Low,
+      permissionMode: PermissionMode.AskBeforeEdits,
+    }
+
+    const task = createTask(context, workspace.id, fields)
+
+    expect(task).toMatchObject({ ...fields, status: '', statusUpdatedAt: null, state: TaskState.Active })
+    expect(getTask(database.db, task.id)).toEqual(task)
+    expect(events).toEqual([{ type: EventType.TaskUpdated, task }])
   })
 
   it('refuses a workspace that does not exist', () => {
@@ -238,6 +256,55 @@ describe('updating fields', () => {
       updatedAt: 7_000,
     })
     expect(events).toEqual([{ type: EventType.TaskUpdated, task: updated }])
+  })
+})
+
+describe('changeTask', () => {
+  it("changes the user's fields and the objective and status in one write, and tells a live session a new mode", () => {
+    const task = busyTask()
+    vi.setSystemTime(7_000)
+    const runner = { applyPermissionMode: vi.fn() }
+
+    const changed = changeTask({ ...context, runner }, task.id, {
+      title: 'Rate limits',
+      objective: 'Limit each key.',
+      status: 'Deployed.',
+      permissionMode: PermissionMode.AskBeforeEdits,
+    })
+
+    expect(changed).toEqual({
+      ...task,
+      title: 'Rate limits',
+      objective: 'Limit each key.',
+      status: 'Deployed.',
+      statusUpdatedAt: 7_000,
+      permissionMode: PermissionMode.AskBeforeEdits,
+      updatedAt: 7_000,
+    })
+    expect(events).toEqual([{ type: EventType.TaskUpdated, task: changed }])
+    expect(runner.applyPermissionMode).toHaveBeenCalledWith(task.id)
+  })
+
+  it('leaves a live session alone when the mode is not in the change', () => {
+    const task = busyTask()
+    const runner = { applyPermissionMode: vi.fn() }
+
+    changeTask({ ...context, runner }, task.id, { pinned: true })
+
+    expect(runner.applyPermissionMode).not.toHaveBeenCalled()
+  })
+
+  it('refuses a task that does not exist, changing nothing', () => {
+    const runner = { applyPermissionMode: vi.fn() }
+
+    expectFailure(
+      () => changeTask({ ...context, runner }, 'gone', { title: 'x' }),
+      BridgeErrorCode.NotFound,
+      'No task gone',
+    )
+    expectFailure(() => requireTask(database.db, 'gone'), BridgeErrorCode.NotFound, 'No task gone')
+    expect(events).toEqual([])
+    expect(runner.applyPermissionMode).not.toHaveBeenCalled()
   })
 })
 

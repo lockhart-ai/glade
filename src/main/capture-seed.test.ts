@@ -33,6 +33,8 @@ import { getUiState } from './db/repositories/ui-state'
 import { listWorkspaces } from './db/repositories/workspaces'
 import { openTestDatabase, type TestDatabase } from './db/repositories/test-database'
 import { DEFAULT_SETTINGS } from '../shared/settings'
+import { DRIVES_GLADE } from './agent/scripts'
+import { getSettings } from './db/repositories/settings'
 
 const FIXTURES = join(import.meta.dirname, '..', '..', 'scripts', 'fixtures')
 const FIXTURE = join(FIXTURES, 'task-workspace.json')
@@ -174,6 +176,20 @@ describe('readSeed', () => {
     expect(seed.tasks[0]?.toolEvents).toHaveLength(11)
   })
 
+  it('reads the e2e control fixture: the switch on, and the ids its agent script names', () => {
+    const seed = readSeed(join(import.meta.dirname, '..', '..', 'e2e', 'seeds', 'control.json'))
+    expect(seed.settings).toEqual({ controlEnabled: true })
+    expect(seed.workspace.id).toBe(DRIVES_GLADE.workspaceId)
+    expect(seed.tasks[0]?.id).toBe(DRIVES_GLADE.target.id)
+  })
+
+  it('refuses settings it does not know, or of the wrong kind', () => {
+    expect(() => readSeed(write(JSON.stringify({ ...SEED, settings: { controlEnabled: 'yes' } })))).toThrow(
+      /is invalid: /,
+    )
+    expect(() => readSeed(write(JSON.stringify({ ...SEED, settings: { theme: 'dark' } })))).toThrow(/is invalid: /)
+  })
+
   it('refuses a fixture that is missing or not JSON', () => {
     expect(() => readSeed(join(folder, 'missing.json'))).toThrow(/^the seed .*missing\.json can't be read: /)
     expect(() => readSeed(write('{'))).toThrow(/can't be read: /)
@@ -303,6 +319,35 @@ describe('applySeed', () => {
     expect(getOpenFiles(db, byTitle['Shows the first'] ?? '').activePath).toBe('a.md')
     expect(getOpenFiles(db, byTitle['Opens none'] ?? '').activePath).toBeNull()
     expect(getUiState(db, UiStateKey.RightPanelWidth)).toBe('780')
+  })
+
+  it('changes the settings it gives, and gives the workspace and tasks the ids it names', () => {
+    const { db } = database
+
+    applySeed(db, {
+      ...SEED,
+      settings: { controlEnabled: true, defaultEffort: DEFAULT_SETTINGS.defaultEffort },
+      workspace: { ...SEED.workspace, id: 'workspace-1' },
+      tasks: [
+        { id: 'task-1', title: 'Named', minutesAgo: 1 },
+        { title: 'Unnamed', minutesAgo: 0 },
+      ],
+    })
+
+    expect(getSettings(db)).toEqual({ ...DEFAULT_SETTINGS, controlEnabled: true })
+    expect(listWorkspaces(db).map(({ id }) => id)).toEqual(['workspace-1'])
+    const ids = listTasks(db, 'workspace-1').map(({ id }) => id)
+    expect(ids).toHaveLength(2)
+    expect(ids[1]).toBe('task-1')
+    expect(ids[0]).not.toBe('task-1')
+  })
+
+  it('leaves the settings alone when it gives none', () => {
+    const { db } = database
+
+    applySeed(db, SEED)
+
+    expect(getSettings(db)).toEqual(DEFAULT_SETTINGS)
   })
 
   it('selects nothing unless a task asks to be', () => {

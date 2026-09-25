@@ -67,7 +67,7 @@ function decode(text: string): Cursor {
   return parsed.data
 }
 
-export function createListings(now: () => number = Date.now): Listings {
+export function createListings(now: () => number = () => Date.now()): Listings {
   const listings = new Map<string, Listing>()
 
   const forget = (): void => {

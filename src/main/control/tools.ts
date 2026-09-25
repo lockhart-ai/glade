@@ -20,8 +20,7 @@ export enum ControlCallerKind {
 }
 
 export type ControlCaller =
-  | { readonly kind: ControlCallerKind.Task; readonly taskId: string }
-  | { readonly kind: ControlCallerKind.Http }
+  { readonly kind: ControlCallerKind.Task; readonly taskId: string } | { readonly kind: ControlCallerKind.Http }
 
 /** The caller as the rate limits and the log know it: the calling task's id, or `http`. */
 export function callerKey(caller: ControlCaller): string {
@@ -233,8 +232,8 @@ export const TASK_TOOLS: readonly ControlTool[] = [
   defineControlTool({
     name: ControlToolName.GetTask,
     description:
-      "Read a task: everything its header and sidebar row show (title, objective, status, state, what its agent is " +
-      "doing, model, effort, permission mode, context used, error, pause, queue) and its number of turns.",
+      'Read a task: everything its header and sidebar row show (title, objective, status, state, what its agent is ' +
+      'doing, model, effort, permission mode, context used, error, pause, queue) and its number of turns.',
     input: byId,
     target: taskOf,
     run: ({ id }, { service }) => ({ task: service.getTask(id) }),
@@ -260,7 +259,7 @@ export const TASK_TOOLS: readonly ControlTool[] = [
     name: ControlToolName.CreateTask,
     description:
       'Create a task in a workspace, as New task does. With a message, sends it, which starts the agent; without ' +
-      "one, the task waits. Title and objective, if given, are set now; model, effort and permission mode default to " +
+      'one, the task waits. Title and objective, if given, are set now; model, effort and permission mode default to ' +
       "Settings'.",
     input: createTaskInput,
     text: (input) => input.message ?? null,
@@ -278,7 +277,7 @@ export const TASK_TOOLS: readonly ControlTool[] = [
   defineControlTool({
     name: ControlToolName.SendMessage,
     description:
-      "Send a task a message, as its input bar does: sent when its agent is idle (reopening a done task), queued " +
+      'Send a task a message, as its input bar does: sent when its agent is idle (reopening a done task), queued ' +
       'while it works, a permission card waits or it is paused, and taken as the answer when its agent has asked ' +
       'questions. Says which it was. A task cannot message itself.',
     input: sendMessageInput,
