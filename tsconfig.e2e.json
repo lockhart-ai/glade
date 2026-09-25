@@ -36,6 +36,7 @@
     "src/shared/settings.ts",
     "src/shared/ready.ts",
     "src/shared/search.ts",
-    "src/shared/terminal.ts"
+    "src/shared/terminal.ts",
+    "src/renderer/tokens.ts"
   ]
 }

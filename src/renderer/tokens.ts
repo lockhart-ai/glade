@@ -27,3 +27,20 @@ export const colors = {
 } as const
 
 export type ColorToken = keyof typeof colors
+
+/** The colour tokens a scroll bar's thumb takes: at rest, under the pointer, and while it's dragged. */
+export interface ScrollbarColors {
+  readonly thumb: ColorToken
+  readonly thumbHover: ColorToken
+  readonly thumbActive: ColorToken
+}
+
+/**
+ * The scroll bar thumb's colours (tokens.css's --scrollbar-thumb*), by token. The terminal takes them as hex values:
+ * xterm.js draws its scroll bar itself, from its theme rather than from CSS. tokens.test.ts checks tokens.css agrees.
+ */
+export const scrollbarTokens: ScrollbarColors = {
+  thumb: '--color-strong',
+  thumbHover: '--color-slate',
+  thumbActive: '--color-faint',
+}

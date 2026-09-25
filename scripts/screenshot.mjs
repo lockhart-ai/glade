@@ -4,6 +4,7 @@
 //   npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <file base name>]
 //                         [--seed <fixture.json>] [--agent-script <name> [--message <first message>]]
 //                         [--press <key> ...] [--click <selector> ...] [--plugins <folder> ...]
+//                         [--classic-scrollbars]
 //
 // With --press (e.g. `--press Meta+,` for the Settings modal), the app presses each key in the page, in order, once it's
 // ready and before capturing: a key name as KeyboardEvent.key has it, after any of Meta+, Shift+, Alt+ and Control+.
@@ -14,6 +15,10 @@
 // With --plugins, the app starts with each folder's sample plugins (scripts/fixtures/plugins/valid and invalid)
 // copied into its plugins folder. The first enabled one shows beside the terminal, its view pasted into the capture:
 // e2e/plugins has the fixture plugin, which lists Glade's messages.
+//
+// With --classic-scrollbars, the app draws macOS's legacy scroll bars, which always show and take room, as it does with
+// System Settings' "Show scroll bars: Always" or a mouse attached, rather than the overlay ones a trackpad gets. It
+// passes `-AppleShowScrollBars Always` on the command line, which macOS reads as that user default for this run only.
 //
 // With --agent-script, the capture shows a live task: the app makes a workspace and a task, sends it the first
 // message, and lets the named agent script (src/main/agent/scripts.ts: simple-reply, multi-tool-turn, long-running,
@@ -41,7 +46,7 @@ function fail(message) {
   console.error(
     'usage: npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <name>] ' +
       '[--seed <fixture>] [--agent-script <name> [--message <text>]] [--press <key> ...] [--click <selector> ...] ' +
-      '[--plugins <folder> ...]',
+      '[--plugins <folder> ...] [--classic-scrollbars]',
   )
   process.exit(2)
 }
@@ -84,6 +89,7 @@ try {
       press: { type: 'string', multiple: true },
       click: { type: 'string', multiple: true },
       plugins: { type: 'string', multiple: true },
+      'classic-scrollbars': { type: 'boolean', default: false },
     },
   }))
 } catch (error) {
@@ -121,7 +127,9 @@ const env = { ...process.env, GLADE_CAPTURE: JSON.stringify({ ...spec, userData 
 delete env.ELECTRON_RENDERER_URL
 delete env.ELECTRON_RUN_AS_NODE
 const electron = createRequire(import.meta.url)('electron')
-const run = spawnSync(electron, [TEST_MAIN], {
+// macOS reads `-<default> <value>` arguments as user defaults for the process (its argument domain), over the system's.
+const scrollbarArgs = values['classic-scrollbars'] ? ['-AppleShowScrollBars', 'Always'] : []
+const run = spawnSync(electron, [TEST_MAIN, ...scrollbarArgs], {
   cwd: ROOT,
   env,
   stdio: 'inherit',
