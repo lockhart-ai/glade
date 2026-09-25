@@ -14,7 +14,6 @@ import { sampleWorkspace } from '../store/test-bridge'
 import { AppShell, BottomBar, RightPanel, Sidebar, SidebarHeader, TaskCard, TaskHeader, type AppShellProps } from '.'
 import appShellStyles from './AppShell.module.css'
 import bottomBarStyles from './BottomBar.module.css'
-import taskCardStyles from './TaskCard.module.css'
 
 /** The sizes and handlers every `AppShell` takes, for tests that aren't about them. */
 const SIZES = {
@@ -56,7 +55,9 @@ describe('AppShell', () => {
     expect(screen.getByText('Sidebar slot')).toBeInTheDocument()
     expect(screen.getByText('Task slot')).toBeInTheDocument()
     expect(screen.getByText('Bottom slot')).toBeInTheDocument()
-    expect(screen.getByTestId('window-drag-strip')).toBeEmptyDOMElement()
+    // The title bar row holds nothing: the traffic lights are the window's own.
+    expect(screen.getByTestId('window-title-bar')).toBeEmptyDOMElement()
+    expect(screen.getByTestId('window-title-bar')).toHaveClass(moduleClass(appShellStyles, 'titleBar'))
     expect(screen.getByText('Task slot').parentElement).not.toHaveClass(moduleClass(appShellStyles, 'full'))
     expect(screen.getByText('Bottom slot').parentElement).not.toHaveClass(moduleClass(appShellStyles, 'collapsed'))
   })
@@ -243,12 +244,12 @@ describe('AppShell', () => {
 })
 
 describe('Sidebar', () => {
-  it('is a navigation landmark with a clear strip under the traffic lights', () => {
+  it('is a navigation landmark, its content from the top: the window’s title bar row clears the traffic lights', () => {
     render(<Sidebar>Tasks list</Sidebar>)
 
     const nav = screen.getByRole('navigation', { name: 'Tasks' })
     expect(nav).toHaveTextContent('Tasks list')
-    expect(within(nav).getByTestId('sidebar-title-bar')).toBeEmptyDOMElement()
+    expect(nav.firstElementChild).toHaveTextContent('Tasks list')
   })
 })
 
@@ -300,9 +301,6 @@ describe('TaskCard', () => {
     expect(within(main).getByTestId('input-bar')).toHaveTextContent('Input slot')
     expect(within(main).getByText('Panel slot')).toBeInTheDocument()
     expect(within(main).queryByTestId('task-title-bar')).toBeNull()
-    expect(within(main).getByText('Header slot').parentElement).not.toHaveClass(
-      moduleClass(taskCardStyles, 'belowTrafficLights'),
-    )
   })
 
   it('shows a title row above the header while it is given one', () => {
@@ -310,7 +308,6 @@ describe('TaskCard', () => {
       <ToastProvider>
         <TaskCard
           titleBar={<button type="button">Show task list</button>}
-          clearTrafficLights
           header={<p>Header slot</p>}
           chat={null}
           inputBar={null}
@@ -322,7 +319,6 @@ describe('TaskCard', () => {
     const titleBar = screen.getByTestId('task-title-bar')
     expect(within(titleBar).getByRole('button', { name: 'Show task list' })).toBeInTheDocument()
     expect(titleBar.compareDocumentPosition(screen.getByText('Header slot'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
-    expect(titleBar.parentElement).toHaveClass(moduleClass(taskCardStyles, 'belowTrafficLights'))
   })
 
   it('shows toasts above the input bar', () => {
