@@ -97,7 +97,7 @@ export function createTestModeAgentBackend(scripts: TestModeScripts): TestModeAg
           session.configure(settings)
         },
         interrupt: () => session.interrupt(),
-        stopTask: () => session.stopTask(),
+        stopTask: (sdkTaskId) => session.stopTask(sdkTaskId),
         close: () => {
           session.close()
         },

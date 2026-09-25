@@ -50,6 +50,16 @@ export enum AgentEventKind {
    * and the `Agent` tool call that started it.
    */
   SubagentStarted = 'subagent_started',
+  /**
+   * A subagent was moved to the background after it started in the foreground (`system/task_updated` with
+   * `patch.is_backgrounded`): its `Agent` call returns at once, and the subagent carries on.
+   */
+  SubagentBackgrounded = 'subagent_backgrounded',
+  /**
+   * A task started by a tool call ended (`system/task_notification`): for a background subagent, this, not its `Agent`
+   * call's result, is when it finished (`docs/sdk-notes.md`, "Background subagents").
+   */
+  TaskFinished = 'task_finished',
 }
 
 export interface SessionStartedEvent {
@@ -81,6 +91,11 @@ export interface ToolResultEvent {
   /** The result's text. */
   readonly output: string
   readonly isError: boolean
+  /**
+   * Whether the result only says a background subagent was launched (`tool_use_result.status: async_launched`): the
+   * call returned, but the subagent carries on until its `TaskFinished`.
+   */
+  readonly launched: boolean
 }
 
 export interface ContextUsedEvent {
@@ -189,6 +204,36 @@ export interface SubagentStartedEvent {
   readonly sdkTaskId: string
   /** The `Agent` tool call that started it. */
   readonly toolUseId: string
+  /**
+   * Whether it's a subagent running in the background (`is_backgrounded`, `task_type: local_agent`): its `Agent` call
+   * returns at once, and it runs until its `TaskFinished`.
+   */
+  readonly background: boolean
+}
+
+export interface SubagentBackgroundedEvent {
+  readonly kind: AgentEventKind.SubagentBackgrounded
+  /** The SDK's id for the subagent's task. */
+  readonly sdkTaskId: string
+}
+
+/** How a task started by a tool call ended (the SDK's `task_notification.status`). */
+export enum TaskOutcome {
+  Completed = 'completed',
+  Failed = 'failed',
+  /** Stopped with `stopTask` (Stop subagent). */
+  Stopped = 'stopped',
+}
+
+export interface TaskFinishedEvent {
+  readonly kind: AgentEventKind.TaskFinished
+  /** The SDK's id for the task. */
+  readonly sdkTaskId: string
+  /** The tool call that started it. */
+  readonly toolUseId: string
+  readonly outcome: TaskOutcome
+  /** What it came to: a subagent's final reply, or what failed. */
+  readonly summary: string
 }
 
 /** Everything the runner reacts to. */
@@ -207,6 +252,8 @@ export type AgentEvent =
   | ApiErrorEvent
   | RateLimitEvent
   | SubagentStartedEvent
+  | SubagentBackgroundedEvent
+  | TaskFinishedEvent
 
 /** Where parsing reports what it drops. */
 export interface AgentLog {
@@ -248,7 +295,30 @@ const taskStartedMessage = z.looseObject({
   subtype: z.literal('task_started'),
   task_id: z.string().min(1),
   tool_use_id: z.string().min(1).optional(),
+  // Anything but a clear "a subagent, in the background" is taken as a task its call waits on, as before.
+  task_type: z.string().optional().catch(undefined),
+  is_backgrounded: z.boolean().optional().catch(undefined),
 })
+
+const taskUpdatedMessage = z.looseObject({
+  type: z.literal('system'),
+  subtype: z.literal('task_updated'),
+  task_id: z.string().min(1),
+  patch: z.looseObject({ is_backgrounded: z.boolean().optional().catch(undefined) }),
+})
+
+// Only a task started by a tool call can be matched to its row; a status Glade doesn't know drops the message.
+const taskNotificationMessage = z.looseObject({
+  type: z.literal('system'),
+  subtype: z.literal('task_notification'),
+  task_id: z.string().min(1),
+  tool_use_id: z.string().min(1).optional(),
+  status: z.enum(TaskOutcome),
+  summary: z.string().catch(''),
+})
+
+/** The SDK's own account of a tool call's result, beside its content: only whether it launched a subagent matters. */
+const toolUseResult = z.looseObject({ status: z.unknown().optional() })
 
 const tokenCount = z.number().int().nonnegative()
 
@@ -322,6 +392,7 @@ const userMessage = z.looseObject({
   // Replays of earlier messages, when a session asks for them, aren't news.
   isReplay: z.boolean().optional(),
   message: z.looseObject({ content: z.union([z.string(), z.array(block)]) }),
+  tool_use_result: toolUseResult.optional().catch(undefined),
 })
 
 // Every field is optional or falls back: see the module comment.
@@ -428,6 +499,8 @@ function resultText(content: string | readonly z.infer<typeof block>[] | undefin
 function fromUser(message: z.infer<typeof userMessage>, log: AgentLog): AgentEvent[] {
   const { content } = message.message
   if (message.isReplay === true || typeof content === 'string') return []
+  // The SDK's account of the result belongs to the message's one tool result.
+  const launched = message.tool_use_result?.status === 'async_launched'
   return content.flatMap((raw): AgentEvent[] => {
     if (raw.type !== 'tool_result') return []
     const result = toolResultBlock.safeParse(raw)
@@ -442,6 +515,7 @@ function fromUser(message: z.infer<typeof userMessage>, log: AgentLog): AgentEve
         toolUseId: tool_use_id,
         output: resultText(output),
         isError: is_error ?? false,
+        launched,
       },
     ]
   })
@@ -486,7 +560,18 @@ function fromResult(message: z.infer<typeof resultMessage>): AgentEvent[] {
 
 function fromTaskStarted(message: z.infer<typeof taskStartedMessage>): AgentEvent[] {
   const { task_id: sdkTaskId, tool_use_id: toolUseId } = message
-  return toolUseId === undefined ? [] : [{ kind: AgentEventKind.SubagentStarted, sdkTaskId, toolUseId }]
+  const background = message.task_type === 'local_agent' && message.is_backgrounded === true
+  return toolUseId === undefined ? [] : [{ kind: AgentEventKind.SubagentStarted, sdkTaskId, toolUseId, background }]
+}
+
+function fromTaskUpdated(message: z.infer<typeof taskUpdatedMessage>): AgentEvent[] {
+  if (message.patch.is_backgrounded !== true) return []
+  return [{ kind: AgentEventKind.SubagentBackgrounded, sdkTaskId: message.task_id }]
+}
+
+function fromTaskNotification(message: z.infer<typeof taskNotificationMessage>): AgentEvent[] {
+  const { task_id: sdkTaskId, tool_use_id: toolUseId, status: outcome, summary } = message
+  return toolUseId === undefined ? [] : [{ kind: AgentEventKind.TaskFinished, sdkTaskId, toolUseId, outcome, summary }]
 }
 
 /** Parses `raw` with `schema`, or logs why it couldn't and gives nothing. */
@@ -523,6 +608,12 @@ export function createSdkMessageParser(log: AgentLog): (raw: unknown) => AgentEv
         if (subtype === 'api_retry') return parsed(apiRetryMessage, raw, log, 'system/api_retry', fromApiRetry)
         if (subtype === 'task_started') {
           return parsed(taskStartedMessage, raw, log, 'system/task_started', fromTaskStarted)
+        }
+        if (subtype === 'task_updated') {
+          return parsed(taskUpdatedMessage, raw, log, 'system/task_updated', fromTaskUpdated)
+        }
+        if (subtype === 'task_notification') {
+          return parsed(taskNotificationMessage, raw, log, 'system/task_notification', fromTaskNotification)
         }
         if (subtype === 'compact_boundary') {
           return parsed(compactBoundaryMessage, raw, log, 'system/compact_boundary', fromCompactBoundary)

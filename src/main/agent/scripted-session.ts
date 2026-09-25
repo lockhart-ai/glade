@@ -16,6 +16,9 @@
  *   `aborted_streaming`).
  * - A `Wake` step has the agent start a turn of its own later, with no message sent (see `ScriptStepKind.Wake`). It
  *   waits for the turn playing to end, like a message sent meanwhile, and a message sent while it plays is folded in.
+ * - A `Background` step starts a subagent in the background (see `ScriptStepKind.Background`): its `Agent` call returns
+ *   at once, and the subagent plays its steps alongside the session's turns, until it ends and notifies the agent, which
+ *   may then start a turn of its own. `stopTask` stops it by its task id; closing the session stops it without a word.
  * - A `Fail` step kills the session: its message stream throws, and it plays nothing more.
  * - The script can be picked by the session's first message (a `ScriptChooser`), so different tasks can play different
  *   scripts. A chooser that has none for it kills the session as a `Fail` step would.
@@ -33,6 +36,7 @@ import {
   ScriptStepKind,
   type AgentScript,
   type AskStep,
+  type BackgroundStep,
   type CompactStep,
   type ScriptStep,
   type ScriptTurn,
@@ -93,6 +97,14 @@ const TURN_COST_USD = 0.0285
 export const REJECTED_TOOL_OUTPUT =
   "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed."
 
+/** The text of a background subagent's `Agent` call result (`docs/sdk-notes.md`, "Background subagents"). */
+export const LAUNCHED_OUTPUT =
+  'Async agent launched successfully. The agent is working in the background. You will be notified automatically ' +
+  'when it completes.'
+
+/** How many tokens a background subagent says it has used, per tool call it has made. Made up. */
+const SUBAGENT_TOKENS_PER_CALL = 1_150
+
 /** The session failed or was closed: stop playing anything. */
 class Stopped extends Error {}
 
@@ -123,6 +135,42 @@ interface TurnState {
   readonly folded: ScriptTurn[]
 }
 
+/** A new turn's state: see `TurnState`. */
+function newTurnState(key: string, uuid: string | null): TurnState {
+  let interrupt = (): void => undefined
+  const interrupted = new Promise<void>((resolve) => {
+    interrupt = resolve
+  })
+  const turn: TurnState = {
+    key,
+    woken: uuid === null,
+    startedAt: Date.now(),
+    interrupted,
+    interrupt: () => {
+      turn.isInterrupted = true
+      interrupt()
+    },
+    isInterrupted: false,
+    messageId: 1,
+    afterResult: false,
+    running: new Map(),
+    lastText: '',
+    idle: false,
+    uuids: uuid === null ? [] : [uuid],
+    folded: [],
+  }
+  return turn
+}
+
+/** A background subagent, as the SDK names it. */
+interface BackgroundTask {
+  /** The SDK's id for its task. */
+  readonly taskId: string
+  /** Its `Agent` call's SDK id. */
+  readonly agentId: string
+  readonly description: string
+}
+
 export class ScriptedSession implements AgentSession {
   private readonly stream = new AsyncQueue<unknown>()
   readonly messages: AsyncIterable<unknown> = this.stream
@@ -132,6 +180,10 @@ export class ScriptedSession implements AgentSession {
   private turnsRun = 0
   /** How many turns the agent has started on its own. */
   private wakes = 0
+  /** How many subagents the session has started in the background. */
+  private backgrounds = 0
+  /** The background subagents playing, by their SDK task id: each plays as a turn of its own, to interrupt. */
+  private readonly running = new Map<string, TurnState>()
   /** The script the session plays: picked on its first message. */
   private script: AgentScript | null = null
   private turn: TurnState | null = null
@@ -200,14 +252,19 @@ export class ScriptedSession implements AgentSession {
     return Promise.resolve()
   }
 
-  /** A script's subagents play out whatever happens: there's no stopping one on its own. */
-  stopTask(): Promise<void> {
+  /**
+   * Stops a background subagent by its task id. A foreground subagent in a script plays out whatever happens: there's
+   * no stopping one on its own.
+   */
+  stopTask(sdkTaskId: string): Promise<void> {
+    this.running.get(sdkTaskId)?.interrupt()
     return Promise.resolve()
   }
 
   close(): void {
     this.stopped = true
     this.turn?.interrupt()
+    for (const subagent of this.running.values()) subagent.interrupt()
     this.stream.end()
     void this.tools.close()
   }
@@ -222,28 +279,7 @@ export class ScriptedSession implements AgentSession {
       this.options.onIdle?.()
       return
     }
-    let interrupt = (): void => undefined
-    const interrupted = new Promise<void>((resolve) => {
-      interrupt = resolve
-    })
-    const turn: TurnState = {
-      key,
-      woken: uuid === null,
-      startedAt: Date.now(),
-      interrupted,
-      interrupt: () => {
-        turn.isInterrupted = true
-        interrupt()
-      },
-      isInterrupted: false,
-      messageId: 1,
-      afterResult: false,
-      running: new Map(),
-      lastText: '',
-      idle: false,
-      uuids: uuid === null ? [] : [uuid],
-      folded: [],
-    }
+    const turn = newTurnState(key, uuid)
     this.turn = turn
     // Functions, so the checks aren't narrowed away: an interrupt or a close can land during any await.
     const wasInterrupted = (): boolean => turn.isInterrupted
@@ -338,6 +374,9 @@ export class ScriptedSession implements AgentSession {
       case ScriptStepKind.Wake:
         this.wake(turn, step)
         return
+      case ScriptStepKind.Background:
+        this.background(turn, step, uuid)
+        return
       case ScriptStepKind.LimitReached:
         this.push({
           type: 'rate_limit_event',
@@ -393,6 +432,138 @@ export class ScriptedSession implements AgentSession {
       output_file: `tasks/${taskId}.output`,
       summary,
       uuid: randomUUID(),
+    })
+  }
+
+  /**
+   * Starts a subagent in the background (see `ScriptStepKind.Background`): the `Agent` call, its `task_started` and its
+   * "launched" result now, then the subagent plays on its own. It keeps the session busy, like a `Wake`, until it ends
+   * and the turn it starts, if any, has played.
+   */
+  private background(turn: TurnState, step: BackgroundStep, uuid: string | null): void {
+    this.backgrounds += 1
+    const taskId = `a${this.idPrefix}${String(this.backgrounds)}`
+    const input: ToolInput = { ...step.input, run_in_background: true }
+    this.toolUse(turn, step.id, 'Agent', input, null, uuid)
+    const agentId = this.sdkToolId(turn, step.id)
+    turn.running.delete(step.id)
+    const description = typeof input.description === 'string' ? input.description : ''
+    this.push({
+      type: 'system',
+      subtype: 'task_started',
+      task_id: taskId,
+      tool_use_id: agentId,
+      description,
+      subagent_type: input.subagent_type ?? 'general-purpose',
+      is_backgrounded: true,
+      spawn_depth: 1,
+      task_type: 'local_agent',
+      prompt: input.prompt,
+      uuid: randomUUID(),
+    })
+    this.push({
+      type: 'user',
+      parent_tool_use_id: null,
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: agentId, content: [{ type: 'text', text: LAUNCHED_OUTPUT }] }],
+      },
+      tool_use_result: { isAsync: true, status: 'async_launched', agentId: taskId, description, prompt: input.prompt },
+    })
+    turn.afterResult = true
+    this.options.onWake?.()
+    const subagent = newTurnState(turn.key, null)
+    // Its messages are its own: numbered apart from the turn's, which carries on meanwhile.
+    subagent.messageId = 100
+    this.running.set(taskId, subagent)
+    void this.playBackground(subagent, step, { taskId, agentId, description })
+  }
+
+  /** Plays a background subagent's steps, then ends it (see `background`). */
+  private async playBackground(subagent: TurnState, step: BackgroundStep, task: BackgroundTask): Promise<void> {
+    let toolUses = 0
+    // A function, so the check isn't narrowed away: Stop subagent can land during any await.
+    const wasStopped = (): boolean => subagent.isInterrupted
+    try {
+      for (const next of step.steps) {
+        if (wasStopped()) break
+        await this.step(subagent, next, null)
+        if (next.kind !== ScriptStepKind.ToolUse || wasStopped()) continue
+        toolUses += 1
+        this.push({
+          type: 'system',
+          subtype: 'task_progress',
+          task_id: task.taskId,
+          tool_use_id: task.agentId,
+          description: task.description,
+          usage: {
+            total_tokens: SUBAGENT_TOKENS_PER_CALL * toolUses,
+            tool_uses: toolUses,
+            duration_ms: Date.now() - subagent.startedAt,
+          },
+          last_tool_name: next.name,
+          uuid: randomUUID(),
+        })
+      }
+    } catch (error) {
+      if (!(error instanceof Stopped) && !this.stopped)
+        this.die(error instanceof Error ? error : new Error(String(error)))
+    }
+    this.running.delete(task.taskId)
+    if (this.stopped) {
+      this.options.onIdle?.()
+      return
+    }
+    const stopped = subagent.isInterrupted
+    this.notifyEnded(task, stopped ? 'stopped' : (step.outcome ?? 'completed'), step.summary, toolUses, subagent)
+    const turn = stopped ? step.stoppedTurn : step.turn
+    if (turn === undefined) {
+      this.options.onIdle?.()
+      return
+    }
+    this.queue = this.queue.then(() => {
+      this.wakes += 1
+      return this.play(turn, `wake-${String(this.wakes)}`, null)
+    })
+  }
+
+  /** What the SDK streams when a background subagent ends (`docs/sdk-notes.md`, "Background subagents"). */
+  private notifyEnded(
+    task: BackgroundTask,
+    status: 'completed' | 'failed' | 'stopped',
+    summary: string,
+    toolUses: number,
+    subagent: TurnState,
+  ): void {
+    const endTime = Date.now()
+    this.push({
+      type: 'system',
+      subtype: 'task_updated',
+      task_id: task.taskId,
+      patch: { status: status === 'stopped' ? 'killed' : status, end_time: endTime },
+      uuid: randomUUID(),
+    })
+    this.push({
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: task.taskId,
+      tool_use_id: task.agentId,
+      status,
+      output_file: `tasks/${task.taskId}.output`,
+      // A stopped subagent's notification only names it.
+      summary: status === 'stopped' ? task.description : summary,
+      usage: {
+        total_tokens: SUBAGENT_TOKENS_PER_CALL * toolUses,
+        tool_uses: toolUses,
+        duration_ms: endTime - subagent.startedAt,
+      },
+      uuid: randomUUID(),
+    })
+    if (status !== 'stopped') return
+    this.push({
+      type: 'user',
+      parent_tool_use_id: task.agentId,
+      message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] },
     })
   }
 

@@ -260,12 +260,87 @@ The tool is named `Agent` in `tool_use` (the init `tools` list shows `Task`). A 
 **Implications for Glade (P5-05)**
 
 - The Subagents tab derives each subagent from the tool log: an `Agent` (or `Task`) call, with the calls and notes
-  tagged with its id under it. Glade doesn't read the `task_*` events.
+  tagged with its id under it. For a foreground subagent, the call's result is when it finished; a background one's
+  is not (see "Background subagents" below), so the runner reads `task_started` and `task_notification` for those.
 - Glade sets `forwardSubagentText: true`, so the tab can show the last thing a subagent said. The runner logs a
   subagent's text as a note carrying its `Agent` call's id; it never goes to the chat.
 - There is no "queued" subagent. In the verified run a subagent started (`task_started`) as soon as its call arrived;
   the SDK's types allow a `pending` status on `task_updated`, but it wasn't seen, and the tool log can't tell a call
   waiting for a slot from one just started. So a subagent is running, done or failed.
+
+### Background subagents [verified]
+
+Probed on SDK 0.3.281 with Haiku (P9-03), in a throwaway folder: one turn started two subagents with
+`run_in_background: true`, one running `sleep 12` and one `sleep 40`, and replied "launched". After its `result`, a
+second message was sent, and after that one's `result`, `stopTask` stopped the second subagent. Timings are seconds from
+the start.
+
+```
+ 7.9  assistant  tool_use Agent { description: "Slow A: …", prompt: "…", run_in_background: true }
+ 7.9  system/background_tasks_changed  { tasks: [{ task_id: "aa25…", task_type: "local_agent", description: "Slow A: …" }] }
+ 7.9  system/task_started  { task_id: "aa25…", tool_use_id: "toolu_01EW…", task_type: "local_agent",
+                             subagent_type: "general-purpose", is_backgrounded: true, spawn_depth: 1, prompt: "…" }
+ 7.9  user  tool_result for toolu_01EW…: "Async agent launched successfully. … agentId: aa25… …"
+            tool_use_result: { isAsync: true, status: "async_launched", agentId: "aa25…", … }
+ 8.5  (the same four for Slow B, task ac1f…)
+ 9.7  assistant [text] "launched"
+ 9.7  result/success  { user_message_uuids: [first message] }     ← the turn ends; neither subagent has done anything
+ 9.8  system/init                                                  ← the second message's turn, straight away
+10.8  assistant [text] "4"
+10.8  result/success  { user_message_uuids: [second message] }
+10.8  stopTask("ac1f…")
+10.8  system/background_tasks_changed  { tasks: [Slow A] }
+10.8  system/task_updated       { task_id: "ac1f…", patch: { status: "killed", end_time: … } }
+10.8  system/task_notification  { task_id: "ac1f…", tool_use_id: "toolu_01JE…", status: "stopped",
+                                  summary: "Slow B: …", output_file: "…/tasks/ac1f….output" }   ← no usage
+10.8  user  { parent_tool_use_id: "toolu_01JE…", content: [{ text: "[Request interrupted by user]" }] }
+10.9  system/init … result/success { origin: { kind: "task-notification" } }   ← the agent's own turn about the stop
+11.5  assistant  { parent_tool_use_id: "toolu_01EW…" } tool_use Bash "sleep 12 && echo alpha"
+11.5  system/task_progress  { task_id: "aa25…", tool_use_id: "toolu_01EW…", description: "Running …",
+                              usage: { total_tokens: 11334, tool_uses: 1, duration_ms: 3599 }, last_tool_name: "Bash" }
+14.5  system/task_started  { task_id: "bf46…", tool_use_id: <the Bash call>, task_type: "local_bash",
+                             is_backgrounded: false, owned_by_subagent: true }
+23.6  system/task_notification  { task_id: "bf46…", tool_use_id: <the Bash call>, status: "completed", output_file: "" }
+23.6  user  { parent_tool_use_id: "toolu_01EW…" } tool_result "alpha"
+25.0  assistant  { parent_tool_use_id: "toolu_01EW…" } [text] "The command completed successfully. …"
+25.0  system/background_tasks_changed  { tasks: [] }
+25.0  system/task_updated       { task_id: "aa25…", patch: { status: "completed", end_time: … } }
+25.0  system/task_notification  { task_id: "aa25…", tool_use_id: "toolu_01EW…", status: "completed",
+                                  summary: <its final text>, usage: { total_tokens: 12688, tool_uses: 1, duration_ms: 17116 } }
+25.0  system/init … assistant [text] "Subagent \"Slow A\" completed …" … result/success { origin: { kind: "task-notification" } }
+```
+
+- The `Agent` call's `tool_result` comes at once and only says the subagent was launched (`tool_use_result.status:
+  "async_launched"`, `isAsync: true`). It isn't the subagent finishing.
+- **The parent's turn doesn't wait for its background subagents.** Its `result` came before either subagent made a
+  call, and a message sent then was answered straight away while both ran. The SDK itself never keeps the parent
+  working.
+- The subagent's own messages (`parent_tool_use_id` set to its `Agent` call) arrive whenever it works: between turns,
+  and in the middle of the parent's later turns.
+- It ends with `task_updated` (`completed`, `failed` or `killed`) then `task_notification`, with `tool_use_id` naming its
+  `Agent` call and `status` `completed`, `failed` or `stopped`. A completed one's `summary` is its final reply. A
+  stopped one's is just its description, with no `usage`, followed by an interrupt marker under its call.
+- After each one ends, the agent starts a turn of its own about it ("Turns the agent starts itself").
+- `task_progress` carries its running tool count and time. `background_tasks_changed` lists what's running.
+- A subagent's own foreground Bash call gets a `task_started` of its own (`local_bash`, `owned_by_subagent`).
+- The SDK's types say a foreground subagent can be moved to the background later, as `task_updated` with
+  `patch.is_backgrounded: true`. We didn't see this happen.
+
+**Implications for Glade (P9-03)**
+
+- A background subagent is followed from its `task_started` (`task_type: "local_agent"`, `is_backgrounded: true`), or
+  from its call's "launched" result, or from a later move to the background. Its `Agent` call's row keeps running
+  until its `task_notification`. Then it's done, or failed with the summary. A stopped one fails with "You stopped the
+  subagent.", as a stopped turn's calls do. The Subagents tab counts its calls and times it from the tool log, as for
+  any subagent. Glade doesn't read `task_progress`.
+- Its calls and notes are logged whenever they arrive, with the turn its `Agent` call was made in. They never open a
+  turn, and the end of a turn doesn't fail them. Its calls still running when it ends fail with it.
+- Stop subagent calls `stopTask` with its task id, as for a foreground one.
+- A background subagent dies with its session. If the process fails, its row fails. If the app quits, its row is left
+  running and is interrupted on the next launch, whatever state its task is in.
+- In the dogfooding session behind P9-03, the parent that stayed "working" for ten minutes was running a *foreground*
+  `Agent` call (`run_in_background: false`). That turn really does wait for its subagent. Background subagents never
+  kept a turn open.
 
 ### Compaction [verified]
 

@@ -30,7 +30,18 @@
  * message in the chat until it replies. From there it's a turn like any other: its final reply, with a summary timed
  * from its divider, unread marker and notification; the queue delivered into it and after it; Stop; and a relaunch
  * carrying it on. As with any new turn, an error or pause the task had is behind it; a done task stays done while it
- * runs. Anything else between turns (a late system message after a result, a subagent's messages) is still ignored.
+ * runs. Anything else between turns (a late system message after a result, a foreground subagent's messages) is still
+ * ignored.
+ *
+ * **Background subagents** (`docs/sdk-notes.md`, "Background subagents"). An `Agent` call with `run_in_background`
+ * returns as soon as its subagent is launched, and the turn carries on and ends without waiting for it, so the task goes
+ * back to waiting on you and takes messages while the subagent works. The subagent isn't done then: its `Agent` call's
+ * row keeps running, for the Subagents tab, until the SDK's task notification says it ended, when it's done, or failed
+ * (a stopped one fails, as a stopped turn's calls do). Its calls and notes are logged as they arrive, whether a turn is
+ * running or not, with the turn its `Agent` call was made in; they never open a turn, and a turn ending doesn't cut
+ * them off. Stop subagent stops it by the SDK's task id, as a foreground one. The agent then usually starts a turn of
+ * its own to report on it (above). A background subagent dies with its session: if the session fails, it fails with it,
+ * and if the app quits, its calls end as interrupted on the next launch.
  *
  * **Reopen by chatting.** A message to a done task reopens it: the task goes back to active and the message is the
  * next turn of the same session, the live one if it's still running, or the saved one resumed by its id. The tool log
@@ -168,6 +179,7 @@ import {
   failRunningCompactions,
   interruptPausedToolCalls,
   interruptRunningToolCalls,
+  listTasksWithRunningToolCalls,
   listToolEvents,
   updateCompaction,
   updateToolCall,
@@ -193,6 +205,8 @@ import {
   type TextEvent,
   type ToolCallStartedEvent,
   type ToolResultEvent,
+  type TaskFinishedEvent,
+  TaskOutcome,
   type TurnFinishedEvent,
 } from './events'
 import { checkedOffline, createPauseTimers, pauseFor, pauseReason, type UsageLimit } from './pauses'
@@ -320,10 +334,23 @@ interface LiveSession {
   closed: boolean
   /** The SDK's task id of each subagent running in the session, by the `Agent` tool call that started it. */
   readonly subagents: Map<string, string>
+  /**
+   * The background subagents running in the session (see the module comment), by the `Agent` call that started each:
+   * the turn that call was made in, which their own calls and notes are logged with.
+   */
+  readonly background: Map<string, number>
+  /** The tool calls running inside a background subagent, nested subagents' included: the subagent's `Agent` call. */
+  readonly backgroundCalls: Map<string, string>
 }
 
 /** What the tool log says when the user stopped a turn, and what its unfinished tool calls say. */
 export const STOPPED_NOTE = 'You stopped the agent.'
+
+/** What a background subagent stopped with Stop subagent says, and what its unfinished tool calls say. */
+export const STOPPED_SUBAGENT_NOTE = 'You stopped the subagent.'
+
+/** What a tool call still running when its background subagent finished says. */
+export const SUBAGENT_ENDED_NOTE = 'The subagent ended before this tool call finished.'
 
 /** What Glade sends a session it resumed on launch, so the agent carries on with the turn the app died in. */
 export const RESUME_PROMPT = 'Glade restarted while you were working. Continue where you left off.'
@@ -393,6 +420,8 @@ function startsTurn(event: AgentEvent): boolean {
     case AgentEventKind.ApiRetry:
     case AgentEventKind.RateLimit:
     case AgentEventKind.SubagentStarted:
+    case AgentEventKind.SubagentBackgrounded:
+    case AgentEventKind.TaskFinished:
       return false
   }
 }
@@ -597,12 +626,18 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const stepFinished = (turn: Turn): boolean => ![...turn.running.values()].includes(null)
 
   const onToolResult = (taskId: string, live: LiveSession, turn: Turn, event: ToolResultEvent): void => {
-    live.subagents.delete(event.toolUseId)
     const parent = turn.running.get(event.toolUseId)
     if (!turn.running.delete(event.toolUseId)) {
       log.warn(`Ignored a result for tool call ${event.toolUseId}, which isn't running`)
       return
     }
+    // A background subagent's call returns once it's launched, but the subagent runs on: its row runs until it ends.
+    if (event.launched && parent === null) runInBackground(live, event.toolUseId, turn.number)
+    if (live.background.has(event.toolUseId)) {
+      if (parent === null && !turn.stopping && stepFinished(turn)) deliverQueue(taskId, live, turn)
+      return
+    }
+    live.subagents.delete(event.toolUseId)
     const state = event.isError ? ToolCallState.Error : ToolCallState.Done
     // A call the SDK rejects because the user stopped the agent reads like the turn's other unfinished calls.
     const output = event.isError && turn.stopping ? STOPPED_NOTE : event.output
@@ -779,6 +814,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   /** The session is gone: fail its turn, if one was running, and forget it so the next message starts it again. */
   const onSessionFailed = (taskId: string, live: LiveSession, message: string): void => {
     if (sessions.get(taskId) === live) sessions.delete(taskId)
+    // Its background subagents died with it.
+    for (const toolUseId of [...live.background.keys()]) {
+      finishBackground(taskId, live, toolUseId, ToolCallState.Error, message, message)
+    }
     const { turn } = live
     if (turn === null) return
     endTurn(taskId, live, turn)
@@ -788,6 +827,106 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const error = withRetries(turn, { source: TaskErrorSource.Session, status: null, code: null, details: message })
     failRunning(taskId, turn, message, pauseReason(error) === null ? ToolCallState.Error : ToolCallState.Paused)
     if (!pauseOnError(taskId, error, live.limit)) stopOnError(taskId, error)
+  }
+
+  /**
+   * Follows the subagent an `Agent` call started as one running in the background, from the turn it was made in. Any of
+   * its calls the turn was waiting on are its own from now on, so the turn ending doesn't cut them off.
+   */
+  const runInBackground = (live: LiveSession, toolUseId: string, turn: number): void => {
+    live.background.set(toolUseId, turn)
+    const running = live.turn?.running
+    if (running === undefined) return
+    let adopted = true
+    while (adopted) {
+      adopted = false
+      for (const [call, parent] of running) {
+        if (parent === null || backgroundOwner(live, parent) !== toolUseId) continue
+        running.delete(call)
+        live.backgroundCalls.set(call, toolUseId)
+        adopted = true
+      }
+    }
+  }
+
+  /** The background subagent a message from inside a subagent belongs to, by its parent call; none for a foreground one. */
+  const backgroundOwner = (live: LiveSession, parentToolUseId: string | null): string | undefined => {
+    if (parentToolUseId === null) return undefined
+    return live.background.has(parentToolUseId) ? parentToolUseId : live.backgroundCalls.get(parentToolUseId)
+  }
+
+  /**
+   * Logs what a background subagent does, whether or not a turn is running (see the module comment): its text, tool
+   * calls and their results, with the turn its `Agent` call was made in. Answers whether the event was one of these.
+   */
+  const onBackgroundEvent = (taskId: string, live: LiveSession, event: AgentEvent): boolean => {
+    if (event.kind === AgentEventKind.Text || event.kind === AgentEventKind.ToolCallStarted) {
+      const { parentToolUseId } = event
+      const owner = backgroundOwner(live, parentToolUseId)
+      if (owner === undefined || parentToolUseId === null) return false
+      const turn = live.background.get(owner) ?? 1
+      if (event.kind === AgentEventKind.Text) {
+        const text = event.text.trim()
+        if (text !== '') emitToolEventAppended(emit, appendNarration(db, { taskId, turn, text, parentToolUseId }))
+        return true
+      }
+      const { toolUseId, name, input } = event
+      emitToolEventAppended(emit, appendToolCall(db, { taskId, turn, name, input, toolUseId, parentToolUseId }))
+      live.backgroundCalls.set(toolUseId, owner)
+      return true
+    }
+    if (event.kind !== AgentEventKind.ToolResult || !live.backgroundCalls.delete(event.toolUseId)) return false
+    live.subagents.delete(event.toolUseId)
+    const state = event.isError ? ToolCallState.Error : ToolCallState.Done
+    emitToolEventUpdated(emit, updateToolCall(db, { taskId, toolUseId: event.toolUseId, state, output: event.output }))
+    return true
+  }
+
+  /**
+   * A background subagent ended: its `Agent` call's row gets what it came to, done or failed (a stopped one fails, as a
+   * stopped turn's calls do), and so do its calls still running.
+   */
+  const finishBackground = (
+    taskId: string,
+    live: LiveSession,
+    toolUseId: string,
+    state: ToolCallState,
+    output: string,
+    unfinished: string,
+  ): void => {
+    live.background.delete(toolUseId)
+    live.subagents.delete(toolUseId)
+    for (const [call, owner] of live.backgroundCalls) {
+      if (owner !== toolUseId) continue
+      live.backgroundCalls.delete(call)
+      emitToolEventUpdated(
+        emit,
+        updateToolCall(db, { taskId, toolUseId: call, state: ToolCallState.Error, output: unfinished }),
+      )
+    }
+    emitToolEventUpdated(emit, updateToolCall(db, { taskId, toolUseId, state, output }))
+  }
+
+  const onTaskFinished = (taskId: string, live: LiveSession, event: TaskFinishedEvent): void => {
+    if (!live.background.has(event.toolUseId)) return
+    switch (event.outcome) {
+      case TaskOutcome.Completed:
+        finishBackground(taskId, live, event.toolUseId, ToolCallState.Done, event.summary, SUBAGENT_ENDED_NOTE)
+        return
+      case TaskOutcome.Failed:
+        finishBackground(taskId, live, event.toolUseId, ToolCallState.Error, event.summary, SUBAGENT_ENDED_NOTE)
+        return
+      case TaskOutcome.Stopped:
+        finishBackground(
+          taskId,
+          live,
+          event.toolUseId,
+          ToolCallState.Error,
+          STOPPED_SUBAGENT_NOTE,
+          STOPPED_SUBAGENT_NOTE,
+        )
+        return
+    }
   }
 
   /**
@@ -828,8 +967,25 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
     if (event.kind === AgentEventKind.SubagentStarted) {
       live.subagents.set(event.toolUseId, event.sdkTaskId)
+      if (event.background) {
+        runInBackground(live, event.toolUseId, live.turn?.number ?? Math.max(1, lastTurn(db, taskId)))
+      }
       return
     }
+    if (event.kind === AgentEventKind.SubagentBackgrounded) {
+      for (const [toolUseId, sdkTaskId] of live.subagents) {
+        if (sdkTaskId === event.sdkTaskId && live.turn?.running.get(toolUseId) === null) {
+          runInBackground(live, toolUseId, live.turn.number)
+        }
+      }
+      return
+    }
+    if (event.kind === AgentEventKind.TaskFinished) {
+      onTaskFinished(taskId, live, event)
+      return
+    }
+    // A background subagent's work is logged whether or not a turn is running, and never opens one.
+    if (onBackgroundEvent(taskId, live, event)) return
     // Between turns, the agent's own work is a turn it started itself; anything else is left over, e.g. a late system
     // message after a turn's result, and there's nothing to add it to.
     const turn = live.turn ?? (startsTurn(event) ? openTurn(taskId, live) : null)
@@ -913,6 +1069,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       limit: null,
       closed: false,
       subagents: new Map(),
+      background: new Map(),
+      backgroundCalls: new Map(),
     }
     sessions.set(task.id, live)
     void pump(task.id, live)
@@ -1221,6 +1379,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     resumeInterrupted() {
       // A question the app quit on waits on you, not the agent: its turn carries on once you answer it.
       for (const set of listOpenQuestionSets(db)) orphanQuestion(set)
+      // A background subagent the app quit in died with its session: its calls end as interrupted, in any task.
+      for (const taskId of listTasksWithRunningToolCalls(db)) {
+        if (getTask(db, taskId)?.activity === TaskActivity.Working) continue
+        for (const call of interruptRunningToolCalls(db, taskId, RESTARTED_TOOL_NOTE)) emitToolEventUpdated(emit, call)
+      }
       const resumed: string[] = []
       for (const task of listWorkingTasks(db)) {
         try {

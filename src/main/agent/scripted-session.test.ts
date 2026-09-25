@@ -5,9 +5,16 @@ import { CompactionTrigger, Effort, QuestionKind, QuestionReplyKind } from '../.
 import type { AgentSessionOptions } from './backend'
 import { AgentEventKind, createSdkMessageParser, type AgentEvent } from './events'
 import { answeredAfterRestart, COMPACT_COMMAND, RESUME_PROMPT } from './runner'
-import { gladeToolName, REJECTED_TOOL_OUTPUT, ScriptedSession, type ScriptedSessionOptions } from './scripted-session'
+import {
+  gladeToolName,
+  LAUNCHED_OUTPUT,
+  REJECTED_TOOL_OUTPUT,
+  ScriptedSession,
+  type ScriptedSessionOptions,
+} from './scripted-session'
 import {
   ask,
+  background,
   compact,
   delay,
   emit,
@@ -238,7 +245,13 @@ describe('ScriptedSession', () => {
         input: { file_path: 'a.ts' },
         parentToolUseId: null,
       },
-      { kind: AgentEventKind.ToolResult, toolUseId: `${prefix}read`, output: 'contents', isError: false },
+      {
+        kind: AgentEventKind.ToolResult,
+        toolUseId: `${prefix}read`,
+        output: 'contents',
+        isError: false,
+        launched: false,
+      },
       {
         kind: AgentEventKind.ToolCallStarted,
         toolUseId: `${prefix}agent`,
@@ -253,10 +266,22 @@ describe('ScriptedSession', () => {
         input: { pattern: 'x' },
         parentToolUseId: `${prefix}agent`,
       },
-      { kind: AgentEventKind.ToolResult, toolUseId: `${prefix}inner`, output: 'hit', isError: false },
+      { kind: AgentEventKind.ToolResult, toolUseId: `${prefix}inner`, output: 'hit', isError: false, launched: false },
       { kind: AgentEventKind.Text, text: 'Subagent text', parentToolUseId: `${prefix}agent` },
-      { kind: AgentEventKind.ToolResult, toolUseId: `${prefix}agent`, output: 'Found it.', isError: false },
-      { kind: AgentEventKind.ToolResult, toolUseId: `${prefix}never-called`, output: 'orphan', isError: true },
+      {
+        kind: AgentEventKind.ToolResult,
+        toolUseId: `${prefix}agent`,
+        output: 'Found it.',
+        isError: false,
+        launched: false,
+      },
+      {
+        kind: AgentEventKind.ToolResult,
+        toolUseId: `${prefix}never-called`,
+        output: 'orphan',
+        isError: true,
+        launched: false,
+      },
     ])
     const messageIds = played.raw
       .filter((message) => message.type === 'assistant')
@@ -583,8 +608,15 @@ describe('ScriptedSession', () => {
           toolUseId: 'toolu_id2_1_agent',
           output: REJECTED_TOOL_OUTPUT,
           isError: true,
+          launched: false,
         },
-        { kind: AgentEventKind.ToolResult, toolUseId: 'toolu_id2_1_bash', output: REJECTED_TOOL_OUTPUT, isError: true },
+        {
+          kind: AgentEventKind.ToolResult,
+          toolUseId: 'toolu_id2_1_bash',
+          output: REJECTED_TOOL_OUTPUT,
+          isError: true,
+          launched: false,
+        },
         expect.objectContaining({ kind: AgentEventKind.TurnFinished, terminalReason: 'aborted_tools' }),
       ])
       expect(played.raw).toContainEqual(
@@ -773,6 +805,199 @@ describe('ScriptedSession', () => {
 
       expect(played.raw.filter((message) => message.subtype === 'task_notification')).toEqual([])
       expect(played.idles()).toBe(2)
+    })
+  })
+
+  describe('a subagent in the background', () => {
+    const AGENT_INPUT = { description: 'Profile the queries', prompt: 'Time them.', subagent_type: 'general-purpose' }
+
+    /** A turn that starts a subagent in the background, which reads a file, waits `ms` and ends as `options` say. */
+    function launch(ms: number, options: Partial<Parameters<typeof background>[3]> = {}): ScriptTurn {
+      return [
+        init(),
+        background(
+          'agent',
+          AGENT_INPUT,
+          [
+            say('Timing them.', 'agent'),
+            ...tool('read', 'Read', { file_path: 'queries.py' }, 'def load_cart(): …', 'agent'),
+            toolUse('time', 'Bash', { command: 'python time.py' }, 'agent'),
+            delay(ms),
+            toolResult('time', '38 queries'),
+          ],
+          { summary: 'An N+1 in load_cart.', ...options },
+        ),
+        say('Started it.'),
+        result(),
+      ]
+    }
+
+    function kinds(raw: readonly Record<string, unknown>[]): unknown[] {
+      return raw.map((message) => message.subtype ?? message.type)
+    }
+
+    it('launches it as the SDK does, and the turn ends while it plays on, then notifies and wakes the agent', async () => {
+      let wakes = 0
+      const played = play([launch(100, { turn: [init(), say('The profile is back.'), result()] })], {
+        onWake: () => (wakes += 1),
+      })
+      played.session.send('Profile checkout.', 'user-1')
+      await flush()
+
+      const agentId = 'toolu_id2_1_agent'
+      expect(played.raw.slice(1, 4)).toEqual([
+        expect.objectContaining({
+          type: 'assistant',
+          message: expect.objectContaining({
+            content: [
+              { type: 'tool_use', id: agentId, name: 'Agent', input: { ...AGENT_INPUT, run_in_background: true } },
+            ],
+          }) as unknown,
+        }),
+        expect.objectContaining({
+          subtype: 'task_started',
+          task_id: 'aid21',
+          tool_use_id: agentId,
+          description: 'Profile the queries',
+          is_backgrounded: true,
+          task_type: 'local_agent',
+        }),
+        expect.objectContaining({
+          type: 'user',
+          tool_use_result: expect.objectContaining({ isAsync: true, status: 'async_launched' }) as unknown,
+        }),
+      ])
+      expect(played.events).toContainEqual({
+        kind: AgentEventKind.ToolResult,
+        toolUseId: agentId,
+        output: LAUNCHED_OUTPUT,
+        isError: false,
+        launched: true,
+      })
+      // The turn has ended while the subagent plays on.
+      expect(played.raw.find((message) => message.type === 'result')).toMatchObject({ result: 'Started it.' })
+      expect(played.idles()).toBe(1)
+      expect(wakes).toBe(1)
+
+      await vi.advanceTimersByTimeAsync(100)
+      const afterResult = played.raw.slice(played.raw.findIndex((message) => message.type === 'result') + 1)
+      expect(kinds(afterResult)).toEqual([
+        'assistant',
+        'task_progress',
+        'user',
+        'task_updated',
+        'task_notification',
+        'init',
+        'assistant',
+        'success',
+      ])
+      const progress = played.raw.filter((message) => message.subtype === 'task_progress')
+      expect(progress).toEqual([
+        expect.objectContaining({ task_id: 'aid21', tool_use_id: agentId, last_tool_name: 'Read' }),
+        expect.objectContaining({
+          usage: expect.objectContaining({ tool_uses: 2 }) as unknown,
+          last_tool_name: 'Bash',
+        }),
+      ])
+      expect(played.raw.find((message) => message.subtype === 'task_notification')).toMatchObject({
+        tool_use_id: agentId,
+        status: 'completed',
+        summary: 'An N+1 in load_cart.',
+        usage: { tool_uses: 2, duration_ms: 100 },
+      })
+      expect(played.raw.at(-1)).toMatchObject({ result: 'The profile is back.', origin: { kind: 'task-notification' } })
+      // Its calls are the subagent's, and its messages apart from the turn's.
+      const subagentCalls = played.events.filter(
+        (event) => event.kind === AgentEventKind.ToolCallStarted && event.parentToolUseId === agentId,
+      )
+      expect(subagentCalls).toHaveLength(2)
+      const messageIds = played.raw
+        .filter((message) => message.type === 'assistant')
+        .map((message) => (message.message as { id: string }).id)
+      // Two for the turn, two for the subagent (a new one after each round of results), one for the turn it woke.
+      expect(messageIds).toHaveLength(6)
+      expect(new Set(messageIds).size).toBe(5)
+      expect(played.idles()).toBe(2)
+    })
+
+    it('fails as the script says, and with no turn to play, only goes idle', async () => {
+      const played = play([launch(10, { outcome: 'failed', summary: 'Connection refused.' })])
+      played.session.send('Profile checkout.', 'user-1')
+      await vi.advanceTimersByTimeAsync(10)
+
+      expect(played.raw.find((message) => message.subtype === 'task_updated')).toMatchObject({
+        patch: { status: 'failed' },
+      })
+      expect(played.raw.at(-1)).toMatchObject({ subtype: 'task_notification', status: 'failed' })
+      expect(played.raw.filter((message) => message.type === 'result')).toHaveLength(1)
+      expect(played.idles()).toBe(2)
+    })
+
+    it('is stopped by its task id, as the SDK stops one, then plays its stopped turn', async () => {
+      const played = play([
+        launch(60_000, {
+          turn: [init(), say('Never.'), result()],
+          stoppedTurn: [init(), say('The profile was stopped.'), result()],
+        }),
+      ])
+      played.session.send('Profile checkout.', 'user-1')
+      await flush()
+
+      await played.session.stopTask('nothing-like-it')
+      await flush()
+      expect(played.raw.filter((message) => message.subtype === 'task_notification')).toEqual([])
+
+      await played.session.stopTask('aid21')
+      await flush()
+      const notification = played.raw.findIndex((message) => message.subtype === 'task_notification')
+      expect(played.raw[notification - 1]).toMatchObject({ subtype: 'task_updated', patch: { status: 'killed' } })
+      expect(played.raw[notification]).toMatchObject({ status: 'stopped', summary: 'Profile the queries' })
+      expect(played.raw[notification + 1]).toMatchObject({
+        parent_tool_use_id: 'toolu_id2_1_agent',
+        message: { content: [{ type: 'text', text: '[Request interrupted by user]' }] },
+      })
+      expect(played.raw.at(-1)).toMatchObject({ result: 'The profile was stopped.' })
+      // The call it was in never gets a result.
+      expect(played.events).not.toContainEqual(expect.objectContaining({ output: '38 queries' }))
+      expect(played.idles()).toBe(2)
+    })
+
+    it('stops without a word when the session closes, but still goes idle', async () => {
+      const played = play([launch(60_000, { turn: [init(), say('Never.'), result()] })])
+      played.session.send('Profile checkout.', 'user-1')
+      await flush()
+      played.session.close()
+      await flush()
+
+      expect(played.raw.filter((message) => message.subtype === 'task_notification')).toEqual([])
+      expect(played.idles()).toBe(2)
+    })
+
+    it('kills the session at a fail step, as a turn does', async () => {
+      const played = play([
+        [init(), background('agent', AGENT_INPUT, [delay(10), fail('The agent crashed.')], { summary: '' }), result()],
+      ])
+      played.session.send('Profile checkout.', 'user-1')
+      await vi.advanceTimersByTimeAsync(10)
+
+      expect(await played.ended).toEqual(new Error('The agent crashed.'))
+      expect(played.idles()).toBe(2)
+    })
+
+    it('kills the session, loudly, when one of its Glade tools cannot be called', async () => {
+      const played = play(
+        [
+          [
+            init(),
+            background('agent', AGENT_INPUT, [gladeTool('title', 'set_title', { title: 'X' })], { summary: '' }),
+          ],
+        ],
+        { session: SESSION },
+      )
+      played.session.send('Profile checkout.', 'user-1')
+      await flush()
+
+      expect(await played.ended).toBeInstanceOf(Error)
     })
   })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { CompactionTrigger } from '../../shared/domain'
-import { AgentEventKind, createSdkMessageParser, RateLimitStatus, type AgentEvent } from './events'
+import { AgentEventKind, createSdkMessageParser, RateLimitStatus, TaskOutcome, type AgentEvent } from './events'
 import * as sdk from './test-sdk-messages'
 
 function parser() {
@@ -86,7 +86,7 @@ describe('parsing SDK messages', () => {
 
   it('reads tool results with string content, text blocks or none', () => {
     expect(parse(sdk.toolResult('toolu_01', '12 passed'))).toEqual([
-      { kind: AgentEventKind.ToolResult, toolUseId: 'toolu_01', output: '12 passed', isError: false },
+      { kind: AgentEventKind.ToolResult, toolUseId: 'toolu_01', output: '12 passed', isError: false, launched: false },
     ])
     const blocks = [
       { type: 'text', text: 'Line one.' },
@@ -94,11 +94,17 @@ describe('parsing SDK messages', () => {
       { type: 'text', text: 'Line two.' },
     ]
     expect(parse(sdk.toolResult('toolu_02', blocks, true))).toEqual([
-      { kind: AgentEventKind.ToolResult, toolUseId: 'toolu_02', output: 'Line one.\nLine two.', isError: true },
+      {
+        kind: AgentEventKind.ToolResult,
+        toolUseId: 'toolu_02',
+        output: 'Line one.\nLine two.',
+        isError: true,
+        launched: false,
+      },
     ])
     const bare = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_03' }] } }
     expect(parse(bare)).toEqual([
-      { kind: AgentEventKind.ToolResult, toolUseId: 'toolu_03', output: '', isError: false },
+      { kind: AgentEventKind.ToolResult, toolUseId: 'toolu_03', output: '', isError: false, launched: false },
     ])
   })
 
@@ -252,12 +258,74 @@ describe('parsing SDK messages', () => {
 
   it('reads a subagent started as a task, by the tool call that started it', () => {
     expect(parse({ type: 'system', subtype: 'task_started', task_id: 'b7f3', tool_use_id: 'toolu_02' })).toEqual([
-      { kind: AgentEventKind.SubagentStarted, sdkTaskId: 'b7f3', toolUseId: 'toolu_02' },
+      { kind: AgentEventKind.SubagentStarted, sdkTaskId: 'b7f3', toolUseId: 'toolu_02', background: false },
     ])
     // A task no tool call started has no row to stop it from.
     expect(parse({ type: 'system', subtype: 'task_started', task_id: 'b7f4' })).toEqual([])
     const { parse: parseLogged, warn } = parser()
     expect(parseLogged({ type: 'system', subtype: 'task_started' })).toEqual([])
+    expect(warn).toHaveBeenCalledOnce()
+  })
+
+  it('reads a subagent started in the background, its launched result, and its move to the background', () => {
+    const [call, started, launched] = sdk.backgroundLaunch('toolu_q', 'aq1', 'Profile the checkout queries')
+    expect(parse(call)).toContainEqual(expect.objectContaining({ kind: AgentEventKind.ToolCallStarted, name: 'Agent' }))
+    expect(parse(started)).toEqual([
+      { kind: AgentEventKind.SubagentStarted, sdkTaskId: 'aq1', toolUseId: 'toolu_q', background: true },
+    ])
+    expect(parse(launched)).toEqual([
+      {
+        kind: AgentEventKind.ToolResult,
+        toolUseId: 'toolu_q',
+        output: 'Async agent launched.',
+        isError: false,
+        launched: true,
+      },
+    ])
+    // A background command isn't a subagent: its call's result is its own.
+    const command = { type: 'system', subtype: 'task_started', task_id: 'b88t', tool_use_id: 'toolu_01' }
+    expect(parse({ ...command, task_type: 'local_bash', is_backgrounded: true })).toEqual([
+      { kind: AgentEventKind.SubagentStarted, sdkTaskId: 'b88t', toolUseId: 'toolu_01', background: false },
+    ])
+    expect(parse({ ...command, task_type: 42, is_backgrounded: 'yes' })).toEqual([
+      { kind: AgentEventKind.SubagentStarted, sdkTaskId: 'b88t', toolUseId: 'toolu_01', background: false },
+    ])
+
+    const updated = { type: 'system', subtype: 'task_updated', task_id: 'af1' }
+    expect(parse({ ...updated, patch: { is_backgrounded: true } })).toEqual([
+      { kind: AgentEventKind.SubagentBackgrounded, sdkTaskId: 'af1' },
+    ])
+    expect(parse({ ...updated, patch: { status: 'completed', end_time: 1 } })).toEqual([])
+    const { parse: parseLogged, warn } = parser()
+    expect(parseLogged({ type: 'system', subtype: 'task_updated', task_id: 'af1' })).toEqual([])
+    expect(warn).toHaveBeenCalledOnce()
+  })
+
+  it('reads a task ending, by the tool call that started it', () => {
+    const [, notification] = sdk.subagentEnded('toolu_q', 'aq1', 'failed', 'Connection refused.')
+    expect(parse(notification)).toEqual([
+      {
+        kind: AgentEventKind.TaskFinished,
+        sdkTaskId: 'aq1',
+        toolUseId: 'toolu_q',
+        outcome: TaskOutcome.Failed,
+        summary: 'Connection refused.',
+      },
+    ])
+    const bare = { type: 'system', subtype: 'task_notification', task_id: 'aq1', status: 'stopped' }
+    expect(parse({ ...bare, tool_use_id: 'toolu_q' })).toEqual([
+      {
+        kind: AgentEventKind.TaskFinished,
+        sdkTaskId: 'aq1',
+        toolUseId: 'toolu_q',
+        outcome: TaskOutcome.Stopped,
+        summary: '',
+      },
+    ])
+    // A task no tool call started has no row to end.
+    expect(parse(bare)).toEqual([])
+    const { parse: parseLogged, warn } = parser()
+    expect(parseLogged({ ...bare, status: 'exploded' })).toEqual([])
     expect(warn).toHaveBeenCalledOnce()
   })
 
