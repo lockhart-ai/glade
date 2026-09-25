@@ -44,8 +44,8 @@ test('two tasks work at once, each with its own chat and tool log, and stopping 
   await expect(agentReplies.first()).toContainText('The failing test was a timezone bug')
   await expect(header.title).toHaveText('Fix the flaky date test')
   await expect(header.pill).toHaveText('Active · waiting on you')
-  await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 12')
-  await expect(panel.log.getByRole('button', { name: /^Done/ })).toHaveCount(12)
+  await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 10')
+  await expect(panel.log.getByRole('button', { name: /^Done/ })).toHaveCount(10)
   await expect(panel.call(/Bash\s*npm run test:e2e/)).toHaveCount(0)
 
   // In the sidebar, A is still working while B, selected, waits on you.
@@ -71,7 +71,7 @@ test('two tasks work at once, each with its own chat and tool log, and stopping 
   await expect(userMessages).toHaveCount(1)
   await expect(userMessages.first()).toContainText(FIX_DATE)
   await expect(agentReplies).toHaveCount(1)
-  await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 12')
+  await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 10')
   await expect(list.dot(rowA)).toHaveAttribute('data-state', 'working')
 
   // Stopping A ends only A's turn.
@@ -86,7 +86,7 @@ test('two tasks work at once, each with its own chat and tool log, and stopping 
   await expect(header.title).toHaveText('Fix the flaky date test')
   await expect(header.pill).toHaveText('Active · waiting on you')
   await expect(agentReplies).toHaveCount(1)
-  await expect(panel.log.getByRole('button', { name: /^Done/ })).toHaveCount(12)
+  await expect(panel.log.getByRole('button', { name: /^Done/ })).toHaveCount(10)
   await expect(panel.call(/^Failed/)).toHaveCount(0)
   await expect(panel.log).not.toContainText('You stopped the agent.')
 })

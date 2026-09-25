@@ -41,11 +41,13 @@ import {
   DELETE_LOCAL_COPIES_QUESTION,
   RELEASE_NOTES_QUESTIONS,
   S3_PLAN,
+  SUBAGENT_CALLS_REPLY,
   type AgentScriptName,
 } from './scripts'
 import { OFFLINE_FIRST_CHECK_MS } from './pauses'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
-import type { AgentLog } from './events'
+import { LogLevel, type Logger } from '../logging/logger'
+import { createMemoryLog } from '../logging/memory-sink'
 
 let database: TestDatabase
 let task: Task
@@ -57,7 +59,7 @@ interface Listeners {
   readonly emit?: (event: GladeEvent) => void
   readonly notifyReply?: NotifyReply
   /** Where the runner reports what it drops or ignores; the console by default. */
-  readonly log?: AgentLog
+  readonly log?: Logger
 }
 
 function start(name: AgentScriptName, { emit = () => undefined, notifyReply, log }: Listeners = {}): AgentRunner {
@@ -125,8 +127,8 @@ describe('AGENT_SCRIPTS', () => {
   })
 
   it.each(AGENT_SCRIPT_NAMES)('%s: streams only messages the runner can read, every turn of it', async (name) => {
-    const warnings: string[] = []
-    const agent = start(name, { log: { warn: (message) => warnings.push(message) } })
+    const memory = createMemoryLog()
+    const agent = start(name, { log: memory.logger })
     for (const [index] of AGENT_SCRIPTS[name].turns.entries()) {
       // A turn still working (waiting to be stopped, say) is stopped first, so the next message starts a turn.
       if (activity() === TaskActivity.Working) {
@@ -139,6 +141,7 @@ describe('AGENT_SCRIPTS', () => {
       await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
     }
     // What the parser drops, it says so about: nothing a script plays should be dropped.
+    const warnings = memory.records.filter((record) => record.level === LogLevel.Warn).map(({ message }) => message)
     expect(warnings.filter((message) => message.startsWith('Dropped') || message.startsWith('Ignored SDK'))).toEqual([])
   })
 
@@ -698,5 +701,53 @@ describe('AGENT_SCRIPTS', () => {
       [MessageRole.User, 3],
       [MessageRole.Agent, 3],
     ])
+  })
+
+  it('subagent-calls: logs each subagent’s calls under it, nested, interleaved, failed and in the background', async () => {
+    const agent = start('subagent-calls')
+    await send(agent, 'Draft the 2.4 release notes.')
+
+    expect(reply()).toBe(SUBAGENT_CALLS_REPLY)
+    const all = calls()
+    const idOf = (name: string): string => {
+      const found = all.find((call) => call.input.description === name)
+      if (found === undefined) throw new Error(`No subagent ${name}`)
+      return found.toolUseId
+    }
+    const under = (parent: string | null): string[] =>
+      all
+        .filter((call) => call.parentToolUseId === parent)
+        .map((call) => `${call.name} ${String(Object.values(call.input)[0])} (${call.state})`)
+
+    expect(under(null)).toEqual([
+      'mcp__glade__set_title Draft release notes for 2.4 (done)',
+      'mcp__glade__set_objective Draft release notes for 2.4 from the PRs merged since the 2.3 tag. (done)',
+      'mcp__glade__set_status Sorting the PRs with two subagents. (done)',
+      'Read CHANGELOG.md (done)',
+      'Agent API changes (done)',
+      'Agent Dashboard changes (done)',
+      'Write docs/releases/2.4.md (done)',
+      'Agent Check links in the 2.3 notes (done)',
+      'mcp__glade__set_status Drafted the 2.4 notes. (done)',
+    ])
+    expect(under(idOf('API changes'))).toEqual([
+      'Bash gh pr list --label api --state merged (done)',
+      'Agent Read PR 1402 (done)',
+    ])
+    expect(under(idOf('Read PR 1402'))).toEqual([
+      'Bash gh pr view 1402 --json title,body (done)',
+      'Read api/throttles.py (done)',
+    ])
+    expect(under(idOf('Dashboard changes'))).toEqual([
+      'Bash redis-cli -h staging-cache info stats (error)',
+      'Bash gh pr list --label dashboard (done)',
+      'Read web/charts.ts (done)',
+    ])
+    expect(under(idOf('Check links in the 2.3 notes'))).toEqual([
+      'Read docs/releases/2.3.md (done)',
+      'Bash curl -sI https://example.com/docs/limits (done)',
+    ])
+    const notes = listToolEvents(database.db, task.id).filter((event) => event.kind === ToolEventKind.Narration)
+    expect(notes).toMatchObject([{ text: 'Listing the merged API PRs.', parentToolUseId: idOf('API changes') }])
   })
 })

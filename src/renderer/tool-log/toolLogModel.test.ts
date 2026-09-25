@@ -18,7 +18,9 @@ import {
   compactionResult,
   dividerLabel,
   dividerTime,
+  isParentEvent,
   lineCount,
+  parentLogRows,
   relativePath,
   resultSummary,
   toolCallCount,
@@ -276,14 +278,72 @@ describe('compactions', () => {
 })
 
 describe('toolCallCount', () => {
-  it('counts every tool call, subagents’ included', () => {
+  it('counts only the task’s own calls: a subagent’s, a nested one’s included, are the Subagents tab’s', () => {
     expect(
       toolCallCount([
         narration('n1', 1),
-        call({ id: 'a', toolUseId: 'a' }),
+        call({ id: 'a', name: 'Agent', toolUseId: 'a' }),
         call({ id: 'b', toolUseId: 'b', parentToolUseId: 'a' }),
+        call({ id: 'c', name: 'Agent', toolUseId: 'c', parentToolUseId: 'a' }),
+        call({ id: 'd', toolUseId: 'd', parentToolUseId: 'c' }),
         divider('d', 2),
+        call({ id: 'e', toolUseId: 'e' }),
       ]),
     ).toBe(2)
+  })
+})
+
+describe('the parent’s tool log', () => {
+  it('tells the task’s own events from its subagents’', () => {
+    expect(isParentEvent(call())).toBe(true)
+    expect(isParentEvent(call({ parentToolUseId: 'use-agent' }))).toBe(false)
+    expect(isParentEvent(narration('n1', 1))).toBe(true)
+    expect(isParentEvent({ ...narration('n1', 1), parentToolUseId: 'use-agent' })).toBe(false)
+    expect(isParentEvent(divider('d', 2))).toBe(true)
+  })
+
+  it('keeps an Agent call as one row, with none of its subagent’s calls or notes under it or beside it', () => {
+    const rows = parentLogRows([
+      call({ id: 'agent', name: 'Agent', toolUseId: 'use-agent', state: ToolCallState.Running }),
+      call({ id: 'grep', name: 'Grep', toolUseId: 'use-grep', parentToolUseId: 'use-agent' }),
+      { ...narration('n1', 1), parentToolUseId: 'use-agent' },
+      call({ id: 'read', name: 'Read', toolUseId: 'use-read' }),
+    ])
+
+    expect(rows).toEqual([
+      expect.objectContaining({ name: 'Agent', children: [] }),
+      expect.objectContaining({ name: 'Read', children: [] }),
+    ])
+  })
+
+  it('leaves out nested subagents, interleaved subagents, failed calls and orphans, and keeps the rest in order', () => {
+    const rows = parentLogRows([
+      call({ id: 'outer', name: 'Agent', toolUseId: 'use-outer' }),
+      call({ id: 'other', name: 'Agent', toolUseId: 'use-other' }),
+      call({ id: 'o1', name: 'Grep', toolUseId: 'use-o1', parentToolUseId: 'use-outer' }),
+      call({ id: 'x1', name: 'Bash', toolUseId: 'use-x1', parentToolUseId: 'use-other', state: ToolCallState.Error }),
+      call({ id: 'inner', name: 'Agent', toolUseId: 'use-inner', parentToolUseId: 'use-outer' }),
+      call({ id: 'i1', name: 'Read', toolUseId: 'use-i1', parentToolUseId: 'use-inner' }),
+      narration('n1', 1),
+      call({ id: 'x2', name: 'Read', toolUseId: 'use-x2', parentToolUseId: 'use-other' }),
+      divider('d2', 2),
+      call({ id: 'orphan', name: 'Bash', toolUseId: 'use-orphan', parentToolUseId: 'use-gone' }),
+      call({ id: 'own', name: 'Edit', toolUseId: 'use-own', turn: 2 }),
+    ])
+
+    expect(
+      rows.map((row) => {
+        switch (row.kind) {
+          case ToolEventKind.ToolCall:
+            return `${row.call.id} (${String(row.children.length)})`
+          case ToolEventKind.Narration:
+            return row.narration.id
+          case ToolEventKind.Divider:
+            return row.label
+          case ToolEventKind.Compaction:
+            return 'compaction'
+        }
+      }),
+    ).toEqual(['outer (0)', 'other (0)', 'n1', 'turn 2 · 11:20', 'own (0)'])
   })
 })
