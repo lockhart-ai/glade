@@ -46,6 +46,7 @@ One JSON object per line:
 | `notifications` | Each notification sent, opened and replied to, and ones not sent because notifications are off.          |
 | `terminal`      | Terminal tabs opening and closing, shells starting and exiting (with their exit code or signal).          |
 | `plugins`       | The plugins found each time the plugins folder is read (how many, and each invalid one with its reason), plugins turned on and off, and the folder failing to be read. The shown plugin's view made and destroyed (and why), the status it sets (debug), its event feed starting after each `ready` (debug: how many tasks the snapshot held), and what its sandbox refuses: requests, files outside its folder, navigation, new windows, permissions, downloads, and messages that are malformed or too many. |
+| `control`       | Each call to the `glade-control` tools (`control-api.md`): the tool, the caller (the calling task's id, or `http`), the task it acts on, how long it took, and `ok` or the error code. The text of a message it sends at debug, cut short. Never a token. |
 | `renderer`      | Errors in the window: uncaught errors, unhandled rejections, and errors React caught (with its component stack). |
 | `test-mode`     | The screenshot and e2e runs.                                                                              |
 

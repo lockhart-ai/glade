@@ -25,6 +25,9 @@
  *   `canUseTool`, and plays the call's result once it's allowed, or its denial as an error result. In Allow all, or
  *   after `configure` switches to it, it runs without asking. So does a call a rule covers (`scriptedRuleCovers`): one
  *   the session started with (`allowedRules`), or one an answer added (Allow for this task).
+ * - A `ControlTool` step calls one of Glade's control tools (`glade-control`) through its real handler, once allowed:
+ *   in the ask mode it asks the runner first, as Claude Code does for an MCP tool that isn't in its allowed tools, with
+ *   the SDK saying the tool is on the in-process `glade-control` server.
  * - A `Fail` step kills the session: its message stream throws, and it plays nothing more.
  * - The script can be picked by the session's first message (a `ScriptChooser`), so different tasks can play different
  *   scripts. A chooser that has none for it kills the session as a `Fail` step would.
@@ -38,8 +41,10 @@ import {
   type AgentSession,
   type AgentSessionOptions,
   type AgentSessionSettings,
+  type McpServerOrigin,
   type ToolPermissionAnswer,
 } from './backend'
+import { CONTROL_SERVER } from '../control/names'
 import { GLADE_SERVER, GladeTool } from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller, type McpToolOutcome } from './mcp-tool-caller'
 import {
@@ -56,6 +61,7 @@ import {
   type AskStep,
   type BackgroundStep,
   type CompactStep,
+  type ControlToolStep,
   type PermissionStep,
   type ScriptStep,
   type ScriptTurn,
@@ -108,6 +114,17 @@ export interface ScriptedSessionOptions {
 export function gladeToolName(tool: string): string {
   return `mcp__${GLADE_SERVER}__${tool}`
 }
+
+/** The name the SDK gives one of Glade's control tools, e.g. `mcp__glade-control__list_tasks`. */
+export function controlToolName(tool: string): string {
+  return `mcp__${CONTROL_SERVER}__${tool}`
+}
+
+/** What the SDK says of the server a control tool is on: Glade's own in-process one. */
+const CONTROL_ORIGIN: McpServerOrigin = { name: CONTROL_SERVER, source: 'sdk' }
+
+/** What deciding a call reads of it. */
+type PermissionCallStep = Omit<PermissionStep, 'kind' | 'output'>
 
 /**
  * The model's token usage on each assistant message, and the turn's on its `result`. Made up, but realistic. An
@@ -445,6 +462,9 @@ export class ScriptedSession implements AgentSession {
       case ScriptStepKind.Permission:
         await this.permission(turn, step, uuid)
         return
+      case ScriptStepKind.ControlTool:
+        await this.controlTool(turn, step, uuid)
+        return
       case ScriptStepKind.LimitReached:
         this.push({
           type: 'rate_limit_event',
@@ -651,48 +671,84 @@ export class ScriptedSession implements AgentSession {
   }
 
   /**
-   * Makes a tool call that asks permission first (see `ScriptStepKind.Permission`): in the ask mode the session goes
-   * idle while the runner decides, then plays the call's result, or its denial. An interrupt cancels the call's signal,
-   * as the SDK does, and the turn then ends as an interrupted one.
+   * Whether a tool call may run, as Claude Code decides it: at once in Allow all, or for a call a rule covers; otherwise
+   * the session goes idle and asks the runner (`onToolPermission`), however long it takes, and keeps the rule an Allow
+   * for this task adds. `mcpServer` is the server the call's tool is on, as the SDK says it. Null when the turn was
+   * interrupted meanwhile: the interrupt cancels the call's signal, as the SDK does.
    */
-  private async permission(turn: TurnState, step: PermissionStep, uuid: string | null): Promise<void> {
-    this.toolUse(turn, step.id, step.name, step.input, step.parent ?? null, uuid)
-    const covered = this.rules.some((rule) => scriptedRuleCovers(rule, step.name, step.input))
+  private async permitted(
+    turn: TurnState,
+    call: PermissionCallStep,
+    mcpServer: McpServerOrigin | null,
+  ): Promise<ToolPermissionAnswer | null> {
+    const covered = this.rules.some((rule) => scriptedRuleCovers(rule, call.name, call.input))
     if (this.permissionMode === PermissionMode.AllowAll || covered) {
-      this.toolResult(turn, step.id, step.output, false)
-      return
+      return { behavior: ToolPermissionBehavior.Allow, byUser: false }
     }
     this.idle(turn)
     const cancel = new AbortController()
     void turn.interrupted.then(() => {
       cancel.abort()
     })
-    const agentId = step.parent === undefined ? null : (step.agentId ?? `a${this.idPrefix}${step.parent}`)
+    const agentId = call.parent === undefined ? null : (call.agentId ?? `a${this.idPrefix}${call.parent}`)
     const handler = this.options.session.onToolPermission
     const answer: ToolPermissionAnswer =
       handler === undefined
         ? { behavior: ToolPermissionBehavior.Deny, message: NO_ONE_TO_ASK, byUser: false }
         : await handler({
-            toolName: step.name,
-            input: step.input,
-            toolUseId: this.sdkToolId(turn, step.id),
+            toolName: call.name,
+            input: call.input,
+            toolUseId: this.sdkToolId(turn, call.id),
             agentId,
-            title: step.title ?? null,
-            displayName: step.name,
-            description: step.description ?? null,
-            suggestions: step.suggestions ?? [],
-            defaultToNo: step.defaultToNo ?? false,
+            title: call.title ?? null,
+            displayName: call.name,
+            description: call.description ?? null,
+            suggestions: call.suggestions ?? [],
+            defaultToNo: call.defaultToNo ?? false,
             suppressAlwaysAllowRule: false,
-            mcpServer: null,
+            mcpServer,
             matchedAskRule: false,
             signal: cancel.signal,
           })
-    if (turn.isInterrupted) return
+    if (turn.isInterrupted) return null
+    if (answer.behavior === ToolPermissionBehavior.Allow && answer.rule !== undefined) this.rules.push(answer.rule)
+    return answer
+  }
+
+  /**
+   * Makes a tool call that asks permission first (see `ScriptStepKind.Permission`), then plays the call's result, or
+   * its denial. An interrupt while it waits ends the turn as an interrupted one.
+   */
+  private async permission(turn: TurnState, step: PermissionStep, uuid: string | null): Promise<void> {
+    this.toolUse(turn, step.id, step.name, step.input, step.parent ?? null, uuid)
+    const answer = await this.permitted(turn, step, null)
+    if (answer === null) return
     switch (answer.behavior) {
       case ToolPermissionBehavior.Allow:
-        if (answer.rule !== undefined) this.rules.push(answer.rule)
         this.toolResult(turn, step.id, step.output, false)
         return
+      case ToolPermissionBehavior.Deny:
+        this.toolResult(turn, step.id, answer.message, true)
+        return
+    }
+  }
+
+  /**
+   * Calls one of Glade's control tools (see `ScriptStepKind.ControlTool`): it asks permission as any MCP tool not in the
+   * session's allowed tools does, on the in-process `glade-control` server, and once allowed runs through the tool's
+   * real handler.
+   */
+  private async controlTool(turn: TurnState, step: ControlToolStep, uuid: string | null): Promise<void> {
+    const name = controlToolName(step.tool)
+    this.toolUse(turn, step.id, name, step.input, null, uuid)
+    const answer = await this.permitted(turn, { id: step.id, name, input: step.input }, CONTROL_ORIGIN)
+    if (answer === null) return
+    switch (answer.behavior) {
+      case ToolPermissionBehavior.Allow: {
+        const outcome = await this.tools.call(name, step.input)
+        if (!turn.isInterrupted) this.toolResult(turn, step.id, outcome.output, outcome.isError)
+        return
+      }
       case ToolPermissionBehavior.Deny:
         this.toolResult(turn, step.id, answer.message, true)
         return

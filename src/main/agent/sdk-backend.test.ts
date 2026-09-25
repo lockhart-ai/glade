@@ -357,6 +357,15 @@ it("lets Glade's own MCP servers' tools through without asking, whatever the mod
   }
 })
 
+it("pre-approves only glade's tools: another in-process server's, such as glade-control's, go to canUseTool", () => {
+  const server = { type: 'http' as const, url: 'http://127.0.0.1:1/mcp' }
+  const mcpServers = { glade: server, 'glade-control': server, acme: server }
+  for (const permissionMode of Object.values(PermissionMode)) {
+    expect(sdkOptions({ ...OPTIONS, permissionMode, mcpServers }, ENV).allowedTools).toEqual(['mcp__glade'])
+  }
+  expect(sdkOptions({ ...OPTIONS, mcpServers: { 'glade-control': server } }, ENV).allowedTools).toEqual([])
+})
+
 /** `canUseTool`'s options, as the SDK passes them for a plain call (the shape probed in §9). */
 function canUseOptions(extra: Partial<Parameters<CanUseTool>[2]> = {}): Parameters<CanUseTool>[2] {
   return { signal: new AbortController().signal, toolUseID: 'toolu_1', requestId: 'request-1', ...extra }

@@ -25,6 +25,7 @@ export const SETTING_SCHEMAS: { readonly [K in keyof Settings]: z.ZodType<Settin
   notifications: z.boolean(),
   notificationSound: z.boolean(),
   keyBindings: keyBindingsSchema,
+  controlEnabled: z.boolean(),
 }
 
 /** A stored value as its setting, or undefined when it isn't valid JSON of the right shape. */
@@ -62,6 +63,7 @@ export function getSettings(db: Database): Settings {
     notifications: read('notifications'),
     notificationSound: read('notificationSound'),
     keyBindings: read('keyBindings'),
+    controlEnabled: read('controlEnabled'),
   }
 }
 

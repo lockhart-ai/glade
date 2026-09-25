@@ -4,6 +4,8 @@ import type { MenuState } from '../../shared/commands'
 import type { Task } from '../../shared/domain'
 import type { AgentBackend } from '../agent/backend'
 import { createGladeMcpServer, GLADE_SERVER } from '../agent/glade-tools'
+import { createControl, type Control } from '../control/control'
+import { CONTROL_SERVER } from '../control/names'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
 import type { OpenPath, RevealPath, WriteClipboard } from '../files/files'
 import type { NotifyReply } from '../notifications/notifications'
@@ -94,6 +96,8 @@ export interface RegisteredBridge {
   readonly plugins: Plugins
   /** The shown plugin's view, which ends when the app quits. */
   readonly pluginViews: PluginViews
+  /** The control API (`glade-control`), which other agents drive Glade with. */
+  readonly control: Control
 }
 
 /** Every task, in every workspace: what the event log and the plugin feed know of them to begin with. */
@@ -149,11 +153,18 @@ export function registerBridge({
     permissions,
     isOnline,
     log: log.scoped(LogScope.Runner),
-    // Each session gets its own Glade tools, built for its task, with the upkeep Settings has on as it starts.
-    mcpServers: (task) => ({
-      [GLADE_SERVER]: createGladeMcpServer({ db, emit, questions }, task.id, getSettings(db)),
-    }),
+    // Each session gets its own Glade tools, built for its task, with the upkeep Settings has on as it starts, and,
+    // while agents may control Glade, the control tools, calling as its task.
+    mcpServers: (task) => {
+      const settings = getSettings(db)
+      return {
+        [GLADE_SERVER]: createGladeMcpServer({ db, emit, questions }, task.id, settings),
+        ...(settings.controlEnabled ? { [CONTROL_SERVER]: control.sdkServer(task.id) } : {}),
+      }
+    },
   })
+  // The control API, over the same runner and events as the window's commands.
+  const control = createControl({ db, emit, runner, log: log.scoped(LogScope.Control) })
   const terminals = createTerminals({ db, emit, ...terminal, log: log.scoped(LogScope.Terminal) })
   const pluginViews = createPluginViews({
     emit,
@@ -199,5 +210,5 @@ export function registerBridge({
     }
     return dispatch(command, request)
   })
-  return { runner, emit, terminals, plugins, pluginViews }
+  return { runner, emit, terminals, plugins, pluginViews, control }
 }

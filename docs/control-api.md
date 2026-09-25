@@ -26,16 +26,19 @@ When it's on, the section shows:
 
 ## Two transports, one server
 
-The tools are defined once (name, description, zod input schema, handler) in main and served by:
+The tools are defined once (name, description, zod input schema, handler) in main (`src/main/control/tools.ts`) and
+served by:
 
 - **In-process, for Glade's own tasks.** While the switch is on, each task's session gets `glade-control` in its
-  `mcpServers`, next to `glade`, as an in-process SDK server (`createSdkMcpServer`) that knows which task is calling.
+  `mcpServers`, next to `glade`, as an in-process SDK server (the `{ type: 'sdk' }` config `createSdkMcpServer` makes,
+  over an MCP server that serves the definitions itself, so its errors are this API's) that knows which task is
+  calling.
   Its tools aren't `alwaysLoad`: they sit behind tool search, so they cost no context until the agent looks for them.
   The system prompt gets one line saying they exist and are for when you ask.
 - **HTTP, for everything else.** A Streamable HTTP MCP endpoint (the official `@modelcontextprotocol/sdk`, stateless)
   at `/mcp`, listening on `127.0.0.1` only.
 
-Both call the same **control service** in main, a typed layer over the code the window's commands use (the task
+Both call the same **control service** in main (`src/main/control/service.ts`), a typed layer over the code the window's commands use (the task
 service, the agent runner, the repositories). A change made through the API is the change the UI would make: same
 checks, same events, so every open window updates at once.
 
@@ -54,18 +57,24 @@ checks, same events, so every open window updates at once.
 ## Calls, results and errors
 
 Every tool returns its result as `structuredContent` and the same JSON as a text block, for clients that only read
-text. A failure is a tool error (`isError: true`) whose JSON is `{ "error": { "code": …, "message": … } }`:
+text. A failure is a tool error (`isError: true`) whose JSON (again as `structuredContent` and as text) is
+`{ "error": { "code": …, "message": … } }`, with `retryAfterMs` too for `rate_limited`:
 
 | Code | When |
 |---|---|
-| `invalid_input` | The input fails its schema (the message says which field and why). |
+| `invalid_input` | The input fails its schema: the message names each field and why, e.g. `limit: Too big: expected number to be <=100` or `verbose: unknown field`. Every schema is strict: an unknown field fails it. A cursor that's expired or for another listing fails as `cursor: …`. |
 | `not_found` | No such task, workspace or session. |
-| `invalid_transition` | E.g. marking a done task done. |
+| `invalid_transition` | E.g. marking a done task done, or reopening an active one. |
 | `forbidden` | A task stopping, deleting or messaging itself. |
 | `confirm_required` | `delete_task` without `confirm: true`. |
 | `rate_limited` | Too many calls; `retryAfterMs` says when to try again. |
-| `disabled` | The switch is off. |
+| `disabled` | The switch is off. Checked before anything else, on every call. |
 | `import_failed` | The transcript can't be imported (the message says why: no such file, no messages, no workspace for its folder, …). |
+| `internal` | Something went wrong in Glade itself (logged as an error). |
+
+A call is checked in this order: the switch, the caller's rate limit, the input, the self-guard, then the call's own
+checks (`not_found`, `invalid_transition`, `confirm_required`). A tool name the server doesn't have is a protocol error
+(MCP's invalid params), not a tool error.
 
 Times are epoch milliseconds. Ids are Glade's (UUIDs), except `sessionId`, which is the SDK's.
 
@@ -75,7 +84,9 @@ Times are epoch milliseconds. Ids are Glade's (UUIDs), except `sessionId`, which
 interface WorkspaceSummary { id: string; name: string; rootPath: string; activeTasks: number; doneTasks: number }
 
 interface TaskSummary {
-  id: string; workspaceId: string; title: string; status: string
+  id: string; workspaceId: string
+  title: string                                          // '' until the task is named
+  status: string
   state: 'active' | 'done'
   activity: 'waiting' | 'working' | 'error' | 'paused'   // the status dot, with needsYou
   needsYou: boolean; pinned: boolean; unread: boolean
@@ -93,12 +104,15 @@ interface TaskDetail extends TaskSummary {
   pause: { reason: string; resumesAt: number } | null
   queuedMessages: number; turns: number
   createdAt: number; sessionId: string | null
-  importedAt: number | null   // set on a task imported from Claude Code
+  importedAt: number | null   // set on a task imported from Claude Code (added with the import tools, P13-02)
 }
 
 interface ChatTurn {
-  turn: number; startedAt: number
+  turn: number
+  startedAt: number | null   // its first message's time, or its turn divider's for a turn the agent started itself
   messages: { role: 'user' | 'agent'; body: string; createdAt: number; truncated: boolean }[]
+  // The agent's own calls (not its subagents'), in order: `name` as the tool log shows it (`set_status` for Glade's
+  // own `mcp__glade__set_status`, other MCP tools in full), `summary` its row's one-line argument.
   toolCalls?: { name: string; summary: string; state: 'running' | 'done' | 'error' | 'paused' | 'interrupted' }[]
 }
 ```
@@ -123,7 +137,16 @@ Reads never change anything (not even a task's unread flag) and never ask for pe
 → { tasks: TaskSummary[]; nextCursor: string | null }
 ```
 
-Without `query`: pinned first, then by `updatedAt`, newest first. With it: by the search's ranking.
+Without `query`: pinned first, then by `updatedAt`, newest first. With it: by the search's ranking (the field of each
+task's best match, then the most recently updated), across workspaces when there's no `workspaceId`. `query` is
+trimmed and mustn't be empty.
+
+A listing's first page fixes its order: the tasks that matched then, in the order they had then. Each `nextCursor`
+continues that order, with each task as it is now, so tasks changing between pages (and moving in the sidebar) are
+never listed twice or skipped. A task deleted meanwhile is left out; one created meanwhile isn't in the listing, which
+a new one (without `cursor`) picks up. A cursor only continues a listing with the same `workspaceId`, `state` and
+`query`, and lasts ten minutes after its last page (it's kept in memory, so a relaunch ends it too); past that it
+fails as `invalid_input`, and the caller lists again.
 
 ### `get_task`
 
@@ -142,7 +165,7 @@ Without `query`: pinned first, then by `updatedAt`, newest first. With it: by th
 The chat log (your messages and the agent's final replies) by turn, each turn's start time for its divider and, with
 `includeTools`, its tool calls as the tool log's one-line summaries, without their input or output. A message body
 over 20,000 characters is cut there, with `truncated: true`. For the last few turns, read `turns` from `get_task`
-first.
+first. A `fromTurn` past the last turn gives no turns.
 
 ### `create_task`
 
@@ -155,7 +178,7 @@ first.
 ```
 
 Like New task, then sending the first message. Without `message` the task waits for one, as a new task in the window
-does.
+does. `model` is one the input bar's picker offers (`src/shared/models.ts`). The task isn't selected in the window.
 
 ### `update_task`
 
@@ -166,25 +189,30 @@ does.
 → { task: TaskDetail }
 ```
 
-Texts are trimmed and mustn't be empty. `status` is the one-line status summary. A new `permissionMode` applies from
-the agent's next tool call, as the picker's does. Done and active go through `mark_done` and `reopen_task`.
+Texts are trimmed and mustn't be empty, and a patch must change at least one field. `status` is the one-line status
+summary. A new `permissionMode` applies from the agent's next tool call, as the picker's does. Done and active go
+through `mark_done` and `reopen_task`. A patch of only `unread` doesn't move the task in the sidebar, as marking it
+read or unread there doesn't.
 
 ### `send_message`
 
 `{ id, text }` → `{ delivery: 'sent' | 'queued' | 'answered'; task: TaskDetail }`
 
-What the input bar does with the text: sent when the agent is idle (reopening a done task), queued while it works or
-a permission card waits, and taken as the answer when a question card is open. Text only; no images.
+What the input bar does with the text: sent when the agent is idle (reopening a done task), queued while it works, a
+permission card waits or the task is paused, and taken as the answer when a question card is open. Text only; no
+images. The text is trimmed and mustn't be empty.
 
 ### `stop_task`, `mark_done`, `reopen_task`
 
 `{ id }` → `{ task: TaskDetail }`. Stop is the Stop button: it interrupts the turn and withdraws an open question or
-permission request. Mark done and reopen are the header's actions.
+permission request, and answers once the turn has ended; an idle task is left as it is. Mark done and reopen are the
+header's actions: `invalid_transition` for a task already done, or already active.
 
 ### `delete_task`
 
-`{ id, confirm: true }` → `{ deleted: string }`. Deletes the task's rows, as Delete task… does; nothing on disk is
-touched. Without `confirm: true` it's refused with `confirm_required`.
+`{ id, confirm: true }` → `{ deleted: string }`. Deletes the task's rows, as Delete task… does (closing its agent's
+session first, and deselecting it if it's shown); nothing on disk is touched. Without `confirm: true` it's refused with
+`confirm_required`.
 
 ### `list_claude_code_sessions`
 
@@ -265,8 +293,8 @@ To port everything in, an agent pages through `list_claude_code_sessions { impor
 - **A task can't turn on itself:** through the in-process server, a task can't stop, delete or send a message to
   itself (`forbidden`). It can read and update itself.
 - **Deletes need `confirm: true`.**
-- **Rate limits,** per caller (each task, and the HTTP endpoint as a whole): 600 reads and 120 changes a minute.
-  Imports count as changes.
+- **Rate limits,** per caller (each task, and the HTTP endpoint as a whole): 600 reads and 120 changes a minute, in a
+  sliding window, counted apart. A refused call doesn't count. Imports count as changes.
 - **Permissions:** in a task's ask mode (P11), `glade-control` tools that change things ask like any other MCP tool
   with side effects, since the server isn't `glade`. Its reads (`list_*`, `get_*`) never ask, when the SDK says the
   server is Glade's own in-process `glade-control`. The same tools reached through a user-configured HTTP server

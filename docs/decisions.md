@@ -76,8 +76,11 @@
     doesn't know to be read-only, including other MCP servers'
     tools. Reads and searches (`Read`, `Glob`, `Grep`, `WebFetch`, `WebSearch`, …), Claude Code's todo and subagent
     tools, the agent's follow-up tools that only schedule itself or tell you (`ScheduleWakeup`, `CronCreate`,
-    `CronDelete`, `CronList`, `PushNotification`, `ListAgents`), and Glade's own MCP tools (`mcp__glade__*`) never
-    ask. The user's own settings still apply: their allow
+    `CronDelete`, `CronList`, `PushNotification`, `ListAgents`), Glade's own MCP tools (`mcp__glade__*`), and the
+    reads of Glade's control tools (`glade-control`'s `list_*` and `get_*`, when the SDK says the server is Glade's
+    in-process one) never ask. The control tools that change things (`create_task`, `update_task`, `send_message`,
+    `stop_task`, `mark_done`, `reopen_task`, `delete_task`) ask, as other MCP servers' tools do: only `glade` is
+    pre-approved (`allowedTools`) and trusted wholesale. The user's own settings still apply: their allow
     and deny rules decide without asking, and a user `ask` rule shows the card even for a read.
   - A request shows as a **permission card** in the chat, styled like the `ask` question card: the tool, its input
     (the command, or the file and the change), and, for a subagent's call, which subagent. It offers **Allow once**,

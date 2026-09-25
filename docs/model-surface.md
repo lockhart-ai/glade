@@ -128,6 +128,14 @@ main agent's successful calls count. The list isn't stored on its own: main work
 stay in the tool log like any others. The domain's `waiting` state (purple in the design) has no source in Claude
 Code's tools, so nothing sets it yet.
 
+## Glade's control tools: `glade-control` (P13-01)
+
+While Settings › Control lets agents control Glade, each session also gets a second in-process server, `glade-control`
+(`src/main/control/`), bound to its task: the tools other agents drive Glade with, listing, reading, creating, changing,
+messaging and deleting tasks (`control-api.md`). Unlike `glade`'s, they aren't `alwaysLoad` (they sit behind tool
+search), and in the ask mode the ones that change things wait on a permission card; the reads don't. A task can't stop,
+delete or message itself through them.
+
 ## Not tools — from SDK events
 
 Tool calls and preamble (tool log), subagents (Subagents tab), files touched (Files tab list), context usage (meter),
@@ -151,6 +159,10 @@ The user sees the task through its title, objective and status. Keep them curren
 
 When you need the user to decide something before you can go on, call ask instead of asking in your reply: it shows your questions on a card and waits for the answers. Ask everything you need at once, with choices or pills when the likely answers are known.
 ```
+
+With the control tools, the prompt ends with one more line: that the session has Glade's control tools (the
+`glade-control` server, found with tool search), and to use them only when the user asks to work with Glade or its
+other tasks.
 
 The "after the user's first message" line asks only for what isn't set yet, so a resumed session never renames a task
 the user has renamed.

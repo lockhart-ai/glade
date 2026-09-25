@@ -4,13 +4,24 @@
  * the workspace's CLAUDE.md, not from here (`docs/model-surface.md`).
  */
 import type { Task } from '../../shared/domain'
+import { CONTROL_SERVER } from '../control/names'
 import { ALL_UPKEEP, GladeTool, type AgentUpkeep } from './glade-tools'
 
 /**
- * The prompt for `task`'s session. With `upkeep` turned off in Settings, it leaves out asking for a title or a status,
- * as the session's Glade tools leave out the tools for them.
+ * What the prompt says of the `glade-control` tools (`docs/control-api.md`), when the session has them: that they
+ * exist, behind tool search, and are for when the user asks.
  */
-export function systemPromptAppend(task: Task, upkeep: AgentUpkeep = ALL_UPKEEP): string {
+export const CONTROL_TOOLS_LINE =
+  `This session also has Glade's control tools (the ${CONTROL_SERVER} MCP server; find them with tool search): ` +
+  "they list, read, create, change, message and delete Glade's tasks. Use them only when the user asks you to work " +
+  'with Glade or its other tasks.'
+
+/**
+ * The prompt for `task`'s session. With `upkeep` turned off in Settings, it leaves out asking for a title or a status,
+ * as the session's Glade tools leave out the tools for them. With `control`, the session has the `glade-control`
+ * tools, and the prompt says so in one line.
+ */
+export function systemPromptAppend(task: Task, upkeep: AgentUpkeep = ALL_UPKEEP, control = false): string {
   const named = task.title !== ''
   const lines = [
     'You are running inside Glade, a desktop app that runs Claude agent sessions as tasks.',
@@ -44,5 +55,6 @@ export function systemPromptAppend(task: Task, upkeep: AgentUpkeep = ALL_UPKEEP)
     `When you make a deliverable the user asked for (a report, a document, a draft), call ${GladeTool.AddArtifact} ` +
       'with its path and a short title, so it shows in the Artifacts tab and stays with the task after it is done.',
   )
+  if (control) lines.push('', CONTROL_TOOLS_LINE)
   return lines.join('\n')
 }
