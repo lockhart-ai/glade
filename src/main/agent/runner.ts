@@ -23,6 +23,15 @@
  * - The task's context usage follows the agent's latest top-level message, and its context window is what the turn's
  *   `result` reports for the session's model (`docs/sdk-notes.md`, "Usage and context size").
  *
+ * **Turns the agent starts itself.** The SDK starts a turn with no message from you when a background command or
+ * subagent finishes, a timer fires or a scheduled wakeup is due (`docs/sdk-notes.md`, "Turns the agent starts
+ * itself"). When the agent's own text, tool call or context usage (or an API error in their place) arrives between
+ * turns, the runner opens the task's next turn for it (`openTurn`): a turn divider and the working activity, with no
+ * message in the chat until it replies. From there it's a turn like any other: its final reply, with a summary timed
+ * from its divider, unread marker and notification; the queue delivered into it and after it; Stop; and a relaunch
+ * carrying it on. As with any new turn, an error or pause the task had is behind it; a done task stays done while it
+ * runs. Anything else between turns (a late system message after a result, a subagent's messages) is still ignored.
+ *
  * **Reopen by chatting.** A message to a done task reopens it: the task goes back to active and the message is the
  * next turn of the same session, the live one if it's still running, or the saved one resumed by its id. The tool log
  * gets a marked done divider, stamped with the `doneAt` that reopening clears (the chat and header show it), at the end
@@ -363,6 +372,34 @@ function isPaused(task: Task): boolean {
 /** Whether a turn ended because it was interrupted: the SDK's `aborted_streaming` or `aborted_tools`. */
 function isAborted(terminalReason: string | null): boolean {
   return terminalReason?.startsWith('aborted') === true
+}
+
+/**
+ * Whether an event that arrives between turns means the agent has started a turn of its own: it's a message from the
+ * agent itself, not one of its subagents (text, a tool call, or just the context it answered from), or the API error
+ * that took the place of one. Anything else between turns is left over from the turn before, or may be a subagent's
+ * (a retry or a compaction doesn't say whose it is), and opening a turn for it would leave one no result ever ends.
+ */
+function startsTurn(event: AgentEvent): boolean {
+  switch (event.kind) {
+    case AgentEventKind.Text:
+    case AgentEventKind.ToolCallStarted:
+      return event.parentToolUseId === null
+    case AgentEventKind.ContextUsed:
+    case AgentEventKind.ApiError:
+      return true
+    case AgentEventKind.SessionStarted:
+    case AgentEventKind.ToolResult:
+    case AgentEventKind.Compacting:
+    case AgentEventKind.Compacted:
+    case AgentEventKind.CompactionFailed:
+    case AgentEventKind.TurnFinished:
+    case AgentEventKind.SessionFailed:
+    case AgentEventKind.ApiRetry:
+    case AgentEventKind.RateLimit:
+    case AgentEventKind.SubagentStarted:
+      return false
+  }
 }
 
 function newTurn(number: number): Turn {
@@ -772,6 +809,25 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (!pauseOnError(taskId, error, live.limit)) stopOnError(taskId, error)
   }
 
+  /**
+   * Opens a turn the agent started on its own (see the module comment), with no message of yours: the task's next turn,
+   * with its turn divider, which the agent works on like any other. It's saved in one write with the working activity,
+   * so a relaunch finds the turn working and carries it on. A done task stays done. Answers with the turn.
+   */
+  const openTurn = (taskId: string, live: LiveSession): Turn => {
+    const number = lastTurn(db, taskId) + 1
+    const workingEvents: GladeEvent[] = []
+    const divider = db.transaction(() => {
+      const divider = appendDivider(db, { taskId, turn: number, dividerKind: DividerKind.Turn })
+      startWorking(taskId, { db, emit: (event) => workingEvents.push(event) })
+      return divider
+    })()
+    emitToolEventAppended(emit, divider)
+    for (const event of workingEvents) emit(event)
+    live.turn = newTurn(number)
+    return live.turn
+  }
+
   const onEvent = (taskId: string, live: LiveSession, event: AgentEvent): void => {
     if (live.closed) return
     if (event.kind === AgentEventKind.SessionStarted) {
@@ -796,8 +852,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       live.subagents.set(event.toolUseId, event.sdkTaskId)
       return
     }
-    const { turn } = live
-    // Between turns there's nothing to add to: e.g. a late system message after a turn's result.
+    // Between turns, the agent's own work is a turn it started itself; anything else is left over, e.g. a late system
+    // message after a turn's result, and there's nothing to add it to.
+    const turn = live.turn ?? (startsTurn(event) ? openTurn(taskId, live) : null)
     if (turn === null) return
     switch (event.kind) {
       case AgentEventKind.Text:

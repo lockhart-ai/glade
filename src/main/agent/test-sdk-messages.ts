@@ -251,3 +251,34 @@ export function compactBoundary(metadata: Record<string, unknown>): unknown {
 export function compactResult(): unknown {
   return result('', { num_turns: 0, duration_ms: 21483 })
 }
+
+/**
+ * What the SDK streams when a background task (a command or a subagent) finishes between turns, before the turn it
+ * starts: the task's status patch, then its notification (`docs/sdk-notes.md`, "Turns the agent starts itself").
+ */
+export function taskFinished(toolUseId: string, summary = 'Background command "Build the docs" completed'): unknown[] {
+  return [
+    {
+      type: 'system',
+      subtype: 'task_updated',
+      task_id: 'b88t',
+      patch: { status: 'completed' },
+      session_id: SESSION_ID,
+    },
+    {
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: 'b88t',
+      tool_use_id: toolUseId,
+      status: 'completed',
+      output_file: 'tasks/b88t.output',
+      summary,
+      session_id: SESSION_ID,
+    },
+  ]
+}
+
+/** The `result` of a turn the agent started on its own: it says why, and names no message of yours. */
+export function selfStartedResult(reply: string): unknown {
+  return result(reply, { origin: { kind: 'task-notification' }, num_turns: 1 })
+}

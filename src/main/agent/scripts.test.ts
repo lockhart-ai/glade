@@ -4,9 +4,11 @@ import { join } from 'node:path'
 // Each library script, played through the real agent runner into a database: what the chat, tool log and task end up
 // with is what an e2e spec or a capture sees.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { EventType, type GladeEvent } from '../../shared/bridge'
 import {
   CompactionTrigger,
   AgentErrorKind,
+  DividerKind,
   API_TOOL_NAME,
   MessageRole,
   PauseReason,
@@ -28,6 +30,7 @@ import { getOpenFiles } from '../db/repositories/open-files'
 import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
+import type { NotifyReply } from '../notifications/notifications'
 import { createQuestionBroker } from '../questions/questions'
 import { todoListFor } from '../todos/todos'
 import { createAgentRunner, STOPPED_NOTE, type AgentRunner } from './runner'
@@ -48,14 +51,21 @@ let task: Task
 let runner: AgentRunner | undefined
 let backend: TestModeAgentBackend
 
-function start(name: AgentScriptName): AgentRunner {
+/** What a test hears from the runner: the bridge events it broadcasts, and the replies it notifies. */
+interface Listeners {
+  readonly emit?: (event: GladeEvent) => void
+  readonly notifyReply?: NotifyReply
+}
+
+function start(name: AgentScriptName, { emit = () => undefined, notifyReply }: Listeners = {}): AgentRunner {
   backend = createTestModeAgentBackend({ script: AGENT_SCRIPTS[name] })
-  const base = { db: database.db, emit: () => undefined }
+  const base = { db: database.db, emit }
   const questions = createQuestionBroker(base)
   const context = { ...base, questions }
   runner = createAgentRunner({
     ...context,
     backend,
+    ...(notifyReply === undefined ? {} : { notifyReply }),
     // The real Glade tools, as the app gives every session.
     mcpServers: (forTask) => ({ [GLADE_SERVER]: createGladeMcpServer(context, forTask.id) }),
   })
@@ -592,5 +602,79 @@ describe('AGENT_SCRIPTS', () => {
       { text: 'Run the test 200 times', state: TodoState.Done, note: null },
     ])
     expect(calls().filter(({ name }) => name === 'TodoWrite')).toHaveLength(3)
+  })
+
+  it('finishes-in-background: reports back in a turn of its own when the build finishes, with no message from you', async () => {
+    // Regression (#162): the turn the agent started on its own was dropped, text, tool calls, reply and all.
+    // The chat's messages and the task's activity changes, in the order they were broadcast.
+    const heard: string[] = []
+    let activity: TaskActivity | null = null
+    const emit = (event: GladeEvent): void => {
+      if (event.type === EventType.MessageAppended) heard.push(`${event.message.role}: ${event.message.body}`)
+      if (event.type === EventType.TaskUpdated && activity !== event.task.activity) {
+        activity = event.task.activity
+        heard.push(activity)
+      }
+    }
+    const notifyReply = vi.fn<NotifyReply>()
+    // You're looking elsewhere, so the reply marks the task unread and is notified.
+    await send(start('finishes-in-background', { emit, notifyReply }), 'Build the docs.')
+
+    const selfStarted = 'The docs site built cleanly: 48 pages and no broken links.'
+    expect(listMessages(database.db, task.id).map(({ role, body, turn }) => [role, turn, body])).toEqual([
+      [MessageRole.User, 1, 'Build the docs.'],
+      [MessageRole.Agent, 1, "I've started the docs build in the background. I'll report back when it finishes."],
+      [MessageRole.Agent, 2, selfStarted],
+    ])
+    expect(listMessages(database.db, task.id).at(-1)?.summary).toEqual({
+      durationMs: expect.any(Number) as number,
+      filesChanged: 0,
+      linesAdded: 0,
+      linesRemoved: 0,
+    })
+    const turnTwo = listToolEvents(database.db, task.id).filter((event) => event.turn === 2)
+    expect(turnTwo.map((event) => event.kind)).toEqual([
+      ToolEventKind.Divider,
+      ToolEventKind.Narration,
+      ToolEventKind.ToolCall,
+      ToolEventKind.ToolCall,
+    ])
+    expect(turnTwo[0]).toMatchObject({ dividerKind: DividerKind.Turn })
+    expect(turnTwo.slice(1)).toMatchObject([
+      { text: 'The docs build finished. Checking its output for broken links.' },
+      { name: 'Read', state: ToolCallState.Done },
+      { name: 'mcp__glade__set_status', state: ToolCallState.Done },
+    ])
+    // It works through the turn, and waits on you once it has replied.
+    expect(
+      heard.slice(
+        heard.indexOf(
+          `${MessageRole.Agent}: I've started the docs build in the background. I'll report back when it finishes.`,
+        ),
+      ),
+    ).toEqual([
+      `${MessageRole.Agent}: I've started the docs build in the background. I'll report back when it finishes.`,
+      TaskActivity.Waiting,
+      TaskActivity.Working,
+      `${MessageRole.Agent}: ${selfStarted}`,
+      TaskActivity.Waiting,
+    ])
+    expect(getTask(database.db, task.id)).toMatchObject({
+      status: 'The docs site is built, with no broken links.',
+      unread: true,
+      activity: TaskActivity.Waiting,
+    })
+    expect(notifyReply).toHaveBeenLastCalledWith(task.id, selfStarted)
+
+    // The next message is the next turn.
+    await send(runner ?? start('finishes-in-background'), 'Where is it?')
+    expect(
+      listMessages(database.db, task.id)
+        .slice(-2)
+        .map(({ role, turn }) => [role, turn]),
+    ).toEqual([
+      [MessageRole.User, 3],
+      [MessageRole.Agent, 3],
+    ])
   })
 })

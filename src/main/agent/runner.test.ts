@@ -870,16 +870,31 @@ describe('the session', () => {
     expect(backend.sessions).toHaveLength(2)
   })
 
-  it('ignores what a session sends between turns', async () => {
+  it("ignores what's left over between turns: late system messages, a subagent's work, a stray result", async () => {
     await send('Hi')
     backend.session.emit(sdk.init(), sdk.result('Hello.'))
     await settle()
     events.splice(0)
 
-    backend.session.emit(sdk.text('A late thought.'), sdk.toolResult('toolu_09', 'x'), sdk.result('Late.'))
+    backend.session.emit(
+      ...sdk.taskFinished('toolu_01'),
+      sdk.init(),
+      ...sdk.turnStartNoise(),
+      sdk.apiRetry(1),
+      ...sdk.compaction(150_000, 30_000, 'auto'),
+      { type: 'system', subtype: 'task_started', task_id: 'b9', tool_use_id: 'toolu_08', session_id: sdk.SESSION_ID },
+      sdk.text('A subagent still at work.', 'toolu_08', 'msg_sub'),
+      sdk.toolUse('toolu_10', 'Read', { file_path: 'src/app.ts' }, 'toolu_08', 'msg_sub'),
+      sdk.toolResult('toolu_10', 'export {}', false, 'toolu_08'),
+      sdk.toolResult('toolu_09', 'x'),
+      sdk.result('Late.'),
+    )
     await settle()
 
     expect(events).toEqual([])
+    expect(chat()).toHaveLength(2)
+    expect(toolLog()).toHaveLength(1)
+    expect(current().activity).toBe(TaskActivity.Waiting)
   })
 
   it('closes every session and ignores anything they send afterwards, leaving a cut-short turn working', async () => {
@@ -961,6 +976,287 @@ describe('the session', () => {
     expect(console.info).not.toHaveBeenCalled()
     expect(console.debug).not.toHaveBeenCalled()
     own.close()
+  })
+})
+
+describe('a turn the agent starts itself', () => {
+  /** A first turn that starts a build in the background and replies at once. */
+  async function startBackgroundBuild(): Promise<void> {
+    await send('Build the docs.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.toolUse('toolu_01', 'Bash', { command: 'npm run build:docs', run_in_background: true }),
+      sdk.toolResult('toolu_01', 'Command running in background with ID: b88t.'),
+      sdk.text('Started the build in the background.', null, 'msg_02'),
+      sdk.result('Started the build in the background.'),
+    )
+    await settle()
+    events.splice(0)
+  }
+
+  /** What the SDK streams when the build finishes, up to the agent's first words in the turn it starts. */
+  function wake(firstWords = 'The build finished. Checking its output.'): unknown[] {
+    return [...sdk.taskFinished('toolu_01'), sdk.init(), ...sdk.turnStartNoise(), sdk.text(firstWords, null, 'msg_03')]
+  }
+
+  async function queue(text: string): Promise<void> {
+    await glade.invoke(CommandName.QueueAdd, { taskId: task.id, text })
+  }
+
+  it('opens the next turn for it, working, and saves its text, tool calls, reply and summary like any other', async () => {
+    await startBackgroundBuild()
+    const openedAt = Date.now()
+
+    backend.session.emit(...wake(), sdk.toolUse('toolu_02', 'Read', { file_path: 'tasks/b88t.output' }, null, 'msg_03'))
+    await settle()
+
+    expect(current().activity).toBe(TaskActivity.Working)
+    expect(drainEvents()).toEqual([
+      [EventType.ToolEventAppended, ToolEventKind.Divider, null],
+      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED],
+      [EventType.ToolEventAppended, ToolEventKind.Narration, null],
+      [EventType.ToolEventAppended, ToolEventKind.ToolCall, ToolCallState.Running],
+    ])
+    // It's busy like any other turn: a message waits in the queue.
+    await expect(send('Is it done?')).rejects.toMatchObject({ code: BridgeErrorCode.Busy })
+
+    backend.session.emit(
+      sdk.toolResult('toolu_02', 'Built 48 pages. No broken links.'),
+      sdk.text('The docs built cleanly: 48 pages, no broken links.', null, 'msg_04'),
+      sdk.selfStartedResult('The docs built cleanly: 48 pages, no broken links.'),
+    )
+    await settle()
+
+    expect(chat()).toEqual([
+      { role: MessageRole.User, body: 'Build the docs.', turn: 1 },
+      { role: MessageRole.Agent, body: 'Started the build in the background.', turn: 1 },
+      { role: MessageRole.Agent, body: 'The docs built cleanly: 48 pages, no broken links.', turn: 2 },
+    ])
+    expect(toolLog().slice(2)).toEqual([
+      { divider: DividerKind.Turn, turn: 2 },
+      { narration: 'The build finished. Checking its output.', turn: 2 },
+      expect.objectContaining({ call: 'Read', state: ToolCallState.Done, turn: 2 }),
+    ])
+    const reply = listMessages(database.db, task.id).at(-1)
+    expect(reply?.summary).toEqual({
+      durationMs: expect.any(Number) as number,
+      filesChanged: 0,
+      linesAdded: 0,
+      linesRemoved: 0,
+    })
+    // Timed from when the turn opened, not from your last message.
+    expect(reply?.summary?.durationMs).toBeLessThanOrEqual(Date.now() - openedAt)
+    expect(current().activity).toBe(TaskActivity.Waiting)
+
+    // Your next message is the turn after it, in the same session.
+    await send('Thanks.')
+    expect(backend.sessions).toHaveLength(1)
+    expect(chat().at(-1)).toEqual({ role: MessageRole.User, body: 'Thanks.', turn: 3 })
+  })
+
+  it('marks a task you are not viewing unread with its reply', async () => {
+    await startBackgroundBuild()
+    setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: 'another-task' })
+
+    backend.session.emit(...wake(), sdk.selfStartedResult('The build finished.'))
+    await settle()
+
+    expect(current()).toMatchObject({ unread: true, activity: TaskActivity.Waiting })
+  })
+
+  it('numbers two it starts in a row as two turns, even when the first ends with no reply', async () => {
+    await startBackgroundBuild()
+
+    // The first only thinks, and ends without a word.
+    backend.session.emit(...sdk.taskFinished('toolu_01'), sdk.init(), sdk.thinking('msg_03'), sdk.selfStartedResult(''))
+    await settle()
+    expect(current().activity).toBe(TaskActivity.Waiting)
+
+    backend.session.emit(...wake('The second build finished too.'), sdk.selfStartedResult('Both builds are done.'))
+    await settle()
+
+    expect(chat().slice(2)).toEqual([{ role: MessageRole.Agent, body: 'The second build finished too.', turn: 3 }])
+    expect(toolLog().slice(2)).toEqual([
+      { divider: DividerKind.Turn, turn: 2 },
+      { divider: DividerKind.Turn, turn: 3 },
+    ])
+    expect(current().activity).toBe(TaskActivity.Waiting)
+  })
+
+  it('opens for an API error that took the place of its first message, and stops the task on it', async () => {
+    await startBackgroundBuild()
+
+    backend.session.emit(...sdk.taskFinished('toolu_01'), sdk.init(), sdk.apiErrorMessage(), sdk.apiErrorResult())
+    await settle()
+
+    expect(current()).toMatchObject({ activity: TaskActivity.Error, error: { source: TaskErrorSource.Api } })
+    expect(toolLog().slice(2)).toEqual([
+      { divider: DividerKind.Turn, turn: 2 },
+      expect.objectContaining({ call: API_TOOL_NAME, state: ToolCallState.Error, turn: 2 }),
+    ])
+  })
+
+  it('delivers a message queued while it runs into it once its step is done', async () => {
+    await startBackgroundBuild()
+    backend.session.emit(...wake(), sdk.toolUse('toolu_02', 'Read', { file_path: 'tasks/b88t.output' }, null, 'msg_03'))
+    await settle()
+
+    await queue('Publish it once it builds.')
+    expect(backend.session.sent.map(({ text }) => text)).toEqual(['Build the docs.'])
+
+    backend.session.emit(sdk.toolResult('toolu_02', 'Built 48 pages.'))
+    await settle()
+    const folded = listMessages(database.db, task.id).at(-1)
+    expect(folded).toMatchObject({ role: MessageRole.User, body: 'Publish it once it builds.', turn: 2 })
+    expect(backend.session.sent.map(({ text }) => text)).toEqual(['Build the docs.', 'Publish it once it builds.'])
+
+    backend.session.emit(
+      sdk.text('Built and published.', null, 'msg_04'),
+      sdk.result('Built and published.', { origin: { kind: 'task-notification' }, user_message_uuids: [folded?.id] }),
+    )
+    await settle()
+    expect(chat().slice(2)).toEqual([
+      { role: MessageRole.User, body: 'Publish it once it builds.', turn: 2 },
+      { role: MessageRole.Agent, body: 'Built and published.', turn: 2 },
+    ])
+    expect(current().activity).toBe(TaskActivity.Waiting)
+  })
+
+  it('starts the next turn with a message queued while it wrote its reply', async () => {
+    await startBackgroundBuild()
+    backend.session.emit(...wake('The docs built cleanly.'))
+    await settle()
+    await queue('Now publish them.')
+
+    backend.session.emit(sdk.selfStartedResult('The docs built cleanly.'))
+    await settle()
+
+    expect(chat().slice(2)).toEqual([
+      { role: MessageRole.Agent, body: 'The docs built cleanly.', turn: 2 },
+      { role: MessageRole.User, body: 'Now publish them.', turn: 3 },
+    ])
+    expect(listQueuedMessages(database.db, task.id)).toEqual([])
+    expect(current().activity).toBe(TaskActivity.Working)
+  })
+
+  it('arriving while your queued message is on its way, ends that turn and is saved in it; your reply follows', async () => {
+    // Your message went to the session as the next turn, but the SDK had the build's notification first.
+    await startBackgroundBuild()
+    await send('Is the build done?')
+    events.splice(0)
+
+    backend.session.emit(...wake('The build finished.'), sdk.selfStartedResult('The build finished.'))
+    await settle()
+    const [question] = listMessages(database.db, task.id).slice(2)
+    backend.session.emit(
+      sdk.init(),
+      sdk.text('Yes: it finished a moment ago.', null, 'msg_05'),
+      sdk.result('Yes: it finished a moment ago.', { user_message_uuids: [question?.id] }),
+    )
+    await settle()
+
+    // Nothing is lost, and the task waits on you once both are answered.
+    expect(chat().slice(2)).toEqual([
+      { role: MessageRole.User, body: 'Is the build done?', turn: 2 },
+      { role: MessageRole.Agent, body: 'The build finished.', turn: 2 },
+      { role: MessageRole.Agent, body: 'Yes: it finished a moment ago.', turn: 3 },
+    ])
+    expect(current().activity).toBe(TaskActivity.Waiting)
+  })
+
+  it('takes a paused task back to working, and delivers what was queued meanwhile after it', async () => {
+    await startBackgroundBuild()
+    await send('Deploy the docs.')
+    backend.session.emit(sdk.init(), ...sdk.usageLimitTurnEnd(Math.ceil(Date.now() / 1000) + 3600))
+    await settle()
+    expect(current().activity).toBe(TaskActivity.Paused)
+    await queue('And tell me when it is live.')
+
+    backend.session.emit(...wake('The build finished.'))
+    await settle()
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, pause: null })
+
+    backend.session.emit(sdk.selfStartedResult('The build finished.'))
+    await settle()
+    expect(chat().slice(-2)).toEqual([
+      { role: MessageRole.Agent, body: 'The build finished.', turn: 3 },
+      { role: MessageRole.User, body: 'And tell me when it is live.', turn: 4 },
+    ])
+    expect(current().activity).toBe(TaskActivity.Working)
+  })
+
+  it('leaves a done task done while it runs and once it replies', async () => {
+    await startBackgroundBuild()
+    await glade.invoke(CommandName.TasksMarkDone, { id: task.id })
+
+    backend.session.emit(...wake())
+    await settle()
+    expect(current()).toMatchObject({ state: TaskState.Done, activity: TaskActivity.Working })
+
+    backend.session.emit(sdk.selfStartedResult('The build finished.'))
+    await settle()
+    expect(current()).toMatchObject({ state: TaskState.Done, activity: TaskActivity.Waiting })
+    expect(chat().at(-1)).toEqual({
+      role: MessageRole.Agent,
+      body: 'The build finished. Checking its output.',
+      turn: 2,
+    })
+  })
+
+  it('can be stopped like any other', async () => {
+    await startBackgroundBuild()
+    backend.session.emit(...wake())
+    await settle()
+    backend.session.onInterrupt = () => {
+      backend.session.emit(sdk.interruptMarker(), sdk.abortedResult())
+      return Promise.resolve()
+    }
+
+    await glade.invoke(CommandName.TasksStop, { id: task.id })
+
+    expect(current().activity).toBe(TaskActivity.Waiting)
+    expect(toolLog().slice(-2)).toEqual([
+      { narration: 'The build finished. Checking its output.', turn: 2 },
+      { narration: STOPPED_NOTE, turn: 2 },
+    ])
+  })
+
+  it('is carried on after a relaunch in the middle of it, in its own turn', async () => {
+    await startBackgroundBuild()
+    backend.session.emit(...wake(), sdk.toolUse('toolu_02', 'Read', { file_path: 'tasks/b88t.output' }, null, 'msg_03'))
+    await settle()
+
+    relaunch()
+    expect(runner.resumeInterrupted()).toEqual([task.id])
+
+    expect(backend.session.sent.map(({ text }) => text)).toEqual([RESUME_PROMPT])
+    expect(toolLog().slice(2)).toEqual([
+      { divider: DividerKind.Turn, turn: 2 },
+      { narration: 'The build finished. Checking its output.', turn: 2 },
+      expect.objectContaining({ call: 'Read', state: ToolCallState.Interrupted, turn: 2 }),
+      { divider: DividerKind.Resumed, turn: 2 },
+    ])
+
+    backend.session.emit(sdk.init(), sdk.text('The docs built cleanly.'), sdk.result('The docs built cleanly.'))
+    await settle()
+    expect(chat().at(-1)).toEqual({ role: MessageRole.Agent, body: 'The docs built cleanly.', turn: 2 })
+    expect(current().activity).toBe(TaskActivity.Waiting)
+  })
+
+  it('is still in the chat after a relaunch once it has finished', async () => {
+    await startBackgroundBuild()
+    backend.session.emit(...wake(), sdk.selfStartedResult('The build finished.'))
+    await settle()
+
+    relaunch()
+    expect(runner.resumeInterrupted()).toEqual([])
+
+    const history = await glade.invoke(CommandName.TasksHistory, { id: task.id })
+    expect(history.messages.map(({ body, turn }) => [turn, body])).toEqual([
+      [1, 'Build the docs.'],
+      [1, 'Started the build in the background.'],
+      [2, 'The build finished. Checking its output.'],
+    ])
   })
 })
 
