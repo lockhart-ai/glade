@@ -23,17 +23,17 @@
 :root {
   /* Colour */
   --color-bg: #0a0b0f;
-  --color-panel: #14151c;
-  --color-raised: #1d1f29;
-  --color-inner: #1c1e28;
-  --color-inner-2: #272a38;
-  --color-border: #272a37;
-  --color-inner-border: #2e3242;
-  --color-strong: #343850;
-  --color-menu: #20222c;
+  --color-panel: #181921;
+  --color-raised: #232531;
+  --color-inner: #222430;
+  --color-inner-2: #2e3243;
+  --color-border: #2f3343;
+  --color-inner-border: #373c4f;
+  --color-strong: #3d425e;
+  --color-menu: #262935;
   --color-text: #e6e8f0;
-  --color-muted: #a6abbd;
-  --color-faint: #8a8fa5;
+  --color-muted: #aeb3c3;
+  --color-faint: #999db0;
   --color-blue: #5b8def;
   --color-blue-text: #8fb2f5;
   --color-purple: #c8b2ff;

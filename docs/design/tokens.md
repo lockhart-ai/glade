@@ -8,17 +8,17 @@ can nest one level (header and right panel float inside the task card).
 | Token | Hex | Use |
 |---|---|---|
 | `bg` | `#0A0B0F` | Window background, inset fields, code blocks |
-| `panel` | `#14151C` | Top-level cards (sidebar, task card, terminal, plugin) |
-| `raised` | `#1D1F29` | Selected rows, input bar, dark buttons |
-| `inner` | `#1C1E28` | Nested cards (header, right panel) |
-| `inner-2` | `#272A38` | Active tab, highlighted rows inside nested cards |
-| `border` | `#272A37` | Top-level card borders |
-| `inner-border` | `#2E3242` | Nested card borders and dividers |
-| `strong` | `#343850` | Button outlines, input bar border |
-| `menu` | `#20222C` | Menus and popovers |
+| `panel` | `#181921` | Top-level cards (sidebar, task card, terminal, plugin) |
+| `raised` | `#232531` | Selected rows, input bar, dark buttons |
+| `inner` | `#222430` | Nested cards (header, right panel) |
+| `inner-2` | `#2E3243` | Active tab, highlighted rows inside nested cards |
+| `border` | `#2F3343` | Top-level card borders |
+| `inner-border` | `#373C4F` | Nested card borders and dividers |
+| `strong` | `#3D425E` | Button outlines, input bar border |
+| `menu` | `#262935` | Menus and popovers |
 | `text` | `#E6E8F0` | Primary text |
-| `muted` | `#A6ABBD` | Secondary text |
-| `faint` | `#8A8FA5` | Labels, timestamps, hints |
+| `muted` | `#AEB3C3` | Secondary text |
+| `faint` | `#999DB0` | Labels, timestamps, hints |
 | `blue` | `#5B8DEF` | Working, primary buttons, links (`#8FB2F5` for text on dark) |
 | `purple` | `#C8B2FF` | Waiting on you, questions, the lit blade |
 | `slate` | `#5C6378` | Done, finished tool calls |
@@ -26,6 +26,30 @@ can nest one level (header and right panel float inside the task card).
 | `teal` | `#7FD1C7` | Added lines, strings in code |
 | user bubble | `#22304D` | Your messages |
 | question highlight | `#1E1B33` / `#3B3366` | Background / border of the agent's question card |
+
+### Contrast
+
+The surfaces step up in lightness from `bg`, keeping one cool hue, so each card stands off the one it sits on even in
+bright light. `tokens.test.ts` holds each neighbouring pair to at least these WCAG contrast ratios, so the steps can't
+quietly slip back:
+
+| Pair | At least |
+|---|---|
+| `panel` on `bg` | 1.12 |
+| `raised` on `panel` | 1.15 |
+| `inner` on `panel` | 1.13 |
+| `inner-2` on `inner` | 1.21 |
+| `menu` on `panel` | 1.20 |
+| `border` on `bg` | 1.56 |
+| `border` on `panel` | 1.39 |
+| `inner-border` on `panel` | 1.60 |
+| `inner-border` on `inner` | 1.40 |
+| `strong` on `panel` | 1.78 |
+| `strong` on `raised` | 1.54 |
+| `strong` on `inner` | 1.56 |
+
+`text`, `muted` and `faint` each meet 4.5:1 on every surface: `bg`, `panel`, `raised`, `inner`, `inner-2` and `menu`
+(the lowest is `faint` on `inner-2`, 4.72:1).
 
 ## Type
 

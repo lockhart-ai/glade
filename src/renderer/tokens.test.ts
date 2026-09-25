@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import tokensMd from '../../docs/design/tokens.md?raw'
 import tokensCss from './tokens.css?raw'
-import { contrastRatio } from './contrast'
+import { contrastRatio, relativeLuminance } from './contrast'
 import { colors, type ColorToken } from './tokens'
 
 /** Every `--name: value;` declaration in tokens.css. */
@@ -128,33 +128,88 @@ describe('tokens.css', () => {
   })
 })
 
+/** A colour that sits on a surface, and the least WCAG contrast it must keep against it. */
+interface ContrastFloor {
+  readonly foreground: ColorToken
+  readonly background: ColorToken
+  readonly minimum: number
+}
+
+/**
+ * Neighbouring surfaces, and the borders on the surfaces they sit on, from tokens.md's Contrast table. Raised in #226
+ * so the cards stay distinct in bright light; each floor is above what the pair had before.
+ */
+const surfaceFloors: readonly ContrastFloor[] = [
+  { foreground: '--color-panel', background: '--color-bg', minimum: 1.12 },
+  { foreground: '--color-raised', background: '--color-panel', minimum: 1.15 },
+  { foreground: '--color-inner', background: '--color-panel', minimum: 1.13 },
+  { foreground: '--color-inner-2', background: '--color-inner', minimum: 1.21 },
+  { foreground: '--color-menu', background: '--color-panel', minimum: 1.2 },
+  { foreground: '--color-border', background: '--color-bg', minimum: 1.56 },
+  { foreground: '--color-border', background: '--color-panel', minimum: 1.39 },
+  { foreground: '--color-inner-border', background: '--color-panel', minimum: 1.6 },
+  { foreground: '--color-inner-border', background: '--color-inner', minimum: 1.4 },
+  { foreground: '--color-strong', background: '--color-panel', minimum: 1.78 },
+  { foreground: '--color-strong', background: '--color-raised', minimum: 1.54 },
+  { foreground: '--color-strong', background: '--color-inner', minimum: 1.56 },
+]
+
+/** `--color-inner-border` as tokens.md writes it, `inner-border`. */
+function shortName(token: ColorToken): string {
+  return token.replace(/^--color-/, '')
+}
+
+describe('surface contrast', () => {
+  for (const { foreground, background, minimum } of surfaceFloors) {
+    it(`${foreground} on ${background} is at least ${String(minimum)}:1`, () => {
+      expect(contrastRatio(colors[foreground], colors[background])).toBeGreaterThanOrEqual(minimum)
+    })
+  }
+
+  it('steps each surface lighter than the one it sits on', () => {
+    for (const { foreground, background } of surfaceFloors) {
+      expect(relativeLuminance(colors[foreground]), `${foreground} on ${background}`).toBeGreaterThan(
+        relativeLuminance(colors[background]),
+      )
+    }
+  })
+
+  it('lists the same floors in tokens.md', () => {
+    // Rows of the contrast table, e.g. | `panel` on `bg` | 1.12 |
+    const rows = [...tokensMd.matchAll(/^\| `([\w-]+)` on `([\w-]+)` \| ([\d.]+) \|$/gm)]
+    expect(
+      rows.map(([, foreground = '', background = '', minimum = '']) => [foreground, background, Number(minimum)]),
+    ).toEqual(
+      surfaceFloors.map(({ foreground, background, minimum }) => [
+        shortName(foreground),
+        shortName(background),
+        minimum,
+      ]),
+    )
+  })
+})
+
 describe('text contrast', () => {
-  const textColors: ColorToken[] = ['--color-text', '--color-muted', '--color-faint']
-  const backgrounds: ColorToken[] = [
+  const textColors: readonly ColorToken[] = ['--color-text', '--color-muted', '--color-faint']
+  const surfaces: readonly ColorToken[] = [
     '--color-bg',
     '--color-panel',
     '--color-raised',
     '--color-inner',
     '--color-inner-2',
+    '--color-menu',
   ]
 
-  // Documented pairings below 4.5:1, reported rather than changing the token. Keyed `text on background`.
-  const knownExceptions = new Set(['--color-faint on --color-inner-2'])
-
   for (const text of textColors) {
-    for (const background of backgrounds) {
-      const pairing = `${text} on ${background}`
-      const ratio = contrastRatio(colors[text], colors[background])
-
-      if (knownExceptions.has(pairing)) {
-        it(`${pairing} is a known exception below 4.5:1`, () => {
-          expect(ratio).toBeLessThan(4.5)
-        })
-      } else {
-        it(`${pairing} meets 4.5:1`, () => {
-          expect(ratio).toBeGreaterThanOrEqual(4.5)
-        })
-      }
+    for (const surface of surfaces) {
+      it(`${text} on ${surface} meets 4.5:1`, () => {
+        expect(contrastRatio(colors[text], colors[surface])).toBeGreaterThanOrEqual(4.5)
+      })
     }
   }
+
+  it('has no known exceptions left in tokens.md', () => {
+    expect(tokensMd).not.toMatch(/known exception/i)
+    expect(tokensMd).toContain('`text`, `muted` and `faint` each meet 4.5:1 on every surface')
+  })
 })

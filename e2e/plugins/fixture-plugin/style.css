@@ -5,7 +5,7 @@
 body {
   margin: 0;
   background: #0a0b0f;
-  color: #a6abbd;
+  color: #aeb3c3;
   font:
     12.5px/1.6 ui-monospace,
     monospace;
@@ -22,7 +22,7 @@ h1 {
     sans-serif;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #8a8fa5;
+  color: #999db0;
 }
 
 p {
