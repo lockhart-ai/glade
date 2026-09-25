@@ -49,6 +49,9 @@ One scale; every padding, margin and gap comes from it.
 And the insets that keep things on shared lines:
 
 - `space-outer` = 8: the window's outer padding and the gaps between top-level cards.
+- `title-bar-height` = 32: the title bar row across the top of the window, in place of the outer padding there. It
+  holds the macOS window controls (the traffic lights, placed 12 in and 8 down, so they're centred in it) and nothing
+  else for now; it drags the window, and double-clicking it zooms. The cards start below it, sidebar open or collapsed.
 - `space-inset` = 8: every panel's inset, from a card's edge to the cards, rows and fields inside it. The task card's
   header, chat column, input bar and right panel all sit 8 in from its edges; in the sidebar the workspace button,
   search field, filter chips, section headers and task rows share one left edge 8 in; the right panel's rows sit 8 in
