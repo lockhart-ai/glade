@@ -6,8 +6,9 @@
  * Each input schema is strict: an unknown field fails it, as a missing id, blank text, a `limit` out of range or an
  * enum value Glade doesn't know do, with `invalid_input` naming the field.
  */
+import { isAbsolute } from 'node:path'
 import { z } from 'zod'
-import { Effort, PermissionMode, TaskState } from '../../shared/domain'
+import { Effort, MAX_HANDOFF_BYTES, PermissionMode, TaskState } from '../../shared/domain'
 import { MODEL_OPTIONS } from '../../shared/models'
 import { ControlError, ControlErrorCode } from './errors'
 import { CONTROL_TOOL_ACCESS, ControlAccess, ControlToolName } from './names'
@@ -145,6 +146,34 @@ const permissionMode = z
 
 const byId = z.strictObject({ id: id('task') })
 
+/** A handoff note: Markdown, not blank, and at most `MAX_HANDOFF_BYTES` of UTF-8. */
+const handoff = z
+  .string()
+  .trim()
+  .min(1, 'is empty')
+  .refine(
+    (note) => Buffer.byteLength(note, 'utf8') <= MAX_HANDOFF_BYTES,
+    `is over ${String(MAX_HANDOFF_BYTES)} bytes of UTF-8`,
+  )
+  .describe(
+    "The task's handoff note, Markdown (at most 32 KB): what the task was, where it got to, decisions made, what's " +
+      "next, and the paths of its notes, artifacts and history. The task's agent always has it in its system prompt, " +
+      'and the chat shows it at the top.',
+  )
+
+/** Files to register as a task's artifacts. */
+const artifacts = z
+  .array(
+    z.strictObject({
+      path: z
+        .string()
+        .refine(isAbsolute, 'must be an absolute path')
+        .describe("The file's absolute path. It must be a file inside the task's workspace."),
+      title: text('What to call it in the Artifacts tab; its file name by default.').optional(),
+    }),
+  )
+  .describe("Files of the task's workspace to show in its Artifacts tab, each by absolute path.")
+
 // The inputs, each checked against the interface the service takes, so the two can't drift apart.
 
 const listTasksInput = z.strictObject({
@@ -170,6 +199,23 @@ const createTaskInput = z.strictObject({
   model: model.optional(),
   effort: effort.optional(),
   permissionMode: permissionMode.optional(),
+  handoff: handoff.optional(),
+  artifacts: artifacts.optional(),
+  startedAt: z
+    .union([z.iso.datetime({ offset: true }), z.iso.date()])
+    .optional()
+    .describe(
+      'When the task started, as an ISO 8601 date or date and time (with its offset): it orders the task and dates ' +
+        'it, and a task created done is done then too. Now by default.',
+    ),
+  state: z
+    .enum(TaskState)
+    .optional()
+    .describe('done creates it done, e.g. to backfill a past task, and takes no message; active by default.'),
+  externalId: text(
+    'Your own id for the task, e.g. the notes folder it came from. If a task already has it, that task is returned ' +
+      'with created: false and nothing changes, so a backfill can be run again safely.',
+  ).optional(),
 })
 
 const updateTaskInput = z.strictObject({
@@ -184,6 +230,8 @@ const updateTaskInput = z.strictObject({
       model: model.optional(),
       effort: effort.optional(),
       permissionMode: permissionMode.optional(),
+      handoff: handoff.nullable().optional().describe('A new handoff note, Markdown (at most 32 KB); null clears it.'),
+      artifacts: artifacts.min(1, 'is empty').optional(),
     })
     .refine((patch) => Object.keys(patch).length > 0, 'changes nothing')
     .describe('The fields to change; the ones left out keep their value.'),
@@ -261,7 +309,8 @@ export const TASK_TOOLS: readonly ControlTool[] = [
     name: ControlToolName.GetTask,
     description:
       'Read a task: everything its header and sidebar row show (title, objective, status, state, what its agent is ' +
-      'doing, model, effort, permission mode, context used, error, pause, queue) and its number of turns.',
+      'doing, model, effort, permission mode, context used, error, pause, queue), its number of turns, its handoff ' +
+      'note and artifacts, and the externalId it was created with.',
     input: byId,
     target: taskOf,
     run: ({ id }, { service }) => ({ task: service.getTask(id) }),
@@ -288,19 +337,22 @@ export const TASK_TOOLS: readonly ControlTool[] = [
     description:
       'Create a task in a workspace, as New task does. With a message, sends it, which starts the agent; without ' +
       'one, the task waits. Title and objective, if given, are set now; model, effort and permission mode default to ' +
-      "Settings'.",
+      "Settings'. To backfill a past task, give it a handoff note, its artifacts, when it started and state: done; " +
+      'it never starts its agent by itself. With an externalId another task already has, returns that task with ' +
+      'created: false.',
     input: createTaskInput,
     text: (input) => input.message ?? null,
-    run: (input, { service }) => ({ task: service.createTask(input) }),
+    run: async (input, { service }) => ({ ...(await service.createTask(input)) }),
   }),
   defineControlTool({
     name: ControlToolName.UpdateTask,
     description:
-      'Change a task: its title, objective, one-line status, pin, unread flag, model, effort or permission mode. A new ' +
-      "permission mode applies from the agent's next tool call. Use mark_done and reopen_task for its state.",
+      'Change a task: its title, objective, one-line status, pin, unread flag, model, effort or permission mode, its ' +
+      "handoff note (null clears it), or add artifacts. A new permission mode applies from the agent's next tool " +
+      'call. Use mark_done and reopen_task for its state.',
     input: updateTaskInput,
     target: taskOf,
-    run: ({ id, patch }, { service }) => ({ task: service.updateTask(id, patch) }),
+    run: async ({ id, patch }, { service }) => ({ task: await service.updateTask(id, patch) }),
   }),
   defineControlTool({
     name: ControlToolName.SendMessage,

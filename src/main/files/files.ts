@@ -184,7 +184,14 @@ export async function openTaskFileInEditor(context: FilesContext, taskId: string
  * inside the workspace.
  */
 export async function toolFilePath(context: TaskServiceContext, taskId: string, path: string): Promise<string> {
-  const root = workspaceRoot(context, taskId)
+  return workspaceFilePath(workspaceRoot(context, taskId), path)
+}
+
+/**
+ * A file of the workspace at `root`: `path` is absolute, or relative to the root. Answers with the path relative to the
+ * root. Throws an `Error` saying why when the path isn't a file inside the workspace.
+ */
+export async function workspaceFilePath(root: string, path: string): Promise<string> {
   const relativePath = workspaceRelativePath(path, root)
   if (relativePath === null) throw new Error(`${path} is outside the workspace (${root}).`)
   const real = await resolveWorkspaceFile(root, relativePath)

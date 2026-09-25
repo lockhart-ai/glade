@@ -1,7 +1,7 @@
 // Scripting Glade (`docs/control-api.md`, "Scripting"): the plain JSON API beside `/mcp`, which a script calls with
 // `fetch` and the token, and the variables that hand the endpoint to the scripts Glade's own agents run. The app's
 // bridge on a test database with the fake agent backend, its endpoint on free ports of 127.0.0.1.
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -14,6 +14,7 @@ import * as sdk from '../agent/test-sdk-messages'
 import { listTasks } from '../db/repositories/tasks'
 import { sampleTask, sampleWorkspace } from '../db/repositories/test-database'
 import { updateSettings } from '../db/repositories/settings'
+import { createWorkspace } from '../db/repositories/workspaces'
 import { formatRecord, REDACTED } from '../logging/format'
 import { LogLevel, LogScope } from '../logging/logger'
 import { ControlEnv } from './endpoint'
@@ -228,6 +229,58 @@ describe('the plain JSON API', () => {
         .map(({ title }) => title)
         .sort(),
     ).toEqual([...titles].sort())
+  })
+})
+
+describe('backfilling over the plain JSON API', () => {
+  let root: string
+
+  beforeEach(async () => {
+    await start()
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'glade-scripting-notes-')))
+    mkdirSync(join(root, 'notes'))
+    writeFileSync(join(root, 'notes', 'notes.md'), '# Notes\n')
+    workspace = createWorkspace(app.database.db, { name: 'Notes', rootPath: root })
+  })
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('makes a done task once, answers created: false when run again, and refuses a bad artifact with 400', async () => {
+    const backfill = {
+      workspaceId: workspace.id,
+      title: 'Rate limit /search',
+      handoff: '### Next\n\nAdd the Retry-After header.',
+      artifacts: [{ path: join(root, 'notes', 'notes.md'), title: 'Notes' }],
+      startedAt: '2026-03-12',
+      state: 'done',
+      externalId: 'notes/rate-limits',
+    }
+
+    const made = await call(ControlToolName.CreateTask, backfill)
+    expect(made.status).toBe(200)
+    expect(made.json.created).toBe(true)
+    expect(taskOf(made)).toMatchObject({ state: TaskState.Done, doneAt: Date.parse('2026-03-12') })
+
+    const again = await call(ControlToolName.CreateTask, backfill)
+    expect(again.status).toBe(200)
+    expect(again.json.created).toBe(false)
+    expect(taskOf(again).id).toBe(taskOf(made).id)
+
+    const missing = await call(ControlToolName.CreateTask, {
+      ...backfill,
+      externalId: 'notes/other',
+      artifacts: [{ path: join(root, 'notes', 'gone.md') }],
+    })
+    expect(missing.status).toBe(statusOf(ControlErrorCode.InvalidInput))
+    expect(missing.json.error).toMatchObject({ code: ControlErrorCode.InvalidInput, message: /^artifacts\.0\.path: / })
+    const huge = await call(ControlToolName.UpdateTask, {
+      id: taskOf(made).id,
+      patch: { handoff: 'a'.repeat(32 * 1024 + 1) },
+    })
+    expect(huge.status).toBe(400)
+    expect(listTasks(app.database.db, workspace.id)).toHaveLength(1)
   })
 })
 

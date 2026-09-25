@@ -168,14 +168,20 @@ describe('createE2eAgent', () => {
     Reflect.deleteProperty(globalThis, E2E_AGENT_GLOBAL)
   })
 
-  it('records the content of each message the agent is sent on the global object', () => {
-    const onSent = createE2eAgent()
+  it("records each session's options and the content of each message the agent is sent on the global object", () => {
+    const { onSent, onStart } = createE2eAgent()
 
+    onStart({ systemPromptAppend: 'You are running inside Glade.', resumeSessionId: null })
     onSent('Hi')
     onSent([{ type: 'text', text: 'Again' }])
+    onStart({ systemPromptAppend: 'Again inside Glade.', resumeSessionId: 'session-1' })
 
     expect(Reflect.get(globalThis, E2E_AGENT_GLOBAL) as E2eAgent).toEqual({
       received: ['Hi', [{ type: 'text', text: 'Again' }]],
+      sessions: [
+        { systemPromptAppend: 'You are running inside Glade.', resumeSessionId: null },
+        { systemPromptAppend: 'Again inside Glade.', resumeSessionId: 'session-1' },
+      ],
     })
   })
 })

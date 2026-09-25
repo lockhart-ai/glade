@@ -33,6 +33,7 @@ import {
 import { taskPermissionRule } from '../shared/permissions'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
 import { addArtifact } from './db/repositories/artifacts'
+import { setHandoff } from './db/repositories/backfills'
 import { appendMessage } from './db/repositories/messages'
 import {
   appendPermissionRequest,
@@ -190,6 +191,8 @@ export interface SeedTask {
   readonly openFiles?: SeedOpenFiles | undefined
   /** The files the agent declared as its deliverables (the Artifacts tab), in the order it declared them. */
   readonly artifacts?: readonly SeedArtifact[] | undefined
+  /** Its handoff note, from a backfill through the control API (the Backfilled card); none unless given. */
+  readonly handoff?: SeedHandoff | undefined
   /** What its agent may do without asking; Allow all unless given. */
   readonly permissionMode?: PermissionMode | undefined
   /** Its agent's tool calls that wait, or waited, on your OK, in the order they asked. */
@@ -203,6 +206,12 @@ export interface SeedTask {
 export interface SeedArtifact {
   readonly path: string
   readonly title: string
+  readonly minutesAgo: number
+}
+
+/** A sample handoff note (`TaskHandoff`): Markdown, set `minutesAgo`. */
+export interface SeedHandoff {
+  readonly body: string
   readonly minutesAgo: number
 }
 
@@ -354,6 +363,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       resumedAfterCrash: z.boolean().optional(),
       openFiles: z.strictObject({ paths: z.array(z.string()), activePath: z.string().optional() }).optional(),
       artifacts: z.array(z.strictObject({ path: z.string(), title: z.string(), minutesAgo })).optional(),
+      handoff: z.strictObject({ body: z.string().min(1), minutesAgo }).optional(),
       permissionMode: z.enum(PermissionMode).optional(),
       permissionRequests: z
         .array(
@@ -575,6 +585,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         const file = join(seed.workspace.rootPath, path)
         if (existsSync(file)) utimesSync(file, new Date(declaredAt), new Date(declaredAt))
       }
+      if (sample.handoff !== undefined) setHandoff(db, task.id, sample.handoff.body, ago(sample.handoff.minutesAgo))
       for (const request of sample.permissionRequests ?? []) {
         seedPermissionRequest(db, task.id, request, ago(request.minutesAgo))
       }

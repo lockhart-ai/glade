@@ -327,6 +327,14 @@ export async function agentReceived({ app }: Glade): Promise<E2eAgent['received'
 }
 
 /**
+ * The sessions the scripted agent was started with so far, oldest first: each one's system prompt append and the
+ * session it resumed (`E2E_AGENT_GLOBAL`).
+ */
+export async function agentSessions({ app }: Glade): Promise<E2eAgent['sessions']> {
+  return app.evaluate((_, name) => [...(Reflect.get(globalThis, name) as E2eAgent).sessions], E2E_AGENT_GLOBAL)
+}
+
+/**
  * Takes the app offline, or brings it back online, as far as its check for the network is concerned
  * (`E2E_NETWORK_GLOBAL`): an e2e run can't unplug the machine. The app starts online.
  */

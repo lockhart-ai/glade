@@ -281,6 +281,9 @@ import {
 import { checkedOffline, createPauseTimers, pauseFor, pauseReason, type UsageLimit } from './pauses'
 import { describeSdkMessage } from './sdk-message-log'
 import { systemPromptAppend } from './system-prompt'
+import { getHandoff } from '../db/repositories/backfills'
+import { getSessionContext, setSessionContext } from '../db/repositories/session-context'
+import { contextAfter, contextBlock, missingContext, startedContext, withContext } from './session-context'
 import { summarizeTurn } from './turn-summary'
 
 export interface AgentRunnerOptions {
@@ -420,6 +423,8 @@ interface LiveSession {
   settings: AgentSessionSettings
   /** The names of the session's in-process MCP servers that are Glade's own, whose tools never ask: `glade` only. */
   readonly gladeServers: readonly string[]
+  /** Whether the session has the `glade-control` tools, which its system prompt says. */
+  readonly control: boolean
   /** The permission requests the session's calls wait on, by id: whether each is a background subagent's. */
   readonly requests: Map<string, boolean>
   /**
@@ -815,8 +820,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   /** Hands a user message to the session, with its images, stamped with its id (`uuid`) or a new one's. */
-  const hand = (live: LiveSession, message: Message, uuid: string = message.id): void => {
-    live.session.send(message.body, uuid, imagesOf(db, { kind: ImageOwnerKind.Message, id: message.id }))
+  /** Sends the session a message, after `block` when there's one: what the session was missing (`./session-context`). */
+  const hand = (live: LiveSession, message: Message, uuid: string = message.id, block: string | null = null): void => {
+    const images = imagesOf(db, { kind: ImageOwnerKind.Message, id: message.id })
+    live.session.send(withContext(block, message.body), uuid, images)
   }
 
   /**
@@ -1390,6 +1397,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       resumeSessionId: task.sessionId,
     })
     const servers = mcpServers(task)
+    const control = CONTROL_SERVER in servers
+    const handoff = getHandoff(db, task.id) ?? null
+    // A session Glade starts has everything its prompt says; one it resumes keeps the prompt it started with, and is
+    // sent what it's missing with its next message (`startTurn`).
+    if (task.sessionId === null) setSessionContext(db, task.id, startedContext(handoff))
     // The session's calls are decided against the live session, which exists once the backend has started it.
     let decide: (call: ToolPermissionCall) => Promise<ToolPermissionAnswer> = () => Promise.resolve(WITHDRAWN)
     const session = backend.start({
@@ -1398,7 +1410,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       effort: task.effort,
       permissionMode: task.permissionMode,
       resumeSessionId: task.sessionId,
-      systemPromptAppend: systemPromptAppend(task, getSettings(db), CONTROL_SERVER in servers),
+      systemPromptAppend: systemPromptAppend(task, getSettings(db), control, handoff),
       mcpServers: servers,
       env: sessionEnv(task),
       allowedRules,
@@ -1410,6 +1422,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       turn: null,
       settings: { model: task.model, effort: task.effort, permissionMode: task.permissionMode },
       gladeServers: gladeOwnServers(servers),
+      control,
       requests: new Map(),
       sdkModel: null,
       limit: null,
@@ -1508,13 +1521,15 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     // The task's own events wait for the transaction to commit, so the windows never hear of a change that didn't.
     const reopenEvents: GladeEvent[] = []
     const workingEvents: GladeEvent[] = []
-    const { queued, messages, dividers } = db.transaction(() => {
-      // Reopening clears `doneAt`, so the marked done divider keeps it: it's the time the chat and header show.
+    const { queued, messages, dividers, block } = db.transaction(() => {
+      // Reopening clears `doneAt`, so the marked done divider keeps it: it's the time the chat and header show. It
+      // closes the task's last turn; a task done before its first (a past task backfilled done) has none to close, so
+      // it goes in the new turn, before its message.
       const markedDone = reopening
         ? [
             appendDivider(
               db,
-              { taskId, turn: turn - 1, dividerKind: DividerKind.MarkedDone },
+              { taskId, turn: Math.max(turn - 1, 1), dividerKind: DividerKind.MarkedDone },
               task.doneAt ?? task.updatedAt,
             ),
           ]
@@ -1532,7 +1547,17 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       // Working in the same write as the turn's messages: if the app dies before the session gets them, the next
       // launch finds the turn working and carries it on (see `resume`), rather than a message nobody answers.
       startWorking(taskId, { db, emit: (event) => workingEvents.push(event) })
-      return { queued, messages, dividers: [...markedDone, ...reopened, divider] }
+      // What the session is missing goes ahead of the turn's first message, once: it's recorded as given with it.
+      const handoff = getHandoff(db, taskId) ?? null
+      const missing = missingContext({
+        recorded: getSessionContext(db, taskId),
+        startedElsewhere: task.importedAt !== null,
+        handoff,
+        prompt: systemPromptAppend(task, getSettings(db), live.control, handoff),
+      })
+      if (missing !== null && messages.length > 0) setSessionContext(db, taskId, contextAfter(missing))
+      const block = missing === null || messages.length === 0 ? null : contextBlock(missing)
+      return { queued, messages, dividers: [...markedDone, ...reopened, divider], block }
     })()
     for (const event of reopenEvents) emit(event)
     if (queued.length > 0) emitQueueChanged(emit, taskId, [])
@@ -1542,10 +1567,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     taskLog(taskId).info('turn started', { turn, messages: messages.length, queued: queued.length, reopening })
 
     live.turn = newTurn(turn)
-    for (const message of messages) {
+    for (const [index, message] of messages.entries()) {
       live.turn.awaiting.add(message.id)
-      hand(live, message)
+      hand(live, message, message.id, index === 0 ? block : null)
     }
+    if (block !== null) taskLog(taskId).info('session context sent', { turn })
     return messages
   }
 

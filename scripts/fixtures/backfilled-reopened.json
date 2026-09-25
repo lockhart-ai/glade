@@ -1,0 +1,113 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "backfilled-workspace"
+  },
+  "panelTab": "artifacts",
+  "tasks": [
+    {
+      "title": "Draft release notes for 2.4",
+      "status": "Waiting on you: two questions",
+      "pinned": true,
+      "minutesAgo": 25
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "status": "Waiting on you: pick a limit for /search",
+      "minutesAgo": 4
+    },
+    {
+      "title": "Fix flaky login test",
+      "status": "Found the race; fix passes 200 local runs",
+      "minutesAgo": 9
+    },
+    {
+      "title": "Upgrade Django to 5.2",
+      "status": "Upgraded; two deprecations fixed",
+      "state": "done",
+      "minutesAgo": 2880
+    },
+    {
+      "title": "Set up nightly backups",
+      "status": "Nightly dump, 14-day retention",
+      "state": "done",
+      "minutesAgo": 10080
+    },
+    {
+      "title": "Migrate billing webhooks to v2",
+      "objective": "Move the billing webhook handlers from the v1 events API to v2, then retire the v1 endpoint.",
+      "status": "Picking up from the handoff: writing the subscription.* mapping.",
+      "state": "active",
+      "minutesAgo": 1,
+      "startedMinutesAgo": 282240,
+      "selected": true,
+      "handoff": {
+        "body": "### What it was\n\nMove the billing webhook handlers from the v1 events API to v2, then retire the v1 endpoint.\n\n### Where it got to\n\nThe `invoice.*` and `customer.*` handlers are on v2 and live. `subscription.*` still goes through v1: its payloads changed shape and the mapping isn't written yet.\n\n### Decisions\n\n- Keep the v1 endpoint until subscriptions move over.\n- Verify signatures with the v2 secret only.\n- Replay failed events with `scripts/replay_webhooks.py`, never by hand.\n\n### Next\n\nWrite the `subscription.*` mapping, run the replay against staging, then turn v1 off.\n\n### Where things are\n\nNotes and decisions in `notes/billing-webhooks/`; the old session log in `notes/billing-webhooks/log.md`.",
+        "minutesAgo": 3
+      },
+      "artifacts": [
+        {
+          "path": "notes/billing-webhooks/notes.md",
+          "title": "Migration notes",
+          "minutesAgo": 282240
+        },
+        {
+          "path": "notes/billing-webhooks/decisions.md",
+          "title": "Decisions",
+          "minutesAgo": 282240
+        },
+        {
+          "path": "scripts/replay_webhooks.py",
+          "title": "Replay script",
+          "minutesAgo": 273600
+        }
+      ],
+      "contextUsedTokens": 18000,
+      "contextWindowTokens": 200000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Let's pick this up.",
+          "turn": 1,
+          "minutesAgo": 2
+        },
+        {
+          "role": "agent",
+          "body": "Picking up from the handoff: `invoice.*` and `customer.*` are on v2, and `subscription.*` still needs its mapping. I'll start with the payload changes in `billing/webhooks/subscription.py`.",
+          "turn": 1,
+          "minutesAgo": 1
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "divider",
+          "dividerKind": "marked_done",
+          "turn": 1,
+          "minutesAgo": 282240
+        },
+        {
+          "kind": "divider",
+          "dividerKind": "reopened",
+          "turn": 1,
+          "minutesAgo": 2
+        },
+        {
+          "kind": "divider",
+          "dividerKind": "turn",
+          "turn": 1,
+          "minutesAgo": 2
+        },
+        {
+          "kind": "tool_call",
+          "name": "Read",
+          "input": {
+            "file_path": "notes/billing-webhooks/notes.md"
+          },
+          "output": "# Billing webhooks to v2",
+          "turn": 1,
+          "minutesAgo": 2
+        }
+      ]
+    }
+  ]
+}
