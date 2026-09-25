@@ -19,7 +19,10 @@ import {
   type TaskError,
   type ToolEvent,
 } from '../../shared/domain'
+import { imageDataUrl, type ImageData } from '../../shared/images'
+import { GIF, PNG } from '../../shared/test-images'
 import { ToastProvider } from '../components'
+import { IMAGE_LABEL } from '../images/StoredImage'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import { fakeBridge, sampleQuestionSet, sampleTask, sampleWorkspace, type FakeBridge } from '../store/test-bridge'
@@ -37,6 +40,7 @@ const ASK: Message = {
   turn: 1,
   createdAt: ASKED_AT,
   summary: null,
+  images: [],
 }
 const REPLY: Message = {
   id: 'm2',
@@ -46,6 +50,7 @@ const REPLY: Message = {
   turn: 1,
   createdAt: REPLIED_AT,
   summary: null,
+  images: [],
 }
 
 const PREAMBLE = 'Looking at how the API views are set up.'
@@ -82,6 +87,8 @@ interface Setup {
   readonly selected?: boolean
   /** Where the fake main records what the menus copy. */
   readonly copied?: string[]
+  /** The stored images, by id. */
+  readonly images?: Record<string, ImageData>
 }
 
 async function renderChat({
@@ -91,6 +98,7 @@ async function renderChat({
   questionSets = [],
   selected = true,
   copied,
+  images = {},
 }: Setup = {}): Promise<FakeBridge & { store: GladeStore }> {
   const fake = fakeBridge({
     workspaces: [sampleWorkspace('w1')],
@@ -102,6 +110,7 @@ async function renderChat({
     messages,
     toolEvents,
     questionSets,
+    images,
     ...(copied === undefined ? {} : { copied }),
   })
   const store = createGladeStore(fake.bridge)
@@ -185,6 +194,37 @@ describe('Chat', () => {
     expect(agent).toHaveTextContent(`agent · ${clockTime(REPLIED_AT)}`)
     expect(within(agent).getByText('/search').tagName).toBe('STRONG')
     expect(within(agent).getByText('60').tagName).toBe('CODE')
+  })
+
+  it('shows the images pasted into your message as thumbnails above its text, in order', async () => {
+    const images = [
+      { id: 'i1', mediaType: PNG.mediaType },
+      { id: 'i2', mediaType: GIF.mediaType },
+    ]
+    await renderChat({ messages: [{ ...ASK, images }, REPLY], images: { i1: PNG, i2: GIF } })
+    await act(() => Promise.resolve())
+
+    const you = screen.getByRole('article', { name: 'You' })
+    expect(
+      within(you)
+        .getAllByRole('img', { name: IMAGE_LABEL })
+        .map((image) => image.getAttribute('src')),
+    ).toEqual([imageDataUrl(PNG), imageDataUrl(GIF)])
+    expect(you).toHaveTextContent(ASK.body)
+    expect(within(screen.getByRole('article', { name: 'Agent' })).queryByRole('img')).toBeNull()
+  })
+
+  it('shows a message that is only images without an empty bubble', async () => {
+    await renderChat({
+      messages: [{ ...ASK, body: '', images: [{ id: 'i1', mediaType: PNG.mediaType }] }],
+      images: { i1: PNG },
+    })
+    await act(() => Promise.resolve())
+
+    const you = screen.getByRole('article', { name: 'You' })
+    expect(within(you).getByRole('img', { name: IMAGE_LABEL })).toHaveAttribute('src', imageDataUrl(PNG))
+    expect(you).toHaveTextContent(`you · ${clockTime(ASKED_AT)}`)
+    expect(you.children).toHaveLength(2)
   })
 
   it('keeps your message as you wrote it, not as Markdown', async () => {

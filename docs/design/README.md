@@ -8,7 +8,7 @@ illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
 | Task workspace | The main window: sidebar, task card with header, chat and right panel, bottom bar. Done section collapsed. | ![Task workspace](screens/task-workspace.png) |
 | Task lifecycle | Active ⇄ Done and the task record. | ![Task lifecycle](screens/lifecycle.png) |
 | 1 · New task | An empty task; the first message sets the title and objective. | ![1 · New task](screens/01-new-task.png) |
-| 2 · Agent working | Live working line, Stop, message queue above the input, context meter. | ![2 · Agent working](screens/02-agent-working.png) |
+| 2 · Agent working | Live working line, Stop, message queue above the input, pasted images above the text, context meter. | ![2 · Agent working](screens/02-agent-working.png) |
 | 3 · Rich question | The `ask` card: option cards with sketches, pills, Send answers. | ![3 · Rich question](screens/03-rich-question.png) |
 | 4 · Needs you | Unread row in the sidebar and a native notification from another task. | ![4 · Needs you](screens/04-needs-you.png) |
 | 5 · Mark done | No dialog; Undo toast; the task moves to Done with its outcome. | ![5 · Mark done](screens/05-mark-done.png) |

@@ -282,3 +282,71 @@ export function taskFinished(toolUseId: string, summary = 'Background command "B
 export function selfStartedResult(reply: string): unknown {
   return result(reply, { origin: { kind: 'task-notification' }, num_turns: 1 })
 }
+
+/**
+ * What the SDK streams when the agent starts a subagent in the background (`docs/sdk-notes.md`, "Background
+ * subagents"): the `Agent` call, its `task_started` (`is_backgrounded`), and at once its "launched" result.
+ */
+export function backgroundLaunch(toolUseId: string, sdkTaskId: string, description: string): unknown[] {
+  return [
+    toolUse(toolUseId, 'Agent', { description, prompt: `${description}.`, run_in_background: true }),
+    {
+      type: 'system',
+      subtype: 'task_started',
+      task_id: sdkTaskId,
+      tool_use_id: toolUseId,
+      description,
+      subagent_type: 'general-purpose',
+      is_backgrounded: true,
+      spawn_depth: 1,
+      task_type: 'local_agent',
+      session_id: SESSION_ID,
+    },
+    launchedResult(toolUseId, sdkTaskId),
+  ]
+}
+
+/** The result of an `Agent` call whose subagent runs in the background: it only says the subagent was launched. */
+export function launchedResult(toolUseId: string, sdkTaskId: string): unknown {
+  return {
+    type: 'user',
+    parent_tool_use_id: null,
+    session_id: SESSION_ID,
+    message: {
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: toolUseId, content: [{ type: 'text', text: 'Async agent launched.' }] },
+      ],
+    },
+    tool_use_result: { isAsync: true, status: 'async_launched', agentId: sdkTaskId },
+  }
+}
+
+/** What the SDK streams when a background subagent ends: its status patch, then its notification. */
+export function subagentEnded(
+  toolUseId: string,
+  sdkTaskId: string,
+  status: 'completed' | 'failed' | 'stopped',
+  summary: string,
+): unknown[] {
+  return [
+    {
+      type: 'system',
+      subtype: 'task_updated',
+      task_id: sdkTaskId,
+      patch: { status: status === 'stopped' ? 'killed' : status, end_time: 1_790_000_000_000 },
+      session_id: SESSION_ID,
+    },
+    {
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: sdkTaskId,
+      tool_use_id: toolUseId,
+      status,
+      output_file: `tasks/${sdkTaskId}.output`,
+      summary,
+      usage: { total_tokens: 12_688, tool_uses: 1, duration_ms: 17_116 },
+      session_id: SESSION_ID,
+    },
+  ]
+}

@@ -33,6 +33,7 @@ import { chooseFolder } from './dialogs'
 import {
   createE2eAgentEnvs,
   createE2eDesktop,
+  createE2eAgent,
   createE2eEditor,
   createE2eNetwork,
   E2E_NOTIFIER_GLOBAL,
@@ -285,6 +286,7 @@ function createTestModeAgent(
         Object.entries(byFirstMessage ?? {}).map(([message, script]) => [message, AGENT_SCRIPTS[script]]),
       ),
       firstMessageOf: (sessionId) => firstUserMessageOfSession(db, sessionId),
+      ...(testMode.kind === TestModeKind.E2e ? { onSent: createE2eAgent() } : {}),
     },
     // An e2e spec reads the environment each session would have run in.
     testMode.kind === TestModeKind.E2e ? { env, onSessionEnv: createE2eAgentEnvs() } : undefined,

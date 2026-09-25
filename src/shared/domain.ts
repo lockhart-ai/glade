@@ -6,6 +6,7 @@
  * - **Turns** count a task's user turns from 1: the task's first message starts turn 1, and every message the agent is
  *   given after that starts the next one. Chat messages and tool events carry the turn they belong to.
  */
+import type { ImageRef } from './images'
 
 /** Epoch milliseconds (UTC). */
 export type EpochMs = number
@@ -214,6 +215,8 @@ export interface Message {
   readonly createdAt: EpochMs
   /** The agent's final reply's turn summary; null for your messages, and for replies saved before summaries were. */
   readonly summary: TurnSummary | null
+  /** The images pasted into your message, in the order they were attached; none for the agent's replies. */
+  readonly images: readonly ImageRef[]
 }
 
 /**
@@ -224,9 +227,11 @@ export interface Message {
 export interface QueuedMessage {
   readonly id: string
   readonly taskId: string
-  /** Markdown. */
+  /** Markdown. Empty for a message that's only images. */
   readonly body: string
   readonly createdAt: EpochMs
+  /** The images pasted into it, which go with it. */
+  readonly images: readonly ImageRef[]
 }
 
 /** The variants of a tool log entry. */

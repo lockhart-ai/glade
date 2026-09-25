@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
 import { DividerKind, MessageRole, type EpochMs, type Message, type TurnSummary } from '../../../shared/domain'
+import type { ImageData, ImageRef } from '../../../shared/images'
+import { addImages, ImageOwnerKind, imageRefsByOwner } from './images'
 import { Row } from './rows'
 
 export interface NewMessage {
@@ -10,6 +12,8 @@ export interface NewMessage {
   readonly turn: number
   /** The agent's final reply's turn summary; none unless given. */
   readonly summary?: TurnSummary | undefined
+  /** The images pasted into your message, in order; none unless given. */
+  readonly images?: readonly ImageData[] | undefined
 }
 
 const MESSAGE_ROLES = Object.values(MessageRole)
@@ -28,29 +32,31 @@ function parseSummary(row: Row): TurnSummary | null {
   }
 }
 
-function parseMessage(raw: unknown): Message {
+function parseMessage(raw: unknown, images: ReadonlyMap<string, ImageRef[]>): Message {
   const row = new Row('messages', raw)
+  const id = row.text('id')
   return {
-    id: row.text('id'),
+    id,
     taskId: row.text('task_id'),
     role: row.oneOf('role', MESSAGE_ROLES),
     body: row.text('body'),
     turn: row.integer('turn'),
     createdAt: row.integer('created_at'),
     summary: parseSummary(row),
+    images: images.get(id) ?? [],
   }
 }
 
-/** Appends a message to the end of its task's chat log. */
+/** Appends a message to the end of its task's chat log, with its images. */
 export function appendMessage(db: Database, input: NewMessage, now: EpochMs = Date.now()): Message {
-  const { summary = null, ...fields } = input
-  const message: Message = { id: randomUUID(), ...fields, createdAt: now, summary }
+  const { summary = null, images = [], ...fields } = input
+  const id = randomUUID()
   db.prepare(
     `INSERT INTO messages (${COLUMNS}, seq)
     VALUES (@id, @taskId, @role, @body, @turn, @createdAt, @durationMs, @filesChanged, @linesAdded, @linesRemoved,
       (SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE task_id = @taskId))`,
   ).run({
-    id: message.id,
+    id,
     ...fields,
     createdAt: now,
     durationMs: summary?.durationMs ?? null,
@@ -58,12 +64,17 @@ export function appendMessage(db: Database, input: NewMessage, now: EpochMs = Da
     linesAdded: summary?.linesAdded ?? null,
     linesRemoved: summary?.linesRemoved ?? null,
   })
-  return message
+  const refs = addImages(db, { taskId: fields.taskId, owner: { kind: ImageOwnerKind.Message, id }, images }, now)
+  return { id, ...fields, createdAt: now, summary, images: refs }
 }
 
 /** A task's chat log, in the order it was appended. */
 export function listMessages(db: Database, taskId: string): Message[] {
-  return db.prepare(`SELECT ${COLUMNS} FROM messages WHERE task_id = ? ORDER BY seq`).all(taskId).map(parseMessage)
+  const images = imageRefsByOwner(db, taskId, ImageOwnerKind.Message)
+  return db
+    .prepare(`SELECT ${COLUMNS} FROM messages WHERE task_id = ? ORDER BY seq`)
+    .all(taskId)
+    .map((row) => parseMessage(row, images))
 }
 
 /**

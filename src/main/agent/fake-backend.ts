@@ -1,5 +1,6 @@
 // Test helper: an agent backend whose sessions stream whatever SDK messages a test scripts, and record what the runner
 // asks of them. Nothing runs a model.
+import type { ImageData } from '../../shared/images'
 import { AsyncQueue } from './async-queue'
 import type { AgentBackend, AgentSession, AgentSessionOptions, AgentSessionSettings } from './backend'
 import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
@@ -9,6 +10,8 @@ import { toolResult, toolUse } from './test-sdk-messages'
 export interface SentMessage {
   readonly text: string
   readonly uuid: string
+  /** The images sent with it, in order. */
+  readonly images: readonly ImageData[]
   /** The model and effort the session had when the message was delivered: what its turn runs with. */
   readonly settings: AgentSessionSettings
 }
@@ -33,8 +36,8 @@ export class FakeAgentSession implements AgentSession {
     this.settings = { model: options.model, effort: options.effort }
   }
 
-  send(text: string, uuid: string): void {
-    this.sent.push({ text, uuid, settings: this.settings })
+  send(text: string, uuid: string, images: readonly ImageData[] = []): void {
+    this.sent.push({ text, uuid, images, settings: this.settings })
   }
 
   configure(settings: AgentSessionSettings): void {
