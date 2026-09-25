@@ -1,5 +1,5 @@
 // The SDK adapter, with the SDK's `query()` replaced: what it passes to the SDK, and how it drives the session.
-import type { CanUseTool, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import type { CanUseTool, PermissionUpdate, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { beforeEach, expect, it, vi } from 'vitest'
 import {
   Effort,
@@ -341,9 +341,7 @@ it('runs Allow all bypassing every check, and the ask mode in default, where Cla
 it("lets Glade's own MCP servers' tools through without asking, whatever the mode", () => {
   const glade = { type: 'http' as const, url: 'http://127.0.0.1:1/mcp' }
   for (const permissionMode of Object.values(PermissionMode)) {
-    expect(sdkOptions({ ...OPTIONS, permissionMode, mcpServers: { glade } }, ENV).allowedTools).toEqual([
-      'mcp__glade',
-    ])
+    expect(sdkOptions({ ...OPTIONS, permissionMode, mcpServers: { glade } }, ENV).allowedTools).toEqual(['mcp__glade'])
   }
 })
 
@@ -355,12 +353,12 @@ function canUseOptions(extra: Partial<Parameters<CanUseTool>[2]> = {}): Paramete
 it('parses a canUseTool call into Glade’s terms, keeping the suggestions it knows and logging the rest', () => {
   const log = createMemoryLog(LogScope.Agent)
   const signal = new AbortController().signal
-  const bashRule = {
+  const bashRule: PermissionUpdate = {
     type: 'addRules',
     rules: [{ toolName: 'Bash', ruleContent: 'npm test' }],
     behavior: 'allow',
     destination: 'localSettings',
-  } as const
+  }
   const unknownSuggestion = { type: 'grantEverything', destination: 'session' }
 
   const call = toolPermissionCall(
@@ -446,7 +444,7 @@ it('answers the SDK with what was decided: the input as it was, and a person’s
   const input = { command: 'npm test' }
 
   const results = []
-  for (const _ of answers) results.push(await canUseTool('Bash', input, canUseOptions()))
+  while (results.length < answers.length) results.push(await canUseTool('Bash', input, canUseOptions()))
 
   expect(results).toEqual([
     { behavior: 'allow', updatedInput: input },

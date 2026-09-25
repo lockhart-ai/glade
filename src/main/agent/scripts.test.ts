@@ -12,6 +12,9 @@ import {
   API_TOOL_NAME,
   MessageRole,
   PauseReason,
+  PermissionDecisionKind,
+  PermissionMode,
+  PermissionRequestState,
   TaskActivity,
   TodoState,
   ToolCallState,
@@ -27,7 +30,8 @@ import { listMessages } from '../db/repositories/messages'
 import { getOpenQuestionSet } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { getOpenFiles } from '../db/repositories/open-files'
-import { getTask } from '../db/repositories/tasks'
+import { listOpenPermissionRequests, listPermissionRequests } from '../db/repositories/permission-requests'
+import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
 import type { NotifyReply } from '../notifications/notifications'
@@ -38,6 +42,7 @@ import { createGladeMcpServer, GLADE_SERVER } from './glade-tools'
 import {
   AGENT_SCRIPT_NAMES,
   AGENT_SCRIPTS,
+  ASKS_PERMISSION,
   DELETE_LOCAL_COPIES_QUESTION,
   RELEASE_NOTES_QUESTIONS,
   S3_PLAN,
@@ -594,6 +599,41 @@ describe('AGENT_SCRIPTS', () => {
       [MessageRole.Agent, 1],
     ])
     expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, asking: false })
+  })
+
+  it('asks-permission: runs straight through in Allow all, asking nothing', async () => {
+    await send(start('asks-permission'), 'Note the retry change.')
+
+    expect(listPermissionRequests(database.db, task.id)).toEqual([])
+    expect(calls().map(({ name, state }) => [name, state])).toContainEqual(['Bash', ToolCallState.Done])
+    expect(reply()).toBe(ASKS_PERMISSION.reply)
+  })
+
+  it('asks-permission: in the ask mode, waits on the edit and the command in turn, then replies', async () => {
+    updateTask(database.db, task.id, { permissionMode: PermissionMode.AskBeforeEdits })
+    const agent = start('asks-permission')
+    await sendAndWaitAnHour(agent, 'Note the retry change.')
+
+    const [edit] = listOpenPermissionRequests(database.db, task.id)
+    expect(edit).toMatchObject({ toolName: 'Edit', input: ASKS_PERMISSION.edit })
+    expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, awaitingPermission: true })
+    // The read before it went ahead without asking.
+    expect(calls().find((call) => call.name === 'Read')?.state).toBe(ToolCallState.Done)
+
+    agent.answerPermission(edit?.id ?? '', { kind: PermissionDecisionKind.AllowOnce })
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+    const [test] = listOpenPermissionRequests(database.db, task.id)
+    expect(test).toMatchObject({ toolName: 'Bash', input: { command: ASKS_PERMISSION.command } })
+
+    agent.answerPermission(test?.id ?? '', { kind: PermissionDecisionKind.AllowOnce })
+    await vi.waitFor(() => {
+      expect(reply()).toBe(ASKS_PERMISSION.reply)
+    })
+    expect(listPermissionRequests(database.db, task.id).map(({ state }) => state)).toEqual([
+      PermissionRequestState.Allowed,
+      PermissionRequestState.Allowed,
+    ])
+    expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, awaitingPermission: false })
   })
 
   it('keeps-todos: plans with TaskCreate, checks items off with TaskUpdate, and asks partway through', async () => {

@@ -21,7 +21,15 @@ export enum PermissionVerdict {
 }
 
 /** Claude Code's tools that only read or search. */
-export const READ_ONLY_TOOLS: readonly string[] = ['Read', 'Glob', 'Grep', 'LS', 'NotebookRead', 'WebFetch', 'WebSearch']
+export const READ_ONLY_TOOLS: readonly string[] = [
+  'Read',
+  'Glob',
+  'Grep',
+  'LS',
+  'NotebookRead',
+  'WebFetch',
+  'WebSearch',
+]
 
 /** Claude Code's todo tools: they only change the agent's own list (`src/main/todos`). */
 export const TODO_TOOLS: readonly string[] = ['TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList']

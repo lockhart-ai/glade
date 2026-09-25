@@ -10,6 +10,7 @@ import {
   ToolEventKind,
   UiStateKey,
   type Artifact,
+  type PermissionRequest,
   type TodoList,
   type ToolCallEvent,
   type ToolEvent,
@@ -39,6 +40,14 @@ describe('applyEvent', () => {
 
   it('leaves the state alone for a menu bar command, which the window runs', () => {
     expect(applyEvent(state, { type: EventType.MenuCommand, command: appCommand(AppCommandId.NewTask) })).toBe(state)
+  })
+
+  it('leaves the state alone for a permission request, which nothing in the window shows yet', () => {
+    const permissionRequest = {} as PermissionRequest
+    const types = [EventType.PermissionOpened, EventType.PermissionAnswered, EventType.PermissionWithdrawn] as const
+    for (const type of types) {
+      expect(applyEvent(state, { type, permissionRequest })).toBe(state)
+    }
   })
 
   it('forgets a removed workspace, its tasks and the confirmation that named it', () => {
@@ -333,7 +342,15 @@ describe("a task's open files", () => {
     const changed = applyEvent(state, { type: EventType.OpenFilesChanged, openFiles })
     expect(changed.openFiles).toEqual({ t1: openFiles })
 
-    const empty = { messages: [], toolEvents: [], queuedMessages: [], questionSets: [], permissionRequests: [], todos: null, artifacts: [] }
+    const empty = {
+      messages: [],
+      toolEvents: [],
+      queuedMessages: [],
+      questionSets: [],
+      permissionRequests: [],
+      todos: null,
+      artifacts: [],
+    }
     expect(withHistory(changed, 't1', { ...empty, openFiles: noOpenFiles('t1') }).openFiles).toEqual({
       t1: noOpenFiles('t1'),
     })

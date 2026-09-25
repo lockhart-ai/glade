@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CommandName, RendererErrorKind } from '../../shared/bridge'
-import { Effort, UiStateKey } from '../../shared/domain'
+import { Effort, PermissionDecisionKind, PermissionMode, UiStateKey } from '../../shared/domain'
 import { MAX_IMAGE_BASE64_LENGTH, MAX_IMAGE_BYTES } from '../../shared/images'
 import { GIF, JPEG, PNG, WEBP } from '../../shared/test-images'
 import { describeIssues, REQUEST_SCHEMAS } from './requests'
@@ -22,7 +22,14 @@ describe('REQUEST_SCHEMAS', () => {
     expect(REQUEST_SCHEMAS[CommandName.TasksCreate].parse({ workspaceId: 'w' })).toEqual({ workspaceId: 'w' })
     expect(REQUEST_SCHEMAS[CommandName.TasksMarkDone].parse({ id: 't' })).toEqual({ id: 't' })
     expect(REQUEST_SCHEMAS[CommandName.TasksReopen].parse({ id: 't' })).toEqual({ id: 't' })
-    const patch = { title: 'Rate limits', pinned: true, unread: false, model: 'claude-sample-2', effort: Effort.Max }
+    const patch = {
+      title: 'Rate limits',
+      pinned: true,
+      unread: false,
+      model: 'claude-sample-2',
+      effort: Effort.Max,
+      permissionMode: PermissionMode.AskBeforeEdits,
+    }
     expect(REQUEST_SCHEMAS[CommandName.TasksUpdate].parse({ id: 't', patch })).toEqual({ id: 't', patch })
     expect(REQUEST_SCHEMAS[CommandName.TasksUpdate].parse({ id: 't', patch: {} })).toEqual({ id: 't', patch: {} })
     const send = { id: 't', text: ' Fix the **flaky** test.\n' }
@@ -30,6 +37,13 @@ describe('REQUEST_SCHEMAS', () => {
     expect(REQUEST_SCHEMAS[CommandName.TasksHistory].parse({ id: 't' })).toEqual({ id: 't' })
     const answer = { id: 's', answers: { 0: 'by-type', 1: ['Features', 'Fixes'], 2: '' } }
     expect(REQUEST_SCHEMAS[CommandName.QuestionsAnswer].parse(answer)).toEqual(answer)
+    for (const decision of [
+      { kind: PermissionDecisionKind.AllowOnce },
+      { kind: PermissionDecisionKind.Deny },
+      { kind: PermissionDecisionKind.Deny, note: 'Use pnpm.' },
+    ]) {
+      expect(REQUEST_SCHEMAS[CommandName.PermissionsAnswer].parse({ id: 'p', decision })).toEqual({ id: 'p', decision })
+    }
     expect(REQUEST_SCHEMAS[CommandName.UiStateGet].parse({ key: KEY })).toEqual({ key: KEY })
     expect(REQUEST_SCHEMAS[CommandName.UiStateGetAll].parse({})).toEqual({})
     expect(REQUEST_SCHEMAS[CommandName.UiStateSet].parse({ key: KEY, value: '' })).toEqual({ key: KEY, value: '' })
@@ -283,6 +297,24 @@ describe('REQUEST_SCHEMAS', () => {
       CommandName.QuestionsAnswer,
       { id: 's', answers: ['by-type'] },
       'answers: Invalid input: expected record, received array',
+    ],
+    [
+      'a permission decision it doesn’t know',
+      CommandName.PermissionsAnswer,
+      { id: 'p', decision: { kind: 'allow_forever' } },
+      "decision.kind: Invalid discriminator value. Expected 'allow_once' | 'deny'",
+    ],
+    [
+      'a note on Allow once',
+      CommandName.PermissionsAnswer,
+      { id: 'p', decision: { kind: PermissionDecisionKind.AllowOnce, note: 'Sure.' } },
+      'decision: Unrecognized key: "note"',
+    ],
+    [
+      'a permission mode it doesn’t know',
+      CommandName.TasksUpdate,
+      { id: 't', patch: { permissionMode: 'ask_sometimes' } },
+      'patch.permissionMode: Invalid option: expected one of "allow_all"|"ask_before_edits"',
     ],
     ['arguments to uiState.getAll', CommandName.UiStateGetAll, { key: KEY }, 'Unrecognized key: "key"'],
     ['an unknown key', CommandName.UiStateSet, { key: 'theme', value: 'dark' }, BAD_KEY],

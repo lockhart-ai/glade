@@ -52,10 +52,7 @@ export function parseTaskFilter(value: string | undefined): TaskFilter {
 }
 
 /** Whether a task shows in the task list under a filter. */
-export function matchesFilter(
-  task: AttentionFields & Pick<Task, 'unread'>,
-  filter: TaskFilter,
-): boolean {
+export function matchesFilter(task: AttentionFields & Pick<Task, 'unread'>, filter: TaskFilter): boolean {
   switch (filter) {
     case TaskFilter.All:
       return true

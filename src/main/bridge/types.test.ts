@@ -368,6 +368,11 @@ describe('events', () => {
         case EventType.QuestionWithdrawn:
           expectTypeOf(event.questionSet).toEqualTypeOf<QuestionSet>()
           break
+        case EventType.PermissionOpened:
+        case EventType.PermissionAnswered:
+        case EventType.PermissionWithdrawn:
+          expectTypeOf(event.permissionRequest).toEqualTypeOf<PermissionRequest>()
+          break
         case EventType.OpenFilesChanged:
           expectTypeOf(event.openFiles).toEqualTypeOf<OpenFiles>()
           break
