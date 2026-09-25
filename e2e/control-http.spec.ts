@@ -147,7 +147,7 @@ test('an MCP client over HTTP, connected with what Settings › Control shows, c
 
   // Marked done.
   expect((await client.call('mark_done', { id })).isError).toBe(false)
-  await expect(taskHeader(window).pill).toHaveText(/^Done/)
+  await expect(taskHeader(window).stateDot).toHaveAccessibleName(/^Done/)
   await expect(list.row('Active', RENAMED)).toHaveCount(0)
   await expect(list.sectionHeader('Done')).toHaveText('Done1')
 
