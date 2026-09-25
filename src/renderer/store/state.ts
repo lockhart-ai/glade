@@ -2,7 +2,14 @@
  * The shape of the renderer's store: a mirror of main's state, hydrated on launch and kept current by bridge events.
  * Main (and SQLite behind it) stays the source of truth; nothing here is kept only in memory.
  */
-import type { TaskUserPatch, WorkspaceUserPatch } from '../../shared/bridge'
+import type {
+  TaskUserPatch,
+  TerminalAttachResponse,
+  TerminalClearedEvent,
+  TerminalOutputEvent,
+  Unsubscribe,
+  WorkspaceUserPatch,
+} from '../../shared/bridge'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../shared/settings'
 import type { SettingsSection } from '../settings/sections'
 import type { Command, MenuState } from '../../shared/commands'
@@ -23,6 +30,7 @@ import type {
   Workspace,
 } from '../../shared/domain'
 import type { SearchResult } from '../../shared/search'
+import type { TerminalTab } from '../../shared/terminal'
 
 export enum HydrationStatus {
   Loading = 'loading',
@@ -82,6 +90,26 @@ export interface InputInsertion {
   readonly taskId: string
   readonly text: string
   readonly request: number
+}
+
+/**
+ * A request to put text at a terminal tab's prompt (Run again in terminal), made by a tool call's menu and acted on by
+ * the tab's terminal, which pastes it without running it and takes the focus. `request` goes up by one with every
+ * request, like `ToolLogFocus`'s.
+ */
+export interface TerminalPaste {
+  readonly tabId: string
+  readonly text: string
+  readonly request: number
+}
+
+/** What a terminal tab's terminal hears from main: its output, and that it was cleared. */
+export type TerminalEvent = TerminalOutputEvent | TerminalClearedEvent
+
+/** A terminal's size, in character cells. */
+export interface TerminalSize {
+  readonly cols: number
+  readonly rows: number
 }
 
 /** Everything the store holds. `applyEvent` maps one of these to the next. */
@@ -157,6 +185,17 @@ export interface GladeData {
    * time this changes, if it's off screen. A one-off UI intent, like `inputFocusRequest`.
    */
   readonly matchRevealRequest: number
+  /** Every terminal tab, in the tab row's order: loaded on launch, then kept current by events. */
+  readonly terminalTabs: readonly TerminalTab[]
+  /** The terminal tab being renamed in the tab row (Rename…); null when none is. A one-off UI intent. */
+  readonly renamingTerminalId: string | null
+  /**
+   * How many times something has asked for the terminal to take the focus (⌃`, a new tab); 0 until the first. The tab
+   * showing focuses its terminal each time this changes. A one-off UI intent, like `inputFocusRequest`.
+   */
+  readonly terminalFocusRequest: number
+  /** The latest request to put text at a terminal tab's prompt; null until one is made. A one-off UI intent. */
+  readonly terminalPaste: TerminalPaste | null
 }
 
 /**
@@ -336,6 +375,48 @@ export interface GladeActions {
   searchTasks: (workspaceId: string, text: string) => Promise<readonly SearchResult[]>
   /** Opens a search result: selects its task, loads its logs, then asks the chat to show the first match. */
   openSearchResult: (taskId: string) => Promise<void>
+  /**
+   * Adds a terminal tab at the end whose shell starts in the root of the workspace you're looking at (your home folder
+   * with none), and shows it, opening the bottom bar if it's collapsed, with the focus in it. Resolves with the tab.
+   */
+  createTerminal: () => Promise<TerminalTab>
+  /** Shows a terminal tab, with the focus in it. */
+  selectTerminal: (tabId: string) => Promise<void>
+  /** Shows the next terminal tab (1) or the one before (-1), going round. */
+  cycleTerminal: (step: 1 | -1) => Promise<void>
+  /** Adds a tab after a terminal tab, with its name and folder, and shows it (Duplicate). */
+  duplicateTerminal: (tabId: string) => Promise<void>
+  /** Ends a terminal tab's shell and closes it; closing the tab showing shows the next (or the one before). */
+  closeTerminal: (tabId: string) => Promise<void>
+  /** Starts renaming a terminal tab in the tab row: see `renamingTerminalId`. */
+  startTerminalRename: (tabId: string) => void
+  /** Stops renaming, leaving the name as it was. */
+  cancelTerminalRename: () => void
+  /** Names a terminal tab and stops renaming. Resolves false, and keeps renaming, when the name is blank. */
+  renameTerminal: (tabId: string, name: string) => Promise<boolean>
+  /** Clears a terminal tab's output (⌘K), here and in what a relaunch restores. */
+  clearTerminal: (tabId: string) => Promise<void>
+  /** Sends SIGINT to what's running in a terminal tab (Kill process). */
+  interruptTerminal: (tabId: string) => Promise<void>
+  /** Starts a terminal tab's shell, if it hasn't, at `size`, and loads its output so far. */
+  attachTerminal: (tabId: string, size: TerminalSize) => Promise<TerminalAttachResponse>
+  /** Types into a terminal tab's shell. */
+  writeTerminal: (tabId: string, data: string) => Promise<void>
+  resizeTerminal: (tabId: string, size: TerminalSize) => Promise<void>
+  /** Calls `listener` with a terminal tab's output, and when it's cleared, until unsubscribed. */
+  subscribeTerminal: (tabId: string, listener: (event: TerminalEvent) => void) => Unsubscribe
+  /**
+   * Asks for the terminal to take the focus (⌃`): opens the bottom bar if it's collapsed, and adds a tab if there's
+   * none (see `terminalFocusRequest`).
+   */
+  focusTerminal: () => Promise<void>
+  /**
+   * Puts a command at the prompt of the terminal tab showing, or of a new tab when there's none, without running it
+   * (Run again in terminal): opens the bottom bar if it's collapsed (see `terminalPaste`).
+   */
+  runInTerminal: (command: string) => Promise<void>
+  /** Marks a request to put text at a terminal's prompt as done, once the terminal has pasted it. */
+  takeTerminalPaste: (request: number) => void
 }
 
 export interface GladeState extends GladeData, GladeActions {}
@@ -366,6 +447,10 @@ export const INITIAL_DATA: GladeData = {
   searchText: '',
   searchFocusRequest: 0,
   matchRevealRequest: 0,
+  terminalTabs: [],
+  renamingTerminalId: null,
+  terminalFocusRequest: 0,
+  terminalPaste: null,
 }
 
 export function selectSelectedWorkspace(state: GladeData): Workspace | undefined {

@@ -66,14 +66,11 @@ const HANDLED_BY_FOCUS: Readonly<Record<Exclude<KeyScope, KeyScope.Window | KeyS
   [KeyScope.FocusedItem]: 'useContextMenu',
   [KeyScope.MessageField]: 'InputBar',
   [KeyScope.RightPanel]: 'TaskPanel',
-  [KeyScope.Terminal]: 'the terminal (P8)',
+  [KeyScope.Terminal]: 'Terminal',
   [KeyScope.OpenMenu]: 'Menu (Floating UI’s list navigation)',
   [KeyScope.MenuBar]: 'the menu bar (src/main/menu/template.ts, which template.test.ts checks)',
   [KeyScope.QuestionCard]: 'QuestionCard',
 }
-
-/** The window's commands that nothing runs yet: the terminal's, until the terminal (P8) is built. */
-const NOT_YET_BUILT: readonly ShortcutId[] = [WindowCommandId.FocusTerminal, WindowCommandId.NewTerminalTab]
 
 describe('docs/keymap.md', () => {
   const rows = docRows()
@@ -119,6 +116,6 @@ describe('docs/keymap.md', () => {
     const unhandled = COMMANDS.filter(({ id, scope }) =>
       DISPATCHED_SCOPES.includes(scope) ? !registry.has(id) : !(scope in HANDLED_BY_FOCUS),
     ).map(({ id }) => id)
-    expect(unhandled).toEqual(NOT_YET_BUILT)
+    expect(unhandled).toEqual([])
   })
 })

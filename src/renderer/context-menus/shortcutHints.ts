@@ -14,6 +14,9 @@ export enum ShortcutAction {
   Copy = 'copy',
   CloseFileTab = 'close_file_tab',
   OpenInEditor = 'open_in_editor',
+  ClearTerminal = 'clear_terminal',
+  KillProcess = 'kill_process',
+  CloseTerminalTab = 'close_terminal_tab',
 }
 
 /** The command whose binding each hint shows. Copy is the Edit menu's ⌘C, which no command has. */
@@ -25,6 +28,9 @@ const HINT_COMMANDS: Readonly<Record<Exclude<ShortcutAction, ShortcutAction.Copy
   [ShortcutAction.MarkDone]: TaskCommandId.MarkDone,
   [ShortcutAction.CloseFileTab]: AppCommandId.Close,
   [ShortcutAction.OpenInEditor]: WindowCommandId.OpenInEditor,
+  [ShortcutAction.ClearTerminal]: WindowCommandId.ClearTerminal,
+  [ShortcutAction.KillProcess]: WindowCommandId.KillProcess,
+  [ShortcutAction.CloseTerminalTab]: AppCommandId.Close,
 }
 
 /** What each hint shows. */

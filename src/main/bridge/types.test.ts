@@ -29,6 +29,7 @@ import {
   type UiStateEntry,
   type Workspace,
 } from '../../shared/domain'
+import type { TerminalTab } from '../../shared/terminal'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import type { Handlers } from './handlers'
 import { REQUEST_SCHEMAS, type RequestSchemas } from './requests'
@@ -79,6 +80,16 @@ const TASK_HANDLERS = {
   [CommandName.MenuUpdate]: () => null,
   [CommandName.WindowClose]: () => null,
   [CommandName.SearchQuery]: () => ({ results: [] }),
+  [CommandName.TerminalList]: () => ({ tabs: [] }),
+  [CommandName.TerminalCreate]: () => ({ tab: {} as TerminalTab }),
+  [CommandName.TerminalDuplicate]: () => ({ tab: {} as TerminalTab }),
+  [CommandName.TerminalAttach]: () => ({ output: '', end: 0 }),
+  [CommandName.TerminalWrite]: () => null,
+  [CommandName.TerminalResize]: () => null,
+  [CommandName.TerminalRename]: () => null,
+  [CommandName.TerminalClear]: () => null,
+  [CommandName.TerminalInterrupt]: () => null,
+  [CommandName.TerminalClose]: () => null,
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
   [CommandName.TasksCreate]: REQUEST_SCHEMAS[CommandName.TasksCreate],
@@ -352,6 +363,15 @@ describe('events', () => {
           break
         case EventType.ArtifactsChanged:
           expectTypeOf(event.artifacts).toEqualTypeOf<readonly Artifact[]>()
+          break
+        case EventType.TerminalTabsChanged:
+          expectTypeOf(event.tabs).toEqualTypeOf<readonly TerminalTab[]>()
+          break
+        case EventType.TerminalOutput:
+          expectTypeOf(event.data).toEqualTypeOf<string>()
+          break
+        case EventType.TerminalCleared:
+          expectTypeOf(event.tabId).toEqualTypeOf<string>()
           break
         case EventType.WorkspaceRemoved:
           expectTypeOf(event.workspaceId).toEqualTypeOf<string>()

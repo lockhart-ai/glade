@@ -27,6 +27,7 @@ import {
 } from '../../main/db/repositories/tool-events'
 import { HydrationStatus } from './state'
 import { createGladeStore, type GladeStore } from './store'
+import { fakeTerminalOptions } from '../../main/terminal/fake-pty'
 
 let dir: string
 let open: AppDatabase[]
@@ -62,6 +63,7 @@ async function launch(): Promise<{
     openPath: () => Promise.resolve(''),
     revealPath: () => undefined,
     writeClipboard: () => Promise.resolve(),
+    terminal: fakeTerminalOptions(),
     agentBackend: backend,
   })
   const glade = createBridge(ipc.renderer)

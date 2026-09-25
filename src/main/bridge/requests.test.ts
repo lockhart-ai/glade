@@ -5,7 +5,7 @@ import { describeIssues, REQUEST_SCHEMAS } from './requests'
 
 const KEY = UiStateKey.ActiveWorkspaceId
 const BAD_KEY =
-  'key: Invalid option: expected one of "active_workspace_id"|"selected_task_id"|"pinned_section_collapsed"|"active_section_collapsed"|"done_section_collapsed"|"task_filter"|"relaunch_notice"|"right_panel_tab"|"right_panel_width"|"right_panel_collapsed"|"sidebar_collapsed"|"bottom_bar_collapsed"'
+  'key: Invalid option: expected one of "active_workspace_id"|"selected_task_id"|"pinned_section_collapsed"|"active_section_collapsed"|"done_section_collapsed"|"task_filter"|"relaunch_notice"|"right_panel_tab"|"right_panel_width"|"right_panel_collapsed"|"sidebar_collapsed"|"bottom_bar_collapsed"|"terminal_tab"'
 
 describe('REQUEST_SCHEMAS', () => {
   it('parses valid requests', () => {
@@ -48,6 +48,27 @@ describe('REQUEST_SCHEMAS', () => {
     expect(REQUEST_SCHEMAS[CommandName.SettingsUpdate].parse({ patch: {} })).toEqual({ patch: {} })
     const search = { workspaceId: 'w', text: '"Retry-After' }
     expect(REQUEST_SCHEMAS[CommandName.SearchQuery].parse(search)).toEqual(search)
+  })
+
+  it('parses the terminal’s requests', () => {
+    expect(REQUEST_SCHEMAS[CommandName.TerminalList].parse({})).toEqual({})
+    expect(REQUEST_SCHEMAS[CommandName.TerminalCreate].parse({ workspaceId: null })).toEqual({ workspaceId: null })
+    expect(REQUEST_SCHEMAS[CommandName.TerminalCreate].parse({ workspaceId: 'w' })).toEqual({ workspaceId: 'w' })
+    const size = { id: 'term', cols: 80, rows: 24 }
+    expect(REQUEST_SCHEMAS[CommandName.TerminalAttach].parse(size)).toEqual(size)
+    expect(REQUEST_SCHEMAS[CommandName.TerminalResize].parse(size)).toEqual(size)
+    const write = { id: 'term', data: 'ls -la\r\x03' }
+    expect(REQUEST_SCHEMAS[CommandName.TerminalWrite].parse(write)).toEqual(write)
+    const rename = { id: 'term', name: ' server ' }
+    expect(REQUEST_SCHEMAS[CommandName.TerminalRename].parse(rename)).toEqual(rename)
+    for (const command of [
+      CommandName.TerminalDuplicate,
+      CommandName.TerminalClear,
+      CommandName.TerminalInterrupt,
+      CommandName.TerminalClose,
+    ]) {
+      expect(REQUEST_SCHEMAS[command].parse({ id: 'term' })).toEqual({ id: 'term' })
+    }
   })
 
   it.each([
@@ -195,6 +216,61 @@ describe('REQUEST_SCHEMAS', () => {
       { key: KEY, value: 3 },
       'value: Invalid input: expected string, received number',
     ],
+    [
+      'a terminal with no workspace said',
+      CommandName.TerminalCreate,
+      {},
+      'workspaceId: Invalid input: expected string, received undefined',
+    ],
+    [
+      'a folder for a new terminal: only a workspace names one',
+      CommandName.TerminalCreate,
+      { workspaceId: null, cwd: '/etc' },
+      'Unrecognized key: "cwd"',
+    ],
+    [
+      'a command to run: only typing reaches a shell',
+      CommandName.TerminalWrite,
+      { id: 'term', data: 'ls', command: 'rm -rf /' },
+      'Unrecognized key: "command"',
+    ],
+    [
+      'a write that is too long',
+      CommandName.TerminalWrite,
+      { id: 'term', data: 'x'.repeat(1_000_001) },
+      'data: Too big: expected string to have <=1000000 characters',
+    ],
+    [
+      'a terminal of no size',
+      CommandName.TerminalAttach,
+      { id: 'term', cols: 0, rows: 24 },
+      'cols: Too small: expected number to be >=1',
+    ],
+    [
+      'a terminal of part of a row',
+      CommandName.TerminalResize,
+      { id: 'term', cols: 80, rows: 2.5 },
+      'rows: Invalid input: expected int, received number',
+    ],
+    [
+      'a huge terminal',
+      CommandName.TerminalResize,
+      { id: 'term', cols: 80, rows: 5_000 },
+      'rows: Too big: expected number to be <=2000',
+    ],
+    [
+      'a blank terminal name',
+      CommandName.TerminalRename,
+      { id: 'term', name: ' ' },
+      'name: Expected a name that is not blank',
+    ],
+    [
+      'a terminal name that is too long',
+      CommandName.TerminalRename,
+      { id: 'term', name: 'x'.repeat(101) },
+      'name: Too big: expected string to have <=100 characters',
+    ],
+    ['a missing terminal id', CommandName.TerminalClose, {}, 'id: Invalid input: expected string, received undefined'],
   ])('rejects %s, saying why in short', (_case, command, raw, message) => {
     const parsed = REQUEST_SCHEMAS[command].safeParse(raw)
     expect(parsed.success).toBe(false)

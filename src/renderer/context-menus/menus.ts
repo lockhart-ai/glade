@@ -21,8 +21,8 @@ function item(label: string, onSelect: MenuAction, shortcut?: ShortcutAction, hi
   }
 }
 
-function destructive(label: string, onSelect: MenuAction): MenuItem {
-  return { kind: MenuEntryKind.Item, label, onSelect, variant: MenuItemVariant.Destructive }
+function destructive(label: string, onSelect: MenuAction, shortcut?: ShortcutAction): MenuItem {
+  return { ...item(label, onSelect, shortcut), variant: MenuItemVariant.Destructive }
 }
 
 const SEPARATOR: MenuEntry = { kind: MenuEntryKind.Separator }
@@ -141,18 +141,20 @@ export interface ToolCallMenuActions {
   readonly copyCommand: MenuAction
   readonly copyOutput: MenuAction
   readonly openFile: MenuAction
+  /** Puts the call's command at the terminal's prompt, without running it. */
+  readonly runInTerminal: MenuAction
 }
 
-/**
- * A tool call's menu, with each item only when the call has what it acts on. Run again in terminal waits for the
- * terminal (P8).
- */
+/** A tool call's menu, with each item only when the call has what it acts on. */
 export function toolCallMenu(call: ToolCallMenuTarget, actions: ToolCallMenuActions): MenuEntry[] {
-  return groups([
-    ...when(call.command !== null, () => item('Copy command', actions.copyCommand)),
-    ...when(call.output !== null && call.output !== '', () => item('Copy output', actions.copyOutput)),
-    ...when(call.file !== null, () => item('Open file', actions.openFile)),
-  ])
+  return groups(
+    [
+      ...when(call.command !== null, () => item('Copy command', actions.copyCommand)),
+      ...when(call.output !== null && call.output !== '', () => item('Copy output', actions.copyOutput)),
+      ...when(call.file !== null, () => item('Open file', actions.openFile)),
+    ],
+    when(call.command !== null, () => item('Run again in terminal', actions.runInTerminal)),
+  )
 }
 
 /** What a file tab's menu can do. */
@@ -235,6 +237,33 @@ export function subagentMenu(subagent: SubagentMenuTarget, actions: SubagentMenu
       item('Copy log', actions.copyLog),
     ],
     stop === null ? [] : [destructive('Stop subagent', stop)],
+  )
+}
+
+/** What a terminal tab's menu can do. */
+export interface TerminalTabMenuActions {
+  readonly rename: MenuAction
+  readonly duplicate: MenuAction
+  readonly clear: MenuAction
+  readonly kill: MenuAction
+  readonly close: MenuAction
+}
+
+/**
+ * A terminal tab's menu, in the bottom bar. Kill process is pink, as the design (`13-context-menus.html`) has it, and
+ * Close follows it there, the one menu whose destructive item isn't last.
+ */
+export function terminalTabMenu(actions: TerminalTabMenuActions): MenuEntry[] {
+  return groups(
+    [
+      item('Rename…', actions.rename),
+      item('Duplicate', actions.duplicate),
+      item('Clear', actions.clear, ShortcutAction.ClearTerminal),
+    ],
+    [
+      destructive('Kill process', actions.kill, ShortcutAction.KillProcess),
+      item('Close', actions.close, ShortcutAction.CloseTerminalTab),
+    ],
   )
 }
 

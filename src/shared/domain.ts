@@ -398,6 +398,8 @@ export enum UiStateKey {
   SidebarCollapsed = 'sidebar_collapsed',
   /** Whether the bottom bar is collapsed to its tab row: `'true'` or `'false'`. Unset means open. */
   BottomBarCollapsed = 'bottom_bar_collapsed',
+  /** The id of the terminal tab the bottom bar shows. Unset, or a tab that's gone, means the first tab. */
+  TerminalTab = 'terminal_tab',
 }
 
 export interface UiStateEntry {

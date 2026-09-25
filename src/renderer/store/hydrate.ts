@@ -31,13 +31,14 @@ export function restoreSelection(state: GladeData): GladeData {
 }
 
 /**
- * Loads main's state: every workspace, every workspace's tasks, the UI state and the settings, with the selection
- * restored.
+ * Loads main's state: every workspace, every workspace's tasks, the terminal tabs, the UI state and the settings, with
+ * the selection restored.
  */
 export async function loadSnapshot(bridge: GladeBridge): Promise<GladeData> {
-  const [{ workspaces }, { entries }, { settings }] = await Promise.all([
+  const [{ workspaces }, { entries }, { tabs: terminalTabs }, { settings }] = await Promise.all([
     bridge.invoke(CommandName.WorkspacesList, {}),
     bridge.invoke(CommandName.UiStateGetAll, {}),
+    bridge.invoke(CommandName.TerminalList, {}),
     bridge.invoke(CommandName.SettingsGet, {}),
   ])
   const lists = await Promise.all(
@@ -50,6 +51,7 @@ export async function loadSnapshot(bridge: GladeBridge): Promise<GladeData> {
     hydration: { status: HydrationStatus.Ready },
     workspaces,
     tasks,
+    terminalTabs,
     settings,
   }
   return restoreSelection(entries.reduce(withUiState, loaded))

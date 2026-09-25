@@ -81,7 +81,7 @@ test('context menus: copy and quote an agent reply, act on tool calls, file tabs
   // A Bash call's menu copies its command and its output; a Read call's opens its file in the Files tab.
   const callMenu = contextMenu(window, 'Tool call actions')
   await panel.call(/^Done\s*Bash\s*npm test/).click({ button: 'right' })
-  await expect(callMenu.items).toHaveText(['Copy command', 'Copy output'])
+  await expect(callMenu.items).toHaveText(['Copy command', 'Copy output', 'Run again in terminal'])
   await callMenu.item('Copy command').click()
   await expect.poll(async () => (await copied(glade)).at(-1)).toBe('npm test')
   await panel.call(/^Done\s*Read\s*src\/date\.ts/).click({ button: 'right' })

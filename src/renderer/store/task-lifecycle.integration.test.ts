@@ -12,6 +12,7 @@ import { EventType, type GladeEvent } from '../../shared/bridge'
 import { TaskState, type Workspace } from '../../shared/domain'
 import { selectSelectedTask } from './state'
 import { createGladeStore, type GladeStore } from './store'
+import { fakeTerminalOptions } from '../../main/terminal/fake-pty'
 
 let database: TestDatabase
 let workspace: Workspace
@@ -30,6 +31,7 @@ beforeEach(async () => {
     openPath: () => Promise.resolve(''),
     revealPath: () => undefined,
     writeClipboard: () => Promise.resolve(),
+    terminal: fakeTerminalOptions(),
     agentBackend: new FakeAgentBackend(),
   })
   const bridge = createBridge(ipc.renderer)

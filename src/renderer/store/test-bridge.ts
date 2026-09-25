@@ -39,6 +39,7 @@ import {
 import { noOpenFiles, withClosedFile, withOpenedFile } from '../../shared/files'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import { highlightParts, highlightPattern, SearchField, type SearchResult } from '../../shared/search'
+import type { TerminalTab } from '../../shared/terminal'
 
 export type FakeHandlers = {
   readonly [C in CommandName]: (request: CommandRequest<C>) => CommandResponse<C> | Promise<CommandResponse<C>>
@@ -81,6 +82,19 @@ export interface FakeMain {
   readonly workspaceSelections?: Readonly<Record<string, string>>
   /** The workspaces `workspaces.reveal` revealed, by id, oldest first. */
   readonly revealedWorkspaces?: string[]
+  /**
+   * The terminal tabs, in order; none when left out. `terminal.create` adds `term-1`, `term-2`… at the end (starting in
+   * the workspace's root, or `/Users/sample`), `terminal.duplicate` after the tab, and `terminal.rename` and
+   * `terminal.close` change them, each broadcasting them.
+   */
+  readonly terminalTabs?: TerminalTab[]
+  /** What `terminal.attach` answers with, by tab id: empty when left out. */
+  readonly terminalOutput?: Readonly<Record<string, string>>
+  /**
+   * The terminal commands that don't change the tabs, oldest first, each as its name, tab and arguments:
+   * `attach term-1 80x24`, `write term-1 ls`, `resize term-1 100x30`, `clear term-1`, `interrupt term-1`.
+   */
+  readonly terminalCalls?: string[]
   /** What the window told main the menu bar shows (`menu.update`), oldest first. */
   readonly menuStates?: MenuState[]
   /** How many times `window.close` closed the window. */
@@ -136,6 +150,25 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     main.tasks[index] = task
     emit({ type: EventType.TaskUpdated, task })
     return { task }
+  }
+  const terminalTabs = main.terminalTabs ?? []
+  const terminalCalls = main.terminalCalls ?? []
+  let terminals = 0
+  const tabsChanged = (): void => {
+    emit({ type: EventType.TerminalTabsChanged, tabs: [...terminalTabs] })
+  }
+  const terminalAt = (id: string): { index: number; tab: TerminalTab } => {
+    const index = terminalTabs.findIndex((tab) => tab.id === id)
+    const tab = terminalTabs[index]
+    if (tab === undefined) throw new Error(`No terminal tab ${id}`)
+    return { index, tab }
+  }
+  const addTerminal = (tab: Omit<TerminalTab, 'id'>, at: number): { tab: TerminalTab } => {
+    terminals += 1
+    const added = { ...tab, id: `term-${String(terminals)}` }
+    terminalTabs.splice(at, 0, added)
+    tabsChanged()
+    return { tab: added }
   }
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: [...main.workspaces] }),
@@ -312,6 +345,48 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       return { settings }
     },
     [CommandName.SearchQuery]: ({ workspaceId, text }) => ({ results: fakeSearch(main, workspaceId, text) }),
+    [CommandName.TerminalList]: () => ({ tabs: [...terminalTabs] }),
+    [CommandName.TerminalCreate]: ({ workspaceId }) => {
+      const cwd = main.workspaces.find(({ id }) => id === workspaceId)?.rootPath ?? '/Users/sample'
+      return addTerminal({ name: null, process: 'zsh', running: false, cwd }, terminalTabs.length)
+    },
+    [CommandName.TerminalDuplicate]: ({ id }) => {
+      const { index, tab } = terminalAt(id)
+      return addTerminal({ name: tab.name, process: 'zsh', running: false, cwd: tab.cwd }, index + 1)
+    },
+    [CommandName.TerminalAttach]: ({ id, cols, rows }) => {
+      terminalCalls.push(`attach ${id} ${String(cols)}x${String(rows)}`)
+      const output = main.terminalOutput?.[id] ?? ''
+      return { output, end: output.length }
+    },
+    [CommandName.TerminalWrite]: ({ id, data }) => {
+      terminalCalls.push(`write ${id} ${data}`)
+      return null
+    },
+    [CommandName.TerminalResize]: ({ id, cols, rows }) => {
+      terminalCalls.push(`resize ${id} ${String(cols)}x${String(rows)}`)
+      return null
+    },
+    [CommandName.TerminalRename]: ({ id, name }) => {
+      const { index, tab } = terminalAt(id)
+      terminalTabs[index] = { ...tab, name }
+      tabsChanged()
+      return null
+    },
+    [CommandName.TerminalClear]: ({ id }) => {
+      terminalCalls.push(`clear ${id}`)
+      emit({ type: EventType.TerminalCleared, tabId: id })
+      return null
+    },
+    [CommandName.TerminalInterrupt]: ({ id }) => {
+      terminalCalls.push(`interrupt ${id}`)
+      return null
+    },
+    [CommandName.TerminalClose]: ({ id }) => {
+      terminalTabs.splice(terminalAt(id).index, 1)
+      tabsChanged()
+      return null
+    },
     [CommandName.MenuUpdate]: (state) => {
       main.menuStates?.push(state)
       return null
@@ -380,6 +455,11 @@ export function fakeBridge(main: FakeMain, overrides: Partial<FakeHandlers> = {}
 export function refuse(error: BridgeError): Promise<never> {
   // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
   return Promise.reject(error)
+}
+
+/** A terminal tab at its shell's prompt, starting in `/code/api`. */
+export function sampleTerminalTab(id: string, overrides: Partial<TerminalTab> = {}): TerminalTab {
+  return { id, name: null, process: 'zsh', running: false, cwd: '/Users/sample/code/api', ...overrides }
 }
 
 export function sampleWorkspace(id: string, name = 'Acme API'): Workspace {

@@ -50,6 +50,10 @@ import { openTaskWithoutWindow } from './tasks/attention'
 import { markQuit, markRunning, noteRelaunch } from './relaunch'
 import { checkSecurity, describeViolations } from './security'
 import { seedConversation } from './capture-conversation'
+import type { TerminalOptions } from './bridge'
+import { spawnNodePty } from './terminal/node-pty'
+import type { SpawnPty } from './terminal/pty'
+import { loginShell, testShell } from './terminal/shell'
 import { backfillWorkspaceSelections } from './workspaces/workspaces'
 
 /** The `bg` design token, so the window never flashes white before the renderer paints. */
@@ -198,6 +202,7 @@ async function runCapture(spec: CaptureSpec, context: CaptureContext): Promise<v
     exitCode = 1
   }
   context.bridge.runner.close()
+  context.bridge.terminals.shutdown()
   context.database.db.close()
   app.exit(exitCode)
 }
@@ -332,6 +337,18 @@ export interface AppOptions {
    * automated run can reach the real Claude API.
    */
   readonly createAgentBackend?: () => AgentBackend
+  /** Starts the terminal tabs' shells in pseudo-terminals: node-pty by default; unit tests pass a fake. */
+  readonly spawnPty?: SpawnPty
+}
+
+/**
+ * How the terminal tabs run their shells: your login shell, starting in your home folder when there's no workspace. A
+ * test mode runs a plain shell (`testShell`) instead, falling back to its throwaway data folder, so what it shows
+ * doesn't depend on (or show) the machine it runs on.
+ */
+function terminalOptions(testMode: TestMode, spawn: SpawnPty): TerminalOptions {
+  if (testMode === null) return { spawn, shell: loginShell(process.env), fallbackCwd: app.getPath('home') }
+  return { spawn, shell: testShell(process.env), fallbackCwd: testMode.spec.userData }
 }
 
 /**
@@ -342,7 +359,7 @@ export interface AppOptions {
  * same app with a throwaway data folder, in a window that is never shown, which captures its page and exits. An e2e
  * spec (see `./e2e`) runs the app as normal for Playwright to drive, with a throwaway data folder and a hidden window.
  */
-export function startApp({ createAgentBackend = createSdkBackend }: AppOptions = {}): void {
+export function startApp({ createAgentBackend = createSdkBackend, spawnPty = spawnNodePty }: AppOptions = {}): void {
   let testMode: TestMode
   try {
     testMode = startTestMode()
@@ -411,6 +428,7 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
       notifyReply,
       // Whether the network is up, for resuming a task paused offline. In e2e mode, the spec decides.
       isOnline: testMode?.kind === TestModeKind.E2e ? createE2eNetwork() : net.isOnline.bind(net),
+      terminal: terminalOptions(testMode, spawnPty),
       updateMenu: (state) => {
         appMenu.update(state)
       },
@@ -439,6 +457,8 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
 
     app.on('will-quit', () => {
       runner.close()
+      // The shells end with the app; their tabs and recent output stay, for the next launch to show.
+      if (database.db.open) bridge.terminals.shutdown()
       // Quitting can get here again once the database is closed; the mark went with the first time.
       if (database.db.open) markQuit(database.db)
       database.db.close()

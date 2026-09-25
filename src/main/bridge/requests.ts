@@ -16,6 +16,11 @@ import {
   type SearchQueryRequest,
   type SubagentsStopRequest,
   type TaskIdRequest,
+  type TerminalCreateRequest,
+  type TerminalIdRequest,
+  type TerminalRenameRequest,
+  type TerminalSizeRequest,
+  type TerminalWriteRequest,
   type TasksCreateRequest,
   type TasksRetryRequest,
   type TasksSendRequest,
@@ -32,6 +37,7 @@ import {
 } from '../../shared/bridge'
 import { Effort, UiStateKey } from '../../shared/domain'
 import { isWorkspaceRelativePath } from '../../shared/files'
+import { MAX_TERMINAL_NAME, MAX_TERMINAL_SIZE, MAX_TERMINAL_WRITE } from '../../shared/terminal'
 import { SETTING_SCHEMAS } from '../db/repositories/settings'
 import { questionAnswersSchema } from '../questions/schema'
 
@@ -144,6 +150,34 @@ const searchQueryRequest = z.strictObject({
   text: z.string(),
 }) satisfies z.ZodType<SearchQueryRequest>
 
+const terminalCreateRequest = z.strictObject({
+  workspaceId: z.string().nullable(),
+}) satisfies z.ZodType<TerminalCreateRequest>
+
+const terminalIdRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<TerminalIdRequest>
+
+/** A terminal's columns or rows. */
+const terminalCells = z.number().int().min(1).max(MAX_TERMINAL_SIZE)
+
+const terminalSizeRequest = z.strictObject({
+  id: z.string(),
+  cols: terminalCells,
+  rows: terminalCells,
+}) satisfies z.ZodType<TerminalSizeRequest>
+
+const terminalWriteRequest = z.strictObject({
+  id: z.string(),
+  data: z.string().max(MAX_TERMINAL_WRITE),
+}) satisfies z.ZodType<TerminalWriteRequest>
+
+const terminalRenameRequest = z.strictObject({
+  id: z.string(),
+  name: z
+    .string()
+    .max(MAX_TERMINAL_NAME)
+    .refine((name) => name.trim() !== '', 'Expected a name that is not blank'),
+}) satisfies z.ZodType<TerminalRenameRequest>
+
 const menuUpdateRequest = z.strictObject({
   workspaces: z.array(z.strictObject({ id: z.string(), name: z.string() })).readonly(),
   shownWorkspaceId: z.string().nullable(),
@@ -201,6 +235,16 @@ export const REQUEST_SCHEMAS = {
   [CommandName.SettingsGet]: emptyRequest,
   [CommandName.SettingsUpdate]: settingsUpdateRequest,
   [CommandName.SearchQuery]: searchQueryRequest,
+  [CommandName.TerminalList]: emptyRequest,
+  [CommandName.TerminalCreate]: terminalCreateRequest,
+  [CommandName.TerminalDuplicate]: terminalIdRequest,
+  [CommandName.TerminalAttach]: terminalSizeRequest,
+  [CommandName.TerminalWrite]: terminalWriteRequest,
+  [CommandName.TerminalResize]: terminalSizeRequest,
+  [CommandName.TerminalRename]: terminalRenameRequest,
+  [CommandName.TerminalClear]: terminalIdRequest,
+  [CommandName.TerminalInterrupt]: terminalIdRequest,
+  [CommandName.TerminalClose]: terminalIdRequest,
   [CommandName.MenuUpdate]: menuUpdateRequest,
   [CommandName.WindowClose]: emptyRequest,
 } as const satisfies RequestSchemas

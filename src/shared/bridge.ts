@@ -29,6 +29,7 @@ import type {
 import type { Command, MenuState } from './commands'
 import type { Settings, SettingsPatch } from './settings'
 import type { SearchResult } from './search'
+import type { TerminalTab } from './terminal'
 
 /** The name the bridge is exposed under on `window`. */
 export const BRIDGE_KEY = 'glade'
@@ -80,6 +81,16 @@ export enum CommandName {
   SettingsGet = 'settings.get',
   SettingsUpdate = 'settings.update',
   SearchQuery = 'search.query',
+  TerminalList = 'terminal.list',
+  TerminalCreate = 'terminal.create',
+  TerminalDuplicate = 'terminal.duplicate',
+  TerminalAttach = 'terminal.attach',
+  TerminalWrite = 'terminal.write',
+  TerminalResize = 'terminal.resize',
+  TerminalRename = 'terminal.rename',
+  TerminalClear = 'terminal.clear',
+  TerminalInterrupt = 'terminal.interrupt',
+  TerminalClose = 'terminal.close',
   MenuUpdate = 'menu.update',
   WindowClose = 'window.close',
 }
@@ -501,6 +512,72 @@ export interface SearchQueryResponse {
   readonly results: readonly SearchResult[]
 }
 
+export interface TerminalListResponse {
+  /** Every terminal tab, in the tab row's order. */
+  readonly tabs: readonly TerminalTab[]
+}
+
+/**
+ * Adds a terminal tab at the end of the tab row (+, ⌘T), whose shell, your login shell, will start in the workspace's
+ * root, or your home folder with none. The shell starts when a window first shows the tab (`terminal.attach`).
+ * Broadcasts `terminal.tabsChanged`. Fails with `not_found` for an unknown workspace.
+ */
+export interface TerminalCreateRequest {
+  /** The workspace whose root the shell starts in; null for none. */
+  readonly workspaceId: string | null
+}
+
+/** `terminal.create` and `terminal.duplicate` answer with the new tab. */
+export interface TerminalTabResponse {
+  readonly tab: TerminalTab
+}
+
+/** Names one terminal tab. Every `terminal.*` command that does fails with `not_found` when there's no such tab. */
+export interface TerminalIdRequest {
+  readonly id: string
+}
+
+/** A terminal's size, in character cells. */
+export interface TerminalSizeRequest {
+  readonly id: string
+  readonly cols: number
+  readonly rows: number
+}
+
+/**
+ * Starts a terminal tab's shell at the terminal's size, if it hasn't started, and answers with the tab's output so far
+ * (after a relaunch, its old output and a divider saying processes didn't survive): what a window shows when it first
+ * shows the tab. The shell's output from then on arrives as `terminal.output` events.
+ */
+export type TerminalAttachRequest = TerminalSizeRequest
+
+export interface TerminalAttachResponse {
+  /** The tab's recent output, as the terminal received it. */
+  readonly output: string
+  /** The `offset` the next `terminal.output` event for the tab has: events before it are already in `output`. */
+  readonly end: number
+}
+
+/**
+ * Types into a terminal tab's shell: what you type in the terminal, or paste (Run again in terminal pastes the command,
+ * without Enter). What's typed before the shell shows its prompt waits for it.
+ */
+export interface TerminalWriteRequest {
+  readonly id: string
+  /** At most `MAX_TERMINAL_WRITE` characters. */
+  readonly data: string
+}
+
+/** Resizes a terminal tab's terminal, as its window lays it out. */
+export type TerminalResizeRequest = TerminalSizeRequest
+
+/** Names a terminal tab (Rename…). Broadcasts `terminal.tabsChanged`. */
+export interface TerminalRenameRequest {
+  readonly id: string
+  /** Not blank; at most `MAX_TERMINAL_NAME` characters. */
+  readonly name: string
+}
+
 /**
  * Tells main what the menu bar shows (`MenuState`): the window sends it whenever it changes, and main rebuilds the menu
  * bar from it. Choosing one of its items comes back as a `menu.command` event.
@@ -559,6 +636,20 @@ export interface CommandMap {
   [CommandName.SettingsGet]: CommandSpec<EmptyRequest, SettingsResponse>
   [CommandName.SettingsUpdate]: CommandSpec<SettingsUpdateRequest, SettingsResponse>
   [CommandName.SearchQuery]: CommandSpec<SearchQueryRequest, SearchQueryResponse>
+  [CommandName.TerminalList]: CommandSpec<EmptyRequest, TerminalListResponse>
+  [CommandName.TerminalCreate]: CommandSpec<TerminalCreateRequest, TerminalTabResponse>
+  /** Adds a tab after a terminal tab, with its name and folder, and a new shell. Broadcasts `terminal.tabsChanged`. */
+  [CommandName.TerminalDuplicate]: CommandSpec<TerminalIdRequest, TerminalTabResponse>
+  [CommandName.TerminalAttach]: CommandSpec<TerminalAttachRequest, TerminalAttachResponse>
+  [CommandName.TerminalWrite]: CommandSpec<TerminalWriteRequest, null>
+  [CommandName.TerminalResize]: CommandSpec<TerminalResizeRequest, null>
+  [CommandName.TerminalRename]: CommandSpec<TerminalRenameRequest, null>
+  /** Forgets a terminal tab's output (Clear, ⌘K), so a relaunch won't bring it back. Broadcasts `terminal.cleared`. */
+  [CommandName.TerminalClear]: CommandSpec<TerminalIdRequest, null>
+  /** Sends SIGINT to what's running in a terminal tab's foreground (Kill process, ⌃C). */
+  [CommandName.TerminalInterrupt]: CommandSpec<TerminalIdRequest, null>
+  /** Ends a terminal tab's shell and removes the tab (Close, ⌘W). Broadcasts `terminal.tabsChanged`. */
+  [CommandName.TerminalClose]: CommandSpec<TerminalIdRequest, null>
   [CommandName.MenuUpdate]: CommandSpec<MenuUpdateRequest, null>
   [CommandName.WindowClose]: CommandSpec<EmptyRequest, null>
 }
@@ -586,6 +677,9 @@ export enum EventType {
   FileShown = 'file.shown',
   TodosChanged = 'todos.changed',
   ArtifactsChanged = 'artifacts.changed',
+  TerminalTabsChanged = 'terminal.tabsChanged',
+  TerminalOutput = 'terminal.output',
+  TerminalCleared = 'terminal.cleared',
   MenuCommand = 'menu.command',
   SettingsChanged = 'settings.changed',
 }
@@ -707,6 +801,30 @@ export interface ArtifactsChangedEvent {
   readonly artifacts: readonly Artifact[]
 }
 
+/**
+ * The terminal tabs changed: one was added, closed or renamed, or what's running in one changed (its running dot and
+ * default name). Carries every tab as it now is, in order. A tab whose shell exits closes.
+ */
+export interface TerminalTabsChangedEvent {
+  readonly type: EventType.TerminalTabsChanged
+  readonly tabs: readonly TerminalTab[]
+}
+
+/** A terminal tab's shell output something. */
+export interface TerminalOutputEvent {
+  readonly type: EventType.TerminalOutput
+  readonly tabId: string
+  /** Where `data` starts, counted in characters of everything the tab has output since the app started. */
+  readonly offset: number
+  readonly data: string
+}
+
+/** A terminal tab's output was cleared (Clear, ⌘K): the windows clear its terminal. */
+export interface TerminalClearedEvent {
+  readonly type: EventType.TerminalCleared
+  readonly tabId: string
+}
+
 /** You chose a menu bar item, or pressed its key: the window runs its command. */
 export interface MenuCommandEvent {
   readonly type: EventType.MenuCommand
@@ -738,6 +856,9 @@ export type GladeEvent =
   | FileShownEvent
   | TodosChangedEvent
   | ArtifactsChangedEvent
+  | TerminalTabsChangedEvent
+  | TerminalOutputEvent
+  | TerminalClearedEvent
   | MenuCommandEvent
   | SettingsChangedEvent
 

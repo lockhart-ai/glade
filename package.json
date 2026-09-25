@@ -10,7 +10,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "postinstall": "install-electron",
+    "postinstall": "install-electron && node scripts/fix-node-pty.mjs",
     "dev": "electron-vite dev --watch",
     "build": "electron-vite build",
     "package": "electron-vite build && electron-builder --mac",
@@ -33,8 +33,11 @@
     "@fortawesome/react-fontawesome": "^3.5.0",
     "@modelcontextprotocol/sdk": "^1.30.1",
     "@shikijs/langs": "^4.4.3",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "better-sqlite3": "^13.0.3",
     "diff": "^8.0.4",
+    "node-pty": "^1.1.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",

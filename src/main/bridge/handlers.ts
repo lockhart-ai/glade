@@ -13,6 +13,7 @@ import { listToolEvents } from '../db/repositories/tool-events'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
 import { getSettings, updateSettings } from '../db/repositories/settings'
 import { getWorkspace, listWorkspaces } from '../db/repositories/workspaces'
+import type { Terminals } from '../terminal/terminals'
 import {
   changeWorkspace,
   createWorkspaceAt,
@@ -64,10 +65,20 @@ export interface HandlerContext {
   readonly updateMenu?: (state: MenuState) => void
   /** Closes the focused window (`window.close`). Nothing by default. */
   readonly closeWindow?: () => void
+  /** The global terminal's tabs and their shells. */
+  readonly terminals: Terminals
+}
+
+/** The root of the workspace a new terminal tab starts in, or null for none. */
+function terminalRoot(db: Database, workspaceId: string | null): string | null {
+  if (workspaceId === null) return null
+  const workspace = getWorkspace(db, workspaceId)
+  if (workspace === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${workspaceId}`)
+  return workspace.rootPath
 }
 
 export function createHandlers(context: HandlerContext): Handlers {
-  const { db, emit, chooseFolder, runner, writeClipboard } = context
+  const { db, emit, chooseFolder, runner, writeClipboard, terminals } = context
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
     [CommandName.WorkspacesCreate]: ({ rootPath }) => {
@@ -177,6 +188,34 @@ export function createHandlers(context: HandlerContext): Handlers {
       return { settings }
     },
     [CommandName.SearchQuery]: ({ workspaceId, text }) => ({ results: searchTasks(db, workspaceId, text) }),
+    [CommandName.TerminalList]: () => ({ tabs: terminals.list() }),
+    [CommandName.TerminalCreate]: ({ workspaceId }) => ({ tab: terminals.create(terminalRoot(db, workspaceId)) }),
+    [CommandName.TerminalDuplicate]: ({ id }) => ({ tab: terminals.duplicate(id) }),
+    [CommandName.TerminalAttach]: ({ id, cols, rows }) => terminals.attach(id, { cols, rows }),
+    [CommandName.TerminalWrite]: ({ id, data }) => {
+      terminals.write(id, data)
+      return null
+    },
+    [CommandName.TerminalResize]: ({ id, cols, rows }) => {
+      terminals.resize(id, { cols, rows })
+      return null
+    },
+    [CommandName.TerminalRename]: ({ id, name }) => {
+      terminals.rename(id, name.trim())
+      return null
+    },
+    [CommandName.TerminalClear]: ({ id }) => {
+      terminals.clear(id)
+      return null
+    },
+    [CommandName.TerminalInterrupt]: ({ id }) => {
+      terminals.interrupt(id)
+      return null
+    },
+    [CommandName.TerminalClose]: ({ id }) => {
+      terminals.close(id)
+      return null
+    },
     [CommandName.MenuUpdate]: (state) => {
       context.updateMenu?.(state)
       return null

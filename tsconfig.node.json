@@ -20,6 +20,8 @@
     "src/renderer/panels/panelIcons.ts",
     // The task list's order, which the store reads to pick the task to select after a delete; plain functions too.
     "src/renderer/task-list/sections.ts",
+    // Which terminal tab shows, and what Run again in terminal pastes, which the store reads; plain functions too.
+    "src/renderer/terminal/terminalModel.ts",
     // The Settings modal's sections, which the store keeps the open one of.
     "src/renderer/settings/sections.ts"
   ]

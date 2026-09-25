@@ -46,6 +46,12 @@ export default defineConfig({
         'src/main/index.ts',
         // Renderer entry: mounts the app (or, in dev, the gallery) into #root with `mountApp()` (src/renderer/mount.tsx).
         'src/renderer/main.tsx',
+        // The real pseudo-terminal (node-pty): unit tests must never start a real shell, so they run on a fake
+        // (src/main/terminal/fake-pty.ts); the e2e specs drive the real one (e2e/terminal.spec.ts).
+        'src/main/terminal/node-pty.ts',
+        // xterm.js needs a real browser to draw (a canvas, layout, matchMedia), which jsdom lacks, so unit tests stand
+        // in src/renderer/terminal/test-screen.ts; the e2e specs drive the real one (e2e/terminal.spec.ts).
+        'src/renderer/terminal/screen.ts',
       ],
       thresholds: { lines: 100 },
     },
