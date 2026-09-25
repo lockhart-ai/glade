@@ -1,11 +1,12 @@
-# Plugin API (draft)
+# Plugin API
 
 A plugin is a small web page that Glade shows beside the terminal in the bottom bar and keeps up to date with what the
 tasks and their agents are doing. Nekomata, the cat cafe in `design/screens/task-workspace.png`, is the first one.
 Decided in `decisions.md` ("Plugins"); built in P12 (#66).
 
-This is a **draft**: names and fields may change until P12-02 lands, and the schema is frozen as version 1 when P12 is
-released.
+This is **version 1** as built (P12-02 and P12-04). It's frozen when P12 is released (v0.11.0); until then a name or
+field may still change, and after it only as "Versioning" below allows. The types are in `src/shared/plugin-api.ts`,
+which imports nothing, and their zod schemas in `src/shared/plugin-api-schema.ts`: a plugin can copy both.
 
 ## Installing
 
@@ -75,6 +76,9 @@ window.glade.post({ type: 'ready' })
 state, followed by events as things change. Posting `ready` again (e.g. after the page reloads itself) starts over with
 a new `hello` and `snapshot`. When a plugin is turned off, its view is destroyed; nothing is queued for it.
 
+The `hello` is `seq` 1 and the snapshot `seq` 2; each change after it counts on from 3. A change that happens while
+the snapshot is read is in the snapshot or follows it, never both and never neither.
+
 **Delivery.** Events arrive in order. There's no acknowledgement and no replay: a plugin that loses track posts
 `ready` for a fresh snapshot.
 
@@ -94,19 +98,20 @@ interface GladeMessage {
 ## Events (Glade to plugin)
 
 `PluginEvent` is a union discriminated by `type`. Times are epoch milliseconds. Free text (titles, statuses, notes,
-summaries, prompts) is cut to 200 characters.
+names, summaries, prompts, workspace names) is cut to 200 characters (UTF-16 code units, never through a character).
+Events cover the tasks in every workspace, not only the one the window shows.
 
 | `type` | Fields | When |
 |---|---|---|
 | `hello` | `app: { name: 'Glade', version: string }` | First, after each `ready`. |
-| `snapshot` | `tasks: PluginTask[]`, `subagents: PluginSubagent[]`, `questions: PluginQuestion[]`, `permissions: PluginPermissionRequest[]` | After `hello`: every active task in every workspace, their running subagents, and their open questions and permission requests. |
+| `snapshot` | `tasks: PluginTask[]`, `subagents: PluginSubagent[]`, `questions: PluginQuestion[]`, `permissions: PluginPermissionRequest[]` | After `hello`: every active task in every workspace (not done ones, pinned or not), their running subagents, and their open questions and permission requests. |
 | `task.created` | `task: PluginTask` | A task is created. |
-| `task.updated` | `task: PluginTask` | Anything in `PluginTask` changes: title, status, state (active ⇄ done), activity, needs you. |
+| `task.updated` | `task: PluginTask` | Anything in `PluginTask` changes: title, status, state (active ⇄ done), activity, needs you, what it waits on, its workspace's name. `updatedAt` alone changing doesn't send one. A done task isn't in the snapshot, so one reopened (or a follow-up running in it) can arrive as a `task.updated` for a task the plugin doesn't know: treat it as new. |
 | `task.deleted` | `taskId: string` | A task is deleted. |
-| `agent.toolCall` | `call: PluginToolCall` | A tool call starts, and again when it ends. |
-| `agent.note` | `taskId: string`, `subagentId: string \| null`, `text: string`, `at: number` | The agent's working notes between tool calls (the tool log's preamble). |
-| `subagent.started` | `subagent: PluginSubagent` | A subagent starts. |
-| `subagent.updated` | `subagent: PluginSubagent` | Its state or latest line changes. |
+| `agent.toolCall` | `call: PluginToolCall` | A tool call starts, and again when it ends. Parallel calls each get their own. |
+| `agent.note` | `taskId: string`, `subagentId: string \| null`, `text: string`, `at: number` | The agent's (or a subagent's) working notes between tool calls (the tool log's preamble), trimmed. Blank ones aren't sent. |
+| `subagent.started` | `subagent: PluginSubagent` | A subagent starts: its `Agent` call starts. Subagents started inside a subagent too. |
+| `subagent.updated` | `subagent: PluginSubagent` | Its state or latest line changes. A background subagent runs on after its call returns, and ends when it finishes. |
 | `question.opened` | `question: PluginQuestion` | The agent asks (`ask`). |
 | `question.closed` | `taskId: string`, `questionSetId: string`, `outcome: 'answered' \| 'withdrawn'` | The questions are answered or withdrawn. |
 | `permission.opened` | `request: PluginPermissionRequest` | A tool call waits on a permission card (P11). |
@@ -137,24 +142,35 @@ interface PluginToolCall {
   /** The SDK's tool_use id. */
   readonly id: string
   readonly taskId: string
-  /** Null for the task's main agent. */
+  /** The subagent that made it (its `PluginSubagent.id`); null for the task's main agent. */
   readonly subagentId: string | null
   /** The tool's display name, as the tool log shows it (`Bash`, `Edit`, `set_status`). */
   readonly tool: string
-  /** The one-line summary the tool log shows: a path, a command, a pattern. */
+  /**
+   * What it acts on, as the tool log shows it, first line only: the file for `Read`, `Write`, `Edit`, `MultiEdit` and
+   * `NotebookEdit` (relative to the workspace root when it's inside it), the pattern for `Grep` and `Glob`, the command
+   * for `Bash`, the URL for `WebFetch`, the query for `WebSearch`, the description for `Agent`. Empty for every other
+   * tool (MCP tools, Glade's own, the todo tools): their input could hold anything.
+   */
   readonly summary: string
+  /** `interrupted` is a call cut off by Glade quitting or the task pausing: not a failure. */
   readonly state: 'running' | 'done' | 'failed' | 'interrupted'
   readonly startedAt: number
   readonly endedAt: number | null
 }
 
 interface PluginSubagent {
+  /** The tool_use id of the `Agent` call that started it: what its calls' and notes' `subagentId` say. */
   readonly id: string
   readonly taskId: string
-  /** Its description, as the Subagents tab shows it. */
+  /** Its description, else its type, as the Subagents tab shows it. */
   readonly name: string
+  /** `stopped` is one cut off by Glade quitting or the task pausing: not a failure. */
   readonly state: 'running' | 'done' | 'failed' | 'stopped'
-  /** The last thing it said or did; null before it does anything. */
+  /**
+   * The last thing it said or did: a note, or a tool call's tool and summary (`Bash npm test`). Null before it does
+   * anything. Never what it came to: that's a tool result.
+   */
   readonly latest: string | null
   readonly startedAt: number
   readonly endedAt: number | null
@@ -163,7 +179,7 @@ interface PluginSubagent {
 interface PluginQuestion {
   readonly taskId: string
   readonly questionSetId: string
-  /** Each question's prompt, in order. */
+  /** Each question's prompt, in order. Not its options, nor your answers. */
   readonly prompts: readonly string[]
   readonly openedAt: number
 }
@@ -171,15 +187,18 @@ interface PluginQuestion {
 interface PluginPermissionRequest {
   readonly taskId: string
   readonly requestId: string
+  /** The subagent whose call it is; null for the task's main agent. */
   readonly subagentId: string | null
+  /** The tool and what it acts on, as its `PluginToolCall` has them. Not the card's prompt. */
   readonly tool: string
   readonly summary: string
   readonly openedAt: number
 }
 ```
 
-**Not sent:** chat messages and final replies, file contents, full tool inputs and results, settings, and anything
-about the machine. A plugin sees what the task list, tool log and Subagents tab summarise, and no more.
+**Not sent:** chat messages and final replies, the queue, file contents, tool inputs beyond the summary above and all
+tool results (a subagent's outcome included), question options and answers, permission prompts and deny notes, todos,
+artifacts, the terminal, settings, and anything about the machine. A plugin sees what the task list, tool log and Subagents tab summarise, and no more.
 
 ## Messages (plugin to Glade)
 

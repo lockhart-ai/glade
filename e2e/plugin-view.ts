@@ -1,18 +1,12 @@
-/** Helpers for the specs that drive a plugin's card and its native view in the bottom bar. */
-import { cpSync, existsSync, readFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
-import { expect, pluginsFolder, type Glade } from './fixtures'
+/**
+ * Helpers for the specs that drive a plugin's card and its native view in the bottom bar. The fixture plugin itself,
+ * and running code in its page, are in `./fixture-plugin`.
+ */
+import { existsSync, readFileSync } from 'node:fs'
+import { expect, type Glade } from './fixtures'
 import { chooseMenuItem } from './menu'
 import { settings } from './selectors'
 import { boxOf } from './window-layout'
-
-/** The e2e fixture plugin (e2e/plugins/fixture-plugin): it lists Glade's messages and says hello in its status. */
-export const FIXTURE = resolve(__dirname, 'plugins', 'fixture-plugin')
-
-/** Copies the fixture plugin into a data folder's plugins folder, as installing it does. */
-export function installFixture(userData: string): void {
-  cpSync(FIXTURE, join(pluginsFolder(userData), 'fixture-plugin'), { recursive: true })
-}
 
 /** The plugin's card beside the terminal, and its parts. */
 export function pluginCard(glade: Glade) {
@@ -43,15 +37,6 @@ export async function pluginView({ app }: Glade): Promise<ViewState | null> {
       sandboxed: electronApp.getAppMetrics().find((metric) => metric.pid === pid)?.sandboxed,
     }
   })
-}
-
-/** Runs `code` in the plugin's page, as its own scripts would (its main world), and answers with what it resolves to. */
-export async function inPlugin<T>({ app }: Glade, code: string): Promise<T> {
-  return app.evaluate(async ({ webContents }, source) => {
-    const page = webContents.getAllWebContents().find((contents) => contents.getURL().startsWith('glade-plugin:'))
-    if (page === undefined) throw new Error('No plugin page is running')
-    return (await page.executeJavaScript(source)) as unknown
-  }, code) as Promise<T>
 }
 
 /** The slot's box, rounded to whole points, as main places the view. */

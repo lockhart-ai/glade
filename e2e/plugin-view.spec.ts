@@ -2,17 +2,9 @@ import { cpSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
+import { FIXTURE_PLUGIN, inPlugin, installFixture } from './fixture-plugin'
 import { expect, pluginsFolder, test, type Glade } from './fixtures'
-import {
-  expectViewOverSlot,
-  FIXTURE,
-  inPlugin,
-  installFixture,
-  logged,
-  openPlugins,
-  pluginCard,
-  pluginView,
-} from './plugin-view'
+import { expectViewOverSlot, logged, openPlugins, pluginCard, pluginView } from './plugin-view'
 import { panelToggles, regions } from './selectors'
 import { boxOf, resize } from './window-layout'
 
@@ -56,7 +48,10 @@ test('an enabled plugin shows beside the terminal in its own sandboxed view, say
   await expect(card.locator('img')).toHaveAttribute('src', /^data:image\/svg\+xml;base64,/)
   await expect(card).toContainText('FixturePlugin')
   await expect(status).toHaveText(/^Glade \S+ said hello$/)
-  expect(await inPlugin(glade, 'window.received.map(({ seq, event }) => [seq, event.type])')).toEqual([[1, 'hello']])
+  expect(await inPlugin(glade, 'window.received.map(({ seq, event }) => [seq, event.type])')).toEqual([
+    [1, 'hello'],
+    [2, 'snapshot'],
+  ])
   await expect(glade.window.getByTestId('plugin-card')).toHaveCount(1)
 
   // Its view: over the card's body, loaded from its own scheme, in a sandboxed process of its own.
@@ -72,10 +67,13 @@ test('an enabled plugin shows beside the terminal in its own sandboxed view, say
   const terminalBeside = await boxOf(terminal)
   expect(terminalBeside.x + terminalBeside.width).toBeLessThan((await boxOf(card)).x)
 
-  // Ready again starts over with a new hello.
+  // Ready again starts over with a new hello and snapshot.
   await inPlugin(glade, "window.glade.post({ type: 'ready' })")
-  await expect.poll(() => inPlugin(glade, 'window.received.length')).toBe(2)
-  expect(await inPlugin(glade, 'window.received[1].seq')).toBe(1)
+  await expect.poll(() => inPlugin(glade, 'window.received.length')).toBe(4)
+  expect(await inPlugin(glade, 'window.received.slice(2).map(({ seq, event }) => [seq, event.type])')).toEqual([
+    [1, 'hello'],
+    [2, 'snapshot'],
+  ])
 
   // Turned off, its card and view go, its page ends, and the terminal takes the whole bar.
   const modal = await openPlugins(glade)
@@ -118,7 +116,7 @@ test("the plugin's view follows its slot as the window resizes and the bar colla
   await expect(pluginCard(glade).card).toContainText('Fixture')
   await showBottomBar.click()
   await expectViewOverSlot(glade)
-  expect(await inPlugin(glade, 'window.received.length')).toBe(1)
+  expect(await inPlugin(glade, 'window.received.length')).toBe(2)
 })
 
 test('a hostile plugin page is contained: no network, no Node, no escape from its folder, no navigation', async ({
@@ -128,7 +126,7 @@ test('a hostile plugin page is contained: no network, no Node, no escape from it
   installFixture(userData)
   // What it must never read: a file beside the plugins folder in Glade's data folder, and another plugin's page.
   writeFileSync(join(userData, 'secret.txt'), 'SECRET')
-  cpSync(FIXTURE, join(pluginsFolder(userData), 'other-plugin'), { recursive: true })
+  cpSync(FIXTURE_PLUGIN, join(pluginsFolder(userData), 'other-plugin'), { recursive: true })
   writeFileSync(
     join(pluginsFolder(userData), 'other-plugin', 'manifest.json'),
     JSON.stringify({ id: 'other-plugin', name: 'Other', version: '1.0.0', entry: 'index.html' }),

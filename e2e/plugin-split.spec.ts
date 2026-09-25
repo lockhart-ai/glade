@@ -1,7 +1,8 @@
 import type { Locator } from '@playwright/test'
 import { expect, seedPath, test, type Glade } from './fixtures'
 import { chooseMenuItem } from './menu'
-import { expectViewOverSlot, installFixture, openPlugins, pluginCard, pluginView } from './plugin-view'
+import { installFixture } from './fixture-plugin'
+import { expectViewOverSlot, openPlugins, pluginCard, pluginView } from './plugin-view'
 import { contextMenu, panelToggles, regions, resizeHandles, settings, taskList, terminal } from './selectors'
 import { boxOf, drag, MIN_WINDOW, resize } from './window-layout'
 

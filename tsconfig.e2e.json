@@ -27,6 +27,8 @@
     "src/shared/domain.ts",
     "src/shared/images.ts",
     "src/shared/models.ts",
+    "src/shared/plugin-api.ts",
+    "src/shared/plugin-api-schema.ts",
     "src/shared/plugins.ts",
     "src/shared/keymap.ts",
     "src/shared/settings.ts",
