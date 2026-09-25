@@ -5,6 +5,7 @@ import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { LogLevel, LogScope, type LogRecord } from '../logging/logger'
 import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
+import { AgentEventKind } from './events'
 import { FakeAgentBackend, settle } from './fake-backend'
 import { createAgentRunner, type AgentRunner } from './runner'
 import * as sdk from './test-sdk-messages'
@@ -236,6 +237,33 @@ describe('a turn', () => {
       model: 'claude-sample-2',
       from: TaskActivity.Error,
     })
+  })
+})
+
+describe('a turn the agent starts itself', () => {
+  it('logs it starting, saying so and what started it, then its result and end like any turn', async () => {
+    runner.send(task.id, 'Run the build in the background.')
+    backend.session.emit(sdk.init(), sdk.result('Started it.'))
+    await settle()
+    log.records.splice(0)
+
+    backend.session.emit(sdk.text('The build passed.'), sdk.result('The build passed.'))
+    await settle()
+
+    expect(trail()).toEqual([
+      'agent sdk message',
+      'runner turn started',
+      'agent sdk message',
+      'runner turn result',
+      'runner turn ended',
+    ])
+    expect(only('turn started').fields).toEqual({
+      taskId: task.id,
+      turn: 2,
+      selfStarted: true,
+      by: AgentEventKind.ContextUsed,
+    })
+    expect(only('turn ended').fields).toEqual({ taskId: task.id, turn: 2, stopped: false })
   })
 })
 

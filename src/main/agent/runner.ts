@@ -814,8 +814,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    * with its turn divider, which the agent works on like any other. It's saved in one write with the working activity,
    * so a relaunch finds the turn working and carries it on. A done task stays done. Answers with the turn.
    */
-  const openTurn = (taskId: string, live: LiveSession): Turn => {
+  const openTurn = (taskId: string, live: LiveSession, event: AgentEvent): Turn => {
     const number = lastTurn(db, taskId) + 1
+    taskLog(taskId).info('turn started', { turn: number, selfStarted: true, by: event.kind })
     const workingEvents: GladeEvent[] = []
     const divider = db.transaction(() => {
       const divider = appendDivider(db, { taskId, turn: number, dividerKind: DividerKind.Turn })
@@ -854,7 +855,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
     // Between turns, the agent's own work is a turn it started itself; anything else is left over, e.g. a late system
     // message after a turn's result, and there's nothing to add it to.
-    const turn = live.turn ?? (startsTurn(event) ? openTurn(taskId, live) : null)
+    const turn = live.turn ?? (startsTurn(event) ? openTurn(taskId, live, event) : null)
     if (turn === null) return
     switch (event.kind) {
       case AgentEventKind.Text:
