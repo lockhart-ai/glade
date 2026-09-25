@@ -54,6 +54,7 @@ import {
   type ScriptStep,
   type ScriptTurn,
   type WakeStep,
+  WakeCause,
 } from './scripts'
 
 /** Picks the script a session plays from the first message sent to it. Throws when it has none for that message. */
@@ -130,6 +131,11 @@ interface TurnState {
   readonly key: string
   /** Whether the agent started the turn on its own (a `Wake`), not a message. */
   readonly woken: boolean
+  /**
+   * Whether its `result` says a task notification started it (`origin: task-notification`): a turn the agent started
+   * on its own, but for a scheduled one, whose `result` has no `origin`.
+   */
+  readonly notified: boolean
   readonly startedAt: number
   /** Resolves (never rejects) when the turn is interrupted. */
   readonly interrupted: Promise<void>
@@ -152,7 +158,7 @@ interface TurnState {
 }
 
 /** A new turn's state: see `TurnState`. */
-function newTurnState(key: string, uuid: string | null): TurnState {
+function newTurnState(key: string, uuid: string | null, notified = uuid === null): TurnState {
   let interrupt = (): void => undefined
   const interrupted = new Promise<void>((resolve) => {
     interrupt = resolve
@@ -160,6 +166,7 @@ function newTurnState(key: string, uuid: string | null): TurnState {
   const turn: TurnState = {
     key,
     woken: uuid === null,
+    notified,
     startedAt: Date.now(),
     interrupted,
     interrupt: () => {
@@ -296,13 +303,16 @@ export class ScriptedSession implements AgentSession {
     this.stream.push({ ...message, session_id: this.sessionId })
   }
 
-  /** Plays a turn: one a message started (`uuid` is its), or, for a null `uuid`, one the agent started on its own. */
-  private async play(steps: ScriptTurn, key: string, uuid: string | null): Promise<void> {
+  /**
+   * Plays a turn: one a message started (`uuid` is its), or, for a null `uuid`, one the agent started on its own, which
+   * a task notification started unless it's `scheduled`.
+   */
+  private async play(steps: ScriptTurn, key: string, uuid: string | null, scheduled = false): Promise<void> {
     if (this.stopped) {
       this.options.onIdle?.()
       return
     }
-    const turn = newTurnState(key, uuid)
+    const turn = newTurnState(key, uuid, uuid === null && !scheduled)
     this.turn = turn
     // Functions, so the checks aren't narrowed away: an interrupt or a close can land during any await.
     const wasInterrupted = (): boolean => turn.isInterrupted
@@ -424,18 +434,34 @@ export class ScriptedSession implements AgentSession {
    */
   /**
    * Schedules the turn a `Wake` step has the agent start on its own: `ms` from now, it waits for the turn playing then
-   * to end, and plays after the SDK's notification that the task finished.
+   * to end, and plays after what the SDK streams for its cause (`WakeCause`).
    */
   private wake(turn: TurnState, step: WakeStep): void {
     this.options.onWake?.()
     const toolUseId = step.task === undefined ? undefined : this.sdkToolId(turn, step.task)
+    const cause = step.cause ?? WakeCause.TaskEnded
     setTimeout(() => {
       this.queue = this.queue.then(() => {
         this.wakes += 1
-        if (!this.stopped) this.notify(step.summary, toolUseId)
-        return this.play(step.turn, `wake-${String(this.wakes)}`, null)
+        if (!this.stopped) this.announceWake(cause, step.summary ?? '', toolUseId)
+        return this.play(step.turn, `wake-${String(this.wakes)}`, null, cause === WakeCause.Scheduled)
       })
     }, step.ms ?? 0)
+  }
+
+  /** What the SDK streams before a turn the agent starts on its own, for what woke it (`docs/sdk-notes.md` §11). */
+  private announceWake(cause: WakeCause, summary: string, toolUseId: string | undefined): void {
+    switch (cause) {
+      case WakeCause.TaskEnded:
+        this.notify(summary, toolUseId)
+        return
+      case WakeCause.MonitorEvent:
+        return
+      case WakeCause.Scheduled:
+        // The job's prompt runs as a command of the SDK's own: only its lifecycle shows, never the prompt.
+        this.push({ type: 'command_lifecycle', command_uuid: randomUUID(), state: 'started', uuid: randomUUID() })
+        return
+    }
   }
 
   /** What the SDK streams when a background task finishes, before the turn it starts (`docs/sdk-notes.md`). */
@@ -852,7 +878,7 @@ export class ScriptedSession implements AgentSession {
       modelUsage: this.modelUsage(),
       permission_denials: [],
       // A turn the agent started on its own says so, and lists only the messages folded into it, if any.
-      ...(turn.woken ? { origin: { kind: 'task-notification' } } : {}),
+      ...(turn.notified ? { origin: { kind: 'task-notification' } } : {}),
       ...(turn.woken && uuids.length === 0 ? {} : { user_message_uuids: uuids }),
       ...fields,
     })
