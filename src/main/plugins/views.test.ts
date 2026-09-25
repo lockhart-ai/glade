@@ -1,10 +1,20 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
-import { PluginEventType, type GladeMessage } from '../../shared/plugin-api'
+import {
+  PluginEventType,
+  PluginTaskActivity,
+  PluginTaskState,
+  type GladeMessage,
+  type PluginChangeEvent,
+  type PluginEvent,
+  type PluginSnapshotEvent,
+} from '../../shared/plugin-api'
+import { gladeMessageSchema } from '../../shared/plugin-api-schema'
 import { PluginStatus, type InstalledPlugin, type ValidPlugin } from '../../shared/plugins'
 import { LogLevel } from '../logging/logger'
 import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
 import { createFakePluginViews, type FakePluginViews } from './fake-view'
+import type { PluginFeed, PluginSink } from './feed'
 import { createPluginViews, type PluginViews } from './views'
 
 function valid(folder: string, enabled = true): ValidPlugin {
@@ -25,16 +35,71 @@ let fakes: FakePluginViews
 let log: MemoryLog
 let time: number
 let views: PluginViews
+let feed: StubFeed
+
+/** A feed whose snapshot is always `SNAPSHOT`, and whose changes a test pushes. */
+interface StubFeed extends Pick<PluginFeed, 'subscribe'> {
+  /** The sinks subscribed now. */
+  readonly sinks: Set<PluginSink>
+  /** Sends every subscriber a change. */
+  push(event: PluginChangeEvent): void
+}
+
+const SNAPSHOT: PluginSnapshotEvent = {
+  type: PluginEventType.Snapshot,
+  tasks: [],
+  subagents: [],
+  questions: [],
+  permissions: [],
+}
+
+const DELETED: PluginChangeEvent = { type: PluginEventType.TaskDeleted, taskId: 't1' }
+const CREATED: PluginChangeEvent = {
+  type: PluginEventType.TaskCreated,
+  task: {
+    id: 't2',
+    workspaceId: 'w1',
+    workspaceName: 'Acme API',
+    title: '',
+    status: '',
+    state: PluginTaskState.Active,
+    activity: PluginTaskActivity.Waiting,
+    needsYou: false,
+    waitingOn: null,
+    createdAt: 1,
+    updatedAt: 1,
+    doneAt: null,
+  },
+}
+
+function stubFeed(): StubFeed {
+  const sinks = new Set<PluginSink>()
+  return {
+    sinks,
+    subscribe(sink) {
+      sink(SNAPSHOT)
+      sinks.add(sink)
+      return () => {
+        sinks.delete(sink)
+      }
+    },
+    push(event) {
+      for (const sink of sinks) sink(event)
+    },
+  }
+}
 
 beforeEach(() => {
   emit = vi.fn()
   fakes = createFakePluginViews()
   log = createMemoryLog()
   time = 0
+  feed = stubFeed()
   views = createPluginViews({
     emit,
+    feed,
     folder: '/data/plugins',
-    appVersion: '0.12.0',
+    appVersion: '0.11.0',
     createView: fakes.create,
     now: () => time,
     log: log.logger,
@@ -42,14 +107,16 @@ beforeEach(() => {
   views.update([invalid, valid('nekomata'), valid('pomodoro')])
 })
 
-function hello(seq = 1): GladeMessage {
-  return {
-    source: 'glade',
-    apiVersion: 1,
-    seq,
-    event: { type: PluginEventType.Hello, app: { name: 'Glade', version: '0.12.0' } },
-  }
+function message(seq: number, event: PluginEvent): GladeMessage {
+  return { source: 'glade', apiVersion: 1, seq, event }
 }
+
+function hello(seq = 1): GladeMessage {
+  return message(seq, { type: PluginEventType.Hello, app: { name: 'Glade', version: '0.11.0' } })
+}
+
+/** What a page is sent for each `ready`: hello, then the snapshot. */
+const GREETING: readonly GladeMessage[] = [hello(1), message(2, SNAPSHOT)]
 
 function statuses(): GladeEvent[] {
   return emit.mock.calls.map(([event]) => event).filter((event) => event.type === EventType.PluginStatusChanged)
@@ -114,7 +181,7 @@ describe('place', () => {
   })
 
   it('checks the plugin but makes nothing without a way to make views', () => {
-    const bare = createPluginViews({ emit, folder: '/data/plugins', appVersion: '0.12.0' })
+    const bare = createPluginViews({ emit, feed, folder: '/data/plugins', appVersion: '0.11.0' })
     bare.update([valid('nekomata')])
 
     expect(bare.place('nekomata', bounds)).toEqual({ status: '' })
@@ -172,13 +239,66 @@ describe("the page's messages", () => {
     views.place('nekomata', bounds)
   })
 
-  it('answers ready with hello, and starts seq over each time', () => {
+  it('sends nothing before ready: not the snapshot, not a change', () => {
+    feed.push(DELETED)
+
+    expect(fakes.last().sent).toEqual([])
+    expect(feed.sinks.size).toBe(0)
+  })
+
+  it('answers ready with hello, then the snapshot, then each change in order, counting seq up with no gaps', () => {
     const view = fakes.last()
     view.post({ type: 'ready' })
-    expect(view.sent).toEqual([hello(1)])
+    expect(view.sent).toEqual(GREETING)
+
+    feed.push(DELETED)
+    feed.push(CREATED)
+    feed.push(DELETED)
+
+    expect(view.sent).toEqual([...GREETING, message(3, DELETED), message(4, CREATED), message(5, DELETED)])
+    for (const sent of view.sent) expect(gladeMessageSchema.parse(sent)).toEqual(sent)
+  })
+
+  it('starts over on ready again: a new hello, snapshot and seq, and the old feed stops', () => {
+    const view = fakes.last()
+    view.post({ type: 'ready' })
+    feed.push(DELETED)
 
     view.post({ type: 'ready' })
-    expect(view.sent).toEqual([hello(1), hello(1)])
+    expect(feed.sinks.size).toBe(1)
+    feed.push(CREATED)
+
+    expect(view.sent).toEqual([...GREETING, message(3, DELETED), ...GREETING, message(3, CREATED)])
+  })
+
+  it('stops feeding a plugin turned off mid-stream: nothing more reaches its page', () => {
+    const view = fakes.last()
+    view.post({ type: 'ready' })
+    feed.push(DELETED)
+
+    views.update([valid('nekomata', false)])
+    feed.push(CREATED)
+
+    expect(feed.sinks.size).toBe(0)
+    expect(view.sent).toEqual([...GREETING, message(3, DELETED)])
+  })
+
+  it('stops feeding a page that is gone, or replaced by another plugin, or when the app quits', () => {
+    const first = fakes.last()
+    first.post({ type: 'ready' })
+    first.crash()
+    expect(feed.sinks.size).toBe(0)
+
+    views.place('nekomata', bounds)
+    fakes.last().post({ type: 'ready' })
+    views.place('pomodoro', bounds)
+    expect(feed.sinks.size).toBe(0)
+
+    fakes.last().post({ type: 'ready' })
+    views.close()
+    expect(feed.sinks.size).toBe(0)
+    feed.push(DELETED)
+    expect(fakes.views.map(({ sent }) => sent.length)).toEqual([2, 2, 2])
   })
 
   it('sets the status, cut to 40 characters, and broadcasts it once per change', () => {
@@ -205,7 +325,7 @@ describe("the page's messages", () => {
     view.post({ type: 'ready' })
 
     expect(statuses()).toEqual([])
-    expect(view.sent).toEqual([hello(1)])
+    expect(view.sent).toEqual(GREETING)
     expect(log.records.filter(({ message }) => message === 'plugin message dropped')).toHaveLength(3)
     expect(log.records).toContainEqual(
       expect.objectContaining({ level: LogLevel.Warn, fields: expect.objectContaining({ id: 'nekomata' }) as unknown }),
@@ -216,8 +336,9 @@ describe("the page's messages", () => {
     const view = fakes.last()
     for (let i = 0; i < 10_000; i += 1) view.post({ type: 'ready' })
 
-    // The burst of 50 is answered; the rest are dropped.
-    expect(view.sent).toHaveLength(50)
+    // The burst of 50 is answered, each with hello and a snapshot; the rest are dropped.
+    expect(view.sent).toHaveLength(100)
+    expect(feed.sinks.size).toBe(1)
     expect(log.records.filter(({ message }) => message === 'plugin messages dropped: too many')).toHaveLength(1)
 
     time += 1000

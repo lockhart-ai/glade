@@ -1,17 +1,7 @@
 /** Checking what a plugin posts (`window.glade.post`), which arrives from its page as `unknown`. */
-import { z } from 'zod'
-import {
-  MAX_PLUGIN_MESSAGE_BYTES,
-  MAX_PLUGIN_STATUS,
-  PluginMessageType,
-  type PluginMessage,
-} from '../../shared/plugin-api'
+import { MAX_PLUGIN_STATUS, type PluginMessage } from '../../shared/plugin-api'
+import { pluginMessageSchema } from '../../shared/plugin-api-schema'
 import { describeIssues } from '../bridge/requests'
-
-const pluginMessageSchema = z.discriminatedUnion('type', [
-  z.strictObject({ type: z.literal(PluginMessageType.Ready) }),
-  z.strictObject({ type: z.literal(PluginMessageType.Status), text: z.string().max(MAX_PLUGIN_MESSAGE_BYTES) }),
-]) satisfies z.ZodType<PluginMessage>
 
 export type ParsedPluginMessage =
   { readonly ok: true; readonly message: PluginMessage } | { readonly ok: false; readonly reason: string }

@@ -13,6 +13,8 @@ import { listWorkspaces } from '../db/repositories/workspaces'
 import { createEventLog } from '../logging/event-log'
 import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import { createPermissionBroker } from '../permissions/permissions'
+import { createPluginFeed } from '../plugins/feed'
+import { databaseFeedSource } from '../plugins/feed-source'
 import { createPlugins, type Plugins } from '../plugins/plugins'
 import { createPluginViews, type CreatePluginView, type PluginViews } from '../plugins/views'
 import { createQuestionBroker } from '../questions/questions'
@@ -94,7 +96,7 @@ export interface RegisteredBridge {
   readonly pluginViews: PluginViews
 }
 
-/** Every task, in every workspace: what the event log knows of them to begin with. */
+/** Every task, in every workspace: what the event log and the plugin feed know of them to begin with. */
 function allTasks(db: Database): Task[] {
   return listWorkspaces(db).flatMap((workspace) => listTasks(db, workspace.id))
 }
@@ -124,10 +126,14 @@ export function registerBridge({
   log = SILENT_LOGGER,
 }: BridgeOptions): RegisteredBridge {
   const broadcast = createBroadcast(EVENT_CHANNEL, targets)
-  // Every event is logged on its way to the windows: it's how a task's changes reach the log.
-  const logEvent = createEventLog(log, allTasks(db))
+  const tasks = allTasks(db)
+  // Every event is logged on its way to the windows: it's how a task's changes reach the log. The plugin feed sees each
+  // too, and passes on what a plugin may know of it.
+  const logEvent = createEventLog(log, tasks)
+  const feed = createPluginFeed({ source: databaseFeedSource(db), tasks, log: log.scoped(LogScope.Plugins) })
   const emit: Emit = (event) => {
     logEvent(event)
+    feed.observe(event)
     broadcast(event)
   }
   // One broker for the agent's questions: the Glade tools' `ask` waits on it, and the runner answers through it.
@@ -151,6 +157,7 @@ export function registerBridge({
   const terminals = createTerminals({ db, emit, ...terminal, log: log.scoped(LogScope.Terminal) })
   const pluginViews = createPluginViews({
     emit,
+    feed,
     folder: pluginsFolder,
     appVersion,
     createView: createPluginView,

@@ -1,7 +1,8 @@
 /**
  * The shown plugin's view (`docs/plugin-api.md`, "The sandbox" and "Talking to Glade"): one at a time, over the plugin
  * card's body, created when the window first places it and destroyed when the plugin is turned off. What the page posts
- * is rate-limited and checked here; `ready` is answered with `hello`, and `status` sets the card's header.
+ * is rate-limited and checked here; `ready` is answered with `hello` and the feed's snapshot and changes (`./feed`), and
+ * `status` sets the card's header. A plugin that's turned off (or gone) stops being fed with its view.
  */
 import { join } from 'node:path'
 import { BridgeErrorCode, EventType, type PluginViewBounds } from '../../shared/bridge'
@@ -16,6 +17,7 @@ import { PluginStatus, type InstalledPlugin, type ValidPlugin } from '../../shar
 import { CommandFailure } from '../bridge/errors'
 import type { Emit } from '../bridge/events'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
+import type { PluginFeed, Unsubscribe } from './feed'
 import { createRateLimiter, cutStatus, parsePluginMessage, PLUGIN_RATE_LIMIT, type RateLimit } from './messages'
 
 /** A plugin's view in the window, as the host drives it (`./electron-view` makes the real one). */
@@ -46,6 +48,8 @@ export type CreatePluginView = (spec: PluginViewSpec) => PluginView | null
 
 export interface PluginViewsOptions {
   readonly emit: Emit
+  /** The task and agent events a plugin is fed after `ready`. */
+  readonly feed: Pick<PluginFeed, 'subscribe'>
   /** The plugins folder: each plugin's is `<folder>/<id>`. */
   readonly folder: string
   /** Glade's version, for `hello`. */
@@ -77,6 +81,8 @@ interface Shown {
   readonly view: PluginView
   /** The last message's `seq`, counting from 1 after each `hello`. */
   seq: number
+  /** Stops the feed's events, once `ready` has started them. */
+  unsubscribe: Unsubscribe | null
   status: string
   /** Whether messages are being dropped for coming too fast, so the log says so once, not per message. */
   flooding: boolean
@@ -84,6 +90,7 @@ interface Shown {
 
 export function createPluginViews({
   emit,
+  feed,
   folder,
   appVersion,
   createView,
@@ -113,6 +120,8 @@ export function createPluginViews({
 
   const destroy = (current: Shown, reason: string): void => {
     if (shown === current) shown = null
+    current.unsubscribe?.()
+    current.unsubscribe = null
     current.view.destroy()
     log.info('plugin view destroyed', { id: current.id, reason })
     setStatus(current, '')
@@ -135,8 +144,13 @@ export function createPluginViews({
     const { message } = parsed
     switch (message.type) {
       case PluginMessageType.Ready:
+        // Ready again starts over: the old feed stops before the new hello, so nothing of it follows.
+        current.unsubscribe?.()
         current.seq = 0
         send(current, { type: PluginEventType.Hello, app: { name: 'Glade', version: appVersion } })
+        current.unsubscribe = feed.subscribe((event) => {
+          send(current, event)
+        })
         return
       case PluginMessageType.Status:
         setStatus(current, cutStatus(message.text))
@@ -159,7 +173,7 @@ export function createPluginViews({
       },
     })
     if (view === null) return null
-    current = { id: plugin.folder, view, seq: 0, status: '', flooding: false }
+    current = { id: plugin.folder, view, seq: 0, unsubscribe: null, status: '', flooding: false }
     log.info('plugin view created', { id: plugin.folder })
     return current
   }
