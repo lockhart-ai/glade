@@ -21,18 +21,28 @@
  * - A `Background` step starts a subagent in the background (see `ScriptStepKind.Background`): its `Agent` call returns
  *   at once, and the subagent plays its steps alongside the session's turns, until it ends and notifies the agent, which
  *   may then start a turn of its own. `stopTask` stops it by its task id; closing the session stops it without a word.
+ * - A `Permission` step asks the runner about its call (`onToolPermission`) in the ask mode, as Claude Code asks
+ *   `canUseTool`, and plays the call's result once it's allowed, or its denial as an error result. In Allow all, or
+ *   after `configure` switches to it, it runs without asking.
  * - A `Fail` step kills the session: its message stream throws, and it plays nothing more.
  * - The script can be picked by the session's first message (a `ScriptChooser`), so different tasks can play different
  *   scripts. A chooser that has none for it kills the session as a `Fail` step would.
  */
 import { randomUUID } from 'node:crypto'
 import { contextWindowFor } from '../../shared/contextWindow'
-import type { ToolInput } from '../../shared/domain'
+import { PermissionMode, type ToolInput } from '../../shared/domain'
 import { AsyncQueue } from './async-queue'
-import type { AgentSession, AgentSessionOptions, AgentSessionSettings } from './backend'
+import {
+  ToolPermissionBehavior,
+  type AgentSession,
+  type AgentSessionOptions,
+  type AgentSessionSettings,
+  type ToolPermissionAnswer,
+} from './backend'
 import { GLADE_SERVER, GladeTool } from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller, type McpToolOutcome } from './mcp-tool-caller'
 import { ANSWERED_AFTER_RESTART_PROMPT, COMPACT_COMMAND, RESUME_PROMPT } from './runner'
+import { NO_ONE_TO_ASK, sdkPermissionMode } from './sdk-backend'
 import {
   DEFAULT_COMPACT_TURN,
   ScriptStepKind,
@@ -40,6 +50,7 @@ import {
   type AskStep,
   type BackgroundStep,
   type CompactStep,
+  type PermissionStep,
   type ScriptStep,
   type ScriptTurn,
   type WakeStep,
@@ -201,11 +212,14 @@ export class ScriptedSession implements AgentSession {
   private readonly tools: McpToolCaller
   /** The model the session runs on: its start's, until `configure` changes it for the turns after. */
   private model: string
+  /** The permission mode the session runs in: its start's, until `configure` changes it. */
+  private permissionMode: PermissionMode
   /** The context the session has used, in tokens, as its assistant messages report it. */
   private contextTokens = INITIAL_CONTEXT_TOKENS
 
   constructor(private readonly options: ScriptedSessionOptions) {
     this.model = options.session.model
+    this.permissionMode = options.session.permissionMode
     const newId = options.newId ?? randomUUID
     this.sessionId = options.session.resumeSessionId ?? newId()
     this.idPrefix = newId().replaceAll('-', '').slice(0, 8)
@@ -248,7 +262,9 @@ export class ScriptedSession implements AgentSession {
     return this.script
   }
 
-  configure({ model }: AgentSessionSettings): void {
+  configure({ model, permissionMode }: AgentSessionSettings): void {
+    // The permission mode applies from the next tool call, even mid-turn; the model from the next turn.
+    this.permissionMode = permissionMode
     this.queue = this.queue.then(() => {
       this.model = model
     })
@@ -383,6 +399,9 @@ export class ScriptedSession implements AgentSession {
         return
       case ScriptStepKind.Background:
         this.background(turn, step, uuid)
+        return
+      case ScriptStepKind.Permission:
+        await this.permission(turn, step, uuid)
         return
       case ScriptStepKind.LimitReached:
         this.push({
@@ -573,6 +592,53 @@ export class ScriptedSession implements AgentSession {
     })
   }
 
+  /**
+   * Makes a tool call that asks permission first (see `ScriptStepKind.Permission`): in the ask mode the session goes
+   * idle while the runner decides, then plays the call's result, or its denial. An interrupt cancels the call's signal,
+   * as the SDK does, and the turn then ends as an interrupted one.
+   */
+  private async permission(turn: TurnState, step: PermissionStep, uuid: string | null): Promise<void> {
+    this.toolUse(turn, step.id, step.name, step.input, step.parent ?? null, uuid)
+    if (this.permissionMode === PermissionMode.AllowAll) {
+      this.toolResult(turn, step.id, step.output, false)
+      return
+    }
+    this.idle(turn)
+    const cancel = new AbortController()
+    void turn.interrupted.then(() => {
+      cancel.abort()
+    })
+    const agentId = step.parent === undefined ? null : (step.agentId ?? `a${this.idPrefix}${step.parent}`)
+    const handler = this.options.session.onToolPermission
+    const answer: ToolPermissionAnswer =
+      handler === undefined
+        ? { behavior: ToolPermissionBehavior.Deny, message: NO_ONE_TO_ASK, byUser: false }
+        : await handler({
+            toolName: step.name,
+            input: step.input,
+            toolUseId: this.sdkToolId(turn, step.id),
+            agentId,
+            title: null,
+            displayName: step.name,
+            description: step.description ?? null,
+            suggestions: step.suggestions ?? [],
+            defaultToNo: false,
+            suppressAlwaysAllowRule: false,
+            mcpServer: null,
+            matchedAskRule: false,
+            signal: cancel.signal,
+          })
+    if (turn.isInterrupted) return
+    switch (answer.behavior) {
+      case ToolPermissionBehavior.Allow:
+        this.toolResult(turn, step.id, step.output, false)
+        return
+      case ToolPermissionBehavior.Deny:
+        this.toolResult(turn, step.id, answer.message, true)
+        return
+    }
+  }
+
   private async ask(turn: TurnState, step: AskStep, uuid: string | null): Promise<void> {
     const name = gladeToolName(GladeTool.Ask)
     const input = { questions: step.questions }
@@ -645,7 +711,7 @@ export class ScriptedSession implements AgentSession {
       subtype: 'init',
       cwd,
       model: this.model,
-      permissionMode: 'bypassPermissions',
+      permissionMode: sdkPermissionMode(this.permissionMode),
       apiKeySource: 'none',
       tools: [
         'Agent',

@@ -10,7 +10,7 @@ import {
   NO_DONE_TASKS,
   pageOfDone,
 } from './doneList'
-import { Effort, TaskActivity, TaskState, type Task } from './domain'
+import { Effort, PermissionMode, TaskActivity, TaskState, type Task } from './domain'
 
 function task(id: string, updatedAt: number, change: Partial<Task> = {}): Task {
   return {
@@ -26,6 +26,7 @@ function task(id: string, updatedAt: number, change: Partial<Task> = {}): Task {
     unread: false,
     model: 'claude-sample-1',
     effort: Effort.Medium,
+    permissionMode: PermissionMode.AllowAll,
     createdAt: 1_000,
     updatedAt,
     doneAt: updatedAt,
@@ -35,6 +36,7 @@ function task(id: string, updatedAt: number, change: Partial<Task> = {}): Task {
     error: null,
     retrying: null,
     asking: false,
+    awaitingPermission: false,
     pause: null,
     ...change,
   }

@@ -7,7 +7,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { Effort } from '../../shared/domain'
+import { Effort, PermissionMode } from '../../shared/domain'
 import { resolveLoginEnv } from '../login-env'
 import type { AgentSessionOptions } from './backend'
 import { createSdkBackend } from './sdk-backend'
@@ -32,6 +32,7 @@ const OPTIONS: AgentSessionOptions = {
   cwd: '/code/acme-api',
   model: 'claude-sample-1',
   effort: Effort.High,
+  permissionMode: PermissionMode.AllowAll,
   resumeSessionId: null,
   systemPromptAppend: 'You are running inside Glade.',
   mcpServers: {},

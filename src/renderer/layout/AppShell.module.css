@@ -3,6 +3,8 @@
  * and limits are custom properties set by AppShell.tsx (from src/renderer/panels/panelSize.ts).
  */
 .shell {
+  /* A container, so the sidebar can size itself by the room there is (cqw) while it slides. */
+  container-type: inline-size;
   position: relative;
   box-sizing: border-box;
   height: 100vh;
@@ -35,6 +37,12 @@
   min-height: 0;
 }
 
+/* Sliding open or shut, the bar sizes itself (BottomBar.module.css), and gives way as ever in a short window. */
+.shell > .bottom[data-motion] {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
 /*
  * The title bar row across the top, which holds the macOS traffic lights and nothing else for now. It drags the window,
  * and double-clicking it zooms (or whatever the system's title bar setting says), as a native title bar does.
@@ -54,11 +62,22 @@
 .shell > .top {
   --task-min-width: calc(2px + 2 * var(--space-inset) + var(--chat-min-width));
 
+  /*
+   * The sidebar's width: the one you chose, unless the task card would drop below its minimum, and never below the
+   * sidebar's own minimum. 100cqw is this row's width (the shell's content box).
+   */
+  --sidebar-shown-width: clamp(
+    var(--sidebar-min-width),
+    var(--sidebar-width),
+    100cqw - var(--task-min-width) - var(--space-outer)
+  );
+
   flex: 1 1 0;
   min-height: var(--task-min-height);
   display: grid;
-  grid-template-columns: minmax(var(--sidebar-min-width), var(--sidebar-width)) minmax(var(--task-min-width), 1fr);
-  gap: var(--space-outer);
+  /* --panel-open is 1 but while the sidebar slides open or shut (src/renderer/motion/PanelMotion.module.css). */
+  grid-template-columns: calc(var(--sidebar-shown-width) * var(--panel-open)) minmax(var(--task-min-width), 1fr);
+  column-gap: calc(var(--space-outer) * var(--panel-open));
 }
 
 .shell > .top[data-right-panel='true'] {
@@ -82,4 +101,17 @@
   min-height: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr);
+}
+
+/*
+ * Sliding open or shut, the sidebar keeps its width, so nothing in it reflows, and slides under the slot's left edge.
+ * The clip leaves its shadow and the window's edges alone.
+ */
+.sidebarSlot[data-motion] {
+  clip-path: inset(-100px -100px -100px 0);
+}
+
+.sidebarSlot[data-motion] > :first-child {
+  justify-self: unsafe end;
+  width: var(--sidebar-shown-width);
 }

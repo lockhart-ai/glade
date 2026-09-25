@@ -1,17 +1,35 @@
 /*
  * The panel's column in the task card: the width you chose, capped so the chat beside it keeps its minimum width (but
- * never below the panel's own minimum). Percentages are of the task card's content width.
+ * never below the panel's own minimum). 100cqw is the task card's content width (it's a container, TaskCard.module.css).
+ * --panel-open is 1 but while the panel slides open or shut (src/renderer/motion/PanelMotion.module.css), and the gap
+ * beside it closes with it.
  */
 .slot {
-  position: relative;
-  flex: 0 0 auto;
-  width: clamp(
+  --right-panel-shown-width: clamp(
     var(--right-panel-min-width),
     var(--right-panel-width),
-    calc(100% - var(--chat-min-width) - var(--space-outer))
+    100cqw - var(--chat-min-width) - var(--space-inset)
   );
+
+  position: relative;
+  flex: 0 0 auto;
+  width: calc(var(--right-panel-shown-width) * var(--panel-open));
+  margin-left: calc(var(--space-inset) * (var(--panel-open) - 1));
   min-height: 0;
   display: flex;
+}
+
+/*
+ * Sliding open or shut, the card keeps its width, so nothing in it reflows, and slides under the column's right edge.
+ * The clip leaves its shadow alone on the other sides.
+ */
+.slot[data-motion] {
+  clip-path: inset(-100px 0 -100px -100px);
+}
+
+.slot[data-motion] > .panel {
+  flex: none;
+  width: var(--right-panel-shown-width);
 }
 
 .panel {

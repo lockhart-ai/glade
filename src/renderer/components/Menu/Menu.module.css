@@ -11,6 +11,8 @@
   border-radius: var(--radius-menu);
   box-shadow: var(--shadow-menu);
   color: var(--color-text);
+  /* It fades in from a touch smaller (docs/design/tokens.md, Motion); it closes at once. */
+  animation: menu-in var(--motion-duration-fast) var(--motion-ease);
 }
 
 .menu:focus {
@@ -85,4 +87,12 @@
 /* The chosen option in a picker. */
 .check {
   color: var(--color-blue-text);
+}
+
+/* `scale` rather than `transform`, which Floating UI positions it by. */
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    scale: 0.97;
+  }
 }

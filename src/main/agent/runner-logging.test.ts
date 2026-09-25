@@ -72,6 +72,7 @@ describe('a turn', () => {
       taskId: task.id,
       model: task.model,
       effort: task.effort,
+      permissionMode: task.permissionMode,
       cwd: '/code/acme-api',
       resumeSessionId: null,
     })
@@ -129,6 +130,7 @@ describe('a turn', () => {
       taskId: task.id,
       model: 'claude-sample-3',
       effort: task.effort,
+      permissionMode: task.permissionMode,
     })
     expect(log.withMessage('session id saved')).toEqual([])
   })

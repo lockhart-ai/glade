@@ -6,7 +6,15 @@
  *
  * The e2e and capture specs pick a script from `AGENT_SCRIPTS` by name, e.g. `agentScript: 'multi-tool-turn'`.
  */
-import { QuestionKind, type Question, type ToolInput } from '../../shared/domain'
+import {
+  PermissionDestination,
+  PermissionRuleBehavior,
+  PermissionUpdateType,
+  QuestionKind,
+  type PermissionSuggestion,
+  type Question,
+  type ToolInput,
+} from '../../shared/domain'
 
 export enum ScriptStepKind {
   /** `system/init` for the session, which the SDK sends at the start of every turn. */
@@ -73,6 +81,14 @@ export enum ScriptStepKind {
    * with the interrupt marker the SDK sends, then plays `stoppedTurn`, if any.
    */
   Background = 'background',
+  /**
+   * A tool call that asks permission before it runs, as Claude Code asks `canUseTool` outside Allow all
+   * (`docs/sdk-notes.md` §9): the `tool_use`, then, in the ask mode, the session asks the runner (its
+   * `onToolPermission`) and waits for the answer, however long it takes (going idle meanwhile). Allowed, the call's
+   * result is `output`; denied, it's an error carrying the denial's message, as the SDK gives it, and the turn plays on.
+   * In Allow all it runs without asking, as the SDK bypasses the check. Stop cuts the wait short.
+   */
+  Permission = 'permission',
 }
 
 export interface InitStep {
@@ -202,6 +218,23 @@ export interface BackgroundStep {
   readonly stoppedTurn?: ScriptTurn
 }
 
+export interface PermissionStep {
+  readonly kind: ScriptStepKind.Permission
+  readonly id: string
+  readonly name: string
+  readonly input: ToolInput
+  /** The call's result when it's allowed. */
+  readonly output: string
+  /** The `Agent` call's id when a subagent makes the call. */
+  readonly parent?: string
+  /** The SDK's id for that subagent (`agentID`); a made-up one when there's a `parent` and this is left out. */
+  readonly agentId?: string
+  /** What the SDK suggests would stop the call asking again; none by default. */
+  readonly suggestions?: readonly PermissionSuggestion[]
+  /** Claude Code's subtitle for the call; none by default. */
+  readonly description?: string
+}
+
 export type ScriptStep =
   | InitStep
   | TextStep
@@ -219,6 +252,7 @@ export type ScriptStep =
   | LimitReachedStep
   | WakeStep
   | BackgroundStep
+  | PermissionStep
 
 export type ScriptTurn = readonly ScriptStep[]
 
@@ -323,6 +357,25 @@ export const background = (
   steps: ScriptTurn,
   options: Omit<BackgroundStep, 'kind' | 'id' | 'input' | 'steps'>,
 ): BackgroundStep => ({ kind: ScriptStepKind.Background, id, input, steps, ...options })
+
+export const permission = (
+  id: string,
+  name: string,
+  input: ToolInput,
+  output: string,
+  options: Omit<PermissionStep, 'kind' | 'id' | 'name' | 'input' | 'output'> = {},
+): PermissionStep => ({ kind: ScriptStepKind.Permission, id, name, input, output, ...options })
+
+/** What Claude Code suggests for a `Bash` call that asks: an exact rule for the command (as probed, §9). */
+export const bashSuggestions = (command: string): readonly PermissionSuggestion[] => [
+  {
+    type: PermissionUpdateType.AddRules,
+    rules: [{ toolName: 'Bash', ruleContent: command }],
+    behavior: PermissionRuleBehavior.Allow,
+    destination: PermissionDestination.LocalSettings,
+  },
+  { type: PermissionUpdateType.SetMode, mode: 'acceptEdits', destination: PermissionDestination.Session },
+]
 
 /** How long a step "takes" in the library's scripts: long enough to see in a recording, short enough for a test. */
 const BEAT_MS = 150
@@ -1475,6 +1528,53 @@ const subagentCalls: AgentScript = {
   ],
 }
 
+/** What the `asks-permission` script's agent does and says. */
+export const ASKS_PERMISSION = {
+  edit: {
+    file_path: 'CHANGELOG.md',
+    old_string: '## Unreleased',
+    new_string: '## Unreleased\n\n- Retries now back off exponentially.',
+  },
+  command: 'npm test',
+  reply: 'Added the retry change to the changelog and ran the tests: all 148 pass.',
+} as const
+
+/**
+ * A turn whose edit and command ask permission first, in the ask mode: reads go ahead, the `Edit` and the `Bash` call
+ * each wait on a permission request, then the agent replies. In Allow all, nothing asks.
+ */
+const asksPermission: AgentScript = {
+  name: 'asks-permission',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Note the retry change',
+        'Add the retry change to the changelog and check the tests pass.',
+        'Updating the changelog.',
+      ),
+      say("I'll add the retry change to the changelog, then run the tests."),
+      ...tool('read', 'Read', { file_path: 'CHANGELOG.md' }, '# Changelog\n\n## Unreleased\n'),
+      permission('edit', 'Edit', ASKS_PERMISSION.edit, 'The file CHANGELOG.md has been updated.', {
+        description: 'CHANGELOG.md',
+        suggestions: [
+          { type: PermissionUpdateType.SetMode, mode: 'acceptEdits', destination: PermissionDestination.Session },
+        ],
+      }),
+      permission(
+        'test',
+        'Bash',
+        { command: ASKS_PERMISSION.command, description: 'Run the test suite' },
+        'Test Files  12 passed (12)\n     Tests  148 passed (148)',
+        { description: 'Run the test suite', suggestions: bashSuggestions(ASKS_PERMISSION.command) },
+      ),
+      say(ASKS_PERMISSION.reply),
+      result(),
+    ],
+  ],
+}
+
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
   'simple-reply',
@@ -1498,6 +1598,7 @@ export const AGENT_SCRIPT_NAMES = [
   'finishes-in-background',
   'background-subagents',
   'subagent-calls',
+  'asks-permission',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -1525,4 +1626,5 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'finishes-in-background': finishesInBackground,
   'background-subagents': backgroundSubagents,
   'subagent-calls': subagentCalls,
+  'asks-permission': asksPermission,
 }

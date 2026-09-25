@@ -7,6 +7,8 @@ import {
   DividerKind,
   MessageRole,
   PauseReason,
+  PermissionMode,
+  PermissionRequestState,
   QuestionKind,
   QuestionReplyKind,
   QuestionSetState,
@@ -16,6 +18,7 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  type PermissionRequest,
   type QuestionSet,
   type Task,
   type ToolCallEvent,
@@ -158,6 +161,9 @@ describe('task updates', () => {
     updated({ retrying: null })
     updated({ asking: true })
     updated({ asking: false })
+    updated({ awaitingPermission: true })
+    updated({ awaitingPermission: false })
+    updated({ permissionMode: PermissionMode.AskBeforeEdits })
 
     expect(logged().map(({ message, fields }) => ({ message, fields }))).toEqual([
       { message: 'task paused', fields: { taskId: task.id, pause } },
@@ -166,6 +172,12 @@ describe('task updates', () => {
       { message: 'task retry over', fields: { taskId: task.id } },
       { message: 'task asking', fields: { taskId: task.id } },
       { message: 'task no longer asking', fields: { taskId: task.id } },
+      { message: 'task awaiting permission', fields: { taskId: task.id } },
+      { message: 'task no longer awaiting permission', fields: { taskId: task.id } },
+      {
+        message: 'task permissionMode changed',
+        fields: { taskId: task.id, from: PermissionMode.AllowAll, to: PermissionMode.AskBeforeEdits },
+      },
     ])
   })
 
@@ -464,6 +476,95 @@ describe('questions', () => {
       ['questions answered', QuestionSetState.Answered],
       ['question reply', 'Use main.'],
       ['questions withdrawn', QuestionSetState.Withdrawn],
+    ])
+  })
+})
+
+describe('permission requests', () => {
+  const REQUEST: PermissionRequest = {
+    id: 'request-1',
+    taskId: 'task-1',
+    turn: 2,
+    toolUseId: 'toolu_1',
+    agentId: 'ac2cfaf3',
+    toolName: 'Bash',
+    input: { command: 'npm test' },
+    title: null,
+    displayName: 'Bash',
+    description: null,
+    suggestions: [],
+    defaultToNo: false,
+    suppressAlwaysAllowRule: false,
+    state: PermissionRequestState.Open,
+    denyNote: null,
+    createdAt: 1_000,
+    closedAt: null,
+  }
+
+  it('logs a request opened, with its input at debug, then allowed, denied with its note at debug, and withdrawn', () => {
+    const closed = { ...REQUEST, closedAt: 2_000 }
+    logEvent({ type: EventType.PermissionOpened, permissionRequest: REQUEST })
+    logEvent({
+      type: EventType.PermissionAnswered,
+      permissionRequest: { ...closed, state: PermissionRequestState.Allowed },
+    })
+    logEvent({
+      type: EventType.PermissionAnswered,
+      permissionRequest: { ...closed, state: PermissionRequestState.Denied, denyNote: 'Use pnpm.' },
+    })
+    logEvent({
+      type: EventType.PermissionAnswered,
+      permissionRequest: { ...closed, state: PermissionRequestState.Denied },
+    })
+    logEvent({
+      type: EventType.PermissionWithdrawn,
+      permissionRequest: { ...closed, state: PermissionRequestState.Withdrawn },
+    })
+
+    const where = { taskId: 'task-1', permissionRequestId: 'request-1', turn: 2 }
+    expect(logged()).toEqual([
+      {
+        level: LogLevel.Info,
+        scope: LogScope.Permissions,
+        message: 'permission requested',
+        fields: { ...where, toolUseId: 'toolu_1', agentId: 'ac2cfaf3', toolName: 'Bash' },
+      },
+      {
+        level: LogLevel.Debug,
+        scope: LogScope.Permissions,
+        message: 'permission input',
+        fields: { ...where, toolUseId: 'toolu_1', input: '{"command":"npm test"}' },
+      },
+      {
+        level: LogLevel.Info,
+        scope: LogScope.Permissions,
+        message: 'permission allowed',
+        fields: { ...where, toolUseId: 'toolu_1', toolName: 'Bash' },
+      },
+      {
+        level: LogLevel.Info,
+        scope: LogScope.Permissions,
+        message: 'permission denied',
+        fields: { ...where, toolUseId: 'toolu_1', toolName: 'Bash', withNote: true },
+      },
+      {
+        level: LogLevel.Debug,
+        scope: LogScope.Permissions,
+        message: 'permission deny note',
+        fields: { ...where, note: 'Use pnpm.' },
+      },
+      {
+        level: LogLevel.Info,
+        scope: LogScope.Permissions,
+        message: 'permission denied',
+        fields: { ...where, toolUseId: 'toolu_1', toolName: 'Bash', withNote: false },
+      },
+      {
+        level: LogLevel.Info,
+        scope: LogScope.Permissions,
+        message: 'permission withdrawn',
+        fields: { ...where, toolUseId: 'toolu_1', toolName: 'Bash' },
+      },
     ])
   })
 })

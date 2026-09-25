@@ -1,5 +1,6 @@
 export { Button, ButtonSize, ButtonVariant, type ButtonProps } from './Button/Button'
 export { Card, CardLevel, type CardProps } from './Card/Card'
+export { Collapse, type CollapseProps } from './Collapse/Collapse'
 export { Divider, type DividerProps } from './Divider/Divider'
 export { Dot, type DotProps } from './Dot/Dot'
 export { Icon, IconSize, type IconProps } from './Icon/Icon'

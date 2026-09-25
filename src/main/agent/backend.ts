@@ -4,7 +4,7 @@
  * mode) pass a scripted one instead.
  */
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
-import type { Effort } from '../../shared/domain'
+import type { Effort, PermissionMode, PermissionSuggestion, ToolInput } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
 import type { Logger } from '../logging/logger'
 
@@ -15,12 +15,64 @@ import type { Logger } from '../logging/logger'
  */
 export type AgentMcpServers = Readonly<Record<string, McpServerConfig>>
 
-/** The settings a task can change between turns (`docs/sdk-notes.md` §4). */
+/**
+ * The settings a task can change (`docs/sdk-notes.md` §4): the model and effort between turns, and the permission mode
+ * at any time, even mid-turn (§9).
+ */
 export interface AgentSessionSettings {
   /** The model id, as the SDK names it. */
   readonly model: string
   readonly effort: Effort
+  readonly permissionMode: PermissionMode
 }
+
+/** The MCP server serving a tool, as the SDK names it: its name, and where it was defined (`sdk` for the host's own). */
+export interface McpServerOrigin {
+  readonly name: string
+  readonly source: string
+}
+
+/**
+ * A tool call Claude Code asks the host about before running it (the SDK's `canUseTool`, `docs/sdk-notes.md` §9),
+ * parsed at the SDK boundary.
+ */
+export interface ToolPermissionCall {
+  readonly toolName: string
+  readonly input: ToolInput
+  /** The call's `tool_use` id: parallel calls each ask with their own. */
+  readonly toolUseId: string
+  /** The SDK's id for the subagent making the call; null for the agent's own. */
+  readonly agentId: string | null
+  readonly title: string | null
+  readonly displayName: string | null
+  readonly description: string | null
+  readonly suggestions: readonly PermissionSuggestion[]
+  readonly defaultToNo: boolean
+  readonly suppressAlwaysAllowRule: boolean
+  /** The server serving an `mcp__*` tool; null for any other tool, and when the SDK doesn't say. */
+  readonly mcpServer: McpServerOrigin | null
+  /** Whether a user `permissions.ask` rule forced the prompt. */
+  readonly matchedAskRule: boolean
+  /** Aborted when the SDK cancels the call, e.g. on an interrupt. */
+  readonly signal: AbortSignal
+}
+
+/** What the host answers a tool call with. */
+export enum ToolPermissionBehavior {
+  Allow = 'allow',
+  Deny = 'deny',
+}
+
+/**
+ * The answer to a tool call: run it, or don't, with the message the agent gets. `byUser` says a person decided it (Allow
+ * once, Deny), rather than Glade allowing it without asking, or withdrawing it.
+ */
+export type ToolPermissionAnswer =
+  | { readonly behavior: ToolPermissionBehavior.Allow; readonly byUser: boolean }
+  | { readonly behavior: ToolPermissionBehavior.Deny; readonly message: string; readonly byUser: boolean }
+
+/** Decides a tool call Claude Code asks about, however long that takes. */
+export type ToolPermissionHandler = (call: ToolPermissionCall) => Promise<ToolPermissionAnswer>
 
 /** How to start one task's agent session. */
 export interface AgentSessionOptions extends AgentSessionSettings {
@@ -33,6 +85,11 @@ export interface AgentSessionOptions extends AgentSessionSettings {
   readonly mcpServers: AgentMcpServers
   /** Where the backend logs the session's agent process: the task's agent log. The backend's own by default. */
   readonly log?: Logger
+  /**
+   * Decides the tool calls Claude Code asks about, which it only does outside Allow all. Without one, every such call
+   * is denied: there's no one to ask.
+   */
+  readonly onToolPermission?: ToolPermissionHandler
 }
 
 /**
@@ -48,8 +105,9 @@ export interface AgentSession {
    */
   send(text: string, uuid: string, images?: readonly ImageData[]): void
   /**
-   * Changes the model and effort for the turns after it: every message sent after this call runs with them. Call it
-   * between turns, never mid-turn.
+   * Changes the session's settings, in order with the messages sent after it: only the ones that differ from the last
+   * it was given. The model and effort apply to the turns after it, so change them between turns, never mid-turn; the
+   * permission mode applies from the next tool call, so it can change at any time.
    */
   configure(settings: AgentSessionSettings): void
   /** Interrupts the running turn, which then ends with an aborted result; the session stays alive. Stop uses it. */

@@ -37,11 +37,12 @@ One JSON object per line:
 | `db`            | The database opening: its file, and the schema version before and after migrating.                        |
 | `ipc`           | Every command from the window: its name, task, how long it took, and whether it failed (with the error). Never its request. |
 | `agent`         | Each agent session starting, resuming and closing (model, effort, folder, the SDK session id, the Claude Code executable and `PATH`); every message the SDK sends, by type and subtype, with tool names and ids, and usage, cost and duration for results; the usage limit; messages it couldn't read. |
-| `runner`        | Turns starting and ending, and each result; stops, retries, API errors and their retries; pauses resuming; subagents starting and being stopped; compaction; the queue delivered mid-turn; turns resumed after a relaunch. |
-| `task`          | A task created, deleted, and each change of its state, activity, error, pause, retry, question, title, model, effort and session id. |
+| `runner`        | Turns starting and ending, and each result; stops, retries, API errors and their retries; pauses resuming; subagents starting and being stopped; compaction; the queue delivered mid-turn; turns resumed after a relaunch; tool calls allowed without asking (debug), and permission requests made, answered and withdrawn. |
+| `task`          | A task created, deleted, and each change of its state, activity, error, pause, retry, question, permission request waiting, title, model, effort, permission mode and session id. |
 | `chat`          | Each message added (who, which turn, how long) and the queue. The text itself at debug.                   |
 | `tools`         | Each tool call starting and finishing (name, id, the subagent call it belongs to, how long it took, and whether it failed), narration, dividers, compactions, todos, artifacts and files shown. Tool input and output at debug. |
 | `questions`     | Questions asked, answered (with the card or in words) and withdrawn. The questions and answers at debug.  |
+| `permissions`   | Permission requests opened (tool, call id, subagent), allowed, denied and withdrawn. The call's input and a deny note at debug. |
 | `notifications` | Each notification sent, opened and replied to, and ones not sent because notifications are off.          |
 | `terminal`      | Terminal tabs opening and closing, shells starting and exiting (with their exit code or signal).          |
 | `renderer`      | Errors in the window: uncaught errors, unhandled rejections, and errors React caught (with its component stack). |
