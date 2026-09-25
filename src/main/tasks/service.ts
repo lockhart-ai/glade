@@ -6,6 +6,7 @@ import {
   UiStateKey,
   type ApiRetry,
   type Effort,
+  type EpochMs,
   type PermissionMode,
   type Task,
   type TaskActivity,
@@ -90,20 +91,37 @@ export interface NewTaskFields {
  * Settings has as the defaults for new tasks, unless `fields` gives them.
  */
 export function createTask(context: TaskServiceContext, workspaceId: string, fields: NewTaskFields = {}): Task {
-  if (getWorkspace(context.db, workspaceId) === undefined) {
-    throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${workspaceId}`)
-  }
-  const { defaultModel, defaultEffort, defaultPermissionMode } = getSettings(context.db)
-  const task = insertTask(context.db, {
-    workspaceId,
-    model: fields.model ?? defaultModel,
-    effort: fields.effort ?? defaultEffort,
-    permissionMode: fields.permissionMode ?? defaultPermissionMode,
-    ...(fields.title === undefined ? {} : { title: fields.title }),
-    ...(fields.objective === undefined ? {} : { objective: fields.objective }),
-  })
+  const task = insertNewTask(context.db, workspaceId, fields)
   emitTaskUpdated(context.emit, task)
   return task
+}
+
+/**
+ * Writes the row of a task `createTask` would make, created `now`, without telling the windows: for a caller that
+ * writes more of it in the same transaction (a backfill through the control API) and tells them once it's done.
+ */
+export function insertNewTask(
+  db: Database,
+  workspaceId: string,
+  fields: NewTaskFields = {},
+  now: EpochMs = Date.now(),
+): Task {
+  if (getWorkspace(db, workspaceId) === undefined) {
+    throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${workspaceId}`)
+  }
+  const { defaultModel, defaultEffort, defaultPermissionMode } = getSettings(db)
+  return insertTask(
+    db,
+    {
+      workspaceId,
+      model: fields.model ?? defaultModel,
+      effort: fields.effort ?? defaultEffort,
+      permissionMode: fields.permissionMode ?? defaultPermissionMode,
+      ...(fields.title === undefined ? {} : { title: fields.title }),
+      ...(fields.objective === undefined ? {} : { objective: fields.objective }),
+    },
+    now,
+  )
 }
 
 /**

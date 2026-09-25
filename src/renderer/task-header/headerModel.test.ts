@@ -154,6 +154,26 @@ describe('ageTitle', () => {
       'Started Sep 23, 2026, 10:42 AM · done Sep 23, 2026, 11:26 AM',
     )
   })
+
+  it('gives a past task backfilled done only its start, since it has no span of its own', () => {
+    expect(ageTitle({ ...task, state: TaskState.Done, doneAt: STARTED })).toBe('Started Sep 23, 2026, 10:42 AM')
+    expect(ageTitle({ ...task, state: TaskState.Done, doneAt: null, updatedAt: STARTED })).toBe(
+      'Started Sep 23, 2026, 10:42 AM',
+    )
+  })
+})
+
+describe('age of a past task backfilled done', () => {
+  const task = { ...sampleTask('t1', 'w1', 'Add rate limiting'), createdAt: STARTED, updatedAt: STARTED }
+
+  it('gives only the day it started, since it has no span of its own', () => {
+    expect(age({ ...task, state: TaskState.Done, doneAt: STARTED }, DONE)).toBe('started Sep 23')
+    expect(age({ ...task, state: TaskState.Done, doneAt: null, updatedAt: STARTED }, DONE)).toBe('started Sep 23')
+    // A minute apart is a real span.
+    expect(age({ ...task, state: TaskState.Done, doneAt: STARTED + MINUTE }, DONE)).toBe('10:42 – 10:43')
+    // An active task made at the same moment is aged as usual.
+    expect(age(task, STARTED + 3 * MINUTE)).toBe('3m')
+  })
 })
 
 describe('reopening', () => {

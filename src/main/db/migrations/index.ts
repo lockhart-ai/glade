@@ -25,6 +25,7 @@ import { taskPermissionRulesMigration } from './0023-task-permission-rules'
 import { permissionRestartDeliveryMigration } from './0024-permission-restart-delivery'
 import { pluginsMigration } from './0025-plugins'
 import { importedSessionsMigration } from './0026-imported-sessions'
+import { taskBackfillsMigration } from './0027-task-backfills'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -54,4 +55,5 @@ export const MIGRATIONS: readonly Migration[] = [
   permissionRestartDeliveryMigration,
   pluginsMigration,
   importedSessionsMigration,
+  taskBackfillsMigration,
 ]

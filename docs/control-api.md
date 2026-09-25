@@ -81,7 +81,7 @@ text. A failure is a tool error (`isError: true`) whose JSON (again as `structur
 
 | Code | When |
 |---|---|
-| `invalid_input` | The input fails its schema: the message names each field and why, e.g. `limit: Too big: expected number to be <=100` or `verbose: unknown field`. Every schema is strict: an unknown field fails it. A cursor that's expired or for another listing fails as `cursor: …`. |
+| `invalid_input` | The input fails its schema: the message names each field and why, e.g. `limit: Too big: expected number to be <=100` or `verbose: unknown field`. Every schema is strict: an unknown field fails it. A cursor that's expired or for another listing fails as `cursor: …`, and an artifact that isn't a file of the workspace as `artifacts.0.path: …`. |
 | `not_found` | No such task, workspace or session. |
 | `invalid_transition` | E.g. marking a done task done, or reopening an active one. |
 | `forbidden` | A task stopping, deleting or messaging itself. |
@@ -137,8 +137,9 @@ curl -s "$GLADE_CONTROL_URL/v1/tools/list_tasks" \
   -d '{"state": "active", "limit": 10}'
 ```
 
-A Node script (`node backfill.mjs`) that creates a task per item, idempotently by `externalId`, and backs off on `429`.
-`externalId` and the backfill fields are P13-04's (#225); the example is written against their documented shape:
+A Node script (`node backfill.mjs`) that backfills a done task per notes folder, idempotently by `externalId` (see
+"Backfilling past tasks"), and backs off on `429`. A refused call (`400` for `invalid_input`, e.g. an artifact that
+isn't a file of the workspace) throws with the error's message:
 
 ```js
 const base = process.env.GLADE_CONTROL_URL
@@ -159,12 +160,27 @@ async function call(tool, input) {
 
 const { workspaces } = await call('list_workspaces', {})
 const workspaceId = workspaces.find((workspace) => workspace.name === 'Acme API').id
-const items = [{ id: 'ticket-101', title: 'Rate limit /search' }, { id: 'ticket-102', title: 'Retry-After header' }]
-// A few at a time; creating one with an externalId that's already a task's returns that task.
-for (let at = 0; at < items.length; at += 10) {
-  await Promise.all(
-    items.slice(at, at + 10).map((item) => call('create_task', { workspaceId, externalId: item.id, title: item.title })),
+const root = '/Users/sample/code/api'
+const folders = [
+  { folder: 'notes/rate-limits', title: 'Rate limit /search', started: '2026-03-12', handoff: '### Next\n\nAdd the Retry-After header.' },
+  { folder: 'notes/billing-webhooks', title: 'Migrate billing webhooks to v2', started: '2026-04-02', handoff: '### Next\n\nMap subscription.*.' },
+]
+// A few at a time; a folder already backfilled returns its task with created: false.
+for (let at = 0; at < folders.length; at += 10) {
+  const results = await Promise.all(
+    folders.slice(at, at + 10).map(({ folder, title, started, handoff }) =>
+      call('create_task', {
+        workspaceId,
+        externalId: folder,
+        title,
+        handoff,
+        artifacts: [{ path: `${root}/${folder}/notes.md`, title: 'Notes' }],
+        startedAt: started,
+        state: 'done',
+      }),
+    ),
   )
+  for (const { task, created } of results) console.log(created ? 'backfilled' : 'already there', task.title)
 }
 ```
 
@@ -194,6 +210,9 @@ interface TaskDetail extends TaskSummary {
   pause: { reason: string; resumesAt: number } | null
   queuedMessages: number; turns: number
   createdAt: number; sessionId: string | null
+  handoff: { body: string; addedAt: number } | null        // its handoff note, from a backfill (P13-04)
+  artifacts: { path: string; title: string; addedAt: number }[]   // the Artifacts tab, by absolute path
+  externalId: string | null                                // the externalId it was created with
   importedAt: number | null   // set on a task imported from Claude Code (added with the import tools, P13-02)
 }
 
@@ -263,26 +282,37 @@ first. A `fromTurn` past the last turn gives no turns.
 { workspaceId: string
   message?: string                      // the first message; sending it starts the agent
   title?: string; objective?: string    // set now, so the agent doesn't set them
-  model?: string; effort?: Effort; permissionMode?: PermissionMode }   // Settings' defaults when left out
-→ { task: TaskDetail }
+  model?: string; effort?: Effort; permissionMode?: PermissionMode    // Settings' defaults when left out
+  // Backfilling a past task (see "Backfilling past tasks"):
+  handoff?: string                      // its handoff note, Markdown, at most 32 KB of UTF-8
+  artifacts?: { path: string; title?: string }[]   // files of the workspace, by absolute path; title: the file name
+  startedAt?: string                    // ISO 8601: a date, or a date and time with its offset; now by default
+  state?: 'active' | 'done'             // default 'active'; 'done' takes no message
+  externalId?: string }                 // your own id for it, e.g. the notes folder
+→ { task: TaskDetail; created: boolean }
 ```
 
 Like New task, then sending the first message. Without `message` the task waits for one, as a new task in the window
 does. `model` is one the input bar's picker offers (`src/shared/models.ts`). The task isn't selected in the window.
+`created` is false only when a task already has the `externalId`: that task is returned as it is, and nothing changes.
 
 ### `update_task`
 
 ```ts
 { id: string
   patch: { title?: string; objective?: string; status?: string; pinned?: boolean; unread?: boolean
-           model?: string; effort?: Effort; permissionMode?: PermissionMode } }
+           model?: string; effort?: Effort; permissionMode?: PermissionMode
+           handoff?: string | null                          // a new handoff note; null clears it
+           artifacts?: { path: string; title?: string }[] } }   // more artifacts, by absolute path
 → { task: TaskDetail }
 ```
 
 Texts are trimmed and mustn't be empty, and a patch must change at least one field. `status` is the one-line status
 summary. A new `permissionMode` applies from the agent's next tool call, as the picker's does. Done and active go
 through `mark_done` and `reopen_task`. A patch of only `unread` doesn't move the task in the sidebar, as marking it
-read or unread there doesn't.
+read or unread there doesn't, and nor does a patch of only `handoff` and `artifacts`, so a backfilled task keeps its
+date. A new handoff note reaches the agent from its next session (the next message after its current one ends, or a
+relaunch).
 
 ### `send_message`
 
@@ -341,6 +371,82 @@ and isn't listed.
 See "Importing" below. `imported` is false when the session was already in Glade: importing it again returns the
 existing task and changes nothing.
 
+## Backfilling past tasks
+
+Past work kept outside Glade (a folder of notes per task, from another editor or tool) can be brought in as tasks, so
+any of them can be opened later and picked up where it was left. The agent doing the backfill reads each notes folder
+and makes one task from it with `create_task`, giving it:
+
+- a **handoff note** (`handoff`): Markdown saying what the task was, where it got to, the decisions made, what's next,
+  and where its notes, artifacts and history are (paths). At most 32 KB of UTF-8; a longer one is refused.
+- its **artifacts** (`artifacts`): files of the workspace to show in its Artifacts tab, by absolute path. Each must be a
+  file inside the task's workspace (a relative path, a missing file, a folder or a file outside the workspace is
+  refused as `invalid_input`, naming it, e.g. `artifacts.1.path: There's no file at …`), and the whole call with it:
+  nothing is created.
+- when it **started** (`startedAt`): its created time, which orders it and dates it ("started Mar 12"). A time to come
+  is refused.
+- **done** (`state: 'done'`): done at `startedAt`, so it sits in the Done section at its date. A done task takes no
+  first message; sending it one later reopens it, as for any done task.
+- its **external id** (`externalId`), e.g. the notes folder's path: a second `create_task` with the same id returns the
+  task it made, with `created: false`, and changes nothing, so a backfill can be run again, or resumed after it stopped,
+  without making duplicates.
+
+A backfilled task never starts its agent by itself: only a `message` given with an active one, or one sent to it
+later, does. `update_task` sets, replaces or clears (`null`) the handoff note and adds artifacts; `get_task` returns
+both. The window never changes the note.
+
+**What the user sees:** a **Backfilled** card at the top of the task's chat (`design/html/25-backfilled.html`), with the
+handoff note rendered as Markdown (raw HTML dropped, nothing loaded, links not followed) and the date it was added. It
+starts open, and its line closes and opens it.
+
+**What the agent gets:** a session Glade starts for the task has the handoff note at the end of its system prompt, under
+"Handoff for this task (backfilled from earlier notes)", with a line saying the paths it names are real and it can read
+them. It's in the prompt, not the chat, so a compaction never loses it, and the session keeps it when it's resumed.
+But Claude Code keeps the prompt a session started with when it resumes one (`sdk-notes.md` §8), so a session that
+started without the note, or with an older one (the note was set or changed with `update_task` after the task had a
+session), is sent it once, as a block ahead of the next message Glade sends it:
+
+```
+[Glade: handoff for this task]
+## Handoff for this task (backfilled from earlier notes)
+…
+[end]
+
+Let's pick this up.
+```
+
+The chat shows only your message. What each task's session has been given is kept in SQLite, so the block goes exactly
+once per version of the note, across relaunches. A cleared note sends nothing. A task without a note gets none of
+this.
+
+### Example: one notes folder
+
+A notes folder `~/code/api/notes/billing-webhooks/` holds `notes.md`, `decisions.md` and `log.md`, in the Acme API
+workspace (root `~/code/api`). The backfilling agent reads them, then calls:
+
+```json
+{ "name": "create_task",
+  "arguments": {
+    "workspaceId": "0b6f7c2e-5a41-4d3e-9c8a-1f2e3d4c5b6a",
+    "title": "Migrate billing webhooks to v2",
+    "objective": "Move the billing webhook handlers from the v1 events API to v2, then retire the v1 endpoint.",
+    "handoff": "### Where it got to\n\nThe `invoice.*` and `customer.*` handlers are on v2 and live. `subscription.*` still goes through v1.\n\n### Decisions\n\n- Keep the v1 endpoint until subscriptions move over.\n\n### Next\n\nWrite the `subscription.*` mapping, then turn v1 off.\n\n### Where things are\n\nNotes in `/Users/sample/code/api/notes/billing-webhooks/`; the old session log in `log.md` there.",
+    "artifacts": [
+      { "path": "/Users/sample/code/api/notes/billing-webhooks/notes.md", "title": "Migration notes" },
+      { "path": "/Users/sample/code/api/notes/billing-webhooks/decisions.md", "title": "Decisions" }
+    ],
+    "startedAt": "2026-03-12T09:00:00+01:00",
+    "state": "done",
+    "externalId": "notes/billing-webhooks" } }
+```
+
+→ `{ "task": { "id": "…", "state": "done", "doneAt": 1773302400000, "handoff": { "body": "…", "addedAt": … },
+"artifacts": [ … ], "externalId": "notes/billing-webhooks", … }, "created": true }`
+
+It repeats that for each folder (`list_workspaces` first, for the workspace's id). Run again, each call answers
+`"created": false` with the task already there. Later, the user opens the task, reads the card, and sends "Let's pick
+this up.": the task reopens, and its agent starts with the handoff note in its prompt.
+
 ## Importing Claude Code sessions
 
 Glade reads the transcript itself, line by line, each line parsed with zod and anything it doesn't know skipped.
@@ -369,7 +475,9 @@ Glade reads the transcript itself, line by line, each line parsed with zod and a
 - **State:** done by default, stamped with the last entry's time; `state: 'active'` imports it active.
 - **Resuming:** the task keeps the transcript's `sessionId`, so the next message you send resumes that Claude Code
   session (the SDK's `resume`, in the same folder), with everything the model knew. Turn numbers carry on from the
-  imported ones.
+  imported ones. A resumed session keeps the system prompt it started with (`sdk-notes.md` §8), which isn't Glade's,
+  so that first message goes after a block with Glade's prompt (`[Glade: instructions for this session] … [end]`),
+  once; the chat shows only your message.
 - **Idempotent:** a session already in Glade (imported, or a Glade task's own) isn't imported again.
 - **Atomic:** the whole import is one transaction; a failure leaves nothing behind.
 - A session still open in a terminal can be imported, but don't resume it in both places at once: both would append

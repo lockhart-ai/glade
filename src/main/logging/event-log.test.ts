@@ -403,10 +403,16 @@ describe('the tool log', () => {
     ])
   })
 
-  it('logs todos, artifacts, shown files and open files', () => {
+  it('logs todos, artifacts, handoff notes, shown files and open files', () => {
     logEvent({ type: EventType.TodosChanged, taskId: 'task-1', todos: null })
     logEvent({ type: EventType.TodosChanged, taskId: 'task-1', todos: { items: [], updatedAt: 1 } })
     logEvent({ type: EventType.ArtifactsChanged, taskId: 'task-1', artifacts: [] })
+    logEvent({
+      type: EventType.HandoffChanged,
+      taskId: 'task-1',
+      handoff: { taskId: 'task-1', body: 'Private notes', addedAt: 1 },
+    })
+    logEvent({ type: EventType.HandoffChanged, taskId: 'task-1', handoff: null })
     logEvent({ type: EventType.FileShown, taskId: 'task-1', path: 'src/date.ts', line: 12 })
     logEvent({
       type: EventType.OpenFilesChanged,
@@ -417,6 +423,9 @@ describe('the tool log', () => {
       expect.objectContaining({ message: 'todos changed', fields: { taskId: 'task-1', todos: 0 } }),
       expect.objectContaining({ message: 'todos changed', fields: { taskId: 'task-1', todos: 0 } }),
       expect.objectContaining({ message: 'artifacts changed', fields: { taskId: 'task-1', artifacts: 0 } }),
+      // Never the note itself.
+      expect.objectContaining({ message: 'handoff set', fields: { taskId: 'task-1' } }),
+      expect.objectContaining({ message: 'handoff cleared', fields: { taskId: 'task-1' } }),
       expect.objectContaining({
         message: 'file shown',
         fields: { taskId: 'task-1', path: 'src/date.ts', line: 12 },

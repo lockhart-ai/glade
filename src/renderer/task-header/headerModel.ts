@@ -122,10 +122,19 @@ export function stateLabel(
 }
 
 /**
- * The muted text after the title: an active task's age (`42m`, or `now` just after it's created), or the clock times a
- * done task ran between (`10:42 – 11:26`).
+ * Whether a done task was backfilled done (`create_task` with `startedAt`): it was done the moment it was made, so it
+ * has no span of its own, only when it started.
+ */
+function isBackfilledDone(task: Pick<Task, 'state' | 'createdAt' | 'doneAt' | 'updatedAt'>): boolean {
+  return task.state === TaskState.Done && (task.doneAt ?? task.updatedAt) === task.createdAt
+}
+
+/**
+ * The muted text after the title: an active task's age (`42m`, or `now` just after it's created), the clock times a
+ * done task ran between (`10:42 – 11:26`), or the day a past task backfilled done started (`started Mar 12`).
  */
 export function age(task: Pick<Task, 'state' | 'createdAt' | 'doneAt' | 'updatedAt'>, now: EpochMs): string {
+  if (isBackfilledDone(task)) return `started ${formatDay(task.createdAt)}`
   if (task.state === TaskState.Done) {
     return `${clockTime(task.createdAt)} – ${clockTime(task.doneAt ?? task.updatedAt)}`
   }
@@ -134,13 +143,15 @@ export function age(task: Pick<Task, 'state' | 'createdAt' | 'doneAt' | 'updated
 
 /**
  * The age's tooltip, in full dates: when the task was started (created, while it's still new), when a reopened task
- * was first done and reopened, and when a done task was done.
+ * was first done and reopened, and when a done task was done (not for one backfilled done, which has only its start).
  */
 export function ageTitle(task: Task, reopened: Reopening | null = null): string {
   const parts = [`${isNewTask(task) ? 'Created' : 'Started'} ${formatFullDate(task.createdAt)}`]
   if (reopened !== null) {
     parts.push(`first done ${formatFullDate(reopened.firstDoneAt)}`, `reopened ${formatFullDate(reopened.reopenedAt)}`)
   }
-  if (task.state === TaskState.Done) parts.push(`done ${formatFullDate(task.doneAt ?? task.updatedAt)}`)
+  if (task.state === TaskState.Done && !isBackfilledDone(task)) {
+    parts.push(`done ${formatFullDate(task.doneAt ?? task.updatedAt)}`)
+  }
   return parts.join(' · ')
 }

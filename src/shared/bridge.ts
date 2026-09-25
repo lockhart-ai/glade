@@ -11,6 +11,7 @@
  */
 import type {
   Artifact,
+  TaskHandoff,
   Effort,
   FileContent,
   FileInfo,
@@ -389,6 +390,8 @@ export interface TasksHistoryResponse {
   readonly todos: TodoList | null
   /** The files the agent declared as its deliverables (the Artifacts tab), in the order it first declared them. */
   readonly artifacts: readonly Artifact[]
+  /** Its handoff note, from a backfill through the control API (the Backfilled card); null when it has none. */
+  readonly handoff: TaskHandoff | null
 }
 
 /**
@@ -873,6 +876,7 @@ export enum EventType {
   FileShown = 'file.shown',
   TodosChanged = 'todos.changed',
   ArtifactsChanged = 'artifacts.changed',
+  HandoffChanged = 'handoff.changed',
   TerminalTabsChanged = 'terminal.tabsChanged',
   TerminalOutput = 'terminal.output',
   TerminalCleared = 'terminal.cleared',
@@ -1022,6 +1026,16 @@ export interface ArtifactsChangedEvent {
 }
 
 /**
+ * A task's handoff note was set, replaced or cleared through the control API (`update_task`). Carries the note as it
+ * now is, or null once cleared.
+ */
+export interface HandoffChangedEvent {
+  readonly type: EventType.HandoffChanged
+  readonly taskId: string
+  readonly handoff: TaskHandoff | null
+}
+
+/**
  * The terminal tabs changed: one was added, closed or renamed, or what's running in one changed (its running dot and
  * default name). Carries every tab as it now is, in order. A tab whose shell exits closes.
  */
@@ -1105,6 +1119,7 @@ export type GladeEvent =
   | FileShownEvent
   | TodosChangedEvent
   | ArtifactsChangedEvent
+  | HandoffChangedEvent
   | TerminalTabsChangedEvent
   | TerminalOutputEvent
   | TerminalClearedEvent

@@ -267,7 +267,8 @@ export interface ControlToolStep {
   readonly id: string
   /** The tool's name on the `glade-control` server, e.g. `create_task`. */
   readonly tool: string
-  readonly input: ToolInput
+  /** Its input, or what makes it from the session's folder (its `cwd`), for one that names files there. */
+  readonly input: ToolInput | ((cwd: string) => ToolInput)
 }
 
 export type ScriptStep =
@@ -351,7 +352,11 @@ export const gladeTool = (id: string, name: string, input: ToolInput): GladeTool
   input,
 })
 
-export const controlTool = (id: string, name: string, input: ToolInput): ControlToolStep => ({
+export const controlTool = (
+  id: string,
+  name: string,
+  input: ToolInput | ((cwd: string) => ToolInput),
+): ControlToolStep => ({
   kind: ScriptStepKind.ControlTool,
   id,
   tool: name,
@@ -2035,6 +2040,85 @@ const portsSessions: AgentScript = {
   ],
 }
 
+/** One past task the `backfills-tasks` script backfills, from its notes folder in the workspace. */
+export interface BackfilledTaskSample {
+  readonly externalId: string
+  readonly title: string
+  readonly objective: string
+  readonly handoff: string
+  readonly startedAt: string
+  /** Its notes, relative to the workspace root: the script registers them as its artifacts, by absolute path. */
+  readonly artifacts: readonly { readonly path: string; readonly title: string }[]
+}
+
+/** What the `backfills-tasks` script's agent backfills, from notes folders in its workspace, and says. */
+export const BACKFILLS_TASKS = {
+  /** What the user asks it. */
+  prompt: 'Backfill my past billing tasks from their notes.',
+  /** The workspace the tasks go in, which a spec seeds with this id. */
+  workspaceId: '5c2d8e1a-7b4f-4c3a-9d6e-2f1a0b9c8d7e',
+  tasks: [
+    {
+      externalId: 'notes/billing-webhooks',
+      title: 'Migrate billing webhooks to v2',
+      objective: 'Move the billing webhook handlers from the v1 events API to v2, then retire the v1 endpoint.',
+      handoff: [
+        '### Where it got to',
+        '',
+        'The `invoice.*` and `customer.*` handlers are on v2 and live. `subscription.*` still goes through v1.',
+        '',
+        '### Next',
+        '',
+        'Write the `subscription.*` mapping, then turn v1 off. Notes are in `notes/billing-webhooks/`.',
+      ].join('\n'),
+      startedAt: '2026-03-12T09:00:00Z',
+      artifacts: [
+        { path: 'notes/billing-webhooks/notes.md', title: 'Migration notes' },
+        { path: 'notes/billing-webhooks/decisions.md', title: 'Decisions' },
+      ],
+    },
+    {
+      externalId: 'notes/invoice-pdfs',
+      title: 'Render invoice PDFs on the server',
+      objective: 'Render invoice PDFs on the server instead of in the browser.',
+      handoff: '### Where it got to\n\nThe renderer works. Fonts still need embedding; see `notes/invoice-pdfs/`.',
+      startedAt: '2026-04-02',
+      artifacts: [{ path: 'notes/invoice-pdfs/notes.md', title: 'PDF notes' }],
+    },
+  ] satisfies readonly BackfilledTaskSample[],
+  reply: 'I backfilled your two billing tasks from their notes.',
+  /** What it says when it's asked again and finds them already there. */
+  again: 'Both billing tasks were already backfilled, so nothing changed.',
+} as const
+
+/** A turn that backfills the `BACKFILLS_TASKS` tasks through the control tools, each done, then says `reply`. */
+const backfillTurn = (reply: string, run: number): ScriptStep[] => [
+  ...turnStart(),
+  delay(BEAT_MS),
+  say("I'll backfill each notes folder as a done task, with its handoff note and notes."),
+  ...BACKFILLS_TASKS.tasks.flatMap(({ artifacts, ...task }, index) => [
+    controlTool(`backfill-${String(run)}-${String(index)}`, 'create_task', (cwd) => ({
+      workspaceId: BACKFILLS_TASKS.workspaceId,
+      ...task,
+      state: 'done',
+      artifacts: artifacts.map(({ path, title }) => ({ path: `${cwd}/${path}`, title })),
+    })),
+  ]),
+  say(reply),
+  result(),
+]
+
+/**
+ * Backfills past tasks through the control tools (`glade-control`): a done task per notes folder, each with its handoff
+ * note, its notes as artifacts, when it started and its folder as its `externalId`. Asked again, it runs the same calls,
+ * which find the tasks already there and create nothing. The session needs the control tools, and a workspace with the
+ * `BACKFILLS_TASKS` id whose root holds the notes: seed both.
+ */
+const backfillsTasks: AgentScript = {
+  name: 'backfills-tasks',
+  turns: [backfillTurn(BACKFILLS_TASKS.reply, 1), backfillTurn(BACKFILLS_TASKS.again, 2)],
+}
+
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
   'simple-reply',
@@ -2068,6 +2152,7 @@ export const AGENT_SCRIPT_NAMES = [
   'drives-glade',
   'replies-briefly',
   'ports-sessions',
+  'backfills-tasks',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -2105,4 +2190,5 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'drives-glade': drivesGlade,
   'replies-briefly': repliesBriefly,
   'ports-sessions': portsSessions,
+  'backfills-tasks': backfillsTasks,
 }

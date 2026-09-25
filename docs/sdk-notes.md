@@ -638,6 +638,10 @@ folder, with Glade's options: `settingSources: ['user', 'project', 'local']`, an
   imported task's agent doesn't keep its status current unless you ask it to.
 - The same holds for Glade's own tasks: a resumed session keeps the prompt it started with, so a Settings change to
   what the prompt asks for (the upkeep switches) reaches a task only in a new session.
+- So since P13-04, Glade sends a resumed session what it's missing once, as a `[Glade: …] … [end]` block ahead of the
+  next message it sends it (`src/main/agent/session-context.ts`): Glade's whole prompt for an imported session, and a
+  task's handoff note when the session started without it, or with an older one. What each session has had is kept
+  in SQLite (`session_context`).
 
 ### Transcript entries [verified]
 

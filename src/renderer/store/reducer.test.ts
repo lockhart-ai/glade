@@ -11,6 +11,7 @@ import {
   ToolEventKind,
   UiStateKey,
   type Artifact,
+  type TaskHandoff,
   type TodoList,
   type ToolCallEvent,
   type ToolEvent,
@@ -151,6 +152,7 @@ describe('a deleted task', () => {
       todos: { t1: null },
       openFiles: { t1: { taskId: 't1', paths: ['README.md'], activePath: 'README.md' } },
       artifacts: { t1: [{ taskId: 't1', path: 'README.md', title: 'Readme', addedAt: 1, updatedAt: 1 }] },
+      handoffs: { t1: { taskId: 't1', body: '## Where it got to', addedAt: 1 } },
       toolLogFocus: { taskId: 't1', turn: 1, request: 1 },
       fileFocus: { taskId: 't1', path: 'README.md', line: null, request: 1 },
       renamingTaskId: 't1',
@@ -170,6 +172,7 @@ describe('a deleted task', () => {
       todos: {},
       openFiles: {},
       artifacts: {},
+      handoffs: {},
       toolLogFocus: null,
       fileFocus: null,
       renamingTaskId: null,
@@ -221,6 +224,7 @@ describe("a task's logs", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
+      handoff: null,
     })
 
     expect(applyEvent(loaded, { type: EventType.ToolEventUpdated, toolEvent: done }).toolEvents).toEqual({
@@ -248,6 +252,7 @@ describe("a task's logs", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
+      handoff: null,
     })
 
     expect(next.messages.t1).toEqual([early, late])
@@ -262,6 +267,7 @@ describe("a task's logs", () => {
         openFiles: noOpenFiles('t2'),
         todos: null,
         artifacts: [],
+        handoff: null,
       }).messages,
     ).toEqual({ t2: [] })
   })
@@ -287,6 +293,7 @@ describe("a task's queue", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
+      handoff: null,
     })
     expect(loaded.queuedMessages).toEqual({ t1: [second] })
   })
@@ -325,6 +332,7 @@ describe("a task's questions", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
+      handoff: null,
     }
     expect(withHistory(state, 't1', { ...empty, questionSets: [answered] }).questionSets).toEqual({ t1: [answered] })
   })
@@ -367,6 +375,7 @@ describe("a task's permission requests", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
+      handoff: null,
     }
     // A request opened while the history loaded stays, after the loaded ones.
     const loaded = withHistory(asked, 't1', { ...empty, permissionRequests: [denied] })
@@ -392,6 +401,7 @@ describe("a task's open files", () => {
       permissionRequests: [],
       todos: null,
       artifacts: [],
+      handoff: null,
     }
     expect(withHistory(changed, 't1', { ...empty, openFiles: noOpenFiles('t1') }).openFiles).toEqual({
       t1: noOpenFiles('t1'),
@@ -426,6 +436,7 @@ describe("a task's artifacts", () => {
     openFiles: noOpenFiles('t1'),
     todos: null,
     artifacts,
+    handoff: null,
   })
 
   it('takes the whole list from each change, and from a history load unless a change brought a newer one', () => {
@@ -439,6 +450,39 @@ describe("a task's artifacts", () => {
     expect(withHistory(changed, 't1', history([artifact('a.md', 5)])).artifacts.t1).toHaveLength(2)
     expect(withHistory(changed, 't1', history([artifact('a.md', 12)])).artifacts.t1).toEqual([artifact('a.md', 12)])
     expect(withHistory(state, 't1', history([])).artifacts).toEqual({ t1: [] })
+  })
+})
+
+describe("a task's handoff note", () => {
+  const note = (body: string, addedAt: number): TaskHandoff => ({ taskId: 't1', body, addedAt })
+  const history = (handoff: TaskHandoff | null) => ({
+    messages: [],
+    toolEvents: [],
+    queuedMessages: [],
+    questionSets: [],
+    permissionRequests: [],
+    openFiles: noOpenFiles('t1'),
+    todos: null,
+    artifacts: [],
+    handoff,
+  })
+
+  it('takes the note from each change, and a cleared one as none', () => {
+    const changed = applyEvent(state, { type: EventType.HandoffChanged, taskId: 't1', handoff: note('Next', 5) })
+    expect(changed.handoffs).toEqual({ t1: note('Next', 5) })
+    expect(applyEvent(changed, { type: EventType.HandoffChanged, taskId: 't1', handoff: null }).handoffs).toEqual({
+      t1: null,
+    })
+  })
+
+  it('loads the note with the history, unless a change already brought one set after it', () => {
+    expect(withHistory(state, 't1', history(note('Loaded', 5))).handoffs).toEqual({ t1: note('Loaded', 5) })
+    expect(withHistory(state, 't1', history(null)).handoffs).toEqual({ t1: null })
+
+    const changed = applyEvent(state, { type: EventType.HandoffChanged, taskId: 't1', handoff: note('Newer', 9) })
+    expect(withHistory(changed, 't1', history(note('Loaded', 5))).handoffs.t1).toEqual(note('Newer', 9))
+    expect(withHistory(changed, 't1', history(note('Loaded', 12))).handoffs.t1).toEqual(note('Loaded', 12))
+    expect(withHistory(changed, 't1', history(null)).handoffs.t1).toBeNull()
   })
 })
 
@@ -456,6 +500,7 @@ describe("a task's todo list", () => {
     openFiles: noOpenFiles('t1'),
     todos,
     artifacts: [],
+    handoff: null,
   })
 
   it('takes the list from each change, whole', () => {
