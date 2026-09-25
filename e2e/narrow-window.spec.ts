@@ -89,7 +89,8 @@ test('narrow window: the panel tabs fade where more of them scroll, the input ba
   await window.mouse.wheel(400, 0)
   await expect(tabRow).toHaveAttribute('data-overflow-start', 'true')
   await expect(tabRow).toHaveAttribute('data-overflow-end', 'false')
-  await expect(panel.tab('Subagents')).toBeInViewport({ ratio: 1 })
+  // Whole but for a subpixel at the rounded end.
+  await expect(panel.tab('Subagents')).toBeInViewport({ ratio: 0.98 })
 
   // The input bar's settings fit in its row, the last one clear of the bar's edge, with the context meter after it.
   const bar = inputBar(window)
