@@ -47,7 +47,9 @@ describe('tokens.css', () => {
       '--font-size-secondary-sm': '12.5px',
       '--font-size-label': '11px',
       '--letter-spacing-label': '0.08em',
-      '--space-outer': '12px',
+      '--space-outer': 'var(--space-md)',
+      '--space-inset': 'var(--space-md)',
+      '--space-item': 'var(--space-md)',
       '--radius-card': '16px',
       '--radius-nested': '12px',
       '--radius-button': '8px',
@@ -60,6 +62,37 @@ describe('tokens.css', () => {
       '--touch-target-dense': '28px',
       '--touch-target-send': '44px',
     })
+  })
+
+  it('has a spacing variable for every step of the scale in tokens.md', () => {
+    // Rows of the spacing table, e.g. | `space-md` | 8 |
+    const rows = [...tokensMd.matchAll(/^\| `(space-[\w-]+)` \| (\d+) \|$/gm)]
+    expect(rows.map(([, name = '', px = '']) => [`--${name}`, `${px}px`])).toEqual([
+      ['--space-2xs', '2px'],
+      ['--space-xs', '4px'],
+      ['--space-sm', '6px'],
+      ['--space-md', '8px'],
+      ['--space-lg', '12px'],
+      ['--space-xl', '16px'],
+      ['--space-2xl', '24px'],
+    ])
+    for (const [, name = '', px = ''] of rows) {
+      expect(cssDeclarations().get(`--${name}`), name).toBe(`${px}px`)
+    }
+  })
+
+  it('builds the outer padding and the shared panel inset from the scale, 8px each', () => {
+    const resolve = (name: string): string | undefined => {
+      const value = cssDeclarations().get(name)
+      const reference = /^var\((--[\w-]+)\)$/.exec(value ?? '')
+      return reference === null ? value : resolve(reference[1] ?? '')
+    }
+    expect(resolve('--space-outer')).toBe('8px')
+    expect(resolve('--space-inset')).toBe('8px')
+    expect(resolve('--space-item')).toBe('8px')
+    expect(tokensMd).toContain('`space-outer` = 8')
+    expect(tokensMd).toContain('`space-inset` = 8')
+    expect(tokensMd).toContain('`space-item` = 8')
   })
 
   it('loads Geist and Geist Mono from bundled files only', () => {

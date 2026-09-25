@@ -12,7 +12,7 @@
 /* The log sits at the bottom until it fills the panel. */
 .log {
   margin-top: auto;
-  padding: 10px 8px;
+  padding: var(--space-inset);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -35,7 +35,9 @@
 }
 
 .call {
-  padding: 10px 12px;
+  padding: var(--space-md) var(--space-item);
+  /* Like the panel's other rows, so the dot lines up with the tabs' labels. */
+  border: 1px solid transparent;
   border-radius: 8px;
 }
 
@@ -161,7 +163,8 @@
 
 .narration {
   flex-shrink: 0;
-  margin: 6px 4px 6px 16px;
+  /* The rule runs down the middle of the calls' dots. */
+  margin: var(--space-sm) var(--space-xs) var(--space-sm) var(--space-lg);
   padding: 2px 0 2px 12px;
   border-left: 2px solid var(--color-strong);
   font-size: var(--font-size-secondary);

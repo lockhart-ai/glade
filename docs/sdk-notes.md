@@ -575,6 +575,52 @@ probes the unverified parts and marks what it saw **[verified]**.
 - **`permissionPromptToolName`** (route prompts to an MCP tool) and **`permissionPrompts: 'none'`** (never ask) are
   the alternatives; neither fits a card that waits for the user.
 
+## 10. Claude Code's todo tools [verified]
+
+Probed with SDK 0.3.281 (Claude Code 2.1.281) for #167: the `init` tool list of a one-message session in an empty temp
+folder, with no settings sources, per model and environment.
+
+| Model | Extra `env` | Todo tools in `init` |
+| --- | --- | --- |
+| `claude-haiku-4-5` | none | `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate` |
+| `claude-haiku-4-5` | `CLAUDE_CODE_ENABLE_TASKS=false` | `TodoWrite` |
+| `claude-sonnet-5` | none | none |
+| `claude-sonnet-5` | `CLAUDE_CODE_ENABLE_TASKS=1` | none |
+| `claude-sonnet-5` | `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` | `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate` |
+| `claude-sonnet-5` | `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`, `CLAUDE_CODE_ENABLE_TASKS=false` | `TodoWrite` |
+| `claude-opus-5-5[1m]` | none | none |
+| `claude-opus-5-5[1m]` | `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` | `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate` |
+
+How the bundled binary decides, from its code:
+
+- **Whether there are todo tools at all:** yes in an interactive session, or when the SDK's `tools` option names one of
+  them, or when the main model is unknown or on a fixed list of older models (Claude 3.x, Opus/Sonnet 4.0–4.7, Haiku
+  4.5), or when `CLAUDE_CODE_ENABLE_TODO_TOOLS` is true. So an SDK session on Opus 5.5 or Sonnet 5 has none, and the
+  model can't find them with `ToolSearch` either. The model is checked live, so a `setModel` mid-session changes it.
+- **Which ones:** `TaskCreate`/`TaskGet`/`TaskList`/`TaskUpdate` unless `CLAUDE_CODE_ENABLE_TASKS` is false, which
+  swaps in the older `TodoWrite`.
+- They are deferred tools (`shouldDefer`): the model loads them with `ToolSearch` (`select:TaskCreate,TaskUpdate`)
+  before its first call. `TaskStop` is unrelated (it stops a background task) and is always there.
+
+**Glade sets `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` in every session's `env`** (`SESSION_ENV` in `sdk-backend.ts`), and
+leaves `CLAUDE_CODE_ENABLE_TASKS` to the user.
+
+A real session built from Glade's `sdkOptions` (`claude-sonnet-5`), asked to keep a two-item list, made these calls,
+which match the Todos tab's schemas (`src/main/todos/schema.ts`) and the scripted backend's `keeps-todos` script:
+
+```text
+{ "name": "ToolSearch", "input": { "query": "select:TaskCreate,TaskUpdate", "max_results": 5 } }
+{ "name": "TaskCreate", "input": { "subject": "Say hello", "description": "Say hello" } }
+→ "Task #1 created successfully: Say hello"
+{ "name": "TaskUpdate", "input": { "taskId": "1", "status": "in_progress" } }
+→ "Updated task #1 status"
+{ "name": "TaskUpdate", "input": { "taskId": "1", "status": "completed" } }
+→ "Updated task #1 status"
+```
+
+`activeForm` is optional, and the model left it out here. Glade's parser and `deriveTodoList` turned these into "Say
+hello" done and "Say goodbye" todo.
+
 ---
 
 ## Open risks
