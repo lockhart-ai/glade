@@ -3,6 +3,12 @@
   flex-grow: 1;
   min-height: 0;
   overflow-y: auto;
+  /*
+   * The chat runs up under the floating header card (TaskCard.module.css): its top padding keeps the first message
+   * clear of the header, and its scroll padding keeps a match revealed by search (useRevealMatch) out from under it.
+   */
+  padding-top: var(--task-header-clearance, 0px);
+  scroll-padding-top: var(--task-header-clearance, 0px);
   display: flex;
   flex-direction: column;
 }
