@@ -204,6 +204,8 @@ export interface Task {
   readonly awaitingPermission: boolean
   /** Why the agent's turn is paused and when it resumes, while its activity is paused; null otherwise. */
   readonly pause: TaskPause | null
+  /** When the task was imported from a Claude Code session; null for a task made in Glade. */
+  readonly importedAt: EpochMs | null
 }
 
 /** Who wrote a chat message. */

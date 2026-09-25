@@ -29,6 +29,14 @@ import {
   requireTask,
   type TaskChange,
 } from '../tasks/service'
+import {
+  createClaudeCodeSessions,
+  type ClaudeCodeSession,
+  type ClaudeCodeSessionRef,
+  type ListClaudeCodeSessionsInput,
+} from './claude-code/service'
+import type { SkippedCounts } from './claude-code/session'
+import { claudeProjectsDir } from './claude-code/transcripts'
 import { checkArtifacts, startedAt as startedAtOf, type ArtifactRegistration, type CheckedArtifact } from './backfill'
 import { ControlError, ControlErrorCode } from './errors'
 import { createListings } from './listings'
@@ -49,6 +57,11 @@ export interface ControlServiceContext {
   readonly runner: AgentRunner
   /** The clock the listings expire by: `Date.now` by default. */
   readonly now?: () => number
+  /**
+   * Claude Code's projects folder, whose sessions `list_claude_code_sessions` lists: `$CLAUDE_CONFIG_DIR/projects`, or
+   * `~/.claude/projects`, by default.
+   */
+  readonly claudeProjectsDir?: string
 }
 
 /** Which tasks `list_tasks` lists by state. */
@@ -141,6 +154,24 @@ export interface DeletedTask {
   readonly deleted: string
 }
 
+export interface ClaudeCodeSessionPage {
+  readonly sessions: readonly ClaudeCodeSession[]
+  readonly nextCursor: string | null
+}
+
+export interface ClaudeCodeImportRequest {
+  readonly session: ClaudeCodeSessionRef
+  readonly state: TaskState
+  readonly createWorkspace: boolean
+}
+
+export interface ImportedSession {
+  readonly task: TaskDetail
+  /** False when the session was already in Glade: `task` is the task that has it. */
+  readonly imported: boolean
+  readonly skipped: SkippedCounts
+}
+
 export interface ControlService {
   listWorkspaces(): readonly WorkspaceSummary[]
   listTasks(request: TaskListRequest): TaskPage
@@ -153,6 +184,8 @@ export interface ControlService {
   markDone(id: string): TaskDetail
   reopenTask(id: string): TaskDetail
   deleteTask(id: string): DeletedTask
+  listClaudeCodeSessions(request: ListClaudeCodeSessionsInput): Promise<ClaudeCodeSessionPage>
+  importClaudeCodeSession(request: ClaudeCodeImportRequest): Promise<ImportedSession>
 }
 
 /** The state a filter lists, or null for both. */
@@ -170,6 +203,11 @@ function stateOf(filter: TaskStateFilter): TaskState | null {
 export function createControlService(context: ControlServiceContext): ControlService {
   const { db, emit, runner } = context
   const listings = createListings(context.now)
+  const claudeCode = createClaudeCodeSessions({
+    db,
+    emit: context.emit,
+    projectsDir: context.claudeProjectsDir ?? claudeProjectsDir(),
+  })
   const now = context.now ?? Date.now
 
   const summaryOf = (workspaceId: string): WorkspaceSummary => {
@@ -330,6 +368,13 @@ export function createControlService(context: ControlServiceContext): ControlSer
     deleteTask(id) {
       deleteTask(context, id)
       return { deleted: id }
+    },
+
+    listClaudeCodeSessions: (request) => claudeCode.list(request),
+
+    async importClaudeCodeSession(request) {
+      const { task, imported, skipped } = await claudeCode.import(request)
+      return { task: detail(task), imported, skipped }
     },
   }
 }

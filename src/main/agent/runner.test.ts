@@ -1465,7 +1465,7 @@ describe('resuming on launch', () => {
 
   it('leaves tasks that were waiting, errored or done alone, with their queues', () => {
     const others = [TaskActivity.Waiting, TaskActivity.Error].map((activity) =>
-      updateTask(database.db, sampleTask(database.db, workspace.id).id, { activity, sessionId: 's' }),
+      updateTask(database.db, sampleTask(database.db, workspace.id).id, { activity, sessionId: `s-${activity}` }),
     )
     updateTask(database.db, task.id, { state: TaskState.Done, activity: TaskActivity.Working, sessionId: 's' })
     // A failed turn leaves its queue for the next message you send.
@@ -2829,6 +2829,29 @@ describe("a task's handoff note", () => {
     expect(sentTexts().slice(1)).toEqual([
       `[Glade: handoff for this task]\n${handoffSection(handoff)}\n[end]\n\nThen the logout test.`,
       'And the signup test.',
+    ])
+  })
+
+  it("sends a session imported from Claude Code Glade's whole prompt, note and all, once, with its first message", async () => {
+    database.db.prepare('UPDATE tasks SET imported_at = 1, session_id = ? WHERE id = ?').run('cli-session', task.id)
+    const handoff = setNote(NOTE, 5_000)
+    const imported = current()
+
+    await send('Carry on where we left off.')
+    await reply()
+    await send('And the logout test.')
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(backend.session.options.resumeSessionId).toBe('cli-session')
+    const prompt = systemPromptAppend(imported, undefined, false, handoff)
+    expect(sentTexts()).toEqual([
+      `[Glade: instructions for this session]\n${prompt}\n[end]\n\nCarry on where we left off.`,
+      'And the logout test.',
+    ])
+    expect(chat().map((message) => (message as { body: string }).body)).toEqual([
+      'Carry on where we left off.',
+      'Done.',
+      'And the logout test.',
     ])
   })
 

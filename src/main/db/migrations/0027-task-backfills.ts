@@ -19,7 +19,7 @@ import type { Migration } from '../migrate'
  * The rows go with their task.
  */
 export const taskBackfillsMigration: Migration = {
-  version: 26,
+  version: 27,
   name: 'Add task backfills',
   up(db) {
     db.exec(`

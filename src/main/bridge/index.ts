@@ -70,6 +70,11 @@ export interface BridgeOptions {
    */
   readonly isTrustedSender?: (event: unknown) => boolean
   /**
+   * Claude Code's projects folder, whose sessions the control API lists and imports: `$CLAUDE_CONFIG_DIR/projects`, or
+   * `~/.claude/projects`, by default.
+   */
+  readonly claudeProjectsDir?: string
+  /**
    * Where the bridge logs its commands and events, and the runner and terminals what they do (`docs/logs.md`).
    * Nothing by default.
    */
@@ -128,6 +133,7 @@ export function registerBridge({
   updateMenu,
   closeWindow,
   log = SILENT_LOGGER,
+  claudeProjectsDir,
 }: BridgeOptions): RegisteredBridge {
   const broadcast = createBroadcast(EVENT_CHANNEL, targets)
   const tasks = allTasks(db)
@@ -164,7 +170,13 @@ export function registerBridge({
     },
   })
   // The control API, over the same runner and events as the window's commands.
-  const control = createControl({ db, emit, runner, log: log.scoped(LogScope.Control) })
+  const control = createControl({
+    db,
+    emit,
+    runner,
+    log: log.scoped(LogScope.Control),
+    ...(claudeProjectsDir === undefined ? {} : { claudeProjectsDir }),
+  })
   const terminals = createTerminals({ db, emit, ...terminal, log: log.scoped(LogScope.Terminal) })
   const pluginViews = createPluginViews({
     emit,

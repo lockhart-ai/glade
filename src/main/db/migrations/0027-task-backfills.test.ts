@@ -3,15 +3,15 @@ import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { sampleTask, sampleWorkspace } from '../repositories/test-database'
 import { MIGRATIONS } from '.'
-import { taskBackfillsMigration } from './0026-task-backfills'
+import { taskBackfillsMigration } from './0027-task-backfills'
 
-it('is migration 26', () => {
-  expect(MIGRATIONS[25]).toBe(taskBackfillsMigration)
+it('is migration 27', () => {
+  expect(MIGRATIONS[26]).toBe(taskBackfillsMigration)
 })
 
 it('keeps one row per task, a unique external id, a handoff of at most 32 KB with its time, and goes with its task', () => {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 25))
+  migrate(db, MIGRATIONS.slice(0, 26))
   migrate(db, MIGRATIONS)
   const workspace = sampleWorkspace(db)
   const [t1, t2, t3] = [1, 2, 3].map(() => sampleTask(db, workspace.id).id)

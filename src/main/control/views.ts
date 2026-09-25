@@ -104,6 +104,8 @@ export interface TaskDetail extends TaskSummary {
   readonly createdAt: EpochMs
   /** The SDK's id for its agent's session; null before its first turn. */
   readonly sessionId: string | null
+  /** When it was imported from a Claude Code session; null for a task made in Glade. */
+  readonly importedAt: EpochMs | null
   /** Its handoff note (the Backfilled card); null when it has none. */
   readonly handoff: TaskDetailHandoff | null
   /** Its artifacts (the Artifacts tab), in the order they were first declared. */
@@ -188,6 +190,7 @@ export function taskDetail(db: Database, task: Task, workspace: WorkspaceSummary
     turns: lastTurn(db, task.id),
     createdAt: task.createdAt,
     sessionId: task.sessionId,
+    importedAt: task.importedAt,
     handoff: handoffOf(db, task.id),
     artifacts: listArtifacts(db, task.id).map(({ path, title, addedAt }) => ({
       path: join(workspace.rootPath, path),

@@ -613,6 +613,77 @@ log or as a truncated reply, and show the turn as stopped rather than failed (`t
 - Glade's SQLite chat and tool log remain the source of truth for the UI. The SDK transcript is the model's memory.
 - A turn that was in flight when Glade died has no `result`. Mark it interrupted in SQLite, and don't auto-re-run it.
 
+### Resuming a Claude Code CLI session from the SDK [verified]
+
+Probed for P13-02 (#221) on SDK 0.3.281 (Claude Code 2.1.281) with Haiku, in a throwaway folder. The session was
+started by the bundled binary as a CLI would (`claude -p "<message>" --model haiku`, one short message that ran one
+`Bash` call and replied), then resumed from the SDK with `query({ options: { resume: sessionId, cwd } })` in the same
+folder, with Glade's options: `settingSources: ['user', 'project', 'local']`, an in-process `glade` server
+(`createSdkMcpServer`) allowed as `mcp__glade`, and a `claude_code` preset with an appended system prompt.
+
+- **It resumes, with its history.** `system/init` came back with the CLI session's `session_id`, and the agent
+  recalled what the first message said and which command it had run. The new turn was appended to the same transcript.
+- **Glade's tools apply.** `mcp__glade__set_status` was in the init's `tools`, and the agent found it with
+  `ToolSearch` and called it; the handler ran.
+- **Glade's appended system prompt does not.** Asked to quote any mention of Glade in its system prompt, the resumed
+  agent found none, where a fresh session with the same options quoted it word for word. A control run showed why: a
+  session started from the SDK with one appended prompt, then resumed with a different one, still quoted the *first*.
+  On resume, Claude Code keeps the system prompt the session was started with, and a new `systemPrompt` is ignored.
+  (The transcript records the prompt in `prompt_snapshot` attachments, which is likely where it comes from.)
+
+**Implications for Glade (P13-02)**
+
+- An imported session resumes, remembers its conversation and has Glade's tools, but it runs on the system prompt
+  Claude Code gave it, without Glade's lines (the task id, keeping the title, objective and status, `ask`). So an
+  imported task's agent doesn't keep its status current unless you ask it to.
+- The same holds for Glade's own tasks: a resumed session keeps the prompt it started with, so a Settings change to
+  what the prompt asks for (the upkeep switches) reaches a task only in a new session.
+- So since P13-04, Glade sends a resumed session what it's missing once, as a `[Glade: …] … [end]` block ahead of the
+  next message it sends it (`src/main/agent/session-context.ts`): Glade's whole prompt for an imported session, and a
+  task's handoff note when the session started without it, or with an older one. What each session has had is kept
+  in SQLite (`session_context`).
+
+### Transcript entries [verified]
+
+What one CLI session's transcript (`<projects>/<cwd slug>/<sessionId>.jsonl`) held, one JSON object per line, and what
+the bundled binary's own schema shows for the entries a short `-p` run doesn't write. Sanitised: ids, paths and text
+are made up.
+
+```jsonc
+// Your prompt: a string, or content blocks (text, image). Every conversation entry has these common fields.
+{ "type": "user", "uuid": "…", "parentUuid": null, "isSidechain": false, "sessionId": "3f1c…", "cwd": "/Users/me/code/acme-api",
+  "timestamp": "2026-09-25T14:53:44.119Z", "version": "2.1.281", "gitBranch": "main", "entrypoint": "cli",
+  "promptId": "…", "permissionMode": "default",
+  "message": { "role": "user", "content": "Run the tests" } }
+// One entry per content block, as the SDK streams them; blocks of one API message share `message.id`.
+{ "type": "assistant", "uuid": "…", "parentUuid": "…", "isSidechain": false, "timestamp": "…", "requestId": "req_…",
+  "message": { "id": "msg_01…", "model": "claude-haiku-4-5-20251001", "role": "assistant", "stop_reason": "tool_use",
+    "content": [{ "type": "tool_use", "id": "toolu_01…", "name": "Bash", "input": { "command": "npm test" } }],
+    "usage": { "input_tokens": 10, "…": "…" } } }
+{ "type": "user", "uuid": "…", "timestamp": "…", "sourceToolAssistantUUID": "…",
+  "message": { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": "toolu_01…", "content": "12 passed", "is_error": false }] },
+  "toolUseResult": { "stdout": "12 passed", "stderr": "", "interrupted": false } }
+// Thinking blocks are kept with an empty `thinking` and a signature.
+{ "type": "assistant", "message": { "content": [{ "type": "thinking", "thinking": "", "signature": "…" }] } }
+// Titles: the latest of each wins. `custom-title` is one you gave it (/rename); `summary` is from older versions.
+{ "type": "ai-title", "aiTitle": "Fix the flaky date test", "sessionId": "3f1c…" }
+{ "type": "custom-title", "customTitle": "Date bug", "sessionId": "3f1c…" }
+{ "type": "summary", "summary": "Fixed the timezone bug", "leafUuid": "…" }
+// A compaction: the boundary, then your side of it is the summary the agent carries on from.
+{ "type": "system", "subtype": "compact_boundary", "content": "Conversation compacted", "timestamp": "…",
+  "compactMetadata": { "trigger": "auto", "preTokens": 167000 } }
+{ "type": "user", "isCompactSummary": true, "message": { "content": "This session is being continued from a previous conversation …" } }
+```
+
+- Also written, and of no use to an import: `attachment` entries (the environment, the model, deferred tool and skill
+  listings, `prompt_snapshot`, the date, …, about half the lines of a short session), `queue-operation`,
+  `last-prompt`, `atis-latch`, `cost-state` and `mode`. None has a `message`.
+- Left out of a session's history by Claude Code itself when it names a session: `isMeta` user entries, compact
+  summaries, tool results, and text that starts with a tag (`<command-name>`, `<local-command-stdout>`, …, what slash
+  commands write) or with `[Request interrupted by user`.
+- `isSidechain: true` marks a subagent's entries; newer versions keep subagents in their own files instead
+  (`<sessionId>/subagents/…`), next to the session's (from the binary; the probe ran no subagent).
+
 ## 9. Permissions
 
 Read from `sdk.d.ts` (0.3.281) for per-call permission review (P11, #68), then probed in P11-01: one scratch

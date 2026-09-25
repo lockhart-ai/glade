@@ -1547,7 +1547,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const handoff = getHandoff(db, taskId) ?? null
       const missing = missingContext({
         recorded: getSessionContext(db, taskId),
-        startedElsewhere: false,
+        startedElsewhere: task.importedAt !== null,
         handoff,
         prompt: systemPromptAppend(task, getSettings(db), live.control, handoff),
       })

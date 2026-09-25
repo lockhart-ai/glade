@@ -247,6 +247,34 @@ const deleteTaskInput = z.strictObject({
   confirm: z.boolean().optional().describe('Must be true: deleting a task can’t be undone.'),
 })
 
+const listClaudeCodeSessionsInput = z.strictObject({
+  cwd: text('Only sessions started in this folder (an absolute path).').optional(),
+  query: text("Matched, ignoring case, against each session's title and first prompt.").optional(),
+  imported: z
+    .boolean()
+    .optional()
+    .describe("true: only sessions already in Glade; false: only ones that aren't; both by default."),
+  cursor: z.string().min(1).optional().describe('The nextCursor of the page before, for the next page.'),
+  limit: limit(200, 50, 'sessions'),
+})
+
+const importClaudeCodeSessionInput = z
+  .strictObject({
+    sessionId: text("The session's id, as list_claude_code_sessions gives it.").optional(),
+    path: text(
+      "The session's transcript: a .jsonl file in a project's folder in Claude Code's projects folder.",
+    ).optional(),
+    state: z
+      .enum([TaskState.Done, TaskState.Active])
+      .optional()
+      .describe('Import the task done or active; done by default.'),
+    createWorkspace: z
+      .boolean()
+      .optional()
+      .describe("Add the session's folder as a workspace if none has it as its root; false by default."),
+  })
+  .refine((input) => (input.sessionId === undefined) !== (input.path === undefined), 'give sessionId or path, not both')
+
 // The tools.
 
 const taskOf = ({ id }: { readonly id: string }): string => id
@@ -377,7 +405,39 @@ export const TASK_TOOLS: readonly ControlTool[] = [
   }),
 ]
 
+/** The Claude Code tools: past Claude Code sessions, listed and imported as tasks (`docs/control-api.md`). */
+export const CLAUDE_CODE_TOOLS: readonly ControlTool[] = [
+  defineControlTool({
+    name: ControlToolName.ListClaudeCodeSessions,
+    description:
+      "List Claude Code's past sessions (its transcripts in ~/.claude/projects), newest first: each one's id, folder, " +
+      'title, first prompt, times and number of messages, the Glade workspace whose root is its folder, and the Glade ' +
+      'task that already has it, if any. Filter by folder, text or whether it is in Glade; page with nextCursor. To ' +
+      'port everything in, page through imported: false and import each one.',
+    input: listClaudeCodeSessionsInput,
+    run: async (input, { service }) => ({
+      ...(await service.listClaudeCodeSessions({ ...input, limit: input.limit ?? 50 })),
+    }),
+  }),
+  defineControlTool({
+    name: ControlToolName.ImportClaudeCodeSession,
+    description:
+      'Import a past Claude Code session as a Glade task, by its session id or transcript path: its title, chat, tool ' +
+      'log and turn dividers at their original times, in the workspace whose root is its folder (or, with ' +
+      'createWorkspace, one added for it), done unless state is active. Sending the task a message resumes the ' +
+      'session. A session already in Glade is not imported again: its task is returned, with imported: false.',
+    input: importClaudeCodeSessionInput,
+    run: async ({ sessionId, path, state, createWorkspace }, { service }) => ({
+      ...(await service.importClaudeCodeSession({
+        session: sessionId === undefined ? { path: path ?? '' } : { sessionId },
+        state: state ?? TaskState.Done,
+        createWorkspace: createWorkspace ?? false,
+      })),
+    }),
+  }),
+]
+
 /**
  * Every `glade-control` tool, in the order `tools/list` gives them. More are added by listing their definitions here.
  */
-export const CONTROL_TOOLS: readonly ControlTool[] = [...TASK_TOOLS]
+export const CONTROL_TOOLS: readonly ControlTool[] = [...TASK_TOOLS, ...CLAUDE_CODE_TOOLS]
