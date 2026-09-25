@@ -61,6 +61,31 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       addLoaded((await bridge.invoke(CommandName.TasksGet, { ids: missing })).tasks)
     }
 
+    // The UI state values this window has written, by key, oldest first, until main's echo of each comes back. Main
+    // broadcasts every write in the order it stored them; while a newer write of ours is on its way, an older value
+    // (our own echo, or anyone's) would undo it in the meantime, so it's left out. Pressing an arrow key on a resize
+    // handle faster than main echoed lost steps that way.
+    const unechoed = new Map<UiStateKey, UiStateEntry[]>()
+
+    // Whether a UI state change from main is older than a write of ours that's still on its way, consuming our echo.
+    const supersededByOwnWrite = ({ key, value }: UiStateEntry): boolean => {
+      const writes = unechoed.get(key)
+      if (writes === undefined) return false
+      if (writes[0]?.value === value) writes.shift()
+      if (writes.length > 0) return true
+      unechoed.delete(key)
+      return false
+    }
+
+    // A write main refused never comes back, so it stops holding changes back.
+    const forgetWrite = (entry: UiStateEntry): void => {
+      const writes = unechoed.get(entry.key)
+      if (writes === undefined) return
+      const remaining = writes.filter((write) => write !== entry)
+      if (remaining.length > 0) unechoed.set(entry.key, remaining)
+      else unechoed.delete(entry.key)
+    }
+
     // Who runs the menu bar's commands: the window, once it's showing.
     const commandListeners = new Set<(command: Command) => void>()
 
@@ -79,6 +104,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         return
       }
       if (event.type === EventType.TaskDeleted) deletedTaskIds.add(event.taskId)
+      if (event.type === EventType.UiStateChanged && supersededByOwnWrite(event.entry)) return
       if (pending !== null) {
         pending.push(event)
         return
@@ -88,8 +114,16 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     }
 
     const setUiState = async (entry: UiStateEntry): Promise<void> => {
+      // A copy of its own, so forgetting it forgets this write and no other of the same value.
+      const write = { ...entry }
+      unechoed.set(entry.key, [...(unechoed.get(entry.key) ?? []), write])
       set((state) => applyEvent(state, { type: EventType.UiStateChanged, entry }))
-      await bridge.invoke(CommandName.UiStateSet, entry)
+      try {
+        await bridge.invoke(CommandName.UiStateSet, entry)
+      } catch (error) {
+        forgetWrite(write)
+        throw error
+      }
     }
 
     // Shows a panel tab of the selected task: the right panel opens at it, even when it was collapsed or on another tab.

@@ -22,9 +22,9 @@ import { requestClose } from '../commands/closeRequest'
 import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
-import { fakeBridge, sampleTask, sampleWorkspace, type FakeBridge } from '../store/test-bridge'
+import { fakeBridge, sampleTask, sampleWorkspace, type FakeBridge, type FakeHandlers } from '../store/test-bridge'
 import { FOCUS_HIGHLIGHT_MS, HIGHLIGHT_CLASS } from '../tool-log/ToolLog'
-import { MIN_PANEL_WIDTH } from '../panels'
+import { MIN_CHAT_WIDTH, MIN_PANEL_WIDTH, RESIZE_STEP } from '../panels'
 import { TaskPanel } from './TaskPanel'
 
 const AT = new Date(2026, 8, 23, 10, 44).getTime()
@@ -71,6 +71,8 @@ interface Setup {
   readonly openFiles?: OpenFiles[]
   readonly todos?: Readonly<Record<string, TodoList>>
   readonly artifacts?: readonly Artifact[]
+  /** How some commands answer instead of the fake main's own handlers. */
+  readonly handlers?: Partial<FakeHandlers>
 }
 
 async function renderPanel({
@@ -80,20 +82,24 @@ async function renderPanel({
   openFiles = [],
   todos,
   artifacts = [],
+  handlers = {},
 }: Setup = {}): Promise<FakeBridge & { store: GladeStore }> {
-  const fake = fakeBridge({
-    workspaces: [sampleWorkspace('w1')],
-    tasks: [sampleTask('t1', 'w1'), sampleTask('t2', 'w1')],
-    uiState: [
-      { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
-      { key: UiStateKey.SelectedTaskId, value: selected ? 't1' : '' },
-      ...uiState,
-    ],
-    toolEvents,
-    openFiles,
-    artifacts,
-    ...(todos === undefined ? {} : { todos }),
-  })
+  const fake = fakeBridge(
+    {
+      workspaces: [sampleWorkspace('w1')],
+      tasks: [sampleTask('t1', 'w1'), sampleTask('t2', 'w1')],
+      uiState: [
+        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+        { key: UiStateKey.SelectedTaskId, value: selected ? 't1' : '' },
+        ...uiState,
+      ],
+      toolEvents,
+      openFiles,
+      artifacts,
+      ...(todos === undefined ? {} : { todos }),
+    },
+    handlers,
+  )
   const store = createGladeStore(fake.bridge)
   render(
     <GladeStoreProvider store={store}>
@@ -193,6 +199,44 @@ describe('TaskPanel', () => {
     invoke.mockClear()
     fireEvent.keyDown(handle, { key: 'ArrowRight' })
     expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('steps once per key press on its handle, however late main echoes the widths it stored', async () => {
+    // Main stores each width at once but echoes it only when `echo()` says so, as it did under load in the
+    // narrow-window spec.
+    const echoes: UiStateEntry[] = []
+    const { emit, store } = await renderPanel({
+      uiState: [{ key: UiStateKey.RightPanelWidth, value: '600' }],
+      handlers: {
+        [CommandName.UiStateSet]: (entry) => {
+          echoes.push(entry)
+          return null
+        },
+      },
+    })
+    // Room beside the chat for the panel's 600px; jsdom lays nothing out, so the task card says how wide it is.
+    const slot = screen.getByTestId('right-panel')
+    Object.defineProperty(slot.parentElement, 'clientWidth', { value: 600 + MIN_CHAT_WIDTH })
+    const echo = (): void => {
+      const entry = echoes.shift()
+      if (entry === undefined) return
+      act(() => {
+        emit({ type: EventType.UiStateChanged, entry })
+      })
+    }
+
+    // The echo of the first step comes back between the second and third press, as in the spec's failing runs.
+    const handle = screen.getByRole('separator', { name: 'Resize side panel' })
+    fireEvent.keyDown(handle, { key: 'ArrowRight' })
+    fireEvent.keyDown(handle, { key: 'ArrowRight' })
+    echo()
+    fireEvent.keyDown(handle, { key: 'ArrowRight' })
+    fireEvent.keyDown(handle, { key: 'ArrowRight' })
+    const narrowed = String(600 - 4 * RESIZE_STEP)
+    expect(handle).toHaveAttribute('aria-valuenow', narrowed)
+    for (let left = echoes.length; left > 0; left--) echo()
+    expect(store.getState().uiState[UiStateKey.RightPanelWidth]).toBe(narrowed)
+    expect(slot.style.getPropertyValue('--right-panel-width')).toBe(`${narrowed}px`)
   })
 
   it('shows an empty state on Todos and Artifacts while they have nothing', async () => {
