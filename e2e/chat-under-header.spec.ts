@@ -47,7 +47,10 @@ async function expectChatUnderTheHeader({ window }: Glade): Promise<void> {
           // What's directly under the header's elements: the chat (or something in it), with nothing in between but
           // the header's own wrapper, which is transparent.
           between: below
-            .slice(0, below.findIndex((element) => logElement.contains(element)))
+            .slice(
+              0,
+              below.findIndex((element) => logElement.contains(element)),
+            )
             .map((element) => ({ tag: element.tagName, background: getComputedStyle(element).backgroundColor })),
           chatBelow: below.some((element) => logElement.contains(element)),
         }
@@ -125,10 +128,12 @@ test('scrolled part way, a message shows under the header card rather than being
 
   // Scroll so the first message is half under the header card.
   const header = await boxOf(regions(window).taskHeader)
-  const offset = await conversation.userMessages.first().evaluate(
-    (message, headerBottom) => message.getBoundingClientRect().top - headerBottom + 20,
-    header.y + header.height,
-  )
+  const offset = await conversation.userMessages
+    .first()
+    .evaluate(
+      (message, headerBottom) => message.getBoundingClientRect().top - headerBottom + 20,
+      header.y + header.height,
+    )
   await conversation.log.evaluate((log, by) => {
     log.scrollTop += by
   }, offset)
