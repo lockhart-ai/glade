@@ -18,6 +18,7 @@ import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from
 import { registerBridge } from '.'
 import { fakeIpcPair } from './fake-ipc'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
+import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
 
 let database: TestDatabase
 let glade: GladeBridge
@@ -36,6 +37,7 @@ beforeEach(() => {
     revealPath: () => undefined,
     writeClipboard: () => Promise.resolve(),
     terminal: fakeTerminalOptions(),
+    pluginsFolder: UNREAD_PLUGINS_FOLDER,
     agentBackend: new FakeAgentBackend(),
   })
   glade = createBridge(ipc.renderer)

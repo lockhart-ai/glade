@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -63,6 +63,8 @@ describe('readCaptureSpec', () => {
     )
     const presses = [{ key: ',', metaKey: true, shiftKey: false, altKey: false, ctrlKey: false }]
     expect(readCaptureSpec(env(spec({ presses })), false, MINIMUM)).toEqual(spec({ presses }))
+    const extras = { clicks: ['nav button:nth-of-type(6)'], plugins: [join(folder, 'fixtures')] }
+    expect(readCaptureSpec(env(spec(extras)), false, MINIMUM)).toEqual(spec(extras))
   })
 
   it('rejects a spec that is not JSON', () => {
@@ -111,6 +113,22 @@ describe('prepareCapture', () => {
 
     expect(app.setPath).toHaveBeenCalledWith('userData', folder)
     expect(app.dock?.hide).toHaveBeenCalledOnce()
+  })
+
+  it("copies the plugins in the spec's sample folders into the data folder's plugins folder", () => {
+    const fixtures = mkdtempSync(join(tmpdir(), 'glade-capture-plugins-'))
+    try {
+      mkdirSync(join(fixtures, 'valid', 'pomodoro'), { recursive: true })
+      writeFileSync(join(fixtures, 'valid', 'pomodoro', 'manifest.json'), '{}')
+      mkdirSync(join(fixtures, 'invalid', 'broken'), { recursive: true })
+
+      prepareCapture(fakeApp(), spec({ plugins: [join(fixtures, 'valid'), join(fixtures, 'invalid')] }))
+
+      expect(readdirSync(join(folder, 'plugins')).sort()).toEqual(['broken', 'pomodoro'])
+      expect(readFileSync(join(folder, 'plugins', 'pomodoro', 'manifest.json'), 'utf8')).toBe('{}')
+    } finally {
+      rmSync(fixtures, { recursive: true, force: true })
+    }
   })
 
   it('works where there is no dock', () => {
@@ -165,7 +183,13 @@ describe('captureShots', () => {
         executeJavaScript: vi.fn((code: string) => {
           scripts.push(code)
           calls.push(
-            code.includes(READY_ATTRIBUTE) ? 'wait until ready' : code.includes('keydown') ? 'press' : 'wait for size',
+            code.includes(READY_ATTRIBUTE)
+              ? 'wait until ready'
+              : code.includes('keydown')
+                ? 'press'
+                : code.includes('.click()')
+                  ? 'click'
+                  : 'wait for size',
           )
           return Promise.resolve(true)
         }),
@@ -213,6 +237,28 @@ describe('captureShots', () => {
     expect(window.calls).toEqual(['wait until ready', 'press', 'press', 'resize 1100x700', 'wait for size', 'capture'])
     expect(window.scripts[1]).toContain(`new KeyboardEvent('keydown', { ...${JSON.stringify(presses[0])}`)
     expect(window.scripts[2]).toContain('"key":"Escape"')
+  })
+
+  it('clicks the elements asked for, in order, after the presses, waiting until nothing is busy', async () => {
+    const window = fakeWindow(1)
+    const presses = [{ key: ',', metaKey: true, shiftKey: false, altKey: false, ctrlKey: false }]
+    const clicks = ['nav button:nth-of-type(6)', '#done']
+
+    await captureShots(window, spec({ shots: [{ width: 1100, height: 700, file: 'a.png' }], presses, clicks }))
+
+    expect(window.calls).toEqual([
+      'wait until ready',
+      'press',
+      'click',
+      'click',
+      'resize 1100x700',
+      'wait for size',
+      'capture',
+    ])
+    expect(window.scripts[2]).toContain('const selector = "nav button:nth-of-type(6)"')
+    expect(window.scripts[2]).toContain(`document.querySelector('[aria-busy="true"]') === null`)
+    expect(window.scripts[2]).toContain('document.getAnimations()')
+    expect(window.scripts[3]).toContain('const selector = "#done"')
   })
 
   it('scales a Retina capture down to the requested size', async () => {

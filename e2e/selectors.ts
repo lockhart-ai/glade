@@ -413,6 +413,12 @@ export function settings(page: Page) {
     reset: (action: string, keys: string) => dialog.getByRole('button', { name: `Reset ${action} to ${keys}` }),
     /** Why the keys you pressed for a shortcut were refused. */
     keyProblem: dialog.getByRole('alert'),
+    /** Plugins' list of the installed plugins; busy until the plugins folder has been read. */
+    plugins: dialog.getByRole('list', { name: 'Plugins' }),
+    /** A plugin's row in Plugins, by its name (an invalid one's by its folder). */
+    plugin: (name: string) =>
+      dialog.getByRole('list', { name: 'Plugins' }).getByRole('listitem', { name, exact: true }),
+    openPluginsFolder: dialog.getByRole('button', { name: 'Open plugins folder' }),
   }
 }
 

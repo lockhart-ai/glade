@@ -13,6 +13,7 @@ import { TaskState, type Workspace } from '../../shared/domain'
 import { selectSelectedTask } from './state'
 import { createGladeStore, type GladeStore } from './store'
 import { fakeTerminalOptions } from '../../main/terminal/fake-pty'
+import { UNREAD_PLUGINS_FOLDER } from '../../main/plugins/test-plugins'
 
 let database: TestDatabase
 let workspace: Workspace
@@ -32,6 +33,7 @@ beforeEach(async () => {
     revealPath: () => undefined,
     writeClipboard: () => Promise.resolve(),
     terminal: fakeTerminalOptions(),
+    pluginsFolder: UNREAD_PLUGINS_FOLDER,
     agentBackend: new FakeAgentBackend(),
   })
   const bridge = createBridge(ipc.renderer)

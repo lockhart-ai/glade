@@ -90,6 +90,9 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.TerminalClear]: () => null,
     [CommandName.TerminalInterrupt]: () => null,
     [CommandName.TerminalClose]: () => null,
+    [CommandName.PluginsList]: () => ({ plugins: [] }),
+    [CommandName.PluginsSetEnabled]: () => ({ plugins: [] }),
+    [CommandName.PluginsOpenFolder]: () => null,
     [CommandName.WorkspacesUpdate]: () => {
       throw new Error('not in these tests')
     },

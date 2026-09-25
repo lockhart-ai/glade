@@ -48,6 +48,7 @@ import { noOpenFiles, withClosedFile, withOpenedFile } from '../../shared/files'
 import { taskPermissionRule } from '../../shared/permissions'
 import type { ImageData, ImageRef } from '../../shared/images'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
+import { PluginStatus, type InstalledPlugin } from '../../shared/plugins'
 import { highlightParts, highlightPattern, SearchField, type SearchResult } from '../../shared/search'
 import type { TerminalTab } from '../../shared/terminal'
 import { addDoneCounts, doneCountsOf, isInDoneSection, NO_DONE_TASKS, pageOfDone } from '../../shared/doneList'
@@ -98,6 +99,13 @@ export interface FakeMain {
   readonly workspaceSelections?: Readonly<Record<string, string>>
   /** The workspaces `workspaces.reveal` revealed, by id, oldest first. */
   readonly revealedWorkspaces?: string[]
+  /**
+   * The plugins `plugins.list` answers with, in order; none when left out. `plugins.setEnabled` turns a valid one on or
+   * off, broadcasting them, and refuses any other with `not_found`.
+   */
+  plugins?: InstalledPlugin[]
+  /** How many times `plugins.openFolder` opened the plugins folder. */
+  openedPluginsFolder?: number
   /**
    * The terminal tabs, in order; none when left out. `terminal.create` adds `term-1`, `term-2`… at the end (starting in
    * the workspace's root, or `/Users/sample`), `terminal.duplicate` after the tab, and `terminal.rename` and
@@ -417,6 +425,22 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       return { settings }
     },
     [CommandName.SearchQuery]: ({ workspaceId, text }) => ({ results: fakeSearch(main, workspaceId, text) }),
+    [CommandName.PluginsList]: () => ({ plugins: [...(main.plugins ?? [])] }),
+    [CommandName.PluginsSetEnabled]: ({ id, enabled }) => {
+      const plugins = main.plugins ?? []
+      if (!plugins.some((plugin) => plugin.folder === id && plugin.status === PluginStatus.Valid)) {
+        return refuse(bridgeError(BridgeErrorCode.NotFound, `No plugin ${id}`))
+      }
+      main.plugins = plugins.map((plugin) =>
+        plugin.folder === id && plugin.status === PluginStatus.Valid ? { ...plugin, enabled } : plugin,
+      )
+      emit({ type: EventType.PluginsChanged, plugins: [...main.plugins] })
+      return { plugins: [...main.plugins] }
+    },
+    [CommandName.PluginsOpenFolder]: () => {
+      main.openedPluginsFolder = (main.openedPluginsFolder ?? 0) + 1
+      return null
+    },
     [CommandName.TerminalList]: () => ({ tabs: [...terminalTabs] }),
     [CommandName.TerminalCreate]: ({ workspaceId }) => {
       const cwd = main.workspaces.find(({ id }) => id === workspaceId)?.rootPath ?? '/Users/sample'

@@ -1,0 +1,7 @@
+{
+  "id": "pomodoro",
+  "name": "Pomodoro",
+  "version": "0.4.2",
+  "entry": "index.html",
+  "icon": "icon.svg"
+}

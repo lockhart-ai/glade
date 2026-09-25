@@ -45,6 +45,7 @@ One JSON object per line:
 | `permissions`   | Permission requests opened (tool, call id, subagent), allowed, denied and withdrawn. The call's input and a deny note at debug. |
 | `notifications` | Each notification sent, opened and replied to, and ones not sent because notifications are off.          |
 | `terminal`      | Terminal tabs opening and closing, shells starting and exiting (with their exit code or signal).          |
+| `plugins`       | The plugins found each time the plugins folder is read (how many, and each invalid one with its reason), plugins turned on and off, and the folder failing to be read. |
 | `renderer`      | Errors in the window: uncaught errors, unhandled rejections, and errors React caught (with its component stack). |
 | `test-mode`     | The screenshot and e2e runs.                                                                              |
 

@@ -611,6 +611,8 @@ describe('the rest of the app', () => {
       { type: EventType.TerminalTabsChanged, tabs: [] },
       { type: EventType.TerminalCleared, tabId: 'term-1' },
       { type: EventType.TerminalOutput, tabId: 'term-1', offset: 0, data: 'secret typed here' },
+      // The plugins log themselves, in their own scope.
+      { type: EventType.PluginsChanged, plugins: [] },
     ]
     for (const event of events) logEvent(event)
 

@@ -28,6 +28,7 @@ import { OFFLINE_FIRST_CHECK_MS, USAGE_LIMIT_FALLBACK_MS } from './pauses'
 import { PAUSED_TOOL_NOTE, type AgentRunner } from './runner'
 import * as sdk from './test-sdk-messages'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
+import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
 
 const NOW = 1_790_000_000_000
 /** When the usage limit resets in these tests: half an hour on, to the second, as the SDK gives it. */
@@ -53,6 +54,7 @@ function launch(): void {
     revealPath: () => undefined,
     writeClipboard: () => Promise.resolve(),
     terminal: fakeTerminalOptions(),
+    pluginsFolder: UNREAD_PLUGINS_FOLDER,
     agentBackend: backend,
     isOnline: () => online,
   }))

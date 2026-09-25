@@ -16,6 +16,9 @@ import { getSettings } from '../db/repositories/settings'
 import { getTask, listTasks, updateTask } from '../db/repositories/tasks'
 import { setUiState } from '../db/repositories/ui-state'
 import { createFakeSpawner, fakeTerminalOptions, type FakeSpawner } from '../terminal/fake-pty'
+import { createPlugins } from '../plugins/plugins'
+import { writePlugin } from '../plugins/test-plugins'
+import { PluginStatus } from '../../shared/plugins'
 import { createTerminals } from '../terminal/terminals'
 import { createHandlers, type Handlers } from './handlers'
 import { LogLevel, LogScope } from '../logging/logger'
@@ -51,6 +54,7 @@ beforeEach(() => {
     writeClipboard,
     runner,
     terminals,
+    plugins: createPlugins({ db: database.db, emit, folder: join(root, 'plugins'), openPath }),
   })
 })
 
@@ -107,6 +111,7 @@ describe('menu.update and window.close', () => {
       updateMenu,
       closeWindow,
       terminals: createTerminals({ db: database.db, emit, ...fakeTerminalOptions() }),
+      plugins: createPlugins({ db: database.db, emit, folder: join(root, 'plugins'), openPath }),
     })
 
     expect(await withApp[CommandName.MenuUpdate](EMPTY_MENU_STATE)).toBeNull()
@@ -396,6 +401,7 @@ describe('log.rendererError', () => {
       writeClipboard,
       runner: createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() }),
       terminals: createTerminals({ db: database.db, emit, ...fakeTerminalOptions(spawner) }),
+      plugins: createPlugins({ db: database.db, emit, folder: join(root, 'plugins'), openPath }),
       log: log.logger,
     })
     const error = {
@@ -428,5 +434,21 @@ describe('log.rendererError', () => {
     })
     expect(error).not.toHaveBeenCalled()
     error.mockRestore()
+  })
+})
+
+describe('plugins', () => {
+  it('lists the plugins folder, turns a plugin off, and opens the folder', async () => {
+    writePlugin(join(root, 'plugins'), 'pomodoro')
+
+    const { plugins } = await handlers[CommandName.PluginsList]({})
+    expect(plugins).toMatchObject([{ folder: 'pomodoro', status: PluginStatus.Valid, enabled: true }])
+
+    const off = await handlers[CommandName.PluginsSetEnabled]({ id: 'pomodoro', enabled: false })
+    expect(off).toEqual({ plugins: [{ ...plugins[0], enabled: false }] })
+    expect(emit).toHaveBeenLastCalledWith({ type: EventType.PluginsChanged, plugins: off.plugins })
+
+    expect(await handlers[CommandName.PluginsOpenFolder]({})).toBeNull()
+    expect(openPath).toHaveBeenCalledExactlyOnceWith(join(root, 'plugins'))
   })
 })
