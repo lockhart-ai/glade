@@ -40,15 +40,16 @@ export function useStickToBottom(content: unknown, resetKey: unknown): StickToBo
   const ref = useRef<HTMLDivElement | null>(null)
   const stuck = useRef(true)
   const lastResetKey = useRef(resetKey)
-  // The scroller's size when the resize observer last saw it. A scroll event can arrive after a layout that the observer
-  // hasn't reported yet, e.g. the event from our own scroll to the bottom, dispatched once the window has already
-  // shrunk: it isn't the user scrolling up, so it mustn't unstick the scroller.
-  const observedSize = useRef<string | null>(null)
+  // The scroller's size when it was last pinned to the bottom or the resize observer last saw it. A scroll event can
+  // arrive after a layout that the observer hasn't reported yet, e.g. the event from our own scroll to the bottom,
+  // dispatched once the window has already shrunk, or one from the window shrinking before the observer's first report:
+  // it isn't the user scrolling up, so it mustn't unstick the scroller.
+  const knownSize = useRef<string | null>(null)
 
   const onScroll = useCallback(() => {
     const scroller = ref.current
     if (scroller === null) return
-    const resized = observedSize.current !== null && sizeOf(scroller) !== observedSize.current
+    const resized = knownSize.current !== null && sizeOf(scroller) !== knownSize.current
     if (stuck.current && resized) scroller.scrollTop = scroller.scrollHeight
     else stuck.current = isAtBottom(scroller)
   }, [])
@@ -59,14 +60,16 @@ export function useStickToBottom(content: unknown, resetKey: unknown): StickToBo
       stuck.current = true
     }
     const scroller = ref.current
-    if (scroller !== null && stuck.current) scroller.scrollTop = scroller.scrollHeight
+    if (scroller === null) return
+    knownSize.current = sizeOf(scroller)
+    if (stuck.current) scroller.scrollTop = scroller.scrollHeight
   }, [content, resetKey])
 
   useEffect(() => {
     const scroller = ref.current
     if (scroller === null) return
     const observer = new ResizeObserver(() => {
-      observedSize.current = sizeOf(scroller)
+      knownSize.current = sizeOf(scroller)
       if (stuck.current) scroller.scrollTop = scroller.scrollHeight
     })
     observer.observe(scroller)
