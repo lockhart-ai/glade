@@ -55,6 +55,7 @@ import { setUiState } from './db/repositories/ui-state'
 import { createWorkspace } from './db/repositories/workspaces'
 import { DEFAULT_SETTINGS, type SettingsPatch } from '../shared/settings'
 import { SETTING_SCHEMAS, updateSettings } from './db/repositories/settings'
+import { storeControlToken, storedToken } from './control/token'
 
 const MINUTE = 60_000
 
@@ -240,6 +241,11 @@ export interface CaptureSeed {
   readonly tasks: readonly SeedTask[]
   /** Settings to change from their defaults, e.g. `controlEnabled`; none unless given. */
   readonly settings?: SettingsPatch | undefined
+  /**
+   * The control API's token, so Settings › Control shows a placeholder rather than a random, real-looking one; a new
+   * random one (made when the switch is on) unless given. It must still look like a token: 43 base64url characters.
+   */
+  readonly controlToken?: string | undefined
   /** The right panel's tab to open on (`PanelTab`, e.g. `subagents`); Tool calls unless given. */
   readonly panelTab?: string | undefined
   /** The right panel's width, in CSS pixels; the default unless given. */
@@ -320,6 +326,7 @@ const seedPauseSchema = z.strictObject({
 const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
   workspace: z.strictObject({ id: z.string().optional(), name: z.string(), rootPath: z.string() }),
   settings: z.strictObject(SETTING_SCHEMAS).partial().optional(),
+  controlToken: storedToken.optional(),
   panelTab: z.string().optional(),
   panelWidth: z.int().positive().optional(),
   pluginWidth: z.int().positive().optional(),
@@ -505,6 +512,7 @@ function seedPermissionRequest(db: Database, taskId: string, request: SeedPermis
 export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.now()): void {
   db.transaction(() => {
     if (seed.settings !== undefined) updateSettings(db, seed.settings)
+    if (seed.controlToken !== undefined) storeControlToken(db, seed.controlToken)
     const workspace = createWorkspace(db, seed.workspace, now)
     setUiState(db, { key: UiStateKey.ActiveWorkspaceId, value: workspace.id })
     if (seed.panelTab !== undefined) setUiState(db, { key: UiStateKey.RightPanelTab, value: seed.panelTab })

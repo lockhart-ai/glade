@@ -36,11 +36,14 @@ import { openTestDatabase, type TestDatabase } from './db/repositories/test-data
 import { DEFAULT_SETTINGS } from '../shared/settings'
 import { DRIVES_GLADE } from './agent/scripts'
 import { getSettings } from './db/repositories/settings'
+import { ensureControlToken, readControlToken } from './control/token'
 
 const FIXTURES = join(import.meta.dirname, '..', '..', 'scripts', 'fixtures')
 const FIXTURE = join(FIXTURES, 'task-workspace.json')
 const NOW = 10_000_000
 const MINUTE = 60_000
+/** A placeholder control token: obviously fake, but shaped like one (43 base64url characters). */
+const SAMPLE_TOKEN = 'EXAMPLE-TOKEN-see-Settings-Control-00000000'
 
 const SEED: CaptureSeed = {
   workspace: { name: 'Acme API', rootPath: '/Users/sample/code/api' },
@@ -203,6 +206,14 @@ describe('readSeed', () => {
       /is invalid: /,
     )
     expect(() => readSeed(write(JSON.stringify({ ...SEED, settings: { theme: 'dark' } })))).toThrow(/is invalid: /)
+  })
+
+  it('reads a control token, and refuses one that does not look like a token', () => {
+    expect(readSeed(write(JSON.stringify({ ...SEED, controlToken: SAMPLE_TOKEN }))).controlToken).toBe(SAMPLE_TOKEN)
+    expect(() => readSeed(write(JSON.stringify({ ...SEED, controlToken: 'EXAMPLE-TOKEN' })))).toThrow(/is invalid: /)
+    expect(() => readSeed(write(JSON.stringify({ ...SEED, controlToken: `${SAMPLE_TOKEN.slice(1)}!` })))).toThrow(
+      /is invalid: /,
+    )
   })
 
   it('refuses a fixture that is missing or not JSON', () => {
@@ -393,6 +404,17 @@ describe('applySeed', () => {
     applySeed(db, SEED)
 
     expect(getSettings(db)).toEqual(DEFAULT_SETTINGS)
+    expect(readControlToken(db)).toBeNull()
+  })
+
+  it('stores the control token it gives, which turning control on then keeps', () => {
+    const { db } = database
+
+    applySeed(db, { ...SEED, settings: { controlEnabled: true }, controlToken: SAMPLE_TOKEN })
+
+    expect(readControlToken(db)).toBe(SAMPLE_TOKEN)
+    expect(ensureControlToken(db)).toBe(SAMPLE_TOKEN)
+    expect(getSettings(db)).toEqual({ ...DEFAULT_SETTINGS, controlEnabled: true })
   })
 
   it('selects nothing unless a task asks to be', () => {
