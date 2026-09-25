@@ -42,7 +42,9 @@ it('leaves existing tasks not imported, and lets one session belong to one task 
   expect(sessionOf(db, 'a')).toBe('session-1')
   // Any number of tasks may have no session yet.
   insertTask(db, 'c', null)
-  expect(() => insertTask(db, 'd', 'session-1')).toThrow(/UNIQUE/)
+  expect(() => {
+    insertTask(db, 'd', 'session-1')
+  }).toThrow(/UNIQUE/)
   db.prepare("UPDATE tasks SET imported_at = 5 WHERE id = 'c'").run()
   expect(db.prepare("SELECT imported_at FROM tasks WHERE id = 'c'").pluck().get()).toBe(5)
   db.close()
