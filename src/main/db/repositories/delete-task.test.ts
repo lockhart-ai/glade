@@ -5,6 +5,7 @@ import { GIF, PNG } from '../../../shared/test-images'
 import { addArtifact } from './artifacts'
 import { setExternalId, setHandoff } from './backfills'
 import { setSessionContext } from './session-context'
+import { setInputDraft } from './input-drafts'
 import { appendMessage } from './messages'
 import { setOpenFiles } from './open-files'
 import { appendPermissionRequest } from './permission-requests'
@@ -87,13 +88,16 @@ function fillTask(db: Database, task: Task): void {
   setHandoff(db, taskId, '## Where it got to')
   setExternalId(db, taskId, `notes/${taskId}`)
   setSessionContext(db, taskId, { instructions: true, handoffAt: 1 })
+  setInputDraft(db, { taskId, text: 'And the admin views', images: [PNG] })
 }
 
 /** The tables `fillTask` writes to. A new table that belongs to a task fails the test below until it's added here. */
 const FILLED_TABLES = [
   'artifacts',
-  // The images pasted into its messages, sent and queued.
+  // The images pasted into its messages, sent and queued, and into its input draft.
   'images',
+  // Its unsent input draft.
+  'input_drafts',
   'messages',
   'open_files',
   'permission_requests',

@@ -6,7 +6,7 @@
  * - **Turns** count a task's user turns from 1: the task's first message starts turn 1, and every message the agent is
  *   given after that starts the next one. Chat messages and tool events carry the turn they belong to.
  */
-import type { ImageRef } from './images'
+import type { ImageData, ImageRef } from './images'
 
 /** Epoch milliseconds (UTC). */
 export type EpochMs = number
@@ -255,6 +255,15 @@ export interface QueuedMessage {
   readonly createdAt: EpochMs
   /** The images pasted into it, which go with it. */
   readonly images: readonly ImageRef[]
+}
+
+/**
+ * What's in a task's input bar and not sent yet: its message field's text and the images pasted into it, in order. It's
+ * kept for the task, as you switch tasks and across a relaunch or a crash, until it's sent or emptied.
+ */
+export interface InputDraft {
+  readonly text: string
+  readonly images: readonly ImageData[]
 }
 
 /** The variants of a tool log entry. */

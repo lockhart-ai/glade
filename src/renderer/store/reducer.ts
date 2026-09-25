@@ -162,6 +162,7 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     openFiles: without(state.openFiles, taskId),
     artifacts: without(state.artifacts, taskId),
     handoffs: without(state.handoffs, taskId),
+    inputDrafts: without(state.inputDrafts, taskId),
     fileFocus: state.fileFocus?.taskId === taskId ? null : state.fileFocus,
     toolLogFocus: state.toolLogFocus?.taskId === taskId ? null : state.toolLogFocus,
     renamingTaskId: state.renamingTaskId === taskId ? null : state.renamingTaskId,

@@ -15,6 +15,7 @@ import type {
   Effort,
   FileContent,
   FileInfo,
+  InputDraft,
   Message,
   OpenFiles,
   PermissionDecision,
@@ -77,6 +78,8 @@ export enum CommandName {
   QueueEdit = 'queue.edit',
   QueueRemove = 'queue.remove',
   ImagesGet = 'images.get',
+  DraftsGet = 'drafts.get',
+  DraftsSet = 'drafts.set',
   QuestionsAnswer = 'questions.answer',
   PermissionsAnswer = 'permissions.answer',
   FilesRead = 'files.read',
@@ -436,6 +439,31 @@ export interface ImagesGetRequest {
 
 export interface ImagesGetResponse {
   readonly image: ImageData
+}
+
+/**
+ * A task's input draft: what's in its input bar and not sent yet (`InputDraft`), with its images' bytes. Answers with
+ * null when it has none. Fails with `not_found` when there's no such task.
+ */
+export interface DraftsGetRequest {
+  readonly taskId: string
+}
+
+export interface DraftsGetResponse {
+  readonly draft: InputDraft | null
+}
+
+/**
+ * Stores a task's input draft as it now is, replacing the one it had, so it's there again after a relaunch or a crash.
+ * One with no text and no images is none: it's removed. Does nothing when there's no such task, as a deleted task's
+ * input bar can save as it closes.
+ */
+export interface DraftsSetRequest {
+  readonly taskId: string
+  /** The message field's text, exactly as typed. */
+  readonly text: string
+  /** Every image pasted into the draft, in order, in place of those it had. Left out, it keeps the ones it has. */
+  readonly images?: readonly ImageData[]
 }
 
 /**
@@ -807,6 +835,8 @@ export interface CommandMap {
   [CommandName.QueueEdit]: CommandSpec<QueueEditRequest, QueuedMessageResponse>
   [CommandName.QueueRemove]: CommandSpec<QueueRemoveRequest, null>
   [CommandName.ImagesGet]: CommandSpec<ImagesGetRequest, ImagesGetResponse>
+  [CommandName.DraftsGet]: CommandSpec<DraftsGetRequest, DraftsGetResponse>
+  [CommandName.DraftsSet]: CommandSpec<DraftsSetRequest, null>
   [CommandName.QuestionsAnswer]: CommandSpec<QuestionsAnswerRequest, QuestionSetResponse>
   [CommandName.PermissionsAnswer]: CommandSpec<PermissionsAnswerRequest, PermissionRequestResponse>
   [CommandName.FilesRead]: CommandSpec<FilesReadRequest, FilesReadResponse>

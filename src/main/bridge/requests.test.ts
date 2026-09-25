@@ -100,6 +100,23 @@ describe('REQUEST_SCHEMAS', () => {
     expect(REQUEST_SCHEMAS[CommandName.ImagesGet].parse({ id: 'i' })).toEqual({ id: 'i' })
   })
 
+  it('parses drafts: any text, blank included, with or without their images', () => {
+    expect(REQUEST_SCHEMAS[CommandName.DraftsGet].parse({ taskId: 't' })).toEqual({ taskId: 't' })
+    for (const draft of [
+      { taskId: 't', text: '' },
+      { taskId: 't', text: '  \n' },
+      { taskId: 't', text: '', images: [] },
+      { taskId: 't', text: 'See these', images: [PNG, GIF] },
+    ]) {
+      expect(REQUEST_SCHEMAS[CommandName.DraftsSet].parse(draft)).toEqual(draft)
+    }
+    expect(() => REQUEST_SCHEMAS[CommandName.DraftsSet].parse({ taskId: 't' })).toThrow()
+    expect(() =>
+      REQUEST_SCHEMAS[CommandName.DraftsSet].parse({ taskId: 't', text: '', images: [{ ...PNG, data: JPEG.data }] }),
+    ).toThrow(/bytes to be its type/)
+    expect(() => REQUEST_SCHEMAS[CommandName.DraftsSet].parse({ taskId: 't', text: '', extra: 1 })).toThrow()
+  })
+
   it('takes an image right up to the API’s size limit', () => {
     const png = Buffer.from(PNG.data, 'base64')
     const data = Buffer.concat([png, Buffer.alloc(MAX_IMAGE_BYTES - png.length)]).toString('base64')

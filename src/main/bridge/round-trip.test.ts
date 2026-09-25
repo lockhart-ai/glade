@@ -11,6 +11,7 @@ import {
   type GladeEvent,
 } from '../../shared/bridge'
 import { TaskState, UiStateKey } from '../../shared/domain'
+import { PNG } from '../../shared/test-images'
 import { FakeAgentBackend } from '../agent/fake-backend'
 import { getTask } from '../db/repositories/tasks'
 import { getUiState } from '../db/repositories/ui-state'
@@ -163,6 +164,25 @@ describe('the bridge', () => {
       bridgeError(BridgeErrorCode.NotFound, 'tasks.markDone: No task gone'),
     )
     expect(getTask(database.db, task.id)).toEqual(task)
+  })
+
+  it('stores a task’s input draft and gives it back, and a deleted task’s goes with it', async () => {
+    const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+    await expect(glade.invoke(CommandName.DraftsGet, { taskId: task.id })).resolves.toEqual({ draft: null })
+
+    await glade.invoke(CommandName.DraftsSet, { taskId: task.id, text: 'Half a thought', images: [PNG] })
+    await glade.invoke(CommandName.DraftsSet, { taskId: task.id, text: 'Half a thought, and more' })
+    await expect(glade.invoke(CommandName.DraftsGet, { taskId: task.id })).resolves.toEqual({
+      draft: { text: 'Half a thought, and more', images: [PNG] },
+    })
+
+    await glade.invoke(CommandName.TasksDelete, { id: task.id })
+    await expect(glade.invoke(CommandName.DraftsGet, { taskId: task.id })).rejects.toEqual(
+      bridgeError(BridgeErrorCode.NotFound, `drafts.get: No task ${task.id}`),
+    )
+    // Its bar saving as it closes, after the task went, does nothing.
+    await expect(glade.invoke(CommandName.DraftsSet, { taskId: task.id, text: 'Too late' })).resolves.toBeNull()
+    expect(database.db.prepare('SELECT COUNT(*) FROM input_drafts').pluck().get()).toBe(0)
   })
 
   it('rejects an unknown command with a typed error', async () => {

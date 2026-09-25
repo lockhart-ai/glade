@@ -1,6 +1,7 @@
 import { faSquare } from '@fortawesome/free-regular-svg-icons'
 import { faArrowUp } from '@fortawesome/free-solid-svg-icons'
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -10,15 +11,23 @@ import {
   type RefObject,
 } from 'react'
 import { BridgeErrorCode, isBridgeError } from '../../shared/bridge'
-import { Effort, PermissionMode, TaskActivity, TaskState, type QueuedMessage, type Task } from '../../shared/domain'
+import {
+  Effort,
+  PermissionMode,
+  TaskActivity,
+  TaskState,
+  type InputDraft,
+  type QueuedMessage,
+  type Task,
+} from '../../shared/domain'
 import { WindowCommandId } from '../../shared/commands'
 import { EFFORT_NAMES, MODEL_OPTIONS, modelName } from '../../shared/models'
 import { isCommandKey, useCommand, useKeymap } from '../commands/hooks'
 import { MESSAGE_FIELD_PROPS } from '../commands/registry'
 import { Icon, IconSize, Textarea, useToast } from '../components'
 import { describeFailure } from '../store/hydrate'
-import { selectSelectedTask, type InputDraft } from '../store/state'
-import { useGladeStore } from '../store/react'
+import { selectSelectedTask } from '../store/state'
+import { useGladeStore, useGladeStoreApi } from '../store/react'
 import { pastedFiles, readPastedFiles } from '../images/pasted'
 import { PAUSED_PLACEHOLDER } from '../pause/pauseModel'
 import { Attachments, type Attachment } from './Attachments'
@@ -59,6 +68,35 @@ export const ASKING_IMAGES_REFUSAL =
 const NO_QUEUE: readonly QueuedMessage[] = []
 const NO_ATTACHMENTS: readonly Attachment[] = []
 const NO_REFUSALS: readonly string[] = []
+
+/**
+ * How long the draft waits after the last change before it's stored in main: a pause in typing, so a burst of keys is
+ * one save. Switching tasks, sending and quitting store it at once.
+ */
+export const DRAFT_SAVE_DELAY_MS = 400
+
+/** The input bar's draft as it keeps it: the images as their attachments, whose array changes only when they do. */
+interface BarDraft {
+  readonly text: string
+  readonly attachments: readonly Attachment[]
+}
+
+function sameDraft(a: BarDraft, b: BarDraft): boolean {
+  return a.text === b.text && a.attachments === b.attachments
+}
+
+function toImages(attachments: readonly Attachment[]): InputDraft['images'] {
+  return attachments.map(({ image }) => image)
+}
+
+/** A stored draft's images as attachments, numbered on from the bar's last. */
+function toAttachments(draft: InputDraft, attached: RefObject<number>): readonly Attachment[] {
+  if (draft.images.length === 0) return NO_ATTACHMENTS
+  return draft.images.map((image) => {
+    attached.current += 1
+    return { key: attached.current, image }
+  })
+}
 
 function isEffort(value: string): value is Effort {
   return Object.values<string>(Effort).includes(value)
@@ -163,7 +201,11 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   const keymap = useKeymap()
   const field = useRef<HTMLTextAreaElement>(null)
   const keepInputDraft = useGladeStore((state) => state.keepInputDraft)
-  const kept = useGladeStore((state) => state.inputDrafts[task.id])
+  const loadInputDraft = useGladeStore((state) => state.loadInputDraft)
+  const saveInputDraft = useGladeStore((state) => state.saveInputDraft)
+  // The draft kept for the task as its bar last went, if any: the bar starts from it. Read once, as the bar mounts.
+  const storeApi = useGladeStoreApi()
+  const [kept] = useState(() => storeApi.getState().inputDrafts[task.id])
   const [draft, setDraft] = useState(kept?.text ?? '')
   const [attachments, setAttachments] = useState<readonly Attachment[]>(
     () => kept?.images.map((image, index) => ({ key: index + 1, image })) ?? NO_ATTACHMENTS,
@@ -203,17 +245,59 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     })
   }, [insertedRequest, mountedRequest])
 
-  // The draft as it now is, kept for the task when the bar goes (another task selected), to come back with it.
-  const unsent = useRef<InputDraft>({ text: draft, images: [] })
+  // The draft as it now is, and as main last stored it (or had it, as the bar mounted): a change is stored a pause
+  // after it's made, and at once when the bar goes (another task selected) or the window does (quitting).
+  const latest = useRef<BarDraft>({ text: draft, attachments })
+  const stored = useRef<BarDraft>({ text: draft, attachments })
+  const pendingSave = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /** Stores the draft in main if it changed since it last was: its text, and its images only when they changed. */
+  const saveNow = useCallback(() => {
+    if (pendingSave.current !== null) clearTimeout(pendingSave.current)
+    pendingSave.current = null
+    const current = latest.current
+    const last = stored.current
+    if (sameDraft(current, last)) return
+    stored.current = current
+    const images = current.attachments === last.attachments ? {} : { images: toImages(current.attachments) }
+    void saveInputDraft({ taskId: task.id, text: current.text, ...images })
+  }, [saveInputDraft, task.id])
+
   useEffect(() => {
-    unsent.current = { text: draft, images: attachments.map(({ image }) => image) }
-  }, [draft, attachments])
-  useEffect(
-    () => () => {
-      keepInputDraft(task.id, unsent.current)
-    },
-    [keepInputDraft, task.id],
-  )
+    latest.current = { text: draft, attachments }
+    if (pendingSave.current !== null) clearTimeout(pendingSave.current)
+    pendingSave.current = sameDraft(latest.current, stored.current) ? null : setTimeout(saveNow, DRAFT_SAVE_DELAY_MS)
+  }, [draft, attachments, saveNow])
+
+  useEffect(() => {
+    const flush = saveNow
+    window.addEventListener('beforeunload', flush)
+    return () => {
+      window.removeEventListener('beforeunload', flush)
+      flush()
+      const { text, attachments: going } = latest.current
+      keepInputDraft(task.id, { text, images: toImages(going) })
+    }
+  }, [keepInputDraft, saveNow, task.id])
+
+  // With none kept, the task may have one stored from before a relaunch or a crash: it goes in, unless you've started
+  // on a new one since.
+  useEffect(() => {
+    if (kept !== undefined) return
+    let mounted = true
+    void loadInputDraft(task.id).then((loaded) => {
+      const current = latest.current
+      if (!mounted || loaded === null || current.text !== '' || current.attachments.length > 0) return
+      const restored: BarDraft = { text: loaded.text, attachments: toAttachments(loaded, attached) }
+      stored.current = restored
+      latest.current = restored
+      setDraft(restored.text)
+      setAttachments(restored.attachments)
+    })
+    return () => {
+      mounted = false
+    }
+  }, [kept, loadInputDraft, task.id])
 
   useEffect(() => {
     if (focusRequest === answeredRef.current) return
@@ -243,6 +327,11 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
       setDraft('')
       setAttachments(NO_ATTACHMENTS)
       setRefusals(NO_REFUSALS)
+      // Sent, so the task has no draft now: stored at once, over any save of it on its way, and kept, should the bar
+      // have gone (another task selected) while it was sending.
+      latest.current = { text: '', attachments: NO_ATTACHMENTS }
+      saveNow()
+      keepInputDraft(task.id, { text: '', images: [] })
     } catch (error) {
       toast.show({ message: sendFailureMessage(error) })
     } finally {
