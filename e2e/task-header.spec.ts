@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import { expect, seedPath, test } from './fixtures'
-import { chat, firstRun, inputBar, panelToggles, taskHeader, taskList } from './selectors'
+import { chat, firstRun, inputBar, panelToggles, taskHeader, taskList, type TaskHeaderField } from './selectors'
 import { boxOf, MIN_WINDOW, resize, type Box } from './window-layout'
 
 test('task header: fills in from the agent, pins the task, and marks it done', async ({ launch, tempFolder }) => {
@@ -194,9 +194,27 @@ function truncated(locator: Locator): Promise<boolean> {
   return locator.evaluate((element) => element.scrollWidth > element.clientWidth)
 }
 
+/** How far the rows' labels are set in from the title's left edge, as in Jared's mockup. */
+const LABEL_INSET = 8
+
+/** How far the rows' values start from the title's left edge. */
+const VALUE_INSET = 68
+
 /**
- * The dot, title, age, pin and Mark done share one line; the goal and now rows are below it with no divider, lined up
- * with the title (not the dot), and the status's age sits at the right end of the Now row.
+ * Checks a row's label is set in a little from the title's left edge (not the dot's), and its value starts at the
+ * value column.
+ */
+async function expectRowUnderTitle(window: Page, name: TaskHeaderField, title: Box): Promise<void> {
+  const row = taskHeader(window).header.getByRole('group', { name })
+  const label = await boxOf(row.locator(':scope > div'))
+  const value = await boxOf(row.getByRole('paragraph'))
+  expect(Math.abs(label.x - (title.x + LABEL_INSET))).toBeLessThanOrEqual(1)
+  expect(Math.abs(value.x - (title.x + VALUE_INSET))).toBeLessThanOrEqual(1)
+}
+
+/**
+ * The dot, title, age, pin and Mark done share one line; the goal and now rows are below it with no divider, their
+ * labels set in from the title (not the dot), and the status's age sits at the right end of the Now row.
  */
 async function expectCompactLayout(window: Page): Promise<void> {
   const header = taskHeader(window)
@@ -218,15 +236,14 @@ async function expectCompactLayout(window: Page): Promise<void> {
   const markDone = await boxOf(header.markDone)
   expect(headerBox.x + headerBox.width - (markDone.x + markDone.width)).toBeLessThanOrEqual(18)
 
-  // No divider: the rows come straight after the line, the goal before the status, their labels lined up with the title.
+  // No divider: the rows come straight after the line, the goal before the status, set in from the title.
   const fields = header.header.getByRole('group', { name: 'Goal' }).locator('..')
   expect(await fields.evaluate((element) => getComputedStyle(element).borderTopStyle)).toBe('none')
   const fieldsBox = await boxOf(fields)
   expect(fieldsBox.y).toBeGreaterThanOrEqual(title.y + title.height)
-  const goalRow = await boxOf(header.header.getByRole('group', { name: 'Goal' }))
   const nowRow = await boxOf(header.header.getByRole('group', { name: 'Now' }))
-  expect(Math.abs(goalRow.x - title.x)).toBeLessThanOrEqual(1)
-  expect(Math.abs(nowRow.x - title.x)).toBeLessThanOrEqual(1)
+  await expectRowUnderTitle(window, 'Goal', title)
+  await expectRowUnderTitle(window, 'Now', title)
   const goal = await boxOf(header.field('Goal'))
   const status = await boxOf(header.field('Now'))
   expect(goal.y).toBeGreaterThanOrEqual(fieldsBox.y)
@@ -320,12 +337,12 @@ test('task header: a done task keeps the compact line, with when it ran after th
   expect(headerBox.x + headerBox.width - (pin.x + pin.width)).toBeLessThanOrEqual(18)
   const outcome = header.header.getByRole('group', { name: 'Outcome' })
   expect((await boxOf(header.field('Outcome'))).y).toBeGreaterThan(title.y + title.height)
-  expect(Math.abs((await boxOf(outcome)).x - title.x)).toBeLessThanOrEqual(1)
+  await expectRowUnderTitle(window, 'Outcome', title)
   await expect(outcome.locator(':scope > span')).toHaveCount(0)
   expect((await boxOf(header.header)).height).toBeLessThanOrEqual(MAX_HEADER_HEIGHT)
 })
 
-test('task header: with the task list collapsed, the rows stay lined up with the title', async ({ launch }) => {
+test('task header: with the task list collapsed, the rows stay set in from the title', async ({ launch }) => {
   const glade = await launch({ seed: seedPath('long-header.json') })
   const { window } = glade
   const header = taskHeader(window)
@@ -335,6 +352,6 @@ test('task header: with the task list collapsed, the rows stay lined up with the
   await expect(panelToggles(window).showTaskList).toBeVisible()
 
   const title = await boxOf(header.title)
-  const goal = await boxOf(header.header.getByRole('group', { name: 'Goal' }))
-  expect(Math.abs(goal.x - title.x)).toBeLessThanOrEqual(1)
+  await expectRowUnderTitle(window, 'Goal', title)
+  await expectRowUnderTitle(window, 'Now', title)
 })

@@ -90,11 +90,11 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 </div>
 <div style="display: flex; flex-direction: column; gap: 2px; padding-left: 18px">
 <div style="display: flex; align-items: baseline; gap: 12px">
-<div style="flex-shrink: 0; width: 56px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #999DB0">Goal</div>
+<div style="flex-shrink: 0; width: 48px; margin-left: 8px; white-space: nowrap; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #999DB0">Goal</div>
 <p style="margin: 0; flex-grow: 1; min-width: 0; font-size: 14px; line-height: 1.5; color: #AEB3C3">Add per-key rate limiting to the public API so one client can't starve the others. Over the limit, return 429 with a Retry-After header.</p>
 </div>
 <div style="display: flex; align-items: baseline; gap: 12px">
-<div style="flex-shrink: 0; width: 56px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #999DB0">Outcome</div>
+<div style="flex-shrink: 0; width: 48px; margin-left: 8px; white-space: nowrap; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #999DB0">Outcome</div>
 <p style="margin: 0; flex-grow: 1; min-width: 0; font-size: 14px; line-height: 1.5; color: #E6E8F0">Per-key rate limiting is live on the public API. Over the limit, clients get a 429 with a Retry-After header. The default is 120 requests a minute; /search has its own limit of 60. 15 tests cover it.</p>
 </div>
 </div>

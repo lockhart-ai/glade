@@ -50,7 +50,7 @@
   color: var(--color-faint);
 }
 
-/* Lined up with the title, not the dot. */
+/* Under the title, not the dot: the labels are set in a little from its edge (see .label). */
 .fields {
   display: flex;
   flex-direction: column;
@@ -69,9 +69,12 @@
   gap: var(--space-lg);
 }
 
+/* Set in a little from the title's edge, as in the mockup; the values still start 68px after it. */
 .label {
   flex-shrink: 0;
-  width: 56px;
+  width: 48px;
+  margin-left: var(--space-md);
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-size: var(--font-size-label);
   letter-spacing: var(--letter-spacing-label);
