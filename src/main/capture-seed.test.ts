@@ -36,6 +36,7 @@ import { openTestDatabase, type TestDatabase } from './db/repositories/test-data
 import { DEFAULT_SETTINGS } from '../shared/settings'
 import { DRIVES_GLADE } from './agent/scripts'
 import { getSettings } from './db/repositories/settings'
+import { ensureControlToken, readControlToken } from './control/token'
 
 const FIXTURES = join(import.meta.dirname, '..', '..', 'scripts', 'fixtures')
 const FIXTURE = join(FIXTURES, 'task-workspace.json')
@@ -203,6 +204,13 @@ describe('readSeed', () => {
       /is invalid: /,
     )
     expect(() => readSeed(write(JSON.stringify({ ...SEED, settings: { theme: 'dark' } })))).toThrow(/is invalid: /)
+  })
+
+  it('reads a placeholder control token, and refuses one that is not token-shaped', () => {
+    const controlToken = 'EXAMPLE-TOKEN-see-Settings-Control-00000000'
+    expect(readSeed(write(JSON.stringify({ ...SEED, controlToken }))).controlToken).toBe(controlToken)
+    expect(() => readSeed(write(JSON.stringify({ ...SEED, controlToken: 'EXAMPLE-TOKEN' })))).toThrow(/is invalid: /)
+    expect(() => readSeed(write(JSON.stringify({ ...SEED, controlToken: `${controlToken}!` })))).toThrow(/is invalid: /)
   })
 
   it('refuses a fixture that is missing or not JSON', () => {
@@ -393,6 +401,18 @@ describe('applySeed', () => {
     applySeed(db, SEED)
 
     expect(getSettings(db)).toEqual(DEFAULT_SETTINGS)
+    expect(readControlToken(db)).toBeNull()
+  })
+
+  it('stores the control token it gives, which the endpoint then keeps rather than making one', () => {
+    const { db } = database
+    const controlToken = 'EXAMPLE-TOKEN-see-Settings-Control-00000000'
+
+    applySeed(db, { ...SEED, settings: { controlEnabled: true }, controlToken })
+
+    expect(readControlToken(db)).toBe(controlToken)
+    expect(ensureControlToken(db)).toBe(controlToken)
+    expect(getSettings(db)).toEqual({ ...DEFAULT_SETTINGS, controlEnabled: true })
   })
 
   it('selects nothing unless a task asks to be', () => {

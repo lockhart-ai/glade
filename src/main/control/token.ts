@@ -15,8 +15,11 @@ export const CONTROL_TOKEN_KEY = 'controlToken'
 /** How many random bytes a token has. */
 const TOKEN_BYTES = 32
 
-/** A token as stored: JSON of a base64url string of `TOKEN_BYTES` bytes. */
-const storedToken = z.string().regex(/^[A-Za-z0-9_-]{43}$/)
+/** What a token looks like: a base64url string of `TOKEN_BYTES` bytes. */
+export const CONTROL_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/
+
+/** A token as stored: JSON of a string that looks like one. */
+const storedToken = z.string().regex(CONTROL_TOKEN_PATTERN)
 
 /** A new token. */
 export function newControlToken(): string {
@@ -38,8 +41,8 @@ export function readControlToken(db: Database): string | null {
   return token.success ? token.data : null
 }
 
-/** Stores `token`, replacing the one before. */
-function storeControlToken(db: Database, token: string): void {
+/** Stores `token`, replacing the one before. The capture seeds use it for a placeholder token in screenshots. */
+export function storeControlToken(db: Database, token: string): void {
   db.prepare(
     'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value',
   ).run(CONTROL_TOKEN_KEY, JSON.stringify(token))

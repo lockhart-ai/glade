@@ -318,7 +318,7 @@ and it only ever listens on your own Mac, behind a token.
 - **Regenerate token**, which stops the old token at once (copy the command again afterwards);
 - the **Port**, which you can change (if it's taken, Glade tries the next nine).
 
-![Settings › Control, turned on (a throwaway sample token)](images/guide/settings-control.png)
+![Settings › Control, turned on (with a placeholder token)](images/guide/settings-control.png)
 
 Glade's own tasks get the same tools (`glade-control`) from their next session: a task started after you turn it on
 has them. Just ask a task in plain words; if it doesn't find the tools, tell it to "use the glade-control tools". In the

@@ -56,7 +56,7 @@ describe('the user guide', () => {
   it('names images that are small', () => {
     for (const target of local.filter((image) => image.startsWith('images/'))) {
       const bytes = readFileSync(join(dirname(GUIDE), target)).byteLength
-      expect(bytes, target).toBeLessThan(350_000)
+      expect(bytes, target).toBeLessThanOrEqual(300_000)
     }
   })
 })
