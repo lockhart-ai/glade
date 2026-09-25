@@ -134,8 +134,7 @@ const CASES: readonly Case[] = [
   {
     target: 'Todo',
     entries: todoMenu(spies('copy', 'ask')),
-    // Claude Code keeps the list: an edit of Glade's own would be overwritten by the agent's next change to it.
-    leftOut: ['Mark done myself', 'Remove'],
+    leftOut: [],
   },
 ]
 

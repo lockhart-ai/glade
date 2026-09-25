@@ -6,7 +6,7 @@ current binding. The menu bar answers the keys of its items; the window listens 
 | Area | Action | Keys |
 |---|---|---|
 | Global | New task | ⌘N |
-| | Jump to task | ⌘P |
+| | Jump to task: focuses the task search, as Search tasks does; type a task's name and choose it | ⌘P |
 | | Search tasks | ⌘F |
 | | Settings | ⌘, |
 | | New workspace | ⌘⇧N |

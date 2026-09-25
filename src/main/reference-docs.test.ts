@@ -37,6 +37,7 @@ import {
 } from '../shared/domain'
 import { formatChord, RESERVED_CHORDS } from '../shared/keymap'
 import { connectCommand, controlUrl, DEFAULT_CONTROL_PORT } from '../shared/control'
+import { APP_SECTIONS, SECTION_TITLES } from '../renderer/settings/sections'
 import { GladeTool } from './agent/glade-tools'
 import { HANDOFF_HEADING, systemPromptAppend } from './agent/system-prompt'
 import { openTestDatabase, sampleTask, sampleWorkspace } from './db/repositories/test-database'
@@ -288,6 +289,15 @@ describe('docs/keymap.md', () => {
   it('names every key Settings › Keyboard refuses as macOS’s or the app menu’s, as it shows them', () => {
     const rebinding = section(doc('docs/keymap.md'), '## Rebinding')
     for (const { chord } of RESERVED_CHORDS) expect(rebinding).toContain(formatChord(chord))
+  })
+})
+
+describe('docs/product.md', () => {
+  it('lists every Settings section, in the nav’s order', () => {
+    const listed = section(doc('docs/product.md'), '## Settings')
+      .split('\n')
+      .flatMap((line) => /^- \*\*(\w+)(:\*\*|\*\*)/.exec(line)?.[1] ?? [])
+    expect(listed).toEqual([...APP_SECTIONS.map((id) => SECTION_TITLES[id]), 'Workspace'])
   })
 })
 

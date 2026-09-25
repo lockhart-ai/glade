@@ -5,8 +5,9 @@ what worked and what didn't. The logs stay on your Mac: nothing is sent anywhere
 
 ## Where they are
 
-- **The app:** `~/Library/Logs/glade/main.log` (Electron's logs folder, named after the package, `glade`). Open it in Console.app, or
-  `tail -f ~/Library/Logs/glade/main.log`.
+- **The app:** `~/Library/Logs/glade/main.log` (Electron's logs folder). Open it in Console.app, or
+  `tail -f ~/Library/Logs/glade/main.log`. The folder is named after the package, `glade`, in lower case, as the app's
+  data folder is (`~/Library/Application Support/glade/`): the packaged app has no `productName` of its own.
 - **Rotation:** once `main.log` passes 5 MB it becomes `main.1.log`, the old `main.1.log` becomes `main.2.log`, and so
   on. Five old files are kept (`main.1.log` is the newest); older ones are deleted.
 - **Development** (`npm run dev`): the same file, and every line on the terminal too.
