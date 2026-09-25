@@ -20,6 +20,7 @@ import {
   type Task,
   type ToolCallEvent,
 } from '../../shared/domain'
+import { ImageMediaType } from '../../shared/images'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { createEventLog } from './event-log'
@@ -218,6 +219,7 @@ describe('the chat', () => {
         turn: 3,
         createdAt: 5_000,
         summary,
+        images: [{ id: 'image-1', mediaType: ImageMediaType.Png }],
       },
     })
 
@@ -226,7 +228,15 @@ describe('the chat', () => {
         level: LogLevel.Info,
         scope: LogScope.Chat,
         message: 'message appended',
-        fields: { taskId: 'task-1', messageId: 'message-1', role: MessageRole.Agent, turn: 3, chars: 700, summary },
+        fields: {
+          taskId: 'task-1',
+          messageId: 'message-1',
+          role: MessageRole.Agent,
+          turn: 3,
+          chars: 700,
+          images: 1,
+          summary,
+        },
       },
       {
         level: LogLevel.Debug,
@@ -246,7 +256,7 @@ describe('the chat', () => {
     logEvent({
       type: EventType.QueueChanged,
       taskId: 'task-1',
-      queuedMessages: [{ id: 'queued-1', taskId: 'task-1', body: 'Also the docs.', createdAt: 1 }],
+      queuedMessages: [{ id: 'queued-1', taskId: 'task-1', body: 'Also the docs.', createdAt: 1, images: [] }],
     })
 
     expect(logged()).toEqual([

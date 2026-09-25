@@ -11,6 +11,7 @@ import { basename, join, resolve } from 'node:path'
 import { _electron as electron, test as base, type ElectronApplication, type Page } from '@playwright/test'
 import type { AgentScriptName } from '../src/main/agent/scripts'
 import {
+  E2E_AGENT_GLOBAL,
   E2E_AGENT_ENVS_GLOBAL,
   E2E_CHOSEN_FOLDER_ENV,
   E2E_DESKTOP_GLOBAL,
@@ -19,6 +20,7 @@ import {
   E2E_NETWORK_GLOBAL,
   E2E_NOTIFIER_GLOBAL,
   E2E_WINDOW_SIZE,
+  type E2eAgent,
   type E2eAgentEnvs,
   type E2eDesktop,
   type E2eEditor,
@@ -265,6 +267,14 @@ export async function desktop({ app }: Glade): Promise<E2eDesktop> {
     const { revealed, copied } = Reflect.get(globalThis, name) as E2eDesktop
     return { revealed: [...revealed], copied: [...copied] }
   }, E2E_DESKTOP_GLOBAL)
+}
+
+/**
+ * What the scripted agent was sent so far, oldest first: each message's content as the SDK backend would hand it to the
+ * agent, its text or its image content blocks then its text (`E2E_AGENT_GLOBAL`).
+ */
+export async function agentReceived({ app }: Glade): Promise<E2eAgent['received']> {
+  return app.evaluate((_, name) => [...(Reflect.get(globalThis, name) as E2eAgent).received], E2E_AGENT_GLOBAL)
 }
 
 /**
