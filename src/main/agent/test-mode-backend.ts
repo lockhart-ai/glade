@@ -17,8 +17,8 @@ export class UnscriptedAgentError extends Error {}
 
 export interface TestModeAgentBackend extends AgentBackend {
   /**
-   * Resolves once no session has anything left to play for now (every turn has ended or is waiting for Stop), and the
-   * runner has handled what they streamed.
+   * Resolves once no session has anything left to play for now (every turn has ended or is waiting for Stop, including
+   * the turns the agent has yet to start on its own), and the runner has handled what they streamed.
    */
   whenIdle(): Promise<void>
 }
@@ -78,7 +78,15 @@ export function createTestModeAgentBackend(scripts: TestModeScripts): TestModeAg
       const { resumeSessionId } = options
       const resumedFirst = resumeSessionId === null ? undefined : scripts.firstMessageOf?.(resumeSessionId)
       const script: ScriptChooser = resumedFirst === undefined ? choose : () => choose(resumedFirst)
-      const session = new ScriptedSession({ script, session: options, onIdle: settle })
+      // A turn the agent starts on its own keeps the session busy, like a message sent.
+      const session = new ScriptedSession({
+        script,
+        session: options,
+        onIdle: settle,
+        onWake: () => {
+          busy += 1
+        },
+      })
       return {
         messages: session.messages,
         send(text, uuid) {
