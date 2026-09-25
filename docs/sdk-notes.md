@@ -699,6 +699,87 @@ which match the Todos tab's schemas (`src/main/todos/schema.ts`) and the scripte
 `activeForm` is optional, and the model left it out here. Glade's parser and `deriveTodoList` turned these into "Say
 hello" done and "Say goodbye" todo.
 
+## 11. Follow-ups the agent schedules itself [verified]
+
+Probed with SDK 0.3.281 (Claude Code 2.1.281) for #168, on Haiku in throwaway folders with direct `query()` calls, then
+once per tool on `claude-sonnet-5` through Glade's own `sdkOptions`. The question: which tools let the agent wait for
+something and carry on by itself, how each one wakes it, and what survives a `resume`.
+
+**What SDK sessions have.** Every `init` tool list (Haiku 4.5, Sonnet 5 and Opus 5.5, with a bare environment and no
+settings sources) had `Bash` (with `run_in_background`), `Agent`/`Task` (with `run_in_background`), `Monitor`,
+`ScheduleWakeup`, `CronCreate`, `CronDelete`, `CronList` and `TaskStop`, and also `PushNotification`, `RemoteTrigger`,
+`SendMessage` and `ListAgents`. None needs turning on, unlike the todo tools (§10): the binary only turns the cron tools
+off for `CLAUDE_CODE_DISABLE_CRON`, or a server-side flag (`tengu_kairos_cron`, on by default), and background tasks
+for `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`. Glade sets neither. `Monitor` and the cron tools are deferred: Sonnet 5
+loaded them with `ToolSearch` (`select:Monitor`) before its first call, and called `ScheduleWakeup` straight away.
+
+| Tool | Returns | Wakes the agent with |
+| --- | --- | --- |
+| `Bash` + `run_in_background` | at once: "Command running in background with ID: …" | its `task_notification` when the command exits ("Turns the agent starts itself") |
+| `Agent` + `run_in_background` | at once: "Async agent launched …" | its `task_notification` when the subagent ends ("Background subagents") |
+| `Monitor` | at once: "Monitor started (task …)" | a turn per event (stdout line, batched within 200 ms), with nothing before it; then its `task_notification` when the command exits, times out or is stopped |
+| `ScheduleWakeup` | at once: "Next wakeup scheduled for 01:16:00 (in 102s)" | a turn when it fires, started as an SDK command |
+| `CronCreate` | at once: "Scheduled one-shot task ea750053 (16 1 25 9 *). Session-only …" | a turn at each fire time, started as an SDK command |
+
+Every tool returns straight away, and the turn that called it ends without waiting, as a background subagent's does.
+Each wake is a turn the agent starts on its own: its assistant messages carry no `user_message_uuid` and its `result`
+no `user_message_uuids`. What comes before it and what the `result` says differs:
+
+```
+Monitor: tool_use Monitor { description: "ticks", timeout_ms: 60000, command: "for i in 1 2; do sleep 8; echo tick $i; done" }
+ 4.0  system/background_tasks_changed  { tasks: [{ task_id: "bl14…", task_type: "local_bash", description: "ticks" }] }
+ 4.0  system/task_started  { task_id: "bl14…", tool_use_id: <the Monitor call>, task_type: "local_bash", is_backgrounded: true }
+ 4.0  user  tool_result "Monitor started (task bl14…, expires in 1m …). You will be notified on each event. …"
+            tool_use_result: { taskId: "bl14…", timeoutMs: 60000, persistent: false }
+ 4.8  result/success  { origin: { kind: "human" }, user_message_uuids: [the message] }
+12.3  system/init … assistant [text] "tick 1" … result/success { origin: { kind: "task-notification" } }   ← nothing first
+20.0  system/background_tasks_changed { tasks: [] }, task_updated { status: "completed" },
+      task_notification { tool_use_id: <the Monitor call>, status: "completed", summary: "Monitor \"ticks\" stream ended" }
+20.1  system/init … assistant [text] "tick 2" … result/success { origin: { kind: "task-notification" } }
+
+ScheduleWakeup (CronCreate is the same):
+  5.3  tool_use ScheduleWakeup { delaySeconds: 60, reason: "probe", prompt: "Reply with exactly: WOKE UP", noop: false }
+       tool_result "Next wakeup scheduled for 01:16:00 (in 102s). Nothing more to do this turn — the harness
+                    re-invokes you when the wakeup fires or a task-notification arrives."
+       tool_use_result: { scheduledFor: 1790313360000, clampedDelaySeconds: 60, wasClamped: false }
+107.7  command_lifecycle { command_uuid: <not one of Glade's>, state: "started" }    ← no "queued"
+107.8  system/init … assistant [text] "WOKE UP"
+109.7  result/success  { num_turns: 1 }                                             ← no origin, no user_message_uuids
+109.7  command_lifecycle { state: "completed" }
+```
+
+- **The job's prompt never shows** as a message: the agent reads it, and Glade only sees the turn it starts. Two jobs
+  due at once ran as one turn, with a `command_lifecycle` each.
+- **Timing.** `ScheduleWakeup` clamps `delaySeconds` to 60–3600 and fires on a whole minute: asked for 60 s, it fired
+  after 102 s. Its description says it's for `/loop`'s self-paced mode, but the models used it when asked to "check back
+  in a minute". `CronCreate` takes a 5-field cron in local time; `recurring: false` fires once, a recurring job re-fires
+  until deleted or for 7 days. `Monitor` times out after `timeout_ms` (default 5 minutes, at most 30).
+- **`durable: true` isn't available.** Asked for a durable cron, the SDK session made it session-only anyway
+  (`durable: false` in its result, "Session-only (not written to disk, dies when Claude exits)"), and nothing was
+  written to `.claude/scheduled_tasks.json`.
+- **Stop.** `interrupt()` during a turn a `Monitor` event woke ended that turn as usual (`error_during_execution`, with
+  `origin: task-notification`), and the watch carried on: its next event woke the agent again. Interrupting doesn't
+  cancel a wakeup, cron job or watch; only the agent can (`ScheduleWakeup` with `stop: true`, `CronDelete`,
+  `TaskStop`), or `stopTask` with the watch's task id, or closing the session.
+- **Resume.** One session scheduled a `ScheduleWakeup` (60 s), a session-only one-shot `CronCreate` and a "durable" one
+  for the same minute, and was closed straight away; a new process then resumed it with `resume` and no message. At
+  the fire time the resumed session ran both cron jobs, in one turn with no message sent. The `ScheduleWakeup` never
+  fired. So the SDK restores a session's cron jobs from its transcript on resume, but not its wakeups; background
+  commands, subagents and monitors die with the process. Not probed: a cron job whose time passed while no process ran,
+  and recurring jobs across a resume.
+- User turns now get `origin: { kind: "human" }` on their `result`, echoing the origin Glade stamps on each message.
+
+**Implications for Glade (#168)**
+
+- Glade enables nothing and builds nothing for these: each wake is a turn the agent starts on its own, which the runner
+  already opens, saves and shows (#162), with unread and a notification, and which Stop stops. The runner doesn't read
+  `origin` or `command_lifecycle`.
+- A `Monitor` call's row is done as soon as the watch starts; its `task_started` and final `task_notification` are
+  matched to the call but change nothing, as it isn't a subagent.
+- A live session keeps its jobs, watches and background work until Glade closes it (the task is deleted or the app
+  quits); marking a task done doesn't, so a job can still wake a done task, which stays done (#162).
+- The scripted backend's `wake` step plays each shape (`WakeCause` in `src/main/agent/scripts.ts`).
+
 ---
 
 ## Open risks

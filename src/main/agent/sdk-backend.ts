@@ -53,7 +53,8 @@ export function claudeCodeExecutable(
  * What Glade adds to every session's environment. `CLAUDE_CODE_ENABLE_TODO_TOOLS` gives the session Claude Code's todo
  * tools (`TaskCreate`, `TaskUpdate`, …), which the Todos tab reads: the bundled Claude Code leaves them off for SDK
  * sessions on newer models (Opus 5.5, Sonnet 5), turning them on by default only for older ones
- * (`docs/sdk-notes.md` §10).
+ * (`docs/sdk-notes.md` §10). The tools the agent schedules its own follow-ups with (background `Bash` and `Agent`,
+ * `Monitor`, `ScheduleWakeup`, `CronCreate`) need nothing: SDK sessions have them already (§11).
  */
 export const SESSION_ENV: Environment = { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' }
 

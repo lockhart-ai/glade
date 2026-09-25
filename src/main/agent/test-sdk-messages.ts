@@ -350,3 +350,70 @@ export function subagentEnded(
     },
   ]
 }
+
+/**
+ * What the SDK streams when the agent arms a `Monitor` (`docs/sdk-notes.md` §11): the call, the watch starting as a
+ * background task (`local_bash`), and at once the call's "started" result.
+ */
+export function monitorStarted(toolUseId: string, sdkTaskId: string, description: string): unknown[] {
+  return [
+    toolUse(toolUseId, 'Monitor', { description, timeout_ms: 60_000, command: 'npm run ci:status -- --watch' }),
+    {
+      type: 'system',
+      subtype: 'background_tasks_changed',
+      tasks: [{ task_id: sdkTaskId, task_type: 'local_bash', description }],
+      session_id: SESSION_ID,
+    },
+    {
+      type: 'system',
+      subtype: 'task_started',
+      task_id: sdkTaskId,
+      tool_use_id: toolUseId,
+      description,
+      is_backgrounded: true,
+      task_type: 'local_bash',
+      session_id: SESSION_ID,
+    },
+    {
+      ...(toolResult(toolUseId, `Monitor started (task ${sdkTaskId}). You will be notified on each event.`) as object),
+      tool_use_result: { taskId: sdkTaskId, timeoutMs: 60_000, persistent: false },
+    },
+  ]
+}
+
+/** What the SDK streams when a `Monitor`'s watch ends (its command exits), before the turn it starts. */
+export function monitorEnded(toolUseId: string, sdkTaskId: string, description: string): unknown[] {
+  return [
+    { type: 'system', subtype: 'background_tasks_changed', tasks: [], session_id: SESSION_ID },
+    {
+      type: 'system',
+      subtype: 'task_updated',
+      task_id: sdkTaskId,
+      patch: { status: 'completed', end_time: 1_790_000_000_000 },
+      session_id: SESSION_ID,
+    },
+    {
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: sdkTaskId,
+      tool_use_id: toolUseId,
+      status: 'completed',
+      output_file: `tasks/${sdkTaskId}.output`,
+      summary: `Monitor "${description}" stream ended`,
+      session_id: SESSION_ID,
+    },
+  ]
+}
+
+/**
+ * What the SDK streams when a `ScheduleWakeup` or `CronCreate` job fires, before the turn it starts: the job's prompt
+ * starting as a command of the SDK's own (`docs/sdk-notes.md` §11). The prompt itself never shows.
+ */
+export function scheduledFire(commandUuid = 'c7d1e2f3-0000-4000-8000-000000000001'): unknown {
+  return { type: 'command_lifecycle', command_uuid: commandUuid, state: 'started', session_id: SESSION_ID }
+}
+
+/** The `result` of a turn a scheduled job started: no `origin`, and no message of yours. */
+export function scheduledResult(reply: string): unknown {
+  return result(reply, { num_turns: 1 })
+}
