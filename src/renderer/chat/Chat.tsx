@@ -1,6 +1,12 @@
 import { faWrench } from '@fortawesome/free-solid-svg-icons'
 import { useMemo, useRef } from 'react'
-import type { Message, QuestionSet, ToolEvent } from '../../shared/domain'
+import {
+  PermissionRequestState,
+  type Message,
+  type PermissionRequest,
+  type QuestionSet,
+  type ToolEvent,
+} from '../../shared/domain'
 import { classNames } from '../components/classNames'
 import { Icon, IconSize } from '../components'
 import { agentReplyMenu, ContextMenu, useContextMenu, useMenuCommands } from '../context-menus'
@@ -23,6 +29,7 @@ import {
   workingNarration,
   type AgentEntry,
   type MarkedDoneEntry,
+  type PermissionEntry,
   type QuestionEntry,
   type RestartedEntry,
   type SummaryLine,
@@ -32,6 +39,8 @@ import { shortenHomePath } from '../paths'
 import { isPaused, pausedChatLine } from '../pause/pauseModel'
 import { useNow } from '../task-list/useNow'
 import { QuestionCard } from '../questions/QuestionCard'
+import { PermissionCard } from '../permissions/PermissionCard'
+import { subagentOrigin } from '../permissions/permissionCardModel'
 import { ErrorCard } from './ErrorCard'
 import { Markdown } from './Markdown'
 import { StoredImage } from '../images/StoredImage'
@@ -43,6 +52,7 @@ import styles from './Chat.module.css'
 const NO_MESSAGES: readonly Message[] = []
 const NO_TOOL_EVENTS: readonly ToolEvent[] = []
 const NO_QUESTION_SETS: readonly QuestionSet[] = []
+const NO_PERMISSION_REQUESTS: readonly PermissionRequest[] = []
 
 /** What the sidebar's search marks in the chat (`useSearchHighlight`). */
 interface HighlightProps {
@@ -165,6 +175,30 @@ function AgentQuestions({ questionSet, lead, highlight }: QuestionEntry & Highli
   )
 }
 
+interface AgentPermissionProps extends PermissionEntry {
+  readonly toolEvents: readonly ToolEvent[]
+  readonly rootPath: string | undefined
+  /** Whether it's the first open card in the chat, which takes the focus. */
+  readonly first: boolean
+}
+
+/** A tool call of the agent's (or a subagent's) waiting, or that waited, on your OK: the permission card. */
+function AgentPermission({ request, toolEvents, rootPath, first }: AgentPermissionProps): React.JSX.Element {
+  return (
+    <div className={styles.agent}>
+      <PermissionCard
+        request={request}
+        rootPath={rootPath}
+        subagent={subagentOrigin(request, toolEvents)}
+        autoFocus={first}
+      />
+      {request.state === PermissionRequestState.Open && (
+        <span className={styles.meta}>agent · {clockTime(request.createdAt)}</span>
+      )}
+    </div>
+  )
+}
+
 interface ChatDividerProps {
   /** The divider's accessible name. */
   readonly name: string
@@ -258,21 +292,26 @@ export function Chat(): React.JSX.Element {
   const insertIntoInput = useGladeStore((state) => state.insertIntoInput)
   const questionSets =
     useGladeStore((state) => (task === undefined ? undefined : state.questionSets[task.id])) ?? NO_QUESTION_SETS
+  const permissionRequests =
+    useGladeStore((state) => (task === undefined ? undefined : state.permissionRequests[task.id])) ??
+    NO_PERMISSION_REQUESTS
   const root = useGladeStore(
     (state) => state.workspaces.find((workspace) => workspace.id === task?.workspaceId)?.rootPath,
   )
 
   const entries = useMemo(
-    () => (task === undefined ? [] : chatEntries(task, messages, toolEvents, questionSets)),
-    [task, messages, toolEvents, questionSets],
+    () => (task === undefined ? [] : chatEntries(task, messages, toolEvents, questionSets, permissionRequests)),
+    [task, messages, toolEvents, questionSets, permissionRequests],
   )
+  // The first open permission card takes the focus; once it's answered, the next one does.
+  const firstOpen = permissionRequests.find(({ state }) => state === PermissionRequestState.Open)?.id
   const narration = task === undefined ? null : workingNarration(task, messages, toolEvents)
   const working = task === undefined || narration === null ? null : workingLabel(task, narration)
   const stopped = task !== undefined && isStoppedByError(task)
   const now = useNow()
   const paused = task !== undefined && isPaused(task) ? pausedChatLine(task.pause, now) : null
   const { ref, onScroll } = useStickToBottom(
-    `${String(entries.length)}:${working ?? ''}:${String(stopped)}:${paused ?? ''}:${questionSets.map(({ state }) => state).join()}`,
+    `${String(entries.length)}:${working ?? ''}:${String(stopped)}:${paused ?? ''}:${questionSets.map(({ state }) => state).join()}:${permissionRequests.map(({ state }) => state).join()}`,
     task?.id,
   )
   const isNew = task !== undefined && entries.length === 0 && narration === null
@@ -305,6 +344,16 @@ export function Chat(): React.JSX.Element {
               )
             case ChatEntryKind.Question:
               return <AgentQuestions key={entry.questionSet.id} {...entry} highlight={highlight} />
+            case ChatEntryKind.Permission:
+              return (
+                <AgentPermission
+                  key={entry.request.id}
+                  {...entry}
+                  toolEvents={toolEvents}
+                  rootPath={root}
+                  first={entry.request.id === firstOpen}
+                />
+              )
             case ChatEntryKind.Agent:
               return (
                 <AgentReply

@@ -652,6 +652,8 @@ export interface PermissionRequest {
   readonly state: PermissionRequestState
   /** The note you denied it with; null when you gave none, and while it isn't denied. */
   readonly denyNote: string | null
+  /** The rule you allowed it with for the rest of the task (Allow for this task); null when you didn't. */
+  readonly grantedRule: PermissionRule | null
   readonly createdAt: EpochMs
   /** When it was answered or withdrawn; null while it's open. */
   readonly closedAt: EpochMs | null
@@ -661,6 +663,11 @@ export interface PermissionRequest {
 export enum PermissionDecisionKind {
   /** Run this call, and ask again next time. */
   AllowOnce = 'allow_once',
+  /**
+   * Run this call, and don't ask again in this task about the calls its rule covers (`taskPermissionRule` in
+   * `./permissions`): the tool, or a `Bash` command prefix.
+   */
+  AllowForTask = 'allow_for_task',
   /** Don't run it: the agent is told, with your note if you gave one, and carries on. */
   Deny = 'deny',
 }
@@ -669,13 +676,27 @@ export interface AllowOnceDecision {
   readonly kind: PermissionDecisionKind.AllowOnce
 }
 
+export interface AllowForTaskDecision {
+  readonly kind: PermissionDecisionKind.AllowForTask
+}
+
 export interface DenyDecision {
   readonly kind: PermissionDecisionKind.Deny
   /** Goes back to the agent with the denial. */
   readonly note?: string
 }
 
-export type PermissionDecision = AllowOnceDecision | DenyDecision
+export type PermissionDecision = AllowOnceDecision | AllowForTaskDecision | DenyDecision
+
+/**
+ * A permission rule granted with Allow for this task: it lets the task's agent make the calls it covers without asking,
+ * for the rest of the task, across relaunches (`docs/decisions.md`, "Per-call permission review").
+ */
+export interface TaskPermissionRule {
+  readonly taskId: string
+  readonly rule: PermissionRule
+  readonly createdAt: EpochMs
+}
 
 /**
  * The files open in a task's Files tab, as tabs in the order they were opened, and the one showing. Each path is

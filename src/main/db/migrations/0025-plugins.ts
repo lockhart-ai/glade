@@ -6,7 +6,7 @@ import type { Migration } from '../migrate'
  * its folder is removed, so a plugin that comes back is as you left it.
  */
 export const pluginsMigration: Migration = {
-  version: 23,
+  version: 25,
   name: 'Add the plugins',
   up(db) {
     db.exec(`

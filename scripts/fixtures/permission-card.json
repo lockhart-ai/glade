@@ -1,0 +1,213 @@
+{
+  "collapsed": {
+    "bottomBar": true
+  },
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "tasks": [
+    {
+      "title": "Draft release notes for 2.4",
+      "objective": "Draft release notes for 2.4 from the PRs merged since the 2.3 tag, with a short upgrade guide if anything changes for API clients.",
+      "status": "Notes and an upgrade guide drafted. Waiting on your OK to run the tests and edit the guide.",
+      "pinned": true,
+      "minutesAgo": 1,
+      "startedMinutesAgo": 31,
+      "selected": true,
+      "permissionMode": "ask_before_edits",
+      "contextUsedTokens": 88000,
+      "contextWindowTokens": 200000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Draft release notes for 2.4 from the PRs merged since the 2.3 tag. Group them into features, fixes and internal changes, and add a short upgrade guide if anything changes for API clients.",
+          "turn": 1,
+          "minutesAgo": 31
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "narration",
+          "text": "Collecting the PRs merged since v2.3.0.",
+          "turn": 1,
+          "minutesAgo": 30
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "git log v2.3.0..HEAD --merges --oneline"
+          },
+          "output": "41 merges",
+          "turn": 1,
+          "minutesAgo": 30
+        },
+        {
+          "kind": "tool_call",
+          "name": "Edit",
+          "input": {
+            "file_path": "/Users/sample/code/api/CHANGELOG.md",
+            "old_string": "## Unreleased",
+            "new_string": "## 2.4.0"
+          },
+          "output": "The file CHANGELOG.md has been updated.",
+          "toolUseId": "changelog",
+          "turn": 1,
+          "minutesAgo": 20
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "rm -rf dist"
+          },
+          "output": "Keep dist, the smoke test reads it.",
+          "state": "error",
+          "toolUseId": "clean",
+          "turn": 1,
+          "minutesAgo": 12
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "Upgrade guide",
+            "prompt": "Write the 2.4 upgrade guide.",
+            "subagent_type": "general-purpose"
+          },
+          "toolUseId": "guide",
+          "turn": 1,
+          "minutesAgo": 3
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "npm test -- --coverage",
+            "description": "Run the test suite with coverage"
+          },
+          "toolUseId": "tests",
+          "turn": 1,
+          "minutesAgo": 2
+        },
+        {
+          "kind": "tool_call",
+          "name": "Edit",
+          "input": {
+            "file_path": "/Users/sample/code/api/docs/releases/2.4-upgrade.md",
+            "old_string": "## Upgrading from 2.3\n\nNo changes are needed.",
+            "new_string": "## Upgrading from 2.3\n\nClients that call /search more than 10 times a second now get 429\nToo Many Requests. Back off and retry after the Retry-After header.\n\nThe per-key limits are listed in docs/rate-limits.md, with the\nheaders each response carries:\n\n- X-RateLimit-Limit\n- X-RateLimit-Remaining\n- X-RateLimit-Reset\n\nKeys on the partner plan keep their old limits until 1 November."
+          },
+          "toolUseId": "guide-edit",
+          "parentToolUseId": "guide",
+          "turn": 1,
+          "minutesAgo": 1
+        }
+      ],
+      "permissionRequests": [
+        {
+          "toolName": "Edit",
+          "input": {
+            "file_path": "/Users/sample/code/api/CHANGELOG.md",
+            "old_string": "## Unreleased",
+            "new_string": "## 2.4.0"
+          },
+          "toolUseId": "changelog",
+          "state": "allowed",
+          "turn": 1,
+          "minutesAgo": 20
+        },
+        {
+          "toolName": "Bash",
+          "input": {
+            "command": "npm run lint",
+            "description": "Lint the release notes"
+          },
+          "toolUseId": "lint",
+          "suggestedRule": "npm run lint *",
+          "state": "allowed",
+          "forTask": true,
+          "turn": 1,
+          "minutesAgo": 16
+        },
+        {
+          "toolName": "Bash",
+          "input": {
+            "command": "rm -rf dist",
+            "description": "Remove the old build"
+          },
+          "toolUseId": "clean",
+          "state": "denied",
+          "denyNote": "Keep dist, the smoke test reads it.",
+          "turn": 1,
+          "minutesAgo": 12
+        },
+        {
+          "toolName": "Write",
+          "input": {
+            "file_path": "/Users/sample/code/api/out/announcement-2.4.txt",
+            "content": "Acme API 2.4 is out."
+          },
+          "toolUseId": "announce",
+          "state": "withdrawn",
+          "turn": 1,
+          "minutesAgo": 8
+        },
+        {
+          "toolName": "Bash",
+          "input": {
+            "command": "npm test -- --coverage",
+            "description": "Run the test suite with coverage"
+          },
+          "toolUseId": "tests",
+          "turn": 1,
+          "minutesAgo": 2,
+          "suggestedRule": "npm test *"
+        },
+        {
+          "toolName": "Edit",
+          "input": {
+            "file_path": "/Users/sample/code/api/docs/releases/2.4-upgrade.md",
+            "old_string": "## Upgrading from 2.3\n\nNo changes are needed.",
+            "new_string": "## Upgrading from 2.3\n\nClients that call /search more than 10 times a second now get 429\nToo Many Requests. Back off and retry after the Retry-After header.\n\nThe per-key limits are listed in docs/rate-limits.md, with the\nheaders each response carries:\n\n- X-RateLimit-Limit\n- X-RateLimit-Remaining\n- X-RateLimit-Reset\n\nKeys on the partner plan keep their old limits until 1 November."
+          },
+          "toolUseId": "guide-edit",
+          "agentId": "a1b2c3d4e5f6",
+          "defaultToNo": true,
+          "turn": 1,
+          "minutesAgo": 1
+        }
+      ]
+    },
+    {
+      "title": "Investigate slow dashboard query",
+      "status": "Added an index; 2.1s down to 90ms",
+      "state": "done",
+      "pinned": true,
+      "minutesAgo": 7200
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "status": "Waiting on you: pick a limit for /search",
+      "minutesAgo": 4
+    },
+    {
+      "title": "Move image uploads to S3",
+      "status": "Copying existing files, 1,240 of 3,900",
+      "activity": "working",
+      "minutesAgo": 0
+    },
+    {
+      "title": "Fix flaky login test",
+      "status": "Found the race; fix passes 200 local runs",
+      "minutesAgo": 9
+    },
+    {
+      "title": "Upgrade Django to 5.2",
+      "status": "Upgraded; two deprecations fixed",
+      "state": "done",
+      "minutesAgo": 2880
+    }
+  ]
+}

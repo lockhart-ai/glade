@@ -6,7 +6,8 @@
  * where a message reopened a done task (`docs/design/html/06-reopen.html`). Its compactions show as "Compacted ·
  * 198k → 41k" dividers (`docs/design/html/19-compaction.html`). The agent's questions (`ask`) show as question cards
  * where they were asked (`docs/design/html/03-rich-question.html`), each led by the narration the agent wrote just
- * before asking, if any.
+ * before asking, if any. The tool calls that wait on your OK show as permission cards where they asked
+ * (`docs/design/html/23-permission-card.html`).
  */
 import { formatTokens } from '../context-meter/format'
 import {
@@ -22,6 +23,7 @@ import {
   type EpochMs,
   type Message,
   type NarrationEvent,
+  type PermissionRequest,
   type QuestionSet,
   type Task,
   type ToolEvent,
@@ -51,6 +53,8 @@ export enum ChatEntryKind {
   Compacted = 'compacted',
   /** The questions the agent asked (`ask`): a question card. */
   Question = 'question',
+  /** A tool call that waits, or waited, on your OK: a permission card. */
+  Permission = 'permission',
 }
 
 export interface UserEntry {
@@ -99,9 +103,24 @@ export interface QuestionEntry {
   readonly lead: string | null
 }
 
-/** One entry in the chat: a message, a divider, or a question card. */
+export interface PermissionEntry {
+  readonly kind: ChatEntryKind.Permission
+  readonly request: PermissionRequest
+}
+
+/** One entry in the chat: a message, a divider, a question card or a permission card. */
 export type ChatEntry =
-  UserEntry | AgentEntry | RestartedEntry | MarkedDoneEntry | ReopenedEntry | CompactedEntry | QuestionEntry
+  | UserEntry
+  | AgentEntry
+  | RestartedEntry
+  | MarkedDoneEntry
+  | ReopenedEntry
+  | CompactedEntry
+  | QuestionEntry
+  | PermissionEntry
+
+/** The chat's cards: the agent's questions, and its calls that wait on your OK. */
+export type CardEntry = QuestionEntry | PermissionEntry
 
 /** The chat's entries that are dividers. */
 export type DividerEntry = RestartedEntry | MarkedDoneEntry | ReopenedEntry | CompactedEntry
@@ -225,13 +244,24 @@ export function questionLead(set: QuestionSet, toolEvents: readonly ToolEvent[])
   return last?.kind === ToolEventKind.Narration ? last.text : null
 }
 
-/** Whether a question card shows before a message: before later turns' messages, and its own turn's that came after it. */
-function questionComesBefore({ questionSet }: QuestionEntry, message: Message): boolean {
-  if (message.turn !== questionSet.turn) return message.turn > questionSet.turn
-  return message.createdAt > questionSet.createdAt
+/** What a card was made in and when: its question set, or its permission request. */
+function cardOrigin(card: CardEntry): Pick<QuestionSet, 'turn' | 'createdAt'> {
+  switch (card.kind) {
+    case ChatEntryKind.Question:
+      return card.questionSet
+    case ChatEntryKind.Permission:
+      return card.request
+  }
 }
 
-/** When a divider entry happened, for putting question cards among the dividers. */
+/** Whether a card shows before a message: before later turns' messages, and its own turn's that came after it. */
+function cardComesBefore(card: CardEntry, message: Message): boolean {
+  const { turn, createdAt } = cardOrigin(card)
+  if (message.turn !== turn) return message.turn > turn
+  return message.createdAt > createdAt
+}
+
+/** When a divider entry happened, for putting cards among the dividers. */
 function dividerTime(entry: DividerEntry): EpochMs {
   return entry.kind === ChatEntryKind.Compacted ? entry.compaction.createdAt : entry.divider.createdAt
 }
@@ -240,13 +270,15 @@ function dividerTime(entry: DividerEntry): EpochMs {
  * The chat's entries for a task: each message in order, with each agent reply's style and tool-call count, and its
  * dividers in log order: a restart divider for each resumed turn and a reopened divider for each reopening message,
  * each after its turn's message and before its reply, and a marked done divider before each reopening message. Each
- * question set shows as a card where it was asked: after the messages before it, and before the dividers after it.
+ * question set and permission request shows as a card where it was made: after the messages before it, and before the
+ * dividers after it, in the order they were made.
  */
 export function chatEntries(
   task: Task,
   messages: readonly Message[],
   toolEvents: readonly ToolEvent[],
   questionSets: readonly QuestionSet[] = [],
+  permissionRequests: readonly PermissionRequest[] = [],
 ): ChatEntry[] {
   const counts = toolCallsByTurn(toolEvents)
   const last = messages.at(-1)
@@ -255,32 +287,33 @@ export function chatEntries(
     const entry = toolEventEntry(task, event, turn)
     return entry === null ? [] : [entry]
   })
-  const questions = questionSets
-    .toSorted((a, b) => a.createdAt - b.createdAt)
-    .map((questionSet): QuestionEntry => ({
+  const cards = [
+    ...questionSets.map((questionSet): CardEntry => ({
       kind: ChatEntryKind.Question,
       questionSet,
       lead: questionLead(questionSet, toolEvents),
-    }))
+    })),
+    ...permissionRequests.map((request): CardEntry => ({ kind: ChatEntryKind.Permission, request })),
+  ].toSorted((a, b) => cardOrigin(a).createdAt - cardOrigin(b).createdAt)
   const entries: ChatEntry[] = []
-  /** Adds the question cards that go before `message` (all that are left without one) and before `before`, if given. */
-  const addQuestions = (message: Message | undefined, before?: EpochMs): void => {
-    for (let question = questions[0]; question !== undefined; question = questions[0]) {
-      if (message !== undefined && !questionComesBefore(question, message)) return
-      if (before !== undefined && question.questionSet.createdAt > before) return
-      questions.shift()
-      entries.push(question)
+  /** Adds the cards that go before `message` (all that are left without one) and before `before`, if given. */
+  const addCards = (message: Message | undefined, before?: EpochMs): void => {
+    for (let card = cards[0]; card !== undefined; card = cards[0]) {
+      if (message !== undefined && !cardComesBefore(card, message)) return
+      if (before !== undefined && cardOrigin(card).createdAt > before) return
+      cards.shift()
+      entries.push(card)
     }
   }
-  /** Adds the dividers that go before `message`, or all that are left, with the question cards that came first. */
+  /** Adds the dividers that go before `message`, or all that are left, with the cards that came first. */
   const addDividers = (message?: Message): void => {
     for (let divider = dividers[0]; divider !== undefined; divider = dividers[0]) {
       if (message !== undefined && !dividerComesBefore(divider, message)) break
-      addQuestions(message, dividerTime(divider))
+      addCards(message, dividerTime(divider))
       dividers.shift()
       entries.push(divider)
     }
-    addQuestions(message)
+    addCards(message)
   }
   for (const message of messages) {
     addDividers(message)
