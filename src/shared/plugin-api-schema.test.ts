@@ -66,7 +66,7 @@ describe('gladeMessageSchema', () => {
   })
 
   it('refuses another version, a seq below 1, and an event type it does not know', () => {
-    const hello = { type: PluginEventType.Hello, app: { name: 'Glade', version: '0.12.0' } }
+    const hello = { type: PluginEventType.Hello, app: { name: 'Glade', version: '0.11.0' } }
     expect(gladeMessageSchema.safeParse({ source: 'glade', apiVersion: 2, seq: 1, event: hello }).success).toBe(false)
     expect(gladeMessageSchema.safeParse({ source: 'glade', apiVersion: 1, seq: 0, event: hello }).success).toBe(false)
     expect(pluginEventSchema.safeParse({ type: 'chat.message', body: 'hi' }).success).toBe(false)

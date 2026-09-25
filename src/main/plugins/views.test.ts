@@ -99,7 +99,7 @@ beforeEach(() => {
     emit,
     feed,
     folder: '/data/plugins',
-    appVersion: '0.12.0',
+    appVersion: '0.11.0',
     createView: fakes.create,
     now: () => time,
     log: log.logger,
@@ -112,7 +112,7 @@ function message(seq: number, event: PluginEvent): GladeMessage {
 }
 
 function hello(seq = 1): GladeMessage {
-  return message(seq, { type: PluginEventType.Hello, app: { name: 'Glade', version: '0.12.0' } })
+  return message(seq, { type: PluginEventType.Hello, app: { name: 'Glade', version: '0.11.0' } })
 }
 
 /** What a page is sent for each `ready`: hello, then the snapshot. */
@@ -181,7 +181,7 @@ describe('place', () => {
   })
 
   it('checks the plugin but makes nothing without a way to make views', () => {
-    const bare = createPluginViews({ emit, feed, folder: '/data/plugins', appVersion: '0.12.0' })
+    const bare = createPluginViews({ emit, feed, folder: '/data/plugins', appVersion: '0.11.0' })
     bare.update([valid('nekomata')])
 
     expect(bare.place('nekomata', bounds)).toEqual({ status: '' })

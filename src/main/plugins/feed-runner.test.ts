@@ -62,7 +62,7 @@ beforeEach(async () => {
     terminal: fakeTerminalOptions(),
     pluginsFolder,
     createPluginView: views.create,
-    appVersion: '0.12.0',
+    appVersion: '0.11.0',
     agentBackend: backend,
   }))
   glade = createBridge(ipc.renderer)
@@ -149,7 +149,7 @@ it('sends hello and a snapshot of the tasks in every workspace after ready, then
   await ready()
 
   const [hello, snapshot] = received()
-  expect(hello).toEqual({ type: PluginEventType.Hello, app: { name: 'Glade', version: '0.12.0' } })
+  expect(hello).toEqual({ type: PluginEventType.Hello, app: { name: 'Glade', version: '0.11.0' } })
   expect(snapshot).toMatchObject({
     type: PluginEventType.Snapshot,
     tasks: [
