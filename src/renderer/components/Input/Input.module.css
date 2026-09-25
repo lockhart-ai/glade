@@ -1,11 +1,11 @@
 .field {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-md);
   box-sizing: border-box;
-  height: 36px;
+  height: 32px;
   min-width: 0;
-  padding: 0 12px;
+  padding: 0 var(--space-item);
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-button);

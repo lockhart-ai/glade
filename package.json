@@ -16,6 +16,7 @@
     "package": "electron-vite build && electron-builder --mac",
     "start": "electron-vite preview",
     "screenshot": "node scripts/screenshot.mjs",
+    "render-design": "node scripts/render-design.mjs",
     "typecheck": "tsc --build",
     "lint": "eslint .",
     "format": "prettier --write .",

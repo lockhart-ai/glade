@@ -30,8 +30,8 @@
 }
 
 .tab {
-  height: 30px;
-  padding: 0 9px;
+  height: 28px;
+  padding: 0 var(--space-item);
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-button-sm);

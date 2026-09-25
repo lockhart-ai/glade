@@ -7,8 +7,8 @@
 
 .searchRow {
   display: flex;
-  gap: 8px;
-  padding: 0 16px 12px;
+  gap: var(--space-md);
+  padding: 0 var(--space-inset) var(--space-md);
 }
 
 .search {
@@ -16,23 +16,23 @@
 }
 
 .newTask {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   padding: 0;
 }
 
 .chips {
   display: flex;
-  gap: 6px;
-  padding: 0 16px 12px;
+  gap: var(--space-xs);
+  padding: 0 var(--space-inset) var(--space-md);
 }
 
 .chip {
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
+  gap: var(--space-sm);
+  height: var(--touch-target-dense);
+  padding: 0 var(--space-item);
   background: transparent;
   border: 1px solid var(--color-border);
   border-radius: 14px;

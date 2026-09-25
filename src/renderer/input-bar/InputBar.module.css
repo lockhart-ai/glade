@@ -12,17 +12,17 @@
 .settings {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 6px 8px;
+  gap: var(--space-2xs);
+  padding: var(--space-xs) var(--space-md);
   border-bottom: 1px solid var(--color-inner-border);
 }
 
 .setting {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-sm);
   height: var(--touch-target-dense);
-  padding: 0 9px;
+  padding: 0 7px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -77,8 +77,9 @@
 .compose {
   display: flex;
   align-items: flex-end;
-  gap: 10px;
-  padding: 10px 10px 10px 16px;
+  gap: var(--space-md);
+  /* The text starts 16px in, in line with the settings' labels above it. */
+  padding: var(--space-md) var(--space-md) var(--space-md) var(--space-xl);
 }
 
 /* Two lines to start, growing with what you type up to a limit, then scrolling. */
