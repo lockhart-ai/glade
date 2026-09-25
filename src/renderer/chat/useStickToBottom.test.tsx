@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { isAtBottom, STICK_THRESHOLD, useStickToBottom } from './useStickToBottom'
 
 describe('isAtBottom', () => {
@@ -26,9 +26,11 @@ function Scroller({ content, resetKey }: ScrollerProps): React.JSX.Element {
   )
 }
 
-/** jsdom doesn't lay out; give the scroller a fixed viewport and a content height to scroll through. */
+/** The scroller's viewport height, from when it first renders (jsdom doesn't lay out). */
+const VIEWPORT = 400
+
+/** jsdom doesn't lay out; give the scroller a content height to scroll through. */
 function layOut(scroller: HTMLElement, scrollHeight: number): void {
-  Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
   Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: scrollHeight })
 }
 
@@ -38,6 +40,14 @@ function scrollTo(scroller: HTMLElement, top: number): void {
 }
 
 describe('useStickToBottom', () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(VIEWPORT)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('scrolls to the bottom as content arrives while at the bottom', () => {
     const { rerender } = render(<Scroller content="a" resetKey="t1" />)
     const scroller = screen.getByTestId('scroller')
@@ -146,6 +156,25 @@ describe('useStickToBottom', () => {
       layOut(scroller, 1600)
       observers[0]?.resize()
       expect(scroller.scrollTop).toBe(200)
+    })
+
+    it("stays stuck when the window shrinks before the observer's first report", () => {
+      vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+      const { rerender } = render(<Scroller content="a" resetKey="t1" />)
+      const scroller = screen.getByTestId('scroller')
+      layOut(scroller, 1000)
+      rerender(<Scroller content="ab" resetKey="t1" />)
+      expect(scroller.scrollTop).toBe(1000)
+
+      // The window shrinks straight after the chat renders, as the narrow-window spec's does, and the scroll the
+      // shrink causes is dispatched before the observer has reported any size: it's layout moving, not the user.
+      Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 100 })
+      layOut(scroller, 1500)
+      scrollTo(scroller, 600)
+      expect(scroller.scrollTop).toBe(1500)
+
+      observers[0]?.resize()
+      expect(scroller.scrollTop).toBe(1500)
     })
 
     it('stops watching when it unmounts', () => {
