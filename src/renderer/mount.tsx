@@ -1,5 +1,5 @@
 import { StrictMode, type ReactNode } from 'react'
-import { createRoot } from 'react-dom/client'
+import { createRoot, type RootOptions } from 'react-dom/client'
 import type { GladeBridge } from '../shared/bridge'
 import { App } from './App'
 import { ReadySignal } from './ready'
@@ -19,9 +19,12 @@ export function appPage(bridge: GladeBridge): React.JSX.Element {
   )
 }
 
-/** Renders a page (the app, or in dev another page such as the component gallery) into the page's root element. */
-export function mountApp(root: HTMLElement | null, page: ReactNode): void {
+/**
+ * Renders a page (the app, or in dev another page such as the component gallery) into the page's root element, with
+ * the root's `options`, such as its error callbacks (`./errors/reportErrors`).
+ */
+export function mountApp(root: HTMLElement | null, page: ReactNode, options?: RootOptions): void {
   if (root === null) throw new Error('Missing #root element')
 
-  createRoot(root).render(<StrictMode>{page}</StrictMode>)
+  createRoot(root, options).render(<StrictMode>{page}</StrictMode>)
 }
