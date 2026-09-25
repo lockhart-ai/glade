@@ -125,7 +125,10 @@ export interface HeldPort {
 /** Listens on `port` of `127.0.0.1`, or rejects when it's taken. */
 function hold(port: number): Promise<HeldPort> {
   return new Promise((resolve, reject) => {
-    const server: Server = createServer()
+    // It hangs up on whoever connects, as a port held by something that isn't Glade answers nothing Glade would.
+    const server: Server = createServer((socket) => {
+      socket.destroy()
+    })
     server.once('error', reject)
     server.listen({ port, host: '127.0.0.1', exclusive: true }, () => {
       resolve({
@@ -145,11 +148,12 @@ function hold(port: number): Promise<HeldPort> {
 export const takePort = hold
 
 /**
- * `count` consecutive free ports, above the ephemeral range the OS hands out, found by holding each then letting it go.
+ * `count` consecutive free ports, below the ephemeral range the OS hands out, found by holding each then letting it go.
  * The first one is the port to choose; the rest are its fallbacks.
  */
 export async function freePortRun(count: number): Promise<number> {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  // Somewhere in 20000–39999 there's always a run free; a test that can't find one times out.
+  for (;;) {
     const base = 20_000 + Math.floor(Math.random() * 20_000)
     const held: HeldPort[] = []
     try {
@@ -161,5 +165,4 @@ export async function freePortRun(count: number): Promise<number> {
       for (const port of held) await port.release()
     }
   }
-  throw new Error(`No ${String(count)} free ports in a row`)
 }

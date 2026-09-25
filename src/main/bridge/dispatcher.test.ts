@@ -21,7 +21,6 @@ import { REQUEST_SCHEMAS } from './requests'
 import { LogLevel, LogScope } from '../logging/logger'
 import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
 
-
 const CONTROL_STATUS: ControlStatus = {
   enabled: false,
   chosenPort: DEFAULT_CONTROL_PORT,

@@ -20,7 +20,13 @@ import {
 import type { Emit } from '../bridge/events'
 import { getSettings } from '../db/repositories/settings'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
-import { CONTROL_HOST, listenControlHttp, PortsTakenError, type ControlHttpOptions, type ControlHttpServer } from './http'
+import {
+  CONTROL_HOST,
+  listenControlHttp,
+  PortsTakenError,
+  type ControlHttpOptions,
+  type ControlHttpServer,
+} from './http'
 import { ensureControlToken, readControlToken, regenerateControlToken } from './token'
 
 export interface ControlEndpointOptions extends Pick<ControlHttpOptions, 'control' | 'limiter' | 'maxBodyBytes'> {

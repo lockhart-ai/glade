@@ -39,7 +39,6 @@ import type { Handlers } from './handlers'
 import { DEFAULT_CONTROL_PORT, type ControlStatus } from '../../shared/control'
 import { REQUEST_SCHEMAS, type RequestSchemas } from './requests'
 
-
 const CONTROL_STATUS: ControlStatus = {
   enabled: false,
   chosenPort: DEFAULT_CONTROL_PORT,
@@ -428,6 +427,9 @@ describe('events', () => {
           break
         case EventType.PluginStatusChanged:
           expectTypeOf(event.text).toEqualTypeOf<string>()
+          break
+        case EventType.ControlChanged:
+          expectTypeOf(event.status).toEqualTypeOf<ControlStatus>()
           break
       }
     })

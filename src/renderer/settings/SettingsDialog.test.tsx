@@ -68,7 +68,7 @@ describe('SettingsDialog', () => {
       within(nav)
         .getAllByRole('button')
         .map((button) => button.textContent),
-    ).toEqual(['General', 'Agent', 'Notifications', 'Appearance', 'Keyboard', 'Plugins', 'Acme API'])
+    ).toEqual(['General', 'Agent', 'Notifications', 'Appearance', 'Keyboard', 'Plugins', 'Control', 'Acme API'])
     expect(nav).toHaveTextContent('Workspace')
     const agent = within(nav).getByRole('button', { name: 'Agent' })
     expect(agent).toHaveAttribute('aria-current', 'page')

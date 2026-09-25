@@ -119,10 +119,20 @@ describe('the plain JSON API', () => {
   })
 
   it.each<[string, () => Promise<Answer>, number, string]>([
-    ['input that fails its schema', () => call(ControlToolName.GetTask, { id: '' }), 400, ControlErrorCode.InvalidInput],
+    [
+      'input that fails its schema',
+      () => call(ControlToolName.GetTask, { id: '' }),
+      400,
+      ControlErrorCode.InvalidInput,
+    ],
     ['an unknown field', () => call(ControlToolName.ListWorkspaces, { what: 1 }), 400, ControlErrorCode.InvalidInput],
     ['a body that is not JSON', () => call(ControlToolName.ListWorkspaces, '{'), 400, ControlErrorCode.InvalidInput],
-    ['a body that is not an object', () => call(ControlToolName.ListWorkspaces, '[]'), 400, ControlErrorCode.InvalidInput],
+    [
+      'a body that is not an object',
+      () => call(ControlToolName.ListWorkspaces, '[]'),
+      400,
+      ControlErrorCode.InvalidInput,
+    ],
     ['no such task', () => call(ControlToolName.GetTask, { id: 'nope' }), 404, ControlErrorCode.NotFound],
     ['no such tool', () => call('drop_tables', {}), 404, 'not_found'],
     ['a bad token', () => call(ControlToolName.ListWorkspaces, {}, 'wrong'), 401, 'unauthorized'],
@@ -187,7 +197,9 @@ describe('the plain JSON API', () => {
     for (let from = 0; from < titles.length; from += 20) {
       const batch = titles.slice(from, from + 20)
       answers.push(
-        ...(await Promise.all(batch.map((title) => call(ControlToolName.CreateTask, { workspaceId: workspace.id, title })))),
+        ...(await Promise.all(
+          batch.map((title) => call(ControlToolName.CreateTask, { workspaceId: workspace.id, title })),
+        )),
       )
     }
 
@@ -229,7 +241,9 @@ describe('the rate limit over the plain JSON API', () => {
 
     expect(refused.status).toBe(429)
     expect(Number(refused.headers.get('retry-after'))).toBeGreaterThan(0)
-    expect(await refused.json()).toMatchObject({ error: { code: 'rate_limited', retryAfterMs: expect.any(Number) as unknown } })
+    expect(await refused.json()).toMatchObject({
+      error: { code: 'rate_limited', retryAfterMs: expect.any(Number) as unknown },
+    })
   })
 })
 

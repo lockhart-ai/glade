@@ -3,6 +3,7 @@
 // (`StreamableHTTPClientTransport`) or raw requests calling it. Every tool works; every request that fails a check is
 // refused with its status before MCP sees it, and changes nothing; the rate limits hold under concurrent clients; and
 // neither the token nor anything else leaves 127.0.0.1 or reaches the log.
+import { request as httpRequest } from 'node:http'
 import { networkInterfaces } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { CommandName, EventType } from '../../shared/bridge'
@@ -12,7 +13,7 @@ import { settle } from '../agent/fake-backend'
 import * as sdk from '../agent/test-sdk-messages'
 import { getTask, listTasks } from '../db/repositories/tasks'
 import { sampleWorkspace } from '../db/repositories/test-database'
-import { MAX_BODY_BYTES, RefusalReason } from './http'
+import { listenControlHttp, MAX_BODY_BYTES, RefusalReason, TOOLS_PATH } from './http'
 import { ControlToolName } from './names'
 import { Delivery } from './service'
 import { errorCode, startControlApp, type ControlApp, type ControlClient } from './test-control'
@@ -27,6 +28,8 @@ import {
   type RawResponse,
 } from './test-http'
 import { CONTROL_TOOLS } from './tools'
+import { createRateLimiter } from './rate-limit'
+import { createMemoryLog } from '../logging/memory-sink'
 import { ControlAccess } from './names'
 
 /** Small rate limits, for the tests that go past them. */
@@ -72,7 +75,12 @@ async function http(key = token): Promise<ControlClient> {
 
 /** A raw request to the endpoint, with good headers unless the test changes them. */
 function send(request: Partial<RawRequest> = {}): Promise<RawResponse> {
-  return rawRequest({ port, headers: goodHeaders(token), body: toolCallBody(ControlToolName.ListWorkspaces), ...request })
+  return rawRequest({
+    port,
+    headers: goodHeaders(token),
+    body: toolCallBody(ControlToolName.ListWorkspaces),
+    ...request,
+  })
 }
 
 /** A create_task call, which would add a task if it got through. */
@@ -165,14 +173,39 @@ describe('a refused request', () => {
 
   it.each<[string, () => Partial<RawRequest>, number, RefusalReason]>([
     ['no token', () => ({ headers: { ...goodHeaders(token), Authorization: '' } }), 401, RefusalReason.NoToken],
-    ['a token of another scheme', () => ({ headers: { ...goodHeaders(token), Authorization: `Basic ${token}` } }), 401, RefusalReason.NoToken],
+    [
+      'a token of another scheme',
+      () => ({ headers: { ...goodHeaders(token), Authorization: `Basic ${token}` } }),
+      401,
+      RefusalReason.NoToken,
+    ],
     ['a wrong token', () => ({ headers: goodHeaders('wrong-token') }), 401, RefusalReason.BadToken],
     ['the token cut short', () => ({ headers: goodHeaders(token.slice(0, -1)) }), 401, RefusalReason.BadToken],
-    ['Host: evil.example', () => ({ headers: { ...goodHeaders(token), Host: 'evil.example' } }), 403, RefusalReason.BadHost],
-    ['a Host on another port', () => ({ headers: { ...goodHeaders(token), Host: `127.0.0.1:${String(port + 1)}` } }), 403, RefusalReason.BadHost],
-    ['a Host of the bare address', () => ({ headers: { ...goodHeaders(token), Host: '127.0.0.1' } }), 403, RefusalReason.BadHost],
+    [
+      'Host: evil.example',
+      () => ({ headers: { ...goodHeaders(token), Host: 'evil.example' } }),
+      403,
+      RefusalReason.BadHost,
+    ],
+    [
+      'a Host on another port',
+      () => ({ headers: { ...goodHeaders(token), Host: `127.0.0.1:${String(port + 1)}` } }),
+      403,
+      RefusalReason.BadHost,
+    ],
+    [
+      'a Host of the bare address',
+      () => ({ headers: { ...goodHeaders(token), Host: '127.0.0.1' } }),
+      403,
+      RefusalReason.BadHost,
+    ],
     ['a foreign Origin', () => ({ headers: origin('https://evil.example') }), 403, RefusalReason.BadOrigin],
-    ['a rebound Origin on the port', () => ({ headers: origin(`http://evil.example:${String(port)}`) }), 403, RefusalReason.BadOrigin],
+    [
+      'a rebound Origin on the port',
+      () => ({ headers: origin(`http://evil.example:${String(port)}`) }),
+      403,
+      RefusalReason.BadOrigin,
+    ],
     ['an https Origin', () => ({ headers: origin(`https://127.0.0.1:${String(port)}`) }), 403, RefusalReason.BadOrigin],
     ['Origin: null', () => ({ headers: origin('null') }), 403, RefusalReason.BadOrigin],
     ['a 2 MB body', () => ({ body: Buffer.alloc(2 * MAX_BODY_BYTES, 32) }), 413, RefusalReason.TooLarge],
@@ -260,7 +293,103 @@ describe('the address', () => {
       .flat()
       .flatMap((address) => (address === undefined || address.internal ? [] : [address.address]))
     for (const address of others) {
-      await expect(send({ address })).rejects.toMatchObject({ code: expect.stringMatching(/ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|EADDRNOTAVAIL/) as unknown })
+      await expect(send({ address })).rejects.toMatchObject({
+        code: expect.stringMatching(/ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|EADDRNOTAVAIL/) as unknown,
+      })
+    }
+  })
+})
+
+describe('a body far too large', () => {
+  it('declared too large to read on, is refused at once', async () => {
+    const response = await send({
+      headers: { ...goodHeaders(token), 'Content-Length': String(64 * MAX_BODY_BYTES) },
+    }).catch((error: unknown) => error)
+
+    // Refused before it's sent: the answer, or the connection closed under the rest of the body.
+    if (response instanceof Error) {
+      expect(response).toMatchObject({ code: expect.stringMatching(/EPIPE|ECONNRESET/) as unknown })
+    } else expect(response).toMatchObject({ status: 413 })
+    expect(refusals()).toEqual([RefusalReason.TooLarge])
+  })
+
+  it('streamed past what is worth reading, has its connection dropped, and the endpoint carries on', async () => {
+    const outcome = await new Promise<string>((resolve) => {
+      const outgoing = httpRequest(
+        {
+          host: '127.0.0.1',
+          port,
+          path: '/mcp',
+          method: 'POST',
+          headers: { ...goodHeaders(token), Host: `127.0.0.1:${String(port)}`, 'Transfer-Encoding': 'chunked' },
+          agent: false,
+        },
+        (response) => {
+          resolve(String(response.statusCode))
+          response.resume()
+        },
+      )
+      outgoing.on('error', (error: NodeJS.ErrnoException) => {
+        resolve(error.code ?? 'error')
+      })
+      const chunk = Buffer.alloc(MAX_BODY_BYTES, 32)
+      const write = (left: number): void => {
+        if (left === 0) {
+          outgoing.end()
+          return
+        }
+        if (outgoing.write(chunk)) write(left - 1)
+        else
+          outgoing.once('drain', () => {
+            write(left - 1)
+          })
+      }
+      write(20)
+    })
+
+    expect(outcome).toMatch(/413|EPIPE|ECONNRESET/)
+    expect(refusals()).toEqual([RefusalReason.TooLarge])
+    expect((await send()).status).toBe(200)
+  })
+})
+
+describe('a body MCP makes no sense of', () => {
+  it.each([
+    ['a number', '5'],
+    ['a batch with a number in it', '[5]'],
+  ])('as %s is for MCP to refuse, not a crash', async (_what, body) => {
+    const response = await send({ body })
+
+    expect(response.status).toBeGreaterThanOrEqual(400)
+    expect(response.status).toBeLessThan(500)
+    expect((await send()).status).toBe(200)
+  })
+})
+
+describe('a request that fails inside Glade', () => {
+  it('is answered 500 and logged, and the endpoint carries on', async () => {
+    const log = createMemoryLog()
+    const broken = await listenControlHttp(
+      {
+        control: {
+          ...app.bridge.control,
+          invoke: () => Promise.reject(new Error('the database is locked')),
+        },
+        token: () => token,
+        limiter: createRateLimiter(),
+        log: log.logger,
+      },
+      [0],
+    )
+    try {
+      const request = { port: broken.port, headers: goodHeaders(token), body: '{}' }
+      const response = await rawRequest({ ...request, path: `${TOOLS_PATH}/${ControlToolName.ListWorkspaces}` })
+
+      expect(response.status).toBe(500)
+      expect(log.withMessage('control request failed')).toHaveLength(1)
+      expect((await rawRequest({ ...request, path: TOOLS_PATH, method: 'GET', body: undefined })).status).toBe(200)
+    } finally {
+      await broken.close()
     }
   })
 })

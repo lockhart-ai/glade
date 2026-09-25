@@ -141,7 +141,8 @@ const ROUTE_METHOD: Readonly<Record<Route, string>> = {
   [Route.CallTool]: 'POST',
 }
 
-type Target = { readonly route: Route.Mcp | Route.ListTools } | { readonly route: Route.CallTool; readonly tool: string }
+type Target =
+  { readonly route: Route.Mcp | Route.ListTools } | { readonly route: Route.CallTool; readonly tool: string }
 
 /** Where a path goes: nowhere (null) when it's none of the endpoint's. */
 function targetOf(pathname: string): Target | null {
@@ -270,7 +271,13 @@ function createHandler(options: ControlHttpOptions, port: () => number) {
     const hosts = [`127.0.0.1:${String(port())}`, `localhost:${String(port())}`]
     if (!isOneOf(request.headers.host, hosts)) return { reason: RefusalReason.BadHost }
     const origin = request.headers.origin
-    if (origin !== undefined && !isOneOf(origin, hosts.map((host) => `http://${host}`))) {
+    if (
+      origin !== undefined &&
+      !isOneOf(
+        origin,
+        hosts.map((host) => `http://${host}`),
+      )
+    ) {
       return { reason: RefusalReason.BadOrigin }
     }
     const current = token()
@@ -423,8 +430,8 @@ export async function listenControlHttp(
   const server = createServer((request, response) => {
     handle(request, response).catch((error: unknown) => {
       options.log.error('control request failed', { error })
-      if (!response.headersSent) response.writeHead(500).end()
-      else response.end()
+      if (!response.headersSent) response.writeHead(500)
+      response.end()
     })
   })
   for (const port of ports) {

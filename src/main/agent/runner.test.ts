@@ -291,6 +291,7 @@ describe('a turn', () => {
       resumeSessionId: null,
       systemPromptAppend: systemPromptAppend(task),
       mcpServers: { [GLADE_SERVER]: expect.objectContaining({ type: 'sdk', name: GLADE_SERVER }) as unknown },
+      env: {},
       allowedRules: [],
       log: expect.objectContaining({ info: expect.any(Function) as unknown }) as unknown,
       onToolPermission: expect.any(Function) as unknown,

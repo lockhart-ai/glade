@@ -49,7 +49,11 @@ function endpointOf(): ControlEndpoint {
     db: database.db,
     emit,
     limiter: createRateLimiter(),
-    control: createControl({ db: database.db, emit, runner: createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() }) }),
+    control: createControl({
+      db: database.db,
+      emit,
+      runner: createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() }),
+    }),
   })
 }
 
