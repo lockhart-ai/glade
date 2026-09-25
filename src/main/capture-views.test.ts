@@ -5,6 +5,7 @@ import {
   coverage,
   parseSlots,
   pasteView,
+  SLOTS_SCRIPT,
   viewsSettled,
   type Bitmap,
   type BitmapImage,
@@ -100,6 +101,12 @@ describe('pasteView', () => {
 
 describe('parseSlots and viewsSettled', () => {
   const slot = { x: 2, y: 1, width: 4, height: 3 }
+
+  it('asks for the slots whose views show: not one an overlay covers, whose view is hidden', () => {
+    expect(SLOTS_SCRIPT).toContain(
+      "document.querySelectorAll('[data-native-view-slot]:not([data-native-view-covered])')",
+    )
+  })
 
   it("reads the page's slots, and none from anything else", () => {
     expect(parseSlots(JSON.stringify([slot]))).toEqual([slot])

@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { UiStateKey } from '../../shared/domain'
 import { parseRelaunchNotice } from '../../shared/relaunchNotice'
-import { Button, ButtonSize, ButtonVariant } from '../components'
+import { Button, ButtonSize, ButtonVariant, useOverlayRef } from '../components'
 import { useGladeStore } from '../store/react'
 import styles from './RelaunchNotice.module.css'
 
@@ -27,6 +27,7 @@ export function RelaunchNotice(): React.JSX.Element | null {
   const setUiState = useGladeStore((state) => state.setUiState)
   const selectTask = useGladeStore((state) => state.selectTask)
   const notice = useMemo(() => parseRelaunchNotice(value), [value])
+  const overlay = useOverlayRef()
 
   const taskIds = notice?.taskIds.filter((id) => id in tasks) ?? []
   const [first] = taskIds
@@ -40,7 +41,7 @@ export function RelaunchNotice(): React.JSX.Element | null {
   }
 
   return (
-    <div role="status" aria-label="Glade quit unexpectedly" className={styles.notice}>
+    <div ref={overlay} role="status" aria-label="Glade quit unexpectedly" className={styles.notice}>
       <div className={styles.title}>Glade quit unexpectedly</div>
       <div className={styles.message}>{relaunchMessage(taskIds.length)}</div>
       <div className={styles.actions}>

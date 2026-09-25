@@ -1,50 +1,20 @@
-import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { expect, pluginsFolder, test, type Glade } from './fixtures'
-import { chooseMenuItem } from './menu'
-import { panelToggles, regions, settings } from './selectors'
+import {
+  expectViewOverSlot,
+  FIXTURE,
+  inPlugin,
+  installFixture,
+  logged,
+  openPlugins,
+  pluginCard,
+  pluginView,
+} from './plugin-view'
+import { panelToggles, regions } from './selectors'
 import { boxOf, resize } from './window-layout'
-
-/** The e2e fixture plugin (e2e/plugins/fixture-plugin): it lists Glade's messages and says hello in its status. */
-const FIXTURE = resolve(__dirname, 'plugins', 'fixture-plugin')
-
-/** Copies the fixture plugin into a data folder's plugins folder, as installing it does. */
-function installFixture(userData: string): void {
-  cpSync(FIXTURE, join(pluginsFolder(userData), 'fixture-plugin'), { recursive: true })
-}
-
-/** The plugin's card beside the terminal, and its parts. */
-function pluginCard(glade: Glade) {
-  const card = glade.window.getByRole('region', { name: 'Fixture' })
-  return { card, status: card.getByTestId('plugin-status'), slot: card.getByTestId('plugin-view-slot') }
-}
-
-/** The plugin's view in the window, as main has it; null when there's none. */
-interface ViewState {
-  readonly bounds: { x: number; y: number; width: number; height: number }
-  readonly visible: boolean
-  readonly url: string
-  /** Whether its page's process runs in the OS sandbox, as Electron's process metrics have it. */
-  readonly sandboxed: boolean | undefined
-}
-
-async function pluginView({ app }: Glade): Promise<ViewState | null> {
-  return app.evaluate(({ app: electronApp, BrowserWindow, WebContentsView }) => {
-    const view = BrowserWindow.getAllWindows()[0]?.contentView.children.find(
-      (child): child is Electron.WebContentsView => child instanceof WebContentsView,
-    )
-    if (view === undefined) return null
-    const pid = view.webContents.getOSProcessId()
-    return {
-      bounds: view.getBounds(),
-      visible: view.getVisible(),
-      url: view.webContents.getURL(),
-      sandboxed: electronApp.getAppMetrics().find((metric) => metric.pid === pid)?.sandboxed,
-    }
-  })
-}
 
 /** How many plugin pages are running, in any window or none. */
 async function pluginPages({ app }: Glade): Promise<number> {
@@ -52,55 +22,6 @@ async function pluginPages({ app }: Glade): Promise<number> {
     ({ webContents }) =>
       webContents.getAllWebContents().filter((page) => page.getURL().startsWith('glade-plugin:')).length,
   )
-}
-
-/** Runs `code` in the plugin's page, as its own scripts would (its main world), and answers with what it resolves to. */
-async function inPlugin<T>({ app }: Glade, code: string): Promise<T> {
-  return app.evaluate(async ({ webContents }, source) => {
-    const page = webContents.getAllWebContents().find((contents) => contents.getURL().startsWith('glade-plugin:'))
-    if (page === undefined) throw new Error('No plugin page is running')
-    return (await page.executeJavaScript(source)) as unknown
-  }, code) as Promise<T>
-}
-
-/** The slot's box, rounded to whole points, as main places the view. */
-async function slotBounds(glade: Glade): Promise<ViewState['bounds']> {
-  const box = await boxOf(pluginCard(glade).slot)
-  return {
-    x: Math.round(box.x),
-    y: Math.round(box.y),
-    width: Math.round(box.width),
-    height: Math.round(box.height),
-  }
-}
-
-/** Waits until the view is over its slot and showing. */
-async function expectViewOverSlot(glade: Glade): Promise<void> {
-  await expect
-    .poll(async () => {
-      const view = await pluginView(glade)
-      return view === null ? null : { bounds: view.bounds, visible: view.visible }
-    })
-    .toEqual({ bounds: await slotBounds(glade), visible: true })
-}
-
-/** The log's lines saying `msg`. */
-function logged({ logFile }: Glade, msg: string): Record<string, unknown>[] {
-  if (!existsSync(logFile)) return []
-  return readFileSync(logFile, 'utf8')
-    .split('\n')
-    .filter((line) => line !== '')
-    .map((line) => JSON.parse(line) as Record<string, unknown>)
-    .filter((line) => line.msg === msg)
-}
-
-/** Opens Settings › Plugins, and waits until it has read the plugins folder. */
-async function openPlugins(glade: Glade): Promise<ReturnType<typeof settings>> {
-  const modal = settings(glade.window)
-  await chooseMenuItem(glade, 'Glade', 'Settings…')
-  await modal.section('Plugins').click()
-  await expect(modal.plugins).toHaveAttribute('aria-busy', 'false')
-  return modal
 }
 
 /** A local HTTP server that counts its requests, answering each with `ok` to any origin. */

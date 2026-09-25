@@ -9,7 +9,7 @@ import {
 } from '@floating-ui/react'
 import { faXmark } from '@fortawesome/free-solid-svg-icons'
 import { useCallback, useId, useRef } from 'react'
-import { Button, ButtonVariant } from '../components'
+import { Button, ButtonVariant, useOverlayRef } from '../components'
 import { selectSelectedWorkspace } from '../store/state'
 import { useGladeStore } from '../store/react'
 import { APP_SECTIONS, SECTION_TITLES, SettingsSection } from './sections'
@@ -58,6 +58,7 @@ export function SettingsDialog(): React.JSX.Element {
   const workspace = useGladeStore(selectSelectedWorkspace)
   const headingId = useId()
   const currentRef = useRef<HTMLButtonElement>(null)
+  const overlay = useOverlayRef()
   const open = section !== null
   const { refs, context } = useFloating({
     open,
@@ -84,7 +85,7 @@ export function SettingsDialog(): React.JSX.Element {
 
   return (
     <FloatingPortal>
-      <FloatingOverlay className={styles.backdrop} lockScroll>
+      <FloatingOverlay ref={overlay} className={styles.backdrop} lockScroll>
         <FloatingFocusManager context={context} initialFocus={currentRef}>
           <div ref={setFloating} className={styles.dialog} aria-label="Settings" {...getFloatingProps()}>
             <nav className={styles.nav} aria-label="Settings sections">

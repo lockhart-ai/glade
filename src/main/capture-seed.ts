@@ -188,6 +188,8 @@ export interface CaptureSeed {
   readonly panelTab?: string | undefined
   /** The right panel's width, in CSS pixels; the default unless given. */
   readonly panelWidth?: number | undefined
+  /** The plugin card's width beside the terminal, in CSS pixels; the default unless given. */
+  readonly pluginWidth?: number | undefined
   /** The panels to show collapsed; each is open unless given. */
   readonly collapsed?: SeedCollapsed | undefined
 }
@@ -263,6 +265,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
   workspace: z.strictObject({ name: z.string(), rootPath: z.string() }),
   panelTab: z.string().optional(),
   panelWidth: z.int().positive().optional(),
+  pluginWidth: z.int().positive().optional(),
   collapsed: z
     .strictObject({
       sidebar: z.boolean().optional(),
@@ -360,6 +363,9 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
     if (seed.panelTab !== undefined) setUiState(db, { key: UiStateKey.RightPanelTab, value: seed.panelTab })
     if (seed.panelWidth !== undefined) {
       setUiState(db, { key: UiStateKey.RightPanelWidth, value: String(seed.panelWidth) })
+    }
+    if (seed.pluginWidth !== undefined) {
+      setUiState(db, { key: UiStateKey.PluginWidth, value: String(seed.pluginWidth) })
     }
     for (const [key, collapsed] of [
       [UiStateKey.SidebarCollapsed, seed.collapsed?.sidebar],

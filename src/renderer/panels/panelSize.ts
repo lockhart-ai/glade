@@ -1,8 +1,17 @@
-// How big the three resizable panels are (the sidebar's width, the right panel's width and the bottom bar's height),
-// as it's stored in UI state, and the limits each one keeps to. Each panel resizes with the same handle
-// (`../layout/ResizeHandle`); only its edge and its limits differ.
+// How big the resizable panels are (the sidebar's width, the right panel's width, the bottom bar's height and the
+// plugin card's width beside the terminal), as it's stored in UI state, and the limits each one keeps to. Each panel
+// resizes with the same handle (`../layout/ResizeHandle`); only its edge and its limits differ.
 import { UiStateKey } from '../../shared/domain'
 import { Panel } from './panels'
+
+/** The panes that resize but don't collapse on their own, so have no toggle (`Panel` has those that do). */
+export enum Pane {
+  /** The shown plugin's card, beside the terminal in the bottom bar: it collapses with the bar. */
+  Plugin = 'plugin',
+}
+
+/** Anything a resize handle sizes: a collapsible panel, or a pane. */
+export type SizedPanel = Panel | Pane
 
 /** How small and how big a panel can be, in CSS pixels. */
 export interface SizeBounds {
@@ -56,11 +65,23 @@ export const MIN_CHAT_WIDTH = 380
  */
 export const MIN_TASK_HEIGHT = 460
 
+/** The plugin card's width until you drag it, from docs/design/html/task-workspace.html. */
+export const DEFAULT_PLUGIN_WIDTH = 680
+
+/** The narrowest the plugin card gets: its header's icon, name, badge and a short status still fit. */
+export const MIN_PLUGIN_WIDTH = 280
+
+/**
+ * The narrowest the terminal gets beside the plugin card, which the card gives way to: its tab row's first tabs and
+ * about 45 columns. At the 1100px window minimum it leaves the plugin card room for the design's 680px.
+ */
+export const MIN_TERMINAL_WIDTH = 360
+
 /** How far one press of an arrow key on a resize handle moves it. */
 export const RESIZE_STEP = 16
 
 /** Each panel's size. */
-export function panelSize(panel: Panel): PanelSizeDefinition {
+export function panelSize(panel: SizedPanel): PanelSizeDefinition {
   switch (panel) {
     case Panel.Sidebar:
       return {
@@ -78,6 +99,8 @@ export function panelSize(panel: Panel): PanelSizeDefinition {
         min: MIN_BOTTOM_BAR_HEIGHT,
         max: undefined,
       }
+    case Pane.Plugin:
+      return { key: UiStateKey.PluginWidth, initial: DEFAULT_PLUGIN_WIDTH, min: MIN_PLUGIN_WIDTH, max: undefined }
   }
 }
 
@@ -85,7 +108,7 @@ export function panelSize(panel: Panel): PanelSizeDefinition {
  * A panel's bounds when `room` pixels could go to it: all of it, up to the panel's own maximum, but never below its
  * minimum (the window's minimum size leaves room for every panel's minimum).
  */
-export function sizeBounds(panel: Panel, room: number): SizeBounds {
+export function sizeBounds(panel: SizedPanel, room: number): SizeBounds {
   const { min, max } = panelSize(panel)
   const fits = Math.max(min, Math.round(room))
   return { min, max: max === undefined ? fits : Math.min(fits, max) }
@@ -101,7 +124,7 @@ export function clampSize(size: number, { min, max }: SizeBounds): number {
  * minimum nor above the maximum; how big the panel can be also depends on the window, so the layout caps it as it
  * renders.
  */
-export function parsePanelSize(panel: Panel, value: string | undefined): number {
+export function parsePanelSize(panel: SizedPanel, value: string | undefined): number {
   const { initial, min, max } = panelSize(panel)
   const size = value === undefined || value === '' ? NaN : Number(value)
   if (!Number.isFinite(size)) return initial

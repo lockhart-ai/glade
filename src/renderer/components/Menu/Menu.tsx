@@ -17,6 +17,7 @@ import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, typ
 import { faCheck } from '@fortawesome/free-solid-svg-icons'
 import { classNames } from '../classNames'
 import { Icon, IconSize } from '../Icon/Icon'
+import { useOverlayRef } from '../overlays'
 import { Placement } from '../Placement'
 import styles from './Menu.module.css'
 
@@ -160,11 +161,13 @@ export function Menu({ label, entries, anchor, open, onClose, className }: MenuP
     labelsRef.current = entries.flatMap((entry) => (entry.kind === MenuEntryKind.Item ? [entry.label] : []))
   }, [entries])
 
+  const overlay = useOverlayRef()
   const setFloating = useCallback(
     (node: HTMLElement | null) => {
       refs.setFloating(node)
+      overlay(node)
     },
-    [refs],
+    [refs, overlay],
   )
 
   const { getFloatingProps, getItemProps } = useInteractions([

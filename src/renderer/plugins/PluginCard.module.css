@@ -1,7 +1,10 @@
-/* The plugin card, from docs/design/html/task-workspace.html (`section aria-label="Nekomata"`), at its fixed width. */
+/*
+ * The plugin card, from docs/design/html/task-workspace.html (`section aria-label="Nekomata"`): it fills its slot beside
+ * the terminal, whose width you drag (PluginPanel.module.css).
+ */
 .card {
-  flex-shrink: 0;
-  width: 680px;
+  flex-grow: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;

@@ -9,6 +9,7 @@ import {
 } from '@floating-ui/react'
 import { useCallback, useId, useRef } from 'react'
 import { Button, ButtonVariant } from '../Button/Button'
+import { useOverlayRef } from '../overlays'
 import styles from './ConfirmDialog.module.css'
 
 export interface ConfirmDialogProps {
@@ -44,6 +45,7 @@ export function ConfirmDialog({
   const titleId = useId()
   const messageId = useId()
   const cancelRef = useRef<HTMLButtonElement>(null)
+  const overlay = useOverlayRef()
   const { refs, context } = useFloating({
     open,
     onOpenChange: (next) => {
@@ -65,7 +67,7 @@ export function ConfirmDialog({
 
   return (
     <FloatingPortal>
-      <FloatingOverlay className={styles.backdrop} lockScroll>
+      <FloatingOverlay ref={overlay} className={styles.backdrop} lockScroll>
         <FloatingFocusManager context={context} initialFocus={cancelRef}>
           <div
             ref={setFloating}
