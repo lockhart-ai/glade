@@ -31,9 +31,9 @@ import {
 } from '../../shared/domain'
 import { retryingLabel } from '../../shared/taskError'
 
-/** How an agent reply is styled. */
+/** Which card an agent reply is on. Every reply is on a card, whatever its turn's shape. */
 export enum ReplyStyle {
-  /** Plain text on the card. */
+  /** The neutral reply card. */
   Plain = 'plain',
   /** The purple question card: the task's latest reply, and the agent is waiting on you. */
   Question = 'question',

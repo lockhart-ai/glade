@@ -84,12 +84,21 @@
   color: var(--color-text);
 }
 
-/* The agent's latest reply while it waits on you. */
-.question {
+/*
+ * Every agent reply is on a card (#248), with the question card's shape (03-rich-question.html) and the permission
+ * card's neutral fill and border (23-permission-card.html).
+ */
+.card {
   padding: 14px 16px;
-  background: var(--color-question-bg);
-  border: 1px solid var(--color-question-border);
+  background: var(--color-inner);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-nested);
+}
+
+/* The agent's latest reply while it waits on you: the purple question card (task-workspace.html). */
+.question {
+  background: var(--color-question-bg);
+  border-color: var(--color-question-border);
 }
 
 .turn {
