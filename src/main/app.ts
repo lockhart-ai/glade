@@ -209,6 +209,8 @@ interface CaptureContext {
 /** Fills the database from the spec's seed fixture and seeds its conversation, if it has them, then captures the page of a hidden window. Resolves with the files. */
 async function capture(spec: CaptureSpec, { database, bridge, agent, log }: CaptureContext): Promise<string[]> {
   if (spec.seed !== undefined) applySeed(database.db, readSeed(spec.seed))
+  // Settings › Control shows the endpoint as the seed's settings have it.
+  await bridge.endpoint.sync()
   if (spec.conversation !== undefined) {
     const context = {
       db: database.db,
@@ -251,6 +253,7 @@ async function runCapture(spec: CaptureSpec, context: CaptureContext): Promise<v
     exitCode = 1
   }
   context.bridge.runner.close()
+  await context.bridge.endpoint.close()
   context.bridge.terminals.shutdown()
   context.database.db.close()
   app.exit(exitCode)
@@ -602,6 +605,9 @@ export function startApp({
       runner.close()
       return
     }
+    // The control API's HTTP endpoint listens from launch while Settings › Control has it on (after an e2e seed, which
+    // may turn it on).
+    void bridge.endpoint.sync()
     // A database from before each workspace kept its own selection still has only the window's; carry it over.
     backfillWorkspaceSelections(database.db)
     // The plugins are read when Glade starts, noting the new ones, and again each time Settings › Plugins opens.
@@ -611,6 +617,7 @@ export function startApp({
       log.info('app quitting')
       stopLoggingCrashes()
       runner.close()
+      void bridge.endpoint.close()
       bridge.pluginViews.close()
       // The shells end with the app; their tabs and recent output stay, for the next launch to show.
       if (database.db.open) bridge.terminals.shutdown()

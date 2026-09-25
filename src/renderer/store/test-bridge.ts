@@ -49,6 +49,7 @@ import { noOpenFiles, withClosedFile, withOpenedFile } from '../../shared/files'
 import { taskPermissionRule } from '../../shared/permissions'
 import type { ImageData, ImageRef } from '../../shared/images'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
+import { controlUrl, type ControlStatus } from '../../shared/control'
 import { PluginStatus, type InstalledPlugin } from '../../shared/plugins'
 import { highlightParts, highlightPattern, SearchField, type SearchResult } from '../../shared/search'
 import type { TerminalTab } from '../../shared/terminal'
@@ -112,6 +113,14 @@ export interface FakeMain {
   /** The status `plugins.placeView` answers with for each plugin, by id; `''` when left out. */
   pluginStatuses?: Record<string, string>
   /**
+   * The port the control endpoint listens on while it's on, when the chosen one is taken; the chosen one when left out.
+   * `control.status` answers as main would: listening while `controlEnabled` is on, with `token-1` from the first time
+   * it goes on; `settings.update` of the switch or the port and `control.regenerateToken` (`token-2`, …) broadcast it.
+   */
+  readonly controlFallbackPort?: number
+  /** Why the control endpoint can't listen while it's on (every port taken, say); none when left out. */
+  readonly controlError?: string
+  /**
    * The terminal tabs, in order; none when left out. `terminal.create` adds `term-1`, `term-2`… at the end (starting in
    * the workspace's root, or `/Users/sample`), `terminal.duplicate` after the tab, and `terminal.rename` and
    * `terminal.close` change them, each broadcasting them.
@@ -158,6 +167,20 @@ export interface FakeBridge {
 export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void): FakeHandlers {
   let sent = 0
   let settings = main.settings ?? DEFAULT_SETTINGS
+  let tokens = 0
+  const controlStatus = (): ControlStatus => {
+    if (settings.controlEnabled && tokens === 0) tokens = 1
+    const listening = settings.controlEnabled && main.controlError === undefined
+    const port = listening ? (main.controlFallbackPort ?? settings.controlPort) : null
+    return {
+      enabled: settings.controlEnabled,
+      chosenPort: settings.controlPort,
+      port,
+      url: port === null ? null : controlUrl(port),
+      token: tokens === 0 ? null : `token-${String(tokens)}`,
+      error: settings.controlEnabled ? (main.controlError ?? null) : null,
+    }
+  }
   let queued = 0
   const images = main.images ?? {}
   let stored = 0
@@ -427,7 +450,17 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     [CommandName.SettingsUpdate]: ({ patch }) => {
       settings = { ...settings, ...patch }
       emit({ type: EventType.SettingsChanged, settings })
+      if (patch.controlEnabled !== undefined || patch.controlPort !== undefined) {
+        emit({ type: EventType.ControlChanged, status: controlStatus() })
+      }
       return { settings }
+    },
+    [CommandName.ControlStatus]: () => ({ status: controlStatus() }),
+    [CommandName.ControlRegenerateToken]: () => {
+      tokens += 1
+      const status = controlStatus()
+      emit({ type: EventType.ControlChanged, status })
+      return { status }
     },
     [CommandName.SearchQuery]: ({ workspaceId, text }) => ({ results: fakeSearch(main, workspaceId, text) }),
     [CommandName.PluginsList]: () => ({ plugins: [...(main.plugins ?? [])] }),

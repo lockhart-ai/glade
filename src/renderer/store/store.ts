@@ -259,6 +259,16 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.PluginsOpenFolder, {})
       },
 
+      async loadControlStatus() {
+        const { status } = await bridge.invoke(CommandName.ControlStatus, {})
+        set({ controlStatus: status })
+      },
+
+      async regenerateControlToken() {
+        const { status } = await bridge.invoke(CommandName.ControlRegenerateToken, {})
+        set({ controlStatus: status })
+      },
+
       async placePluginView(id, bounds) {
         const { status } = await bridge.invoke(CommandName.PluginsPlaceView, { id, bounds })
         set((state) => ({ pluginStatuses: { ...state.pluginStatuses, [id]: status } }))

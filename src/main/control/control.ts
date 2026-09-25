@@ -43,15 +43,25 @@ const SERVER_VERSION = '1.0.0'
 export interface ControlOptions extends ControlServiceContext {
   /** Where each call is logged, in the `control` scope. Nothing by default. */
   readonly log?: Logger
-  /** The rate limits. 600 reads and 120 changes a minute per caller by default. */
+  /** The rate limits. 3,000 reads and 1,200 changes a minute per caller by default. */
   readonly limiter?: RateLimiter
   /** The tools served. Every `glade-control` tool by default. */
   readonly tools?: readonly ControlTool[]
 }
 
+/** How a call came out: its result, or the error it failed with. */
+export type ControlOutcome =
+  { readonly ok: true; readonly result: ControlResult } | { readonly ok: false; readonly error: ControlError }
+
 export interface Control {
   readonly service: ControlService
   readonly tools: readonly ControlTool[]
+  /** The tools as `tools/list` gives them: name, description and JSON input schema. */
+  readonly listing: readonly Tool[]
+  /** Whether `name` is one of the tools served. */
+  has(name: string): boolean
+  /** Calls a tool by name as `caller`: how it came out. Throws for a tool that isn't one. */
+  invoke(caller: ControlCaller, name: string, input: unknown): Promise<ControlOutcome>
   /** Calls a tool by name as `caller`: its result, or a tool error with its code. Throws for a tool that isn't one. */
   call(caller: ControlCaller, name: string, input: unknown): Promise<CallToolResult>
   /** An MCP server serving the tools to `caller`, for any transport. */
@@ -115,7 +125,7 @@ export function createControl(options: ControlOptions): Control {
   /** The log, about the task a call acts on, if it acts on one. */
   const about = ({ target }: Attempt): Logger => (target === null ? log : log.with({ taskId: target }))
 
-  const call = async (caller: ControlCaller, name: string, input: unknown): Promise<CallToolResult> => {
+  const invoke = async (caller: ControlCaller, name: string, input: unknown): Promise<ControlOutcome> => {
     const tool = byName.get(name)
     if (tool === undefined) throw new McpError(ErrorCode.InvalidParams, `No tool named ${name}`)
     const startedAt = now()
@@ -124,15 +134,20 @@ export function createControl(options: ControlOptions): Control {
     try {
       const result = await run(tool, caller, input, attempt)
       about(attempt).info('control call', { ...fields, durationMs: now() - startedAt, outcome: 'ok' })
-      return success(result)
+      return { ok: true, result }
     } catch (thrown) {
       const error = controlErrorFrom(thrown)
       const outcome = { ...fields, durationMs: now() - startedAt, outcome: error.code }
       const line = about(attempt)
       if (error.code === ControlErrorCode.Internal) line.error('control call failed', { ...outcome, error: thrown })
       else line.info('control call', { ...outcome, message: error.message })
-      return failure(error)
+      return { ok: false, error }
     }
+  }
+
+  const call = async (caller: ControlCaller, name: string, input: unknown): Promise<CallToolResult> => {
+    const outcome = await invoke(caller, name, input)
+    return outcome.ok ? success(outcome.result) : failure(outcome.error)
   }
 
   const listed: Tool[] = tools.map((tool) => ({
@@ -153,6 +168,9 @@ export function createControl(options: ControlOptions): Control {
   return {
     service,
     tools,
+    listing: listed,
+    has: (name) => byName.has(name),
+    invoke,
     call,
     server,
     sdkServer: (taskId) => ({

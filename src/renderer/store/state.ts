@@ -13,6 +13,7 @@ import type {
 } from '../../shared/bridge'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../shared/settings'
 import type { InstalledPlugin } from '../../shared/plugins'
+import type { ControlStatus } from '../../shared/control'
 import type { SettingsSection } from '../settings/sections'
 import type { Command, MenuState } from '../../shared/commands'
 import type {
@@ -211,6 +212,11 @@ export interface GladeData {
    * or answered when its view was placed; none until it sets one. Not saved: a plugin sets it again after `ready`.
    */
   readonly pluginStatuses: Readonly<Record<string, string>>
+  /**
+   * The control API's HTTP endpoint (Settings › Control), as main last answered (`control.status`, which the section asks
+   * for when it opens) or broadcast it; null until it's first read.
+   */
+  readonly controlStatus: ControlStatus | null
   /** The latest request to add text to a task's message field; null until one is made. A one-off UI intent. */
   readonly inputInsertion: InputInsertion | null
   /**
@@ -271,6 +277,10 @@ export interface GladeActions {
   setPluginEnabled: (id: string, enabled: boolean) => Promise<void>
   /** Opens the plugins folder in Finder (Open plugins folder). */
   openPluginsFolder: () => Promise<void>
+  /** Reads the control endpoint's status (`control.status`). */
+  loadControlStatus: () => Promise<void>
+  /** Replaces the control endpoint's token (Regenerate token, `control.regenerateToken`); the old one stops working. */
+  regenerateControlToken: () => Promise<void>
   /**
    * Puts a plugin's view over its card's body, in the page's CSS pixels, or hides it (`null`), and notes the status it
    * answers with (`plugins.placeView`).
@@ -520,6 +530,7 @@ export const INITIAL_DATA: GladeData = {
   settingsSection: null,
   plugins: null,
   pluginStatuses: {},
+  controlStatus: null,
   inputInsertion: null,
   searchText: '',
   searchFocusRequest: 0,

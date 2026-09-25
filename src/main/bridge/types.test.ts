@@ -36,8 +36,18 @@ import type { TerminalTab } from '../../shared/terminal'
 import type { InstalledPlugin } from '../../shared/plugins'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import type { Handlers } from './handlers'
+import { DEFAULT_CONTROL_PORT, type ControlStatus } from '../../shared/control'
 import { REQUEST_SCHEMAS, type RequestSchemas } from './requests'
 
+
+const CONTROL_STATUS: ControlStatus = {
+  enabled: false,
+  chosenPort: DEFAULT_CONTROL_PORT,
+  port: null,
+  url: null,
+  token: null,
+  error: null,
+}
 const noop = (...values: unknown[]): unknown[] => values
 /** A stand-in: these tests are about types, so what it answers doesn't matter. */
 const glade: GladeBridge = { invoke: () => Promise.resolve({} as never), subscribe: () => noop }
@@ -105,6 +115,8 @@ const TASK_HANDLERS = {
   [CommandName.PluginsSetEnabled]: () => ({ plugins: [] }),
   [CommandName.PluginsOpenFolder]: () => null,
   [CommandName.PluginsPlaceView]: () => ({ status: '' }),
+  [CommandName.ControlStatus]: () => ({ status: CONTROL_STATUS }),
+  [CommandName.ControlRegenerateToken]: () => ({ status: CONTROL_STATUS }),
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
   [CommandName.TasksCreate]: REQUEST_SCHEMAS[CommandName.TasksCreate],

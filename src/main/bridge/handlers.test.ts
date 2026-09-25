@@ -25,6 +25,9 @@ import { createPluginViews, type PluginViews } from '../plugins/views'
 import type { Plugins } from '../plugins/plugins'
 import { PluginStatus } from '../../shared/plugins'
 import { createTerminals } from '../terminal/terminals'
+import { createControlEndpoint, type ControlEndpoint } from '../control/endpoint'
+import { createRateLimiter } from '../control/rate-limit'
+import { createControl } from '../control/control'
 import { createHandlers, type Handlers } from './handlers'
 import { LogLevel, LogScope } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
@@ -39,6 +42,16 @@ let writeClipboard: Mock<(text: string) => Promise<void>>
 let handlers: Handlers
 let spawner: FakeSpawner
 let views: FakePluginViews
+
+/** The control endpoint, over the test's database; never started here (see `src/main/control/endpoint.test.ts`). */
+function endpointOf(): ControlEndpoint {
+  return createControlEndpoint({
+    db: database.db,
+    emit,
+    limiter: createRateLimiter(),
+    control: createControl({ db: database.db, emit, runner: createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() }) }),
+  })
+}
 
 /** The plugins in the test's plugins folder, with their views made by `views`. */
 function pluginsWithViews(): { plugins: Plugins; pluginViews: PluginViews } {
@@ -79,6 +92,7 @@ beforeEach(() => {
     runner,
     terminals,
     ...pluginsWithViews(),
+    endpoint: endpointOf(),
   })
 })
 
@@ -136,6 +150,7 @@ describe('menu.update and window.close', () => {
       closeWindow,
       terminals: createTerminals({ db: database.db, emit, ...fakeTerminalOptions() }),
       ...pluginsWithViews(),
+      endpoint: endpointOf(),
     })
 
     expect(await withApp[CommandName.MenuUpdate](EMPTY_MENU_STATE)).toBeNull()
@@ -223,15 +238,28 @@ describe('workspaces.update', () => {
 })
 
 describe('the settings commands', () => {
-  it('answer with the settings, and save and broadcast a change', () => {
+  it('answer with the settings, and save and broadcast a change', async () => {
     expect(handlers[CommandName.SettingsGet]({})).toEqual({ settings: DEFAULT_SETTINGS })
 
-    const changed = handlers[CommandName.SettingsUpdate]({ patch: { defaultEffort: Effort.Max } })
+    const changed = await handlers[CommandName.SettingsUpdate]({ patch: { defaultEffort: Effort.Max } })
 
     const settings = { ...DEFAULT_SETTINGS, defaultEffort: Effort.Max }
     expect(changed).toEqual({ settings })
     expect(getSettings(database.db)).toEqual(settings)
     expect(emit).toHaveBeenCalledExactlyOnceWith({ type: EventType.SettingsChanged, settings })
+  })
+
+  it('answer with the control endpoint as it is, off to begin with', () => {
+    expect(handlers[CommandName.ControlStatus]({})).toEqual({
+      status: {
+        enabled: false,
+        chosenPort: DEFAULT_SETTINGS.controlPort,
+        port: null,
+        url: null,
+        token: null,
+        error: null,
+      },
+    })
   })
 })
 
@@ -426,6 +454,7 @@ describe('log.rendererError', () => {
       runner: createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() }),
       terminals: createTerminals({ db: database.db, emit, ...fakeTerminalOptions(spawner) }),
       ...pluginsWithViews(),
+      endpoint: endpointOf(),
       log: log.logger,
     })
     const error = {

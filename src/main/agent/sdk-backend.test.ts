@@ -84,6 +84,7 @@ it('runs the session in the workspace root, allowing all, with the workspace and
     canUseTool: expect.any(Function) as unknown,
     allowedTools: [],
     settingSources: ['user', 'project', 'local'],
+    settings: { deniedMcpServers: [{ serverName: 'glade-control' }] },
     systemPrompt: { type: 'preset', preset: 'claude_code', append: 'You are running inside Glade.' },
     mcpServers: {},
     disallowedTools: ['AskUserQuestion'],

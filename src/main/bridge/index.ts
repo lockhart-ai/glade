@@ -5,7 +5,9 @@ import type { Task } from '../../shared/domain'
 import type { AgentBackend } from '../agent/backend'
 import { createGladeMcpServer, GLADE_SERVER } from '../agent/glade-tools'
 import { createControl, type Control } from '../control/control'
+import { controlEnv, createControlEndpoint, type ControlEndpoint } from '../control/endpoint'
 import { CONTROL_SERVER } from '../control/names'
+import { createRateLimiter, type RateLimits } from '../control/rate-limit'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
 import type { OpenPath, RevealPath, WriteClipboard } from '../files/files'
 import type { NotifyReply } from '../notifications/notifications'
@@ -73,6 +75,8 @@ export interface BridgeOptions {
    * Where the bridge logs its commands and events, and the runner and terminals what they do (`docs/logs.md`).
    * Nothing by default.
    */
+  /** The control API's rate limits, per caller: 3,000 reads and 1,200 changes a minute by default. */
+  readonly controlLimits?: RateLimits
   readonly log?: Logger
 }
 
@@ -98,6 +102,11 @@ export interface RegisteredBridge {
   readonly pluginViews: PluginViews
   /** The control API (`glade-control`), which other agents drive Glade with. */
   readonly control: Control
+  /**
+   * The control API's HTTP endpoint: synced with the settings once the app has started (`sync`), and after each change
+   * of the switch or the port; closed when the app quits.
+   */
+  readonly endpoint: ControlEndpoint
 }
 
 /** Every task, in every workspace: what the event log and the plugin feed know of them to begin with. */
@@ -127,6 +136,7 @@ export function registerBridge({
   isTrustedSender = () => true,
   updateMenu,
   closeWindow,
+  controlLimits,
   log = SILENT_LOGGER,
 }: BridgeOptions): RegisteredBridge {
   const broadcast = createBroadcast(EVENT_CHANNEL, targets)
@@ -162,9 +172,15 @@ export function registerBridge({
         ...(settings.controlEnabled ? { [CONTROL_SERVER]: control.sdkServer(task.id) } : {}),
       }
     },
+    // While the endpoint listens, the agent's scripts can call it too: its URL and token are in their environment.
+    sessionEnv: () => controlEnv(endpoint.status()),
   })
-  // The control API, over the same runner and events as the window's commands.
-  const control = createControl({ db, emit, runner, log: log.scoped(LogScope.Control) })
+  // The control API, over the same runner and events as the window's commands, and its HTTP endpoint, which counts
+  // against the same rate limits as one caller.
+  const controlLog = log.scoped(LogScope.Control)
+  const limiter = createRateLimiter(controlLimits === undefined ? {} : { limits: controlLimits })
+  const control = createControl({ db, emit, runner, limiter, log: controlLog })
+  const endpoint = createControlEndpoint({ db, emit, limiter, control, log: controlLog })
   const terminals = createTerminals({ db, emit, ...terminal, log: log.scoped(LogScope.Terminal) })
   const pluginViews = createPluginViews({
     emit,
@@ -198,6 +214,7 @@ export function registerBridge({
       terminals,
       plugins,
       pluginViews,
+      endpoint,
       log,
     }),
     REQUEST_SCHEMAS,
@@ -210,5 +227,5 @@ export function registerBridge({
     }
     return dispatch(command, request)
   })
-  return { runner, emit, terminals, plugins, pluginViews, control }
+  return { runner, emit, terminals, plugins, pluginViews, control, endpoint }
 }
