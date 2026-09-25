@@ -3,7 +3,7 @@
 // its headings. Plain functions over the file system, so they can be unit tested on a folder of their own; the check
 // itself runs as a test (doc-links.test.ts) over the real repo.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { dirname, join, relative, resolve, sep } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 
 /** Where the repo's files are on GitHub: llms.txt links here, so it works when fetched on its own. */
 export const GITHUB_BLOB = 'https://github.com/lockhart-ai/glade/blob/main/'
@@ -22,17 +22,12 @@ export interface BrokenLink {
   readonly reason: string
 }
 
-/** What to check, and what to let through. */
+/** What to check. */
 export interface LinkCheck {
-  /** The repo root, which `files` and `pending` are relative to. */
+  /** The repo root, which `files` are relative to. */
   readonly root: string
   /** The files to check, relative to `root`. */
   readonly files: readonly string[]
-  /**
-   * Paths, relative to `root`, that other open PRs add: a link to one, or to anything under one ending in `/`, may
-   * not resolve yet. Once the file is there, its links are checked like any other.
-   */
-  readonly pending?: readonly string[]
 }
 
 /** Text blanked out, keeping its line breaks, so what's around it keeps its lines. */
@@ -95,11 +90,6 @@ function isExternal(target: string): boolean {
   return /^[a-z][a-z0-9+.-]*:/i.test(target) && !target.startsWith(GITHUB_BLOB)
 }
 
-/** Whether `path` (relative to the root) is one of the pending paths, or under one that ends in `/`. */
-function isPending(path: string, pending: readonly string[]): boolean {
-  return pending.some((entry) => (entry.endsWith('/') ? path.startsWith(entry) : path === entry))
-}
-
 /** Why a link from `file` doesn't resolve, or null when it does. */
 function problemOf(check: LinkCheck, file: string, target: string): string | null {
   const [rawPath = '', fragment] = target.split('#', 2)
@@ -111,9 +101,7 @@ function problemOf(check: LinkCheck, file: string, target: string): string | nul
   else resolved = resolve(check.root, dirname(file), path)
   const inRepo = relative(check.root, resolved)
   if (inRepo.startsWith('..')) return 'it points outside the repo'
-  if (!existsSync(resolved)) {
-    return isPending(inRepo.split(sep).join('/'), check.pending ?? []) ? null : 'no such file'
-  }
+  if (!existsSync(resolved)) return 'no such file'
   if (fragment === undefined || fragment === '' || !resolved.endsWith('.md') || statSync(resolved).isDirectory()) {
     return null
   }

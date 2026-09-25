@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -7,10 +7,10 @@ import { anchorsOf, brokenLinks, extractLinks, GITHUB_BLOB, markdownFiles, slugO
 const REPO = resolve(__dirname, '..', '..')
 
 /**
- * Files other open PRs add, which the docs link to before they land: the README's images (D-01, #240). A link to one
- * passes while it's missing; once it's there it's checked like any other, so this list can go when D-01 has merged.
+ * The most an image in docs/images/ (the README's and the user guide's) may weigh: about 300 KB. CLAUDE.md asks for
+ * small binaries; a 256-colour PNG of the window comes to about half this.
  */
-const PENDING = ['docs/images/']
+const MAX_IMAGE_BYTES = 300 * 1024
 
 describe('the links in the docs', () => {
   // Every Markdown file at the root and under docs/, release notes included (their links are few and all resolve),
@@ -25,7 +25,26 @@ describe('the links in the docs', () => {
   })
 
   it('all resolve', () => {
-    expect(brokenLinks({ root: REPO, files, pending: PENDING })).toEqual([])
+    expect(brokenLinks({ root: REPO, files })).toEqual([])
+  })
+})
+
+describe('the images in docs/images/', () => {
+  const folder = join(REPO, 'docs', 'images')
+  const images = readdirSync(folder, { recursive: true, encoding: 'utf8' }).filter((path) =>
+    /\.(png|webp|gif|jpe?g)$/.test(path),
+  )
+  const docs = [...markdownFiles(REPO, ''), ...markdownFiles(REPO, 'docs')]
+    .map((path) => readFileSync(join(REPO, path), 'utf8'))
+    .join('\n')
+
+  it('include the README’s and the user guide’s', () => {
+    expect(images).toEqual(expect.arrayContaining(['hero.png', expect.stringMatching(/^guide\//)]))
+  })
+
+  it.each(images)('%s is at most 300 KB, and a doc shows it', (path) => {
+    expect(statSync(join(folder, path)).size).toBeLessThanOrEqual(MAX_IMAGE_BYTES)
+    expect(docs).toContain(`images/${path})`)
   })
 })
 
@@ -134,17 +153,6 @@ describe('brokenLinks', () => {
     )
     expect(brokenLinks({ root, files: ['llms.txt'] })).toEqual([
       { file: 'llms.txt', line: 2, target: `${GITHUB_BLOB}docs/missing.md`, reason: 'no such file' },
-    ])
-  })
-
-  it('lets a pending file or folder be missing, and checks it once it is there', () => {
-    write('README.md', '[guide](docs/user-guide.md) ![hero](docs/images/hero.png) [nope](docs/other.md)')
-    const pending = ['docs/user-guide.md', 'docs/images/']
-    expect(brokenLinks({ root, files: ['README.md'], pending }).map(({ target }) => target)).toEqual(['docs/other.md'])
-    write('docs/user-guide.md', '# User guide\n')
-    write('README.md', '[guide](docs/user-guide.md#nope)')
-    expect(brokenLinks({ root, files: ['README.md'], pending })).toEqual([
-      { file: 'README.md', line: 1, target: 'docs/user-guide.md#nope', reason: 'no heading #nope' },
     ])
   })
 })
