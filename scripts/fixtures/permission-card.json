@@ -1,4 +1,7 @@
 {
+  "collapsed": {
+    "bottomBar": true
+  },
   "workspace": {
     "name": "Acme API",
     "rootPath": "/Users/sample/code/api"
