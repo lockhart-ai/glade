@@ -16,11 +16,13 @@ import {
   Effort,
   FileContentKind,
   FileInfoKind,
+  PermissionDecisionKind,
   TaskState,
   UiStateKey,
   type Message,
   type Artifact,
   type OpenFiles,
+  type PermissionRequest,
   type QuestionSet,
   type TodoList,
   type QueuedMessage,
@@ -56,6 +58,7 @@ const TASK_HANDLERS = {
     toolEvents: [],
     queuedMessages: [],
     questionSets: [],
+    permissionRequests: [],
     openFiles: { taskId: 't', paths: [], activePath: null },
     todos: null,
     artifacts: [],
@@ -65,6 +68,7 @@ const TASK_HANDLERS = {
   [CommandName.QueueRemove]: () => null,
   [CommandName.ImagesGet]: () => ({ image: { mediaType: ImageMediaType.Png, data: '' } }),
   [CommandName.QuestionsAnswer]: () => ({ questionSet: {} as QuestionSet }),
+  [CommandName.PermissionsAnswer]: () => ({ permissionRequest: {} as PermissionRequest }),
   [CommandName.FilesRead]: () => ({ content: { kind: FileContentKind.Missing } }),
   [CommandName.FilesOpen]: () => ({ openFiles: {} as OpenFiles }),
   [CommandName.FilesClose]: () => ({ openFiles: {} as OpenFiles }),
@@ -109,6 +113,7 @@ const TASK_SCHEMAS = {
   [CommandName.QueueRemove]: REQUEST_SCHEMAS[CommandName.QueueRemove],
   [CommandName.ImagesGet]: REQUEST_SCHEMAS[CommandName.ImagesGet],
   [CommandName.QuestionsAnswer]: REQUEST_SCHEMAS[CommandName.QuestionsAnswer],
+  [CommandName.PermissionsAnswer]: REQUEST_SCHEMAS[CommandName.PermissionsAnswer],
   [CommandName.FilesRead]: REQUEST_SCHEMAS[CommandName.FilesRead],
   [CommandName.FilesOpen]: REQUEST_SCHEMAS[CommandName.FilesOpen],
   [CommandName.FilesClose]: REQUEST_SCHEMAS[CommandName.FilesClose],
@@ -171,6 +176,7 @@ describe('the command map', () => {
       readonly toolEvents: readonly ToolEvent[]
       readonly queuedMessages: readonly QueuedMessage[]
       readonly questionSets: readonly QuestionSet[]
+      readonly permissionRequests: readonly PermissionRequest[]
       readonly openFiles: OpenFiles
       readonly todos: TodoList | null
       readonly artifacts: readonly Artifact[]
@@ -186,6 +192,11 @@ describe('the command map', () => {
       glade.invoke(CommandName.QuestionsAnswer, { id: 's', answers: { 0: 'by-type' } }),
     ).resolves.toEqualTypeOf<{
       readonly questionSet: QuestionSet
+    }>()
+    expectTypeOf(
+      glade.invoke(CommandName.PermissionsAnswer, { id: 'p', decision: { kind: PermissionDecisionKind.AllowOnce } }),
+    ).resolves.toEqualTypeOf<{
+      readonly permissionRequest: PermissionRequest
     }>()
     expectTypeOf<CommandRequest<CommandName.UiStateSet>>().toEqualTypeOf<UiStateEntry>()
     expectTypeOf(

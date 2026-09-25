@@ -5,6 +5,8 @@ import {
   AgentErrorKind,
   Effort,
   PauseReason,
+  PermissionMode,
+  PermissionRequestState,
   TaskActivity,
   TaskErrorSource,
   QuestionSetState,
@@ -22,6 +24,8 @@ export interface NewTask {
   readonly workspaceId: string
   readonly model: string
   readonly effort: Effort
+  /** Allow all unless given. */
+  readonly permissionMode?: PermissionMode
   readonly title?: string
   readonly objective?: string
   readonly status?: string
@@ -39,6 +43,7 @@ export interface TaskPatch {
   readonly unread?: boolean
   readonly model?: string
   readonly effort?: Effort
+  readonly permissionMode?: PermissionMode
   readonly sessionId?: string | null
   readonly contextUsedTokens?: number
   /** The window the SDK reported. Changing the model without one resets it to what the new model's id gives. */
@@ -52,15 +57,19 @@ export interface TaskPatch {
 }
 
 const COLUMNS = `id, workspace_id, title, objective, status, status_updated_at, state, activity, pinned, unread, model,
-  effort, created_at, updated_at, done_at, session_id, context_used_tokens, context_window_tokens, error, retrying, pause`
+  effort, permission_mode, created_at, updated_at, done_at, session_id, context_used_tokens, context_window_tokens, error,
+  retrying, pause`
 
-/** What a task is read with: its columns, and whether it has an open question set. */
+/** What a task is read with: its columns, and whether it has an open question set or permission request. */
 const SELECTED = `${COLUMNS}, EXISTS (SELECT 1 FROM question_sets WHERE question_sets.task_id = tasks.id
-  AND question_sets.state = '${QuestionSetState.Open}') AS asking`
+  AND question_sets.state = '${QuestionSetState.Open}') AS asking,
+  EXISTS (SELECT 1 FROM permission_requests WHERE permission_requests.task_id = tasks.id
+  AND permission_requests.state = '${PermissionRequestState.Open}') AS awaiting_permission`
 
 const TASK_STATES = Object.values(TaskState)
 const TASK_ACTIVITIES = Object.values(TaskActivity)
 const EFFORTS = Object.values(Effort)
+const PERMISSION_MODES = Object.values(PermissionMode)
 
 const count = z.int().nonnegative()
 
@@ -112,6 +121,7 @@ function parseTask(raw: unknown): Task {
     unread: row.flag('unread'),
     model,
     effort: row.oneOf('effort', EFFORTS),
+    permissionMode: row.oneOf('permission_mode', PERMISSION_MODES),
     createdAt: row.integer('created_at'),
     updatedAt: row.integer('updated_at'),
     doneAt: row.nullableInteger('done_at'),
@@ -122,15 +132,20 @@ function parseTask(raw: unknown): Task {
     error: jsonColumn(row, 'tasks', 'error', taskErrorSchema),
     retrying: jsonColumn(row, 'tasks', 'retrying', apiRetrySchema),
     asking: row.flag('asking'),
+    awaitingPermission: row.flag('awaiting_permission'),
     pause: jsonColumn(row, 'tasks', 'pause', taskPauseSchema),
   }
 }
 
-/** The named parameters for a task's columns (and `asking`, which no statement uses: it's derived from the question sets). */
+/**
+ * The named parameters for a task's columns (and `asking` and `awaitingPermission`, which no statement uses: they're
+ * derived from the question sets and permission requests).
+ */
 function toParams(task: Task): Record<string, string | number | null> {
   return {
     ...task,
     asking: task.asking ? 1 : 0,
+    awaitingPermission: task.awaitingPermission ? 1 : 0,
     pinned: task.pinned ? 1 : 0,
     unread: task.unread ? 1 : 0,
     error: task.error === null ? null : JSON.stringify(task.error),
@@ -155,6 +170,7 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     unread: false,
     model: input.model,
     effort: input.effort,
+    permissionMode: input.permissionMode ?? PermissionMode.AllowAll,
     createdAt: now,
     updatedAt: now,
     doneAt: null,
@@ -164,12 +180,13 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     error: null,
     retrying: null,
     asking: false,
+    awaitingPermission: false,
     pause: null,
   }
   db.prepare(
     `INSERT INTO tasks (${COLUMNS}) VALUES (@id, @workspaceId, @title, @objective, @status, @statusUpdatedAt, @state,
-      @activity, @pinned, @unread, @model, @effort, @createdAt, @updatedAt, @doneAt, @sessionId, @contextUsedTokens,
-      @contextWindowTokens, @error, @retrying, @pause)`,
+      @activity, @pinned, @unread, @model, @effort, @permissionMode, @createdAt, @updatedAt, @doneAt, @sessionId,
+      @contextUsedTokens, @contextWindowTokens, @error, @retrying, @pause)`,
   ).run(toParams(task))
   return task
 }
@@ -245,6 +262,7 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
     unread: patch.unread ?? current.unread,
     model,
     effort: patch.effort ?? current.effort,
+    permissionMode: patch.permissionMode ?? current.permissionMode,
     updatedAt: onlyUnread(patch) ? current.updatedAt : now,
     doneAt: doneAtAfter(current, state, now),
     sessionId: patch.sessionId === undefined ? current.sessionId : patch.sessionId,
@@ -258,7 +276,7 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
   db.prepare(
     `UPDATE tasks SET title = @title, objective = @objective, status = @status, status_updated_at = @statusUpdatedAt,
       state = @state, activity = @activity, pinned = @pinned, unread = @unread, model = @model, effort = @effort,
-      updated_at = @updatedAt, done_at = @doneAt, session_id = @sessionId, context_used_tokens = @contextUsedTokens,
+      permission_mode = @permissionMode, updated_at = @updatedAt, done_at = @doneAt, session_id = @sessionId, context_used_tokens = @contextUsedTokens,
       context_window_tokens = @contextWindowTokens, error = @error, retrying = @retrying,
       pause = @pause
     WHERE id = @id`,
@@ -268,7 +286,7 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
 
 /**
  * Deletes a task and, through the foreign keys' `ON DELETE CASCADE`, every row that belongs to it: its messages, tool
- * events, queued messages, question sets and search index rows. It touches nothing on disk. Answers whether there was such a task.
+ * events, queued messages, question sets, permission requests and search index rows. It touches nothing on disk. Answers whether there was such a task.
  */
 export function deleteTask(db: Database, id: string): boolean {
   return db.prepare('DELETE FROM tasks WHERE id = ?').run(id).changes > 0

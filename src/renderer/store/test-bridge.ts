@@ -16,6 +16,7 @@ import {
 import type { MenuState } from '../../shared/commands'
 import {
   Effort,
+  PermissionMode,
   FileContentKind,
   FileInfoKind,
   MessageRole,
@@ -270,6 +271,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       toolEvents: (main.toolEvents ?? []).filter((event) => event.taskId === id),
       queuedMessages: queueOf(id),
       questionSets: (main.questionSets ?? []).filter((set) => set.taskId === id),
+      permissionRequests: [],
       openFiles: openFilesOf(id),
       todos: main.todos?.[id] ?? null,
       artifacts: artifacts.filter((artifact) => artifact.taskId === id),
@@ -301,6 +303,9 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       const image = images[id]
       return image === undefined ? refuse(bridgeError(BridgeErrorCode.NotFound, `No image ${id}`)) : { image }
     },
+    // Nothing in the window answers permission requests yet (the permission card is P11-02), so there are none to answer.
+    [CommandName.PermissionsAnswer]: ({ id }) =>
+      refuse(bridgeError(BridgeErrorCode.NotFound, `No permission request ${id}`)),
     [CommandName.QuestionsAnswer]: ({ id, answers }) => {
       const sets = main.questionSets ?? []
       const index = sets.findIndex((set) => set.id === id)
@@ -506,6 +511,7 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
     unread: false,
     model: 'claude-sample-1',
     effort: Effort.Medium,
+    permissionMode: PermissionMode.AllowAll,
     createdAt: 2_000,
     updatedAt: 2_000,
     doneAt: null,
@@ -515,6 +521,7 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
     error: null,
     retrying: null,
     asking: false,
+    awaitingPermission: false,
     pause: null,
   }
 }

@@ -16,6 +16,9 @@ import type {
   FileInfo,
   Message,
   OpenFiles,
+  PermissionDecision,
+  PermissionMode,
+  PermissionRequest,
   QuestionAnswers,
   QuestionSet,
   QueuedMessage,
@@ -68,6 +71,7 @@ export enum CommandName {
   QueueRemove = 'queue.remove',
   ImagesGet = 'images.get',
   QuestionsAnswer = 'questions.answer',
+  PermissionsAnswer = 'permissions.answer',
   FilesRead = 'files.read',
   FilesOpen = 'files.open',
   FilesClose = 'files.close',
@@ -211,6 +215,8 @@ export interface TaskUserPatch {
   readonly unread?: boolean
   readonly model?: string
   readonly effort?: Effort
+  /** Takes effect from the agent's next tool call, even mid-turn; a request already open stays open. */
+  readonly permissionMode?: PermissionMode
 }
 
 export interface TasksUpdateRequest {
@@ -323,7 +329,10 @@ export interface SubagentsStopRequest {
   readonly toolUseId: string
 }
 
-/** A task's chat log and tool log, each in the order they were appended, its message queue, and its questions. */
+/**
+ * A task's chat log and tool log, each in the order they were appended, its message queue, its questions and its
+ * permission requests.
+ */
 export interface TasksHistoryResponse {
   readonly messages: readonly Message[]
   readonly toolEvents: readonly ToolEvent[]
@@ -331,6 +340,8 @@ export interface TasksHistoryResponse {
   readonly queuedMessages: readonly QueuedMessage[]
   /** Every question set the agent asked, open or closed, in the order it asked them. */
   readonly questionSets: readonly QuestionSet[]
+  /** Every permission request its agent's tool calls made, open or closed, in the order they were made. */
+  readonly permissionRequests: readonly PermissionRequest[]
   /** The files open in its Files tab. */
   readonly openFiles: OpenFiles
   /** The agent's todo list (the Todos tab), as its tool log leaves it; null when it has kept none. */
@@ -405,6 +416,25 @@ export interface QuestionsAnswerRequest {
 export interface QuestionSetResponse {
   /** The question set as it now is: answered, with its answers tidied (text trimmed, empty optional text dropped). */
   readonly questionSet: QuestionSet
+}
+
+/**
+ * Answers an open permission request (the permission card): Allow once runs the call, and Deny doesn't, telling the
+ * agent, with your note if you gave one; either way the agent's turn carries on, and the task is working again unless
+ * something else still waits on you. Broadcasts `permission.answered` and `task.updated`.
+ *
+ * Fails with `not_found` when there's no such request, and `invalid_transition` for one that isn't open any more
+ * (answered already, or withdrawn).
+ */
+export interface PermissionsAnswerRequest {
+  /** The permission request's id. */
+  readonly id: string
+  readonly decision: PermissionDecision
+}
+
+export interface PermissionRequestResponse {
+  /** The permission request as it now is: allowed or denied. */
+  readonly permissionRequest: PermissionRequest
 }
 
 /**
@@ -674,6 +704,7 @@ export interface CommandMap {
   [CommandName.QueueRemove]: CommandSpec<QueueRemoveRequest, null>
   [CommandName.ImagesGet]: CommandSpec<ImagesGetRequest, ImagesGetResponse>
   [CommandName.QuestionsAnswer]: CommandSpec<QuestionsAnswerRequest, QuestionSetResponse>
+  [CommandName.PermissionsAnswer]: CommandSpec<PermissionsAnswerRequest, PermissionRequestResponse>
   [CommandName.FilesRead]: CommandSpec<FilesReadRequest, FilesReadResponse>
   [CommandName.FilesOpen]: CommandSpec<FilesOpenRequest, OpenFilesResponse>
   [CommandName.FilesClose]: CommandSpec<FilesCloseRequest, OpenFilesResponse>
@@ -728,6 +759,9 @@ export enum EventType {
   QuestionOpened = 'question.opened',
   QuestionAnswered = 'question.answered',
   QuestionWithdrawn = 'question.withdrawn',
+  PermissionOpened = 'permission.opened',
+  PermissionAnswered = 'permission.answered',
+  PermissionWithdrawn = 'permission.withdrawn',
   OpenFilesChanged = 'openFiles.changed',
   FileShown = 'file.shown',
   TodosChanged = 'todos.changed',
@@ -823,6 +857,27 @@ export interface QuestionWithdrawnEvent {
   readonly questionSet: QuestionSet
 }
 
+/** A tool call of the agent's waits on your OK: the chat shows the request's permission card. */
+export interface PermissionOpenedEvent {
+  readonly type: EventType.PermissionOpened
+  readonly permissionRequest: PermissionRequest
+}
+
+/** You allowed or denied a permission request. Carries it as it now is. */
+export interface PermissionAnsweredEvent {
+  readonly type: EventType.PermissionAnswered
+  readonly permissionRequest: PermissionRequest
+}
+
+/**
+ * A permission request closed without an answer: its turn was stopped, failed or ended, its session closed, or the SDK
+ * cancelled the call. The card closes.
+ */
+export interface PermissionWithdrawnEvent {
+  readonly type: EventType.PermissionWithdrawn
+  readonly permissionRequest: PermissionRequest
+}
+
 /** A task's open files changed: a file was opened or closed. Carries them as they now are. */
 export interface OpenFilesChangedEvent {
   readonly type: EventType.OpenFilesChanged
@@ -907,6 +962,9 @@ export type GladeEvent =
   | QuestionOpenedEvent
   | QuestionAnsweredEvent
   | QuestionWithdrawnEvent
+  | PermissionOpenedEvent
+  | PermissionAnsweredEvent
+  | PermissionWithdrawnEvent
   | OpenFilesChangedEvent
   | FileShownEvent
   | TodosChangedEvent

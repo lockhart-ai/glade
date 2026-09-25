@@ -16,15 +16,18 @@ export function hasRun(task: Pick<Task, 'sessionId' | 'activity'>): boolean {
   return task.sessionId !== null || task.activity === TaskActivity.Error
 }
 
+/** What `needsYou` reads of a task. */
+export type AttentionFields = Pick<Task, 'state' | 'activity' | 'sessionId' | 'asking' | 'awaitingPermission'>
+
 /**
  * Whether a task needs you: it's active and its agent's turn has ended, so it's waiting on you or hit an error, or its
- * agent is waiting on your answers to questions it asked. A brand-new task that has never run doesn't count: it has
- * nothing to show you yet.
+ * agent is waiting on your answers to questions it asked, or on your OK for a tool call. A brand-new task that has
+ * never run doesn't count: it has nothing to show you yet.
  */
-export function needsYou(task: Pick<Task, 'state' | 'activity' | 'sessionId' | 'asking'>): boolean {
+export function needsYou(task: AttentionFields): boolean {
   if (task.state !== TaskState.Active || !hasRun(task)) return false
-  // The agent's turn waits on the answers, whatever its activity says.
-  if (task.asking) return true
+  // The agent's turn waits on the answers or the OK, whatever its activity says.
+  if (task.asking || task.awaitingPermission) return true
   switch (task.activity) {
     case TaskActivity.Waiting:
     case TaskActivity.Error:
@@ -50,7 +53,7 @@ export function parseTaskFilter(value: string | undefined): TaskFilter {
 
 /** Whether a task shows in the task list under a filter. */
 export function matchesFilter(
-  task: Pick<Task, 'state' | 'activity' | 'sessionId' | 'asking' | 'unread'>,
+  task: AttentionFields & Pick<Task, 'unread'>,
   filter: TaskFilter,
 ): boolean {
   switch (filter) {

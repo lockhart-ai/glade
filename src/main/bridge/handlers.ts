@@ -6,6 +6,7 @@ import { listArtifacts } from '../db/repositories/artifacts'
 import { getImage } from '../db/repositories/images'
 import { listMessages } from '../db/repositories/messages'
 import { getOpenFiles } from '../db/repositories/open-files'
+import { listPermissionRequests } from '../db/repositories/permission-requests'
 import { listQuestionSets } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { searchTasks } from '../db/repositories/search'
@@ -121,7 +122,12 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.TasksCreate]: ({ workspaceId }) => ({ task: createTask(context, workspaceId) }),
     [CommandName.TasksMarkDone]: ({ id }) => ({ task: markTaskDone(context, id) }),
     [CommandName.TasksReopen]: ({ id }) => ({ task: reopenTask(context, id) }),
-    [CommandName.TasksUpdate]: ({ id, patch }) => ({ task: updateTaskFromUser(context, id, patch) }),
+    [CommandName.TasksUpdate]: ({ id, patch }) => {
+      const task = updateTaskFromUser(context, id, patch)
+      // A running session takes the new mode from its next tool call, not its next turn.
+      if (patch.permissionMode !== undefined) runner.applyPermissionMode(id)
+      return { task }
+    },
     [CommandName.TasksDelete]: ({ id }) => {
       deleteTask(context, id)
       return null
@@ -141,6 +147,7 @@ export function createHandlers(context: HandlerContext): Handlers {
         toolEvents: listToolEvents(db, id),
         queuedMessages: listQueuedMessages(db, id),
         questionSets: listQuestionSets(db, id),
+        permissionRequests: listPermissionRequests(db, id),
         openFiles: getOpenFiles(db, id),
         todos: todoListFor(db, id),
         artifacts: listArtifacts(db, id),
@@ -158,6 +165,9 @@ export function createHandlers(context: HandlerContext): Handlers {
       return { image }
     },
     [CommandName.QuestionsAnswer]: ({ id, answers }) => ({ questionSet: runner.answer(id, answers) }),
+    [CommandName.PermissionsAnswer]: ({ id, decision }) => ({
+      permissionRequest: runner.answerPermission(id, decision),
+    }),
     [CommandName.FilesRead]: async ({ taskId, path }) => ({ content: await readTaskFile(context, taskId, path) }),
     [CommandName.FilesOpen]: ({ taskId, path }) => ({ openFiles: openTaskFile(context, taskId, path) }),
     [CommandName.FilesClose]: ({ taskId, path }) => ({ openFiles: closeTaskFile(context, taskId, path) }),

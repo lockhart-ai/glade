@@ -1,6 +1,6 @@
 // What the SDK adapter logs, with the SDK's `query()` replaced: each agent process starting, and what's asked of it.
 import { beforeEach, expect, it, vi } from 'vitest'
-import { Effort } from '../../shared/domain'
+import { Effort, PermissionMode } from '../../shared/domain'
 import { LogLevel, LogScope } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
 import type { AgentSessionOptions } from './backend'
@@ -26,6 +26,7 @@ const OPTIONS: AgentSessionOptions = {
   cwd: '/code/acme-api',
   model: 'claude-sample-1',
   effort: Effort.High,
+  permissionMode: PermissionMode.AllowAll,
   resumeSessionId: 'session-1',
   systemPromptAppend: 'You are running inside Glade.',
   mcpServers: {},
@@ -60,6 +61,7 @@ it('logs the agent process starting, where and on what, in the session’s own l
         cwd: '/code/acme-api',
         model: 'claude-sample-1',
         effort: Effort.High,
+        permissionMode: PermissionMode.AllowAll,
         resumeSessionId: 'session-1',
         mcpServers: ['glade'],
         PATH: '/opt/homebrew/bin:/usr/bin:/bin',

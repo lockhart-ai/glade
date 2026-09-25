@@ -45,6 +45,8 @@ export enum LogScope {
   Tools = 'tools',
   /** The agent's questions, asked, answered and withdrawn. */
   Questions = 'questions',
+  /** Permission requests: the tool calls that wait on your OK, opened, answered and withdrawn. */
+  Permissions = 'permissions',
   /** Native notifications. */
   Notifications = 'notifications',
   /** The terminal tabs and their shells. */

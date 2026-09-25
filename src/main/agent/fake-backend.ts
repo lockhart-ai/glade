@@ -2,9 +2,28 @@
 // asks of them. Nothing runs a model.
 import type { ImageData } from '../../shared/images'
 import { AsyncQueue } from './async-queue'
-import type { AgentBackend, AgentSession, AgentSessionOptions, AgentSessionSettings } from './backend'
+import {
+  ToolPermissionBehavior,
+  type AgentBackend,
+  type AgentSession,
+  type AgentSessionOptions,
+  type AgentSessionSettings,
+  type ToolPermissionAnswer,
+  type ToolPermissionCall,
+} from './backend'
 import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
 import { toolResult, toolUse } from './test-sdk-messages'
+
+/** What a test says of a tool call it asks the runner about: the rest is a plain top-level call, suggesting nothing. */
+export type PermissionCallFields = Pick<ToolPermissionCall, 'toolName' | 'toolUseId' | 'input'> &
+  Partial<Omit<ToolPermissionCall, 'signal'>>
+
+/** A tool call asked about: the runner's answer, once it gives one, and a way to cancel it as the SDK does. */
+export interface AskedPermission {
+  readonly answer: Promise<ToolPermissionAnswer>
+  /** Aborts the call's signal, as the SDK does when it cancels the call (e.g. on an interrupt). */
+  abort(): void
+}
 
 /** A message the runner sent a session. */
 export interface SentMessage {
@@ -33,7 +52,39 @@ export class FakeAgentSession implements AgentSession {
 
   constructor(readonly options: AgentSessionOptions) {
     this.tools = createMcpToolCaller(options.mcpServers)
-    this.settings = { model: options.model, effort: options.effort }
+    this.settings = { model: options.model, effort: options.effort, permissionMode: options.permissionMode }
+  }
+
+  /**
+   * Asks the runner about a tool call, as Claude Code does outside Allow all (`canUseTool`). Stream the call's
+   * `tool_use` first, as the SDK does. With no handler, the call is denied, as the SDK backend denies it.
+   */
+  requestPermission(fields: PermissionCallFields): AskedPermission {
+    const controller = new AbortController()
+    const call: ToolPermissionCall = {
+      agentId: null,
+      title: null,
+      displayName: null,
+      description: null,
+      suggestions: [],
+      defaultToNo: false,
+      suppressAlwaysAllowRule: false,
+      mcpServer: null,
+      matchedAskRule: false,
+      ...fields,
+      signal: controller.signal,
+    }
+    const handler = this.options.onToolPermission
+    const answer =
+      handler === undefined
+        ? Promise.resolve<ToolPermissionAnswer>({ behavior: ToolPermissionBehavior.Deny, message: '', byUser: false })
+        : handler(call)
+    return {
+      answer,
+      abort: () => {
+        controller.abort()
+      },
+    }
   }
 
   send(text: string, uuid: string, images: readonly ImageData[] = []): void {

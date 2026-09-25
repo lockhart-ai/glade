@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import { AgentErrorKind, Effort, PauseReason, TaskActivity, TaskState } from '../../../shared/domain'
+import { AgentErrorKind, Effort, PauseReason, PermissionMode, TaskActivity, TaskState } from '../../../shared/domain'
 import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { listMessages } from '../repositories/messages'
@@ -73,6 +73,8 @@ it('keeps every task and what references it, and lets a task pause', () => {
     retrying: null,
     pause: null,
     asking: false,
+    permissionMode: PermissionMode.AllowAll,
+    awaitingPermission: false,
   })
   expect(listMessages(db, 't')).toHaveLength(1)
   expect(listToolEvents(db, 't')).toHaveLength(1)

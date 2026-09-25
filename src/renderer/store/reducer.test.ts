@@ -213,6 +213,7 @@ describe("a task's logs", () => {
       toolEvents: [divider, call],
       queuedMessages: [],
       questionSets: [],
+      permissionRequests: [],
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
@@ -239,6 +240,7 @@ describe("a task's logs", () => {
       toolEvents: [divider, call],
       queuedMessages: [],
       questionSets: [],
+      permissionRequests: [],
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
@@ -252,6 +254,7 @@ describe("a task's logs", () => {
         toolEvents: [],
         queuedMessages: [],
         questionSets: [],
+        permissionRequests: [],
         openFiles: noOpenFiles('t2'),
         todos: null,
         artifacts: [],
@@ -276,6 +279,7 @@ describe("a task's queue", () => {
       toolEvents: [],
       queuedMessages: [second],
       questionSets: [],
+      permissionRequests: [],
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
@@ -313,6 +317,7 @@ describe("a task's questions", () => {
       messages: [],
       toolEvents: [],
       queuedMessages: [],
+      permissionRequests: [],
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
@@ -328,7 +333,7 @@ describe("a task's open files", () => {
     const changed = applyEvent(state, { type: EventType.OpenFilesChanged, openFiles })
     expect(changed.openFiles).toEqual({ t1: openFiles })
 
-    const empty = { messages: [], toolEvents: [], queuedMessages: [], questionSets: [], todos: null, artifacts: [] }
+    const empty = { messages: [], toolEvents: [], queuedMessages: [], questionSets: [], permissionRequests: [], todos: null, artifacts: [] }
     expect(withHistory(changed, 't1', { ...empty, openFiles: noOpenFiles('t1') }).openFiles).toEqual({
       t1: noOpenFiles('t1'),
     })
@@ -358,6 +363,7 @@ describe("a task's artifacts", () => {
     toolEvents: [],
     queuedMessages: [],
     questionSets: [],
+    permissionRequests: [],
     openFiles: noOpenFiles('t1'),
     todos: null,
     artifacts,
@@ -387,6 +393,7 @@ describe("a task's todo list", () => {
     toolEvents: [],
     queuedMessages: [],
     questionSets: [],
+    permissionRequests: [],
     openFiles: noOpenFiles('t1'),
     todos,
     artifacts: [],

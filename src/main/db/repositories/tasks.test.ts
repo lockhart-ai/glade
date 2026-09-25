@@ -3,6 +3,7 @@ import {
   AgentErrorKind,
   Effort,
   PauseReason,
+  PermissionMode,
   TaskActivity,
   TaskErrorSource,
   TaskState,
@@ -46,6 +47,7 @@ describe('createTask', () => {
       unread: false,
       model: 'claude-sample-1',
       effort: Effort.High,
+      permissionMode: PermissionMode.AllowAll,
       createdAt: 2_000,
       updatedAt: 2_000,
       doneAt: null,
@@ -55,6 +57,7 @@ describe('createTask', () => {
       error: null,
       retrying: null,
       asking: false,
+      awaitingPermission: false,
       pause: null,
     })
     expect(getTask(test.db, task.id)).toEqual(task)

@@ -1,7 +1,7 @@
 import { createSdkMcpServer, tool as mcpTool } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import { CompactionTrigger, Effort, QuestionKind, QuestionReplyKind } from '../../shared/domain'
+import { CompactionTrigger, Effort, PermissionMode, QuestionKind, QuestionReplyKind } from '../../shared/domain'
 import type { AgentSessionOptions } from './backend'
 import { AgentEventKind, createSdkMessageParser, TaskOutcome, type AgentEvent } from './events'
 import { answeredAfterRestart, COMPACT_COMMAND, RESUME_PROMPT } from './runner'
@@ -67,6 +67,7 @@ const SESSION: AgentSessionOptions = {
   cwd: '/code/acme-api',
   model: 'claude-sample-1',
   effort: Effort.High,
+  permissionMode: PermissionMode.AllowAll,
   resumeSessionId: null,
   systemPromptAppend: '',
   mcpServers: {},
@@ -489,7 +490,7 @@ describe('ScriptedSession', () => {
   it('runs the turns after a settings change on its model, as the SDK does', async () => {
     const played = play([[init(), say('Hi.'), result()]])
     played.session.send('a', 'user-1')
-    played.session.configure({ model: 'claude-sample-2', effort: Effort.Low })
+    played.session.configure({ model: 'claude-sample-2', effort: Effort.Low, permissionMode: PermissionMode.AllowAll })
     played.session.send('b', 'user-2')
     await flush()
 

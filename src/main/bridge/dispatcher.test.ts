@@ -6,6 +6,7 @@ import {
   UiStateKey,
   type Message,
   type OpenFiles,
+  type PermissionRequest,
   type QuestionSet,
   type QueuedMessage,
   type Task,
@@ -49,6 +50,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
       toolEvents: [],
       queuedMessages: [],
       questionSets: [],
+      permissionRequests: [],
       openFiles: { taskId: 't', paths: [], activePath: null },
       todos: null,
       artifacts: [],
@@ -60,6 +62,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
       throw new Error('not in these tests')
     },
     [CommandName.QuestionsAnswer]: () => ({ questionSet: {} as QuestionSet }),
+    [CommandName.PermissionsAnswer]: () => ({ permissionRequest: {} as PermissionRequest }),
     [CommandName.FilesRead]: () => ({ content: { kind: FileContentKind.Missing } }),
     [CommandName.FilesOpen]: () => ({ openFiles: {} as OpenFiles }),
     [CommandName.FilesClose]: () => ({ openFiles: {} as OpenFiles }),
