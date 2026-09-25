@@ -236,7 +236,8 @@ interface ClaudeCodeSession {
 
 Newest first. It reads the top-level `*.jsonl` files in `~/.claude/projects/*/` (under `$CLAUDE_CONFIG_DIR` when that
 is set), not subagent transcripts. A Glade task's own session is listed too, with its `taskId`: Claude Code writes
-those transcripts as well.
+those transcripts as well. A session with no messages, or whose transcript doesn't say its folder, can't be imported
+and isn't listed.
 
 ### `import_claude_code_session`
 
@@ -258,17 +259,21 @@ Glade reads the transcript itself, line by line, each line parsed with zod and a
   import fails, unless `createWorkspace: true`, which adds that folder as a workspace as Add workspace does (writing
   the starter `CLAUDE.md` if it has none). A `cwd` that no longer exists always fails. Sessions started in a subfolder
   of a workspace aren't moved into it: resuming them needs their own folder.
-- **Title:** Claude Code's own title for the session (its latest `ai-title`, or an older `summary`), else the first
-  line of the first prompt, cut to 80 characters. **Objective:** the first prompt, cut to 500 characters. **Status:**
+- **Title:** Claude Code's own title for the session (the one you gave it with `/rename`, else its latest `ai-title`,
+  or an older `summary`), else the first line of the first prompt, cut to 80 characters. **Objective:** the first prompt, cut to 500 characters. **Status:**
   "Imported from Claude Code".
 - **Chat and tool log**, as Glade would have logged them:
   - Each prompt of yours starts a turn: your message in the chat and a turn divider in the tool log, with the
     prompt's original time.
-  - Per turn, the agent's last text is its final reply in the chat; its earlier texts are narration in the tool log.
+  - Per turn, the agent's last text is its final reply in the chat, with the turn's summary; its earlier texts are
+    narration in the tool log. What the agent did before your first prompt is a turn with no message of yours.
   - Each tool call goes in the tool log with its input and result, done or failed as the result says; a call with no
     result is interrupted. A compaction becomes a compaction row.
   - Left out: thinking, subagents' own transcripts (their `Agent` call is still in the log), meta messages, slash
-    commands and their output, and images (counted in `skipped.images`).
+    commands and their output, interruption markers, and images (counted in `skipped.images`; a prompt that was only
+    images shows as "[Image]").
+- **Resumed sessions keep their system prompt** (`sdk-notes.md` §8): an imported session has Glade's tools, but not
+  the lines Glade adds to its system prompt, so its agent keeps the title and status current only when asked.
 - **Model:** the last one the transcript used, if Glade offers it, else Settings' default. Effort and permission mode:
   Settings' defaults.
 - **State:** done by default, stamped with the last entry's time; `state: 'active'` imports it active.
