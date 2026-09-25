@@ -19,6 +19,7 @@ import {
   TodoState,
   ToolCallState,
   ToolEventKind,
+  type PermissionDecision,
   type Task,
   type TaskPause,
   type ToolCallEvent,
@@ -42,9 +43,11 @@ import { createGladeMcpServer, GLADE_SERVER } from './glade-tools'
 import {
   AGENT_SCRIPT_NAMES,
   AGENT_SCRIPTS,
+  ALLOWS_FOR_TASK,
   ASKS_PERMISSION,
   DELETE_LOCAL_COPIES_QUESTION,
   FOLLOW_UPS,
+  PERMISSION_AT_QUIT,
   RELEASE_NOTES_QUESTIONS,
   S3_PLAN,
   SUBAGENT_CALLS_REPLY,
@@ -636,6 +639,103 @@ describe('AGENT_SCRIPTS', () => {
       PermissionRequestState.Allowed,
     ])
     expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, awaitingPermission: false })
+  })
+
+  describe('allows-for-task', () => {
+    /** The open requests' calls, as `Tool: command or file`. */
+    const open = (taskId = task.id): string[] =>
+      listOpenPermissionRequests(database.db, taskId).map(
+        ({ toolName, input }) => `${toolName}: ${String(input.command ?? input.file_path)}`,
+      )
+
+    /** Answers the one open request, and lets the script play on to the next, or its end. */
+    async function answerOpen(agent: AgentRunner, decision: PermissionDecision): Promise<void> {
+      const [request] = listOpenPermissionRequests(database.db, task.id)
+      agent.answerPermission(request?.id ?? '', decision)
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+    }
+
+    const { command, watch, compound, edit, editAgain } = ALLOWS_FOR_TASK
+
+    it('stops asking about what a granted rule covers, and still asks about a compound command', async () => {
+      updateTask(database.db, task.id, { permissionMode: PermissionMode.AskBeforeEdits })
+      const agent = start('allows-for-task')
+      await sendAndWaitAnHour(agent, 'Run the tests.')
+
+      expect(open()).toEqual([`Bash: ${command}`])
+      await answerOpen(agent, { kind: PermissionDecisionKind.AllowForTask })
+      // `npm test -- --watch` ran without asking; `npm test && rm -rf build` asks.
+      expect(open()).toEqual([`Bash: ${compound}`])
+      expect(calls().find(({ input }) => input.command === watch)?.state).toBe(ToolCallState.Done)
+      await answerOpen(agent, { kind: PermissionDecisionKind.AllowOnce })
+      expect(open()).toEqual([`Edit: ${edit.file_path}`])
+      await answerOpen(agent, { kind: PermissionDecisionKind.AllowForTask })
+
+      await vi.waitFor(() => {
+        expect(reply()).toBe(ALLOWS_FOR_TASK.reply)
+      })
+      expect(
+        listPermissionRequests(database.db, task.id).map(({ toolName, grantedRule }) => [toolName, grantedRule]),
+      ).toEqual([
+        ['Bash', { toolName: 'Bash', ruleContent: 'npm test *' }],
+        ['Bash', null],
+        ['Edit', { toolName: 'Edit' }],
+      ])
+      expect(calls().find(({ input }) => input.file_path === editAgain.file_path)?.state).toBe(ToolCallState.Done)
+    })
+
+    it("keeps the task's rules across a relaunch, and gives another task none of them", async () => {
+      updateTask(database.db, task.id, { permissionMode: PermissionMode.AskBeforeEdits })
+      const agent = start('allows-for-task')
+      await sendAndWaitAnHour(agent, 'Run the tests.')
+      await answerOpen(agent, { kind: PermissionDecisionKind.AllowForTask })
+      await answerOpen(agent, { kind: PermissionDecisionKind.Deny })
+      await answerOpen(agent, { kind: PermissionDecisionKind.AllowForTask })
+      await vi.waitFor(() => {
+        expect(activity()).toBe(TaskActivity.Waiting)
+      })
+      runner?.close()
+
+      // The next launch's session resumes with the rules: only the compound command asks.
+      const relaunched = start('allows-for-task')
+      await sendAndWaitAnHour(relaunched, 'Run them again.')
+      expect(open()).toEqual([`Bash: ${compound}`])
+      await answerOpen(relaunched, { kind: PermissionDecisionKind.AllowOnce })
+      expect(open()).toEqual([])
+      expect(listPermissionRequests(database.db, task.id)).toHaveLength(4)
+
+      // Another task, in the ask mode too, asks about everything.
+      const other = sampleTask(database.db, task.workspaceId)
+      updateTask(database.db, other.id, { permissionMode: PermissionMode.AskBeforeEdits })
+      relaunched.send(other.id, 'Run the tests.')
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+      expect(open(other.id)).toEqual([`Bash: ${command}`])
+    })
+  })
+
+  it('permission-at-quit: allowed after a relaunch, the resumed agent runs the command again without asking', async () => {
+    updateTask(database.db, task.id, { permissionMode: PermissionMode.AskBeforeEdits })
+    const agent = start('permission-at-quit')
+    await sendAndWaitAnHour(agent, 'Run the migrations.')
+    const [open] = listOpenPermissionRequests(database.db, task.id)
+    expect(open).toMatchObject({ toolName: 'Bash', input: { command: PERMISSION_AT_QUIT.command } })
+    runner?.close()
+
+    const relaunched = start('permission-at-quit')
+    relaunched.resumeInterrupted()
+    expect(listOpenPermissionRequests(database.db, task.id)).toEqual([open])
+    relaunched.answerPermission(open?.id ?? '', { kind: PermissionDecisionKind.AllowOnce })
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+
+    expect(reply()).toBe(PERMISSION_AT_QUIT.reply)
+    expect(listPermissionRequests(database.db, task.id)).toHaveLength(1)
+    expect(calls().map(({ name, state, output }) => [name, state, output])).toContainEqual([
+      'Bash',
+      ToolCallState.Done,
+      PERMISSION_AT_QUIT.output,
+    ])
+    expect(calls().find((call) => call.name === 'Bash')?.state).toBe(ToolCallState.Interrupted)
+    expect(activity()).toBe(TaskActivity.Waiting)
   })
 
   it('keeps-todos: plans with TaskCreate, checks items off with TaskUpdate, and asks partway through', async () => {

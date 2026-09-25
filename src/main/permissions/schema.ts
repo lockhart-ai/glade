@@ -15,7 +15,8 @@ import {
   type PermissionSuggestion,
 } from '../../shared/domain'
 
-const permissionRule = z.object({
+/** A permission rule: a tool, and optionally what of it. */
+export const permissionRuleSchema = z.object({
   toolName: z.string(),
   ruleContent: z.string().optional(),
 }) satisfies z.ZodType<PermissionRule>
@@ -26,7 +27,7 @@ const destination = z.enum(PermissionDestination)
 export const permissionSuggestionSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.enum([PermissionUpdateType.AddRules, PermissionUpdateType.ReplaceRules, PermissionUpdateType.RemoveRules]),
-    rules: z.array(permissionRule).readonly(),
+    rules: z.array(permissionRuleSchema).readonly(),
     behavior: z.enum(PermissionRuleBehavior),
     destination,
   }),
@@ -41,8 +42,9 @@ export const permissionSuggestionSchema = z.discriminatedUnion('type', [
 /** The suggestions stored with a request. */
 export const permissionSuggestionsSchema = z.array(permissionSuggestionSchema).readonly()
 
-/** How you answer a permission request: Allow once, or Deny with an optional note. */
+/** How you answer a permission request: Allow once, Allow for this task, or Deny with an optional note. */
 export const permissionDecisionSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal(PermissionDecisionKind.AllowOnce) }),
+  z.strictObject({ kind: z.literal(PermissionDecisionKind.AllowForTask) }),
   z.strictObject({ kind: z.literal(PermissionDecisionKind.Deny), note: z.string().optional() }),
 ]) satisfies z.ZodType<PermissionDecision>

@@ -3,8 +3,8 @@
  * steps become the SDK messages a real session would stream (shapes from `docs/sdk-notes.md` §2). Nothing runs a
  * model. The test modes' agent backend (`./test-mode-backend`) starts these.
  *
- * - Turns run one after another, in the order their messages were sent. The runner's `RESUME_PROMPT`, and its message
- *   answering a question the app quit on, run the script's resume turn, if it has one. `/compact` runs its compact turn (by default `DEFAULT_COMPACT_TURN`), which
+ * - Turns run one after another, in the order their messages were sent. The runner's `RESUME_PROMPT`, and its messages
+ *   answering a question or deciding permission requests the app quit on, run the script's resume turn, if it has one. `/compact` runs its compact turn (by default `DEFAULT_COMPACT_TURN`), which
  *   isn't one of the script's turns: the message after it runs the next of those.
  * - Each assistant message reports the context the session has used: 22,846 tokens unless a step fills it, and what
  *   a compaction left after one.
@@ -23,14 +23,15 @@
  *   may then start a turn of its own. `stopTask` stops it by its task id; closing the session stops it without a word.
  * - A `Permission` step asks the runner about its call (`onToolPermission`) in the ask mode, as Claude Code asks
  *   `canUseTool`, and plays the call's result once it's allowed, or its denial as an error result. In Allow all, or
- *   after `configure` switches to it, it runs without asking.
+ *   after `configure` switches to it, it runs without asking. So does a call a rule covers (`scriptedRuleCovers`): one
+ *   the session started with (`allowedRules`), or one an answer added (Allow for this task).
  * - A `Fail` step kills the session: its message stream throws, and it plays nothing more.
  * - The script can be picked by the session's first message (a `ScriptChooser`), so different tasks can play different
  *   scripts. A chooser that has none for it kills the session as a `Fail` step would.
  */
 import { randomUUID } from 'node:crypto'
 import { contextWindowFor } from '../../shared/contextWindow'
-import { PermissionMode, type ToolInput } from '../../shared/domain'
+import { PermissionMode, type PermissionRule, type ToolInput } from '../../shared/domain'
 import { AsyncQueue } from './async-queue'
 import {
   ToolPermissionBehavior,
@@ -41,7 +42,12 @@ import {
 } from './backend'
 import { GLADE_SERVER, GladeTool } from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller, type McpToolOutcome } from './mcp-tool-caller'
-import { ANSWERED_AFTER_RESTART_PROMPT, COMPACT_COMMAND, RESUME_PROMPT } from './runner'
+import {
+  ANSWERED_AFTER_RESTART_PROMPT,
+  COMPACT_COMMAND,
+  PERMISSIONS_DECIDED_AFTER_RESTART_PROMPT,
+  RESUME_PROMPT,
+} from './runner'
 import { NO_ONE_TO_ASK, sdkPermissionMode } from './sdk-backend'
 import {
   DEFAULT_COMPACT_TURN,
@@ -56,6 +62,26 @@ import {
   type WakeStep,
   WakeCause,
 } from './scripts'
+
+/** What makes a command more than one: Claude Code splits these apart, and asks about the parts a rule doesn't cover. */
+const COMPOUND = /&&|\|\||[;|&\n`]|\$\(/
+
+/**
+ * Whether a permission rule lets a call through, as Claude Code decides it, closely enough for scripts: a rule without
+ * content covers every call to its tool; a `Bash` rule's content covers the command itself, or, ending in ` *` or `:*`,
+ * every command that is its prefix alone or followed by a space and more. A compound command is never covered, since
+ * Claude Code would ask about its parts, and the scripts don't split it.
+ */
+export function scriptedRuleCovers(rule: PermissionRule, toolName: string, input: ToolInput): boolean {
+  if (rule.toolName !== toolName) return false
+  const content = rule.ruleContent ?? ''
+  if (content === '') return true
+  const command = input.command
+  if (toolName !== 'Bash' || typeof command !== 'string' || COMPOUND.test(command)) return false
+  const prefix = /^(.*?)(?: \*|:\*)$/.exec(content)?.[1]
+  if (prefix === undefined) return command === content
+  return command === prefix || command.startsWith(`${prefix} `)
+}
 
 /** Picks the script a session plays from the first message sent to it. Throws when it has none for that message. */
 export type ScriptChooser = (firstMessage: string) => AgentScript
@@ -223,10 +249,13 @@ export class ScriptedSession implements AgentSession {
   private permissionMode: PermissionMode
   /** The context the session has used, in tokens, as its assistant messages report it. */
   private contextTokens = INITIAL_CONTEXT_TOKENS
+  /** The permission rules the session lets calls through by: its start's, and those answers added since. */
+  private readonly rules: PermissionRule[]
 
   constructor(private readonly options: ScriptedSessionOptions) {
     this.model = options.session.model
     this.permissionMode = options.session.permissionMode
+    this.rules = [...(options.session.allowedRules ?? [])]
     const newId = options.newId ?? randomUUID
     this.sessionId = options.session.resumeSessionId ?? newId()
     this.idPrefix = newId().replaceAll('-', '').slice(0, 8)
@@ -252,7 +281,10 @@ export class ScriptedSession implements AgentSession {
   private turnFor(script: AgentScript, text: string): ScriptTurn {
     if (text === COMPACT_COMMAND) return script.compactTurn ?? DEFAULT_COMPACT_TURN
     this.turnsRun += 1
-    const resuming = text === RESUME_PROMPT || text.startsWith(ANSWERED_AFTER_RESTART_PROMPT)
+    const resuming =
+      text === RESUME_PROMPT ||
+      text.startsWith(ANSWERED_AFTER_RESTART_PROMPT) ||
+      text.startsWith(PERMISSIONS_DECIDED_AFTER_RESTART_PROMPT)
     if (resuming && script.resumeTurn !== undefined) return script.resumeTurn
     return script.turns[Math.min(this.turnsRun - 1, script.turns.length - 1)] ?? []
   }
@@ -625,7 +657,8 @@ export class ScriptedSession implements AgentSession {
    */
   private async permission(turn: TurnState, step: PermissionStep, uuid: string | null): Promise<void> {
     this.toolUse(turn, step.id, step.name, step.input, step.parent ?? null, uuid)
-    if (this.permissionMode === PermissionMode.AllowAll) {
+    const covered = this.rules.some((rule) => scriptedRuleCovers(rule, step.name, step.input))
+    if (this.permissionMode === PermissionMode.AllowAll || covered) {
       this.toolResult(turn, step.id, step.output, false)
       return
     }
@@ -644,11 +677,11 @@ export class ScriptedSession implements AgentSession {
             input: step.input,
             toolUseId: this.sdkToolId(turn, step.id),
             agentId,
-            title: null,
+            title: step.title ?? null,
             displayName: step.name,
             description: step.description ?? null,
             suggestions: step.suggestions ?? [],
-            defaultToNo: false,
+            defaultToNo: step.defaultToNo ?? false,
             suppressAlwaysAllowRule: false,
             mcpServer: null,
             matchedAskRule: false,
@@ -657,6 +690,7 @@ export class ScriptedSession implements AgentSession {
     if (turn.isInterrupted) return
     switch (answer.behavior) {
       case ToolPermissionBehavior.Allow:
+        if (answer.rule !== undefined) this.rules.push(answer.rule)
         this.toolResult(turn, step.id, step.output, false)
         return
       case ToolPermissionBehavior.Deny:

@@ -30,6 +30,8 @@ illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
 | 21 · Settings | Modal; Agent section shown. | ![21 · Settings](screens/21-settings.png) |
 | 21 · Settings › Plugins | Plugins section: the plugins folder, one row per plugin with its toggle, an invalid one with its reason. | ![21 · Settings › Plugins](screens/21-settings-plugins.png) |
 | 22 · Keymap | Every shortcut. Also in `../keymap.md`. | ![22 · Keymap](screens/22-keymap.png) |
+| 23 · Permission card | Ask before edits and commands: a Bash call waiting on you with Allow once, Allow for this task (its command prefix) and Deny, and a subagent's Edit with Deny's note field open; cards collapsed to one line once allowed once or denied (with the note). Built from the question card; no original design. | ![23 · Permission card](screens/23-permission-card.png) |
+| 24 · Permissions picker | The input bar's Permissions picker open on Allow all and Ask before edits and commands, over an open Bash card; above it, cards collapsed to one line once allowed once, allowed for this task or withdrawn. | ![24 · Permissions picker](screens/24-permissions-picker.png) |
 | Interaction map | Every screen, state and action as a graph. | ![Interaction map](screens/interaction-map.png) |
 | Decisions | The decisions board. | ![Decisions](screens/decisions.png) |
 | Icon exploration | Variations of the chosen icon; W07 is the one. | ![Icon exploration](screens/icon-exploration.png) |

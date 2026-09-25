@@ -5,6 +5,7 @@ import {
   type Artifact,
   type EpochMs,
   type Message,
+  type PermissionRequest,
   type QuestionSet,
   type TodoList,
   type ToolEvent,
@@ -90,6 +91,10 @@ export function withHistory(state: GladeData, taskId: string, history: TasksHist
       ...state.questionSets,
       [taskId]: merged<QuestionSet>(history.questionSets, state.questionSets[taskId]),
     },
+    permissionRequests: {
+      ...state.permissionRequests,
+      [taskId]: merged<PermissionRequest>(history.permissionRequests, state.permissionRequests[taskId]),
+    },
     // Like the queue, open files change in place: the loaded ones are as new as any event before them.
     openFiles: { ...state.openFiles, [taskId]: history.openFiles },
     // Each change carries the whole list; the one declared in last is the newer.
@@ -133,7 +138,10 @@ function without<T>(byTask: Readonly<Record<string, T>>, taskId: string): Readon
   return taskId in byTask ? Object.fromEntries(Object.entries(byTask).filter(([id]) => id !== taskId)) : byTask
 }
 
-/** Forgets a deleted task: the task, its logs, queue, question sets, todos and open files, and any intent that names it. */
+/**
+ * Forgets a deleted task: the task, its logs, queue, question sets, permission requests, todos and open files, and any
+ * intent that names it.
+ */
 export function withoutTask(state: GladeData, taskId: string): GladeData {
   return {
     ...state,
@@ -142,6 +150,7 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     toolEvents: without(state.toolEvents, taskId),
     queuedMessages: without(state.queuedMessages, taskId),
     questionSets: without(state.questionSets, taskId),
+    permissionRequests: without(state.permissionRequests, taskId),
     todos: without(state.todos, taskId),
     openFiles: without(state.openFiles, taskId),
     artifacts: without(state.artifacts, taskId),
@@ -201,11 +210,10 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
     case EventType.QuestionWithdrawn:
       return { ...state, questionSets: withReplaced(state.questionSets, event.questionSet) }
     case EventType.PermissionOpened:
+      return { ...state, permissionRequests: withAppended(state.permissionRequests, event.permissionRequest) }
     case EventType.PermissionAnswered:
     case EventType.PermissionWithdrawn:
-      // Nothing shows permission requests yet: the permission card comes with P11-02. The task's `awaitingPermission`
-      // arrives with its `task.updated`.
-      return state
+      return { ...state, permissionRequests: withReplaced(state.permissionRequests, event.permissionRequest) }
     case EventType.OpenFilesChanged:
       return { ...state, openFiles: { ...state.openFiles, [event.openFiles.taskId]: event.openFiles } }
     case EventType.FileShown: {

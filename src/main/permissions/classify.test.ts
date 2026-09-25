@@ -5,6 +5,7 @@ import {
   permissionVerdict,
   PermissionVerdict,
   READ_ONLY_TOOLS,
+  SELF_TOOLS,
   SIDE_EFFECT_TOOLS,
   SUBAGENT_TOOLS,
   TODO_TOOLS,
@@ -47,13 +48,22 @@ describe('permissionVerdict', () => {
     ['Write', PermissionVerdict.Ask],
     ['MultiEdit', PermissionVerdict.Ask],
     ['NotebookEdit', PermissionVerdict.Ask],
+    // The agent's follow-up tools: scheduling itself, telling you and listing its agents go ahead; running a command
+    // (Monitor) or reaching outside (RemoteTrigger, SendMessage) asks.
+    ['ScheduleWakeup', PermissionVerdict.Allow],
+    ['CronCreate', PermissionVerdict.Allow],
+    ['CronDelete', PermissionVerdict.Allow],
+    ['CronList', PermissionVerdict.Allow],
+    ['PushNotification', PermissionVerdict.Allow],
+    ['ListAgents', PermissionVerdict.Allow],
+    ['Monitor', PermissionVerdict.Ask],
+    ['RemoteTrigger', PermissionVerdict.Ask],
+    ['SendMessage', PermissionVerdict.Ask],
     // Tools Glade doesn't know to be read-only ask, however harmless they sound.
     ['BashOutput', PermissionVerdict.Ask],
     ['KillShell', PermissionVerdict.Ask],
     ['ExitPlanMode', PermissionVerdict.Ask],
     ['EnterWorktree', PermissionVerdict.Ask],
-    ['CronCreate', PermissionVerdict.Ask],
-    ['Monitor', PermissionVerdict.Ask],
     ['SomeToolFromTheFuture', PermissionVerdict.Ask],
     ['', PermissionVerdict.Ask],
     // Names are exact: a tool named like a read in another case isn't one.
@@ -63,8 +73,8 @@ describe('permissionVerdict', () => {
     expect(verdict(builtIn(toolName))).toBe(expected)
   })
 
-  it('allows every read, todo and subagent tool, and asks for every side-effecting one', () => {
-    for (const toolName of [...READ_ONLY_TOOLS, ...TODO_TOOLS, ...SUBAGENT_TOOLS]) {
+  it("allows every read, todo, subagent and agent's-own tool, and asks for every side-effecting one", () => {
+    for (const toolName of [...READ_ONLY_TOOLS, ...TODO_TOOLS, ...SUBAGENT_TOOLS, ...SELF_TOOLS]) {
       expect(verdict(builtIn(toolName)), toolName).toBe(PermissionVerdict.Allow)
     }
     for (const toolName of SIDE_EFFECT_TOOLS) expect(verdict(builtIn(toolName)), toolName).toBe(PermissionVerdict.Ask)

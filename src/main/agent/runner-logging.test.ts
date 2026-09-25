@@ -73,6 +73,7 @@ describe('a turn', () => {
       model: task.model,
       effort: task.effort,
       permissionMode: task.permissionMode,
+      allowedRules: 0,
       cwd: '/code/acme-api',
       resumeSessionId: null,
     })
