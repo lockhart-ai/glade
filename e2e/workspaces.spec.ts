@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { CommandName } from '../src/shared/bridge'
-import { chooseFolder, clickNotification, desktop, expect, notifications, test } from './fixtures'
+import { chooseFolder, clickNotification, desktop, expect, notifications, seedPath, test } from './fixtures'
 import { chooseMenuItem } from './menu'
 import { chat, firstRun, inputBar, regions, taskHeader, taskList, workspaceSwitcher } from './selectors'
 import { invoke } from './task-view'
@@ -113,4 +113,27 @@ test('several workspaces: switching restores each one’s task, and background t
   await again.row('acme-web').click()
   await expect(regions(relaunched.window).workspace).toContainText('acme-web')
   await expect(taskHeader(relaunched.window).title).toHaveText(B_TITLE)
+})
+
+test('a selection from before each workspace kept its own comes back after switching away and back', async ({
+  launch,
+  tempFolder,
+}) => {
+  // The seed stores only the window's selected task, as 0.6.0 did, and no workspace's own selection.
+  const glade = await launch({ seed: seedPath('long-header.json') })
+  const { window } = glade
+  const header = taskHeader(window)
+  const workspace = regions(window).workspace
+  await expect(header.title).toHaveText(/^Add per-key rate limiting/)
+
+  // Add a second workspace and go straight back, without selecting a task anywhere.
+  const rootB = join(tempFolder(), 'acme-web')
+  mkdirSync(rootB)
+  await chooseFolder(glade, rootB)
+  await chooseMenuItem(glade, 'Workspace', 'New workspace…')
+  await expect(workspace).toContainText('acme-web')
+  await expect(header.title).toHaveCount(0)
+  await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'Acme API')
+  await expect(workspace).toContainText('Acme API')
+  await expect(header.title).toHaveText(/^Add per-key rate limiting/)
 })

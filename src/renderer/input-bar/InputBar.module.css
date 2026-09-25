@@ -1,5 +1,6 @@
 /* The input bar, from docs/design/html/task-workspace.html and 02-agent-working.html. */
 .bar {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   background: var(--color-raised);
@@ -49,6 +50,16 @@
 .settingValue {
   color: var(--color-text);
   font-weight: 500;
+}
+
+/*
+ * In a narrow input bar (the smallest window) the settings don't fit with their labels: they show just their values,
+ * so the row keeps its spacing and the context meter. Each button's accessible name still says which setting it is.
+ */
+@container (max-width: 560px) {
+  .settingLabel {
+    display: none;
+  }
 }
 
 /* The context meter's place (P1-14). */

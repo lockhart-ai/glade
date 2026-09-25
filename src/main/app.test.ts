@@ -15,7 +15,7 @@ import { openAppDatabase } from './db/database'
 import { MIGRATIONS } from './db/migrations'
 import { appendMessage } from './db/repositories/messages'
 import { updateTask } from './db/repositories/tasks'
-import { getUiState } from './db/repositories/ui-state'
+import { getUiState, setUiState } from './db/repositories/ui-state'
 import { sampleTask, sampleWorkspace } from './db/repositories/test-database'
 import { CHOOSE_FOLDER_OPTIONS } from './dialogs'
 import type { RecordingNotifier } from './notifications/recording-notifier'
@@ -425,6 +425,34 @@ describe('startApp', () => {
     expect(backend.session.options.resumeSessionId).toBe('session-1')
     expect(backend.session.sent.map(({ text }) => text)).toEqual([RESUME_PROMPT])
     expect(onlyWindow()).toBeDefined()
+  })
+
+  it("carries the window's selected task over as its workspace's selection, on a database from before workspaces kept one", async () => {
+    const { db } = openAppDatabase(electron.app.userData, MIGRATIONS.slice(0, 16))
+    const acme = sampleWorkspace(db)
+    const task = sampleTask(db, acme.id)
+    setUiState(db, { key: UiStateKey.ActiveWorkspaceId, value: acme.id })
+    setUiState(db, { key: UiStateKey.SelectedTaskId, value: task.id })
+    db.close()
+
+    await startAndWaitUntilReady()
+
+    // Adding a second workspace and switching back before selecting anything shows the task again.
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+    const other = mkdtempSync(join(tmpdir(), 'glade-web-'))
+    try {
+      const added = (await handler?.({}, CommandName.WorkspacesCreate, { rootPath: other })) as {
+        ok: true
+        value: { workspace: { id: string } }
+      }
+      await handler?.({}, CommandName.WorkspacesOpen, { id: added.value.workspace.id })
+      expect(await handler?.({}, CommandName.WorkspacesOpen, { id: acme.id })).toMatchObject({
+        ok: true,
+        value: { selectedTaskId: task.id },
+      })
+    } finally {
+      rmSync(other, { recursive: true, force: true })
+    }
   })
 
   /** Starts the app on a database whose last run left a task mid-turn, and answers with the task's id. */
