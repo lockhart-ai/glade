@@ -10,6 +10,7 @@ import {
   type CommandRequest,
   type EmptyRequest,
   type FileRequest,
+  type ImagesGetRequest,
   type LogRendererErrorRequest,
   type MenuUpdateRequest,
   type QueueAddRequest,
@@ -19,6 +20,8 @@ import {
   type SearchQueryRequest,
   type SubagentsStopRequest,
   type TaskIdRequest,
+  type TasksGetRequest,
+  type TasksListDoneRequest,
   type TerminalCreateRequest,
   type TerminalIdRequest,
   type TerminalRenameRequest,
@@ -38,8 +41,11 @@ import {
   type WorkspacesUpdateRequest,
   type WorkspacesRevealRequest,
 } from '../../shared/bridge'
+import { TaskFilter } from '../../shared/attention'
+import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
 import { Effort, UiStateKey } from '../../shared/domain'
 import { isWorkspaceRelativePath } from '../../shared/files'
+import { hasImageSignature, ImageMediaType, MAX_IMAGE_BASE64_LENGTH, type ImageData } from '../../shared/images'
 import { MAX_TERMINAL_NAME, MAX_TERMINAL_SIZE, MAX_TERMINAL_WRITE } from '../../shared/terminal'
 import { SETTING_SCHEMAS } from '../db/repositories/settings'
 import { questionAnswersSchema } from '../questions/schema'
@@ -78,6 +84,17 @@ const workspacesRemoveRequest = z.strictObject({ id: z.string() }) satisfies z.Z
 
 const tasksListRequest = z.strictObject({ workspaceId: z.string() }) satisfies z.ZodType<TasksListRequest>
 
+const tasksListDoneRequest = z.strictObject({
+  workspaceId: z.string(),
+  filter: z.enum(TaskFilter),
+  after: z.strictObject({ updatedAt: z.int().nonnegative(), id: z.string() }).nullable(),
+  limit: z.int().min(1).max(MAX_DONE_PAGE_SIZE),
+}) satisfies z.ZodType<TasksListDoneRequest>
+
+const tasksGetRequest = z.strictObject({
+  ids: z.array(z.string()).readonly(),
+}) satisfies z.ZodType<TasksGetRequest>
+
 const tasksCreateRequest = z.strictObject({ workspaceId: z.string() }) satisfies z.ZodType<TasksCreateRequest>
 
 const taskIdRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<TaskIdRequest>
@@ -101,7 +118,34 @@ const tasksUpdateRequest = z.strictObject({
 /** A message's text, which mustn't be blank. */
 const messageText = notBlank('a message')
 
-const tasksSendRequest = z.strictObject({ id: z.string(), text: messageText }) satisfies z.ZodType<TasksSendRequest>
+/** Base64, as `Buffer.from(…, 'base64')` would otherwise read anything into some bytes. */
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/
+
+/** A pasted image: a type the agent takes, within the API's size limit, whose bytes are that type. */
+const image = z
+  .strictObject({
+    mediaType: z.enum(ImageMediaType),
+    data: z.string().min(1).max(MAX_IMAGE_BASE64_LENGTH).regex(BASE64, 'Expected base64'),
+  })
+  .refine(({ mediaType, data }) => hasImageSignature(mediaType, Buffer.from(data.slice(0, 64), 'base64')), {
+    message: "Expected the image's bytes to be its type",
+    // Only once its type and data are good: there's nothing to check otherwise.
+    when: ({ issues }) => issues.length === 0,
+  }) satisfies z.ZodType<ImageData>
+
+/** A message's text and images: its text can be blank only when it has images. */
+function withContent<T extends { readonly text: string; readonly images?: readonly ImageData[] | undefined }>(
+  schema: z.ZodType<T>,
+): z.ZodType<T> {
+  return schema.refine(({ text, images = [] }) => text.trim() !== '' || images.length > 0, {
+    message: 'Expected a message that is not blank',
+    path: ['text'],
+  })
+}
+
+const tasksSendRequest = withContent(
+  z.strictObject({ id: z.string(), text: z.string(), images: z.array(image).readonly().optional() }),
+) satisfies z.ZodType<TasksSendRequest>
 
 const tasksRetryRequest = z.strictObject({
   id: z.string(),
@@ -113,11 +157,15 @@ const subagentsStopRequest = z.strictObject({
   toolUseId: z.string(),
 }) satisfies z.ZodType<SubagentsStopRequest>
 
-const queueAddRequest = z.strictObject({ taskId: z.string(), text: messageText }) satisfies z.ZodType<QueueAddRequest>
+const queueAddRequest = withContent(
+  z.strictObject({ taskId: z.string(), text: z.string(), images: z.array(image).readonly().optional() }),
+) satisfies z.ZodType<QueueAddRequest>
 
 const queueEditRequest = z.strictObject({ id: z.string(), text: messageText }) satisfies z.ZodType<QueueEditRequest>
 
 const queueRemoveRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<QueueRemoveRequest>
+
+const imagesGetRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<ImagesGetRequest>
 
 const questionsAnswerRequest = z.strictObject({
   id: z.string(),
@@ -218,6 +266,9 @@ export const REQUEST_SCHEMAS = {
   [CommandName.WorkspacesRemove]: workspacesRemoveRequest,
   [CommandName.DialogChooseFolder]: emptyRequest,
   [CommandName.TasksList]: tasksListRequest,
+  [CommandName.TasksListActive]: tasksListRequest,
+  [CommandName.TasksListDone]: tasksListDoneRequest,
+  [CommandName.TasksGet]: tasksGetRequest,
   [CommandName.TasksCreate]: tasksCreateRequest,
   [CommandName.TasksMarkDone]: taskIdRequest,
   [CommandName.TasksReopen]: taskIdRequest,
@@ -232,6 +283,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.QueueAdd]: queueAddRequest,
   [CommandName.QueueEdit]: queueEditRequest,
   [CommandName.QueueRemove]: queueRemoveRequest,
+  [CommandName.ImagesGet]: imagesGetRequest,
   [CommandName.QuestionsAnswer]: questionsAnswerRequest,
   [CommandName.FilesRead]: fileRequest,
   [CommandName.FilesOpen]: fileRequest,

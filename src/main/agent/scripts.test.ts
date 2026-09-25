@@ -47,8 +47,8 @@ import {
 } from './scripts'
 import { OFFLINE_FIRST_CHECK_MS } from './pauses'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
-import { LogLevel, type Logger } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
+import type { Logger } from '../logging/logger'
 
 let database: TestDatabase
 let task: Task
@@ -142,8 +142,10 @@ describe('AGENT_SCRIPTS', () => {
       await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
     }
     // What the parser drops, it says so about: nothing a script plays should be dropped.
-    const warnings = memory.records.filter((record) => record.level === LogLevel.Warn).map(({ message }) => message)
-    expect(warnings.filter((message) => message.startsWith('Dropped') || message.startsWith('Ignored SDK'))).toEqual([])
+    const dropped = memory.records
+      .map(({ message }) => message)
+      .filter((message) => message.startsWith('Dropped') || message.startsWith('Ignored SDK'))
+    expect(dropped).toEqual([])
   })
 
   it('simple-reply: sets the title, objective and status, then replies', async () => {

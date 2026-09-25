@@ -1,14 +1,18 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
 import type { Command } from '../../shared/commands'
-import { UiStateKey, type OpenFiles, type UiStateEntry, type Workspace } from '../../shared/domain'
+import { UiStateKey, type OpenFiles, type Task, type UiStateEntry, type Workspace } from '../../shared/domain'
+import { DONE_PAGE_SIZE, inDoneList } from '../../shared/doneList'
+import { parseTaskFilter } from '../../shared/attention'
 import { DEFAULT_SETTINGS_SECTION } from '../settings/sections'
 import { collapsedEntry, isCollapsed, Panel } from '../panels/panels'
 import { PanelTab, parsePanelTab } from '../right-panel/panelModel'
 import { listedTaskIds, selectionAfterDeleting } from '../task-list/sections'
 import { activeTerminalTab, commandToPaste, cycledTab } from '../terminal/terminalModel'
+import type { ImageData } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import { describeFailure, lastOpenedWorkspace, loadSnapshot } from './hydrate'
+import { doneListKey, isLoaded, withDonePage, withLoadedTasks } from './doneLists'
 import { applyEvent, withHistory, withOpenedWorkspace } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState, type TerminalEvent } from './state'
 
@@ -30,6 +34,33 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     // Each terminal tab's terminals, which hear its output straight from main's events, never through the store.
     const terminalListeners = new Map<string, Set<(event: TerminalEvent) => void>>()
 
+    // The stored images fetched so far, by id: an image never changes, so each is fetched once.
+    const images = new Map<string, Promise<ImageData>>()
+
+    // The page of each Done section loading now, by `doneListKey`: a second call waits for it rather than loading more.
+    const doneLoads = new Map<string, Promise<void>>()
+
+    // Every task deleted since the window opened: an answer that was on its way when the task went mustn't bring it back.
+    const deletedTaskIds = new Set<string>()
+
+    // Adds tasks loaded from main, leaving out any deleted meanwhile.
+    const addLoaded = (tasks: readonly Task[]): void => {
+      set((state) =>
+        withLoadedTasks(
+          state,
+          tasks.filter(({ id }) => !deletedTaskIds.has(id)),
+        ),
+      )
+    }
+
+    // Loads the tasks the store doesn't have yet, e.g. a done task a search found below the Done pages loaded so far.
+    const loadTasks = async (ids: readonly string[]): Promise<void> => {
+      const { tasks } = get()
+      const missing = ids.filter((id) => !(id in tasks) && !deletedTaskIds.has(id))
+      if (missing.length === 0) return
+      addLoaded((await bridge.invoke(CommandName.TasksGet, { ids: missing })).tasks)
+    }
+
     // Who runs the menu bar's commands: the window, once it's showing.
     const commandListeners = new Set<(command: Command) => void>()
 
@@ -47,6 +78,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         else openWhenLoaded = event.taskId
         return
       }
+      if (event.type === EventType.TaskDeleted) deletedTaskIds.add(event.taskId)
       if (pending !== null) {
         pending.push(event)
         return
@@ -104,6 +136,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     // The task main restored as the workspace's selection has its logs loaded, as selecting it would.
     const open = async (workspaceId: string): Promise<Workspace> => {
       const { workspace, selectedTaskId } = await bridge.invoke(CommandName.WorkspacesOpen, { id: workspaceId })
+      if (selectedTaskId !== null) await loadTasks([selectedTaskId])
       set((state) => withOpenedWorkspace(state, workspace, selectedTaskId))
       if (selectedTaskId !== null) await get().loadHistory(selectedTaskId)
       return workspace
@@ -238,6 +271,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       async selectTask(taskId) {
+        if (taskId !== null) await loadTasks([taskId])
         const { selectedWorkspaceId, tasks } = get()
         const task = taskId === null ? undefined : tasks[taskId]
         if (task !== undefined && task.workspaceId !== selectedWorkspaceId) {
@@ -245,6 +279,43 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         }
         await setUiState({ key: UiStateKey.SelectedTaskId, value: taskId ?? NONE })
         if (taskId !== null) await get().loadHistory(taskId)
+      },
+
+      loadDonePage(workspaceId, filter) {
+        const key = doneListKey(workspaceId, filter)
+        const loading = doneLoads.get(key)
+        if (loading !== undefined) return loading
+        const pages = get().doneLists[key]
+        if (pages?.hasMore === false) return Promise.resolve()
+        const after = pages?.end ?? null
+        const load = bridge
+          .invoke(CommandName.TasksListDone, { workspaceId, filter, after, limit: DONE_PAGE_SIZE })
+          .then((page) => {
+            const tasks = page.tasks.filter(({ id }) => !deletedTaskIds.has(id))
+            set((state) => withDonePage(state, workspaceId, filter, { ...page, tasks }))
+          })
+          .finally(() => {
+            doneLoads.delete(key)
+          })
+        doneLoads.set(key, load)
+        return load
+      },
+
+      async loadDoneThrough(workspaceId, filter, taskId) {
+        const key = doneListKey(workspaceId, filter)
+        if (taskId !== null) await loadTasks([taskId])
+        for (;;) {
+          const { doneLists, tasks } = get()
+          const pages = doneLists[key]
+          if (pages?.hasMore === false) return
+          const task = taskId === null ? undefined : tasks[taskId]
+          if (pages !== undefined && taskId !== null) {
+            if (task === undefined || !inDoneList(task, workspaceId, filter) || isLoaded(task, pages)) return
+          }
+          await get().loadDonePage(workspaceId, filter)
+          // A page that brought nothing new (the section changed under it) would load forever.
+          if (get().doneLists[key]?.end === pages?.end && pages !== undefined) return
+        }
       },
 
       async loadHistory(taskId) {
@@ -311,25 +382,36 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       async deleteTask(taskId) {
-        const { selectedTaskId, tasks, uiState } = get()
-        const task = tasks[taskId]
-        const selected = task !== undefined && taskId === selectedTaskId
-        const next = selected
-          ? selectionAfterDeleting(listedTaskIds(Object.values(tasks), task.workspaceId, uiState), taskId)
-          : null
+        const task = get().tasks[taskId]
+        const selected = task !== undefined && taskId === get().selectedTaskId
+        // The last row of the Done pages loaded so far is followed by the next page's first: load it to select it.
+        if (selected && listedTaskIds(get(), task.workspaceId).at(-1) === taskId) {
+          await get().loadDonePage(task.workspaceId, parseTaskFilter(get().uiState[UiStateKey.TaskFilter]))
+        }
+        const next = selected ? selectionAfterDeleting(listedTaskIds(get(), task.workspaceId), taskId) : null
         if (get().deletingTaskId === taskId) set({ deletingTaskId: null })
         await bridge.invoke(CommandName.TasksDelete, { id: taskId })
+        deletedTaskIds.add(taskId)
         // Main's task.deleted event normally arrives first; make sure the task is gone either way.
         set((state) => applyEvent(state, { type: EventType.TaskDeleted, taskId }))
         if (selected) await get().selectTask(next)
       },
 
-      async sendMessage(taskId, text) {
-        await bridge.invoke(CommandName.TasksSend, { id: taskId, text })
+      async sendMessage(taskId, text, images = []) {
+        await bridge.invoke(CommandName.TasksSend, { id: taskId, text, ...(images.length > 0 ? { images } : {}) })
       },
 
-      async queueMessage(taskId, text) {
-        await bridge.invoke(CommandName.QueueAdd, { taskId, text })
+      async queueMessage(taskId, text, images = []) {
+        await bridge.invoke(CommandName.QueueAdd, { taskId, text, ...(images.length > 0 ? { images } : {}) })
+      },
+
+      loadImage(id) {
+        const cached = images.get(id)
+        if (cached !== undefined) return cached
+        const loading = bridge.invoke(CommandName.ImagesGet, { id }).then(({ image }) => image)
+        images.set(id, loading)
+        loading.catch(() => images.delete(id))
+        return loading
       },
 
       async answerQuestions(id, answers) {
@@ -429,6 +511,8 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
 
       async searchTasks(workspaceId, text) {
         const { results } = await bridge.invoke(CommandName.SearchQuery, { workspaceId, text })
+        // A result can be a done task below the Done pages loaded so far: its row needs the task.
+        await loadTasks(results.map(({ taskId }) => taskId))
         return results
       },
 

@@ -27,8 +27,10 @@ import type {
   Workspace,
 } from './domain'
 import type { Command, MenuState } from './commands'
+import type { ImageData } from './images'
 import type { Settings, SettingsPatch } from './settings'
 import type { SearchResult } from './search'
+import type { DoneCounts, DonePage, DonePageRequest } from './doneList'
 import type { TerminalTab } from './terminal'
 
 /** The name the bridge is exposed under on `window`. */
@@ -51,6 +53,9 @@ export enum CommandName {
   WorkspacesRemove = 'workspaces.remove',
   DialogChooseFolder = 'dialog.chooseFolder',
   TasksList = 'tasks.list',
+  TasksListActive = 'tasks.listActive',
+  TasksListDone = 'tasks.listDone',
+  TasksGet = 'tasks.get',
   TasksCreate = 'tasks.create',
   TasksMarkDone = 'tasks.markDone',
   TasksReopen = 'tasks.reopen',
@@ -65,6 +70,7 @@ export enum CommandName {
   QueueAdd = 'queue.add',
   QueueEdit = 'queue.edit',
   QueueRemove = 'queue.remove',
+  ImagesGet = 'images.get',
   QuestionsAnswer = 'questions.answer',
   FilesRead = 'files.read',
   FilesOpen = 'files.open',
@@ -189,6 +195,35 @@ export interface TasksListResponse {
   readonly tasks: readonly Task[]
 }
 
+/**
+ * A workspace's tasks outside the Done section, which the window loads whole: its active tasks and its pinned ones,
+ * whatever their state. The Done section can grow to thousands, so it comes a page at a time (`tasks.listDone`), and
+ * this answers only how many it holds (see `src/shared/doneList.ts`).
+ */
+export type TasksListActiveRequest = TasksListRequest
+
+export interface TasksListActiveResponse {
+  /** Its active and pinned tasks, most recently updated first. */
+  readonly tasks: readonly Task[]
+  /** How many tasks its Done section holds. */
+  readonly done: DoneCounts
+}
+
+/** A page of a workspace's Done section under a filter chip, starting just after the page before's last task. */
+export type TasksListDoneRequest = DonePageRequest
+
+export type TasksListDoneResponse = DonePage
+
+/** Tasks by id, e.g. a done task a search found that the window hasn't loaded a page of yet. */
+export interface TasksGetRequest {
+  readonly ids: readonly string[]
+}
+
+export interface TasksGetResponse {
+  /** The ones that exist, in no particular order. */
+  readonly tasks: readonly Task[]
+}
+
 /** Creates an active task with an empty title, objective and status, and the default model and effort. */
 export interface TasksCreateRequest {
   readonly workspaceId: string
@@ -252,12 +287,18 @@ export interface TaskResponse {
  * (`{ "freeText": … }`). It starts no turn, and the queue stays as it is. Broadcasts `question.answered`.
  *
  * Fails with `busy` while the agent is working on a turn or the task is paused (queue the message with `queue.add`
- * instead), and `not_found` when there's no such task.
+ * instead), `invalid_request` for images sent as an answer to questions (an answer is words), and `not_found` when
+ * there's no such task.
  */
 export interface TasksSendRequest {
   readonly id: string
-  /** Markdown. Not blank. */
+  /** Markdown. Blank only when there are images. */
   readonly text: string
+  /**
+   * The images pasted into the message, in order: each goes to the agent as an image content block, before the text.
+   * None when left out.
+   */
+  readonly images?: readonly ImageData[]
 }
 
 export interface TasksSendResponse {
@@ -340,8 +381,10 @@ export interface TasksHistoryResponse {
  */
 export interface QueueAddRequest {
   readonly taskId: string
-  /** Markdown. Not blank. */
+  /** Markdown. Blank only when there are images. */
   readonly text: string
+  /** The images pasted into the message, in order, which wait in the queue with it. None when left out. */
+  readonly images?: readonly ImageData[]
 }
 
 /** Changes the text of a message still waiting in its queue. Broadcasts `queue.changed`. */
@@ -362,6 +405,15 @@ export interface QueueRemoveRequest {
  */
 export interface QueuedMessageResponse {
   readonly queuedMessage: QueuedMessage
+}
+
+/** Fetches a stored image's bytes by id (`ImageRef.id`), to show it. Fails with `not_found` when there's no such image. */
+export interface ImagesGetRequest {
+  readonly id: string
+}
+
+export interface ImagesGetResponse {
+  readonly image: ImageData
 }
 
 /**
@@ -639,6 +691,9 @@ export interface CommandMap {
   [CommandName.WorkspacesRemove]: CommandSpec<WorkspacesRemoveRequest, null>
   [CommandName.DialogChooseFolder]: CommandSpec<EmptyRequest, DialogChooseFolderResponse>
   [CommandName.TasksList]: CommandSpec<TasksListRequest, TasksListResponse>
+  [CommandName.TasksListActive]: CommandSpec<TasksListActiveRequest, TasksListActiveResponse>
+  [CommandName.TasksListDone]: CommandSpec<TasksListDoneRequest, TasksListDoneResponse>
+  [CommandName.TasksGet]: CommandSpec<TasksGetRequest, TasksGetResponse>
   [CommandName.TasksCreate]: CommandSpec<TasksCreateRequest, TaskResponse>
   [CommandName.TasksMarkDone]: CommandSpec<TaskIdRequest, TaskResponse>
   [CommandName.TasksReopen]: CommandSpec<TaskIdRequest, TaskResponse>
@@ -653,6 +708,7 @@ export interface CommandMap {
   [CommandName.QueueAdd]: CommandSpec<QueueAddRequest, QueuedMessageResponse>
   [CommandName.QueueEdit]: CommandSpec<QueueEditRequest, QueuedMessageResponse>
   [CommandName.QueueRemove]: CommandSpec<QueueRemoveRequest, null>
+  [CommandName.ImagesGet]: CommandSpec<ImagesGetRequest, ImagesGetResponse>
   [CommandName.QuestionsAnswer]: CommandSpec<QuestionsAnswerRequest, QuestionSetResponse>
   [CommandName.FilesRead]: CommandSpec<FilesReadRequest, FilesReadResponse>
   [CommandName.FilesOpen]: CommandSpec<FilesOpenRequest, OpenFilesResponse>

@@ -58,6 +58,12 @@ export class Row {
     return this.value(column) === null ? null : this.integer(column)
   }
 
+  /** Bytes stored as a BLOB, which better-sqlite3 reads as a `Buffer`. */
+  blob(column: string): Buffer {
+    const value = this.value(column)
+    return Buffer.isBuffer(value) ? value : this.fail(column, 'a blob', value)
+  }
+
   /** A 0/1 integer as a boolean. */
   flag(column: string): boolean {
     const value = this.value(column)

@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest'
 import { BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { UiStateKey } from '../../shared/domain'
-import { fakeBridge } from './test-bridge'
+import { TaskState, UiStateKey } from '../../shared/domain'
+import { fakeBridge, sampleTask } from './test-bridge'
 
 it('answers uiState.get from its data, and stops delivering events once unsubscribed', async () => {
   const entry = { key: UiStateKey.ActiveWorkspaceId, value: 'w1' }
@@ -40,4 +40,13 @@ it('answers dialog.chooseFolder as if cancelled', async () => {
   const fake = fakeBridge({ workspaces: [], tasks: [], uiState: [] })
 
   await expect(fake.bridge.invoke(CommandName.DialogChooseFolder, {})).resolves.toEqual({ path: null })
+})
+
+it("answers tasks.list with every one of the workspace's tasks, done ones too", async () => {
+  const done = { ...sampleTask('d', 'w1'), state: TaskState.Done }
+  const fake = fakeBridge({ workspaces: [], tasks: [sampleTask('a', 'w1'), done, sampleTask('x', 'w2')], uiState: [] })
+
+  const { tasks } = await fake.bridge.invoke(CommandName.TasksList, { workspaceId: 'w1' })
+
+  expect(tasks.map(({ id }) => id)).toEqual(['a', 'd'])
 })

@@ -35,6 +35,9 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.LogRendererError]: () => null,
     [CommandName.DialogChooseFolder]: () => ({ path: null }),
     [CommandName.TasksList]: () => ({ tasks: [] }),
+    [CommandName.TasksListActive]: () => ({ tasks: [], done: { all: 0, unread: 0 } }),
+    [CommandName.TasksListDone]: () => ({ tasks: [], hasMore: false }),
+    [CommandName.TasksGet]: () => ({ tasks: [] }),
     [CommandName.TasksCreate]: () => ({ task: {} as Task }),
     [CommandName.TasksMarkDone]: () => ({ task: {} as Task }),
     [CommandName.TasksReopen]: () => ({ task: {} as Task }),
@@ -56,6 +59,9 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
     [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
     [CommandName.QueueRemove]: () => null,
+    [CommandName.ImagesGet]: () => {
+      throw new Error('not in these tests')
+    },
     [CommandName.QuestionsAnswer]: () => ({ questionSet: {} as QuestionSet }),
     [CommandName.FilesRead]: () => ({ content: { kind: FileContentKind.Missing } }),
     [CommandName.FilesOpen]: () => ({ openFiles: {} as OpenFiles }),

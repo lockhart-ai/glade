@@ -29,7 +29,10 @@ import type {
   UiStateKey,
   Workspace,
 } from '../../shared/domain'
+import type { ImageData } from '../../shared/images'
 import type { SearchResult } from '../../shared/search'
+import type { TaskFilter } from '../../shared/attention'
+import type { DoneCounts, TaskCursor } from '../../shared/doneList'
 import type { TerminalTab } from '../../shared/terminal'
 
 export enum HydrationStatus {
@@ -112,13 +115,32 @@ export interface TerminalSize {
   readonly rows: number
 }
 
+/**
+ * How much of a workspace's Done section, under one filter chip, the store has loaded: every task in it from the top
+ * down to `end` (see `src/shared/doneList.ts`). Events keep it that way: a task that joins the section is newer than
+ * any loaded, so it lands above `end`.
+ */
+export interface DoneListPages {
+  /** The last task of the last page loaded; null when the section had none. */
+  readonly end: TaskCursor | null
+  /** Whether more tasks follow `end`, still to load. */
+  readonly hasMore: boolean
+}
+
 /** Everything the store holds. `applyEvent` maps one of these to the next. */
 export interface GladeData {
   readonly hydration: Hydration
   /** Every workspace, oldest first. */
   readonly workspaces: readonly Workspace[]
-  /** Every workspace's tasks, by task id. */
+  /**
+   * Every workspace's tasks outside the Done section, and the ones in it that have been loaded (its pages so far, and
+   * any found some other way, e.g. by a search), by task id.
+   */
   readonly tasks: Readonly<Record<string, Task>>
+  /** How many tasks each workspace's Done section holds, by workspace id: loaded with its tasks, kept current by events. */
+  readonly doneCounts: Readonly<Record<string, DoneCounts>>
+  /** How much of each Done section has been loaded, by `doneListKey(workspaceId, filter)`. */
+  readonly doneLists: Readonly<Record<string, DoneListPages>>
   readonly selectedWorkspaceId: string | null
   readonly selectedTaskId: string | null
   /** Each task's chat messages, by task id: loaded when the task is selected, then kept current by events. */
@@ -265,6 +287,16 @@ export interface GladeActions {
    * workspace too.
    */
   selectTask: (taskId: string | null) => Promise<void>
+  /**
+   * Loads the next page of a workspace's Done section under a filter chip, or its first. Does nothing once it's all
+   * loaded; a call while a page loads waits for that page instead of loading another.
+   */
+  loadDonePage: (workspaceId: string, filter: TaskFilter) => Promise<void>
+  /**
+   * Loads pages of a workspace's Done section under a filter chip until one has `taskId` (as far as it goes, when it
+   * isn't in the section), or all of it with `taskId` null.
+   */
+  loadDoneThrough: (workspaceId: string, filter: TaskFilter, taskId: string | null) => Promise<void>
   /** Loads a task's chat log and tool log from main. */
   loadHistory: (taskId: string) => Promise<void>
   setUiState: (entry: UiStateEntry) => Promise<void>
@@ -303,15 +335,20 @@ export interface GladeActions {
    */
   deleteTask: (taskId: string) => Promise<void>
   /**
-   * Sends the user's message to the task's agent. Resolves once main has saved it; the message and the turn arrive as
-   * events. Rejects with `busy` while the agent is working.
+   * Sends the user's message, and the images pasted into it, to the task's agent. Resolves once main has saved it; the
+   * message and the turn arrive as events. Rejects with `busy` while the agent is working.
    */
-  sendMessage: (taskId: string, text: string) => Promise<void>
+  sendMessage: (taskId: string, text: string, images?: readonly ImageData[]) => Promise<void>
   /**
-   * Queues the user's message for the task's agent, which gets it after its current step. Resolves once main has
-   * saved it; the queue arrives as an event.
+   * Queues the user's message, and the images pasted into it, for the task's agent, which gets it after its current
+   * step. Resolves once main has saved it; the queue arrives as an event.
    */
-  queueMessage: (taskId: string, text: string) => Promise<void>
+  queueMessage: (taskId: string, text: string, images?: readonly ImageData[]) => Promise<void>
+  /**
+   * A stored image's type and bytes, by id (`images.get`), to show it. Each image is fetched once and kept, since an
+   * image never changes; one that failed to load is fetched again next time.
+   */
+  loadImage: (id: string) => Promise<ImageData>
   /**
    * Answers an open question set with the card's answers, keyed by question index (`questions.answer`). Resolves once
    * main has them; the answered set arrives as an event. Rejects with `invalid_request` for answers that don't fit.
@@ -425,6 +462,8 @@ export const INITIAL_DATA: GladeData = {
   hydration: { status: HydrationStatus.Loading },
   workspaces: [],
   tasks: {},
+  doneCounts: {},
+  doneLists: {},
   selectedWorkspaceId: null,
   selectedTaskId: null,
   messages: {},
