@@ -346,6 +346,8 @@ export const REQUEST_SCHEMAS = {
   [CommandName.SettingsUpdate]: settingsUpdateRequest,
   [CommandName.SearchQuery]: searchQueryRequest,
   [CommandName.PluginsList]: emptyRequest,
+  [CommandName.ControlStatus]: emptyRequest,
+  [CommandName.ControlRegenerateToken]: emptyRequest,
   [CommandName.PluginsSetEnabled]: pluginsSetEnabledRequest,
   [CommandName.PluginsOpenFolder]: emptyRequest,
   [CommandName.PluginsPlaceView]: pluginsPlaceViewRequest,

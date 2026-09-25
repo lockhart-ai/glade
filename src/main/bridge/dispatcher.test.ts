@@ -16,10 +16,19 @@ import { commandTaskId, createBroadcast, createDispatcher } from './dispatcher'
 import { CommandFailure } from './errors'
 import type { TerminalTab } from '../../shared/terminal'
 import type { Handlers } from './handlers'
+import { DEFAULT_CONTROL_PORT, type ControlStatus } from '../../shared/control'
 import { REQUEST_SCHEMAS } from './requests'
 import { LogLevel, LogScope } from '../logging/logger'
 import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
 
+const CONTROL_STATUS: ControlStatus = {
+  enabled: false,
+  chosenPort: DEFAULT_CONTROL_PORT,
+  port: null,
+  url: null,
+  token: null,
+  error: null,
+}
 function handlers(overrides: Partial<Handlers> = {}): Handlers {
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: [] }),
@@ -96,6 +105,8 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.PluginsSetEnabled]: () => ({ plugins: [] }),
     [CommandName.PluginsOpenFolder]: () => null,
     [CommandName.PluginsPlaceView]: () => ({ status: '' }),
+    [CommandName.ControlStatus]: () => ({ status: CONTROL_STATUS }),
+    [CommandName.ControlRegenerateToken]: () => ({ status: CONTROL_STATUS }),
     [CommandName.WorkspacesUpdate]: () => {
       throw new Error('not in these tests')
     },

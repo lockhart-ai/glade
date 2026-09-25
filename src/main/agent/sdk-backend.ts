@@ -12,6 +12,7 @@ import {
 import { createRequire } from 'node:module'
 import { PermissionMode, type PermissionSuggestion, type ToolInput } from '../../shared/domain'
 import { permissionRuleString } from '../../shared/permissions'
+import { CONTROL_SERVER_NAME } from '../../shared/control'
 import type { ImageData } from '../../shared/images'
 import type { Environment } from '../login-env'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
@@ -202,7 +203,7 @@ export function sdkOptions(
     ...(executable === undefined ? {} : { pathToClaudeCodeExecutable: executable }),
     // The whole environment, since it replaces Glade's own: opened from Finder, that has launchd's bare PATH. A copy,
     // since the SDK adds to it. No credentials of Glade's: the bundled Claude Code binary finds the user's login itself.
-    env: { ...env, ...SESSION_ENV },
+    env: { ...env, ...options.env, ...SESSION_ENV },
     cwd: options.cwd,
     model: options.model,
     effort: options.effort,
@@ -221,6 +222,11 @@ export function sdkOptions(
     ],
     // Behave like `claude` run in the workspace root: the workspace's CLAUDE.md, and the user's own settings.
     settingSources: ['user', 'project', 'local'],
+    // A `glade-control` server in the user's own config (the command Settings › Control gives, run in the workspace)
+    // would join the in-process one under the same name, each tool twice, calling Glade over HTTP as no task at all.
+    // Denied by name, it's left out, and the in-process one, which the denylist doesn't reach, is the only one
+    // (docs/sdk-notes.md §12).
+    settings: { deniedMcpServers: [{ serverName: CONTROL_SERVER_NAME }] },
     systemPrompt: { type: 'preset', preset: 'claude_code', append: options.systemPromptAppend },
     mcpServers: { ...options.mcpServers },
     // Questions go through Glade's own `ask`, which shows them on a card; Claude Code's own asking tool has no UI here.

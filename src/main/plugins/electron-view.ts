@@ -15,7 +15,7 @@ import { createPluginFileHandler, PLUGIN_CSP } from './protocol'
 import type { CreatePluginView } from './views'
 
 /** The `panel` design token, the card's surface, so the view never flashes white before the page paints. */
-const VIEW_BACKGROUND = '#14151C'
+const VIEW_BACKGROUND = '#181921'
 
 /** The card's corner radius (`--radius-card`) less its 1px border: the view's corners sit inside the card's. */
 export const PLUGIN_VIEW_RADIUS = 15

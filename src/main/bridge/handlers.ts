@@ -46,6 +46,7 @@ import { removeTaskArtifact } from '../artifacts/artifacts'
 import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
+import type { ControlEndpoint } from '../control/endpoint'
 
 /**
  * One handler per command, taking the parsed request. A command in `CommandMap` without a handler here, or a handler
@@ -77,6 +78,8 @@ export interface HandlerContext {
   readonly plugins: Plugins
   /** The shown plugin's view. */
   readonly pluginViews: PluginViews
+  /** The control API's HTTP endpoint, which follows Settings › Control. */
+  readonly endpoint: ControlEndpoint
   /** Where errors in the window are logged (`log.rendererError`). Nothing by default. */
   readonly log?: Logger
 }
@@ -90,7 +93,7 @@ function terminalRoot(db: Database, workspaceId: string | null): string | null {
 }
 
 export function createHandlers(context: HandlerContext): Handlers {
-  const { db, emit, chooseFolder, runner, writeClipboard, terminals, plugins, pluginViews } = context
+  const { db, emit, chooseFolder, runner, writeClipboard, terminals, plugins, pluginViews, endpoint } = context
   const renderer = (context.log ?? SILENT_LOGGER).scoped(LogScope.Renderer)
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
@@ -218,11 +221,15 @@ export function createHandlers(context: HandlerContext): Handlers {
       return null
     },
     [CommandName.SettingsGet]: () => ({ settings: getSettings(db) }),
-    [CommandName.SettingsUpdate]: ({ patch }) => {
+    [CommandName.SettingsUpdate]: async ({ patch }) => {
       const settings = updateSettings(db, patch)
       emit({ type: EventType.SettingsChanged, settings })
+      // The endpoint follows the switch and the port: answered once it has started, stopped or moved.
+      if (patch.controlEnabled !== undefined || patch.controlPort !== undefined) await endpoint.sync()
       return { settings }
     },
+    [CommandName.ControlStatus]: () => ({ status: endpoint.status() }),
+    [CommandName.ControlRegenerateToken]: () => ({ status: endpoint.regenerateToken() }),
     [CommandName.SearchQuery]: ({ workspaceId, text }) => ({ results: searchTasks(db, workspaceId, text) }),
     [CommandName.PluginsList]: async () => ({ plugins: await plugins.list() }),
     [CommandName.PluginsSetEnabled]: ({ id, enabled }) => ({ plugins: plugins.setEnabled(id, enabled) }),

@@ -1,5 +1,6 @@
 import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
+import { MAX_CONTROL_PORT, MIN_CONTROL_PORT } from '../../../shared/control'
 import { Effort, PermissionMode } from '../../../shared/domain'
 import { hasShortcut, parseChord, type KeyBindingOverrides } from '../../../shared/keymap'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../../shared/settings'
@@ -26,6 +27,7 @@ export const SETTING_SCHEMAS: { readonly [K in keyof Settings]: z.ZodType<Settin
   notificationSound: z.boolean(),
   keyBindings: keyBindingsSchema,
   controlEnabled: z.boolean(),
+  controlPort: z.int().min(MIN_CONTROL_PORT).max(MAX_CONTROL_PORT),
 }
 
 /** A stored value as its setting, or undefined when it isn't valid JSON of the right shape. */
@@ -64,6 +66,7 @@ export function getSettings(db: Database): Settings {
     notificationSound: read('notificationSound'),
     keyBindings: read('keyBindings'),
     controlEnabled: read('controlEnabled'),
+    controlPort: read('controlPort'),
   }
 }
 

@@ -243,5 +243,7 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, plugins: event.plugins }
     case EventType.PluginStatusChanged:
       return { ...state, pluginStatuses: { ...state.pluginStatuses, [event.id]: event.text } }
+    case EventType.ControlChanged:
+      return { ...state, controlStatus: event.status }
   }
 }
