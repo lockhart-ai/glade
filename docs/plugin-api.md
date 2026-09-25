@@ -221,8 +221,24 @@ messages or change anything in Glade.
 
 ## Nekomata
 
-Nekomata's Glade build (P12-05) keeps its scene and swaps its data source: instead of fetching `/data` from its Python
-server, which reads Claude Code's transcripts, it builds the same session list from these events. A task is a cat, a
-subagent a kitten, `waitingOn` raises a paw, `agent.toolCall` and `agent.note` fill the speech bubbles, and a task
-leaving the snapshot (done or deleted) is carried out. The room's CPU, GPU and Docker readings have no source in Glade
-and stay empty.
+[Nekomata](https://github.com/lockhart-ai/nekomata), the cat cafe, is the first plugin (P12-05). Its Glade build keeps
+its scene and swaps its data source: instead of fetching `/data` from its Python server, which reads Claude Code's
+transcripts, its `web/glade.js` builds the same session list from these events. A task is a cat, a subagent a kitten,
+`waitingOn` (or an open question or permission card) raises a paw, `agent.toolCall` and `agent.note` fill the speech
+bubbles, and a task leaving the snapshot (done or deleted) is carried out. It posts its count as the header status
+("5 cats · 4 kittens"). The room's CPU, GPU and Docker readings have no source in Glade and stay empty.
+
+To install it, build the plugin folder in a clone of the nekomata repo and copy it into the plugins folder:
+
+```sh
+./build.sh glade
+cp -R dist/glade/nekomata ~/Library/Application\ Support/glade/plugins/
+```
+
+Nekomata isn't vendored here, so Glade's own checks of it need that built folder:
+
+- `NEKOMATA_PLUGIN=<nekomata>/dist/glade/nekomata npm run test:e2e -- nekomata` runs `e2e/nekomata.spec.ts`, which
+  installs it in a temp data folder and drives a scripted task past it. Without the variable, the spec is skipped.
+- `npm run screenshot -- --out <dir> --plugins <folder holding nekomata/> --seed scripts/fixtures/subagents.json
+  --agent-script asks-a-question --click '[data-testid="plugin-status"]'` captures it beside the terminal. The click
+  only waits for its header status to show.
