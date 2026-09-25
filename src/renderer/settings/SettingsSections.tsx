@@ -26,7 +26,7 @@ import { selectSelectedWorkspace } from '../store/state'
 import { useGladeStore } from '../store/react'
 import styles from './SettingsDialog.module.css'
 
-interface SettingRowProps {
+export interface SettingRowProps {
   /** The setting's name. */
   name: string
   /** A line on what it does. */
@@ -36,7 +36,7 @@ interface SettingRowProps {
 }
 
 /** One setting: its name and a line on what it does, and the control that changes it on the right. */
-function SettingRow({ name, description, children }: SettingRowProps): React.JSX.Element {
+export function SettingRow({ name, description, children }: SettingRowProps): React.JSX.Element {
   return (
     <div className={styles.row}>
       <div className={styles.rowText}>
@@ -48,17 +48,17 @@ function SettingRow({ name, description, children }: SettingRowProps): React.JSX
   )
 }
 
-interface IntroProps {
+export interface IntroProps {
   children: ReactNode
 }
 
 /** The line under a section's heading. */
-function Intro({ children }: IntroProps): React.JSX.Element {
+export function Intro({ children }: IntroProps): React.JSX.Element {
   return <p className={styles.intro}>{children}</p>
 }
 
 /** The settings, and a way to change some of them, saved at once. */
-function useSettings(): [Settings, (patch: SettingsPatch) => void] {
+export function useSettings(): [Settings, (patch: SettingsPatch) => void] {
   const settings = useGladeStore((state) => state.settings)
   const updateSettings = useGladeStore((state) => state.updateSettings)
   return [settings, (patch) => void updateSettings(patch)]

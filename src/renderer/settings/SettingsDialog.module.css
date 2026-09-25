@@ -284,6 +284,68 @@
   color: var(--color-faint);
 }
 
+/* Settings › Control: docs/design/html/21-settings-control.html. */
+.inlineCode,
+.endpoint {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.endpoint {
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Connect Claude Code: its name and Copy, then the command under them. */
+.commandRow {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 10px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--color-inner-border);
+}
+
+.commandHeader {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.command {
+  display: block;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.portField {
+  flex-shrink: 0;
+  width: 96px;
+}
+
+/* The port in use isn't the one chosen, there's none, or the one typed can't be a port. */
+.warning {
+  color: var(--color-pink);
+}
+
+.note {
+  margin: 0;
+  padding: 16px 0;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.45;
+  color: var(--color-faint);
+}
+
 /* Settings › Keyboard: one group per area of the app, as docs/design/screens/22-keymap.png lays them out. */
 .keyGroup {
   flex-shrink: 0;

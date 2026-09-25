@@ -18,6 +18,7 @@ import { openTestDatabase, type TestDatabase } from '../db/repositories/test-dat
 import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
 import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
+import type { RateLimits } from './rate-limit'
 import { ControlCallerKind, type ControlCaller } from './tools'
 
 /** The app, as far as the control API sees it. */
@@ -45,10 +46,11 @@ export function asTask(taskId: string): ControlCaller {
 }
 
 /**
- * Starts the app's bridge on a new database, with agents allowed to control Glade unless `enabled` is false, and
- * Claude Code's projects folder at `claudeProjectsDir` (a test's temporary one; one that doesn't exist by default).
+ * Starts the app's bridge on a new database, with agents allowed to control Glade unless `enabled` is false, Claude
+ * Code's projects folder at `claudeProjectsDir` (a test's temporary one; one that doesn't exist by default), and the
+ * control API's rate limits at `limits` (the defaults by default).
  */
-export function startControlApp(enabled = true, claudeProjectsDir = NO_PROJECTS): ControlApp {
+export function startControlApp(enabled = true, claudeProjectsDir = NO_PROJECTS, limits?: RateLimits): ControlApp {
   const database = openTestDatabase()
   if (enabled) updateSettings(database.db, { controlEnabled: true })
   const backend = new FakeAgentBackend()
@@ -66,6 +68,7 @@ export function startControlApp(enabled = true, claudeProjectsDir = NO_PROJECTS)
     terminal: fakeTerminalOptions(),
     pluginsFolder: UNREAD_PLUGINS_FOLDER,
     agentBackend: backend,
+    ...(limits === undefined ? {} : { controlLimits: limits }),
     log: log.logger,
     claudeProjectsDir,
   })
@@ -79,11 +82,11 @@ export function startControlApp(enabled = true, claudeProjectsDir = NO_PROJECTS)
     glade,
     events,
     log,
-    close() {
+    async close() {
       bridge.runner.close()
+      await bridge.endpoint.close()
       bridge.terminals.shutdown()
       database.close()
-      return Promise.resolve()
     },
   }
 }

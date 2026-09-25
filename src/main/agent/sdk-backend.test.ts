@@ -1,5 +1,10 @@
 // The SDK adapter, with the SDK's `query()` replaced: what it passes to the SDK, and how it drives the session.
-import type { CanUseTool, PermissionUpdate, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import type {
+  CanUseTool,
+  McpSdkServerConfigWithInstance,
+  PermissionUpdate,
+  SDKUserMessage,
+} from '@anthropic-ai/claude-agent-sdk'
 import { beforeEach, expect, it, vi } from 'vitest'
 import {
   Effort,
@@ -84,10 +89,36 @@ it('runs the session in the workspace root, allowing all, with the workspace and
     canUseTool: expect.any(Function) as unknown,
     allowedTools: [],
     settingSources: ['user', 'project', 'local'],
+    settings: { deniedMcpServers: [{ serverName: 'glade-control' }] },
     systemPrompt: { type: 'preset', preset: 'claude_code', append: 'You are running inside Glade.' },
     mcpServers: {},
     disallowedTools: ['AskUserQuestion'],
     forwardSubagentText: true,
+  })
+})
+
+it("keeps a glade-control server of the user's own config out, so the in-process one is the only one", () => {
+  const inProcess = { type: 'sdk', name: 'glade-control', instance: {} } as unknown as McpSdkServerConfigWithInstance
+
+  const options = sdkOptions({ ...OPTIONS, mcpServers: { 'glade-control': inProcess } }, ENV)
+
+  // Claude Code would otherwise join the user's `claude mcp add … glade-control` to it (docs/sdk-notes.md §12); the
+  // denylist doesn't reach an SDK server.
+  expect(options.settings).toEqual({ deniedMcpServers: [{ serverName: 'glade-control' }] })
+  expect(options.mcpServers).toEqual({ 'glade-control': inProcess })
+  expect(options.settingSources).toEqual(['user', 'project', 'local'])
+})
+
+it("adds the session's own variables to the login shell's environment, under the ones Glade always sets", () => {
+  const options = sdkOptions(
+    { ...OPTIONS, env: { GLADE_CONTROL_URL: 'http://127.0.0.1:45233', CLAUDE_CODE_ENABLE_TODO_TOOLS: '0' } },
+    ENV,
+  )
+
+  expect(options.env).toEqual({
+    ...ENV,
+    GLADE_CONTROL_URL: 'http://127.0.0.1:45233',
+    CLAUDE_CODE_ENABLE_TODO_TOOLS: '1',
   })
 })
 
