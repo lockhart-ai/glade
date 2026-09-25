@@ -91,8 +91,8 @@ test('a task imports a Claude Code session: it is under Done with its chat, tool
   await list.sectionHeader('Done').click()
   await list.row('Done', TITLE).click()
   await expect(header.title).toHaveText(TITLE)
-  await expect(header.pill).toHaveText(/^Done/)
-  await expect(header.field('Objective')).toHaveText(FIRST_PROMPT)
+  await expect(header.stateDot).toHaveAccessibleName(/^Done/)
+  await expect(header.field('Goal')).toHaveText(FIRST_PROMPT)
 
   // The chat: your prompts and the agent's final replies, at their original times.
   await expect(conversation.userMessages).toHaveCount(2)
@@ -117,7 +117,7 @@ test('a task imports a Claude Code session: it is under Done with its chat, tool
   await bar.field.press('Enter')
   await expect(conversation.reopened).toBeVisible()
   await expect(conversation.agentReplies.last()).toContainText(REPLIES_BRIEFLY.reply)
-  await expect(header.pill).not.toHaveText(/^Done/)
+  await expect(header.stateDot).not.toHaveAccessibleName(/^Done/)
   await expect(panel.log.getByRole('separator', { name: /^turn 3 · / })).toHaveCount(1)
 
   const workspaces = (await invoke(window, CommandName.WorkspacesList, {})).workspaces
