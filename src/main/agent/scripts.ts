@@ -2115,6 +2115,16 @@ const watchesThings: AgentScript = {
   ],
 }
 
+/**
+ * The `watches-things` task after a relaunch: its session, resumed by your next message, has the cron job back, as the
+ * SDK restores it, and the agent answers without starting anything new.
+ */
+const stillWatching: AgentScript = {
+  name: 'still-watching',
+  turns: [wakeReply(WATCHES_THINGS.again)],
+  restoredJobs: watchesThings.restoredJobs,
+}
+
 /** What the `drives-glade` script's agent does to Glade through its control tools, and says. */
 export const DRIVES_GLADE = {
   /** What the user asks it. */
@@ -2311,6 +2321,7 @@ export const AGENT_SCRIPT_NAMES = [
   'checks-back-later',
   'scheduled-check',
   'watches-things',
+  'still-watching',
   'drives-glade',
   'replies-briefly',
   'ports-sessions',
@@ -2350,6 +2361,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'checks-back-later': checksBackLater,
   'scheduled-check': scheduledCheck,
   'watches-things': watchesThings,
+  'still-watching': stillWatching,
   'drives-glade': drivesGlade,
   'replies-briefly': repliesBriefly,
   'ports-sessions': portsSessions,

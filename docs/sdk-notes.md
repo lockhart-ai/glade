@@ -948,6 +948,103 @@ URL.
 **Decided:** every session is started with `glade-control` denied by name (`src/main/agent/sdk-backend.ts`), whether
 the switch is on or off: a Glade task reaches Glade in-process or not at all, never through the user's config.
 
+## 13. Watchers: following what the agent leaves running [verified]
+
+Probed with SDK 0.3.281 (Claude Code 2.1.281) for #250, on Haiku in throwaway folders with direct `query()` calls in
+streaming input mode, with in-process `UserPromptSubmit`, `Stop` and `PostToolUse` hook callbacks logging what they were
+given. Every session was closed at the end, which ends its session-only jobs; the one cron job left recurring was
+deleted by the agent first. The question: can Glade list, follow and stop what the agent starts with the tools in §11,
+without building any watching of its own?
+
+**What starts a watcher.** A `Monitor` call and a `Bash` call with `run_in_background` each start a task the SDK runs in
+the background, reported as it starts, then the call's result names it:
+
+```
+tool_use Monitor { description: "ticks", timeout_ms: 60000, command: "for i in 1 2 3; do sleep 4; echo tick $i; done" }
+system/background_tasks_changed { tasks: [{ task_id: "b03hdfcxm", task_type: "local_bash", description: "ticks" }] }
+system/task_started { task_id: "b03hdfcxm", tool_use_id: <the call>, description: "ticks", is_backgrounded: true,
+                      task_type: "local_bash" }
+user tool_result "Monitor started (task b03hdfcxm, expires in 1m …)"   tool_use_result: { taskId, timeoutMs: 60000,
+                                                                                         persistent: false }
+tool_use Bash { command: "sleep 6; echo bg done", description: "bg ok", run_in_background: true }
+system/task_started { task_id: "be993izhk", …, task_type: "local_bash", is_backgrounded: true }
+user tool_result "Command running in background with ID: be993izhk. Output is being written to: …/be993izhk.output."
+     tool_use_result: { stdout: "", stderr: "", interrupted: false, backgroundTaskId: "be993izhk", … }
+```
+
+`ScheduleWakeup` and `CronCreate` start no task; their results say what they scheduled:
+`{ scheduledFor: 1790377320000, clampedDelaySeconds: 60, wasClamped: false }` and
+`{ id: "56a9acf7", humanSchedule: "Every minute", recurring: true, durable: false }`. `CronDelete`'s is `{ id }`.
+
+**How it ends.** A task's end is a `task_updated` (`status: completed | failed | killed`) and a `task_notification`
+(`status: completed | failed | stopped`) naming the call, whose `summary` says how: `Monitor "ticks" stream ended`,
+`Monitor "fails" script failed (exit 7)`, `Background command "bg fail" failed with exit code 3`,
+`Background command "bg ok" completed (exit code 0)`. A monitor that times out ends `stopped`, its summary just its
+description, as when it's stopped; only the time tells them apart.
+
+**Its wakes are prompts, seen only by the hook.** Nothing in the message stream carries a monitor's events: each wake
+is a prompt the SDK submits itself, which reaches the session's `UserPromptSubmit` hook (`{ prompt, prompt_id, … }`, no
+`source` field in this version) just before the turn's `system/init`:
+
+```
+<task-notification>                       ← a monitor event; lines within ~200 ms come as one event
+<task-id>be9dsw3k8</task-id>
+<summary>Monitor event: "burst"</summary>
+<event>a
+b</event>
+</task-notification>
+
+<task-notification>                       ← a task ending (a command's, or a monitor's with its last event)
+<task-id>be9dsw3k8</task-id>
+<tool-use-id>toolu_014n…</tool-use-id>
+<output-file>…/tasks/be9dsw3k8.output</output-file>
+<status>completed</status>
+<summary>Monitor "burst" stream ended</summary>
+<event>c</event>
+</task-notification>
+```
+
+A job firing submits its own prompt, as the agent wrote it (`Reply with exactly: CRON TICK`), with a
+`command_lifecycle` of the SDK's own uuid first. A monitor's timeout wakes it once more, with
+`<event>[Monitor expired after 5s with no events delivered. …]</event>`. A task stopped with `stopTask` doesn't wake
+it.
+
+**The session's jobs, as each turn ends.** The `Stop` hook gets `session_crons`: every job the session still has,
+`{ id, schedule, recurring, prompt }`. A `ScheduleWakeup` is one of them: a one-off job at its whole minute
+(`{ id: "f4f53242", schedule: "2 19 * * *", recurring: false }`), whose id only shows here. A fired one-off job, or a
+deleted one, is gone from the next list. (It also gets `background_tasks`, `{ id, type: "shell", status, description,
+command }`, which the task messages already say.)
+
+**Stopping from outside the session.**
+
+- A monitor or background command: `stopTask(task_id)` kills it at once: `task_updated { status: killed }`, then
+  `task_notification { status: stopped, summary: <its description> }`, and no wake.
+- A wakeup or cron job: the `Query` has no call to list or delete one (no control request either; `CronDelete` is the
+  agent's). But a `UserPromptSubmit` hook answering `{ decision: "block", reason }` turns the job's fire away: the SDK
+  streams `system/init`, `system/informational` (`UserPromptSubmit operation blocked by hook: <reason> … Original
+  prompt: …`, `prevent_continuation: true`) and a bare `result/success` (no `origin`, no model call), and the model never
+  sees it. The job stays in the session (`CronList` still lists a recurring one, and it fires again, to be turned away
+  again) until the agent deletes it, it expires, or the session ends. Checked for both a `CronCreate` job and a
+  `ScheduleWakeup`.
+- The hook sees every prompt, the host's own messages included, so it has to tell those apart: a hook that turned away
+  anything containing a stopped job's words also turned away the host's message that mentioned them.
+
+**Decided (#250):**
+
+- Glade builds no watching and adds no tool: the agent writes whatever script it likes and runs it with `Monitor` or
+  `run_in_background`, and the runner follows what the SDK reports (`src/main/watchers`). A script the agent
+  backgrounds inside a foreground `Bash` call (`nohup ./watch.sh &`) is invisible to the SDK, so the system prompt asks
+  for the SDK's tools instead (`docs/model-surface.md`).
+- Every session gets the two hooks (`sdkHooks` in `src/main/agent/sdk-backend.ts`). The runner remembers the prompts it
+  sent (`give`) and never counts or turns away one of its own; any other `<task-notification>` counts a wake on the
+  watcher it names, and any other prompt that's a live job's is a fire.
+- Stop uses `stopTask` for a monitor or command; for a wakeup or job it marks it stopped and turns its fires away by
+  exact prompt, as long as no live job of the task has the same prompt.
+- A relaunch ends running watchers and wakeups ("Stopped by the relaunch.", as §11 found) and suspends cron jobs until
+  the resumed session's first `Stop` hook lists them again.
+
+---
+
 ## Open risks
 
 - **Subscription auth policy.** Glade is login-based by decision, but the docs don't clearly permit this for a

@@ -42,7 +42,8 @@ There are no follow-up tasks. One task can refer to another through its folder o
   the chat, and the input bar at the bottom. The input bar has model, effort and permissions pickers and a context
   meter at the right. Each task keeps its unsent draft, text and pasted images, while you're on another task and
   across a relaunch or a crash, until it's sent.
-- **Right panel** (inside the task card) — tabs: Tool calls, Files, Todos, Artifacts, Subagents. Resizable, collapsible.
+- **Right panel** (inside the task card) — tabs: Tool calls, Files, Todos, Artifacts, Subagents, Watchers. Resizable,
+  collapsible.
 - **Bottom bar** (full width) — a global terminal with tabs, and a plugin panel (Nekomata). Resizable, collapsible.
 
 Each resizable panel has a drag handle in the gap on its inner edge. Dragging it takes room from the chat or gives it

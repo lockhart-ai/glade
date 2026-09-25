@@ -194,6 +194,30 @@ export function subagentsTab(page: Page) {
   }
 }
 
+/**
+ * The right panel's Watchers tab: the tally by state and a row per watcher (what the agent left running or scheduled),
+ * each with Stop while it's live.
+ */
+export function watchersTab(page: Page) {
+  const panel = regions(page).taskPanel.getByRole('tabpanel')
+  /** A watcher's row, by its name; `data-state` is running, scheduled, suspended, finished, failed or stopped. */
+  const row = (name: string) => panel.getByRole('group', { name, exact: true })
+  return {
+    /** "2 running2 scheduled1 ended". */
+    tally: panel.getByRole('group', { name: 'Watchers by state' }),
+    /** Every watcher's row, top to bottom. */
+    rows: panel.locator('[data-state][role="group"]'),
+    row,
+    /** A live watcher's Stop. */
+    stop: (name: string) => row(name).getByRole('button', { name: `Stop ${name}` }),
+  }
+}
+
+/** A task row's watcher mark: an eye and how many live watchers its agent has, named "Watching 2 things". */
+export function watchingMark(row: Locator): Locator {
+  return row.getByRole('img', { name: /^Watching/ })
+}
+
 /** A workspace switcher action's name. */
 export type WorkspaceActionName =
   'New workspace…' | 'Open folder as workspace…' | 'Workspace settings…' | 'Reveal root in Finder'

@@ -34,6 +34,14 @@
  * runs. Anything else between turns (a late system message after a result, a foreground subagent's messages) is still
  * ignored.
  *
+ * **Watchers** (`../watchers`, `docs/sdk-notes.md` §13). What the agent leaves running or scheduled with those tools is
+ * followed as a watcher from what the SDK reports: the tasks it starts and ends, the calls' results, and two hooks the
+ * session is given, the prompt hook (each prompt about to start a turn) and the `Stop` hook (the jobs it still has as
+ * each turn ends). The runner remembers the prompts it sends (`give`), so one of its own is never taken for a wake;
+ * anything else goes to the watchers, which count it and can turn away a job you stopped. Stop on a monitor or command
+ * stops its SDK task (`stopWatcher`). A failed session ends its watchers with it, and a launch ends those of every
+ * session, but for the cron jobs, which wait for their session to resume.
+ *
  * **Background subagents** (`docs/sdk-notes.md`, "Background subagents"). An `Agent` call with `run_in_background`
  * returns as soon as its subagent is launched, and the turn carries on and ends without waiting for it, so the task goes
  * back to waiting on you and takes messages while the subagent works. The subagent isn't done then: its `Agent` call's
