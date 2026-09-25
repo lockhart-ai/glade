@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -7,11 +7,13 @@ import { anchorsOf, brokenLinks, extractLinks, GITHUB_BLOB, markdownFiles, slugO
 const REPO = resolve(__dirname, '..', '..')
 
 /**
- * Files other open PRs add, which the docs link to before they land: the user guide (D-02, #241) and the README's
- * images (D-01, #240). A link to one passes while it's missing; once it's there it's checked like any other, so this
- * list can go when both have merged.
+ * Files other open PRs add, which the docs link to before they land: the user guide (D-02, #241). A link to one passes
+ * while it's missing; once it's there it's checked like any other, so this list can go when it has merged.
  */
-const PENDING = ['docs/user-guide.md', 'docs/images/']
+const PENDING = ['docs/user-guide.md']
+
+/** The most an image in docs/images/ may weigh, in bytes: about 300 KB (CLAUDE.md asks for small binaries). */
+const MAX_IMAGE_BYTES = 300 * 1024
 
 describe('the links in the docs', () => {
   // Every Markdown file at the root and under docs/, release notes included (their links are few and all resolve),
@@ -27,6 +29,18 @@ describe('the links in the docs', () => {
 
   it('all resolve', () => {
     expect(brokenLinks({ root: REPO, files, pending: PENDING })).toEqual([])
+  })
+})
+
+describe('the images in docs/images/', () => {
+  it('are each small enough to commit', () => {
+    const folder = join(REPO, 'docs', 'images')
+    const images = readdirSync(folder, { recursive: true, encoding: 'utf8' }).filter((path) =>
+      /\.(png|webp|gif|jpe?g)$/.test(path),
+    )
+    expect(images).toEqual(expect.arrayContaining(['hero.png']))
+    const heavy = images.filter((path) => statSync(join(folder, path)).size > MAX_IMAGE_BYTES)
+    expect(heavy).toEqual([])
   })
 })
 
