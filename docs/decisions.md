@@ -72,9 +72,12 @@
     commands**. The mode is saved per task, like model and effort. Settings › Agent › Permissions sets the default
     for new tasks: its "Ask first" option becomes this mode and "Allow edits" stays disabled.
   - In the ask mode, tools with side effects ask first: `Bash`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`,
-    and any tool Glade doesn't know to be read-only, including other MCP servers'
+    `Monitor` (it runs a shell command), `RemoteTrigger` and `SendMessage` (they reach outside), and any tool Glade
+    doesn't know to be read-only, including other MCP servers'
     tools. Reads and searches (`Read`, `Glob`, `Grep`, `WebFetch`, `WebSearch`, …), Claude Code's todo and subagent
-    tools, and Glade's own MCP tools (`mcp__glade__*`) never ask. The user's own settings still apply: their allow
+    tools, the agent's follow-up tools that only schedule itself or tell you (`ScheduleWakeup`, `CronCreate`,
+    `CronDelete`, `CronList`, `PushNotification`, `ListAgents`), and Glade's own MCP tools (`mcp__glade__*`) never
+    ask. The user's own settings still apply: their allow
     and deny rules decide without asking, and a user `ask` rule shows the card even for a read.
   - A request shows as a **permission card** in the chat, styled like the `ask` question card: the tool, its input
     (the command, or the file and the change), and, for a subagent's call, which subagent. It offers **Allow once**,

@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest'
 import { BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import { PermissionDecisionKind, TaskState, UiStateKey } from '../../shared/domain'
-import { fakeBridge, sampleTask } from './test-bridge'
+import { fakeBridge, samplePermissionRequest, sampleTask } from './test-bridge'
 
 it('answers uiState.get from its data, and stops delivering events once unsubscribed', async () => {
   const entry = { key: UiStateKey.ActiveWorkspaceId, value: 'w1' }
@@ -34,6 +34,24 @@ it('refuses to answer a permission request, since it has none', async () => {
 
   await expect(fake.bridge.invoke(CommandName.PermissionsAnswer, { id: 'p1', decision })).rejects.toMatchObject({
     code: BridgeErrorCode.NotFound,
+  })
+})
+
+it('refuses Allow for this task on a request it isn’t offered for, as main does, and grants it on one it is', async () => {
+  const bare = { ...samplePermissionRequest('p1', 't1'), suggestions: [] }
+  const fake = fakeBridge({
+    workspaces: [],
+    tasks: [],
+    uiState: [],
+    permissionRequests: [bare, samplePermissionRequest('p2', 't1')],
+  })
+  const decision = { kind: PermissionDecisionKind.AllowForTask } as const
+
+  await expect(fake.bridge.invoke(CommandName.PermissionsAnswer, { id: 'p1', decision })).rejects.toMatchObject({
+    code: BridgeErrorCode.InvalidRequest,
+  })
+  await expect(fake.bridge.invoke(CommandName.PermissionsAnswer, { id: 'p2', decision })).resolves.toMatchObject({
+    permissionRequest: { grantedRule: { toolName: 'Bash', ruleContent: 'npm test *' } },
   })
 })
 
