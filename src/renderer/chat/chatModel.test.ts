@@ -87,6 +87,12 @@ describe('currentTurn', () => {
     expect(currentTurn([])).toBe(0)
     expect(currentTurn([message('a', MessageRole.User, 1), message('b', MessageRole.User, 2)])).toBe(2)
   })
+
+  it("is the latest turn divider's turn for a turn the agent started on its own, before it has a message", () => {
+    const messages = [message('a', MessageRole.User, 1), message('b', MessageRole.Agent, 1)]
+    const resumed = { ...divider, id: 'd3', turn: 3, dividerKind: DividerKind.Resumed }
+    expect(currentTurn(messages, [divider, { ...divider, id: 'd2', turn: 2 }, resumed, narration('n', 4, 'x')])).toBe(2)
+  })
 })
 
 describe('toolCallsByTurn', () => {
@@ -411,6 +417,16 @@ describe('workingNarration', () => {
       { ...narration('b', 1, 'Reading the API PRs'), parentToolUseId: 'use-agent' },
     ]
     expect(workingNarration(working, messages, events)).toBe('Splitting the work')
+  })
+
+  it('is the latest narration of a turn the agent started on its own, which has no message yet', () => {
+    const events = [
+      divider,
+      narration('a', 1, 'Old turn'),
+      { ...divider, id: 'd2', turn: 2 },
+      narration('b', 2, 'Reading the build output'),
+    ]
+    expect(workingNarration(working, messages, events)).toBe('Reading the build output')
   })
 
   it('is empty before the turn has any narration', () => {
