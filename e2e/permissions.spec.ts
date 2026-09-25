@@ -2,16 +2,17 @@
 // between Allow all and Ask before edits and commands (saved across a relaunch, with Settings setting the default for
 // new tasks), and in the ask mode the agent's edits and commands wait on permission cards in the chat, answered with
 // Allow once, Allow for this task or Deny (with or without a note), by mouse or by keyboard alone. A rule granted with
-// Allow for this task lets the calls it covers through in that task, across a relaunch.
+// Allow for this task lets the calls it covers through in that task, across a relaunch. A card open when Glade quits
+// is still there after the relaunch, and answering it carries the agent on.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
-import { ALLOWS_FOR_TASK, ASKS_PERMISSION, SUBAGENT_PERMISSION } from '../src/main/agent/scripts'
+import { ALLOWS_FOR_TASK, ASKS_PERMISSION, PERMISSION_AT_QUIT, SUBAGENT_PERMISSION } from '../src/main/agent/scripts'
 import { CommandName } from '../src/shared/bridge'
 import { PermissionMode, TaskActivity, ToolEventKind, type Task, type ToolCallEvent } from '../src/shared/domain'
 import { expect, test } from './fixtures'
 import { chooseMenuItem } from './menu'
-import { chat, firstRun, inputBar, settings, taskHeader, taskList } from './selectors'
+import { chat, firstRun, inputBar, settings, taskHeader, taskList, taskPanel } from './selectors'
 import { invoke } from './task-view'
 
 const ASK = 'Ask before edits and commands'
@@ -231,6 +232,46 @@ test('Allow for this task grants a command prefix or a whole tool: the calls it 
   const theirs = chat(again).permissionCards.first()
   await expect(theirs.getByLabel('Command')).toHaveText(ALLOWS_FOR_TASK.command)
   await expect(theirs.getByRole('button', { name: 'Allow npm test commands for this task' })).toBeVisible()
+})
+
+test('a card open when Glade quits is still there after a relaunch, and Allow once carries the agent on', async ({
+  launch,
+  tempFolder,
+}) => {
+  const glade = await launch({ agentScript: 'permission-at-quit', chosenFolder: workspaceRoot(tempFolder) })
+  const { window } = glade
+  await firstRun(window).openFolder.click()
+  await taskList(window).newTask.click()
+  await choosePermissions(window, 'Allow all', ASK)
+  await inputBar(window).field.fill('Run the pending migrations.')
+  await inputBar(window).field.press('Enter')
+  await expect(chat(window).permissionCards.first().getByLabel('Command')).toHaveText(PERMISSION_AT_QUIT.command)
+
+  // Quit with the card open.
+  await glade.close()
+  const { window: again } = await launch({ agentScript: 'permission-at-quit' })
+  const conversation = chat(again)
+
+  // The card is still there, and the task still needs you; the call itself ended when Glade quit.
+  const card = conversation.permissionCards.first()
+  await expect(card.getByLabel('Command')).toHaveText(PERMISSION_AT_QUIT.command)
+  await expect(taskList(again).filter('Needs you')).toHaveText('Needs you1')
+  await expect(taskHeader(again).pill).toHaveText('Active · waiting on you')
+  expect(await onlyTask(again)).toMatchObject({ activity: TaskActivity.Waiting, awaitingPermission: true })
+  await expect(taskPanel(again).call(/^Interrupted\s*Bash/)).toBeVisible()
+
+  await card.getByRole('button', { name: 'Allow once' }).click()
+
+  // The agent is told, and carries on: it runs the command again, without a second card, and replies.
+  await expect(conversation.closedPermissions).toHaveText([`Bash: ${PERMISSION_AT_QUIT.command}·allowed once`])
+  await expect(conversation.restarts).toHaveCount(1)
+  await expect(conversation.agentReplies).toHaveCount(1)
+  await expect(conversation.agentReplies.first()).toContainText(PERMISSION_AT_QUIT.reply)
+  await expect(conversation.permissionCards).toHaveCount(0)
+  await expect(taskPanel(again).call(/^Done\s*Bash/)).toBeVisible()
+  await expect(taskPanel(again).log).toContainText(PERMISSION_AT_QUIT.resumed)
+  await expect.poll(async () => (await onlyTask(again))?.activity).toBe(TaskActivity.Waiting)
+  expect((await onlyTask(again))?.awaitingPermission).toBe(false)
 })
 
 test("a subagent's card says which subagent, opens on Deny when a stray key mustn't approve, and a mode switch leaves an open card open", async ({

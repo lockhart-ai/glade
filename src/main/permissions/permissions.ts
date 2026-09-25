@@ -14,7 +14,7 @@
  *   ended, its session closed, or the SDK cancelled the call (`signal`). The call that waits on it gets nothing.
  *
  * Only this process's calls wait: a request still open from before the app quit has nothing waiting on it
- * (`isWaiting` is false). Answering one just closes it.
+ * (`isWaiting` is false). Answering one just closes it; the agent runner hands the decision to the agent another way.
  */
 import { BridgeErrorCode } from '../../shared/bridge'
 import {

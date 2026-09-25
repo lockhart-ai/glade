@@ -47,6 +47,7 @@ import {
   ASKS_PERMISSION,
   DELETE_LOCAL_COPIES_QUESTION,
   FOLLOW_UPS,
+  PERMISSION_AT_QUIT,
   RELEASE_NOTES_QUESTIONS,
   S3_PLAN,
   SUBAGENT_CALLS_REPLY,
@@ -710,6 +711,31 @@ describe('AGENT_SCRIPTS', () => {
       await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
       expect(open(other.id)).toEqual([`Bash: ${command}`])
     })
+  })
+
+  it('permission-at-quit: allowed after a relaunch, the resumed agent runs the command again without asking', async () => {
+    updateTask(database.db, task.id, { permissionMode: PermissionMode.AskBeforeEdits })
+    const agent = start('permission-at-quit')
+    await sendAndWaitAnHour(agent, 'Run the migrations.')
+    const [open] = listOpenPermissionRequests(database.db, task.id)
+    expect(open).toMatchObject({ toolName: 'Bash', input: { command: PERMISSION_AT_QUIT.command } })
+    runner?.close()
+
+    const relaunched = start('permission-at-quit')
+    relaunched.resumeInterrupted()
+    expect(listOpenPermissionRequests(database.db, task.id)).toEqual([open])
+    relaunched.answerPermission(open?.id ?? '', { kind: PermissionDecisionKind.AllowOnce })
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+
+    expect(reply()).toBe(PERMISSION_AT_QUIT.reply)
+    expect(listPermissionRequests(database.db, task.id)).toHaveLength(1)
+    expect(calls().map(({ name, state, output }) => [name, state, output])).toContainEqual([
+      'Bash',
+      ToolCallState.Done,
+      PERMISSION_AT_QUIT.output,
+    ])
+    expect(calls().find((call) => call.name === 'Bash')?.state).toBe(ToolCallState.Interrupted)
+    expect(activity()).toBe(TaskActivity.Waiting)
   })
 
   it('keeps-todos: plans with TaskCreate, checks items off with TaskUpdate, and asks partway through', async () => {

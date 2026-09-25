@@ -281,7 +281,8 @@ export interface AgentScript {
   readonly turns: readonly ScriptTurn[]
   /**
    * What the agent does when Glade resumes its session to carry on a turn the app quit in: on launch (the runner's
-   * `RESUME_PROMPT`), or once you answer a question the app quit on (its `answeredAfterRestart` message). Without one,
+   * `RESUME_PROMPT`), or once you answer a question or the permission requests the app quit on (its
+   * `answeredAfterRestart` and `permissionsDecidedAfterRestart` messages). Without one,
    * that message runs the next turn like any other.
    */
   readonly resumeTurn?: ScriptTurn
@@ -1707,6 +1708,56 @@ const allowsForTask: AgentScript = {
   ],
 }
 
+/** What the `permission-at-quit` script's agent does and says. */
+export const PERMISSION_AT_QUIT = {
+  command: 'npm run db:migrate',
+  description: 'Run the database migrations',
+  output: 'Applied 3 migrations: 0041, 0042, 0043.',
+  resumed: 'Glade restarted before the migrations ran, so I am running them now.',
+  reply: 'The migrations ran after the restart: 0041 to 0043 are applied.',
+} as const
+
+/** The `permission-at-quit` script's command, as it asks each time. */
+const migrate = (id: string): PermissionStep =>
+  permission(
+    id,
+    'Bash',
+    { command: PERMISSION_AT_QUIT.command, description: PERMISSION_AT_QUIT.description },
+    PERMISSION_AT_QUIT.output,
+    {
+      description: PERMISSION_AT_QUIT.description,
+      suggestions: bashPrefixSuggestions(PERMISSION_AT_QUIT.command),
+    },
+  )
+
+/**
+ * A turn whose command waits on permission, for quitting with its card open. Once you decide on it after the relaunch,
+ * the resume turn makes the call again, with the same input: allowed, it runs without asking again, and the agent
+ * replies.
+ */
+const permissionAtQuit: AgentScript = {
+  name: 'permission-at-quit',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask('Run the migrations', 'Run the pending database migrations.', 'Running the migrations.'),
+      say("I'll run the pending database migrations."),
+      migrate('migrate'),
+      say('The migrations ran: 0041 to 0043 are applied.'),
+      result(),
+    ],
+  ],
+  resumeTurn: [
+    ...turnStart(),
+    delay(BEAT_MS),
+    say(PERMISSION_AT_QUIT.resumed),
+    migrate('migrate-again'),
+    say(PERMISSION_AT_QUIT.reply),
+    result(),
+  ],
+}
+
 /** What the follow-up scripts say, for their specs: `watches-ci`, `checks-back-later` and `scheduled-check`. */
 export const FOLLOW_UPS = {
   watching: "I'm watching the CI checks on PR #42. I'll report each one that fails, and when the run is done.",
@@ -1900,6 +1951,7 @@ export const AGENT_SCRIPT_NAMES = [
   'asks-permission',
   'asks-permission-from-a-subagent',
   'allows-for-task',
+  'permission-at-quit',
   'watches-ci',
   'checks-back-later',
   'scheduled-check',
@@ -1933,6 +1985,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'asks-permission': asksPermission,
   'asks-permission-from-a-subagent': asksPermissionFromASubagent,
   'allows-for-task': allowsForTask,
+  'permission-at-quit': permissionAtQuit,
   'watches-ci': watchesCi,
   'checks-back-later': checksBackLater,
   'scheduled-check': scheduledCheck,

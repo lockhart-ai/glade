@@ -132,6 +132,19 @@
  * call was asked about before the rule existed. In Allow all nothing asks anyway, and back in the ask mode the rules
  * apply again.
  *
+ * If the app quits with requests open, their calls and turn are gone, but the requests aren't (`sdk-notes.md` §9): on
+ * launch they're still open, their task waits on you (a turn the app quit in waits on you rather than resuming; a task
+ * stopped by an error keeps its error, and a paused one waits on you once its pause is due), and each call ends as
+ * interrupted, saying so. Deciding on them (`answerPermission`) hands the decisions to the agent: once every such request
+ * of the task is decided, its session is resumed, with a resumed divider, and gets them all in one message
+ * (`permissionsDecidedAfterRestart`) that carries on its last turn. Allow for this task saved its rule with the answer,
+ * so the resumed session starts with it. An allowed call the agent makes again with the same tool and input (keys in
+ * any order) goes ahead once without asking, until that turn ends; a denied one asks, if made again. Meanwhile a message
+ * sent is queued, as it is while any request waits, and follows the decisions; Stop withdraws the requests, and the
+ * decisions already made on the others never reach the agent. How far each request has got is saved with it
+ * (`RestartDelivery`), so a relaunch in between loses nothing. A decision while the agent is busy with something else
+ * (a compaction, say) is refused as busy.
+ *
  * **Resume on launch.** A turn the app quit or crashed in is left working in the database: a turn's user messages and
  * its working activity are saved together, so none is left unanswered. On launch, `resumeInterrupted` carries each
  * one on: it resumes the task's SDK session by its saved id (`docs/sdk-notes.md` §8), adds a resumed divider to the
@@ -167,6 +180,7 @@ import {
   PauseReason,
   PermissionDecisionKind,
   PermissionMode,
+  PermissionRequestState,
   TaskActivity,
   TaskErrorSource,
   TaskState,
@@ -185,7 +199,7 @@ import {
   type TaskError,
 } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
-import { taskPermissionRule } from '../../shared/permissions'
+import { permissionRuleString, taskPermissionRule } from '../../shared/permissions'
 import { checkAnswers } from '../../shared/questions'
 import { apiRowArgument, apiRowResult } from '../../shared/taskError'
 import { CommandFailure } from '../bridge/errors'
@@ -199,6 +213,15 @@ import {
 } from '../bridge/events'
 import { ImageOwnerKind, imagesOf } from '../db/repositories/images'
 import { appendMessage, lastTurn, listMessages, turnStartedAt } from '../db/repositories/messages'
+import {
+  getPermissionRequest,
+  listAllOpenPermissionRequests,
+  listRestartRequests,
+  listTasksWithRestartRequests,
+  restartDeliveryOf,
+  RestartDelivery,
+  setRestartDelivery,
+} from '../db/repositories/permission-requests'
 import { getOpenQuestionSet, getQuestionSet, listOpenQuestionSets } from '../db/repositories/question-sets'
 import { listTaskPermissionRules } from '../db/repositories/task-permission-rules'
 import { listQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
@@ -211,6 +234,7 @@ import {
   appendToolCall,
   failRunningCompactions,
   interruptPausedToolCalls,
+  interruptRunningToolCall,
   interruptRunningToolCalls,
   listTasksWithRunningToolCalls,
   listToolEvents,
@@ -465,6 +489,63 @@ export function permissionDeniedMessage(note: string | undefined): string {
 export const PERMISSION_WITHDRAWN_NOTE =
   'The permission request for this tool call was withdrawn before the user answered, so it did not run.'
 
+/**
+ * What the tool call of a permission request the app quit on says: the request stays open, and the decision on it goes
+ * to the agent in a message.
+ */
+export const PERMISSION_RESTARTED_NOTE =
+  'Glade quit while this tool call waited on permission, so it did not run. The decision on it goes to the agent in ' +
+  'a message.'
+
+/**
+ * What Glade sends a session it resumes to hand it the decisions on the permission requests the app quit on, before
+ * the decisions themselves (`permissionsDecidedAfterRestart`).
+ */
+export const PERMISSIONS_DECIDED_AFTER_RESTART_PROMPT =
+  "Glade restarted while tool calls of yours were waiting on the user's permission, so those calls ended without " +
+  'running. The user has decided on them now:'
+
+/** What the message that hands the agent the decisions ends with. */
+export const PERMISSIONS_DECIDED_AFTER_RESTART_END =
+  'Make an allowed call again, with exactly the same input, and it will run without asking again. Do not make a ' +
+  'denied call again. Carry on from there.'
+
+/** One decided request, in the message that hands the agent the decisions: the call, and what the user decided. */
+function decidedAfterRestart(request: PermissionRequest): string {
+  const whose =
+    request.agentId === null
+      ? `Your ${request.toolName} call`
+      : `Your subagent's ${request.toolName} call (subagent ${request.agentId}, which ended when Glade quit)`
+  const call = `- ${whose} ${request.toolUseId}, with input ${JSON.stringify(request.input)}`
+  if (request.state === PermissionRequestState.Allowed) {
+    const rule = request.grantedRule
+    return rule === null
+      ? `${call}: allowed once.`
+      : `${call}: allowed, and ${permissionRuleString(rule)} is now allowed for the rest of the task.`
+  }
+  const note = request.denyNote ?? ''
+  return note === '' ? `${call}: denied.` : `${call}: denied. The user said: ${note}`
+}
+
+/**
+ * The message that hands the agent the decisions on the permission requests the app quit on (see the module comment),
+ * in the order the calls were made. Each is allowed or denied.
+ */
+export function permissionsDecidedAfterRestart(requests: readonly PermissionRequest[]): string {
+  const lines = requests.map(decidedAfterRestart).join('\n')
+  return `${PERMISSIONS_DECIDED_AFTER_RESTART_PROMPT}\n\n${lines}\n\n${PERMISSIONS_DECIDED_AFTER_RESTART_END}`
+}
+
+/** A JSON value written with its objects' keys sorted, so two inputs compare equal however their keys are ordered. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (typeof value === 'object' && value !== null) {
+    const entries = Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
 /** The answer to a call that goes ahead without asking. */
 const ALLOWED_WITHOUT_ASKING: ToolPermissionAnswer = { behavior: ToolPermissionBehavior.Allow, byUser: false }
 
@@ -654,6 +735,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const onPauseDue = (taskId: string): void => {
     const task = getTask(db, taskId)
     if (task === undefined || !isPaused(task) || task.pause === null) return
+    // A request the app quit on waits on you: the pause is over, and your decision carries the turn on.
+    if (waitsOnRestartRequests(taskId)) {
+      taskLog(taskId).info('pause due, waiting on permission requests left by a restart')
+      updateTaskFromRunner(context, taskId, { activity: TaskActivity.Waiting, pause: null })
+      return
+    }
     if (task.pause.reason === PauseReason.Offline && !isOnline()) {
       taskLog(taskId).info('pause due, still offline')
       const pause = checkedOffline(task.pause, Date.now())
@@ -788,6 +875,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     turn.end()
     questions.withdraw(taskId)
     withdrawRequests(live, false)
+    // A call allowed after a restart that the agent didn't make again in the turn it was told in asks, if it's made.
+    const delivered = listRestartRequests(db, taskId, RestartDelivery.Delivered)
+    setRestartDelivery(
+      db,
+      delivered.map(({ id }) => id),
+      RestartDelivery.Settled,
+    )
   }
 
   const onTurnStopped = (taskId: string, turn: Turn): void => {
@@ -1212,6 +1306,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return ALLOWED_WITHOUT_ASKING
     }
     if (live.closed) return WITHDRAWN
+    const allowed = takeRestartAllowance(taskId, call)
+    if (allowed !== undefined) {
+      taskLog(taskId).info('tool call allowed after a restart', { requestId: allowed.id, toolName, toolUseId })
+      const rule = allowed.grantedRule
+      return { behavior: ToolPermissionBehavior.Allow, byUser: true, ...(rule === null ? {} : { rule }) }
+    }
     // A background subagent's call belongs to the turn its `Agent` call was made in; any other, to the turn running.
     const owner = live.backgroundCalls.get(toolUseId)
     const turn =
@@ -1443,6 +1543,96 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     return messages
   }
 
+  /** Whether the task waits on a permission request the app quit on (see the module comment). */
+  const waitsOnRestartRequests = (taskId: string): boolean =>
+    listRestartRequests(db, taskId, RestartDelivery.Pending).some(({ state }) => state === PermissionRequestState.Open)
+
+  /**
+   * The allowed request, told to the agent after a restart, whose call this is again (the same tool and input), if
+   * there is one: it lets the call through, once.
+   */
+  const takeRestartAllowance = (taskId: string, call: ToolPermissionCall): PermissionRequest | undefined => {
+    const input = canonicalJson(call.input)
+    const found = listRestartRequests(db, taskId, RestartDelivery.Delivered).find(
+      (request) => request.toolName === call.toolName && canonicalJson(request.input) === input,
+    )
+    if (found !== undefined) setRestartDelivery(db, [found.id], RestartDelivery.Settled)
+    return found
+  }
+
+  /**
+   * The permission requests the app quit on are still open, with nothing waiting on them (see the module comment):
+   * their calls are gone, and so is the turn that made them, if it was still running. Their tasks wait on you until you
+   * decide on them.
+   */
+  const orphanPermissions = (): void => {
+    const open = listAllOpenPermissionRequests(db)
+    setRestartDelivery(
+      db,
+      open.map(({ id }) => id),
+      RestartDelivery.Pending,
+    )
+    for (const request of open) {
+      const { id, taskId, toolUseId, turn } = request
+      taskLog(taskId).info('permission request left open by a restart', { requestId: id, toolUseId, turn })
+      const call = interruptRunningToolCall(db, taskId, toolUseId, PERMISSION_RESTARTED_NOTE)
+      if (call !== undefined) emitToolEventUpdated(emit, call)
+    }
+    // A turn the app quit in waits on you now; one that had already ended, failed or paused stays as it was.
+    for (const taskId of new Set(open.map((request) => request.taskId))) {
+      if (getTask(db, taskId)?.activity === TaskActivity.Working) backToWaiting(taskId)
+    }
+  }
+
+  /**
+   * Hands the agent the decisions on the permission requests the app quit on, once you've made them all (see the module
+   * comment): its session is resumed, and they go to it in one message that carries on its last turn. Does nothing while
+   * one is still open.
+   */
+  const deliverAfterRestart = (taskId: string): void => {
+    const pending = listRestartRequests(db, taskId, RestartDelivery.Pending)
+    const task = getTask(db, taskId)
+    const busy = (sessions.get(taskId)?.turn ?? null) !== null
+    if (task === undefined || busy || pending.some(({ state }) => state === PermissionRequestState.Open)) return
+    const turn = Math.max(1, lastTurn(db, taskId))
+    taskLog(taskId).info('permission decisions sent after a restart', { requests: pending.length, turn })
+    const live = sessions.get(taskId) ?? start(task)
+    const allowed = (request: PermissionRequest): boolean => request.state === PermissionRequestState.Allowed
+    setRestartDelivery(
+      db,
+      pending.filter(allowed).map(({ id }) => id),
+      RestartDelivery.Delivered,
+    )
+    setRestartDelivery(
+      db,
+      pending.filter((request) => !allowed(request)).map(({ id }) => id),
+      RestartDelivery.Settled,
+    )
+    applySettings(task, live)
+    startWorking(taskId)
+    emitToolEventAppended(emit, appendDivider(db, { taskId, turn, dividerKind: DividerKind.Resumed }))
+    const uuid = randomUUID()
+    live.turn = newTurn(turn)
+    live.turn.awaiting.add(uuid)
+    live.session.send(permissionsDecidedAfterRestart(pending), uuid)
+  }
+
+  /**
+   * Stop on a task waiting on permission requests the app quit on: they're withdrawn, and the decisions already made on
+   * the others never reach the agent.
+   */
+  const dropAfterRestart = (taskId: string): void => {
+    const pending = listRestartRequests(db, taskId, RestartDelivery.Pending)
+    if (pending.length === 0) return
+    taskLog(taskId).info('permission requests left by a restart withdrawn', { requests: pending.length })
+    setRestartDelivery(
+      db,
+      pending.map(({ id }) => id),
+      RestartDelivery.Settled,
+    )
+    for (const { id, state } of pending) if (state === PermissionRequestState.Open) permissions.withdraw(id)
+  }
+
   /**
    * A question the app quit on is still open, with nothing waiting on it (see the module comment): its call is gone,
    * and so is its turn. Its task waits on you until you answer it.
@@ -1524,6 +1714,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         }
         return answerInWords(open, text)
       }
+      if (waitsOnRestartRequests(taskId)) {
+        throw new CommandFailure(
+          BridgeErrorCode.Busy,
+          'The agent is waiting on your permission; queue the message instead',
+        )
+      }
       if ((sessions.get(taskId)?.turn ?? null) !== null) {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working; queue the message instead')
       }
@@ -1548,7 +1744,17 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     },
 
     answerPermission(id, decision) {
-      return permissions.answer(id, decision)
+      const request = getPermissionRequest(db, id)
+      if (request?.state !== PermissionRequestState.Open || restartDeliveryOf(db, id) !== RestartDelivery.Pending) {
+        return permissions.answer(id, decision)
+      }
+      // The app quit on it: the decision goes to the agent's session, which mustn't be busy with something else.
+      if ((sessions.get(request.taskId)?.turn ?? null) !== null) {
+        throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working; answer once it has finished')
+      }
+      const answered = permissions.answer(id, decision)
+      deliverAfterRestart(request.taskId)
+      return answered
     },
 
     applyPermissionMode(taskId) {
@@ -1569,8 +1775,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
       const queued = addQueuedMessage(context, { taskId, body: text, images })
-      // A paused task delivers its queue once it resumes.
-      if (isPaused(task)) return queued
+      // A paused task delivers its queue once it resumes, and one waiting on requests the app quit on once you decide.
+      if (isPaused(task) || waitsOnRestartRequests(taskId)) return queued
       const live = sessions.get(taskId)
       // The turn ended just before the message arrived: nothing will deliver the queue, so it starts a turn now.
       if ((live?.turn ?? null) === null) startTurn(task, live ?? start(task), null)
@@ -1580,9 +1786,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     async stop(taskId) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
+      dropAfterRestart(taskId)
       const live = sessions.get(taskId)
       const turn = live?.turn ?? null
-      if (live === undefined || turn === null) return task
+      if (live === undefined || turn === null) return getTask(db, taskId) ?? task
       taskLog(taskId).info('stop requested', { turn: turn.number })
       turn.stopping = true
       // An `ask` or a permission request waiting on you would hold the turn up: they're withdrawn first, so their calls
@@ -1668,7 +1875,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     },
 
     resumeInterrupted() {
-      // A question the app quit on waits on you, not the agent: its turn carries on once you answer it.
+      // A permission request or question the app quit on waits on you, not the agent: its turn carries on once you
+      // answer it.
+      orphanPermissions()
       for (const set of listOpenQuestionSets(db)) orphanQuestion(set)
       // A background subagent the app quit in died with its session: its calls end as interrupted, in any task.
       for (const taskId of listTasksWithRunningToolCalls(db)) {
@@ -1688,6 +1897,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           )
           const failure = { source: TaskErrorSource.Session, status: null, code: null, details: text }
           stopOnError(task.id, withRetries(null, failure))
+        }
+      }
+      // Decisions made on requests the app quit on that never reached the agent (it quit again first) go now.
+      for (const taskId of listTasksWithRestartRequests(db, RestartDelivery.Pending)) {
+        try {
+          deliverAfterRestart(taskId)
+        } catch (error) {
+          taskLog(taskId).error('failed to send permission decisions after a restart', { error })
         }
       }
       for (const task of listPausedTasks(db)) timers.arm(task.id, task.pause?.resumesAt ?? Date.now())

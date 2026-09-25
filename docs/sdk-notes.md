@@ -708,7 +708,9 @@ a denied call and a foreground subagent's call. What that run showed is marked *
   waiting on it. `reinitialize()` redelivers pending requests only to a CLI that is still running (after a transport
   gap); once Glade quits, the subprocess is gone and the resumed transcript has a `tool_use` with no result, as with a
   blocking `ask` (§8, `model-surface.md`). What can survive is Glade's own record of the request: the card, the task
-  needing you, and the decision, delivered to the resumed session as a message (P11-04).
+  needing you, and the decision, delivered to the resumed session as a message (P11-04). Glade sends a task's
+  decisions in one message once all its requests the app quit on are decided, and lets the agent's next call with the
+  same tool and input through once without asking, since Claude Code asks about it afresh (`src/main/agent/runner.ts`).
 - **`permissionPromptToolName`** (route prompts to an MCP tool) and **`permissionPrompts: 'none'`** (never ask) are
   the alternatives [docs]; neither fits a card that waits for the user.
 
