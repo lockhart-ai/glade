@@ -93,6 +93,9 @@
 
 /* The chosen section, on the right. */
 .content {
+  /* The room the section's scrollbar takes, inside the content's right padding. */
+  --settings-scrollbar-gutter: 14px;
+
   display: flex;
   flex-direction: column;
   flex-grow: 1;
@@ -118,12 +121,19 @@
   white-space: nowrap;
 }
 
+/*
+ * The section scrolls. Its scrollbar gets a gutter of its own, in the right padding of the content, so it never draws
+ * over the ends of the rows (the keycaps, in Settings › Keyboard).
+ */
 .body {
   display: flex;
   flex-direction: column;
   flex-grow: 1;
   min-height: 0;
+  margin-right: calc(-1 * var(--settings-scrollbar-gutter));
+  padding-right: var(--settings-scrollbar-gutter);
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .intro {
@@ -269,6 +279,17 @@
 
 .keycap:focus-visible {
   outline: none;
+}
+
+/*
+ * A keycap you can't rebind (the menus' own keys, ⌘W): muted and flat, with nothing to click or hover. Its tooltip says
+ * why.
+ */
+.fixedKey {
+  background: transparent;
+  border-color: var(--color-inner-border);
+  color: var(--color-faint);
+  cursor: default;
 }
 
 /* The keycap being recorded, waiting for the new keys. */

@@ -1,6 +1,7 @@
 import { useRef, type HTMLAttributes, type KeyboardEvent } from 'react'
 import { classNames } from '../classNames'
 import styles from './Tabs.module.css'
+import { useOverflowEdges } from './useOverflowEdges'
 
 /** One tab in a tab bar. */
 export interface TabItem<T extends string> {
@@ -45,7 +46,8 @@ function panelId(tabsId: string, value: string): string {
 /**
  * A row of tabs, like the right panel's "Tool calls 7 · Files · Todos 3/4". The selected tab holds the one tab stop;
  * the left and right arrow keys select the previous or next tab, wrapping at the ends. Render the selected tab's
- * content in a `TabPanel` with the same `tabsId`.
+ * content in a `TabPanel` with the same `tabsId`. When the row is too narrow for its tabs and scrolls sideways (given
+ * `overflow-x: auto` through `className`), it fades out at an end with more tabs past it.
  */
 export function Tabs<T extends string>({
   id,
@@ -56,6 +58,8 @@ export function Tabs<T extends string>({
   className,
 }: TabsProps<T>): React.JSX.Element {
   const buttons = useRef<(HTMLButtonElement | null)[]>([])
+  const list = useRef<HTMLDivElement>(null)
+  const overflow = useOverflowEdges(list, tabs.map((tab) => `${tab.label} ${String(tab.count ?? '')}`).join('\n'))
   // If no tab is selected, the first one takes the tab stop so the bar stays reachable by keyboard.
   const tabStop = Math.max(
     tabs.findIndex((tab) => tab.value === value),
@@ -76,7 +80,14 @@ export function Tabs<T extends string>({
   }
 
   return (
-    <div role="tablist" aria-label={label} className={classNames(styles.tablist, className)}>
+    <div
+      ref={list}
+      role="tablist"
+      aria-label={label}
+      className={classNames(styles.tablist, className)}
+      data-overflow-start={overflow.start}
+      data-overflow-end={overflow.end}
+    >
       {tabs.map((tab, index) => {
         const selected = tab.value === value
         return (

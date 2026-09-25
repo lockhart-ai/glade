@@ -1,7 +1,32 @@
 .tablist {
+  /* How far in from an end the row fades, when there are more tabs past that end. */
+  --tabs-fade: 28px;
+
   display: flex;
   align-items: center;
   gap: 2px;
+}
+
+/*
+ * A row too narrow for its tabs scrolls sideways; it fades out at an end with more tabs past it, so a tab cut off there
+ * reads as "more this way" rather than as clipped. (The mask's colour only sets how opaque the row is.)
+ */
+.tablist[data-overflow-start='true'] {
+  mask-image: linear-gradient(to right, transparent, #000 var(--tabs-fade));
+}
+
+.tablist[data-overflow-end='true'] {
+  mask-image: linear-gradient(to left, transparent, #000 var(--tabs-fade));
+}
+
+.tablist[data-overflow-start='true'][data-overflow-end='true'] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--tabs-fade),
+    #000 calc(100% - var(--tabs-fade)),
+    transparent
+  );
 }
 
 .tab {

@@ -1,5 +1,6 @@
 import { expect, seedPath, test, type Glade } from './fixtures'
-import { chat, regions, taskHeader, taskPanel } from './selectors'
+import { chooseMenuItem } from './menu'
+import { chat, inputBar, regions, settings, taskHeader, taskPanel } from './selectors'
 import { boxOf, MIN_WINDOW, resize } from './window-layout'
 
 /**
@@ -69,4 +70,64 @@ test('narrow window: the header stays compact and the chat stays visible and scr
   await expect.poll(async () => (await boxOf(panel.panel)).width).toBeLessThan(before)
   await expect.poll(async () => (await boxOf(panel.panel)).width).toBe(320)
   await expectChatClearOfTheHeader(glade)
+})
+
+test('narrow window: the panel tabs fade where more of them scroll, the input bar settings fit, and the keycaps clear the scrollbar', async ({
+  launch,
+}) => {
+  const glade = await launch({ seed: seedPath('long-header.json') })
+  const { window } = glade
+  await expect(taskHeader(window).title).toHaveText(/^Add per-key rate limiting/)
+  await resize(glade, MIN_WINDOW.width, MIN_WINDOW.height)
+
+  // The tabs don't all fit: the row fades at the end with more past it, and at the start once it has scrolled there.
+  const panel = taskPanel(window)
+  const tabRow = panel.panel.getByRole('tablist', { name: 'Task panels' })
+  await expect(tabRow).toHaveAttribute('data-overflow-end', 'true')
+  await expect(tabRow).toHaveAttribute('data-overflow-start', 'false')
+  await tabRow.hover()
+  await window.mouse.wheel(400, 0)
+  await expect(tabRow).toHaveAttribute('data-overflow-start', 'true')
+  await expect(tabRow).toHaveAttribute('data-overflow-end', 'false')
+  await expect(panel.tab('Subagents')).toBeInViewport({ ratio: 1 })
+
+  // The input bar's settings fit in its row, the last one clear of the bar's edge, with the context meter after it.
+  const bar = inputBar(window)
+  const row = regions(window).inputBar.getByTestId('context-meter-slot').locator('..')
+  expect(await row.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  const permissions = await boxOf(bar.setting('Permissions'))
+  const barBox = await boxOf(regions(window).inputBar)
+  expect(barBox.x + barBox.width - (permissions.x + permissions.width)).toBeGreaterThanOrEqual(8)
+
+  // Settings › Keyboard: the keycaps end short of the section's scrollbar gutter, and the fixed ones look apart.
+  await chooseMenuItem(glade, 'Glade', 'Settings…')
+  const modal = settings(window)
+  await modal.section('Keyboard').click()
+  const newTask = modal.dialog.getByRole('button', { name: /^New task: / })
+  const clearance = await newTask.evaluate((keycap) => {
+    let body = keycap.parentElement
+    while (body !== null && getComputedStyle(body).overflowY !== 'auto') body = body.parentElement
+    if (body === null) throw new Error('No scrolling section')
+    const style = getComputedStyle(body)
+    return {
+      gutter: Number.parseFloat(style.paddingRight),
+      clear: body.getBoundingClientRect().right - keycap.getBoundingClientRect().right,
+      stable: style.scrollbarGutter,
+    }
+  })
+  expect(clearance.gutter).toBeGreaterThanOrEqual(12)
+  expect(clearance.clear).toBeGreaterThanOrEqual(clearance.gutter)
+  expect(clearance.stable).toBe('stable')
+  const look = (keycap: string) =>
+    modal.dialog
+      .getByText(keycap, { exact: true })
+      .first()
+      .evaluate((kbd) => {
+        const style = getComputedStyle(kbd)
+        return { color: style.color, cursor: style.cursor }
+      })
+  const fixed = await look('⌘W')
+  const rebindable = await look('⌘N')
+  expect(fixed.color).not.toBe(rebindable.color)
+  expect(fixed.cursor).toBe('default')
 })
