@@ -42,6 +42,7 @@ import type { ImageData, ImageRef } from '../../shared/images'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import { highlightParts, highlightPattern, SearchField, type SearchResult } from '../../shared/search'
 import type { TerminalTab } from '../../shared/terminal'
+import { addDoneCounts, doneCountsOf, isInDoneSection, NO_DONE_TASKS, pageOfDone } from '../../shared/doneList'
 
 export type FakeHandlers = {
   readonly [C in CommandName]: (request: CommandRequest<C>) => CommandResponse<C> | Promise<CommandResponse<C>>
@@ -233,6 +234,15 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     [CommandName.TasksList]: ({ workspaceId }) => ({
       tasks: main.tasks.filter((task) => task.workspaceId === workspaceId),
     }),
+    [CommandName.TasksListActive]: ({ workspaceId }) => {
+      const tasks = main.tasks.filter((task) => task.workspaceId === workspaceId)
+      return {
+        tasks: tasks.filter((task) => !isInDoneSection(task)),
+        done: tasks.map(doneCountsOf).reduce((sum, counts) => addDoneCounts(sum, counts), NO_DONE_TASKS),
+      }
+    },
+    [CommandName.TasksListDone]: (request) => pageOfDone(main.tasks, request),
+    [CommandName.TasksGet]: ({ ids }) => ({ tasks: main.tasks.filter((task) => ids.includes(task.id)) }),
     [CommandName.TasksCreate]: ({ workspaceId }) => {
       const task = sampleTask(`task-${String(main.tasks.length + 1)}`, workspaceId, '')
       main.tasks.push(task)

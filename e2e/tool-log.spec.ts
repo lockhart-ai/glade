@@ -1,15 +1,15 @@
 import { expect, seedPath, test, timeZoneAtHour } from './fixtures'
 import { regions, taskPanel } from './selectors'
 
-test('tool log: rows, notes, dividers and subagent calls; a row expands; the chat shows a turn; it survives a restart', async ({
+test('tool log: rows, notes and dividers, without subagent calls; a row expands; the chat shows a turn; it survives a restart', async ({
   launch,
 }) => {
   const glade = await launch({ seed: seedPath('tool-log.json') })
   const panel = taskPanel(glade.window)
 
-  // Tool calls is the live tab, counting every call, subagents' included.
+  // Tool calls is the live tab, counting the task's own calls: a subagent's are in the Subagents tab.
   await expect(panel.tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
-  await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 7')
+  await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 6')
 
   // Each row has its name, argument (paths relative to the workspace) and short result, in the state's colour.
   await expect(panel.call(/^Done Read api\/views\.py/)).toContainText('3 lines')
@@ -18,9 +18,10 @@ test('tool log: rows, notes, dividers and subagent calls; a row expands; the cha
   await expect(panel.call(/^Running Edit config\/settings\.py/)).toContainText('Running…')
   await expect(panel.call(/set_status/)).toContainText('{"status":"Giving /search its own limit"}')
 
-  // A subagent's calls sit under the Agent call that started it.
-  await expect(panel.subagentCalls('Agent').getByRole('button')).toHaveCount(1)
-  await expect(panel.subagentCalls('Agent')).toContainText('Grep')
+  // The Agent call that started a subagent is one row, with none of the subagent's calls under it.
+  await expect(panel.call(/^Done Agent/)).toHaveCount(1)
+  await expect(panel.log.getByRole('group')).toHaveCount(0)
+  await expect(panel.log.getByRole('button', { name: /Grep/ })).toHaveCount(0)
 
   // Notes sit between the rows, and a divider marks the start of turn 2 (turn 1 needs none).
   await expect(panel.log).toContainText('Looking at how the API views are set up.')
@@ -45,7 +46,7 @@ test('tool log: rows, notes, dividers and subagent calls; a row expands; the cha
   // The log is read back from the database after a restart.
   await glade.close()
   const relaunched = taskPanel((await launch()).window)
-  await expect(relaunched.tab(/^Tool calls/)).toHaveText('Tool calls 7')
+  await expect(relaunched.tab(/^Tool calls/)).toHaveText('Tool calls 6')
   await expect(relaunched.call(/Read api\/views\.py/)).toContainText('3 lines')
   await expect(relaunched.dividers).toHaveCount(1)
 })

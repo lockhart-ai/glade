@@ -2,7 +2,7 @@
 // card rise in, menus and popovers fade in, and with Reduce motion on nothing moves. These specs launch the app with
 // motion on (every other spec runs with Reduce motion) and check what animated from inside the page (./motion.ts),
 // never by timing it: each step waits for the change to land, then reads what ran on the way.
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import { expect, seedPath, test, type Glade } from './fixtures'
@@ -33,7 +33,7 @@ const SIDEBAR_WIDTH = 300
 /** Launches the tool log sample with motion on, watching what animates. */
 async function launchMoving(launch: (options: { seed: string; motion: boolean }) => Promise<Glade>): Promise<Page> {
   const { window } = await launch({ seed: seedPath('tool-log.json'), motion: true })
-  await expect(taskPanel(window).tab(/^Tool calls/)).toHaveText('Tool calls 7')
+  await expect(taskPanel(window).tab(/^Tool calls/)).toHaveText('Tool calls 6')
   await watchMotion(window)
   return window
 }
@@ -151,6 +151,49 @@ test('animations: task list sections and tool calls open and close by height', a
   expectAnimated(collapsed, 'collapse-close')
 })
 
+test('animations: the Done section opens and closes by height with its rows virtualised', async ({
+  launch,
+  tempFolder,
+}) => {
+  // One active task and 300 done ones: far more than Done renders at once.
+  const seed = join(tempFolder(), 'done.json')
+  writeFileSync(
+    seed,
+    JSON.stringify({
+      workspace: { name: 'Acme API', rootPath: '/Users/sample/code/api' },
+      tasks: [
+        { title: 'Add rate limiting to public API', status: 'Waiting on you', minutesAgo: 0 },
+        ...Array.from({ length: 300 }, (_, index) => ({
+          title: `Finished ${String(index)}`,
+          status: `Shipped change ${String(index)}`,
+          state: 'done',
+          minutesAgo: 10 + index,
+        })),
+      ],
+    }),
+  )
+  const { window } = await launch({ seed, motion: true })
+  const list = taskList(window)
+  await expect(list.sectionHeader('Done')).toHaveText('Done300')
+  await watchMotion(window)
+
+  // Opening it grows the section to its rows, of which only those in view are rendered.
+  const header = list.sectionHeader('Done')
+  const opened = await afterClick(window, header, () => expect(list.rows('Done').first()).toContainText('Finished 0'))
+  expectAnimated(opened, 'collapse-open')
+  const rendered = await list.rows('Done').count()
+  expect(rendered).toBeGreaterThan(5)
+  expect(rendered).toBeLessThan(60)
+  await expect(list.row('Done', 'Finished 0')).toBeVisible()
+
+  // Closing it shrinks them away, and opening it again brings back the same rows.
+  const closed = await afterClick(window, header, () => expect(list.rows('Done')).toHaveCount(0))
+  expectAnimated(closed, 'collapse-close')
+  await header.click()
+  await expect(list.row('Done', 'Finished 0')).toBeVisible()
+  expect(await list.rows('Done').count()).toBe(rendered)
+})
+
 test('animations: menus and popovers fade in', async ({ launch }) => {
   const window = await launchMoving(launch)
   const menu = contextMenu(window, 'Task actions')
@@ -202,7 +245,7 @@ test('animations: the question card rises in and fades to its answers; the Undo 
 test('animations: with Reduce motion on, nothing moves: every change lands at once', async ({ launch }) => {
   // The default for every spec: the app runs as with macOS's Reduce motion on.
   const { window } = await launch({ seed: seedPath('tool-log.json') })
-  await expect(taskPanel(window).tab(/^Tool calls/)).toHaveText('Tool calls 7')
+  await expect(taskPanel(window).tab(/^Tool calls/)).toHaveText('Tool calls 6')
   await watchMotion(window)
   expect(
     await window.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--motion-duration')),

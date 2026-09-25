@@ -292,6 +292,22 @@ describe('the menu bar’s commands', () => {
       expect(screen.queryByRole('alertdialog')).toBeNull()
     })
 
+    it('counts every task it deletes, the done ones not yet loaded too', async () => {
+      const done = Array.from({ length: 1_050 }, (_, index) => ({
+        ...sampleTask(`d${String(index)}`, 'w1'),
+        state: TaskState.Done,
+        updatedAt: 10_000 - index,
+      }))
+      const rendered = await renderApp({
+        tasks: [sampleTask('t1', 'w1'), { ...sampleTask('p', 'w1'), state: TaskState.Done, pinned: true }, ...done],
+      })
+
+      choose(rendered, workspaceCommand(WorkspaceCommandId.Remove, 'w1'))
+
+      expect(Object.keys(rendered.store.getState().tasks).length).toBeLessThan(1_052)
+      expect(screen.getByRole('alertdialog')).toHaveAccessibleDescription(removeWorkspaceMessage(1_052))
+    })
+
     it('keeps the workspace when you cancel', async () => {
       const rendered = await renderApp()
 

@@ -14,7 +14,7 @@ import {
   compactionArgument,
   compactionResult,
   resultSummary,
-  toolLogRows,
+  parentLogRows,
   type CallRow,
   type CompactionRow,
   type DividerRow,
@@ -209,12 +209,13 @@ export interface ToolLogProps {
 }
 
 /**
- * A task's tool log: every tool call and the agent's working notes in order, with a divider where each turn after the
- * first starts. It keeps to the bottom as it grows, unless you've scrolled up. Asked to show a turn, it scrolls to the
+ * A task's tool log: every tool call and working note of the task's own agent in order, with a divider where each turn
+ * after the first starts. A subagent's calls and notes are in the Subagents tab instead: its `Agent` call is one row
+ * here. It keeps to the bottom as it grows, unless you've scrolled up. Asked to show a turn, it scrolls to the
  * turn's first row (its divider, or turn 1's first row) and highlights it for a moment.
  */
 export function ToolLog({ taskId, events, rootPath, focus, onFocusShown }: ToolLogProps): React.JSX.Element {
-  const rows = useMemo(() => toolLogRows(events), [events])
+  const rows = useMemo(() => parentLogRows(events), [events])
   const { ref, onScroll } = useStickToBottom(events, taskId)
 
   const highlighted = useRef<Highlight | null>(null)

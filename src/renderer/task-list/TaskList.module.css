@@ -68,3 +68,17 @@
   flex-direction: column;
   gap: var(--space-2xs);
 }
+
+/* The Done section's rows, of which only those in view are rendered (DoneRows): each sits at its place in a list as
+   tall as all of them. */
+.rows.virtual {
+  display: block;
+  position: relative;
+}
+
+.virtualRow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}

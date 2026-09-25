@@ -9,6 +9,7 @@ import {
   net,
   Notification,
   shell,
+  type Point,
   type WebPreferences,
 } from 'electron'
 import { EventType } from '../shared/bridge'
@@ -69,6 +70,13 @@ const WINDOW_BACKGROUND = '#0A0B0F'
 
 /** The app's name, as its menu bar says it (About, Hide and Quit). `app.name` is the package's, `glade`, outside a build. */
 const APP_NAME = 'Glade'
+
+/**
+ * Where the macOS window controls (the traffic lights) sit: centred in the title bar row across the top of the window
+ * (`--title-bar-height`, 32px, in src/renderer/tokens.css), which the renderer keeps clear of everything else. The
+ * buttons are 16px tall, so 8px down centres them.
+ */
+export const TRAFFIC_LIGHT_POSITION: Point = { x: 12, y: 8 }
 
 /** The smallest the window can be made. */
 const WINDOW_MIN_SIZE: MinimumSize = { width: 1100, height: 700 }
@@ -146,7 +154,8 @@ function createWindow(testMode: TestMode, log: Logger): BrowserWindow {
     minHeight: WINDOW_MIN_SIZE.height,
     show: false,
     ...(testMode === null ? {} : { paintWhenInitiallyHidden: true }),
-    titleBarStyle: 'hiddenInset',
+    titleBarStyle: 'hidden',
+    trafficLightPosition: TRAFFIC_LIGHT_POSITION,
     backgroundColor: WINDOW_BACKGROUND,
     webPreferences: WINDOW_WEB_PREFERENCES,
   })

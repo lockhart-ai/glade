@@ -139,7 +139,6 @@ function Layout(): React.JSX.Element {
       taskHasRightPanel={!rightPanel.collapsed}
       task={
         <TaskCard
-          clearTrafficLights={sidebar.collapsed}
           titleBar={sidebar.collapsed && !hasTask ? <PanelToggle panel={Panel.Sidebar} /> : undefined}
           header={<SelectedTaskHeader />}
           chat={<Chat />}

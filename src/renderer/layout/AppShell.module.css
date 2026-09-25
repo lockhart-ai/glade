@@ -8,7 +8,7 @@
   position: relative;
   box-sizing: border-box;
   height: 100vh;
-  padding: var(--space-outer);
+  padding: var(--title-bar-height) var(--space-outer) var(--space-outer);
   display: flex;
   flex-direction: column;
   gap: var(--space-outer);
@@ -43,11 +43,14 @@
   min-height: 0;
 }
 
-/* The outer padding along the top edge drags the window (the title bar is hidden). */
-.dragStrip {
+/*
+ * The title bar row across the top, which holds the macOS traffic lights and nothing else for now. It drags the window,
+ * and double-clicking it zooms (or whatever the system's title bar setting says), as a native title bar does.
+ */
+.titleBar {
   position: absolute;
   inset: 0 0 auto;
-  height: var(--space-outer);
+  height: var(--title-bar-height);
   -webkit-app-region: drag;
 }
 

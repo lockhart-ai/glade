@@ -37,16 +37,17 @@ test('new task, first message, scripted reply', async ({ launch, tempFolder }) =
   await expect(header.field('Status')).toContainText('Fixed the timezone bug; the tests pass.')
   await expect(header.pill).toHaveText('Active · waiting on you')
 
-  // The tool log shows every call the turn made, all done, with the subagent's calls under its Agent call.
+  // The tool log shows every call the agent made, all done; the subagent's are in the Subagents tab, not here.
   const panel = taskPanel(window)
-  await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 12')
+  await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 10')
   await expect(panel.log).toContainText(
     "I'll find where the date is formatted, then fix the timezone bug and run the tests.",
   )
-  await expect(panel.log.getByRole('button', { name: /^Done/ })).toHaveCount(12)
+  await expect(panel.log.getByRole('button', { name: /^Done/ })).toHaveCount(10)
   await expect(panel.call(/^Done\s*set_title/)).toBeVisible()
   await expect(panel.call(/^Done\s*Read\s*src\/date\.ts/)).toBeVisible()
-  await expect(panel.subagentCalls('Agent').getByRole('button')).toHaveCount(2)
+  await expect(panel.call(/^Done\s*Agent\s*Find flaky tests/)).toBeVisible()
+  await expect(panel.call(/^Done\s*(Grep\s*new Date|Read\s*test\/)/)).toHaveCount(0)
 })
 
 test('stop a running turn with ⌘., then carry on in the same session', async ({ launch, tempFolder }) => {

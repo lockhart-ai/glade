@@ -5,13 +5,6 @@
   overflow: hidden;
 }
 
-/* Clears the traffic lights, which float over the top-left of this card, and drags the window. */
-.titleBar {
-  flex-shrink: 0;
-  height: var(--title-bar-inset);
-  -webkit-app-region: drag;
-}
-
 .content {
   flex-grow: 1;
   min-height: 0;

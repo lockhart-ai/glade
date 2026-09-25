@@ -7,6 +7,8 @@ import type { Locator, Page } from '@playwright/test'
 /** The window's regions (see src/renderer/layout and src/renderer/App.tsx). */
 export function regions(page: Page) {
   return {
+    /** The empty row across the top of the window that holds the macOS traffic lights and drags the window. */
+    titleBar: page.getByTestId('window-title-bar'),
     sidebar: page.getByRole('navigation', { name: 'Tasks' }),
     /** The top of the sidebar: the workspace's name and root folder. */
     workspace: page.getByRole('region', { name: 'Workspace' }),
@@ -151,8 +153,6 @@ export function taskPanel(page: Page) {
     log,
     /** A tool call's row, by its accessible name: its state, name, argument, time and result. */
     call: (name: string | RegExp) => log.getByRole('button', { name }),
-    /** A subagent's calls, under the call that started it (by its name). */
-    subagentCalls: (name: string) => log.getByRole('group', { name: `${name} subagent calls` }),
     dividers: log.getByRole('separator'),
     /** Each compaction's Compact row: its name, the tokens before and after, its time and how it went. */
     compactions: log.getByRole('group', { name: 'Compact' }),

@@ -1,8 +1,8 @@
 import { act, fireEvent, render as renderUnwrapped, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName } from '../../shared/bridge'
-import { ToolCallState, ToolEventKind, type NarrationEvent, type ToolCallEvent } from '../../shared/domain'
-import { refuse } from '../store/test-bridge'
+import { ToolCallState, ToolEventKind, UiStateKey, type NarrationEvent, type ToolCallEvent } from '../../shared/domain'
+import { refuse, sampleWorkspace } from '../store/test-bridge'
 import { storeWrapper } from '../store/test-wrapper'
 import { ELAPSED_REFRESH_MS, SubagentsTab } from './SubagentsTab'
 
@@ -231,6 +231,49 @@ describe('a subagent’s context menu', () => {
     await choose('API changes', 'Stop subagent')
 
     expect(await screen.findByText("The subagent isn't running")).toBeInTheDocument()
+  })
+
+  it('opens a subagent call’s file in the Files tab, and puts its command at the terminal’s prompt', async () => {
+    const wrapper = storeWrapper({
+      workspaces: [{ ...sampleWorkspace('w1'), rootPath: ROOT }],
+      uiState: [
+        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+        { key: UiStateKey.SelectedTaskId, value: 't1' },
+      ],
+    })
+    await act(() => wrapper.store.getState().hydrate())
+    const events = [
+      agent('api', 'API changes'),
+      call('api-list', {
+        input: { command: 'gh pr list --label api' },
+        state: ToolCallState.Done,
+        output: '1402',
+        parentToolUseId: 'use-api',
+      }),
+      call('api-read', {
+        name: 'Read',
+        input: { file_path: `${ROOT}/api/throttles.py` },
+        state: ToolCallState.Done,
+        output: 'RATE = 10',
+        parentToolUseId: 'use-api',
+      }),
+    ]
+    render(<SubagentsTab taskId="t1" events={events} rootPath={ROOT} />, wrapper)
+    fireEvent.click(header('API changes'))
+    const log = screen.getByRole('log', { name: 'API changes log' })
+    const choose = async (name: RegExp, label: string): Promise<void> => {
+      fireEvent.contextMenu(within(log).getByRole('button', { name }).parentElement ?? log)
+      await act(() => Promise.resolve())
+      fireEvent.click(screen.getByRole('menuitem', { name: label }))
+      await act(() => Promise.resolve())
+    }
+
+    await choose(/^Done\s*Read/, 'Open file')
+    expect(wrapper.store.getState().openFiles.t1?.activePath).toBe('api/throttles.py')
+    expect(wrapper.store.getState().uiState[UiStateKey.RightPanelTab]).toBe('files')
+
+    await choose(/^Done\s*Bash/, 'Run again in terminal')
+    expect(wrapper.store.getState().terminalPaste).toMatchObject({ text: 'gh pr list --label api' })
   })
 
   it('leaves a tool call in an open log its own menu', async () => {

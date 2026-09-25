@@ -262,6 +262,9 @@ The tool is named `Agent` in `tool_use` (the init `tools` list shows `Task`). A 
 - The Subagents tab derives each subagent from the tool log: an `Agent` (or `Task`) call, with the calls and notes
   tagged with its id under it. For a foreground subagent, the call's result is when it finished; a background one's
   is not (see "Background subagents" below), so the runner reads `task_started` and `task_notification` for those.
+- The Tool calls tab shows only the task's own calls and notes (`parent_tool_use_id` null), and counts only those
+  (P9-04). An `Agent` call is one row there; what its subagent did, nested subagents included, is under its entry in
+  the Subagents tab.
 - Glade sets `forwardSubagentText: true`, so the tab can show the last thing a subagent said. The runner logs a
   subagent's text as a note carrying its `Agent` call's id; it never goes to the chat.
 - There is no "queued" subagent. In the verified run a subagent started (`task_started`) as soon as its call arrived;
