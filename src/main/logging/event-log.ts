@@ -172,9 +172,9 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
         taskLog.info('task deleted', { taskId: event.taskId })
         return
       case EventType.MessageAppended: {
-        const { id: messageId, taskId, role, turn, body, summary } = event.message
+        const { id: messageId, taskId, role, turn, body, summary, images } = event.message
         const withTask = chat.with({ taskId, messageId })
-        withTask.info('message appended', { role, turn, chars: body.length, summary })
+        withTask.info('message appended', { role, turn, chars: body.length, images: images.length, summary })
         withTask.debug('message text', { role, text: excerpt(body) })
         return
       }

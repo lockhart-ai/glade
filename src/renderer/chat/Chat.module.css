@@ -32,6 +32,26 @@
   gap: 4px;
 }
 
+/* The images pasted into your message, above its text. */
+.images {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  max-width: 520px;
+  margin-bottom: var(--space-2xs);
+}
+
+.image {
+  display: block;
+  width: 160px;
+  height: 100px;
+  box-sizing: border-box;
+  object-fit: cover;
+  border: 1px solid var(--color-strong);
+  border-radius: 10px;
+}
+
 .bubble {
   max-width: 520px;
   padding: 12px 16px;

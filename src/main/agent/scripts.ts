@@ -63,6 +63,16 @@ export enum ScriptStepKind {
    * A message sent while it plays is folded into it, as into any turn.
    */
   Wake = 'wake',
+  /**
+   * An `Agent` call that starts a subagent in the background (`run_in_background`), as the SDK does (`docs/sdk-notes.md`,
+   * "Background subagents"): the `tool_use`, the subagent's `task_started` (`is_backgrounded: true`), and at once the
+   * call's "launched" result, so the turn plays on and can end while the subagent works. The subagent then plays its
+   * `steps` on its own, alongside whatever turns play, with a `task_progress` after each of its tool calls. When they're
+   * done, it ends with `outcome`: a `task_updated` and a `task_notification` carrying `summary`, then, given a `turn`,
+   * a turn the agent starts on its own, as for a `Wake`. Stop subagent (`stopTask`) cuts it short: it ends `stopped`,
+   * with the interrupt marker the SDK sends, then plays `stoppedTurn`, if any.
+   */
+  Background = 'background',
 }
 
 export interface InitStep {
@@ -171,6 +181,27 @@ export interface WakeStep {
   readonly turn: ScriptTurn
 }
 
+/** How a background subagent ends when it plays all its steps (the SDK's `task_notification.status`). */
+export type BackgroundOutcome = 'completed' | 'failed'
+
+export interface BackgroundStep {
+  readonly kind: ScriptStepKind.Background
+  /** The `Agent` call's script id: the subagent's steps name it as their `parent`. */
+  readonly id: string
+  /** The `Agent` call's input (`description`, `prompt`, `subagent_type`); `run_in_background: true` is added. */
+  readonly input: ToolInput
+  /** What the subagent does: its text, tool calls and results (each with `parent: id`) and delays. */
+  readonly steps: ScriptTurn
+  /** `completed` by default. */
+  readonly outcome?: BackgroundOutcome
+  /** What the task notification says it came to: its final reply, or what failed. */
+  readonly summary: string
+  /** What the agent does in the turn it starts once the subagent has ended; none by default. */
+  readonly turn?: ScriptTurn
+  /** What the agent does in the turn it starts once the subagent is stopped; none by default. */
+  readonly stoppedTurn?: ScriptTurn
+}
+
 export type ScriptStep =
   | InitStep
   | TextStep
@@ -187,6 +218,7 @@ export type ScriptStep =
   | AskStep
   | LimitReachedStep
   | WakeStep
+  | BackgroundStep
 
 export type ScriptTurn = readonly ScriptStep[]
 
@@ -285,6 +317,13 @@ export const wake = (turn: ScriptTurn, options: Omit<WakeStep, 'kind' | 'turn'>)
   ...options,
 })
 
+export const background = (
+  id: string,
+  input: ToolInput,
+  steps: ScriptTurn,
+  options: Omit<BackgroundStep, 'kind' | 'id' | 'input' | 'steps'>,
+): BackgroundStep => ({ kind: ScriptStepKind.Background, id, input, steps, ...options })
+
 /** How long a step "takes" in the library's scripts: long enough to see in a recording, short enough for a test. */
 const BEAT_MS = 150
 
@@ -348,13 +387,6 @@ const multiToolTurn: AgentScript = {
         description: 'Find flaky tests',
         prompt: 'Find the tests that depend on the local timezone.',
         subagent_type: 'Explore',
-      }),
-      emit({
-        type: 'system',
-        subtype: 'task_started',
-        task_type: 'local_agent',
-        subagent_type: 'Explore',
-        description: 'Find flaky tests',
       }),
       ...tool('explore-grep', 'Grep', { pattern: 'new Date\\(', path: 'test' }, 'test/date.test.ts', 'explore'),
       ...tool('explore-read', 'Read', { file_path: 'test/date.test.ts' }, "it('formats', () => { … })", 'explore'),
@@ -1236,6 +1268,125 @@ const finishesInBackground: AgentScript = {
   ],
 }
 
+/** What `background-subagents` says when its turns end, and what its subagents come to. */
+export const BACKGROUND_SUBAGENTS = {
+  started: "I've started three subagents on the slow checkout. I'll report back as they finish.",
+  meanwhile: 'The subagents are still at it. The cart cache is the likeliest suspect so far.',
+  profiled: 'Checkout runs one query per cart item: an N+1 in load_cart. Batching it takes p95 from 840 ms to 95 ms.',
+  cacheFailed: "Couldn't reach the Redis staging instance: connection refused.",
+  reported: 'The query profile is back: checkout has an N+1 in load_cart. Batching it should take p95 to about 95 ms.',
+} as const
+
+/**
+ * Three subagents look into a slow endpoint in the background (`run_in_background`), so the turn that starts them ends
+ * at once and the task can be talked to while they work (a message sent meanwhile gets a short reply). The cart cache
+ * check fails after a couple of seconds, with a call still running; the bisect runs until it's stopped; the query
+ * profile finishes a few seconds later, and the agent starts a turn of its own to report it.
+ */
+const backgroundSubagents: AgentScript = {
+  name: 'background-subagents',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Find why checkout is slow',
+        'Find why the checkout endpoint got slower since 2.3, and fix it.',
+        'Three subagents are looking into the slow checkout.',
+      ),
+      background(
+        'queries',
+        {
+          description: 'Profile the checkout queries',
+          prompt: 'Time each query the checkout endpoint runs against the staging copy, and find the slow ones.',
+          subagent_type: 'general-purpose',
+        },
+        [
+          delay(BEAT_MS * 2),
+          say('Timing the checkout queries against the staging copy.', 'queries'),
+          ...tool(
+            'queries-read',
+            'Read',
+            { file_path: 'api/checkout/queries.py' },
+            'def load_cart(cart_id):\n    …',
+            'queries',
+          ),
+          toolUse(
+            'queries-time',
+            'Bash',
+            { command: 'python scripts/time_queries.py checkout', description: 'Time the checkout queries' },
+            'queries',
+          ),
+          delay(BEAT_MS * 30),
+          toolResult('queries-time', 'load_cart  38 queries  812 ms\nload_prices  1 query  21 ms'),
+          say('load_cart runs a query per cart item.', 'queries'),
+          delay(BEAT_MS * 6),
+        ],
+        {
+          summary: BACKGROUND_SUBAGENTS.profiled,
+          turn: [...turnStart(), delay(BEAT_MS), say(BACKGROUND_SUBAGENTS.reported), result()],
+        },
+      ),
+      background(
+        'cache',
+        {
+          description: 'Check the cart cache',
+          prompt: 'Check whether the cart cache is being hit on checkout.',
+          subagent_type: 'general-purpose',
+        },
+        [
+          delay(BEAT_MS * 2),
+          ...tool(
+            'cache-grep',
+            'Grep',
+            { pattern: 'cart_cache', path: 'api/checkout' },
+            'api/checkout/cart.py:14',
+            'cache',
+          ),
+          toolUse(
+            'cache-stats',
+            'Bash',
+            { command: 'redis-cli -h staging-cache info stats', description: 'Read the cache stats' },
+            'cache',
+          ),
+          delay(BEAT_MS * 14),
+        ],
+        { outcome: 'failed', summary: BACKGROUND_SUBAGENTS.cacheFailed },
+      ),
+      background(
+        'bisect',
+        {
+          description: 'Bisect the slowdown',
+          prompt: 'Find the commit since v2.3.0 that made checkout slower.',
+          subagent_type: 'general-purpose',
+        },
+        [
+          delay(BEAT_MS * 3),
+          ...tool(
+            'bisect-log',
+            'Bash',
+            { command: 'git log --oneline v2.3.0..HEAD -- api/checkout', description: 'List the checkout commits' },
+            'a41c9e2 Load cart items lazily\n7be01d4 Add gift cards',
+            'bisect',
+          ),
+          toolUse(
+            'bisect-run',
+            'Bash',
+            { command: 'git bisect run ./scripts/bench-checkout.sh', description: 'Bisect the checkout benchmark' },
+            'bisect',
+          ),
+          // Until it's stopped.
+          delay(10 * 60_000),
+        ],
+        { summary: 'a41c9e2 made checkout slower.' },
+      ),
+      say(BACKGROUND_SUBAGENTS.started),
+      result(),
+    ],
+    [...turnStart(), delay(BEAT_MS), say(BACKGROUND_SUBAGENTS.meanwhile), result()],
+  ],
+}
+
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
   'simple-reply',
@@ -1257,6 +1408,7 @@ export const AGENT_SCRIPT_NAMES = [
   'keeps-todos',
   'writes-todos',
   'finishes-in-background',
+  'background-subagents',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -1282,4 +1434,5 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'keeps-todos': keepsTodos,
   'writes-todos': writesTodos,
   'finishes-in-background': finishesInBackground,
+  'background-subagents': backgroundSubagents,
 }

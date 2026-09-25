@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DividerKind, MessageRole, type Task } from '../../../shared/domain'
+import { GIF, JPEG, PNG } from '../../../shared/test-images'
+import { getImage, ImageOwnerKind, imagesOf } from './images'
 import { appendMessage, firstUserMessageOfSession, lastTurn, listMessages, turnStartedAt } from './messages'
 import { updateTask } from './tasks'
 import { appendDivider, appendNarration } from './tool-events'
@@ -33,6 +35,7 @@ describe('appendMessage', () => {
       turn: 1,
       createdAt: 3_000,
       summary: null,
+      images: [],
     })
     expect(listMessages(test.db, task.id)).toEqual([message])
   })
@@ -52,6 +55,54 @@ describe('appendMessage', () => {
     expect(reply.summary).toEqual(summary)
     expect(listMessages(test.db, task.id).map((message) => message.summary)).toEqual([summary, untimed])
     expect(next.summary).toEqual(untimed)
+  })
+
+  it('stores the images pasted into a message with it, in order, and lists them with it', () => {
+    const message = appendMessage(test.db, {
+      taskId: task.id,
+      role: MessageRole.User,
+      body: 'Compare these.',
+      turn: 1,
+      images: [PNG, JPEG],
+    })
+
+    expect(message.images.map(({ mediaType }) => mediaType)).toEqual([PNG.mediaType, JPEG.mediaType])
+    expect(listMessages(test.db, task.id)).toEqual([message])
+    expect(imagesOf(test.db, { kind: ImageOwnerKind.Message, id: message.id })).toEqual([PNG, JPEG])
+  })
+
+  it('stores a message that is only images, with no text', () => {
+    const message = appendMessage(test.db, {
+      taskId: task.id,
+      role: MessageRole.User,
+      body: '',
+      turn: 1,
+      images: [GIF],
+    })
+
+    expect(listMessages(test.db, task.id)).toEqual([message])
+    expect(getImage(test.db, message.images[0]?.id ?? '')).toEqual(GIF)
+  })
+
+  it('gives each message only its own images', () => {
+    const first = appendMessage(test.db, {
+      taskId: task.id,
+      role: MessageRole.User,
+      body: 'One',
+      turn: 1,
+      images: [PNG],
+    })
+    const plain = appendMessage(test.db, { taskId: task.id, role: MessageRole.Agent, body: 'Seen.', turn: 1 })
+    const second = appendMessage(test.db, {
+      taskId: task.id,
+      role: MessageRole.User,
+      body: 'Two',
+      turn: 2,
+      images: [GIF, JPEG],
+    })
+
+    expect(listMessages(test.db, task.id).map(({ images }) => images)).toEqual([first.images, [], second.images])
+    expect(plain.images).toEqual([])
   })
 
   it('defaults the time to now', () => {

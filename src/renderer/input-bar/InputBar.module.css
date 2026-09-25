@@ -74,6 +74,81 @@
   color: var(--color-faint);
 }
 
+/* The images pasted into the message, above its text, and why anything pasted wasn't attached. */
+.attachments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  /* Room above for the remove buttons, which stick out 7px; the field's own left inset. */
+  padding: var(--space-lg) var(--space-md) 0 var(--space-xl);
+}
+
+.thumbnails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A 56px square with a remove button over its top-right corner. */
+.thumbnail {
+  position: relative;
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  box-sizing: border-box;
+  border: 1px solid var(--color-strong);
+  border-radius: var(--radius-button);
+}
+
+.image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--radius-button-sm);
+}
+
+.remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: var(--color-inner-2);
+  color: var(--color-text);
+  border: 1px solid var(--color-strong);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.remove:hover {
+  background: var(--color-strong);
+}
+
+.remove:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 1px;
+}
+
+/* The design's cross is 10px. */
+.remove svg {
+  width: 10px;
+  height: 10px;
+}
+
+.refusal {
+  margin: 0;
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-pink);
+}
+
 .compose {
   display: flex;
   align-items: flex-end;

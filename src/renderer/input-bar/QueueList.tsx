@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { QueuedMessage } from '../../shared/domain'
 import { Button, ButtonVariant, Textarea } from '../components'
 import { ContextMenu, queuedMessageMenu, useContextMenu, type ContextMenuTargetProps } from '../context-menus'
+import { StoredImage } from '../images/StoredImage'
 import styles from './QueueList.module.css'
 
 /** What the queue's header says about when its messages go: after the agent's step, or with your next message. */
@@ -27,7 +28,8 @@ export interface QueueListProps {
 
 /**
  * The messages waiting for the agent, above the input (`docs/design/html/02-agent-working.html`): numbered in the order
- * they'll be delivered, each with Edit, which edits its text in place, and Remove, which its context menu has too.
+ * they'll be delivered, each with the images pasted into it as small thumbnails, Edit, which edits its text in place,
+ * and Remove, which its context menu has too.
  * Nothing when the queue is empty.
  */
 export function QueueList({ messages, working, paused = false, ...row }: QueueListProps): React.JSX.Element | null {
@@ -77,6 +79,9 @@ function QueueRow({ message, position, menuTarget, editingId, onEdit, onSave, on
   return (
     <li className={styles.row} {...(editing ? {} : menuTarget)}>
       <span className={styles.position}>{position}</span>
+      {message.images.map((image) => (
+        <StoredImage key={image.id} image={image} className={styles.thumbnail} />
+      ))}
       {editing ? (
         <QueueEditor message={message} onSave={onSave} onCancel={onCancel} />
       ) : (

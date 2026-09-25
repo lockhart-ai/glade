@@ -261,6 +261,7 @@ describe('InputBar', () => {
                     turn: 1,
                     createdAt: 1,
                     summary: null,
+                    images: [],
                   },
                 })
               }

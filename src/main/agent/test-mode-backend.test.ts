@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Effort } from '../../shared/domain'
 import type { AgentSessionOptions } from './backend'
 import { delay, init, result, say, waitForInterrupt, wake, type AgentScript } from './scripts'
+import { GIF, JPEG, PNG } from '../../shared/test-images'
 import { createTestModeAgentBackend, UnscriptedAgentError } from './test-mode-backend'
+import { userContent } from './user-content'
 import { LogLevel } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
 
@@ -30,6 +32,27 @@ function drain(messages: AsyncIterable<unknown>): () => unknown[] {
 }
 
 describe('createTestModeAgentBackend', () => {
+  it('tells whoever listens what each message hands the agent, images and all', async () => {
+    const script: AgentScript = {
+      name: 'test',
+      turns: [
+        [say('Seen.'), result()],
+        [say('Seen.'), result()],
+      ],
+    }
+    const onSent = vi.fn()
+    const backend = createTestModeAgentBackend({ script, onSent })
+
+    const session = backend.start(OPTIONS)
+    drain(session.messages)
+    session.send('What is this?', 'user-1', [PNG])
+    session.send('', 'user-2', [GIF, JPEG])
+    await backend.whenIdle()
+
+    expect(onSent.mock.calls).toEqual([[userContent('What is this?', [PNG])], [userContent('', [GIF, JPEG])]])
+    session.close()
+  })
+
   it('fails loudly when a session starts with no script, and logs why', () => {
     const log = createMemoryLog()
     const backend = createTestModeAgentBackend({ script: null }, undefined, log.logger)

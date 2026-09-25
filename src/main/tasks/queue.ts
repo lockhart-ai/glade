@@ -7,6 +7,7 @@ import { CommandFailure } from '../bridge/errors'
 import { emitQueueChanged } from '../bridge/events'
 import {
   appendQueuedMessage,
+  type NewQueuedMessage,
   deleteQueuedMessage,
   getQueuedMessage,
   listQueuedMessages,
@@ -26,10 +27,11 @@ function changed(context: TaskServiceContext, taskId: string): void {
   emitQueueChanged(context.emit, taskId, listQueuedMessages(context.db, taskId))
 }
 
-/** Adds the user's message to the end of the task's queue. Fails with `not_found` for no such task. */
-export function addQueuedMessage(context: TaskServiceContext, taskId: string, text: string): QueuedMessage {
+/** Adds the user's message, with its images, to the end of the task's queue. Fails with `not_found` for no such task. */
+export function addQueuedMessage(context: TaskServiceContext, input: NewQueuedMessage): QueuedMessage {
+  const { taskId } = input
   if (getTask(context.db, taskId) === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
-  const message = appendQueuedMessage(context.db, { taskId, body: text })
+  const message = appendQueuedMessage(context.db, input)
   changed(context, taskId)
   return message
 }

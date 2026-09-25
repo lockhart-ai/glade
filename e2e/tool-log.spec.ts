@@ -1,4 +1,4 @@
-import { expect, seedPath, test } from './fixtures'
+import { expect, seedPath, test, timeZoneAtHour } from './fixtures'
 import { regions, taskPanel } from './selectors'
 
 test('tool log: rows, notes, dividers and subagent calls; a row expands; the chat shows a turn; it survives a restart', async ({
@@ -48,6 +48,22 @@ test('tool log: rows, notes, dividers and subagent calls; a row expands; the cha
   await expect(relaunched.tab(/^Tool calls/)).toHaveText('Tool calls 7')
   await expect(relaunched.call(/Read api\/views\.py/)).toContainText('3 lines')
   await expect(relaunched.dividers).toHaveCount(1)
+})
+
+test('tool log: a turn divider reads just its time even when the host clock is just after midnight', async ({
+  launch,
+}) => {
+  // On a host where it's 00:xx, turn 1 (over an hour ago) was yesterday and turn 2 (just now) today, which would date
+  // the divider; the app's clock is pinned to midday, so it doesn't.
+  const hostTimeZone = process.env.TZ
+  process.env.TZ = timeZoneAtHour(0)
+  try {
+    const panel = taskPanel((await launch({ seed: seedPath('tool-log.json') })).window)
+    await expect(panel.dividers.first()).toHaveAccessibleName(/^turn 2 · \d\d:\d\d$/)
+  } finally {
+    if (hostTimeZone === undefined) Reflect.deleteProperty(process.env, 'TZ')
+    else process.env.TZ = hostTimeZone
+  }
 })
 
 test('tool log: a call a quit cut off looks finished, a paused one purple, and notes show inline code', async ({

@@ -11,6 +11,7 @@ import { basename, join, resolve } from 'node:path'
 import { _electron as electron, test as base, type ElectronApplication, type Page } from '@playwright/test'
 import type { AgentScriptName } from '../src/main/agent/scripts'
 import {
+  E2E_AGENT_GLOBAL,
   E2E_AGENT_ENVS_GLOBAL,
   E2E_CHOSEN_FOLDER_ENV,
   E2E_DESKTOP_GLOBAL,
@@ -19,6 +20,7 @@ import {
   E2E_NETWORK_GLOBAL,
   E2E_NOTIFIER_GLOBAL,
   E2E_WINDOW_SIZE,
+  type E2eAgent,
   type E2eAgentEnvs,
   type E2eDesktop,
   type E2eEditor,
@@ -41,6 +43,24 @@ const MAIN = resolve(__dirname, '..', 'out', 'testing', 'main', 'index.js')
  * (with `-2`, `-3`… for a test's later launches); the script converts them to MP4 and GIF afterwards.
  */
 const RECORD_DIR = process.env.GLADE_RECORD_DIR
+
+/**
+ * The hour of the day the app's clock reads during a test. Seeds and specs work in minutes before now, and a date
+ * label ("Sep 25, 00:03") shows up wherever those times straddle midnight; midday keeps them hours from it.
+ */
+const LOCAL_HOUR = 12
+
+/**
+ * A time zone in which it's now `hour` o'clock: a fixed-offset `Etc/GMT` zone (whole hours, no daylight saving; its
+ * sign is inverted, so `Etc/GMT-5` is UTC+5). The app runs in it, so its clock reads that hour whatever the host's.
+ */
+export function timeZoneAtHour(hour: number, now: Date = new Date()): string {
+  const ahead = (hour - now.getUTCHours() + 24) % 24
+  // The zones run from UTC-12 to UTC+14.
+  const offset = ahead > 14 ? ahead - 24 : ahead
+  if (offset === 0) return 'Etc/GMT'
+  return `Etc/GMT${offset > 0 ? '-' : '+'}${String(Math.abs(offset))}`
+}
 
 /** How to launch the app. */
 export interface LaunchOptions {
@@ -114,12 +134,14 @@ interface Fixtures {
 function appEnv(
   spec: E2eSpec,
   chosenFolder: string | undefined,
+  timeZone: string,
   overrides: Readonly<Record<string, string>>,
 ): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE' && key !== 'ELECTRON_RENDERER_URL') env[key] = value
   }
+  env.TZ = timeZone
   Object.assign(env, overrides)
   env[E2E_ENV] = JSON.stringify(spec)
   if (chosenFolder !== undefined) env[E2E_CHOSEN_FOLDER_ENV] = chosenFolder
@@ -152,6 +174,8 @@ export const test = base.extend<Fixtures>({
     const userData = tempFolder('glade-e2e-data-')
     const launched: Glade[] = []
     const name = videoName(testInfo.file, testInfo.title)
+    // Chosen once, so a test's relaunches share the zone even if the hour turns in between.
+    const timeZone = timeZoneAtHour(LOCAL_HOUR)
 
     /**
      * Closes a launched app, or kills it as a force-quit or crash would, and, when recording, keeps its video as
@@ -195,7 +219,7 @@ export const test = base.extend<Fixtures>({
       }
       const app = await electron.launch({
         args: [MAIN],
-        env: appEnv(spec, chosenFolder, env),
+        env: appEnv(spec, chosenFolder, timeZone, env),
         ...(RECORD_DIR === undefined
           ? {}
           : { recordVideo: { dir: testInfo.outputPath('video'), size: E2E_WINDOW_SIZE, showActions: {} } }),
@@ -280,6 +304,14 @@ export async function desktop({ app }: Glade): Promise<E2eDesktop> {
     const { revealed, copied } = Reflect.get(globalThis, name) as E2eDesktop
     return { revealed: [...revealed], copied: [...copied] }
   }, E2E_DESKTOP_GLOBAL)
+}
+
+/**
+ * What the scripted agent was sent so far, oldest first: each message's content as the SDK backend would hand it to the
+ * agent, its text or its image content blocks then its text (`E2E_AGENT_GLOBAL`).
+ */
+export async function agentReceived({ app }: Glade): Promise<E2eAgent['received']> {
+  return app.evaluate((_, name) => [...(Reflect.get(globalThis, name) as E2eAgent).received], E2E_AGENT_GLOBAL)
 }
 
 /**
