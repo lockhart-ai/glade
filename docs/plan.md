@@ -48,7 +48,22 @@ Multiple workspaces, menu bar, settings, keymap, collapsible panels.
 The global bottom bar with terminal tabs.
 [Meta issue #64](https://github.com/lockhart-ai/glade/issues/64)
 
+## P10 · Scaling the Done list
+
+Keep the Done list fast and tidy as it grows to hundreds of tasks.
+[Issue #67](https://github.com/lockhart-ai/glade/issues/67)
+
+## P11 · Permission review
+
+An "Ask before edits and commands" mode: edits and commands wait on a permission card in the chat.
+[Meta issue #68](https://github.com/lockhart-ai/glade/issues/68)
+
+## P12 · Plugins
+
+Sandboxed plugins beside the terminal, fed task and agent events (`plugin-api.md`), and Nekomata as the first one.
+[Meta issue #66](https://github.com/lockhart-ai/glade/issues/66)
+
 ## Later
 
-Plugins, scale, permissions review, packaging.
+Signing, notarisation and auto-update (L-04, #69).
 [Milestone](https://github.com/lockhart-ai/glade/milestone/10)
