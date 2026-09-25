@@ -4,6 +4,7 @@
 // refused with its status before MCP sees it, and changes nothing; the rate limits hold under concurrent clients; and
 // neither the token nor anything else leaves 127.0.0.1 or reaches the log.
 import { request as httpRequest } from 'node:http'
+import { connect as connectSocket } from 'node:net'
 import { networkInterfaces } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { CommandName, EventType } from '../../shared/bridge'
@@ -285,18 +286,35 @@ describe('the token', () => {
   })
 })
 
+/** Whether a TCP connection to `address` on the endpoint's port is taken, giving up after a second. */
+function reaches(address: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connectSocket({ host: address, port, timeout: 1000 })
+    socket.once('connect', () => {
+      socket.destroy()
+      resolve(true)
+    })
+    socket.once('timeout', () => {
+      socket.destroy()
+      resolve(false)
+    })
+    socket.once('error', () => {
+      resolve(false)
+    })
+  })
+}
+
 describe('the address', () => {
   it('is 127.0.0.1 alone: not IPv6 loopback, nor any other interface', async () => {
     expect(app.log.withMessage('control endpoint started')[0]?.fields).toMatchObject({ host: '127.0.0.1', port })
-    await expect(send({ address: '::1' })).rejects.toMatchObject({ code: 'ECONNREFUSED' })
+    expect(await reaches('127.0.0.1')).toBe(true)
+    expect(await reaches('::1')).toBe(false)
     const others = Object.values(networkInterfaces())
       .flat()
-      .flatMap((address) => (address === undefined || address.internal ? [] : [address.address]))
-    for (const address of others) {
-      await expect(send({ address })).rejects.toMatchObject({
-        code: expect.stringMatching(/ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|EADDRNOTAVAIL/) as unknown,
-      })
-    }
+      .flatMap((address) =>
+        address === undefined || address.internal || address.family !== 'IPv4' ? [] : [address.address],
+      )
+    for (const address of others) expect(await reaches(address), address).toBe(false)
   })
 })
 
