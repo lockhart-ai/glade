@@ -52,6 +52,8 @@ jobs:
       - run: npm run package -- --publish never
       - name: Check the app's ad-hoc signature
         run: codesign --verify --deep --strict --verbose=2 release/mac-arm64/Glade.app
+      - name: Check the app can start Claude Code
+        run: node scripts/check-packaged-claude.mjs release/mac-arm64/Glade.app
 
       - name: Upload the packages (dry run)
         if: env.PUBLISH != 'true'
