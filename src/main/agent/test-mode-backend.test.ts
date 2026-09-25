@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Effort } from '../../shared/domain'
 import type { AgentSessionOptions } from './backend'
 import { delay, init, result, say, waitForInterrupt, wake, type AgentScript } from './scripts'
+import { GIF, JPEG, PNG } from '../../shared/test-images'
 import { createTestModeAgentBackend, UnscriptedAgentError } from './test-mode-backend'
+import { userContent } from './user-content'
+import { LogLevel } from '../logging/logger'
+import { createMemoryLog } from '../logging/memory-sink'
 
 const OPTIONS: AgentSessionOptions = {
   cwd: '/tmp/acme-api',
@@ -28,12 +32,57 @@ function drain(messages: AsyncIterable<unknown>): () => unknown[] {
 }
 
 describe('createTestModeAgentBackend', () => {
-  it('fails loudly when a session starts with no script', () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const backend = createTestModeAgentBackend({ script: null })
+  it('tells whoever listens what each message hands the agent, images and all', async () => {
+    const script: AgentScript = {
+      name: 'test',
+      turns: [
+        [say('Seen.'), result()],
+        [say('Seen.'), result()],
+      ],
+    }
+    const onSent = vi.fn()
+    const backend = createTestModeAgentBackend({ script, onSent })
+
+    const session = backend.start(OPTIONS)
+    drain(session.messages)
+    session.send('What is this?', 'user-1', [PNG])
+    session.send('', 'user-2', [GIF, JPEG])
+    await backend.whenIdle()
+
+    expect(onSent.mock.calls).toEqual([[userContent('What is this?', [PNG])], [userContent('', [GIF, JPEG])]])
+    session.close()
+  })
+
+  it('fails loudly when a session starts with no script, and logs why', () => {
+    const log = createMemoryLog()
+    const backend = createTestModeAgentBackend({ script: null }, undefined, log.logger)
 
     expect(() => backend.start(OPTIONS)).toThrow(UnscriptedAgentError)
-    expect(error).toHaveBeenCalledWith(expect.stringMatching(/^Glade test mode: An agent session started in \/tmp/))
+    expect(log.records).toEqual([
+      expect.objectContaining({
+        level: LogLevel.Error,
+        message: 'no agent script for a session',
+        fields: { cwd: OPTIONS.cwd, error: expect.any(UnscriptedAgentError) as unknown },
+      }),
+    ])
+  })
+
+  it("logs each session starting, in the session's own log when it has one", () => {
+    const script: AgentScript = { name: 'test', turns: [[init(), result()]] }
+    const backendLog = createMemoryLog()
+    const sessionLog = createMemoryLog()
+    const backend = createTestModeAgentBackend({ script }, undefined, backendLog.logger)
+
+    backend.start(OPTIONS).close()
+    backend.start({ ...OPTIONS, resumeSessionId: 'session-1', log: sessionLog.logger }).close()
+
+    const { cwd, model, effort } = OPTIONS
+    expect(backendLog.withMessage('scripted agent starting')).toEqual([
+      expect.objectContaining({ fields: { cwd, model, effort, resumeSessionId: null } }),
+    ])
+    expect(sessionLog.withMessage('scripted agent starting')).toEqual([
+      expect.objectContaining({ fields: { cwd, model, effort, resumeSessionId: 'session-1' } }),
+    ])
   })
 
   it('plays the script in each session, and is idle once every session has played its turns', async () => {

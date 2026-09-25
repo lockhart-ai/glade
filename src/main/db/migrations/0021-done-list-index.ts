@@ -6,7 +6,7 @@ import type { Migration } from '../migrate'
  * scan however many done tasks there are.
  */
 export const doneListIndexMigration: Migration = {
-  version: 20,
+  version: 21,
   name: 'Index the Done section',
   up(db) {
     db.exec(`CREATE INDEX tasks_done_list ON tasks (workspace_id, state, pinned, updated_at DESC, id);`)

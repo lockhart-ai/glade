@@ -12,8 +12,8 @@ export interface Pty {
   readonly process: string
   /** Calls `listener` with everything the terminal outputs. */
   onData(listener: (data: string) => void): void
-  /** Calls `listener` once the shell has exited. */
-  onExit(listener: () => void): void
+  /** Calls `listener` once the shell has exited, with how it exited. */
+  onExit(listener: (exit: PtyExit) => void): void
   /** Types into the terminal. */
   write(data: string): void
   resize(size: TerminalSize): void
@@ -21,6 +21,13 @@ export interface Pty {
   interrupt(): void
   /** Ends the shell, as closing a terminal window does (SIGHUP). */
   kill(): void
+}
+
+/** How a shell exited: its exit code, and the signal that ended it, if one did. */
+export interface PtyExit {
+  readonly exitCode: number
+  /** The signal's number; null when it exited by itself. */
+  readonly signal: number | null
 }
 
 /** A terminal's size, in character cells. */

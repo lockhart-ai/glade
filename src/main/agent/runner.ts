@@ -117,6 +117,10 @@
  * - a task in error, waiting on you or done has no turn running, so it's left as it is, queue and all: an error keeps
  *   its card and Retry.
  *
+ * **Images** pasted into a message are saved with it (`../db/repositories/images`), queued or sent, and go to the
+ * session with its text, each time it's handed over: when it's sent or delivered from the queue, retried, or sent to a
+ * new session on launch. A reply in words to the agent's questions can't carry images: its `ask` call takes text.
+ *
  * Every write is broadcast to the windows as it happens. Only the in-flight turn's bookkeeping (its held-back text and
  * running calls) is kept in memory.
  */
@@ -144,6 +148,7 @@ import {
   type Task,
   type TaskError,
 } from '../../shared/domain'
+import type { ImageData } from '../../shared/images'
 import { checkAnswers } from '../../shared/questions'
 import { apiRowArgument, apiRowResult } from '../../shared/taskError'
 import { CommandFailure } from '../bridge/errors'
@@ -155,6 +160,7 @@ import {
   emitToolEventUpdated,
   type Emit,
 } from '../bridge/events'
+import { ImageOwnerKind, imagesOf } from '../db/repositories/images'
 import { appendMessage, lastTurn, listMessages, turnStartedAt } from '../db/repositories/messages'
 import { getOpenQuestionSet, getQuestionSet, listOpenQuestionSets } from '../db/repositories/question-sets'
 import { listQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
@@ -173,6 +179,7 @@ import {
   updateToolCall,
 } from '../db/repositories/tool-events'
 import { getWorkspace } from '../db/repositories/workspaces'
+import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import type { NotifyReply } from '../notifications/notifications'
 import { createQuestionBroker, toolResultFor, type QuestionBroker } from '../questions/questions'
 import { addQueuedMessage } from '../tasks/queue'
@@ -185,7 +192,6 @@ import {
   AgentEventKind,
   createSdkMessageParser,
   type AgentEvent,
-  type AgentLog,
   type ApiErrorEvent,
   type ApiRetryEvent,
   type CompactedEvent,
@@ -196,6 +202,7 @@ import {
   type TurnFinishedEvent,
 } from './events'
 import { checkedOffline, createPauseTimers, pauseFor, pauseReason, type UsageLimit } from './pauses'
+import { describeSdkMessage } from './sdk-message-log'
 import { systemPromptAppend } from './system-prompt'
 import { summarizeTurn } from './turn-summary'
 
@@ -210,7 +217,11 @@ export interface AgentRunnerOptions {
   readonly questions?: QuestionBroker
   /** The in-process MCP servers to give a task's session, such as the Glade tools (`./glade-tools`). None by default. */
   readonly mcpServers?: (task: Task) => AgentMcpServers
-  readonly log?: AgentLog
+  /**
+   * Where the runner logs its sessions and turns, in the runner's scope, and every SDK message, in the agent's
+   * (`docs/logs.md`). Nothing by default.
+   */
+  readonly log?: Logger
   /**
    * Notifies a final reply that arrived in a task you aren't viewing, once per reply (`../notifications`). Nothing by
    * default.
@@ -223,12 +234,18 @@ export interface AgentRunnerOptions {
   readonly isOnline?: () => boolean
 }
 
+/** A message you sent: its text, and the images pasted into it, in order. */
+interface UserMessage {
+  readonly text: string
+  readonly images: readonly ImageData[]
+}
+
 export interface AgentRunner {
   /**
    * Saves the user's message and starts a turn with it. A done task is reopened first (see the module comment). Throws
    * a `CommandFailure`: `not_found` for no such task, `busy` while a turn is running or the task is paused.
    */
-  send(taskId: string, text: string): Message
+  send(taskId: string, text: string, images?: readonly ImageData[]): Message
   /**
    * Answers the task's open question set with the card's answers (see the module comment), once they're checked against
    * its questions. Answers with the set, answered. Throws a `CommandFailure`: `not_found` for no such set,
@@ -241,7 +258,7 @@ export interface AgentRunner {
    * When no turn is running, the queue is delivered at once, starting one, unless the task is paused: then it waits for
    * the task to resume. Throws a `CommandFailure` `not_found` for no such task.
    */
-  queue(taskId: string, text: string): QueuedMessage
+  queue(taskId: string, text: string, images?: readonly ImageData[]): QueuedMessage
   /**
    * Stops the task's running turn, and resolves with the task once the turn has ended. Does nothing for a task whose
    * agent isn't working. Throws a `CommandFailure` `not_found` for no such task.
@@ -423,7 +440,11 @@ function describeError(error: unknown): string {
 export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const { db, emit, backend } = options
   const mcpServers = options.mcpServers ?? (() => ({}))
-  const log = options.log ?? console
+  const log = options.log ?? SILENT_LOGGER
+  /** The runner's log for a task. */
+  const taskLog = (taskId: string): Logger => log.with({ taskId })
+  /** The agent's log for a task: its session and SDK messages. */
+  const agentLog = (taskId: string): Logger => log.scoped(LogScope.Agent).with({ taskId })
   const notifyReply = options.notifyReply ?? (() => undefined)
   const isOnline = options.isOnline ?? (() => true)
   const context = { db, emit }
@@ -511,15 +532,17 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const task = getTask(db, taskId)
     if (task === undefined || !isPaused(task) || task.pause === null) return
     if (task.pause.reason === PauseReason.Offline && !isOnline()) {
+      taskLog(taskId).info('pause due, still offline')
       const pause = checkedOffline(task.pause, Date.now())
       updateTaskFromRunner(context, taskId, { pause })
       timers.arm(taskId, pause.resumesAt)
       return
     }
+    taskLog(taskId).info('pause due, resuming', { reason: task.pause.reason })
     try {
       runner.retry(taskId)
     } catch (error) {
-      log.warn(`Failed to resume paused task ${taskId}`, error)
+      taskLog(taskId).error('failed to resume paused task', { error })
       const details = `Glade couldn't resume the agent: ${describeError(error)}`
       stopOnError(taskId, withRetries(null, { source: TaskErrorSource.Session, status: null, code: null, details }))
     }
@@ -527,6 +550,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   /** Claude Code will retry a failed API request: the working line says so until the agent moves on. */
   const onApiRetry = (taskId: string, turn: Turn, event: ApiRetryEvent): void => {
+    const { attempt, maxRetries, delayMs, status, code } = event
+    taskLog(taskId).warn('api retry', { turn: turn.number, attempt, maxRetries, delayMs, status, code })
     const since = turn.retrying?.since ?? Date.now()
     turn.retrying = { attempt: event.attempt, maxRetries: event.maxRetries, since }
     updateTaskFromRunner(context, taskId, { retrying: turn.retrying })
@@ -574,22 +599,24 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     turn.running.set(toolUseId, parentToolUseId)
   }
 
+  /** Hands a user message to the session, with its images, stamped with its id (`uuid`) or a new one's. */
+  const hand = (live: LiveSession, message: Message, uuid: string = message.id): void => {
+    live.session.send(message.body, uuid, imagesOf(db, { kind: ImageOwnerKind.Message, id: message.id }))
+  }
+
   /**
    * Hands the task's queue to the session mid-turn, which folds it into the running turn (see the module comment). Each
    * message goes to the chat log as a user message of the turn.
    */
   const deliverQueue = (taskId: string, live: LiveSession, turn: Turn): void => {
-    const delivered = db.transaction(() =>
-      takeQueuedMessages(db, taskId).map(({ body }) =>
-        appendMessage(db, { taskId, role: MessageRole.User, body, turn: turn.number }),
-      ),
-    )()
+    const delivered = takeQueuedMessages(db, taskId, turn.number)
     if (delivered.length === 0) return
+    taskLog(taskId).info('queue delivered mid-turn', { turn: turn.number, messages: delivered.length })
     emitQueueChanged(emit, taskId, [])
     for (const message of delivered) {
       emitMessageAppended(emit, message)
       turn.awaiting.add(message.id)
-      live.session.send(message.body, message.id)
+      hand(live, message)
     }
   }
 
@@ -600,7 +627,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     live.subagents.delete(event.toolUseId)
     const parent = turn.running.get(event.toolUseId)
     if (!turn.running.delete(event.toolUseId)) {
-      log.warn(`Ignored a result for tool call ${event.toolUseId}, which isn't running`)
+      taskLog(taskId).warn("ignored a result for a tool call that isn't running", { toolUseId: event.toolUseId })
       return
     }
     const state = event.isError ? ToolCallState.Error : ToolCallState.Done
@@ -617,12 +644,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    * is withdrawn: nothing is waiting on its answer any more.
    */
   const endTurn = (taskId: string, live: LiveSession, turn: Turn): void => {
+    taskLog(taskId).info('turn ended', { turn: turn.number, stopped: turn.stopping })
     live.turn = null
     turn.end()
     questions.withdraw(taskId)
   }
 
   const onTurnStopped = (taskId: string, turn: Turn): void => {
+    taskLog(taskId).info('turn stopped', { turn: turn.number })
     recovered(taskId, turn)
     flushPreamble(taskId, turn)
     failRunning(taskId, turn, STOPPED_NOTE)
@@ -732,6 +761,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    * gets a note saying why.
    */
   const onTurnFailed = (taskId: string, live: LiveSession, turn: Turn, event: TurnFinishedEvent): void => {
+    const { terminalReason, errors, apiErrorStatus } = event
+    taskLog(taskId).warn('turn failed', { turn: turn.number, terminalReason, errors, apiErrorStatus })
     flushPreamble(taskId, turn)
     const { apiError } = turn
     const reported = event.errors.join('\n')
@@ -778,6 +809,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   /** The session is gone: fail its turn, if one was running, and forget it so the next message starts it again. */
   const onSessionFailed = (taskId: string, live: LiveSession, message: string): void => {
+    agentLog(taskId).error('session failed', { message, turn: live.turn?.number ?? null })
     if (sessions.get(taskId) === live) sessions.delete(taskId)
     const { turn } = live
     if (turn === null) return
@@ -795,8 +827,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    * with its turn divider, which the agent works on like any other. It's saved in one write with the working activity,
    * so a relaunch finds the turn working and carries it on. A done task stays done. Answers with the turn.
    */
-  const openTurn = (taskId: string, live: LiveSession): Turn => {
+  const openTurn = (taskId: string, live: LiveSession, event: AgentEvent): Turn => {
     const number = lastTurn(db, taskId) + 1
+    taskLog(taskId).info('turn started', { turn: number, selfStarted: true, by: event.kind })
     const workingEvents: GladeEvent[] = []
     const divider = db.transaction(() => {
       const divider = appendDivider(db, { taskId, turn: number, dividerKind: DividerKind.Turn })
@@ -814,6 +847,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (event.kind === AgentEventKind.SessionStarted) {
       live.sdkModel = event.model
       if (getTask(db, taskId)?.sessionId !== event.sessionId) {
+        agentLog(taskId).info('session id saved', { sessionId: event.sessionId, model: event.model })
         updateTaskFromRunner(context, taskId, { sessionId: event.sessionId })
       }
       return
@@ -823,16 +857,18 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return
     }
     if (event.kind === AgentEventKind.RateLimit) {
+      agentLog(taskId).info('rate limit', { status: event.status, resetsAt: event.resetsAt })
       live.limit = { rejected: event.status === RateLimitStatus.Rejected, resetsAt: event.resetsAt }
       return
     }
     if (event.kind === AgentEventKind.SubagentStarted) {
+      taskLog(taskId).info('subagent started', { toolUseId: event.toolUseId, sdkTaskId: event.sdkTaskId })
       live.subagents.set(event.toolUseId, event.sdkTaskId)
       return
     }
     // Between turns, the agent's own work is a turn it started itself; anything else is left over, e.g. a late system
     // message after a turn's result, and there's nothing to add it to.
-    const turn = live.turn ?? (startsTurn(event) ? openTurn(taskId, live) : null)
+    const turn = live.turn ?? (startsTurn(event) ? openTurn(taskId, live, event) : null)
     if (turn === null) return
     switch (event.kind) {
       case AgentEventKind.Text:
@@ -850,6 +886,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         onApiRetry(taskId, turn, event)
         return
       case AgentEventKind.ApiError:
+        taskLog(taskId).warn('api error', { turn: turn.number, code: event.code, message: event.message })
         turn.apiError = event
         return
       case AgentEventKind.ContextUsed:
@@ -859,33 +896,49 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         }
         return
       case AgentEventKind.Compacting:
+        taskLog(taskId).info('compacting', { turn: turn.number })
         onCompacting(taskId, turn)
         return
       case AgentEventKind.Compacted:
+        taskLog(taskId).info('compacted', {
+          turn: turn.number,
+          trigger: event.trigger,
+          preTokens: event.preTokens,
+          postTokens: event.postTokens,
+        })
         onCompacted(taskId, turn, event)
         return
       case AgentEventKind.CompactionFailed:
+        taskLog(taskId).warn('compaction failed', { turn: turn.number })
         failCompaction(turn)
         return
-      case AgentEventKind.TurnFinished:
+      case AgentEventKind.TurnFinished: {
+        const { isError, terminalReason, durationMs, totalCostUsd, usage } = event
+        const fields = { turn: turn.number, isError, terminalReason, durationMs, totalCostUsd, usage }
+        if (isError) taskLog(taskId).warn('turn result', fields)
+        else taskLog(taskId).info('turn result', fields)
         recordContextWindow(taskId, live, event)
         onTurnFinished(taskId, live, turn, event)
         return
+      }
     }
   }
 
   /** Reads the session's messages for its whole life, handling each as it arrives. */
   const pump = async (taskId: string, live: LiveSession): Promise<void> => {
-    const parse = createSdkMessageParser(log)
+    const sdkLog = agentLog(taskId)
+    const parse = createSdkMessageParser(sdkLog)
     const handle = (event: AgentEvent): void => {
       try {
         onEvent(taskId, live, event)
       } catch (error) {
-        log.warn(`Failed to handle an agent event for task ${taskId}`, error)
+        taskLog(taskId).error('failed to handle an agent event', { kind: event.kind, error })
       }
     }
     try {
       for await (const raw of live.session.messages) {
+        const { level, fields } = describeSdkMessage(raw)
+        sdkLog[level]('sdk message', fields)
         for (const event of parse(raw)) handle(event)
       }
       handle({ kind: AgentEventKind.SessionFailed, message: 'The agent session ended unexpectedly.' })
@@ -897,6 +950,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const start = (task: Task): LiveSession => {
     const workspace = getWorkspace(db, task.workspaceId)
     if (workspace === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${task.workspaceId}`)
+    agentLog(task.id).info(task.sessionId === null ? 'session starting' : 'session resuming', {
+      model: task.model,
+      effort: task.effort,
+      cwd: workspace.rootPath,
+      resumeSessionId: task.sessionId,
+    })
     const session = backend.start({
       cwd: workspace.rootPath,
       model: task.model,
@@ -904,6 +963,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       resumeSessionId: task.sessionId,
       systemPromptAppend: systemPromptAppend(task, getSettings(db)),
       mcpServers: mcpServers(task),
+      log: agentLog(task.id),
     })
     const live: LiveSession = {
       session,
@@ -930,6 +990,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     for (const call of interruptRunningToolCalls(db, taskId, RESTARTED_TOOL_NOTE)) emitToolEventUpdated(emit, call)
     const compactions = failRunningCompactions(db, taskId)
     for (const compaction of compactions) emitToolEventUpdated(emit, compaction)
+    taskLog(taskId).info('resuming interrupted turn', {
+      turn,
+      sessionId: task.sessionId,
+      compacting: compactions.length > 0,
+    })
     // The turn was a compaction you asked for, not a turn of yours: it ends there, and the queue starts the next turn,
     // as it would have when the compaction finished.
     if (compactions.length > 0) {
@@ -965,7 +1030,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     live.turn = newTurn(turn)
     for (const message of unanswered) {
       live.turn.awaiting.add(message.id)
-      live.session.send(message.body, message.id)
+      hand(live, message)
     }
     return true
   }
@@ -973,17 +1038,18 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   /** The pickers change the task, not the session: its current model and effort apply from the next turn on. */
   const applySettings = (task: Task, live: LiveSession): void => {
     if (live.settings.model !== task.model || live.settings.effort !== task.effort) {
+      agentLog(task.id).info('session settings changed', { model: task.model, effort: task.effort })
       live.settings = { model: task.model, effort: task.effort }
       live.session.configure(live.settings)
     }
   }
 
   /**
-   * Starts a turn with the task's queued messages, in order, then `text` if there is one: each is saved to the chat log
-   * as a user message of the new turn and handed to the session. A done task is reopened first (see the module
-   * comment). Answers with the messages, in order.
+   * Starts a turn with the task's queued messages, in order, then `sent` if there is one: each is saved to the chat log
+   * as a user message of the new turn, with its images, and handed to the session. A done task is reopened first (see
+   * the module comment). Answers with the messages, in order.
    */
-  const startTurn = (task: Task, live: LiveSession, text: string | null): Message[] => {
+  const startTurn = (task: Task, live: LiveSession, sent: UserMessage | null): Message[] => {
     const taskId = task.id
     applySettings(task, live)
 
@@ -1004,9 +1070,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           ]
         : []
       if (reopening) reopenTask({ db, emit: (event) => reopenEvents.push(event) }, taskId)
-      const queued = takeQueuedMessages(db, taskId)
-      const bodies = [...queued.map(({ body }) => body), ...(text === null ? [] : [text])]
-      const messages = bodies.map((body) => appendMessage(db, { taskId, role: MessageRole.User, body, turn }))
+      const queued = takeQueuedMessages(db, taskId, turn)
+      const messages = [
+        ...queued,
+        ...(sent === null
+          ? []
+          : [appendMessage(db, { taskId, role: MessageRole.User, body: sent.text, turn, images: sent.images })]),
+      ]
       const reopened = reopening ? [appendDivider(db, { taskId, turn, dividerKind: DividerKind.Reopened })] : []
       const divider = appendDivider(db, { taskId, turn, dividerKind: DividerKind.Turn })
       // Working in the same write as the turn's messages: if the app dies before the session gets them, the next
@@ -1019,11 +1089,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     for (const message of messages) emitMessageAppended(emit, message)
     for (const divider of dividers) emitToolEventAppended(emit, divider)
     for (const event of workingEvents) emit(event)
+    taskLog(taskId).info('turn started', { turn, messages: messages.length, queued: queued.length, reopening })
 
     live.turn = newTurn(turn)
     for (const message of messages) {
       live.turn.awaiting.add(message.id)
-      live.session.send(message.body, message.id)
+      hand(live, message)
     }
     return messages
   }
@@ -1033,6 +1104,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    * and so is its turn. Its task waits on you until you answer it.
    */
   const orphanQuestion = (set: QuestionSet): void => {
+    taskLog(set.taskId).info('question left open by a restart', { questionSetId: set.id, turn: set.turn })
     for (const call of interruptRunningToolCalls(db, set.taskId, ASK_RESTARTED_NOTE)) emitToolEventUpdated(emit, call)
     setActivity(set.taskId, TaskActivity.Waiting)
   }
@@ -1042,6 +1114,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
    * message that carries on the turn that asked.
    */
   const continueAfterRestart = (task: Task, set: QuestionSet, reply: QuestionReply): void => {
+    taskLog(task.id).info('answer sent after a restart', { questionSetId: set.id, turn: set.turn })
     const live = sessions.get(task.id) ?? start(task)
     applySettings(task, live)
     startWorking(task.id)
@@ -1093,12 +1166,20 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   const runner: AgentRunner = {
-    send(taskId, text) {
+    send(taskId, text, images = []) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
       // The agent waits on answers to its questions: the message answers them, rather than starting a turn.
       const open = getOpenQuestionSet(db, taskId)
-      if (open !== undefined) return answerInWords(open, text)
+      if (open !== undefined) {
+        if (images.length > 0) {
+          throw new CommandFailure(
+            BridgeErrorCode.InvalidRequest,
+            'An answer to the agent’s questions can’t have images',
+          )
+        }
+        return answerInWords(open, text)
+      }
       if ((sessions.get(taskId)?.turn ?? null) !== null) {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The agent is working; queue the message instead')
       }
@@ -1106,7 +1187,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The task is paused; queue the message instead')
       }
       // The message sent is the last of the turn's: any queued ones go before it.
-      const message = startTurn(task, sessions.get(taskId) ?? start(task), text).at(-1)
+      const message = startTurn(task, sessions.get(taskId) ?? start(task), { text, images }).at(-1)
       if (message === undefined) throw new Error(`The turn for task ${taskId} started without its message`)
       return message
     },
@@ -1122,10 +1203,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return replyTo(answerable(set), set, { kind: QuestionReplyKind.Answers, answers: checked.answers })
     },
 
-    queue(taskId, text) {
+    queue(taskId, text, images = []) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
-      const queued = addQueuedMessage(context, taskId, text)
+      const queued = addQueuedMessage(context, { taskId, body: text, images })
       // A paused task delivers its queue once it resumes.
       if (isPaused(task)) return queued
       const live = sessions.get(taskId)
@@ -1140,6 +1221,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const live = sessions.get(taskId)
       const turn = live?.turn ?? null
       if (live === undefined || turn === null) return task
+      taskLog(taskId).info('stop requested', { turn: turn.number })
       turn.stopping = true
       // An `ask` waiting on you would hold the turn up: it's withdrawn first, so its call returns.
       questions.withdraw(taskId)
@@ -1155,6 +1237,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       if (live === undefined || sdkTaskId === undefined) {
         throw new CommandFailure(BridgeErrorCode.InvalidTransition, "The subagent isn't running")
       }
+      taskLog(taskId).info('subagent stop requested', { toolUseId, sdkTaskId })
       await live.session.stopTask(sdkTaskId)
     },
 
@@ -1174,10 +1257,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       applySettings(current, live)
       startWorking(taskId)
       // The same turn again: its last message goes to the session once more, and the chat log stays as it is.
+      taskLog(taskId).info('turn retried', { turn: last.turn, model: current.model, from: task.activity })
       const uuid = randomUUID()
       live.turn = newTurn(last.turn)
       live.turn.awaiting.add(uuid)
-      live.session.send(last.body, uuid)
+      hand(live, last, uuid)
       return getTask(db, taskId) ?? current
     },
 
@@ -1209,6 +1293,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         windowTokens: task.contextWindowTokens,
       })
       emitToolEventAppended(emit, compaction)
+      taskLog(taskId).info('compaction requested', { turn })
       setActivity(taskId, TaskActivity.Working)
       live.turn = newTurn(turn)
       live.turn.compaction = compaction.id
@@ -1226,7 +1311,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         try {
           if (resume(task)) resumed.push(task.id)
         } catch (error) {
-          log.warn(`Failed to resume task ${task.id}`, error)
+          taskLog(task.id).error('failed to resume task', { error })
           const text = `Glade couldn't resume the agent: ${describeError(error)}`
           emitToolEventAppended(
             emit,
@@ -1237,6 +1322,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         }
       }
       for (const task of listPausedTasks(db)) timers.arm(task.id, task.pause?.resumesAt ?? Date.now())
+      log.info('resumed interrupted tasks', { resumed })
       return resumed
     },
 
@@ -1245,6 +1331,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       timers.disarm(taskId)
       const live = sessions.get(taskId)
       if (live === undefined) return
+      agentLog(taskId).info('session closed', { reason: 'task deleted', turn: live.turn?.number ?? null })
       sessions.delete(taskId)
       live.closed = true
       live.session.close()
@@ -1255,7 +1342,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       // A question still open stays open for the next launch, though closing its session cancels the call.
       questions.close()
       timers.close()
-      for (const live of sessions.values()) {
+      for (const [taskId, live] of sessions) {
+        agentLog(taskId).info('session closed', { reason: 'app closing', turn: live.turn?.number ?? null })
         live.closed = true
         live.session.close()
         live.turn?.end()

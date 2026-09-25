@@ -9,6 +9,7 @@ import { collapsedEntry, isCollapsed, Panel } from '../panels/panels'
 import { PanelTab, parsePanelTab } from '../right-panel/panelModel'
 import { listedTaskIds, selectionAfterDeleting } from '../task-list/sections'
 import { activeTerminalTab, commandToPaste, cycledTab } from '../terminal/terminalModel'
+import type { ImageData } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import { describeFailure, lastOpenedWorkspace, loadSnapshot } from './hydrate'
 import { doneListKey, isLoaded, withDonePage, withLoadedTasks } from './doneLists'
@@ -32,6 +33,9 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
 
     // Each terminal tab's terminals, which hear its output straight from main's events, never through the store.
     const terminalListeners = new Map<string, Set<(event: TerminalEvent) => void>>()
+
+    // The stored images fetched so far, by id: an image never changes, so each is fetched once.
+    const images = new Map<string, Promise<ImageData>>()
 
     // The page of each Done section loading now, by `doneListKey`: a second call waits for it rather than loading more.
     const doneLoads = new Map<string, Promise<void>>()
@@ -393,12 +397,21 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         if (selected) await get().selectTask(next)
       },
 
-      async sendMessage(taskId, text) {
-        await bridge.invoke(CommandName.TasksSend, { id: taskId, text })
+      async sendMessage(taskId, text, images = []) {
+        await bridge.invoke(CommandName.TasksSend, { id: taskId, text, ...(images.length > 0 ? { images } : {}) })
       },
 
-      async queueMessage(taskId, text) {
-        await bridge.invoke(CommandName.QueueAdd, { taskId, text })
+      async queueMessage(taskId, text, images = []) {
+        await bridge.invoke(CommandName.QueueAdd, { taskId, text, ...(images.length > 0 ? { images } : {}) })
+      },
+
+      loadImage(id) {
+        const cached = images.get(id)
+        if (cached !== undefined) return cached
+        const loading = bridge.invoke(CommandName.ImagesGet, { id }).then(({ image }) => image)
+        images.set(id, loading)
+        loading.catch(() => images.delete(id))
+        return loading
       },
 
       async answerQuestions(id, answers) {

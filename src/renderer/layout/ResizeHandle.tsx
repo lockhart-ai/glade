@@ -1,40 +1,101 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
-import { clampWidth, type WidthBounds } from '../right-panel/panelModel'
+import { clampSize, type SizeBounds } from '../panels/panelSize'
 import styles from './ResizeHandle.module.css'
 
-export interface ResizeHandleProps {
-  /** The panel's width now, in CSS pixels. */
-  width: number
-  /** How narrow and wide the panel can be, measured when a drag or key press starts. */
-  bounds: () => WidthBounds
-  /** How far ← and → move the handle. */
-  step: number
-  /** Each new width while you drag, to show at once. */
-  onResize: (width: number) => void
-  /** The width a drag or key press ended on, to keep. */
-  onResizeEnd: (width: number) => void
+/** Which edge of its panel a handle sits on: the one facing the chat. */
+export enum HandleEdge {
+  /** The right panel's left edge: dragging left widens the panel. */
+  Left = 'left',
+  /** The sidebar's right edge: dragging right widens it. */
+  Right = 'right',
+  /** The bottom bar's top edge: dragging up makes it taller. */
+  Top = 'top',
 }
 
-/** A drag in progress: where it started, and the width it has reached. */
+export interface ResizeHandleProps {
+  /** The edge of the panel it sits on, which sets which way it drags. */
+  edge: HandleEdge
+  /** Its accessible name, e.g. `Resize task list`. */
+  label: string
+  /** The panel's size now (its width, or its height on the top edge), in CSS pixels. */
+  size: number
+  /** How small and big the panel can be, measured when a drag or key press starts. */
+  bounds: () => SizeBounds
+  /** How far each arrow key press moves the handle. */
+  step: number
+  /** Each new size while you drag, to show at once. */
+  onResize: (size: number) => void
+  /** The size a drag or key press ended on, to keep. */
+  onResizeEnd: (size: number) => void
+}
+
+/** A drag in progress: where it started, and the size it has reached. */
 interface Drag {
   readonly pointerId: number
-  readonly startX: number
-  readonly startWidth: number
-  readonly bounds: WidthBounds
-  width: number
+  readonly start: number
+  readonly startSize: number
+  readonly bounds: SizeBounds
+  size: number
 }
 
-/** Which way each arrow key moves the handle, as a change in width: ← widens the panel, → narrows it. */
-const KEY_STEPS: Readonly<Partial<Record<string, number>>> = { ArrowLeft: 1, ArrowRight: -1 }
+/** How a handle on an edge moves: its separator's orientation, and which way along it makes the panel bigger. */
+interface EdgeMotion {
+  readonly orientation: 'vertical' | 'horizontal'
+  /** The pointer's position along the axis the handle moves on. */
+  readonly position: (event: PointerEvent<HTMLDivElement>) => number
+  /** 1 when moving the pointer towards larger coordinates makes the panel bigger, -1 when it makes it smaller. */
+  readonly growth: 1 | -1
+  /** The arrow key that makes the panel bigger, and the one that makes it smaller. */
+  readonly grow: string
+  readonly shrink: string
+}
+
+function edgeMotion(edge: HandleEdge): EdgeMotion {
+  switch (edge) {
+    case HandleEdge.Left:
+      return {
+        orientation: 'vertical',
+        position: (event) => event.clientX,
+        growth: -1,
+        grow: 'ArrowLeft',
+        shrink: 'ArrowRight',
+      }
+    case HandleEdge.Right:
+      return {
+        orientation: 'vertical',
+        position: (event) => event.clientX,
+        growth: 1,
+        grow: 'ArrowRight',
+        shrink: 'ArrowLeft',
+      }
+    case HandleEdge.Top:
+      return {
+        orientation: 'horizontal',
+        position: (event) => event.clientY,
+        growth: -1,
+        grow: 'ArrowUp',
+        shrink: 'ArrowDown',
+      }
+  }
+}
 
 /**
- * The drag handle on a panel's left edge (docs/design/html/08-open-file.html): dragging it left widens the panel, and
- * right narrows it, within `bounds`. It reports each width as you drag and the final one when you let go. Focused, ←
- * and → move it a step at a time.
+ * The drag handle on the inner edge of a panel (docs/design/html/08-open-file.html), in the gap between it and the
+ * chat: dragging it away from the panel makes the panel bigger, and towards it smaller, within `bounds`. It reports each
+ * size as you drag and the final one when you let go. Focused, the arrow keys along its axis move it a step at a time.
  */
-export function ResizeHandle({ width, bounds, step, onResize, onResizeEnd }: ResizeHandleProps): React.JSX.Element {
+export function ResizeHandle({
+  edge,
+  label,
+  size,
+  bounds,
+  step,
+  onResize,
+  onResizeEnd,
+}: ResizeHandleProps): React.JSX.Element {
   const drag = useRef<Drag | null>(null)
   const [dragging, setDragging] = useState(false)
+  const motion = edgeMotion(edge)
 
   function start(event: PointerEvent<HTMLDivElement>): void {
     if (event.button !== 0) return
@@ -42,17 +103,24 @@ export function ResizeHandle({ width, bounds, step, onResize, onResizeEnd }: Res
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
     const limits = bounds()
-    const startWidth = clampWidth(width, limits)
-    drag.current = { pointerId: event.pointerId, startX: event.clientX, startWidth, bounds: limits, width: startWidth }
+    const startSize = clampSize(size, limits)
+    drag.current = {
+      pointerId: event.pointerId,
+      start: motion.position(event),
+      startSize,
+      bounds: limits,
+      size: startSize,
+    }
     setDragging(true)
   }
 
   function move(event: PointerEvent<HTMLDivElement>): void {
     const current = drag.current
     if (current?.pointerId !== event.pointerId) return
-    const next = clampWidth(current.startWidth + current.startX - event.clientX, current.bounds)
-    if (next === current.width) return
-    current.width = next
+    const moved = motion.position(event) - current.start
+    const next = clampSize(current.startSize + motion.growth * moved, current.bounds)
+    if (next === current.size) return
+    current.size = next
     onResize(next)
   }
 
@@ -61,15 +129,15 @@ export function ResizeHandle({ width, bounds, step, onResize, onResizeEnd }: Res
     if (current?.pointerId !== event.pointerId) return
     drag.current = null
     setDragging(false)
-    onResizeEnd(current.width)
+    onResizeEnd(current.size)
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
-    const direction = KEY_STEPS[event.key]
-    if (direction === undefined) return
+    const direction = event.key === motion.grow ? 1 : event.key === motion.shrink ? -1 : 0
+    if (direction === 0) return
     event.preventDefault()
     const limits = bounds()
-    const next = clampWidth(clampWidth(width, limits) + direction * step, limits)
+    const next = clampSize(clampSize(size, limits) + direction * step, limits)
     onResize(next)
     onResizeEnd(next)
   }
@@ -77,11 +145,12 @@ export function ResizeHandle({ width, bounds, step, onResize, onResizeEnd }: Res
   return (
     <div
       role="separator"
-      aria-label="Resize panel"
-      aria-orientation="vertical"
-      aria-valuenow={width}
+      aria-label={label}
+      aria-orientation={motion.orientation}
+      aria-valuenow={size}
       tabIndex={0}
       data-dragging={dragging}
+      data-edge={edge}
       className={styles.handle}
       onPointerDown={start}
       onPointerMove={move}

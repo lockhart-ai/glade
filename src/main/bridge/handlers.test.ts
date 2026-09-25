@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { TaskFilter } from '../../shared/attention'
 import { Effort, FileContentKind, FileInfoKind, TaskState, UiStateKey } from '../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
-import { BridgeErrorCode, CommandName, EventType, type GladeEvent } from '../../shared/bridge'
+import { BridgeErrorCode, CommandName, EventType, RendererErrorKind, type GladeEvent } from '../../shared/bridge'
 import { EMPTY_MENU_STATE } from '../../shared/commands'
 import { SearchField } from '../../shared/search'
 import { FakeAgentBackend } from '../agent/fake-backend'
@@ -18,6 +18,8 @@ import { setUiState } from '../db/repositories/ui-state'
 import { createFakeSpawner, fakeTerminalOptions, type FakeSpawner } from '../terminal/fake-pty'
 import { createTerminals } from '../terminal/terminals'
 import { createHandlers, type Handlers } from './handlers'
+import { LogLevel, LogScope } from '../logging/logger'
+import { createMemoryLog } from '../logging/memory-sink'
 
 let database: TestDatabase
 let root: string
@@ -379,5 +381,52 @@ describe('the terminal commands', () => {
     expect(await handlers[CommandName.TerminalClose]({ id: tab.id })).toBeNull()
     expect(pty.killed).toBe(true)
     expect((await handlers[CommandName.TerminalList]({})).tabs.map(({ id }) => id)).toEqual([copy.id])
+  })
+})
+
+describe('log.rendererError', () => {
+  it('logs the error the window sent, in the renderer scope, and answers with nothing', async () => {
+    const log = createMemoryLog()
+    const logging = createHandlers({
+      db: database.db,
+      emit,
+      chooseFolder,
+      openPath,
+      revealPath,
+      writeClipboard,
+      runner: createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() }),
+      terminals: createTerminals({ db: database.db, emit, ...fakeTerminalOptions(spawner) }),
+      log: log.logger,
+    })
+    const error = {
+      kind: RendererErrorKind.UnhandledRejection,
+      message: 'Error: fetch failed',
+      stack: null,
+      componentStack: null,
+      source: null,
+    }
+
+    expect(await logging[CommandName.LogRendererError](error)).toBeNull()
+    expect(log.records).toEqual([
+      expect.objectContaining({
+        level: LogLevel.Error,
+        scope: LogScope.Renderer,
+        message: 'renderer error',
+        fields: error,
+      }),
+    ])
+  })
+
+  it('logs nothing when it has no log', async () => {
+    const error = vi.spyOn(console, 'error')
+    await handlers[CommandName.LogRendererError]({
+      kind: RendererErrorKind.Error,
+      message: 'x',
+      stack: null,
+      componentStack: null,
+      source: null,
+    })
+    expect(error).not.toHaveBeenCalled()
+    error.mockRestore()
   })
 })

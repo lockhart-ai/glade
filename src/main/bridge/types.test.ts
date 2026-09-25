@@ -29,6 +29,7 @@ import {
   type UiStateEntry,
   type Workspace,
 } from '../../shared/domain'
+import { ImageMediaType } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import type { Handlers } from './handlers'
@@ -65,6 +66,7 @@ const TASK_HANDLERS = {
   [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueRemove]: () => null,
+  [CommandName.ImagesGet]: () => ({ image: { mediaType: ImageMediaType.Png, data: '' } }),
   [CommandName.QuestionsAnswer]: () => ({ questionSet: {} as QuestionSet }),
   [CommandName.FilesRead]: () => ({ content: { kind: FileContentKind.Missing } }),
   [CommandName.FilesOpen]: () => ({ openFiles: {} as OpenFiles }),
@@ -82,6 +84,7 @@ const TASK_HANDLERS = {
   [CommandName.WorkspacesRemove]: () => null,
   [CommandName.MenuUpdate]: () => null,
   [CommandName.WindowClose]: () => null,
+  [CommandName.LogRendererError]: () => null,
   [CommandName.SearchQuery]: () => ({ results: [] }),
   [CommandName.TerminalList]: () => ({ tabs: [] }),
   [CommandName.TerminalCreate]: () => ({ tab: {} as TerminalTab }),
@@ -107,6 +110,7 @@ const TASK_SCHEMAS = {
   [CommandName.QueueAdd]: REQUEST_SCHEMAS[CommandName.QueueAdd],
   [CommandName.QueueEdit]: REQUEST_SCHEMAS[CommandName.QueueEdit],
   [CommandName.QueueRemove]: REQUEST_SCHEMAS[CommandName.QueueRemove],
+  [CommandName.ImagesGet]: REQUEST_SCHEMAS[CommandName.ImagesGet],
   [CommandName.QuestionsAnswer]: REQUEST_SCHEMAS[CommandName.QuestionsAnswer],
   [CommandName.FilesRead]: REQUEST_SCHEMAS[CommandName.FilesRead],
   [CommandName.FilesOpen]: REQUEST_SCHEMAS[CommandName.FilesOpen],
@@ -125,6 +129,7 @@ const TASK_SCHEMAS = {
   [CommandName.WorkspacesRemove]: REQUEST_SCHEMAS[CommandName.WorkspacesRemove],
   [CommandName.MenuUpdate]: REQUEST_SCHEMAS[CommandName.MenuUpdate],
   [CommandName.WindowClose]: REQUEST_SCHEMAS[CommandName.WindowClose],
+  [CommandName.LogRendererError]: REQUEST_SCHEMAS[CommandName.LogRendererError],
 } satisfies Partial<RequestSchemas>
 
 describe('the command map', () => {

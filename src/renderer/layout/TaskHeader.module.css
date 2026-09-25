@@ -1,7 +1,8 @@
+/* The compact header card, from the <header> in docs/design/html/task-workspace.html. */
 .header {
   flex-shrink: 0;
-  padding: 18px 22px;
+  padding: var(--space-md) var(--space-xl);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-md);
 }

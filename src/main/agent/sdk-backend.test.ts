@@ -4,7 +4,10 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import { Effort } from '../../shared/domain'
 import type { Environment } from '../login-env'
 import type { AgentSessionOptions } from './backend'
+import { GIF, JPEG, PNG } from '../../shared/test-images'
 import { claudeCodeExecutable, createSdkBackend, sdkOptions, userMessage } from './sdk-backend'
+import { createMemoryLog } from '../logging/memory-sink'
+import { LogLevel, LogScope } from '../logging/logger'
 
 const sdk = vi.hoisted(() => {
   const session = {
@@ -48,7 +51,7 @@ beforeEach(() => {
 
 it('runs the session in the workspace root, allowing all, with the workspace and user settings and the prompt', () => {
   expect(sdkOptions(OPTIONS, ENV)).toEqual({
-    env: ENV,
+    env: { ...ENV, CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' },
     cwd: '/code/acme-api',
     model: 'claude-sample-1',
     effort: 'high',
@@ -109,10 +112,37 @@ it("sends the user's message as a top-level message typed by a person", () => {
   })
 })
 
+it("sends the images pasted into the user's message as image content blocks, before its text", () => {
+  expect(userMessage('Compare these.', 'uuid-1', [PNG, JPEG]).message).toEqual({
+    role: 'user',
+    content: [
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG.data } },
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: JPEG.data } },
+      { type: 'text', text: 'Compare these.' },
+    ],
+  })
+  expect(userMessage('Hi', 'uuid-2', []).message.content).toBe('Hi')
+})
+
 it("gives each session its own copy of the environment, since the SDK adds to the one it's given", () => {
   const options = sdkOptions(OPTIONS, ENV)
-  expect(options.env).toEqual(ENV)
+  expect(options.env).toMatchObject(ENV)
   expect(options.env).not.toBe(ENV)
+  expect(ENV).not.toHaveProperty('CLAUDE_CODE_ENABLE_TODO_TOOLS')
+})
+
+// The bundled Claude Code leaves its todo tools off for SDK sessions on newer models unless this is set, and the Todos
+// tab reads them (#167, docs/sdk-notes.md §10).
+it("turns Claude Code's todo tools on for every session, whatever the model", () => {
+  for (const model of ['claude-opus-5-5[1m]', 'claude-sonnet-5', 'claude-haiku-4-5']) {
+    expect(sdkOptions({ ...OPTIONS, model }, ENV).env).toMatchObject({ CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' })
+  }
+})
+
+it("turns the todo tools on even when the login shell turns them off, and leaves the tasks' own switch alone", () => {
+  const env = sdkOptions(OPTIONS, { ...ENV, CLAUDE_CODE_ENABLE_TODO_TOOLS: '0' }).env
+  expect(env).toMatchObject({ CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' })
+  expect(env).not.toHaveProperty('CLAUDE_CODE_ENABLE_TASKS')
 })
 
 /** Lets the environment's promise, and the `query()` waiting on it, settle. */
@@ -134,14 +164,14 @@ it('starts one streaming-input query per session, in the environment, and pushes
   const prompt = sdk.query.mock.calls[0]?.[0].prompt as AsyncIterable<SDKUserMessage>
 
   session.send('Hi', 'uuid-1')
-  session.send('Fix it.', 'uuid-2')
+  session.send('Fix it.', 'uuid-2', [GIF])
   await session.interrupt()
   await session.stopTask('b7f3')
   session.close()
 
   const pushed: SDKUserMessage[] = []
   for await (const message of prompt) pushed.push(message)
-  expect(pushed).toEqual([userMessage('Hi', 'uuid-1'), userMessage('Fix it.', 'uuid-2')])
+  expect(pushed).toEqual([userMessage('Hi', 'uuid-1'), userMessage('Fix it.', 'uuid-2', [GIF])])
   expect(sdk.session.interrupt).toHaveBeenCalledOnce()
   expect(sdk.session.stopTask).toHaveBeenCalledExactlyOnceWith('b7f3')
   expect(sdk.session.close).toHaveBeenCalledOnce()
@@ -184,17 +214,19 @@ it('changes the model and effort before delivering the next message, never after
 
 it('still delivers the message, on the old settings, when the SDK refuses a change', async () => {
   sdk.session.setModel.mockRejectedValueOnce(new Error('model_not_found'))
-  const log = { warn: vi.fn() }
-  const session = createSdkBackend({ env: Promise.resolve(ENV), log }).start(OPTIONS)
+  const log = createMemoryLog(LogScope.Agent)
+  const session = createSdkBackend({ env: Promise.resolve(ENV), log: log.logger }).start(OPTIONS)
 
   session.configure({ model: 'claude-missing', effort: Effort.Low })
   session.send('Hi', 'uuid-1')
 
   expect(await pushedMessages(1)).toEqual(['Hi'])
-  expect(log.warn).toHaveBeenCalledExactlyOnceWith(
-    "Couldn't change the session to claude-missing at low effort",
-    expect.any(Error),
-  )
+  expect(log.withMessage("the SDK refused the session's new settings")).toEqual([
+    expect.objectContaining({
+      level: LogLevel.Warn,
+      fields: { model: 'claude-missing', effort: Effort.Low, error: expect.any(Error) as unknown },
+    }),
+  ])
   expect(sdk.session.applyFlagSettings).not.toHaveBeenCalled()
 })
 
@@ -267,6 +299,6 @@ it("runs each session in the environment it's given, whatever Glade's own is", a
   vi.unstubAllEnvs()
 
   expect(sdk.query.mock.calls[0]?.[0].options).toMatchObject({
-    env: { PATH: '/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin' },
+    env: { PATH: '/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin', CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' },
   })
 })

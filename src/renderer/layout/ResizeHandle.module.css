@@ -1,16 +1,46 @@
-/* The panel's drag handle, in the gap left of it, from docs/design/html/08-open-file.html. */
+/*
+ * A panel's drag handle, centred in the gap beside the edge it resizes, from docs/design/html/08-open-file.html. Its
+ * slot (the panel's wrapper) is positioned, so the handle sits just outside the panel's edge. The right panel sits in the
+ * task card, an inset from the chat; the sidebar and the bottom bar sit the outer gap from the task card.
+ */
 .handle {
+  --handle-thickness: 8px;
+  --handle-offset: calc(0px - var(--handle-thickness) / 2 - var(--space-outer) / 2);
+
   position: absolute;
-  left: -10px;
-  top: 0;
-  bottom: 0;
-  width: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: col-resize;
   touch-action: none;
   outline: none;
+}
+
+/* On a side edge, it runs the panel's height and drags sideways. */
+.handle[data-edge='left'],
+.handle[data-edge='right'] {
+  top: 0;
+  bottom: 0;
+  width: var(--handle-thickness);
+  cursor: col-resize;
+}
+
+.handle[data-edge='left'] {
+  --handle-offset: calc(0px - var(--handle-thickness) / 2 - var(--space-inset) / 2);
+
+  left: var(--handle-offset);
+}
+
+.handle[data-edge='right'] {
+  right: var(--handle-offset);
+}
+
+/* On the top edge, it runs the panel's width and drags up and down. */
+.handle[data-edge='top'] {
+  top: var(--handle-offset);
+  left: 0;
+  right: 0;
+  height: var(--handle-thickness);
+  cursor: row-resize;
 }
 
 .grip {
@@ -19,6 +49,11 @@
   border-radius: 2px;
   background: var(--color-strong);
   transition: background-color 120ms ease;
+}
+
+.handle[data-edge='top'] .grip {
+  width: 44px;
+  height: 4px;
 }
 
 .handle:hover .grip,

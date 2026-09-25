@@ -6,7 +6,7 @@ import { FirstRun } from './first-run/FirstRun'
 import { InputBar } from './input-bar'
 import { PauseBanner } from './pause/PauseBanner'
 import { AppShell, BottomBar, Sidebar, SidebarHeader, TaskCard } from './layout'
-import { Panel, PanelToggle, usePanel } from './panels'
+import { Panel, PanelToggle, usePanel, usePanelSize } from './panels'
 import styles from './App.module.css'
 import { HydrationStatus, selectSelectedTask, selectSelectedWorkspace } from './store/state'
 import { useGladeStore } from './store/react'
@@ -29,25 +29,34 @@ interface WindowProps {
   /** The sidebar, or nothing while it's collapsed. */
   sidebar?: ReactNode
   task: ReactNode
+  /** Whether the task card shows the right panel beside the chat (it does unless it's collapsed). */
+  taskHasRightPanel?: boolean
   /** The app-wide banner, if any. */
   banner?: ReactNode
   overlay?: ReactNode
 }
 
 /**
- * The window frame, with the global terminal in the bottom bar, which collapses to its tab row. The terminal's own
- * shortcuts (⌃` and ⌘T) work wherever the focus is.
+ * The window frame, with the global terminal in the bottom bar, which collapses to its tab row. The sidebar and the
+ * bottom bar keep the sizes you drag them to. The terminal's own shortcuts (⌃` and ⌘T) work wherever the focus is.
  */
-function Window({ sidebar, task, banner, overlay }: WindowProps): React.JSX.Element {
+function Window({ sidebar, task, taskHasRightPanel = false, banner, overlay }: WindowProps): React.JSX.Element {
   const bottomBar = usePanel(Panel.BottomBar)
+  const sidebarWidth = usePanelSize(Panel.Sidebar)
+  const bottomBarHeight = usePanelSize(Panel.BottomBar)
   useTerminalShortcuts()
   return (
     <AppShell
       banner={banner}
       sidebar={sidebar}
+      sidebarWidth={sidebarWidth.size}
+      onSidebarWidthChange={sidebarWidth.setSize}
       task={task}
+      taskHasRightPanel={taskHasRightPanel}
       overlay={overlay}
       bottomBarCollapsed={bottomBar.collapsed}
+      bottomBarHeight={bottomBarHeight.size}
+      onBottomBarHeightChange={bottomBarHeight.setSize}
       bottomBar={
         <BottomBar
           collapsed={bottomBar.collapsed}
@@ -86,6 +95,7 @@ function FirstRunLayout(): React.JSX.Element {
 function Layout(): React.JSX.Element {
   const workspace = useGladeStore(selectSelectedWorkspace)
   const sidebar = usePanel(Panel.Sidebar)
+  const rightPanel = usePanel(Panel.RightPanel)
   const hasTask = useGladeStore((state) => selectSelectedTask(state) !== undefined)
   const searching = useGladeStore((state) => isSearching(state.searchText))
   // The menu bar answers the other shortcuts (see `MenuBar`).
@@ -109,6 +119,7 @@ function Layout(): React.JSX.Element {
           </Sidebar>
         )
       }
+      taskHasRightPanel={!rightPanel.collapsed}
       task={
         <TaskCard
           clearTrafficLights={sidebar.collapsed}

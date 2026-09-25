@@ -29,6 +29,7 @@ import type {
   UiStateKey,
   Workspace,
 } from '../../shared/domain'
+import type { ImageData } from '../../shared/images'
 import type { SearchResult } from '../../shared/search'
 import type { TaskFilter } from '../../shared/attention'
 import type { DoneCounts, TaskCursor } from '../../shared/doneList'
@@ -334,15 +335,20 @@ export interface GladeActions {
    */
   deleteTask: (taskId: string) => Promise<void>
   /**
-   * Sends the user's message to the task's agent. Resolves once main has saved it; the message and the turn arrive as
-   * events. Rejects with `busy` while the agent is working.
+   * Sends the user's message, and the images pasted into it, to the task's agent. Resolves once main has saved it; the
+   * message and the turn arrive as events. Rejects with `busy` while the agent is working.
    */
-  sendMessage: (taskId: string, text: string) => Promise<void>
+  sendMessage: (taskId: string, text: string, images?: readonly ImageData[]) => Promise<void>
   /**
-   * Queues the user's message for the task's agent, which gets it after its current step. Resolves once main has
-   * saved it; the queue arrives as an event.
+   * Queues the user's message, and the images pasted into it, for the task's agent, which gets it after its current
+   * step. Resolves once main has saved it; the queue arrives as an event.
    */
-  queueMessage: (taskId: string, text: string) => Promise<void>
+  queueMessage: (taskId: string, text: string, images?: readonly ImageData[]) => Promise<void>
+  /**
+   * A stored image's type and bytes, by id (`images.get`), to show it. Each image is fetched once and kept, since an
+   * image never changes; one that failed to load is fetched again next time.
+   */
+  loadImage: (id: string) => Promise<ImageData>
   /**
    * Answers an open question set with the card's answers, keyed by question index (`questions.answer`). Resolves once
    * main has them; the answered set arrives as an event. Rejects with `invalid_request` for answers that don't fit.

@@ -1,5 +1,6 @@
 import { useGladeStore } from '../store/react'
 import { collapsedEntry, isCollapsed, type Panel } from './panels'
+import { panelSize, parsePanelSize } from './panelSize'
 
 /** A panel's persisted collapsed state, and a way to set it. */
 export interface PanelState {
@@ -15,6 +16,30 @@ export function usePanel(panel: Panel): PanelState {
     collapsed,
     setCollapsed: (next) => {
       void setUiState(collapsedEntry(panel, next))
+    },
+  }
+}
+
+/** A panel's persisted size, and a way to keep a new one. */
+export interface PanelSizeState {
+  /** Its width (the sidebar and the right panel) or height (the bottom bar), in CSS pixels. */
+  readonly size: number
+  /** Stores a size you chose, unless it's the one already stored. */
+  readonly setSize: (size: number) => void
+}
+
+/**
+ * A panel's size, from UI state, and the setter that stores a change. Collapsing a panel leaves its size stored, so it
+ * reopens at the size you left it. Use under a `GladeStoreProvider`.
+ */
+export function usePanelSize(panel: Panel): PanelSizeState {
+  const { key } = panelSize(panel)
+  const size = useGladeStore((state) => parsePanelSize(panel, state.uiState[key]))
+  const setUiState = useGladeStore((state) => state.setUiState)
+  return {
+    size,
+    setSize: (next) => {
+      if (next !== size) void setUiState({ key, value: String(next) })
     },
   }
 }

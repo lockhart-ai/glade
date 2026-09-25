@@ -1,23 +1,26 @@
-/* The header card's content, from the <header> in docs/design/html/task-workspace.html and 05-mark-done.html. */
+/* The compact header card's content, from the <header> in docs/design/html/task-workspace.html and 05-mark-done.html. */
 
 .top {
   display: flex;
-  align-items: flex-start;
-  gap: 16px;
+  align-items: center;
+  gap: var(--space-xl);
 }
 
+/* One line: the title and pin toggle, the pill, and the timing. */
 .heading {
   flex-grow: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: var(--space-lg);
 }
 
 .titleRow {
+  flex-shrink: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-xs);
 }
 
 .title {
@@ -33,14 +36,25 @@
   text-overflow: ellipsis;
 }
 
-.meta {
+/*
+ * When the line is short of room, the title shrinks before the pill, but the pill never takes more than 40% of the line,
+ * so the title never disappears. Each truncates with its full text as its tooltip.
+ */
+.heading .pill {
   min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  max-width: 40%;
+  overflow: hidden;
 }
 
+.pillLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The timing gives way first when the line is short of room, before the title does; its full text is its tooltip. */
 .timing {
+  flex-shrink: 1000;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -53,8 +67,8 @@
 .fields {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-top: 14px;
+  gap: var(--space-xs);
+  padding-top: var(--space-md);
   border-top: 1px solid var(--color-inner-border);
 }
 

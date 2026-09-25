@@ -2,15 +2,15 @@ import { expect, it } from 'vitest'
 import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { MIGRATIONS } from '.'
-import { doneListIndexMigration } from './0020-done-list-index'
+import { doneListIndexMigration } from './0021-done-list-index'
 
-it('is migration 20', () => {
-  expect(MIGRATIONS[19]).toBe(doneListIndexMigration)
+it('is migration 21', () => {
+  expect(MIGRATIONS[20]).toBe(doneListIndexMigration)
 })
 
 it('indexes the tasks in the order the Done section lists them', () => {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 19))
+  migrate(db, MIGRATIONS.slice(0, 20))
 
   migrate(db, MIGRATIONS)
 

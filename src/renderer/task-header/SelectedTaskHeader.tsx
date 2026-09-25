@@ -77,6 +77,7 @@ function Header({ task }: HeaderProps): React.JSX.Element {
     }
   }
   const timingText = timing(task, now, reopened)
+  const label = pillLabel(task, reopened)
   const pinLabel = task.pinned ? 'Unpin task' : 'Pin task'
 
   return (
@@ -97,14 +98,12 @@ function Header({ task }: HeaderProps): React.JSX.Element {
               onClick={() => void run(updateTask(task.id, { pinned: !task.pinned }))}
             />
           </div>
-          <div className={styles.meta}>
-            <Pill indicator={taskIndicator(task)} role="status">
-              {pillLabel(task, reopened)}
-            </Pill>
-            <span className={styles.timing} title={timingText}>
-              {timingText}
-            </span>
-          </div>
+          <Pill indicator={taskIndicator(task)} role="status" className={styles.pill} title={label}>
+            <span className={styles.pillLabel}>{label}</span>
+          </Pill>
+          <span className={styles.timing} title={timingText}>
+            {timingText}
+          </span>
         </div>
         {offersMarkDone(task) && (
           <Button
@@ -144,8 +143,8 @@ function Header({ task }: HeaderProps): React.JSX.Element {
 }
 
 /**
- * The selected task's header card: its title and pin toggle, status pill and timing, Mark done while it's active (disabled while the agent works), and
- * its objective and status (its outcome once done). While the right panel is collapsed, a button at the end of the top
+ * The selected task's header card. One line holds its title and pin toggle, status pill and timing, and Mark done while
+ * it's active (disabled while the agent works); under the divider are its objective and status (its outcome once done). While the right panel is collapsed, a button at the end of the top
  * row shows it again; while the task list is collapsed, one at the start shows that. It follows the store, so it changes as the agent sets its fields.
  * Nothing shows while no task is selected.
  */

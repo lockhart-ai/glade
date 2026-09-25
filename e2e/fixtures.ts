@@ -11,6 +11,7 @@ import { basename, join, resolve } from 'node:path'
 import { _electron as electron, test as base, type ElectronApplication, type Page } from '@playwright/test'
 import type { AgentScriptName } from '../src/main/agent/scripts'
 import {
+  E2E_AGENT_GLOBAL,
   E2E_AGENT_ENVS_GLOBAL,
   E2E_CHOSEN_FOLDER_ENV,
   E2E_DESKTOP_GLOBAL,
@@ -19,12 +20,15 @@ import {
   E2E_NETWORK_GLOBAL,
   E2E_NOTIFIER_GLOBAL,
   E2E_WINDOW_SIZE,
+  type E2eAgent,
   type E2eAgentEnvs,
   type E2eDesktop,
   type E2eEditor,
   type E2eNetwork,
   type E2eSpec,
 } from '../src/main/e2e'
+import { testModeLogsFolder } from '../src/main/isolation'
+import { LOG_FILE_NAME } from '../src/main/logging/file-sink'
 import type { TaskNotification } from '../src/main/notifications/notifier'
 import type { RecordingNotifier } from '../src/main/notifications/recording-notifier'
 import { READY_ATTRIBUTE } from '../src/shared/ready'
@@ -83,6 +87,8 @@ export interface Glade {
   close(): Promise<void>
   /** Kills the app's process outright, as a force-quit or crash would: nothing gets to run on the way out. */
   kill(): Promise<void>
+  /** The app's log file (`docs/logs.md`), in the test's throwaway data folder: every launch in a test adds to it. */
+  readonly logFile: string
 }
 
 /**
@@ -190,6 +196,7 @@ export const test = base.extend<Fixtures>({
         window,
         close: () => (closing ??= closeApp(glade, index, false)),
         kill: () => (closing ??= closeApp(glade, index, true)),
+        logFile: join(testModeLogsFolder(userData), LOG_FILE_NAME),
       }
       launched.push(glade)
       await window.locator(`html[${READY_ATTRIBUTE}]`).waitFor({ state: 'attached' })
@@ -260,6 +267,14 @@ export async function desktop({ app }: Glade): Promise<E2eDesktop> {
     const { revealed, copied } = Reflect.get(globalThis, name) as E2eDesktop
     return { revealed: [...revealed], copied: [...copied] }
   }, E2E_DESKTOP_GLOBAL)
+}
+
+/**
+ * What the scripted agent was sent so far, oldest first: each message's content as the SDK backend would hand it to the
+ * agent, its text or its image content blocks then its text (`E2E_AGENT_GLOBAL`).
+ */
+export async function agentReceived({ app }: Glade): Promise<E2eAgent['received']> {
+  return app.evaluate((_, name) => [...(Reflect.get(globalThis, name) as E2eAgent).received], E2E_AGENT_GLOBAL)
 }
 
 /**

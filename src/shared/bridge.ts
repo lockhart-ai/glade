@@ -27,6 +27,7 @@ import type {
   Workspace,
 } from './domain'
 import type { Command, MenuState } from './commands'
+import type { ImageData } from './images'
 import type { Settings, SettingsPatch } from './settings'
 import type { SearchResult } from './search'
 import type { DoneCounts, DonePage, DonePageRequest } from './doneList'
@@ -69,6 +70,7 @@ export enum CommandName {
   QueueAdd = 'queue.add',
   QueueEdit = 'queue.edit',
   QueueRemove = 'queue.remove',
+  ImagesGet = 'images.get',
   QuestionsAnswer = 'questions.answer',
   FilesRead = 'files.read',
   FilesOpen = 'files.open',
@@ -97,6 +99,7 @@ export enum CommandName {
   TerminalClose = 'terminal.close',
   MenuUpdate = 'menu.update',
   WindowClose = 'window.close',
+  LogRendererError = 'log.rendererError',
 }
 
 /** The request of a command that takes no arguments: pass `{}`. */
@@ -284,12 +287,18 @@ export interface TaskResponse {
  * (`{ "freeText": … }`). It starts no turn, and the queue stays as it is. Broadcasts `question.answered`.
  *
  * Fails with `busy` while the agent is working on a turn or the task is paused (queue the message with `queue.add`
- * instead), and `not_found` when there's no such task.
+ * instead), `invalid_request` for images sent as an answer to questions (an answer is words), and `not_found` when
+ * there's no such task.
  */
 export interface TasksSendRequest {
   readonly id: string
-  /** Markdown. Not blank. */
+  /** Markdown. Blank only when there are images. */
   readonly text: string
+  /**
+   * The images pasted into the message, in order: each goes to the agent as an image content block, before the text.
+   * None when left out.
+   */
+  readonly images?: readonly ImageData[]
 }
 
 export interface TasksSendResponse {
@@ -372,8 +381,10 @@ export interface TasksHistoryResponse {
  */
 export interface QueueAddRequest {
   readonly taskId: string
-  /** Markdown. Not blank. */
+  /** Markdown. Blank only when there are images. */
   readonly text: string
+  /** The images pasted into the message, in order, which wait in the queue with it. None when left out. */
+  readonly images?: readonly ImageData[]
 }
 
 /** Changes the text of a message still waiting in its queue. Broadcasts `queue.changed`. */
@@ -394,6 +405,15 @@ export interface QueueRemoveRequest {
  */
 export interface QueuedMessageResponse {
   readonly queuedMessage: QueuedMessage
+}
+
+/** Fetches a stored image's bytes by id (`ImageRef.id`), to show it. Fails with `not_found` when there's no such image. */
+export interface ImagesGetRequest {
+  readonly id: string
+}
+
+export interface ImagesGetResponse {
+  readonly image: ImageData
 }
 
 /**
@@ -623,6 +643,38 @@ export type MenuUpdateRequest = MenuState
  */
 export type WindowCloseRequest = EmptyRequest
 
+/** Where in the window an error was caught, for the main log. */
+export enum RendererErrorKind {
+  /** An uncaught error (`window`'s `error` event). */
+  Error = 'error',
+  /** A promise rejected with nothing to handle it (`unhandledrejection`). */
+  UnhandledRejection = 'unhandled_rejection',
+  /** React unmounted the app over an error no error boundary caught. */
+  ReactUncaught = 'react_uncaught',
+  /** An error boundary caught an error while rendering. */
+  ReactCaught = 'react_caught',
+  /** React recovered from an error by itself (e.g. by rendering again). */
+  ReactRecoverable = 'react_recoverable',
+}
+
+/** At most this many characters of a renderer error's message, stack or component stack reach main. */
+export const MAX_RENDERER_ERROR_TEXT = 10_000
+
+/**
+ * An error in the window, forwarded to the main log (`docs/logs.md`), since the renderer's console goes nowhere once
+ * the app is packaged.
+ */
+export interface LogRendererErrorRequest {
+  readonly kind: RendererErrorKind
+  readonly message: string
+  /** The error's stack; null when it has none (a rejection with a string, say). */
+  readonly stack: string | null
+  /** React's component stack, for an error React reports; null otherwise. */
+  readonly componentStack: string | null
+  /** The script and line it came from, for an uncaught error; null otherwise. */
+  readonly source: string | null
+}
+
 /** One command's request and response types. */
 export interface CommandSpec<Request, Response> {
   readonly request: Request
@@ -656,6 +708,7 @@ export interface CommandMap {
   [CommandName.QueueAdd]: CommandSpec<QueueAddRequest, QueuedMessageResponse>
   [CommandName.QueueEdit]: CommandSpec<QueueEditRequest, QueuedMessageResponse>
   [CommandName.QueueRemove]: CommandSpec<QueueRemoveRequest, null>
+  [CommandName.ImagesGet]: CommandSpec<ImagesGetRequest, ImagesGetResponse>
   [CommandName.QuestionsAnswer]: CommandSpec<QuestionsAnswerRequest, QuestionSetResponse>
   [CommandName.FilesRead]: CommandSpec<FilesReadRequest, FilesReadResponse>
   [CommandName.FilesOpen]: CommandSpec<FilesOpenRequest, OpenFilesResponse>
@@ -688,6 +741,8 @@ export interface CommandMap {
   [CommandName.TerminalClose]: CommandSpec<TerminalIdRequest, null>
   [CommandName.MenuUpdate]: CommandSpec<MenuUpdateRequest, null>
   [CommandName.WindowClose]: CommandSpec<EmptyRequest, null>
+  /** Writes an error in the window to the main log. */
+  [CommandName.LogRendererError]: CommandSpec<LogRendererErrorRequest, null>
 }
 
 export type CommandRequest<C extends CommandName> = CommandMap[C]['request']

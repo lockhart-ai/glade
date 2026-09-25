@@ -8,15 +8,15 @@
 }
 
 /*
- * The conversation sits at the bottom until it fills the scroller. The design's 20px below it includes the task card's
- * 12px gap above the input bar.
+ * The conversation sits at the bottom until it fills the scroller. It runs the column's full width, so the messages
+ * line up with the header card and the input bar above and below it.
  */
 .thread {
   margin-top: auto;
-  padding: 12px 20px 8px;
+  padding: var(--space-md) 0;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: var(--space-xl);
 }
 
 .meta {
@@ -30,6 +30,26 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
+}
+
+/* The images pasted into your message, above its text. */
+.images {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  max-width: 520px;
+  margin-bottom: var(--space-2xs);
+}
+
+.image {
+  display: block;
+  width: 160px;
+  height: 100px;
+  box-sizing: border-box;
+  object-fit: cover;
+  border: 1px solid var(--color-strong);
+  border-radius: 10px;
 }
 
 .bubble {

@@ -6,7 +6,7 @@ import styles from './TaskList.module.css'
 
 /** A row's height before it's measured: a title line and a status line (TaskRow.module.css). */
 const DONE_ROW_ESTIMATE = 60
-/** The space between rows, as `.rows` has it. */
+/** The space between rows, as `.rows` has it (`--space-2xs`). */
 const ROW_GAP = 2
 /** How many rows to render past each edge of what shows, so a quick scroll doesn't flash empty space. */
 const OVERSCAN = 10

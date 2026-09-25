@@ -36,6 +36,21 @@ export function panelToggles(page: Page) {
   }
 }
 
+/**
+ * The drag handles that resize the task list and the bottom bar, in the gaps beside them, and the slots whose size they
+ * set. (The right panel's is with it, in `taskPanel`.)
+ */
+export function resizeHandles(page: Page) {
+  return {
+    taskList: page.getByRole('separator', { name: 'Resize task list' }),
+    bottomBar: page.getByRole('separator', { name: 'Resize bottom panel' }),
+    /** The sidebar card's column, which is as wide as the sidebar. */
+    sidebarSlot: page.getByTestId('sidebar-slot'),
+    /** The bottom bar's row, which is as tall as the bottom bar. */
+    bottomBarSlot: page.getByTestId('bottom-bar-slot'),
+  }
+}
+
 /** The first-run welcome's controls. */
 export function firstRun(page: Page) {
   const welcome = regions(page).welcome
@@ -110,6 +125,8 @@ export function taskHeader(page: Page) {
     pin: header.getByRole('button', { name: 'Pin task' }),
     unpin: header.getByRole('button', { name: 'Unpin task' }),
     markDone: header.getByRole('button', { name: 'Mark done' }),
+    /** When the task started or was created (or ran, once done), after the pill on the title's line. */
+    timing: header.getByText(/^(started|created|reopened) |^\d{1,2}:\d{2} – \d{1,2}:\d{2}$/),
     /** Shows the right panel again; there only while it's collapsed. */
     showSidePanel: header.getByRole('button', { name: 'Show side panel' }),
     /** A row's value, e.g. the objective. */
@@ -127,7 +144,7 @@ export function taskPanel(page: Page) {
   return {
     panel,
     /** The drag handle on the panel's left edge, in the gap beside it. */
-    resizeHandle: regions(page).task.getByRole('separator', { name: 'Resize panel' }),
+    resizeHandle: regions(page).task.getByRole('separator', { name: 'Resize side panel' }),
     collapse: panel.getByRole('button', { name: 'Collapse side panel' }),
     tab: (name: string | RegExp) => panel.getByRole('tab', { name }),
     tabPanel: panel.getByRole('tabpanel'),
@@ -339,6 +356,19 @@ export function inputBar(page: Page) {
         .getByRole('button', { name: `${name} queued message` }),
     /** The field of the queued message being edited in place. */
     queuedEditor: bar.getByRole('textbox', { name: 'Queued message' }),
+    /** The images pasted into the message being written, as thumbnails above the field, in order. */
+    attachedImages: bar.getByRole('list', { name: 'Attached images' }).getByRole('img'),
+    /** An attached image's remove button, by its number. */
+    removeImage: (position: number) => bar.getByRole('button', { name: `Remove image ${String(position)}` }),
+    /** Why something pasted wasn't attached, one line each. */
+    refusals: bar.getByRole('alert'),
+    /** A queued message's images, by its number. */
+    queuedImages: (position: number) =>
+      bar
+        .getByRole('region', { name: 'Queued messages' })
+        .getByRole('listitem')
+        .nth(position - 1)
+        .getByRole('img'),
     /** The context meter, at the right of the settings row. */
     contextMeter: bar.getByTestId('context-meter-slot').getByRole('meter', { name: 'Context used' }),
     /** The button the context meter is, which opens its popover. */

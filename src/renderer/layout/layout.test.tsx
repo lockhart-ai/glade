@@ -1,17 +1,57 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../components'
 import { moduleClass } from '../components/moduleClass'
-import { MIN_CHAT_WIDTH, MIN_PANEL_WIDTH } from '../right-panel/panelModel'
+import {
+  MAX_SIDEBAR_WIDTH,
+  MIN_BOTTOM_BAR_HEIGHT,
+  MIN_CHAT_WIDTH,
+  MIN_PANEL_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+  MIN_TASK_HEIGHT,
+} from '../panels'
 import { sampleWorkspace } from '../store/test-bridge'
-import { AppShell, BottomBar, RightPanel, Sidebar, SidebarHeader, TaskCard, TaskHeader } from '.'
+import { AppShell, BottomBar, RightPanel, Sidebar, SidebarHeader, TaskCard, TaskHeader, type AppShellProps } from '.'
 import appShellStyles from './AppShell.module.css'
 import bottomBarStyles from './BottomBar.module.css'
 import taskCardStyles from './TaskCard.module.css'
 
+/** The sizes and handlers every `AppShell` takes, for tests that aren't about them. */
+const SIZES = {
+  sidebarWidth: 300,
+  onSidebarWidthChange: vi.fn(),
+  bottomBarHeight: 300,
+  onBottomBarHeightChange: vi.fn(),
+} satisfies Partial<AppShellProps>
+
+/** Stands in for the layout jsdom doesn't do: an element's laid-out size. */
+function layOut(element: Element, box: { readonly width?: number; readonly height?: number }): void {
+  const rect = new DOMRect(0, 0, box.width ?? 0, box.height ?? 0)
+  element.getBoundingClientRect = () => rect
+}
+
+/** Stands in for the minimum sizes the stylesheet (which jsdom doesn't apply) gives some elements. */
+function stubMinimums(minimums: ReadonlyMap<Element, { readonly minWidth?: string; readonly minHeight?: string }>) {
+  const real = window.getComputedStyle.bind(window)
+  vi.spyOn(window, 'getComputedStyle').mockImplementation((element) => {
+    const stub = minimums.get(element)
+    // AppShell reads nothing else of these elements' styles.
+    return stub === undefined ? real(element) : ({ minWidth: '', minHeight: '', ...stub } as CSSStyleDeclaration)
+  })
+}
+
 describe('AppShell', () => {
+  beforeEach(() => {
+    // jsdom doesn't capture pointers.
+    Element.prototype.setPointerCapture = vi.fn()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('renders the sidebar, task card and bottom bar slots', () => {
-    render(<AppShell sidebar={<p>Sidebar slot</p>} task={<p>Task slot</p>} bottomBar={<p>Bottom slot</p>} />)
+    render(<AppShell {...SIZES} sidebar={<p>Sidebar slot</p>} task={<p>Task slot</p>} bottomBar={<p>Bottom slot</p>} />)
 
     expect(screen.getByText('Sidebar slot')).toBeInTheDocument()
     expect(screen.getByText('Task slot')).toBeInTheDocument()
@@ -22,15 +62,18 @@ describe('AppShell', () => {
   })
 
   it('gives the task card the whole width without a sidebar, and the bottom bar only its height when collapsed', () => {
-    render(<AppShell task={<p>Task slot</p>} bottomBar={<p>Bottom slot</p>} bottomBarCollapsed />)
+    render(<AppShell {...SIZES} task={<p>Task slot</p>} bottomBar={<p>Bottom slot</p>} bottomBarCollapsed />)
 
     expect(screen.getByText('Task slot').parentElement).toHaveClass(moduleClass(appShellStyles, 'full'))
     expect(screen.getByText('Bottom slot').parentElement).toHaveClass(moduleClass(appShellStyles, 'collapsed'))
+    // Neither has a handle: there's no sidebar, and the bar is collapsed to its tab row.
+    expect(screen.queryByRole('separator')).toBeNull()
   })
 
   it('shows the banner above the rest when there is one', () => {
     render(
       <AppShell
+        {...SIZES}
         sidebar={<p>Sidebar slot</p>}
         task={<p>Task slot</p>}
         bottomBar={<p>Bottom slot</p>}
@@ -41,6 +84,161 @@ describe('AppShell', () => {
     expect(screen.getByText('Banner').compareDocumentPosition(screen.getByText('Sidebar slot'))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     )
+  })
+
+  it('sets the sizes you chose, and the limits, for the stylesheet to cap', () => {
+    const { container, rerender } = render(
+      <AppShell {...SIZES} sidebarWidth={412} bottomBarHeight={264} task={<p>Task</p>} bottomBar={<p>Bar</p>} />,
+    )
+
+    const shell = container.firstElementChild as HTMLElement
+    expect(shell.style.getPropertyValue('--sidebar-width')).toBe('412px')
+    expect(shell.style.getPropertyValue('--bottom-bar-height')).toBe('264px')
+    expect(shell.style.getPropertyValue('--sidebar-min-width')).toBe(`${String(MIN_SIDEBAR_WIDTH)}px`)
+    expect(shell.style.getPropertyValue('--bottom-bar-min-height')).toBe(`${String(MIN_BOTTOM_BAR_HEIGHT)}px`)
+    expect(shell.style.getPropertyValue('--task-min-height')).toBe(`${String(MIN_TASK_HEIGHT)}px`)
+    expect(shell.style.getPropertyValue('--chat-min-width')).toBe(`${String(MIN_CHAT_WIDTH)}px`)
+    expect(shell.style.getPropertyValue('--right-panel-min-width')).toBe(`${String(MIN_PANEL_WIDTH)}px`)
+    // The task card's minimum makes room for the right panel only while it shows.
+    expect(screen.getByText('Task').parentElement).toHaveAttribute('data-right-panel', 'false')
+
+    rerender(<AppShell {...SIZES} taskHasRightPanel task={<p>Task</p>} bottomBar={<p>Bar</p>} />)
+    expect(screen.getByText('Task').parentElement).toHaveAttribute('data-right-panel', 'true')
+    expect(shell.style.getPropertyValue('--sidebar-width')).toBe('300px')
+  })
+
+  it('widens the sidebar as you drag its handle, up to the room the task card has past its minimum', () => {
+    const onSidebarWidthChange = vi.fn()
+    const { container } = render(
+      <AppShell
+        {...SIZES}
+        onSidebarWidthChange={onSidebarWidthChange}
+        sidebar={<p>Sidebar</p>}
+        task={<p>Task</p>}
+        bottomBar={<p>Bar</p>}
+      />,
+    )
+    const shell = container.firstElementChild as HTMLElement
+    const slot = screen.getByTestId('sidebar-slot')
+    const card = screen.getByText('Task')
+    // The sidebar shows 300px wide, and the task card 800px, 76px more than its minimum.
+    layOut(slot, { width: 300 })
+    layOut(card, { width: 800 })
+    stubMinimums(new Map([[card, { minWidth: '724px' }]]))
+    const handle = screen.getByRole('separator', { name: 'Resize task list' })
+    expect(handle).toHaveAttribute('aria-orientation', 'vertical')
+
+    fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientX: 310 })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 350 })
+    expect(shell.style.getPropertyValue('--sidebar-width')).toBe('340px')
+    expect(onSidebarWidthChange).not.toHaveBeenCalled()
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 900 })
+    expect(shell.style.getPropertyValue('--sidebar-width')).toBe('376px')
+    fireEvent.pointerUp(handle, { pointerId: 1 })
+    expect(onSidebarWidthChange).toHaveBeenCalledExactlyOnceWith(376)
+
+    // However much room there is, it stops at its own maximum; and at its minimum the other way.
+    layOut(card, { width: 2000 })
+    fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientX: 310 })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 3000 })
+    fireEvent.pointerUp(handle, { pointerId: 1 })
+    expect(onSidebarWidthChange).toHaveBeenLastCalledWith(MAX_SIDEBAR_WIDTH)
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' })
+    expect(onSidebarWidthChange).toHaveBeenLastCalledWith(284)
+    fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientX: 310 })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 0 })
+    fireEvent.pointerUp(handle, { pointerId: 1 })
+    expect(onSidebarWidthChange).toHaveBeenLastCalledWith(MIN_SIDEBAR_WIDTH)
+  })
+
+  it('starts from the width showing when a smaller window squeezed the sidebar, and holds it without a task card', () => {
+    const onSidebarWidthChange = vi.fn()
+    const { rerender } = render(
+      <AppShell
+        {...SIZES}
+        sidebarWidth={500}
+        onSidebarWidthChange={onSidebarWidthChange}
+        sidebar={<p>Sidebar</p>}
+        task={<p>Task</p>}
+        bottomBar={<p>Bar</p>}
+      />,
+    )
+    // The window squeezed the sidebar to 352px, and the task card to its minimum: there's no more room to take.
+    const card = screen.getByText('Task')
+    layOut(screen.getByTestId('sidebar-slot'), { width: 352 })
+    layOut(card, { width: 724 })
+    stubMinimums(new Map([[card, { minWidth: '724px' }]]))
+    const handle = screen.getByRole('separator', { name: 'Resize task list' })
+    fireEvent.keyDown(handle, { key: 'ArrowRight' })
+    expect(onSidebarWidthChange).toHaveBeenLastCalledWith(352)
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' })
+    expect(onSidebarWidthChange).toHaveBeenLastCalledWith(336)
+
+    // With nothing beside it to measure, there's only room for its minimum.
+    rerender(
+      <AppShell
+        {...SIZES}
+        onSidebarWidthChange={onSidebarWidthChange}
+        sidebar={<p>Sidebar</p>}
+        task={null}
+        bottomBar={<p>Bar</p>}
+      />,
+    )
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize task list' }), { key: 'ArrowRight' })
+    expect(onSidebarWidthChange).toHaveBeenLastCalledWith(MIN_SIDEBAR_WIDTH)
+  })
+
+  it('makes the bottom bar taller as you drag its handle up, until the task card is at its minimum height', () => {
+    const onBottomBarHeightChange = vi.fn()
+    const { container } = render(
+      <AppShell
+        {...SIZES}
+        onBottomBarHeightChange={onBottomBarHeightChange}
+        sidebar={<p>Sidebar</p>}
+        task={<p>Task</p>}
+        bottomBar={<p>Bar</p>}
+      />,
+    )
+    const shell = container.firstElementChild as HTMLElement
+    const row = screen.getByText('Task').parentElement
+    if (row === null) throw new Error('The task card has no row')
+    // The bar shows 300px tall, and the row above it 600px, 140px more than the task card's minimum.
+    layOut(screen.getByTestId('bottom-bar-slot'), { height: 300 })
+    layOut(row, { height: 600 })
+    stubMinimums(new Map([[row, { minHeight: `${String(MIN_TASK_HEIGHT)}px` }]]))
+    const handle = screen.getByRole('separator', { name: 'Resize bottom panel' })
+    expect(handle).toHaveAttribute('aria-orientation', 'horizontal')
+
+    fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientY: 600 })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 550 })
+    expect(shell.style.getPropertyValue('--bottom-bar-height')).toBe('350px')
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 0 })
+    expect(shell.style.getPropertyValue('--bottom-bar-height')).toBe('440px')
+    fireEvent.pointerUp(handle, { pointerId: 1 })
+    expect(onBottomBarHeightChange).toHaveBeenCalledExactlyOnceWith(440)
+
+    // Down, it stops at its minimum; ↑ moves it a step.
+    fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientY: 600 })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 2000 })
+    fireEvent.pointerUp(handle, { pointerId: 1 })
+    expect(onBottomBarHeightChange).toHaveBeenLastCalledWith(MIN_BOTTOM_BAR_HEIGHT)
+    fireEvent.keyDown(handle, { key: 'ArrowUp' })
+    expect(onBottomBarHeightChange).toHaveBeenLastCalledWith(316)
+    expect(shell.style.getPropertyValue('--bottom-bar-height')).toBe('316px')
+  })
+
+  it('gives the bottom bar only its minimum when the row above can’t be measured', () => {
+    const onBottomBarHeightChange = vi.fn()
+    render(
+      <AppShell
+        {...SIZES}
+        onBottomBarHeightChange={onBottomBarHeightChange}
+        task={<p>Task</p>}
+        bottomBar={<p>Bar</p>}
+      />,
+    )
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize bottom panel' }), { key: 'ArrowUp' })
+    expect(onBottomBarHeightChange).toHaveBeenLastCalledWith(MIN_BOTTOM_BAR_HEIGHT)
   })
 })
 
@@ -160,13 +358,14 @@ describe('RightPanel', () => {
     expect(panel).toHaveTextContent('Panel content')
   })
 
-  it('sets its width, and its limits, for the stylesheet to cap', () => {
+  it('sets its width for the stylesheet to cap (with the limits AppShell sets), its handle on its left edge', () => {
     render(<RightPanel width={612} onWidthChange={vi.fn()} />)
 
     const slot = screen.getByTestId('right-panel')
     expect(slot.style.getPropertyValue('--right-panel-width')).toBe('612px')
-    expect(slot.style.getPropertyValue('--right-panel-min-width')).toBe(`${String(MIN_PANEL_WIDTH)}px`)
-    expect(slot.style.getPropertyValue('--chat-min-width')).toBe(`${String(MIN_CHAT_WIDTH)}px`)
+    const handle = screen.getByRole('separator', { name: 'Resize side panel' })
+    expect(handle).toHaveAttribute('data-edge', 'left')
+    expect(handle).toHaveAttribute('aria-valuenow', '612')
   })
 
   it('resizes as you drag its handle, leaving the chat its minimum, and hands on the width you let go at', () => {
@@ -180,7 +379,7 @@ describe('RightPanel', () => {
     // jsdom lays nothing out: the task card is 1200px wide, so the panel and chat share 1200 - 12 - 12 - 12.
     Object.defineProperty(screen.getByTestId('card'), 'clientWidth', { configurable: true, value: 1200 })
     const slot = screen.getByTestId('right-panel')
-    const handle = screen.getByRole('separator', { name: 'Resize panel' })
+    const handle = screen.getByRole('separator', { name: 'Resize side panel' })
 
     fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientX: 800 })
     fireEvent.pointerMove(handle, { pointerId: 1, clientX: 700 })
@@ -196,7 +395,7 @@ describe('RightPanel', () => {
     const onWidthChange = vi.fn()
     render(<RightPanel width={440} onWidthChange={onWidthChange} />)
     // Unmeasured, there's only room for the minimum width.
-    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize panel' }), { key: 'ArrowLeft' })
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize side panel' }), { key: 'ArrowLeft' })
 
     expect(onWidthChange).toHaveBeenCalledExactlyOnceWith(MIN_PANEL_WIDTH)
   })

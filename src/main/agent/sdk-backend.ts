@@ -2,14 +2,12 @@
 // decides about a session (its folder, model, prompt, settings, permissions) is here; see `docs/sdk-notes.md`.
 import { query, type Options, type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { createRequire } from 'node:module'
+import type { ImageData } from '../../shared/images'
 import type { Environment } from '../login-env'
+import { SILENT_LOGGER, type Logger } from '../logging/logger'
 import { AsyncQueue } from './async-queue'
 import type { AgentBackend, AgentSession, AgentSessionOptions } from './backend'
-
-/** Where the adapter reports a settings change the SDK refused. */
-export interface SdkBackendLog {
-  warn(message: string, error: unknown): void
-}
+import { userContent } from './user-content'
 
 /** How to make the real backend. */
 export interface SdkBackendOptions {
@@ -18,7 +16,11 @@ export interface SdkBackendOptions {
    * its agent process starts.
    */
   readonly env: Promise<Environment>
-  readonly log?: SdkBackendLog
+  /**
+   * Where each agent process starting and closing, and a settings change the SDK refused, are logged, when the session
+   * has no log of its own (`AgentSessionOptions.log`). Nothing by default.
+   */
+  readonly log?: Logger
 }
 
 /** Finds a module's file, as `require.resolve` does. */
@@ -49,6 +51,14 @@ export function claudeCodeExecutable(
   return ASAR.test(path) ? path.replace(ASAR, '$1app.asar.unpacked$2') : undefined
 }
 
+/**
+ * What Glade adds to every session's environment. `CLAUDE_CODE_ENABLE_TODO_TOOLS` gives the session Claude Code's todo
+ * tools (`TaskCreate`, `TaskUpdate`, …), which the Todos tab reads: the bundled Claude Code leaves them off for SDK
+ * sessions on newer models (Opus 5.5, Sonnet 5), turning them on by default only for older ones
+ * (`docs/sdk-notes.md` §10).
+ */
+export const SESSION_ENV: Environment = { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' }
+
 /** The SDK options for a session that runs in `env`. */
 export function sdkOptions(
   options: AgentSessionOptions,
@@ -60,7 +70,7 @@ export function sdkOptions(
     ...(executable === undefined ? {} : { pathToClaudeCodeExecutable: executable }),
     // The whole environment, since it replaces Glade's own: opened from Finder, that has launchd's bare PATH. A copy,
     // since the SDK adds to it. No credentials of Glade's: the bundled Claude Code binary finds the user's login itself.
-    env: { ...env },
+    env: { ...env, ...SESSION_ENV },
     cwd: options.cwd,
     model: options.model,
     effort: options.effort,
@@ -79,14 +89,14 @@ export function sdkOptions(
   }
 }
 
-/** The SDK user message for the user's next message, stamped as typed by a person. */
-export function userMessage(text: string, uuid: string): SDKUserMessage {
+/** The SDK user message for the user's next message and its images, stamped as typed by a person. */
+export function userMessage(text: string, uuid: string, images: readonly ImageData[] = []): SDKUserMessage {
   return {
     type: 'user',
     uuid: uuid as SDKUserMessage['uuid'],
     parent_tool_use_id: null,
     origin: { kind: 'human' },
-    message: { role: 'user', content: text },
+    message: { role: 'user', content: userContent(text, images) },
   }
 }
 
@@ -99,13 +109,24 @@ export function userMessage(text: string, uuid: string): SDKUserMessage {
  * `applyFlagSettings` to finish (`docs/sdk-notes.md` §4). If the SDK refuses a change, the message still goes, on the
  * settings the session had.
  */
-export function createSdkBackend({ env, log = console }: SdkBackendOptions): AgentBackend {
+export function createSdkBackend({ env, log: backendLog = SILENT_LOGGER }: SdkBackendOptions): AgentBackend {
   return {
     start(options): AgentSession {
+      const log = options.log ?? backendLog
       const input = new AsyncQueue<SDKUserMessage>()
-      const started: Promise<Query> = env.then((resolved) =>
-        query({ prompt: input, options: sdkOptions(options, resolved) }),
-      )
+      const started: Promise<Query> = env.then((resolved) => {
+        const sdk = sdkOptions(options, resolved)
+        log.info('agent process starting', {
+          executable: sdk.pathToClaudeCodeExecutable ?? null,
+          cwd: options.cwd,
+          model: options.model,
+          effort: options.effort,
+          resumeSessionId: options.resumeSessionId,
+          mcpServers: Object.keys(options.mcpServers),
+          PATH: resolved.PATH ?? null,
+        })
+        return query({ prompt: input, options: sdk })
+      })
       // Everything asked of the session so far, in order.
       let queue = Promise.resolve()
       const then = (step: () => Promise<void> | void): void => {
@@ -115,9 +136,9 @@ export function createSdkBackend({ env, log = console }: SdkBackendOptions): Age
         messages: (async function* () {
           yield* await started
         })(),
-        send(text, uuid) {
+        send(text, uuid, images) {
           then(() => {
-            input.push(userMessage(text, uuid))
+            input.push(userMessage(text, uuid, images))
           })
         },
         configure({ model, effort }) {
@@ -127,17 +148,20 @@ export function createSdkBackend({ env, log = console }: SdkBackendOptions): Age
               await session.setModel(model)
               await session.applyFlagSettings({ effortLevel: effort })
             } catch (error) {
-              log.warn(`Couldn't change the session to ${model} at ${effort} effort`, error)
+              log.warn("the SDK refused the session's new settings", { model, effort, error })
             }
           })
         },
         async interrupt() {
+          log.info('agent interrupted')
           await (await started).interrupt()
         },
         async stopTask(sdkTaskId) {
+          log.info('agent task stopped', { sdkTaskId })
           await (await started).stopTask(sdkTaskId)
         },
         close() {
+          log.info('agent process closing')
           then(() => {
             input.end()
           })

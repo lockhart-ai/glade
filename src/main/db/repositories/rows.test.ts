@@ -46,6 +46,11 @@ describe('Row', () => {
     expect(() => row({ count: 'x' }).nullableInteger('count')).toThrow('expected an integer')
   })
 
+  it('reads blobs', () => {
+    expect(row({ data: Buffer.from([1, 2]) }).blob('data')).toEqual(Buffer.from([1, 2]))
+    expect(() => row({ data: 'AQI=' }).blob('data')).toThrow('things.data: expected a blob, got "AQI="')
+  })
+
   it('reads 0/1 flags', () => {
     expect(row({ on: 0 }).flag('on')).toBe(false)
     expect(row({ on: 1 }).flag('on')).toBe(true)

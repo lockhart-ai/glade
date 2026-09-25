@@ -21,6 +21,7 @@ import {
   type Question,
   type QuestionAnswers,
   type QuestionSet,
+  type Message,
   type QueuedMessage,
   UiStateKey,
   type Task,
@@ -31,6 +32,9 @@ import {
 } from '../../shared/domain'
 import { registerBridge } from '../bridge'
 import { fakeIpcPair } from '../bridge/fake-ipc'
+import type { ImageData } from '../../shared/images'
+import { GIF, JPEG, PNG, WEBP } from '../../shared/test-images'
+import { ImageOwnerKind, imagesOf } from '../db/repositories/images'
 import { listMessages } from '../db/repositories/messages'
 import { getOpenQuestionSet, listQuestionSets } from '../db/repositories/question-sets'
 import { appendQueuedMessage, listQueuedMessages } from '../db/repositories/queued-messages'
@@ -57,6 +61,9 @@ import { systemPromptAppend } from './system-prompt'
 import { updateSettings } from '../db/repositories/settings'
 import * as sdk from './test-sdk-messages'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
+import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
+import { LogLevel, LogScope } from '../logging/logger'
+import { AgentEventKind } from './events'
 
 let database: TestDatabase
 let workspace: Workspace
@@ -65,8 +72,11 @@ let backend: FakeAgentBackend
 let glade: GladeBridge
 let runner: AgentRunner
 let events: GladeEvent[]
+/** What the bridge, the runner and the agent logged. */
+let log: MemoryLog
 
 beforeEach(() => {
+  log = createMemoryLog()
   vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   database = openTestDatabase()
   workspace = sampleWorkspace(database.db)
@@ -85,6 +95,7 @@ beforeEach(() => {
     writeClipboard: () => Promise.resolve(),
     terminal: fakeTerminalOptions(),
     agentBackend: backend,
+    log: log.logger,
   }))
   glade = createBridge(ipc.renderer)
   events = []
@@ -112,6 +123,7 @@ function relaunch(): void {
     writeClipboard: () => Promise.resolve(),
     terminal: fakeTerminalOptions(),
     agentBackend: backend,
+    log: log.logger,
   }))
   glade = createBridge(ipc.renderer)
   events = []
@@ -264,12 +276,14 @@ describe('a turn', () => {
       resumeSessionId: null,
       systemPromptAppend: systemPromptAppend(task),
       mcpServers: { [GLADE_SERVER]: expect.objectContaining({ type: 'sdk', name: GLADE_SERVER }) as unknown },
+      log: expect.objectContaining({ info: expect.any(Function) as unknown }) as unknown,
     })
     const [userMessage] = listMessages(database.db, task.id)
     expect(backend.session.sent).toEqual([
       {
         text: 'Find out why the login test is flaky.',
         uuid: userMessage?.id,
+        images: [],
         settings: { model: task.model, effort: task.effort },
       },
     ])
@@ -923,8 +937,8 @@ describe('the session', () => {
   })
 
   it('logs and survives an unknown message, a result for a call it never saw, and a write that fails', async () => {
-    const warn = vi.fn()
-    const own = createAgentRunner({ db: database.db, emit: () => undefined, backend, log: { warn } })
+    const ownLog = createMemoryLog()
+    const own = createAgentRunner({ db: database.db, emit: () => undefined, backend, log: ownLog.logger })
     own.send(task.id, 'Hi')
     backend.session.emit(
       sdk.init(),
@@ -938,20 +952,35 @@ describe('the session', () => {
     )
     await settle()
 
-    expect(warn).toHaveBeenCalledWith('Ignored SDK messages of the unknown type brand_new_thing')
-    expect(warn).toHaveBeenCalledWith("Ignored a result for tool call toolu_99, which isn't running")
-    expect(warn).toHaveBeenCalledWith(`Failed to handle an agent event for task ${task.id}`, expect.any(Error))
+    expect(ownLog.withMessage('Ignored SDK messages of the unknown type brand_new_thing')).toEqual([
+      expect.objectContaining({ level: LogLevel.Warn, scope: LogScope.Agent, fields: { taskId: task.id } }),
+    ])
+    expect(ownLog.withMessage("ignored a result for a tool call that isn't running")).toEqual([
+      expect.objectContaining({ level: LogLevel.Warn, fields: { taskId: task.id, toolUseId: 'toolu_99' } }),
+    ])
+    expect(ownLog.withMessage('failed to handle an agent event')).toEqual([
+      expect.objectContaining({
+        level: LogLevel.Error,
+        fields: { taskId: task.id, kind: AgentEventKind.ToolCallStarted, error: expect.any(Error) as unknown },
+      }),
+    ])
     expect(chat().at(-1)).toEqual({ role: MessageRole.Agent, body: 'Done.', turn: 1 })
     expect(current().activity).toBe(TaskActivity.Waiting)
     own.close()
   })
 
-  it('logs to the console by default', async () => {
-    await send('Hi')
-    backend.session.emit({ type: 'brand_new_thing' })
+  it('logs nothing by default', async () => {
+    vi.spyOn(console, 'debug')
+    vi.spyOn(console, 'info')
+    const own = createAgentRunner({ db: database.db, emit: () => undefined, backend })
+    own.send(task.id, 'Hi')
+    backend.session.emit({ type: 'brand_new_thing' }, sdk.init(), sdk.result('Hi.'))
     await settle()
 
-    expect(console.warn).toHaveBeenCalledWith('Ignored SDK messages of the unknown type brand_new_thing')
+    expect(console.warn).not.toHaveBeenCalled()
+    expect(console.info).not.toHaveBeenCalled()
+    expect(console.debug).not.toHaveBeenCalled()
+    own.close()
   })
 })
 
@@ -1267,6 +1296,7 @@ describe('resuming on launch', () => {
       {
         text: RESUME_PROMPT,
         uuid: expect.any(String) as unknown,
+        images: [],
         settings: { model: task.model, effort: task.effort },
       },
     ])
@@ -1429,7 +1459,13 @@ describe('resuming on launch', () => {
 
     runner.resumeInterrupted()
 
-    expect(console.warn).toHaveBeenCalledWith(`Failed to resume task ${task.id}`, expect.any(Error))
+    expect(log.withMessage('failed to resume task')).toEqual([
+      expect.objectContaining({
+        level: LogLevel.Error,
+        scope: LogScope.Runner,
+        fields: { taskId: task.id, error: expect.any(Error) as unknown },
+      }),
+    ])
     expect(toolLog()).toEqual([
       { divider: DividerKind.Turn, turn: 1 },
       { narration: "Glade couldn't resume the agent: spawn claude ENOENT", turn: 1 },
@@ -3262,5 +3298,189 @@ describe('compaction', () => {
     expect(listQueuedMessages(database.db, task.id)).toEqual([])
     expect(chat().at(-1)).toEqual({ role: MessageRole.User, body: 'Now update the stored paths.', turn: 2 })
     expect(current().activity).toBe(TaskActivity.Working)
+  })
+})
+
+describe('pasted images', () => {
+  async function sendWith(text: string, images: readonly ImageData[]): Promise<Message> {
+    return (await glade.invoke(CommandName.TasksSend, { id: task.id, text, images })).message
+  }
+
+  async function queueWith(text: string, images: readonly ImageData[]): Promise<QueuedMessage> {
+    return (await glade.invoke(CommandName.QueueAdd, { taskId: task.id, text, images })).queuedMessage
+  }
+
+  /** What the session was sent: each message's text and images. */
+  function sent(): unknown[] {
+    return backend.session.sent.map(({ text, images }) => ({ text, images }))
+  }
+
+  /** Each chat message's text and its images' bytes, read back from the database. */
+  function chatWithImages(): unknown[] {
+    return listMessages(database.db, task.id).map(({ body, id }) => ({
+      body,
+      images: imagesOf(database.db, { kind: ImageOwnerKind.Message, id }),
+    }))
+  }
+
+  /** A turn waiting on a tool call's result, so what's sent meanwhile is queued. */
+  async function startCopy(): Promise<void> {
+    await send('Copy the existing uploads to S3.')
+    backend.session.emit(sdk.init(), sdk.toolUse('toolu_01', 'Bash', { command: 'python scripts/copy.py' }))
+    await settle()
+  }
+
+  it('saves a message’s images with it, in order, and hands them to the agent with its text', async () => {
+    const message = await sendWith('Why does the upload page look like this?', [PNG, JPEG, GIF])
+
+    expect(message.images.map(({ mediaType }) => mediaType)).toEqual([PNG.mediaType, JPEG.mediaType, GIF.mediaType])
+    expect(listMessages(database.db, task.id)).toEqual([message])
+    expect(sent()).toEqual([{ text: 'Why does the upload page look like this?', images: [PNG, JPEG, GIF] }])
+    expect(backend.session.sent[0]?.uuid).toBe(message.id)
+    expect(events).toContainEqual({ type: EventType.MessageAppended, message })
+  })
+
+  it('sends a message that is only images', async () => {
+    const message = await sendWith('', [WEBP])
+
+    expect(message).toMatchObject({ body: '', turn: 1 })
+    expect(sent()).toEqual([{ text: '', images: [WEBP] }])
+    expect(current().activity).toBe(TaskActivity.Working)
+  })
+
+  it('refuses a message with no text and no images', async () => {
+    await expect(sendWith(' ', [])).rejects.toMatchObject({ code: BridgeErrorCode.InvalidRequest })
+    expect(listMessages(database.db, task.id)).toEqual([])
+    expect(backend.sessions).toEqual([])
+  })
+
+  it('keeps a queued message’s images while it waits, and hands them over when the step finishes', async () => {
+    await startCopy()
+
+    const queued = await queueWith('Use this naming scheme.', [PNG, GIF])
+    const imageOnly = await queueWith('', [JPEG])
+
+    expect(listQueuedMessages(database.db, task.id)).toEqual([queued, imageOnly])
+    expect(sent()).toEqual([{ text: 'Copy the existing uploads to S3.', images: [] }])
+
+    backend.session.emit(sdk.toolResult('toolu_01', 'copied 3,900 of 3,900'))
+    await settle()
+
+    expect(sent()).toEqual([
+      { text: 'Copy the existing uploads to S3.', images: [] },
+      { text: 'Use this naming scheme.', images: [PNG, GIF] },
+      { text: '', images: [JPEG] },
+    ])
+    expect(chatWithImages()).toEqual([
+      { body: 'Copy the existing uploads to S3.', images: [] },
+      { body: 'Use this naming scheme.', images: [PNG, GIF] },
+      { body: '', images: [JPEG] },
+    ])
+    // The delivered messages keep the images the queue showed, by the same ids.
+    const [, first, second] = listMessages(database.db, task.id)
+    expect(first?.images).toEqual(queued.images)
+    expect(second?.images).toEqual(imageOnly.images)
+  })
+
+  it('keeps a queued message’s images when its text is edited', async () => {
+    await startCopy()
+    const queued = await queueWith('Use this', [PNG])
+
+    const { queuedMessage } = await glade.invoke(CommandName.QueueEdit, { id: queued.id, text: 'Use this scheme' })
+
+    expect(queuedMessage).toEqual({ ...queued, body: 'Use this scheme' })
+    expect(listQueuedMessages(database.db, task.id)).toEqual([queuedMessage])
+  })
+
+  it('drops a queued message’s images when it’s removed', async () => {
+    await startCopy()
+    const queued = await queueWith('Use this', [PNG])
+
+    await glade.invoke(CommandName.QueueRemove, { id: queued.id })
+
+    expect(database.db.prepare('SELECT COUNT(*) FROM images').pluck().get()).toBe(0)
+  })
+
+  it('starts the next turn with queued images, before the message you send', async () => {
+    await startCopy()
+    await queueWith('', [GIF])
+    backend.session.emit(sdk.interruptMarker(true), sdk.abortedResult('aborted_tools'))
+    await glade.invoke(CommandName.TasksStop, { id: task.id })
+    await settle()
+
+    await sendWith('And this one.', [PNG])
+
+    expect(sent().slice(1)).toEqual([
+      { text: '', images: [GIF] },
+      { text: 'And this one.', images: [PNG] },
+    ])
+    expect(chatWithImages().slice(1)).toEqual([
+      { body: '', images: [GIF] },
+      { body: 'And this one.', images: [PNG] },
+    ])
+  })
+
+  it('hands the images to the agent again on a retry', async () => {
+    await sendWith('What does this error mean?', [PNG])
+    backend.session.emit(sdk.init())
+    await settle()
+    await failOverloaded(1)
+
+    await glade.invoke(CommandName.TasksRetry, { id: task.id })
+
+    expect(sent()).toEqual([
+      { text: 'What does this error mean?', images: [PNG] },
+      { text: 'What does this error mean?', images: [PNG] },
+    ])
+  })
+
+  it('shows the images after a relaunch, and hands them to a new session when the old one never started', async () => {
+    const message = await sendWith('Match this layout.', [JPEG, PNG])
+    relaunch()
+
+    expect(listMessages(database.db, task.id)).toEqual([message])
+    const [first] = message.images
+    expect(await glade.invoke(CommandName.ImagesGet, { id: first?.id ?? '' })).toEqual({ image: JPEG })
+
+    runner.resumeInterrupted()
+
+    expect(sent()).toEqual([{ text: 'Match this layout.', images: [JPEG, PNG] }])
+  })
+
+  it('keeps queued images across a relaunch', async () => {
+    await startCopy()
+    const queued = await queueWith('Then this.', [GIF, WEBP])
+    relaunch()
+
+    expect(listQueuedMessages(database.db, task.id)).toEqual([queued])
+    expect(await Promise.all(queued.images.map(({ id }) => glade.invoke(CommandName.ImagesGet, { id })))).toEqual([
+      { image: GIF },
+      { image: WEBP },
+    ])
+  })
+
+  it('answers images.get with not_found for no such image', async () => {
+    await expect(glade.invoke(CommandName.ImagesGet, { id: 'missing' })).rejects.toMatchObject({
+      code: BridgeErrorCode.NotFound,
+    })
+  })
+
+  it('refuses images with an answer to the agent’s questions, keeping the questions open', async () => {
+    await send('Draft the release notes for 2.4.')
+    backend.session.emit(sdk.init())
+    void backend.session
+      .callTool('toolu_ask', 'mcp__glade__ask', {
+        questions: [{ kind: QuestionKind.Text, prompt: 'Anything else?' }],
+      })
+      .catch(() => undefined)
+    await vi.waitFor(() => {
+      if (getOpenQuestionSet(database.db, task.id) === undefined) throw new Error('No question is open yet')
+    })
+
+    await expect(sendWith('Like this.', [PNG])).rejects.toMatchObject({ code: BridgeErrorCode.InvalidRequest })
+
+    expect(getOpenQuestionSet(database.db, task.id)).toBeDefined()
+    expect(chat()).toEqual([{ role: MessageRole.User, body: 'Draft the release notes for 2.4.', turn: 1 }])
+    expect(database.db.prepare('SELECT COUNT(*) FROM images').pluck().get()).toBe(0)
   })
 })

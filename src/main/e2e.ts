@@ -7,6 +7,7 @@
 import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import { AGENT_SCRIPT_NAMES, type AgentScriptName } from './agent/scripts'
+import type { UserContent } from './agent/user-content'
 import { isInTempFolder, isolateApp, type IsolatedApp } from './isolation'
 import type { Environment } from './login-env'
 
@@ -90,6 +91,30 @@ export function createE2eDesktop(): {
       desktop.copied.push(text)
       return Promise.resolve()
     },
+  }
+}
+
+/**
+ * Where e2e mode puts what the scripted agent was sent on the main process's global object: an `E2eAgent`. A spec
+ * reads it through Playwright's `app.evaluate`, to check what reached the agent, such as a pasted image's content block.
+ */
+export const E2E_AGENT_GLOBAL = '__gladeE2eAgent'
+
+/** What e2e mode's scripted agent was sent (`E2E_AGENT_GLOBAL`), oldest first. */
+export interface E2eAgent {
+  /** Each message's content, as the SDK backend would hand it to the agent. */
+  readonly received: UserContent[]
+}
+
+/**
+ * Puts an empty `E2eAgent` on the global object for a spec to read (`E2E_AGENT_GLOBAL`), and answers with what hears
+ * each message the scripted agent is sent: it records the message's content.
+ */
+export function createE2eAgent(): (content: UserContent) => void {
+  const agent: E2eAgent = { received: [] }
+  Reflect.set(globalThis, E2E_AGENT_GLOBAL, agent)
+  return (content) => {
+    agent.received.push(content)
   }
 }
 

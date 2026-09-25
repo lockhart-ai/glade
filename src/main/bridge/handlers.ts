@@ -3,6 +3,7 @@ import { BridgeErrorCode, CommandName, EventType, type CommandRequest, type Comm
 import type { MenuState } from '../../shared/commands'
 import type { AgentRunner } from '../agent/runner'
 import { listArtifacts } from '../db/repositories/artifacts'
+import { getImage } from '../db/repositories/images'
 import { listMessages } from '../db/repositories/messages'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { listQuestionSets } from '../db/repositories/question-sets'
@@ -38,6 +39,7 @@ import {
 } from '../files/files'
 import { todoListFor } from '../todos/todos'
 import { removeTaskArtifact } from '../artifacts/artifacts'
+import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
 
@@ -67,6 +69,8 @@ export interface HandlerContext {
   readonly closeWindow?: () => void
   /** The global terminal's tabs and their shells. */
   readonly terminals: Terminals
+  /** Where errors in the window are logged (`log.rendererError`). Nothing by default. */
+  readonly log?: Logger
 }
 
 /** The root of the workspace a new terminal tab starts in, or null for none. */
@@ -79,6 +83,7 @@ function terminalRoot(db: Database, workspaceId: string | null): string | null {
 
 export function createHandlers(context: HandlerContext): Handlers {
   const { db, emit, chooseFolder, runner, writeClipboard, terminals } = context
+  const renderer = (context.log ?? SILENT_LOGGER).scoped(LogScope.Renderer)
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
     [CommandName.WorkspacesCreate]: ({ rootPath }) => {
@@ -127,7 +132,7 @@ export function createHandlers(context: HandlerContext): Handlers {
       deleteTask(context, id)
       return null
     },
-    [CommandName.TasksSend]: ({ id, text }) => ({ message: runner.send(id, text) }),
+    [CommandName.TasksSend]: ({ id, text, images }) => ({ message: runner.send(id, text, images) }),
     [CommandName.TasksStop]: async ({ id }) => ({ task: await runner.stop(id) }),
     [CommandName.TasksRetry]: ({ id, model }) => ({ task: runner.retry(id, model) }),
     [CommandName.TasksCompact]: ({ id }) => ({ task: runner.compact(id) }),
@@ -147,11 +152,16 @@ export function createHandlers(context: HandlerContext): Handlers {
         artifacts: listArtifacts(db, id),
       }
     },
-    [CommandName.QueueAdd]: ({ taskId, text }) => ({ queuedMessage: runner.queue(taskId, text) }),
+    [CommandName.QueueAdd]: ({ taskId, text, images }) => ({ queuedMessage: runner.queue(taskId, text, images) }),
     [CommandName.QueueEdit]: ({ id, text }) => ({ queuedMessage: editQueuedMessage(context, id, text) }),
     [CommandName.QueueRemove]: ({ id }) => {
       removeQueuedMessage(context, id)
       return null
+    },
+    [CommandName.ImagesGet]: ({ id }) => {
+      const image = getImage(db, id)
+      if (image === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No image ${id}`)
+      return { image }
     },
     [CommandName.QuestionsAnswer]: ({ id, answers }) => ({ questionSet: runner.answer(id, answers) }),
     [CommandName.FilesRead]: async ({ taskId, path }) => ({ content: await readTaskFile(context, taskId, path) }),
@@ -228,6 +238,10 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.WindowClose]: () => {
       context.closeWindow?.()
+      return null
+    },
+    [CommandName.LogRendererError]: (error) => {
+      renderer.error('renderer error', { ...error })
       return null
     },
   }

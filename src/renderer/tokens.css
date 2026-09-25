@@ -47,7 +47,7 @@
   /* Type */
   --font-sans: Geist, system-ui, sans-serif;
   --font-mono: 'Geist Mono', ui-monospace, monospace;
-  --font-size-title: 26px;
+  --font-size-title: 20px;
   --font-weight-title: 600;
   --font-size-chat: 14.5px;
   --line-height-chat: 1.6;
@@ -57,8 +57,23 @@
   --font-size-label: 11px;
   --letter-spacing-label: 0.08em;
 
-  /* Shape and spacing */
-  --space-outer: 12px;
+  /*
+   * Spacing: one scale, and the insets built from it. Panels share one inset (--space-inset) from their edge to the
+   * cards, rows and fields inside them, and those items share one inner padding (--space-item), so their content lines
+   * up down a panel.
+   */
+  --space-2xs: 2px;
+  --space-xs: 4px;
+  --space-sm: 6px;
+  --space-md: 8px;
+  --space-lg: 12px;
+  --space-xl: 16px;
+  --space-2xl: 24px;
+  --space-outer: var(--space-md);
+  --space-inset: var(--space-md);
+  --space-item: var(--space-md);
+
+  /* Shape */
   --radius-card: 16px;
   --radius-nested: 12px;
   --radius-button: 8px;
@@ -72,13 +87,9 @@
   --touch-target-send: 44px;
 
   /*
-   * Window layout, from docs/design/html/task-workspace.html. Panels shrink in small windows (the max values). The
-   * right panel's width is resizable, so it's set from src/renderer/right-panel/panelModel.ts instead.
-   */
-  --sidebar-width: 300px;
-  --bottom-bar-height: 300px;
-  --bottom-bar-max-height: 30vh;
-  /*
+   * Window layout. The panels are resizable, so their sizes are set from src/renderer/panels/panelSize.ts instead, whose
+   * defaults are docs/design/html/task-workspace.html's.
+   *
    * The macOS traffic lights (titleBarStyle hiddenInset) sit over the top-left of the sidebar card, reaching about
    * 14px below its top edge. The sidebar keeps a strip this tall clear above its content.
    */
