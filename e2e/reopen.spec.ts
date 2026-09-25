@@ -43,7 +43,7 @@ test('reopen by chatting: a message in a done task reopens it and the agent carr
   await expect(conversation.markedDone).toHaveCount(0)
 
   // A message reopens it while the Undo toast is still up: the toast goes, the row moves back to Active, and the
-  // header says when it was reopened and first done.
+  // header keeps the task's age, and its tooltip says when it was first done and reopened.
   await bar.field.fill('Check the report header too.')
   await bar.field.press('Enter')
   await expect(undo).toHaveCount(0)
@@ -51,7 +51,11 @@ test('reopen by chatting: a message in a done task reopens it and the agent carr
   await expect(list.rows('Active')).toHaveCount(1)
   await expect(list.rows('Done')).toHaveCount(0)
   await expect(header.stateDot).toHaveAccessibleName(/^Active · /)
-  await expect(header.header).toContainText(/reopened just now · first done [A-Z][a-z]{2} \d{1,2}/)
+  await expect(header.age).toHaveText('· now')
+  await expect(header.age).toHaveAttribute(
+    'title',
+    /^Started .* · first done .* · reopened [A-Z][a-z]{2} \d{1,2}, \d{4}/,
+  )
   await expect(header.markDone).toBeVisible()
 
   // The chat marks when it was done, before your message, and that your message reopened it, after it.
