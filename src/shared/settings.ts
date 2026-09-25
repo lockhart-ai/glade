@@ -5,6 +5,7 @@
  */
 import { Effort, PermissionMode } from './domain'
 import type { KeyBindingOverrides } from './keymap'
+import { DEFAULT_CONTROL_PORT } from './control'
 import { MODEL_OPTIONS } from './models'
 
 export interface Settings {
@@ -29,6 +30,11 @@ export interface Settings {
    * Glade; `docs/control-api.md`). Off, every call is refused, and new sessions don't get the tools.
    */
   readonly controlEnabled: boolean
+  /**
+   * The port the control API's HTTP endpoint listens on (Settings › Control), 1024–65535. When it's taken, the next nine
+   * are tried (`./control`).
+   */
+  readonly controlPort: number
 }
 
 /** The settings you change at once: the ones left out keep their value. */
@@ -48,4 +54,5 @@ export const DEFAULT_SETTINGS: Settings = {
   notificationSound: false,
   keyBindings: {},
   controlEnabled: false,
+  controlPort: DEFAULT_CONTROL_PORT,
 }

@@ -2,9 +2,10 @@
  * The `glade-control` MCP server's name and its tools' names (`docs/control-api.md`), and which of them only read: what
  * the agent runner and the permission classifier need to know of it, without the rest of the control service.
  */
+import { CONTROL_SERVER_NAME } from '../../shared/control'
 
 /** The server's name: the `glade-control` in `mcp__glade-control__list_tasks`. */
-export const CONTROL_SERVER = 'glade-control'
+export const CONTROL_SERVER = CONTROL_SERVER_NAME
 
 /** The tools, by the names clients call them by. */
 export enum ControlToolName {

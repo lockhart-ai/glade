@@ -6,6 +6,8 @@ export enum SettingsSection {
   Appearance = 'appearance',
   Keyboard = 'keyboard',
   Plugins = 'plugins',
+  /** Whether other agents may drive Glade, and how to connect them (`docs/control-api.md`). */
+  Control = 'control',
   /** The workspace you're in: listed under its own heading, by the workspace's name. */
   Workspace = 'workspace',
 }
@@ -21,6 +23,7 @@ export const APP_SECTIONS: readonly AppSection[] = [
   SettingsSection.Appearance,
   SettingsSection.Keyboard,
   SettingsSection.Plugins,
+  SettingsSection.Control,
 ]
 
 /** Each app-wide section's name, as the nav and its heading show it. */
@@ -31,6 +34,7 @@ export const SECTION_TITLES: Readonly<Record<AppSection, string>> = {
   [SettingsSection.Appearance]: 'Appearance',
   [SettingsSection.Keyboard]: 'Keyboard',
   [SettingsSection.Plugins]: 'Plugins',
+  [SettingsSection.Control]: 'Control',
 }
 
 /** Where ⌘, opens Settings: the Agent section, the one with the settings you change most. */

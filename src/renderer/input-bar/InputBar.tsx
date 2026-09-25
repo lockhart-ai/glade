@@ -14,9 +14,10 @@ import { Effort, PermissionMode, TaskActivity, TaskState, type QueuedMessage, ty
 import { WindowCommandId } from '../../shared/commands'
 import { EFFORT_NAMES, MODEL_OPTIONS, modelName } from '../../shared/models'
 import { isCommandKey, useCommand, useKeymap } from '../commands/hooks'
+import { MESSAGE_FIELD_PROPS } from '../commands/registry'
 import { Icon, IconSize, Textarea, useToast } from '../components'
 import { describeFailure } from '../store/hydrate'
-import { selectSelectedTask } from '../store/state'
+import { selectSelectedTask, type InputDraft } from '../store/state'
 import { useGladeStore } from '../store/react'
 import { pastedFiles, readPastedFiles } from '../images/pasted'
 import { PAUSED_PLACEHOLDER } from '../pause/pauseModel'
@@ -122,7 +123,7 @@ export function InputBar({ contextMeter }: InputBarProps): React.JSX.Element | n
   useCommand(WindowCommandId.FocusInput, focusInput)
 
   if (task === undefined) return null
-  // A fresh draft for each task.
+  // Each task's own draft: the bar keeps it as it goes, and a task selected again gets it back.
   return (
     <TaskInputBar
       key={task.id}
@@ -161,10 +162,14 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   const toast = useToast()
   const keymap = useKeymap()
   const field = useRef<HTMLTextAreaElement>(null)
-  const [draft, setDraft] = useState('')
-  const [attachments, setAttachments] = useState(NO_ATTACHMENTS)
+  const keepInputDraft = useGladeStore((state) => state.keepInputDraft)
+  const kept = useGladeStore((state) => state.inputDrafts[task.id])
+  const [draft, setDraft] = useState(kept?.text ?? '')
+  const [attachments, setAttachments] = useState<readonly Attachment[]>(
+    () => kept?.images.map((image, index) => ({ key: index + 1, image })) ?? NO_ATTACHMENTS,
+  )
   const [refusals, setRefusals] = useState(NO_REFUSALS)
-  const attached = useRef(0)
+  const attached = useRef(kept?.images.length ?? 0)
   const [sending, setSending] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const insertion = useGladeStore((state) => state.inputInsertion)
@@ -197,6 +202,18 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
       element?.setSelectionRange(element.value.length, element.value.length)
     })
   }, [insertedRequest, mountedRequest])
+
+  // The draft as it now is, kept for the task when the bar goes (another task selected), to come back with it.
+  const unsent = useRef<InputDraft>({ text: draft, images: [] })
+  useEffect(() => {
+    unsent.current = { text: draft, images: attachments.map(({ image }) => image) }
+  }, [draft, attachments])
+  useEffect(
+    () => () => {
+      keepInputDraft(task.id, unsent.current)
+    },
+    [keepInputDraft, task.id],
+  )
 
   useEffect(() => {
     if (focusRequest === answeredRef.current) return
@@ -343,6 +360,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
       <Attachments attachments={attachments} refusals={refusals} onRemove={removeAttachment} />
       <div className={styles.compose}>
         <Textarea
+          {...MESSAGE_FIELD_PROPS}
           ref={field}
           label="Message the agent"
           placeholder={placeholder(task, started, working)}

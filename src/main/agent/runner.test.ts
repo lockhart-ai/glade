@@ -221,6 +221,7 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.SettingsChanged:
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
+      case EventType.ControlChanged:
         return [event.type]
     }
   })
@@ -290,6 +291,7 @@ describe('a turn', () => {
       resumeSessionId: null,
       systemPromptAppend: systemPromptAppend(task),
       mcpServers: { [GLADE_SERVER]: expect.objectContaining({ type: 'sdk', name: GLADE_SERVER }) as unknown },
+      env: {},
       allowedRules: [],
       log: expect.objectContaining({ info: expect.any(Function) as unknown }) as unknown,
       onToolPermission: expect.any(Function) as unknown,
@@ -2835,6 +2837,7 @@ describe('several tasks at once', () => {
       case EventType.SettingsChanged:
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
+      case EventType.ControlChanged:
         return null
     }
   }
@@ -2875,6 +2878,7 @@ describe('several tasks at once', () => {
       case EventType.SettingsChanged:
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
+      case EventType.ControlChanged:
         return [event.type]
     }
   }

@@ -30,11 +30,11 @@ describe('the limiter', () => {
     expect(limiter.take('a', ControlAccess.Read)).toEqual({ ok: false, retryAfterMs: 100 })
   })
 
-  it('allows 600 reads and 120 changes a minute by default', () => {
-    expect(CONTROL_RATE_LIMITS).toEqual({ read: 600, change: 120 })
+  it('allows 3,000 reads and 1,200 changes a minute by default, enough for a backfill', () => {
+    expect(CONTROL_RATE_LIMITS).toEqual({ read: 3000, change: 1200 })
     expect(RATE_WINDOW_MS).toBe(60_000)
     const limiter = createRateLimiter()
-    for (let call = 0; call < 120; call += 1) expect(limiter.take('a', ControlAccess.Change).ok).toBe(true)
+    for (let call = 0; call < 1200; call += 1) expect(limiter.take('a', ControlAccess.Change).ok).toBe(true)
     expect(limiter.take('a', ControlAccess.Change).ok).toBe(false)
   })
 })
@@ -58,9 +58,9 @@ describe('through the tools', () => {
     vi.useRealTimers()
   })
 
-  it('refuses the 121st change in a minute with rate_limited and retryAfterMs, then lets it through once it may', async () => {
-    for (let call = 0; call < 120; call += 1) {
-      vi.setSystemTime(1_000_000 + call * 100)
+  it('refuses the 1,201st change in a minute with rate_limited and retryAfterMs, then lets it through once it may', async () => {
+    for (let call = 0; call < 1200; call += 1) {
+      vi.setSystemTime(1_000_000 + call * 25)
       const reply = await client.call(ControlToolName.UpdateTask, { id: task.id, patch: { status: String(call) } })
       expect(reply.isError).toBe(false)
     }
@@ -75,7 +75,7 @@ describe('through the tools', () => {
         retryAfterMs: 30_000,
       },
     })
-    expect(app.bridge.control.service.getTask(task.id).status).toBe('119')
+    expect(app.bridge.control.service.getTask(task.id).status).toBe('1199')
     // Reads count apart, so they still go.
     expect((await client.call(ControlToolName.GetTask, { id: task.id })).isError).toBe(false)
 
@@ -86,8 +86,8 @@ describe('through the tools', () => {
     expect(limited?.fields).toMatchObject({ tool: 'update_task', caller: 'caller-task' })
   })
 
-  it('refuses the 601st read in a minute, per caller: another caller still reads', async () => {
-    for (let call = 0; call < 600; call += 1) {
+  it('refuses the 3,001st read in a minute, per caller: another caller still reads', async () => {
+    for (let call = 0; call < 3000; call += 1) {
       expect((await client.call(ControlToolName.ListWorkspaces)).isError).toBe(false)
     }
 

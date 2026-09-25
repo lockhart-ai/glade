@@ -122,7 +122,9 @@
   - It's served two ways: **in-process** to Glade's own tasks, next to `glade` (behind tool search, not `alwaysLoad`),
     and as a **Streamable HTTP endpoint** (the official `@modelcontextprotocol/sdk`) on `127.0.0.1` only, port 45233 by
     default and configurable, falling back to the next nine when taken, behind a random bearer token kept in SQLite
-    that Settings can regenerate. Every request's `Host` and `Origin` are checked against DNS rebinding.
+    that Settings can regenerate. Every request's `Host` and `Origin` are checked against DNS rebinding. The same server
+    answers plain JSON at `/v1/tools` for scripts (Jared, for backfills of hundreds of tasks), and Glade's own agents get
+    `GLADE_CONTROL_URL` and `GLADE_CONTROL_TOKEN` in their environment while it listens.
   - **Settings › Control** has one switch, **Let agents control Glade**, off by default. When it's on it shows the
     endpoint, a copy-ready `claude mcp add --transport http glade-control …` command with the token, Regenerate token,
     the port, and a note that Glade's own tasks get the tools too.

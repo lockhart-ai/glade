@@ -1018,6 +1018,23 @@ describe('context menu actions', () => {
     expect(invoke.mock.calls).toHaveLength(calls)
   })
 
+  it('keeps each task’s unsent draft, forgetting an empty one, without calling main', async () => {
+    const { store, invoke } = await hydrated()
+    const calls = invoke.mock.calls.length
+    const keep = store.getState().keepInputDraft
+
+    keep('t1', { text: 'Half a thought', images: [] })
+    keep('t2', { text: '', images: [PNG] })
+    keep('t1', { text: 'A whole thought', images: [] })
+    expect(store.getState().inputDrafts).toEqual({
+      t1: { text: 'A whole thought', images: [] },
+      t2: { text: '', images: [PNG] },
+    })
+    keep('t1', { text: '', images: [] })
+    expect(store.getState().inputDrafts).toEqual({ t2: { text: '', images: [PNG] } })
+    expect(invoke.mock.calls).toHaveLength(calls)
+  })
+
   it('shows a file of the selected task in the Files tab, opening the right panel there', async () => {
     const { store } = await hydrated(
       main([
