@@ -6,6 +6,8 @@ import type { Environment } from '../login-env'
 import type { AgentSessionOptions } from './backend'
 import { GIF, JPEG, PNG } from '../../shared/test-images'
 import { claudeCodeExecutable, createSdkBackend, sdkOptions, userMessage } from './sdk-backend'
+import { createMemoryLog } from '../logging/memory-sink'
+import { LogLevel, LogScope } from '../logging/logger'
 
 const sdk = vi.hoisted(() => {
   const session = {
@@ -212,17 +214,19 @@ it('changes the model and effort before delivering the next message, never after
 
 it('still delivers the message, on the old settings, when the SDK refuses a change', async () => {
   sdk.session.setModel.mockRejectedValueOnce(new Error('model_not_found'))
-  const log = { warn: vi.fn() }
-  const session = createSdkBackend({ env: Promise.resolve(ENV), log }).start(OPTIONS)
+  const log = createMemoryLog(LogScope.Agent)
+  const session = createSdkBackend({ env: Promise.resolve(ENV), log: log.logger }).start(OPTIONS)
 
   session.configure({ model: 'claude-missing', effort: Effort.Low })
   session.send('Hi', 'uuid-1')
 
   expect(await pushedMessages(1)).toEqual(['Hi'])
-  expect(log.warn).toHaveBeenCalledExactlyOnceWith(
-    "Couldn't change the session to claude-missing at low effort",
-    expect.any(Error),
-  )
+  expect(log.withMessage("the SDK refused the session's new settings")).toEqual([
+    expect.objectContaining({
+      level: LogLevel.Warn,
+      fields: { model: 'claude-missing', effort: Effort.Low, error: expect.any(Error) as unknown },
+    }),
+  ])
   expect(sdk.session.applyFlagSettings).not.toHaveBeenCalled()
 })
 

@@ -12,7 +12,15 @@ of truth, and a pushed tag `vX.Y.Z` builds and publishes the release (`.github/w
    ```
 
    Add `docs/releases/v0.2.0.md`: a short, user-facing summary of what the phase delivers and how to run it. It goes at
-   the top of the release notes, above GitHub's generated list of merged PRs. Open the PR as usual.
+   the top of the release notes, above GitHub's generated list of merged PRs. Its "Running it" section says where the
+   logs are, from 0.9.0 on:
+
+   ```md
+   - **Logs:** `~/Library/Logs/Glade/main.log`, one JSON line per event, rotated at 5 MB. They stay on your Mac;
+     attach them to a bug report if you like (`docs/logs.md` says what's in them).
+   ```
+
+   Open the PR as usual.
 
 2. **Merge** it through the merge queue.
 

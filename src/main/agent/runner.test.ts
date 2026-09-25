@@ -61,6 +61,9 @@ import { systemPromptAppend } from './system-prompt'
 import { updateSettings } from '../db/repositories/settings'
 import * as sdk from './test-sdk-messages'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
+import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
+import { LogLevel, LogScope } from '../logging/logger'
+import { AgentEventKind } from './events'
 
 let database: TestDatabase
 let workspace: Workspace
@@ -69,8 +72,11 @@ let backend: FakeAgentBackend
 let glade: GladeBridge
 let runner: AgentRunner
 let events: GladeEvent[]
+/** What the bridge, the runner and the agent logged. */
+let log: MemoryLog
 
 beforeEach(() => {
+  log = createMemoryLog()
   vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   database = openTestDatabase()
   workspace = sampleWorkspace(database.db)
@@ -89,6 +95,7 @@ beforeEach(() => {
     writeClipboard: () => Promise.resolve(),
     terminal: fakeTerminalOptions(),
     agentBackend: backend,
+    log: log.logger,
   }))
   glade = createBridge(ipc.renderer)
   events = []
@@ -116,6 +123,7 @@ function relaunch(): void {
     writeClipboard: () => Promise.resolve(),
     terminal: fakeTerminalOptions(),
     agentBackend: backend,
+    log: log.logger,
   }))
   glade = createBridge(ipc.renderer)
   events = []
@@ -268,6 +276,7 @@ describe('a turn', () => {
       resumeSessionId: null,
       systemPromptAppend: systemPromptAppend(task),
       mcpServers: { [GLADE_SERVER]: expect.objectContaining({ type: 'sdk', name: GLADE_SERVER }) as unknown },
+      log: expect.objectContaining({ info: expect.any(Function) as unknown }) as unknown,
     })
     const [userMessage] = listMessages(database.db, task.id)
     expect(backend.session.sent).toEqual([
@@ -928,8 +937,8 @@ describe('the session', () => {
   })
 
   it('logs and survives an unknown message, a result for a call it never saw, and a write that fails', async () => {
-    const warn = vi.fn()
-    const own = createAgentRunner({ db: database.db, emit: () => undefined, backend, log: { warn } })
+    const ownLog = createMemoryLog()
+    const own = createAgentRunner({ db: database.db, emit: () => undefined, backend, log: ownLog.logger })
     own.send(task.id, 'Hi')
     backend.session.emit(
       sdk.init(),
@@ -943,20 +952,35 @@ describe('the session', () => {
     )
     await settle()
 
-    expect(warn).toHaveBeenCalledWith('Ignored SDK messages of the unknown type brand_new_thing')
-    expect(warn).toHaveBeenCalledWith("Ignored a result for tool call toolu_99, which isn't running")
-    expect(warn).toHaveBeenCalledWith(`Failed to handle an agent event for task ${task.id}`, expect.any(Error))
+    expect(ownLog.withMessage('Ignored SDK messages of the unknown type brand_new_thing')).toEqual([
+      expect.objectContaining({ level: LogLevel.Warn, scope: LogScope.Agent, fields: { taskId: task.id } }),
+    ])
+    expect(ownLog.withMessage("ignored a result for a tool call that isn't running")).toEqual([
+      expect.objectContaining({ level: LogLevel.Warn, fields: { taskId: task.id, toolUseId: 'toolu_99' } }),
+    ])
+    expect(ownLog.withMessage('failed to handle an agent event')).toEqual([
+      expect.objectContaining({
+        level: LogLevel.Error,
+        fields: { taskId: task.id, kind: AgentEventKind.ToolCallStarted, error: expect.any(Error) as unknown },
+      }),
+    ])
     expect(chat().at(-1)).toEqual({ role: MessageRole.Agent, body: 'Done.', turn: 1 })
     expect(current().activity).toBe(TaskActivity.Waiting)
     own.close()
   })
 
-  it('logs to the console by default', async () => {
-    await send('Hi')
-    backend.session.emit({ type: 'brand_new_thing' })
+  it('logs nothing by default', async () => {
+    vi.spyOn(console, 'debug')
+    vi.spyOn(console, 'info')
+    const own = createAgentRunner({ db: database.db, emit: () => undefined, backend })
+    own.send(task.id, 'Hi')
+    backend.session.emit({ type: 'brand_new_thing' }, sdk.init(), sdk.result('Hi.'))
     await settle()
 
-    expect(console.warn).toHaveBeenCalledWith('Ignored SDK messages of the unknown type brand_new_thing')
+    expect(console.warn).not.toHaveBeenCalled()
+    expect(console.info).not.toHaveBeenCalled()
+    expect(console.debug).not.toHaveBeenCalled()
+    own.close()
   })
 })
 
@@ -1435,7 +1459,13 @@ describe('resuming on launch', () => {
 
     runner.resumeInterrupted()
 
-    expect(console.warn).toHaveBeenCalledWith(`Failed to resume task ${task.id}`, expect.any(Error))
+    expect(log.withMessage('failed to resume task')).toEqual([
+      expect.objectContaining({
+        level: LogLevel.Error,
+        scope: LogScope.Runner,
+        fields: { taskId: task.id, error: expect.any(Error) as unknown },
+      }),
+    ])
     expect(toolLog()).toEqual([
       { divider: DividerKind.Turn, turn: 1 },
       { narration: "Glade couldn't resume the agent: spawn claude ENOENT", turn: 1 },

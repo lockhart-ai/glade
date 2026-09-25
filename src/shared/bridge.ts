@@ -95,6 +95,7 @@ export enum CommandName {
   TerminalClose = 'terminal.close',
   MenuUpdate = 'menu.update',
   WindowClose = 'window.close',
+  LogRendererError = 'log.rendererError',
 }
 
 /** The request of a command that takes no arguments: pass `{}`. */
@@ -609,6 +610,38 @@ export type MenuUpdateRequest = MenuState
  */
 export type WindowCloseRequest = EmptyRequest
 
+/** Where in the window an error was caught, for the main log. */
+export enum RendererErrorKind {
+  /** An uncaught error (`window`'s `error` event). */
+  Error = 'error',
+  /** A promise rejected with nothing to handle it (`unhandledrejection`). */
+  UnhandledRejection = 'unhandled_rejection',
+  /** React unmounted the app over an error no error boundary caught. */
+  ReactUncaught = 'react_uncaught',
+  /** An error boundary caught an error while rendering. */
+  ReactCaught = 'react_caught',
+  /** React recovered from an error by itself (e.g. by rendering again). */
+  ReactRecoverable = 'react_recoverable',
+}
+
+/** At most this many characters of a renderer error's message, stack or component stack reach main. */
+export const MAX_RENDERER_ERROR_TEXT = 10_000
+
+/**
+ * An error in the window, forwarded to the main log (`docs/logs.md`), since the renderer's console goes nowhere once
+ * the app is packaged.
+ */
+export interface LogRendererErrorRequest {
+  readonly kind: RendererErrorKind
+  readonly message: string
+  /** The error's stack; null when it has none (a rejection with a string, say). */
+  readonly stack: string | null
+  /** React's component stack, for an error React reports; null otherwise. */
+  readonly componentStack: string | null
+  /** The script and line it came from, for an uncaught error; null otherwise. */
+  readonly source: string | null
+}
+
 /** One command's request and response types. */
 export interface CommandSpec<Request, Response> {
   readonly request: Request
@@ -672,6 +705,8 @@ export interface CommandMap {
   [CommandName.TerminalClose]: CommandSpec<TerminalIdRequest, null>
   [CommandName.MenuUpdate]: CommandSpec<MenuUpdateRequest, null>
   [CommandName.WindowClose]: CommandSpec<EmptyRequest, null>
+  /** Writes an error in the window to the main log. */
+  [CommandName.LogRendererError]: CommandSpec<LogRendererErrorRequest, null>
 }
 
 export type CommandRequest<C extends CommandName> = CommandMap[C]['request']

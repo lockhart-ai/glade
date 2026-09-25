@@ -4,6 +4,7 @@ import {
   bridgeError,
   BridgeErrorCode,
   CommandName,
+  type LogRendererErrorRequest,
   EventType,
   type CommandRequest,
   type CommandResponse,
@@ -105,6 +106,8 @@ export interface FakeMain {
    * as `image-1`, `image-2`… None when left out.
    */
   readonly images?: Record<string, ImageData>
+  /** The errors the window sent to the main log (`log.rendererError`), oldest first. */
+  readonly rendererErrors?: LogRendererErrorRequest[]
 }
 
 export interface FakeBridge {
@@ -412,6 +415,10 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     },
     [CommandName.WindowClose]: () => {
       main.closedWindows = (main.closedWindows ?? 0) + 1
+      return null
+    },
+    [CommandName.LogRendererError]: (error) => {
+      main.rendererErrors?.push(error)
       return null
     },
   }

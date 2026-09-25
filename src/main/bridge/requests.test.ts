@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CommandName } from '../../shared/bridge'
+import { CommandName, RendererErrorKind } from '../../shared/bridge'
 import { Effort, UiStateKey } from '../../shared/domain'
 import { MAX_IMAGE_BASE64_LENGTH, MAX_IMAGE_BYTES } from '../../shared/images'
 import { GIF, JPEG, PNG, WEBP } from '../../shared/test-images'
@@ -70,6 +70,17 @@ describe('REQUEST_SCHEMAS', () => {
     expect(data).toHaveLength(MAX_IMAGE_BASE64_LENGTH)
     const send = { id: 't', text: '', images: [{ mediaType: PNG.mediaType, data }] }
     expect(REQUEST_SCHEMAS[CommandName.TasksSend].safeParse(send).success).toBe(true)
+  })
+
+  it('parses an error the window sends to the log', () => {
+    const error = {
+      kind: RendererErrorKind.Error,
+      message: 'TypeError: task is undefined',
+      stack: 'TypeError: task is undefined\n    at TaskHeader',
+      componentStack: null,
+      source: 'index.js:10:4',
+    }
+    expect(REQUEST_SCHEMAS[CommandName.LogRendererError].parse(error)).toEqual(error)
   })
 
   it('parses the terminal’s requests', () => {
@@ -342,6 +353,18 @@ describe('REQUEST_SCHEMAS', () => {
       'name: Too big: expected string to have <=100 characters',
     ],
     ['a missing terminal id', CommandName.TerminalClose, {}, 'id: Invalid input: expected string, received undefined'],
+    [
+      'a renderer error of a kind there is none of',
+      CommandName.LogRendererError,
+      { kind: 'bad', message: 'x', stack: null, componentStack: null, source: null },
+      'kind: Invalid option: expected one of "error"|"unhandled_rejection"|"react_uncaught"|"react_caught"|"react_recoverable"',
+    ],
+    [
+      'a renderer error with too much text',
+      CommandName.LogRendererError,
+      { kind: 'error', message: 'x'.repeat(10_001), stack: null, componentStack: null, source: null },
+      'message: Too big: expected string to have <=10000 characters',
+    ],
   ])('rejects %s, saying why in short', (_case, command, raw, message) => {
     const parsed = REQUEST_SCHEMAS[command].safeParse(raw)
     expect(parsed.success).toBe(false)

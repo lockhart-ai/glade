@@ -3,12 +3,15 @@ import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import {
   CommandName,
+  MAX_RENDERER_ERROR_TEXT,
+  RendererErrorKind,
   type ArtifactsRemoveRequest,
   type ClipboardWriteTextRequest,
   type CommandRequest,
   type EmptyRequest,
   type FileRequest,
   type ImagesGetRequest,
+  type LogRendererErrorRequest,
   type MenuUpdateRequest,
   type QueueAddRequest,
   type QueueEditRequest,
@@ -229,6 +232,16 @@ const menuUpdateRequest = z.strictObject({
   keyBindings: SETTING_SCHEMAS.keyBindings,
 }) satisfies z.ZodType<MenuUpdateRequest>
 
+const rendererErrorText = z.string().max(MAX_RENDERER_ERROR_TEXT)
+
+const logRendererErrorRequest = z.strictObject({
+  kind: z.enum(RendererErrorKind),
+  message: rendererErrorText,
+  stack: rendererErrorText.nullable(),
+  componentStack: rendererErrorText.nullable(),
+  source: rendererErrorText.nullable(),
+}) satisfies z.ZodType<LogRendererErrorRequest>
+
 export const REQUEST_SCHEMAS = {
   [CommandName.WorkspacesList]: emptyRequest,
   [CommandName.WorkspacesCreate]: workspacesCreateRequest,
@@ -281,6 +294,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.TerminalClose]: terminalIdRequest,
   [CommandName.MenuUpdate]: menuUpdateRequest,
   [CommandName.WindowClose]: emptyRequest,
+  [CommandName.LogRendererError]: logRendererErrorRequest,
 } as const satisfies RequestSchemas
 
 /** A short, readable account of why a request didn't parse: each problem as `field: message`, joined by `; `. */

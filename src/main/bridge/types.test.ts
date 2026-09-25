@@ -81,6 +81,7 @@ const TASK_HANDLERS = {
   [CommandName.WorkspacesRemove]: () => null,
   [CommandName.MenuUpdate]: () => null,
   [CommandName.WindowClose]: () => null,
+  [CommandName.LogRendererError]: () => null,
   [CommandName.SearchQuery]: () => ({ results: [] }),
   [CommandName.TerminalList]: () => ({ tabs: [] }),
   [CommandName.TerminalCreate]: () => ({ tab: {} as TerminalTab }),
@@ -125,6 +126,7 @@ const TASK_SCHEMAS = {
   [CommandName.WorkspacesRemove]: REQUEST_SCHEMAS[CommandName.WorkspacesRemove],
   [CommandName.MenuUpdate]: REQUEST_SCHEMAS[CommandName.MenuUpdate],
   [CommandName.WindowClose]: REQUEST_SCHEMAS[CommandName.WindowClose],
+  [CommandName.LogRendererError]: REQUEST_SCHEMAS[CommandName.LogRendererError],
 } satisfies Partial<RequestSchemas>
 
 describe('the command map', () => {

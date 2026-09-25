@@ -9,6 +9,7 @@
  */
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { CONSOLE_LOGGER } from './logging/logger'
 
 /** A process's environment: every variable set, by name. */
 export type Environment = Readonly<Record<string, string>>
@@ -160,7 +161,7 @@ function probe(shell: string, { base, cwd, timeoutMs = LOGIN_ENV_TIMEOUT_MS }: L
  * shell's can't be read (logged). Never rejects.
  */
 export async function resolveLoginEnv(options: LoginEnvOptions): Promise<LoginEnv> {
-  const { shell, base, log = console } = options
+  const { shell, base, log = CONSOLE_LOGGER } = options
   const own = definedEnv(base)
   const outcome: ProbeOutcome =
     shell === undefined || shell === '' ? { ok: false, reason: '$SHELL is not set' } : await probe(shell, options)
