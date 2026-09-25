@@ -64,11 +64,11 @@ export enum ScriptStepKind {
   LimitReached = 'limit_reached',
   /**
    * The agent starts a turn of its own once the turn it's in has ended, as the SDK does when a background command or
-   * subagent finishes, or a timer or scheduled wakeup fires (`docs/sdk-notes.md`, "Turns the agent starts itself"):
-   * `ms` after this step (no time by default), and once no turn is playing, the session streams the `task_updated` and
-   * `task_notification` for the task that finished, then plays `turn` with no user message behind it. Its assistant
-   * messages carry no `user_message_uuid`, and its `result` no `user_message_uuids` but `origin: task-notification`.
-   * A message sent while it plays is folded into it, as into any turn.
+   * subagent finishes, a `Monitor` reports an event, or a scheduled wakeup or cron job fires (`docs/sdk-notes.md`,
+   * "Turns the agent starts itself" and §11): `ms` after this step (no time by default), and once no turn is playing,
+   * the session streams what the SDK streams for its `cause` (see `WakeCause`), then plays `turn` with no user message
+   * behind it. Its assistant messages carry no `user_message_uuid`, and its `result` no `user_message_uuids`. A message
+   * sent while it plays is folded into it, as into any turn.
    */
   Wake = 'wake',
   /**
@@ -185,14 +185,29 @@ export interface LimitReachedStep {
   readonly resetInMs: number
 }
 
+/** What wakes the agent in a `Wake` step, and so what the SDK streams before the turn and says on its `result`. */
+export enum WakeCause {
+  /**
+   * A background task (a command, or a `Monitor`'s watch) ended: its `task_updated` and `task_notification`, carrying
+   * `summary`, come first, and the turn's `result` says `origin: task-notification`.
+   */
+  TaskEnded = 'task_ended',
+  /** A `Monitor` printed an event: nothing comes first, and the turn's `result` says `origin: task-notification`. */
+  MonitorEvent = 'monitor_event',
+  /** A `ScheduleWakeup` or `CronCreate` job fired: nothing comes first, and the turn's `result` has no `origin`. */
+  Scheduled = 'scheduled',
+}
+
 export interface WakeStep {
   readonly kind: ScriptStepKind.Wake
+  /** `TaskEnded` by default. */
+  readonly cause?: WakeCause
   /** How long after this step the agent wakes, in milliseconds: no time by default. */
   readonly ms?: number
   /** The script id of the tool call, in this turn, whose background task finished; none for a timer or wakeup. */
   readonly task?: string
-  /** What the task notification says finished. */
-  readonly summary: string
+  /** What the task notification says finished, for a `TaskEnded` wake; the others stream no notification. */
+  readonly summary?: string
   /** What the agent does in the turn it starts. */
   readonly turn: ScriptTurn
 }
@@ -1692,6 +1707,173 @@ const allowsForTask: AgentScript = {
   ],
 }
 
+/** What the follow-up scripts say, for their specs: `watches-ci`, `checks-back-later` and `scheduled-check`. */
+export const FOLLOW_UPS = {
+  watching: "I'm watching the CI checks on PR #42. I'll report each one that fails, and when the run is done.",
+  checkFailed: 'A CI check failed: the unit tests. Reading its log.',
+  failed: 'The unit tests failed on CI: the UTC formatting test in test/date.test.ts builds its date in local time.',
+  runDone: 'The CI run on PR #42 is done: lint and build passed, and the unit tests failed on the date test.',
+  deploying: "The docs deploy has started. It takes about five minutes, so I'll check back once it's had time.",
+  checkingDeploy: 'Checking whether the docs rollout finished.',
+  deployed: 'The docs rollout finished: all three regions serve the new build.',
+  scheduled: "I've scheduled a check for 2:30 pm, when the staging migration should be done.",
+  checkingMigration: 'Checking the staging migration.',
+  migrated: 'The staging migration finished at 2:12 pm: all 14 steps ran, and the schema is at version 58.',
+} as const
+
+/**
+ * Watches the CI checks on a PR with a `Monitor` (`docs/sdk-notes.md` §11): the turn that arms it ends at once, the
+ * failing check wakes the agent to read its log (taking a while, so a spec can see it working, stop it or look away),
+ * and the watch ending wakes it again to sum the run up. Stopping the turn a check woke doesn't end the watch.
+ */
+const watchesCi: AgentScript = {
+  name: 'watches-ci',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Watch the CI run on PR #42',
+        'Watch the CI checks on PR #42 and report what fails.',
+        'Watching the CI checks on PR #42.',
+      ),
+      ...tool(
+        'watch',
+        'Monitor',
+        {
+          description: 'CI checks on PR #42',
+          timeout_ms: 1_800_000,
+          command: 'gh pr checks 42 --watch --interval 30 | grep --line-buffered -E "pass|fail"',
+        },
+        'Monitor started (task bm7c2x1, expires in 30m unless the source ends first; you get one notice at expiry — ' +
+          're-arm if you still need the watch). You will be notified on each event.',
+      ),
+      wake(
+        [
+          ...turnStart(),
+          delay(BEAT_MS),
+          say(FOLLOW_UPS.checkFailed),
+          toolUse('log', 'Bash', { command: 'gh run view 8812 --log-failed', description: 'Read the failed log' }),
+          // Long enough for a spec to see the task working on it, and to stop it or look away before it replies.
+          delay(BEAT_MS * 10),
+          toolResult('log', 'FAIL test/date.test.ts > formats in UTC\nExpected "2026-09-25", got "2026-09-24"'),
+          gladeTool('status-failed', 'set_status', { status: 'The unit tests fail on CI: the date test.' }),
+          say(FOLLOW_UPS.failed),
+          result(),
+        ],
+        { cause: WakeCause.MonitorEvent, ms: BEAT_MS * 4 },
+      ),
+      wake([...turnStart(), delay(BEAT_MS), say(FOLLOW_UPS.runDone), result()], {
+        ms: BEAT_MS * 6,
+        task: 'watch',
+        summary: 'Monitor "CI checks on PR #42" stream ended',
+      }),
+      say(FOLLOW_UPS.watching),
+      result(),
+    ],
+  ],
+}
+
+/**
+ * Starts a deploy and schedules its own check on it with `ScheduleWakeup` (`docs/sdk-notes.md` §11): the turn ends at
+ * once, and the wakeup firing starts a turn that checks the rollout, taking a while, so a spec can see it working.
+ */
+const checksBackLater: AgentScript = {
+  name: 'checks-back-later',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Deploy the docs site',
+        'Deploy the docs site and check that the rollout finishes.',
+        'Deploying the docs site.',
+      ),
+      ...tool(
+        'deploy',
+        'Bash',
+        { command: 'npm run deploy:docs', description: 'Start the docs deploy' },
+        'Deploy started: the rollout takes about 5 minutes.',
+      ),
+      ...tool(
+        'wakeup',
+        'ScheduleWakeup',
+        {
+          delaySeconds: 300,
+          reason: 'Check the docs rollout once it has had time to finish',
+          prompt: 'Check whether the docs rollout finished, and report.',
+          noop: false,
+        },
+        'Next wakeup scheduled for 14:05:00 (in 300s). Nothing more to do this turn — the harness re-invokes you ' +
+          'when the wakeup fires or a task-notification arrives.',
+      ),
+      wake(
+        [
+          ...turnStart(),
+          delay(BEAT_MS),
+          say(FOLLOW_UPS.checkingDeploy),
+          toolUse('rollout', 'Bash', { command: 'npm run deploy:status', description: 'Check the rollout' }),
+          delay(BEAT_MS * 10),
+          toolResult('rollout', 'Rollout complete: 3 of 3 regions serve build 2026.09.25-1.'),
+          gladeTool('status-deployed', 'set_status', { status: 'The docs site is deployed.' }),
+          say(FOLLOW_UPS.deployed),
+          result(),
+        ],
+        { cause: WakeCause.Scheduled, ms: BEAT_MS * 4 },
+      ),
+      say(FOLLOW_UPS.deploying),
+      result(),
+    ],
+  ],
+}
+
+/**
+ * Schedules a one-off check for later with `CronCreate` (`docs/sdk-notes.md` §11): the turn ends at once, and the job
+ * firing starts a turn that checks the migration, taking a while, so a spec can see it working.
+ */
+const scheduledCheck: AgentScript = {
+  name: 'scheduled-check',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Check the staging migration',
+        'Check that the staging migration finishes this afternoon.',
+        'A check on the staging migration is scheduled for 2:30 pm.',
+      ),
+      ...tool(
+        'cron',
+        'CronCreate',
+        {
+          cron: '30 14 25 9 *',
+          prompt: 'Check whether the staging migration finished, and report.',
+          recurring: false,
+          durable: false,
+        },
+        'Scheduled one-shot task c3f81a2e (30 14 25 9 *). Session-only (not written to disk, dies when Claude ' +
+          'exits). It will fire once then auto-delete.',
+      ),
+      wake(
+        [
+          ...turnStart(),
+          delay(BEAT_MS),
+          say(FOLLOW_UPS.checkingMigration),
+          toolUse('migration', 'Bash', { command: 'npm run db:status -- --env staging', description: 'Check it' }),
+          delay(BEAT_MS * 10),
+          toolResult('migration', 'staging: 14 of 14 steps applied (finished 14:12); schema version 58'),
+          gladeTool('status-migrated', 'set_status', { status: 'The staging migration is done.' }),
+          say(FOLLOW_UPS.migrated),
+          result(),
+        ],
+        { cause: WakeCause.Scheduled, ms: BEAT_MS * 4 },
+      ),
+      say(FOLLOW_UPS.scheduled),
+      result(),
+    ],
+  ],
+}
+
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
   'simple-reply',
@@ -1718,6 +1900,9 @@ export const AGENT_SCRIPT_NAMES = [
   'asks-permission',
   'asks-permission-from-a-subagent',
   'allows-for-task',
+  'watches-ci',
+  'checks-back-later',
+  'scheduled-check',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -1748,4 +1933,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'asks-permission': asksPermission,
   'asks-permission-from-a-subagent': asksPermissionFromASubagent,
   'allows-for-task': allowsForTask,
+  'watches-ci': watchesCi,
+  'checks-back-later': checksBackLater,
+  'scheduled-check': scheduledCheck,
 }

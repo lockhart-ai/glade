@@ -11,6 +11,7 @@ import {
   TaskState,
   ToolEventKind,
   UiStateKey,
+  type UiStateEntry,
 } from '../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { GIF, JPEG, PNG } from '../../shared/test-images'
@@ -364,6 +365,122 @@ describe('setUiState', () => {
     const store = createGladeStore(bridge)
 
     await expect(store.getState().setUiState({ key: UiStateKey.SelectedTaskId, value: 't1' })).rejects.toBe(failure)
+  })
+
+  /**
+   * A store whose `uiState.set` main answers at once but echoes (`uiState.changed`) only when `echo()` says so, oldest
+   * first, as a busy main process does: the order that lost the right panel's resize steps in the narrow-window spec.
+   */
+  async function withSlowEchoes() {
+    const echoes: UiStateEntry[] = []
+    const fake = fakeBridge(main(), {
+      [CommandName.UiStateSet]: (entry) => {
+        echoes.push(entry)
+        return null
+      },
+    })
+    const store = createGladeStore(fake.bridge)
+    await store.getState().hydrate()
+    const echo = (): void => {
+      const entry = echoes.shift()
+      if (entry === undefined) throw new Error('No echo on its way')
+      fake.emit({ type: EventType.UiStateChanged, entry })
+    }
+    const width = (): string | undefined => store.getState().uiState[UiStateKey.RightPanelWidth]
+    const setWidth = (value: string) => store.getState().setUiState({ key: UiStateKey.RightPanelWidth, value })
+    return { ...fake, store, echo, width, setWidth }
+  }
+
+  it("keeps a newer write when main's echo of an older one comes back after it", async () => {
+    const { echo, width, setWidth } = await withSlowEchoes()
+
+    await setWidth('354')
+    await setWidth('338')
+    expect(width()).toBe('338')
+
+    // This echo used to put the width back to 354, so the next arrow key press on the handle stepped from there again.
+    echo()
+    expect(width()).toBe('338')
+    await setWidth('322')
+    echo()
+    expect(width()).toBe('322')
+    echo()
+    expect(width()).toBe('322')
+  })
+
+  it('takes changes from main again once the echo of every write has come back', async () => {
+    const { emit, echo, width, setWidth } = await withSlowEchoes()
+
+    await setWidth('354')
+    echo()
+    emit({ type: EventType.UiStateChanged, entry: { key: UiStateKey.RightPanelWidth, value: '500' } })
+
+    expect(width()).toBe('500')
+  })
+
+  it("holds back someone else's change that main stored before a write still on its way", async () => {
+    const { emit, echo, width, setWidth } = await withSlowEchoes()
+
+    await setWidth('354')
+    // Main stored this before the write, so the write wins there too.
+    emit({ type: EventType.UiStateChanged, entry: { key: UiStateKey.RightPanelWidth, value: '500' } })
+    expect(width()).toBe('354')
+    echo()
+    expect(width()).toBe('354')
+  })
+
+  it('waits for the echo of each write of the same value', async () => {
+    const { echo, width, setWidth } = await withSlowEchoes()
+
+    await setWidth('354')
+    await setWidth('338')
+    await setWidth('354')
+    echo()
+    echo()
+    expect(width()).toBe('354')
+    echo()
+    expect(width()).toBe('354')
+  })
+
+  it('holds back changes to the key it wrote only', async () => {
+    const { store, emit, setWidth } = await withSlowEchoes()
+
+    await setWidth('354')
+    emit({ type: EventType.UiStateChanged, entry: { key: UiStateKey.SidebarWidth, value: '260' } })
+
+    expect(store.getState().uiState[UiStateKey.SidebarWidth]).toBe('260')
+  })
+
+  it('stops waiting for the echo of a write main refused, which never comes', async () => {
+    const failure = bridgeError(BridgeErrorCode.Internal, 'uiState.set failed: disk full')
+    const fake = fakeBridge(main(), { [CommandName.UiStateSet]: () => refuse(failure) })
+    const store = createGladeStore(fake.bridge)
+    await store.getState().hydrate()
+    const entry = { key: UiStateKey.RightPanelWidth, value: '354' }
+    await expect(store.getState().setUiState(entry)).rejects.toBe(failure)
+    await expect(store.getState().setUiState({ ...entry, value: '338' })).rejects.toBe(failure)
+    await expect(store.getState().setUiState(entry)).rejects.toBe(failure)
+
+    fake.emit({ type: EventType.UiStateChanged, entry: { ...entry, value: '500' } })
+
+    expect(store.getState().uiState[UiStateKey.RightPanelWidth]).toBe('500')
+  })
+
+  it('stops waiting for a refused write while an earlier one is still on its way', async () => {
+    const failure = bridgeError(BridgeErrorCode.Internal, 'uiState.set failed: disk full')
+    const stored = { key: UiStateKey.RightPanelWidth, value: '354' }
+    const fake = fakeBridge(main(), {
+      [CommandName.UiStateSet]: (entry) => (entry.value === stored.value ? null : refuse(failure)),
+    })
+    const store = createGladeStore(fake.bridge)
+    await store.getState().hydrate()
+    await store.getState().setUiState(stored)
+    await expect(store.getState().setUiState({ ...stored, value: '338' })).rejects.toBe(failure)
+
+    // Main kept 354: its echo comes back, and it's the latest there is.
+    fake.emit({ type: EventType.UiStateChanged, entry: stored })
+
+    expect(store.getState().uiState[UiStateKey.RightPanelWidth]).toBe('354')
   })
 })
 

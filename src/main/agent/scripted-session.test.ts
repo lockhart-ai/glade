@@ -45,6 +45,7 @@ import {
   toolUse,
   waitForInterrupt,
   wake,
+  WakeCause,
   type AgentScript,
   type ScriptTurn,
 } from './scripts'
@@ -1134,6 +1135,83 @@ describe('ScriptedSession', () => {
       await flush()
 
       expect(played.raw.find((message) => message.subtype === 'task_notification')).not.toHaveProperty('tool_use_id')
+    })
+
+    it("streams no notification for a monitor's event, and its result says a task notification started it", async () => {
+      const played = play([
+        [
+          init(),
+          wake([init(), say('tick 1'), result()], { cause: WakeCause.MonitorEvent }),
+          say('Watching.'),
+          result(),
+        ],
+      ])
+      played.session.send('Watch it.', 'user-1')
+      await flush()
+
+      const first = played.raw.findIndex((message) => message.type === 'result')
+      expect(played.raw.slice(first + 1).map((message) => message.subtype ?? message.type)).toEqual([
+        'init',
+        'assistant',
+        'success',
+      ])
+      expect(played.raw.at(-1)).toMatchObject({ result: 'tick 1', origin: { kind: 'task-notification' } })
+      expect(played.raw.at(-1)).not.toHaveProperty('user_message_uuids')
+      expect(played.idles()).toBe(2)
+    })
+
+    it('starts a scheduled one as a command of its own, with no notification, and no origin on its result', async () => {
+      const played = play([
+        [
+          init(),
+          wake([init(), say('Checking back.'), result()], { cause: WakeCause.Scheduled }),
+          say('Scheduled.'),
+          result(),
+        ],
+      ])
+      played.session.send('Check back later.', 'user-1')
+      await flush()
+
+      const first = played.raw.findIndex((message) => message.type === 'result')
+      const after = played.raw.slice(first + 1)
+      expect(after.map((message) => message.subtype ?? message.type)).toEqual([
+        'command_lifecycle',
+        'init',
+        'assistant',
+        'success',
+      ])
+      expect(after[0]).toMatchObject({ state: 'started', command_uuid: expect.any(String) as string })
+      expect(after.at(-1)).toMatchObject({ result: 'Checking back.' })
+      expect(after.at(-1)).not.toHaveProperty('origin')
+      expect(after.at(-1)).not.toHaveProperty('user_message_uuids')
+      expect(played.idles()).toBe(2)
+    })
+
+    it('can be stopped like any turn, and a wake after it still plays', async () => {
+      const played = play([
+        [
+          init(),
+          wake([init(), say('tick 1'), waitForInterrupt(), say('Never.')], { cause: WakeCause.MonitorEvent }),
+          wake([init(), say('The watch ended.'), result()], { summary: 'Monitor "ticks" stream ended' }),
+          say('Watching.'),
+          result(),
+        ],
+      ])
+      played.session.send('Watch it.', 'user-1')
+      await flush()
+      expect(played.raw.at(-1)).toMatchObject({ type: 'assistant' })
+
+      await played.session.interrupt()
+      await flush()
+
+      const results = played.raw.filter((message) => message.type === 'result')
+      expect(results.map((message) => [message.subtype, message.result])).toEqual([
+        ['success', 'Watching.'],
+        ['error_during_execution', ''],
+        ['success', 'The watch ended.'],
+      ])
+      expect(results[1]).toMatchObject({ origin: { kind: 'task-notification' } })
+      expect(played.idles()).toBe(3)
     })
 
     it('folds in a message sent while it plays, and its result lists it', async () => {

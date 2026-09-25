@@ -165,6 +165,17 @@ it("turns Claude Code's todo tools on for every session, whatever the model", ()
   }
 })
 
+it('leaves the tools the agent schedules its own follow-ups with on: none disallowed, and nothing turning them off', () => {
+  const options = sdkOptions(OPTIONS, ENV)
+  const followUpTools = ['Bash', 'Agent', 'Task', 'Monitor', 'ScheduleWakeup', 'CronCreate', 'CronDelete', 'TaskStop']
+  expect(options.disallowedTools?.filter((tool) => followUpTools.includes(tool))).toEqual([])
+  expect(options.tools).toBeUndefined()
+  // `allowedTools` only pre-approves Glade's own tools (P11-01): it doesn't limit which tools the session has.
+  expect(options.allowedTools?.filter((tool) => !tool.startsWith('mcp__'))).toEqual([])
+  expect(options.env).not.toHaveProperty('CLAUDE_CODE_DISABLE_CRON')
+  expect(options.env).not.toHaveProperty('CLAUDE_CODE_DISABLE_BACKGROUND_TASKS')
+})
+
 it("turns the todo tools on even when the login shell turns them off, and leaves the tasks' own switch alone", () => {
   const env = sdkOptions(OPTIONS, { ...ENV, CLAUDE_CODE_ENABLE_TODO_TOOLS: '0' }).env
   expect(env).toMatchObject({ CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' })

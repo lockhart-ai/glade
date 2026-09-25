@@ -24,8 +24,9 @@
  *   `result` reports for the session's model (`docs/sdk-notes.md`, "Usage and context size").
  *
  * **Turns the agent starts itself.** The SDK starts a turn with no message from you when a background command or
- * subagent finishes, a timer fires or a scheduled wakeup is due (`docs/sdk-notes.md`, "Turns the agent starts
- * itself"). When the agent's own text, tool call or context usage (or an API error in their place) arrives between
+ * subagent finishes, a `Monitor` reports an event or ends, or a `ScheduleWakeup` or `CronCreate` job fires: the SDK's
+ * own tools the agent schedules its follow-ups with, which Glade leaves to it (`docs/sdk-notes.md`, "Turns the agent
+ * starts itself" and §11). When the agent's own text, tool call or context usage (or an API error in their place) arrives between
  * turns, the runner opens the task's next turn for it (`openTurn`): a turn divider and the working activity, with no
  * message in the chat until it replies. From there it's a turn like any other: its final reply, with a summary timed
  * from its divider, unread marker and notification; the queue delivered into it and after it; Stop; and a relaunch

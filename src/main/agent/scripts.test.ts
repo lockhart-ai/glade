@@ -46,6 +46,7 @@ import {
   ALLOWS_FOR_TASK,
   ASKS_PERMISSION,
   DELETE_LOCAL_COPIES_QUESTION,
+  FOLLOW_UPS,
   RELEASE_NOTES_QUESTIONS,
   S3_PLAN,
   SUBAGENT_CALLS_REPLY,
@@ -817,6 +818,152 @@ describe('AGENT_SCRIPTS', () => {
       [MessageRole.User, 3],
       [MessageRole.Agent, 3],
     ])
+  })
+
+  describe('follow-ups the agent schedules itself (docs/sdk-notes.md §11)', () => {
+    interface FollowUp {
+      readonly name: AgentScriptName
+      readonly message: string
+      /** The reply to the message, which ends the turn that schedules the follow-up. */
+      readonly scheduled: string
+      /** What the agent says as it starts the turn the follow-up wakes it for. */
+      readonly checking: string
+      /** Its reply in that turn. */
+      readonly reported: string
+      /** The Bash call that turn makes, which a Stop cuts short. */
+      readonly command: string
+    }
+    const FOLLOW_UP_SCRIPTS: readonly FollowUp[] = [
+      {
+        name: 'watches-ci',
+        message: 'Watch CI on PR #42.',
+        scheduled: FOLLOW_UPS.watching,
+        checking: FOLLOW_UPS.checkFailed,
+        reported: FOLLOW_UPS.failed,
+        command: 'gh run view 8812 --log-failed',
+      },
+      {
+        name: 'checks-back-later',
+        message: 'Deploy the docs.',
+        scheduled: FOLLOW_UPS.deploying,
+        checking: FOLLOW_UPS.checkingDeploy,
+        reported: FOLLOW_UPS.deployed,
+        command: 'npm run deploy:status',
+      },
+      {
+        name: 'scheduled-check',
+        message: 'Check the staging migration at 2:30.',
+        scheduled: FOLLOW_UPS.scheduled,
+        checking: FOLLOW_UPS.checkingMigration,
+        reported: FOLLOW_UPS.migrated,
+        command: 'npm run db:status -- --env staging',
+      },
+    ]
+
+    /** The chat as `[role, turn, body]`. */
+    function chat(): [MessageRole, number, string][] {
+      return listMessages(database.db, task.id).map(({ role, body, turn }) => [role, turn, body])
+    }
+
+    it.each(FOLLOW_UP_SCRIPTS)(
+      '$name: the follow-up wakes the agent into a turn of its own, saved, unread and notified',
+      async ({ name, message, scheduled, checking, reported }) => {
+        const notifyReply = vi.fn<NotifyReply>()
+        await send(start(name, { notifyReply }), message)
+
+        expect(chat().slice(0, 3)).toEqual([
+          [MessageRole.User, 1, message],
+          [MessageRole.Agent, 1, scheduled],
+          [MessageRole.Agent, 2, reported],
+        ])
+        const turnTwo = listToolEvents(database.db, task.id).filter((event) => event.turn === 2)
+        expect(turnTwo[0]).toMatchObject({ kind: ToolEventKind.Divider, dividerKind: DividerKind.Turn })
+        expect(turnTwo[1]).toMatchObject({ kind: ToolEventKind.Narration, text: checking })
+        expect(turnTwo.slice(2)).toMatchObject([
+          { name: 'Bash', state: ToolCallState.Done },
+          { name: 'mcp__glade__set_status', state: ToolCallState.Done },
+        ])
+        expect(listMessages(database.db, task.id)[2]?.summary).toMatchObject({ filesChanged: 0 })
+        expect(getTask(database.db, task.id)).toMatchObject({ unread: true, activity: TaskActivity.Waiting })
+        expect(notifyReply).toHaveBeenCalledWith(task.id, reported)
+      },
+    )
+
+    it('watches-ci: the watch ending wakes the agent once more, into the turn after', async () => {
+      const notifyReply = vi.fn<NotifyReply>()
+      await send(start('watches-ci', { notifyReply }), 'Watch CI on PR #42.')
+
+      expect(chat().slice(2)).toEqual([
+        [MessageRole.Agent, 2, FOLLOW_UPS.failed],
+        [MessageRole.Agent, 3, FOLLOW_UPS.runDone],
+      ])
+      // The Monitor call returned as soon as the watch started: it's done, not left running for the watch.
+      expect(calls().find(({ name }) => name === 'Monitor')).toMatchObject({ state: ToolCallState.Done, turn: 1 })
+      expect(notifyReply.mock.calls.map(([, reply]) => reply)).toEqual([
+        FOLLOW_UPS.watching,
+        FOLLOW_UPS.failed,
+        FOLLOW_UPS.runDone,
+      ])
+    })
+
+    it.each(FOLLOW_UP_SCRIPTS)(
+      '$name: Stop cuts short the turn the follow-up woke the agent for',
+      async ({ name, message, scheduled, checking, command }) => {
+        const agent = start(name)
+        agent.send(task.id, message)
+        // Until the woken turn is running its command.
+        await vi.waitFor(async () => {
+          await vi.advanceTimersByTimeAsync(50)
+          expect(calls().find(({ input }) => input.command === command)).toMatchObject({
+            state: ToolCallState.Running,
+          })
+        })
+        expect(activity()).toBe(TaskActivity.Working)
+
+        const stopped = agent.stop(task.id)
+        await vi.advanceTimersByTimeAsync(0)
+        await expect(stopped).resolves.toMatchObject({ activity: TaskActivity.Waiting })
+
+        // What the turn did is kept, its command ends stopped, and it has no reply.
+        expect(chat().slice(0, 2)).toEqual([
+          [MessageRole.User, 1, message],
+          [MessageRole.Agent, 1, scheduled],
+        ])
+        expect(calls().find(({ input }) => input.command === command)).toMatchObject({
+          state: ToolCallState.Error,
+          output: STOPPED_NOTE,
+          turn: 2,
+        })
+        expect(
+          listToolEvents(database.db, task.id)
+            .filter((event) => event.turn === 2 && event.kind === ToolEventKind.Narration)
+            .map((event) => (event.kind === ToolEventKind.Narration ? event.text : null)),
+        ).toEqual([checking, STOPPED_NOTE])
+        // The agent took nothing more from it: nothing replies in turn 2 however long it's left.
+        const idle = backend.whenIdle()
+        await vi.runAllTimersAsync()
+        await idle
+        expect(chat().filter(([, turn]) => turn === 2)).toEqual([])
+      },
+    )
+
+    it("watches-ci: stopping the turn a check woke doesn't end the watch, which still wakes the agent", async () => {
+      const agent = start('watches-ci')
+      agent.send(task.id, 'Watch CI on PR #42.')
+      await vi.waitFor(async () => {
+        await vi.advanceTimersByTimeAsync(50)
+        expect(calls().find(({ name }) => name === 'Bash')).toMatchObject({ state: ToolCallState.Running })
+      })
+      const stopped = agent.stop(task.id)
+      await vi.advanceTimersByTimeAsync(0)
+      await stopped
+
+      const idle = backend.whenIdle()
+      await vi.runAllTimersAsync()
+      await idle
+      expect(chat().slice(2)).toEqual([[MessageRole.Agent, 3, FOLLOW_UPS.runDone]])
+      expect(activity()).toBe(TaskActivity.Waiting)
+    })
   })
 
   it('subagent-calls: logs each subagent’s calls under it, nested, interleaved, failed and in the background', async () => {
