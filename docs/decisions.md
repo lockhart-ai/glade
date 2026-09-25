@@ -57,6 +57,9 @@
   style preferred to match the designs' thin strokes.
 - **Overlays:** Floating UI (`@floating-ui/react`) positions menus and popovers and handles their focus, dismissal and
   list keyboard navigation; overlays render in a portal.
+- **Long lists:** the Done section loads from SQLite a page at a time (keyset pagination on the list's own order, over
+  an index), and renders only the rows in view with TanStack Virtual (`@tanstack/react-virtual`); everything outside it
+  is loaded whole. No archiving (L-02, #67).
 - **Validation:** zod at every boundary (IPC requests, SDK events, tool inputs, JSON from disk); schemas are checked
   against the named interfaces.
 - **Releases:** one minor release per phase (P1 is 0.1.0), built and published by `.github/workflows/release.yml` from

@@ -20,6 +20,8 @@ import {
   type SearchQueryRequest,
   type SubagentsStopRequest,
   type TaskIdRequest,
+  type TasksGetRequest,
+  type TasksListDoneRequest,
   type TerminalCreateRequest,
   type TerminalIdRequest,
   type TerminalRenameRequest,
@@ -39,6 +41,8 @@ import {
   type WorkspacesUpdateRequest,
   type WorkspacesRevealRequest,
 } from '../../shared/bridge'
+import { TaskFilter } from '../../shared/attention'
+import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
 import { Effort, UiStateKey } from '../../shared/domain'
 import { isWorkspaceRelativePath } from '../../shared/files'
 import { hasImageSignature, ImageMediaType, MAX_IMAGE_BASE64_LENGTH, type ImageData } from '../../shared/images'
@@ -79,6 +83,17 @@ const workspacesRevealRequest = z.strictObject({ id: z.string() }) satisfies z.Z
 const workspacesRemoveRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<WorkspacesRemoveRequest>
 
 const tasksListRequest = z.strictObject({ workspaceId: z.string() }) satisfies z.ZodType<TasksListRequest>
+
+const tasksListDoneRequest = z.strictObject({
+  workspaceId: z.string(),
+  filter: z.enum(TaskFilter),
+  after: z.strictObject({ updatedAt: z.int().nonnegative(), id: z.string() }).nullable(),
+  limit: z.int().min(1).max(MAX_DONE_PAGE_SIZE),
+}) satisfies z.ZodType<TasksListDoneRequest>
+
+const tasksGetRequest = z.strictObject({
+  ids: z.array(z.string()).readonly(),
+}) satisfies z.ZodType<TasksGetRequest>
 
 const tasksCreateRequest = z.strictObject({ workspaceId: z.string() }) satisfies z.ZodType<TasksCreateRequest>
 
@@ -251,6 +266,9 @@ export const REQUEST_SCHEMAS = {
   [CommandName.WorkspacesRemove]: workspacesRemoveRequest,
   [CommandName.DialogChooseFolder]: emptyRequest,
   [CommandName.TasksList]: tasksListRequest,
+  [CommandName.TasksListActive]: tasksListRequest,
+  [CommandName.TasksListDone]: tasksListDoneRequest,
+  [CommandName.TasksGet]: tasksGetRequest,
   [CommandName.TasksCreate]: tasksCreateRequest,
   [CommandName.TasksMarkDone]: taskIdRequest,
   [CommandName.TasksReopen]: taskIdRequest,

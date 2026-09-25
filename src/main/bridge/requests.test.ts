@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CommandName, RendererErrorKind } from '../../shared/bridge'
+import { TaskFilter } from '../../shared/attention'
+import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
 import { Effort, UiStateKey } from '../../shared/domain'
 import { MAX_IMAGE_BASE64_LENGTH, MAX_IMAGE_BYTES } from '../../shared/images'
 import { GIF, JPEG, PNG, WEBP } from '../../shared/test-images'
@@ -19,6 +21,10 @@ describe('REQUEST_SCHEMAS', () => {
     expect(REQUEST_SCHEMAS[CommandName.WorkspacesReveal].parse({ id: 'w' })).toEqual({ id: 'w' })
     expect(REQUEST_SCHEMAS[CommandName.DialogChooseFolder].parse({})).toEqual({})
     expect(REQUEST_SCHEMAS[CommandName.TasksList].parse({ workspaceId: 'w' })).toEqual({ workspaceId: 'w' })
+    expect(REQUEST_SCHEMAS[CommandName.TasksListActive].parse({ workspaceId: 'w' })).toEqual({ workspaceId: 'w' })
+    const page = { workspaceId: 'w', filter: TaskFilter.Unread, after: { updatedAt: 5, id: 't' }, limit: 100 }
+    expect(REQUEST_SCHEMAS[CommandName.TasksListDone].parse(page)).toEqual(page)
+    expect(REQUEST_SCHEMAS[CommandName.TasksGet].parse({ ids: ['t'] })).toEqual({ ids: ['t'] })
     expect(REQUEST_SCHEMAS[CommandName.TasksCreate].parse({ workspaceId: 'w' })).toEqual({ workspaceId: 'w' })
     expect(REQUEST_SCHEMAS[CommandName.TasksMarkDone].parse({ id: 't' })).toEqual({ id: 't' })
     expect(REQUEST_SCHEMAS[CommandName.TasksReopen].parse({ id: 't' })).toEqual({ id: 't' })
@@ -50,6 +56,17 @@ describe('REQUEST_SCHEMAS', () => {
     expect(REQUEST_SCHEMAS[CommandName.SettingsUpdate].parse({ patch: {} })).toEqual({ patch: {} })
     const search = { workspaceId: 'w', text: '"Retry-After' }
     expect(REQUEST_SCHEMAS[CommandName.SearchQuery].parse(search)).toEqual(search)
+  })
+
+  it('refuses a Done page of no tasks, too many, an unknown filter or a malformed cursor', () => {
+    const page = { workspaceId: 'w', filter: TaskFilter.All, after: null, limit: 100 }
+    const schema = REQUEST_SCHEMAS[CommandName.TasksListDone]
+
+    expect(schema.safeParse({ ...page, limit: 0 }).success).toBe(false)
+    expect(schema.safeParse({ ...page, limit: MAX_DONE_PAGE_SIZE + 1 }).success).toBe(false)
+    expect(schema.safeParse({ ...page, filter: 'everything' }).success).toBe(false)
+    expect(schema.safeParse({ ...page, after: { updatedAt: -1, id: 't' } }).success).toBe(false)
+    expect(schema.safeParse({ ...page, after: { id: 't' } }).success).toBe(false)
   })
 
   it('parses messages with images, in order, and messages that are only images', () => {

@@ -227,6 +227,33 @@ describe('TaskList', () => {
     expect(selected()).toBe('p1')
   })
 
+  it('scrolls a newly selected row into view when it’s off screen, and leaves one that shows where it is', async () => {
+    const { store } = await renderList(TASKS, [{ key: UiStateKey.SelectedTaskId, value: 'a2' }])
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    // The list shows 0–100px; the row for a1 is below that, the rest within it.
+    const rect = (top: number): DOMRect => DOMRect.fromRect({ x: 0, y: top, width: 100, height: 40 })
+    const bounds = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function bounds(
+      this: Element,
+    ) {
+      if (this.textContent.startsWith('Add rate limiting')) return rect(300)
+      return this.getAttribute('data-task-id') === null ? DOMRect.fromRect({ height: 100 }) : rect(10)
+    })
+
+    pressAlt('ArrowDown')
+    await vi.waitFor(() => {
+      expect(store.getState().selectedTaskId).toBe('a1')
+    })
+    expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: 'nearest' })
+    pressAlt('ArrowUp')
+    await vi.waitFor(() => {
+      expect(store.getState().selectedTaskId).toBe('a2')
+    })
+    expect(scrollIntoView).toHaveBeenCalledOnce()
+    bounds.mockRestore()
+    Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+  })
+
   it('starts from the top with ⌥↓ when nothing is selected', async () => {
     const { store } = await renderList()
 

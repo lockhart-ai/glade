@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName } from '../../shared/bridge'
-import { UiStateKey } from '../../shared/domain'
+import { TaskFilter } from '../../shared/attention'
+import { DONE_PAGE_SIZE, NO_DONE_TASKS } from '../../shared/doneList'
+import { TaskState, UiStateKey, type Task } from '../../shared/domain'
+import { doneListKey } from './doneLists'
 import { describeFailure, lastOpenedWorkspace, loadSnapshot, restoreSelection } from './hydrate'
 import { HydrationStatus, INITIAL_DATA } from './state'
 import { fakeBridge, refuse, sampleTask, sampleWorkspace, type FakeMain } from './test-bridge'
@@ -27,12 +30,104 @@ describe('loadSnapshot', () => {
       hydration: { status: HydrationStatus.Ready },
       workspaces: [sampleWorkspace('w1'), sampleWorkspace('w2')],
       tasks: { t1: sampleTask('t1', 'w1'), t2: sampleTask('t2', 'w2'), t3: sampleTask('t3', 'w2') },
+      doneCounts: { w1: NO_DONE_TASKS, w2: NO_DONE_TASKS },
+      doneLists: { [doneListKey('w2', TaskFilter.All)]: { end: null, hasMore: false } },
       selectedWorkspaceId: 'w2',
       selectedTaskId: 't3',
       uiState: { [UiStateKey.ActiveWorkspaceId]: 'w2', [UiStateKey.SelectedTaskId]: 't3' },
     })
-    expect(invoke).toHaveBeenCalledWith(CommandName.TasksList, { workspaceId: 'w1' })
-    expect(invoke).toHaveBeenCalledWith(CommandName.TasksList, { workspaceId: 'w2' })
+    expect(invoke).toHaveBeenCalledWith(CommandName.TasksListActive, { workspaceId: 'w1' })
+    expect(invoke).toHaveBeenCalledWith(CommandName.TasksListActive, { workspaceId: 'w2' })
+  })
+
+  it("loads each workspace's tasks outside the Done section, its Done counts, and the shown one's first Done page", async () => {
+    const done = (id: string, workspaceId: string, updatedAt: number, unread = false): Task => ({
+      ...sampleTask(id, workspaceId),
+      state: TaskState.Done,
+      updatedAt,
+      unread,
+    })
+    const pinnedDone = { ...done('pinned', 'w1', 10), pinned: true }
+    const doneTasks = Array.from({ length: DONE_PAGE_SIZE + 5 }, (_, index) =>
+      done(`d${String(index)}`, 'w1', 10_000 - index, index % 2 === 0),
+    )
+    const { bridge, invoke } = fakeBridge({
+      workspaces: [sampleWorkspace('w1'), sampleWorkspace('w2')],
+      tasks: [sampleTask('t1', 'w1'), pinnedDone, ...doneTasks, done('elsewhere', 'w2', 50)],
+      uiState: [{ key: UiStateKey.ActiveWorkspaceId, value: 'w1' }],
+    })
+
+    const snapshot = await loadSnapshot(bridge)
+
+    expect(snapshot.doneCounts).toEqual({ w1: { all: DONE_PAGE_SIZE + 5, unread: 53 }, w2: { all: 1, unread: 0 } })
+    expect(Object.keys(snapshot.tasks)).toHaveLength(2 + DONE_PAGE_SIZE)
+    expect(snapshot.tasks.pinned).toEqual(pinnedDone)
+    expect(snapshot.tasks.elsewhere).toBeUndefined()
+    expect(snapshot.doneLists).toEqual({
+      [doneListKey('w1', TaskFilter.All)]: {
+        end: { updatedAt: 10_000 - DONE_PAGE_SIZE + 1, id: `d${String(DONE_PAGE_SIZE - 1)}` },
+        hasMore: true,
+      },
+    })
+    expect(invoke).toHaveBeenCalledWith(CommandName.TasksListDone, {
+      workspaceId: 'w1',
+      filter: TaskFilter.All,
+      after: null,
+      limit: DONE_PAGE_SIZE,
+    })
+  })
+
+  it('loads the first Done page under the filter chip chosen', async () => {
+    const { bridge, invoke } = fakeBridge(
+      main([
+        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+        { key: UiStateKey.TaskFilter, value: TaskFilter.Unread },
+      ]),
+    )
+
+    const snapshot = await loadSnapshot(bridge)
+
+    expect(Object.keys(snapshot.doneLists)).toEqual([doneListKey('w1', TaskFilter.Unread)])
+    expect(invoke).toHaveBeenCalledWith(
+      CommandName.TasksListDone,
+      expect.objectContaining({ filter: TaskFilter.Unread }),
+    )
+  })
+
+  it('loads a selected done task below the first Done page, so the selection survives', async () => {
+    const doneTasks = Array.from({ length: DONE_PAGE_SIZE * 2 }, (_, index) => ({
+      ...sampleTask(`d${String(index)}`, 'w1'),
+      state: TaskState.Done,
+      updatedAt: 10_000 - index,
+    }))
+    const { bridge, invoke } = fakeBridge({
+      workspaces: [sampleWorkspace('w1')],
+      tasks: doneTasks,
+      uiState: [
+        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+        { key: UiStateKey.SelectedTaskId, value: 'd150' },
+      ],
+    })
+
+    const snapshot = await loadSnapshot(bridge)
+
+    expect(snapshot.selectedTaskId).toBe('d150')
+    expect(snapshot.tasks.d150).toEqual(doneTasks[150])
+    expect(invoke).toHaveBeenCalledWith(CommandName.TasksGet, { ids: ['d150'] })
+  })
+
+  it('drops a stored selection whose task is gone, having looked for it', async () => {
+    const { bridge, invoke } = fakeBridge(
+      main([
+        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+        { key: UiStateKey.SelectedTaskId, value: 'gone' },
+      ]),
+    )
+
+    const snapshot = await loadSnapshot(bridge)
+
+    expect(snapshot.selectedTaskId).toBeNull()
+    expect(invoke).toHaveBeenCalledWith(CommandName.TasksGet, { ids: ['gone'] })
   })
 
   it('shows the most recently opened workspace, with no task, when no selection was stored', async () => {
@@ -50,8 +145,8 @@ describe('loadSnapshot', () => {
   })
 
   it('rejects when main refuses a command', async () => {
-    const failure = bridgeError(BridgeErrorCode.Internal, 'tasks.list failed: disk full')
-    const { bridge } = fakeBridge(main(), { [CommandName.TasksList]: () => refuse(failure) })
+    const failure = bridgeError(BridgeErrorCode.Internal, 'tasks.listActive failed: disk full')
+    const { bridge } = fakeBridge(main(), { [CommandName.TasksListActive]: () => refuse(failure) })
 
     await expect(loadSnapshot(bridge)).rejects.toBe(failure)
   })
