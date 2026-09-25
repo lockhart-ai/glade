@@ -18,6 +18,7 @@ import { searchIndexMigration } from './0016-search-index'
 import { workspaceSelectionsMigration } from './0017-workspace-selections'
 import { settingsMigration } from './0018-settings'
 import { terminalTabsMigration } from './0019-terminal-tabs'
+import { doneListIndexMigration } from './0020-done-list-index'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -40,4 +41,5 @@ export const MIGRATIONS: readonly Migration[] = [
   workspaceSelectionsMigration,
   settingsMigration,
   terminalTabsMigration,
+  doneListIndexMigration,
 ]

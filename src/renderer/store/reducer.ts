@@ -11,6 +11,7 @@ import {
   type UiStateEntry,
   type Workspace,
 } from '../../shared/domain'
+import { withCountedChange, withoutDoneLists } from './doneLists'
 import type { GladeData } from './state'
 
 /** A stored selection id: the empty string means nothing is selected. */
@@ -154,7 +155,10 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
  */
 export function withoutWorkspace(state: GladeData, workspaceId: string): GladeData {
   const tasks = Object.values(state.tasks).filter((task) => task.workspaceId === workspaceId)
-  const forgotten = tasks.reduce((next, task) => withoutTask(next, task.id), state)
+  const forgotten = withoutDoneLists(
+    tasks.reduce((next, task) => withoutTask(next, task.id), state),
+    workspaceId,
+  )
   return {
     ...forgotten,
     workspaces: state.workspaces.filter(({ id }) => id !== workspaceId),
@@ -171,10 +175,12 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, workspaces: withWorkspace(state.workspaces, event.workspace) }
     case EventType.WorkspaceRemoved:
       return withoutWorkspace(state, event.workspaceId)
-    case EventType.TaskUpdated:
-      return { ...state, tasks: { ...state.tasks, [event.task.id]: event.task } }
+    case EventType.TaskUpdated: {
+      const counted = withCountedChange(state, state.tasks[event.task.id], event.task)
+      return { ...counted, tasks: { ...counted.tasks, [event.task.id]: event.task } }
+    }
     case EventType.TaskDeleted:
-      return withoutTask(state, event.taskId)
+      return withoutTask(withCountedChange(state, state.tasks[event.taskId], undefined), event.taskId)
     case EventType.MessageAppended:
       return { ...state, messages: withAppended(state.messages, event.message) }
     case EventType.ToolEventAppended:

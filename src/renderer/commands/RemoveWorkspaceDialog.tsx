@@ -1,5 +1,7 @@
 import { ConfirmDialog, useToast } from '../components'
 import { describeFailure } from '../store/hydrate'
+import { doneCountsFor } from '../store/doneLists'
+import { isInDoneSection } from '../../shared/doneList'
 import { useGladeStore } from '../store/react'
 
 /** The question the confirmation asks about a workspace. */
@@ -22,9 +24,13 @@ export function removeWorkspaceMessage(tasks: number): string {
  */
 export function RemoveWorkspaceDialog(): React.JSX.Element | null {
   const workspace = useGladeStore((state) => state.workspaces.find(({ id }) => id === state.removingWorkspaceId))
-  const tasks = useGladeStore(
-    (state) => Object.values(state.tasks).filter((task) => task.workspaceId === state.removingWorkspaceId).length,
-  )
+  // Its tasks outside the Done section are all loaded; the Done section's, main counts.
+  const tasks = useGladeStore((state) => {
+    const id = state.removingWorkspaceId
+    if (id === null) return 0
+    const loaded = Object.values(state.tasks).filter((task) => task.workspaceId === id && !isInDoneSection(task))
+    return loaded.length + doneCountsFor(state, id).all
+  })
   const cancel = useGladeStore((state) => state.cancelRemoveWorkspace)
   const removeWorkspace = useGladeStore((state) => state.removeWorkspace)
   const toast = useToast()

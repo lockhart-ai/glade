@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
-import { Effort, FileContentKind, FileInfoKind, UiStateKey } from '../../shared/domain'
+import { TaskFilter } from '../../shared/attention'
+import { Effort, FileContentKind, FileInfoKind, TaskState, UiStateKey } from '../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { BridgeErrorCode, CommandName, EventType, type GladeEvent } from '../../shared/bridge'
 import { EMPTY_MENU_STATE } from '../../shared/commands'
@@ -290,6 +291,31 @@ describe('dialog.chooseFolder', () => {
     await expect(handlers[CommandName.DialogChooseFolder]({})).resolves.toEqual({ path: root })
     chooseFolder.mockResolvedValueOnce(null)
     await expect(handlers[CommandName.DialogChooseFolder]({})).resolves.toEqual({ path: null })
+  })
+})
+
+describe('the task list commands', () => {
+  it('answer the tasks outside the Done section with its counts, a page of it, and tasks by id', async () => {
+    const workspace = sampleWorkspace(database.db)
+    const active = sampleTask(database.db, workspace.id, 1_000)
+    const older = updateTask(database.db, sampleTask(database.db, workspace.id).id, { state: TaskState.Done }, 2_000)
+    const newer = updateTask(
+      database.db,
+      sampleTask(database.db, workspace.id).id,
+      { state: TaskState.Done, unread: true },
+      3_000,
+    )
+
+    expect(await handlers[CommandName.TasksListActive]({ workspaceId: workspace.id })).toEqual({
+      tasks: [active],
+      done: { all: 2, unread: 1 },
+    })
+    const request = { workspaceId: workspace.id, filter: TaskFilter.All, after: null, limit: 1 }
+    expect(await handlers[CommandName.TasksListDone](request)).toEqual({ tasks: [newer], hasMore: true })
+    expect(
+      await handlers[CommandName.TasksListDone]({ ...request, after: { updatedAt: newer.updatedAt, id: newer.id } }),
+    ).toEqual({ tasks: [older], hasMore: false })
+    expect(await handlers[CommandName.TasksGet]({ ids: [older.id, 'gone'] })).toEqual({ tasks: [older] })
   })
 })
 

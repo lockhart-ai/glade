@@ -41,6 +41,9 @@ const WORKSPACE: Workspace = { id: 'w', name: 'Acme API', rootPath: '/code/acme-
 
 // The task commands' handlers and schemas, right, so each registry below differs from a valid one in one way only.
 const TASK_HANDLERS = {
+  [CommandName.TasksListActive]: () => ({ tasks: [], done: { all: 0, unread: 0 } }),
+  [CommandName.TasksListDone]: () => ({ tasks: [], hasMore: false }),
+  [CommandName.TasksGet]: () => ({ tasks: [] }),
   [CommandName.TasksCreate]: () => ({ task: {} as Task }),
   [CommandName.TasksMarkDone]: () => ({ task: {} as Task }),
   [CommandName.TasksReopen]: () => ({ task: {} as Task }),
