@@ -7,7 +7,9 @@
  * A session resumed on launch is first sent `RESUME_PROMPT`, not the task's first message, so it picks its script by
  * the first message of the task it resumes (`firstMessageOf`), and a relaunched task plays the script it played before.
  * With no script at all, starting a session fails loudly; with none for a session's first message, the session dies.
+ * Nothing is spawned, but each session reports the environment a real one's agent process would have run in.
  */
+import type { Environment } from '../login-env'
 import type { AgentBackend, AgentSession, AgentSessionOptions } from './backend'
 import { ScriptedSession, type ScriptChooser } from './scripted-session'
 import { userContent, type UserContent } from './user-content'
@@ -42,6 +44,13 @@ export interface TestModeScripts {
   readonly onSent?: (content: UserContent) => void
 }
 
+/** The environment the sessions' agent processes would run in, as the real backend has it (`SdkBackendOptions`). */
+export interface TestModeEnvironment {
+  readonly env: Promise<Environment>
+  /** Told, once it's known, the environment each session started would have run in, in the order they started. */
+  readonly onSessionEnv: (env: Environment) => void
+}
+
 /** Picks a session's script by its first message, falling back on the default. */
 function chooser({ script, byFirstMessage = new Map() }: TestModeScripts): ScriptChooser {
   return (firstMessage) => {
@@ -57,7 +66,10 @@ function chooser({ script, byFirstMessage = new Map() }: TestModeScripts): Scrip
  * A backend whose sessions play `scripts`, or fail loudly for none. A session's Glade tool calls run the real handlers
  * on its `glade` server, so they really change the task.
  */
-export function createTestModeAgentBackend(scripts: TestModeScripts): TestModeAgentBackend {
+export function createTestModeAgentBackend(
+  scripts: TestModeScripts,
+  environment?: TestModeEnvironment,
+): TestModeAgentBackend {
   let busy = 0
   let waiters: (() => void)[] = []
   const settle = (): void => {
@@ -80,6 +92,7 @@ export function createTestModeAgentBackend(scripts: TestModeScripts): TestModeAg
         console.error(`Glade test mode: ${error.message}`)
         throw error
       }
+      if (environment !== undefined) void environment.env.then(environment.onSessionEnv)
       const choose = chooser(scripts)
       const { resumeSessionId } = options
       const resumedFirst = resumeSessionId === null ? undefined : scripts.firstMessageOf?.(resumeSessionId)

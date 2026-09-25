@@ -1,8 +1,9 @@
 // The real agent backend: a thin adapter from `AgentBackend` onto the Claude Agent SDK's `query()`. Everything Glade
 // decides about a session (its folder, model, prompt, settings, permissions) is here; see `docs/sdk-notes.md`.
-import { query, type Options, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { query, type Options, type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { createRequire } from 'node:module'
 import type { ImageData } from '../../shared/images'
+import type { Environment } from '../login-env'
 import { AsyncQueue } from './async-queue'
 import type { AgentBackend, AgentSession, AgentSessionOptions } from './backend'
 import { userContent } from './user-content'
@@ -10,6 +11,16 @@ import { userContent } from './user-content'
 /** Where the adapter reports a settings change the SDK refused. */
 export interface SdkBackendLog {
   warn(message: string, error: unknown): void
+}
+
+/** How to make the real backend. */
+export interface SdkBackendOptions {
+  /**
+   * The environment Claude Code runs in: the user's login shell's (`resolveLoginEnv`), which a session waits for before
+   * its agent process starts.
+   */
+  readonly env: Promise<Environment>
+  readonly log?: SdkBackendLog
 }
 
 /** Finds a module's file, as `require.resolve` does. */
@@ -40,14 +51,18 @@ export function claudeCodeExecutable(
   return ASAR.test(path) ? path.replace(ASAR, '$1app.asar.unpacked$2') : undefined
 }
 
-/** The SDK options for a session. */
+/** The SDK options for a session that runs in `env`. */
 export function sdkOptions(
   options: AgentSessionOptions,
+  env: Environment,
   resolve: ModuleResolver = createRequire(import.meta.url).resolve,
 ): Options {
   const executable = claudeCodeExecutable(resolve)
   return {
     ...(executable === undefined ? {} : { pathToClaudeCodeExecutable: executable }),
+    // The whole environment, since it replaces Glade's own: opened from Finder, that has launchd's bare PATH. A copy,
+    // since the SDK adds to it. No credentials of Glade's: the bundled Claude Code binary finds the user's login itself.
+    env: { ...env },
     cwd: options.cwd,
     model: options.model,
     effort: options.effort,
@@ -63,7 +78,6 @@ export function sdkOptions(
     disallowedTools: ['AskUserQuestion'],
     // A subagent's own text too, not just its tool calls: the Subagents tab shows the last thing each one said.
     forwardSubagentText: true,
-    // No `env` and no credentials: the bundled Claude Code binary finds the user's own login itself.
   }
 }
 
@@ -80,24 +94,29 @@ export function userMessage(text: string, uuid: string, images: readonly ImageDa
 
 /**
  * Starts each session as one long-lived `query()` in streaming input mode: its prompt is a queue the session pushes the
- * user's messages into, turn after turn.
+ * user's messages into, turn after turn. The `query()`, and with it the agent process, starts once `env` is known; a
+ * session started before then takes messages and settings meanwhile, and delivers them in order once it runs.
  *
  * A settings change and the messages after it are delivered in order: the next message waits for `setModel` and
  * `applyFlagSettings` to finish (`docs/sdk-notes.md` §4). If the SDK refuses a change, the message still goes, on the
  * settings the session had.
  */
-export function createSdkBackend(log: SdkBackendLog = console): AgentBackend {
+export function createSdkBackend({ env, log = console }: SdkBackendOptions): AgentBackend {
   return {
     start(options): AgentSession {
       const input = new AsyncQueue<SDKUserMessage>()
-      const session = query({ prompt: input, options: sdkOptions(options) })
+      const started: Promise<Query> = env.then((resolved) =>
+        query({ prompt: input, options: sdkOptions(options, resolved) }),
+      )
       // Everything asked of the session so far, in order.
       let queue = Promise.resolve()
       const then = (step: () => Promise<void> | void): void => {
         queue = queue.then(step)
       }
       return {
-        messages: session,
+        messages: (async function* () {
+          yield* await started
+        })(),
         send(text, uuid, images) {
           then(() => {
             input.push(userMessage(text, uuid, images))
@@ -105,6 +124,7 @@ export function createSdkBackend(log: SdkBackendLog = console): AgentBackend {
         },
         configure({ model, effort }) {
           then(async () => {
+            const session = await started
             try {
               await session.setModel(model)
               await session.applyFlagSettings({ effortLevel: effort })
@@ -114,16 +134,18 @@ export function createSdkBackend(log: SdkBackendLog = console): AgentBackend {
           })
         },
         async interrupt() {
-          await session.interrupt()
+          await (await started).interrupt()
         },
         async stopTask(sdkTaskId) {
-          await session.stopTask(sdkTaskId)
+          await (await started).stopTask(sdkTaskId)
         },
         close() {
           then(() => {
             input.end()
           })
-          session.close()
+          void started.then((session) => {
+            session.close()
+          })
         },
       }
     },

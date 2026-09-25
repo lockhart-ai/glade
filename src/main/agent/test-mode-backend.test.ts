@@ -181,4 +181,27 @@ describe('createTestModeAgentBackend', () => {
     expect(received()).toContainEqual(expect.objectContaining({ type: 'system', model: 'claude-sample-2' }))
     session.close()
   })
+
+  it("reports each session's environment once it's known, as the real backend would run its agent in", async () => {
+    const script: AgentScript = { name: 'test', turns: [[init(), result()]] }
+    let known: (env: Record<string, string>) => void = () => undefined
+    const env = new Promise<Record<string, string>>((resolve) => {
+      known = resolve
+    })
+    const onSessionEnv = vi.fn()
+    const backend = createTestModeAgentBackend({ script }, { env, onSessionEnv })
+
+    const first = backend.start(OPTIONS)
+    const second = backend.start(OPTIONS)
+    await Promise.resolve()
+    expect(onSessionEnv).not.toHaveBeenCalled()
+
+    known({ PATH: '/opt/sample/bin:/usr/bin' })
+    await vi.waitFor(() => {
+      expect(onSessionEnv).toHaveBeenCalledTimes(2)
+    })
+    expect(onSessionEnv).toHaveBeenCalledWith({ PATH: '/opt/sample/bin:/usr/bin' })
+    first.close()
+    second.close()
+  })
 })

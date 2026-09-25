@@ -12,6 +12,7 @@
     "e2e/**/*",
     "src/main/e2e.ts",
     "src/main/isolation.ts",
+    "src/main/login-env.ts",
     "src/main/agent/scripts.ts",
     "src/main/agent/user-content.ts",
     "src/main/notifications/notifier.ts",

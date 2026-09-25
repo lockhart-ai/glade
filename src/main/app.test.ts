@@ -10,7 +10,15 @@ import { CAPTURE_ENV, type CaptureSpec } from './capture'
 import { FakeAgentBackend, settle } from './agent/fake-backend'
 import * as sdk from './agent/test-sdk-messages'
 import { RESUME_PROMPT } from './agent/runner'
-import { E2E_CHOSEN_FOLDER_ENV, E2E_ENV, E2E_NOTIFIER_GLOBAL, E2E_WINDOW_SIZE, type E2eSpec } from './e2e'
+import {
+  E2E_AGENT_ENVS_GLOBAL,
+  E2E_CHOSEN_FOLDER_ENV,
+  E2E_ENV,
+  E2E_NOTIFIER_GLOBAL,
+  E2E_WINDOW_SIZE,
+  type E2eAgentEnvs,
+  type E2eSpec,
+} from './e2e'
 import { openAppDatabase } from './db/database'
 import { MIGRATIONS } from './db/migrations'
 import { appendMessage } from './db/repositories/messages'
@@ -19,6 +27,8 @@ import { getUiState, setUiState } from './db/repositories/ui-state'
 import { sampleTask, sampleWorkspace } from './db/repositories/test-database'
 import { CHOOSE_FOLDER_OPTIONS } from './dialogs'
 import type { RecordingNotifier } from './notifications/recording-notifier'
+import type { SdkBackendOptions } from './agent/sdk-backend'
+import type { LoginEnvOptions } from './login-env'
 import { markRunning } from './relaunch'
 import { createFakeSpawner } from './terminal/fake-pty'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
@@ -151,6 +161,36 @@ vi.mock('./agent/sdk-backend', async (importOriginal) => {
   return { ...original, createSdkBackend: vi.fn(original.createSdkBackend) }
 })
 const { createSdkBackend } = await import('./agent/sdk-backend')
+
+// Reading the login shell's environment, watched, and kept off the machine's own shell and profile: it falls back to
+// the app's own environment unless a test runs the real resolver on a fake shell (`useRealLoginEnv`).
+vi.mock('./login-env', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./login-env')>()
+  return {
+    ...original,
+    resolveLoginEnv: vi.fn((options: LoginEnvOptions) =>
+      Promise.resolve({ source: original.LoginEnvSource.Fallback, env: original.definedEnv(options.base), reason: '' }),
+    ),
+  }
+})
+const { resolveLoginEnv } = await import('./login-env')
+const realLoginEnv = await vi.importActual<typeof import('./login-env')>('./login-env')
+
+/**
+ * Has the app read the login shell's environment for real, once, from a fake login shell: a `/bin/sh` script that adds
+ * `/opt/sample/bin` to PATH, as a profile would. It runs in the temp folder, since the fake home doesn't exist.
+ */
+function useRealLoginEnv(): void {
+  const shell = join(electron.app.userData, 'login-shell')
+  writeFileSync(shell, '#!/bin/sh\nexport PATH="/opt/sample/bin:$PATH"\nexec /bin/sh -c "$2"\n', { mode: 0o755 })
+  vi.stubEnv('SHELL', shell)
+  vi.mocked(resolveLoginEnv).mockImplementationOnce((options) =>
+    realLoginEnv.resolveLoginEnv({ ...options, cwd: electron.app.userData, log: { info: vi.fn(), warn: vi.fn() } }),
+  )
+}
+
+/** launchd's PATH: what an app opened from Finder or the Dock starts with. */
+const LAUNCHD_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
 
 const { startApp, WINDOW_WEB_PREFERENCES } = await import('./app')
 
@@ -615,9 +655,44 @@ describe('startApp', () => {
     }
   })
 
-  it('runs the agents on the Claude Agent SDK by default', async () => {
+  it('runs the agents on the Claude Agent SDK by default, in the login shell’s environment', async () => {
     await startAndWaitUntilReady()
 
+    expect(createSdkBackend).toHaveBeenCalledExactlyOnceWith({ env: expect.any(Promise) as unknown })
+    expect(resolveLoginEnv).toHaveBeenCalledExactlyOnceWith({
+      shell: process.env.SHELL,
+      base: process.env,
+      cwd: '/Users/sample',
+    })
+  })
+
+  it("gives the agents the login shell's PATH, read at startup from $SHELL, when opened with launchd's bare one", async () => {
+    vi.stubEnv('PATH', LAUNCHD_PATH)
+    useRealLoginEnv()
+    const createAgentBackend = vi.fn<(options: SdkBackendOptions) => FakeAgentBackend>(() => new FakeAgentBackend())
+
+    startApp({ createAgentBackend })
+    await vi.waitFor(() => {
+      expect(createAgentBackend).toHaveBeenCalledOnce()
+    })
+
+    const env = await createAgentBackend.mock.calls[0]?.[0].env
+    expect(env?.PATH).toBe(`/opt/sample/bin:${LAUNCHD_PATH}`)
+  })
+
+  it("opens the window, and takes messages, while the login shell's environment is still being read", async () => {
+    vi.mocked(resolveLoginEnv).mockReturnValueOnce(new Promise(() => undefined))
+
+    await startAndWaitUntilReady()
+
+    onlyWindow().onceHandlers.get('ready-to-show')?.()
+    expect(onlyWindow().show).toHaveBeenCalledOnce()
+    const db = new Database(join(electron.app.userData, 'glade.db'))
+    const task = sampleTask(db, sampleWorkspace(db).id)
+    db.close()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+    // The SDK's session waits for the environment, so the test's guard on the real SDK is never reached.
+    await expect(handler?.({}, CommandName.TasksSend, { id: task.id, text: 'Hi' })).resolves.toMatchObject({ ok: true })
     expect(createSdkBackend).toHaveBeenCalledOnce()
   })
 
@@ -740,6 +815,15 @@ describe('startApp in capture mode', () => {
       expect(electron.app.exit).toHaveBeenCalled()
     })
   }
+
+  it("never reads the machine's login shell", async () => {
+    askForCapture()
+
+    await startAndWaitUntilReady()
+    await waitForExit()
+
+    expect(resolveLoginEnv).not.toHaveBeenCalled()
+  })
 
   it('captures the page in a window that is never shown, then exits cleanly', async () => {
     askForCapture()
@@ -1024,6 +1108,46 @@ describe('startApp in e2e mode', () => {
       ])
     })
     check.close()
+  })
+
+  /** Sends a task a message on the `simple-reply` script, and resolves with the environments its session recorded. */
+  async function sessionEnvs(): Promise<E2eAgentEnvs> {
+    const db = new Database(join(electron.app.userData, 'glade.db'))
+    const task = sampleTask(db, sampleWorkspace(db, electron.app.userData).id)
+    db.close()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+    await handler?.({}, CommandName.TasksSend, { id: task.id, text: 'Hi' })
+    const envs = Reflect.get(globalThis, E2E_AGENT_ENVS_GLOBAL) as E2eAgentEnvs
+    await vi.waitFor(() => {
+      expect(envs.sessions).toHaveLength(1)
+    })
+    return envs
+  }
+
+  it("runs the agents in the app's own environment, never reading the machine's login shell", async () => {
+    askForE2e({ agentScript: 'simple-reply' })
+    vi.stubEnv('PATH', LAUNCHD_PATH)
+    await startAndWaitUntilReady()
+
+    const { sessions } = await sessionEnvs()
+
+    expect(resolveLoginEnv).not.toHaveBeenCalled()
+    expect(sessions[0]?.PATH).toBe(LAUNCHD_PATH)
+  })
+
+  it('runs the agents in the environment of the login shell the spec names', async () => {
+    vi.stubEnv('PATH', LAUNCHD_PATH)
+    useRealLoginEnv()
+    askForE2e({ agentScript: 'simple-reply', loginShell: String(process.env.SHELL) })
+    vi.stubEnv('SHELL', '/bin/not-this-one')
+    await startAndWaitUntilReady()
+
+    const { sessions } = await sessionEnvs()
+
+    expect(resolveLoginEnv).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ shell: join(electron.app.userData, 'login-shell') }),
+    )
+    expect(sessions[0]?.PATH).toBe(`/opt/sample/bin:${LAUNCHD_PATH}`)
   })
 
   it('never makes the real agent backend by default either', async () => {

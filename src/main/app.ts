@@ -13,7 +13,7 @@ import {
 } from 'electron'
 import { EventType } from '../shared/bridge'
 import type { AgentBackend } from './agent/backend'
-import { createSdkBackend } from './agent/sdk-backend'
+import { createSdkBackend, type SdkBackendOptions } from './agent/sdk-backend'
 import { AGENT_SCRIPTS, type AgentScriptName } from './agent/scripts'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './agent/test-mode-backend'
 import { registerBridge, type RegisteredBridge } from './bridge'
@@ -30,6 +30,7 @@ import { firstUserMessageOfSession } from './db/repositories/messages'
 import { applySeed, readSeed } from './capture-seed'
 import { chooseFolder } from './dialogs'
 import {
+  createE2eAgentEnvs,
   createE2eDesktop,
   createE2eAgent,
   createE2eEditor,
@@ -42,6 +43,7 @@ import {
   type E2eSpec,
 } from './e2e'
 import type { OpenPath, RevealPath, WriteClipboard } from './files/files'
+import { definedEnv, resolveLoginEnv, type Environment } from './login-env'
 import { installAppMenu } from './menu/app-menu'
 import { createElectronNotifier } from './notifications/electron-notifier'
 import { createReplyNotifications } from './notifications/notifications'
@@ -244,18 +246,42 @@ function startTestMode(): TestMode {
  * The agent a test mode's tasks run on: the script its spec names, or none, and for an e2e spec the scripts it picks by
  * a task's first message, read from the database for a session resumed on launch.
  */
-function createTestModeAgent(testMode: NonNullable<TestMode>, db: AppDatabase['db']): TestModeAgentBackend {
+function createTestModeAgent(
+  testMode: NonNullable<TestMode>,
+  db: AppDatabase['db'],
+  env: Promise<Environment>,
+): TestModeAgentBackend {
   const name: AgentScriptName | undefined =
     testMode.kind === TestModeKind.Capture ? testMode.spec.conversation?.agentScript : testMode.spec.agentScript
   const byFirstMessage = testMode.kind === TestModeKind.E2e ? testMode.spec.agentScriptsByFirstMessage : undefined
-  return createTestModeAgentBackend({
-    script: name === undefined ? null : AGENT_SCRIPTS[name],
-    byFirstMessage: new Map(
-      Object.entries(byFirstMessage ?? {}).map(([message, script]) => [message, AGENT_SCRIPTS[script]]),
-    ),
-    firstMessageOf: (sessionId) => firstUserMessageOfSession(db, sessionId),
-    ...(testMode.kind === TestModeKind.E2e ? { onSent: createE2eAgent() } : {}),
-  })
+  return createTestModeAgentBackend(
+    {
+      script: name === undefined ? null : AGENT_SCRIPTS[name],
+      byFirstMessage: new Map(
+        Object.entries(byFirstMessage ?? {}).map(([message, script]) => [message, AGENT_SCRIPTS[script]]),
+      ),
+      firstMessageOf: (sessionId) => firstUserMessageOfSession(db, sessionId),
+      ...(testMode.kind === TestModeKind.E2e ? { onSent: createE2eAgent() } : {}),
+    },
+    // An e2e spec reads the environment each session would have run in.
+    testMode.kind === TestModeKind.E2e ? { env, onSessionEnv: createE2eAgentEnvs() } : undefined,
+  )
+}
+
+/**
+ * The environment the agents run in: your login shell's, read once at startup (see `./login-env`). A test mode never
+ * reads yours, so what it does doesn't depend on the machine it runs on: it keeps the app's own, unless an e2e spec
+ * names a login shell to read.
+ */
+function agentEnv(testMode: TestMode): Promise<Environment> {
+  const base = process.env
+  const read = (shell: string | undefined): Promise<Environment> =>
+    resolveLoginEnv({ shell, base, cwd: app.getPath('home') }).then(({ env }) => env)
+  if (testMode === null) return read(base.SHELL)
+  if (testMode.kind === TestModeKind.E2e && testMode.spec.loginShell !== undefined) {
+    return read(testMode.spec.loginShell)
+  }
+  return Promise.resolve(definedEnv(base))
 }
 
 /**
@@ -334,11 +360,11 @@ function openTaskFromNotification(taskId: string, { testMode, database, bridge }
 /** What the app can be started with. */
 export interface AppOptions {
   /**
-   * Makes the backend the tasks' agents run on, once the app is ready. The Claude Agent SDK by default; unit tests pass
-   * a fake. Never used in a test mode (e2e or capture), which always runs on `createTestModeAgentBackend`, so no
-   * automated run can reach the real Claude API.
+   * Makes the backend the tasks' agents run on, once the app is ready, given the environment they run in. The Claude
+   * Agent SDK by default; unit tests pass a fake. Never used in a test mode (e2e or capture), which always runs on
+   * `createTestModeAgentBackend`, so no automated run can reach the real Claude API.
    */
-  readonly createAgentBackend?: () => AgentBackend
+  readonly createAgentBackend?: (options: SdkBackendOptions) => AgentBackend
   /** Starts the terminal tabs' shells in pseudo-terminals: node-pty by default; unit tests pass a fake. */
   readonly spawnPty?: SpawnPty
 }
@@ -370,6 +396,8 @@ export function startApp({ createAgentBackend = createSdkBackend, spawnPty = spa
     app.exit(1)
     return
   }
+  // Read alongside Electron starting up, and without holding the window up: an agent session waits for it instead.
+  const env = agentEnv(testMode)
 
   void app.whenReady().then(() => {
     const security = checkSecurity(WINDOW_WEB_PREFERENCES)
@@ -393,7 +421,7 @@ export function startApp({ createAgentBackend = createSdkBackend, spawnPty = spa
     const { database } = opening
 
     // A test mode never reaches the real Claude API, whatever the app was started with: its agent plays a script.
-    const testAgent = testMode === null ? null : createTestModeAgent(testMode, database.db)
+    const testAgent = testMode === null ? null : createTestModeAgent(testMode, database.db, env)
     const notifyReply = createReplyNotifications({
       db: database.db,
       notifier: createNotifier(testMode),
@@ -419,7 +447,7 @@ export function startApp({ createAgentBackend = createSdkBackend, spawnPty = spa
       ipc: ipcMain,
       db: database.db,
       targets: () => BrowserWindow.getAllWindows().map((window) => window.webContents),
-      agentBackend: testAgent ?? createAgentBackend(),
+      agentBackend: testAgent ?? createAgentBackend({ env }),
       // A test can't click a native dialog, so in e2e mode it answers with the folder the test chose.
       chooseFolder:
         testMode?.kind === TestModeKind.E2e
