@@ -63,6 +63,12 @@ An "Ask before edits and commands" mode: edits and commands wait on a permission
 Sandboxed plugins beside the terminal, fed task and agent events (`plugin-api.md`), and Nekomata as the first one.
 [Meta issue #66](https://github.com/lockhart-ai/glade/issues/66)
 
+## P13 · Programmatic control
+
+Tasks as an MCP API (`glade-control`, `control-api.md`) for Glade's own agents and, over a local HTTP endpoint, any
+other: create, read, change and delete tasks, and import past Claude Code sessions.
+[Meta issue #219](https://github.com/lockhart-ai/glade/issues/219)
+
 ## Later
 
 Signing, notarisation and auto-update (L-04, #69).
