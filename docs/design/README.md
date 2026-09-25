@@ -32,6 +32,8 @@ illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
 | 22 · Keymap | Every shortcut. Also in `../keymap.md`. | ![22 · Keymap](screens/22-keymap.png) |
 | 23 · Permission card | Ask before edits and commands: a Bash call waiting on you with Allow once, Allow for this task (its command prefix) and Deny, and a subagent's Edit with Deny's note field open; cards collapsed to one line once allowed once or denied (with the note). Built from the question card; no original design. | ![23 · Permission card](screens/23-permission-card.png) |
 | 24 · Permissions picker | The input bar's Permissions picker open on Allow all and Ask before edits and commands, over an open Bash card; above it, cards collapsed to one line once allowed once, allowed for this task or withdrawn. | ![24 · Permissions picker](screens/24-permissions-picker.png) |
+| 25 · Backfilled | A done task backfilled through the control API (P13-04): the Backfilled card at the top of the chat, expanded to its handoff note (rendered Markdown), with the date it was added; the files the backfill registered in the Artifacts tab. Built from the chat's cards; no original design. | ![25 · Backfilled](screens/25-backfilled.png) |
+| 26 · Backfilled, collapsed | The same task reopened by a message: the card collapsed to its one line above the conversation. | ![26 · Backfilled, collapsed](screens/26-backfilled-collapsed.png) |
 | Interaction map | Every screen, state and action as a graph. | ![Interaction map](screens/interaction-map.png) |
 | Decisions | The decisions board. | ![Decisions](screens/decisions.png) |
 | Icon exploration | Variations of the chosen icon; W07 is the one. | ![Icon exploration](screens/icon-exploration.png) |
