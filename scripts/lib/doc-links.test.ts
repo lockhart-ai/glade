@@ -7,11 +7,10 @@ import { anchorsOf, brokenLinks, extractLinks, GITHUB_BLOB, markdownFiles, slugO
 const REPO = resolve(__dirname, '..', '..')
 
 /**
- * Files other open PRs add, which the docs link to before they land: the user guide (D-02, #241) and the README's
- * images (D-01, #240). A link to one passes while it's missing; once it's there it's checked like any other, so this
- * list can go when both have merged.
+ * Files other open PRs add, which the docs link to before they land: the README's images (D-01, #240). A link to one
+ * passes while it's missing; once it's there it's checked like any other, so this list can go when D-01 has merged.
  */
-const PENDING = ['docs/user-guide.md', 'docs/images/']
+const PENDING = ['docs/images/']
 
 describe('the links in the docs', () => {
   // Every Markdown file at the root and under docs/, release notes included (their links are few and all resolve),

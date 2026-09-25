@@ -1,12 +1,12 @@
 {
-  "workspace": {
-    "name": "Acme API",
-    "rootPath": "/Users/sample/code/api"
-  },
   "settings": {
     "controlEnabled": true
   },
   "controlToken": "EXAMPLE-TOKEN-see-Settings-Control-00000000",
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
   "tasks": [
     {
       "title": "Draft release notes for 2.4",

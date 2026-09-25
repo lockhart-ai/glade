@@ -286,7 +286,7 @@ states, one-line tool-call summaries, subagents, questions and permission reques
 files.
 
 **Installing** one is copying its folder into Glade's plugins folder: Settings › Plugins › **Open plugins folder**
-(`~/Library/Application Support/Glade/plugins/`). Glade looks for plugins at launch and each time you open Settings ›
+(`~/Library/Application Support/glade/plugins/`). Glade looks for plugins at launch and each time you open Settings ›
 Plugins, which lists them with a switch each; a broken one is listed with the reason. Delete the folder to remove it.
 Drag the handle between the terminal and the plugin to resize it.
 
@@ -298,7 +298,7 @@ git clone https://github.com/lockhart-ai/nekomata.git
 cd nekomata
 git checkout glade-plugin   # the Glade build, until it's merged into main
 ./build.sh glade
-cp -R dist/glade/nekomata ~/Library/Application\ Support/Glade/plugins/
+cp -R dist/glade/nekomata ~/Library/Application\ Support/glade/plugins/
 ```
 
 Then open Settings › Plugins: Nekomata is listed, switched on, and appears beside the terminal.
@@ -456,9 +456,9 @@ for the `agent` and `runner` lines of that task.
 
 | What | Where |
 |---|---|
-| Workspaces, tasks, chats, tool logs, queues, drafts, settings, terminal scrollback | `~/Library/Application Support/Glade/glade.db` (SQLite) |
-| Plugins | `~/Library/Application Support/Glade/plugins/` |
-| Logs | `~/Library/Logs/Glade/main.log` |
+| Workspaces, tasks, chats, tool logs, queues, drafts, settings, terminal scrollback | `~/Library/Application Support/glade/glade.db` (SQLite) |
+| Plugins | `~/Library/Application Support/glade/plugins/` |
+| Logs | `~/Library/Logs/glade/main.log` |
 | The agents' own session transcripts | Where Claude Code keeps them, `~/.claude/projects/` |
 
 Everything stays on your Mac. Deleting a task or removing a workspace deletes rows in the database, never files in your
@@ -466,12 +466,12 @@ folders.
 
 ### Logs
 
-Glade logs what it does, one JSON line per event, to `~/Library/Logs/Glade/main.log` (rotated at 5 MB, five old files
+Glade logs what it does, one JSON line per event, to `~/Library/Logs/glade/main.log` (rotated at 5 MB, five old files
 kept). Secrets are redacted and message text is cut short. Read it with Console.app or:
 
 ```sh
-tail -f ~/Library/Logs/Glade/main.log
-grep -E '"level":"(warn|error)"' ~/Library/Logs/Glade/main.log
+tail -f ~/Library/Logs/glade/main.log
+grep -E '"level":"(warn|error)"' ~/Library/Logs/glade/main.log
 ```
 
 Attach it to a bug report if you like. [Logs](logs.md) explains every field and scope.

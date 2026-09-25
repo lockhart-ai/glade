@@ -55,7 +55,7 @@ import { setUiState } from './db/repositories/ui-state'
 import { createWorkspace } from './db/repositories/workspaces'
 import { DEFAULT_SETTINGS, type SettingsPatch } from '../shared/settings'
 import { SETTING_SCHEMAS, updateSettings } from './db/repositories/settings'
-import { CONTROL_TOKEN_PATTERN, storeControlToken } from './control/token'
+import { storeControlToken, storedToken } from './control/token'
 
 const MINUTE = 60_000
 
@@ -242,8 +242,8 @@ export interface CaptureSeed {
   /** Settings to change from their defaults, e.g. `controlEnabled`; none unless given. */
   readonly settings?: SettingsPatch | undefined
   /**
-   * The control endpoint's token, e.g. `EXAMPLE-TOKEN-see-Settings-Control-00000000`, so a capture of Settings › Control
-   * shows an obvious placeholder instead of a real-looking secret; a random one unless given.
+   * The control API's token, so Settings › Control shows a placeholder rather than a random, real-looking one; a new
+   * random one (made when the switch is on) unless given. It must still look like a token: 43 base64url characters.
    */
   readonly controlToken?: string | undefined
   /** The right panel's tab to open on (`PanelTab`, e.g. `subagents`); Tool calls unless given. */
@@ -326,7 +326,7 @@ const seedPauseSchema = z.strictObject({
 const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
   workspace: z.strictObject({ id: z.string().optional(), name: z.string(), rootPath: z.string() }),
   settings: z.strictObject(SETTING_SCHEMAS).partial().optional(),
-  controlToken: z.string().regex(CONTROL_TOKEN_PATTERN).optional(),
+  controlToken: storedToken.optional(),
   panelTab: z.string().optional(),
   panelWidth: z.int().positive().optional(),
   pluginWidth: z.int().positive().optional(),

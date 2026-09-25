@@ -42,6 +42,8 @@ const FIXTURES = join(import.meta.dirname, '..', '..', 'scripts', 'fixtures')
 const FIXTURE = join(FIXTURES, 'task-workspace.json')
 const NOW = 10_000_000
 const MINUTE = 60_000
+/** A placeholder control token: obviously fake, but shaped like one (43 base64url characters). */
+const SAMPLE_TOKEN = 'EXAMPLE-TOKEN-see-Settings-Control-00000000'
 
 const SEED: CaptureSeed = {
   workspace: { name: 'Acme API', rootPath: '/Users/sample/code/api' },
@@ -206,11 +208,12 @@ describe('readSeed', () => {
     expect(() => readSeed(write(JSON.stringify({ ...SEED, settings: { theme: 'dark' } })))).toThrow(/is invalid: /)
   })
 
-  it('reads a placeholder control token, and refuses one that is not token-shaped', () => {
-    const controlToken = 'EXAMPLE-TOKEN-see-Settings-Control-00000000'
-    expect(readSeed(write(JSON.stringify({ ...SEED, controlToken }))).controlToken).toBe(controlToken)
+  it('reads a control token, and refuses one that does not look like a token', () => {
+    expect(readSeed(write(JSON.stringify({ ...SEED, controlToken: SAMPLE_TOKEN }))).controlToken).toBe(SAMPLE_TOKEN)
     expect(() => readSeed(write(JSON.stringify({ ...SEED, controlToken: 'EXAMPLE-TOKEN' })))).toThrow(/is invalid: /)
-    expect(() => readSeed(write(JSON.stringify({ ...SEED, controlToken: `${controlToken}!` })))).toThrow(/is invalid: /)
+    expect(() => readSeed(write(JSON.stringify({ ...SEED, controlToken: `${SAMPLE_TOKEN.slice(1)}!` })))).toThrow(
+      /is invalid: /,
+    )
   })
 
   it('refuses a fixture that is missing or not JSON', () => {
@@ -404,14 +407,13 @@ describe('applySeed', () => {
     expect(readControlToken(db)).toBeNull()
   })
 
-  it('stores the control token it gives, which the endpoint then keeps rather than making one', () => {
+  it('stores the control token it gives, which turning control on then keeps', () => {
     const { db } = database
-    const controlToken = 'EXAMPLE-TOKEN-see-Settings-Control-00000000'
 
-    applySeed(db, { ...SEED, settings: { controlEnabled: true }, controlToken })
+    applySeed(db, { ...SEED, settings: { controlEnabled: true }, controlToken: SAMPLE_TOKEN })
 
-    expect(readControlToken(db)).toBe(controlToken)
-    expect(ensureControlToken(db)).toBe(controlToken)
+    expect(readControlToken(db)).toBe(SAMPLE_TOKEN)
+    expect(ensureControlToken(db)).toBe(SAMPLE_TOKEN)
     expect(getSettings(db)).toEqual({ ...DEFAULT_SETTINGS, controlEnabled: true })
   })
 
