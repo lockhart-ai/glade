@@ -233,6 +233,10 @@ export interface PermissionStep {
   readonly suggestions?: readonly PermissionSuggestion[]
   /** Claude Code's subtitle for the call; none by default. */
   readonly description?: string
+  /** Claude Code's prompt sentence for the call, e.g. "Claude wants to edit a.txt"; none by default. */
+  readonly title?: string
+  /** Whether the prompt mustn't be approvable by a stray key; false by default. */
+  readonly defaultToNo?: boolean
 }
 
 export type ScriptStep =
@@ -1575,6 +1579,54 @@ const asksPermission: AgentScript = {
   ],
 }
 
+/** What the `asks-permission-from-a-subagent` script's agent and subagent do and say. */
+export const SUBAGENT_PERMISSION = {
+  subagent: 'Upgrade guide',
+  title: 'Claude wants to create docs/upgrade-2.4.md',
+  file: 'docs/upgrade-2.4.md',
+  content:
+    '# Upgrading to 2.4\n\nClients that call /search more than 10 times a second now get 429 Too Many Requests.\n',
+  command: 'rm -rf dist',
+  reply: 'The upgrade guide is written up.',
+} as const
+
+/**
+ * A turn in which the agent's own `Bash` call asks permission, then a subagent's `Write`, which Claude Code marks as not
+ * to be approved by a stray key (`defaultToNo`) and titles; then the agent replies. In Allow all, nothing asks.
+ */
+const asksPermissionFromASubagent: AgentScript = {
+  name: 'asks-permission-from-a-subagent',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Write the 2.4 upgrade guide',
+        'Write the upgrade guide for 2.4, with a subagent drafting it.',
+        'Drafting the upgrade guide with a subagent.',
+      ),
+      permission('clean', 'Bash', { command: SUBAGENT_PERMISSION.command, description: 'Remove the old build' }, '', {
+        suggestions: bashSuggestions(SUBAGENT_PERMISSION.command),
+      }),
+      toolUse('guide', 'Agent', {
+        description: SUBAGENT_PERMISSION.subagent,
+        prompt: 'Write the 2.4 upgrade guide.',
+        subagent_type: 'general-purpose',
+      }),
+      permission(
+        'guide-write',
+        'Write',
+        { file_path: SUBAGENT_PERMISSION.file, content: SUBAGENT_PERMISSION.content },
+        `File created successfully at: ${SUBAGENT_PERMISSION.file}`,
+        { parent: 'guide', title: SUBAGENT_PERMISSION.title, defaultToNo: true, description: SUBAGENT_PERMISSION.file },
+      ),
+      toolResult('guide', 'Wrote the upgrade guide.'),
+      say(SUBAGENT_PERMISSION.reply),
+      result(),
+    ],
+  ],
+}
+
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
   'simple-reply',
@@ -1599,6 +1651,7 @@ export const AGENT_SCRIPT_NAMES = [
   'background-subagents',
   'subagent-calls',
   'asks-permission',
+  'asks-permission-from-a-subagent',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -1627,4 +1680,5 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'background-subagents': backgroundSubagents,
   'subagent-calls': subagentCalls,
   'asks-permission': asksPermission,
+  'asks-permission-from-a-subagent': asksPermissionFromASubagent,
 }

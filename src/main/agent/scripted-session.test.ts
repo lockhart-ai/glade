@@ -490,6 +490,30 @@ describe('ScriptedSession', () => {
       ])
     })
 
+    it("asks with the prompt sentence and the stray-key flag a step gives, as Claude Code's would", async () => {
+      const { calls, decide } = decider()
+      const played = asking(
+        [
+          [
+            init(),
+            permission('write', 'Write', { file_path: 'a.md', content: 'A' }, 'Written.', {
+              title: 'Claude wants to create a.md',
+              defaultToNo: true,
+            }),
+            result(),
+          ],
+        ],
+        decide,
+      )
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      expect(calls).toEqual([
+        expect.objectContaining({ toolName: 'Write', title: 'Claude wants to create a.md', defaultToNo: true }),
+      ])
+      played.session.close()
+    })
+
     it('asks about the call in the ask mode, going idle while it waits, then plays its result once allowed', async () => {
       const { calls, decide, give } = decider()
       const played = asking(
@@ -517,9 +541,11 @@ describe('ScriptedSession', () => {
           input: TEST,
           toolUseId: (played.events[1] as { toolUseId: string }).toolUseId,
           agentId: null,
+          title: null,
           displayName: 'Bash',
           description: 'Run the test suite',
           suggestions: bashSuggestions('npm test'),
+          defaultToNo: false,
         }),
       ])
       expect(played.events.slice(2)).toEqual([])

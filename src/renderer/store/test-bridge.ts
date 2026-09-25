@@ -20,6 +20,8 @@ import {
   FileContentKind,
   FileInfoKind,
   MessageRole,
+  PermissionDecisionKind,
+  PermissionRequestState,
   QuestionKind,
   QuestionReplyKind,
   QuestionSetState,
@@ -30,6 +32,7 @@ import {
   type FileInfo,
   type Message,
   type OpenFiles,
+  type PermissionRequest,
   type QuestionSet,
   type QueuedMessage,
   type Task,
@@ -61,6 +64,11 @@ export interface FakeMain {
   readonly queuedMessages?: QueuedMessage[]
   /** Every task's question sets; none when left out. `questions.answer` answers one, without checking the answers. */
   readonly questionSets?: QuestionSet[]
+  /**
+   * Every task's permission requests; none when left out. `permissions.answer` allows or denies an open one, refusing
+   * one that isn't open, as main does.
+   */
+  readonly permissionRequests?: PermissionRequest[]
   /** Every task's open files; none when left out. `files.open` and `files.close` change them. */
   readonly openFiles?: OpenFiles[]
   /** What `files.read` answers with, by path, for any task; missing when left out. */
@@ -281,7 +289,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       toolEvents: (main.toolEvents ?? []).filter((event) => event.taskId === id),
       queuedMessages: queueOf(id),
       questionSets: (main.questionSets ?? []).filter((set) => set.taskId === id),
-      permissionRequests: [],
+      permissionRequests: (main.permissionRequests ?? []).filter((request) => request.taskId === id),
       openFiles: openFilesOf(id),
       todos: main.todos?.[id] ?? null,
       artifacts: artifacts.filter((artifact) => artifact.taskId === id),
@@ -313,9 +321,25 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       const image = images[id]
       return image === undefined ? refuse(bridgeError(BridgeErrorCode.NotFound, `No image ${id}`)) : { image }
     },
-    // Nothing in the window answers permission requests yet (the permission card is P11-02), so there are none to answer.
-    [CommandName.PermissionsAnswer]: ({ id }) =>
-      refuse(bridgeError(BridgeErrorCode.NotFound, `No permission request ${id}`)),
+    [CommandName.PermissionsAnswer]: ({ id, decision }) => {
+      const requests = main.permissionRequests ?? []
+      const index = requests.findIndex((request) => request.id === id)
+      const current = requests[index]
+      if (current === undefined) return refuse(bridgeError(BridgeErrorCode.NotFound, `No permission request ${id}`))
+      if (current.state !== PermissionRequestState.Open) {
+        return refuse(bridgeError(BridgeErrorCode.InvalidTransition, `Permission request ${id} isn't open`))
+      }
+      const denied = decision.kind === PermissionDecisionKind.Deny
+      const permissionRequest: PermissionRequest = {
+        ...current,
+        state: denied ? PermissionRequestState.Denied : PermissionRequestState.Allowed,
+        denyNote: denied ? (decision.note ?? null) : null,
+        closedAt: 3_000,
+      }
+      requests[index] = permissionRequest
+      emit({ type: EventType.PermissionAnswered, permissionRequest })
+      return { permissionRequest }
+    },
     [CommandName.QuestionsAnswer]: ({ id, answers }) => {
       const sets = main.questionSets ?? []
       const index = sets.findIndex((set) => set.id === id)
@@ -545,6 +569,29 @@ export function sampleQueuedMessage(id: string, taskId: string, body = 'Keep the
 }
 
 /** An open question set: a choice and a text question. */
+/** An open permission request for the agent's own `Bash` call, `npm test`. */
+export function samplePermissionRequest(id: string, taskId: string): PermissionRequest {
+  return {
+    id,
+    taskId,
+    turn: 1,
+    toolUseId: `toolu-${id}`,
+    agentId: null,
+    toolName: 'Bash',
+    input: { command: 'npm test', description: 'Run the test suite' },
+    title: null,
+    displayName: 'Bash',
+    description: 'Run the test suite',
+    suggestions: [],
+    defaultToNo: false,
+    suppressAlwaysAllowRule: false,
+    state: PermissionRequestState.Open,
+    denyNote: null,
+    createdAt: 3_000,
+    closedAt: null,
+  }
+}
+
 export function sampleQuestionSet(id: string, taskId: string): QuestionSet {
   return {
     id,

@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName } from '../../shared/bridge'
-import { Effort, UiStateKey } from '../../shared/domain'
+import { Effort, PermissionMode, UiStateKey } from '../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
@@ -9,6 +9,7 @@ import { createGladeStore, type GladeStore } from '../store/store'
 import { fakeBridge, refuse, sampleWorkspace, type FakeBridge, type FakeHandlers } from '../store/test-bridge'
 import { SettingsSection } from './sections'
 import { SettingsDialog } from './SettingsDialog'
+import { Permission, permissionModeOf } from './SettingsSections'
 
 interface Rendered extends FakeBridge {
   readonly store: GladeStore
@@ -115,14 +116,14 @@ describe('SettingsDialog', () => {
   })
 
   describe('Agent', () => {
-    it('shows the defaults for new tasks, the fixed permissions, and the status and title toggles', async () => {
+    it('shows the defaults for new tasks, the permissions, and the status and title toggles', async () => {
       await renderSettings()
 
       expect(screen.getByRole('button', { name: 'Model: Opus 5.5' })).toHaveAttribute('aria-haspopup', 'menu')
       expect(screen.getByRole('radiogroup', { name: 'Effort' })).toBeInTheDocument()
       expect(screen.getByRole('radio', { name: 'High' })).toBeChecked()
       expect(screen.getByRole('radio', { name: 'Allow all' })).toBeChecked()
-      expect(screen.getByRole('radio', { name: 'Ask first' })).toBeDisabled()
+      expect(screen.getByRole('radio', { name: 'Ask first' })).toBeEnabled()
       expect(screen.getByRole('radio', { name: 'Allow edits' })).toBeDisabled()
       expect(screen.getByRole('switch', { name: 'Status summary' })).toBeChecked()
       expect(screen.getByRole('switch', { name: 'Task titles' })).toBeChecked()
@@ -163,13 +164,40 @@ describe('SettingsDialog', () => {
       expect(screen.getByRole('switch', { name: 'Status summary' })).not.toBeChecked()
     })
 
-    it('keeps Allow all, the one permission there is', async () => {
-      const { invoke } = await renderSettings()
+    it('sets the permission mode new tasks start in: Ask first is the ask mode, and Allow edits stays disabled', async () => {
+      const { invoke, store } = await renderSettings()
 
+      fireEvent.click(screen.getByRole('radio', { name: 'Ask first' }))
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(screen.getByRole('radio', { name: 'Ask first' })).toBeChecked()
+      expect(store.getState().settings.defaultPermissionMode).toBe(PermissionMode.AskBeforeEdits)
+
+      fireEvent.click(screen.getByRole('radio', { name: 'Allow edits' }))
       fireEvent.click(screen.getByRole('radio', { name: 'Allow all' }))
+      await act(async () => {
+        await Promise.resolve()
+      })
 
       expect(screen.getByRole('radio', { name: 'Allow all' })).toBeChecked()
-      expect(settingsUpdates(invoke)).toEqual([])
+      expect(settingsUpdates(invoke)).toEqual([
+        { patch: { defaultPermissionMode: PermissionMode.AskBeforeEdits } },
+        { patch: { defaultPermissionMode: PermissionMode.AllowAll } },
+      ])
+    })
+
+    it('opens on the ask mode when that is the default', async () => {
+      const settings = { ...DEFAULT_SETTINGS, defaultPermissionMode: PermissionMode.AskBeforeEdits }
+      await renderSettings(SettingsSection.Agent, { [CommandName.SettingsGet]: () => ({ settings }) })
+
+      expect(screen.getByRole('radio', { name: 'Ask first' })).toBeChecked()
+    })
+
+    it('has no permission mode for Allow edits, which is not one yet', () => {
+      expect(permissionModeOf(Permission.AllowEdits)).toBeNull()
+      expect(permissionModeOf(Permission.AskFirst)).toBe(PermissionMode.AskBeforeEdits)
+      expect(permissionModeOf(Permission.AllowAll)).toBe(PermissionMode.AllowAll)
     })
   })
 

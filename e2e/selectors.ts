@@ -283,6 +283,10 @@ export function chat(page: Page) {
     questionCard: log.getByRole('form', { name: 'Questions from the agent' }),
     /** The agent's questions once they're answered or withdrawn: the closed card. */
     closedQuestions: log.getByRole('region', { name: 'Questions from the agent' }),
+    /** The tool calls waiting on your OK: the open permission cards, in the order they asked. */
+    permissionCards: log.getByRole('form', { name: 'Permission request' }),
+    /** The permission cards once allowed, denied or withdrawn: one line each. */
+    closedPermissions: log.getByRole('region', { name: 'Permission request' }),
   }
 }
 

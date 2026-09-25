@@ -3,6 +3,7 @@ import { EventType } from '../../shared/bridge'
 import { appCommand, AppCommandId } from '../../shared/commands'
 import {
   DividerKind,
+  PermissionRequestState,
   QuestionReplyKind,
   QuestionSetState,
   TodoState,
@@ -10,7 +11,6 @@ import {
   ToolEventKind,
   UiStateKey,
   type Artifact,
-  type PermissionRequest,
   type TodoList,
   type ToolCallEvent,
   type ToolEvent,
@@ -20,6 +20,7 @@ import { applyEvent, idFromUiState, withHistory, withOpenedWorkspace } from './r
 import { INITIAL_DATA, type GladeData } from './state'
 import {
   sampleMessage,
+  samplePermissionRequest,
   sampleQuestionSet,
   sampleQueuedMessage,
   sampleTask,
@@ -40,14 +41,6 @@ describe('applyEvent', () => {
 
   it('leaves the state alone for a menu bar command, which the window runs', () => {
     expect(applyEvent(state, { type: EventType.MenuCommand, command: appCommand(AppCommandId.NewTask) })).toBe(state)
-  })
-
-  it('leaves the state alone for a permission request, which nothing in the window shows yet', () => {
-    const permissionRequest = {} as PermissionRequest
-    const types = [EventType.PermissionOpened, EventType.PermissionAnswered, EventType.PermissionWithdrawn] as const
-    for (const type of types) {
-      expect(applyEvent(state, { type, permissionRequest })).toBe(state)
-    }
   })
 
   it('forgets a removed workspace, its tasks and the confirmation that named it', () => {
@@ -154,6 +147,7 @@ describe('a deleted task', () => {
       toolEvents: { t1: [] },
       queuedMessages: { t1: [sampleQueuedMessage('q1', 't1')] },
       questionSets: { t1: [sampleQuestionSet('s1', 't1')] },
+      permissionRequests: { t1: [samplePermissionRequest('p1', 't1')] },
       todos: { t1: null },
       openFiles: { t1: { taskId: 't1', paths: ['README.md'], activePath: 'README.md' } },
       artifacts: { t1: [{ taskId: 't1', path: 'README.md', title: 'Readme', addedAt: 1, updatedAt: 1 }] },
@@ -172,6 +166,7 @@ describe('a deleted task', () => {
       toolEvents: {},
       queuedMessages: {},
       questionSets: {},
+      permissionRequests: {},
       todos: {},
       openFiles: {},
       artifacts: {},
@@ -332,6 +327,53 @@ describe("a task's questions", () => {
       artifacts: [],
     }
     expect(withHistory(state, 't1', { ...empty, questionSets: [answered] }).questionSets).toEqual({ t1: [answered] })
+  })
+})
+
+describe("a task's permission requests", () => {
+  it('appends an opened request, replaces it when answered or withdrawn, and loads them with the history', () => {
+    const open = samplePermissionRequest('p1', 't1')
+    const denied = {
+      ...open,
+      state: PermissionRequestState.Denied,
+      denyNote: 'Not on main',
+      closedAt: 4_000,
+    } as const
+    const withdrawn = { ...samplePermissionRequest('p2', 't1'), state: PermissionRequestState.Withdrawn } as const
+
+    const opened = [
+      { type: EventType.PermissionOpened, permissionRequest: open },
+      { type: EventType.PermissionOpened, permissionRequest: open },
+      { type: EventType.PermissionOpened, permissionRequest: samplePermissionRequest('p2', 't1') },
+    ] as const
+    const asked = opened.reduce(applyEvent, state)
+    expect(asked.permissionRequests.t1?.map(({ id }) => id)).toEqual(['p1', 'p2'])
+
+    const closed = [
+      { type: EventType.PermissionAnswered, permissionRequest: denied },
+      { type: EventType.PermissionWithdrawn, permissionRequest: withdrawn },
+    ] as const
+    expect(closed.reduce(applyEvent, asked).permissionRequests.t1).toEqual([denied, withdrawn])
+
+    // One a window never heard open waits for the next history load.
+    const unknown = { ...samplePermissionRequest('p3', 't2'), state: PermissionRequestState.Allowed }
+    expect(applyEvent(state, { type: EventType.PermissionAnswered, permissionRequest: unknown })).toEqual(state)
+
+    const empty = {
+      messages: [],
+      toolEvents: [],
+      queuedMessages: [],
+      questionSets: [],
+      openFiles: noOpenFiles('t1'),
+      todos: null,
+      artifacts: [],
+    }
+    // A request opened while the history loaded stays, after the loaded ones.
+    const loaded = withHistory(asked, 't1', { ...empty, permissionRequests: [denied] })
+    expect(loaded.permissionRequests.t1?.map(({ id, state: closedState }) => [id, closedState])).toEqual([
+      ['p1', PermissionRequestState.Denied],
+      ['p2', PermissionRequestState.Open],
+    ])
   })
 })
 

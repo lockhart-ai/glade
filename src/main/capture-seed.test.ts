@@ -8,6 +8,8 @@ import {
   DividerKind,
   MessageRole,
   PauseReason,
+  PermissionMode,
+  PermissionRequestState,
   TaskActivity,
   TaskErrorSource,
   TaskState,
@@ -18,6 +20,7 @@ import {
 import { applySeed, readSeed, type CaptureSeed } from './capture-seed'
 import { listArtifacts } from './db/repositories/artifacts'
 import { listMessages } from './db/repositories/messages'
+import { listPermissionRequests } from './db/repositories/permission-requests'
 import { getOpenFiles } from './db/repositories/open-files'
 import { listQueuedMessages } from './db/repositories/queued-messages'
 import { listToolEvents } from './db/repositories/tool-events'
@@ -143,6 +146,20 @@ describe('readSeed', () => {
     expect(seed.workspace.rootPath).toBe(join(FIXTURES, 'open-file-workspace'))
     expect(seed).toMatchObject({ panelTab: 'files', panelWidth: 780 })
     expect(seed.tasks.find((task) => task.selected)?.openFiles?.activePath).toBe('docs/rate-limits.md')
+  })
+
+  it('reads the permission card fixture: a task in the ask mode, its requests open and closed', () => {
+    const seed = readSeed(join(FIXTURES, 'permission-card.json'))
+    const task = seed.tasks.find((one) => one.selected)
+
+    expect(task?.permissionMode).toBe(PermissionMode.AskBeforeEdits)
+    expect(task?.permissionRequests?.map((request) => request.state ?? 'open')).toEqual([
+      PermissionRequestState.Allowed,
+      PermissionRequestState.Denied,
+      PermissionRequestState.Withdrawn,
+      'open',
+      'open',
+    ])
   })
 
   it('reads the e2e tool log fixture', () => {
@@ -400,6 +417,64 @@ describe('applySeed', () => {
     expect(listQueuedMessages(db, taskId).map(({ body, createdAt }) => [body, createdAt])).toEqual([
       ['Keep the limits per key.', NOW],
       ['Then update the docs.', NOW],
+    ])
+  })
+
+  it('writes a task’s permission mode, and its permission requests, open or closed as they say', () => {
+    const { db } = database
+    const base = { toolName: 'Bash', input: { command: 'npm test' }, turn: 1, minutesAgo: 2 }
+
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          {
+            title: 'Run the tests',
+            minutesAgo: 0,
+            permissionMode: PermissionMode.AskBeforeEdits,
+            permissionRequests: [
+              { ...base, toolUseId: 'allowed', state: PermissionRequestState.Allowed },
+              { ...base, toolUseId: 'denied', state: PermissionRequestState.Denied, denyNote: 'Not yet' },
+              { ...base, toolUseId: 'bare-denied', state: PermissionRequestState.Denied },
+              { ...base, toolUseId: 'withdrawn', state: PermissionRequestState.Withdrawn },
+              {
+                ...base,
+                toolUseId: 'open',
+                agentId: 'a1',
+                title: 'Claude wants to run npm test',
+                description: 'Run the tests',
+                defaultToNo: true,
+                minutesAgo: 1,
+              },
+            ],
+          },
+          { title: 'Allow all by default', minutesAgo: 0 },
+        ],
+      },
+      NOW,
+    )
+
+    const [allowing, asking] = listTasks(db, listWorkspaces(db)[0]?.id ?? '').toSorted((a, b) =>
+      a.title.localeCompare(b.title),
+    )
+    expect(asking).toMatchObject({ permissionMode: PermissionMode.AskBeforeEdits, awaitingPermission: true })
+    expect(allowing).toMatchObject({ permissionMode: PermissionMode.AllowAll, awaitingPermission: false })
+    expect(listPermissionRequests(db, asking?.id ?? '')).toMatchObject([
+      { toolUseId: 'allowed', state: PermissionRequestState.Allowed, closedAt: NOW - 2 * MINUTE },
+      { toolUseId: 'denied', state: PermissionRequestState.Denied, denyNote: 'Not yet' },
+      { toolUseId: 'bare-denied', state: PermissionRequestState.Denied, denyNote: null },
+      { toolUseId: 'withdrawn', state: PermissionRequestState.Withdrawn },
+      {
+        toolUseId: 'open',
+        agentId: 'a1',
+        title: 'Claude wants to run npm test',
+        description: 'Run the tests',
+        defaultToNo: true,
+        state: PermissionRequestState.Open,
+        createdAt: NOW - MINUTE,
+        closedAt: null,
+      },
     ])
   })
 
