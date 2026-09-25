@@ -1,32 +1,84 @@
-.tablist {
-  /* How far in from an end the row fades, when there are more tabs past that end. */
-  --tabs-fade: 28px;
+.strip {
+  /* The room a chevron takes over an end of the row, and how far in from there the row fades back in. */
+  --tabs-chevron: 24px;
+  --tabs-fade: 20px;
 
+  position: relative;
+  min-width: 0;
   display: flex;
-  align-items: center;
-  gap: 2px;
 }
 
 /*
- * A row too narrow for its tabs scrolls sideways; it fades out at an end with more tabs past it, so a tab cut off there
- * reads as "more this way" rather than as clipped. (The mask's colour only sets how opaque the row is.)
+ * A row too narrow for its tabs scrolls sideways, with no scroll bar. The scroll padding keeps a tab brought into view
+ * clear of the chevron and fade at each end.
  */
-.tablist[data-overflow-start='true'] {
-  mask-image: linear-gradient(to right, transparent, #000 var(--tabs-fade));
+.tablist {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-padding-inline: calc(var(--tabs-chevron) + var(--tabs-fade));
+  scroll-behavior: smooth;
 }
 
-.tablist[data-overflow-end='true'] {
-  mask-image: linear-gradient(to left, transparent, #000 var(--tabs-fade));
+.tablist::-webkit-scrollbar {
+  display: none;
 }
 
-.tablist[data-overflow-start='true'][data-overflow-end='true'] {
+@media (prefers-reduced-motion: reduce) {
+  .tablist {
+    scroll-behavior: auto;
+  }
+}
+
+/*
+ * At an end with more tabs past it the row fades out under a chevron, so a tab cut off there reads as "more this way"
+ * rather than as clipped. (The mask's colour only sets how opaque the row is.)
+ */
+.strip[data-overflow-start='true'] > .tablist {
   mask-image: linear-gradient(
     to right,
-    transparent,
-    #000 var(--tabs-fade),
-    #000 calc(100% - var(--tabs-fade)),
-    transparent
+    transparent var(--tabs-chevron),
+    #000 calc(var(--tabs-chevron) + var(--tabs-fade))
   );
+}
+
+.strip[data-overflow-end='true'] > .tablist {
+  mask-image: linear-gradient(
+    to left,
+    transparent var(--tabs-chevron),
+    #000 calc(var(--tabs-chevron) + var(--tabs-fade))
+  );
+}
+
+.strip[data-overflow-start='true'][data-overflow-end='true'] > .tablist {
+  mask-image: linear-gradient(
+    to right,
+    transparent var(--tabs-chevron),
+    #000 calc(var(--tabs-chevron) + var(--tabs-fade)),
+    #000 calc(100% - var(--tabs-chevron) - var(--tabs-fade)),
+    transparent calc(100% - var(--tabs-chevron))
+  );
+}
+
+/* The chevrons sit over the row's ends, the height of a tab. */
+.strip .chevron {
+  position: absolute;
+  top: 50%;
+  translate: 0 -50%;
+  width: var(--tabs-chevron);
+  height: 28px;
+}
+
+.start {
+  left: 0;
+}
+
+.end {
+  right: 0;
 }
 
 .tab {

@@ -1,14 +1,4 @@
 /* The right panel's tab bar and tab content, from docs/design/html/task-workspace.html and 01-new-task.html. */
-/*
- * In a narrow panel the tabs scroll sideways rather than push the collapse button out of reach (the selected tab
- * scrolls into view as it takes the focus).
- */
-.tabs {
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
 .spacer {
   flex-grow: 1;
 }

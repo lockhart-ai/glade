@@ -36,7 +36,9 @@ describe('Tabs', () => {
   it('renders a tab list with the selected tab holding the tab stop', () => {
     renderTabs(Panel.Files)
 
-    expect(screen.getByRole('tablist', { name: 'Task panels' })).toHaveClass(cls('tablist'), 'extra')
+    const tablist = screen.getByRole('tablist', { name: 'Task panels' })
+    expect(tablist).toHaveClass(cls('tablist'))
+    expect(tablist.parentElement).toHaveClass(cls('strip'), 'extra')
     const tabs = screen.getAllByRole('tab')
     expect(tabs.map((tab) => tab.textContent)).toEqual(['Tool calls 7', 'Files', 'Todos 3/4'])
     expect(screen.getByRole('tab', { name: 'Files' })).toHaveAttribute('aria-selected', 'true')
