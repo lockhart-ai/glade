@@ -45,7 +45,8 @@ import {
 } from './scripts'
 import { OFFLINE_FIRST_CHECK_MS } from './pauses'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
-import type { AgentLog } from './events'
+import { createMemoryLog } from '../logging/memory-sink'
+import type { Logger } from '../logging/logger'
 
 let database: TestDatabase
 let task: Task
@@ -57,7 +58,7 @@ interface Listeners {
   readonly emit?: (event: GladeEvent) => void
   readonly notifyReply?: NotifyReply
   /** Where the runner reports what it drops or ignores; the console by default. */
-  readonly log?: AgentLog
+  readonly log?: Logger
 }
 
 function start(name: AgentScriptName, { emit = () => undefined, notifyReply, log }: Listeners = {}): AgentRunner {
@@ -125,8 +126,8 @@ describe('AGENT_SCRIPTS', () => {
   })
 
   it.each(AGENT_SCRIPT_NAMES)('%s: streams only messages the runner can read, every turn of it', async (name) => {
-    const warnings: string[] = []
-    const agent = start(name, { log: { warn: (message) => warnings.push(message) } })
+    const memory = createMemoryLog()
+    const agent = start(name, { log: memory.logger })
     for (const [index] of AGENT_SCRIPTS[name].turns.entries()) {
       // A turn still working (waiting to be stopped, say) is stopped first, so the next message starts a turn.
       if (activity() === TaskActivity.Working) {
@@ -139,7 +140,10 @@ describe('AGENT_SCRIPTS', () => {
       await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
     }
     // What the parser drops, it says so about: nothing a script plays should be dropped.
-    expect(warnings.filter((message) => message.startsWith('Dropped') || message.startsWith('Ignored SDK'))).toEqual([])
+    const dropped = memory.records
+      .map(({ message }) => message)
+      .filter((message) => message.startsWith('Dropped') || message.startsWith('Ignored SDK'))
+    expect(dropped).toEqual([])
   })
 
   it('simple-reply: sets the title, objective and status, then replies', async () => {
