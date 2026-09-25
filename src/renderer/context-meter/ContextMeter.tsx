@@ -56,7 +56,8 @@ export function ContextMeterView({ usedTokens, windowTokens }: ContextMeterViewP
         />
       </svg>
       <span>
-        <span className={styles.percent}>{percent}</span> · {amount}
+        <span className={styles.percent}>{percent}</span>
+        <span className={styles.amount}> · {amount}</span>
       </span>
     </span>
   )

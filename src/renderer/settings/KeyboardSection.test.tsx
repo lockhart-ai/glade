@@ -5,6 +5,7 @@ import { UiStateKey } from '../../shared/domain'
 import { WindowCommandId, WorkspaceCommandId } from '../../shared/commands'
 import { DEFAULT_KEYMAP, formatBinding, KEYMAP_LAYOUT, type KeyBindingOverrides } from '../../shared/keymap'
 import { useCommand } from '../commands/hooks'
+import { moduleClass } from '../components/moduleClass'
 import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
@@ -12,6 +13,7 @@ import { fakeBridge, sampleWorkspace, type FakeBridge } from '../store/test-brid
 import { RECORDING_PROMPT } from './KeyboardSection'
 import { SettingsSection } from './sections'
 import { SettingsDialog } from './SettingsDialog'
+import styles from './SettingsDialog.module.css'
 
 interface Rendered extends FakeBridge {
   readonly store: GladeStore
@@ -105,6 +107,16 @@ describe('KeyboardSection', () => {
       'title',
       'Fixed: the terminal sends it to the shell',
     )
+  })
+
+  it('draws the fixed shortcuts muted, apart from the ones you can rebind', async () => {
+    await renderKeyboard()
+
+    const fixed = moduleClass(styles, 'fixedKey')
+    expect(within(screen.getByRole('region', { name: 'Panels' })).getByText('⌘W')).toHaveClass(fixed)
+    expect(within(screen.getByRole('region', { name: 'Menus and dialogs' })).getByText('↑↓')).toHaveClass(fixed)
+    const rebindable = screen.getByRole('button', { name: 'New task: ⌘N' })
+    expect(within(rebindable).getByText('⌘N')).not.toHaveClass(fixed)
   })
 
   it('records the keys you press as the new binding, saves it, and resets it to the default', async () => {

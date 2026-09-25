@@ -30,6 +30,17 @@
   display: flex;
   align-items: center;
   gap: 7px;
+  white-space: nowrap;
+}
+
+/*
+ * In a narrow input bar (its container, in the smallest window) the meter shows just the ring and the percentage; the
+ * amount is in its popover, and in its accessible value.
+ */
+@container (max-width: 560px) {
+  .amount {
+    display: none;
+  }
 }
 
 .track,

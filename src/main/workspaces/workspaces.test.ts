@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BridgeErrorCode, EventType } from '../../shared/bridge'
 import { MessageRole, UiStateKey } from '../../shared/domain'
 import { CommandFailure } from '../bridge/errors'
+import { MIGRATIONS } from '../db/migrations'
+import { openAppDatabase } from '../db/database'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { appendMessage, listMessages } from '../db/repositories/messages'
 import { listTasks } from '../db/repositories/tasks'
@@ -12,7 +14,14 @@ import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state
 import { getWorkspaceSelection } from '../db/repositories/workspace-selections'
 import { getWorkspace, listWorkspaces } from '../db/repositories/workspaces'
 import { STARTER_CLAUDE_MD } from './starter-claude-md'
-import { changeWorkspace, createWorkspaceAt, noteSelection, openWorkspace, removeWorkspace } from './workspaces'
+import {
+  backfillWorkspaceSelections,
+  changeWorkspace,
+  createWorkspaceAt,
+  noteSelection,
+  openWorkspace,
+  removeWorkspace,
+} from './workspaces'
 
 let database: TestDatabase
 let dir: string
@@ -240,6 +249,78 @@ describe('noteSelection', () => {
     noteSelection(database.db, { key: UiStateKey.SelectedTaskId, value: '' })
 
     expect(getWorkspaceSelection(database.db, acme.id)).toBeUndefined()
+  })
+})
+
+describe('backfillWorkspaceSelections', () => {
+  function selections(): unknown[] {
+    return database.db.prepare('SELECT workspace_id, task_id FROM workspace_selections ORDER BY workspace_id').all()
+  }
+
+  it("records the window's selected task as its workspace's selection, so switching away and back keeps it", () => {
+    const acme = sampleWorkspace(database.db)
+    const task = sampleTask(database.db, acme.id)
+    setUiState(database.db, { key: UiStateKey.ActiveWorkspaceId, value: acme.id })
+    setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: task.id })
+
+    backfillWorkspaceSelections(database.db)
+
+    expect(getWorkspaceSelection(database.db, acme.id)).toBe(task.id)
+    const web = sampleWorkspace(database.db, '/code/acme-web')
+    expect(openWorkspace(database.db, web.id).selectedTaskId).toBeNull()
+    expect(openWorkspace(database.db, acme.id).selectedTaskId).toBe(task.id)
+  })
+
+  it("keeps a workspace's own selection, and runs again changing nothing", () => {
+    const acme = sampleWorkspace(database.db)
+    const own = sampleTask(database.db, acme.id)
+    select(acme.id, own.id)
+    setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: sampleTask(database.db, acme.id).id })
+
+    backfillWorkspaceSelections(database.db)
+    backfillWorkspaceSelections(database.db)
+
+    expect(selections()).toEqual([{ workspace_id: acme.id, task_id: own.id }])
+  })
+
+  it('does nothing with no task selected, none stored, or a selected task that is gone', () => {
+    sampleTask(database.db, sampleWorkspace(database.db).id)
+
+    backfillWorkspaceSelections(database.db)
+    setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: '' })
+    backfillWorkspaceSelections(database.db)
+    setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: 'gone' })
+    backfillWorkspaceSelections(database.db)
+
+    expect(selections()).toEqual([])
+  })
+
+  it('carries the selection over from a database upgraded from before migration 17', () => {
+    const upgradeDir = mkdtempSync(join(tmpdir(), 'glade-upgrade-'))
+    try {
+      // A database as 0.6.0 left it: schema version 16, the window's one selected task in `ui_state`.
+      const old = openAppDatabase(upgradeDir, MIGRATIONS.slice(0, 16)).db
+      old.prepare("INSERT INTO workspaces VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)").run()
+      old
+        .prepare(
+          `INSERT INTO tasks (id, workspace_id, title, objective, status, state, activity, pinned, unread, model, effort,
+            created_at, updated_at, done_at, session_id)
+          VALUES ('t', 'w', '', '', '', 'active', 'waiting', 0, 0, 'claude-sample-1', 'high', 1, 1, NULL, NULL)`,
+        )
+        .run()
+      old
+        .prepare("INSERT INTO ui_state (key, value) VALUES ('active_workspace_id', 'w'), ('selected_task_id', 't')")
+        .run()
+      old.close()
+
+      const { db } = openAppDatabase(upgradeDir)
+      backfillWorkspaceSelections(db)
+
+      expect(getWorkspaceSelection(db, 'w')).toBe('t')
+      db.close()
+    } finally {
+      rmSync(upgradeDir, { recursive: true, force: true })
+    }
   })
 })
 

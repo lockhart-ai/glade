@@ -50,6 +50,7 @@ import { openTaskWithoutWindow } from './tasks/attention'
 import { markQuit, markRunning, noteRelaunch } from './relaunch'
 import { checkSecurity, describeViolations } from './security'
 import { seedConversation } from './capture-conversation'
+import { backfillWorkspaceSelections } from './workspaces/workspaces'
 
 /** The `bg` design token, so the window never flashes white before the renderer paints. */
 const WINDOW_BACKGROUND = '#0A0B0F'
@@ -433,6 +434,8 @@ export function startApp({ createAgentBackend = createSdkBackend }: AppOptions =
       runner.close()
       return
     }
+    // A database from before each workspace kept its own selection still has only the window's; carry it over.
+    backfillWorkspaceSelections(database.db)
 
     app.on('will-quit', () => {
       runner.close()
