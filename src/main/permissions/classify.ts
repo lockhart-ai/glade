@@ -3,11 +3,13 @@
  * Glade (`canUseTool`) about a call its own rules and the user's settings leave at "ask"; this decides whether that
  * call waits on you or goes ahead at once:
  *
- * - **Allowed at once:** reads and searches, Claude Code's todo and subagent tools, and Glade's own tools. A Glade tool
- *   is one on an in-process server Glade registered: the SDK says `mcpServer.source` is `sdk` and the server's name is
- *   one of Glade's. The tool's name prefix proves nothing: any server can call itself anything.
- * - **Ask:** `Bash`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, other MCP servers' tools, and any tool Glade doesn't
- *   know.
+ * - **Allowed at once:** reads and searches, Claude Code's todo and subagent tools, the agent's follow-up tools that
+ *   only schedule the agent itself (`ScheduleWakeup`, `CronCreate`, `CronDelete`, `CronList`) or only tell you or list
+ *   its agents (`PushNotification`, `ListAgents`), and Glade's own tools. A Glade tool is one on an in-process server
+ *   Glade registered: the SDK says `mcpServer.source` is `sdk` and the server's name is one of Glade's. The tool's name
+ *   prefix proves nothing: any server can call itself anything.
+ * - **Ask:** `Bash`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `Monitor` (it runs a shell command, as `Bash` does),
+ *   `RemoteTrigger` and `SendMessage` (they reach outside), other MCP servers' tools, and any tool Glade doesn't know.
  * - A call a user `permissions.ask` rule forced (`matchedAskRule`) always asks, even a read: that's what the rule is for.
  */
 import type { McpServerOrigin } from '../agent/backend'
@@ -40,10 +42,35 @@ export const TODO_TOOLS: readonly string[] = ['TodoWrite', 'TaskCreate', 'TaskUp
  */
 export const SUBAGENT_TOOLS: readonly string[] = ['Agent', 'Task', 'TaskOutput', 'TaskStop']
 
-/** Tools that always ask: they change files or run commands. Anything Glade doesn't know asks too. */
-export const SIDE_EFFECT_TOOLS: readonly string[] = ['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit']
+/**
+ * Claude Code's follow-up tools that only touch the agent itself: scheduling its own wake-ups and recurring prompts, a
+ * notification to you, and listing its agents. None changes a file or reaches outside.
+ */
+export const SELF_TOOLS: readonly string[] = [
+  'ScheduleWakeup',
+  'CronCreate',
+  'CronDelete',
+  'CronList',
+  'PushNotification',
+  'ListAgents',
+]
 
-const ALLOWED: ReadonlySet<string> = new Set([...READ_ONLY_TOOLS, ...TODO_TOOLS, ...SUBAGENT_TOOLS])
+/**
+ * Tools that always ask: they change files, run commands (`Monitor` runs a shell command, as `Bash` does) or reach
+ * outside (`RemoteTrigger`, and `SendMessage`, which may). Anything Glade doesn't know asks too.
+ */
+export const SIDE_EFFECT_TOOLS: readonly string[] = [
+  'Bash',
+  'Edit',
+  'Write',
+  'MultiEdit',
+  'NotebookEdit',
+  'Monitor',
+  'RemoteTrigger',
+  'SendMessage',
+]
+
+const ALLOWED: ReadonlySet<string> = new Set([...READ_ONLY_TOOLS, ...TODO_TOOLS, ...SUBAGENT_TOOLS, ...SELF_TOOLS])
 
 /** The SDK's `mcpServer.source` for an in-process server the host registered. */
 const HOST_SOURCE = 'sdk'
