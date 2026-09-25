@@ -20,6 +20,9 @@ files:
 # (node-pty looks for it in app.asar.unpacked).
 asarUnpack:
   - node_modules/node-pty/prebuilds/darwin-arm64/**
+  # The Agent SDK spawns Claude Code's native binary from its platform package. A spawned file must be real too, so it
+  # goes in app.asar.unpacked, where sdk-backend.ts points the SDK (the SDK itself looks for it inside app.asar).
+  - node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/**
 mac:
   target:
     - target: dmg

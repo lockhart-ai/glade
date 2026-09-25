@@ -3,7 +3,7 @@ import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { Effort } from '../../shared/domain'
 import type { AgentSessionOptions } from './backend'
-import { createSdkBackend, sdkOptions, userMessage } from './sdk-backend'
+import { claudeCodeExecutable, createSdkBackend, sdkOptions, userMessage } from './sdk-backend'
 
 const sdk = vi.hoisted(() => {
   const session = {
@@ -47,6 +47,34 @@ it('runs the session in the workspace root, allowing all, with the workspace and
     mcpServers: {},
     disallowedTools: ['AskUserQuestion'],
     forwardSubagentText: true,
+  })
+})
+
+const PACKAGED = '/Applications/Glade.app/Contents/Resources/app.asar/node_modules/@anthropic-ai'
+
+it('runs the unpacked Claude Code binary when the platform package is inside the asar archive', () => {
+  const resolve = vi.fn(() => `${PACKAGED}/claude-agent-sdk-darwin-arm64/claude`)
+
+  expect(claudeCodeExecutable(resolve, 'darwin', 'arm64')).toBe(
+    '/Applications/Glade.app/Contents/Resources/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude',
+  )
+  expect(resolve).toHaveBeenCalledWith('@anthropic-ai/claude-agent-sdk-darwin-arm64/claude')
+})
+
+it("leaves the binary to the SDK when it isn't packaged, or there's no platform package", () => {
+  expect(
+    claudeCodeExecutable(() => '/code/glade/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude'),
+  ).toBe(undefined)
+  expect(
+    claudeCodeExecutable(() => {
+      throw new Error('Cannot find module')
+    }),
+  ).toBe(undefined)
+})
+
+it('passes the unpacked binary to the SDK in the packaged app', () => {
+  expect(sdkOptions(OPTIONS, () => `${PACKAGED}/claude-agent-sdk-darwin-arm64/claude`)).toMatchObject({
+    pathToClaudeCodeExecutable: expect.stringContaining('/app.asar.unpacked/node_modules/') as unknown,
   })
 })
 

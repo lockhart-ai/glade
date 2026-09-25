@@ -1,6 +1,7 @@
 // The real agent backend: a thin adapter from `AgentBackend` onto the Claude Agent SDK's `query()`. Everything Glade
 // decides about a session (its folder, model, prompt, settings, permissions) is here; see `docs/sdk-notes.md`.
 import { query, type Options, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { createRequire } from 'node:module'
 import { AsyncQueue } from './async-queue'
 import type { AgentBackend, AgentSession, AgentSessionOptions } from './backend'
 
@@ -9,9 +10,42 @@ export interface SdkBackendLog {
   warn(message: string, error: unknown): void
 }
 
+/** Finds a module's file, as `require.resolve` does. */
+export type ModuleResolver = (id: string) => string
+
+/** The packaged app's asar archive: a single file, which Electron's `fs` reads into but `child_process` can't. */
+const ASAR = /([\\/])app\.asar([\\/])/
+
+/**
+ * Where to run Claude Code's native binary from, if the SDK's own guess won't work; `undefined` leaves it to the SDK.
+ *
+ * The SDK finds the binary in its platform package (`@anthropic-ai/claude-agent-sdk-darwin-arm64`), which in the
+ * packaged app is inside `app.asar`. Spawning a path in there fails with ENOTDIR, so this points at the unpacked copy
+ * in `app.asar.unpacked` instead (electron-builder's `asarUnpack` puts it there).
+ */
+export function claudeCodeExecutable(
+  resolve: ModuleResolver,
+  platform: string = process.platform,
+  arch: string = process.arch,
+): string | undefined {
+  let path: string
+  try {
+    path = resolve(`@anthropic-ai/claude-agent-sdk-${platform}-${arch}/claude`)
+  } catch {
+    // No platform package here (or a variant, such as musl on Linux, that the SDK picks for itself).
+    return undefined
+  }
+  return ASAR.test(path) ? path.replace(ASAR, '$1app.asar.unpacked$2') : undefined
+}
+
 /** The SDK options for a session. */
-export function sdkOptions(options: AgentSessionOptions): Options {
+export function sdkOptions(
+  options: AgentSessionOptions,
+  resolve: ModuleResolver = createRequire(import.meta.url).resolve,
+): Options {
+  const executable = claudeCodeExecutable(resolve)
   return {
+    ...(executable === undefined ? {} : { pathToClaudeCodeExecutable: executable }),
     cwd: options.cwd,
     model: options.model,
     effort: options.effort,
