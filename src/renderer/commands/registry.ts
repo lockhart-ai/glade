@@ -26,6 +26,20 @@ export function isTextField(target: EventTarget | null): boolean {
   )
 }
 
+/** What marks the chat's message field (the input bar's), which a few shortcuts reach though it's a text field. */
+export const MESSAGE_FIELD_PROPS = { 'data-key-scope': KeyScope.MessageField } as const
+
+/** Whether this element is the chat's message field (see `MESSAGE_FIELD_PROPS`). */
+export function isMessageField(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && target.dataset.keyScope === KeyScope.MessageField
+}
+
+/** Whether a shortcut the window's dispatcher runs reaches a key pressed with the focus on `target`. */
+function reaches(scope: KeyScope, target: EventTarget | null): boolean {
+  if (scope === KeyScope.MessageFieldOrOutsideTextFields) return !isTextField(target) || isMessageField(target)
+  return true
+}
+
 /**
  * The window's commands and its one key dispatcher. Components register the commands they can run (`useCommands`);
  * while any are registered, one `keydown` listener on the window matches each key press against the current keymap
@@ -79,7 +93,7 @@ export class CommandRegistry {
       if (!DISPATCHED_SCOPES.includes(definition.scope) || !this.handlers.has(definition.id)) continue
       const match = matchCommand(definition, keymap[definition.id], pressed)
       if (match === null) continue
-      if (definition.scope === KeyScope.OutsideTextFields && isTextField(event.target)) continue
+      if (!reaches(definition.scope, event.target)) continue
       event.preventDefault()
       this.run(definition.id, match)
       return

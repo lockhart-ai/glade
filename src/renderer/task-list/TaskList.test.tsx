@@ -24,6 +24,8 @@ import {
   type FakeMain,
 } from '../store/test-bridge'
 import { TaskFilter } from '../../shared/attention'
+import { WindowCommandId } from '../../shared/commands'
+import { InputBar } from '../input-bar'
 import { TaskList, TaskListToolbar } from '.'
 import { NOW_REFRESH_MS } from './useNow'
 
@@ -617,5 +619,161 @@ describe('the task context menu', () => {
     await choose('Add rate limiting', 'Copy link to task')
 
     expect(await screen.findByText('No clipboard')).toBeInTheDocument()
+  })
+})
+
+describe('⌥↓ / ⌥↑ from the input bar', () => {
+  /** The task list beside the selected task's input bar, with the focus in its message field. */
+  async function renderWithBar(uiState: UiStateEntry[]): Promise<Rendered> {
+    const fake = fakeBridge({
+      workspaces: [sampleWorkspace('w1'), sampleWorkspace('w2')],
+      tasks: [...TASKS],
+      uiState: [{ key: UiStateKey.ActiveWorkspaceId, value: 'w1' }, ...uiState],
+    })
+    const store = createGladeStore(fake.bridge)
+    await act(() => store.getState().hydrate())
+    render(
+      <GladeStoreProvider store={store}>
+        <ToastProvider>
+          <TaskList workspaceId="w1" />
+          <InputBar />
+        </ToastProvider>
+      </GladeStoreProvider>,
+    )
+    act(() => {
+      field().focus()
+    })
+    return { store, fake }
+  }
+
+  function field(): HTMLTextAreaElement {
+    return screen.getByRole('textbox', { name: 'Message the agent' })
+  }
+
+  /** Presses ⌥ and an arrow in the message field; answers whether the field's own action (moving the caret) went ahead. */
+  async function pressInField(key: 'ArrowUp' | 'ArrowDown', init: Partial<KeyboardEventInit> = {}): Promise<boolean> {
+    let allowed = true
+    await act(async () => {
+      allowed = fireEvent.keyDown(field(), { key, altKey: true, ...init })
+      await Promise.resolve()
+    })
+    return allowed
+  }
+
+  /** Waits for the task to be selected, with the focus in its input bar. */
+  async function selectedWithFocus(store: GladeStore, taskId: string): Promise<void> {
+    await vi.waitFor(() => {
+      expect(store.getState().selectedTaskId).toBe(taskId)
+      expect(field()).toHaveFocus()
+    })
+  }
+
+  it('selects the next task with ⌥↓ in the message field, and the focus goes on to its input bar', async () => {
+    const { store } = await renderWithBar([{ key: UiStateKey.SelectedTaskId, value: 'a2' }])
+
+    expect(await pressInField('ArrowDown')).toBe(false)
+
+    await selectedWithFocus(store, 'a1')
+    expect(row('Add rate limiting')).toHaveAttribute('aria-current', 'true')
+  })
+
+  it('goes across sections with ⌥↑ and ⌥↓, as in the list', async () => {
+    const { store } = await renderWithBar([
+      { key: UiStateKey.SelectedTaskId, value: 'a3' },
+      { key: UiStateKey.DoneSectionCollapsed, value: 'false' },
+    ])
+
+    await pressInField('ArrowDown')
+    await selectedWithFocus(store, 'd1')
+    expect(field()).toHaveAttribute('placeholder', 'Send a message to reopen this task…')
+    for (const expected of ['a3', 'a1', 'a2', 'p1']) {
+      await pressInField('ArrowUp')
+      await selectedWithFocus(store, expected)
+    }
+  })
+
+  it('stays put at either end of the list, leaving the draft and the focus where they are', async () => {
+    const { store, fake } = await renderWithBar([{ key: UiStateKey.SelectedTaskId, value: 'p1' }])
+    fireEvent.change(field(), { target: { value: 'Half a thought' } })
+    fake.invoke.mockClear()
+
+    expect(await pressInField('ArrowUp')).toBe(false)
+    expect(store.getState().selectedTaskId).toBe('p1')
+    expect(field()).toHaveFocus()
+    expect(field()).toHaveValue('Half a thought')
+
+    // Done is collapsed, so the last active task is the bottom of the list.
+    await act(() => store.getState().selectTask('a3'))
+    act(() => {
+      field().focus()
+    })
+    fake.invoke.mockClear()
+    expect(await pressInField('ArrowDown')).toBe(false)
+    expect(store.getState().selectedTaskId).toBe('a3')
+    expect(field()).toHaveFocus()
+    expect(fake.invoke).not.toHaveBeenCalled()
+  })
+
+  it('skips a collapsed section', async () => {
+    const { store } = await renderWithBar([
+      { key: UiStateKey.SelectedTaskId, value: 'p1' },
+      { key: UiStateKey.ActiveSectionCollapsed, value: 'true' },
+      { key: UiStateKey.DoneSectionCollapsed, value: 'false' },
+    ])
+
+    await pressInField('ArrowDown')
+    await selectedWithFocus(store, 'd1')
+    await pressInField('ArrowUp')
+    await selectedWithFocus(store, 'p1')
+  })
+
+  it('keeps each task’s draft as it switches away and back', async () => {
+    const { store } = await renderWithBar([{ key: UiStateKey.SelectedTaskId, value: 'a2' }])
+    fireEvent.change(field(), { target: { value: 'Use the Glacier storage class.' } })
+
+    await pressInField('ArrowDown')
+    await selectedWithFocus(store, 'a1')
+    expect(field()).toHaveValue('')
+    await pressInField('ArrowUp')
+    await selectedWithFocus(store, 'a2')
+
+    expect(field()).toHaveValue('Use the Glacier storage class.')
+  })
+
+  it('follows the keys you rebound it to, leaving ⌥↓ to the field', async () => {
+    const { store } = await renderWithBar([{ key: UiStateKey.SelectedTaskId, value: 'a2' }])
+    await act(() =>
+      store.getState().updateSettings({
+        keyBindings: { [WindowCommandId.NextTask]: 'Ctrl+Alt+J', [WindowCommandId.PreviousTask]: 'Ctrl+Alt+K' },
+      }),
+    )
+
+    expect(await pressInField('ArrowDown')).toBe(true)
+    expect(store.getState().selectedTaskId).toBe('a2')
+
+    await act(async () => {
+      fireEvent.keyDown(field(), { key: '∆', code: 'KeyJ', ctrlKey: true, altKey: true })
+      await Promise.resolve()
+    })
+    await selectedWithFocus(store, 'a1')
+    await act(async () => {
+      fireEvent.keyDown(field(), { key: '˚', code: 'KeyK', ctrlKey: true, altKey: true })
+      await Promise.resolve()
+    })
+    await selectedWithFocus(store, 'a2')
+  })
+
+  it('leaves the focus where it was when ⌥↓ is pressed outside the message field', async () => {
+    const { store } = await renderWithBar([{ key: UiStateKey.SelectedTaskId, value: 'a2' }])
+    act(() => {
+      field().blur()
+    })
+
+    pressAlt('ArrowDown')
+
+    await vi.waitFor(() => {
+      expect(store.getState().selectedTaskId).toBe('a1')
+    })
+    expect(document.body).toHaveFocus()
   })
 })

@@ -100,6 +100,12 @@ export interface InputInsertion {
   readonly request: number
 }
 
+/** What's in a task's input bar and not sent yet: its message field's text and the images pasted into it. */
+export interface InputDraft {
+  readonly text: string
+  readonly images: readonly ImageData[]
+}
+
 /**
  * A request to put text at a terminal tab's prompt (Run again in terminal), made by a tool call's menu and acted on by
  * the tab's terminal, which pastes it without running it and takes the focus. `request` goes up by one with every
@@ -219,6 +225,12 @@ export interface GladeData {
   readonly controlStatus: ControlStatus | null
   /** The latest request to add text to a task's message field; null until one is made. A one-off UI intent. */
   readonly inputInsertion: InputInsertion | null
+  /**
+   * Each task's unsent message, by task id, kept as its input bar goes (another task selected) so it's there again when
+   * the task comes back; none for a task whose draft is empty. Not mirrored from main, like `searchText`: a relaunch
+   * starts every input bar empty.
+   */
+  readonly inputDrafts: Readonly<Record<string, InputDraft>>
   /**
    * What's typed in the sidebar's search field; empty while not searching. While it isn't blank, the sidebar lists the
    * search's results instead of the tasks, and the selected task's header and chat highlight its matches. Not mirrored
@@ -449,6 +461,8 @@ export interface GladeActions {
   copyText: (text: string) => Promise<void>
   /** Asks the input bar to add text to a task's message field and focus it (see `inputInsertion`). */
   insertIntoInput: (taskId: string, text: string) => void
+  /** Keeps a task's unsent message for when its input bar comes back (see `inputDrafts`); an empty one is forgotten. */
+  keepInputDraft: (taskId: string, draft: InputDraft) => void
   /** Sets the sidebar's search text (see `searchText`); an empty string ends the search. */
   setSearchText: (text: string) => void
   /** Asks the sidebar's search field to take the focus (see `searchFocusRequest`). */
@@ -532,6 +546,7 @@ export const INITIAL_DATA: GladeData = {
   pluginStatuses: {},
   controlStatus: null,
   inputInsertion: null,
+  inputDrafts: {},
   searchText: '',
   searchFocusRequest: 0,
   matchRevealRequest: 0,

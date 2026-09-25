@@ -5,11 +5,16 @@ import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import { fakeBridge } from '../store/test-bridge'
 import { useCommands, type CommandHandlers } from './hooks'
-import { commandRegistry, isTextField } from './registry'
+import { commandRegistry, isMessageField, isTextField, MESSAGE_FIELD_PROPS } from './registry'
 
 function Harness({ handlers }: { readonly handlers: CommandHandlers }): React.JSX.Element {
   useCommands(handlers)
-  return <textarea aria-label="Message" />
+  return (
+    <>
+      <textarea aria-label="Note" />
+      <textarea aria-label="Message" {...MESSAGE_FIELD_PROPS} />
+    </>
+  )
 }
 
 async function setup(): Promise<GladeStore> {
@@ -66,14 +71,44 @@ describe('the command registry', () => {
     expect(newTask).not.toHaveBeenCalled()
   })
 
-  it('leaves a shortcut kept out of text fields to the field', async () => {
+  it('leaves ⌥↑ / ⌥↓ to a text field, but not to the message field', async () => {
+    const store = await setup()
+    const next = vi.fn()
+    const previous = vi.fn()
+    renderWith(store, { [WindowCommandId.NextTask]: next, [WindowCommandId.PreviousTask]: previous })
+
+    // Another text field moves its caret.
+    expect(fireEvent.keyDown(screen.getByRole('textbox', { name: 'Note' }), { key: 'ArrowDown', altKey: true })).toBe(
+      true,
+    )
+    expect(next).not.toHaveBeenCalled()
+    // The message field switches tasks, as the window does outside text fields.
+    const message = screen.getByRole('textbox', { name: 'Message' })
+    expect(fireEvent.keyDown(message, { key: 'ArrowDown', altKey: true })).toBe(false)
+    expect(fireEvent.keyDown(message, { key: 'ArrowUp', altKey: true })).toBe(false)
+    expect(fireEvent.keyDown(window, { key: 'ArrowDown', altKey: true })).toBe(false)
+    expect(next).toHaveBeenCalledTimes(2)
+    expect(previous).toHaveBeenCalledOnce()
+  })
+
+  it('switches tasks from the message field on the keys you rebound it to', async () => {
     const store = await setup()
     const next = vi.fn()
     renderWith(store, { [WindowCommandId.NextTask]: next })
+    await act(() => store.getState().updateSettings({ keyBindings: { [WindowCommandId.NextTask]: 'Ctrl+Alt+J' } }))
+    const message = screen.getByRole('textbox', { name: 'Message' })
 
-    expect(fireEvent.keyDown(screen.getByRole('textbox'), { key: 'ArrowDown', altKey: true })).toBe(true)
-    expect(next).not.toHaveBeenCalled()
-    fireEvent.keyDown(window, { key: 'ArrowDown', altKey: true })
+    // The old keys are the field's again.
+    expect(fireEvent.keyDown(message, { key: 'ArrowDown', altKey: true })).toBe(true)
+    expect(fireEvent.keyDown(message, { key: '∆', code: 'KeyJ', ctrlKey: true, altKey: true })).toBe(false)
+    expect(
+      fireEvent.keyDown(screen.getByRole('textbox', { name: 'Note' }), {
+        key: '∆',
+        code: 'KeyJ',
+        ctrlKey: true,
+        altKey: true,
+      }),
+    ).toBe(true)
     expect(next).toHaveBeenCalledOnce()
   })
 
@@ -136,6 +171,18 @@ describe('the command registry', () => {
 
     expect(fireEvent.keyDown(window, { key: 'Meta', code: 'MetaLeft', metaKey: true })).toBe(true)
     expect(toggle).not.toHaveBeenCalled()
+  })
+})
+
+describe('isMessageField', () => {
+  it('is the element marked as the message field, and nothing else', () => {
+    const message = document.createElement('textarea')
+    Object.assign(message.dataset, { keyScope: MESSAGE_FIELD_PROPS['data-key-scope'] })
+
+    expect(isMessageField(message)).toBe(true)
+    expect(isMessageField(document.createElement('textarea'))).toBe(false)
+    expect(isMessageField(window)).toBe(false)
+    expect(isMessageField(null)).toBe(false)
   })
 })
 

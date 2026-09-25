@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import {
@@ -610,7 +610,7 @@ describe('InputBar', () => {
     expect(field()).not.toHaveFocus()
   })
 
-  it('starts each task with its own empty draft', async () => {
+  it('keeps each task’s own draft, and gives it back when the task comes back', async () => {
     const fake = await renderBar()
     type('For the first task')
 
@@ -618,6 +618,39 @@ describe('InputBar', () => {
 
     expect(field()).toHaveValue('')
     expect(screen.getByRole('button', { name: 'Model: claude-sample-1' })).toBeInTheDocument()
+    type('For the second')
+
+    await act(() => fake.store.getState().selectTask('t1'))
+    expect(field()).toHaveValue('For the first task')
+    await act(() => fake.store.getState().selectTask('t2'))
+    expect(field()).toHaveValue('For the second')
+  })
+
+  it('keeps no draft once it’s sent, or emptied', async () => {
+    const fake = await renderBar()
+    type('Ship it')
+    await press('Enter')
+    await waitFor(() => {
+      expect(field()).toHaveValue('')
+    })
+    await act(() => fake.store.getState().selectTask('t2'))
+    type('Not this')
+    type('')
+    await act(() => fake.store.getState().selectTask('t1'))
+
+    expect(field()).toHaveValue('')
+    expect(fake.store.getState().inputDrafts).toEqual({})
+  })
+
+  it('keeps the draft with no task selected, for when one is again', async () => {
+    const fake = await renderBar()
+    type('Half a thought')
+
+    await act(() => fake.store.getState().selectTask(null))
+    expect(screen.queryByRole('textbox', { name: 'Message the agent' })).toBeNull()
+    await act(() => fake.store.getState().selectTask('t1'))
+
+    expect(field()).toHaveValue('Half a thought')
   })
 })
 
