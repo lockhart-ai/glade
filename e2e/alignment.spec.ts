@@ -117,11 +117,22 @@ for (const size of [{ width: 1920, height: 1200 }, MIN_WINDOW]) {
       expectNear((await boxOf(item)).x, left, `${name}, left edge`)
       expectNear(await contentLeft(item), content, `${name}, content`)
     }
-    // And their right edges, where they run the sidebar's width.
+    // And their right edges, where they run the sidebar's width: the list's rows stop short by its scrollbar, when the
+    // system shows scrollbars that take room (they overlay the content on a Mac with a trackpad, but not in CI).
     const right = sidebar.x + sidebar.width - inset
-    for (const item of [list.newTask, list.sectionHeader('Active'), list.rows('Active').first()]) {
+    expectNear((await boxOf(list.newTask)).x + (await boxOf(list.newTask)).width, right, 'New task, right edge')
+    const scrollbar = await list
+      .rows('Active')
+      .first()
+      .evaluate((row) => {
+        let scroller = row.parentElement
+        while (scroller !== null && getComputedStyle(scroller).overflowY !== 'auto') scroller = scroller.parentElement
+        if (scroller === null) throw new Error('The task list does not scroll')
+        return scroller.offsetWidth - scroller.clientWidth
+      })
+    for (const item of [list.sectionHeader('Active'), list.rows('Active').first()]) {
       const box = await boxOf(item)
-      expectNear(box.x + box.width, right, 'sidebar item, right edge')
+      expectNear(box.x + box.width, right - scrollbar, 'task list item, right edge')
     }
     // A row's dot sits on that content line, like the section headers' chevrons and the search field's icon.
     expectNear((await boxOf(list.dot(list.rows('Active').first()))).x, content, 'task row dot')
