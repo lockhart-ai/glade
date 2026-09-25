@@ -54,6 +54,15 @@ export enum ScriptStepKind {
    * (to the second, as the SDK gives it), as the SDK sends when a request hits the limit.
    */
   LimitReached = 'limit_reached',
+  /**
+   * The agent starts a turn of its own once the turn it's in has ended, as the SDK does when a background command or
+   * subagent finishes, or a timer or scheduled wakeup fires (`docs/sdk-notes.md`, "Turns the agent starts itself"):
+   * `ms` after this step (no time by default), and once no turn is playing, the session streams the `task_updated` and
+   * `task_notification` for the task that finished, then plays `turn` with no user message behind it. Its assistant
+   * messages carry no `user_message_uuid`, and its `result` no `user_message_uuids` but `origin: task-notification`.
+   * A message sent while it plays is folded into it, as into any turn.
+   */
+  Wake = 'wake',
 }
 
 export interface InitStep {
@@ -150,6 +159,18 @@ export interface LimitReachedStep {
   readonly resetInMs: number
 }
 
+export interface WakeStep {
+  readonly kind: ScriptStepKind.Wake
+  /** How long after this step the agent wakes, in milliseconds: no time by default. */
+  readonly ms?: number
+  /** The script id of the tool call, in this turn, whose background task finished; none for a timer or wakeup. */
+  readonly task?: string
+  /** What the task notification says finished. */
+  readonly summary: string
+  /** What the agent does in the turn it starts. */
+  readonly turn: ScriptTurn
+}
+
 export type ScriptStep =
   | InitStep
   | TextStep
@@ -165,6 +186,7 @@ export type ScriptStep =
   | CompactStep
   | AskStep
   | LimitReachedStep
+  | WakeStep
 
 export type ScriptTurn = readonly ScriptStep[]
 
@@ -255,6 +277,12 @@ export const ask = (id: string, questions: readonly Question[]): AskStep => ({
 export const limitReached = (resetInMs: number): LimitReachedStep => ({
   kind: ScriptStepKind.LimitReached,
   resetInMs,
+})
+
+export const wake = (turn: ScriptTurn, options: Omit<WakeStep, 'kind' | 'turn'>): WakeStep => ({
+  kind: ScriptStepKind.Wake,
+  turn,
+  ...options,
 })
 
 /** How long a step "takes" in the library's scripts: long enough to see in a recording, short enough for a test. */
@@ -1163,6 +1191,51 @@ const declaresArtifacts: AgentScript = {
   ],
 }
 
+/**
+ * A build started in the background: the turn that starts it ends at once, and when the build finishes the agent
+ * starts a turn of its own (a `wake`) to read its output and report, with no message from you. It takes a while to
+ * read the output, so a spec can see it working. A message sent after that gets a short reply.
+ */
+const finishesInBackground: AgentScript = {
+  name: 'finishes-in-background',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Build the docs site',
+        'Build the docs site and check it for broken links.',
+        'Building the docs.',
+      ),
+      ...tool(
+        'build',
+        'Bash',
+        { command: 'npm run build:docs', description: 'Build the docs site', run_in_background: true },
+        'Command running in background with ID: b4k2x9q. Output is being written to: tasks/b4k2x9q.output. You ' +
+          'will be notified when it completes.',
+      ),
+      wake(
+        [
+          ...turnStart(),
+          delay(BEAT_MS),
+          say('The docs build finished. Checking its output for broken links.'),
+          // Long enough for a spec to see the task working on it, and to look away before it replies.
+          toolUse('output', 'Read', { file_path: 'tasks/b4k2x9q.output' }),
+          delay(BEAT_MS * 8),
+          toolResult('output', 'Built 48 pages.\nNo broken links.'),
+          gladeTool('status-built', 'set_status', { status: 'The docs site is built, with no broken links.' }),
+          say('The docs site built cleanly: 48 pages and no broken links.'),
+          result(),
+        ],
+        { ms: BEAT_MS * 4, task: 'build', summary: 'Background command "Build the docs site" completed (exit code 0)' },
+      ),
+      say("I've started the docs build in the background. I'll report back when it finishes."),
+      result(),
+    ],
+    [...turnStart(), delay(BEAT_MS), say('The docs site is live at /docs.'), result()],
+  ],
+}
+
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
   'simple-reply',
@@ -1183,6 +1256,7 @@ export const AGENT_SCRIPT_NAMES = [
   'offline',
   'keeps-todos',
   'writes-todos',
+  'finishes-in-background',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -1207,4 +1281,5 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   offline,
   'keeps-todos': keepsTodos,
   'writes-todos': writesTodos,
+  'finishes-in-background': finishesInBackground,
 }

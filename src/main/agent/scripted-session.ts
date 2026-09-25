@@ -14,6 +14,8 @@
  * - An interrupt ends the running turn the way the SDK does: tool calls still running get a "rejected" result, then an
  *   interrupt marker and an `error_during_execution` result (`aborted_tools` if a call was running, else
  *   `aborted_streaming`).
+ * - A `Wake` step has the agent start a turn of its own later, with no message sent (see `ScriptStepKind.Wake`). It
+ *   waits for the turn playing to end, like a message sent meanwhile, and a message sent while it plays is folded in.
  * - A `Fail` step kills the session: its message stream throws, and it plays nothing more.
  * - The script can be picked by the session's first message (a `ScriptChooser`), so different tasks can play different
  *   scripts. A chooser that has none for it kills the session as a `Fail` step would.
@@ -34,6 +36,7 @@ import {
   type CompactStep,
   type ScriptStep,
   type ScriptTurn,
+  type WakeStep,
 } from './scripts'
 
 /** Picks the script a session plays from the first message sent to it. Throws when it has none for that message. */
@@ -50,6 +53,11 @@ export interface ScriptedSessionOptions {
    * never ran, the session having failed or closed), or it's waiting to be interrupted.
    */
   readonly onIdle?: () => void
+  /**
+   * Called when a `Wake` step schedules a turn the agent starts on its own, which then counts as a message sent: `onIdle`
+   * is called once for it too, when that turn ends or can't play.
+   */
+  readonly onWake?: () => void
 }
 
 /** The name the SDK gives one of Glade's tools, e.g. `mcp__glade__set_title`. */
@@ -90,7 +98,10 @@ class Stopped extends Error {}
 
 /** A running turn's state. */
 interface TurnState {
-  readonly number: number
+  /** Tells the turn's ids apart: the number of the script turn it plays, or `wake-<n>` for one the agent started. */
+  readonly key: string
+  /** Whether the agent started the turn on its own (a `Wake`), not a message. */
+  readonly woken: boolean
   readonly startedAt: number
   /** Resolves (never rejects) when the turn is interrupted. */
   readonly interrupted: Promise<void>
@@ -106,7 +117,7 @@ interface TurnState {
   lastText: string
   /** Whether `onIdle` has been called for this turn. */
   idle: boolean
-  /** The uuids of the messages the turn has taken: the one that started it, then any folded into it. */
+  /** The uuids of the messages the turn has taken: the one that started it (if one did), then any folded into it. */
   readonly uuids: string[]
   /** The script turns of messages folded into the turn that it hasn't started playing yet. */
   readonly folded: ScriptTurn[]
@@ -119,6 +130,8 @@ export class ScriptedSession implements AgentSession {
   /** Makes tool call ids unique to this session, since a task's calls share one log across sessions. */
   private readonly idPrefix: string
   private turnsRun = 0
+  /** How many turns the agent has started on its own. */
+  private wakes = 0
   /** The script the session plays: picked on its first message. */
   private script: AgentScript | null = null
   private turn: TurnState | null = null
@@ -151,8 +164,8 @@ export class ScriptedSession implements AgentSession {
       this.options.onIdle?.()
       return
     }
-    const number = this.turnsRun
-    this.queue = this.queue.then(() => this.play(turn, number, uuid))
+    const key = String(this.turnsRun)
+    this.queue = this.queue.then(() => this.play(turn, key, uuid))
   }
 
   /** The script turn a message runs: see the module comment. */
@@ -203,7 +216,8 @@ export class ScriptedSession implements AgentSession {
     this.stream.push({ ...message, session_id: this.sessionId })
   }
 
-  private async play(steps: ScriptTurn, number: number, uuid: string): Promise<void> {
+  /** Plays a turn: one a message started (`uuid` is its), or, for a null `uuid`, one the agent started on its own. */
+  private async play(steps: ScriptTurn, key: string, uuid: string | null): Promise<void> {
     if (this.stopped) {
       this.options.onIdle?.()
       return
@@ -213,7 +227,8 @@ export class ScriptedSession implements AgentSession {
       interrupt = resolve
     })
     const turn: TurnState = {
-      number,
+      key,
+      woken: uuid === null,
       startedAt: Date.now(),
       interrupted,
       interrupt: () => {
@@ -226,7 +241,7 @@ export class ScriptedSession implements AgentSession {
       running: new Map(),
       lastText: '',
       idle: false,
-      uuids: [uuid],
+      uuids: uuid === null ? [] : [uuid],
       folded: [],
     }
     this.turn = turn
@@ -261,7 +276,7 @@ export class ScriptedSession implements AgentSession {
     this.options.onIdle?.()
   }
 
-  private async step(turn: TurnState, step: ScriptStep, uuid: string): Promise<void> {
+  private async step(turn: TurnState, step: ScriptStep, uuid: string | null): Promise<void> {
     switch (step.kind) {
       case ScriptStepKind.Init:
         this.init()
@@ -320,6 +335,9 @@ export class ScriptedSession implements AgentSession {
       case ScriptStepKind.Ask:
         await this.ask(turn, step, uuid)
         return
+      case ScriptStepKind.Wake:
+        this.wake(turn, step)
+        return
       case ScriptStepKind.LimitReached:
         this.push({
           type: 'rate_limit_event',
@@ -339,7 +357,46 @@ export class ScriptedSession implements AgentSession {
    * session goes idle until they answer. An interrupt cancels the call, as the SDK does, and the turn then ends as an
    * interrupted one.
    */
-  private async ask(turn: TurnState, step: AskStep, uuid: string): Promise<void> {
+  /**
+   * Schedules the turn a `Wake` step has the agent start on its own: `ms` from now, it waits for the turn playing then
+   * to end, and plays after the SDK's notification that the task finished.
+   */
+  private wake(turn: TurnState, step: WakeStep): void {
+    this.options.onWake?.()
+    const toolUseId = step.task === undefined ? undefined : this.sdkToolId(turn, step.task)
+    setTimeout(() => {
+      this.queue = this.queue.then(() => {
+        this.wakes += 1
+        if (!this.stopped) this.notify(step.summary, toolUseId)
+        return this.play(step.turn, `wake-${String(this.wakes)}`, null)
+      })
+    }, step.ms ?? 0)
+  }
+
+  /** What the SDK streams when a background task finishes, before the turn it starts (`docs/sdk-notes.md`). */
+  private notify(summary: string, toolUseId: string | undefined): void {
+    const taskId = `b${this.idPrefix}${String(this.wakes)}`
+    const tool = toolUseId === undefined ? {} : { tool_use_id: toolUseId }
+    this.push({
+      type: 'system',
+      subtype: 'task_updated',
+      task_id: taskId,
+      patch: { status: 'completed' },
+      uuid: randomUUID(),
+    })
+    this.push({
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: taskId,
+      ...tool,
+      status: 'completed',
+      output_file: `tasks/${taskId}.output`,
+      summary,
+      uuid: randomUUID(),
+    })
+  }
+
+  private async ask(turn: TurnState, step: AskStep, uuid: string | null): Promise<void> {
     const name = gladeToolName(GladeTool.Ask)
     const input = { questions: step.questions }
     this.toolUse(turn, step.id, name, input, null, uuid)
@@ -429,7 +486,7 @@ export class ScriptedSession implements AgentSession {
     })
   }
 
-  private assistant(turn: TurnState, block: Record<string, unknown>, parent: string | null, uuid: string): void {
+  private assistant(turn: TurnState, block: Record<string, unknown>, parent: string | null, uuid: string | null): void {
     if (turn.afterResult) {
       turn.messageId += 1
       turn.afterResult = false
@@ -439,9 +496,10 @@ export class ScriptedSession implements AgentSession {
       type: 'assistant',
       parent_tool_use_id: parent,
       uuid: randomUUID(),
-      user_message_uuid: uuid,
+      // A turn the agent started on its own answers no message.
+      ...(uuid === null ? {} : { user_message_uuid: uuid }),
       message: {
-        id: `msg_${this.idPrefix}_${String(turn.number)}_${String(turn.messageId)}`,
+        id: `msg_${this.idPrefix}_${turn.key}_${String(turn.messageId)}`,
         model: this.model,
         stop_reason: null,
         content: [block],
@@ -455,7 +513,7 @@ export class ScriptedSession implements AgentSession {
   }
 
   private sdkToolId(turn: TurnState, id: string): string {
-    return `toolu_${this.idPrefix}_${String(turn.number)}_${id}`
+    return `toolu_${this.idPrefix}_${turn.key}_${id}`
   }
 
   private toolUse(
@@ -464,7 +522,7 @@ export class ScriptedSession implements AgentSession {
     name: string,
     input: ToolInput,
     parent: string | null,
-    uuid: string,
+    uuid: string | null,
   ): void {
     const sdkId = this.sdkToolId(turn, id)
     const sdkParent = parent === null ? null : this.sdkToolId(turn, parent)
@@ -503,7 +561,9 @@ export class ScriptedSession implements AgentSession {
       usage: TURN_USAGE,
       modelUsage: this.modelUsage(),
       permission_denials: [],
-      user_message_uuids: uuids,
+      // A turn the agent started on its own says so, and lists only the messages folded into it, if any.
+      ...(turn.woken ? { origin: { kind: 'task-notification' } } : {}),
+      ...(turn.woken && uuids.length === 0 ? {} : { user_message_uuids: uuids }),
       ...fields,
     })
   }

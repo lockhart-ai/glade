@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
-import { MessageRole, type EpochMs, type Message, type TurnSummary } from '../../../shared/domain'
+import { DividerKind, MessageRole, type EpochMs, type Message, type TurnSummary } from '../../../shared/domain'
 import type { ImageData, ImageRef } from '../../../shared/images'
 import { addImages, ImageOwnerKind, imageRefsByOwner } from './images'
 import { Row } from './rows'
@@ -77,18 +77,40 @@ export function listMessages(db: Database, taskId: string): Message[] {
     .map((row) => parseMessage(row, images))
 }
 
-/** The turn of a task's latest message: its number of turns so far, or 0 before its first message. */
+/**
+ * A task's last turn: its number of turns so far, or 0 before its first. A turn has its number once its first message
+ * or its turn divider is saved: a turn the agent started on its own has no message of yours, and none of its own until
+ * it replies, so its turn divider in the tool log is what numbers it.
+ */
 export function lastTurn(db: Database, taskId: string): number {
-  const turn: unknown = db.prepare('SELECT COALESCE(MAX(turn), 0) FROM messages WHERE task_id = ?').pluck().get(taskId)
+  const turn: unknown = db
+    .prepare(
+      `SELECT COALESCE(MAX(turn), 0) FROM (
+        SELECT turn FROM messages WHERE task_id = @taskId
+        UNION ALL
+        SELECT turn FROM tool_events WHERE task_id = @taskId AND kind = 'divider' AND divider_kind = @turnDivider
+      )`,
+    )
+    .pluck()
+    .get({ taskId, turnDivider: DividerKind.Turn })
   return typeof turn === 'number' ? turn : 0
 }
 
-/** When a task's turn started: its first user message's `createdAt`, or null when it has none. */
+/**
+ * When a task's turn started: its first user message's `createdAt`, or, for a turn the agent started on its own, its
+ * turn divider's; null when it has neither.
+ */
 export function turnStartedAt(db: Database, taskId: string, turn: number): EpochMs | null {
   const startedAt: unknown = db
-    .prepare('SELECT MIN(created_at) FROM messages WHERE task_id = ? AND turn = ? AND role = ?')
+    .prepare(
+      `SELECT COALESCE(
+        (SELECT MIN(created_at) FROM messages WHERE task_id = @taskId AND turn = @turn AND role = @user),
+        (SELECT MIN(created_at) FROM tool_events
+          WHERE task_id = @taskId AND turn = @turn AND kind = 'divider' AND divider_kind = @turnDivider)
+      )`,
+    )
     .pluck()
-    .get(taskId, turn, MessageRole.User)
+    .get({ taskId, turn, user: MessageRole.User, turnDivider: DividerKind.Turn })
   return typeof startedAt === 'number' ? startedAt : null
 }
 

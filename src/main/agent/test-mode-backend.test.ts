@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Effort } from '../../shared/domain'
 import type { AgentSessionOptions } from './backend'
-import { delay, init, result, say, waitForInterrupt, type AgentScript } from './scripts'
+import { delay, init, result, say, waitForInterrupt, wake, type AgentScript } from './scripts'
 import { GIF, JPEG, PNG } from '../../shared/test-images'
 import { createTestModeAgentBackend, UnscriptedAgentError } from './test-mode-backend'
 import { userContent } from './user-content'
@@ -83,6 +83,31 @@ describe('createTestModeAgentBackend', () => {
     expect(received.map((messages) => messages().length)).toEqual([2, 2])
     first.close()
     second.close()
+  })
+
+  it('is not idle until a turn the agent starts on its own has played too', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    const woken = [init(), say('The build finished.'), result()]
+    const script: AgentScript = {
+      name: 'test',
+      turns: [[init(), wake(woken, { ms: 500, summary: 'Build completed' }), say('Building.'), result()]],
+    }
+    const backend = createTestModeAgentBackend({ script })
+    const session = backend.start(OPTIONS)
+    const received = drain(session.messages)
+    session.send('a', 'user-1')
+    let idle = false
+    void backend.whenIdle().then(() => {
+      idle = true
+    })
+
+    await vi.advanceTimersByTimeAsync(499)
+    expect(idle).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(idle).toBe(true)
+    expect(received().filter((message) => (message as { type: string }).type === 'result')).toHaveLength(2)
+    session.close()
   })
 
   it('is idle while a turn waits to be stopped, and passes the interrupt on', async () => {

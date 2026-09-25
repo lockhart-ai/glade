@@ -21,6 +21,7 @@ import {
   toolResult,
   toolUse,
   waitForInterrupt,
+  wake,
   type AgentScript,
   type ScriptTurn,
 } from './scripts'
@@ -655,5 +656,123 @@ describe('ScriptedSession', () => {
     expect(await played.ended).toBeNull()
     expect(played.events).toEqual([{ kind: AgentEventKind.Text, text: 'Starting.', parentToolUseId: null }])
     expect(played.idles()).toBe(2)
+  })
+
+  describe('a turn the agent starts on its own', () => {
+    /** A turn that starts a build in the background, and wakes `ms` later to report on it. */
+    function backgroundBuild(ms?: number, then: ScriptTurn = [init(), say('Built.'), result()]): ScriptTurn {
+      return [
+        init(),
+        ...tool('build', 'Bash', { command: 'npm run build', run_in_background: true }, 'Running in background.'),
+        wake(then, {
+          task: 'build',
+          summary: 'Background command "Build" completed',
+          ...(ms === undefined ? {} : { ms }),
+        }),
+        say('Started.'),
+        result(),
+      ]
+    }
+
+    it('plays after the turn ends, as the SDK streams it: the notification, then a turn answering no message', async () => {
+      let wakes = 0
+      const played = play([backgroundBuild()], { onWake: () => (wakes += 1) })
+      played.session.send('Build it.', 'user-1')
+      await flush()
+
+      const [first, woken] = played.raw.filter((message) => message.type === 'result')
+      expect(first).toMatchObject({ result: 'Started.', user_message_uuids: ['user-1'] })
+      expect(first).not.toHaveProperty('origin')
+      const afterFirst = played.raw.slice(played.raw.indexOf(first ?? {}) + 1)
+      const buildId = played.raw.find((message) => message.type === 'assistant')?.message as {
+        content: { id: string }[]
+      }
+      expect(afterFirst.map((message) => message.subtype ?? message.type)).toEqual([
+        'task_updated',
+        'task_notification',
+        'init',
+        'assistant',
+        'success',
+      ])
+      expect(afterFirst[1]).toMatchObject({
+        tool_use_id: buildId.content[0]?.id,
+        status: 'completed',
+        summary: 'Background command "Build" completed',
+      })
+      expect(afterFirst[3]).not.toHaveProperty('user_message_uuid')
+      expect(woken).toMatchObject({ result: 'Built.', origin: { kind: 'task-notification' } })
+      expect(woken).not.toHaveProperty('user_message_uuids')
+      expect(wakes).toBe(1)
+      expect(played.idles()).toBe(2)
+    })
+
+    it('waits the time it is given, and gives its ids a key of their own', async () => {
+      const again: ScriptTurn = [init(), ...tool('build', 'Bash', { command: 'cat out' }, 'ok'), result()]
+      const played = play([backgroundBuild(500, again)])
+      played.session.send('Build it.', 'user-1')
+      await flush()
+      expect(played.raw.filter((message) => message.type === 'result')).toHaveLength(1)
+
+      await vi.advanceTimersByTimeAsync(500)
+      const calls = played.events.flatMap((event) =>
+        event.kind === AgentEventKind.ToolCallStarted ? [event.toolUseId] : [],
+      )
+      expect(calls).toHaveLength(2)
+      expect(new Set(calls).size).toBe(2)
+      expect(played.idles()).toBe(2)
+    })
+
+    it('says no task finished for a wakeup that was not a background task', async () => {
+      const played = play([
+        [init(), wake([init(), say('Time to check.'), result()], { summary: 'Timer fired' }), result()],
+      ])
+      played.session.send('Check back later.', 'user-1')
+      await flush()
+
+      expect(played.raw.find((message) => message.subtype === 'task_notification')).not.toHaveProperty('tool_use_id')
+    })
+
+    it('folds in a message sent while it plays, and its result lists it', async () => {
+      const played = play([
+        backgroundBuild(0, [init(), say('Checking the output.'), delay(100), say('Never.')]),
+        [say('Publishing it.'), result()],
+      ])
+      played.session.send('Build it.', 'user-1')
+      await flush()
+      played.session.send('Publish it.', 'user-2')
+      await vi.advanceTimersByTimeAsync(100)
+
+      expect(played.raw.at(-1)).toMatchObject({
+        type: 'result',
+        result: 'Publishing it.',
+        origin: { kind: 'task-notification' },
+        user_message_uuids: ['user-2'],
+      })
+    })
+
+    it('waits for the turn a message started meanwhile to end', async () => {
+      const played = play([backgroundBuild(10), [say('Still going.'), delay(100), result()]])
+      played.session.send('Build it.', 'user-1')
+      await flush()
+      played.session.send('How is it going?', 'user-2')
+      await vi.advanceTimersByTimeAsync(100)
+
+      expect(played.raw.filter((message) => message.type === 'result').map((message) => message.result)).toEqual([
+        'Started.',
+        'Still going.',
+        'Built.',
+      ])
+    })
+
+    it('plays nothing once the session is closed, but still goes idle', async () => {
+      const played = play([backgroundBuild(100)])
+      played.session.send('Build it.', 'user-1')
+      await flush()
+      played.session.close()
+      await vi.advanceTimersByTimeAsync(100)
+
+      expect(played.raw.filter((message) => message.subtype === 'task_notification')).toEqual([])
+      expect(played.idles()).toBe(2)
+    })
   })
 })
