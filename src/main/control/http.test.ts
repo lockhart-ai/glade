@@ -5,7 +5,9 @@
 // neither the token nor anything else leaves 127.0.0.1 or reaches the log.
 import { request as httpRequest } from 'node:http'
 import { connect as connectSocket } from 'node:net'
-import { networkInterfaces } from 'node:os'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { networkInterfaces, tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { CommandName, EventType } from '../../shared/bridge'
 import { controlUrl, type ControlStatus } from '../../shared/control'
@@ -29,6 +31,7 @@ import {
   type RawResponse,
 } from './test-http'
 import { CONTROL_TOOLS } from './tools'
+import { plainChat, SESSION_ID, writeTranscript } from './claude-code/test-transcripts'
 import { createRateLimiter } from './rate-limit'
 import { createMemoryLog } from '../logging/memory-sink'
 import { ControlAccess } from './names'
@@ -56,8 +59,20 @@ async function turnOn(target: ControlApp): Promise<ControlStatus> {
   return (await target.glade.invoke(CommandName.ControlStatus, {})).status
 }
 
+/** A temporary folder, removed after the test. */
+const folders: string[] = []
+function tempFolder(prefix: string): string {
+  const folder = realpathSync(mkdtempSync(join(tmpdir(), prefix)))
+  folders.push(folder)
+  return folder
+}
+
+/** Claude Code's projects folder for the test: a temporary one. */
+let projects: string
+
 beforeEach(async () => {
-  app = startControlApp(false)
+  projects = tempFolder('glade-http-projects-')
+  app = startControlApp(false, projects)
   workspace = sampleWorkspace(app.database.db)
   status = await turnOn(app)
   ;({ port, token } = listening(status))
@@ -66,6 +81,7 @@ beforeEach(async () => {
 afterEach(async () => {
   for (const client of clients.splice(0)) await client.close()
   await app.close()
+  for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true })
 })
 
 async function http(key = token): Promise<ControlClient> {
@@ -139,6 +155,17 @@ describe('the tools over HTTP', () => {
     expect(await call(ControlToolName.MarkDone, { id })).toMatchObject({ task: { state: TaskState.Done } })
     expect(await call(ControlToolName.ReopenTask, { id })).toMatchObject({ task: { state: TaskState.Active } })
     expect(await call(ControlToolName.DeleteTask, { id, confirm: true })).toEqual({ deleted: id })
+    // A Claude Code session, started in a folder that isn't a workspace yet, listed and imported.
+    const cwd = tempFolder('glade-http-acme-')
+    writeTranscript(projects, cwd, plainChat(cwd).toJsonl())
+    expect(await call(ControlToolName.ListClaudeCodeSessions, { imported: false })).toMatchObject({
+      sessions: [{ sessionId: SESSION_ID, cwd, taskId: null }],
+    })
+    const imported = await call(ControlToolName.ImportClaudeCodeSession, {
+      sessionId: SESSION_ID,
+      createWorkspace: true,
+    })
+    expect(imported).toMatchObject({ imported: true, task: { state: TaskState.Done, sessionId: SESSION_ID } })
 
     expect([...called].sort()).toEqual([...listed].sort())
     expect(getTask(app.database.db, id)).toBeUndefined()
@@ -452,7 +479,7 @@ describe('many clients at once', () => {
   /** Starts the app again with small rate limits, so a test can go past them quickly. */
   async function limited(): Promise<void> {
     await app.close()
-    app = startControlApp(false, LIMITS)
+    app = startControlApp(false, undefined, LIMITS)
     workspace = sampleWorkspace(app.database.db)
     ;({ port, token } = listening(await turnOn(app)))
   }

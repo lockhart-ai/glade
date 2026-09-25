@@ -70,6 +70,62 @@ describe('hydrate', () => {
     expect(store.getState().tasks.t1).toEqual(task)
   })
 
+  describe("a done task it hasn't seen, e.g. one imported done", () => {
+    const imported = {
+      ...sampleTask('t9', 'w2'),
+      title: 'Fix the rate limit tests',
+      state: TaskState.Done,
+      unread: true,
+    }
+
+    it("reads its workspace's Done counts from main again, since only main knows if it was counted", async () => {
+      const { store, emit, data, invoke } = await hydrated()
+      expect(store.getState().doneCounts.w2).toEqual({ all: 0, unread: 0 })
+
+      data.tasks.push(imported)
+      emit({ type: EventType.TaskUpdated, task: imported })
+
+      await vi.waitFor(() => {
+        expect(store.getState().doneCounts.w2).toEqual({ all: 1, unread: 1 })
+      })
+      expect(store.getState().tasks.t9).toEqual(imported)
+      // A later change to it, now seen, is counted as usual, with no need to ask.
+      invoke.mockClear()
+      emit({ type: EventType.TaskUpdated, task: { ...imported, unread: false } })
+      expect(store.getState().doneCounts.w2).toEqual({ all: 1, unread: 0 })
+      expect(invoke).not.toHaveBeenCalled()
+    })
+
+    it("doesn't ask for an active or pinned one, which isn't in the Done section", async () => {
+      const { emit, invoke } = await hydrated()
+      invoke.mockClear()
+      emit({ type: EventType.TaskUpdated, task: { ...imported, state: TaskState.Active } })
+      emit({ type: EventType.TaskUpdated, task: { ...imported, id: 't10', pinned: true } })
+      expect(invoke).not.toHaveBeenCalled()
+    })
+
+    it('keeps the counts it had when main fails to say', async () => {
+      let failing = false
+      const fake = fakeBridge(main(), {
+        [CommandName.TasksListActive]: () =>
+          failing
+            ? refuse(bridgeError(BridgeErrorCode.Internal, 'The database is locked'))
+            : { tasks: [], done: { all: 0, unread: 0 } },
+      })
+      const store = createGladeStore(fake.bridge)
+      await store.getState().hydrate()
+      failing = true
+
+      fake.emit({ type: EventType.TaskUpdated, task: imported })
+
+      await vi.waitFor(() => {
+        expect(fake.invoke).toHaveBeenCalledWith(CommandName.TasksListActive, { workspaceId: 'w2' })
+      })
+      await Promise.resolve()
+      expect(store.getState().doneCounts.w2).toEqual({ all: 0, unread: 0 })
+    })
+  })
+
   it('applies events that arrive while loading on top of the snapshot', async () => {
     const renamed = { ...sampleTask('t1', 'w1'), title: 'Add caching' }
     let emitDuringLoad = (): void => undefined

@@ -1,14 +1,16 @@
 // Programmatic control over HTTP, end to end: Settings › Control turns the endpoint on and shows the URL and the
 // command with its token; a real MCP client in the spec connects over Streamable HTTP, as `claude mcp add --transport
-// http` would, and drives the running app, and the window shows each change. A script's plain `fetch` works too.
+// http` would, and drives the running app, importing an invented Claude Code session too, and the window shows each
+// change. A script's plain `fetch` works too.
 // Regenerating the token refuses the old one; turning the switch off stops the endpoint.
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { Page } from '@playwright/test'
 import { REPLIES_BRIEFLY } from '../src/main/agent/scripts'
+import { projectSlug, TranscriptBuilder } from '../src/main/control/claude-code/test-transcripts'
 import { expect, test, type Glade } from './fixtures'
 import { chooseMenuItem } from './menu'
 import { chat, firstRun, settings, taskHeader, taskList } from './selectors'
@@ -16,6 +18,12 @@ import { chat, firstRun, settings, taskHeader, taskList } from './selectors'
 const FIRST_MESSAGE = 'Draft the release notes for 2.4.'
 const TITLE = 'Release notes for 2.4'
 const RENAMED = 'Release notes for 2.4.0'
+
+/** An invented Claude Code session, imported over HTTP. */
+const IMPORTED_SESSION = '3c9d1e7a-6b2f-4a8e-9d10-5f4e3b2a1c0d'
+const IMPORTED_PROMPT = 'Why does the /search endpoint time out under load?'
+const IMPORTED_REPLY = 'It scanned the whole table; an index on the query column fixes it.'
+const IMPORTED_TITLE = 'Speed up the search endpoint'
 
 /** A tool's JSON result, from a client's call. */
 interface Reply {
@@ -69,13 +77,30 @@ async function closeSettings(page: Page): Promise<void> {
   await expect(settings(page).dialog).toBeHidden()
 }
 
-test('an MCP client over HTTP, connected with what Settings › Control shows, creates, renames, finishes and deletes a task, and the window shows each change', async ({
+test('an MCP client over HTTP, connected with what Settings › Control shows, creates, renames, finishes and deletes a task, and imports a Claude Code session, and the window shows each change', async ({
   launch,
   tempFolder,
 }) => {
-  const root = join(tempFolder(), 'acme-api')
+  const root = join(realpathSync(tempFolder()), 'acme-api')
   mkdirSync(root)
-  const glade = await launch({ agentScriptsByFirstMessage: { [FIRST_MESSAGE]: 'replies-briefly' }, chosenFolder: root })
+  // Claude Code's config folder, a temporary one holding an invented session started in the workspace's folder.
+  const config = realpathSync(tempFolder('glade-e2e-claude-'))
+  const projects = join(config, 'projects', projectSlug(root))
+  mkdirSync(projects, { recursive: true })
+  const startedAt = Date.now() - 60 * 60 * 1000
+  writeFileSync(
+    join(projects, `${IMPORTED_SESSION}.jsonl`),
+    new TranscriptBuilder(root, startedAt)
+      .prompt(0, IMPORTED_PROMPT)
+      .say(8, IMPORTED_REPLY)
+      .aiTitle(IMPORTED_TITLE)
+      .toJsonl(),
+  )
+  const glade = await launch({
+    agentScriptsByFirstMessage: { [FIRST_MESSAGE]: 'replies-briefly' },
+    chosenFolder: root,
+    env: { CLAUDE_CONFIG_DIR: config },
+  })
   const { window } = glade
   await firstRun(window).openFolder.click()
   const list = taskList(window)
@@ -132,6 +157,24 @@ test('an MCP client over HTTP, connected with what Settings › Control shows, c
   await expect(list.taskRow(RENAMED)).toHaveCount(0)
   await expect(list.sectionHeader('Done')).toHaveText('Done0')
   await expect(taskHeader(window).title).toHaveCount(0)
+
+  // A Claude Code session, listed and imported: it's under Done with its title and chat.
+  const sessions = await client.call('list_claude_code_sessions', { imported: false })
+  expect(sessions.json).toMatchObject({
+    sessions: [{ sessionId: IMPORTED_SESSION, cwd: root, workspaceId: workspace?.id, taskId: null }],
+  })
+  const imported = await client.call('import_claude_code_session', { sessionId: IMPORTED_SESSION })
+  expect(imported.json).toMatchObject({ imported: true, task: { title: IMPORTED_TITLE, state: 'done' } })
+  await expect(list.sectionHeader('Done')).toHaveText('Done1')
+  await list.sectionHeader('Done').click()
+  await list.row('Done', IMPORTED_TITLE).click()
+  await expect(taskHeader(window).title).toHaveText(IMPORTED_TITLE)
+  await expect(chat(window).userMessages.first()).toContainText(IMPORTED_PROMPT)
+  await expect(chat(window).agentReplies.first()).toContainText(IMPORTED_REPLY)
+  // Importing it again returns the same task and changes nothing.
+  const again = await client.call('import_claude_code_session', { sessionId: IMPORTED_SESSION })
+  expect(again.json).toMatchObject({ imported: false, task: { id: (imported.json.task as { id: string }).id } })
+  await expect(list.sectionHeader('Done')).toHaveText('Done1')
   await client.close()
 })
 

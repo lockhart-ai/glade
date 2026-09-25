@@ -1,5 +1,7 @@
 // Test helpers: the app's bridge on a temporary database with the fake agent backend, and a real MCP client calling
 // its `glade-control` tools over the in-memory transport, as Claude Code would.
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
@@ -32,6 +34,9 @@ export interface ControlApp {
   close(): Promise<void>
 }
 
+/** A Claude Code projects folder that isn't there: a test lists no real sessions unless it makes its own. */
+const NO_PROJECTS = join(tmpdir(), 'glade-no-claude-projects', 'projects')
+
 /** Calls as the HTTP endpoint would. */
 export const HTTP: ControlCaller = { kind: ControlCallerKind.Http }
 
@@ -40,8 +45,12 @@ export function asTask(taskId: string): ControlCaller {
   return { kind: ControlCallerKind.Task, taskId }
 }
 
-/** Starts the app's bridge on a new database, with agents allowed to control Glade unless `enabled` is false. */
-export function startControlApp(enabled = true, limits?: RateLimits): ControlApp {
+/**
+ * Starts the app's bridge on a new database, with agents allowed to control Glade unless `enabled` is false, Claude
+ * Code's projects folder at `claudeProjectsDir` (a test's temporary one; one that doesn't exist by default), and the
+ * control API's rate limits at `limits` (the defaults by default).
+ */
+export function startControlApp(enabled = true, claudeProjectsDir = NO_PROJECTS, limits?: RateLimits): ControlApp {
   const database = openTestDatabase()
   if (enabled) updateSettings(database.db, { controlEnabled: true })
   const backend = new FakeAgentBackend()
@@ -61,6 +70,7 @@ export function startControlApp(enabled = true, limits?: RateLimits): ControlApp
     agentBackend: backend,
     ...(limits === undefined ? {} : { controlLimits: limits }),
     log: log.logger,
+    claudeProjectsDir,
   })
   const glade = createBridge(ipc.renderer)
   const events: GladeEvent[] = []

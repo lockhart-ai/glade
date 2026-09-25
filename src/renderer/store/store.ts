@@ -3,7 +3,7 @@ import { CommandName, EventType, type GladeBridge, type GladeEvent } from '../..
 import type { Command } from '../../shared/commands'
 import { PluginStatus } from '../../shared/plugins'
 import { UiStateKey, type OpenFiles, type Task, type UiStateEntry, type Workspace } from '../../shared/domain'
-import { DONE_PAGE_SIZE, inDoneList } from '../../shared/doneList'
+import { DONE_PAGE_SIZE, inDoneList, isInDoneSection } from '../../shared/doneList'
 import { parseTaskFilter } from '../../shared/attention'
 import { DEFAULT_SETTINGS_SECTION } from '../settings/sections'
 import { collapsedEntry, isCollapsed, Panel } from '../panels/panels'
@@ -13,7 +13,7 @@ import { activeTerminalTab, commandToPaste, cycledTab } from '../terminal/termin
 import type { ImageData } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import { describeFailure, lastOpenedWorkspace, loadSnapshot } from './hydrate'
-import { doneListKey, isLoaded, withDonePage, withLoadedTasks } from './doneLists'
+import { doneListKey, isLoaded, withDoneCounts, withDonePage, withLoadedTasks } from './doneLists'
 import { applyEvent, withHistory, withOpenedWorkspace } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState, type TerminalEvent } from './state'
 
@@ -90,6 +90,20 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     // Who runs the menu bar's commands: the window, once it's showing.
     const commandListeners = new Set<(command: Command) => void>()
 
+    /**
+     * Reads a workspace's Done counts from main again. The store keeps them current from the changes it sees, but a
+     * task it has never seen that is already in the Done section (one imported done, say) may or may not be counted:
+     * only main knows. Should reading fail, the counts stay as they were.
+     */
+    const refreshDoneCounts = async (workspaceId: string): Promise<void> => {
+      try {
+        const { done } = await bridge.invoke(CommandName.TasksListActive, { workspaceId })
+        set((state) => withDoneCounts(state, workspaceId, done))
+      } catch {
+        // Kept as they were: the next change the store sees, or the next launch, puts them right.
+      }
+    }
+
     const onEvent = (event: GladeEvent): void => {
       if (event.type === EventType.TerminalOutput || event.type === EventType.TerminalCleared) {
         for (const listener of terminalListeners.get(event.tabId) ?? []) listener(event)
@@ -110,7 +124,10 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         pending.push(event)
         return
       }
+      const unseenDone =
+        event.type === EventType.TaskUpdated && !(event.task.id in get().tasks) && isInDoneSection(event.task)
       set((state) => applyEvent(state, event))
+      if (unseenDone) void refreshDoneCounts(event.task.workspaceId)
       if (event.type === EventType.FileShown) showPanelTab(event.taskId, PanelTab.Files)
     }
 

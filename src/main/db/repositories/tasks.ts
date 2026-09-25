@@ -33,6 +33,8 @@ export interface NewTask {
   readonly title?: string
   readonly objective?: string
   readonly status?: string
+  /** When it was imported from a Claude Code session; not imported unless given. */
+  readonly importedAt?: EpochMs
 }
 
 /** The fields `updateTask` can change; the ones left out keep their value. */
@@ -62,7 +64,7 @@ export interface TaskPatch {
 
 const COLUMNS = `id, workspace_id, title, objective, status, status_updated_at, state, activity, pinned, unread, model,
   effort, permission_mode, created_at, updated_at, done_at, session_id, context_used_tokens, context_window_tokens, error,
-  retrying, pause`
+  retrying, pause, imported_at`
 
 /** What a task is read with: its columns, and whether it has an open question set or permission request. */
 const SELECTED = `${COLUMNS}, EXISTS (SELECT 1 FROM question_sets WHERE question_sets.task_id = tasks.id
@@ -138,6 +140,7 @@ function parseTask(raw: unknown): Task {
     asking: row.flag('asking'),
     awaitingPermission: row.flag('awaiting_permission'),
     pause: jsonColumn(row, 'tasks', 'pause', taskPauseSchema),
+    importedAt: row.nullableInteger('imported_at'),
   }
 }
 
@@ -186,11 +189,12 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     asking: false,
     awaitingPermission: false,
     pause: null,
+    importedAt: input.importedAt ?? null,
   }
   db.prepare(
     `INSERT INTO tasks (${COLUMNS}) VALUES (@id, @workspaceId, @title, @objective, @status, @statusUpdatedAt, @state,
       @activity, @pinned, @unread, @model, @effort, @permissionMode, @createdAt, @updatedAt, @doneAt, @sessionId,
-      @contextUsedTokens, @contextWindowTokens, @error, @retrying, @pause)`,
+      @contextUsedTokens, @contextWindowTokens, @error, @retrying, @pause, @importedAt)`,
   ).run(toParams(task))
   return task
 }

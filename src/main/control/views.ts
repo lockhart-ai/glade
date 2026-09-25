@@ -88,6 +88,8 @@ export interface TaskDetail extends TaskSummary {
   readonly createdAt: EpochMs
   /** The SDK's id for its agent's session; null before its first turn. */
   readonly sessionId: string | null
+  /** When it was imported from a Claude Code session; null for a task made in Glade. */
+  readonly importedAt: EpochMs | null
 }
 
 /** A message in the chat. */
@@ -166,6 +168,7 @@ export function taskDetail(db: Database, task: Task, workspace: WorkspaceSummary
     turns: lastTurn(db, task.id),
     createdAt: task.createdAt,
     sessionId: task.sessionId,
+    importedAt: task.importedAt,
   }
 }
 

@@ -117,6 +117,8 @@ export function statusOf(code: ControlErrorCode): number {
     case ControlErrorCode.InvalidTransition:
     case ControlErrorCode.ConfirmRequired:
       return 409
+    case ControlErrorCode.ImportFailed:
+      return 422
     case ControlErrorCode.RateLimited:
       return 429
     case ControlErrorCode.Internal:

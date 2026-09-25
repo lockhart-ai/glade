@@ -1,6 +1,9 @@
 // Scripting Glade (`docs/control-api.md`, "Scripting"): the plain JSON API beside `/mcp`, which a script calls with
 // `fetch` and the token, and the variables that hand the endpoint to the scripts Glade's own agents run. The app's
 // bridge on a test database with the fake agent backend, its endpoint on free ports of 127.0.0.1.
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { CommandName } from '../../shared/bridge'
 import { controlBaseUrl, type ControlStatus } from '../../shared/control'
@@ -19,6 +22,7 @@ import { RefusalReason, statusOf, TOOLS_PATH } from './http'
 import { ControlAccess, ControlToolName } from './names'
 import { startControlApp, type ControlApp } from './test-control'
 import { freePortRun } from './test-http'
+import { SESSION_ID, writeTranscript } from './claude-code/test-transcripts'
 
 let app: ControlApp
 let workspace: Workspace
@@ -32,8 +36,12 @@ async function turnOn(target: ControlApp): Promise<ControlStatus> {
   return (await target.glade.invoke(CommandName.ControlStatus, {})).status
 }
 
+/** Claude Code's projects folder for the test: a temporary one, removed after it. */
+let projects: string
+
 async function start(limits?: Readonly<Record<ControlAccess, number>>): Promise<void> {
-  app = startControlApp(false, limits)
+  projects = mkdtempSync(join(tmpdir(), 'glade-scripting-projects-'))
+  app = startControlApp(false, projects, limits)
   workspace = sampleWorkspace(app.database.db)
   const status = await turnOn(app)
   if (status.port === null || status.token === null) throw new Error('Not listening')
@@ -43,6 +51,7 @@ async function start(limits?: Readonly<Record<ControlAccess, number>>): Promise<
 
 afterEach(async () => {
   await app.close()
+  rmSync(projects, { recursive: true, force: true })
 })
 
 /** What a script's `fetch` gets back: the status, the JSON and `Retry-After`. */
@@ -142,6 +151,15 @@ describe('the plain JSON API', () => {
 
     expect(answer.status).toBe(status)
     expect(answer.json).toMatchObject({ error: { code, message: expect.any(String) as unknown } })
+  })
+
+  it("answers a transcript that can't be imported with 422 import_failed", async () => {
+    // A session with no messages in it, from a folder that isn't a workspace.
+    writeTranscript(projects, '/Users/sample/code/acme-api', '')
+
+    const answer = await call(ControlToolName.ImportClaudeCodeSession, { sessionId: SESSION_ID })
+
+    expect(answer).toMatchObject({ status: 422, json: { error: { code: ControlErrorCode.ImportFailed } } })
   })
 
   it('answers a change the task is in no state for with 409 invalid_transition', async () => {
@@ -257,6 +275,7 @@ describe('statusOf', () => {
       confirm_required: 409,
       rate_limited: 429,
       disabled: 403,
+      import_failed: 422,
       internal: 500,
     })
   })

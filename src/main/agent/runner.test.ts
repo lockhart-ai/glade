@@ -1454,7 +1454,7 @@ describe('resuming on launch', () => {
 
   it('leaves tasks that were waiting, errored or done alone, with their queues', () => {
     const others = [TaskActivity.Waiting, TaskActivity.Error].map((activity) =>
-      updateTask(database.db, sampleTask(database.db, workspace.id).id, { activity, sessionId: 's' }),
+      updateTask(database.db, sampleTask(database.db, workspace.id).id, { activity, sessionId: `s-${activity}` }),
     )
     updateTask(database.db, task.id, { state: TaskState.Done, activity: TaskActivity.Working, sessionId: 's' })
     // A failed turn leaves its queue for the next message you send.

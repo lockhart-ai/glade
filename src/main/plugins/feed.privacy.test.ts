@@ -153,7 +153,7 @@ function secretTask(workspace: Workspace, now: number): Task {
     task.id,
     {
       activity: TaskActivity.Error,
-      sessionId: secret('session'),
+      sessionId: secret(`session_${String(now)}`),
       error: {
         kind: AgentErrorKind.Permanent,
         source: TaskErrorSource.Api,
