@@ -8,6 +8,7 @@ import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import { AGENT_SCRIPT_NAMES, type AgentScriptName } from './agent/scripts'
 import { isInTempFolder, isolateApp, type IsolatedApp } from './isolation'
+import type { Environment } from './login-env'
 
 /** The environment variable that carries the e2e spec, as JSON. */
 export const E2E_ENV = 'GLADE_E2E'
@@ -92,6 +93,29 @@ export function createE2eDesktop(): {
   }
 }
 
+/**
+ * Where e2e mode puts the environments its agent sessions would have run in on the main process's global object: an
+ * `E2eAgentEnvs`, since its agents play scripts and spawn nothing. A spec reads it through Playwright's `app.evaluate`.
+ */
+export const E2E_AGENT_ENVS_GLOBAL = '__gladeE2eAgentEnvs'
+
+/** The environment each agent session started in e2e mode would have run in (`E2E_AGENT_ENVS_GLOBAL`), oldest first. */
+export interface E2eAgentEnvs {
+  readonly sessions: Environment[]
+}
+
+/**
+ * Puts an empty `E2eAgentEnvs` on the global object for a spec to read (`E2E_AGENT_ENVS_GLOBAL`), and answers with
+ * what records a session's environment there.
+ */
+export function createE2eAgentEnvs(): (env: Environment) => void {
+  const envs: E2eAgentEnvs = { sessions: [] }
+  Reflect.set(globalThis, E2E_AGENT_ENVS_GLOBAL, envs)
+  return (env) => {
+    envs.sessions.push(env)
+  }
+}
+
 /** The network's state in e2e mode (`E2E_NETWORK_GLOBAL`). */
 export interface E2eNetwork {
   online: boolean
@@ -131,6 +155,11 @@ export interface E2eSpec {
    * whatever the data folder already holds. A test passes it on its first launch only.
    */
   readonly seed?: string
+  /**
+   * The login shell to read the agents' environment from (see `./login-env`), in place of `$SHELL`. None by default:
+   * the agents run in the app's own environment, so a run never depends on the machine's shell profile.
+   */
+  readonly loginShell?: string
 }
 
 const e2eSpecSchema: z.ZodType<E2eSpec> = z.strictObject({
@@ -139,6 +168,7 @@ const e2eSpecSchema: z.ZodType<E2eSpec> = z.strictObject({
   agentScript: z.enum(AGENT_SCRIPT_NAMES).optional(),
   agentScriptsByFirstMessage: z.record(z.string(), z.enum(AGENT_SCRIPT_NAMES)).optional(),
   seed: z.string().refine(isAbsolute, 'must be an absolute path').optional(),
+  loginShell: z.string().refine(isAbsolute, 'must be an absolute path').optional(),
 })
 
 /** The e2e spec was set but isn't valid, or its data folder can't be used. */
