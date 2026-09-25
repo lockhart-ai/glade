@@ -282,3 +282,108 @@ test('animations: with Reduce motion on, nothing moves: every change lands at on
   for (const { duration } of record.animations) expect(duration).toBe(0)
   expect(await runningAnimations(window)).toBe(0)
 })
+
+/** A CSS animation running on one of the working line's dots. */
+interface DotAnimation {
+  readonly name: string
+  readonly duration: number
+  readonly delay: number
+  readonly iterations: number
+}
+
+/** Starts a turn that keeps working until it's stopped, in a new workspace, and hands back the working line's dots. */
+async function startWorking(glade: Glade): Promise<Locator> {
+  await firstRun(glade.window).openFolder.click()
+  await taskList(glade.window).newTask.click()
+  const bar = inputBar(glade.window)
+  await bar.field.fill('Run the e2e suite.')
+  await bar.field.press('Enter')
+  const line = chat(glade.window).workingLine
+  await expect(line).toHaveText(/^Working · /)
+  const dots = line.locator('[aria-hidden] > span')
+  await expect(dots).toHaveCount(3)
+  return dots
+}
+
+/** The CSS animations running on each dot now, read from inside the page. */
+function dotAnimations(dots: Locator): Promise<DotAnimation[][]> {
+  return dots.evaluateAll((elements) =>
+    elements.map((element) =>
+      element.getAnimations().flatMap((animation) => {
+        if (!(animation instanceof CSSAnimation)) return []
+        const timing = animation.effect?.getComputedTiming()
+        const duration = timing?.duration
+        return [
+          {
+            name: animation.animationName,
+            // In whole milliseconds: calc() on the token leaves a rounding error (1400.0000000000002).
+            duration: typeof duration === 'number' ? Math.round(duration) : 0,
+            delay: Math.round(timing?.delay ?? 0),
+            iterations: timing?.iterations ?? 0,
+          },
+        ]
+      }),
+    ),
+  )
+}
+
+/** Each dot's colour, as it's drawn. */
+function dotColours(dots: Locator): Promise<string[]> {
+  return dots.evaluateAll((elements) => elements.map((element) => getComputedStyle(element).backgroundColor))
+}
+
+/** How many endless animations (such as the working line's pulse) the page is running. */
+function endlessAnimations(window: Page): Promise<number> {
+  return window.evaluate(
+    () =>
+      document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().iterations === Infinity)
+        .length,
+  )
+}
+
+/** The design's blue (--color-blue). */
+const BLUE = 'rgb(91, 141, 239)'
+
+test('animations: the working line’s dots pulse in turn, calmly, while the agent works', async ({
+  launch,
+  tempFolder,
+}) => {
+  const root = join(tempFolder(), 'acme-api')
+  mkdirSync(root)
+  const glade = await launch({ agentScript: 'long-running', chosenFolder: root, motion: true })
+  const dots = await startWorking(glade)
+
+  // Each dot runs the same endless pulse, seven --motion-duration steps long, one step behind the dot before it.
+  const running = await dotAnimations(dots)
+  expect(running.map((animations) => animations.length)).toEqual([1, 1, 1])
+  const animations = running.flat()
+  for (const { name } of animations) expect(name).toContain('working-pulse')
+  expect(animations.map(({ duration }) => duration)).toEqual([DURATION * 7, DURATION * 7, DURATION * 7])
+  expect(animations.map(({ delay }) => delay)).toEqual([0, DURATION, DURATION * 2])
+  expect(animations.map(({ iterations }) => iterations)).toEqual([Infinity, Infinity, Infinity])
+  // While they pulse they're all the one blue, dimmed and brightened by opacity alone.
+  expect(await dotColours(dots)).toEqual([BLUE, BLUE, BLUE])
+
+  // And they keep going: the first dot's pulse runs on past two whole cycles.
+  await expect
+    .poll(() => dots.first().evaluate((element) => Number(element.getAnimations()[0]?.currentTime ?? 0)))
+    .toBeGreaterThan(DURATION * 7 * 2)
+
+  // Stopped, the line goes, and nothing keeps pulsing.
+  await inputBar(glade.window).stop.click()
+  await expect(chat(glade.window).workingLine).toHaveCount(0)
+  expect(await endlessAnimations(glade.window)).toBe(0)
+})
+
+test('animations: with Reduce motion on, the working line’s dots hold still', async ({ launch, tempFolder }) => {
+  const root = join(tempFolder(), 'acme-api')
+  mkdirSync(root)
+  // The default for every spec: the app runs as with macOS's Reduce motion on.
+  const glade = await launch({ agentScript: 'long-running', chosenFolder: root })
+  const dots = await startWorking(glade)
+
+  expect(await dotAnimations(dots)).toEqual([[], [], []])
+  // The design's frame (docs/design/html/02-agent-working.html): a bright dot trailing two dimmer ones.
+  expect(await dotColours(dots)).toEqual([BLUE, 'rgb(62, 98, 168)', 'rgb(43, 69, 121)'])
+  expect(await endlessAnimations(glade.window)).toBe(0)
+})
