@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import {
   PermissionDecisionKind,
+  PermissionDestination,
   PermissionRequestState,
+  PermissionRuleBehavior,
+  PermissionUpdateType,
   TaskActivity,
   ToolCallState,
   ToolEventKind,
@@ -47,16 +50,22 @@ const EDIT = request('edit', {
   },
   displayName: 'Edit',
   description: 'upgrade.md',
+  // As Claude Code suggests for an edit: only a switch to acceptEdits, so Allow for this task grants the whole tool.
+  suggestions: [
+    { type: PermissionUpdateType.SetMode, mode: 'acceptEdits', destination: PermissionDestination.Session },
+  ],
 })
 
 const WRITE = request('write', {
   toolName: 'Write',
   input: { file_path: `${ROOT}/out/announcement.txt`, content: 'Acme API 2.4 is out.\nUpgrade today.' },
+  suggestions: [],
 })
 
 const UNKNOWN = request('unknown', {
   toolName: 'mcp__deploy__release',
   input: { service: 'api', version: '2.4.0' },
+  suggestions: [],
 })
 
 function agentCall(toolUseId: string, input: Record<string, unknown>): ToolCallEvent {
@@ -318,7 +327,7 @@ describe('the permission card', () => {
 
 describe('the keyboard', () => {
   it('takes the focus on Allow once as the card opens, so ↵ approves; ← → move to Deny and back', async () => {
-    await renderChat([request('p1')])
+    await renderChat([request('p1', { suggestions: [] })])
 
     expect(button('Allow once')).toHaveFocus()
     expect(button('Allow once')).toHaveAttribute('tabindex', '0')
@@ -371,6 +380,130 @@ describe('the keyboard', () => {
 
     expect(card()).toBeInTheDocument()
     expect(elsewhere).toHaveFocus()
+  })
+})
+
+/** The rule Claude Code suggests adding for a `Bash` call, for a settings file. */
+function suggestsRules(...ruleContents: string[]): Partial<PermissionRequest> {
+  return {
+    suggestions: [
+      {
+        type: PermissionUpdateType.AddRules,
+        rules: ruleContents.map((ruleContent) => ({ toolName: 'Bash', ruleContent })),
+        behavior: PermissionRuleBehavior.Allow,
+        destination: PermissionDestination.LocalSettings,
+      },
+    ],
+  }
+}
+
+describe('Allow for this task', () => {
+  it('names the command prefix it grants, set as code, between Allow once and Deny', async () => {
+    await renderChat([request('p1')])
+
+    const grant = button('Allow npm test commands for this task')
+    const answer = within(card()).getByRole('group', { name: 'Answer' })
+    expect([...answer.querySelectorAll('button')].map((each) => each.textContent)).toEqual([
+      'Allow once',
+      'Allow npm test commands for this task',
+      'Deny',
+    ])
+    const code = within(grant).getByText('npm test')
+    expect(code.tagName).toBe('CODE')
+    expect(code).toHaveAttribute('title', 'npm test')
+    expect(grant).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('grants the call for the task, and collapses to a line saying so', async () => {
+    const { fake } = await renderChat([request('p1')])
+
+    fireEvent.click(button('Allow npm test commands for this task'))
+    await settle()
+
+    expect(answers(fake)).toEqual([{ id: 'p1', decision: { kind: PermissionDecisionKind.AllowForTask } }])
+    expect(openCards()).toHaveLength(0)
+    expect(closedCards().map((line) => line.textContent)).toEqual(['Bash: npm test·allowed for this task'])
+  })
+
+  it('names the whole tool for an Edit, and the command itself for a rule without a prefix', async () => {
+    await renderChat([
+      EDIT,
+      { ...request('touch', suggestsRules('touch a(1).txt')), input: { command: 'touch a(1).txt' }, createdAt: 3_100 },
+      { ...request('legacy', suggestsRules('npm run lint:*')), createdAt: 3_200 },
+    ])
+
+    expect(button('Allow Edit for this task', 0)).toBeInTheDocument()
+    expect(within(button('Allow Edit for this task', 0)).queryByText('Edit', { selector: 'code' })).toBeNull()
+    expect(button('Allow touch a(1).txt for this task', 1)).toBeInTheDocument()
+    expect(button('Allow npm run lint commands for this task', 2)).toBeInTheDocument()
+  })
+
+  it("isn't offered when the SDK says not to remember, for Bash without one suggested rule, or for another tool's rule", async () => {
+    await renderChat([
+      request('suppressed', { suppressAlwaysAllowRule: true }),
+      { ...request('none', { suggestions: [] }), createdAt: 3_100 },
+      { ...request('compound', suggestsRules('npm test *', 'rm -rf build')), createdAt: 3_200 },
+      { ...request('whole', suggestsRules('')), createdAt: 3_300 },
+      { ...EDIT, id: 'edit-bash-rule', ...suggestsRules('npm test *'), createdAt: 3_400 },
+      { ...EDIT, id: 'edit-suppressed', suppressAlwaysAllowRule: true, createdAt: 3_500 },
+    ])
+
+    expect(openCards()).toHaveLength(6)
+    for (const open of openCards()) {
+      const answer = within(open).getByRole('group', { name: 'Answer' })
+      expect(
+        within(answer)
+          .getAllByRole('button')
+          .map((each) => each.textContent),
+      ).toEqual(['Allow once', 'Deny'])
+    }
+  })
+
+  it('is one of the three answers ← → move between, wrapping round, and ↵ on it grants the call', async () => {
+    const { fake } = await renderChat([request('p1')])
+    const grant = 'Allow npm test commands for this task'
+
+    fireEvent.keyDown(button('Allow once'), { key: 'ArrowRight' })
+    expect(button(grant)).toHaveFocus()
+    expect(button(grant)).toHaveAttribute('tabindex', '0')
+    expect(button('Allow once')).toHaveAttribute('tabindex', '-1')
+    fireEvent.keyDown(button(grant), { key: 'ArrowRight' })
+    expect(button('Deny')).toHaveFocus()
+    fireEvent.keyDown(button('Deny'), { key: 'ArrowRight' })
+    expect(button('Allow once')).toHaveFocus()
+    fireEvent.keyDown(button('Allow once'), { key: 'ArrowLeft' })
+    expect(button('Deny')).toHaveFocus()
+    fireEvent.keyDown(button('Deny'), { key: 'ArrowLeft' })
+    expect(button(grant)).toHaveFocus()
+
+    fireEvent.keyDown(button(grant), { key: 'Enter' })
+    await settle()
+    expect(answers(fake)).toEqual([{ id: 'p1', decision: { kind: PermissionDecisionKind.AllowForTask } }])
+  })
+
+  it('sends one answer however often it is pressed, and toasts when main refuses it', async () => {
+    const { fake } = await renderChat([request('p1')], [], {
+      [CommandName.PermissionsAnswer]: () =>
+        refuse(bridgeError(BridgeErrorCode.InvalidRequest, "Permission request p1 can't be allowed for the task")),
+    })
+    const grant = button('Allow npm test commands for this task')
+
+    fireEvent.click(grant)
+    fireEvent.click(grant)
+    await settle()
+
+    expect(answers(fake)).toHaveLength(1)
+    expect(await screen.findByText(/Couldn’t answer the permission request/)).toBeInTheDocument()
+    expect(card()).toBeInTheDocument()
+  })
+
+  it('cuts a very long command short on its button, keeping the whole of it as the title', async () => {
+    const command = `curl -X POST https://api.example.test/v1/${'segment/'.repeat(200)}`
+    await renderChat([{ ...request('p1', suggestsRules(command)), input: { command } }])
+
+    const code = within(card()).getByText(command, { selector: 'code' })
+    expect(code).toHaveAttribute('title', command)
+    expect(code).toHaveClass(moduleClass(styles, 'grantSubject'))
   })
 })
 

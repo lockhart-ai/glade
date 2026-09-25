@@ -1,6 +1,11 @@
 import { faCheck, faMinus, faShieldHalved, faXmark } from '@fortawesome/free-solid-svg-icons'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { PermissionDecisionKind, PermissionRequestState, type PermissionRequest } from '../../shared/domain'
+import {
+  PermissionDecisionKind,
+  PermissionRequestState,
+  type PermissionDecision,
+  type PermissionRequest,
+} from '../../shared/domain'
 import { Button, ButtonVariant, Icon, IconSize, Input, useToast } from '../components'
 import { classNames } from '../components/classNames'
 import { APPEAR_WINDOW_MS } from '../questions/QuestionCard'
@@ -16,9 +21,13 @@ import {
   showAllLabel,
   shownLines,
   subagentLabel,
+  taskGrant,
+  TaskGrantKind,
+  taskGrantWords,
   type InputLine,
   type PermissionBody,
   type SubagentOrigin,
+  type TaskGrant,
 } from './permissionCardModel'
 import styles from './PermissionCard.module.css'
 
@@ -27,9 +36,10 @@ export const PERMISSION_CARD_NAME = 'Permission request'
 /** What the note field asks for. */
 export const NOTE_PLACEHOLDER = 'Tell the agent why (optional)'
 
-/** The card's two answers, which share one tab stop: ← → move between them. */
+/** The card's answers, which share one tab stop: ← → move between them. */
 enum Action {
   Allow = 'allow',
+  AllowForTask = 'allow_for_task',
   Deny = 'deny',
 }
 
@@ -108,6 +118,21 @@ function CallInput({ body }: { readonly body: PermissionBody }): React.JSX.Eleme
   )
 }
 
+/** Allow for this task's label: what it grants, a command or prefix set as code. */
+function TaskGrantText({ grant }: { readonly grant: TaskGrant }): React.JSX.Element {
+  const { before, after } = taskGrantWords(grant)
+  if (grant.kind === TaskGrantKind.Tool) return <>{`${before} ${grant.subject} ${after}`}</>
+  return (
+    <>
+      {before}{' '}
+      <code className={styles.grantSubject} title={grant.subject}>
+        {grant.subject}
+      </code>{' '}
+      {after}
+    </>
+  )
+}
+
 interface OpenCardProps {
   readonly request: PermissionRequest
   readonly body: PermissionBody
@@ -118,14 +143,17 @@ interface OpenCardProps {
 }
 
 /**
- * The open card: what's asked, the call's input, and Allow once and Deny. Deny opens a note field for the agent; ↵ in it
- * denies with the note (or without one, left empty), and Esc or Cancel closes it again. The two answers are one tab
- * stop, ← → between them: it's Allow once, so ↵ approves, unless the SDK says a stray key mustn't (`defaultToNo`), when
- * it's Deny. Given `autoFocus`, the card takes the focus as it opens, unless you're somewhere else in the window.
+ * The open card: what's asked, the call's input, and Allow once, Allow for this task (when it's offered: `taskGrant`)
+ * and Deny. Deny opens a note field for the agent; ↵ in it denies with the note (or without one, left empty), and Esc or
+ * Cancel closes it again. The answers are one tab stop, ← → between them: it's Allow once, so ↵ approves, unless the SDK
+ * says a stray key mustn't (`defaultToNo`), when it's Deny. Given `autoFocus`, the card takes the focus as it opens,
+ * unless you're somewhere else in the window.
  */
 function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps): React.JSX.Element {
   const answerPermission = useGladeStore((state) => state.answerPermission)
   const toast = useToast()
+  const grant = taskGrant(request)
+  const actions = grant === null ? [Action.Allow, Action.Deny] : [Action.Allow, Action.AllowForTask, Action.Deny]
   const initial = request.defaultToNo ? Action.Deny : Action.Allow
   const [stop, setStop] = useState(initial)
   const [noting, setNoting] = useState(false)
@@ -133,6 +161,7 @@ function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps)
   const [sending, setSending] = useState(false)
   const card = useRef<HTMLFormElement>(null)
   const allow = useRef<HTMLButtonElement>(null)
+  const allowForTask = useRef<HTMLButtonElement>(null)
   const deny = useRef<HTMLButtonElement>(null)
   const noteField = useRef<HTMLInputElement>(null)
   // Whether the note field was opened or closed from the card, which then moves the focus: to it, or back to Deny.
@@ -153,13 +182,9 @@ function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps)
     ;(noting ? noteField : deny).current?.focus()
   }, [noting])
 
-  const answer = (denied: boolean): void => {
+  const answer = (decision: PermissionDecision): void => {
     if (sending) return
     setSending(true)
-    const text = note.trim()
-    const decision = denied
-      ? { kind: PermissionDecisionKind.Deny, ...(text === '' ? {} : { note: text }) }
-      : { kind: PermissionDecisionKind.AllowOnce }
     answerPermission(request.id, decision).catch((error: unknown) => {
       setSending(false)
       toast.show({ message: `Couldn’t answer the permission request: ${describeFailure(error)}` })
@@ -177,9 +202,22 @@ function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps)
     moved.current = true
   }
 
+  const denyWithNote = (): void => {
+    const text = note.trim()
+    answer({ kind: PermissionDecisionKind.Deny, ...(text === '' ? {} : { note: text }) })
+  }
+
   const act = (action: Action): void => {
-    if (action === Action.Allow) answer(false)
-    else openNote()
+    switch (action) {
+      case Action.Allow:
+        answer({ kind: PermissionDecisionKind.AllowOnce })
+        return
+      case Action.AllowForTask:
+        answer({ kind: PermissionDecisionKind.AllowForTask })
+        return
+      case Action.Deny:
+        openNote()
+    }
   }
 
   const onActionKeyDown = (event: KeyboardEvent<HTMLButtonElement>, action: Action): void => {
@@ -192,9 +230,10 @@ function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps)
     }
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
     event.preventDefault()
-    const next = action === Action.Allow ? Action.Deny : Action.Allow
+    const step = event.key === 'ArrowRight' ? 1 : actions.length - 1
+    const next = actions[(actions.indexOf(action) + step) % actions.length] ?? action
     setStop(next)
-    ;(next === Action.Allow ? allow : deny).current?.focus()
+    ;(next === Action.Allow ? allow : next === Action.Deny ? deny : allowForTask).current?.focus()
   }
 
   return (
@@ -204,7 +243,7 @@ function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps)
       className={classNames(styles.card, styles.open, appear && styles.appearing)}
       onSubmit={(event) => {
         event.preventDefault()
-        answer(true)
+        denyWithNote()
       }}
     >
       <div className={styles.title}>
@@ -229,7 +268,7 @@ function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps)
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
                 event.preventDefault()
-                answer(true)
+                denyWithNote()
               } else if (event.key === 'Escape') {
                 event.preventDefault()
                 event.stopPropagation()
@@ -264,6 +303,26 @@ function OpenCard({ request, body, subagent, autoFocus, appear }: OpenCardProps)
           >
             Allow once
           </Button>
+          {grant !== null && (
+            <Button
+              ref={allowForTask}
+              variant={ButtonVariant.Ghost}
+              className={styles.grant}
+              aria-disabled={sending}
+              tabIndex={stop === Action.AllowForTask ? 0 : -1}
+              onFocus={() => {
+                setStop(Action.AllowForTask)
+              }}
+              onKeyDown={(event) => {
+                onActionKeyDown(event, Action.AllowForTask)
+              }}
+              onClick={() => {
+                act(Action.AllowForTask)
+              }}
+            >
+              <TaskGrantText grant={grant} />
+            </Button>
+          )}
           <Button
             ref={deny}
             variant={ButtonVariant.Ghost}

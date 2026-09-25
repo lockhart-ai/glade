@@ -1,7 +1,14 @@
 import { createSdkMcpServer, tool as mcpTool } from '@anthropic-ai/claude-agent-sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import { CompactionTrigger, Effort, PermissionMode, QuestionKind, QuestionReplyKind } from '../../shared/domain'
+import {
+  CompactionTrigger,
+  Effort,
+  PermissionMode,
+  QuestionKind,
+  QuestionReplyKind,
+  type PermissionRule,
+} from '../../shared/domain'
 import {
   ToolPermissionBehavior,
   type AgentSessionOptions,
@@ -16,6 +23,7 @@ import {
   LAUNCHED_OUTPUT,
   REJECTED_TOOL_OUTPUT,
   ScriptedSession,
+  scriptedRuleCovers,
   type ScriptedSessionOptions,
 } from './scripted-session'
 import {
@@ -474,6 +482,75 @@ describe('ScriptedSession', () => {
         },
       }
     }
+
+    it('lets through a call a rule it started with covers, and asks about one it doesn’t', async () => {
+      const decide = vi.fn<(call: ToolPermissionCall) => Promise<ToolPermissionAnswer>>(() =>
+        Promise.resolve({ behavior: ToolPermissionBehavior.Deny, message: 'No.', byUser: true }),
+      )
+      const played = play(
+        [
+          [
+            init(),
+            permission('watch', 'Bash', { command: 'npm test -- --watch' }, 'Watching.'),
+            permission('both', 'Bash', { command: 'npm test && rm -rf build' }, 'Removed.'),
+            permission('edit', 'Edit', { file_path: 'a.md' }, 'Edited.'),
+            result(),
+          ],
+        ],
+        {
+          session: {
+            ...SESSION,
+            permissionMode: PermissionMode.AskBeforeEdits,
+            mcpServers: { glade: gladeServer() },
+            allowedRules: [{ toolName: 'Bash', ruleContent: 'npm test *' }, { toolName: 'Edit' }],
+            onToolPermission: decide,
+          },
+        },
+      )
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      expect(decide.mock.calls.map(([call]) => call.input.command)).toEqual(['npm test && rm -rf build'])
+      const results = played.events.filter((event) => event.kind === AgentEventKind.ToolResult)
+      expect(results.map((event) => [event.output, event.isError])).toEqual([
+        ['Watching.', false],
+        ['No.', true],
+        ['Edited.', false],
+      ])
+    })
+
+    it('adds the rule an answer grants, so later calls it covers stop asking', async () => {
+      const answers: ToolPermissionAnswer[] = [
+        { behavior: ToolPermissionBehavior.Allow, byUser: true, rule: { toolName: 'Bash', ruleContent: 'npm test *' } },
+      ]
+      const decide = vi.fn<(call: ToolPermissionCall) => Promise<ToolPermissionAnswer>>(() =>
+        Promise.resolve(answers.shift() ?? { behavior: ToolPermissionBehavior.Allow, byUser: true }),
+      )
+      const bash = (id: string, command: string) => permission(id, 'Bash', { command }, `ran ${command}`)
+      const played = play(
+        [
+          [
+            init(),
+            bash('first', 'npm test'),
+            bash('again', 'npm test -- --ci'),
+            bash('lint', 'npm run lint'),
+            result(),
+          ],
+        ],
+        {
+          session: {
+            ...SESSION,
+            permissionMode: PermissionMode.AskBeforeEdits,
+            mcpServers: { glade: gladeServer() },
+            onToolPermission: decide,
+          },
+        },
+      )
+      played.session.send('Go', 'user-1')
+      await flush()
+
+      expect(decide.mock.calls.map(([call]) => call.input.command)).toEqual(['npm test', 'npm run lint'])
+    })
 
     it('runs straight through in Allow all, asking nothing, as the SDK bypasses the check', async () => {
       const decide = vi.fn<(call: ToolPermissionCall) => Promise<ToolPermissionAnswer>>()
@@ -1372,5 +1449,54 @@ describe('ScriptedSession', () => {
 
       expect(await played.ended).toBeInstanceOf(Error)
     })
+  })
+})
+
+describe('scriptedRuleCovers', () => {
+  const PREFIX = { toolName: 'Bash', ruleContent: 'npm test *' }
+  const covers = (rule: PermissionRule, command: string, toolName = 'Bash'): boolean =>
+    scriptedRuleCovers(rule, toolName, { command })
+
+  it('covers a prefix alone or followed by more, in either way of writing it, and an exact command only itself', () => {
+    for (const rule of [PREFIX, { toolName: 'Bash', ruleContent: 'npm test:*' }]) {
+      expect(covers(rule, 'npm test')).toBe(true)
+      expect(covers(rule, 'npm test -- --watch')).toBe(true)
+      expect(covers(rule, "npm test -- -t 'retries back off'")).toBe(true)
+    }
+    const exact = { toolName: 'Bash', ruleContent: 'touch two.txt' }
+    expect(covers(exact, 'touch two.txt')).toBe(true)
+    expect(covers(exact, 'touch two.txt three.txt')).toBe(false)
+  })
+
+  it('never covers a longer, different command that only starts the same', () => {
+    expect(covers(PREFIX, 'npm testing')).toBe(false)
+    expect(covers(PREFIX, 'npm test-all')).toBe(false)
+    expect(covers(PREFIX, 'npm tes')).toBe(false)
+    expect(covers({ toolName: 'Bash', ruleContent: 'mkdir -p *' }, 'mkdir -pv logs')).toBe(false)
+  })
+
+  it.each([
+    'npm test && rm -rf build',
+    'npm test || rm -rf build',
+    'npm test; rm -rf build',
+    'npm test | tee out.txt',
+    'npm test & rm -rf build',
+    'npm test\nrm -rf build',
+    'npm test $(rm -rf build)',
+    'npm test `rm -rf build`',
+  ])('never covers the compound command %j, even one that starts with the prefix', (command) => {
+    expect(covers(PREFIX, command)).toBe(false)
+  })
+
+  it('covers every call to its tool with no content, and nothing of another tool', () => {
+    expect(scriptedRuleCovers({ toolName: 'Edit' }, 'Edit', { file_path: 'a.md' })).toBe(true)
+    expect(scriptedRuleCovers({ toolName: 'Edit', ruleContent: '' }, 'Edit', {})).toBe(true)
+    expect(scriptedRuleCovers({ toolName: 'Edit' }, 'Write', { file_path: 'a.md' })).toBe(false)
+    expect(covers(PREFIX, 'npm test', 'Monitor')).toBe(false)
+    // Content for another tool, or a Bash call with no command, isn't matched.
+    expect(scriptedRuleCovers({ toolName: 'Edit', ruleContent: 'src/**' }, 'Edit', { file_path: 'src/a.ts' })).toBe(
+      false,
+    )
+    expect(scriptedRuleCovers(PREFIX, 'Bash', {})).toBe(false)
   })
 })

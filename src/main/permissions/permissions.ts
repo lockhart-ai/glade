@@ -8,7 +8,8 @@
  *   in a task you aren't viewing marks it unread and is notified, as a final reply is (`../tasks/attention`): the
  *   notification says the tool and its command or file. Parallel calls each get a request of their own.
  * - **Answering** closes it, allowed or denied (`permission.answered`), and the call that waits on it gets the decision.
- *   Whoever made the call (the agent runner) puts the task back to work.
+ *   Whoever made the call (the agent runner) puts the task back to work. Allow for this task also grants the task the
+ *   request's rule (`taskPermissionRule`), saved with the answer, for the task's sessions to start with from then on.
  * - **Withdrawing** closes it without one (`permission.withdrawn`): the turn that made the call was stopped, failed or
  *   ended, its session closed, or the SDK cancelled the call (`signal`). The call that waits on it gets nothing.
  *
@@ -23,7 +24,7 @@ import {
   type PermissionDecision,
   type PermissionRequest,
 } from '../../shared/domain'
-import { permissionSummary } from '../../shared/permissions'
+import { permissionSummary, taskPermissionRule } from '../../shared/permissions'
 import { CommandFailure } from '../bridge/errors'
 import { emitPermissionRequest, emitTaskUpdated } from '../bridge/events'
 import {
@@ -34,6 +35,7 @@ import {
   type NewPermissionRequest,
   type PermissionRequestClosing,
 } from '../db/repositories/permission-requests'
+import { addTaskPermissionRule } from '../db/repositories/task-permission-rules'
 import { getTask } from '../db/repositories/tasks'
 import type { NotifyReply } from '../notifications/notifications'
 import { noteAgentReply } from '../tasks/attention'
@@ -55,7 +57,8 @@ export interface PermissionBroker {
   isWaiting(id: string): boolean
   /**
    * Answers an open request with your decision, which the call waiting on it gets. Answers with the request as it now
-   * is. Throws a `CommandFailure`: `not_found` for no such request, `invalid_transition` for one that isn't open.
+   * is. Throws a `CommandFailure`: `not_found` for no such request, `invalid_transition` for one that isn't open, and
+   * `invalid_request` for Allow for this task on a request it isn't offered for.
    */
   answer(id: string, decision: PermissionDecision): PermissionRequest
   /** Withdraws a request, if it's open. */
@@ -69,11 +72,18 @@ export interface PermissionBroker {
   close(): void
 }
 
-/** How a decision closes its request. */
-function closingFor(decision: PermissionDecision): PermissionRequestClosing {
+/** How a decision closes its request: Allow for this task with the rule it grants. */
+function closingFor(decision: PermissionDecision, request: PermissionRequest): PermissionRequestClosing {
   switch (decision.kind) {
     case PermissionDecisionKind.AllowOnce:
       return { state: PermissionRequestState.Allowed }
+    case PermissionDecisionKind.AllowForTask: {
+      const rule = taskPermissionRule(request)
+      if (rule === null) {
+        throw new CommandFailure(BridgeErrorCode.InvalidRequest, 'This tool call can’t be allowed for the task')
+      }
+      return { state: PermissionRequestState.Allowed, grantedRule: rule }
+    }
     case PermissionDecisionKind.Deny: {
       const note = decision.note?.trim() ?? ''
       return { state: PermissionRequestState.Denied, note: note === '' ? null : note }
@@ -105,7 +115,18 @@ export function createPermissionBroker(
     closing: PermissionRequestClosing,
     decision: PermissionDecision | null,
   ): PermissionRequest | undefined => {
-    const closed = closePermissionRequest(db, id, closing)
+    // The answer and the rule it grants are saved together, so a rule is never granted without its answer, or lost.
+    const closed = db.transaction(() => {
+      const request = closePermissionRequest(db, id, closing)
+      if (
+        request !== undefined &&
+        closing.state === PermissionRequestState.Allowed &&
+        closing.grantedRule !== undefined
+      ) {
+        addTaskPermissionRule(db, { taskId: request.taskId, rule: closing.grantedRule })
+      }
+      return request
+    })()
     if (closed === undefined) return undefined
     emitPermissionRequest(emit, closed)
     awaitingChanged(closed.taskId)
@@ -143,10 +164,10 @@ export function createPermissionBroker(
     },
 
     answer(id, decision) {
-      if (getPermissionRequest(db, id) === undefined) {
-        throw new CommandFailure(BridgeErrorCode.NotFound, `No permission request ${id}`)
-      }
-      const answered = close(id, closingFor(decision), decision)
+      const request = getPermissionRequest(db, id)
+      if (request === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No permission request ${id}`)
+      const answered =
+        request.state === PermissionRequestState.Open ? close(id, closingFor(decision, request), decision) : undefined
       if (answered === undefined) {
         throw new CommandFailure(BridgeErrorCode.InvalidTransition, 'The permission request is not open any more')
       }

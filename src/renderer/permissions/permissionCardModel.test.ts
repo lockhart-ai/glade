@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { PermissionRequestState, ToolCallState, ToolEventKind, type ToolCallEvent } from '../../shared/domain'
+import {
+  PermissionDestination,
+  PermissionRequestState,
+  PermissionRuleBehavior,
+  PermissionUpdateType,
+  ToolCallState,
+  ToolEventKind,
+  type PermissionRequest,
+  type ToolCallEvent,
+} from '../../shared/domain'
 import { samplePermissionRequest } from '../store/test-bridge'
 import {
   callSummary,
@@ -12,6 +21,9 @@ import {
   shownLines,
   subagentLabel,
   subagentOrigin,
+  taskGrant,
+  TaskGrantKind,
+  taskGrantWords,
   TRIMMED_CHARS,
   TRIMMED_LINES,
   type InputLine,
@@ -243,13 +255,76 @@ describe('what the card says', () => {
   it('says what happened to a closed request, with the note it was denied with', () => {
     const request = samplePermissionRequest('p1', 't1')
     expect(closedOutcome(request)).toBeNull()
-    expect(closedOutcome({ state: PermissionRequestState.Allowed, denyNote: null })).toBe('allowed once')
-    expect(closedOutcome({ state: PermissionRequestState.Denied, denyNote: null })).toBe('denied')
-    expect(closedOutcome({ state: PermissionRequestState.Denied, denyNote: '  ' })).toBe('denied')
-    expect(closedOutcome({ state: PermissionRequestState.Denied, denyNote: ' Not on main ' })).toBe(
+    expect(closedOutcome({ state: PermissionRequestState.Allowed, denyNote: null, grantedRule: null })).toBe(
+      'allowed once',
+    )
+    expect(closedOutcome({ state: PermissionRequestState.Denied, denyNote: null, grantedRule: null })).toBe('denied')
+    expect(closedOutcome({ state: PermissionRequestState.Denied, denyNote: '  ', grantedRule: null })).toBe('denied')
+    expect(closedOutcome({ state: PermissionRequestState.Denied, denyNote: ' Not on main ', grantedRule: null })).toBe(
       'denied: “Not on main”',
     )
-    expect(closedOutcome({ state: PermissionRequestState.Withdrawn, denyNote: null })).toBe('withdrawn')
+    expect(closedOutcome({ state: PermissionRequestState.Withdrawn, denyNote: null, grantedRule: null })).toBe(
+      'withdrawn',
+    )
+    expect(
+      closedOutcome({ state: PermissionRequestState.Allowed, denyNote: null, grantedRule: { toolName: 'Edit' } }),
+    ).toBe('allowed for this task')
+  })
+})
+
+describe('taskGrant', () => {
+  const bash = (
+    ruleContent: string,
+  ): Pick<PermissionRequest, 'toolName' | 'suggestions' | 'suppressAlwaysAllowRule'> => ({
+    toolName: 'Bash',
+    suppressAlwaysAllowRule: false,
+    suggestions: [
+      {
+        type: PermissionUpdateType.AddRules,
+        rules: [{ toolName: 'Bash', ruleContent }],
+        behavior: PermissionRuleBehavior.Allow,
+        destination: PermissionDestination.LocalSettings,
+      },
+    ],
+  })
+
+  it.each([
+    [bash('npm test *'), { kind: TaskGrantKind.Prefix, subject: 'npm test' }, 'Allow npm test commands for this task'],
+    [bash('npm test:*'), { kind: TaskGrantKind.Prefix, subject: 'npm test' }, 'Allow npm test commands for this task'],
+    [
+      bash('mkdir three *'),
+      { kind: TaskGrantKind.Prefix, subject: 'mkdir three' },
+      'Allow mkdir three commands for this task',
+    ],
+    [
+      bash('touch two.txt'),
+      { kind: TaskGrantKind.Command, subject: 'touch two.txt' },
+      'Allow touch two.txt for this task',
+    ],
+    [
+      bash('git log --oneline'),
+      { kind: TaskGrantKind.Command, subject: 'git log --oneline' },
+      'Allow git log --oneline for this task',
+    ],
+    [
+      { toolName: 'Edit', suppressAlwaysAllowRule: false, suggestions: [] },
+      { kind: TaskGrantKind.Tool, subject: 'Edit' },
+      'Allow Edit for this task',
+    ],
+    [
+      { toolName: 'mcp__glade__show_file', suppressAlwaysAllowRule: false, suggestions: [] },
+      { kind: TaskGrantKind.Tool, subject: 'show_file' },
+      'Allow show_file for this task',
+    ],
+  ])('%j → %j, "%s"', (request, grant, label) => {
+    expect(taskGrant(request)).toEqual(grant)
+    const { before, after } = taskGrantWords(grant)
+    expect(`${before} ${grant.subject} ${after}`).toBe(label)
+  })
+
+  it("is null when Allow for this task isn't offered", () => {
+    expect(taskGrant({ ...bash('npm test *'), suppressAlwaysAllowRule: true })).toBeNull()
+    expect(taskGrant({ toolName: 'Bash', suppressAlwaysAllowRule: false, suggestions: [] })).toBeNull()
   })
 })
 

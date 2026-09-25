@@ -684,6 +684,23 @@ a denied call and a foreground subagent's call. What that run showed is marked *
   `PermissionUpdate` returned with `destination: 'session'` lasts only as long as the Claude Code process: session
   rules are gone after a relaunch. So Glade keeps a task's rules in SQLite, returns them as `updatedPermissions` when
   granted, and passes them as `allowedTools` when it starts or resumes the task's session (P11-03).
+- **[verified] Rules, probed in P11-03:** two scratch `query()`s on `haiku` in a temp folder, `settingSources: []`,
+  in `default` with a `canUseTool` that logged each call, each resumed with `resume` and `allowedTools` afterwards.
+  - **The suggested rule** is the CLI's own: `npm test` suggested `npm test *` (a prefix, in the ` *` form, even for
+    the bare command), `npm testing` suggested `npm testing *`, but `mkdir -p logs/one` and `touch 'a(1).txt'`
+    suggested the exact command, no wildcard. A compound command suggests a rule per part (`mkdir -p logs/three &&
+    touch evil.txt` suggested both), or only for the parts it would remember (`npm test && rm -rf build` suggested
+    just `npm test *`). `Edit` and `Write` suggest only `setMode acceptEdits`, so Glade grants the whole tool.
+  - **Live:** answering `{ behavior: 'allow', updatedPermissions: [{ type: 'addRules', rules: [rule], behavior:
+    'allow', destination: 'session' }], decisionClassification: 'user_permanent' }` applied at once, in the same
+    process: with `npm test *` granted, `npm test -- --watch` and `npm test` ran without asking, while
+    `npm test && rm -rf build` and `npm testing` still asked. A whole-tool `Write` rule let the next `Write` through.
+    Nothing was written to a settings file.
+  - **After a resume:** `allowedTools` with `Bash(npm test:*)` or `Bash(npm test *)` let `npm test -- --coverage`
+    through and still asked about `npm test && rm -rf build` and `npm testing`; `Write` let a `Write` through; an
+    exact rule for `touch 'a(1).txt'`, written with its parentheses escaped (`Bash(touch 'a\(1\).txt')`), matched it.
+    The SDK warns (`CLAUDE_SDK_CAN_USE_TOOL_SHADOWED`) that bare tool names in `allowedTools` skip `canUseTool`,
+    which is the point.
 - **The user's settings still apply [docs]** with `settingSources` including `"user"`: their `permissions.allow`/`deny`
   rules and `PreToolUse` hooks decide before `canUseTool` is asked. Denials made without asking are reported on
   `result.permission_denials` (authoritative) and, best effort, as a system event.

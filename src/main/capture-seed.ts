@@ -13,8 +13,11 @@ import {
   DividerKind,
   MessageRole,
   PauseReason,
+  PermissionDestination,
   PermissionMode,
   PermissionRequestState,
+  PermissionRuleBehavior,
+  PermissionUpdateType,
   TaskActivity,
   TaskErrorSource,
   TaskState,
@@ -22,10 +25,12 @@ import {
   ToolEventKind,
   UiStateKey,
   type EpochMs,
+  type PermissionSuggestion,
   type TaskError,
   type ToolInput,
   type TurnSummary,
 } from '../shared/domain'
+import { taskPermissionRule } from '../shared/permissions'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
 import { addArtifact } from './db/repositories/artifacts'
 import { appendMessage } from './db/repositories/messages'
@@ -36,6 +41,7 @@ import {
 } from './db/repositories/permission-requests'
 import { setOpenFiles } from './db/repositories/open-files'
 import { appendQueuedMessage } from './db/repositories/queued-messages'
+import { addTaskPermissionRule } from './db/repositories/task-permission-rules'
 import { createTask, updateTask } from './db/repositories/tasks'
 import {
   appendCompaction,
@@ -124,9 +130,13 @@ export interface SeedPermissionRequest {
   readonly title?: string | undefined
   readonly description?: string | undefined
   readonly defaultToNo?: boolean | undefined
+  /** The rule content Claude Code suggests for the call's tool (e.g. `npm test *` for `Bash`); none by default. */
+  readonly suggestedRule?: string | undefined
   readonly state?: PermissionRequestState | undefined
   /** The note it was denied with. */
   readonly denyNote?: string | undefined
+  /** Whether it was allowed for the task (Allow for this task), which grants the task its rule; allowed once if not. */
+  readonly forTask?: boolean | undefined
   readonly turn: number
   readonly minutesAgo: number
 }
@@ -345,8 +355,10 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
             title: z.string().optional(),
             description: z.string().optional(),
             defaultToNo: z.boolean().optional(),
+            suggestedRule: z.string().optional(),
             state: z.enum(PermissionRequestState).optional(),
             denyNote: z.string().optional(),
+            forTask: z.boolean().optional(),
             turn,
             minutesAgo,
           }),
@@ -402,13 +414,40 @@ function seedToolEvent(db: Database, taskId: string, event: SeedToolEvent, now: 
   }
 }
 
+/** The suggestions Claude Code makes for a sample request: adding its suggested rule, for a settings file. */
+function seedSuggestions(request: SeedPermissionRequest): PermissionSuggestion[] {
+  if (request.suggestedRule === undefined) return []
+  return [
+    {
+      type: PermissionUpdateType.AddRules,
+      rules: [{ toolName: request.toolName, ruleContent: request.suggestedRule }],
+      behavior: PermissionRuleBehavior.Allow,
+      destination: PermissionDestination.LocalSettings,
+    },
+  ]
+}
+
 /** How a sample permission request closed, or null for one still open. */
 function seedClosing(request: SeedPermissionRequest): PermissionRequestClosing | null {
   switch (request.state ?? PermissionRequestState.Open) {
     case PermissionRequestState.Open:
       return null
-    case PermissionRequestState.Allowed:
-      return { state: PermissionRequestState.Allowed }
+    case PermissionRequestState.Allowed: {
+      const rule =
+        request.forTask === true
+          ? taskPermissionRule({
+              toolName: request.toolName,
+              suggestions: seedSuggestions(request),
+              suppressAlwaysAllowRule: false,
+            })
+          : null
+      if (request.forTask === true && rule === null) {
+        throw new Error(`The sample ${request.toolName} call ${request.toolUseId} can't be allowed for the task`)
+      }
+      return rule === null
+        ? { state: PermissionRequestState.Allowed }
+        : { state: PermissionRequestState.Allowed, grantedRule: rule }
+    }
     case PermissionRequestState.Denied:
       return { state: PermissionRequestState.Denied, note: request.denyNote ?? null }
     case PermissionRequestState.Withdrawn:
@@ -429,7 +468,7 @@ function seedPermissionRequest(db: Database, taskId: string, request: SeedPermis
       title: request.title ?? null,
       displayName: request.toolName,
       description: request.description ?? null,
-      suggestions: [],
+      suggestions: seedSuggestions(request),
       defaultToNo: request.defaultToNo ?? false,
       suppressAlwaysAllowRule: false,
     },
@@ -437,6 +476,9 @@ function seedPermissionRequest(db: Database, taskId: string, request: SeedPermis
   )
   const closing = seedClosing(request)
   if (closing !== null) closePermissionRequest(db, opened.id, closing, at)
+  if (closing?.state === PermissionRequestState.Allowed && closing.grantedRule !== undefined) {
+    addTaskPermissionRule(db, { taskId, rule: closing.grantedRule }, at)
+  }
 }
 
 /** Writes a seed into the database as if it had been used up to `now`: the workspace open, the selected task shown. */

@@ -21,7 +21,10 @@ import {
   FileInfoKind,
   MessageRole,
   PermissionDecisionKind,
+  PermissionDestination,
   PermissionRequestState,
+  PermissionRuleBehavior,
+  PermissionUpdateType,
   QuestionKind,
   QuestionReplyKind,
   QuestionSetState,
@@ -42,6 +45,7 @@ import {
   type Workspace,
 } from '../../shared/domain'
 import { noOpenFiles, withClosedFile, withOpenedFile } from '../../shared/files'
+import { taskPermissionRule } from '../../shared/permissions'
 import type { ImageData, ImageRef } from '../../shared/images'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import { highlightParts, highlightPattern, SearchField, type SearchResult } from '../../shared/search'
@@ -330,10 +334,17 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
         return refuse(bridgeError(BridgeErrorCode.InvalidTransition, `Permission request ${id} isn't open`))
       }
       const denied = decision.kind === PermissionDecisionKind.Deny
+      const grantedRule = decision.kind === PermissionDecisionKind.AllowForTask ? taskPermissionRule(current) : null
+      if (decision.kind === PermissionDecisionKind.AllowForTask && grantedRule === null) {
+        return refuse(
+          bridgeError(BridgeErrorCode.InvalidRequest, `Permission request ${id} can't be allowed for the task`),
+        )
+      }
       const permissionRequest: PermissionRequest = {
         ...current,
         state: denied ? PermissionRequestState.Denied : PermissionRequestState.Allowed,
         denyNote: denied ? (decision.note ?? null) : null,
+        grantedRule,
         closedAt: 3_000,
       }
       requests[index] = permissionRequest
@@ -569,7 +580,7 @@ export function sampleQueuedMessage(id: string, taskId: string, body = 'Keep the
 }
 
 /** An open question set: a choice and a text question. */
-/** An open permission request for the agent's own `Bash` call, `npm test`. */
+/** An open permission request for the agent's own `Bash` call, `npm test`, which suggests the rule `npm test *`. */
 export function samplePermissionRequest(id: string, taskId: string): PermissionRequest {
   return {
     id,
@@ -582,11 +593,19 @@ export function samplePermissionRequest(id: string, taskId: string): PermissionR
     title: null,
     displayName: 'Bash',
     description: 'Run the test suite',
-    suggestions: [],
+    suggestions: [
+      {
+        type: PermissionUpdateType.AddRules,
+        rules: [{ toolName: 'Bash', ruleContent: 'npm test *' }],
+        behavior: PermissionRuleBehavior.Allow,
+        destination: PermissionDestination.LocalSettings,
+      },
+    ],
     defaultToNo: false,
     suppressAlwaysAllowRule: false,
     state: PermissionRequestState.Open,
     denyNote: null,
+    grantedRule: null,
     createdAt: 3_000,
     closedAt: null,
   }
