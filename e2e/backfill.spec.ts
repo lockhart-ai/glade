@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path'
 import { BACKFILLS_TASKS, REPLIES_BRIEFLY, type BackfilledTaskSample } from '../src/main/agent/scripts'
 import { CommandName } from '../src/shared/bridge'
 import { TaskState } from '../src/shared/domain'
-import { agentSessions, expect, test } from './fixtures'
+import { agentReceived, agentSessions, expect, test } from './fixtures'
 import { artifactsTab, chat, inputBar, taskHeader, taskList, taskPanel } from './selectors'
 import { invoke } from './task-view'
 
@@ -122,4 +122,6 @@ test('an agent backfills past tasks; the user opens one, sees its handoff and ar
   expect(prompts[0]).not.toContain(HANDOFF_HEADING)
   expect(prompts[1]).toContain(HANDOFF_HEADING)
   expect(prompts[1]).toContain(BILLING.handoff)
+  // A session that starts with the note needs no block ahead of the message: it gets it as written.
+  expect((await agentReceived(glade)).at(-1)).toBe(PICK_UP)
 })

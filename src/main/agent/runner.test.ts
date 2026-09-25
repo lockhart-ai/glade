@@ -2736,6 +2736,29 @@ describe("a task's handoff note", () => {
     expect(getSessionContext(database.db, task.id)).toEqual({ instructions: true, handoffAt: 1_000 })
   })
 
+  it('is still in the prompt of the session when it is resumed, or carried on after a relaunch, and not sent again', async () => {
+    const handoff = setNote(NOTE, 1_000)
+    await send("Let's pick this up.")
+    await reply()
+
+    // Resumed after its session ended.
+    backend.session.end()
+    await settle()
+    await send('Carry on.')
+    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
+    expect(backend.session.options.systemPromptAppend).toContain(handoffSection(handoff))
+    expect(sentTexts()).toEqual(['Carry on.'])
+    backend.session.emit(sdk.text('Working on it.'), sdk.toolUse('toolu_01', 'Bash', { command: 'npm test' }))
+    await settle()
+
+    // Carried on after a relaunch in the middle of its turn.
+    relaunch()
+    runner.resumeInterrupted()
+    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
+    expect(backend.session.options.systemPromptAppend).toContain(handoffSection(handoff))
+    expect(sentTexts()).toEqual([RESUME_PROMPT])
+  })
+
   it('goes once, ahead of the next message, to a resumed session that started without it', async () => {
     await send('Find out why the login test is flaky.')
     await reply()
