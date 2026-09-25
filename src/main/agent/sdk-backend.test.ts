@@ -48,7 +48,7 @@ beforeEach(() => {
 
 it('runs the session in the workspace root, allowing all, with the workspace and user settings and the prompt', () => {
   expect(sdkOptions(OPTIONS, ENV)).toEqual({
-    env: ENV,
+    env: { ...ENV, CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' },
     cwd: '/code/acme-api',
     model: 'claude-sample-1',
     effort: 'high',
@@ -111,8 +111,23 @@ it("sends the user's message as a top-level message typed by a person", () => {
 
 it("gives each session its own copy of the environment, since the SDK adds to the one it's given", () => {
   const options = sdkOptions(OPTIONS, ENV)
-  expect(options.env).toEqual(ENV)
+  expect(options.env).toMatchObject(ENV)
   expect(options.env).not.toBe(ENV)
+  expect(ENV).not.toHaveProperty('CLAUDE_CODE_ENABLE_TODO_TOOLS')
+})
+
+// The bundled Claude Code leaves its todo tools off for SDK sessions on newer models unless this is set, and the Todos
+// tab reads them (#167, docs/sdk-notes.md §9).
+it("turns Claude Code's todo tools on for every session, whatever the model", () => {
+  for (const model of ['claude-opus-5-5[1m]', 'claude-sonnet-5', 'claude-haiku-4-5']) {
+    expect(sdkOptions({ ...OPTIONS, model }, ENV).env).toMatchObject({ CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' })
+  }
+})
+
+it("turns the todo tools on even when the login shell turns them off, and leaves the tasks' own switch alone", () => {
+  const env = sdkOptions(OPTIONS, { ...ENV, CLAUDE_CODE_ENABLE_TODO_TOOLS: '0' }).env
+  expect(env).toMatchObject({ CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' })
+  expect(env).not.toHaveProperty('CLAUDE_CODE_ENABLE_TASKS')
 })
 
 /** Lets the environment's promise, and the `query()` waiting on it, settle. */
@@ -267,6 +282,6 @@ it("runs each session in the environment it's given, whatever Glade's own is", a
   vi.unstubAllEnvs()
 
   expect(sdk.query.mock.calls[0]?.[0].options).toMatchObject({
-    env: { PATH: '/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin' },
+    env: { PATH: '/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin', CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' },
   })
 })

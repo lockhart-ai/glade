@@ -49,6 +49,14 @@ export function claudeCodeExecutable(
   return ASAR.test(path) ? path.replace(ASAR, '$1app.asar.unpacked$2') : undefined
 }
 
+/**
+ * What Glade adds to every session's environment. `CLAUDE_CODE_ENABLE_TODO_TOOLS` gives the session Claude Code's todo
+ * tools (`TaskCreate`, `TaskUpdate`, …), which the Todos tab reads: the bundled Claude Code leaves them off for SDK
+ * sessions on newer models (Opus 5.5, Sonnet 5), turning them on by default only for older ones
+ * (`docs/sdk-notes.md` §9).
+ */
+export const SESSION_ENV: Environment = { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' }
+
 /** The SDK options for a session that runs in `env`. */
 export function sdkOptions(
   options: AgentSessionOptions,
@@ -60,7 +68,7 @@ export function sdkOptions(
     ...(executable === undefined ? {} : { pathToClaudeCodeExecutable: executable }),
     // The whole environment, since it replaces Glade's own: opened from Finder, that has launchd's bare PATH. A copy,
     // since the SDK adds to it. No credentials of Glade's: the bundled Claude Code binary finds the user's login itself.
-    env: { ...env },
+    env: { ...env, ...SESSION_ENV },
     cwd: options.cwd,
     model: options.model,
     effort: options.effort,
