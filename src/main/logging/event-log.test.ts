@@ -497,6 +497,7 @@ describe('permission requests', () => {
     suppressAlwaysAllowRule: false,
     state: PermissionRequestState.Open,
     denyNote: null,
+    grantedRule: null,
     createdAt: 1_000,
     closedAt: null,
   }
@@ -539,7 +540,7 @@ describe('permission requests', () => {
         level: LogLevel.Info,
         scope: LogScope.Permissions,
         message: 'permission allowed',
-        fields: { ...where, toolUseId: 'toolu_1', toolName: 'Bash' },
+        fields: { ...where, toolUseId: 'toolu_1', toolName: 'Bash', forTask: false },
       },
       {
         level: LogLevel.Info,
@@ -564,6 +565,34 @@ describe('permission requests', () => {
         scope: LogScope.Permissions,
         message: 'permission withdrawn',
         fields: { ...where, toolUseId: 'toolu_1', toolName: 'Bash' },
+      },
+    ])
+  })
+
+  it('logs a request allowed for the task, with the rule it granted at debug', () => {
+    logEvent({
+      type: EventType.PermissionAnswered,
+      permissionRequest: {
+        ...REQUEST,
+        state: PermissionRequestState.Allowed,
+        grantedRule: { toolName: 'Bash', ruleContent: 'npm test *' },
+        closedAt: 2_000,
+      },
+    })
+
+    const where = { taskId: 'task-1', permissionRequestId: 'request-1', turn: 2 }
+    expect(logged()).toEqual([
+      {
+        level: LogLevel.Info,
+        scope: LogScope.Permissions,
+        message: 'permission allowed',
+        fields: { ...where, toolUseId: 'toolu_1', toolName: 'Bash', forTask: true },
+      },
+      {
+        level: LogLevel.Debug,
+        scope: LogScope.Permissions,
+        message: 'permission rule granted',
+        fields: { ...where, rule: 'Bash(npm test *)' },
       },
     ])
   })

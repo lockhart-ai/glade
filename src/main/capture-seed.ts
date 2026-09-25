@@ -13,6 +13,11 @@ import {
   DividerKind,
   MessageRole,
   PauseReason,
+  PermissionDestination,
+  PermissionMode,
+  PermissionRequestState,
+  PermissionRuleBehavior,
+  PermissionUpdateType,
   TaskActivity,
   TaskErrorSource,
   TaskState,
@@ -20,15 +25,23 @@ import {
   ToolEventKind,
   UiStateKey,
   type EpochMs,
+  type PermissionSuggestion,
   type TaskError,
   type ToolInput,
   type TurnSummary,
 } from '../shared/domain'
+import { taskPermissionRule } from '../shared/permissions'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
 import { addArtifact } from './db/repositories/artifacts'
 import { appendMessage } from './db/repositories/messages'
+import {
+  appendPermissionRequest,
+  closePermissionRequest,
+  type PermissionRequestClosing,
+} from './db/repositories/permission-requests'
 import { setOpenFiles } from './db/repositories/open-files'
 import { appendQueuedMessage } from './db/repositories/queued-messages'
+import { addTaskPermissionRule } from './db/repositories/task-permission-rules'
 import { createTask, updateTask } from './db/repositories/tasks'
 import {
   appendCompaction,
@@ -103,6 +116,31 @@ export interface SeedCompaction {
   readonly minutesAgo: number
 }
 
+/**
+ * A sample permission request (`PermissionRequest`): a tool call waiting on your OK, or that waited on it, open unless
+ * it has another `state`.
+ */
+export interface SeedPermissionRequest {
+  readonly toolName: string
+  readonly input: ToolInput
+  /** The call's `tool_use` id, which its tool log row has too (a subagent's names its `Agent` call as its parent). */
+  readonly toolUseId: string
+  /** The SDK's id for the subagent that made the call; the agent's own call when not given. */
+  readonly agentId?: string | undefined
+  readonly title?: string | undefined
+  readonly description?: string | undefined
+  readonly defaultToNo?: boolean | undefined
+  /** The rule content Claude Code suggests for the call's tool (e.g. `npm test *` for `Bash`); none by default. */
+  readonly suggestedRule?: string | undefined
+  readonly state?: PermissionRequestState | undefined
+  /** The note it was denied with. */
+  readonly denyNote?: string | undefined
+  /** Whether it was allowed for the task (Allow for this task), which grants the task its rule; allowed once if not. */
+  readonly forTask?: boolean | undefined
+  readonly turn: number
+  readonly minutesAgo: number
+}
+
 /** One sample tool log entry. */
 export type SeedToolEvent = SeedNarration | SeedToolCall | SeedDivider | SeedCompaction
 
@@ -149,6 +187,10 @@ export interface SeedTask {
   readonly openFiles?: SeedOpenFiles | undefined
   /** The files the agent declared as its deliverables (the Artifacts tab), in the order it declared them. */
   readonly artifacts?: readonly SeedArtifact[] | undefined
+  /** What its agent may do without asking; Allow all unless given. */
+  readonly permissionMode?: PermissionMode | undefined
+  /** Its agent's tool calls that wait, or waited, on your OK, in the order they asked. */
+  readonly permissionRequests?: readonly SeedPermissionRequest[] | undefined
 }
 
 /**
@@ -302,6 +344,26 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       resumedAfterCrash: z.boolean().optional(),
       openFiles: z.strictObject({ paths: z.array(z.string()), activePath: z.string().optional() }).optional(),
       artifacts: z.array(z.strictObject({ path: z.string(), title: z.string(), minutesAgo })).optional(),
+      permissionMode: z.enum(PermissionMode).optional(),
+      permissionRequests: z
+        .array(
+          z.strictObject({
+            toolName: z.string(),
+            input: z.record(z.string(), z.unknown()),
+            toolUseId: z.string(),
+            agentId: z.string().optional(),
+            title: z.string().optional(),
+            description: z.string().optional(),
+            defaultToNo: z.boolean().optional(),
+            suggestedRule: z.string().optional(),
+            state: z.enum(PermissionRequestState).optional(),
+            denyNote: z.string().optional(),
+            forTask: z.boolean().optional(),
+            turn,
+            minutesAgo,
+          }),
+        )
+        .optional(),
     }),
   ),
 })
@@ -352,6 +414,73 @@ function seedToolEvent(db: Database, taskId: string, event: SeedToolEvent, now: 
   }
 }
 
+/** The suggestions Claude Code makes for a sample request: adding its suggested rule, for a settings file. */
+function seedSuggestions(request: SeedPermissionRequest): PermissionSuggestion[] {
+  if (request.suggestedRule === undefined) return []
+  return [
+    {
+      type: PermissionUpdateType.AddRules,
+      rules: [{ toolName: request.toolName, ruleContent: request.suggestedRule }],
+      behavior: PermissionRuleBehavior.Allow,
+      destination: PermissionDestination.LocalSettings,
+    },
+  ]
+}
+
+/** How a sample permission request closed, or null for one still open. */
+function seedClosing(request: SeedPermissionRequest): PermissionRequestClosing | null {
+  switch (request.state ?? PermissionRequestState.Open) {
+    case PermissionRequestState.Open:
+      return null
+    case PermissionRequestState.Allowed: {
+      const rule =
+        request.forTask === true
+          ? taskPermissionRule({
+              toolName: request.toolName,
+              suggestions: seedSuggestions(request),
+              suppressAlwaysAllowRule: false,
+            })
+          : null
+      if (request.forTask === true && rule === null) {
+        throw new Error(`The sample ${request.toolName} call ${request.toolUseId} can't be allowed for the task`)
+      }
+      return rule === null
+        ? { state: PermissionRequestState.Allowed }
+        : { state: PermissionRequestState.Allowed, grantedRule: rule }
+    }
+    case PermissionRequestState.Denied:
+      return { state: PermissionRequestState.Denied, note: request.denyNote ?? null }
+    case PermissionRequestState.Withdrawn:
+      return { state: PermissionRequestState.Withdrawn }
+  }
+}
+
+function seedPermissionRequest(db: Database, taskId: string, request: SeedPermissionRequest, at: EpochMs): void {
+  const opened = appendPermissionRequest(
+    db,
+    {
+      taskId,
+      turn: request.turn,
+      toolUseId: request.toolUseId,
+      agentId: request.agentId ?? null,
+      toolName: request.toolName,
+      input: request.input,
+      title: request.title ?? null,
+      displayName: request.toolName,
+      description: request.description ?? null,
+      suggestions: seedSuggestions(request),
+      defaultToNo: request.defaultToNo ?? false,
+      suppressAlwaysAllowRule: false,
+    },
+    at,
+  )
+  const closing = seedClosing(request)
+  if (closing !== null) closePermissionRequest(db, opened.id, closing, at)
+  if (closing?.state === PermissionRequestState.Allowed && closing.grantedRule !== undefined) {
+    addTaskPermissionRule(db, { taskId, rule: closing.grantedRule }, at)
+  }
+}
+
 /** Writes a seed into the database as if it had been used up to `now`: the workspace open, the selected task shown. */
 export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.now()): void {
   db.transaction(() => {
@@ -376,6 +505,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         workspaceId: workspace.id,
         model: DEFAULT_SETTINGS.defaultModel,
         effort: DEFAULT_SETTINGS.defaultEffort,
+        permissionMode: sample.permissionMode ?? DEFAULT_SETTINGS.defaultPermissionMode,
       }
       const task = createTask(db, newTask, createdAt)
       updateTask(
@@ -429,6 +559,9 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         addArtifact(db, { taskId: task.id, path, title }, declaredAt)
         const file = join(seed.workspace.rootPath, path)
         if (existsSync(file)) utimesSync(file, new Date(declaredAt), new Date(declaredAt))
+      }
+      for (const request of sample.permissionRequests ?? []) {
+        seedPermissionRequest(db, task.id, request, ago(request.minutesAgo))
       }
       if (sample.resumedAfterCrash === true) resumed.push(task.id)
     }

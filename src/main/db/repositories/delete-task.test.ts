@@ -6,6 +6,7 @@ import { addArtifact } from './artifacts'
 import { appendMessage } from './messages'
 import { setOpenFiles } from './open-files'
 import { appendPermissionRequest } from './permission-requests'
+import { addTaskPermissionRule } from './task-permission-rules'
 import { appendQuestionSet } from './question-sets'
 import { appendQueuedMessage } from './queued-messages'
 import { deleteTask, getTask, listTasks } from './tasks'
@@ -80,6 +81,7 @@ function fillTask(db: Database, task: Task): void {
     defaultToNo: false,
     suppressAlwaysAllowRule: false,
   })
+  addTaskPermissionRule(db, { taskId, rule: { toolName: 'Bash', ruleContent: 'npm test *' } })
 }
 
 /** The tables `fillTask` writes to. A new table that belongs to a task fails the test below until it's added here. */
@@ -94,6 +96,8 @@ const FILLED_TABLES = [
   'queued_messages',
   // The search index's rows for its fields and messages, which a new task and `fillTask`'s message make.
   'search_documents',
+  // The permission rules granted it with Allow for this task.
+  'task_permission_rules',
   'tool_events',
   'workspace_selections',
 ]

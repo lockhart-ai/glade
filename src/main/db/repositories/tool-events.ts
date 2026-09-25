@@ -357,6 +357,22 @@ export function interruptRunningToolCalls(
   )
 }
 
+/**
+ * Records one tool call of a task as interrupted, if it's still running, with `output` saying why. Returns it updated,
+ * or undefined when there's no such call or it isn't running.
+ */
+export function interruptRunningToolCall(
+  db: Database,
+  taskId: string,
+  toolUseId: string,
+  output: string,
+  now: EpochMs = Date.now(),
+): ToolCallEvent | undefined {
+  const running = toolCallsIn(db, taskId, ToolCallState.Running).some((call) => call.toolUseId === toolUseId)
+  if (!running) return undefined
+  return updateToolCall(db, { taskId, toolUseId, state: ToolCallState.Interrupted, output }, now)
+}
+
 /** The ids of the tasks with a tool call still running, e.g. a background subagent's when the app quit. */
 export function listTasksWithRunningToolCalls(db: Database): string[] {
   return db
