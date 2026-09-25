@@ -2,8 +2,9 @@
  * The Todos tab's list, worked out from the task's tool log. Glade doesn't give the agent a todo tool of its own: it maps
  * the ones Claude Code already has, which the model uses without being asked.
  *
- * - `TaskCreate` and `TaskUpdate` are what the bundled Claude Code (2.1) gives the agent: each call adds or changes one
- *   item, by the id `TaskCreate`'s result gave it.
+ * - `TaskCreate` and `TaskUpdate` are what the bundled Claude Code (2.1) gives the agent, once Glade turns them on
+ *   (`SESSION_ENV` in `../agent/sdk-backend`): each call adds or changes one item, by the id `TaskCreate`'s result
+ *   gave it.
  * - `TodoWrite` is the older tool, still there when Claude Code's task tools are turned off
  *   (`CLAUDE_CODE_ENABLE_TASKS=false`): each call replaces the whole list.
  *
