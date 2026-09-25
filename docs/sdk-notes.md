@@ -325,6 +325,35 @@ See §7 for timing.
 If the interrupt lands during a tool, the tool gets a "user doesn't want to proceed" `tool_result`, the marker text is
 "[Request interrupted by user for tool use]", and `terminal_reason` is `"aborted_tools"`.
 
+### Turns the agent starts itself [verified]
+
+The SDK starts a turn with no user message when a background task finishes (and, per its types, for a timer, a
+scheduled wakeup or a message from another session). Probed on SDK 0.3.281 with Haiku: a turn ran `sleep 5 && echo …`
+with `run_in_background: true` and ended; about five seconds after its `result`, with nothing pushed, the session
+streamed:
+
+```
+system/task_updated       { task_id: "b88t…", patch: { status: "completed", end_time: … } }
+system/task_notification  { task_id: "b88t…", tool_use_id: "toolu_01…", status: "completed",
+                            output_file: "…/tasks/b88t….output", summary: "Background command \"…\" completed (exit code 0)" }
+system/init               ← a new turn, as for any other
+system/thinking_tokens …
+assistant [thinking]      ← no user_message_uuid on any of the turn's assistant messages
+assistant [text]
+result/success            { origin: { kind: "task-notification" }, … }  ← no user_message_uuid(s)
+```
+
+- The turn looks like any other but for what it answers: its `result` has no `user_message_uuid(s)`, and says why it
+  ran in `origin` (`task-notification`). The user turn's `result` had no `origin`.
+- Within a user turn, only its first assistant message carried `user_message_uuid`, so the assistant messages alone
+  can't tell the two kinds of turn apart.
+- The background command's own `task_started` (with `tool_use_id`, `task_type: "local_bash"`) came during the turn that
+  started it, and its `tool_result` ("Command running in background with ID: …") ended that call straight away.
+
+**Implication for Glade (P9-02):** the runner opens a turn when the agent's own top-level message (or an API error in
+its place) arrives between turns, rather than only when the user sends one. System messages, a stray result and
+anything from a subagent between turns still open nothing.
+
 ### Session id and resume
 
 `session_id` appears on every message. Store it from the first `system/init`. See §8.
@@ -545,6 +574,52 @@ probes the unverified parts and marks what it saw **[verified]**.
   needing you, and the decision, delivered to the resumed session as a message.
 - **`permissionPromptToolName`** (route prompts to an MCP tool) and **`permissionPrompts: 'none'`** (never ask) are
   the alternatives; neither fits a card that waits for the user.
+
+## 10. Claude Code's todo tools [verified]
+
+Probed with SDK 0.3.281 (Claude Code 2.1.281) for #167: the `init` tool list of a one-message session in an empty temp
+folder, with no settings sources, per model and environment.
+
+| Model | Extra `env` | Todo tools in `init` |
+| --- | --- | --- |
+| `claude-haiku-4-5` | none | `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate` |
+| `claude-haiku-4-5` | `CLAUDE_CODE_ENABLE_TASKS=false` | `TodoWrite` |
+| `claude-sonnet-5` | none | none |
+| `claude-sonnet-5` | `CLAUDE_CODE_ENABLE_TASKS=1` | none |
+| `claude-sonnet-5` | `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` | `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate` |
+| `claude-sonnet-5` | `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`, `CLAUDE_CODE_ENABLE_TASKS=false` | `TodoWrite` |
+| `claude-opus-5-5[1m]` | none | none |
+| `claude-opus-5-5[1m]` | `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` | `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate` |
+
+How the bundled binary decides, from its code:
+
+- **Whether there are todo tools at all:** yes in an interactive session, or when the SDK's `tools` option names one of
+  them, or when the main model is unknown or on a fixed list of older models (Claude 3.x, Opus/Sonnet 4.0–4.7, Haiku
+  4.5), or when `CLAUDE_CODE_ENABLE_TODO_TOOLS` is true. So an SDK session on Opus 5.5 or Sonnet 5 has none, and the
+  model can't find them with `ToolSearch` either. The model is checked live, so a `setModel` mid-session changes it.
+- **Which ones:** `TaskCreate`/`TaskGet`/`TaskList`/`TaskUpdate` unless `CLAUDE_CODE_ENABLE_TASKS` is false, which
+  swaps in the older `TodoWrite`.
+- They are deferred tools (`shouldDefer`): the model loads them with `ToolSearch` (`select:TaskCreate,TaskUpdate`)
+  before its first call. `TaskStop` is unrelated (it stops a background task) and is always there.
+
+**Glade sets `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` in every session's `env`** (`SESSION_ENV` in `sdk-backend.ts`), and
+leaves `CLAUDE_CODE_ENABLE_TASKS` to the user.
+
+A real session built from Glade's `sdkOptions` (`claude-sonnet-5`), asked to keep a two-item list, made these calls,
+which match the Todos tab's schemas (`src/main/todos/schema.ts`) and the scripted backend's `keeps-todos` script:
+
+```text
+{ "name": "ToolSearch", "input": { "query": "select:TaskCreate,TaskUpdate", "max_results": 5 } }
+{ "name": "TaskCreate", "input": { "subject": "Say hello", "description": "Say hello" } }
+→ "Task #1 created successfully: Say hello"
+{ "name": "TaskUpdate", "input": { "taskId": "1", "status": "in_progress" } }
+→ "Updated task #1 status"
+{ "name": "TaskUpdate", "input": { "taskId": "1", "status": "completed" } }
+→ "Updated task #1 status"
+```
+
+`activeForm` is optional, and the model left it out here. Glade's parser and `deriveTodoList` turned these into "Say
+hello" done and "Say goodbye" todo.
 
 ---
 
