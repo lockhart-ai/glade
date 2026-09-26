@@ -1,6 +1,7 @@
 /**
- * What Glade appends to Claude Code's system prompt for a task's session: which task this is, how to keep its title,
- * objective and status current with the Glade tools (`./glade-tools`), and when to ask the user with `ask`. Anything about files on disk comes from
+ * What Glade appends to Claude Code's system prompt for a task's session: which task this is, that the user sees only
+ * its final reply each turn, how to keep its title, objective and status current with the Glade tools
+ * (`./glade-tools`), and when to ask the user with `ask`. Anything about files on disk comes from
  * the workspace's CLAUDE.md, not from here (`docs/model-surface.md`).
  */
 import type { Task, TaskHandoff } from '../../shared/domain'
@@ -24,6 +25,23 @@ export const WATCHERS_LINE =
   'When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the Monitor ' +
   "tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows in the task's " +
   'Watchers tab.'
+
+/**
+ * What the prompt says of the agent's replies (#301): the chat shows only the final one of each turn, and the rest goes
+ * to the tool log (`docs/product.md`, the chat log), so that one must answer the user on its own.
+ */
+export const FINAL_REPLY_LINE =
+  'In the chat, the user sees only your last message of each turn: what you write before a tool call goes to the ' +
+  'tool log, which they rarely read. So end every turn with a complete reply that answers what they asked or responds ' +
+  'to what they said, with any findings, even ones you wrote earlier in the turn. Do follow-up work (tool calls) ' +
+  'before that reply, not after it.'
+
+/**
+ * The instructions added to the prompt after sessions had started with it, oldest first. Claude Code keeps a session's
+ * prompt when it resumes it, so a session that started before one was added is sent it once, ahead of its next message
+ * (`./session-context`). Only ever append: a session's place in this list is saved as a count.
+ */
+export const INSTRUCTION_UPDATES: readonly string[] = [FINAL_REPLY_LINE]
 
 /** The heading the handoff note goes under in the prompt. */
 export const HANDOFF_HEADING = 'Handoff for this task (backfilled from earlier notes)'
@@ -61,6 +79,8 @@ export function systemPromptAppend(
     'You are running inside Glade, a desktop app that runs Claude agent sessions as tasks.',
     'This session is one Glade task, with one objective.',
     `Its task id is ${task.id}. Its title is ${named ? `"${task.title}"` : 'not set yet'}.`,
+    '',
+    FINAL_REPLY_LINE,
     '',
     'The user sees the task through its title, objective and status. Keep them current with the Glade tools:',
   ]
