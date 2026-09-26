@@ -59,6 +59,7 @@ function play(
     onTurnEnded: (jobs) => {
       listed.push(jobs)
     },
+    onCompacted: () => undefined,
   }
   let idles = 0
   const session = new ScriptedSession({

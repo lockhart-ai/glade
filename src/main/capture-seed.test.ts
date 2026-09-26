@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   AgentErrorKind,
+  AutoCompactKind,
   CompactionTrigger,
   DividerKind,
   MessageRole,
@@ -776,6 +777,44 @@ describe('applySeed', () => {
         finishedAt: NOW - 7 * MINUTE,
       },
       { kind: ToolEventKind.ToolCall, state: ToolCallState.Interrupted, parentToolUseId: null },
+    ])
+  })
+
+  it('writes where the SDK compacts automatically, and what a compaction carried over', () => {
+    const { db } = database
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          {
+            title: 'Move image uploads to S3',
+            minutesAgo: 0,
+            autoCompact: { kind: AutoCompactKind.On, thresholdTokens: 67_000 },
+            toolEvents: [
+              {
+                kind: ToolEventKind.Compaction,
+                trigger: CompactionTrigger.Auto,
+                preTokens: 198_000,
+                postTokens: 41_000,
+                windowTokens: 200_000,
+                summary: '1. Primary Request and Intent: move the uploads.',
+                turn: 2,
+                minutesAgo: 30,
+              },
+            ],
+          },
+          { title: 'Fix flaky login test', minutesAgo: 9, autoCompact: { kind: AutoCompactKind.Off } },
+        ],
+      },
+      NOW,
+    )
+
+    const [moved, flaky] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    expect(moved?.autoCompact).toEqual({ kind: AutoCompactKind.On, thresholdTokens: 67_000 })
+    expect(flaky?.autoCompact).toEqual({ kind: AutoCompactKind.Off })
+    expect(listToolEvents(db, moved?.id ?? '')).toMatchObject([
+      { summary: '1. Primary Request and Intent: move the uploads.' },
     ])
   })
 

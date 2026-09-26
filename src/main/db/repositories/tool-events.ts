@@ -47,6 +47,8 @@ export interface NewCompaction extends NewToolEventBase {
   readonly preTokens: number | null
   readonly postTokens: number | null
   readonly windowTokens: number
+  /** What the agent carried over, for one reported done; none unless given. */
+  readonly summary?: string | null
 }
 
 /** How a compaction finished, to fill in on the compaction with the same `id`. */
@@ -55,6 +57,8 @@ export interface CompactionOutcome {
   readonly state: ToolCallState
   readonly preTokens: number | null
   readonly postTokens: number | null
+  /** What the agent carried over; none unless given. */
+  readonly summary?: string | null
 }
 
 /** A tool call's result, to fill in on the call with the same `toolUseId`. */
@@ -92,10 +96,12 @@ interface ToolEventParams {
   readonly preTokens: number | null
   readonly postTokens: number | null
   readonly windowTokens: number | null
+  readonly compactSummary: string | null
 }
 
 const COLUMNS = `id, task_id, kind, turn, created_at, text, tool_name, tool_input, tool_output, finished_at, tool_state,
-  tool_use_id, parent_tool_use_id, divider_kind, compact_trigger, pre_tokens, post_tokens, window_tokens`
+  tool_use_id, parent_tool_use_id, divider_kind, compact_trigger, pre_tokens, post_tokens, window_tokens,
+  compact_summary`
 
 const KINDS = Object.values(ToolEventKind)
 const TOOL_CALL_STATES = Object.values(ToolCallState)
@@ -122,6 +128,7 @@ function toParams(event: ToolEvent): ToolEventParams {
     preTokens: null,
     postTokens: null,
     windowTokens: null,
+    compactSummary: null,
   }
   switch (event.kind) {
     case ToolEventKind.Narration:
@@ -147,6 +154,7 @@ function toParams(event: ToolEvent): ToolEventParams {
         preTokens: event.preTokens,
         postTokens: event.postTokens,
         windowTokens: event.windowTokens,
+        compactSummary: event.summary,
       }
   }
 }
@@ -183,6 +191,7 @@ function parseCompaction(row: Row): CompactionEvent {
     preTokens: row.nullableInteger('pre_tokens'),
     postTokens: row.nullableInteger('post_tokens'),
     windowTokens: row.integer('window_tokens'),
+    summary: row.nullableText('compact_summary'),
   }
 }
 
@@ -212,7 +221,7 @@ function append(db: Database, event: ToolEvent): void {
     `INSERT INTO tool_events (seq, ${COLUMNS})
     VALUES ((SELECT COALESCE(MAX(seq), 0) + 1 FROM tool_events WHERE task_id = @taskId), @id, @taskId, @kind, @turn,
       @createdAt, @text, @toolName, @toolInput, @toolOutput, @finishedAt, @toolState, @toolUseId, @parentToolUseId, @dividerKind,
-      @compactTrigger, @preTokens, @postTokens, @windowTokens)`,
+      @compactTrigger, @preTokens, @postTokens, @windowTokens, @compactSummary)`,
   ).run(toParams(event))
 }
 
@@ -274,20 +283,30 @@ export function appendCompaction(db: Database, input: NewCompaction, now: EpochM
     preTokens: input.preTokens,
     postTokens: input.postTokens,
     windowTokens: input.windowTokens,
+    summary: emptyAsNull(input.summary),
   }
   append(db, event)
   return event
 }
 
-/** Records how a compaction finished, and returns it updated. Throws if there's no compaction with that id. */
+/** A summary as stored: none for a missing or blank one. */
+function emptyAsNull(summary: string | null | undefined): string | null {
+  return summary === undefined || summary === null || summary.trim() === '' ? null : summary
+}
+
+/**
+ * Records how a compaction finished, with the summary it wrote, if any, and returns it updated. Throws if there's no
+ * compaction with that id.
+ */
 export function updateCompaction(db: Database, outcome: CompactionOutcome): CompactionEvent {
   const row: unknown = db
     .prepare(
-      `UPDATE tool_events SET tool_state = @state, pre_tokens = @preTokens, post_tokens = @postTokens
+      `UPDATE tool_events SET tool_state = @state, pre_tokens = @preTokens, post_tokens = @postTokens,
+        compact_summary = @summary
       WHERE id = @id AND kind = 'compaction'
       RETURNING ${COLUMNS}`,
     )
-    .get(outcome)
+    .get({ ...outcome, summary: emptyAsNull(outcome.summary) })
   if (row === undefined) throw new Error(`No compaction ${outcome.id}`)
   return parseCompaction(new Row('tool_events', row))
 }

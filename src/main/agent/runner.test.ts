@@ -303,7 +303,11 @@ describe('a turn', () => {
       allowedRules: [],
       log: expect.objectContaining({ info: expect.any(Function) as unknown }) as unknown,
       onToolPermission: expect.any(Function) as unknown,
-      hooks: { onPrompt: expect.any(Function) as unknown, onTurnEnded: expect.any(Function) as unknown },
+      hooks: {
+        onPrompt: expect.any(Function) as unknown,
+        onTurnEnded: expect.any(Function) as unknown,
+        onCompacted: expect.any(Function) as unknown,
+      },
     })
     const [userMessage] = listMessages(database.db, task.id)
     expect(backend.session.sent).toEqual([

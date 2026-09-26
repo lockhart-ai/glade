@@ -1,5 +1,9 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { CompactionTrigger, DividerKind, ToolCallState, ToolEventKind, type Task } from '../../../shared/domain'
+import { openAppDatabase } from '../database'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 import {
   appendCompaction,
@@ -275,6 +279,8 @@ describe('the tool_events table', () => {
       'CHECK constraint failed',
     )
     expect(insert('kind, text', "'divider', 'x'")).toThrow('CHECK constraint failed')
+    // Only a compaction has a summary.
+    expect(insert('kind, text, compact_summary', "'narration', 'x', 'Kept.'")).toThrow('CHECK constraint failed')
   })
 
   it('checks enum values and that the input is a JSON object', () => {
@@ -311,6 +317,7 @@ describe('compactions', () => {
       id: UUID,
       ...running(),
       createdAt: 3_000,
+      summary: null,
     })
     expect(listToolEvents(test.db, task.id)).toEqual([event])
 
@@ -323,6 +330,47 @@ describe('compactions', () => {
 
     expect(done).toEqual({ ...event, state: ToolCallState.Done, preTokens: 198_000, postTokens: 41_000 })
     expect(listToolEvents(test.db, task.id)).toEqual([done])
+  })
+
+  it('keeps what a compaction carried over, given when it finishes or as it is logged, and none for an empty one', () => {
+    const event = appendCompaction(test.db, running(), 3_000)
+    const outcome = { id: event.id, state: ToolCallState.Done, preTokens: 198_000, postTokens: 41_000 }
+
+    const done = updateCompaction(test.db, { ...outcome, summary: '1. Primary Request and Intent: move uploads.' })
+    expect(done.summary).toBe('1. Primary Request and Intent: move uploads.')
+    expect(listToolEvents(test.db, task.id)).toEqual([done])
+    const logged = appendCompaction(test.db, { ...running(), state: ToolCallState.Done, summary: 'Carried on.' })
+    expect(logged.summary).toBe('Carried on.')
+    expect(listToolEvents(test.db, task.id)).toEqual([done, logged])
+
+    expect(updateCompaction(test.db, { ...outcome, summary: '  \n ' }).summary).toBeNull()
+    expect(updateCompaction(test.db, { ...outcome, summary: null }).summary).toBeNull()
+    expect(appendCompaction(test.db, { ...running(), summary: '' }).summary).toBeNull()
+    // Failing one leaves it none.
+    expect(failRunningCompactions(test.db, task.id)).toMatchObject([{ summary: null }])
+  })
+
+  it('survives a relaunch with its summary', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'glade-repo-'))
+    try {
+      const first = openAppDatabase(dir).db
+      const compacted = sampleTask(first, sampleWorkspace(first).id)
+      const event = appendCompaction(first, { ...running(), taskId: compacted.id })
+      updateCompaction(first, {
+        id: event.id,
+        state: ToolCallState.Done,
+        preTokens: 1,
+        postTokens: 1,
+        summary: 'Kept.',
+      })
+      first.close()
+
+      const second = openAppDatabase(dir).db
+      expect(listToolEvents(second, compacted.id)).toMatchObject([{ summary: 'Kept.' }])
+      second.close()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('throws when there is no such compaction', () => {

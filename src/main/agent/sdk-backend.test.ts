@@ -40,6 +40,9 @@ const sdk = vi.hoisted(() => {
   const session = {
     interrupt: vi.fn(() => Promise.resolve(undefined)),
     stopTask: vi.fn<(taskId: string) => Promise<void>>(() => Promise.resolve(undefined)),
+    getContextUsage: vi.fn<(options: unknown) => Promise<unknown>>(() =>
+      Promise.resolve({ autoCompactThreshold: 167_000, isAutoCompactEnabled: true }),
+    ),
     setModel: vi.fn<(model?: string) => Promise<void>>(() => Promise.resolve(undefined)),
     applyFlagSettings: vi.fn<(settings: unknown) => Promise<void>>(() => Promise.resolve(undefined)),
     setPermissionMode: vi.fn<(mode: string) => Promise<void>>(() => Promise.resolve(undefined)),
@@ -235,6 +238,7 @@ it('starts one streaming-input query per session, in the environment, and pushes
   session.send('Fix it.', 'uuid-2', [GIF])
   await session.interrupt()
   await session.stopTask('b7f3')
+  await expect(session.contextUsage()).resolves.toEqual({ autoCompactThreshold: 167_000, isAutoCompactEnabled: true })
   session.close()
 
   const pushed: SDKUserMessage[] = []
@@ -242,6 +246,8 @@ it('starts one streaming-input query per session, in the environment, and pushes
   expect(pushed).toEqual([userMessage('Hi', 'uuid-1'), userMessage('Fix it.', 'uuid-2', [GIF])])
   expect(sdk.session.interrupt).toHaveBeenCalledOnce()
   expect(sdk.session.stopTask).toHaveBeenCalledExactlyOnceWith('b7f3')
+  // Only the summary: the per-category counts would cost a token-count call each.
+  expect(sdk.session.getContextUsage).toHaveBeenCalledExactlyOnceWith({ detail: 'summary' })
   expect(sdk.session.close).toHaveBeenCalledOnce()
 })
 

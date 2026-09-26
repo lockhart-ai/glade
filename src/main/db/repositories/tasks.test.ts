@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   AgentErrorKind,
+  AutoCompactKind,
   Effort,
   PauseReason,
   PermissionMode,
@@ -72,6 +73,7 @@ describe('createTask', () => {
       pause: null,
       importedAt: null,
       todos: null,
+      autoCompact: null,
     })
     expect(getTask(test.db, task.id)).toEqual(task)
   })
@@ -240,6 +242,27 @@ describe('updateTask', () => {
     const extended = updateTask(test.db, task.id, { model: 'claude-sample-2[1m]' })
     expect(extended).toMatchObject({ contextUsedTokens: 76_000, contextWindowTokens: 1_000_000 })
     expect(getTask(test.db, task.id)).toEqual(extended)
+  })
+
+  it('keeps where the SDK compacts automatically, until the model changes', () => {
+    const task = sampleTask(test.db, workspace.id)
+    expect(task.autoCompact).toBeNull()
+
+    const on = updateTask(test.db, task.id, { autoCompact: { kind: AutoCompactKind.On, thresholdTokens: 67_000 } })
+    expect(on.autoCompact).toEqual({ kind: AutoCompactKind.On, thresholdTokens: 67_000 })
+    expect(getTask(test.db, task.id)).toEqual(on)
+    expect(updateTask(test.db, task.id, { status: 'Copying.' }).autoCompact).toEqual(on.autoCompact)
+    const off = updateTask(test.db, task.id, { autoCompact: { kind: AutoCompactKind.Off } })
+    expect(getTask(test.db, task.id)?.autoCompact).toEqual({ kind: AutoCompactKind.Off })
+    expect(updateTask(test.db, task.id, { model: off.model }).autoCompact).toEqual({ kind: AutoCompactKind.Off })
+    // It depends on the window, so another model's is unknown until the SDK says.
+    expect(updateTask(test.db, task.id, { model: 'claude-sample-2[1m]' }).autoCompact).toBeNull()
+  })
+
+  it("refuses an auto-compact the schema doesn't hold", () => {
+    const task = sampleTask(test.db, workspace.id)
+    test.db.prepare('UPDATE tasks SET auto_compact = ? WHERE id = ?').run('{"kind":"on"}', task.id)
+    expect(() => getTask(test.db, task.id)).toThrow(/tasks\.auto_compact/)
   })
 
   it('defaults the update time to now', () => {

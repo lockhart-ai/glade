@@ -372,6 +372,7 @@ describe('the tool log', () => {
       preTokens: null,
       postTokens: null,
       windowTokens: 200_000,
+      summary: null,
     } as const
     logEvent({ type: EventType.ToolEventAppended, toolEvent: compaction })
     logEvent({

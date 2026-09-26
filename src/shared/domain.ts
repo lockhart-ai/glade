@@ -147,6 +147,21 @@ export enum PermissionMode {
 /** What a task is called until its agent sets a title: in the task list, the header and its notifications. */
 export const UNTITLED_TASK_TITLE = 'New task'
 
+/** Whether the SDK compacts a task's session on its own (`AutoCompact`). */
+export enum AutoCompactKind {
+  /** It compacts once the context reaches `thresholdTokens`. */
+  On = 'on',
+  /** Auto-compact is switched off in the user's Claude Code settings: only Compact now compacts. */
+  Off = 'off',
+}
+
+/**
+ * Where the SDK compacts a task's session automatically, as it last said (`getContextUsage`, `docs/sdk-notes.md` §5):
+ * which follows the user's own Claude Code settings (`autoCompactWindow`, `autoCompactEnabled`, `DISABLE_AUTO_COMPACT`).
+ */
+export type AutoCompact =
+  { readonly kind: AutoCompactKind.On; readonly thresholdTokens: number } | { readonly kind: AutoCompactKind.Off }
+
 /**
  * One agent session with one objective. There is no separate outcome: when the task is done, its `status` is the
  * outcome.
@@ -188,6 +203,11 @@ export interface Task {
    * `contextWindowFor` (`./contextWindow`) gives for it.
    */
   readonly contextWindowTokens: number
+  /**
+   * Where the SDK compacts the session automatically, as it last said; null until it has (a new task, or one whose
+   * model just changed), when the context meter falls back to `autoCompactThreshold` (`./contextWindow`).
+   */
+  readonly autoCompact: AutoCompact | null
   /** What stopped the agent, while its activity is error; null otherwise. */
   readonly error: TaskError | null
   /** The automatic retry in progress while the agent's API requests fail; null otherwise. */
@@ -371,6 +391,11 @@ export interface CompactionEvent extends ToolEventBase {
   readonly postTokens: number | null
   /** The task's context window when it compacted, so the chat can say how full it was. */
   readonly windowTokens: number
+  /**
+   * What the agent carried over: the summary the compaction wrote (the `PostCompact` hook's `compact_summary`, without
+   * its analysis). Null until it's done, and when the SDK gave none or an empty one.
+   */
+  readonly summary: string | null
 }
 
 /**

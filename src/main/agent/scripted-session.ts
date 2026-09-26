@@ -41,8 +41,8 @@
  *   scripts. A chooser that has none for it kills the session as a `Fail` step would.
  */
 import { randomUUID } from 'node:crypto'
-import { contextWindowFor } from '../../shared/contextWindow'
-import { PermissionMode, type PermissionRule, type ToolInput } from '../../shared/domain'
+import { autoCompactThreshold, contextWindowFor } from '../../shared/contextWindow'
+import { CompactionTrigger, PermissionMode, type PermissionRule, type ToolInput } from '../../shared/domain'
 import { AsyncQueue } from './async-queue'
 import {
   PromptVerdict,
@@ -64,6 +64,7 @@ import {
 } from './runner'
 import { BLOCKED_PROMPT_REASON, NO_ONE_TO_ASK, sdkPermissionMode } from './sdk-backend'
 import {
+  DEFAULT_COMPACT_SUMMARY,
   DEFAULT_COMPACT_TURN,
   ScriptStepKind,
   type AgentScript,
@@ -430,6 +431,26 @@ export class ScriptedSession implements AgentSession {
    * Stops a background subagent by its task id. A foreground subagent in a script plays out whatever happens: there's
    * no stopping one on its own.
    */
+  /**
+   * What the SDK's `getContextUsage` answers (`docs/sdk-notes.md` §5): the script's `contextUsage`, or auto-compact on
+   * at the SDK's default threshold for the session model's window. Rejects once the session is over, as the SDK does,
+   * and when the script says it fails.
+   */
+  contextUsage(): Promise<unknown> {
+    const usage = this.script?.contextUsage
+    if (this.stopped || usage === 'fails') return Promise.reject(new Error('Query closed before response received'))
+    const maxTokens = contextWindowFor(this.model)
+    const compacts = usage ?? { autoCompactThreshold: autoCompactThreshold(maxTokens), isAutoCompactEnabled: true }
+    return Promise.resolve({
+      totalTokens: this.contextTokens,
+      maxTokens,
+      rawMaxTokens: maxTokens,
+      percentage: Math.round((this.contextTokens / maxTokens) * 100),
+      model: this.model,
+      ...compacts,
+    })
+  }
+
   stopTask(sdkTaskId: string): Promise<void> {
     this.running.get(sdkTaskId)?.interrupt()
     const watch = [...this.watches.values()].find(({ taskId }) => taskId === sdkTaskId)
@@ -959,8 +980,9 @@ export class ScriptedSession implements AgentSession {
    */
   private async compact(turn: TurnState, step: CompactStep): Promise<void> {
     const postTokens = step.postTokens ?? Math.round(this.contextTokens / 5)
+    const trigger = step.trigger ?? 'manual'
     const metadata = {
-      trigger: step.trigger ?? 'manual',
+      trigger,
       pre_tokens: this.contextTokens,
       post_tokens: postTokens,
       duration_ms: COMPACT_DURATION_MS,
@@ -969,6 +991,12 @@ export class ScriptedSession implements AgentSession {
     if (step.ms !== undefined) await this.wait(turn, step.ms)
     if (turn.isInterrupted) return
     this.contextTokens = postTokens
+    // The SDK runs the `PostCompact` hook before it says the compaction is done.
+    const summary = step.summary ?? DEFAULT_COMPACT_SUMMARY
+    this.options.session.hooks?.onCompacted({
+      trigger: trigger === 'auto' ? CompactionTrigger.Auto : CompactionTrigger.Manual,
+      summary,
+    })
     this.push({ type: 'system', subtype: 'status', status: null, compact_result: 'success', uuid: randomUUID() })
     this.push({ type: 'system', subtype: 'compact_boundary', compact_metadata: metadata, uuid: randomUUID() })
     this.push({

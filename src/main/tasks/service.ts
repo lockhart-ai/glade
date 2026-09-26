@@ -5,6 +5,7 @@ import { BridgeErrorCode, EventType, type TaskUserPatch } from '../../shared/bri
 import {
   UiStateKey,
   type ApiRetry,
+  type AutoCompact,
   type Effort,
   type EpochMs,
   type PermissionMode,
@@ -50,6 +51,7 @@ export interface RunnerTaskPatch {
   readonly sessionId?: string
   readonly contextUsedTokens?: number
   readonly contextWindowTokens?: number
+  readonly autoCompact?: AutoCompact
   /** Null clears it. */
   readonly error?: TaskError | null
   /** Null clears it. */
@@ -188,8 +190,17 @@ export function updateTaskFromAgent(context: TaskServiceContext, id: string, pat
  */
 export function updateTaskFromRunner(context: TaskServiceContext, id: string, patch: RunnerTaskPatch): Task {
   requireTask(context.db, id)
-  const { activity, sessionId, contextUsedTokens, contextWindowTokens, error, retrying, pause } = patch
-  return write(context, id, { activity, sessionId, contextUsedTokens, contextWindowTokens, error, retrying, pause })
+  const { activity, sessionId, contextUsedTokens, contextWindowTokens, autoCompact, error, retrying, pause } = patch
+  return write(context, id, {
+    activity,
+    sessionId,
+    contextUsedTokens,
+    contextWindowTokens,
+    autoCompact,
+    error,
+    retrying,
+    pause,
+  })
 }
 
 /** Marks a task read or unread. This isn't a change to the task, so its `updatedAt` stays as it is. */

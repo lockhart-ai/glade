@@ -3,6 +3,7 @@ import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
 import {
   AgentErrorKind,
+  AutoCompactKind,
   Effort,
   PauseReason,
   PermissionMode,
@@ -12,6 +13,7 @@ import {
   QuestionSetState,
   TaskState,
   type ApiRetry,
+  type AutoCompact,
   type EpochMs,
   type Task,
   type TaskError,
@@ -55,6 +57,11 @@ export interface TaskPatch {
   readonly contextUsedTokens?: number
   /** The window the SDK reported. Changing the model without one resets it to what the new model's id gives. */
   readonly contextWindowTokens?: number
+  /**
+   * Where the SDK compacts automatically, as it said. Changing the model without one clears it, since it depends on the
+   * model's window.
+   */
+  readonly autoCompact?: AutoCompact
   /** What stopped the agent; null clears it. */
   readonly error?: TaskError | null
   /** The automatic API retry in progress; null clears it. */
@@ -65,7 +72,7 @@ export interface TaskPatch {
 
 const COLUMNS = `id, workspace_id, title, objective, status, status_updated_at, state, activity, pinned, unread, model,
   effort, permission_mode, created_at, updated_at, done_at, session_id, context_used_tokens, context_window_tokens, error,
-  retrying, pause, imported_at, todos`
+  retrying, pause, imported_at, todos, auto_compact`
 
 /** What a task is read with: its columns, and whether it has an open question set or permission request. */
 const SELECTED = `${COLUMNS}, EXISTS (SELECT 1 FROM question_sets WHERE question_sets.task_id = tasks.id
@@ -103,6 +110,11 @@ const taskPauseSchema = z.strictObject({
   checks: count,
   details: z.string(),
 }) satisfies z.ZodType<TaskPause>
+
+const autoCompactSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal(AutoCompactKind.On), thresholdTokens: count }),
+  z.strictObject({ kind: z.literal(AutoCompactKind.Off) }),
+]) satisfies z.ZodType<AutoCompact>
 
 const todoSummarySchema = z.strictObject({
   done: count,
@@ -149,6 +161,7 @@ function parseTask(raw: unknown): Task {
     pause: jsonColumn(row, 'tasks', 'pause', taskPauseSchema),
     importedAt: row.nullableInteger('imported_at'),
     todos: jsonColumn(row, 'tasks', 'todos', todoSummarySchema),
+    autoCompact: jsonColumn(row, 'tasks', 'auto_compact', autoCompactSchema),
   }
 }
 
@@ -167,6 +180,7 @@ function toParams(task: Task): Record<string, string | number | null> {
     retrying: task.retrying === null ? null : JSON.stringify(task.retrying),
     pause: task.pause === null ? null : JSON.stringify(task.pause),
     todos: task.todos === null ? null : JSON.stringify(task.todos),
+    autoCompact: task.autoCompact === null ? null : JSON.stringify(task.autoCompact),
   }
 }
 
@@ -200,11 +214,12 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     pause: null,
     importedAt: input.importedAt ?? null,
     todos: null,
+    autoCompact: null,
   }
   db.prepare(
     `INSERT INTO tasks (${COLUMNS}) VALUES (@id, @workspaceId, @title, @objective, @status, @statusUpdatedAt, @state,
       @activity, @pinned, @unread, @model, @effort, @permissionMode, @createdAt, @updatedAt, @doneAt, @sessionId,
-      @contextUsedTokens, @contextWindowTokens, @error, @retrying, @pause, @importedAt, @todos)`,
+      @contextUsedTokens, @contextWindowTokens, @error, @retrying, @pause, @importedAt, @todos, @autoCompact)`,
   ).run(toParams(task))
   return task
 }
@@ -388,6 +403,7 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
     contextUsedTokens: patch.contextUsedTokens ?? current.contextUsedTokens,
     contextWindowTokens:
       patch.contextWindowTokens ?? (model === current.model ? current.contextWindowTokens : contextWindowFor(model)),
+    autoCompact: patch.autoCompact ?? (model === current.model ? current.autoCompact : null),
     error: patch.error === undefined ? current.error : patch.error,
     retrying: patch.retrying === undefined ? current.retrying : patch.retrying,
     pause: patch.pause === undefined ? current.pause : patch.pause,
@@ -396,7 +412,7 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
     `UPDATE tasks SET title = @title, objective = @objective, status = @status, status_updated_at = @statusUpdatedAt,
       state = @state, activity = @activity, pinned = @pinned, unread = @unread, model = @model, effort = @effort,
       permission_mode = @permissionMode, updated_at = @updatedAt, done_at = @doneAt, session_id = @sessionId, context_used_tokens = @contextUsedTokens,
-      context_window_tokens = @contextWindowTokens, error = @error, retrying = @retrying,
+      context_window_tokens = @contextWindowTokens, auto_compact = @autoCompact, error = @error, retrying = @retrying,
       pause = @pause
     WHERE id = @id`,
   ).run(toParams(updated))

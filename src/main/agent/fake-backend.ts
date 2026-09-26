@@ -9,6 +9,7 @@ import {
   type AgentSession,
   type AgentSessionOptions,
   type AgentSessionSettings,
+  type CompactSummary,
   type SessionJob,
   type ToolPermissionAnswer,
   type ToolPermissionCall,
@@ -98,6 +99,25 @@ export class FakeAgentSession implements AgentSession {
     return this.options.hooks?.onPrompt(prompt) ?? PromptVerdict.Allow
   }
 
+  /** Tells the session's `PostCompact` hook the summary a compaction wrote, as the SDK does before its boundary. */
+  compacted(compaction: CompactSummary): void {
+    this.options.hooks?.onCompacted(compaction)
+  }
+
+  /**
+   * What `contextUsage` answers, as the SDK's `getContextUsage` would. By default it never answers, so a test about
+   * something else sees the task left alone; a test of the threshold sets an answer, or a rejection.
+   */
+  onContextUsage: () => Promise<unknown> = () => new Promise<unknown>(() => undefined)
+
+  /** How many times the runner asked for the context usage. */
+  contextUsageAsked = 0
+
+  contextUsage(): Promise<unknown> {
+    this.contextUsageAsked += 1
+    return this.onContextUsage()
+  }
+
   /** Tells the session's `Stop` hook the jobs it has, as the SDK does as each turn ends. */
   endTurn(jobs: readonly SessionJob[] = []): void {
     this.options.hooks?.onTurnEnded(jobs)
@@ -162,8 +182,12 @@ export class FakeAgentSession implements AgentSession {
 export class FakeAgentBackend implements AgentBackend {
   readonly sessions: FakeAgentSession[] = []
 
+  /** Sets up each session as it starts, before the runner asks anything of it: nothing by default. */
+  onSessionStart: (session: FakeAgentSession) => void = () => undefined
+
   start(options: AgentSessionOptions): FakeAgentSession {
     const session = new FakeAgentSession(options)
+    this.onSessionStart(session)
     this.sessions.push(session)
     return session
   }

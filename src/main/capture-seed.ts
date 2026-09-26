@@ -9,6 +9,7 @@ import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
 import {
   AgentErrorKind,
+  AutoCompactKind,
   CompactionTrigger,
   DividerKind,
   MessageRole,
@@ -24,6 +25,7 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  type AutoCompact,
   type EpochMs,
   type PermissionSuggestion,
   type TaskError,
@@ -116,6 +118,8 @@ export interface SeedCompaction {
   readonly preTokens: number | null
   readonly postTokens: number | null
   readonly windowTokens: number
+  /** What it carried over; none unless given. */
+  readonly summary?: string | undefined
   readonly turn: number
   readonly minutesAgo: number
 }
@@ -171,6 +175,8 @@ export interface SeedTask {
   readonly contextUsedTokens?: number | undefined
   /** The task's context window, in tokens; its model's unless given. */
   readonly contextWindowTokens?: number | undefined
+  /** Where the SDK said it compacts automatically; unknown (its default) unless given. */
+  readonly autoCompact?: AutoCompact | undefined
   /** How long before the capture the task was last updated (and its status set, and it was marked done). */
   readonly minutesAgo: number
   /** How long before the capture the task was created; `minutesAgo` unless given. */
@@ -303,6 +309,7 @@ const seedToolEventSchema: z.ZodType<SeedToolEvent> = z.discriminatedUnion('kind
     preTokens: count.nullable(),
     postTokens: count.nullable(),
     windowTokens: z.int().positive(),
+    summary: z.string().optional(),
     turn,
     minutesAgo,
   }),
@@ -350,6 +357,12 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       unread: z.boolean().optional(),
       contextUsedTokens: z.int().nonnegative().optional(),
       contextWindowTokens: z.int().positive().optional(),
+      autoCompact: z
+        .discriminatedUnion('kind', [
+          z.strictObject({ kind: z.literal(AutoCompactKind.On), thresholdTokens: count }),
+          z.strictObject({ kind: z.literal(AutoCompactKind.Off) }),
+        ])
+        .optional(),
       minutesAgo,
       startedMinutesAgo: minutesAgo.optional(),
       selected: z.boolean().optional(),
@@ -434,9 +447,9 @@ function seedToolEvent(db: Database, taskId: string, event: SeedToolEvent, now: 
       return
     }
     case ToolEventKind.Compaction: {
-      const { trigger, preTokens, postTokens, windowTokens, turn } = event
+      const { trigger, preTokens, postTokens, windowTokens, summary, turn } = event
       const state = event.state ?? ToolCallState.Done
-      appendCompaction(db, { taskId, turn, trigger, state, preTokens, postTokens, windowTokens }, at)
+      appendCompaction(db, { taskId, turn, trigger, state, preTokens, postTokens, windowTokens, summary }, at)
       return
     }
   }
@@ -555,6 +568,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
           unread: sample.unread ?? false,
           contextUsedTokens: sample.contextUsedTokens,
           contextWindowTokens: sample.contextWindowTokens,
+          autoCompact: sample.autoCompact,
           error: sample.error ?? null,
           pause:
             sample.pause === undefined

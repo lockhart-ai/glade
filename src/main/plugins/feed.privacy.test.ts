@@ -305,6 +305,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           preTokens: 1,
           postTokens: 1,
           windowTokens: 1,
+          summary: secret('compact_summary'),
         },
       },
     ],

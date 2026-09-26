@@ -681,6 +681,7 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
     pause: null,
     importedAt: null,
     todos: null,
+    autoCompact: null,
   }
 }
 

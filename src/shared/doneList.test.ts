@@ -40,6 +40,7 @@ function task(id: string, updatedAt: number, change: Partial<Task> = {}): Task {
     pause: null,
     importedAt: null,
     todos: null,
+    autoCompact: null,
     ...change,
   }
 }

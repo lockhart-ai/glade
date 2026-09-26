@@ -47,8 +47,9 @@ export enum ScriptStepKind {
   FillContext = 'fill_context',
   /**
    * Compacts the context, as `/compact` or the SDK's auto-compaction does (`docs/sdk-notes.md`, Compaction): the
-   * compacting status, a `compact_boundary` from the context used so far to `postTokens`, and the summary the session
-   * continues from. Assistant messages report `postTokens` from here on.
+   * compacting status, the `PostCompact` hook told the summary it wrote, a `compact_boundary` from the context used so
+   * far to `postTokens`, and the summary the session continues from. Assistant messages report `postTokens` from here
+   * on.
    */
   Compact = 'compact',
   /**
@@ -184,7 +185,21 @@ export interface CompactStep {
   readonly trigger?: 'manual' | 'auto'
   /** How long it compacts for, in milliseconds, between the compacting status and the boundary: no time by default. */
   readonly ms?: number
+  /**
+   * The summary it writes, as the `PostCompact` hook gives it, `<analysis>` and `<summary>` blocks and all:
+   * `DEFAULT_COMPACT_SUMMARY` by default.
+   */
+  readonly summary?: string
 }
+
+/**
+ * What the session answers `getContextUsage` with (`docs/sdk-notes.md` §5): whether it compacts on its own, and where.
+ * `Fails` rejects, as the SDK does once it can't say.
+ */
+export type ScriptedContextUsage =
+  | { readonly autoCompactThreshold: number; readonly isAutoCompactEnabled: true }
+  | { readonly isAutoCompactEnabled: false }
+  | 'fails'
 
 export interface AskStep {
   readonly kind: ScriptStepKind.Ask
@@ -339,6 +354,11 @@ export interface AgentScript {
    * resumed session starts with these, as scheduled jobs its `Stop` hook lists. None by default.
    */
   readonly restoredJobs?: readonly RestoredJob[]
+  /**
+   * What the session says of its context when asked (`getContextUsage`): by default, auto-compact on, at the SDK's
+   * default threshold for the session model's window, as with no settings of the user's own.
+   */
+  readonly contextUsage?: ScriptedContextUsage
 }
 
 /** A cron job a resumed session has from before (`AgentScript.restoredJobs`), as its `Stop` hook lists it. */
@@ -657,6 +677,28 @@ const longBuild: AgentScript = {
   ],
 }
 
+/**
+ * The summary a compaction writes unless its step gives one, as the `PostCompact` hook gives it: the model's analysis,
+ * then the summary the agent carries on from.
+ */
+export const DEFAULT_COMPACT_SUMMARY = [
+  '<analysis>',
+  'The user asked to move image uploads from local disk to S3. The existing files are copied and spot-checked.',
+  '</analysis>',
+  '',
+  '<summary>',
+  '1. Primary Request and Intent:',
+  '   Move user image uploads from local disk to S3: new uploads go straight to the bucket, and the existing files',
+  '   are copied over with their stored paths updated.',
+  '',
+  '2. Current Work:',
+  '   All 3,900 files are copied, and 50 random ones match byte for byte.',
+  '',
+  '3. Next Step:',
+  '   Update the stored paths in the database, in batches of 500.',
+  '</summary>',
+].join('\n')
+
 /** What a script's agent does when sent `/compact`, unless the script says otherwise: compacts, and ends the turn. */
 export const DEFAULT_COMPACT_TURN: ScriptTurn = [init(), delay(BEAT_MS), compact(), result({ text: '' })]
 
@@ -683,6 +725,23 @@ const longContext: AgentScript = {
   ],
   // Slower than the default, so a recording shows it compacting.
   compactTurn: [init(), delay(BEAT_MS * 4), compact(), result({ text: '' })],
+}
+
+/**
+ * `long-context` for a user whose own Claude Code settings make the SDK compact early (`autoCompactWindow`): it says it
+ * compacts at 600k of the 1M window.
+ */
+const compactsEarly: AgentScript = {
+  ...longContext,
+  name: 'compacts-early',
+  contextUsage: { autoCompactThreshold: 600_000, isAutoCompactEnabled: true },
+}
+
+/** `long-context` for a user who switched auto-compact off in their Claude Code settings. */
+const neverAutoCompacts: AgentScript = {
+  ...longContext,
+  name: 'never-auto-compacts',
+  contextUsage: { isAutoCompactEnabled: false },
 }
 
 /**
@@ -2411,6 +2470,8 @@ export const AGENT_SCRIPT_NAMES = [
   'flaky-api',
   'copy-in-batches',
   'long-context',
+  'compacts-early',
+  'never-auto-compacts',
   'auto-compaction',
   'asks-a-question',
   'asks-many-choices',
@@ -2452,6 +2513,8 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'flaky-api': flakyApi,
   'copy-in-batches': copyInBatches,
   'long-context': longContext,
+  'compacts-early': compactsEarly,
+  'never-auto-compacts': neverAutoCompacts,
   'auto-compaction': autoCompaction,
   'asks-a-question': asksAQuestion,
   'asks-many-choices': asksManyChoices,
