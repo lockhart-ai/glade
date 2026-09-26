@@ -243,13 +243,17 @@ the panel; drag its edge to resize it.
   folder**. They stay after the task is done.
 - **Subagents:** one row per subagent, running ones first, with what it's doing now, how long it's run and its tool
   calls. Click one to open its log; right-click a running one to stop it. A subagent's own tool calls live here, not in
-  Tool calls.
-- **Watchers:** what the agent left running or scheduled to wake itself later: a watch on a command's output (a PR's
-  CI, a deploy's log, whatever script it wrote), a command in the background, a check-back at a set time, or a
-  recurring job. Each row says what it runs, whether it's running, due, or ended and how, what it last reported, and how
-  many times it woke the agent. **Stop** ends a live one. The count on the tab, and an eye with a count on the task's
-  row in the task list, are the live ones, so a task waiting on you, or done, that still watches something shows it. A
-  relaunch ends what was running (a scheduled job comes back when you next message the task).
+  Tool calls, and so does what it left running in the background: an eye with a count on its row while any of it is
+  live, and its rows, each with **Stop**, under its log. That work runs on after the subagent finishes, until it ends;
+  stopping the subagent ends it too ("Ended with its subagent.").
+- **Watchers:** what the task's own agent left running or scheduled to wake itself later: a watch on a command's output
+  (a PR's CI, a deploy's log, whatever script it wrote), a command in the background, a check-back at a set time, or a
+  recurring job. A command the agent waits on isn't one, however long it runs; it's a tool call. Nor is what a subagent
+  started: that's under the subagent in Subagents, and isn't counted here. Each row says what it runs, whether it's
+  running, due, or ended and how, what it last reported, and how many times it woke the agent. **Stop** ends a live
+  one. The count on the tab, and an eye with a count on the task's row in the task list, are the live ones, so a task
+  waiting on you, or done, that still watches something shows it. A relaunch ends what was running (a scheduled job
+  comes back when you next message the task).
 
 ## The terminal
 

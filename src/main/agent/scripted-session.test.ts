@@ -1603,10 +1603,15 @@ describe('ScriptedSession', () => {
       expect(played.raw.filter((message) => message.subtype === 'task_notification')).toEqual([])
 
       await vi.advanceTimersByTimeAsync(100)
-      expect(played.raw.find((message) => message.subtype === 'task_notification')).toMatchObject({
-        status: 'completed',
-        summary: 'An N+1 in load_cart.',
-      })
+      // Its foreground command's task ends, then the subagent.
+      expect(
+        played.raw
+          .filter((message) => message.subtype === 'task_notification')
+          .map(({ status, summary }) => ({ status, summary })),
+      ).toEqual([
+        { status: 'completed', summary: '' },
+        { status: 'completed', summary: 'An N+1 in load_cart.' },
+      ])
       expect(played.events).toContainEqual(expect.objectContaining({ output: '38 queries' }))
       expect(played.raw.at(-1)).toMatchObject({ result: 'The profile is back.' })
     })
