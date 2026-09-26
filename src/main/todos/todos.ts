@@ -11,6 +11,10 @@
  * Only the main agent's calls that succeeded count: a subagent's are its own business, and a call that failed changed
  * nothing. `pending`, `in_progress` and `completed` map to todo, doing and done, and a doing item's `activeForm` ("Copying
  * the files") is its note. Nothing maps to waiting yet. The tool calls stay in the tool log like any others.
+ *
+ * A done item keeps when it was finished (#282): the time of the call that marked it done, i.e. the `TaskUpdate` that
+ * set it completed, or the first of the `TodoWrite`s that has kept it completed since. An item that goes back from
+ * completed loses it. Since it's worked out from the stored tool log, it survives a relaunch like the rest of the list.
  */
 import type { Database } from 'better-sqlite3'
 import {
@@ -50,12 +54,16 @@ const STATES: Readonly<Record<ClaudeTodoStatus, TodoState>> = {
   [ClaudeTodoStatus.Completed]: TodoState.Done,
 }
 
-/** An item as the tools know it: its id (`TaskCreate`'s; null for `TodoWrite`'s), text, status and active form. */
+/**
+ * An item as the tools know it: its id (`TaskCreate`'s; null for `TodoWrite`'s), text, status and active form, and when
+ * the call that marked it completed was made (null while it isn't).
+ */
 interface Item {
   readonly id: string | null
   readonly text: string
   readonly status: ClaudeTodoStatus
   readonly activeForm: string | undefined
+  readonly completedAt: EpochMs | null
 }
 
 /** Whether a call can change the todo list: a finished, successful call of the main agent to a todo tool. */
@@ -63,19 +71,43 @@ export function changesTodos(call: ToolCallEvent): boolean {
   return call.parentToolUseId === null && call.state === ToolCallState.Done && TODO_TOOLS.includes(call.name)
 }
 
-function toTodo({ text, status, activeForm }: Item): Todo {
+function toTodo({ text, status, activeForm, completedAt }: Item): Todo {
   const state = STATES[status]
   const note = state === TodoState.Doing && activeForm !== undefined && activeForm.trim() !== '' ? activeForm : null
-  return { text, state, note }
+  return { text, state, note, completedAt }
 }
 
-function updated(item: Item, { subject, activeForm, status }: TaskUpdateInput): Item {
+/**
+ * When an item with this status was finished, as of a call made at `at`: still `was` for one that was already completed,
+ * `at` for one the call completes, and null for one that isn't completed.
+ */
+function completedAt(status: ClaudeTodoStatus, was: Item | undefined, at: EpochMs): EpochMs | null {
+  if (status !== ClaudeTodoStatus.Completed) return null
+  return was?.status === ClaudeTodoStatus.Completed ? was.completedAt : at
+}
+
+function updated(item: Item, { subject, activeForm, status }: TaskUpdateInput, at: EpochMs): Item {
+  const next = status === undefined || status === DELETED_STATUS ? item.status : status
   return {
     ...item,
     text: subject ?? item.text,
     activeForm: activeForm ?? item.activeForm,
-    status: status === undefined || status === DELETED_STATUS ? item.status : status,
+    status: next,
+    completedAt: completedAt(next, item, at),
   }
+}
+
+/**
+ * `TodoWrite`'s items have no ids, so an item completed in the list before is the one with the same text. Each earlier
+ * item matches one new item at most, in order, so two items with the same text keep their own times.
+ */
+function previouslyCompleted(items: readonly Item[]): (text: string) => Item | undefined {
+  const byText = new Map<string, Item[]>()
+  for (const item of items) {
+    if (item.status !== ClaudeTodoStatus.Completed) continue
+    byText.set(item.text, [...(byText.get(item.text) ?? []), item])
+  }
+  return (text) => byText.get(text)?.shift()
 }
 
 /** The list after one call; null when the call's input doesn't parse, so it changed nothing. */
@@ -84,11 +116,17 @@ function apply(items: readonly Item[], call: ToolCallEvent): readonly Item[] | n
     case TodoTool.TodoWrite: {
       const input = todoWriteInput.safeParse(call.input)
       if (!input.success) return null
+      const before = previouslyCompleted(items)
       return input.data.todos.map(({ content, status, activeForm }) => ({
         id: null,
         text: content,
         status,
         activeForm,
+        completedAt: completedAt(
+          status,
+          status === ClaudeTodoStatus.Completed ? before(content) : undefined,
+          call.createdAt,
+        ),
       }))
     }
     case TodoTool.TaskCreate: {
@@ -100,6 +138,7 @@ function apply(items: readonly Item[], call: ToolCallEvent): readonly Item[] | n
         text: input.data.subject,
         status: ClaudeTodoStatus.Pending,
         activeForm: input.data.activeForm,
+        completedAt: null,
       }
       return [...items.filter((existing) => id === null || existing.id !== id), item]
     }
@@ -108,7 +147,7 @@ function apply(items: readonly Item[], call: ToolCallEvent): readonly Item[] | n
       if (!input.success) return null
       const change = input.data
       if (change.status === DELETED_STATUS) return items.filter(({ id }) => id !== change.taskId)
-      return items.map((item) => (item.id === change.taskId ? updated(item, change) : item))
+      return items.map((item) => (item.id === change.taskId ? updated(item, change, call.createdAt) : item))
     }
   }
 }

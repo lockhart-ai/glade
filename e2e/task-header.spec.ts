@@ -140,7 +140,6 @@ test('task header: the icon buttons are named, have tooltips, and work from the 
   const markDoneBox = await boxOf(header.markDone)
   expect(markDoneBox.width).toBe(30)
   expect(markDoneBox.height).toBe(30)
-  expect(await header.markDone.evaluate((button) => getComputedStyle(button).borderTopStyle)).toBe('solid')
 
   // Tab moves from the pin to Mark done; Enter and Space press them.
   await header.pin.focus()
@@ -162,6 +161,100 @@ test('task header: the icon buttons are named, have tooltips, and work from the 
   await list.taskRow('Move image uploads to S3').click()
   await expect(header.title).toHaveText('Move image uploads to S3')
   await expect(header.markDone).toBeDisabled()
+})
+
+/** An icon button as the page draws it: its chrome, and its icon's style (Font Awesome's prefix) and size. */
+interface ButtonLook {
+  readonly width: number
+  readonly height: number
+  readonly border: string
+  readonly borderRadius: string
+  readonly background: string
+  readonly color: string
+  readonly outline: string
+  readonly opacity: string
+  readonly iconStyle: string | null
+  readonly iconHeight: number
+}
+
+function buttonLook(button: Locator): Promise<ButtonLook> {
+  return button.evaluate((element) => {
+    const style = getComputedStyle(element)
+    const icon = element.querySelector('svg')
+    return {
+      width: element.getBoundingClientRect().width,
+      height: element.getBoundingClientRect().height,
+      border: `${style.borderTopWidth} ${style.borderTopStyle} ${style.borderTopColor}`,
+      borderRadius: style.borderTopLeftRadius,
+      background: style.backgroundColor,
+      color: style.color,
+      outline: `${style.outlineWidth} ${style.outlineStyle} ${style.outlineColor}`,
+      opacity: style.opacity,
+      iconStyle: icon?.getAttribute('data-prefix') ?? null,
+      iconHeight: icon?.getBoundingClientRect().height ?? 0,
+    }
+  })
+}
+
+test('task header: the pin and Mark done look alike in every state (#289)', async ({ launch }) => {
+  const { window } = await launch({ seed: seedPath('header-states.json') })
+  const header = taskHeader(window)
+  const list = taskList(window)
+  await expect(header.title).toHaveText('Add rate limiting to public API')
+  const away = (): Promise<void> => window.mouse.move(0, 0)
+
+  // At rest: one chrome (borderless, 30px square) and one icon style (both solid).
+  await away()
+  const rest = await buttonLook(header.pin)
+  expect(await buttonLook(header.markDone)).toEqual(rest)
+  expect(rest).toMatchObject({ width: 30, height: 30, iconStyle: 'fas', opacity: '1' })
+  expect(rest.border).toBe('1px solid rgba(0, 0, 0, 0)')
+
+  // Hovered, each fills the same way.
+  await header.pin.hover()
+  const hovered = await buttonLook(header.pin)
+  expect(hovered.background).not.toBe(rest.background)
+  await header.markDone.hover()
+  expect(await buttonLook(header.markDone)).toEqual(hovered)
+  await away()
+
+  // Focused from the keyboard, each gets the same ring.
+  await header.pin.focus()
+  await window.keyboard.press('Tab')
+  await expect(header.markDone).toBeFocused()
+  const focused = await buttonLook(header.markDone)
+  expect(focused.outline).not.toBe(rest.outline)
+  await window.keyboard.press('Shift+Tab')
+  await expect(header.pin).toBeFocused()
+  expect(await buttonLook(header.pin)).toEqual(focused)
+  await header.pin.blur()
+
+  // Pinned, the pin alone is pressed: filled and brighter in the same square, so the two states stay apart.
+  await header.pin.click()
+  await away()
+  await header.unpin.blur()
+  const pinned = await buttonLook(header.unpin)
+  expect(pinned.background).not.toBe(rest.background)
+  expect(pinned.color).not.toBe(rest.color)
+  expect(pinned).toMatchObject({ width: rest.width, height: rest.height, borderRadius: rest.borderRadius })
+  expect(await buttonLook(header.markDone)).toEqual(rest)
+  await header.unpin.click()
+  await expect(header.pin).toHaveAttribute('aria-pressed', 'false')
+
+  // While the agent works, Mark done is disabled: faded, in the same chrome.
+  await list.taskRow('Move image uploads to S3').click()
+  await expect(header.markDone).toBeDisabled()
+  await away()
+  const disabled = await buttonLook(header.markDone)
+  expect({ ...disabled, opacity: rest.opacity }).toEqual(rest)
+  expect(Number(disabled.opacity)).toBeLessThan(1)
+
+  // A done task keeps just the pin, drawn the same.
+  await list.sectionHeader('Done').click()
+  await list.taskRow('Investigate slow dashboard query').click()
+  await expect(header.markDone).toHaveCount(0)
+  await away()
+  expect(await buttonLook(header.pin)).toEqual(rest)
 })
 
 /** How far apart two boxes' vertical centres may be and still count as one line. */

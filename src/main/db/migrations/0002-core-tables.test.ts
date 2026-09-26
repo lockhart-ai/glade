@@ -56,7 +56,7 @@ describe('the core tables migration', () => {
     const update = (set: string) => () => test.db.prepare(`UPDATE tasks SET ${set} WHERE id = ?`).run(task.id)
 
     expect(update("state = 'paused'")).toThrow('CHECK constraint failed')
-    expect(update("effort = 'xhigh'")).toThrow('CHECK constraint failed')
+    expect(update("effort = 'extreme'")).toThrow('CHECK constraint failed')
     expect(update('pinned = 2')).toThrow('CHECK constraint failed')
     expect(update("state = 'done'")).toThrow('CHECK constraint failed')
     expect(update('done_at = 1')).toThrow('CHECK constraint failed')

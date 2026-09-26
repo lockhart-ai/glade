@@ -26,7 +26,8 @@ import {
   type ToolEvent,
   type Workspace,
 } from '../../../shared/domain'
-import { MODEL_OPTIONS } from '../../../shared/models'
+import { effortFor, findModel, type ModelChoice } from '../../../shared/models'
+import { listModels } from '../../models/models'
 import { summarizeTurn } from '../../agent/turn-summary'
 import { emitTaskUpdated, type Emit } from '../../bridge/events'
 import { appendMessage } from '../../db/repositories/messages'
@@ -279,16 +280,21 @@ async function transcriptFor(projectsDir: string, ref: ClaudeCodeSessionRef): Pr
   }
 }
 
+/** A full model id without the context size or the date after it: `claude-haiku-4-5-20251001[1m]` → `claude-haiku-4-5`. */
+function baseModel(id: string): string {
+  return id.replace(/\[[^\]]*\]$/, '').replace(/-\d{8}$/, '')
+}
+
 /**
- * The model Glade offers that the transcript's model is, by the id the SDK takes: the same id, or the same one with a
- * date or a context size after it (`claude-haiku-4-5-20251001` is Haiku 4.5). Null when Glade doesn't offer it.
+ * The model among `models` that the transcript's model is, by the id the SDK takes: the one with that id or full id,
+ * else the first that's the same model with or without a date or a context size after it (`claude-haiku-4-5-20251001`
+ * is Haiku 4.5). Null when none is.
  */
-export function offeredModel(model: string): string | null {
-  const base = (id: string): string => id.replace(/\[[^\]]*\]$/, '')
-  const found = MODEL_OPTIONS.find((option) => {
-    if (model === option.id || model === base(option.id)) return true
-    return model.startsWith(`${base(option.id)}-`) && /^-\d{8}(\[[^\]]*\])?$/.test(model.slice(base(option.id).length))
-  })
+export function offeredModel(models: readonly ModelChoice[], model: string): string | null {
+  const base = baseModel(model)
+  const found =
+    findModel(models, model) ??
+    models.find((option) => [option.id, option.resolvedModel].some((id) => id !== null && baseModel(id) === base))
   return found?.id ?? null
 }
 
@@ -406,13 +412,14 @@ async function importSession(
       added = workspace
     }
     const settings = getSettings(db)
-    const model = (transcript.model === null ? null : offeredModel(transcript.model)) ?? settings.defaultModel
+    const models = listModels(db)
+    const model = (transcript.model === null ? null : offeredModel(models, transcript.model)) ?? settings.defaultModel
     const created = createTask(
       db,
       {
         workspaceId: workspace.id,
         model,
-        effort: settings.defaultEffort,
+        effort: effortFor(models, model, settings.defaultEffort),
         permissionMode: settings.defaultPermissionMode,
         title: titleOf(transcript),
         objective: truncate((transcript.firstPrompt ?? '').trim(), OBJECTIVE_LENGTH),

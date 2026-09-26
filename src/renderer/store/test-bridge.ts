@@ -54,6 +54,7 @@ import {
 import { noOpenFiles, withClosedFile, withOpenedFile } from '../../shared/files'
 import { taskPermissionRule } from '../../shared/permissions'
 import type { ImageData, ImageRef } from '../../shared/images'
+import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import { controlUrl, type ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
@@ -116,6 +117,8 @@ export interface FakeMain {
   readonly revealed?: string[]
   /** The settings `settings.get` starts answering with; the defaults when left out. `settings.update` changes them. */
   readonly settings?: Settings
+  /** The models `models.list` answers with; the built-in ones when left out. */
+  readonly models?: readonly ModelChoice[]
   /** What `account.status` answers with: no account read and no warning when left out. */
   readonly accountStatus?: AccountStatus
   /** The task last selected in each workspace, by workspace id, which `workspaces.open` selects; none when left out. */
@@ -499,6 +502,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       return null
     },
     [CommandName.SettingsGet]: () => ({ settings }),
+    [CommandName.ModelsList]: () => ({ models: main.models ?? BUILT_IN_MODELS }),
     [CommandName.SettingsUpdate]: ({ patch }) => {
       settings = { ...settings, ...patch }
       emit({ type: EventType.SettingsChanged, settings })

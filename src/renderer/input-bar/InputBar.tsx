@@ -21,7 +21,7 @@ import {
   type Task,
 } from '../../shared/domain'
 import { WindowCommandId } from '../../shared/commands'
-import { EFFORT_NAMES, MODEL_OPTIONS, modelName } from '../../shared/models'
+import { EFFORT_NAMES, effortFallbackNotice, effortFor, effortsOf, findModel, modelName } from '../../shared/models'
 import { isCommandKey, useCommand, useKeymap } from '../commands/hooks'
 import { MESSAGE_FIELD_PROPS } from '../commands/registry'
 import { Icon, IconSize, Textarea, useToast } from '../components'
@@ -34,12 +34,6 @@ import { Attachments, type Attachment } from './Attachments'
 import { QueueList } from './QueueList'
 import { SettingPicker, type SettingOption } from './SettingPicker'
 import styles from './InputBar.module.css'
-
-/** The effort picker's options, lowest first. */
-const EFFORT_OPTIONS: readonly SettingOption[] = Object.values(Effort).map((effort) => ({
-  id: effort,
-  name: EFFORT_NAMES[effort],
-}))
 
 /** What the permissions picker calls each mode (`docs/decisions.md`, "Per-call permission review"). */
 export const PERMISSION_MODE_NAMES: Readonly<Record<PermissionMode, string>> = {
@@ -196,6 +190,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   const removeQueuedMessage = useGladeStore((state) => state.removeQueuedMessage)
   const queue = useGladeStore((state) => state.queuedMessages[task.id] ?? NO_QUEUE)
   const stopTask = useGladeStore((state) => state.stopTask)
+  const models = useGladeStore((state) => state.models)
   const started = useGladeStore((state) => (state.messages[task.id]?.length ?? 0) > 0)
   const toast = useToast()
   const keymap = useKeymap()
@@ -380,12 +375,28 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     })
   }
 
-  const change = async (setting: string, patch: Parameters<typeof updateTask>[1]): Promise<void> => {
+  /** Changes the task's settings; answers whether they changed. */
+  const change = async (setting: string, patch: Parameters<typeof updateTask>[1]): Promise<boolean> => {
     try {
       await updateTask(task.id, patch)
+      return true
     } catch (error) {
       toast.show({ message: `Couldn’t change the ${setting}: ${describeFailure(error)}` })
+      return false
     }
+  }
+
+  // The task's model as the list has it (a task saved with a full id is on the alias that stands for it), and the
+  // effort levels it supports: none hides the effort picker.
+  const selectedModel = findModel(models, task.model)?.id ?? task.model
+  const efforts = effortsOf(models, task.model)
+
+  /** Changes the model, and the effort with it when the new model doesn't support the task's, saying so. */
+  const changeModel = async (model: string): Promise<void> => {
+    const effort = effortFor(models, model, task.effort)
+    if (!(await change('model', effort === task.effort ? { model } : { model, effort }))) return
+    const notice = effortFallbackNotice(models, model, task.effort, effort)
+    if (notice !== null) toast.show({ message: notice })
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -415,22 +426,24 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
       <div className={styles.settings}>
         <SettingPicker
           label="Model"
-          value={modelName(task.model)}
-          options={MODEL_OPTIONS}
-          selectedId={task.model}
+          value={modelName(models, task.model)}
+          options={models}
+          selectedId={selectedModel}
           onChoose={(model) => {
-            if (model !== task.model) void change('model', { model })
+            if (model !== selectedModel) void changeModel(model)
           }}
         />
-        <SettingPicker
-          label="Effort"
-          value={EFFORT_NAMES[task.effort]}
-          options={EFFORT_OPTIONS}
-          selectedId={task.effort}
-          onChoose={(effort) => {
-            if (isEffort(effort) && effort !== task.effort) void change('effort', { effort })
-          }}
-        />
+        {efforts.length > 0 && (
+          <SettingPicker
+            label="Effort"
+            value={EFFORT_NAMES[task.effort]}
+            options={efforts.map((effort) => ({ id: effort, name: EFFORT_NAMES[effort] }))}
+            selectedId={task.effort}
+            onChoose={(effort) => {
+              if (isEffort(effort) && effort !== task.effort) void change('effort', { effort })
+            }}
+          />
+        )}
         <SettingPicker
           label="Permissions"
           value={PERMISSION_MODE_NAMES[task.permissionMode]}

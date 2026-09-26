@@ -2,8 +2,8 @@ import { TodoState, type EpochMs, type Todo, type TodoList } from '../../shared/
 import { classNames } from '../components/classNames'
 import { ContextMenu, todoMenu, useContextMenu, useMenuCommands, type ContextMenuTargetProps } from '../context-menus'
 import { useGladeStore } from '../store/react'
-import { formatAgo } from '../task-header/headerModel'
-import { progressBar, progressHeading, todoProgress } from './todosModel'
+import { formatAgo, formatFullDate } from '../task-header/headerModel'
+import { orderTodos, progressBar, progressHeading, todoProgress } from './todosModel'
 import styles from './Todos.module.css'
 
 /** What the tab shows while the agent has no list. */
@@ -49,13 +49,29 @@ export function askAboutTodo(todo: Todo): string {
   return `About the todo “${todo.text}”: `
 }
 
+interface FinishedAtProps {
+  readonly at: EpochMs
+  readonly now: EpochMs
+}
+
+/** When a done item was finished: how long ago, with the exact time on hover. */
+function FinishedAt({ at, now }: FinishedAtProps): React.JSX.Element {
+  return (
+    <time className={styles.finished} dateTime={new Date(at).toISOString()} title={formatFullDate(at)}>
+      <span className={styles.hidden}>Finished </span>
+      {formatAgo(at, now)}
+    </time>
+  )
+}
+
 interface TodoItemProps {
   readonly todo: Todo
+  readonly now: EpochMs
   /** What opens its context menu: a right-click, or ⇧F10 while it has the focus. */
   readonly menuTarget: ContextMenuTargetProps
 }
 
-function TodoItem({ todo, menuTarget }: TodoItemProps): React.JSX.Element {
+function TodoItem({ todo, now, menuTarget }: TodoItemProps): React.JSX.Element {
   return (
     <li className={classNames(styles.item, STATE_CLASSES[todo.state])} tabIndex={0} {...menuTarget}>
       <span className={styles.icon} aria-hidden="true">
@@ -66,6 +82,7 @@ function TodoItem({ todo, menuTarget }: TodoItemProps): React.JSX.Element {
         <div className={styles.text}>{todo.text}</div>
         {todo.note !== null && <div className={styles.note}>{todo.note}</div>}
       </div>
+      {todo.state === TodoState.Done && todo.completedAt !== null && <FinishedAt at={todo.completedAt} now={now} />}
     </li>
   )
 }
@@ -79,9 +96,10 @@ export interface TodosProps {
 
 /**
  * The Todos tab (`docs/design/html/09-todos.html`): how many of the agent's todos are done, with a progress bar and when
- * the agent last changed the list, then each item as todo, doing (blue, with its note), done (struck through) or
- * waiting on you (purple). The agent keeps the list; you only read it. An item's context menu copies it, or asks the agent
- * about it.
+ * the agent last changed the list, then each item as todo, doing (blue, with its note), done (struck through, with when
+ * it was finished) or waiting on you (purple). The items come grouped by state: active, then done (the most recently
+ * finished first), then not started (`orderTodos`). The agent keeps the list; you only read it. An item's context menu
+ * copies it, or asks the agent about it.
  */
 export function Todos({ taskId, list, now }: TodosProps): React.JSX.Element {
   const menu = useContextMenu<Todo>()
@@ -120,8 +138,8 @@ export function Todos({ taskId, list, now }: TodosProps): React.JSX.Element {
         <div className={styles.explainer}>{TODOS_EXPLAINER}</div>
       </div>
       <ul className={styles.list} aria-label="Todos">
-        {list.items.map((todo, index) => (
-          <TodoItem key={index} todo={todo} menuTarget={menu.targetProps(todo)} />
+        {orderTodos(list.items).map(({ todo, position }) => (
+          <TodoItem key={position} todo={todo} now={now} menuTarget={menu.targetProps(todo)} />
         ))}
       </ul>
       <ContextMenu label="Todo actions" state={menu} entries={entries} />

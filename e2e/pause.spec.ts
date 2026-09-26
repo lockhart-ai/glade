@@ -83,14 +83,15 @@ test('Switch model moves the paused tasks to another model and resumes them now'
   const { banner, switchModel } = pauseBanner(window)
   await expect(banner).toContainText('1 task is paused and will resume on its own at')
   const bar = inputBar(window)
-  await expect(bar.setting('Model')).toHaveAccessibleName('Model: Opus 5.5')
+  // The session has reported the SDK's models: the task's Opus 5.5 is its default.
+  await expect(bar.setting('Model')).toHaveAccessibleName('Model: Default (recommended)')
 
   await switchModel.click()
-  await window.getByRole('menuitemradio', { name: 'Sonnet 5', exact: true }).click()
+  await window.getByRole('menuitemradio', { name: 'Sonnet', exact: true }).click()
 
   await expect(banner).toHaveCount(0)
   await expect(chat(window).agentReplies).toContainText([FINISHED])
-  await expect(bar.setting('Model')).toHaveAccessibleName('Model: Sonnet 5')
+  await expect(bar.setting('Model')).toHaveAccessibleName('Model: Sonnet')
 })
 
 test('losing the network pauses the task, and it resumes on its own once the network is back', async ({

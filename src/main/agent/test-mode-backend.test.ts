@@ -4,7 +4,7 @@ import type { AgentSessionOptions } from './backend'
 import { delay, init, result, say, waitForInterrupt, wake, type AgentScript } from './scripts'
 import { SCRIPTED_ACCOUNT } from './scripted-session'
 import { GIF, JPEG, PNG } from '../../shared/test-images'
-import { createTestModeAgentBackend, UnscriptedAgentError } from './test-mode-backend'
+import { createTestModeAgentBackend, TEST_MODE_MODELS, UnscriptedAgentError } from './test-mode-backend'
 import { userContent } from './user-content'
 import { LogLevel } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
@@ -67,6 +67,17 @@ describe('createTestModeAgentBackend', () => {
       [{ systemPromptAppend: 'Handoff for this task', resumeSessionId: null }],
       [{ systemPromptAppend: '', resumeSessionId: 'session-1' }],
     ])
+  })
+
+  it('reports the test mode’s models as each session starts, as the SDK backend does', () => {
+    const script: AgentScript = { name: 'test', turns: [[init(), result()]] }
+    const onModels = vi.fn()
+    const backend = createTestModeAgentBackend({ script, onModels })
+
+    backend.start(OPTIONS).close()
+    backend.start({ ...OPTIONS, resumeSessionId: 'session-1' }).close()
+
+    expect(onModels.mock.calls).toEqual([[TEST_MODE_MODELS], [TEST_MODE_MODELS]])
   })
 
   it('fails loudly when a session starts with no script, and logs why', () => {
