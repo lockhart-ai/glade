@@ -17,6 +17,7 @@
     "src/main/logging/format.ts",
     "src/main/logging/logger.ts",
     "src/main/agent/scripts.ts",
+    "src/main/agent/scripted-shell.ts",
     "src/main/control/claude-code/test-transcripts.ts",
     "src/main/agent/user-content.ts",
     "src/main/notifications/notifier.ts",

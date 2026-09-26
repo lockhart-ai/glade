@@ -2332,7 +2332,8 @@ export const MAKES_COMMITS = {
     'mkdir -p src docs scripts',
     "printf 'export const header = (d) => `Report for ${d.toString()}`\\n' > src/date.ts",
     'printf \'{ "name": "acme-api", "version": "2.4.0" }\\n\' > package.json',
-    "printf '# Upgrading\\n\\nRead the release notes first.\\n' > docs/upgrade.md",
+    "printf '# Upgrading\\n\\nRead the release notes first: they list every change that breaks a client.\\n\\n" +
+      "Back up the database before you upgrade.\\n\\nUpgrade the workers before the web servers.\\n' > docs/upgrade.md",
     "printf '#!/bin/sh\\nsed -i.bak s/2.4.0/2.4.1/ package.json && rm package.json.bak\\n" +
       'git commit -qam "Bump the version" > /dev/null\\n\' > scripts/release.sh',
     'chmod +x scripts/release.sh',
