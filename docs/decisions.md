@@ -28,7 +28,9 @@
 - **Two task states:** Active and Done. Done stays chat-able; a message reopens it. No follow-up tasks.
 - **Workspace** = name + root folder, top level. Switcher in the sidebar and the macOS menu bar.
 - **Chat shows final replies only.** Preamble goes to the tool log.
-- **Compaction:** automatic at the SDK's default auto-compact threshold; manual from the context meter or ⌘⇧K.
+- **Compaction:** automatic at the SDK's default auto-compact threshold; manual from the context meter or ⌘⇧K. The
+  meter shows the threshold the SDK reports (`getContextUsage`), which follows the user's own Claude Code settings
+  (#279).
 - **Permissions:** default Allow all. Each task can switch to "Ask before edits and commands" instead (P11, see
   below).
 - **Message queue:** messages sent while the agent works are queued and delivered after its current step. They can be

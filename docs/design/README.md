@@ -25,7 +25,7 @@ illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
 | 16 · Error in a task | Agent stopped after retries; Retry / Retry with another model / Show details. | ![16 · Error in a task](screens/16-error.png) |
 | 17 · Usage limit or offline | App-wide banner; tasks pause and resume on their own. | ![17 · Usage limit or offline](screens/17-usage-limit.png) |
 | 18 · Relaunch after a crash | Mid-turn tasks resume; notice and dividers. | ![18 · Relaunch after a crash](screens/18-relaunch.png) |
-| 19 · Compaction | Context popover at 97%, Compact now. (The "notes saved to CLAUDE.md" line is superseded: Glade doesn't manage notes.) | ![19 · Compaction](screens/19-compaction.png) |
+| 19 · Compaction | Context popover at 97%, Compact now; the tool log's Compact row opened to the summary the agent carried over (#279). The threshold is the one the SDK reports; with auto-compact off the popover shows no marker and says so. (The "notes saved to CLAUDE.md" line and "Change the threshold in Settings" are superseded: Glade doesn't manage notes, and the threshold comes from Claude Code's own settings.) | ![19 · Compaction](screens/19-compaction.png) |
 | 20 · First run | No workspace yet: Open folder / Create a new folder. | ![20 · First run](screens/20-first-run.png) |
 | 21 · Settings | Modal; Agent section shown. | ![21 · Settings](screens/21-settings.png) |
 | 21 · Settings › Plugins | Plugins section: the plugins folder, one row per plugin with its toggle, an invalid one with its reason. | ![21 · Settings › Plugins](screens/21-settings-plugins.png) |
