@@ -113,6 +113,7 @@ function finished(name: string, input: ToolInput, state = ToolCallState.Done, ow
     finishedAt: state === ToolCallState.Running ? null : 2,
     toolUseId: `toolu_${String(toolCalls)}`,
     parentToolUseId: null,
+    progressSummary: null,
   }
   return { type: EventType.ToolEventUpdated, toolEvent }
 }
