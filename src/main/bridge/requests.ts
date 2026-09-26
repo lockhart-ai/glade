@@ -15,6 +15,7 @@ import {
   type ImagesGetRequest,
   type PermissionsAnswerRequest,
   type LogRendererErrorRequest,
+  type MenuBarFitRequest,
   type MenuUpdateRequest,
   type QueueAddRequest,
   type QueueEditRequest,
@@ -51,6 +52,7 @@ import { TaskFilter } from '../../shared/attention'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
 import { Effort, PermissionMode, UiStateKey } from '../../shared/domain'
 import { isWorkspaceRelativePath } from '../../shared/files'
+import { MAX_MENU_BAR_HEIGHT } from '../../shared/menuBar'
 import { hasImageSignature, ImageMediaType, MAX_IMAGE_BASE64_LENGTH, type ImageData } from '../../shared/images'
 import { MAX_TERMINAL_NAME, MAX_TERMINAL_SIZE, MAX_TERMINAL_WRITE } from '../../shared/terminal'
 import { SETTING_SCHEMAS } from '../db/repositories/settings'
@@ -295,6 +297,11 @@ const menuUpdateRequest = z.strictObject({
   keyBindings: SETTING_SCHEMAS.keyBindings,
 }) satisfies z.ZodType<MenuUpdateRequest>
 
+/** The popover's content height: a whole number of CSS pixels, from nothing up to a screen's worth. */
+const menuBarFitRequest = z.strictObject({
+  height: z.number().nonnegative().max(MAX_MENU_BAR_HEIGHT),
+}) satisfies z.ZodType<MenuBarFitRequest>
+
 const rendererErrorText = z.string().max(MAX_RENDERER_ERROR_TEXT)
 
 const logRendererErrorRequest = z.strictObject({
@@ -373,6 +380,12 @@ export const REQUEST_SCHEMAS = {
   [CommandName.MenuUpdate]: menuUpdateRequest,
   [CommandName.WindowClose]: emptyRequest,
   [CommandName.LogRendererError]: logRendererErrorRequest,
+  [CommandName.MenuBarGet]: emptyRequest,
+  [CommandName.MenuBarOpenTask]: taskIdRequest,
+  [CommandName.MenuBarOpenGlade]: emptyRequest,
+  [CommandName.MenuBarHide]: emptyRequest,
+  [CommandName.MenuBarQuit]: emptyRequest,
+  [CommandName.MenuBarFit]: menuBarFitRequest,
 } as const satisfies RequestSchemas
 
 /** A short, readable account of why a request didn't parse: each problem as `field: message`, joined by `; `. */

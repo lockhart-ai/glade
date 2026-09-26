@@ -536,3 +536,29 @@ export function removeWorkspaceDialog(page: Page) {
     confirm: dialog.getByRole('button', { name: 'Remove' }),
   }
 }
+
+/** A section of the menu bar popover, by its heading. */
+export type MenuBarSectionName = 'Needs you' | 'Working' | 'Recent'
+
+/**
+ * The popover under Glade's icon in the menu bar (`docs/design/html/29-menu-bar.html`), in its own window's page (see
+ * `clickMenuBarIcon`): its sections, each row a button that opens its task, and Open Glade and Quit.
+ */
+export function menuBarPopover(page: Page) {
+  const dialog = page.getByRole('dialog', { name: 'Glade' })
+  const section = (name: MenuBarSectionName) => dialog.getByRole('region', { name })
+  return {
+    dialog,
+    section,
+    /** A section's rows, top to bottom. */
+    rows: (name: MenuBarSectionName) => section(name).getByRole('button'),
+    /** A section's row for the task with this title. */
+    row: (name: MenuBarSectionName, title: string) => section(name).getByRole('button').filter({ hasText: title }),
+    /** A working row's todo progress (`3/7`), named `3 of 7 todos done · Now: …`. */
+    todoProgress: (row: Locator) => row.getByRole('img', { name: /todos done/ }),
+    /** What it says with nothing in flight. */
+    empty: dialog.getByText('Nothing in flight'),
+    openGlade: dialog.getByRole('button', { name: 'Open Glade', exact: true }),
+    quit: dialog.getByRole('button', { name: 'Quit', exact: true }),
+  }
+}

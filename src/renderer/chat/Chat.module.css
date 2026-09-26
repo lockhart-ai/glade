@@ -4,26 +4,30 @@
   min-height: 0;
   overflow-y: auto;
   /*
-   * The chat runs up under the floating header card (TaskCard.module.css): its top padding keeps the first message
-   * clear of the header, and its scroll padding keeps a match revealed by search (useRevealMatch) out from under it.
+   * The chat runs under the floating header card and input bar (TaskCard.module.css): its top and bottom padding keep
+   * the first and last messages clear of them, and its scroll padding keeps a match revealed by search (useRevealMatch)
+   * out from under them.
    */
   padding-top: var(--task-header-clearance, 0px);
+  padding-bottom: var(--input-bar-clearance, 0px);
   scroll-padding-top: var(--task-header-clearance, 0px);
+  scroll-padding-bottom: var(--input-bar-clearance, 0px);
   display: flex;
   flex-direction: column;
 }
 
 /*
- * Its scroll track starts below the header card too, so the thumb never slides under the header. Only the track's
- * margin: global.css styles the scroll bar itself.
+ * Its scroll track runs between the header card and the input bar too, so the thumb never slides under either. Only
+ * the track's margins: global.css styles the scroll bar itself.
  */
 .scroller::-webkit-scrollbar-track {
   margin-top: var(--task-header-clearance, 0px);
+  margin-bottom: var(--input-bar-clearance, 0px);
 }
 
 /*
- * The conversation sits at the bottom until it fills the scroller. It runs the column's full width, so the messages
- * line up with the header card and the input bar above and below it.
+ * The conversation sits at the bottom until it fills the scroller. It runs the chat's full width, a little inside the
+ * header card and the input bar above and below it (TaskCard.module.css).
  */
 .thread {
   margin-top: auto;

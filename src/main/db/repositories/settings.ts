@@ -28,6 +28,7 @@ export const SETTING_SCHEMAS: { readonly [K in keyof Settings]: z.ZodType<Settin
   keyBindings: keyBindingsSchema,
   controlEnabled: z.boolean(),
   controlPort: z.int().min(MIN_CONTROL_PORT).max(MAX_CONTROL_PORT),
+  showInMenuBar: z.boolean(),
 }
 
 /** A stored value as its setting, or undefined when it isn't valid JSON of the right shape. */
@@ -67,6 +68,7 @@ export function getSettings(db: Database): Settings {
     keyBindings: read('keyBindings'),
     controlEnabled: read('controlEnabled'),
     controlPort: read('controlPort'),
+    showInMenuBar: read('showInMenuBar'),
   }
 }
 

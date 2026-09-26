@@ -1,4 +1,4 @@
-// The models the SDK offers (migration 31): the list the latest session reported, kept so the pickers offer it before
+// The models the SDK offers (migration 32): the list the latest session reported, kept so the pickers offer it before
 // any session runs, and offline.
 import type { Database } from 'better-sqlite3'
 import { z } from 'zod'

@@ -11,7 +11,7 @@ import { searchTasks } from '../repositories/search'
 import { getTask, updateTask } from '../repositories/tasks'
 import { MIGRATIONS } from '.'
 import { SEARCH_TRIGGERS } from './0016-search-index'
-import { sdkModelsMigration } from './0031-sdk-models'
+import { sdkModelsMigration } from './0032-sdk-models'
 
 let dir: string
 
@@ -35,10 +35,10 @@ function tasksShape(db: Database): unknown {
   }
 }
 
-/** A database at migration 30, with a task at each effort there was then, each with a message. */
+/** A database at migration 31, with a task at each effort there was then, each with a message. */
 function databaseBefore(): Database {
   const db = openDatabase(join(dir, 'glade.db'))
-  migrate(db, MIGRATIONS.slice(0, 30))
+  migrate(db, MIGRATIONS.slice(0, 31))
   db.prepare("INSERT INTO workspaces VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)").run()
   for (const effort of ['low', 'medium', 'high', 'max']) {
     db.prepare(
@@ -50,12 +50,15 @@ function databaseBefore(): Database {
     db.prepare(
       "INSERT INTO messages (id, task_id, seq, role, body, turn, created_at) VALUES (?, ?, 1, 'user', 'Go.', 1, 3)",
     ).run(`m-${effort}`, `t-${effort}`)
+    db.prepare("INSERT INTO notifications (task_id, title, body, sent_at) VALUES (?, 'Move uploads', 'Done.', 4)").run(
+      `t-${effort}`,
+    )
   }
   return db
 }
 
-it('is migration 31, and rebuilds the tasks table with foreign keys off', () => {
-  expect(MIGRATIONS[30]).toBe(sdkModelsMigration)
+it('is migration 32, and rebuilds the tasks table with foreign keys off', () => {
+  expect(MIGRATIONS[31]).toBe(sdkModelsMigration)
   expect(sdkModelsMigration.rebuildsReferencedTable).toBe(true)
 })
 
@@ -102,9 +105,13 @@ it('keeps the columns, indexes and triggers tasks had, and search still follows 
   expect(searchTasks(db, 'w', 'bucket').map(({ taskId }) => taskId)).toEqual(['t-max'])
   // A unique session id still is.
   expect(() => db.prepare("UPDATE tasks SET session_id = 'session-low' WHERE id = 't-max'").run()).toThrow(/UNIQUE/)
-  // Deleting a task still takes its messages with it.
+  // Deleting a task still takes its messages and notifications with it.
+  const notifications = (): unknown =>
+    db.prepare("SELECT COUNT(*) FROM notifications WHERE task_id = 't-medium'").pluck().get()
+  expect(notifications()).toBe(1)
   db.prepare("DELETE FROM tasks WHERE id = 't-medium'").run()
   expect(listMessages(db, 't-medium')).toEqual([])
+  expect(notifications()).toBe(0)
   db.close()
 })
 

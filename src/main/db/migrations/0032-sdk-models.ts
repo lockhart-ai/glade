@@ -11,7 +11,7 @@ import type { Migration } from '../migrate'
  * again (the search triggers, `SEARCH_TRIGGERS`). Every existing task keeps its effort.
  */
 export const sdkModelsMigration: Migration = {
-  version: 31,
+  version: 32,
   name: 'Add the SDK models and the xhigh effort',
   rebuildsReferencedTable: true,
   up(db) {
