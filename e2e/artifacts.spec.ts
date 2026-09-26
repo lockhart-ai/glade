@@ -198,8 +198,19 @@ test('artifacts: date groups that fold and stay folded, thumbnails of images, an
       tasks: [
         {
           title: 'Refresh the developer docs site',
+          objective: 'Refresh docs.acme.dev, sharing screenshots and drafts in Artifacts as you go.',
+          status: 'The landing page screenshot and the changelog draft are in Artifacts.',
           minutesAgo: 4,
           selected: true,
+          messages: [
+            {
+              role: 'user',
+              body: 'Screenshot the new landing page, and draft the changelog page.',
+              turn: 1,
+              minutesAgo: 20,
+            },
+            { role: 'agent', body: 'Both are in Artifacts, under Today.', turn: 1, minutesAgo: 4 },
+          ],
           artifacts: [
             { path: 'screens/gone.png', title: 'Old landing page', minutesAgo: 60 * DAY },
             { path: 'screens/search-mobile.png', title: 'Search results on mobile', minutesAgo: 45 * DAY },
