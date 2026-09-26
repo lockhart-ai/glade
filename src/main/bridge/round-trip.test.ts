@@ -10,10 +10,12 @@ import {
   type GladeBridge,
   type GladeEvent,
 } from '../../shared/bridge'
-import { TaskState, UiStateKey } from '../../shared/domain'
+import { TaskFilter } from '../../shared/attention'
+import { TaskState, ToolCallState, UiStateKey } from '../../shared/domain'
 import { PNG } from '../../shared/test-images'
 import { FakeAgentBackend } from '../agent/fake-backend'
-import { getTask } from '../db/repositories/tasks'
+import { getTask, updateTask } from '../db/repositories/tasks'
+import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
 import { getUiState } from '../db/repositories/ui-state'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { registerBridge } from '.'
@@ -189,5 +191,58 @@ describe('the bridge', () => {
     await expect(glade.invoke('tasks.explode' as CommandName, {})).rejects.toEqual(
       bridgeError(BridgeErrorCode.UnknownCommand, 'Unknown command tasks.explode'),
     )
+  })
+})
+
+describe('a database from before todo summaries', () => {
+  it('works out the summaries of the tasks that kept a list before the window lists them, active or done', async () => {
+    const old = openTestDatabase()
+    const { db } = old
+    const workspace = sampleWorkspace(db)
+    const active = sampleTask(db, workspace.id)
+    const done = sampleTask(db, workspace.id)
+    updateTask(db, done.id, { state: TaskState.Done })
+    for (const [taskId, status] of [
+      [active.id, 'in_progress'],
+      [done.id, 'completed'],
+    ] as const) {
+      appendToolCall(db, {
+        taskId,
+        turn: 1,
+        name: 'TodoWrite',
+        input: { todos: [{ content: 'Copy the files', status }] },
+        toolUseId: `toolu_${taskId}`,
+        parentToolUseId: null,
+      })
+      updateToolCall(db, { taskId, toolUseId: `toolu_${taskId}`, state: ToolCallState.Done, output: 'ok' })
+    }
+    // As migration 29 leaves them.
+    db.prepare('UPDATE tasks SET todos_stale = 1').run()
+
+    const ipc = fakeIpcPair()
+    registerBridge({
+      ipc: ipc.main,
+      db,
+      targets: () => [ipc.window],
+      chooseFolder,
+      openPath: () => Promise.resolve(''),
+      revealPath: () => undefined,
+      writeClipboard: () => Promise.resolve(),
+      terminal: fakeTerminalOptions(),
+      pluginsFolder: UNREAD_PLUGINS_FOLDER,
+      agentBackend: new FakeAgentBackend(),
+    })
+    const window = createBridge(ipc.renderer)
+
+    const { tasks } = await window.invoke(CommandName.TasksListActive, { workspaceId: workspace.id })
+    expect(tasks.map(({ todos }) => todos)).toEqual([{ done: 0, total: 1, doing: ['Copy the files'] }])
+    const page = await window.invoke(CommandName.TasksListDone, {
+      workspaceId: workspace.id,
+      filter: TaskFilter.All,
+      after: null,
+      limit: 10,
+    })
+    expect(page.tasks.map(({ todos }) => todos)).toEqual([{ done: 1, total: 1, doing: [] }])
+    old.close()
   })
 })

@@ -1,7 +1,7 @@
 import { resolve } from 'node:path'
 import type { Locator } from '@playwright/test'
 import { expect, test } from './fixtures'
-import { chat, inputBar, regions, taskList, taskPanel } from './selectors'
+import { chat, inputBar, panelToggles, regions, taskList, taskPanel, workspaceSwitcher } from './selectors'
 import { boxOf, MIN_WINDOW, resize, type Box } from './window-layout'
 
 /** The design's sample workspace (scripts/fixtures/task-workspace.json): pinned, active and done tasks, one selected. */
@@ -36,6 +36,22 @@ async function borderedBox(locator: Locator): Promise<Box> {
     if (around === null) throw new Error('Nothing around the element draws a border')
     const { x, y, width, height } = around.getBoundingClientRect()
     return { x, y, width, height }
+  })
+}
+
+/**
+ * Where an icon's glyph is drawn: the box of what its paths paint, not of the icon's `<svg>`, whose viewBox leaves room
+ * around the glyph.
+ */
+async function glyphBox(icon: Locator): Promise<Box> {
+  return icon.evaluate((svg) => {
+    const painted = [...svg.querySelectorAll('path')].map((path) => path.getBoundingClientRect())
+    if (painted.length === 0) throw new Error('The icon draws no paths')
+    const left = Math.min(...painted.map((rect) => rect.left))
+    const top = Math.min(...painted.map((rect) => rect.top))
+    const right = Math.max(...painted.map((rect) => rect.right))
+    const bottom = Math.max(...painted.map((rect) => rect.bottom))
+    return { x: left, y: top, width: right - left, height: bottom - top }
   })
 }
 
@@ -98,11 +114,10 @@ for (const size of [{ width: 1920, height: 1200 }, MIN_WINDOW]) {
     const call = await boxOf(taskPanel(window).log.getByRole('button').first())
     expectNear(call.x, await contentLeft(taskPanel(window).tab(/^Tool calls/)), 'tool call and tab label')
 
-    // The sidebar: the workspace button, the search field, the filter chips, the section headers and the task rows
-    // share one left edge, the panel inset in from the card, and one inner padding, so their content lines up too.
+    // The sidebar: the search field, the filter chips, the section headers and the task rows share one left edge, the
+    // panel inset in from the card, and one inner padding, so their content lines up too.
     const sidebar = await boxOf(areas.sidebar)
     const items: Record<string, Locator> = {
-      'workspace button': areas.workspace.getByRole('button').first(),
       'search field': list.search.locator('xpath=..'),
       'first filter chip': list.filter('All'),
       'Pinned header': list.sectionHeader('Pinned'),
@@ -138,5 +153,26 @@ for (const size of [{ width: 1920, height: 1200 }, MIN_WINDOW]) {
     expectNear((await boxOf(list.dot(list.rows('Active').first()))).x, content, 'task row dot')
     expectNear((await boxOf(list.sectionHeader('Active').locator('svg'))).x, content, 'section chevron')
     expectNear((await boxOf(list.search.locator('xpath=..').locator('svg'))).x, content, 'search icon')
+
+    // The sidebar header's visible content sits on those same edges (#253): the workspace's badge starts where the
+    // search field and the chips do, and the collapse button's icon, as drawn, ends where New task does. The buttons
+    // around them draw nothing until hovered, so it's the badge and the glyph that have to line up, not the boxes.
+    const switcher = workspaceSwitcher(window).trigger
+    const badge = await boxOf(switcher.locator('[data-tone]'))
+    expectNear(badge.x, left, 'workspace badge, left edge')
+    expectNear(badge.x, (await boxOf(list.filter('All'))).x, 'workspace badge and first filter chip, left edge')
+    const collapse = panelToggles(window).collapseTaskList
+    const glyph = await glyphBox(collapse.locator('svg'))
+    expectNear(glyph.x + glyph.width, right, 'collapse icon, right edge')
+    const newTask = await boxOf(list.newTask)
+    expectNear(glyph.x + glyph.width, newTask.x + newTask.width, 'collapse icon and New task, right edge')
+    // Their hover boxes still fit inside the sidebar card, clear of its border.
+    const cardBox = await borderedBox(switcher)
+    const cardLeft = cardBox.x + BORDER
+    const cardRight = cardBox.x + cardBox.width - BORDER
+    const switcherBox = await boxOf(switcher)
+    const collapseBox = await boxOf(collapse)
+    expect(switcherBox.x, 'workspace button inside the card').toBeGreaterThan(cardLeft)
+    expect(collapseBox.x + collapseBox.width, 'collapse button inside the card').toBeLessThan(cardRight)
   })
 }

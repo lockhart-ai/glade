@@ -147,13 +147,226 @@
       "title": "Move image uploads to S3",
       "status": "Copying existing files, 1,240 of 3,900",
       "activity": "working",
-      "minutesAgo": 0
+      "minutesAgo": 0,
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "Find how uploads are stored today",
+            "description": "Find how uploads are stored today",
+            "activeForm": "Finding how uploads are stored"
+          },
+          "output": "Task #1 created successfully: Find how uploads are stored today",
+          "turn": 1,
+          "minutesAgo": 20
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "Add an S3 backend for media files",
+            "description": "Add an S3 backend for media files",
+            "activeForm": "Adding an S3 backend"
+          },
+          "output": "Task #2 created successfully: Add an S3 backend for media files",
+          "turn": 1,
+          "minutesAgo": 20
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "Check new uploads land in the bucket",
+            "description": "Check new uploads land in the bucket",
+            "activeForm": "Checking new uploads"
+          },
+          "output": "Task #3 created successfully: Check new uploads land in the bucket",
+          "turn": 1,
+          "minutesAgo": 20
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "Copy the 3,900 existing files",
+            "description": "Copy the 3,900 existing files",
+            "activeForm": "Copying the existing files"
+          },
+          "output": "Task #4 created successfully: Copy the 3,900 existing files",
+          "turn": 1,
+          "minutesAgo": 20
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "Spot-check a sample of copied files",
+            "description": "Spot-check a sample of copied files",
+            "activeForm": "Spot-checking copied files"
+          },
+          "output": "Task #5 created successfully: Spot-check a sample of copied files",
+          "turn": 1,
+          "minutesAgo": 20
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "Update stored paths in the database",
+            "description": "Update stored paths in the database",
+            "activeForm": "Updating stored paths"
+          },
+          "output": "Task #6 created successfully: Update stored paths in the database",
+          "turn": 1,
+          "minutesAgo": 20
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskCreate",
+          "input": {
+            "subject": "Delete local copies",
+            "description": "Delete local copies",
+            "activeForm": "Deleting local copies"
+          },
+          "output": "Task #7 created successfully: Delete local copies",
+          "turn": 1,
+          "minutesAgo": 20
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "1",
+            "status": "in_progress"
+          },
+          "output": "Updated task #1 status",
+          "turn": 1,
+          "minutesAgo": 20
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "1",
+            "status": "completed"
+          },
+          "output": "Updated task #1 status",
+          "turn": 1,
+          "minutesAgo": 19
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "2",
+            "status": "in_progress"
+          },
+          "output": "Updated task #2 status",
+          "turn": 1,
+          "minutesAgo": 19
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "2",
+            "status": "completed"
+          },
+          "output": "Updated task #2 status",
+          "turn": 1,
+          "minutesAgo": 17
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "3",
+            "status": "in_progress"
+          },
+          "output": "Updated task #3 status",
+          "turn": 1,
+          "minutesAgo": 12
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "3",
+            "status": "completed"
+          },
+          "output": "Updated task #3 status",
+          "turn": 1,
+          "minutesAgo": 9
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "4",
+            "status": "in_progress"
+          },
+          "output": "Updated task #4 status",
+          "turn": 1,
+          "minutesAgo": 8
+        },
+        {
+          "kind": "tool_call",
+          "name": "TaskUpdate",
+          "input": {
+            "taskId": "4",
+            "status": "in_progress",
+            "activeForm": "In progress · 1,240 of 3,900"
+          },
+          "output": "Updated task #4 status",
+          "turn": 1,
+          "minutesAgo": 0
+        }
+      ]
     },
     {
       "title": "Fix flaky login test",
       "status": "Found the race; fix passes 200 local runs",
       "activity": "working",
-      "minutesAgo": 9
+      "minutesAgo": 9,
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "TodoWrite",
+          "input": {
+            "todos": [
+              {
+                "content": "Reproduce the failure locally",
+                "status": "completed",
+                "activeForm": "Reproducing the failure"
+              },
+              {
+                "content": "Find the race in the session setup",
+                "status": "completed",
+                "activeForm": "Finding the race"
+              },
+              {
+                "content": "Wait for the session before logging in",
+                "status": "completed",
+                "activeForm": "Fixing the wait"
+              },
+              {
+                "content": "Run the test 200 times",
+                "status": "completed",
+                "activeForm": "Running the test 200 times"
+              },
+              {
+                "content": "Write up the cause",
+                "status": "completed",
+                "activeForm": "Writing up the cause"
+              }
+            ]
+          },
+          "output": "Todos have been modified successfully.",
+          "turn": 1,
+          "minutesAgo": 10
+        }
+      ]
     },
     {
       "title": "Upgrade to Django 5.2",

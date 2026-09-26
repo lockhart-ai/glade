@@ -37,12 +37,14 @@ There are no follow-up tasks. One task can refer to another through its folder o
 
 - **Left sidebar** — workspace switcher, search, New task (+), filter chips (All · Needs you · Unread), and the task
   list in three collapsible sections: Pinned, Active, Done. Each row shows a state dot, title, a one-line status and a
-  relative time. Unread rows are bold with a blue dot. Resizable, collapsible.
+  relative time; while the agent keeps a todo list, the status ends with its progress (a ring and `3/7`, a check once
+  all are done, the item in progress as its tooltip). Unread rows are bold with a blue dot. Resizable, collapsible.
 - **Task card** (centre) — a header card (state dot, title, age, pin toggle, Mark done, goal and status) floating above
   the chat, and the input bar at the bottom. The input bar has model, effort and permissions pickers and a context
   meter at the right. Each task keeps its unsent draft, text and pasted images, while you're on another task and
   across a relaunch or a crash, until it's sent.
 - **Right panel** (inside the task card) — tabs: Tool calls, Files, Todos, Artifacts, Subagents. Resizable, collapsible.
+  Too narrow for its tabs, the tab row scrolls sideways, with chevrons at the ends that have more tabs past them.
 - **Bottom bar** (full width) — a global terminal with tabs, and a plugin panel (Nekomata). Resizable, collapsible.
 
 Each resizable panel has a drag handle in the gap on its inner edge. Dragging it takes room from the chat or gives it

@@ -3,8 +3,22 @@
   flex-grow: 1;
   min-height: 0;
   overflow-y: auto;
+  /*
+   * The chat runs up under the floating header card (TaskCard.module.css): its top padding keeps the first message
+   * clear of the header, and its scroll padding keeps a match revealed by search (useRevealMatch) out from under it.
+   */
+  padding-top: var(--task-header-clearance, 0px);
+  scroll-padding-top: var(--task-header-clearance, 0px);
   display: flex;
   flex-direction: column;
+}
+
+/*
+ * Its scroll track starts below the header card too, so the thumb never slides under the header. Only the track's
+ * margin: global.css styles the scroll bar itself.
+ */
+.scroller::-webkit-scrollbar-track {
+  margin-top: var(--task-header-clearance, 0px);
 }
 
 /*
@@ -189,6 +203,39 @@
 
 .dots > span:nth-child(3) {
   background: #2b4579;
+}
+
+/*
+ * With motion on, the design's still frame (a bright dot trailing two dimmer ones) becomes a calm, staggered pulse: each
+ * dot fades up and back down in turn, one --motion-duration after the one before. With Reduce motion on this block
+ * doesn't apply, so the dots hold still in the design's frame above.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  /* `:nth-child(n)` matches every dot, and outranks the still frame's per-dot colours above. */
+  .dots > span:nth-child(n) {
+    background: var(--color-blue);
+    animation: working-pulse calc(var(--motion-duration) * 7) var(--motion-ease) infinite both;
+  }
+
+  .dots > span:nth-child(2) {
+    animation-delay: var(--motion-duration);
+  }
+
+  .dots > span:nth-child(3) {
+    animation-delay: calc(var(--motion-duration) * 2);
+  }
+}
+
+/* Dim, then up to full and back: the dimmest the design's third dot is, the brightest its first. */
+@keyframes working-pulse {
+  0%,
+  100% {
+    opacity: 0.33;
+  }
+
+  30% {
+    opacity: 1;
+  }
 }
 
 .workingText {

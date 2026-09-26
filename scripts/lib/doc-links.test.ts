@@ -44,7 +44,8 @@ describe('the images in docs/images/', () => {
 
   it.each(images)('%s is at most 300 KB, and a doc shows it', (path) => {
     expect(statSync(join(folder, path)).size).toBeLessThanOrEqual(MAX_IMAGE_BYTES)
-    expect(docs).toContain(`images/${path})`)
+    // Shown by a Markdown image, `![…](…/images/x.png)`, or an HTML one, `<img src="…/images/x.png">`.
+    expect([`images/${path})`, `images/${path}"`].some((reference) => docs.includes(reference))).toBe(true)
   })
 })
 

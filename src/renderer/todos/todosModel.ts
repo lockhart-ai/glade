@@ -1,23 +1,7 @@
 /** What the Todos tab shows, worked out from a task's todo list: the progress, its heading and its bar. */
-import { TodoState, type TodoList } from '../../shared/domain'
+import type { TodoProgress } from '../../shared/todoSummary'
 
-/** How far through its list the agent is: the tab's `3/7`. */
-export interface TodoProgress {
-  readonly done: number
-  readonly total: number
-  /** Items being worked on now. */
-  readonly doing: number
-}
-
-/** The list's progress; none of none when there's no list. */
-export function todoProgress(list: TodoList | null | undefined): TodoProgress {
-  const items = list?.items ?? []
-  return {
-    done: items.filter(({ state }) => state === TodoState.Done).length,
-    doing: items.filter(({ state }) => state === TodoState.Doing).length,
-    total: items.length,
-  }
-}
+export { todoProgress, type TodoProgress } from '../../shared/todoSummary'
 
 /** The tab's heading: `3 of 7 done`. */
 export function progressHeading({ done, total }: TodoProgress): string {

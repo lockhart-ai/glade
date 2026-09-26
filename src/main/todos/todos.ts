@@ -17,10 +17,13 @@ import {
   TodoState,
   ToolCallState,
   type EpochMs,
+  type Task,
   type Todo,
   type TodoList,
   type ToolCallEvent,
 } from '../../shared/domain'
+import { sameTodoSummary, summarizeTodos } from '../../shared/todoSummary'
+import { getTask, listStaleTodoTaskIds, setTaskTodos } from '../db/repositories/tasks'
 import { listToolCallsNamed } from '../db/repositories/tool-events'
 import {
   ClaudeTodoStatus,
@@ -129,4 +132,37 @@ export function deriveTodoList(calls: readonly ToolCallEvent[]): TodoList | null
 /** A task's todo list, as its tool log leaves it. */
 export function todoListFor(db: Database, taskId: string): TodoList | null {
   return deriveTodoList(listToolCallsNamed(db, taskId, TODO_TOOLS))
+}
+
+/** A task's todo list worked out again (`refreshTodos`). */
+export interface RefreshedTodos {
+  /** The list, for the Todos tab. */
+  readonly list: TodoList | null
+  /** The task with its new todo summary, when the summary changed, to tell the windows; null when it didn't. */
+  readonly changed: Task | null
+}
+
+/**
+ * Works a task's todo list out from its tool log and keeps its summary on the task, for its row in the task list. Run
+ * whenever a call that can change the list is logged or finishes, so the row keeps up with the Todos tab.
+ */
+export function refreshTodos(db: Database, taskId: string): RefreshedTodos {
+  const list = todoListFor(db, taskId)
+  const todos = summarizeTodos(list)
+  const task = getTask(db, taskId)
+  if (task === undefined) return { list, changed: null }
+  setTaskTodos(db, taskId, todos)
+  return { list, changed: sameTodoSummary(task.todos, todos) ? null : { ...task, todos } }
+}
+
+/**
+ * Works out the todo summaries marked stale: the tasks that kept a todo list before Glade kept summaries (migration 29).
+ * Run once main has the database, before the window lists any task. Answers how many it worked out.
+ */
+export function refreshStaleTodos(db: Database): number {
+  return db.transaction(() => {
+    const ids = listStaleTodoTaskIds(db)
+    for (const id of ids) refreshTodos(db, id)
+    return ids.length
+  })()
 }

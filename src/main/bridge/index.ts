@@ -29,6 +29,7 @@ import { REQUEST_SCHEMAS } from './requests'
 import type { SpawnPty } from '../terminal/pty'
 import type { TerminalShell } from '../terminal/shell'
 import { createTerminals, type Terminals } from '../terminal/terminals'
+import { refreshStaleTodos } from '../todos/todos'
 
 /** The part of Electron's `ipcMain` the bridge uses, so tests can stand in a fake. */
 export interface MainIpc {
@@ -146,6 +147,9 @@ export function registerBridge({
   claudeProjectsDir,
 }: BridgeOptions): RegisteredBridge {
   const broadcast = createBroadcast(EVENT_CHANNEL, targets)
+  // Tasks that kept a todo list before Glade kept its summary get theirs before any window lists them.
+  const refreshed = refreshStaleTodos(db)
+  if (refreshed > 0) log.info('worked out todo summaries', { tasks: refreshed })
   const tasks = allTasks(db)
   // Every event is logged on its way to the windows: it's how a task's changes reach the log. The plugin feed sees each
   // too, and passes on what a plugin may know of it.

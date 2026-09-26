@@ -92,6 +92,21 @@ And the insets that keep things on shared lines:
   Toasts `0 12px 32px rgba(0,0,0,.45)`.
 - Touch targets at least 28px in dense areas, 44px for the send button.
 
+## Scroll bars
+
+Every scroll bar is a thin rounded thumb on a transparent track, the same with macOS's overlay scroll bars (a trackpad)
+or its always-on ones (a mouse, or "Show scroll bars: Always"). They're styled once, in `global.css`; the terminal's
+(xterm.js draws its own) takes the same colours and shape.
+
+| Token | Value | Use |
+|---|---|---|
+| `scrollbar-size` | 10px | The room the bar takes, across it |
+| `scrollbar-inset` | 2px | The gap between the thumb and the bar's edges: a 6px thumb, fully rounded |
+| `scrollbar-thumb-min` | 32px | The shortest the thumb gets |
+| `scrollbar-thumb` | `strong` | The thumb |
+| `scrollbar-thumb-hover` | `slate` | The thumb under the pointer |
+| `scrollbar-thumb-active` | `faint` | The thumb while it's dragged |
+
 ## Motion
 
 State changes animate rather than jump: short, calm, easing out. Animate opacity, `transform` (or `translate` and
@@ -110,7 +125,10 @@ State changes animate rather than jump: short, calm, easing out. Animate opacity
 - Toasts rise 8px and fade in, and fade out. The question card rises and fades in when the agent asks, and cross-fades
   to its answered state. Menus and popovers fade in from 97% scale; they close at once.
 - Things that are already on screen when a window or task opens don't animate in.
-- **Reduce motion** (macOS, `prefers-reduced-motion`): both durations are 0, so every change is instant.
+- The working line's three dots pulse in turn while the agent works: each fades from 33% up to full and back over
+  7 × `motion-duration`, one `motion-duration` behind the dot before it. It's the one thing that moves on its own.
+- **Reduce motion** (macOS, `prefers-reduced-motion`): both durations are 0, so every change is instant, and the
+  working dots hold still in the design's frame.
 
 The exact markup for every screen is in `html/` — open a file to read the CSS values. After changing one, re-render
 its PNG in `screens/` with `npm run render-design -- <name>` (e.g. `task-workspace`; no names renders them all). It

@@ -382,6 +382,19 @@ describe('opening a result scrolls the chat to the first match', () => {
     vi.restoreAllMocks()
   })
 
+  it('when it’s under the header card, which floats over the top of the chat (its scroll padding)', async () => {
+    const scrollIntoView = layout(30)
+    await renderApp()
+    screen.getByRole('log', { name: 'Conversation' }).style.setProperty('scroll-padding-top', '80px')
+
+    await openFirstResult()
+
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ behavior: 'smooth', block: 'center' })
+    })
+    vi.restoreAllMocks()
+  })
+
   it('not at all when it’s in view, or when the chat has no match', async () => {
     const scrollIntoView = layout(100)
     const { store } = await renderApp()

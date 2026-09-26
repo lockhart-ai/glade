@@ -3,7 +3,7 @@
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import { colors } from '../tokens'
+import { colors, scrollbarTokens } from '../tokens'
 
 /** A terminal's size, in character cells. */
 export interface ScreenSize {
@@ -66,6 +66,10 @@ export function createTerminalScreen(isAppKey: (event: KeyboardEvent) => boolean
       white: colors['--color-muted'],
       brightWhite: colors['--color-text'],
       brightBlack: colors['--color-faint'],
+      // Its scroll bar's thumb, as every other scroll bar's (global.css); Terminal.module.css gives it their shape.
+      scrollbarSliderBackground: colors[scrollbarTokens.thumb],
+      scrollbarSliderHoverBackground: colors[scrollbarTokens.thumbHover],
+      scrollbarSliderActiveBackground: colors[scrollbarTokens.thumbActive],
     },
   })
   const fitAddon = new FitAddon()
