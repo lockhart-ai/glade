@@ -1,6 +1,7 @@
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, CommandName, EventType, type CommandRequest, type CommandResponse } from '../../shared/bridge'
 import type { MenuState } from '../../shared/commands'
+import { SUBAGENT_TOOL_NAMES } from '../../shared/subagents'
 import type { AgentRunner } from '../agent/runner'
 import { listArtifacts } from '../db/repositories/artifacts'
 import { listLiveWatchers, listWatchers, publicWatcher } from '../db/repositories/watchers'
@@ -14,7 +15,7 @@ import { listQuestionSets } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { searchTasks } from '../db/repositories/search'
 import { countDoneTasks, getTasks, listActiveTasks, listDoneTasks, listTasks } from '../db/repositories/tasks'
-import { listToolEvents } from '../db/repositories/tool-events'
+import { listRunningToolCallsNamed, listToolEvents } from '../db/repositories/tool-events'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
 import { getSettings, updateSettings } from '../db/repositories/settings'
 import { getWorkspace, listWorkspaces } from '../db/repositories/workspaces'
@@ -153,6 +154,7 @@ export function createHandlers(context: HandlerContext): Handlers {
       await runner.stopSubagent(taskId, toolUseId)
       return null
     },
+    [CommandName.SubagentsListRunning]: () => ({ calls: listRunningToolCallsNamed(db, SUBAGENT_TOOL_NAMES) }),
     [CommandName.WatchersListLive]: () => ({ watchers: listLiveWatchers(db).map(publicWatcher) }),
     [CommandName.WatchersStop]: async ({ taskId, id }) => {
       await runner.stopWatcher(taskId, id)

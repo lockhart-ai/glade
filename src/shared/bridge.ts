@@ -26,6 +26,7 @@ import type {
   QueuedMessage,
   Task,
   TodoList,
+  ToolCallEvent,
   ToolEvent,
   UiStateEntry,
   UiStateKey,
@@ -74,6 +75,7 @@ export enum CommandName {
   TasksRetry = 'tasks.retry',
   TasksCompact = 'tasks.compact',
   SubagentsStop = 'subagents.stop',
+  SubagentsListRunning = 'subagents.listRunning',
   WatchersListLive = 'watchers.listLive',
   WatchersStop = 'watchers.stop',
   TasksHistory = 'tasks.history',
@@ -375,6 +377,14 @@ export interface SubagentsStopRequest {
   readonly taskId: string
   /** The `tool_use` id of the `Agent` call that started the subagent. */
   readonly toolUseId: string
+}
+
+/**
+ * Every task's running subagents: the `Agent` calls still running, nested ones included, by task and then in the order
+ * they were made. What the task list's subagent counts show for tasks whose logs aren't loaded.
+ */
+export interface SubagentsListRunningResponse {
+  readonly calls: readonly ToolCallEvent[]
 }
 
 /**
@@ -856,6 +866,7 @@ export interface CommandMap {
   [CommandName.TasksRetry]: CommandSpec<TasksRetryRequest, TaskResponse>
   [CommandName.TasksCompact]: CommandSpec<TasksCompactRequest, TaskResponse>
   [CommandName.SubagentsStop]: CommandSpec<SubagentsStopRequest, null>
+  [CommandName.SubagentsListRunning]: CommandSpec<EmptyRequest, SubagentsListRunningResponse>
   [CommandName.WatchersListLive]: CommandSpec<EmptyRequest, WatchersListLiveResponse>
   [CommandName.WatchersStop]: CommandSpec<WatchersStopRequest, null>
   [CommandName.TasksHistory]: CommandSpec<TaskIdRequest, TasksHistoryResponse>

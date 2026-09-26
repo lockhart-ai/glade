@@ -1,0 +1,472 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "tasks": [
+    {
+      "title": "Draft release notes for 2.4",
+      "status": "Three subagents are sorting the 41 PRs by area",
+      "pinned": true,
+      "activity": "working",
+      "minutesAgo": 0,
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "TodoWrite",
+          "input": {
+            "todos": [
+              {
+                "content": "List the PRs merged since 2.3",
+                "activeForm": "List the PRs merged since 2.3",
+                "status": "completed"
+              },
+              {
+                "content": "Sort them into features, fixes and internal",
+                "activeForm": "Sort them into features, fixes and internal",
+                "status": "completed"
+              },
+              {
+                "content": "Write the upgrade guide",
+                "activeForm": "Write the upgrade guide",
+                "status": "in_progress"
+              },
+              {
+                "content": "Check every link",
+                "activeForm": "Check every link",
+                "status": "pending"
+              },
+              {
+                "content": "Draft the announcement",
+                "activeForm": "Draft the announcement",
+                "status": "pending"
+              }
+            ]
+          },
+          "output": "Todos have been modified successfully.",
+          "turn": 1,
+          "minutesAgo": 8
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "API changes",
+            "prompt": "API changes.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 3,
+          "toolUseId": "api"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "Dashboard changes",
+            "prompt": "Dashboard changes.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 3,
+          "toolUseId": "dashboard"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "Admin & internal changes",
+            "prompt": "Admin & internal changes.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 3,
+          "toolUseId": "admin"
+        }
+      ],
+      "watchers": [
+        {
+          "kind": "monitor",
+          "toolUseId": "ci",
+          "label": "CI on the release branch",
+          "detail": "gh pr checks 412 --watch",
+          "minutesAgo": 5
+        }
+      ]
+    },
+    {
+      "title": "Add rate limiting to public API",
+      "status": "Waiting on you: pick a limit for /search",
+      "minutesAgo": 4,
+      "selected": true
+    },
+    {
+      "title": "Move image uploads to S3",
+      "status": "Copying existing files, 1,240 of 3,900",
+      "activity": "working",
+      "minutesAgo": 1,
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "TodoWrite",
+          "input": {
+            "todos": [
+              {
+                "content": "Find how uploads are stored today",
+                "activeForm": "Find how uploads are stored today",
+                "status": "completed"
+              },
+              {
+                "content": "Add an S3 backend for media files",
+                "activeForm": "Add an S3 backend for media files",
+                "status": "completed"
+              },
+              {
+                "content": "Check new uploads land in the bucket",
+                "activeForm": "Check new uploads land in the bucket",
+                "status": "completed"
+              },
+              {
+                "content": "Copy the 3,900 existing files",
+                "activeForm": "Copy the 3,900 existing files",
+                "status": "in_progress"
+              },
+              {
+                "content": "Update the stored paths",
+                "activeForm": "Update the stored paths",
+                "status": "pending"
+              },
+              {
+                "content": "Remove the local media volume",
+                "activeForm": "Remove the local media volume",
+                "status": "pending"
+              },
+              {
+                "content": "Update the deploy docs",
+                "activeForm": "Update the deploy docs",
+                "status": "pending"
+              }
+            ]
+          },
+          "output": "Todos have been modified successfully.",
+          "turn": 1,
+          "minutesAgo": 12
+        }
+      ]
+    },
+    {
+      "title": "Watch the CI run on PR #42",
+      "status": "Watching CI; the unit tests fail on the date test",
+      "unread": true,
+      "minutesAgo": 2,
+      "watchers": [
+        {
+          "kind": "monitor",
+          "toolUseId": "pr42",
+          "label": "CI on PR #42",
+          "detail": "gh pr checks 42 --watch",
+          "minutesAgo": 5
+        },
+        {
+          "kind": "command",
+          "toolUseId": "tests",
+          "label": "Integration tests",
+          "detail": "npm run test:integration",
+          "minutesAgo": 5
+        }
+      ]
+    },
+    {
+      "title": "Catch up on the release branch and every open pull request that touches the public API",
+      "status": "Reviewed the chat clipping change, captured media for it, and moved on to the three follow-ups it left",
+      "activity": "working",
+      "minutesAgo": 0,
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "TodoWrite",
+          "input": {
+            "todos": [
+              {
+                "content": "Review PR #271",
+                "activeForm": "Review PR #271",
+                "status": "completed"
+              },
+              {
+                "content": "Review PR #272",
+                "activeForm": "Review PR #272",
+                "status": "completed"
+              },
+              {
+                "content": "Review PR #273",
+                "activeForm": "Review PR #273",
+                "status": "in_progress"
+              },
+              {
+                "content": "Review PR #274",
+                "activeForm": "Review PR #274",
+                "status": "pending"
+              },
+              {
+                "content": "Review PR #275",
+                "activeForm": "Review PR #275",
+                "status": "pending"
+              },
+              {
+                "content": "Review PR #276",
+                "activeForm": "Review PR #276",
+                "status": "pending"
+              },
+              {
+                "content": "Review PR #277",
+                "activeForm": "Review PR #277",
+                "status": "pending"
+              },
+              {
+                "content": "Review PR #278",
+                "activeForm": "Review PR #278",
+                "status": "pending"
+              },
+              {
+                "content": "Review PR #279",
+                "activeForm": "Review PR #279",
+                "status": "pending"
+              },
+              {
+                "content": "Review PR #280",
+                "activeForm": "Review PR #280",
+                "status": "pending"
+              },
+              {
+                "content": "Review PR #281",
+                "activeForm": "Review PR #281",
+                "status": "pending"
+              }
+            ]
+          },
+          "output": "Todos have been modified successfully.",
+          "turn": 1,
+          "minutesAgo": 20
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": {
+            "description": "Review PR #273",
+            "prompt": "Review PR #273.",
+            "subagent_type": "general-purpose"
+          },
+          "turn": 1,
+          "minutesAgo": 3,
+          "toolUseId": "review"
+        }
+      ],
+      "watchers": [
+        {
+          "kind": "monitor",
+          "toolUseId": "pr271",
+          "label": "CI on PR #271",
+          "detail": "gh pr checks 271 --watch",
+          "minutesAgo": 15
+        },
+        {
+          "kind": "monitor",
+          "toolUseId": "pr272",
+          "label": "CI on PR #272",
+          "detail": "gh pr checks 272 --watch",
+          "minutesAgo": 15
+        },
+        {
+          "kind": "monitor",
+          "toolUseId": "pr273",
+          "label": "CI on PR #273",
+          "detail": "gh pr checks 273 --watch",
+          "minutesAgo": 15
+        },
+        {
+          "kind": "monitor",
+          "toolUseId": "pr274",
+          "label": "CI on PR #274",
+          "detail": "gh pr checks 274 --watch",
+          "minutesAgo": 15
+        },
+        {
+          "kind": "monitor",
+          "toolUseId": "pr275",
+          "label": "CI on PR #275",
+          "detail": "gh pr checks 275 --watch",
+          "minutesAgo": 15
+        },
+        {
+          "kind": "monitor",
+          "toolUseId": "pr276",
+          "label": "CI on PR #276",
+          "detail": "gh pr checks 276 --watch",
+          "minutesAgo": 15
+        },
+        {
+          "kind": "monitor",
+          "toolUseId": "pr277",
+          "label": "CI on PR #277",
+          "detail": "gh pr checks 277 --watch",
+          "minutesAgo": 15
+        },
+        {
+          "kind": "monitor",
+          "toolUseId": "pr278",
+          "label": "CI on PR #278",
+          "detail": "gh pr checks 278 --watch",
+          "minutesAgo": 15
+        },
+        {
+          "kind": "monitor",
+          "toolUseId": "pr279",
+          "label": "CI on PR #279",
+          "detail": "gh pr checks 279 --watch",
+          "minutesAgo": 15
+        },
+        {
+          "kind": "monitor",
+          "toolUseId": "pr280",
+          "label": "CI on PR #280",
+          "detail": "gh pr checks 280 --watch",
+          "minutesAgo": 15
+        },
+        {
+          "kind": "monitor",
+          "toolUseId": "pr281",
+          "label": "CI on PR #281",
+          "detail": "gh pr checks 281 --watch",
+          "minutesAgo": 15
+        },
+        {
+          "kind": "monitor",
+          "toolUseId": "pr282",
+          "label": "CI on PR #282",
+          "detail": "gh pr checks 282 --watch",
+          "minutesAgo": 15
+        },
+        {
+          "kind": "monitor",
+          "toolUseId": "pr283",
+          "label": "CI on PR #283",
+          "detail": "gh pr checks 283 --watch",
+          "minutesAgo": 15
+        }
+      ]
+    },
+    {
+      "title": "Fix flaky login test",
+      "status": "Found the race; fix passes 200 local runs",
+      "minutesAgo": 9
+    },
+    {
+      "title": "Upgrade Django to 5.2",
+      "status": "Upgraded; two deprecations fixed",
+      "state": "done",
+      "minutesAgo": 2880,
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "TodoWrite",
+          "input": {
+            "todos": [
+              {
+                "content": "Read the 5.2 release notes",
+                "activeForm": "Read the 5.2 release notes",
+                "status": "completed"
+              },
+              {
+                "content": "Bump Django",
+                "activeForm": "Bump Django",
+                "status": "completed"
+              },
+              {
+                "content": "Fix the two deprecations",
+                "activeForm": "Fix the two deprecations",
+                "status": "completed"
+              },
+              {
+                "content": "Run the test suite",
+                "activeForm": "Run the test suite",
+                "status": "completed"
+              },
+              {
+                "content": "Check the admin",
+                "activeForm": "Check the admin",
+                "status": "completed"
+              },
+              {
+                "content": "Update the lockfile",
+                "activeForm": "Update the lockfile",
+                "status": "completed"
+              }
+            ]
+          },
+          "output": "Todos have been modified successfully.",
+          "turn": 1,
+          "minutesAgo": 2900
+        }
+      ]
+    },
+    {
+      "title": "Set up nightly backups",
+      "status": "Nightly dump, 14-day retention",
+      "state": "done",
+      "minutesAgo": 10080,
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "TodoWrite",
+          "input": {
+            "todos": [
+              {
+                "content": "Write the dump script",
+                "activeForm": "Write the dump script",
+                "status": "completed"
+              },
+              {
+                "content": "Schedule it",
+                "activeForm": "Schedule it",
+                "status": "completed"
+              },
+              {
+                "content": "Check the first run",
+                "activeForm": "Check the first run",
+                "status": "completed"
+              }
+            ]
+          },
+          "output": "Todos have been modified successfully.",
+          "turn": 1,
+          "minutesAgo": 10100
+        }
+      ],
+      "watchers": [
+        {
+          "kind": "monitor",
+          "toolUseId": "backup",
+          "label": "Nightly backup",
+          "detail": "./scripts/backup.sh --watch",
+          "minutesAgo": 10080
+        }
+      ]
+    },
+    {
+      "title": "Investigate slow dashboard query",
+      "status": "Added an index; 2.1s down to 90ms",
+      "state": "done",
+      "minutesAgo": 7200
+    },
+    {
+      "title": "Remove unused feature flags",
+      "status": "Removed 9 flags and their checks",
+      "state": "done",
+      "minutesAgo": 5760
+    }
+  ],
+  "collapsed": {
+    "rightPanel": true,
+    "bottomBar": true
+  }
+}

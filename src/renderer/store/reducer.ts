@@ -9,6 +9,7 @@ import {
   type PermissionRequest,
   type QuestionSet,
   type TodoList,
+  type ToolCallEvent,
   type ToolEvent,
   type UiStateEntry,
   type Watcher,
@@ -106,6 +107,14 @@ export function withHistory(state: GladeData, taskId: string, history: TasksHist
     // Like the queue, watchers change in place: the loaded ones are as new as any event before them.
     watchers: { ...state.watchers, [taskId]: history.watchers },
   }
+}
+
+/**
+ * Records every task's running subagents, loaded on start, in their tasks' tool logs: what the task list's subagent
+ * counts count until a task's logs load. Events then keep them current, as they do any log entry.
+ */
+export function withRunningSubagents(state: GladeData, calls: readonly ToolCallEvent[]): GladeData {
+  return { ...state, toolEvents: calls.reduce<LogsByTask<ToolEvent>>(withAppended, state.toolEvents) }
 }
 
 /** Records every task's live watchers, loaded on start: what the task list's marks count until a task's logs load. */

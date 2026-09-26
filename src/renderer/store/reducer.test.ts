@@ -19,7 +19,14 @@ import {
   type Watcher,
 } from '../../shared/domain'
 import { noOpenFiles } from '../../shared/files'
-import { applyEvent, idFromUiState, withHistory, withLiveWatchers, withOpenedWorkspace } from './reducer'
+import {
+  applyEvent,
+  idFromUiState,
+  withHistory,
+  withLiveWatchers,
+  withOpenedWorkspace,
+  withRunningSubagents,
+} from './reducer'
 import { INITIAL_DATA, type GladeData } from './state'
 import {
   sampleMessage,
@@ -500,6 +507,50 @@ describe("a task's watchers", () => {
       t1: [ended],
       t2: [],
     })
+  })
+})
+
+describe("every task's running subagents", () => {
+  const agent = (id: string, taskId: string): ToolCallEvent => ({
+    ...call,
+    id,
+    taskId,
+    name: 'Agent',
+    toolUseId: `use-${id}`,
+  })
+
+  it('adds each task’s running subagents to its tool log on start, by task', () => {
+    const calls = [agent('a', 't1'), agent('b', 't2'), agent('c', 't1')]
+    expect(withRunningSubagents(state, calls).toolEvents).toEqual({ t1: [calls[0], calls[2]], t2: [calls[1]] })
+    expect(withRunningSubagents(state, []).toolEvents).toEqual({})
+  })
+
+  it('keeps what a log already has, and adds a call it already has only once', () => {
+    const logged = { ...state, toolEvents: { t1: [divider, agent('a', 't1')] } }
+    expect(withRunningSubagents(logged, [agent('a', 't1'), agent('b', 't1')]).toolEvents).toEqual({
+      t1: [divider, agent('a', 't1'), agent('b', 't1')],
+    })
+  })
+
+  it('gives way to the task’s whole log once it loads, and follows the calls’ results before then', () => {
+    const started = withRunningSubagents(state, [agent('a', 't1')])
+    const finished = { ...agent('a', 't1'), state: ToolCallState.Done, output: 'Done.' }
+    const updated = applyEvent(started, { type: EventType.ToolEventUpdated, toolEvent: finished })
+    expect(updated.toolEvents.t1).toEqual([finished])
+
+    const loaded = withHistory(started, 't1', {
+      messages: [],
+      toolEvents: [divider, finished],
+      queuedMessages: [],
+      questionSets: [],
+      permissionRequests: [],
+      openFiles: noOpenFiles('t1'),
+      todos: null,
+      artifacts: [],
+      handoff: null,
+      watchers: [],
+    })
+    expect(loaded.toolEvents.t1).toEqual([divider, finished])
   })
 })
 

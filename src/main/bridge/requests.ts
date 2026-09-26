@@ -327,6 +327,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.TasksRetry]: tasksRetryRequest,
   [CommandName.TasksCompact]: taskIdRequest,
   [CommandName.SubagentsStop]: subagentsStopRequest,
+  [CommandName.SubagentsListRunning]: emptyRequest,
   [CommandName.WatchersListLive]: emptyRequest,
   [CommandName.WatchersStop]: watchersStopRequest,
   [CommandName.TasksHistory]: taskIdRequest,
