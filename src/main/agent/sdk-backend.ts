@@ -321,7 +321,7 @@ export function userMessage(text: string, uuid: string, images: readonly ImageDa
  * A settings change and the messages after it are delivered in order: the next message waits for `setModel` and
  * `applyFlagSettings` to finish (`docs/sdk-notes.md` §4), and for `setPermissionMode` when the permission mode changed
  * (§9), each only when what it sets changed. If the SDK refuses a change, the message still goes, on the settings the
- * session had.
+ * session had. Once each session's process has started, the models the SDK offers go to `onModels`, if given.
  */
 export function createSdkBackend({ env, log: backendLog = SILENT_LOGGER, onModels }: SdkBackendOptions): AgentBackend {
   return {
