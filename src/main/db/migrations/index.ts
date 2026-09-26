@@ -67,3 +67,6 @@ export const MIGRATIONS: readonly Migration[] = [
   notificationsMigration,
   accountMigration,
 ]
+
+/** The version a database is at once every migration has run: the last one's, which can skip versions still in flight. */
+export const LATEST_SCHEMA_VERSION: number = MIGRATIONS.at(-1)?.version ?? 0

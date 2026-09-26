@@ -107,12 +107,35 @@ describe('migrate', () => {
     expect(migrate(db, [schemaVersionMigration, createTable(2, 'alpha')]).applied).toEqual([2])
   })
 
-  it('refuses migrations that are not numbered 1, 2, 3, … in order', () => {
-    expect(() => migrate(db, [schemaVersionMigration, createTable(3, 'alpha')])).toThrow(
-      'Migrations must be numbered 1, 2, 3, … in order: position 2 has version 3',
+  it('refuses migrations that do not start at 1 and go up', () => {
+    expect(() => migrate(db, [schemaVersionMigration, createTable(3, 'alpha'), createTable(3, 'beta')])).toThrow(
+      'Migrations must start at 1 and go up: position 3 has version 3',
+    )
+    expect(() => migrate(db, [schemaVersionMigration, createTable(3, 'alpha'), createTable(2, 'beta')])).toThrow(
+      'position 3 has version 2',
     )
     expect(() => migrate(db, [createTable(2, 'alpha'), schemaVersionMigration])).toThrow('position 1 has version 2')
     expect(schemaVersion(db)).toBe(0)
+  })
+
+  it('skips a version reserved by work that has not landed yet', () => {
+    const result = migrate(db, [schemaVersionMigration, createTable(2, 'alpha'), createTable(4, 'gamma')])
+
+    expect(result).toEqual({ fromVersion: 0, toVersion: 4, applied: [1, 2, 4] })
+    expect(tableNames(db)).toEqual(['alpha', 'gamma', 'schema_version'])
+  })
+
+  it('runs a skipped version once it lands, below the database version', () => {
+    migrate(db, [schemaVersionMigration, createTable(2, 'alpha'), createTable(4, 'gamma')])
+
+    const all = [schemaVersionMigration, createTable(2, 'alpha'), createTable(3, 'beta'), createTable(4, 'gamma')]
+    expect(migrate(db, all)).toEqual({ fromVersion: 4, toVersion: 4, applied: [3] })
+    expect(tableNames(db)).toEqual(['alpha', 'beta', 'gamma', 'schema_version'])
+    expect(migrate(db, all).applied).toEqual([])
+  })
+
+  it('does nothing with no migrations on a fresh database', () => {
+    expect(migrate(db, [])).toEqual({ fromVersion: 0, toVersion: 0, applied: [] })
   })
 
   describe('a migration that rebuilds a referenced table', () => {

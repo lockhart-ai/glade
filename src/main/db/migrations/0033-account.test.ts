@@ -5,13 +5,16 @@ import { getAccount, getUsageWarning } from '../repositories/account'
 import { MIGRATIONS } from '.'
 import { accountMigration } from './0033-account'
 
-it('is migration 33', () => {
-  expect(MIGRATIONS[32]).toBe(accountMigration)
+const position = MIGRATIONS.indexOf(accountMigration)
+
+it('is migration 33, after every earlier one', () => {
+  expect(accountMigration.version).toBe(33)
+  expect(MIGRATIONS.slice(0, position).every(({ version }) => version < 33)).toBe(true)
 })
 
 it('starts with no account and no warning, keeps one row of each, and checks the warning’s values', () => {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 32))
+  migrate(db, MIGRATIONS.slice(0, position))
   migrate(db, MIGRATIONS)
 
   expect(getAccount(db)).toBeNull()
