@@ -15,7 +15,7 @@ Sample data is illustrative. Tokens are in `tokens.md`; exact markup per screen 
 | 6 · Reopen by chatting | A message in a done task reopens it, with dividers in chat and log. | ![6 · Reopen by chatting](screens/06-reopen.png) |
 | 7 · Search | Results across titles, objectives, outcomes and chat logs; matches highlighted. | ![7 · Search](screens/07-search.png) |
 | 8 · Open a file | Files tab with open-file tabs, source/preview toggle; the drag handles that resize the sidebar, right panel and bottom bar. | ![8 · Open a file](screens/08-open-file.png) |
-| 9 · Todos | The agent's checklist with progress, and each task's progress on its sidebar row (a ring and `3/7`; a check once all are done). | ![9 · Todos](screens/09-todos.png) |
+| 9 · Todos | The agent's checklist with progress, grouped: active, then done (newest first, each with when it finished), then not started (#282); and each task's progress on its sidebar row (a ring and `3/7`; a check once all are done). | ![9 · Todos](screens/09-todos.png) |
 | 10 · Artifacts | Deliverables with Open / Copy / Reveal. | ![10 · Artifacts](screens/10-artifacts.png) |
 | 11 · Subagents | Status and latest line per subagent; one expanded inline to its log. | ![11 · Subagents](screens/11-subagents.png) |
 | 12 · Right-click a task | Task context menu in place. ("Reveal folder in Finder" was removed; see `../context-menus.md`.) | ![12 · Right-click a task](screens/12-right-click-task.png) |

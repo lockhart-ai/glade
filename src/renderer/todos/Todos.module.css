@@ -119,6 +119,16 @@
   overflow-wrap: anywhere;
 }
 
+/* When a done item was finished (#282): small and muted, like the heading's "updated", on the item's first line. */
+.finished {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  line-height: calc(var(--font-size-body) * 1.35);
+  color: var(--color-faint);
+  white-space: nowrap;
+}
+
 /* Read by a screen reader, not shown. */
 .hidden {
   position: absolute;

@@ -285,6 +285,7 @@ describe('TaskPanel', () => {
         text: `Step ${String(index + 1)}`,
         state: index < done ? TodoState.Done : index === done ? TodoState.Doing : TodoState.Todo,
         note: index === done ? 'Working on it' : null,
+        completedAt: index < done ? 1_000 + index : null,
       })),
       updatedAt: Date.now(),
     })
