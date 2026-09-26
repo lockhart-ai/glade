@@ -126,9 +126,10 @@ files it changed; click **N tool calls** to see that turn's calls.
   empty input for the last one), or remove it. There's no "send now" and no reordering.
 - **Stop:** the Stop button, or **⌘.**, ends the turn. It also withdraws an open question or permission card.
 - **Questions:** when a choice is yours, the agent asks it on a **question card** in the chat, with options to pick,
-  pills or a line of text, and its turn waits however long you take. Click through the card, or use the keyboard (the
-  digits 1 – 9 pick an option, ↵ sends). Or just type a reply in the input bar: it answers the questions in your own
-  words.
+  pills or a line of text, and its turn waits however long you take. Options and pills that don't fit on one row wrap
+  onto more rows, up to three options to a row. Click through the card, or use the keyboard (the digits 1 – 9 pick an
+  option, ← → move between options, ↵ sends). Or just type a reply in the input bar: it answers the questions in your
+  own words.
 - **Pasted images:** paste a screenshot or image (PNG, JPEG, GIF or WebP, up to 3.75 MB each) into the input bar. It
   shows as a thumbnail you can remove, and goes to the agent with your message. Images can't go with an answer to a
   question card; send them after.
