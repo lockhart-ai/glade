@@ -1230,6 +1230,117 @@ export const S3_PLAN: readonly { readonly subject: string; readonly activeForm: 
   { subject: 'Delete local copies', activeForm: 'Deleting local copies' },
 ]
 
+/**
+ * The questions `asks-many-choices` asks: more option cards than fit on one row (five with long labels, and nine), two
+ * that do, sketches and a word too long for its card, and pills that wrap, one of them a long unbroken URL.
+ */
+export const MANY_CHOICES_QUESTIONS: readonly Question[] = [
+  {
+    kind: QuestionKind.Choice,
+    prompt: 'What can I start without asking again? (pick all that apply)',
+    multiple: true,
+    options: [
+      { id: 'sweep', label: 'Sweep PR deleting covered legacy cases', detail: 'Off main, no load run needed' },
+      { id: 'rebase', label: 'Rebase + re-measure #2080 and #2048/#2074', detail: 'Remote load runs, one at a time' },
+      { id: 'harness', label: 'Fix harness defects #2151–#2154', detail: 'And file the three gaps with no ticket yet' },
+      {
+        id: 'validator',
+        label: 'File the URL-validator/Retry ticket',
+        detail: 'Filed only; the fix waits until the ports are done',
+      },
+      {
+        id: 'worktrees',
+        label: 'Remove the ~15 finished worktrees + branches',
+        detail: 'Unlocked trees whose PRs are merged or reverted only',
+      },
+    ],
+  },
+  {
+    kind: QuestionKind.Choice,
+    prompt: 'How strict should the /search limit be?',
+    options: [
+      { id: 'thirty', label: '30 a minute', detail: 'Matches /items. A few integrators will see 429s.' },
+      { id: 'sixty', label: '60 a minute', detail: 'Twice the others. No current client comes close.' },
+    ],
+  },
+  {
+    kind: QuestionKind.Choice,
+    prompt: 'Which endpoint gets its own limit first?',
+    options: [
+      '/search',
+      '/items',
+      '/users',
+      '/orders',
+      '/exports',
+      '/webhooks',
+      '/auth/token',
+      '/admin/audit',
+      '/health',
+    ].map((path) => ({ id: path, label: path })),
+  },
+  {
+    kind: QuestionKind.Choice,
+    prompt: 'Where should the limits live?',
+    options: [
+      {
+        id: 'settings',
+        label: 'In settings',
+        detail: 'Under RATE_LIMITS_PER_ENDPOINT_OVERRIDES_FOR_SEARCH_AND_EXPORTS, reviewed like code.',
+        sketch: '# config/settings/base.py\nRATE_LIMITS = {\n    "/search": "30/minute",\n}',
+      },
+      {
+        id: 'environment',
+        label: 'In the environment',
+        detail: 'One variable per endpoint.',
+        sketch: '# .env\nRATE_LIMIT_SEARCH=30/minute',
+      },
+      {
+        id: 'database',
+        label: 'api_ratelimit_endpoint_overrides_table',
+        detail: 'Editable from the admin.',
+        sketch: '# Admin › Rate limits\n/search   30/minute',
+      },
+    ],
+  },
+  {
+    kind: QuestionKind.Pills,
+    prompt: 'Who should hear about the new limits?',
+    multiple: true,
+    options: [
+      'Mobile app team',
+      'Partner integrations',
+      'Internal dashboards',
+      'CLI users',
+      'https://partners.acme.example/announcements/rate-limits-for-search-and-exports',
+      'Everyone',
+    ],
+  },
+]
+
+/**
+ * A turn that asks more choices than fit on a row (`MANY_CHOICES_QUESTIONS`) and waits for the answers, then carries
+ * on: for the question card's layout.
+ */
+const asksManyChoices: AgentScript = {
+  name: 'asks-many-choices',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Add per-endpoint rate limits',
+        'Give each API endpoint its own rate limit, starting with /search.',
+        'Waiting on which follow-ups to start and how strict the limits are.',
+      ),
+      say('The limiter is in. A few choices are yours before I go on.'),
+      ask('choices', MANY_CHOICES_QUESTIONS),
+      delay(BEAT_MS),
+      say('Thanks. I’ll start on those.'),
+      result(),
+    ],
+  ],
+}
+
 /** What `keeps-todos` asks while it copies the files. */
 export const DELETE_LOCAL_COPIES_QUESTION: Question = {
   kind: QuestionKind.Pills,
@@ -2390,6 +2501,7 @@ export const AGENT_SCRIPT_NAMES = [
   'long-context',
   'auto-compaction',
   'asks-a-question',
+  'asks-many-choices',
   'parallel-subagents',
   'shows-a-file',
   'declares-artifacts',
@@ -2433,6 +2545,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'long-context': longContext,
   'auto-compaction': autoCompaction,
   'asks-a-question': asksAQuestion,
+  'asks-many-choices': asksManyChoices,
   'parallel-subagents': parallelSubagents,
   'shows-a-file': showsAFile,
   'declares-artifacts': declaresArtifacts,

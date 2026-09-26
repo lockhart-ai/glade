@@ -47,6 +47,7 @@ import {
   ASKS_PERMISSION,
   DELETE_LOCAL_COPIES_QUESTION,
   FOLLOW_UPS,
+  MANY_CHOICES_QUESTIONS,
   PERMISSION_AT_QUIT,
   RELEASE_NOTES_QUESTIONS,
   S3_PLAN,
@@ -643,6 +644,30 @@ describe('AGENT_SCRIPTS', () => {
       output: '{"0":"by-type","1":"Internal changes","2":"GitHub handles","3":"Mention the 429s."}',
     })
     expect(getTask(database.db, task.id)?.status).toBe('Release notes drafted in docs/releases/2.4.md.')
+  })
+
+  it('asks-many-choices: asks more choices than fit on a row, waits, then carries on once answered', async () => {
+    const agent = start('asks-many-choices')
+    await sendAndWaitAnHour(agent, 'Add per-endpoint rate limits.')
+
+    const open = getOpenQuestionSet(database.db, task.id)
+    expect(open?.questions).toEqual(MANY_CHOICES_QUESTIONS)
+    expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, asking: true })
+    expect(reply()).toBeUndefined()
+
+    agent.answer(open?.id ?? '', {
+      0: ['sweep', 'worktrees'],
+      1: 'sixty',
+      2: '/health',
+      3: 'database',
+      4: ['CLI users'],
+    })
+    await vi.waitFor(() => {
+      expect(activity()).toBe(TaskActivity.Waiting)
+    })
+
+    expect(reply()).toBe('Thanks. I’ll start on those.')
+    expect(getTask(database.db, task.id)?.asking).toBe(false)
   })
 
   it('asks-a-question: carries on from the answers when they come after the app quit', async () => {
