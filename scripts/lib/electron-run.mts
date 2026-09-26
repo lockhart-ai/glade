@@ -203,8 +203,9 @@ export function describeDuration(ms: number): string {
 
 /** What to try when Electron never finishes. */
 export const HANG_HINT =
-  "Electron's hidden windows don't paint inside a command sandbox or while the Mac sleeps. If you're in a command " +
-  'sandbox, run it outside the sandbox (and in the background).'
+  "Electron's hidden windows don't paint (and Electron may never get ready) inside a command sandbox, while the Mac " +
+  "sleeps or while its screen is locked. If you're in a command sandbox, run it outside the sandbox (and in the " +
+  'background).'
 
 /** What to print about how a run ended, or nothing when the child exited by itself. */
 export function runFailureMessage(options: ElectronRunOptions, result: ElectronRunResult): string | undefined {

@@ -42,6 +42,8 @@ const TIMEOUT_MS = 300_000
 const STALL_MS = 60_000
 /** A line that says a screen finished: `Rendered …`, `Checked …`, or one of the script's own warnings or errors. */
 const PROGRESS = /^(Rendered |Checked |render-design: )/
+/** How long a screen's page may take to lay out at the screen's size before the screen fails. */
+const SIZE_WAIT_MS = 10_000
 /** How many times a screen is captured before the script gives up on it. */
 const ATTEMPTS = 6
 
@@ -89,7 +91,7 @@ async function serveDesigns() {
 }
 
 // The waits and measureText run in the page (passed as source to executeJavaScript), so they use its globals.
-/* global document, innerWidth, innerHeight, requestAnimationFrame, NodeFilter, getComputedStyle */
+/* global document, innerWidth, innerHeight, devicePixelRatio, requestAnimationFrame, NodeFilter, getComputedStyle */
 
 /** Runs in the page. Asks for every declared font face and image, and waits for them and `document.fonts.ready`. */
 async function waitForFonts() {
@@ -100,9 +102,21 @@ async function waitForFonts() {
   await document.fonts.ready
 }
 
-/** Runs in the page. Waits for the window to lay out at the screen's size. */
-async function waitForSize(width, height) {
-  while (innerWidth !== width || innerHeight !== height) await new Promise((resolve) => setTimeout(resolve, 20))
+/**
+ * Runs in the page. Waits for the window to lay out at the screen's size, and fails after `giveUpMs` with the size it
+ * has instead. A page zoomed to 2x, say, lays out at half the window's size and never gets there.
+ */
+async function waitForSize(width, height, giveUpMs) {
+  const giveUp = Date.now() + giveUpMs
+  while (innerWidth !== width || innerHeight !== height) {
+    if (Date.now() > giveUp) {
+      throw new Error(
+        `the page laid out at ${String(innerWidth)}×${String(innerHeight)} (devicePixelRatio ${String(devicePixelRatio)}), ` +
+          `not ${String(width)}×${String(height)}, after ${String(giveUpMs / 1000)} s`,
+      )
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
 }
 
 /** Runs in the page. Waits for a frame to paint. */
@@ -203,6 +217,8 @@ async function renderInElectron() {
     backgroundColor: '#0A0B0F',
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
+  // No pinch zoom either: the page must lay out at exactly the screen's size.
+  await window.webContents.setVisualZoomLevelLimits(1, 1)
   const failures = []
   for (const screen of screens) {
     try {
@@ -210,11 +226,14 @@ async function renderInElectron() {
       window.setContentSize(screen.width, screen.height)
       step(`${screen.name}: loading ${screen.page}`)
       await window.loadURL(`http://127.0.0.1:${String(port)}/${screen.page}`)
+      // Chromium keeps a zoom level per host, and every screen is served from 127.0.0.1: one zoom level saved in a
+      // shared data folder once laid every later render out at half size, so its wait for the size never ended.
+      window.webContents.setZoomFactor(1)
       step(`${screen.name}: waiting for its fonts and images`)
       await window.webContents.executeJavaScript(`(${waitForFonts.toString()})()`)
       step(`${screen.name}: waiting for the window to be ${size}`)
       await window.webContents.executeJavaScript(
-        `(${waitForSize.toString()})(${String(screen.width)}, ${String(screen.height)})`,
+        `(${waitForSize.toString()})(${String(screen.width)}, ${String(screen.height)}, ${String(SIZE_WAIT_MS)})`,
       )
       step(`${screen.name}: waiting for a frame to paint`)
       await window.webContents.executeJavaScript(`(${waitForFrame.toString()})()`)
