@@ -240,6 +240,114 @@ describe('the Done section with more than a thousand tasks', () => {
     expect(progress().get('Done 1')).toBe('7/7')
   })
 
+  it('places rows of mixed heights, with and without an indicators line, each below the last, as you scroll', async () => {
+    // A row with its third line is taller than one without. Stand in for the layout that makes it so, and for the
+    // ResizeObserver that tells the list each row's height as it's rendered and whenever it changes.
+    const TALL = STUB_ROW_HEIGHT + 18
+    const heightOf = (element: Element): number =>
+      !(element instanceof HTMLElement) || element.dataset.index === undefined
+        ? STUB_VIEWPORT_HEIGHT
+        : element.querySelector('[data-indicators]') === null
+          ? STUB_ROW_HEIGHT
+          : TALL
+    const observers = new Set<MeasuringResizeObserver>()
+    class MeasuringResizeObserver {
+      private readonly targets = new Set<Element>()
+      constructor(private readonly callback: ResizeObserverCallback) {
+        observers.add(this)
+      }
+      observe = (target: Element): void => {
+        this.targets.add(target)
+        queueMicrotask(() => {
+          this.report([target])
+        })
+      }
+      unobserve = (target: Element): void => {
+        this.targets.delete(target)
+      }
+      disconnect = (): void => {
+        this.targets.clear()
+      }
+      /** Tells the callback every target's size, as a resize would. */
+      resize = (): void => {
+        this.report([...this.targets])
+      }
+      private report(targets: Element[]): void {
+        const entries = targets
+          .filter((target) => this.targets.has(target))
+          .map((target) => ({ target, borderBoxSize: [{ blockSize: heightOf(target), inlineSize: 0 }] }))
+        if (entries.length === 0) return
+        this.callback(entries as unknown as ResizeObserverEntry[], this)
+      }
+    }
+    const inert: unknown = globalThis.ResizeObserver
+    const useObserver = (value: unknown): void => {
+      Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, writable: true, value })
+    }
+    useObserver(MeasuringResizeObserver)
+    const settled = async (): Promise<void> => {
+      await act(async () => {
+        await Promise.resolve()
+      })
+    }
+    try {
+      const withTodos = (index: number): Task =>
+        done(index, index % 3 === 0 ? { todos: { done: 1, total: 4, doing: [] } } : {})
+      const { store, fake } = await renderList(Array.from({ length: DONE_TASKS }, (_, index) => withTodos(index)))
+      await settled()
+
+      /** Where each rendered row sits in the list and how tall it is, top to bottom. */
+      const placed = () =>
+        Array.from(section('Done').querySelectorAll<HTMLElement>('li[data-index]'))
+          .map((item) => ({
+            index: Number(item.dataset.index),
+            top: Number(/translateY\((-?[\d.]+)px\)/.exec(item.style.transform)?.[1]),
+            height: heightOf(item),
+          }))
+          .sort((a, b) => a.index - b.index)
+      /** Every rendered row, tall or not, starts right below the one before it and the gap between them. */
+      const expectStacked = (): void => {
+        const rows = placed()
+        expect(rows.length).toBeGreaterThan(5)
+        expect(rows.some(({ height }) => height === TALL)).toBe(true)
+        expect(rows.some(({ height }) => height === STUB_ROW_HEIGHT)).toBe(true)
+        for (const [position, row] of rows.entries()) {
+          const above = rows[position - 1]
+          if (above?.index !== row.index - 1) continue
+          expect(row.top).toBe(above.top + above.height + 2)
+        }
+      }
+
+      expectStacked()
+      expect(placed().slice(0, 3)).toEqual([
+        { index: 0, top: 0, height: TALL },
+        { index: 1, top: TALL + 2, height: STUB_ROW_HEIGHT },
+        { index: 2, top: TALL + STUB_ROW_HEIGHT + 4, height: STUB_ROW_HEIGHT },
+      ])
+
+      // A row gaining its third line grows, and pushes the rows below it down.
+      act(() => {
+        fake.emit({ type: EventType.TaskUpdated, task: { ...done(1), todos: { done: 2, total: 4, doing: [] } } })
+      })
+      act(() => {
+        for (const observer of observers) observer.resize()
+      })
+      expectStacked()
+      expect(placed()[2]).toEqual({ index: 2, top: 2 * TALL + 4, height: STUB_ROW_HEIGHT })
+
+      // Further down, and at the very end, the rows still stack at their own heights, none overlapping.
+      scrollTo(40 * STUB_ROW_HEIGHT)
+      await settled()
+      expectStacked()
+      await scrollToBottom(store)
+      await settled()
+      expectStacked()
+      expect(doneTitles().at(-1)).toBe(`Done ${String(DONE_TASKS - 1)}`)
+    } finally {
+      useObserver(inert)
+    }
+  })
+
   it('shows a task marked done while scrolled down at the top of Done, without moving what you’re looking at', async () => {
     const { store, fake } = await renderList([ACTIVE, ...manyDone()])
     await scrollToBottom(store)

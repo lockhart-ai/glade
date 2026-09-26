@@ -7,10 +7,13 @@ import {
   TaskActivity,
   TaskErrorSource,
   TaskState,
+  ToolCallState,
+  ToolEventKind,
   UiStateKey,
   WatcherKind,
   WatcherState,
   type Task,
+  type ToolCallEvent,
   type UiStateEntry,
 } from '../../shared/domain'
 import { ToastProvider } from '../components'
@@ -187,7 +190,7 @@ describe('TaskList', () => {
     expect(within(row('Add rate limiting')).queryByRole('img', { name: 'Unread' })).toBeNull()
   })
 
-  it('marks a row with an eye and how many live watchers its agent has, done or not, and follows them', async () => {
+  it('counts a row’s live watchers on its indicators line, done or not, and follows them', async () => {
     const watchers = [
       sampleWatcher('ci', 'a1'),
       sampleWatcher('queue', 'a1', { kind: WatcherKind.Cron, state: WatcherState.Scheduled }),
@@ -201,11 +204,12 @@ describe('TaskList', () => {
       {},
       { watchers },
     )
-    const mark = (title: string) => within(row(title)).queryByRole('img', { name: /^Watching/ })
+    const mark = (title: string) => within(row(title)).queryByRole('img', { name: /watchers? running$/ })
 
-    expect(mark('Add rate limiting')).toHaveAccessibleName('Watching 2 things')
+    expect(mark('Add rate limiting')).toHaveAccessibleName('2 watchers running')
     expect(mark('Add rate limiting')).toHaveTextContent('2')
-    expect(mark('Upgrade Django')).toHaveAccessibleName('Watching 1 thing')
+    expect(mark('Add rate limiting')?.parentElement).toHaveAttribute('data-indicators')
+    expect(mark('Upgrade Django')).toHaveAccessibleName('1 watcher running')
     expect(mark('Fix flaky login test')).toBeNull()
     expect(mark('Move image uploads')).toBeNull()
 
@@ -213,8 +217,68 @@ describe('TaskList', () => {
       fake.emit({ type: EventType.WatchersChanged, taskId: 'a1', watchers: [sampleWatcher('ci', 'a1')] })
       fake.emit({ type: EventType.WatchersChanged, taskId: 'd1', watchers: [] })
     })
-    expect(mark('Add rate limiting')).toHaveAccessibleName('Watching 1 thing')
+    expect(mark('Add rate limiting')).toHaveAccessibleName('1 watcher running')
     expect(mark('Upgrade Django')).toBeNull()
+    // With nothing left to show, the row is back to its two lines.
+    expect(row('Upgrade Django').querySelector('[data-indicators]')).toBeNull()
+  })
+
+  it('counts a row’s running subagents, from main on start and then from events, for a task that isn’t open', async () => {
+    const running = (id: string, taskId: string, change: Partial<ToolCallEvent> = {}): ToolCallEvent => ({
+      id,
+      taskId,
+      turn: 1,
+      createdAt: NOW,
+      kind: ToolEventKind.ToolCall,
+      name: 'Agent',
+      input: { description: id },
+      output: null,
+      state: ToolCallState.Running,
+      finishedAt: null,
+      toolUseId: `use-${id}`,
+      parentToolUseId: null,
+      ...change,
+    })
+    const { fake } = await renderList(
+      TASKS,
+      [{ key: UiStateKey.DoneSectionCollapsed, value: 'false' }],
+      {},
+      {
+        toolEvents: [
+          running('api', 'a1'),
+          running('dashboard', 'a1'),
+          running('nested', 'a1', { parentToolUseId: 'use-api' }),
+          running('links', 'a1', { state: ToolCallState.Done, output: 'Done.' }),
+          running('read', 'a1', { name: 'Read' }),
+          running('cleanup', 'd1', { name: 'Task' }),
+        ],
+      },
+    )
+    const count = (title: string) => within(row(title)).queryByRole('img', { name: /subagents? running$/ })
+
+    // None of these tasks is open: the counts come from what main says is running.
+    expect(count('Add rate limiting')).toHaveAccessibleName('3 subagents running')
+    expect(count('Add rate limiting')).toHaveAttribute('title', '3 subagents running')
+    expect(count('Add rate limiting')).toHaveTextContent(/^3$/)
+    expect(count('Upgrade Django')).toHaveAccessibleName('1 subagent running')
+    expect(count('Move image uploads')).toBeNull()
+    expect(row('Move image uploads').querySelector('[data-indicators]')).toBeNull()
+
+    act(() => {
+      fake.emit({ type: EventType.ToolEventAppended, toolEvent: running('upload', 'a2') })
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: running('api', 'a1', { state: ToolCallState.Done, output: 'Done.' }),
+      })
+      fake.emit({
+        type: EventType.ToolEventUpdated,
+        toolEvent: running('cleanup', 'd1', { name: 'Task', state: ToolCallState.Interrupted, output: 'Stopped.' }),
+      })
+    })
+    expect(count('Move image uploads')).toHaveAccessibleName('1 subagent running')
+    expect(count('Add rate limiting')).toHaveAccessibleName('2 subagents running')
+    expect(count('Upgrade Django')).toBeNull()
+    expect(row('Upgrade Django').querySelector('[data-indicators]')).toBeNull()
   })
 
   it('shows each row’s dot for its indicator', async () => {

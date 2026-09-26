@@ -20,6 +20,7 @@ import { getOpenQuestionSet, listQuestionSets } from '../db/repositories/questio
 import { getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { createQuestionBroker } from '../questions/questions'
+import { PREAMBLE_MAX_LENGTH } from '../questions/schema'
 import {
   createGladeMcpServer,
   createGladeToolHandlers,
@@ -339,6 +340,88 @@ describe('ask', () => {
     ])
     context.questions.withdraw(task.id)
     await outcome
+  })
+
+  describe('with a preamble', () => {
+    it('saves the preamble with the questions, trimmed, and none for a call without one', async () => {
+      const first = await ask({
+        preamble: '\n  Yes, the tests pass on `main`.\n\nA few choices first.  ',
+        questions: QUESTIONS,
+      })
+      expect(first.open.preamble).toBe('Yes, the tests pass on `main`.\n\nA few choices first.')
+      context.questions.withdraw(task.id)
+      await first.outcome
+
+      const second = await ask({ questions: QUESTIONS })
+      expect(second.open.preamble).toBeNull()
+      context.questions.withdraw(task.id)
+      await second.outcome
+
+      expect(listQuestionSets(database.db, task.id).map(({ preamble }) => preamble)).toEqual([
+        'Yes, the tests pass on `main`.\n\nA few choices first.',
+        null,
+      ])
+    })
+
+    it('keeps long Markdown as the model wrote it, up to the cap', async () => {
+      const markdown = [
+        'Here is what I found:',
+        '',
+        '- the `/search` limits changed',
+        '- [the PR](https://example.com/pr/41) says why',
+        '',
+        '```ts',
+        'const limit = 100',
+        '```',
+      ].join('\n')
+      const long = `${markdown}\n\n${'x'.repeat(PREAMBLE_MAX_LENGTH - markdown.length - 2)}`
+      expect(long).toHaveLength(PREAMBLE_MAX_LENGTH)
+
+      const { outcome, open } = await ask({ preamble: long, questions: QUESTIONS })
+
+      expect(open.preamble).toBe(long)
+      context.questions.withdraw(task.id)
+      await outcome
+    })
+
+    it('refuses a preamble that is empty, blank, too long or not text, and opens nothing', async () => {
+      for (const preamble of ['', '  \n ', 'x'.repeat(PREAMBLE_MAX_LENGTH + 1), 42, null]) {
+        const outcome = await caller.call('mcp__glade__ask', { preamble, questions: QUESTIONS })
+        expect(outcome.isError).toBe(true)
+      }
+      const tooLong = await caller.call('mcp__glade__ask', {
+        preamble: 'x'.repeat(PREAMBLE_MAX_LENGTH + 1),
+        questions: QUESTIONS,
+      })
+      expect(tooLong.output).toContain('The preamble is too long')
+
+      expect(listQuestionSets(database.db, task.id)).toEqual([])
+      expect(events).toEqual([])
+    })
+
+    it('counts the cap once the preamble is trimmed', async () => {
+      const { outcome, open } = await ask({ preamble: `  ${'x'.repeat(PREAMBLE_MAX_LENGTH)}  `, questions: QUESTIONS })
+
+      expect(open.preamble).toHaveLength(PREAMBLE_MAX_LENGTH)
+      context.questions.withdraw(task.id)
+      await outcome
+    })
+
+    it('lists the preamble first and optional, and tells the model to reply in it before it asks', async () => {
+      const server = createGladeMcpServer(context, task.id)
+      const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
+      await server.instance.connect(serverSide)
+      const client = new Client({ name: 'test', version: '1.0.0' })
+      await client.connect(clientSide)
+
+      const { tools } = await client.listTools()
+      const listed = tools.find((tool) => tool.name === (GladeTool.Ask as string))
+
+      expect(Object.keys(listed?.inputSchema.properties ?? {})).toEqual(['preamble', 'questions'])
+      expect(listed?.inputSchema.required).toEqual(['questions'])
+      expect(listed?.description).toContain('first respond to it in `preamble`')
+      await client.close()
+    })
   })
 })
 

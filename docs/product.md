@@ -36,9 +36,11 @@ There are no follow-up tasks. One task can refer to another through its folder o
 ## The window
 
 - **Left sidebar** — workspace switcher, search, New task (+), filter chips (All · Needs you · Unread), and the task
-  list in three collapsible sections: Pinned, Active, Done. Each row shows a state dot, title, a one-line status and a
-  relative time; while the agent keeps a todo list, the status ends with its progress (a ring and `3/7`, a check once
-  all are done, the item in progress as its tooltip). Unread rows are bold with a blue dot. Resizable, collapsible.
+  list in three collapsible sections: Pinned, Active, Done. Each row shows a state dot, title and relative time, then
+  a one-line status. Under them, only while there's something to show, a compact third line of what's going on in the
+  task, in this order: its todo progress (a ring and `3/7`, a check once all are done, the item in progress as its
+  tooltip), its running subagents and its live watchers, each an icon and a count with a tooltip. Unread rows are bold
+  with a blue dot. Resizable, collapsible.
 - **Task card** (centre) — a header card (state dot, title, age, pin toggle, Mark done, goal and status) floating over
   the top of the chat, and the input bar floating over its bottom. The chat, a little narrower than both, scrolls under
   them and is cut off halfway under each, so it never shows past their outer edges. The input bar has model, effort
