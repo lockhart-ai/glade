@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import {
@@ -7,6 +7,8 @@ import {
   DividerKind,
   MessageRole,
   PauseReason,
+  PermissionRequestState,
+  QuestionSetState,
   TaskErrorSource,
   TaskState,
   TaskActivity,
@@ -14,6 +16,7 @@ import {
   ToolEventKind,
   UiStateKey,
   type Message,
+  type PermissionRequest,
   type QuestionSet,
   type Task,
   type TaskError,
@@ -26,7 +29,14 @@ import { ToastProvider } from '../components'
 import { IMAGE_LABEL } from '../images/StoredImage'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
-import { fakeBridge, sampleQuestionSet, sampleTask, sampleWorkspace, type FakeBridge } from '../store/test-bridge'
+import {
+  fakeBridge,
+  samplePermissionRequest,
+  sampleQuestionSet,
+  sampleTask,
+  sampleWorkspace,
+  type FakeBridge,
+} from '../store/test-bridge'
 import { clockTime } from './chatModel'
 import { Chat } from './Chat'
 
@@ -85,6 +95,7 @@ interface Setup {
   readonly messages?: Message[]
   readonly toolEvents?: ToolEvent[]
   readonly questionSets?: QuestionSet[]
+  readonly permissionRequests?: PermissionRequest[]
   readonly selected?: boolean
   /** Where the fake main records what the menus copy. */
   readonly copied?: string[]
@@ -99,6 +110,7 @@ async function renderChat({
   messages = [],
   toolEvents = [],
   questionSets = [],
+  permissionRequests = [],
   selected = true,
   copied,
   images = {},
@@ -114,6 +126,7 @@ async function renderChat({
     messages,
     toolEvents,
     questionSets,
+    permissionRequests,
     images,
     ...(copied === undefined ? {} : { copied }),
     ...(handoff === undefined ? {} : { handoffs: { t1: handoff } }),
@@ -724,5 +737,180 @@ describe('an agent reply’s context menu', () => {
     expect(screen.getByRole('menu', { name: 'Reply actions' })).toHaveTextContent(
       /^Copy⌘CCopy as MarkdownQuote in reply$/,
     )
+  })
+})
+
+/**
+ * #248: some replies showed as bare text. Only the latest reply while the agent waited on you had a card (the purple
+ * question card); every other reply, and what the agent said before asking, had none. Every shape of turn the chat
+ * knows must put each piece of the agent's text on a card.
+ */
+describe('every agent reply is on a card', () => {
+  const at = (hour: number, minute = 0): number => new Date(2026, 8, 23, hour, minute).getTime()
+  const user = (id: string, turn: number, createdAt: number): Message => ({ ...ASK, id, turn, createdAt })
+  const agent = (id: string, turn: number, createdAt: number, body = `Reply ${id}.`): Message => ({
+    ...REPLY,
+    id,
+    turn,
+    createdAt,
+    body,
+  })
+  const divider = (id: string, dividerKind: DividerKind, turn: number, createdAt: number): ToolEvent => ({
+    id,
+    taskId: 't1',
+    turn,
+    createdAt,
+    kind: ToolEventKind.Divider,
+    dividerKind,
+  })
+
+  /** The element each agent reply's text is rendered on, in chat order. */
+  function replyBodies(): Element[] {
+    return within(conversation())
+      .getAllByRole('article', { name: 'Agent' })
+      .map((article) => article.firstElementChild)
+      .filter((body): body is Element => body !== null)
+  }
+
+  /** Checks every reply is on a card: the purple one for `question` (the latest while waiting), the neutral otherwise. */
+  function expectAllCarded(count: number, question: number | null = null): void {
+    const bodies = replyBodies()
+    expect(bodies).toHaveLength(count)
+    bodies.forEach((body, index) => {
+      expect(body.className).toMatch(/card/)
+      if (index === question) expect(body.className).toMatch(/question/)
+      else expect(body.className).not.toMatch(/question/)
+    })
+  }
+
+  it('an earlier reply, not only the latest one while the agent waits on you', async () => {
+    await renderChat({
+      messages: [user('u1', 1, at(9)), agent('a1', 1, at(10)), user('u2', 2, at(11)), agent('a2', 2, at(12))],
+    })
+    expectAllCarded(2, 1)
+  })
+
+  it.each<[string, Partial<Task>]>([
+    ['working', { activity: TaskActivity.Working }],
+    ['stopped by an error', { activity: TaskActivity.Error }],
+    ['done', { state: TaskState.Done }],
+    [
+      'paused',
+      {
+        activity: TaskActivity.Paused,
+        pause: { reason: PauseReason.UsageLimit, since: at(10), resumesAt: at(13), checks: 0, details: 'Limit.' },
+      },
+    ],
+  ])('the latest reply while the task is %s', async (_, task) => {
+    await renderChat({ task, messages: [user('u1', 1, at(9)), agent('a1', 1, at(10))] })
+    expectAllCarded(1)
+  })
+
+  it('a reply in a turn the agent started itself, with no message from you', async () => {
+    await renderChat({
+      messages: [user('u1', 1, at(9)), agent('a1', 1, at(10)), agent('a2', 2, at(11))],
+      toolEvents: [divider('d1', DividerKind.Turn, 2, at(10, 30)), toolCall('c1', 2)],
+    })
+    expectAllCarded(2, 1)
+  })
+
+  it('a reply in a turn resumed after Glade restarted', async () => {
+    await renderChat({
+      task: { state: TaskState.Done },
+      messages: [user('u1', 1, at(9)), agent('a1', 1, at(11))],
+      toolEvents: [divider('r1', DividerKind.Resumed, 1, at(10))],
+    })
+    expect(within(conversation()).getByRole('separator', { name: 'Glade restarted' })).toBeInTheDocument()
+    expectAllCarded(1)
+  })
+
+  it('replies on both sides of a reopening, and after a compaction', async () => {
+    const compaction: ToolEvent = {
+      id: 'k1',
+      taskId: 't1',
+      turn: 2,
+      createdAt: at(12, 30),
+      kind: ToolEventKind.Compaction,
+      trigger: CompactionTrigger.Manual,
+      state: ToolCallState.Done,
+      preTokens: 198_000,
+      postTokens: 41_000,
+      windowTokens: 200_000,
+    }
+    await renderChat({
+      messages: [user('u1', 1, at(9)), agent('a1', 1, at(10)), user('u2', 2, at(12)), agent('a2', 2, at(13))],
+      toolEvents: [
+        divider('d1', DividerKind.MarkedDone, 1, at(11)),
+        divider('d2', DividerKind.Reopened, 2, at(12)),
+        divider('d3', DividerKind.Turn, 2, at(12)),
+        compaction,
+      ],
+    })
+    expect(within(conversation()).getByRole('separator', { name: 'Compacted' })).toBeInTheDocument()
+    expectAllCarded(2, 1)
+  })
+
+  it("a backfilled or imported task's replies, below its handoff note", async () => {
+    await renderChat({
+      task: { importedAt: at(8) },
+      messages: [agent('a1', 1, at(9)), user('u1', 2, at(10)), agent('a2', 2, at(11))],
+      handoff: { taskId: 't1', body: 'The v2 handlers are live.', addedAt: at(8) },
+    })
+    expectAllCarded(2, 1)
+  })
+
+  it('replies split around a question card and a permission card, and an empty reply', async () => {
+    const set = { ...sampleQuestionSet('q1', 't1'), createdAt: at(10), state: QuestionSetState.Answered }
+    const request = {
+      ...samplePermissionRequest('p1', 't1'),
+      turn: 2,
+      createdAt: at(12),
+      state: PermissionRequestState.Allowed,
+    }
+    await renderChat({
+      task: { state: TaskState.Done },
+      messages: [user('u1', 1, at(9)), agent('a1', 1, at(11)), user('u2', 2, at(11, 30)), agent('a2', 2, at(13), '')],
+      questionSets: [set],
+      permissionRequests: [request],
+    })
+    expectAllCarded(2)
+  })
+
+  it('what the agent said just before asking', async () => {
+    await renderChat({
+      task: { asking: true },
+      messages: [user('u1', 1, at(9))],
+      toolEvents: [{ ...narration('n1', 1, 'A few choices are yours.'), createdAt: at(10) }],
+      questionSets: [{ ...sampleQuestionSet('q1', 't1'), createdAt: at(10) }],
+    })
+    const lead = within(conversation()).getByText('A few choices are yours.').closest('div')
+    expect(lead?.className).toMatch(/card/)
+    expect(lead?.className).not.toMatch(/question/)
+  })
+
+  it('all of them again after a relaunch', async () => {
+    const messages = [
+      user('u1', 1, at(9)),
+      agent('a1', 1, at(10)),
+      agent('a2', 2, at(11)),
+      user('u2', 3, at(12)),
+      agent('a3', 3, at(14)),
+    ]
+    const toolEvents = [divider('d1', DividerKind.Turn, 2, at(10, 30)), divider('r1', DividerKind.Resumed, 3, at(13))]
+    const { bridge } = await renderChat({ messages, toolEvents })
+    expectAllCarded(3, 2)
+    cleanup()
+
+    // The app starts over from what main saved: a new store, hydrated from the same data.
+    const store = createGladeStore(bridge)
+    render(
+      <GladeStoreProvider store={store}>
+        <ToastProvider>
+          <Chat />
+        </ToastProvider>
+      </GladeStoreProvider>,
+    )
+    await act(() => store.getState().hydrate())
+    expectAllCarded(3, 2)
   })
 })

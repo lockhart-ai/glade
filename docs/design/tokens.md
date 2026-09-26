@@ -10,7 +10,7 @@ can nest one level (header and right panel float inside the task card).
 | `bg` | `#0A0B0F` | Window background, inset fields, code blocks |
 | `panel` | `#181921` | Top-level cards (sidebar, task card, terminal, plugin) |
 | `raised` | `#232531` | Selected rows, input bar, dark buttons |
-| `inner` | `#222430` | Nested cards (header, right panel) |
+| `inner` | `#222430` | Nested cards (header, right panel, the agent's reply cards) |
 | `inner-2` | `#2E3243` | Active tab, highlighted rows inside nested cards |
 | `border` | `#2F3343` | Top-level card borders |
 | `inner-border` | `#373C4F` | Nested card borders and dividers |
@@ -25,7 +25,7 @@ can nest one level (header and right panel float inside the task card).
 | `pink` | `#E58FA8` | Errors, destructive menu items, deleted lines |
 | `teal` | `#7FD1C7` | Added lines, strings in code |
 | user bubble | `#22304D` | Your messages |
-| question highlight | `#1E1B33` / `#3B3366` | Background / border of the agent's question card |
+| question highlight | `#1E1B33` / `#3B3366` | Background / border of the agent's question card, and of its latest reply while it waits on you |
 
 ### Contrast
 
