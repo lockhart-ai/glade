@@ -208,6 +208,7 @@ async function renderInElectron() {
   exitWhenOrphaned({ parent: process.ppid, currentParent: () => process.ppid, exit: abandon, intervalMs: 1000 })
   step('waiting for Electron to get ready')
   await app.whenReady()
+  step('serving the designs and opening a hidden window')
   const server = await serveDesigns()
   const { port } = server.address()
   const window = new BrowserWindow({
@@ -217,8 +218,6 @@ async function renderInElectron() {
     backgroundColor: '#0A0B0F',
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   })
-  // No pinch zoom either: the page must lay out at exactly the screen's size.
-  await window.webContents.setVisualZoomLevelLimits(1, 1)
   const failures = []
   for (const screen of screens) {
     try {

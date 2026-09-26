@@ -54,9 +54,9 @@ force-push.
 - **Tools that launch Electron run outside the command sandbox, in the background.** `npm run render-design`,
   `npm run check-design`, `npm run screenshot`, `npm run record` and `npm run test:e2e` (and long test runs) go
   outside the sandbox and in the background, then you wait for them to finish: never as a long, silent foreground
-  command. Hidden Electron windows don't paint inside the sandbox, while the Mac sleeps or while its screen is
-  locked. `render-design` stops by itself when no screen finishes for 60 s, and names the step it was stuck on. If a
-  render still passes 2 minutes, kill only your own Electron, with your worktree's absolute path, and retry once:
+  command. Hidden Electron windows don't paint inside the sandbox or while the Mac sleeps. `render-design` stops by
+  itself when no screen finishes for 60 s, and names the step it was stuck on. If a render still passes 2 minutes,
+  kill only your own Electron, with your worktree's absolute path, and retry once:
   `pkill -9 -f "<your worktree>/node_modules/electron"` (the script exits once its Electron is gone). Never a bare
   `pkill -f render-design`: it kills every kitten's renders, and any shell whose command mentions render-design.
 - **No visible windows or OS capture.** The app runs with a throwaway database in a window that is never shown. Never
