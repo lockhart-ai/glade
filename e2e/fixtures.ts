@@ -8,7 +8,7 @@
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
-import { _electron as electron, test as base, type ElectronApplication, type Page } from '@playwright/test'
+import { _electron as electron, expect, test as base, type ElectronApplication, type Page } from '@playwright/test'
 import type { AgentScriptName } from '../src/main/agent/scripts'
 import {
   E2E_AGENT_GLOBAL,
@@ -31,8 +31,10 @@ import { testModeLogsFolder } from '../src/main/isolation'
 import { LOG_FILE_NAME } from '../src/main/logging/file-sink'
 import type { TaskNotification } from '../src/main/notifications/notifier'
 import type { RecordingNotifier } from '../src/main/notifications/recording-notifier'
+import { COMMAND_CHANNEL, type CommandName } from '../src/shared/bridge'
 import { PLUGINS_FOLDER_NAME } from '../src/shared/plugins'
 import { READY_ATTRIBUTE } from '../src/shared/ready'
+import { firstRun, taskList } from './selectors'
 
 export { expect } from '@playwright/test'
 
@@ -279,6 +281,83 @@ export async function chooseFolder({ app }: Glade, path: string | null): Promise
     },
     { name: E2E_CHOSEN_FOLDER_ENV, value: path },
   )
+}
+
+/**
+ * Opens the folder the dialog answers with (`chosenFolder`) from the first-run window, and waits until its workspace
+ * shows. Opening it takes a few round trips to main, so a spec that goes on at once (opening a terminal, say) can beat
+ * it on a slow machine: the terminal then starts in the fallback folder, as it does with no workspace open.
+ */
+export async function openWorkspace(window: Page): Promise<void> {
+  await firstRun(window).openFolder.click()
+  await expect(taskList(window).newTask).toBeVisible()
+}
+
+/** A bridge command main is holding (`holdCommand`). */
+export interface HeldCommand {
+  /** Waits until the window has sent the command, and main is holding it. */
+  reached(): Promise<void>
+  /** Lets it go: main runs it, and anything sent since, and stops holding. */
+  release(): Promise<void>
+}
+
+/** What `holdCommand` keeps in main: whether the command has come, and how to let it go. */
+interface CommandHold {
+  reached: boolean
+  release(): void
+}
+
+/** Where `holdCommand` keeps its hold, in main. */
+const COMMAND_HOLD_GLOBAL = '__gladeE2eCommandHold'
+
+/**
+ * Holds main's answers to one bridge command, as a slow machine would, until the test lets them go: the command still
+ * runs, in order, once released. It wraps the window's command handler in place, so it works on an app that's already
+ * running. Electron keeps that handler in `ipcMain`'s `_invokeHandlers`; this fails loudly if it ever stops doing so.
+ */
+export async function holdCommand({ app }: Glade, command: CommandName): Promise<HeldCommand> {
+  await app.evaluate(
+    ({ ipcMain }, { channel, command, global }) => {
+      type Handler = (event: unknown, name: unknown, request: unknown) => unknown
+      const handlers = Reflect.get(ipcMain, '_invokeHandlers') as unknown
+      const original = handlers instanceof Map ? (handlers.get(channel) as Handler | undefined) : undefined
+      if (!(handlers instanceof Map) || original === undefined) throw new Error(`No handler for ${channel} to hold`)
+      let letGo = (): void => undefined
+      const held = new Promise<void>((resolve) => {
+        letGo = resolve
+      })
+      const hold: CommandHold = {
+        reached: false,
+        release: () => {
+          handlers.set(channel, original)
+          letGo()
+        },
+      }
+      Reflect.set(globalThis, global, hold)
+      handlers.set(channel, async (event: unknown, name: unknown, request: unknown) => {
+        if (name === command) {
+          hold.reached = true
+          await held
+        }
+        return original(event, name, request)
+      })
+    },
+    { channel: COMMAND_CHANNEL, command, global: COMMAND_HOLD_GLOBAL },
+  )
+  return {
+    reached: async () => {
+      await expect
+        .poll(() =>
+          app.evaluate((_, global) => (Reflect.get(globalThis, global) as CommandHold).reached, COMMAND_HOLD_GLOBAL),
+        )
+        .toBe(true)
+    },
+    release: async () => {
+      await app.evaluate((_, global) => {
+        ;(Reflect.get(globalThis, global) as CommandHold).release()
+      }, COMMAND_HOLD_GLOBAL)
+    },
+  }
 }
 
 /**

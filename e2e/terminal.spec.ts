@@ -2,11 +2,12 @@
 // profile, and a prompt of the folder's name. Nothing here waits on a timer: every step waits for the terminal to
 // show what it should.
 import { mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type { Page } from '@playwright/test'
-import { expect, test } from './fixtures'
+import { CommandName } from '../src/shared/bridge'
+import { expect, holdCommand, openWorkspace, test } from './fixtures'
 import { chooseMenuItem } from './menu'
-import { chat, contextMenu, firstRun, inputBar, taskList, taskPanel, terminal } from './selectors'
+import { chat, contextMenu, inputBar, taskList, taskPanel, terminal } from './selectors'
 
 /** The prompt of a shell in the workspace `acme-api`. */
 const PROMPT = 'acme-api $'
@@ -31,7 +32,7 @@ test('terminal: tabs of real shells that start in the workspace, and survive a r
   mkdirSync(root)
   const glade = await launch({ chosenFolder: root, agentScript: 'multi-tool-turn' })
   const { window } = glade
-  await firstRun(window).openFolder.click()
+  await openWorkspace(window)
   const term = terminal(window)
   await expect(term.empty).toBeVisible()
 
@@ -104,7 +105,7 @@ test('terminal: ⌃` opens the collapsed bottom bar with a new shell, and File �
   mkdirSync(root)
   const glade = await launch({ chosenFolder: root })
   const { window } = glade
-  await firstRun(window).openFolder.click()
+  await openWorkspace(window)
   const term = terminal(window)
   await chooseMenuItem(glade, 'View', 'Toggle bottom bar')
   await expect(term.empty).toBeHidden()
@@ -118,4 +119,42 @@ test('terminal: ⌃` opens the collapsed bottom bar with a new shell, and File �
   await chooseMenuItem(glade, 'File', 'Close')
   await expect(term.tabs).toHaveCount(0)
   await expect(term.empty).toBeVisible()
+})
+
+// #265: this spec once pressed ⌃` straight after Open folder…, and on a slow CI runner the folder hadn't opened yet: the
+// shell started, but in the fallback folder, so its prompt never read `acme-api $`. Holding main's answer recreates
+// that order every time. The specs now wait for the workspace to open (`openWorkspace`) before they open a terminal.
+test('terminal: the specs wait for the folder to open, since a shell opened before then starts in the fallback folder', async ({
+  launch,
+  tempFolder,
+  userData,
+}) => {
+  const root = join(tempFolder(), 'acme-api')
+  mkdirSync(root)
+  const glade = await launch({ chosenFolder: root })
+  const { window } = glade
+  const term = terminal(window)
+  const hold = await holdCommand(glade, CommandName.WorkspacesCreate)
+  let opened = false
+  const opening = openWorkspace(window).then(() => {
+    opened = true
+  })
+
+  // The folder is on its way to main, and the wait holds: a spec goes no further while the folder is opening.
+  await hold.reached()
+  await expect(taskList(window).newTask).toBeHidden()
+  expect(opened).toBe(false)
+
+  // ⌃` now, as the spec used to press it, opens a shell in the fallback folder: never `acme-api $`.
+  await window.keyboard.press('Control+Backquote')
+  await expect(term.tabs).toHaveText(['bash'])
+  await expect(line(window, `${basename(userData)} $`)).toHaveCount(1)
+  await expect(line(window, PROMPT)).toHaveCount(0)
+
+  // Once the folder has opened, the wait is over, and a new shell starts in the workspace.
+  await hold.release()
+  await opening
+  await window.keyboard.press('Meta+KeyT')
+  await expect(term.tabs).toHaveText(['bash', 'bash'])
+  await expect(line(window, PROMPT)).toHaveCount(1)
 })
