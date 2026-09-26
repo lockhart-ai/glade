@@ -3,6 +3,7 @@
 // permission prompts, files, todos, the terminal, settings), and in the snapshot's rows too; none may come out. The
 // fields a plugin may see carry markers of their own, which must come out, so the test can't pass by sending nothing.
 import { afterEach, beforeEach, expect, it } from 'vitest'
+import { UsageWindow } from '../../shared/account'
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import { appCommand, AppCommandId } from '../../shared/commands'
 import {
@@ -45,7 +46,7 @@ import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { appendPermissionRequest } from '../db/repositories/permission-requests'
 import { appendQuestionSet } from '../db/repositories/question-sets'
 import { createTask, updateTask } from '../db/repositories/tasks'
-import { appendNarration, appendToolCall, updateToolCall } from '../db/repositories/tool-events'
+import { appendNarration, appendToolCall, setSubagentProgress, updateToolCall } from '../db/repositories/tool-events'
 import { createWorkspace } from '../db/repositories/workspaces'
 import { openTestDatabase, type TestDatabase } from '../db/repositories/test-database'
 import { createPluginFeed } from './feed'
@@ -182,7 +183,9 @@ function writeTurn(task: Task, root: string, prefix: string): ToolCallEvent[] {
     toolUseId: `${prefix}_agent`,
     parentToolUseId: null,
   })
-  calls.push(agent)
+  // What its subagent says it's doing now stays in the Subagents tab.
+  const summary = { taskId: task.id, toolUseId: agent.toolUseId, summary: secret('progress_summary') }
+  calls.push(setSubagentProgress(database.db, summary) ?? agent)
   appendNarration(database.db, { taskId: task.id, turn: 1, text: allowed('note'), parentToolUseId: agent.toolUseId })
   for (const [index, [name, input]] of toolInputs(root).entries()) {
     const toolUseId = `${prefix}_${String(index)}`
@@ -229,6 +232,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
     id: 'questions-1',
     taskId: created.id,
     turn: 1,
+    preamble: null,
     questions: QUESTIONS,
     state: QuestionSetState.Open,
     reply: null,
@@ -451,6 +455,28 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
         ],
       },
     ],
+    [EventType.CommitsChanged]: [
+      {
+        type: EventType.CommitsChanged,
+        taskId: created.id,
+        commits: [
+          {
+            id: 'commit-1',
+            taskId: created.id,
+            hash: secret('commit_hash'),
+            subject: secret('commit_subject'),
+            branch: secret('commit_branch'),
+            committedAt: 1,
+            additions: 12,
+            deletions: 3,
+            filesChanged: 2,
+            merge: false,
+            repoPath: secret('commit_repo'),
+            subagentToolUseId: null,
+          },
+        ],
+      },
+    ],
     [EventType.TaskOpenRequested]: [{ type: EventType.TaskOpenRequested, taskId: created.id }],
     [EventType.UiStateChanged]: [
       { type: EventType.UiStateChanged, entry: { key: UiStateKey.RelaunchNotice, value: secret('ui_state') } },
@@ -482,6 +508,23 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           url: 'http://127.0.0.1:45233/mcp',
           token: secret('token'),
           error: null,
+        },
+      },
+    ],
+    [EventType.AccountChanged]: [
+      {
+        type: EventType.AccountChanged,
+        status: {
+          account: {
+            email: secret('email'),
+            organization: secret('organization'),
+            subscriptionType: secret('plan'),
+            tokenSource: null,
+            apiKeySource: null,
+            apiProvider: 'firstParty',
+            readAt: 1,
+          },
+          usageWarning: { utilization: 0.85, window: UsageWindow.Session, resetsAt: 2 },
         },
       },
     ],

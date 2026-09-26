@@ -9,6 +9,7 @@ import {
   type PermissionRequest,
   type QuestionSet,
   type TodoList,
+  type ToolCallEvent,
   type ToolEvent,
   type UiStateEntry,
   type Watcher,
@@ -105,7 +106,17 @@ export function withHistory(state: GladeData, taskId: string, history: TasksHist
     handoffs: { ...state.handoffs, [taskId]: newerHandoff(history.handoff, state.handoffs[taskId]) },
     // Like the queue, watchers change in place: the loaded ones are as new as any event before them.
     watchers: { ...state.watchers, [taskId]: history.watchers },
+    // Commits, too: the loaded list is the task's whole list as it was then.
+    commits: { ...state.commits, [taskId]: history.commits },
   }
+}
+
+/**
+ * Records every task's running subagents, loaded on start, in their tasks' tool logs: what the task list's subagent
+ * counts count until a task's logs load. Events then keep them current, as they do any log entry.
+ */
+export function withRunningSubagents(state: GladeData, calls: readonly ToolCallEvent[]): GladeData {
+  return { ...state, toolEvents: calls.reduce<LogsByTask<ToolEvent>>(withAppended, state.toolEvents) }
 }
 
 /** Records every task's live watchers, loaded on start: what the task list's marks count until a task's logs load. */
@@ -172,6 +183,7 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     openFiles: without(state.openFiles, taskId),
     artifacts: without(state.artifacts, taskId),
     watchers: without(state.watchers, taskId),
+    commits: without(state.commits, taskId),
     handoffs: without(state.handoffs, taskId),
     inputDrafts: without(state.inputDrafts, taskId),
     fileFocus: state.fileFocus?.taskId === taskId ? null : state.fileFocus,
@@ -248,6 +260,8 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, handoffs: { ...state.handoffs, [event.taskId]: event.handoff } }
     case EventType.WatchersChanged:
       return { ...state, watchers: { ...state.watchers, [event.taskId]: event.watchers } }
+    case EventType.CommitsChanged:
+      return { ...state, commits: { ...state.commits, [event.taskId]: event.commits } }
     case EventType.TerminalTabsChanged: {
       const { renamingTerminalId } = state
       const renaming = event.tabs.some(({ id }) => id === renamingTerminalId) ? renamingTerminalId : null
@@ -270,6 +284,8 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, pluginStatuses: { ...state.pluginStatuses, [event.id]: event.text } }
     case EventType.ControlChanged:
       return { ...state, controlStatus: event.status }
+    case EventType.AccountChanged:
+      return { ...state, accountStatus: event.status }
     case EventType.MenuBarChanged:
       // Only the menu bar popover's page is sent it (`../menu-bar`); the window keeps its own tasks.
       return state

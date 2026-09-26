@@ -23,6 +23,7 @@ function call(id: string, name: string, input: Record<string, unknown>, output: 
     finishedAt: null,
     toolUseId: `use-${id}`,
     parentToolUseId: null,
+    progressSummary: null,
   }
 }
 

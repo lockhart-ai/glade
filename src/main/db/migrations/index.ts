@@ -1,4 +1,4 @@
-import { latestVersion, type Migration } from '../migrate'
+import type { Migration } from '../migrate'
 import { schemaVersionMigration } from './0001-schema-version'
 import { coreTablesMigration } from './0002-core-tables'
 import { taskActivityMigration } from './0003-task-activity'
@@ -31,12 +31,14 @@ import { taskTodosMigration } from './0029-task-todos'
 import { watchersMigration } from './0030-watchers'
 import { notificationsMigration } from './0031-notifications'
 import { sdkModelsMigration } from './0032-sdk-models'
+import { accountMigration } from './0033-account'
+import { taskCommitsMigration } from './0034-task-commits'
 import { watcherSubagentsMigration } from './0036-watcher-subagents'
+import { questionPreambleMigration } from './0037-question-preamble'
+import { subagentProgressMigration } from './0038-subagent-progress'
+import { instructionUpdatesMigration } from './0040-instruction-updates'
 
-/**
- * Every migration, in version order. Add new ones in order of their version (an open PR's number is reserved, so there
- * can be gaps); never edit or reorder shipped ones.
- */
+/** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
   schemaVersionMigration,
   coreTablesMigration,
@@ -70,8 +72,13 @@ export const MIGRATIONS: readonly Migration[] = [
   watchersMigration,
   notificationsMigration,
   sdkModelsMigration,
+  accountMigration,
+  taskCommitsMigration,
   watcherSubagentsMigration,
+  questionPreambleMigration,
+  subagentProgressMigration,
+  instructionUpdatesMigration,
 ]
 
-/** The schema version a database is at once every migration has run. */
-export const LATEST_SCHEMA_VERSION = latestVersion(MIGRATIONS)
+/** The version a database is at once every migration has run: the last one's, which can skip versions still in flight. */
+export const LATEST_SCHEMA_VERSION: number = MIGRATIONS.at(-1)?.version ?? 0

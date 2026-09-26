@@ -168,7 +168,7 @@ describe('how a watcher reads', () => {
   })
 
   it('names the task list’s mark', () => {
-    expect(watchingLabel(1)).toBe('Watching 1 thing')
-    expect(watchingLabel(4)).toBe('Watching 4 things')
+    expect(watchingLabel(1)).toBe('1 watcher running')
+    expect(watchingLabel(4)).toBe('4 watchers running')
   })
 })

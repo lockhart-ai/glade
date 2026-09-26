@@ -30,10 +30,23 @@ export interface FileTouchInfo {
   readonly file: TouchedFile
 }
 
+/** A file as one of the task's commits left it: where it is in the commit's repository, and which commit. */
+export interface FileVersion {
+  /** Relative to the top of the commit's repository. */
+  readonly path: string
+  /** The commit's short hash; null when the task no longer has the commit. */
+  readonly hash: string | null
+}
+
 export interface FileViewerProps {
   taskId: string
-  /** Relative to the workspace root. */
+  /** Relative to the workspace root; or, for a file as a commit left it, its commit file key (`commitFileKey`). */
   path: string
+  /**
+   * For a file as a commit left it: its path, and the commit. It shows read-only, labelled with the commit's hash, with
+   * no Open in editor, since it's only in git. Null (the default) for a file in the workspace.
+   */
+  fromCommit?: FileVersion | null
   /** How the agent last touched the file; undefined when it hasn't (e.g. it only showed it). Its change re-reads it. */
   touched: FileTouchInfo | undefined
   /** A line to mark and scroll to (the agent's `show_file`), from 1; null for none. */
@@ -76,7 +89,14 @@ function Notice({ children }: { children: React.ReactNode }): React.JSX.Element 
  * show whole shows its first lines, with a notice; a binary or missing one, a notice only. It's read again when the
  * agent touches it.
  */
-export function FileViewer({ taskId, path, touched, focusLine, focusRequest }: FileViewerProps): React.JSX.Element {
+export function FileViewer({
+  taskId,
+  path,
+  fromCommit = null,
+  touched,
+  focusLine,
+  focusRequest,
+}: FileViewerProps): React.JSX.Element {
   const readFile = useGladeStore((state) => state.readFile)
   const openInEditor = useGladeStore((state) => state.openInEditor)
   const openInEditorKeys = useBinding(WindowCommandId.OpenInEditor)
@@ -102,7 +122,9 @@ export function FileViewer({ taskId, path, touched, focusLine, focusRequest }: F
 
   const text = loaded.state === 'loaded' && loaded.content.kind === FileContentKind.Text ? loaded.content.text : null
   const lines = useMemo(() => (text === null ? [] : sourceLines(text)), [text])
-  const language = languageOf(path)
+  // A file as a commit left it is named by its path in the commit.
+  const shownPath = fromCommit?.path ?? path
+  const language = languageOf(shownPath)
 
   useEffect(() => {
     if (language === null || lines.length === 0) return
@@ -126,39 +148,49 @@ export function FileViewer({ taskId, path, touched, focusLine, focusRequest }: F
   // Tokens for other lines (the file before it changed) would colour the wrong text: show plain text till they come.
   const highlighted = colored.lines === lines ? colored.blocks : NO_BLOCKS
 
-  const markdown = isMarkdown(path)
+  const markdown = isMarkdown(shownPath)
   const preview = markdown && mode === MarkdownMode.Preview
 
   return (
     <div className={styles.viewer}>
       <div className={styles.header}>
-        <span className={styles.path}>{path}</span>
+        <span className={styles.path}>{shownPath}</span>
         {touched !== undefined && <span className={styles.touched}>{touchLine(touched)}</span>}
+        {fromCommit !== null && (
+          <span className={styles.touched}>
+            {fromCommit.hash === null ? 'As a commit left it' : `As of ${fromCommit.hash}`} · read-only
+          </span>
+        )}
         <span className={styles.spacer} />
         {markdown && (
           <Segmented label="Show as" options={MODES} value={mode} onChange={setMode} className={styles.mode} />
         )}
-        <Button
-          variant={ButtonVariant.Ghost}
-          size={ButtonSize.Small}
-          icon={faArrowUpRightFromSquare}
-          aria-keyshortcuts={openInEditorKeys.ariaKeyShortcuts}
-          title={`Open in editor (${openInEditorKeys.label})`}
-          onClick={() => void openInEditor(taskId, path)}
-        >
-          Open in editor
-        </Button>
+        {fromCommit === null && (
+          <Button
+            variant={ButtonVariant.Ghost}
+            size={ButtonSize.Small}
+            icon={faArrowUpRightFromSquare}
+            aria-keyshortcuts={openInEditorKeys.ariaKeyShortcuts}
+            title={`Open in editor (${openInEditorKeys.label})`}
+            onClick={() => void openInEditor(taskId, path)}
+          >
+            Open in editor
+          </Button>
+        )}
       </div>
       {/* Focusable, so it can be scrolled with the keyboard, and ⌘W closes the file while it has the focus. */}
-      <div className={styles.body} tabIndex={0} aria-label={`${path} contents`} role="region">
+      <div className={styles.body} tabIndex={0} aria-label={`${shownPath} contents`} role="region">
         {loaded.state === 'failed' && <Notice>This file can’t be shown: {loaded.message}</Notice>}
         {loaded.state === 'loaded' && loaded.content.kind === FileContentKind.Missing && (
-          <Notice>This file isn’t there any more.</Notice>
+          <Notice>
+            {fromCommit === null ? 'This file isn’t there any more.' : 'This commit’s file can’t be read any more.'}
+          </Notice>
         )}
         {loaded.state === 'loaded' && loaded.content.kind === FileContentKind.Binary && (
           <Notice>
-            This file isn’t text ({formatSize(loaded.content.size)}), so it can’t be shown here. Open it in your editor
-            instead.
+            {fromCommit === null
+              ? `This file isn’t text (${formatSize(loaded.content.size)}), so it can’t be shown here. Open it in your editor instead.`
+              : `This file isn’t text (${formatSize(loaded.content.size)}), so it can’t be shown here.`}
           </Notice>
         )}
         {loaded.state === 'loaded' && loaded.content.kind === FileContentKind.Text && (

@@ -54,6 +54,10 @@ export class Row {
     return typeof value === 'number' && Number.isFinite(value) ? value : this.fail(column, 'a number', value)
   }
 
+  nullableReal(column: string): number | null {
+    return this.value(column) === null ? null : this.real(column)
+  }
+
   nullableInteger(column: string): number | null {
     return this.value(column) === null ? null : this.integer(column)
   }

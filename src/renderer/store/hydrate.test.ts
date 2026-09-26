@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName } from '../../shared/bridge'
 import { TaskFilter } from '../../shared/attention'
 import { DONE_PAGE_SIZE, NO_DONE_TASKS } from '../../shared/doneList'
-import { TaskState, UiStateKey, type Task } from '../../shared/domain'
+import { TaskState, ToolCallState, ToolEventKind, UiStateKey, type Task, type ToolCallEvent } from '../../shared/domain'
 import { doneListKey } from './doneLists'
 import { describeFailure, lastOpenedWorkspace, loadSnapshot, restoreSelection } from './hydrate'
 import { HydrationStatus, INITIAL_DATA } from './state'
@@ -75,6 +75,34 @@ describe('loadSnapshot', () => {
       after: null,
       limit: DONE_PAGE_SIZE,
     })
+  })
+
+  it("loads every task's running subagents into its tool log, so the task list can count them", async () => {
+    const agent = (id: string, taskId: string, state: ToolCallState): ToolCallEvent => ({
+      id,
+      taskId,
+      turn: 1,
+      createdAt: 1_000,
+      kind: ToolEventKind.ToolCall,
+      name: 'Agent',
+      input: {},
+      output: state === ToolCallState.Running ? null : 'Done.',
+      state,
+      finishedAt: null,
+      toolUseId: `use-${id}`,
+      parentToolUseId: null,
+      progressSummary: null,
+    })
+    const running = [agent('a', 't1', ToolCallState.Running), agent('c', 't3', ToolCallState.Running)]
+    const { bridge, invoke } = fakeBridge({
+      ...main(),
+      toolEvents: [...running, agent('b', 't1', ToolCallState.Done)],
+    })
+
+    const snapshot = await loadSnapshot(bridge)
+
+    expect(invoke).toHaveBeenCalledWith(CommandName.SubagentsListRunning, {})
+    expect(snapshot.toolEvents).toEqual({ t1: [running[0]], t3: [running[1]] })
   })
 
   it('loads the first Done page under the filter chip chosen', async () => {

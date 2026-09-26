@@ -278,6 +278,7 @@ async function runCapture(spec: CaptureSpec, context: CaptureContext): Promise<v
     exitCode = 1
   }
   context.bridge.runner.close()
+  context.bridge.account.close()
   await context.bridge.endpoint.close()
   context.bridge.terminals.shutdown()
   context.database.db.close()
@@ -761,6 +762,7 @@ export function startApp({
       log.info('app quitting')
       stopLoggingCrashes()
       runner.close()
+      bridge.account.close()
       void bridge.endpoint.close()
       bridge.pluginViews.close()
       menuBar?.close()

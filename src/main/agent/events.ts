@@ -9,6 +9,7 @@
  * a turn that has already finished.
  */
 import { z } from 'zod'
+import { UsageWindow } from '../../shared/account'
 import { CompactionTrigger, type EpochMs, type ToolInput } from '../../shared/domain'
 import type { Logger } from '../logging/logger'
 
@@ -57,6 +58,11 @@ export enum AgentEventKind {
    * `patch.is_backgrounded`): its `Agent` call returns at once, and the subagent carries on.
    */
   SubagentBackgrounded = 'subagent_backgrounded',
+  /**
+   * A running subagent's latest one-line summary of what it's doing (`system/task_progress` with a `summary`, sent about
+   * every 30 seconds with `agentProgressSummaries` on; `docs/sdk-notes.md`, "Subagents").
+   */
+  SubagentProgress = 'subagent_progress',
   /**
    * A task started by a tool call ended (`system/task_notification`): for a background subagent, this, not its `Agent`
    * call's result, is when it finished (`docs/sdk-notes.md`, "Background subagents").
@@ -209,6 +215,10 @@ export interface RateLimitEvent {
   readonly status: RateLimitStatus
   /** When the limit resets; null when the SDK doesn't say. The SDK gives epoch seconds; this is milliseconds. */
   readonly resetsAt: EpochMs | null
+  /** How much of the limit's window is used, from 0 to 1; null when the SDK doesn't say. */
+  readonly utilization: number | null
+  /** The limit's window (`rateLimitType`): `Other` when the SDK doesn't say, or names one Glade doesn't know. */
+  readonly window: UsageWindow
 }
 
 export interface SubagentStartedEvent {
@@ -238,6 +248,14 @@ export interface SubagentBackgroundedEvent {
   readonly kind: AgentEventKind.SubagentBackgrounded
   /** The SDK's id for the subagent's task. */
   readonly sdkTaskId: string
+}
+
+export interface SubagentProgressEvent {
+  readonly kind: AgentEventKind.SubagentProgress
+  /** The `Agent` tool call that started the subagent. */
+  readonly toolUseId: string
+  /** What it's doing now, on one line. */
+  readonly summary: string
 }
 
 /** How a task started by a tool call ended (the SDK's `task_notification.status`). */
@@ -276,6 +294,7 @@ export type AgentEvent =
   | RateLimitEvent
   | SubagentStartedEvent
   | SubagentBackgroundedEvent
+  | SubagentProgressEvent
   | TaskFinishedEvent
 
 /** Where parsing reports what it drops: the task's agent log (`../logging/logger`). */
@@ -329,6 +348,15 @@ const taskUpdatedMessage = z.looseObject({
   patch: z.looseObject({ is_backgrounded: z.boolean().optional().catch(undefined) }),
 })
 
+// Only a summary matters, and only for a task started by a tool call. Most progress messages carry none: they only
+// count the task's tool calls and tokens.
+const taskProgressMessage = z.looseObject({
+  type: z.literal('system'),
+  subtype: z.literal('task_progress'),
+  tool_use_id: z.string().min(1).optional().catch(undefined),
+  summary: z.string().optional().catch(undefined),
+})
+
 // Only a task started by a tool call can be matched to its row; a status Glade doesn't know drops the message.
 const taskNotificationMessage = z.looseObject({
   type: z.literal('system'),
@@ -350,6 +378,9 @@ const rateLimitMessage = z.looseObject({
     status: z.enum(RateLimitStatus),
     // Unix epoch seconds (the `anthropic-ratelimit-unified-reset` header). A malformed one is as good as missing.
     resetsAt: z.number().positive().optional().catch(undefined),
+    // A fraction of the window. A malformed one is as good as missing, and so is a window Glade doesn't know.
+    utilization: z.number().nonnegative().optional().catch(undefined),
+    rateLimitType: z.enum(UsageWindow).optional().catch(undefined),
   }),
 })
 
@@ -472,8 +503,16 @@ function fromApiRetry(message: z.infer<typeof apiRetryMessage>): AgentEvent[] {
 }
 
 function fromRateLimit(message: z.infer<typeof rateLimitMessage>): AgentEvent[] {
-  const { status, resetsAt } = message.rate_limit_info
-  return [{ kind: AgentEventKind.RateLimit, status, resetsAt: resetsAt === undefined ? null : resetsAt * 1000 }]
+  const { status, resetsAt, utilization, rateLimitType } = message.rate_limit_info
+  return [
+    {
+      kind: AgentEventKind.RateLimit,
+      status,
+      resetsAt: resetsAt === undefined ? null : resetsAt * 1000,
+      utilization: utilization ?? null,
+      window: rateLimitType ?? UsageWindow.Other,
+    },
+  ]
 }
 
 /** An API error's message: its text blocks, joined. */
@@ -610,6 +649,19 @@ function fromTaskUpdated(message: z.infer<typeof taskUpdatedMessage>): AgentEven
   return [{ kind: AgentEventKind.SubagentBackgrounded, sdkTaskId: message.task_id }]
 }
 
+/** A summary on one line: its runs of whitespace, line breaks included, as single spaces. Empty when it's blank. */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+function fromTaskProgress(message: z.infer<typeof taskProgressMessage>): AgentEvent[] {
+  const { tool_use_id: toolUseId } = message
+  const summary = oneLine(message.summary ?? '')
+  return toolUseId === undefined || summary === ''
+    ? []
+    : [{ kind: AgentEventKind.SubagentProgress, toolUseId, summary }]
+}
+
 function fromTaskNotification(message: z.infer<typeof taskNotificationMessage>): AgentEvent[] {
   const { task_id: sdkTaskId, tool_use_id: toolUseId, status: outcome, summary } = message
   return toolUseId === undefined ? [] : [{ kind: AgentEventKind.TaskFinished, sdkTaskId, toolUseId, outcome, summary }]
@@ -652,6 +704,9 @@ export function createSdkMessageParser(log: AgentLog): (raw: unknown) => AgentEv
         }
         if (subtype === 'task_updated') {
           return parsed(taskUpdatedMessage, raw, log, 'system/task_updated', fromTaskUpdated)
+        }
+        if (subtype === 'task_progress') {
+          return parsed(taskProgressMessage, raw, log, 'system/task_progress', fromTaskProgress)
         }
         if (subtype === 'task_notification') {
           return parsed(taskNotificationMessage, raw, log, 'system/task_notification', fromTaskNotification)

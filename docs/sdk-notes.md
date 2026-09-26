@@ -93,7 +93,31 @@ vars. Not exercised in this spike, because no key was available.
 - Glade runs on the user's existing `claude` login and adds no key setting. If `ANTHROPIC_API_KEY` happens to be set in
   the environment, the binary uses it instead, per the precedence above.
 - Show which credential is in use (from `system/init.apiKeySource`, and from `accountInfo()` or
-  `initializationResult().account`) so the user is never surprised about billing.
+  `initializationResult().account`) so the user is never surprised about billing. #281: Settings › General shows it,
+  read with `accountInfo()` as each task's session starts and kept in SQLite (`src/main/account/account.ts`).
+
+### Account info [verified]
+
+Probed on SDK 0.3.281 with Haiku (#281): `accountInfo()` answers straight after `query()` starts, before any message is
+sent, so reading it costs no API call; `initializationResult().account` is the same object. Its fields depend on the
+credential. Values below are invented:
+
+```jsonc
+// A Claude subscription login (no tokenSource; subscriptionType is Claude Code's display name)
+{ "email": "sam@acme.dev", "organization": "Acme Robotics", "subscriptionType": "Claude Max", "apiProvider": "firstParty" }
+// ANTHROPIC_API_KEY set, on a machine that also has a login: the key is used, and there's no email or plan
+{ "tokenSource": "claude.ai", "apiKeySource": "ANTHROPIC_API_KEY", "apiProvider": "firstParty" }
+// Nothing signed in (an empty CLAUDE_CONFIG_DIR)
+{ "tokenSource": "none", "apiProvider": "firstParty" }
+```
+
+- `system/init.apiKeySource` was `"none"` for the login, as in §1. `accountInfo()` carries the same `apiKeySource`
+  when there's a key, so Glade reads only `accountInfo()`.
+- From the bundled binary [docs]: a non-`firstParty` `apiProvider` (Bedrock, Vertex, Foundry, a gateway, …) comes
+  alone; `tokenSource` is left out for a subscription (then `subscriptionType` is set) and set for
+  `CLAUDE_CODE_OAUTH_TOKEN`; email and organization come only for a claude.ai or `/login managed key` login. With a
+  plan and a key both present, Claude Code uses the plan and calls the key "not in use". Glade's `accountKind` follows
+  that order.
 
 ## 2. Event shapes
 
@@ -253,9 +277,48 @@ The tool is named `Agent` in `tool_use` (the init `tools` list shows `Task`). A 
   `parent_tool_use_id` set and `content: [{ "type": "text", "text": "…" }]`, the same shape as a top-level one. Its
   prompt also arrives, as a `user` message with a text block and the parent id; its thinking blocks came with empty
   `thinking` text.
-- `agentProgressSummaries: true` adds a one-line `summary` to `task_progress` about every 30s [docs].
+- `agentProgressSummaries: true` adds a one-line `summary` to `task_progress` about every 30s [verified, below].
 - Background Bash commands use the same `task_*` events with `task_type: "local_bash"`, plus
   `system/background_tasks_changed` [verified].
+
+**Progress summaries [verified]** (#278). Probed on SDK 0.3.281 with Haiku, in a throwaway folder, with
+`agentProgressSummaries: true`: one foreground subagent ran four `sleep 20 && echo …` Bash calls, one at a time, for
+82s. Timings are seconds from the start.
+
+```
+ 5.7  system/task_started   { task_id: "ae9b…", tool_use_id: "toolu_011g…", task_type: "local_agent", … }
+ 7.8  system/task_progress  { task_id: "ae9b…", tool_use_id: "toolu_011g…", description: "Running Wait 20 seconds then print one",
+                              usage: { total_tokens: 12170, tool_uses: 1, duration_ms: 2075 }, last_tool_name: "Bash" }
+29.4  system/task_progress  { …, description: "Running Wait 20 seconds then print two", usage: { …, tool_uses: 2 }, last_tool_name: "Bash" }
+39.4  system/task_progress  { task_id: "ae9b…", tool_use_id: "toolu_011g…", description: "Running sleep 20 && echo one",
+                              subagent_type: "general-purpose", usage: { total_tokens: 13530, tool_uses: 2, duration_ms: 33651 },
+                              summary: "Running sleep 20 && echo one" }                  ← no last_tool_name
+50.4  system/task_progress  { …, description: "Running Wait 20 seconds then print three", usage: { …, tool_uses: 3 }, last_tool_name: "Bash" }
+71.5  system/task_progress  { …, description: "Running Wait 15 seconds then print four", usage: { …, tool_uses: 4 }, last_tool_name: "Bash" }
+73.4  system/task_progress  { …, description: "Executing second bash command.", usage: { …, tool_uses: 4, duration_ms: 67675 },
+                              summary: "Executing second bash command." }
+87.5  system/task_updated   { task_id: "ae9b…", patch: { status: "completed", end_time: … } }
+87.5  system/task_notification { task_id: "ae9b…", status: "completed", summary: <its final reply>, usage: { … } }
+```
+
+- A summary comes on a `task_progress` of its own, about every 30s after the subagent starts (here at 39s and 73s),
+  with `summary` set, `description` the same text, and no `last_tool_name`. The progress messages after each tool call
+  carry no `summary`, as before.
+- It's one short line, but not always current: the fork summarises the conversation so far, so it can lag a call or
+  two behind (at 39s it named the first command while the second ran; at 73s it said "second" during the fourth).
+- None came after the subagent ended in this run, but nothing in the SDK's types rules a late one out.
+- The subagent's own foreground Bash calls got `task_started` and `task_notification` of their own (`local_bash`,
+  `owned_by_subagent: true`), as in "Background subagents" below.
+
+**Implications for Glade (#278)**
+
+- Glade sets `agentProgressSummaries: true`. The runner reads a `task_progress` that has a `summary` and names a
+  `tool_use_id`, collapses its whitespace to one line, and keeps it on that `Agent` call's row in SQLite
+  (`progress_summary`) while the call runs. One for a call that has finished, isn't an `Agent` or `Task` call, or
+  isn't in the log is ignored. The row's summary is cleared once the call stops running (done, failed, paused or
+  interrupted, a relaunch included).
+- The Subagents tab shows it under a running subagent's name, on one line with the whole of it in its tooltip. It
+  isn't sent to plugins.
 
 **Implications for Glade (P5-05)**
 
@@ -335,7 +398,7 @@ the start.
   from its call's "launched" result, or from a later move to the background. Its `Agent` call's row keeps running
   until its `task_notification`. Then it's done, or failed with the summary. A stopped one fails with "You stopped the
   subagent.", as a stopped turn's calls do. The Subagents tab counts its calls and times it from the tool log, as for
-  any subagent. Glade doesn't read `task_progress`.
+  any subagent. Glade reads `task_progress` only for its summary (see "Subagents" above).
 - Its calls and notes are logged whenever they arrive, with the turn its `Agent` call was made in. They never open a
   turn, and the end of a turn doesn't fail them. Its calls still running when it ends fail with it.
 - Stop subagent calls `stopTask` with its task id, as for a foreground one.
@@ -441,6 +504,16 @@ receives `compact_summary`. See §5.
   `USAGE_WARNING_PREFIXES` for recognising limit messages.
 - **[verified]** `rate_limit_event.rate_limit_info` gives `status`, `resetsAt` and per-window `utilization`. This is
   useful for the P3 usage-limit screen.
+  - A probe on SDK 0.3.281 (#281), invented values:
+    `{ "status": "allowed_warning", "resetsAt": 1790920800, "rateLimitType": "seven_day", "utilization": 0.28,
+    "isUsingOverage": false, "unifiedWindows": { "five_hour": { "utilization": 0.36, "resetsAt": … },
+    "seven_day": { "utilization": 0.28, "resetsAt": … } } }`. `utilization` is a fraction of the `rateLimitType`
+    window; `unifiedWindows` isn't in the SDK's types.
+  - `allowed_warning` can come early: 28% of a week, above. Claude Code shows its own warning ("You've used 85% of
+    your session limit · resets 2pm") only from 70% (`utilization` ≥ 0.7, or none given), so Glade does the same: the
+    quiet note in the banner's spot (#281, `docs/design/html/17-usage-limit.html`). It clears on `allowed`, a warning
+    below 70%, `rejected` (the pause banner takes over) or its `resetsAt`.
+  - Glade never reads `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`.
   - `resetsAt` is **Unix epoch seconds** (the `anthropic-ratelimit-unified-reset` header; the bundled binary's schema
     says so). `status: "rejected"` means the limit is refusing requests until then. Only subscription logins get the
     event; an API key gets none.
@@ -775,9 +848,10 @@ folder, with Glade's options: `settingSources: ['user', 'project', 'local']`, an
 - The same holds for Glade's own tasks: a resumed session keeps the prompt it started with, so a Settings change to
   what the prompt asks for (the upkeep switches) reaches a task only in a new session.
 - So since P13-04, Glade sends a resumed session what it's missing once, as a `[Glade: …] … [end]` block ahead of the
-  next message it sends it (`src/main/agent/session-context.ts`): Glade's whole prompt for an imported session, and a
-  task's handoff note when the session started without it, or with an older one. What each session has had is kept
-  in SQLite (`session_context`).
+  next message it sends it (`src/main/agent/session-context.ts`): Glade's whole prompt for an imported session, the
+  lines added to the prompt since the session started (`INSTRUCTION_UPDATES`, #301), and a task's handoff note when
+  the session started without it, or with an older one. What each session has had is kept in SQLite
+  (`session_context`).
 
 ### Transcript entries [verified]
 
@@ -1178,6 +1252,36 @@ command }`, which the task messages already say.)
   exact prompt, as long as no live job of the task has the same prompt.
 - A relaunch ends running watchers and wakeups ("Stopped by the relaunch.", as §11 found) and suspends cron jobs until
   the resumed session's first `Stop` hook lists them again.
+
+## 14. Commits: what a task's `Bash` calls committed [not probed]
+
+For the Changes tab (#275). Not probed against a live session: built from the SDK's hook types (`sdk.d.ts`, SDK
+0.3.281) and git's own output, and tested end to end with the scripted agent making real commits
+(`ScriptStepKind.Shell`, `e2e/changes.spec.ts`).
+
+**The hook.** A `PreToolUse` hook with the matcher `Bash` is called before each `Bash` call runs, the session's and a
+subagent's, and the call waits for its callback to resolve. Its input has `tool_use_id` (the `tool_use` block's id,
+which the call's result pairs with), `tool_input.command`, and `cwd`, the folder the command runs in; a subagent's has
+`agent_id` too. Glade's callback waits at most 5 s (`BASH_HOOK_TIMEOUT_MS`), and answers `{}`: it never decides a call.
+
+**What Glade reads, and when.** Before the call: for its `cwd` and each folder the command `cd`s to or runs `git -C`
+in, the repository (`git rev-parse --path-format=absolute --show-toplevel --git-dir --git-common-dir`), and its working
+tree's `HEAD` and reflog length (`git rev-list --walk-reflogs --count HEAD`). After the call's result: the reflog
+entries added meanwhile (`git log -g -n<N> --format=%H%x1f%gs%x1f%gd --date=unix HEAD`). An entry whose message starts
+`commit: `, `commit (initial|amend|merge): `, `cherry-pick`, `revert`, or is a `merge`/`pull` that says `Merge made by`
+made a commit; `checkout: moving from …`, `reset: moving to …` and `Fast-forward` moved `HEAD` to one that was there.
+An amend's entry follows the commit it replaced. `git commit` also prints the commit it made, `[main a1b2c3d] Fix the
+test` (`[main (root-commit) …]`, `[detached HEAD …]`), which is resolved in the call's repositories.
+
+**What's read later.** A commit's row (`git log --no-walk=unsorted --shortstat -M --diff-merges=first-parent`) is kept
+in SQLite; its files (`git show --format= -z --raw --numstat -M --diff-merges=first-parent`) and a file as it left it
+(`git cat-file blob <hash>:<path>`) are read through the common git dir (`--git-dir`), which outlives a removed
+worktree. Every read runs with `GIT_OPTIONAL_LOCKS=0`, `core.quotepath=off` and no colour, pager or signatures.
+
+**Not seen.** A commit made by a command left running in the background (`run_in_background`), which returns before it
+commits, or by a script in a folder the command doesn't name. A rebase's rewritten commits aren't counted as made.
+Unconfirmed: that a subagent isolated in a worktree gets its worktree as the hook's `cwd`; a command that `cd`s into
+it is covered either way.
 
 ---
 

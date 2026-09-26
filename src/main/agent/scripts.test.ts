@@ -48,13 +48,17 @@ import {
   DELETE_LOCAL_COPIES_QUESTION,
   FOLLOW_UPS,
   MANY_CHOICES_QUESTIONS,
+  PARALLEL_SUBAGENTS,
   PERMISSION_AT_QUIT,
+  RELEASE_NOTES_PREAMBLE,
   RELEASE_NOTES_QUESTIONS,
   S3_PLAN,
   SUBAGENT_CALLS_REPLY,
   type AgentScriptName,
 } from './scripts'
-import { OFFLINE_FIRST_CHECK_MS } from './pauses'
+import { OFFLINE_FIRST_CHECK_MS, USAGE_LIMIT_FALLBACK_MS } from './pauses'
+import { createAccountTracker, type AccountSink, type AccountTracker } from '../account/account'
+import { UsageWindow } from '../../shared/account'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
 import { createMemoryLog } from '../logging/memory-sink'
 import type { Logger } from '../logging/logger'
@@ -70,9 +74,14 @@ interface Listeners {
   readonly notifyReply?: NotifyReply
   /** Where the runner reports what it drops or ignores; the console by default. */
   readonly log?: Logger
+  /** What hears about the account. Nothing by default. */
+  readonly account?: AccountSink
 }
 
-function start(name: AgentScriptName, { emit = () => undefined, notifyReply, log }: Listeners = {}): AgentRunner {
+function start(
+  name: AgentScriptName,
+  { emit = () => undefined, notifyReply, log, account }: Listeners = {},
+): AgentRunner {
   backend = createTestModeAgentBackend({ script: AGENT_SCRIPTS[name] })
   const base = { db: database.db, emit }
   const questions = createQuestionBroker(base)
@@ -82,6 +91,7 @@ function start(name: AgentScriptName, { emit = () => undefined, notifyReply, log
     backend,
     ...(notifyReply === undefined ? {} : { notifyReply }),
     ...(log === undefined ? {} : { log }),
+    ...(account === undefined ? {} : { account }),
     // The real Glade tools, as the app gives every session.
     mcpServers: (forTask) => ({ [GLADE_SERVER]: createGladeMcpServer(context, forTask.id) }),
   })
@@ -289,10 +299,11 @@ describe('AGENT_SCRIPTS', () => {
     await send(agent, 'Draft the 2.4 release notes.')
 
     const agents = calls().filter((call) => call.name === 'Agent')
-    expect(agents.map((call) => [call.input.description, call.state])).toEqual([
-      ['API changes', ToolCallState.Running],
-      ['Dashboard changes', ToolCallState.Running],
-      ['Check links in the 2.3 notes', ToolCallState.Done],
+    // Each running one says what it's doing now; the link check's late summary changed nothing.
+    expect(agents.map((call) => [call.input.description, call.state, call.progressSummary])).toEqual([
+      ['API changes', ToolCallState.Running, PARALLEL_SUBAGENTS.apiSummary],
+      ['Dashboard changes', ToolCallState.Running, PARALLEL_SUBAGENTS.dashboardSummary],
+      ['Check links in the 2.3 notes', ToolCallState.Done, null],
     ])
     const [api, dashboard, links] = agents.map((call) => call.toolUseId)
     const nested = (parent: string | undefined): ToolEvent[] =>
@@ -324,6 +335,7 @@ describe('AGENT_SCRIPTS', () => {
         .filter((call) => call.name === 'Agent')
         .map((call) => call.state),
     ).toEqual([ToolCallState.Error, ToolCallState.Error, ToolCallState.Done])
+    expect(calls().filter((call) => call.progressSummary !== null)).toEqual([])
   })
 
   it('long-running: keeps working, with its command running, until stopped', async () => {
@@ -534,6 +546,59 @@ describe('AGENT_SCRIPTS', () => {
     })
   })
 
+  describe('usage warnings', () => {
+    let account: AccountTracker
+
+    beforeEach(() => {
+      account = createAccountTracker({ db: database.db, emit: () => undefined })
+    })
+
+    afterEach(() => {
+      account.close()
+    })
+
+    it('usage-warning: warns at 85% of the session limit, which resets in an hour, and goes on as usual', async () => {
+      // Not every timer: the warning's would run out the hour.
+      start('usage-warning', { account }).send(task.id, 'Add rate limiting.')
+      await vi.advanceTimersByTimeAsync(2_000)
+
+      const warning = account.status().usageWarning
+      expect(warning).toMatchObject({ utilization: 0.85, window: UsageWindow.Session })
+      const resetsIn = (warning?.resetsAt ?? 0) - Date.now()
+      expect(resetsIn).toBeGreaterThan(59 * 60_000)
+      expect(resetsIn).toBeLessThanOrEqual(60 * 60_000)
+      expect(activity()).toBe(TaskActivity.Waiting)
+      expect(reply()).toMatch(/^The throttle class is written/)
+      // The scripted session runs on an invented login.
+      expect(account.status().account).toMatchObject({ email: 'sam@acme.dev', subscriptionType: 'Claude Max' })
+    })
+
+    it('usage-warning-resets: warns, and the warning goes on its own seconds later', async () => {
+      await send(start('usage-warning-resets', { account }), 'Add rate limiting.')
+      // `send` runs every timer, the warning's too.
+      expect(account.status().usageWarning).toBeNull()
+
+      start('usage-warning-resets', { account }).send(task.id, 'Carry on.')
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(account.status().usageWarning).not.toBeNull()
+      await vi.advanceTimersByTimeAsync(6_000)
+      expect(account.status().usageWarning).toBeNull()
+    })
+
+    it('usage-warning-then-limit: warns, then pauses on the limit with the warning still standing', async () => {
+      const agent = start('usage-warning-then-limit', { account })
+      agent.send(task.id, 'Add rate limiting.')
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(account.status().usageWarning).toMatchObject({ utilization: 0.85 })
+
+      const pause = await pausedBy(agent, 'Apply it to the viewsets.')
+      expect(pause).toMatchObject({ reason: PauseReason.UsageLimit })
+      // No rejected event came first, so the pause waits Glade's own while, and the warning is still there to hide.
+      expect((pause?.resumesAt ?? 0) - (pause?.since ?? 0)).toBe(USAGE_LIMIT_FALLBACK_MS)
+      expect(account.status().usageWarning).toMatchObject({ utilization: 0.97 })
+    })
+  })
+
   it('offline: pauses when the network goes, then resumes once it is back and finishes', async () => {
     const pause = await pausedBy(start('offline'), 'Move the uploads to S3.')
     expect(pause).toMatchObject({ reason: PauseReason.Offline, details: 'API Error: Connection error.' })
@@ -564,6 +629,7 @@ describe('AGENT_SCRIPTS', () => {
 
     const open = getOpenQuestionSet(database.db, task.id)
     expect(open?.questions).toEqual(RELEASE_NOTES_QUESTIONS)
+    expect(open?.preamble).toBe(RELEASE_NOTES_PREAMBLE)
     expect(getTask(database.db, task.id)).toMatchObject({
       title: 'Draft release notes for 2.4',
       status: 'Waiting on layout, credit and upgrade guide questions.',
@@ -591,6 +657,7 @@ describe('AGENT_SCRIPTS', () => {
 
     const open = getOpenQuestionSet(database.db, task.id)
     expect(open?.questions).toEqual(MANY_CHOICES_QUESTIONS)
+    expect(open?.preamble).toBeNull()
     expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, asking: true })
     expect(reply()).toBeUndefined()
 

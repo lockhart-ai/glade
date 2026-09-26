@@ -30,24 +30,26 @@ There are no follow-up tasks. One task can refer to another through its folder o
 | Title | Set by the agent from your first message (`set_title`). You can rename it. |
 | Objective | Set once by the agent from your first message (`set_objective`). |
 | Status summary | Rewritten by the agent as work moves (`set_status`). Becomes the outcome when done. |
-| Chat log | Append-only. Your messages and the agent's **final reply per turn** only. |
+| Chat log | Append-only. Your messages and the agent's **final reply per turn** only. The system prompt tells the agent so: its final reply must answer you on its own, findings and all, after any follow-up work. |
 | Tool log | Append-only. Every tool call, plus the agent's working notes ("preamble") between them. |
 
 ## The window
 
 - **Left sidebar** — workspace switcher, search, New task (+), filter chips (All · Needs you · Unread), and the task
-  list in three collapsible sections: Pinned, Active, Done. Each row shows a state dot, title, a one-line status and a
-  relative time; while the agent keeps a todo list, the status ends with its progress (a ring and `3/7`, a check once
-  all are done, the item in progress as its tooltip). Unread rows are bold with a blue dot. Resizable, collapsible.
+  list in three collapsible sections: Pinned, Active, Done. Each row shows a state dot, title and relative time, then
+  a one-line status. Under them, only while there's something to show, a compact third line of what's going on in the
+  task, in this order: its todo progress (a ring and `3/7`, a check once all are done, the item in progress as its
+  tooltip), its running subagents and its live watchers, each an icon and a count with a tooltip. Unread rows are bold
+  with a blue dot. Resizable, collapsible.
 - **Task card** (centre) — a header card (state dot, title, age, pin toggle, Mark done, goal and status) floating over
   the top of the chat, and the input bar floating over its bottom. The chat, a little narrower than both, scrolls under
   them and is cut off halfway under each, so it never shows past their outer edges. The input bar has model, effort
   and permissions pickers and a context
   meter at the right. Each task keeps its unsent draft, text and pasted images, while you're on another task and
   across a relaunch or a crash, until it's sent.
-- **Right panel** (inside the task card) — tabs: Tool calls, Files, Todos, Artifacts, Subagents, Watchers. Resizable,
-  collapsible. Too narrow for its tabs, the tab row scrolls sideways, with chevrons at the ends that have more tabs past
-  them.
+- **Right panel** (inside the task card) — tabs: Tool calls, Files, Todos, Artifacts, Subagents, Watchers, Changes (the
+  commits the task made; Glade watches git and never drives it). Resizable, collapsible. Too narrow for its tabs, the
+  tab row scrolls sideways, with chevrons at the ends that have more tabs past them.
 - **Bottom bar** (full width) — a global terminal with tabs, and a plugin panel (Nekomata). Resizable, collapsible.
 
 Each resizable panel has a drag handle in the gap on its inner edge. Dragging it takes room from the chat or gives it
@@ -80,7 +82,12 @@ when it loses focus (`design/html/29-menu-bar.html`).
 
 Settings (⌘,) opens on Agent. Changes save as you make them.
 
-- **General:** **Show Glade in the menu bar** (on by default): its icon, and the list under it (see Attention).
+- **General:** **Show Glade in the menu bar** (on by default): its icon, and the list under it (see Attention). Then
+  the account the tasks run on and bill to, as Claude Code reports it when a task starts: the email (or "API key", a
+  cloud provider, or "Not signed in"), organization, plan, and what it's signed in with. Nothing to change: Claude Code
+  owns the login. While the account is close to a usage limit (70% of a window or more), a quiet note in the app-wide
+  banner's spot says how much is used and when it resets; the paused tasks' banner takes its place if the limit runs
+  out.
 - **Agent:** the defaults for new tasks (model, effort and permissions: Ask first or Allow all; **Allow edits** is shown
   but disabled, as it isn't a mode yet), and two switches for what the agent keeps current: **Status summary**
   (`set_status` every turn) and **Task titles** (`set_title` from your first message). A session started with one off

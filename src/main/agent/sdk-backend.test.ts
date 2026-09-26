@@ -41,6 +41,10 @@ const sdk = vi.hoisted(() => {
   const session = {
     interrupt: vi.fn(() => Promise.resolve(undefined)),
     stopTask: vi.fn<(taskId: string) => Promise<void>>(() => Promise.resolve(undefined)),
+    // As probed on SDK 0.3.281, for a subscription login: an invented account.
+    accountInfo: vi.fn(() =>
+      Promise.resolve({ email: 'sam@acme.dev', subscriptionType: 'Claude Max', apiProvider: 'firstParty' }),
+    ),
     setModel: vi.fn<(model?: string) => Promise<void>>(() => Promise.resolve(undefined)),
     applyFlagSettings: vi.fn<(settings: unknown) => Promise<void>>(() => Promise.resolve(undefined)),
     setPermissionMode: vi.fn<(mode: string) => Promise<void>>(() => Promise.resolve(undefined)),
@@ -95,6 +99,7 @@ it('runs the session in the workspace root, allowing all, with the workspace and
     mcpServers: {},
     disallowedTools: ['AskUserQuestion'],
     forwardSubagentText: true,
+    agentProgressSummaries: true,
     stderr: expect.any(Function) as unknown,
     perTaskStopAffordance: true,
   })
@@ -252,6 +257,11 @@ it('starts one streaming-input query per session, in the environment, and pushes
   session.send('Fix it.', 'uuid-2', [GIF])
   await session.interrupt()
   await session.stopTask('b7f3')
+  expect(await session.accountInfo()).toEqual({
+    email: 'sam@acme.dev',
+    subscriptionType: 'Claude Max',
+    apiProvider: 'firstParty',
+  })
   session.close()
 
   const pushed: SDKUserMessage[] = []

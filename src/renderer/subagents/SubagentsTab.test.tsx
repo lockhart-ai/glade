@@ -14,6 +14,7 @@ import {
 import { refuse, sampleWatcher, sampleWorkspace } from '../store/test-bridge'
 import { storeWrapper } from '../store/test-wrapper'
 import { ELAPSED_REFRESH_MS, SubagentsTab } from './SubagentsTab'
+import styles from './SubagentsTab.module.css'
 
 /** Renders under a store, which the tab's context menus act through. */
 function render(ui: React.ReactElement, wrapper = storeWrapper()) {
@@ -37,6 +38,7 @@ function call(id: string, overrides: Partial<ToolCallEvent> = {}): ToolCallEvent
     finishedAt: null,
     toolUseId: `use-${id}`,
     parentToolUseId: null,
+    progressSummary: null,
     ...overrides,
   }
 }
@@ -164,6 +166,72 @@ describe('SubagentsTab', () => {
     render(<SubagentsTab taskId="t1" events={[agent('api', 'API changes')]} />)
     fireEvent.click(header('API changes'))
     expect(screen.getByRole('log', { name: 'API changes log' })).toHaveTextContent('Nothing yet.')
+  })
+
+  it('shows a running subagent’s summary under its name, updating live, and none once it has finished', () => {
+    vi.useFakeTimers({ now: AT + 60_000 })
+    const api = (overrides: Partial<ToolCallEvent>) => agent('api', 'API changes', overrides)
+    const dash = agent('dash', 'Dashboard changes', { progressSummary: 'Listing the merged dashboard PRs' })
+    const read = call('api-read', {
+      name: 'Read',
+      input: { file_path: `${ROOT}/api/views.py` },
+      parentToolUseId: 'use-api',
+    })
+    const { rerender } = render(<SubagentsTab taskId="t1" events={[api({}), dash, read]} rootPath={ROOT} />)
+    expect(header('API changes')).toHaveTextContent(/^API changesRunningReadapi\/views\.py1m 00s · 1 tool call$/)
+    expect(header('Dashboard changes')).toHaveTextContent(
+      /^Dashboard changesRunningListing the merged dashboard PRs1m 00s · 0 tool calls$/,
+    )
+
+    rerender(
+      <SubagentsTab
+        taskId="t1"
+        events={[api({ progressSummary: 'Reading the API PRs, newest first' }), dash, read]}
+        rootPath={ROOT}
+      />,
+    )
+    // Under its name, above its latest call.
+    expect(header('API changes')).toHaveTextContent(
+      /^API changesRunningReading the API PRs, newest firstReadapi\/views\.py/,
+    )
+    expect(screen.getByTitle('Reading the API PRs, newest first')).toBeInTheDocument()
+
+    rerender(
+      <SubagentsTab
+        taskId="t1"
+        events={[api({ progressSummary: 'Sorting 14 API PRs into features and fixes' }), dash, read]}
+        rootPath={ROOT}
+      />,
+    )
+    expect(header('API changes')).toHaveTextContent('Sorting 14 API PRs into features and fixes')
+    expect(header('API changes')).not.toHaveTextContent('newest first')
+
+    // Finished, it shows what it came to, as before.
+    rerender(
+      <SubagentsTab
+        taskId="t1"
+        events={[api({ state: ToolCallState.Done, output: 'Sorted 14 PRs.', finishedAt: AT + 60_000 }), dash, read]}
+        rootPath={ROOT}
+      />,
+    )
+    expect(header('API changes')).toHaveTextContent(/^API changesDoneSorted 14 PRs\.1m 00s · 1 tool call$/)
+    expect(screen.queryByTitle(/Sorting 14 API PRs/)).not.toBeInTheDocument()
+  })
+
+  it('keeps a long summary to one line, with the whole of it in its tooltip', () => {
+    const summary = `Reading the API PRs merged since v2.3.0, ${'newest first, '.repeat(20)}and sorting them`
+    render(<SubagentsTab taskId="t1" events={[agent('api', 'API changes', { progressSummary: summary })]} />)
+
+    const line = screen.getByTitle(summary)
+    expect(line).toHaveTextContent(summary)
+    // One line, cut with an ellipsis (`.summary` in the stylesheet): the e2e spec measures it.
+    expect(line.className).toBe(styles.summary)
+  })
+
+  it('still shows the summary with the row’s log open', () => {
+    render(<SubagentsTab taskId="t1" events={[agent('api', 'API changes', { progressSummary: 'Reading the PRs' })]} />)
+    fireEvent.click(header('API changes'))
+    expect(header('API changes')).toHaveTextContent('Reading the PRs')
   })
 
   it('ticks a running subagent’s elapsed time, and stops ticking once none is running', () => {

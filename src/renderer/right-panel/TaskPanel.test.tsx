@@ -54,6 +54,7 @@ function call(id: string, overrides: Partial<ToolCallEvent> = {}): ToolCallEvent
     finishedAt: null,
     toolUseId: `use-${id}`,
     parentToolUseId: null,
+    progressSummary: null,
     ...overrides,
   }
 }
@@ -159,6 +160,7 @@ describe('TaskPanel', () => {
       'Artifacts',
       'Subagents',
       'Watchers',
+      'Changes',
     ])
     expect(tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
   })

@@ -76,8 +76,9 @@ interface RowProps {
 
 /**
  * One subagent: its dot, name, status, what it's doing and how long it has run, and an eye with a count while it has
- * something running in the background. Click it to open its log below it (in place of the latest line, which the log
- * ends with), and under that its background work, as the Watchers tab shows the task's own; click again to close it.
+ * something running in the background. While it runs, the SDK's summary of what it's doing now sits under its name, on
+ * one line (the whole of it in its tooltip). Click it to open its log below it (in place of the latest line, which the
+ * log ends with), and under that its background work, as the Watchers tab shows the task's own; click again to close it.
  */
 function SubagentRow({
   subagent,
@@ -89,7 +90,7 @@ function SubagentRow({
   onStopWatcher,
   menuTarget,
 }: RowProps): React.JSX.Element {
-  const { name, status, latest, log } = subagent
+  const { name, status, summary, latest, log } = subagent
   const watching = watchers.filter(isLive).length
   return (
     <div
@@ -118,6 +119,11 @@ function SubagentRow({
             <Icon icon={expanded ? faChevronDown : faChevronRight} size={IconSize.Small} />
           </span>
         </span>
+        {summary !== null && (
+          <span className={styles.summary} title={summary}>
+            {summary}
+          </span>
+        )}
         {!expanded && latest !== null && <Latest line={latest} />}
         <span className={styles.meta}>{metaLine(subagent, now)}</span>
       </button>

@@ -153,6 +153,7 @@ function changesWhatsInFlight(event: GladeEvent): boolean {
     case EventType.ArtifactsChanged:
     case EventType.HandoffChanged:
     case EventType.WatchersChanged:
+    case EventType.CommitsChanged:
     case EventType.TerminalTabsChanged:
     case EventType.TerminalOutput:
     case EventType.TerminalCleared:
@@ -162,6 +163,7 @@ function changesWhatsInFlight(event: GladeEvent): boolean {
     case EventType.PluginsChanged:
     case EventType.PluginStatusChanged:
     case EventType.ControlChanged:
+    case EventType.AccountChanged:
     case EventType.MenuBarChanged:
       return false
   }

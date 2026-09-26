@@ -345,6 +345,38 @@ export function launchedResult(toolUseId: string, sdkTaskId: string): unknown {
   }
 }
 
+/**
+ * A subagent's `task_progress`, as the SDK sends one with `agentProgressSummaries` on (`docs/sdk-notes.md`,
+ * "Subagents"): with a `summary`, about every 30 seconds, its description the same text and no `last_tool_name`; without
+ * one, after each of its tool calls, counting them.
+ */
+export function subagentProgress(toolUseId: string, sdkTaskId: string, summary?: string): unknown {
+  const usage = { total_tokens: 13_530, tool_uses: 2, duration_ms: 33_651 }
+  return summary === undefined
+    ? {
+        type: 'system',
+        subtype: 'task_progress',
+        task_id: sdkTaskId,
+        tool_use_id: toolUseId,
+        description: 'Running List the merged API PRs',
+        subagent_type: 'general-purpose',
+        usage,
+        last_tool_name: 'Bash',
+        session_id: SESSION_ID,
+      }
+    : {
+        type: 'system',
+        subtype: 'task_progress',
+        task_id: sdkTaskId,
+        tool_use_id: toolUseId,
+        description: summary,
+        subagent_type: 'general-purpose',
+        usage,
+        summary,
+        session_id: SESSION_ID,
+      }
+}
+
 /** What the SDK streams when a background subagent ends: its status patch, then its notification. */
 export function subagentEnded(
   toolUseId: string,

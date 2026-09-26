@@ -15,11 +15,14 @@ import {
   formatElapsed,
   LatestLineKind,
   metaLine,
+  runningSubagentCount,
+  runningSubagentCounts,
   statusIndicator,
   statusLabel,
   subagentCount,
   subagentLogText,
   subagentName,
+  subagentsRunningLabel,
   SubagentStatus,
   tally,
   toolCallsLabel,
@@ -42,6 +45,7 @@ function call(overrides: Partial<ToolCallEvent> = {}): ToolCallEvent {
     finishedAt: null,
     toolUseId: 'use-1',
     parentToolUseId: null,
+    progressSummary: null,
     ...overrides,
   }
 }
@@ -160,6 +164,31 @@ describe('deriveSubagents', () => {
       expect(quiet?.latest).toEqual({ kind: LatestLineKind.Said, text: 'All sorted.' })
     })
   })
+
+  describe('the summary', () => {
+    it("is each running subagent's own latest progress summary, and nothing before its first", () => {
+      const [api, dash, quiet] = deriveSubagents([
+        agent('api', 'API changes', { progressSummary: 'Reading the API PRs' }),
+        agent('dash', 'Dashboard changes', { progressSummary: 'Sorting the dashboard PRs' }),
+        agent('quiet', 'Contributor list'),
+      ])
+      expect([api?.summary, dash?.summary, quiet?.summary]).toEqual([
+        'Reading the API PRs',
+        'Sorting the dashboard PRs',
+        null,
+      ])
+    })
+
+    it.each([ToolCallState.Done, ToolCallState.Error, ToolCallState.Paused, ToolCallState.Interrupted])(
+      'is nothing once it is %s, whatever its call still holds',
+      (state) => {
+        const [subagent] = deriveSubagents([
+          agent('api', 'API changes', { state, output: 'Sorted.', progressSummary: 'Reading the API PRs' }),
+        ])
+        expect(subagent?.summary).toBeNull()
+      },
+    )
+  })
 })
 
 describe('subagentCount', () => {
@@ -173,6 +202,62 @@ describe('subagentCount', () => {
         said('n', 'Hi', null),
       ]),
     ).toBe(2)
+  })
+})
+
+describe('runningSubagentCount', () => {
+  it('counts the Agent and Task calls still running, nested ones included, and nothing else', () => {
+    expect(runningSubagentCount(undefined)).toBe(0)
+    expect(runningSubagentCount([])).toBe(0)
+    expect(
+      runningSubagentCount([
+        agent('a', 'A'),
+        call({ id: 't', name: 'Task', toolUseId: 'use-t' }),
+        agent('nested', 'Nested', { parentToolUseId: 'use-a' }),
+        // A running call that doesn't start a subagent, and a subagent's own running call.
+        call({ id: 'r', toolUseId: 'use-r' }),
+        call({ id: 'ar', toolUseId: 'use-ar', parentToolUseId: 'use-a' }),
+        said('n', 'Hi', null),
+      ]),
+    ).toBe(3)
+  })
+
+  it('leaves out the subagents that have stopped running, however they stopped', () => {
+    const stopped = [ToolCallState.Done, ToolCallState.Error, ToolCallState.Paused, ToolCallState.Interrupted]
+    const events = stopped.map((state, index) => agent(`s${String(index)}`, 'Stopped', { state }))
+    expect(runningSubagentCount(events)).toBe(0)
+    expect(runningSubagentCount([...events, agent('live', 'Live')])).toBe(1)
+  })
+
+  it('is the Subagents tab’s count of running ones', () => {
+    const events = [
+      agent('a', 'A'),
+      agent('b', 'B', { state: ToolCallState.Done, output: 'Done.' }),
+      agent('c', 'C', { parentToolUseId: 'use-a' }),
+    ]
+    const running = deriveSubagents(events).filter(({ status }) => status === SubagentStatus.Running)
+    expect(runningSubagentCount(events)).toBe(running.length)
+  })
+})
+
+describe('runningSubagentCounts', () => {
+  it('counts each task’s running subagents, leaving out the tasks with none', () => {
+    expect(
+      runningSubagentCounts({
+        t1: [agent('a', 'A'), agent('b', 'B')],
+        t2: [agent('c', 'C', { taskId: 't2', state: ToolCallState.Done })],
+        t3: [],
+        t4: [agent('d', 'D', { taskId: 't4' })],
+      }),
+    ).toEqual({ t1: 2, t4: 1 })
+    expect(runningSubagentCounts({})).toEqual({})
+  })
+})
+
+describe('subagentsRunningLabel', () => {
+  it('says how many are running, in the singular for one', () => {
+    expect(subagentsRunningLabel(1)).toBe('1 subagent running')
+    expect(subagentsRunningLabel(3)).toBe('3 subagents running')
   })
 })
 

@@ -26,6 +26,7 @@ import {
   LAUNCHED_OUTPUT,
   REJECTED_TOOL_OUTPUT,
   ScriptedSession,
+  SCRIPTED_ACCOUNT,
   scriptedRuleCovers,
   type ScriptedSessionOptions,
 } from './scripted-session'
@@ -40,8 +41,10 @@ import {
   fillContext,
   gladeTool,
   init,
+  limitWarning,
   permission,
   bashSuggestions,
+  progress,
   result,
   say,
   tool,
@@ -263,6 +266,44 @@ describe('ScriptedSession', () => {
     expect(played.events).toContainEqual(
       expect.objectContaining({ kind: AgentEventKind.TaskFinished, outcome: TaskOutcome.Failed, summary: 'Gave up.' }),
     )
+  })
+
+  it("sends a subagent's progress summary as the SDK does, while it runs and after, by its Agent call", async () => {
+    const played = play([
+      [
+        toolUse('api', 'Agent', { description: 'API changes', prompt: 'Sort the API PRs.' }),
+        progress('api', 'Reading the API PRs'),
+        toolResult('api', 'Sorted.'),
+        progress('api', 'Late news'),
+        result(),
+      ],
+    ])
+    played.session.send('Go', 'user-1')
+    await flush()
+
+    const agentId = 'toolu_id2_1_api'
+    expect(played.raw.filter((message) => message.subtype === 'task_progress')).toEqual([
+      expect.objectContaining({
+        task_id: 'aid21',
+        tool_use_id: agentId,
+        description: 'Reading the API PRs',
+        summary: 'Reading the API PRs',
+      }),
+      expect.objectContaining({ task_id: 'aid21', tool_use_id: agentId, summary: 'Late news' }),
+    ])
+    expect(played.raw.find((message) => message.subtype === 'task_progress')).not.toHaveProperty('last_tool_name')
+    expect(played.events.filter((event) => event.kind === AgentEventKind.SubagentProgress)).toEqual([
+      { kind: AgentEventKind.SubagentProgress, toolUseId: agentId, summary: 'Reading the API PRs' },
+      { kind: AgentEventKind.SubagentProgress, toolUseId: agentId, summary: 'Late news' },
+    ])
+  })
+
+  it('kills the session, loudly, at a progress step for a call that started no subagent', async () => {
+    const played = play([[toolUse('bash', 'Bash', { command: 'ls' }), progress('bash', 'Listing'), result()]])
+    played.session.send('Go', 'user-1')
+    await flush()
+
+    expect((await played.ended)?.message).toBe('No subagent started by bash to report progress for')
   })
 
   it('streams tool calls and results with unique ids, one assistant message per round, subagent calls nested', async () => {
@@ -922,6 +963,35 @@ describe('ScriptedSession', () => {
       expect(created).toEqual([])
       expect(played.events.at(-1)).toMatchObject({ kind: AgentEventKind.TurnFinished, terminalReason: 'aborted_tools' })
     })
+  })
+
+  it('warns of a close usage limit as the SDK does: how much of which window, resetting when, to the second', async () => {
+    vi.setSystemTime(1_790_000_000_400)
+    const played = play([[limitWarning(0.85, 'five_hour', 3_600_000), result()]])
+    played.session.send('Go', 'user-1')
+    await flush()
+
+    expect(played.raw[0]).toMatchObject({
+      type: 'rate_limit_event',
+      rate_limit_info: {
+        status: 'allowed_warning',
+        utilization: 0.85,
+        rateLimitType: 'five_hour',
+        resetsAt: 1_790_003_601,
+      },
+    })
+    expect(played.events[0]).toEqual({
+      kind: AgentEventKind.RateLimit,
+      status: 'allowed_warning',
+      utilization: 0.85,
+      window: 'five_hour',
+      resetsAt: 1_790_003_601_000,
+    })
+  })
+
+  it('reports the invented login as its account, or the one it is given', async () => {
+    expect(await play([]).session.accountInfo()).toEqual(SCRIPTED_ACCOUNT)
+    expect(await play([], { account: { tokenSource: 'none' } }).session.accountInfo()).toEqual({ tokenSource: 'none' })
   })
 
   it('passes an emit step’s message through as is', async () => {
@@ -1640,6 +1710,25 @@ describe('ScriptedSession', () => {
 
       expect(played.raw.filter((message) => message.subtype === 'task_notification')).toEqual([])
       expect(played.idles()).toBe(2)
+    })
+
+    it('sends its progress summaries alongside the turns, by its Agent call', async () => {
+      const played = play([
+        [
+          init(),
+          background('agent', AGENT_INPUT, [delay(10), progress('agent', 'Timing the queries')], { summary: 'Done.' }),
+          result(),
+        ],
+      ])
+      played.session.send('Profile checkout.', 'user-1')
+      await vi.advanceTimersByTimeAsync(10)
+
+      expect(played.events).toContainEqual({
+        kind: AgentEventKind.SubagentProgress,
+        toolUseId: 'toolu_id2_1_agent',
+        summary: 'Timing the queries',
+      })
+      expect(played.raw.find((message) => message.subtype === 'task_progress')).toMatchObject({ task_id: 'aid21' })
     })
 
     it('kills the session at a fail step, as a turn does', async () => {

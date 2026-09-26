@@ -69,12 +69,14 @@ const TOOL_CALL: ToolCallEvent = {
   finishedAt: null,
   toolUseId: 'toolu_01',
   parentToolUseId: null,
+  progressSummary: null,
 }
 
 const QUESTION_SET: QuestionSet = {
   id: 'questions-1',
   taskId: 'task-1',
   turn: 1,
+  preamble: null,
   questions: [{ kind: QuestionKind.Text, prompt: 'Which branch?' }],
   state: QuestionSetState.Open,
   reply: null,
@@ -434,6 +436,42 @@ describe('the tool log', () => {
         level: LogLevel.Debug,
         message: 'open files changed',
         fields: { taskId: 'task-1', open: 1, activePath: 'src/date.ts' },
+      }),
+    ])
+  })
+
+  it('logs a task’s commits by hash, and their messages only at debug', () => {
+    const hash = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678'
+    logEvent({
+      type: EventType.CommitsChanged,
+      taskId: 'task-1',
+      commits: [
+        {
+          id: 'c1',
+          taskId: 'task-1',
+          hash,
+          subject: 'Fix the UTC date test',
+          branch: 'main',
+          committedAt: 1,
+          additions: 1,
+          deletions: 1,
+          filesChanged: 1,
+          merge: false,
+          repoPath: '/code/acme-api',
+          subagentToolUseId: null,
+        },
+      ],
+    })
+    expect(logged()).toEqual([
+      expect.objectContaining({
+        level: LogLevel.Info,
+        message: 'commits changed',
+        fields: { taskId: 'task-1', commits: [hash] },
+      }),
+      expect.objectContaining({
+        level: LogLevel.Debug,
+        message: 'commit messages',
+        fields: { taskId: 'task-1', subjects: ['Fix the UTC date test'] },
       }),
     ])
   })

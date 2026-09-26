@@ -19,6 +19,8 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  WatcherKind,
+  WatcherState,
 } from '../shared/domain'
 import { applySeed, readSeed, type CaptureSeed } from './capture-seed'
 import { listArtifacts } from './db/repositories/artifacts'
@@ -32,12 +34,17 @@ import { listTaskPermissionRules } from './db/repositories/task-permission-rules
 import { listToolEvents } from './db/repositories/tool-events'
 import { listTasks } from './db/repositories/tasks'
 import { getUiState } from './db/repositories/ui-state'
+import { listWatchers } from './db/repositories/watchers'
 import { listWorkspaces } from './db/repositories/workspaces'
 import { openTestDatabase, type TestDatabase } from './db/repositories/test-database'
 import { DEFAULT_SETTINGS } from '../shared/settings'
 import { DRIVES_GLADE } from './agent/scripts'
 import { getSettings } from './db/repositories/settings'
 import { ensureControlToken, readControlToken } from './control/token'
+import { getSessionContext } from './db/repositories/session-context'
+import { INSTRUCTION_UPDATES } from './agent/system-prompt'
+import { getAccount, getUsageWarning } from './db/repositories/account'
+import { UsageWindow } from '../shared/account'
 
 const FIXTURES = join(import.meta.dirname, '..', '..', 'scripts', 'fixtures')
 const FIXTURE = join(FIXTURES, 'task-workspace.json')
@@ -225,6 +232,14 @@ describe('readSeed', () => {
     )
   })
 
+  it('refuses an account or a usage warning of the wrong shape', () => {
+    expect(() => readSeed(write(JSON.stringify({ ...SEED, account: { email: 'sam@acme.dev' } })))).toThrow(
+      /is invalid: /,
+    )
+    const warning = { utilization: -1, window: 'five_hour', resetsInMinutes: 5 }
+    expect(() => readSeed(write(JSON.stringify({ ...SEED, usageWarning: warning })))).toThrow(/is invalid: /)
+  })
+
   it('refuses a fixture that is missing or not JSON', () => {
     expect(() => readSeed(join(folder, 'missing.json'))).toThrow(/^the seed .*missing\.json can't be read: /)
     expect(() => readSeed(write('{'))).toThrow(/can't be read: /)
@@ -378,6 +393,66 @@ describe('applySeed', () => {
     expect(getHandoff(db, byTitle.get('Plain') ?? '')).toBeUndefined()
   })
 
+  it('adds a task’s watchers, in order, running unless they say otherwise, started when they say', () => {
+    const { db } = database
+    const now = 100 * 60_000
+
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          {
+            title: 'Watch the CI run on PR #42',
+            minutesAgo: 1,
+            watchers: [
+              {
+                kind: WatcherKind.Monitor,
+                toolUseId: 'w1',
+                label: 'CI on PR #42',
+                detail: 'gh pr checks 42',
+                minutesAgo: 9,
+              },
+              {
+                kind: WatcherKind.Command,
+                toolUseId: 'w2',
+                label: 'Integration tests',
+                detail: 'npm run test:integration',
+                state: WatcherState.Finished,
+                minutesAgo: 5,
+              },
+            ],
+          },
+          { title: 'Plain', minutesAgo: 0 },
+        ],
+      },
+      now,
+    )
+
+    const tasks = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    const byTitle = new Map(tasks.map((task) => [task.title, task.id]))
+    const watchers = listWatchers(db, byTitle.get('Watch the CI run on PR #42') ?? '')
+    expect(
+      watchers.map(({ kind, label, detail, state, startedAt }) => ({ kind, label, detail, state, startedAt })),
+    ).toEqual([
+      {
+        kind: WatcherKind.Monitor,
+        label: 'CI on PR #42',
+        detail: 'gh pr checks 42',
+        state: WatcherState.Running,
+        startedAt: now - 9 * MINUTE,
+      },
+      {
+        kind: WatcherKind.Command,
+        label: 'Integration tests',
+        detail: 'npm run test:integration',
+        state: WatcherState.Finished,
+        startedAt: now - 5 * MINUTE,
+      },
+    ])
+    expect(listWatchers(db, byTitle.get('Plain') ?? '')).toEqual([])
+  })
+
   it('declares a task’s artifacts, in order, marking each file that’s there as changed when it was declared', () => {
     const { db } = database
     const root = mkdtempSync(join(tmpdir(), 'glade-seed-artifacts-'))
@@ -477,6 +552,52 @@ describe('applySeed', () => {
     expect(getSettings(db)).toEqual({ ...DEFAULT_SETTINGS, controlEnabled: true })
   })
 
+  it('stores no account and no usage warning unless given', () => {
+    const { db } = database
+    applySeed(db, SEED, NOW)
+    expect(getAccount(db)).toBeNull()
+    expect(getUsageWarning(db)).toBeNull()
+  })
+
+  it('stores the account and usage warning it gives, timed from now', () => {
+    const { db } = database
+    applySeed(
+      db,
+      {
+        ...SEED,
+        account: {
+          email: 'sam@acme.dev',
+          subscriptionType: 'Claude Max',
+          apiProvider: 'firstParty',
+          readMinutesAgo: 2,
+        },
+        usageWarning: { utilization: 0.85, window: UsageWindow.Session, resetsInMinutes: 90 },
+      },
+      NOW,
+    )
+
+    expect(getAccount(db)).toEqual({
+      email: 'sam@acme.dev',
+      organization: null,
+      subscriptionType: 'Claude Max',
+      tokenSource: null,
+      apiKeySource: null,
+      apiProvider: 'firstParty',
+      readAt: NOW - 2 * 60_000,
+    })
+    expect(getUsageWarning(db)).toEqual({ utilization: 0.85, window: UsageWindow.Session, resetsAt: NOW + 90 * 60_000 })
+  })
+
+  it('stores a usage warning with no reset time', () => {
+    const { db } = database
+    applySeed(
+      db,
+      { ...SEED, usageWarning: { utilization: null, window: UsageWindow.Weekly, resetsInMinutes: null } },
+      NOW,
+    )
+    expect(getUsageWarning(db)).toEqual({ utilization: null, window: UsageWindow.Weekly, resetsAt: null })
+  })
+
   it('selects nothing unless a task asks to be', () => {
     const { db } = database
 
@@ -536,7 +657,22 @@ describe('applySeed', () => {
 
     applySeed(db, { ...SEED, tasks: [{ title: '', minutesAgo: 0 }] })
 
-    expect(listTasks(db, listWorkspaces(db)[0]?.id ?? '')[0]?.sessionId).toBeNull()
+    const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    expect(task?.sessionId).toBeNull()
+    expect(getSessionContext(db, task?.id ?? '')).toBeUndefined()
+  })
+
+  it("records a titled task's session as started with Glade's prompt as it is now, with no handoff note yet", () => {
+    const { db } = database
+
+    applySeed(db, { ...SEED, tasks: [{ title: 'Add rate limiting', minutesAgo: 0 }] })
+
+    const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    expect(getSessionContext(db, task?.id ?? '')).toEqual({
+      instructions: true,
+      instructionUpdates: INSTRUCTION_UPDATES.length,
+      handoffAt: null,
+    })
   })
 
   it("writes a task's chat log and tool log, the tool calls done when they have an output", () => {
@@ -836,6 +972,35 @@ describe('applySeed', () => {
         finishedAt: NOW - 7 * MINUTE,
       },
       { kind: ToolEventKind.ToolCall, state: ToolCallState.Interrupted, parentToolUseId: null },
+    ])
+  })
+
+  it("writes what a running subagent says it's doing now", () => {
+    const { db } = database
+    const agent = { kind: ToolEventKind.ToolCall, name: 'Agent', turn: 1, minutesAgo: 4 } as const
+
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          {
+            title: 'Draft release notes for 2.4',
+            minutesAgo: 0,
+            toolEvents: [
+              { ...agent, input: { description: 'API changes' }, progressSummary: 'Reading the API PRs' },
+              { ...agent, input: { description: 'Dashboard changes' } },
+            ],
+          },
+        ],
+      },
+      NOW,
+    )
+
+    const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    expect(listToolEvents(db, task?.id ?? '')).toMatchObject([
+      { state: ToolCallState.Running, progressSummary: 'Reading the API PRs' },
+      { state: ToolCallState.Running, progressSummary: null },
     ])
   })
 

@@ -24,6 +24,8 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  WatcherKind,
+  WatcherState,
   type EpochMs,
   type PermissionSuggestion,
   type TaskError,
@@ -49,13 +51,19 @@ import {
   appendDivider,
   appendNarration,
   appendToolCall,
+  setSubagentProgress,
   updateToolCall,
 } from './db/repositories/tool-events'
 import { setUiState } from './db/repositories/ui-state'
+import { addWatcher } from './db/repositories/watchers'
 import { createWorkspace, getWorkspaceByRoot } from './db/repositories/workspaces'
 import { recordNotification } from './db/repositories/notifications'
+import { setSessionContext } from './db/repositories/session-context'
+import { INSTRUCTION_UPDATES } from './agent/system-prompt'
 import { DEFAULT_SETTINGS, type SettingsPatch } from '../shared/settings'
 import { SETTING_SCHEMAS, updateSettings } from './db/repositories/settings'
+import { saveAccount, setUsageWarning } from './db/repositories/account'
+import { UsageWindow } from '../shared/account'
 import { storeControlToken, storedToken } from './control/token'
 import { refreshTodos } from './todos/todos'
 
@@ -99,6 +107,8 @@ export interface SeedToolCall {
   readonly minutesAgo: number
   /** How long before the capture its result arrived, when it has one; `minutesAgo` unless given. */
   readonly finishedMinutesAgo?: number | undefined
+  /** What a running `Agent` call's subagent says it's doing now (its progress summary); none unless given. */
+  readonly progressSummary?: string | undefined
 }
 
 /** A sample divider in the tool log. */
@@ -200,6 +210,8 @@ export interface SeedTask {
   readonly permissionMode?: PermissionMode | undefined
   /** Its agent's tool calls that wait, or waited, on your OK, in the order they asked. */
   readonly permissionRequests?: readonly SeedPermissionRequest[] | undefined
+  /** What its agent left running or scheduled (the Watchers tab), in the order it started them. */
+  readonly watchers?: readonly SeedWatcher[] | undefined
   /**
    * Another workspace to put it in, made (once, by its root) beside the fixture's own, which stays the one open: for a
    * capture of what's in flight across workspaces (the menu bar popover). The fixture's workspace unless given.
@@ -218,6 +230,16 @@ export interface SeedWorkspace {
 /** A sample notification sent about a task, with its title: what it said, and how long before the capture. */
 export interface SeedNotification {
   readonly body: string
+  readonly minutesAgo: number
+}
+
+/** A sample watcher (`Watcher`), started `minutesAgo`; running unless it has another `state`. */
+export interface SeedWatcher {
+  readonly kind: WatcherKind
+  readonly toolUseId: string
+  readonly label: string
+  readonly detail: string
+  readonly state?: WatcherState | undefined
   readonly minutesAgo: number
 }
 
@@ -252,6 +274,26 @@ export interface SeedPause {
   readonly details: string
 }
 
+/** The account the tasks ran on, as Claude Code reported it (`Account`): each field left out is one it didn't give. */
+export interface SeedAccount {
+  readonly email?: string | undefined
+  readonly organization?: string | undefined
+  readonly subscriptionType?: string | undefined
+  readonly tokenSource?: string | undefined
+  readonly apiKeySource?: string | undefined
+  readonly apiProvider?: string | undefined
+  /** How long before the capture it was read. */
+  readonly readMinutesAgo: number
+}
+
+/** The usage warning standing at the capture (`UsageWarning`). */
+export interface SeedUsageWarning {
+  readonly utilization: number | null
+  readonly window: UsageWindow
+  /** How long after the capture its window resets; null for a warning with no reset time. */
+  readonly resetsInMinutes: number | null
+}
+
 /** A fixture: one workspace, opened, and its tasks. */
 export interface CaptureSeed {
   /**
@@ -275,6 +317,10 @@ export interface CaptureSeed {
   readonly pluginWidth?: number | undefined
   /** The panels to show collapsed; each is open unless given. */
   readonly collapsed?: SeedCollapsed | undefined
+  /** The account Settings › General shows; none read unless given. */
+  readonly account?: SeedAccount | undefined
+  /** The usage warning standing; none unless given. */
+  readonly usageWarning?: SeedUsageWarning | undefined
 }
 
 /** Which panels a seed collapses. */
@@ -314,6 +360,7 @@ const seedToolEventSchema: z.ZodType<SeedToolEvent> = z.discriminatedUnion('kind
     turn,
     minutesAgo,
     finishedMinutesAgo: minutesAgo.optional(),
+    progressSummary: z.string().optional(),
   }),
   z.strictObject({ kind: z.literal(ToolEventKind.Divider), dividerKind: z.enum(DividerKind), turn, minutesAgo }),
   z.strictObject({
@@ -344,8 +391,26 @@ const seedPauseSchema = z.strictObject({
   details: z.string(),
 }) satisfies z.ZodType<SeedPause>
 
+const seedAccountSchema = z.strictObject({
+  email: z.string().optional(),
+  organization: z.string().optional(),
+  subscriptionType: z.string().optional(),
+  tokenSource: z.string().optional(),
+  apiKeySource: z.string().optional(),
+  apiProvider: z.string().optional(),
+  readMinutesAgo: minutesAgo,
+}) satisfies z.ZodType<SeedAccount>
+
+const seedUsageWarningSchema = z.strictObject({
+  utilization: z.number().nonnegative().nullable(),
+  window: z.enum(UsageWindow),
+  resetsInMinutes: minutesAgo.nullable(),
+}) satisfies z.ZodType<SeedUsageWarning>
+
 const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
   workspace: z.strictObject({ id: z.string().optional(), name: z.string(), rootPath: z.string() }),
+  account: seedAccountSchema.optional(),
+  usageWarning: seedUsageWarningSchema.optional(),
   settings: z.strictObject(SETTING_SCHEMAS).partial().optional(),
   controlToken: storedToken.optional(),
   panelTab: z.string().optional(),
@@ -414,9 +479,45 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
           }),
         )
         .optional(),
+      watchers: z
+        .array(
+          z.strictObject({
+            kind: z.enum(WatcherKind),
+            toolUseId: z.string(),
+            label: z.string(),
+            detail: z.string(),
+            state: z.enum(WatcherState).optional(),
+            minutesAgo,
+          }),
+        )
+        .optional(),
     }),
   ),
 })
+
+/** Adds a sample watcher to a task, started `at`. */
+function seedWatcher(db: Database, taskId: string, watcher: SeedWatcher, at: EpochMs): void {
+  const { kind, toolUseId, label, detail } = watcher
+  addWatcher(
+    db,
+    {
+      taskId,
+      kind,
+      toolUseId,
+      parentToolUseId: null,
+      sdkId: null,
+      label,
+      detail,
+      cron: null,
+      schedule: null,
+      recurring: false,
+      state: watcher.state ?? WatcherState.Running,
+      nextDueAt: null,
+      expiresAt: null,
+    },
+    at,
+  )
+}
 
 /** Reads and checks a seed fixture. Throws when it can't be read or isn't a valid fixture. */
 export function readSeed(path: string): CaptureSeed {
@@ -452,6 +553,9 @@ function seedToolEvent(db: Database, taskId: string, event: SeedToolEvent, now: 
       if (output !== undefined) {
         const finishedAt = event.finishedMinutesAgo === undefined ? at : now - event.finishedMinutesAgo * MINUTE
         updateToolCall(db, { taskId, toolUseId, state: event.state ?? ToolCallState.Done, output }, finishedAt)
+      }
+      if (event.progressSummary !== undefined) {
+        setSubagentProgress(db, { taskId, toolUseId, summary: event.progressSummary })
       }
       return
     }
@@ -536,6 +640,26 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
   db.transaction(() => {
     if (seed.settings !== undefined) updateSettings(db, seed.settings)
     if (seed.controlToken !== undefined) storeControlToken(db, seed.controlToken)
+    if (seed.account !== undefined) {
+      const { readMinutesAgo, ...fields } = seed.account
+      saveAccount(db, {
+        email: fields.email ?? null,
+        organization: fields.organization ?? null,
+        subscriptionType: fields.subscriptionType ?? null,
+        tokenSource: fields.tokenSource ?? null,
+        apiKeySource: fields.apiKeySource ?? null,
+        apiProvider: fields.apiProvider ?? null,
+        readAt: now - readMinutesAgo * MINUTE,
+      })
+    }
+    if (seed.usageWarning !== undefined) {
+      const { utilization, window, resetsInMinutes } = seed.usageWarning
+      setUsageWarning(db, {
+        utilization,
+        window,
+        resetsAt: resetsInMinutes === null ? null : now + resetsInMinutes * MINUTE,
+      })
+    }
     const workspace = createWorkspace(db, seed.workspace, now)
     setUiState(db, { key: UiStateKey.ActiveWorkspaceId, value: workspace.id })
     if (seed.panelTab !== undefined) setUiState(db, { key: UiStateKey.RightPanelTab, value: seed.panelTab })
@@ -599,6 +723,15 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         },
         at,
       )
+      // Its session started with Glade's prompt as it is now, so it isn't sent the lines added since
+      // (`INSTRUCTION_UPDATES`). A handoff note is as it was: one set by the seed goes to the session once.
+      if (sample.title !== '') {
+        setSessionContext(db, task.id, {
+          instructions: true,
+          instructionUpdates: INSTRUCTION_UPDATES.length,
+          handoffAt: null,
+        })
+      }
       if (sample.selected === true) setUiState(db, { key: UiStateKey.SelectedTaskId, value: task.id })
       const ago = (minutes: number): EpochMs => now - minutes * MINUTE
       for (const message of sample.messages ?? []) {
@@ -627,6 +760,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       for (const request of sample.permissionRequests ?? []) {
         seedPermissionRequest(db, task.id, request, ago(request.minutesAgo))
       }
+      for (const watcher of sample.watchers ?? []) seedWatcher(db, task.id, watcher, ago(watcher.minutesAgo))
       for (const { body, minutesAgo } of sample.notifications ?? []) {
         recordNotification(db, { taskId: task.id, title: sample.title, body }, ago(minutesAgo))
       }

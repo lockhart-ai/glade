@@ -194,3 +194,37 @@ describe('a subagent’s tool calls', () => {
     expect(await parentCalls()).toEqual(['toolu_q'])
   })
 })
+
+describe('every task’s running subagents', () => {
+  /** What main says is running, as the task list loads it on start: each call's `tool_use` id and state. */
+  async function running(): Promise<string[]> {
+    const { calls } = await glade.invoke(CommandName.SubagentsListRunning, {})
+    return calls.map((call) => `${call.taskId === task.id ? 'task' : 'other'} ${call.toolUseId} (${call.state})`)
+  }
+
+  it('are the Agent calls still running, nested ones included, for the task list to count', async () => {
+    expect(await running()).toEqual([])
+    await interleavedTurn()
+
+    // Not the subagents' own running calls (toolu_w2), nor the task's.
+    expect(await running()).toEqual([
+      'task toolu_api (running)',
+      'task toolu_web (running)',
+      'task toolu_nested (running)',
+    ])
+
+    backend.session.emit(sdk.toolResult('toolu_nested', 'PR 1402 rate limits the public API.', false, 'toolu_api'))
+    await settle()
+    expect(await running()).toEqual(['task toolu_api (running)', 'task toolu_web (running)'])
+  })
+
+  it('end with a relaunch, which interrupts them', async () => {
+    await interleavedTurn()
+
+    runner.close()
+    launch()
+    runner.resumeInterrupted()
+
+    expect(await running()).toEqual([])
+  })
+})

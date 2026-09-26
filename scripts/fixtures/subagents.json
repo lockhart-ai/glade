@@ -100,7 +100,8 @@
           },
           "turn": 1,
           "minutesAgo": 4.2,
-          "toolUseId": "api"
+          "toolUseId": "api",
+          "progressSummary": "Reading PR 1409, the per-key throttles, for the upgrade guide"
         },
         {
           "kind": "tool_call",
@@ -112,7 +113,8 @@
           },
           "turn": 1,
           "minutesAgo": 3.6667,
-          "toolUseId": "dash"
+          "toolUseId": "dash",
+          "progressSummary": "Sorting 9 dashboard PRs into features and fixes"
         },
         {
           "kind": "tool_call",
@@ -124,7 +126,8 @@
           },
           "turn": 1,
           "minutesAgo": 3.0833,
-          "toolUseId": "admin"
+          "toolUseId": "admin",
+          "progressSummary": "Checking the admin PRs for anything that touches the public API"
         },
         {
           "kind": "narration",

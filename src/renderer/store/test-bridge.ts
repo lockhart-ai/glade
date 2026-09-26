@@ -31,10 +31,14 @@ import {
   QuestionSetState,
   TaskActivity,
   TaskState,
+  ToolCallState,
+  ToolEventKind,
   LIVE_WATCHER_STATES,
   WatcherKind,
   WatcherState,
   type Artifact,
+  type CommitFiles,
+  type TaskCommit,
   type TaskHandoff,
   type FileContent,
   type FileInfo,
@@ -46,17 +50,20 @@ import {
   type QueuedMessage,
   type Task,
   type TodoList,
+  type ToolCallEvent,
   type ToolEvent,
   type UiStateEntry,
   type Watcher,
   type Workspace,
 } from '../../shared/domain'
-import { noOpenFiles, withClosedFile, withOpenedFile } from '../../shared/files'
+import { commitFileKey, noOpenFiles, withClosedFile, withOpenedFile } from '../../shared/files'
+import { isSubagentTool } from '../../shared/subagents'
 import { taskPermissionRule } from '../../shared/permissions'
 import type { ImageData, ImageRef } from '../../shared/images'
 import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import { controlUrl, type ControlStatus } from '../../shared/control'
+import type { AccountStatus } from '../../shared/account'
 import { PluginStatus, type InstalledPlugin } from '../../shared/plugins'
 import { highlightParts, highlightPattern, SearchField, type SearchResult } from '../../shared/search'
 import type { TerminalTab } from '../../shared/terminal'
@@ -101,6 +108,17 @@ export interface FakeMain {
   readonly watchers?: Watcher[]
   /** The watchers `watchers.stop` was asked to stop, by id, in order. */
   readonly stoppedWatchers?: string[]
+  /** Every task's commits, newest first; none when left out. */
+  readonly commits?: TaskCommit[]
+  /** What `changes.files` answers with, by commit id; a commit left out fails, as one its repository no longer has. */
+  readonly commitFiles?: Readonly<Record<string, CommitFiles>>
+  /**
+   * The files that are still in the workspace, by `<commit id>:<path>`, with the path relative to the workspace root
+   * that `changes.openFile` opens for each; any other opens as its commit left it (its commit file key).
+   */
+  readonly currentCommitFiles?: Readonly<Record<string, string>>
+  /** Whether `changes.repository` says the workspace is in a git repository; it is when left out. */
+  readonly inRepository?: boolean
   /** Each task's todo list, by task id; none when left out. */
   readonly todos?: Readonly<Record<string, TodoList>>
   /** Every task's artifacts; none when left out. `artifacts.remove` removes one, from the fake's own copy. */
@@ -118,6 +136,8 @@ export interface FakeMain {
   readonly settings?: Settings
   /** The models `models.list` answers with; the built-in ones when left out. */
   readonly models?: readonly ModelChoice[]
+  /** What `account.status` answers with: no account read and no warning when left out. */
+  readonly accountStatus?: AccountStatus
   /** The task last selected in each workspace, by workspace id, which `workspaces.open` selects; none when left out. */
   readonly workspaceSelections?: Readonly<Record<string, string>>
   /** The workspaces `workspaces.reveal` revealed, by id, oldest first. */
@@ -364,6 +384,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       artifacts: artifacts.filter((artifact) => artifact.taskId === id),
       handoff: main.handoffs?.[id] ?? null,
       watchers: (main.watchers ?? []).filter((watcher) => watcher.taskId === id),
+      commits: (main.commits ?? []).filter((commit) => commit.taskId === id),
     }),
     [CommandName.QueueAdd]: ({ taskId, text, images: added }) => {
       queued += 1
@@ -451,6 +472,12 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       main.stoppedSubagents?.push(toolUseId)
       return null
     },
+    [CommandName.SubagentsListRunning]: () => ({
+      calls: (main.toolEvents ?? []).filter(
+        (event): event is ToolCallEvent =>
+          event.kind === ToolEventKind.ToolCall && event.state === ToolCallState.Running && isSubagentTool(event.name),
+      ),
+    }),
     [CommandName.WatchersListLive]: () => ({
       watchers: (main.watchers ?? []).filter(({ state }) => LIVE_WATCHER_STATES.includes(state)),
     }),
@@ -465,6 +492,17 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       }
       return null
     },
+    [CommandName.ChangesFiles]: ({ id }) => {
+      const files = main.commitFiles?.[id]
+      return files === undefined
+        ? refuse(bridgeError(BridgeErrorCode.Internal, `Couldn't read the files of commit ${id}`))
+        : { files }
+    },
+    [CommandName.ChangesOpenFile]: ({ taskId, id, path }) =>
+      changeOpenFiles(taskId, (open) =>
+        withOpenedFile(open, main.currentCommitFiles?.[`${id}:${path}`] ?? commitFileKey({ commitId: id, path })),
+      ),
+    [CommandName.ChangesRepository]: () => ({ repository: main.inRepository ?? true }),
     [CommandName.FilesInfo]: ({ path }) => ({ info: main.fileInfo?.[path] ?? { kind: FileInfoKind.Missing } }),
     [CommandName.FilesCopy]: ({ path }) => {
       main.copied?.push(path)
@@ -509,6 +547,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       return { settings }
     },
     [CommandName.ControlStatus]: () => ({ status: controlStatus() }),
+    [CommandName.AccountStatus]: () => ({ status: main.accountStatus ?? { account: null, usageWarning: null } }),
     [CommandName.ControlRegenerateToken]: () => {
       tokens += 1
       const status = controlStatus()
@@ -720,6 +759,28 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
 }
 
 /** A running `Monitor` on a PR's CI checks, started at 13:02 on 25 September 2026, unless `overrides` say otherwise. */
+/**
+ * A commit fixing the UTC date test on `fix/date-test`, made by the task's own agent at 13:02 on 25 September 2026,
+ * unless `overrides` say otherwise. Its hash is its id's, repeated.
+ */
+export function sampleCommit(id: string, taskId: string, overrides: Partial<TaskCommit> = {}): TaskCommit {
+  return {
+    id,
+    taskId,
+    hash: `${id}0123456789abcdef`.padEnd(40, '0').slice(0, 40),
+    subject: 'Fix the UTC date test',
+    branch: 'fix/date-test',
+    committedAt: new Date(2026, 8, 25, 13, 2).getTime(),
+    additions: 12,
+    deletions: 3,
+    filesChanged: 2,
+    merge: false,
+    repoPath: '/code/acme-api',
+    subagentToolUseId: null,
+    ...overrides,
+  }
+}
+
 export function sampleWatcher(id: string, taskId: string, overrides: Partial<Watcher> = {}): Watcher {
   return {
     id,
@@ -789,6 +850,7 @@ export function sampleQuestionSet(id: string, taskId: string): QuestionSet {
     id,
     taskId,
     turn: 1,
+    preamble: null,
     questions: [
       {
         kind: QuestionKind.Choice,

@@ -128,6 +128,13 @@
   font-size: 12px;
 }
 
+/* The commit a file as a commit left it is from (opened from the Changes tab). */
+.version {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
 .empty {
   margin: auto 0;
   padding: 10px 8px;

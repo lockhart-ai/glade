@@ -103,6 +103,13 @@ export function taskList(page: Page) {
      * done. There only while the agent keeps a list.
      */
     todoProgress: (row: Locator) => row.getByRole('img', { name: /todos done/ }),
+    /**
+     * A row's third line, under its status: its todo progress, running subagents and live watchers, in that order.
+     * There only while it has any of them.
+     */
+    indicators: (row: Locator) => row.locator('[data-indicators]'),
+    /** A row's running subagents: an icon and the count, named "3 subagents running" (its tooltip too). */
+    subagentCount: (row: Locator) => row.getByRole('img', { name: /subagents? running$/ }),
   }
 }
 
@@ -196,6 +203,8 @@ export function subagentsTab(page: Page) {
     row,
     /** A row's header: its dot, name, status, latest line, elapsed time and tool call count. Click it to open its log. */
     header: (name: string) => row(name).getByRole('button').first(),
+    /** A running row's progress summary (what it's doing now), by its text, which its tooltip carries whole. */
+    summary: (name: string, text: string) => row(name).getByTitle(text, { exact: true }),
     /** A row's log, while it's open. */
     log: (name: string) => panel.getByRole('log', { name: `${name} log` }),
     /** A row's eye and count of its live background work, named "Watching 2 things". */
@@ -224,9 +233,34 @@ export function watchersTab(page: Page) {
   }
 }
 
-/** A task row's watcher mark: an eye and how many live watchers its agent has, named "Watching 2 things". */
+/**
+ * The right panel's Changes tab: a row per commit the task made, newest first, each opening to the files it changed.
+ */
+export function changesTab(page: Page) {
+  const panel = regions(page).taskPanel.getByRole('tabpanel')
+  /** A commit's row, by its message; `data-hash` is its full hash. */
+  const row = (subject: string) => panel.getByRole('group', { name: subject, exact: true })
+  return {
+    panel,
+    /** Every commit's row, top to bottom. */
+    rows: panel.locator('[data-hash][role="group"]'),
+    row,
+    /** A row's header: its hash, message, lines, branch, when and subagent. Click it to open its files. */
+    header: (subject: string) => row(subject).getByRole('button').first(),
+    /** A commit's files, while it's open, by its short hash. */
+    files: (hash: string) => panel.getByRole('list', { name: `Files in ${hash}` }),
+    /** A file in an open commit's list, by its path (a renamed one's, from and to). */
+    file: (subject: string, path: string | RegExp) =>
+      row(subject).getByRole('listitem').getByRole('button', { name: path }),
+  }
+}
+
+/**
+ * A task row's watcher count, on its indicators line: an eye and how many live watchers its agent has, named
+ * "2 watchers running" (its tooltip too).
+ */
 export function watchingMark(row: Locator): Locator {
-  return row.getByRole('img', { name: /^Watching/ })
+  return row.getByRole('img', { name: /watchers? running$/ })
 }
 
 /** A workspace switcher action's name. */
@@ -356,6 +390,11 @@ export function pauseBanner(page: Page) {
   }
 }
 
+/** The quiet note in the banner's spot while the account is close to a usage limit. */
+export function usageNote(page: Page) {
+  return page.getByRole('status', { name: 'Usage warning' })
+}
+
 /** The toasts at the bottom of the window, e.g. Mark done's Undo. */
 export function toasts(page: Page) {
   const region = page.getByRole('region', { name: 'Notifications' })
@@ -483,6 +522,8 @@ export function settings(page: Page) {
     regenerateToken: dialog.getByRole('button', { name: 'Regenerate token' }),
     /** Control's port field. */
     port: dialog.getByRole('textbox', { name: 'Port' }),
+    /** General's account block: the account the tasks run on, as Claude Code reported it. */
+    account: dialog.getByRole('region', { name: 'Account' }),
     /** What Control says of the port in use: that it isn't the one chosen, or why there's none. */
     portNotice: dialog.getByRole('status'),
   }
