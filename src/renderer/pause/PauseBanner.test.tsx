@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import { PauseReason, TaskActivity, UiStateKey, type Task } from '../../shared/domain'
+import type { ModelChoice } from '../../shared/models'
+import { SDK_MODELS } from '../../shared/test-models'
 import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore } from '../store/store'
@@ -25,11 +27,12 @@ function paused(
   }
 }
 
-async function renderBanner(tasks: Task[]) {
+async function renderBanner(tasks: Task[], models?: readonly ModelChoice[]) {
   const fake = fakeBridge({
     workspaces: [sampleWorkspace('w1'), sampleWorkspace('w2', 'Billing')],
     tasks,
     uiState: [{ key: UiStateKey.ActiveWorkspaceId, value: 'w1' }],
+    ...(models === undefined ? {} : { models }),
   })
   const store = createGladeStore(fake.bridge)
   render(
@@ -116,6 +119,29 @@ describe('PauseBanner', () => {
       expect(invoke).toHaveBeenCalledWith(CommandName.TasksRetry, { id, model: 'claude-sonnet-5' })
     }
     expect(invoke).not.toHaveBeenCalledWith(CommandName.TasksRetry, expect.objectContaining({ id: 't9' }))
+  })
+
+  it('offers the SDK’s models, checking the one the tasks run on, whether saved by its alias or its full id', async () => {
+    const { invoke } = await renderBanner(
+      [
+        paused('t1', 'w1', PauseReason.UsageLimit, 'Add rate limiting to public API', 'sonnet'),
+        paused('t2', 'w1', PauseReason.UsageLimit, 'Move image uploads to S3', 'claude-sonnet-5'),
+      ],
+      SDK_MODELS,
+    )
+
+    fireEvent.click(within(banner()).getByRole('button', { name: 'Switch model' }))
+    const menu = await screen.findByRole('menu')
+    expect(
+      within(menu)
+        .getAllByRole('menuitemradio')
+        .filter((item) => item.getAttribute('aria-checked') === 'true')
+        .map((item) => item.textContent),
+    ).toEqual(['Sonnet'])
+    fireEvent.click(within(menu).getByRole('menuitemradio', { name: 'Haiku' }))
+
+    expect(invoke).toHaveBeenCalledWith(CommandName.TasksRetry, { id: 't1', model: 'haiku' })
+    expect(invoke).toHaveBeenCalledWith(CommandName.TasksRetry, { id: 't2', model: 'haiku' })
   })
 
   it('checks no model when the paused tasks run on different ones', async () => {

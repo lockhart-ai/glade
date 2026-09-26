@@ -20,6 +20,8 @@ import { searchTaskIds } from '../db/repositories/search'
 import { countTasksByWorkspace, getTasks, listTaskIds, updateTask } from '../db/repositories/tasks'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { getWorkspace, listWorkspaces } from '../db/repositories/workspaces'
+import { findModel } from '../../shared/models'
+import { listModels } from '../models/models'
 import {
   changeTask,
   deleteTask,
@@ -285,6 +287,7 @@ export function createControlService(context: ControlServiceContext): ControlSer
 
     async createTask(request) {
       const { workspaceId, message, handoff, artifacts = [], state = TaskState.Active, externalId, ...fields } = request
+      requireOfferedModel(db, fields.model, 'model')
       if (state === TaskState.Done && message !== undefined) {
         throw new ControlError(
           ControlErrorCode.InvalidInput,
@@ -318,6 +321,7 @@ export function createControlService(context: ControlServiceContext): ControlSer
     },
 
     async updateTask(id, { handoff, artifacts = [], ...change }) {
+      requireOfferedModel(db, change.model, 'patch.model')
       const checked = await checkArtifacts(
         summaryOf(requireTask(db, id).workspaceId).rootPath,
         artifacts,
@@ -377,6 +381,18 @@ export function createControlService(context: ControlServiceContext): ControlSer
       return { task: detail(task), imported, skipped }
     },
   }
+}
+
+/**
+ * Refuses a model the pickers don't offer (`listModels`): the id the SDK takes, or the full id it stands for. `field`
+ * names it in the error.
+ */
+export function requireOfferedModel(db: Database, model: string | undefined, field: string): void {
+  if (model === undefined) return
+  const models = listModels(db)
+  if (findModel(models, model) !== undefined) return
+  const offered = models.map(({ id, name }) => `${id} (${name})`).join(', ')
+  throw new ControlError(ControlErrorCode.InvalidInput, `${field}: ${model} is not a model Glade offers: ${offered}`)
 }
 
 /** Refuses a delete that wasn't confirmed. */

@@ -158,12 +158,13 @@ test('context menus: copy a todo, and ask the agent about it', async ({ launch, 
   await panel.tab(/^Todos/).click()
 
   const menu = contextMenu(window, 'Todo actions')
-  await panel.todos.first().click({ button: 'right' })
+  const todo = panel.todos.filter({ hasText: 'Reproduce the flake' })
+  await todo.click({ button: 'right' })
   await expect(menu.items).toHaveText(['Copy', 'Ask agent about this'])
   await menu.item('Copy').click()
   await expect.poll(() => copied(glade)).toEqual(['Reproduce the flake'])
 
-  await panel.todos.first().focus()
+  await todo.focus()
   await window.keyboard.press('Shift+F10')
   await menu.item('Ask agent about this').click()
   const bar = inputBar(window)
