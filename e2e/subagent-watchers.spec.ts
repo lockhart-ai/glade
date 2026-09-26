@@ -66,6 +66,8 @@ test('subagent watchers: a subagent’s background work is under it, not counted
   await contextMenu(window, 'Subagent actions').item('Stop subagent').click()
   await expect(subagents.header(WORK.subagent)).toContainText('You stopped the subagent.')
   await expect(subagents.watching(WORK.subagent)).toHaveCount(0)
+  // The tab opened afresh, with its rows shut.
+  await subagents.header(WORK.subagent).click()
   await expect(work.getByRole('group', { name: WORK.e2e })).toHaveAttribute('data-state', 'stopped')
   await expect(work.getByRole('group', { name: WORK.e2e })).toContainText('Ended with its subagent.')
   await expect(panel.tab(/^Watch/)).toHaveText('Watchers 1')
