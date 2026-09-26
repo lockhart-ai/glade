@@ -101,8 +101,13 @@ inside that folder. Edit it to suit you; Glade never changes a `CLAUDE.md` that 
 
 The **input bar** under the chat sets how this task runs:
 
-- **Model:** Opus 5.5, Sonnet 5 or Haiku 4.5.
-- **Effort:** Low, Medium, High or Max: how long the agent thinks before acting.
+- **Model:** the models your Claude Code login offers, as Claude Code names them (e.g. Default (recommended), Opus,
+  Sonnet, Haiku). Glade learns the list each time an agent starts and remembers it, so it's there offline and after a
+  relaunch; until the first agent has started, it offers Opus 5.5, Sonnet 5 and Haiku 4.5.
+- **Effort:** how long the agent thinks before acting: Low, Medium, High, Extra high or Max, as far as the model
+  supports them. Some models, like Haiku, take no effort, and the picker hides. Switch to a model that doesn't offer
+  the task's effort and the effort moves to the model's default (High, where it has it), and a toast says so. A model
+  with no effort keeps the task's for the next model that has one.
 - **Permissions:** Allow all, or Ask before edits and commands (see [Permissions](#permissions)).
 - **Context meter**, at the right: how full the task's context is. Click it to see where it compacts by itself, and
   for **Compact now** (or press ⌘⇧K). Long tasks compact automatically; the chat marks where, and the full chat and
@@ -287,7 +292,7 @@ A card left open when Glade quits is still there after the relaunch; answering i
 | Section | What's there |
 |---|---|
 | General | **Show Glade in the menu bar**: the icon with what needs you and what's working (see [Glade in the menu bar](#glade-in-the-menu-bar)). On to begin with. |
-| Agent | Defaults for new tasks: **Model**, **Effort** and **Permissions** (Ask first or Allow all; Allow edits isn't available yet). **Status summary**: have the agent rewrite the task's status after every turn. **Task titles**: have the agent name the task from your first message. |
+| Agent | Defaults for new tasks: **Model** and **Effort**, from the same list as the input bar's pickers (Effort shows only the levels the model supports, and hides for one with none), and **Permissions** (Ask first or Allow all; Allow edits isn't available yet). **Status summary**: have the agent rewrite the task's status after every turn. **Task titles**: have the agent name the task from your first message. |
 | Notifications | **Notifications** on or off, and **Sound**. |
 | Appearance | Nothing yet: Glade has one theme, dark. |
 | Keyboard | Every shortcut, and a way to change it (below). |

@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName } from '../../shared/bridge'
 import { Effort, PermissionMode, UiStateKey } from '../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
+import { SDK_MODELS } from '../../shared/test-models'
+import { ToastProvider } from '../components'
 import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
@@ -32,8 +34,10 @@ async function renderSettings(
   await act(() => store.getState().hydrate())
   render(
     <GladeStoreProvider store={store}>
-      <button type="button">Elsewhere</button>
-      <SettingsDialog />
+      <ToastProvider>
+        <button type="button">Elsewhere</button>
+        <SettingsDialog />
+      </ToastProvider>
     </GladeStoreProvider>,
   )
   if (section !== null) {
@@ -162,6 +166,68 @@ describe('SettingsDialog', () => {
       expect(screen.getByRole('button', { name: 'Model: Sonnet 5' })).toBeInTheDocument()
       expect(screen.getByRole('radio', { name: 'Low' })).toBeChecked()
       expect(screen.getByRole('switch', { name: 'Status summary' })).not.toBeChecked()
+    })
+
+    describe('with the SDK’s models', () => {
+      const withModels = (settings = DEFAULT_SETTINGS): Partial<FakeHandlers> => ({
+        [CommandName.ModelsList]: () => ({ models: SDK_MODELS }),
+        [CommandName.SettingsGet]: () => ({ settings }),
+      })
+
+      it('offers the SDK’s models, and only the levels the default model supports', async () => {
+        await renderSettings(
+          SettingsSection.Agent,
+          withModels({ ...DEFAULT_SETTINGS, defaultModel: 'sonnet', defaultEffort: Effort.XHigh }),
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Model: Sonnet' }))
+        await settleFloating()
+        const menu = screen.getByRole('menu', { name: 'Model' })
+        expect(
+          within(menu)
+            .getAllByRole('menuitemradio')
+            .map((item) => [item.textContent, item.getAttribute('aria-checked')]),
+        ).toEqual([
+          ['Default (recommended)', 'false'],
+          ['Opus (1M context)', 'false'],
+          ['Sonnet', 'true'],
+          ['Lite', 'false'],
+          ['Haiku', 'false'],
+        ])
+        fireEvent.keyDown(menu, { key: 'Escape' })
+        await settleFloating()
+        const efforts = within(screen.getByRole('radiogroup', { name: 'Effort' })).getAllByRole('radio')
+        expect(efforts.map((radio) => radio.textContent)).toEqual(['Low', 'Medium', 'High', 'Extra high'])
+        expect(screen.getByRole('radio', { name: 'Extra high' })).toBeChecked()
+      })
+
+      it('hides the effort for a default model that takes none', async () => {
+        await renderSettings(SettingsSection.Agent, withModels({ ...DEFAULT_SETTINGS, defaultModel: 'haiku' }))
+
+        expect(screen.getByRole('button', { name: 'Model: Haiku' })).toBeInTheDocument()
+        expect(screen.queryByRole('radiogroup', { name: 'Effort' })).toBeNull()
+      })
+
+      it('falls back to the new default model’s default effort when it doesn’t support the one set, and says so', async () => {
+        const { invoke, store } = await renderSettings(
+          SettingsSection.Agent,
+          withModels({ ...DEFAULT_SETTINGS, defaultModel: 'default', defaultEffort: Effort.Max }),
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Model: Default (recommended)' }))
+        await settleFloating()
+        fireEvent.click(screen.getByRole('menuitemradio', { name: 'Lite' }))
+        await act(async () => {
+          await Promise.resolve()
+        })
+
+        expect(settingsUpdates(invoke)).toEqual([{ patch: { defaultModel: 'lite', defaultEffort: Effort.Low } }])
+        expect(store.getState().settings).toMatchObject({ defaultModel: 'lite', defaultEffort: Effort.Low })
+        expect(screen.getByRole('radio', { name: 'Low' })).toBeChecked()
+        expect(screen.getByRole('region', { name: 'Notifications' })).toHaveTextContent(
+          'Lite doesn’t offer Max effort, so it’s now Low.',
+        )
+      })
     })
 
     it('sets the permission mode new tasks start in: Ask first is the ask mode, and Allow edits stays disabled', async () => {

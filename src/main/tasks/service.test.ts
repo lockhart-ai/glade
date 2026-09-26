@@ -17,6 +17,8 @@ import { appendToolCall, listToolEvents, updateToolCall } from '../db/repositori
 import { getUiState, setUiState } from '../db/repositories/ui-state'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { updateSettings } from '../db/repositories/settings'
+import { setSdkModels } from '../db/repositories/sdk-models'
+import { SDK_MODELS } from '../../shared/test-models'
 import {
   changeTask,
   createTask,
@@ -308,6 +310,75 @@ describe('changeTask', () => {
     expectFailure(() => requireTask(database.db, 'gone'), BridgeErrorCode.NotFound, 'No task gone')
     expect(events).toEqual([])
     expect(runner.applyPermissionMode).not.toHaveBeenCalled()
+  })
+})
+
+describe('changing the model', () => {
+  const runner = { applyPermissionMode: vi.fn() }
+
+  beforeEach(() => {
+    setSdkModels(database.db, SDK_MODELS)
+  })
+
+  it('keeps the effort a new model supports', () => {
+    const task = createTask(context, workspace.id, { model: 'default', effort: Effort.XHigh })
+
+    expect(changeTask({ ...context, runner }, task.id, { model: 'sonnet' })).toMatchObject({
+      model: 'sonnet',
+      effort: Effort.XHigh,
+    })
+  })
+
+  it('falls back to the new model’s default effort when it doesn’t support the task’s, in the same write', () => {
+    const task = createTask(context, workspace.id, { model: 'default', effort: Effort.Max })
+    events.length = 0
+
+    const changed = changeTask({ ...context, runner }, task.id, { model: 'sonnet' })
+
+    expect(changed).toMatchObject({ model: 'sonnet', effort: Effort.High })
+    expect(events).toEqual([{ type: EventType.TaskUpdated, task: changed }])
+    // The user's own pick, from the Retry with another model menu, falls back the same way.
+    updateTaskFromUser(context, task.id, { model: 'default', effort: Effort.Max })
+    expect(updateTaskFromUser(context, task.id, { model: 'lite' })).toMatchObject({ effort: Effort.Low })
+  })
+
+  it('keeps the effort, hidden, on a model that takes none, for the next model that does', () => {
+    const task = createTask(context, workspace.id, { model: 'default', effort: Effort.Max })
+
+    expect(changeTask({ ...context, runner }, task.id, { model: 'haiku' })).toMatchObject({ effort: Effort.Max })
+    expect(changeTask({ ...context, runner }, task.id, { model: 'default' })).toMatchObject({ effort: Effort.Max })
+  })
+
+  it('fits an effort given with the model to the model', () => {
+    const task = createTask(context, workspace.id, { model: 'default', effort: Effort.Low })
+
+    expect(changeTask({ ...context, runner }, task.id, { model: 'lite', effort: Effort.Max })).toMatchObject({
+      model: 'lite',
+      effort: Effort.Low,
+    })
+  })
+
+  it('leaves the effort alone on a model the list doesn’t have', () => {
+    const task = createTask(context, workspace.id, { model: 'default', effort: Effort.XHigh })
+
+    expect(changeTask({ ...context, runner }, task.id, { model: 'claude-retired-3' })).toMatchObject({
+      model: 'claude-retired-3',
+      effort: Effort.XHigh,
+    })
+  })
+
+  it('changes an effort alone without looking at the model, even one the list doesn’t have', () => {
+    const task = createTask(context, workspace.id, { model: 'claude-retired-3', effort: Effort.Low })
+
+    expect(changeTask({ ...context, runner }, task.id, { effort: Effort.Max })).toMatchObject({ effort: Effort.Max })
+  })
+
+  it('starts a new task on an effort its model supports', () => {
+    updateSettings(database.db, { defaultModel: 'sonnet', defaultEffort: Effort.Max })
+
+    expect(createTask(context, workspace.id)).toMatchObject({ model: 'sonnet', effort: Effort.High })
+    expect(createTask(context, workspace.id, { model: 'lite' })).toMatchObject({ effort: Effort.Low })
+    expect(createTask(context, workspace.id, { model: 'haiku' })).toMatchObject({ effort: Effort.Max })
   })
 })
 

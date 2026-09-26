@@ -9,7 +9,6 @@
 import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import { Effort, MAX_HANDOFF_BYTES, PermissionMode, TaskState } from '../../shared/domain'
-import { MODEL_OPTIONS } from '../../shared/models'
 import { ControlError, ControlErrorCode } from './errors'
 import { CONTROL_TOOL_ACCESS, ControlAccess, ControlToolName } from './names'
 import { requireConfirmed, TaskStateFilter, type ControlService } from './service'
@@ -133,10 +132,15 @@ const limit = (max: number, fallback: number, what: string) =>
     .optional()
     .describe(`How many ${what} a page holds, 1–${String(max)}; ${String(fallback)} by default.`)
 
-/** A model Glade offers, by the id the SDK takes. */
+/** A model Glade offers, by the id the SDK takes: the service checks it's one the pickers offer now. */
 const model = z
-  .enum(Object.fromEntries(MODEL_OPTIONS.map((option) => [option.id, option.id])))
-  .describe('The model, by id: ' + MODEL_OPTIONS.map((option) => `${option.id} (${option.name})`).join(', ') + '.')
+  .string()
+  .trim()
+  .min(1, 'is empty')
+  .describe(
+    "The model, by the id the SDK takes: one the input bar's model picker offers (e.g. claude-sonnet-5, or an alias " +
+      'such as sonnet). get_task shows the one a task has.',
+  )
 
 const effort = z.enum(Effort).describe('How hard the agent thinks.')
 
