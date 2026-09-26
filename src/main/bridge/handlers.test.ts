@@ -9,6 +9,8 @@ import { createChangeTracker } from '../changes/tracker'
 import { createGit } from '../git/git'
 import { openTestRepos, TEST_GIT_RUN } from '../git/test-repos'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
+import { BUILT_IN_MODELS } from '../../shared/models'
+import { SDK_MODELS } from '../../shared/test-models'
 import { BridgeErrorCode, CommandName, EventType, RendererErrorKind, type GladeEvent } from '../../shared/bridge'
 import { EMPTY_MENU_STATE } from '../../shared/commands'
 import { SearchField } from '../../shared/search'
@@ -17,6 +19,7 @@ import { createAgentRunner } from '../agent/runner'
 import { addArtifact } from '../db/repositories/artifacts'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { getSettings } from '../db/repositories/settings'
+import { setSdkModels } from '../db/repositories/sdk-models'
 import { getTask, listTasks, updateTask } from '../db/repositories/tasks'
 import { setUiState } from '../db/repositories/ui-state'
 import { createFakeSpawner, fakeTerminalOptions, type FakeSpawner } from '../terminal/fake-pty'
@@ -30,6 +33,7 @@ import type { Plugins } from '../plugins/plugins'
 import { PluginStatus } from '../../shared/plugins'
 import { createTerminals } from '../terminal/terminals'
 import { createControlEndpoint, type ControlEndpoint } from '../control/endpoint'
+import { createAccountTracker } from '../account/account'
 import { createRateLimiter } from '../control/rate-limit'
 import { createControl } from '../control/control'
 import { createHandlers, type Handlers } from './handlers'
@@ -102,6 +106,7 @@ beforeEach(() => {
     terminals,
     ...pluginsWithViews(),
     endpoint: endpointOf(),
+    account: createAccountTracker({ db: database.db, emit }),
   })
 })
 
@@ -160,6 +165,7 @@ describe('menu.update and window.close', () => {
       terminals: createTerminals({ db: database.db, emit, ...fakeTerminalOptions() }),
       ...pluginsWithViews(),
       endpoint: endpointOf(),
+      account: createAccountTracker({ db: database.db, emit }),
     })
 
     expect(await withApp[CommandName.MenuUpdate](EMPTY_MENU_STATE)).toBeNull()
@@ -197,6 +203,7 @@ describe('the menu bar commands', () => {
       terminals: createTerminals({ db: database.db, emit, ...fakeTerminalOptions() }),
       ...pluginsWithViews(),
       endpoint: endpointOf(),
+      account: createAccountTracker({ db: database.db, emit }),
       menuBar,
     })
     return { menuBar, calls, handlers: withApp }
@@ -320,6 +327,32 @@ describe('the settings commands', () => {
     expect(changed).toEqual({ settings })
     expect(getSettings(database.db)).toEqual(settings)
     expect(emit).toHaveBeenCalledExactlyOnceWith({ type: EventType.SettingsChanged, settings })
+  })
+
+  it('keep the default effort a new default model supports, and fall back to its default otherwise', async () => {
+    setSdkModels(database.db, SDK_MODELS)
+    await handlers[CommandName.SettingsUpdate]({ patch: { defaultModel: 'default', defaultEffort: Effort.XHigh } })
+
+    expect((await handlers[CommandName.SettingsUpdate]({ patch: { defaultModel: 'sonnet' } })).settings).toMatchObject({
+      defaultModel: 'sonnet',
+      defaultEffort: Effort.XHigh,
+    })
+    const lite = await handlers[CommandName.SettingsUpdate]({ patch: { defaultModel: 'lite' } })
+    expect(lite.settings).toMatchObject({ defaultModel: 'lite', defaultEffort: Effort.Low })
+    expect(emit).toHaveBeenLastCalledWith({ type: EventType.SettingsChanged, settings: lite.settings })
+    // Haiku takes none: the default effort stays, for the next model.
+    await handlers[CommandName.SettingsUpdate]({ patch: { defaultModel: 'default', defaultEffort: Effort.Max } })
+    expect(
+      (await handlers[CommandName.SettingsUpdate]({ patch: { defaultModel: 'haiku' } })).settings.defaultEffort,
+    ).toBe(Effort.Max)
+  })
+
+  it('answer with the models the pickers offer: the built-in ones, then the SDK’s', () => {
+    expect(handlers[CommandName.ModelsList]({})).toEqual({ models: BUILT_IN_MODELS })
+
+    setSdkModels(database.db, SDK_MODELS)
+
+    expect(handlers[CommandName.ModelsList]({})).toEqual({ models: SDK_MODELS })
   })
 
   it('answer with the control endpoint as it is, off to begin with', () => {
@@ -563,6 +596,7 @@ describe('log.rendererError', () => {
       terminals: createTerminals({ db: database.db, emit, ...fakeTerminalOptions(spawner) }),
       ...pluginsWithViews(),
       endpoint: endpointOf(),
+      account: createAccountTracker({ db: database.db, emit }),
       log: log.logger,
     })
     const error = {

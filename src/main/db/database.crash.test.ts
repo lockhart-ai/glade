@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import { openAppDatabase } from './database'
-import { latestVersion, schemaVersion } from './migrate'
-import { MIGRATIONS } from './migrations'
+import { schemaVersion } from './migrate'
+import { LATEST_SCHEMA_VERSION } from './migrations'
 
 /** The Electron binary: in Node, the `electron` package exports its path. */
 function electronBinary(): string {
@@ -73,7 +73,7 @@ it('keeps the database consistent when the process is killed mid-write', async (
   try {
     expect(reopened.db.pragma('integrity_check', { simple: true })).toBe('ok')
     expect(reopened.db.prepare('SELECT body FROM note').pluck().all()).toEqual(['committed'])
-    expect(schemaVersion(reopened.db)).toBe(latestVersion(MIGRATIONS))
+    expect(schemaVersion(reopened.db)).toBe(LATEST_SCHEMA_VERSION)
     expect(reopened.migration.applied).toEqual([])
   } finally {
     reopened.db.close()

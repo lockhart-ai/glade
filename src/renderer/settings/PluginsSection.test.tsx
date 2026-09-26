@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import { PluginStatus, type InstalledPlugin, type ValidPlugin } from '../../shared/plugins'
+import { ToastProvider } from '../components'
 import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
@@ -44,7 +45,9 @@ async function renderPlugins(plugins: InstalledPlugin[], overrides: Partial<Fake
   await act(() => store.getState().hydrate())
   render(
     <GladeStoreProvider store={store}>
-      <SettingsDialog />
+      <ToastProvider>
+        <SettingsDialog />
+      </ToastProvider>
     </GladeStoreProvider>,
   )
   act(() => {

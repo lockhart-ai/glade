@@ -36,12 +36,14 @@ import type {
 } from './domain'
 import type { Command, MenuState } from './commands'
 import type { ImageData } from './images'
+import type { ModelChoice } from './models'
 import type { Settings, SettingsPatch } from './settings'
 import type { SearchResult } from './search'
 import type { DoneCounts, DonePage, DonePageRequest } from './doneList'
 import type { TerminalTab } from './terminal'
 import type { InstalledPlugin } from './plugins'
 import type { ControlStatus } from './control'
+import type { AccountStatus } from './account'
 import type { MenuBarSnapshot } from './menuBar'
 
 /** The name the bridge is exposed under on `window`. */
@@ -105,6 +107,7 @@ export enum CommandName {
   UiStateSet = 'uiState.set',
   SettingsGet = 'settings.get',
   SettingsUpdate = 'settings.update',
+  ModelsList = 'models.list',
   SearchQuery = 'search.query',
   PluginsList = 'plugins.list',
   PluginsSetEnabled = 'plugins.setEnabled',
@@ -112,6 +115,7 @@ export enum CommandName {
   PluginsPlaceView = 'plugins.placeView',
   ControlStatus = 'control.status',
   ControlRegenerateToken = 'control.regenerateToken',
+  AccountStatus = 'account.status',
   TerminalList = 'terminal.list',
   TerminalCreate = 'terminal.create',
   TerminalDuplicate = 'terminal.duplicate',
@@ -707,6 +711,11 @@ export interface SettingsUpdateRequest {
   readonly patch: SettingsPatch
 }
 
+/** `models.list` answers with the models the pickers offer: the SDK's, or the built-in ones until a session reports them. */
+export interface ModelsResponse {
+  readonly models: readonly ModelChoice[]
+}
+
 /**
  * Searches a workspace's tasks: their titles, objectives, statuses (outcomes once done) and chat messages, yours and
  * the agent's. What you type is plain text, never query syntax (see `src/shared/search.ts`): every word must appear
@@ -750,6 +759,14 @@ export interface PluginsSetEnabledRequest {
  */
 export interface ControlStatusResponse {
   readonly status: ControlStatus
+}
+
+/**
+ * The account the tasks run on and the warning while it's close to a usage limit (`./account`), as Claude Code last
+ * reported them: `account.status` answers with them, and `account.changed` broadcasts them as they change.
+ */
+export interface AccountStatusResponse {
+  readonly status: AccountStatus
 }
 
 /** Opens the plugins folder in Finder (Open plugins folder), creating it if it's missing. */
@@ -965,10 +982,12 @@ export interface CommandMap {
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>
   [CommandName.SettingsGet]: CommandSpec<EmptyRequest, SettingsResponse>
   [CommandName.SettingsUpdate]: CommandSpec<SettingsUpdateRequest, SettingsResponse>
+  [CommandName.ModelsList]: CommandSpec<EmptyRequest, ModelsResponse>
   [CommandName.SearchQuery]: CommandSpec<SearchQueryRequest, SearchQueryResponse>
   [CommandName.PluginsList]: CommandSpec<EmptyRequest, PluginsResponse>
   [CommandName.ControlStatus]: CommandSpec<EmptyRequest, ControlStatusResponse>
   [CommandName.ControlRegenerateToken]: CommandSpec<EmptyRequest, ControlStatusResponse>
+  [CommandName.AccountStatus]: CommandSpec<EmptyRequest, AccountStatusResponse>
   [CommandName.PluginsSetEnabled]: CommandSpec<PluginsSetEnabledRequest, PluginsResponse>
   [CommandName.PluginsOpenFolder]: CommandSpec<PluginsOpenFolderRequest, null>
   [CommandName.PluginsPlaceView]: CommandSpec<PluginsPlaceViewRequest, PluginsPlaceViewResponse>
@@ -1035,9 +1054,11 @@ export enum EventType {
   TerminalCleared = 'terminal.cleared',
   MenuCommand = 'menu.command',
   SettingsChanged = 'settings.changed',
+  ModelsChanged = 'models.changed',
   PluginsChanged = 'plugins.changed',
   PluginStatusChanged = 'plugin.statusChanged',
   ControlChanged = 'control.changed',
+  AccountChanged = 'account.changed',
   MenuBarChanged = 'menuBar.changed',
 }
 
@@ -1245,6 +1266,12 @@ export interface SettingsChangedEvent {
   readonly settings: Settings
 }
 
+/** A session reported a different list of models from the SDK. Carries them all as they now are. */
+export interface ModelsChangedEvent {
+  readonly type: EventType.ModelsChanged
+  readonly models: readonly ModelChoice[]
+}
+
 /**
  * The plugins changed: one was turned on or off, or reading the plugins folder found it changed (a plugin added,
  * removed or edited). Carries them all as they now are.
@@ -1269,6 +1296,15 @@ export interface PluginStatusChangedEvent {
 export interface ControlChangedEvent {
   readonly type: EventType.ControlChanged
   readonly status: ControlStatus
+}
+
+/**
+ * The account was read again as a task's session started, or its usage warning came, changed or went. Carries both, as
+ * they now are.
+ */
+export interface AccountChangedEvent {
+  readonly type: EventType.AccountChanged
+  readonly status: AccountStatus
 }
 
 /**
@@ -1310,9 +1346,11 @@ export type GladeEvent =
   | TerminalClearedEvent
   | MenuCommandEvent
   | SettingsChangedEvent
+  | ModelsChangedEvent
   | PluginsChangedEvent
   | PluginStatusChangedEvent
   | ControlChangedEvent
+  | AccountChangedEvent
   | MenuBarChangedEvent
 
 export type EventListener = (event: GladeEvent) => void

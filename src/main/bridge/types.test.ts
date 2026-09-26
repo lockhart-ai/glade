@@ -38,9 +38,11 @@ import {
 import { ImageMediaType } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import type { InstalledPlugin } from '../../shared/plugins'
+import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import type { Handlers } from './handlers'
 import { DEFAULT_CONTROL_PORT, type ControlStatus } from '../../shared/control'
+import type { AccountStatus } from '../../shared/account'
 import { REQUEST_SCHEMAS, type RequestSchemas } from './requests'
 
 const CONTROL_STATUS: ControlStatus = {
@@ -107,6 +109,7 @@ const TASK_HANDLERS = {
   [CommandName.FilesReveal]: () => null,
   [CommandName.WorkspacesUpdate]: () => ({ workspace: WORKSPACE }),
   [CommandName.SettingsGet]: () => ({ settings: DEFAULT_SETTINGS }),
+  [CommandName.ModelsList]: () => ({ models: BUILT_IN_MODELS }),
   [CommandName.SettingsUpdate]: () => ({ settings: DEFAULT_SETTINGS }),
   [CommandName.ArtifactsRemove]: () => null,
   [CommandName.WorkspacesRemove]: () => null,
@@ -135,6 +138,7 @@ const TASK_HANDLERS = {
   [CommandName.PluginsOpenFolder]: () => null,
   [CommandName.PluginsPlaceView]: () => ({ status: '' }),
   [CommandName.ControlStatus]: () => ({ status: CONTROL_STATUS }),
+  [CommandName.AccountStatus]: () => ({ status: { account: null, usageWarning: null } }),
   [CommandName.ControlRegenerateToken]: () => ({ status: CONTROL_STATUS }),
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
@@ -467,6 +471,9 @@ describe('events', () => {
         case EventType.SettingsChanged:
           expectTypeOf(event.settings).toEqualTypeOf<Settings>()
           break
+        case EventType.ModelsChanged:
+          expectTypeOf(event.models).toEqualTypeOf<readonly ModelChoice[]>()
+          break
         case EventType.PluginsChanged:
           expectTypeOf(event.plugins).toEqualTypeOf<readonly InstalledPlugin[]>()
           break
@@ -475,6 +482,9 @@ describe('events', () => {
           break
         case EventType.ControlChanged:
           expectTypeOf(event.status).toEqualTypeOf<ControlStatus>()
+          break
+        case EventType.AccountChanged:
+          expectTypeOf(event.status).toEqualTypeOf<AccountStatus>()
           break
         case EventType.MenuBarChanged:
           expectTypeOf(event.snapshot).toEqualTypeOf<MenuBarSnapshot>()

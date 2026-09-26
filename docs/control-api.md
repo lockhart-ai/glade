@@ -207,7 +207,7 @@ interface TaskDetail extends TaskSummary {
   workspace: WorkspaceSummary
   objective: string; statusUpdatedAt: number | null
   asking: boolean; awaitingPermission: boolean
-  model: string; effort: 'low' | 'medium' | 'high' | 'max'
+  model: string; effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   permissionMode: 'allow_all' | 'ask_before_edits'
   contextUsedTokens: number; contextWindowTokens: number
   error: { kind: 'transient' | 'permanent' | 'usage_limit' | 'offline'; details: string } | null
@@ -297,7 +297,10 @@ first. A `fromTurn` past the last turn gives no turns.
 ```
 
 Like New task, then sending the first message. Without `message` the task waits for one, as a new task in the window
-does. `model` is one the input bar's picker offers (`src/shared/models.ts`). The task isn't selected in the window.
+does. `model` is one the input bar's model picker offers, by the id the SDK takes (an alias such as `sonnet`, or the
+full id it stands for, such as `claude-sonnet-5`); any other is `invalid_input`, listing the ones offered. An `effort`
+the model doesn't support falls back to its default (High, where it has it), as the picker's does. The task isn't
+selected in the window.
 `created` is false only when a task already has the `externalId`: that task is returned as it is, and nothing changes.
 
 ### `update_task`
@@ -312,7 +315,9 @@ does. `model` is one the input bar's picker offers (`src/shared/models.ts`). The
 ```
 
 Texts are trimmed and mustn't be empty, and a patch must change at least one field. `status` is the one-line status
-summary. A new `permissionMode` applies from the agent's next tool call, as the picker's does. Done and active go
+summary. A new `permissionMode` applies from the agent's next tool call, as the picker's does. A new `model` is checked
+as `create_task` checks it, and keeps the task's effort only if it supports it: otherwise the task takes the model's
+default. Done and active go
 through `mark_done` and `reopen_task`. A patch of only `unread` doesn't move the task in the sidebar, as marking it
 read or unread there doesn't, and nor does a patch of only `handoff` and `artifacts`, so a backfilled task keeps its
 date. A new handoff note reaches the agent from its next session (the next message after its current one ends, or a
@@ -479,8 +484,8 @@ Glade reads the transcript itself, line by line, each line parsed with zod and a
     images shows as "[Image]").
 - **Resumed sessions keep their system prompt** ([`sdk-notes.md` §8](sdk-notes.md#8-resume-verified)): an imported session has Glade's tools, but not
   the lines Glade adds to its system prompt, so its agent keeps the title and status current only when asked.
-- **Model:** the last one the transcript used, if Glade offers it, else Settings' default. Effort and permission mode:
-  Settings' defaults.
+- **Model:** the last one the transcript used, if Glade offers it (the same model under an alias counts, dated or not),
+  else Settings' default. Effort and permission mode: Settings' defaults, the effort fitted to the model.
 - **State:** done by default, stamped with the last entry's time; `state: 'active'` imports it active.
 - **Resuming:** the task keeps the transcript's `sessionId`, so the next message you send resumes that Claude Code
   session (the SDK's `resume`, in the same folder), with everything the model knew. Turn numbers carry on from the

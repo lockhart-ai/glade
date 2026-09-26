@@ -28,13 +28,12 @@
 // launches Electron on it with the capture spec in GLADE_CAPTURE (see src/main/capture.ts), and a fresh temp folder
 // for the app's data, removed afterwards. Writes one PNG per size, named <name>-<width>x<height>.png. With --seed, the
 // app fills that data folder's database from a JSON fixture of sample data first (see src/main/capture-seed.ts and
-// scripts/fixtures/), so the capture shows a populated app rather than the first-run screen.
-import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+// scripts/fixtures/), so the capture shows a populated app rather than the first-run screen. Electron runs as a child
+// (see scripts/lib/electron-run.mts) that is SIGKILLed if it hangs past the app's own timeout.
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
+import { runElectron, runExitCode, runFailureMessage } from './lib/electron-run.mts'
 import { buildForTests, ROOT, TEST_MAIN } from './test-build.mjs'
 
 const DEFAULT_SIZE = '1920x1200'
@@ -121,21 +120,25 @@ if (!buildForTests()) {
   process.exit(1)
 }
 
-// Launch Electron straight on the built main script. No dev server, and never as plain Node.
-const userData = mkdtempSync(join(tmpdir(), 'glade-capture-'))
-const env = { ...process.env, GLADE_CAPTURE: JSON.stringify({ ...spec, userData }) }
-delete env.ELECTRON_RENDERER_URL
-delete env.ELECTRON_RUN_AS_NODE
-const electron = createRequire(import.meta.url)('electron')
+// Launch Electron straight on the built main script, with a fresh data folder that's removed afterwards. No dev
+// server, and never as plain Node.
 // macOS reads `-<default> <value>` arguments as user defaults for the process (its argument domain), over the system's.
 const scrollbarArgs = values['classic-scrollbars'] ? ['-AppleShowScrollBars', 'Always'] : []
-const run = spawnSync(electron, [TEST_MAIN, ...scrollbarArgs], {
+const options = {
+  tool: 'screenshot',
+  command: createRequire(import.meta.url)('electron'),
+  args: [TEST_MAIN, ...scrollbarArgs],
   cwd: ROOT,
-  env,
-  stdio: 'inherit',
+  env: (userData) => {
+    const env = { ...process.env, GLADE_CAPTURE: JSON.stringify({ ...spec, userData }) }
+    delete env.ELECTRON_RENDERER_URL
+    delete env.ELECTRON_RUN_AS_NODE
+    return env
+  },
   // The app gives up by itself after TIMEOUT_MS; this is the backstop if it hangs anyway.
-  timeout: TIMEOUT_MS + 15_000,
-})
-rmSync(userData, { recursive: true, force: true })
-if (run.error !== undefined) console.error(`screenshot: ${run.error.message}`)
-process.exit(run.status ?? 1)
+  timeoutMs: TIMEOUT_MS + 15_000,
+}
+const result = await runElectron(options)
+const message = runFailureMessage(options, result)
+if (message !== undefined) console.error(message)
+process.exit(runExitCode(result))

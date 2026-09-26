@@ -178,6 +178,8 @@ export function taskPanel(page: Page) {
     todoProgress: panel.getByRole('progressbar', { name: 'Todos done' }),
     /** The Todos tab's items, top to bottom, each read as its state then its text (`Doing: Copy the files…`). */
     todos: panel.getByRole('list', { name: 'Todos' }).getByRole('listitem'),
+    /** A done todo's finish time (`4m ago`), with the exact time as its tooltip. */
+    todoFinished: (item: Locator) => item.locator('time'),
   }
 }
 
@@ -372,12 +374,19 @@ export function pauseBanner(page: Page) {
   }
 }
 
+/** The quiet note in the banner's spot while the account is close to a usage limit. */
+export function usageNote(page: Page) {
+  return page.getByRole('status', { name: 'Usage warning' })
+}
+
 /** The toasts at the bottom of the window, e.g. Mark done's Undo. */
 export function toasts(page: Page) {
   const region = page.getByRole('region', { name: 'Notifications' })
   return {
     region,
     undo: region.getByRole('button', { name: 'Undo' }),
+    /** A toast, by what it says. */
+    saying: (text: string) => region.getByText(text, { exact: true }),
   }
 }
 
@@ -410,6 +419,8 @@ export function inputBar(page: Page) {
     setting: (name: InputBarSetting) => bar.getByRole('button', { name: new RegExp(`^${name}: `) }),
     /** An option in the open setting's menu. */
     option: (name: string) => page.getByRole('menuitemradio', { name, exact: true }),
+    /** Every option in a setting's menu, once it's open, in order. */
+    options: (setting: InputBarSetting) => page.getByRole('menu', { name: setting }).getByRole('menuitemradio'),
     field: bar.getByRole('textbox', { name: 'Message the agent' }),
     send: bar.getByRole('button', { name: 'Send', exact: true }),
     stop: bar.getByRole('button', { name: 'Stop', exact: true }),
@@ -495,6 +506,8 @@ export function settings(page: Page) {
     regenerateToken: dialog.getByRole('button', { name: 'Regenerate token' }),
     /** Control's port field. */
     port: dialog.getByRole('textbox', { name: 'Port' }),
+    /** General's account block: the account the tasks run on, as Claude Code reported it. */
+    account: dialog.getByRole('region', { name: 'Account' }),
     /** What Control says of the port in use: that it isn't the one chosen, or why there's none. */
     portNotice: dialog.getByRole('status'),
   }

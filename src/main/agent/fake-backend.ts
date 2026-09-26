@@ -134,6 +134,20 @@ export class FakeAgentSession implements AgentSession {
     return Promise.resolve()
   }
 
+  /** How many times the runner asked about the account. */
+  accountInfoCalls = 0
+
+  /**
+   * What the session says about the account when asked (`accountInfo`), as the SDK would. By default it never answers,
+   * so a test that doesn't care about the account sees nothing change.
+   */
+  onAccountInfo: () => Promise<unknown> = () => new Promise(() => undefined)
+
+  accountInfo(): Promise<unknown> {
+    this.accountInfoCalls += 1
+    return this.onAccountInfo()
+  }
+
   close(): void {
     this.closed = true
     this.stream.end()
@@ -171,8 +185,12 @@ export class FakeAgentSession implements AgentSession {
 export class FakeAgentBackend implements AgentBackend {
   readonly sessions: FakeAgentSession[] = []
 
+  /** What each session started from now on says about the account; unset, each never answers. */
+  onAccountInfo?: () => Promise<unknown>
+
   start(options: AgentSessionOptions): FakeAgentSession {
     const session = new FakeAgentSession(options)
+    if (this.onAccountInfo !== undefined) session.onAccountInfo = this.onAccountInfo
     this.sessions.push(session)
     return session
   }

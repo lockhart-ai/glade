@@ -54,7 +54,9 @@ import {
   SUBAGENT_CALLS_REPLY,
   type AgentScriptName,
 } from './scripts'
-import { OFFLINE_FIRST_CHECK_MS } from './pauses'
+import { OFFLINE_FIRST_CHECK_MS, USAGE_LIMIT_FALLBACK_MS } from './pauses'
+import { createAccountTracker, type AccountSink, type AccountTracker } from '../account/account'
+import { UsageWindow } from '../../shared/account'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
 import { createMemoryLog } from '../logging/memory-sink'
 import type { Logger } from '../logging/logger'
@@ -70,9 +72,14 @@ interface Listeners {
   readonly notifyReply?: NotifyReply
   /** Where the runner reports what it drops or ignores; the console by default. */
   readonly log?: Logger
+  /** What hears about the account. Nothing by default. */
+  readonly account?: AccountSink
 }
 
-function start(name: AgentScriptName, { emit = () => undefined, notifyReply, log }: Listeners = {}): AgentRunner {
+function start(
+  name: AgentScriptName,
+  { emit = () => undefined, notifyReply, log, account }: Listeners = {},
+): AgentRunner {
   backend = createTestModeAgentBackend({ script: AGENT_SCRIPTS[name] })
   const base = { db: database.db, emit }
   const questions = createQuestionBroker(base)
@@ -82,6 +89,7 @@ function start(name: AgentScriptName, { emit = () => undefined, notifyReply, log
     backend,
     ...(notifyReply === undefined ? {} : { notifyReply }),
     ...(log === undefined ? {} : { log }),
+    ...(account === undefined ? {} : { account }),
     // The real Glade tools, as the app gives every session.
     mcpServers: (forTask) => ({ [GLADE_SERVER]: createGladeMcpServer(context, forTask.id) }),
   })
@@ -534,6 +542,59 @@ describe('AGENT_SCRIPTS', () => {
     })
   })
 
+  describe('usage warnings', () => {
+    let account: AccountTracker
+
+    beforeEach(() => {
+      account = createAccountTracker({ db: database.db, emit: () => undefined })
+    })
+
+    afterEach(() => {
+      account.close()
+    })
+
+    it('usage-warning: warns at 85% of the session limit, which resets in an hour, and goes on as usual', async () => {
+      // Not every timer: the warning's would run out the hour.
+      start('usage-warning', { account }).send(task.id, 'Add rate limiting.')
+      await vi.advanceTimersByTimeAsync(2_000)
+
+      const warning = account.status().usageWarning
+      expect(warning).toMatchObject({ utilization: 0.85, window: UsageWindow.Session })
+      const resetsIn = (warning?.resetsAt ?? 0) - Date.now()
+      expect(resetsIn).toBeGreaterThan(59 * 60_000)
+      expect(resetsIn).toBeLessThanOrEqual(60 * 60_000)
+      expect(activity()).toBe(TaskActivity.Waiting)
+      expect(reply()).toMatch(/^The throttle class is written/)
+      // The scripted session runs on an invented login.
+      expect(account.status().account).toMatchObject({ email: 'sam@acme.dev', subscriptionType: 'Claude Max' })
+    })
+
+    it('usage-warning-resets: warns, and the warning goes on its own seconds later', async () => {
+      await send(start('usage-warning-resets', { account }), 'Add rate limiting.')
+      // `send` runs every timer, the warning's too.
+      expect(account.status().usageWarning).toBeNull()
+
+      start('usage-warning-resets', { account }).send(task.id, 'Carry on.')
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(account.status().usageWarning).not.toBeNull()
+      await vi.advanceTimersByTimeAsync(6_000)
+      expect(account.status().usageWarning).toBeNull()
+    })
+
+    it('usage-warning-then-limit: warns, then pauses on the limit with the warning still standing', async () => {
+      const agent = start('usage-warning-then-limit', { account })
+      agent.send(task.id, 'Add rate limiting.')
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(account.status().usageWarning).toMatchObject({ utilization: 0.85 })
+
+      const pause = await pausedBy(agent, 'Apply it to the viewsets.')
+      expect(pause).toMatchObject({ reason: PauseReason.UsageLimit })
+      // No rejected event came first, so the pause waits Glade's own while, and the warning is still there to hide.
+      expect((pause?.resumesAt ?? 0) - (pause?.since ?? 0)).toBe(USAGE_LIMIT_FALLBACK_MS)
+      expect(account.status().usageWarning).toMatchObject({ utilization: 0.97 })
+    })
+  })
+
   it('offline: pauses when the network goes, then resumes once it is back and finishes', async () => {
     const pause = await pausedBy(start('offline'), 'Move the uploads to S3.')
     expect(pause).toMatchObject({ reason: PauseReason.Offline, details: 'API Error: Connection error.' })
@@ -789,11 +850,16 @@ describe('AGENT_SCRIPTS', () => {
     await send(start('writes-todos'), 'Fix the flaky login test.')
 
     expect(reply()).toMatch(/passes 200 runs in a row\.$/)
-    expect(todoListFor(database.db, task.id)?.items).toEqual([
+    const items = todoListFor(database.db, task.id)?.items ?? []
+    expect(items.map(({ text, state, note }) => ({ text, state, note }))).toEqual([
       { text: 'Reproduce the flake', state: TodoState.Done, note: null },
       { text: 'Fix the race', state: TodoState.Done, note: null },
       { text: 'Run the test 200 times', state: TodoState.Done, note: null },
     ])
+    // The first was finished by an earlier write; the last write finished the other two at once.
+    const [reproduced, fixed, ran] = items.map(({ completedAt }) => completedAt ?? 0)
+    expect(fixed).toBe(ran)
+    expect(reproduced).toBeLessThan(fixed ?? 0)
     expect(calls().filter(({ name }) => name === 'TodoWrite')).toHaveLength(3)
   })
 

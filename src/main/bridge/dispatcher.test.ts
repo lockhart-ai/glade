@@ -12,6 +12,7 @@ import {
   type QueuedMessage,
   type Task,
 } from '../../shared/domain'
+import { BUILT_IN_MODELS } from '../../shared/models'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { commandTaskId, createBroadcast, createDispatcher } from './dispatcher'
 import { CommandFailure } from './errors'
@@ -121,11 +122,13 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.PluginsOpenFolder]: () => null,
     [CommandName.PluginsPlaceView]: () => ({ status: '' }),
     [CommandName.ControlStatus]: () => ({ status: CONTROL_STATUS }),
+    [CommandName.AccountStatus]: () => ({ status: { account: null, usageWarning: null } }),
     [CommandName.ControlRegenerateToken]: () => ({ status: CONTROL_STATUS }),
     [CommandName.WorkspacesUpdate]: () => {
       throw new Error('not in these tests')
     },
     [CommandName.SettingsGet]: () => ({ settings: DEFAULT_SETTINGS }),
+    [CommandName.ModelsList]: () => ({ models: BUILT_IN_MODELS }),
     [CommandName.SettingsUpdate]: () => ({ settings: DEFAULT_SETTINGS }),
     ...overrides,
   }

@@ -3,6 +3,7 @@
 // permission prompts, files, todos, the terminal, settings), and in the snapshot's rows too; none may come out. The
 // fields a plugin may see carry markers of their own, which must come out, so the test can't pass by sending nothing.
 import { afterEach, beforeEach, expect, it } from 'vitest'
+import { UsageWindow } from '../../shared/account'
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import { appCommand, AppCommandId } from '../../shared/commands'
 import {
@@ -40,6 +41,7 @@ import { ImageMediaType } from '../../shared/images'
 import type { PluginEvent } from '../../shared/plugin-api'
 import { pluginEventSchema } from '../../shared/plugin-api-schema'
 import { PluginStatus } from '../../shared/plugins'
+import { BUILT_IN_MODELS } from '../../shared/models'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { appendPermissionRequest } from '../db/repositories/permission-requests'
 import { appendQuestionSet } from '../db/repositories/question-sets'
@@ -400,7 +402,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
         type: EventType.TodosChanged,
         taskId: created.id,
         todos: {
-          items: [{ text: secret('todo_text'), state: TodoState.Doing, note: secret('todo_note') }],
+          items: [{ text: secret('todo_text'), state: TodoState.Doing, note: secret('todo_note'), completedAt: null }],
           updatedAt: 1,
         },
       },
@@ -479,6 +481,12 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
     [EventType.SettingsChanged]: [
       { type: EventType.SettingsChanged, settings: { ...DEFAULT_SETTINGS, defaultModel: secret('settings_model') } },
     ],
+    [EventType.ModelsChanged]: [
+      {
+        type: EventType.ModelsChanged,
+        models: [{ ...BUILT_IN_MODELS[0], name: secret('model_name'), description: secret('model_description') }],
+      },
+    ],
     [EventType.PluginsChanged]: [
       {
         type: EventType.PluginsChanged,
@@ -496,6 +504,23 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           url: 'http://127.0.0.1:45233/mcp',
           token: secret('token'),
           error: null,
+        },
+      },
+    ],
+    [EventType.AccountChanged]: [
+      {
+        type: EventType.AccountChanged,
+        status: {
+          account: {
+            email: secret('email'),
+            organization: secret('organization'),
+            subscriptionType: secret('plan'),
+            tokenSource: null,
+            apiKeySource: null,
+            apiProvider: 'firstParty',
+            readAt: 1,
+          },
+          usageWarning: { utilization: 0.85, window: UsageWindow.Session, resetsAt: 2 },
         },
       },
     ],

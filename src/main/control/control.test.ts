@@ -17,10 +17,12 @@ import {
   type Task,
   type Workspace,
 } from '../../shared/domain'
-import { MODEL_OPTIONS } from '../../shared/models'
+import { BUILT_IN_MODELS } from '../../shared/models'
+import { SDK_MODELS } from '../../shared/test-models'
 import { settle } from '../agent/fake-backend'
 import * as sdk from '../agent/test-sdk-messages'
 import { appendMessage, listMessages } from '../db/repositories/messages'
+import { setSdkModels } from '../db/repositories/sdk-models'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { sampleTask, sampleWorkspace } from '../db/repositories/test-database'
@@ -84,7 +86,7 @@ describe('the server', () => {
     }
     const create = tools.find(({ name }) => name === 'create_task')
     expect(create?.inputSchema.required).toEqual(['workspaceId'])
-    expect(JSON.stringify(create?.inputSchema.properties)).toContain(MODEL_OPTIONS[0].id)
+    expect(JSON.stringify(create?.inputSchema.properties)).toContain("the input bar's model picker offers")
   })
 
   it('names itself glade-control', () => {
@@ -307,7 +309,7 @@ describe('create_task', () => {
       title: '',
       state: TaskState.Active,
       activity: TaskActivity.Waiting,
-      model: MODEL_OPTIONS[0].id,
+      model: BUILT_IN_MODELS[0].id,
       effort: Effort.High,
       permissionMode: PermissionMode.AllowAll,
     })
@@ -344,6 +346,32 @@ describe('create_task', () => {
     expect(app.backend.session.options).toMatchObject({ model: HAIKU, effort: Effort.Low })
     expect(app.backend.session.sent.map(({ text }) => text)).toEqual(['Draft the release notes.'])
     expect(reply.json.task).toMatchObject({ activity: TaskActivity.Working, turns: 1 })
+  })
+
+  it('takes a model the SDK offers, by its alias or the full id it stands for, fitting the effort to it', async () => {
+    setSdkModels(app.database.db, SDK_MODELS)
+
+    const byAlias = await client.call(ControlToolName.CreateTask, {
+      workspaceId: workspace.id,
+      model: 'sonnet',
+      effort: Effort.Max,
+    })
+    const byFullId = await client.call(ControlToolName.CreateTask, { workspaceId: workspace.id, model: SONNET })
+
+    expect(byAlias.json.task).toMatchObject({ model: 'sonnet', effort: Effort.High })
+    expect(byFullId.json.task).toMatchObject({ model: SONNET })
+  })
+
+  it('refuses a model the pickers don’t offer, listing the ones they do', async () => {
+    setSdkModels(app.database.db, SDK_MODELS)
+
+    const reply = await client.call(ControlToolName.CreateTask, { workspaceId: workspace.id, model: HAIKU })
+
+    expect(errorCode(reply)).toBe(ControlErrorCode.InvalidInput)
+    expect(errorMessage(reply)).toBe(
+      'model: claude-haiku-4-5 is not a model Glade offers: default (Default (recommended)), opus[1m] (Opus (1M ' +
+        'context)), sonnet (Sonnet), lite (Lite), haiku (Haiku)',
+    )
   })
 
   it('refuses a workspace that does not exist', async () => {
@@ -384,6 +412,16 @@ describe('update_task', () => {
     })
     expect(reply.json.task).toMatchObject({ title: 'Renamed', status: 'Half done.', pinned: true })
     expect(eventTypes(from)).toEqual([EventType.TaskUpdated])
+  })
+
+  it('falls back to a new model’s default effort when it doesn’t support the task’s', async () => {
+    setSdkModels(app.database.db, SDK_MODELS)
+    await client.call(ControlToolName.UpdateTask, { id: task.id, patch: { model: 'default', effort: Effort.Max } })
+
+    const reply = await client.call(ControlToolName.UpdateTask, { id: task.id, patch: { model: 'lite' } })
+
+    expect(reply.json.task).toMatchObject({ model: 'lite', effort: Effort.Low })
+    expect(current(task.id)).toMatchObject({ model: 'lite', effort: Effort.Low })
   })
 
   it("gives a running session its new permission mode at once, as the picker's does", async () => {

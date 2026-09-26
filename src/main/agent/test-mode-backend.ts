@@ -48,7 +48,42 @@ export interface TestModeScripts {
    * spec to read (`E2E_AGENT_GLOBAL`).
    */
   readonly onStart?: (session: Pick<AgentSessionOptions, 'systemPromptAppend' | 'resumeSessionId'>) => void
+  /**
+   * Told the models the SDK offers (`TEST_MODE_MODELS`, unparsed) as each session starts, as the real backend's
+   * `onModels` is once a session's agent process has.
+   */
+  readonly onModels?: (models: unknown) => void
 }
+
+/**
+ * The models a test mode's SDK offers, as the SDK reports them (its `ModelInfo`s, `docs/sdk-notes.md` §4): not the
+ * built-in list (`BUILT_IN_MODELS`), so a test can tell the pickers took them. Aliases, as a real login's list has, a
+ * model with a level the SDK may add later, and Haiku, which takes no effort.
+ */
+export const TEST_MODE_MODELS: readonly unknown[] = [
+  {
+    value: 'default',
+    resolvedModel: 'claude-opus-5-5[1m]',
+    displayName: 'Default (recommended)',
+    description: 'Opus 5.5 with 1M context · Best for everyday, complex tasks',
+    supportsEffort: true,
+    supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+  },
+  {
+    value: 'sonnet',
+    resolvedModel: 'claude-sonnet-5',
+    displayName: 'Sonnet',
+    description: 'Sonnet 5 · Efficient for routine tasks',
+    supportsEffort: true,
+    supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'turbo'],
+  },
+  {
+    value: 'haiku',
+    resolvedModel: 'claude-haiku-4-5-20251001',
+    displayName: 'Haiku',
+    description: 'Haiku 4.5 · Fastest for quick answers',
+  },
+]
 
 /** The environment the sessions' agent processes would run in, as the real backend has it (`SdkBackendOptions`). */
 export interface TestModeEnvironment {
@@ -102,6 +137,7 @@ export function createTestModeAgentBackend(
       const { cwd, model, effort, resumeSessionId } = options
       ;(options.log ?? log).info('scripted agent starting', { cwd, model, effort, resumeSessionId })
       scripts.onStart?.({ systemPromptAppend: options.systemPromptAppend, resumeSessionId })
+      scripts.onModels?.(TEST_MODE_MODELS)
       if (environment !== undefined) void environment.env.then(environment.onSessionEnv)
       const choose = chooser(scripts)
       const resumedFirst = resumeSessionId === null ? undefined : scripts.firstMessageOf?.(resumeSessionId)
@@ -127,6 +163,7 @@ export function createTestModeAgentBackend(
         },
         interrupt: () => session.interrupt(),
         stopTask: (sdkTaskId) => session.stopTask(sdkTaskId),
+        accountInfo: () => session.accountInfo(),
         close: () => {
           session.close()
         },
