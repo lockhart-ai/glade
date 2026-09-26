@@ -5,8 +5,10 @@
 //   node scripts/publish-media.mjs [--dry-run] --handback <name> <folder>
 //
 // Copies <folder>/*.{png,gif,mp4} to `pr-<N>/` (or `<name>/`) on the branch and pushes. With a PR number it then
-// rewrites the PR body's Screenshots section (PNGs inline) and Recordings section (GIFs inline, each with its MP4 link)
-// just before `Closes #`, replacing any existing ones and dropping a "Generated with Claude Code" footer.
+// rewrites the PR body's Screenshots section (a Before | After table for paired `before-*`/`after-*` screenshots,
+// a bold caption above every other one) and Recordings section (GIFs inline, each with its MP4 link and a bold
+// title, folding in a Before/After label when its name has one) just before `Closes #`, replacing any existing ones
+// and dropping a "Generated with Claude Code" footer. See scripts/lib/media-body.mts for the body-building logic.
 //
 // With --handback it touches no PR and prints the markdown for the phase's meta-issue comment instead, built from
 // <folder>/index.txt (one `name<TAB>caption<TAB>done-when` line per recording, grouped by done-when) and the folder's
@@ -19,6 +21,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { mediaBody } from './lib/media-body.mts'
 
 const REPO = 'lockhart-ai/glade'
 const BRANCH = 'screenshots'
@@ -69,20 +72,7 @@ const recording = (name) => [
 ]
 
 function prBody(original) {
-  let body = original.replace(/\r\n/g, '\n')
-  body = body.replace(/\n*(🤖 )?Generated with \[?Claude Code[\s\S]*$/, '')
-  body = body.replace(/^(Screenshots|Recordings):[\s\S]*?(?=^(?:Screenshots|Recordings):|^Closes #|(?![\s\S]))/gm, '')
-  body = body.trimEnd() + '\n\n'
-  let sections = ''
-  if (pngs.length) {
-    sections += `Screenshots:\n\n${pngs.map((f) => `![${f.slice(0, -4)}](${url(f)})`).join('\n')}\n\n`
-  }
-  if (gifs.length) {
-    sections += `Recordings:\n\n${gifs.map((g) => [`**${g}**`, ...recording(g)].join('\n\n')).join('\n\n')}\n\n`
-  }
-  const closes = body.lastIndexOf('Closes #')
-  body = closes >= 0 ? body.slice(0, closes) + sections + body.slice(closes) : body + sections
-  return body.trimEnd() + '\n'
+  return mediaBody({ body: original, pngs, gifs, urlFor: url, recording })
 }
 
 function handbackMarkdown() {
