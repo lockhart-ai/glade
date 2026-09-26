@@ -79,6 +79,7 @@ import {
   type CompactStep,
   type ControlToolStep,
   type PermissionStep,
+  type ProgressStep,
   type ScriptStep,
   type ShellStep,
   type ScriptTurn,
@@ -379,6 +380,8 @@ export class ScriptedSession implements AgentSession {
   private backgrounds = 0
   /** The SDK task id of each subagent a turn waits on, by its `Agent` call's SDK id, until its call's result. */
   private readonly foreground = new Map<string, string>()
+  /** The SDK task id of every subagent the session has started, by its `Agent` call's SDK id, ended or not. */
+  private readonly subagentTasks = new Map<string, string>()
   /** The background subagents playing, by their SDK task id: each plays as a turn of its own, to interrupt. */
   private readonly running = new Map<string, TurnState>()
   /** The background tasks `Monitor` and `Bash` calls started, by the SDK id of the call. */
@@ -625,6 +628,9 @@ export class ScriptedSession implements AgentSession {
       case ScriptStepKind.ControlTool:
         await this.controlTool(turn, step, uuid)
         return
+      case ScriptStepKind.Progress:
+        this.progress(turn, step)
+        return
       case ScriptStepKind.Shell:
         await this.shell(turn, step, uuid)
         return
@@ -798,6 +804,7 @@ export class ScriptedSession implements AgentSession {
     const taskId = `a${this.idPrefix}${String(this.backgrounds)}`
     const input: ToolInput = { ...step.input, run_in_background: true }
     const agentId = this.sdkToolId(turn, step.id)
+    this.subagentTasks.set(agentId, taskId)
     this.assistant(turn, { type: 'tool_use', id: agentId, name: 'Agent', input }, null, uuid)
     const description = typeof input.description === 'string' ? input.description : ''
     this.push({
@@ -1251,6 +1258,28 @@ export class ScriptedSession implements AgentSession {
   }
 
   /**
+   * A subagent's progress summary (see `ScriptStepKind.Progress`), as the SDK sends one (`docs/sdk-notes.md`,
+   * "Subagents"): its description the summary too, and no `last_tool_name`. Throws for an `Agent` call that started no
+   * subagent, a mistake in the script.
+   */
+  private progress(turn: TurnState, step: ProgressStep): void {
+    const agentId = this.sdkToolId(turn, step.id)
+    const taskId = this.subagentTasks.get(agentId)
+    if (taskId === undefined) throw new Error(`No subagent started by ${step.id} to report progress for`)
+    this.push({
+      type: 'system',
+      subtype: 'task_progress',
+      task_id: taskId,
+      tool_use_id: agentId,
+      description: step.summary,
+      subagent_type: 'general-purpose',
+      usage: { total_tokens: SUBAGENT_TOKENS_PER_CALL, tool_uses: 1, duration_ms: Date.now() - turn.startedAt },
+      summary: step.summary,
+      uuid: randomUUID(),
+    })
+  }
+
+  /**
    * A subagent the turn waits on starts as a task, as the SDK starts one (`docs/sdk-notes.md`, "Subagents"): its
    * `task_started`, not backgrounded.
    */
@@ -1258,6 +1287,7 @@ export class ScriptedSession implements AgentSession {
     this.backgrounds += 1
     const taskId = `a${this.idPrefix}${String(this.backgrounds)}`
     this.foreground.set(agentId, taskId)
+    this.subagentTasks.set(agentId, taskId)
     this.push({
       type: 'system',
       subtype: 'task_started',

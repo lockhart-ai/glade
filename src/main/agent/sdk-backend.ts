@@ -351,6 +351,9 @@ export function sdkOptions(
     disallowedTools: ['AskUserQuestion'],
     // A subagent's own text too, not just its tool calls: the Subagents tab shows the last thing each one said.
     forwardSubagentText: true,
+    // A running subagent's one-line summary of what it's doing now, about every 30 seconds, from a small fork of its
+    // conversation: the line under its name in the Subagents tab (docs/sdk-notes.md, "Subagents").
+    agentProgressSummaries: true,
     // What the Claude Code process prints to its error output goes to the task's log, within limits (docs/logs.md).
     stderr: stderrLogger(options.log ?? SILENT_LOGGER),
     // Glade stops each background subagent and watcher from its own tab (`stopTask`), so Stop on a turn ends only the

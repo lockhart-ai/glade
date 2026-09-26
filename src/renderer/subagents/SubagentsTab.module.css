@@ -139,6 +139,18 @@
   color: var(--color-faint);
 }
 
+/* A running subagent's summary of what it's doing now: one line, the rest in its tooltip. */
+.summary {
+  width: 100%;
+  padding-left: 16px;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.45;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .latest {
   display: flex;
   align-items: baseline;

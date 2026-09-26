@@ -46,7 +46,7 @@ import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { appendPermissionRequest } from '../db/repositories/permission-requests'
 import { appendQuestionSet } from '../db/repositories/question-sets'
 import { createTask, updateTask } from '../db/repositories/tasks'
-import { appendNarration, appendToolCall, updateToolCall } from '../db/repositories/tool-events'
+import { appendNarration, appendToolCall, setSubagentProgress, updateToolCall } from '../db/repositories/tool-events'
 import { createWorkspace } from '../db/repositories/workspaces'
 import { openTestDatabase, type TestDatabase } from '../db/repositories/test-database'
 import { createPluginFeed } from './feed'
@@ -183,7 +183,9 @@ function writeTurn(task: Task, root: string, prefix: string): ToolCallEvent[] {
     toolUseId: `${prefix}_agent`,
     parentToolUseId: null,
   })
-  calls.push(agent)
+  // What its subagent says it's doing now stays in the Subagents tab.
+  const summary = { taskId: task.id, toolUseId: agent.toolUseId, summary: secret('progress_summary') }
+  calls.push(setSubagentProgress(database.db, summary) ?? agent)
   appendNarration(database.db, { taskId: task.id, turn: 1, text: allowed('note'), parentToolUseId: agent.toolUseId })
   for (const [index, [name, input]] of toolInputs(root).entries()) {
     const toolUseId = `${prefix}_${String(index)}`

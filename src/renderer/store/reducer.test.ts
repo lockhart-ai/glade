@@ -154,6 +154,7 @@ const call: ToolCallEvent = {
   finishedAt: null,
   toolUseId: 'toolu_01',
   parentToolUseId: null,
+  progressSummary: null,
 }
 
 describe('a deleted task', () => {

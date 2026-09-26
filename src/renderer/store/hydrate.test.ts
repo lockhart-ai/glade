@@ -91,6 +91,7 @@ describe('loadSnapshot', () => {
       finishedAt: null,
       toolUseId: `use-${id}`,
       parentToolUseId: null,
+      progressSummary: null,
     })
     const running = [agent('a', 't1', ToolCallState.Running), agent('c', 't3', ToolCallState.Running)]
     const { bridge, invoke } = fakeBridge({

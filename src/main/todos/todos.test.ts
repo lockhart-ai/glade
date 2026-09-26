@@ -39,6 +39,7 @@ function call(
     state: options.state ?? ToolCallState.Done,
     toolUseId: `toolu_${String(at)}`,
     parentToolUseId: options.parent ?? null,
+    progressSummary: null,
     finishedAt: at,
   }
 }

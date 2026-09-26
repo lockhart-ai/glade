@@ -17,6 +17,7 @@ function agentCall(input: ToolCallEvent['input']): ToolCallEvent {
     finishedAt: null,
     toolUseId: 'toolu_1',
     parentToolUseId: null,
+    progressSummary: null,
   }
 }
 
