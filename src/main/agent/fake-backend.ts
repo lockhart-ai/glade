@@ -9,6 +9,7 @@ import {
   type AgentSession,
   type AgentSessionOptions,
   type AgentSessionSettings,
+  type BashCallStarting,
   type SessionJob,
   type ToolPermissionAnswer,
   type ToolPermissionCall,
@@ -98,6 +99,14 @@ export class FakeAgentSession implements AgentSession {
     return this.options.hooks?.onPrompt(prompt) ?? PromptVerdict.Allow
   }
 
+  /**
+   * Tells the session's `PreToolUse` hook a `Bash` call is about to run, as the SDK does before running one
+   * (`docs/sdk-notes.md` §14), and resolves once the hook has; at once with no hook.
+   */
+  startBash(call: BashCallStarting): Promise<void> {
+    return this.options.hooks?.onBashStarting?.(call) ?? Promise.resolve()
+  }
+
   /** Tells the session's `Stop` hook the jobs it has, as the SDK does as each turn ends. */
   endTurn(jobs: readonly SessionJob[] = []): void {
     this.options.hooks?.onTurnEnded(jobs)
@@ -123,6 +132,20 @@ export class FakeAgentSession implements AgentSession {
   stopTask(sdkTaskId: string): Promise<void> {
     this.stoppedTasks.push(sdkTaskId)
     return Promise.resolve()
+  }
+
+  /** How many times the runner asked about the account. */
+  accountInfoCalls = 0
+
+  /**
+   * What the session says about the account when asked (`accountInfo`), as the SDK would. By default it never answers,
+   * so a test that doesn't care about the account sees nothing change.
+   */
+  onAccountInfo: () => Promise<unknown> = () => new Promise(() => undefined)
+
+  accountInfo(): Promise<unknown> {
+    this.accountInfoCalls += 1
+    return this.onAccountInfo()
   }
 
   close(): void {
@@ -162,8 +185,12 @@ export class FakeAgentSession implements AgentSession {
 export class FakeAgentBackend implements AgentBackend {
   readonly sessions: FakeAgentSession[] = []
 
+  /** What each session started from now on says about the account; unset, each never answers. */
+  onAccountInfo?: () => Promise<unknown>
+
   start(options: AgentSessionOptions): FakeAgentSession {
     const session = new FakeAgentSession(options)
+    if (this.onAccountInfo !== undefined) session.onAccountInfo = this.onAccountInfo
     this.sessions.push(session)
     return session
   }

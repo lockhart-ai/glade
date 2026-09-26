@@ -75,6 +75,41 @@ export function withClosedFile(openFiles: OpenFiles, path: string): OpenFiles {
   return { ...openFiles, paths, activePath }
 }
 
+/** The most files an expanded commit lists in the Changes tab; a larger one ends with "and N more". */
+export const MAX_COMMIT_FILES = 100
+
+/**
+ * What a commit file's key starts with. A path relative to the workspace root never starts with `/`, so a key is never
+ * taken for one.
+ */
+const COMMIT_FILE_PREFIX = '/commit/'
+
+/** A file as one of a task's commits left it, open read-only in the Files tab. */
+export interface CommitFileRef {
+  /** The commit's id, as the task has it (`TaskCommit.id`). */
+  readonly commitId: string
+  /** Relative to the top of the commit's repository. */
+  readonly path: string
+}
+
+/**
+ * The key a commit's file is open under in the Files tab: `/commit/<commit id>/<path>`. The Changes tab opens a file
+ * this way when it's no longer at its path in the workspace (deleted since, its worktree removed).
+ */
+export function commitFileKey({ commitId, path }: CommitFileRef): string {
+  return `${COMMIT_FILE_PREFIX}${commitId}/${path}`
+}
+
+/** The commit's file an open file's key names; null for a path in the workspace, or a key that isn't well formed. */
+export function parseCommitFileKey(key: string): CommitFileRef | null {
+  if (!key.startsWith(COMMIT_FILE_PREFIX)) return null
+  const rest = key.slice(COMMIT_FILE_PREFIX.length)
+  const slash = rest.indexOf('/')
+  if (slash <= 0) return null
+  const path = rest.slice(slash + 1)
+  return isWorkspaceRelativePath(path) ? { commitId: rest.slice(0, slash), path } : null
+}
+
 /** A file's name: the last part of its path. */
 export function fileName(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1)

@@ -15,7 +15,7 @@ test('right panel: ⌘⌥2 picks a tab; dragging the handle resizes it, kept on 
   const { window } = glade
   const panel = taskPanel(window)
 
-  // Six tabs, with counts only where there's something to count.
+  // Seven tabs, with counts only where there's something to count.
   await expect(panel.panel.getByRole('tab')).toHaveText([
     'Tool calls 6',
     'Files',
@@ -23,6 +23,7 @@ test('right panel: ⌘⌥2 picks a tab; dragging the handle resizes it, kept on 
     'Artifacts',
     'Subagents 1',
     'Watchers',
+    'Changes',
   ])
 
   // ⌘⌥2 picks Files, wherever the focus is.

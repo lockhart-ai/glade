@@ -42,6 +42,11 @@
  * stops its SDK task (`stopWatcher`). A failed session ends its watchers with it, and a launch ends those of every
  * session, but for the cron jobs, which wait for their session to resume.
  *
+ * **Commits** (`../changes/tracker`, `docs/sdk-notes.md` §14). Each `Bash` call is put to the change tracker before it
+ * runs (the session's `PreToolUse` hook, which the call waits for) and once its result is in, a subagent's and a
+ * background subagent's too, so the commits a task makes are linked to it for the Changes tab. The tracker reads git in
+ * the background; it never holds up a turn, and a failed session forgets its calls that were running.
+ *
  * **Background subagents** (`docs/sdk-notes.md`, "Background subagents"). An `Agent` call with `run_in_background`
  * returns as soon as its subagent is launched, and the turn carries on and ends without waiting for it, so the task goes
  * back to waiting on you and takes messages while the subagent works. The subagent isn't done then: its `Agent` call's
@@ -207,6 +212,7 @@ import {
   type QueuedMessage,
   type Task,
   type TaskError,
+  type ToolCallEvent,
 } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
 import { permissionRuleString, taskPermissionRule } from '../../shared/permissions'
@@ -255,6 +261,8 @@ import {
 import { getWatcher } from '../db/repositories/watchers'
 import { getWorkspace } from '../db/repositories/workspaces'
 import { createWatcherTracker, StopAction } from '../watchers/watchers'
+import { createChangeTracker, type ChangeTracker } from '../changes/tracker'
+import { createGit } from '../git/git'
 import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import type { NotifyReply } from '../notifications/notifications'
 import { permissionVerdict, PermissionVerdict } from '../permissions/classify'
@@ -276,6 +284,7 @@ import {
   type ToolPermissionCall,
 } from './backend'
 import { CONTROL_SERVER } from '../control/names'
+import type { AccountSink } from '../account/account'
 import { classifyAgentError } from './error-classification'
 import { gladeOwnServers } from './glade-tools'
 import {
@@ -331,6 +340,16 @@ export interface AgentRunnerOptions {
    * in the app. Always up by default.
    */
   readonly isOnline?: () => boolean
+  /**
+   * Works out the commits each task's `Bash` calls make, for the Changes tab (`../changes/tracker`). One reading the
+   * `git` on the PATH by default.
+   */
+  readonly changes?: ChangeTracker
+  /**
+   * Told what each session says of the account (`../account/account`): the account, asked for as the session starts,
+   * and every `rate_limit_event`. Nothing is asked or told by default.
+   */
+  readonly account?: AccountSink
 }
 
 /** A message you sent: its text, and the images pasted into it, in order. */
@@ -476,6 +495,9 @@ interface LiveSession {
 
 /** How many of Glade's own prompts a session remembers for its prompt hook (a message folded into a turn may never pass it). */
 const MAX_HANDED = 20
+
+/** The tool whose calls may commit: the change tracker hears of each one's result. */
+const BASH_TOOL = 'Bash'
 
 /** What the tool log says when the user stopped a turn, and what its unfinished tool calls say. */
 export const STOPPED_NOTE = 'You stopped the agent.'
@@ -695,6 +717,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const permissions = options.permissions ?? createPermissionBroker(context, notifyReply)
   const sessions = new Map<string, LiveSession>()
   const watchers = createWatcherTracker({ db, emit })
+  const changes = options.changes ?? createChangeTracker({ db, emit, git: createGit(), log })
   // Resumes a paused turn when its pause is due.
   const timers = createPauseTimers((taskId) => {
     onPauseDue(taskId)
@@ -899,6 +922,20 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
   }
 
+  /**
+   * A `Bash` call's result is in: the change tracker works out, in the background, which commits it made
+   * (`../changes/tracker`). A call that failed may have committed before it did, so it counts too.
+   */
+  const noteBashResult = (taskId: string, call: ToolCallEvent): void => {
+    const { command } = call.input
+    if (call.name !== BASH_TOOL || typeof command !== 'string') return
+    const task = getTask(db, taskId)
+    const workspace = task === undefined ? undefined : getWorkspace(db, task.workspaceId)
+    if (workspace === undefined) return
+    const { toolUseId, output } = call
+    void changes.bashFinished(taskId, { toolUseId, command, output: output ?? '', cwd: workspace.rootPath })
+  }
+
   /** Whether the turn's top-level tool calls all have their results: the agent has finished its current step. */
   const stepFinished = (turn: Turn): boolean => ![...turn.running.values()].includes(null)
 
@@ -926,6 +963,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       if (changed !== null) emitTaskUpdated(emit, changed)
     }
     watchers.toolResult(taskId, call, event)
+    noteBashResult(taskId, call)
     if (parent === null && !turn.stopping && stepFinished(turn)) deliverQueue(taskId, live, turn)
   }
 
@@ -1136,6 +1174,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       finishBackground(taskId, live, toolUseId, ToolCallState.Error, message, message)
     }
     watchers.sessionEnded(taskId, message)
+    changes.sessionEnded(taskId)
     const { turn } = live
     if (turn === null) return
     endTurn(taskId, live, turn)
@@ -1196,7 +1235,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (event.kind !== AgentEventKind.ToolResult || !live.backgroundCalls.delete(event.toolUseId)) return false
     live.subagents.delete(event.toolUseId)
     const state = event.isError ? ToolCallState.Error : ToolCallState.Done
-    emitToolEventUpdated(emit, updateToolCall(db, { taskId, toolUseId: event.toolUseId, state, output: event.output }))
+    const call = updateToolCall(db, { taskId, toolUseId: event.toolUseId, state, output: event.output })
+    emitToolEventUpdated(emit, call)
+    noteBashResult(taskId, call)
     return true
   }
 
@@ -1282,8 +1323,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return
     }
     if (event.kind === AgentEventKind.RateLimit) {
-      agentLog(taskId).info('rate limit', { status: event.status, resetsAt: event.resetsAt })
+      agentLog(taskId).info('rate limit', {
+        status: event.status,
+        resetsAt: event.resetsAt,
+        utilization: event.utilization,
+        window: event.window,
+      })
       live.limit = { rejected: event.status === RateLimitStatus.Rejected, resetsAt: event.resetsAt }
+      options.account?.rateLimit(event)
       return
     }
     if (event.kind === AgentEventKind.SubagentStarted) {
@@ -1495,6 +1542,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       log: agentLog(task.id),
       onToolPermission: (call) => decide(call),
       hooks: {
+        onBashStarting: (call) => changes.bashStarting(task.id, call),
         onPrompt: (prompt) => verdict(prompt),
         onTurnEnded: (jobs) => {
           jobsListed(jobs)
@@ -1523,7 +1571,22 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
     sessions.set(task.id, live)
     void pump(task.id, live)
+    readAccount(task.id, live)
     return live
+  }
+
+  /** Asks a session that just started which account it runs on, for Settings › General (`AgentRunnerOptions.account`). */
+  const readAccount = (taskId: string, live: LiveSession): void => {
+    const { account } = options
+    if (account === undefined) return
+    live.session.accountInfo().then(
+      (info) => {
+        if (!live.closed) account.accountRead(info)
+      },
+      (error: unknown) => {
+        agentLog(taskId).warn("couldn't read the account", { error })
+      },
+    )
   }
 
   /**

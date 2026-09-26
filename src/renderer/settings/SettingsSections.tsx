@@ -33,6 +33,8 @@ import { shortenHomePath } from '../paths'
 import { describeFailure } from '../store/hydrate'
 import { selectSelectedWorkspace } from '../store/state'
 import { useGladeStore } from '../store/react'
+import { useNow } from '../task-list/useNow'
+import { accountView } from './accountModel'
 import styles from './SettingsDialog.module.css'
 
 export interface SettingRowProps {
@@ -159,9 +161,16 @@ function ModelPicker({ models, value, onChoose }: ModelPickerProps): React.JSX.E
   )
 }
 
-/** Glade in the macOS menu bar (`docs/design/html/29-menu-bar.html`): its icon, and the popover it opens. */
+/**
+ * Glade in the macOS menu bar (`docs/design/html/29-menu-bar.html`), then the account the tasks run on and bill to, as
+ * Claude Code last reported it (`docs/design/html/21-settings.html`): nothing to change there, since Claude Code owns
+ * the login.
+ */
 export function GeneralSection(): React.JSX.Element {
   const [settings, update] = useSettings()
+  const account = useGladeStore((state) => state.accountStatus.account)
+  const now = useNow()
+  const view = accountView(account, now)
   return (
     <>
       <Intro>Changes save automatically.</Intro>
@@ -177,6 +186,20 @@ export function GeneralSection(): React.JSX.Element {
           }}
         />
       </SettingRow>
+      <section aria-labelledby="settings-account" className={styles.group}>
+        <h3 id="settings-account" className={styles.groupHeading}>
+          Account
+        </h3>
+        <Intro>{view.intro}</Intro>
+        {view.rows.map((row) => (
+          <SettingRow key={row.name} name={row.name} description={row.description}>
+            <span className={styles.value} title={row.value}>
+              {row.value}
+            </span>
+          </SettingRow>
+        ))}
+        {view.readLine !== null && <p className={styles.note}>{view.readLine}</p>}
+      </section>
     </>
   )
 }

@@ -37,12 +37,16 @@
  *   in the ask mode it asks the runner first, as Claude Code does for an MCP tool that isn't in its allowed tools, with
  *   the SDK saying the tool is on the in-process `glade-control` server. Its input can depend on the session's folder,
  *   for a call that names files in it by absolute path.
+ * - A `Shell` step is a `Bash` call that really runs its command, in the session's folder or one beside it: its call,
+ *   then the session's `PreToolUse` hook (`hooks.onBashStarting`), which it waits for, then its result, what the
+ *   command printed. The Changes tab's scripts make real commits with it (`docs/sdk-notes.md` §14).
  * - A `Fail` step kills the session: its message stream throws, and it plays nothing more.
  * - The script can be picked by the session's first message (a `ScriptChooser`), so different tasks can play different
  *   scripts. A chooser that has none for it kills the session as a `Fail` step would.
  */
 import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import { randomUUID } from 'node:crypto'
+import { resolve } from 'node:path'
 import { contextWindowFor } from '../../shared/contextWindow'
 import { PermissionMode, type PermissionRule, type ToolInput } from '../../shared/domain'
 import { AsyncQueue } from './async-queue'
@@ -58,6 +62,7 @@ import {
 import { CONTROL_SERVER } from '../control/names'
 import { GLADE_SERVER, GladeTool } from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller, type McpToolOutcome } from './mcp-tool-caller'
+import { runShell } from './scripted-shell'
 import {
   ANSWERED_AFTER_RESTART_PROMPT,
   COMPACT_COMMAND,
@@ -75,6 +80,7 @@ import {
   type ControlToolStep,
   type PermissionStep,
   type ScriptStep,
+  type ShellStep,
   type ScriptTurn,
   type WakeStep,
   WakeCause,
@@ -141,12 +147,25 @@ export interface ScriptedSessionOptions {
    * is called once for it too, when that turn ends or can't play.
    */
   readonly onWake?: () => void
+  /** What the session says about the account when asked (`accountInfo`): `SCRIPTED_ACCOUNT` by default. */
+  readonly account?: unknown
   /**
    * The SDK options the session would start with, which decide how it behaves where the SDK's behaviour depends on
    * them: the real backend's (`sdkOptions`) by default.
    */
   readonly sdkOptions?: (session: AgentSessionOptions) => SdkStopOptions
 }
+
+/**
+ * The account a scripted session runs on, as the SDK reports a Claude subscription login (`docs/sdk-notes.md` §1): an
+ * invented one.
+ */
+export const SCRIPTED_ACCOUNT = {
+  email: 'sam@acme.dev',
+  organization: 'Acme Robotics',
+  subscriptionType: 'Claude Max',
+  apiProvider: 'firstParty',
+} as const
 
 /** The name the SDK gives one of Glade's tools, e.g. `mcp__glade__set_title`. */
 export function gladeToolName(tool: string): string {
@@ -473,6 +492,10 @@ export class ScriptedSession implements AgentSession {
     return Promise.resolve()
   }
 
+  accountInfo(): Promise<unknown> {
+    return Promise.resolve(this.options.account ?? SCRIPTED_ACCOUNT)
+  }
+
   close(): void {
     this.stopped = true
     this.turn?.interrupt()
@@ -602,6 +625,9 @@ export class ScriptedSession implements AgentSession {
       case ScriptStepKind.ControlTool:
         await this.controlTool(turn, step, uuid)
         return
+      case ScriptStepKind.Shell:
+        await this.shell(turn, step, uuid)
+        return
       case ScriptStepKind.LimitReached:
         this.push({
           type: 'rate_limit_event',
@@ -609,6 +635,19 @@ export class ScriptedSession implements AgentSession {
             status: 'rejected',
             resetsAt: Math.ceil((Date.now() + step.resetInMs) / 1000),
             rateLimitType: 'five_hour',
+          },
+          uuid: randomUUID(),
+        })
+        return
+      case ScriptStepKind.LimitWarning:
+        this.push({
+          type: 'rate_limit_event',
+          rate_limit_info: {
+            status: 'allowed_warning',
+            resetsAt: Math.ceil((Date.now() + step.resetInMs) / 1000),
+            rateLimitType: step.window,
+            utilization: step.utilization,
+            isUsingOverage: false,
           },
           uuid: randomUUID(),
         })
@@ -964,6 +1003,19 @@ export class ScriptedSession implements AgentSession {
         this.toolResult(turn, step.id, answer.message, true)
         return
     }
+  }
+
+  /**
+   * A `Bash` call that runs its command for real (see `ScriptStepKind.Shell`): the call, the `PreToolUse` hook it waits
+   * for, the command, and its result, unless an interrupt came meanwhile (the turn then ends as an interrupted one).
+   */
+  private async shell(turn: TurnState, step: ShellStep, uuid: string | null): Promise<void> {
+    const { command, description } = step
+    this.toolUse(turn, step.id, 'Bash', { command, description }, step.parent ?? null, uuid)
+    const cwd = resolve(this.options.session.cwd, step.cwd ?? '.')
+    await this.options.session.hooks?.onBashStarting?.({ toolUseId: this.sdkToolId(turn, step.id), cwd, command })
+    const { output, failed } = await runShell(command, cwd)
+    if (!turn.isInterrupted) this.toolResult(turn, step.id, output, failed)
   }
 
   private async ask(turn: TurnState, step: AskStep, uuid: string | null): Promise<void> {

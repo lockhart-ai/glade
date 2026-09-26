@@ -16,9 +16,10 @@ its PR, sends back fixes, and approves and merges it. This SOP starts simple and
    docs (`docs/keymap.md`, `docs/context-menus.md`, `docs/model-surface.md`, `docs/control-api.md`,
    `docs/plugin-api.md`), the README and the docs index. If it changes how anything looks, update the screenshots that
    show it too: the design screens in `docs/design/` and the images in the README and user guide.
-4. **Push up a PR.** Every `gh` call goes through `node scripts/gh-team.mjs <gh args>`. Title `<id>: <issue title>`.
-   The body is brief and ends at `Closes #N`, with no "Generated with Claude Code" footer or other attribution lines
-   (commit messages keep their Co-Authored-By trailer):
+4. **Push up a PR.** Every `gh` call goes through `node scripts/gh-team.mjs <gh args>`. Open it as a draft
+   (`pr create --draft`) and don't mark it ready: the supervisor does that once its media is published. Title
+   `<id>: <issue title>`. The body is brief and ends at `Closes #N`, with no "Generated with Claude Code" footer or
+   other attribution lines (commit messages keep their Co-Authored-By trailer):
 
    ```
    Because:
@@ -40,6 +41,11 @@ its PR, sends back fixes, and approves and merges it. This SOP starts simple and
 Review fixes go on the same branch as new commits. If you conflict with `main`, merge `origin/main` in; never rebase or
 force-push.
 
+Stay inside the repo. Only read and search inside your worktree, `/tmp` and paths your brief names; never run `find`,
+`grep -r`, `ls`, `du` or `mdfind` over the home folder (`~`) or other folders outside those. Walking `~` touches
+Desktop, Documents, Downloads and Photos and pops macOS privacy prompts on Jared's screen. If you need something from
+outside, ask the supervisor.
+
 ### Tests
 
 - **Bug fixes recreate the bug.** A bug-fix PR adds a test that fails without the fix and passes with it, and the PR
@@ -51,6 +57,14 @@ force-push.
 - **UI changes need an e2e spec.** A PR that changes the UI adds or extends a Playwright spec in `e2e/` that drives the
   real app through the workflow. Use the fixtures in `e2e/fixtures.ts` (`launch`, `tempFolder`, `chooseFolder`) and the
   locators in `e2e/selectors.ts`, and wait on locators, never on timers.
+- **Tools that launch Electron run outside the command sandbox, in the background.** `npm run render-design`,
+  `npm run check-design`, `npm run screenshot`, `npm run record` and `npm run test:e2e` (and long test runs) go
+  outside the sandbox and in the background, then you wait for them to finish: never as a long, silent foreground
+  command. Hidden Electron windows don't paint inside the sandbox or while the Mac sleeps. `render-design` stops by
+  itself when no screen finishes for 60 s, and names the step it was stuck on. If a render still passes 2 minutes,
+  kill only your own Electron, with your worktree's absolute path, and retry once:
+  `pkill -9 -f "<your worktree>/node_modules/electron"` (the script exits once its Electron is gone). Never a bare
+  `pkill -f render-design`: it kills every kitten's renders, and any shell whose command mentions render-design.
 - **No visible windows or OS capture.** The app runs with a throwaway database in a window that is never shown. Never
   use `npm run dev` for checks, or `screencapture`, `osascript` or System Events: they pop windows and permission
   dialogs up on Jared's screen.
@@ -80,11 +94,12 @@ force-push.
   merges with an empty Screenshots or Recordings section. Publish with `node scripts/publish-media.mjs <N> <folder>`
   (`--dry-run` first to check the new body). It pushes to the orphan `screenshots` branch and rewrites the PR's
   Screenshots and Recordings sections.
+- **Mark it ready last.** Kittens open PRs as drafts, so a draft is still in progress and a non-draft PR always has its
+  media. Publish the media, review, then mark it ready with `node scripts/gh-team.mjs pr ready <N>` before approving.
 - **Merge** by approving, then queueing with `node scripts/gh-team.mjs pr merge <N>`. Don't use `--auto`: it doesn't
   enqueue a PR that's already mergeable.
 - **After every merge**, check the open PRs and the merge queue: others may now conflict or need re-queueing.
-- **Migration numbers:** give each parallel PR its own, so none clash. Gaps are fine: the runner applies every
-  migration a database hasn't recorded, in version order, whichever PR lands first.
+- **Migration numbers** clash between parallel PRs. The second to land renumbers its migration.
 
 ### Phase release
 

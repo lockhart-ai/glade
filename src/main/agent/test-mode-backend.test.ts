@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Effort, PermissionMode } from '../../shared/domain'
 import type { AgentSessionOptions } from './backend'
 import { delay, init, result, say, waitForInterrupt, wake, type AgentScript } from './scripts'
+import { SCRIPTED_ACCOUNT } from './scripted-session'
 import { GIF, JPEG, PNG } from '../../shared/test-images'
 import { createTestModeAgentBackend, TEST_MODE_MODELS, UnscriptedAgentError } from './test-mode-backend'
 import { userContent } from './user-content'
@@ -177,6 +178,14 @@ describe('createTestModeAgentBackend', () => {
     await session.interrupt()
     await new Promise((resolve) => setImmediate(resolve))
     expect(received()).toContainEqual(expect.objectContaining({ type: 'result', terminal_reason: 'aborted_streaming' }))
+    session.close()
+  })
+
+  it('says every session runs on the invented scripted login', async () => {
+    const backend = createTestModeAgentBackend({ script: { name: 'test', turns: [[result()]] } })
+    const session = backend.start(OPTIONS)
+
+    expect(await session.accountInfo()).toEqual(SCRIPTED_ACCOUNT)
     session.close()
   })
 

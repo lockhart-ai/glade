@@ -1,14 +1,15 @@
 import { faChevronDown, faListUl, faXmark } from '@fortawesome/free-solid-svg-icons'
 import { useMemo, useState } from 'react'
-import type { ToolEvent } from '../../shared/domain'
-import { fileName } from '../../shared/files'
+import type { TaskCommit, ToolEvent } from '../../shared/domain'
+import { fileName, parseCommitFileKey } from '../../shared/files'
+import { shortHash } from '../changes/changesModel'
 import { WindowCommandId } from '../../shared/commands'
 import { useCommand } from '../commands/hooks'
 import { Icon, IconSize, Menu, MenuAnchorKind, MenuEntryKind, type MenuEntry, type MenuItem } from '../components'
 import { classNames } from '../components/classNames'
 import { ContextMenu, fileTabMenu, useContextMenu, useMenuCommands } from '../context-menus'
 import { useGladeStore } from '../store/react'
-import { FileViewer } from './FileViewer'
+import { FileViewer, type FileVersion } from './FileViewer'
 import { isChanged, touchedCount, touchedFiles, touchOfFile, type TouchedFile, type TouchedFiles } from './filesModel'
 import styles from './FilesTab.module.css'
 
@@ -22,6 +23,7 @@ export interface FilesTabProps {
 
 const NO_TOOL_EVENTS: readonly ToolEvent[] = []
 const NO_PATHS: readonly string[] = []
+const NO_COMMITS: readonly TaskCommit[] = []
 
 /** A line of a file to mark, asked for by the agent's `show_file`. */
 export interface FileLineFocus {
@@ -65,6 +67,7 @@ export function absolutePath(rootPath: string, path: string): string {
 export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.Element {
   const events = useGladeStore((state) => state.toolEvents[taskId]) ?? NO_TOOL_EVENTS
   const paths = useGladeStore((state) => state.openFiles[taskId]?.paths) ?? NO_PATHS
+  const commits = useGladeStore((state) => state.commits[taskId]) ?? NO_COMMITS
   const activePath = useGladeStore((state) => state.openFiles[taskId]?.activePath) ?? null
   const openFile = useGladeStore((state) => state.openFile)
   const closeFile = useGladeStore((state) => state.closeFile)
@@ -76,9 +79,10 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
   // The list button, while its menu is open.
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
 
+  // A file as a commit left it is only in git: there's no file to open in your editor.
   useCommand(
     WindowCommandId.OpenInEditor,
-    activePath === null
+    activePath === null || parseCommitFileKey(activePath) !== null
       ? null
       : () => {
           void openInEditor(taskId, activePath)
@@ -100,8 +104,9 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
       for (const path of closing) await closeFile(taskId, path)
     })
   }
-  const tabMenu = (path: string) =>
-    fileTabMenu(
+  const tabMenu = (path: string) => {
+    const fromCommit = parseCommitFileKey(path)
+    return fileTabMenu(
       {
         close: () => {
           closeAll([path])
@@ -112,21 +117,41 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
         closeAll: () => {
           closeAll(paths)
         },
-        openInEditor: () => {
-          run(() => openInEditor(taskId, path))
-        },
-        reveal: () => {
-          run(() => revealFile(taskId, path))
-        },
-        copyPath: () => {
-          copy(absolutePath(rootPath, path))
-        },
+        // A file as a commit left it is only in git: no file to open, reveal or give the path of.
+        openInEditor:
+          fromCommit === null
+            ? () => {
+                run(() => openInEditor(taskId, path))
+              }
+            : null,
+        reveal:
+          fromCommit === null
+            ? () => {
+                run(() => revealFile(taskId, path))
+              }
+            : null,
+        copyPath:
+          fromCommit === null
+            ? () => {
+                copy(absolutePath(rootPath, path))
+              }
+            : null,
         copyRelativePath: () => {
-          copy(path)
+          copy(fromCommit?.path ?? path)
         },
       },
       hints,
     )
+  }
+
+  /** A file as a commit left it: its path, and the commit's short hash, when the task still has the commit. */
+  const versionOf = (path: string): FileVersion | null => {
+    const fromCommit = parseCommitFileKey(path)
+    if (fromCommit === null) return null
+    const commit = commits.find(({ id }) => id === fromCommit.commitId)
+    return { path: fromCommit.path, hash: commit === undefined ? null : shortHash(commit.hash) }
+  }
+  const activeVersion = activePath === null ? null : versionOf(activePath)
 
   return (
     <div className={styles.files}>
@@ -157,13 +182,14 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
         />
         <div className={styles.tabs} role="group" aria-label="Open files">
           {paths.map((path) => {
-            const name = fileName(path)
+            const fromCommit = versionOf(path)
+            const name = fileName(fromCommit?.path ?? path)
             const active = path === activePath
             return (
               <div
                 key={path}
                 className={classNames(styles.tab, active && styles.active)}
-                title={path}
+                title={fromCommit === null ? path : `${fromCommit.path} (${fromCommit.hash ?? 'a commit'})`}
                 {...menu.targetProps(path)}
               >
                 <button
@@ -178,6 +204,7 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
                     <span className={styles.changed} role="img" aria-label="Changed by the agent" />
                   )}
                   <span className={styles.name}>{name}</span>
+                  {fromCommit?.hash != null && <span className={styles.version}>{fromCommit.hash}</span>}
                 </button>
                 <button
                   type="button"
@@ -201,6 +228,7 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
           key={activePath}
           taskId={taskId}
           path={activePath}
+          fromCommit={activeVersion}
           touched={touchOfFile(touched, activePath)}
           focusLine={focused?.line ?? null}
           focusRequest={focused?.request ?? 0}
