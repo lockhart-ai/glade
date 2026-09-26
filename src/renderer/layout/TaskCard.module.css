@@ -29,6 +29,34 @@
   -webkit-app-region: no-drag;
 }
 
+/*
+ * The header card and the chat, stacked: the header floats over the top of the chat, and the chat runs all the way up
+ * under it, so the conversation scrolls under the header rather than being cut off in a band below it. The chat's
+ * scroller pads its top by --task-header-clearance, the header's height (measured by TaskCard) and the gap below it, so
+ * the first message sits clear of the header when scrolled to the top.
+ */
+.stage {
+  --task-header-clearance: calc(var(--task-header-height, 0px) + var(--space-inset));
+  position: relative;
+  flex-grow: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* No task, no header: nothing to clear. */
+.stage:has(> .header:empty) {
+  --task-header-clearance: 0px;
+}
+
+.header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1;
+}
+
 .chat {
   flex-grow: 1;
   min-height: 0;
