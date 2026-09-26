@@ -118,7 +118,8 @@ You can run as many tasks at once as you like. Switching tasks never interrupts 
 
 The chat shows your messages and the agent's **final reply** for each turn. Everything in between (tool calls and the
 agent's working notes) goes to the Tool calls tab. Under each reply, a line says how long the turn took and how many
-files it changed; click **N tool calls** to see that turn's calls.
+files it changed; click **N tool calls** to see that turn's calls. The header card and the input bar stay put as you
+scroll: the chat passes under them.
 
 - **Sending while it works queues.** A message sent while the agent is working waits in a numbered queue above the input
   and goes in as soon as the agent finishes its current step. Edit a queued message with its pencil (or **↑** in an
