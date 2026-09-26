@@ -7,7 +7,7 @@ import { MIGRATIONS } from '.'
 import { subagentProgressMigration } from './0038-subagent-progress'
 
 it('is migration 38', () => {
-  expect(MIGRATIONS[37]).toBe(subagentProgressMigration)
+  expect(MIGRATIONS.find((migration) => migration.version === 38)).toBe(subagentProgressMigration)
 })
 
 it('starts every logged call with no summary, and lets only a tool call have one', () => {
