@@ -234,8 +234,11 @@ the panel; drag its edge to resize it.
 - **Files:** the files the task changed (with a blue dot) and read. Each opens in a tab, in a read-only viewer with line
   numbers and syntax colours; Markdown has a Preview. **Open in editor** (⌘⇧E) opens the file in the app macOS uses
   for it, and ⌘W, with the focus in the panel, closes the tab. The agent can open a file here for you.
-- **Todos:** the agent's own checklist, as it keeps it, with how many are done. The task's row in the sidebar shows the
-  same progress (`3/7`, or a check once all are done); hover it to see what the agent is working on.
+- **Todos:** the agent's own checklist, as it keeps it, with how many are done. The items come in three groups: what
+  the agent is working on now, then what's done (the most recently finished first, each with when it was finished,
+  like `4m ago`; hover it for the exact time), then what it hasn't started. Items move between the groups as the agent
+  works. The task's row in the sidebar shows the same progress (`3/7`, or a check once all are done); hover it to see
+  what the agent is working on.
 - **Artifacts:** the files the agent named as its deliverables, as cards with **Open**, **Copy** and **Reveal in
   folder**. They stay after the task is done.
 - **Subagents:** one row per subagent, running ones first, with what it's doing now, how long it's run and its tool

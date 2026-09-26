@@ -3,7 +3,7 @@ import { TodoState, type Todo, type TodoList } from './domain'
 import { allTodosDone, sameTodoSummary, summarizeTodos, todoProgress, todoSummaryLabel } from './todoSummary'
 
 function list(...items: [string, TodoState][]): TodoList {
-  return { items: items.map(([text, state]): Todo => ({ text, state, note: null })), updatedAt: 1 }
+  return { items: items.map(([text, state]): Todo => ({ text, state, note: null, completedAt: null })), updatedAt: 1 }
 }
 
 describe('todoProgress', () => {

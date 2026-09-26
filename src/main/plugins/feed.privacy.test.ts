@@ -401,7 +401,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
         type: EventType.TodosChanged,
         taskId: created.id,
         todos: {
-          items: [{ text: secret('todo_text'), state: TodoState.Doing, note: secret('todo_note') }],
+          items: [{ text: secret('todo_text'), state: TodoState.Doing, note: secret('todo_note'), completedAt: null }],
           updatedAt: 1,
         },
       },
