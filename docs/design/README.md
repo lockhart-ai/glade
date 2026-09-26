@@ -1,6 +1,6 @@
 # Design
 
-Screens are 1920×1200 at 1× (the lifecycle board is 1440×900; the interaction map is 3200×1720). Sample data is
+Screens are 1920×1200 at 1× (the lifecycle board and the menu bar are 1440×900; the interaction map is 3200×1720). Sample data is
 illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
 
 | Screen | What it shows | |
@@ -37,6 +37,7 @@ illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
 | 26 · Backfilled, collapsed | The same task reopened by a message: the card collapsed to its one line above the conversation. | ![26 · Backfilled, collapsed](screens/26-backfilled-collapsed.png) |
 | 27 · Tab overflow | The right panel at its narrowest, too narrow for its tabs: the row scrolls sideways (wheel, trackpad or chevron) with no scroll bar. Here it's scrolled to the end to show the selected Subagents, with a chevron over a fade at the left end; the same shows at the right end while tabs are past it. Built from 11 · Subagents; no original design. | ![27 · Tab overflow](screens/27-tab-overflow.png) |
 | 28 · Watchers | The Watchers tab: what the agent left running or scheduled (Monitor watches, background commands, wakeups, cron jobs), each with its state, what it runs, its last output, how many times it woke the agent and when, and Stop while it is live; the count of live ones on the tab. The eye and count on a sidebar row: a task with live watchers, done or not. Built from the Subagents tab; no original design. | ![28 · Watchers](screens/28-watchers.png) |
+| 23 · Menu bar | Glade's icon in the macOS menu bar (1440×900): a monochrome template glyph on dark and light bars, idle, pulsing while an agent works (its frames), with the count of tasks that need you, and highlighted while open; its popover under it, with Needs you (task, workspace and why), Working (status line, todo progress and bar, elapsed) and Recent (the last notifications, with their age), and Open Glade and Quit; and the popover with nothing in flight. | ![23 · Menu bar](screens/23-menu-bar.png) |
 | Interaction map | Every screen, state and action as a graph. | ![Interaction map](screens/interaction-map.png) |
 | Decisions | The decisions board. | ![Decisions](screens/decisions.png) |
 | Icon exploration | Variations of the chosen icon; W07 is the one. | ![Icon exploration](screens/icon-exploration.png) |
