@@ -12,7 +12,11 @@ its PR, sends back fixes, and approves and merges it. This SOP starts simple and
 
    Build what the designs show: `docs/design/screens/*.png`, with the exact CSS in `docs/design/html/*.html`. Where
    they're silent, make the conservative call and list it under "Decisions" in your report.
-3. **Push up a PR.** Every `gh` call goes through `node scripts/gh-team.mjs <gh args>`. Title `<id>: <issue title>`.
+3. **Update the docs.** Every change carries the doc updates it needs, in the same PR: the user guide, the reference
+   docs (`docs/keymap.md`, `docs/context-menus.md`, `docs/model-surface.md`, `docs/control-api.md`,
+   `docs/plugin-api.md`), the README and the docs index. If it changes how anything looks, update the screenshots that
+   show it too: the design screens in `docs/design/` and the images in the README and user guide.
+4. **Push up a PR.** Every `gh` call goes through `node scripts/gh-team.mjs <gh args>`. Title `<id>: <issue title>`.
    The body is brief and ends at `Closes #N`, with no "Generated with Claude Code" footer or other attribution lines
    (commit messages keep their Co-Authored-By trailer):
 
@@ -27,11 +31,11 @@ its PR, sends back fixes, and approves and merges it. This SOP starts simple and
    ```
 
    Don't arm auto-merge, queue the PR or poll it for merging: the supervisor approves, queues and merges it.
-4. **Check it.** Before reporting back, run `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test`
+5. **Check it.** Before reporting back, run `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test`
    (100% line coverage), `npm run build` and `npm run test:e2e` locally, and wait for the required `ci` check to go
    green on the PR (`node scripts/gh-team.mjs pr checks <N> --watch`). If it goes red, fix it with new commits.
-5. **Report back** briefly: the PR URL, how you checked each acceptance criterion, media paths, and decisions or open
-   questions.
+6. **Report back** briefly: the PR URL, how you checked each acceptance criterion, the docs you updated, media paths,
+   and decisions or open questions.
 
 Review fixes go on the same branch as new commits. If you conflict with `main`, merge `origin/main` in; never rebase or
 force-push.
@@ -53,9 +57,10 @@ force-push.
 
 ### Screenshots and recordings
 
-- **Visual changes need screenshots:** `npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery]
-  [--name <name>]`, with `--seed` fixtures from `scripts/fixtures/` or `--agent-script`. Compare them with the design
-  screens.
+- **Any visual change needs media.** If your PR changes anything the user can see, however small, capture it and list
+  the files in your report. A visual PR with no media isn't done.
+- **Screenshots:** `npm run screenshot -- --out <dir> [--size 1920x1200 ...] [--route #gallery] [--name <name>]`, with
+  `--seed` fixtures from `scripts/fixtures/` or `--agent-script`. Compare them with the design screens.
 - **`--press` can't reach menu accelerators** in capture mode (⌘, for Settings, ⌘J or ⌘B for panels). Collapse panels
   with the seed's `collapsed` field, and open Settings by clicks (`scripts/screenshot.mjs` has the path).
 - **`--classic-scrollbars`** captures macOS's always-on scroll bars, as a Mac with a mouse or "Show scroll bars:
@@ -69,9 +74,12 @@ force-push.
 ## Supervisor
 
 - **Review for real** against the issue, the designs and the media before approving. Send fixes back to the kitten.
-  A bug fix without a test that recreates the bug, or a feature whose tests only cover its lines, goes back too.
-- **Publish media** with `node scripts/publish-media.mjs <N> <folder>` (`--dry-run` first to check the new body). It
-  pushes to the orphan `screenshots` branch and rewrites the PR's Screenshots and Recordings sections.
+  A bug fix without a test that recreates the bug, or a feature whose tests only cover its lines, goes back too. So
+  does a PR missing the doc updates or screenshot updates it needs, or a visual change whose report lists no media.
+- **Publish media before approving.** Every PR with a visual change gets its media published first: no visual PR
+  merges with an empty Screenshots or Recordings section. Publish with `node scripts/publish-media.mjs <N> <folder>`
+  (`--dry-run` first to check the new body). It pushes to the orphan `screenshots` branch and rewrites the PR's
+  Screenshots and Recordings sections.
 - **Merge** by approving, then queueing with `node scripts/gh-team.mjs pr merge <N>`. Don't use `--auto`: it doesn't
   enqueue a PR that's already mergeable.
 - **After every merge**, check the open PRs and the merge queue: others may now conflict or need re-queueing.
