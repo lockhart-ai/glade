@@ -11,8 +11,11 @@ const DESIGN_WINDOW = { width: 1920, height: 1200 } as const
 const SIDEBAR = { initial: 300, min: 240, max: 520 } as const
 const BOTTOM_BAR = { initial: 300, min: 120 } as const
 
-/** The chat's minimum width, the right panel's, and the task card's minimum height. */
-const MIN_CHAT_WIDTH = 380
+/**
+ * The chat column's minimum width (the header card's and input bar's; the chat itself runs a little inside them), the
+ * right panel's, and the task card's minimum height.
+ */
+const MIN_CHAT_WIDTH = 396
 const MIN_PANEL_WIDTH = 320
 const MIN_TASK_HEIGHT = 460
 
@@ -133,7 +136,7 @@ test('resizable panels: a smaller window holds the task list and bottom bar to t
   // height: the task list and the bottom bar give way.
   await resize(glade, MIN_WINDOW.width, MIN_WINDOW.height)
   await expectSizes(window, sidebarRoom(MIN_WINDOW.width), bottomBarRoom(MIN_WINDOW.height))
-  expect(await widthOf(region.chat)).toBe(MIN_CHAT_WIDTH)
+  expect(await widthOf(region.inputBar)).toBe(MIN_CHAT_WIDTH)
   expect(await widthOf(region.taskPanel)).toBe(MIN_PANEL_WIDTH)
   expect(await heightOf(region.task)).toBe(MIN_TASK_HEIGHT)
   const task = await boxOf(region.task)
@@ -156,7 +159,7 @@ test('resizable panels: a smaller window holds the task list and bottom bar to t
   await drag(window, handles.taskList, 200, 0)
   await drag(window, handles.bottomBar, 0, -200)
   await expectSizes(window, narrowest, shortest)
-  expect(await widthOf(region.chat)).toBe(MIN_CHAT_WIDTH)
+  expect(await widthOf(region.inputBar)).toBe(MIN_CHAT_WIDTH)
   await drag(window, handles.taskList, -50, 0)
   await drag(window, handles.bottomBar, 0, 50)
   await expectSizes(window, narrowest - 50, shortest - 50)
@@ -168,5 +171,5 @@ test('resizable panels: a smaller window holds the task list and bottom bar to t
   await taskPanel(window).collapse.click()
   await drag(window, handles.taskList, 1000, 0)
   await expectSizes(window, SIDEBAR.max, BOTTOM_BAR.min)
-  expect(await widthOf(region.chat)).toBeGreaterThanOrEqual(MIN_CHAT_WIDTH)
+  expect(await widthOf(region.inputBar)).toBeGreaterThanOrEqual(MIN_CHAT_WIDTH)
 })

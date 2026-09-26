@@ -61,6 +61,7 @@ import { PluginStatus, type InstalledPlugin } from '../../shared/plugins'
 import { highlightParts, highlightPattern, SearchField, type SearchResult } from '../../shared/search'
 import type { TerminalTab } from '../../shared/terminal'
 import { addDoneCounts, doneCountsOf, isInDoneSection, NO_DONE_TASKS, pageOfDone } from '../../shared/doneList'
+import { EMPTY_MENU_BAR_SNAPSHOT, type MenuBarSnapshot } from '../../shared/menuBar'
 
 export type FakeHandlers = {
   readonly [C in CommandName]: (request: CommandRequest<C>) => CommandResponse<C> | Promise<CommandResponse<C>>
@@ -164,6 +165,13 @@ export interface FakeMain {
   readonly images?: Record<string, ImageData>
   /** The errors the window sent to the main log (`log.rendererError`), oldest first. */
   readonly rendererErrors?: LogRendererErrorRequest[]
+  /** What `menuBar.get` answers with: nothing in flight when left out. */
+  readonly menuBar?: MenuBarSnapshot
+  /**
+   * What the menu bar popover asked of main, oldest first, each as its name and arguments: `openTask t1`,
+   * `openGlade`, `hide`, `quit`, `fit 320`. `menuBar.openTask` refuses a task that isn't there with `not_found`.
+   */
+  readonly menuBarCalls?: string[]
 }
 
 export interface FakeBridge {
@@ -584,6 +592,29 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     },
     [CommandName.LogRendererError]: (error) => {
       main.rendererErrors?.push(error)
+      return null
+    },
+    [CommandName.MenuBarGet]: () => ({ snapshot: main.menuBar ?? EMPTY_MENU_BAR_SNAPSHOT }),
+    [CommandName.MenuBarOpenTask]: ({ id }) => {
+      if (!main.tasks.some((task) => task.id === id))
+        return refuse(bridgeError(BridgeErrorCode.NotFound, `No task ${id}`))
+      main.menuBarCalls?.push(`openTask ${id}`)
+      return null
+    },
+    [CommandName.MenuBarOpenGlade]: () => {
+      main.menuBarCalls?.push('openGlade')
+      return null
+    },
+    [CommandName.MenuBarHide]: () => {
+      main.menuBarCalls?.push('hide')
+      return null
+    },
+    [CommandName.MenuBarQuit]: () => {
+      main.menuBarCalls?.push('quit')
+      return null
+    },
+    [CommandName.MenuBarFit]: ({ height }) => {
+      main.menuBarCalls?.push(`fit ${String(height)}`)
       return null
     },
   }

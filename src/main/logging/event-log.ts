@@ -292,6 +292,9 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
       case EventType.AccountChanged:
         // The account logs its reads and warnings itself, and never the email or organization.
         return
+      case EventType.MenuBarChanged:
+        // Sent to the menu bar popover alone, never through here: what's in it is logged as the tasks change.
+        return
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
         // The plugins log themselves as they're read and turned on or off, and their views as their statuses change.

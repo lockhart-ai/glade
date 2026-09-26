@@ -270,5 +270,8 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, controlStatus: event.status }
     case EventType.AccountChanged:
       return { ...state, accountStatus: event.status }
+    case EventType.MenuBarChanged:
+      // Only the menu bar popover's page is sent it (`../menu-bar`); the window keeps its own tasks.
+      return state
   }
 }

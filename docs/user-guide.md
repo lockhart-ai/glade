@@ -17,6 +17,7 @@ New here? The [README](../README.md) says what Glade is. The [docs index](README
 - [The task header, done and reopening](#the-task-header-done-and-reopening)
 - [The sidebar](#the-sidebar)
 - [Knowing when a task needs you](#knowing-when-a-task-needs-you)
+- [Glade in the menu bar](#glade-in-the-menu-bar)
 - [The right panel](#the-right-panel)
 - [The terminal](#the-terminal)
 - [Permissions](#permissions)
@@ -119,12 +120,15 @@ You can run as many tasks at once as you like. Switching tasks never interrupts 
 
 The chat shows your messages and the agent's **final reply** for each turn. Everything in between (tool calls and the
 agent's working notes) goes to the Tool calls tab. Under each reply, a line says how long the turn took and how many
-files it changed; click **N tool calls** to see that turn's calls.
+files it changed; click **N tool calls** to see that turn's calls. The header card and the input bar stay put as you
+scroll: the chat passes under them.
 
 - **Sending while it works queues.** A message sent while the agent is working waits in a numbered queue above the input
   and goes in as soon as the agent finishes its current step. Edit a queued message with its pencil (or **↑** in an
   empty input for the last one), or remove it. There's no "send now" and no reordering.
-- **Stop:** the Stop button, or **⌘.**, ends the turn. It also withdraws an open question or permission card.
+- **Stop:** the Stop button, or **⌘.**, ends the turn. It also withdraws an open question or permission card. It
+  stops only the turn: subagents and watchers the agent left running in the background carry on, and you stop each
+  one from its row in the Subagents or Watchers tab.
 - **Questions:** when a choice is yours, the agent asks it on a **question card** in the chat, with options to pick,
   pills or a line of text, and its turn waits however long you take. Options and pills that don't fit on one row wrap
   onto more rows, up to three options to a row. Click through the card, or use the keyboard (the digits 1 – 9 pick an
@@ -192,6 +196,31 @@ A task you aren't looking at can still need you. When its agent replies, asks a 
 Opening a task marks it read; ⌘⇧U marks it unread again. Notifications are silent by default; Settings ›
 Notifications turns them off or their sound on. Focus and Do Not Disturb are up to macOS.
 
+## Glade in the menu bar
+
+Glade keeps an icon in the macOS menu bar, at the top right, so you can see what's in flight without switching to it.
+It's Glade's mark in the menu bar's own colour, light or dark:
+
+- while tasks need you, **how many** shows beside it;
+- while any agent is working, it **pulses** gently (with Reduce motion on in macOS, it holds still).
+
+Click it for a list, in every workspace:
+
+- **Needs you:** each task waiting on you, its workspace, and why: asking a question, waiting for permission, stopped
+  on an error, or a reply waiting.
+- **Working:** each task whose agent is working, its status, its todo progress (`3/7` and a thin bar) and how long its
+  turn has run.
+- **Recent:** the last few notifications Glade sent, and how long ago. They're kept, so they're still there after a
+  relaunch.
+
+A section only shows while it has something in it; with nothing at all, the list says "Nothing in flight". The list
+keeps up while it's open. Click a row to open Glade on that task, in its workspace. **Open Glade** brings the window
+up and **Quit** quits. Esc, or clicking anywhere else, closes the list.
+
+![The menu bar list: two tasks that need you, one working with its todo progress, and recent notifications](images/guide/menu-bar.png)
+
+Settings › General › **Show Glade in the menu bar** turns the icon off, and on again (it's on to begin with).
+
 ## The right panel
 
 Six tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Subagents · Watchers** (⌘⌥1 – ⌘⌥6). ⌘⌥B hides
@@ -256,7 +285,7 @@ A card left open when Glade quits is still there after the relaunch; answering i
 
 | Section | What's there |
 |---|---|
-| General | The **account** your tasks run on and bill to, as Claude Code reports it (below). |
+| General | **Show Glade in the menu bar**: the icon with what needs you and what's working (see [Glade in the menu bar](#glade-in-the-menu-bar)). On to begin with. Then the **account** your tasks run on and bill to, as Claude Code reports it (below). |
 | Agent | Defaults for new tasks: **Model**, **Effort** and **Permissions** (Ask first or Allow all; Allow edits isn't available yet). **Status summary**: have the agent rewrite the task's status after every turn. **Task titles**: have the agent name the task from your first message. |
 | Notifications | **Notifications** on or off, and **Sound**. |
 | Appearance | Nothing yet: Glade has one theme, dark. |

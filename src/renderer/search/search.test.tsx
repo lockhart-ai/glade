@@ -395,6 +395,31 @@ describe('opening a result scrolls the chat to the first match', () => {
     vi.restoreAllMocks()
   })
 
+  it('when it’s under the input bar, which floats over the bottom of the chat (its scroll padding)', async () => {
+    // The match (470 to 490) is inside the chat's 500px, but under the input bar's 60px over its bottom.
+    const scrollIntoView = layout(470)
+    await renderApp()
+    screen.getByRole('log', { name: 'Conversation' }).style.setProperty('scroll-padding-bottom', '60px')
+
+    await openFirstResult()
+
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ behavior: 'smooth', block: 'center' })
+    })
+    vi.restoreAllMocks()
+  })
+
+  it('not when it’s just clear of the input bar', async () => {
+    const scrollIntoView = layout(420)
+    await renderApp()
+    screen.getByRole('log', { name: 'Conversation' }).style.setProperty('scroll-padding-bottom', '60px')
+
+    await openFirstResult()
+
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    vi.restoreAllMocks()
+  })
+
   it('not at all when it’s in view, or when the chat has no match', async () => {
     const scrollIntoView = layout(100)
     const { store } = await renderApp()

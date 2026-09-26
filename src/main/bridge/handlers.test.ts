@@ -30,6 +30,7 @@ import { createAccountTracker } from '../account/account'
 import { createRateLimiter } from '../control/rate-limit'
 import { createControl } from '../control/control'
 import { createHandlers, type Handlers } from './handlers'
+import type { MenuBarCommands } from '../menu-bar/menu-bar'
 import { LogLevel, LogScope } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
 
@@ -170,6 +171,71 @@ describe('menu.update and window.close', () => {
   it('do nothing without an app', async () => {
     expect(await handlers[CommandName.MenuUpdate](EMPTY_MENU_STATE)).toBeNull()
     expect(await handlers[CommandName.WindowClose]({})).toBeNull()
+  })
+})
+
+describe('the menu bar commands', () => {
+  function withMenuBar(): { menuBar: MenuBarCommands; calls: string[]; handlers: Handlers } {
+    const calls: string[] = []
+    const menuBar: MenuBarCommands = {
+      openTask: (id) => calls.push(`openTask ${id}`),
+      openGlade: () => calls.push('openGlade'),
+      hide: () => calls.push('hide'),
+      quit: () => calls.push('quit'),
+      fit: (height) => calls.push(`fit ${String(height)}`),
+    }
+    const runner = createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() })
+    const withApp = createHandlers({
+      db: database.db,
+      emit,
+      chooseFolder,
+      openPath,
+      revealPath,
+      writeClipboard,
+      runner,
+      terminals: createTerminals({ db: database.db, emit, ...fakeTerminalOptions() }),
+      ...pluginsWithViews(),
+      endpoint: endpointOf(),
+      account: createAccountTracker({ db: database.db, emit }),
+      menuBar,
+    })
+    return { menuBar, calls, handlers: withApp }
+  }
+
+  it("answers what's in flight across every workspace", async () => {
+    const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+    updateTask(database.db, task.id, { title: 'Add rate limiting', sessionId: 'session-1' })
+    const { snapshot } = await handlers[CommandName.MenuBarGet]({})
+    expect(snapshot.needsYou.map(({ taskId }) => taskId)).toEqual([task.id])
+    expect(snapshot.working).toEqual([])
+  })
+
+  it('hands opening a task, opening Glade, hiding, quitting and sizing to the menu bar', async () => {
+    const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+    const { calls, handlers: withApp } = withMenuBar()
+    expect(await withApp[CommandName.MenuBarOpenTask]({ id: task.id })).toBeNull()
+    expect(await withApp[CommandName.MenuBarOpenGlade]({})).toBeNull()
+    expect(await withApp[CommandName.MenuBarHide]({})).toBeNull()
+    expect(await withApp[CommandName.MenuBarFit]({ height: 412 })).toBeNull()
+    expect(await withApp[CommandName.MenuBarQuit]({})).toBeNull()
+    expect(calls).toEqual([`openTask ${task.id}`, 'openGlade', 'hide', 'fit 412', 'quit'])
+  })
+
+  it("refuses to open a task that isn't there", () => {
+    const { calls, handlers: withApp } = withMenuBar()
+    expect(() => withApp[CommandName.MenuBarOpenTask]({ id: 'gone' })).toThrow(
+      expect.objectContaining({ code: BridgeErrorCode.NotFound }),
+    )
+    expect(calls).toEqual([])
+  })
+
+  it('do nothing without a menu bar', async () => {
+    const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+    expect(await handlers[CommandName.MenuBarOpenTask]({ id: task.id })).toBeNull()
+    expect(await handlers[CommandName.MenuBarOpenGlade]({})).toBeNull()
+    expect(await handlers[CommandName.MenuBarHide]({})).toBeNull()
+    expect(await handlers[CommandName.MenuBarFit]({ height: 1 })).toBeNull()
+    expect(await handlers[CommandName.MenuBarQuit]({})).toBeNull()
   })
 })
 

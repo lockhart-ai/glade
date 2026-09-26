@@ -155,28 +155,45 @@ function ModelPicker({ value, onChoose }: ModelPickerProps): React.JSX.Element {
 }
 
 /**
- * The account the tasks run on and bill to, as Claude Code last reported it (`docs/design/html/21-settings.html`):
- * nothing to change here, since Claude Code owns the login.
+ * Glade in the macOS menu bar (`docs/design/html/29-menu-bar.html`), then the account the tasks run on and bill to, as
+ * Claude Code last reported it (`docs/design/html/21-settings.html`): nothing to change there, since Claude Code owns
+ * the login.
  */
 export function GeneralSection(): React.JSX.Element {
+  const [settings, update] = useSettings()
   const account = useGladeStore((state) => state.accountStatus.account)
   const now = useNow()
   const view = accountView(account, now)
   return (
-    <section aria-labelledby="settings-account" className={styles.group}>
-      <h3 id="settings-account" className={styles.groupHeading}>
-        Account
-      </h3>
-      <Intro>{view.intro}</Intro>
-      {view.rows.map((row) => (
-        <SettingRow key={row.name} name={row.name} description={row.description}>
-          <span className={styles.value} title={row.value}>
-            {row.value}
-          </span>
-        </SettingRow>
-      ))}
-      {view.readLine !== null && <p className={styles.note}>{view.readLine}</p>}
-    </section>
+    <>
+      <Intro>Changes save automatically.</Intro>
+      <SettingRow
+        name="Show Glade in the menu bar"
+        description="An icon with what needs you and what's working; click it for the list."
+      >
+        <Toggle
+          label="Show Glade in the menu bar"
+          checked={settings.showInMenuBar}
+          onChange={(showInMenuBar) => {
+            update({ showInMenuBar })
+          }}
+        />
+      </SettingRow>
+      <section aria-labelledby="settings-account" className={styles.group}>
+        <h3 id="settings-account" className={styles.groupHeading}>
+          Account
+        </h3>
+        <Intro>{view.intro}</Intro>
+        {view.rows.map((row) => (
+          <SettingRow key={row.name} name={row.name} description={row.description}>
+            <span className={styles.value} title={row.value}>
+              {row.value}
+            </span>
+          </SettingRow>
+        ))}
+        {view.readLine !== null && <p className={styles.note}>{view.readLine}</p>}
+      </section>
+    </>
   )
 }
 

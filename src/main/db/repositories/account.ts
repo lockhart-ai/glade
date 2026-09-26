@@ -1,4 +1,4 @@
-// The account the tasks run on, and the warning while it's close to a usage limit (migration 31): one row each at
+// The account the tasks run on, and the warning while it's close to a usage limit (migration 33): one row each at
 // most, `id` 1. See `src/shared/account.ts`.
 import type { Database } from 'better-sqlite3'
 import { UsageWindow, type Account, type UsageWarning } from '../../../shared/account'

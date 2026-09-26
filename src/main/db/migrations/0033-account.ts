@@ -7,7 +7,7 @@ import type { Migration } from '../migrate'
  * Settings › General and the note show them again after a relaunch, before any task has started.
  */
 export const accountMigration: Migration = {
-  version: 31,
+  version: 33,
   name: 'Add the account and its usage warning',
   up(db) {
     db.exec(`

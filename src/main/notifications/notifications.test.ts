@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BridgeErrorCode } from '../../shared/bridge'
 import { TaskActivity, TaskState } from '../../shared/domain'
 import { CommandFailure } from '../bridge/errors'
+import { listRecentNotifications } from '../db/repositories/notifications'
 import { updateSettings } from '../db/repositories/settings'
 import { updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
@@ -148,6 +149,53 @@ describe('createReplyNotifications', () => {
     updateSettings(database.db, { notifications: true })
     notify(task.id, 'Done again.')
     expect(notifier.shown).toHaveLength(1)
+  })
+
+  it('notes each notification sent, as it said it, for the menu bar, and says so once it has', () => {
+    const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+    updateTask(database.db, task.id, { title: 'Fix the login redirect' })
+    const onSent = vi.fn(() => {
+      // Noted before it's said: the menu bar reads it straight away.
+      expect(listRecentNotifications(database.db, 5)).toHaveLength(onSent.mock.calls.length)
+    })
+    const notify = createReplyNotifications({
+      db: database.db,
+      notifier: createRecordingNotifier(),
+      openTask: vi.fn(),
+      runner: fakeRunner(),
+      onSent,
+    })
+
+    notify(task.id, 'It was a **race**.')
+    updateTask(database.db, task.id, { title: 'Renamed since' })
+    notify(task.id, 'Fixed it.')
+
+    expect(onSent).toHaveBeenCalledTimes(2)
+    expect(listRecentNotifications(database.db, 5).map(({ taskId, title, body }) => ({ taskId, title, body }))).toEqual(
+      [
+        { taskId: task.id, title: 'Renamed since', body: 'Fixed it.' },
+        { taskId: task.id, title: 'Fix the login redirect', body: 'It was a race.' },
+      ],
+    )
+  })
+
+  it('notes nothing, and says nothing, for a notification not sent: notifications off, or no such task', () => {
+    const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+    updateSettings(database.db, { notifications: false })
+    const onSent = vi.fn()
+    const notify = createReplyNotifications({
+      db: database.db,
+      notifier: createRecordingNotifier(),
+      openTask: vi.fn(),
+      runner: fakeRunner(),
+      onSent,
+    })
+
+    notify(task.id, 'Done.')
+    notify('gone', 'Done.')
+
+    expect(onSent).not.toHaveBeenCalled()
+    expect(listRecentNotifications(database.db, 5)).toEqual([])
   })
 
   it('makes a sound when the settings have sound on', () => {

@@ -3,15 +3,15 @@ import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { getAccount, getUsageWarning } from '../repositories/account'
 import { MIGRATIONS } from '.'
-import { accountMigration } from './0031-account'
+import { accountMigration } from './0033-account'
 
-it('is migration 31', () => {
-  expect(MIGRATIONS[30]).toBe(accountMigration)
+it('is migration 33', () => {
+  expect(MIGRATIONS[32]).toBe(accountMigration)
 })
 
 it('starts with no account and no warning, keeps one row of each, and checks the warning’s values', () => {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 30))
+  migrate(db, MIGRATIONS.slice(0, 32))
   migrate(db, MIGRATIONS)
 
   expect(getAccount(db)).toBeNull()

@@ -24,6 +24,7 @@ import { applySeed, readSeed, type CaptureSeed } from './capture-seed'
 import { listArtifacts } from './db/repositories/artifacts'
 import { getHandoff } from './db/repositories/backfills'
 import { listMessages } from './db/repositories/messages'
+import { listRecentNotifications } from './db/repositories/notifications'
 import { listPermissionRequests } from './db/repositories/permission-requests'
 import { getOpenFiles } from './db/repositories/open-files'
 import { listQueuedMessages } from './db/repositories/queued-messages'
@@ -100,6 +101,14 @@ describe('readSeed', () => {
 
   it('reads the agent working fixture', () => {
     expect(readSeed(join(FIXTURES, 'agent-working.json')).tasks[0]?.activity).toBe(TaskActivity.Working)
+  })
+
+  it("reads the menu bar fixture: what's in flight across three workspaces, and the notifications sent", () => {
+    const seed = readSeed(join(FIXTURES, 'menu-bar.json'))
+    expect(new Set(seed.tasks.map(({ workspace }) => workspace?.name ?? seed.workspace.name))).toEqual(
+      new Set(['Acme API', 'Glade', 'Billing']),
+    )
+    expect(seed.tasks.flatMap(({ notifications }) => notifications ?? [])).toHaveLength(3)
   })
 
   it('reads the relaunch fixture', () => {
@@ -296,6 +305,57 @@ describe('applySeed', () => {
     ])
     expect(getUiState(db, UiStateKey.ActiveWorkspaceId)).toBe(workspace?.id)
     expect(getUiState(db, UiStateKey.SelectedTaskId)).toBe(tasks[0]?.id)
+  })
+
+  it('puts a task in the other workspace it names, made once by its root, leaving the fixture’s own open', () => {
+    const { db } = database
+    const glade = { name: 'Glade', rootPath: '/Users/sample/code/glade' }
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          { title: 'Here', minutesAgo: 1 },
+          { title: 'There', minutesAgo: 2, workspace: glade },
+          { title: 'There too', minutesAgo: 3, workspace: glade },
+        ],
+      },
+      NOW,
+    )
+
+    const [own, other] = listWorkspaces(db)
+    expect(own?.name).toBe('Acme API')
+    expect(other).toMatchObject(glade)
+    expect(listWorkspaces(db)).toHaveLength(2)
+    expect(listTasks(db, own?.id ?? '').map(({ title }) => title)).toEqual(['Here'])
+    expect(listTasks(db, other?.id ?? '').map(({ title }) => title)).toEqual(['There', 'There too'])
+    expect(getUiState(db, UiStateKey.ActiveWorkspaceId)).toBe(own?.id)
+  })
+
+  it('notes the notifications sent about a task, with its title, when they were sent', () => {
+    const { db } = database
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          {
+            title: 'Add rate limiting',
+            minutesAgo: 1,
+            notifications: [
+              { body: 'Which limit?', minutesAgo: 9 },
+              { body: 'Done.', minutesAgo: 2 },
+            ],
+          },
+        ],
+      },
+      NOW,
+    )
+
+    expect(listRecentNotifications(db, 5).map(({ title, body, sentAt }) => [title, body, sentAt])).toEqual([
+      ['Add rate limiting', 'Done.', NOW - 2 * MINUTE],
+      ['Add rate limiting', 'Which limit?', NOW - 9 * MINUTE],
+    ])
   })
 
   it("sets a task's handoff note, when it was added", () => {
