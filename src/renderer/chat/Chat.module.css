@@ -14,6 +14,14 @@
 }
 
 /*
+ * Its scroll track starts below the header card too, so the thumb never slides under the header. Only the track's
+ * margin: global.css styles the scroll bar itself.
+ */
+.scroller::-webkit-scrollbar-track {
+  margin-top: var(--task-header-clearance, 0px);
+}
+
+/*
  * The conversation sits at the bottom until it fills the scroller. It runs the column's full width, so the messages
  * line up with the header card and the input bar above and below it.
  */

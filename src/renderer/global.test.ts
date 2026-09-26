@@ -53,7 +53,30 @@ describe('global.css scroll bars', () => {
       const css = sheet.replace(/\/\*[\s\S]*?\*\//g, '')
       expect(css, path).not.toMatch(/scrollbar-color\s*:/)
       expect(css, path).not.toMatch(/scrollbar-width:\s*(?!\s|none;)/)
-      if (path !== 'global.css') expect(css, path).not.toContain('::-webkit-scrollbar')
+      if (path === 'global.css') continue
+      // A component may only hide its bar outright (the panel tabs'), or move its track's ends in (the chat's, clear
+      // of the header card); never restyle the bar.
+      for (const [, selector = '', body = ''] of css.matchAll(/([^{}]*::-webkit-scrollbar[^{]*)\{([^}]*)\}/g)) {
+        const declarations = body
+          .split(';')
+          .map((part) => part.trim())
+          .filter(Boolean)
+        const where = `${path} ${selector.trim()}`
+        if (selector.trim().endsWith('::-webkit-scrollbar-track')) {
+          for (const declaration of declarations) expect(declaration, where).toMatch(/^margin-(top|bottom):/)
+        } else {
+          expect(selector.trim(), where).toMatch(/::-webkit-scrollbar$/)
+          expect(declarations, where).toEqual(['display: none'])
+        }
+      }
     }
+  })
+
+  it('starts the chat’s scroll track below the header card it scrolls under', () => {
+    const chat = stylesheets().get(join('chat', 'Chat.module.css')) ?? ''
+    expect(chat).toMatch(/\.scroller \{[^}]*padding-top: var\(--task-header-clearance, 0px\);/)
+    expect(chat).toMatch(
+      /\.scroller::-webkit-scrollbar-track \{\s*margin-top: var\(--task-header-clearance, 0px\);\s*\}/,
+    )
   })
 })

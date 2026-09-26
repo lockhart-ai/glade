@@ -8,7 +8,7 @@ import type { Locator, Page } from '@playwright/test'
 import { colors, scrollbarTokens, type ColorToken } from '../src/renderer/tokens'
 import { expect, test, type Glade, type LaunchOptions } from './fixtures'
 import { chooseMenuItem } from './menu'
-import { chat, firstRun, settings, taskList, taskPanel, terminal, workspaceSwitcher } from './selectors'
+import { chat, firstRun, settings, taskHeader, taskList, taskPanel, terminal, workspaceSwitcher } from './selectors'
 import { boxOf, MIN_WINDOW, resize } from './window-layout'
 
 /** The sample workspace of the design screens: enough tasks, messages and tool calls to scroll in a small window. */
@@ -90,18 +90,30 @@ interface Scrollbar {
   readonly thumbY: number
   /** A point in the track clear of the thumb: near the bar's far end from it. */
   readonly trackY: number
+  /** Where the track starts, down the window, and where the thumb starts. */
+  readonly trackTop: number
+  readonly thumbTop: number
   /** The first background behind the track: the area's own, or its nearest ancestor's that has one. */
   readonly behind: Rgb
 }
 
+/** Where to look at a scroll area's bar. */
+interface ScrollbarOptions {
+  /** How far through its scroll range to scroll the area first, 0 (the top) to 1 (the end). Halfway by default. */
+  readonly scrolled?: number
+  /** How far down the area its track starts: the chat's starts below the header card it scrolls under. */
+  readonly trackMarginTop?: number
+}
+
 /**
- * Scrolls `area` halfway (clear of a card floating over its top, as the header does the chat's) and finds its vertical
- * scroll bar once it has settled: an area that follows its newest rows may scroll itself back to the end.
+ * Scrolls `area` (halfway by default) and finds its vertical scroll bar once it has settled: an area that follows its
+ * newest rows may scroll itself back to the end.
  */
-async function scrollbarOf(area: Locator): Promise<Scrollbar> {
-  const found = await area.evaluate(async (element) => {
+async function scrollbarOf(area: Locator, options: ScrollbarOptions = {}): Promise<Scrollbar> {
+  const { scrolled = 0.5, trackMarginTop = 0 } = options
+  const found = await area.evaluate(async (element, at) => {
     if (!(element instanceof HTMLElement)) throw new Error('A scroll area is an HTML element')
-    element.scrollTop = (element.scrollHeight - element.clientHeight) / 2
+    element.scrollTop = (element.scrollHeight - element.clientHeight) * at
     for (let frame = 0; frame < 2; frame++) await new Promise((done) => requestAnimationFrame(done))
     const style = getComputedStyle(element)
     const left = Number.parseFloat(style.borderLeftWidth)
@@ -127,18 +139,21 @@ async function scrollbarOf(area: Locator): Promise<Scrollbar> {
       shown: element.clientHeight / element.scrollHeight,
       behind,
     }
-  })
+  }, scrolled)
   expect(found.scrolls, 'the area scrolls').toBe(true)
-  const length = found.bottom - found.top
+  const trackTop = found.top + trackMarginTop
+  const length = found.bottom - trackTop
   const thumb = Math.max(THUMB_MIN, length * found.shown)
-  const thumbTop = found.top + found.scrolled * (length - thumb)
-  const trackY = found.scrolled > 0.5 ? found.top + TRACK_CLEARANCE : found.bottom - TRACK_CLEARANCE
+  const thumbTop = trackTop + found.scrolled * (length - thumb)
+  const trackY = found.scrolled > 0.5 ? trackTop + TRACK_CLEARANCE : found.bottom - TRACK_CLEARANCE
   expect(trackY < thumbTop || trackY > thumbTop + thumb, 'the track shows clear of the thumb').toBe(true)
   return {
     width: found.width,
     thumbX: found.barRight - BAR / 2,
     thumbY: thumbTop + thumb / 2,
     trackY,
+    trackTop,
+    thumbTop,
     behind: cssToRgb(found.behind),
   }
 }
@@ -155,8 +170,13 @@ async function expectColour(window: Page, x: number, y: number, token: ColorToke
  * Checks `area`'s scroll bar is the design's: 10px of room, a transparent track, a thumb in the thumb colour that
  * lightens under the pointer and again while it's dragged.
  */
-async function expectStyledScrollbar(window: Page, area: Locator, name: string): Promise<void> {
-  const bar = await scrollbarOf(area)
+async function expectStyledScrollbar(
+  window: Page,
+  area: Locator,
+  name: string,
+  options: ScrollbarOptions = {},
+): Promise<void> {
+  const bar = await scrollbarOf(area, options)
   expect(bar.width, `${name}: the bar's width`).toBe(BAR)
   expect(near(await pixelAt(window, bar.thumbX, bar.trackY), bar.behind), `${name}: the track is transparent`).toBe(
     true,
@@ -202,7 +222,21 @@ test('scroll bars: the task list, chat and right panel scroll with the design’
 
   const list = await scrollAreaAround(window, taskList(window).section('Pinned'), 'task list')
   await expectStyledScrollbar(window, list, 'task list')
-  await expectStyledScrollbar(window, chat(window).log, 'chat')
+  // The chat scrolls under the header card, but its track starts below it: scrolled to the top, the thumb starts
+  // there, clear of the header, with the gap above the track showing through.
+  const log = chat(window).log
+  const clearance = await log.evaluate((element) => Number.parseFloat(getComputedStyle(element).paddingTop))
+  expect(clearance).toBeGreaterThan((await boxOf(taskHeader(window).header)).height)
+  await expectStyledScrollbar(window, log, 'chat', { trackMarginTop: clearance })
+  const top = await scrollbarOf(log, { scrolled: 0, trackMarginTop: clearance })
+  expect(top.thumbTop).toBe(top.trackTop)
+  const header = await boxOf(taskHeader(window).header)
+  expect(top.trackTop).toBeGreaterThan(header.y + header.height)
+  // Low enough in the thumb (at least THUMB_MIN long) to clear the header card's shadow, which darkens its top end.
+  await expectColour(window, top.thumbX, top.trackTop + 24, scrollbarTokens.thumb, 'chat: the thumb at the top')
+  expect(near(await pixelAt(window, top.thumbX, top.trackTop - 3), top.behind), 'chat: the gap over its track').toBe(
+    true,
+  )
   await expectStyledScrollbar(window, taskPanel(window).log, 'right panel')
 })
 
