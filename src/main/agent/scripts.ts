@@ -1682,6 +1682,73 @@ const backgroundSubagents: AgentScript = {
   ],
 }
 
+/** What `stop-spares-background` starts, and says, for the spec on Stop leaving background work running. */
+export const STOP_SPARES_BACKGROUND = {
+  prompt: 'Find the commit that slowed checkout, and keep an eye on the CI for PR #42 meanwhile.',
+  title: 'Find the commit that slowed checkout',
+  bisect: 'Bisect the slowdown',
+  ci: 'CI checks on PR #42',
+  ciCommand: 'gh pr checks 42 --watch --interval 30 | grep --line-buffered -E "pass|fail"',
+  started: "I've started a subagent bisecting the slowdown, and I'm watching the CI on PR #42.",
+  next: 'Benchmark the cart endpoint too.',
+  benchmarking: 'Benchmarking the cart endpoint meanwhile.',
+} as const
+
+/**
+ * Leaves a subagent bisecting in the background and a `Monitor` on the CI running, both until they're stopped, then
+ * starts a long benchmark in the next turn, which runs until it's stopped. Stop on that turn leaves the other two
+ * running, as the SDK does for Glade's options (`docs/sdk-notes.md` §7), so each can be stopped from its own tab.
+ */
+const stopSparesBackground: AgentScript = {
+  name: 'stop-spares-background',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        STOP_SPARES_BACKGROUND.title,
+        'Find the commit since v2.3.0 that made checkout slower.',
+        'Bisecting the checkout slowdown.',
+      ),
+      background(
+        'bisect',
+        {
+          description: STOP_SPARES_BACKGROUND.bisect,
+          prompt: 'Find the commit since v2.3.0 that made checkout slower.',
+          subagent_type: 'general-purpose',
+        },
+        [
+          delay(BEAT_MS),
+          toolUse(
+            'bisect-run',
+            'Bash',
+            { command: 'git bisect run ./scripts/bench-checkout.sh', description: 'Bisect the checkout benchmark' },
+            'bisect',
+          ),
+          // Until it's stopped.
+          delay(10 * 60_000),
+        ],
+        { summary: 'a41c9e2 made checkout slower.' },
+      ),
+      ...tool(
+        'ci',
+        'Monitor',
+        { description: STOP_SPARES_BACKGROUND.ci, timeout_ms: 1_800_000, command: STOP_SPARES_BACKGROUND.ciCommand },
+        'Monitor started (task bm7c2x1, expires in 30m unless the source ends first). You will be notified on each ' +
+          'event.',
+      ),
+      say(STOP_SPARES_BACKGROUND.started),
+      result(),
+    ],
+    [
+      ...turnStart(),
+      say(STOP_SPARES_BACKGROUND.benchmarking),
+      toolUse('bench', 'Bash', { command: 'npm run bench:cart', description: 'Benchmark the cart endpoint' }),
+      waitForInterrupt(),
+    ],
+  ],
+}
+
 /** What `subagent-calls` says when its turn ends. */
 export const SUBAGENT_CALLS_REPLY =
   'The 2.4 notes are drafted: the API rate limit goes first under features. The dashboard cache check failed, and the ' +
@@ -2566,6 +2633,7 @@ export const AGENT_SCRIPT_NAMES = [
   'writes-todos',
   'finishes-in-background',
   'background-subagents',
+  'stop-spares-background',
   'subagent-calls',
   'asks-permission',
   'asks-permission-from-a-subagent',
@@ -2609,6 +2677,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'writes-todos': writesTodos,
   'finishes-in-background': finishesInBackground,
   'background-subagents': backgroundSubagents,
+  'stop-spares-background': stopSparesBackground,
   'subagent-calls': subagentCalls,
   'asks-permission': asksPermission,
   'asks-permission-from-a-subagent': asksPermissionFromASubagent,
