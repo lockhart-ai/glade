@@ -91,11 +91,16 @@ it('keeps the columns, indexes and triggers tasks had, and search still follows 
   const db = databaseBefore()
   const before = tasksShape(db)
 
-  migrate(db, MIGRATIONS)
+  // Only up to this migration, which keeps the shape: a later one may add a column to tasks. The rest run below.
+  migrate(
+    db,
+    MIGRATIONS.filter((migration) => migration.version <= 32),
+  )
 
   expect(tasksShape(db)).toEqual(before)
   const triggers = db.prepare("SELECT name FROM sqlite_schema WHERE type = 'trigger'").pluck().all()
   expect(triggers).toEqual(expect.arrayContaining([...SEARCH_TRIGGERS]))
+  migrate(db, MIGRATIONS)
   // A title changed, and a message added, after the rebuild are found.
   updateTask(db, 't-low', { title: 'Rotate the keys' })
   db.prepare(
