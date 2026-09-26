@@ -57,6 +57,14 @@ outside, ask the supervisor.
 - **UI changes need an e2e spec.** A PR that changes the UI adds or extends a Playwright spec in `e2e/` that drives the
   real app through the workflow. Use the fixtures in `e2e/fixtures.ts` (`launch`, `tempFolder`, `chooseFolder`) and the
   locators in `e2e/selectors.ts`, and wait on locators, never on timers.
+- **Tools that launch Electron run outside the command sandbox, in the background.** `npm run render-design`,
+  `npm run check-design`, `npm run screenshot`, `npm run record` and `npm run test:e2e` (and long test runs) go
+  outside the sandbox and in the background, then you wait for them to finish: never as a long, silent foreground
+  command. Hidden Electron windows don't paint inside the sandbox or while the Mac sleeps. `render-design` stops by
+  itself when no screen finishes for 60 s, and names the step it was stuck on. If a render still passes 2 minutes,
+  kill only your own Electron, with your worktree's absolute path, and retry once:
+  `pkill -9 -f "<your worktree>/node_modules/electron"` (the script exits once its Electron is gone). Never a bare
+  `pkill -f render-design`: it kills every kitten's renders, and any shell whose command mentions render-design.
 - **No visible windows or OS capture.** The app runs with a throwaway database in a window that is never shown. Never
   use `npm run dev` for checks, or `screencapture`, `osascript` or System Events: they pop windows and permission
   dialogs up on Jared's screen.
