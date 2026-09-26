@@ -16,12 +16,13 @@ import { AgentEventKind, TaskOutcome, type SubagentStartedEvent, type ToolResult
 import { endNotice, eventNotice } from '../agent/scripted-session'
 import { createTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
-import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
+import { appendToolCall, getToolCall, updateToolCall } from '../db/repositories/tool-events'
 import { getWatcher, listWatchers, updateWatcher } from '../db/repositories/watchers'
 import { markTaskDone } from '../tasks/service'
 import {
   CANCELLED_BY_AGENT,
   createWatcherTracker,
+  ENDED_WITH_SUBAGENT,
   FIRED,
   NO_LONGER_SCHEDULED,
   StopAction,
@@ -80,8 +81,17 @@ function started(
   sdkTaskId: string,
   description = '',
   taskType = 'local_bash',
+  isBackgrounded = true,
 ): SubagentStartedEvent {
-  return { kind: AgentEventKind.SubagentStarted, sdkTaskId, toolUseId, background: false, taskType, description }
+  return {
+    kind: AgentEventKind.SubagentStarted,
+    sdkTaskId,
+    toolUseId,
+    background: false,
+    taskType,
+    isBackgrounded,
+    description,
+  }
 }
 
 function resultOf(toolUseId: string, details: unknown, isError = false): ToolResultEvent {
@@ -97,13 +107,13 @@ const CI = { description: 'CI checks on PR #42', timeout_ms: 1_800_000, command:
 /** The agent arms a Monitor, as the SDK starts it. */
 function armMonitor(taskId = task.id, toolUseId = 'toolu_ci', sdkTaskId = 'bci'): void {
   call(toolUseId, 'Monitor', CI, taskId)
-  tracker.taskStarted(taskId, started(toolUseId, sdkTaskId, CI.description))
+  tracker.taskStarted(taskId, started(toolUseId, sdkTaskId, CI.description), null)
 }
 
 /** The agent starts a command in the background. */
 function runCommand(toolUseId = 'toolu_tests', sdkTaskId = 'btests', command = 'npm run test:integration'): void {
   call(toolUseId, 'Bash', { command, description: 'Integration tests', run_in_background: true })
-  tracker.taskStarted(task.id, started(toolUseId, sdkTaskId, 'Integration tests'))
+  tracker.taskStarted(task.id, started(toolUseId, sdkTaskId, 'Integration tests'), null)
 }
 
 const ROLLOUT = { delaySeconds: 300, reason: 'Check the rollout', prompt: 'Check the rollout.', noop: false }
@@ -243,11 +253,11 @@ describe('a Monitor', () => {
 
   it('defaults its timeout to five minutes, caps it at thirty, and reads a WebSocket watch', () => {
     call('toolu_a', 'Monitor', { description: 'Deploys', command: 'tail -F deploy.log' })
-    tracker.taskStarted(task.id, started('toolu_a', 'ba', 'Deploys'))
+    tracker.taskStarted(task.id, started('toolu_a', 'ba', 'Deploys'), null)
     call('toolu_b', 'Monitor', { description: 'Long', timeout_ms: 99_000_000, command: 'x' })
-    tracker.taskStarted(task.id, started('toolu_b', 'bb', 'Long'))
+    tracker.taskStarted(task.id, started('toolu_b', 'bb', 'Long'), null)
     call('toolu_c', 'Monitor', { timeout_ms: 1_000, ws: { url: 'wss://ci.example.com/events' } })
-    tracker.taskStarted(task.id, started('toolu_c', 'bc', 'CI events'))
+    tracker.taskStarted(task.id, started('toolu_c', 'bc', 'CI events'), null)
 
     expect(
       listWatchers(database.db, task.id).map(({ expiresAt, label, detail }) => [expiresAt, label, detail]),
@@ -307,9 +317,9 @@ describe('a background command', () => {
 
   it('is named after its command when neither its call nor its task has a description', () => {
     call('toolu_q', 'Bash', { command: 'sleep 300', run_in_background: true })
-    tracker.taskStarted(task.id, started('toolu_q', 'bq'))
+    tracker.taskStarted(task.id, started('toolu_q', 'bq'), null)
     // A task the SDK moved to the background that Glade has no call for.
-    tracker.taskStarted(task.id, started('toolu_missing', 'bm', 'Something slow'))
+    tracker.taskStarted(task.id, started('toolu_missing', 'bm', 'Something slow'), null)
     expect(listWatchers(database.db, task.id).map(({ label, detail }) => [label, detail])).toEqual([
       ['sleep 300', 'sleep 300'],
       ['Something slow', ''],
@@ -318,12 +328,12 @@ describe('a background command', () => {
 
   it('leaves subagents to the Subagents tab, and a task started twice is one watcher', () => {
     call('toolu_agent', 'Agent', { description: 'Profile it', run_in_background: true })
-    tracker.taskStarted(task.id, started('toolu_agent', 'a1', 'Profile it', 'local_agent'))
-    tracker.taskStarted(task.id, { ...started('toolu_x', 'x1'), taskType: null })
+    tracker.taskStarted(task.id, started('toolu_agent', 'a1', 'Profile it', 'local_agent'), null)
+    tracker.taskStarted(task.id, { ...started('toolu_x', 'x1'), taskType: null }, null)
     expect(listWatchers(database.db, task.id)).toEqual([])
 
     runCommand()
-    tracker.taskStarted(task.id, started('toolu_tests', 'btests', 'Integration tests'))
+    tracker.taskStarted(task.id, started('toolu_tests', 'btests', 'Integration tests'), null)
     expect(listWatchers(database.db, task.id)).toHaveLength(1)
   })
 
@@ -699,5 +709,143 @@ describe('what it is told that isn’t about a watcher', () => {
     expect(tracker.prompt(task.id, 'Fix the flaky test.')).toBe(PromptVerdict.Allow)
     expect(tracker.prompt(task.id, CI.command)).toBe(PromptVerdict.Allow)
     expect(events).toHaveLength(before)
+  })
+})
+
+/** A call as the tool log has it. */
+function logged(toolUseId: string): ToolCallEvent {
+  const found = getToolCall(database.db, task.id, toolUseId)
+  if (found === undefined) throw new Error(`No call ${toolUseId}`)
+  return found
+}
+
+/** A call a subagent made (its `Agent` call, `parent`), as the runner logged it. */
+function subagentCall(toolUseId: string, name: string, input: ToolInput, parent: string): ToolCallEvent {
+  appendToolCall(database.db, { taskId: task.id, turn: 1, name, input, toolUseId, parentToolUseId: parent })
+  return updateToolCall(database.db, { taskId: task.id, toolUseId, state: ToolCallState.Done, output: 'ok' })
+}
+
+/** A foreground `Bash` call, and the task the SDK starts for it once it has run a few seconds. */
+function runInForeground(toolUseId = 'toolu_fg', sdkTaskId = 'bfg'): void {
+  call(toolUseId, 'Bash', { command: 'gh pr checks 42 --watch', description: 'Wait for CI' })
+  tracker.taskStarted(task.id, started(toolUseId, sdkTaskId, 'Wait for CI', 'local_bash', false), null)
+}
+
+describe("a subagent's watchers (#291)", () => {
+  it('belong to the subagent whose call started them, or to the one the runner names for a call it never logged', () => {
+    subagentCall('toolu_agent', 'Agent', { description: 'Fix the flaky test' }, 'toolu_top')
+    subagentCall('toolu_e2e', 'Bash', { command: 'npm run test:e2e', run_in_background: true }, 'toolu_agent')
+    tracker.taskStarted(task.id, started('toolu_e2e', 'be2e'), 'toolu_ignored')
+    subagentCall('toolu_watch', 'Monitor', CI, 'toolu_agent')
+    tracker.taskStarted(task.id, started('toolu_watch', 'bwatch', CI.description), null)
+    tracker.taskStarted(task.id, started('toolu_unlogged', 'bun', 'Wait for CI'), 'toolu_agent')
+    const wake = subagentCall('toolu_wake', 'ScheduleWakeup', ROLLOUT, 'toolu_agent')
+    tracker.toolResult(task.id, wake, resultOf('toolu_wake', { scheduledFor: START + 300_000 }))
+    const cron = subagentCall('toolu_cron', 'CronCreate', { cron: '*/5 * * * *', prompt: 'Look again.' }, 'toolu_agent')
+    tracker.toolResult(task.id, cron, resultOf('toolu_cron', { id: 'c1' }))
+
+    expect(listWatchers(database.db, task.id).map(({ kind, parentToolUseId }) => [kind, parentToolUseId])).toEqual([
+      [WatcherKind.Command, 'toolu_agent'],
+      [WatcherKind.Monitor, 'toolu_agent'],
+      [WatcherKind.Command, 'toolu_agent'],
+      [WatcherKind.Wakeup, 'toolu_agent'],
+      [WatcherKind.Cron, 'toolu_agent'],
+    ])
+    expect(broadcast()?.every(({ parentToolUseId }) => parentToolUseId === 'toolu_agent')).toBe(true)
+  })
+
+  it('end with it when it’s stopped, and those of the subagents it started, but not its jobs or anyone else’s', () => {
+    subagentCall('toolu_agent', 'Agent', { description: 'Fix the flaky test' }, 'toolu_top')
+    subagentCall('toolu_nested', 'Agent', { description: 'Bisect' }, 'toolu_agent')
+    subagentCall('toolu_e2e', 'Bash', { command: 'npm run test:e2e', run_in_background: true }, 'toolu_agent')
+    tracker.taskStarted(task.id, started('toolu_e2e', 'be2e', 'e2e'), null)
+    subagentCall('toolu_bisect', 'Monitor', CI, 'toolu_nested')
+    tracker.taskStarted(task.id, started('toolu_bisect', 'bbis', 'bisect'), null)
+    runCommand()
+    const cron = subagentCall('toolu_cron', 'CronCreate', { cron: '*/5 * * * *', prompt: 'Look again.' }, 'toolu_agent')
+    tracker.toolResult(task.id, cron, resultOf('toolu_cron', { id: 'c1' }))
+    // Its foreground command's task is forgotten with it: it's never promoted later.
+    subagentCall('toolu_fg', 'Bash', { command: 'npm test' }, 'toolu_nested')
+    tracker.taskStarted(task.id, started('toolu_fg', 'bfg', 'npm test', 'local_bash', false), null)
+
+    clock += 5_000
+    expect(tracker.subagentStopped(task.id, 'toolu_agent')).toEqual(['be2e', 'bbis'])
+    expect(listWatchers(database.db, task.id).map(({ label, state, outcome }) => [label, state, outcome])).toEqual([
+      ['e2e', WatcherState.Stopped, ENDED_WITH_SUBAGENT],
+      [CI.description, WatcherState.Stopped, ENDED_WITH_SUBAGENT],
+      ['Integration tests', WatcherState.Running, null],
+      ['Look again.', WatcherState.Scheduled, null],
+    ])
+    expect(broadcast()?.[0]?.endedAt).toBe(START + 5_000)
+    tracker.taskBackgrounded(task.id, 'bfg')
+    expect(listWatchers(database.db, task.id)).toHaveLength(4)
+
+    // Stopped again, or a subagent with nothing live, changes nothing.
+    const before = events.length
+    expect(tracker.subagentStopped(task.id, 'toolu_agent')).toEqual([])
+    expect(tracker.subagentStopped(task.id, 'toolu_nobody')).toEqual([])
+    expect(events).toHaveLength(before)
+  })
+
+  it('finds whose a call is without looping, whatever the tool log says', () => {
+    subagentCall('toolu_a', 'Agent', { description: 'A' }, 'toolu_b')
+    subagentCall('toolu_b', 'Agent', { description: 'B' }, 'toolu_a')
+    subagentCall('toolu_cmd', 'Bash', { command: 'x', run_in_background: true }, 'toolu_a')
+    tracker.taskStarted(task.id, started('toolu_cmd', 'bcmd', 'x'), null)
+    expect(tracker.subagentStopped(task.id, 'toolu_c')).toEqual([])
+    expect(tracker.subagentStopped(task.id, 'toolu_b')).toEqual(['bcmd'])
+  })
+})
+
+describe('a foreground command (#291)', () => {
+  it('isn’t a watcher, though the SDK runs it as a task, and is forgotten once it ends', () => {
+    runInForeground()
+    expect(listWatchers(database.db, task.id)).toEqual([])
+    expect(events).toEqual([])
+
+    tracker.taskFinished(task.id, finished('toolu_fg', 'bfg', TaskOutcome.Completed, 'Wait for CI'))
+    tracker.taskBackgrounded(task.id, 'bfg')
+    runInForeground('toolu_fg2', 'bfg2')
+    const failed = logged('toolu_fg2')
+    tracker.toolResult(task.id, failed, { ...resultOf('toolu_fg2', null, true), output: 'moved to the background' })
+    tracker.taskBackgrounded(task.id, 'bfg2')
+    runInForeground('toolu_fg3', 'bfg3')
+    tracker.toolResult(task.id, logged('toolu_fg3'), resultOf('toolu_fg3', { stdout: 'all green' }))
+    tracker.taskBackgrounded(task.id, 'bfg3')
+    runInForeground('toolu_fg4', 'bfg4')
+    tracker.sessionEnded(task.id, 'The agent stopped: exit 1')
+    tracker.taskBackgrounded(task.id, 'bfg4')
+    expect(listWatchers(database.db, task.id)).toEqual([])
+    expect(events).toEqual([])
+  })
+
+  it('becomes a watcher when the SDK moves it to the background, from when it started, once', () => {
+    runInForeground()
+    clock += 600_000
+    tracker.taskBackgrounded(task.id, 'bfg')
+    tracker.taskBackgrounded(task.id, 'bfg')
+    expect(only()).toMatchObject({
+      kind: WatcherKind.Command,
+      label: 'Wait for CI',
+      detail: 'gh pr checks 42 --watch',
+      state: WatcherState.Running,
+      startedAt: START,
+    })
+    expect(broadcast()).toHaveLength(1)
+    // Its result, which says so too, changes nothing more.
+    const before = events.length
+    tracker.toolResult(task.id, logged('toolu_fg'), resultOf('toolu_fg', { backgroundTaskId: 'bfg' }))
+    expect(events).toHaveLength(before)
+  })
+
+  it('becomes a watcher from its result, by what the SDK says of it or by its words', () => {
+    runInForeground('toolu_a', 'ba')
+    tracker.toolResult(task.id, logged('toolu_a'), resultOf('toolu_a', { backgroundTaskId: 'ba' }))
+    runInForeground('toolu_b', 'bb')
+    tracker.toolResult(task.id, logged('toolu_b'), {
+      ...resultOf('toolu_b', null),
+      output: 'Command did not complete within its 600s timeout and was moved to the background (ID: bb).',
+    })
+    expect(listWatchers(database.db, task.id).map(({ toolUseId }) => toolUseId)).toEqual(['toolu_a', 'toolu_b'])
   })
 })

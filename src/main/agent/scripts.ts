@@ -78,6 +78,13 @@ export enum ScriptStepKind {
    */
   Wake = 'wake',
   /**
+   * A background task (a `Monitor`'s, or a `Bash` call's with `run_in_background`) ends without waking the agent: its
+   * `task_updated` and `task_notification`, carrying `summary`. That's how a subagent's ends (`docs/sdk-notes.md`,
+   * "Background work inside a subagent"): the SDK wakes the subagent, not the agent. A task that was stopped meanwhile
+   * streams nothing.
+   */
+  TaskEnd = 'task_end',
+  /**
    * An `Agent` call that starts a subagent in the background (`run_in_background`), as the SDK does (`docs/sdk-notes.md`,
    * "Background subagents"): the `tool_use`, the subagent's `task_started` (`is_backgrounded: true`), and at once the
    * call's "launched" result, so the turn plays on and can end while the subagent works. The subagent then plays its
@@ -278,6 +285,16 @@ export interface WakeStep {
   readonly turn: ScriptTurn
 }
 
+export interface TaskEndStep {
+  readonly kind: ScriptStepKind.TaskEnd
+  /** The script id of the `Monitor` or `Bash` call, in this turn or subagent, whose task ends. */
+  readonly task: string
+  /** What its notification says. */
+  readonly summary: string
+  /** `completed` by default. */
+  readonly outcome?: BackgroundOutcome
+}
+
 /** How a background subagent ends when it plays all its steps (the SDK's `task_notification.status`). */
 export type BackgroundOutcome = 'completed' | 'failed'
 
@@ -367,6 +384,7 @@ export type ScriptStep =
   | LimitReachedStep
   | LimitWarningStep
   | WakeStep
+  | TaskEndStep
   | BackgroundStep
   | PermissionStep
   | ControlToolStep
@@ -513,6 +531,13 @@ export const wake = (turn: ScriptTurn, options: Omit<WakeStep, 'kind' | 'turn'>)
   kind: ScriptStepKind.Wake,
   turn,
   ...options,
+})
+
+export const taskEnd = (task: string, summary: string, outcome?: BackgroundOutcome): TaskEndStep => ({
+  kind: ScriptStepKind.TaskEnd,
+  task,
+  summary,
+  ...(outcome === undefined ? {} : { outcome }),
 })
 
 export const background = (
@@ -2391,6 +2416,111 @@ export const WATCHES_THINGS = {
   again: "Still on it: the watchers I left are in the Watchers tab, and I'll report when they wake me.",
 } as const
 
+/** What the `subagent-background-work` script's agent and subagent start, and say. */
+export const SUBAGENT_BACKGROUND_WORK = {
+  prompt: 'PR #42 is red on the flaky checkout test. Get it green, and keep an eye on the staging deploy meanwhile.',
+  title: 'Get PR #42 green',
+  /** The task's own background command. */
+  deploy: 'Tail the staging deploy log',
+  deployCommand: 'tail -F logs/deploy-staging.log',
+  /** The subagent, and what it runs: in the foreground, then two commands in the background. */
+  subagent: 'Fix the flaky checkout test',
+  unitTests: 'Run the checkout unit tests',
+  unitTestsCommand: 'npm test -- api/checkout',
+  lint: 'Lint the checkout module',
+  lintCommand: 'npm run lint -- api/checkout',
+  lintDone: 'Background command "Lint the checkout module" completed (exit code 0)',
+  e2e: 'Run the checkout e2e suite',
+  e2eCommand: 'npm run test:e2e -- --grep checkout',
+  waiting: 'The e2e suite is running; I’ll check the retry fix once it’s done.',
+  started: "A subagent is on the flaky checkout test, and I'm tailing the staging deploy log.",
+  again: 'Still on it: the subagent is waiting on the e2e suite.',
+} as const
+
+/**
+ * A task whose subagent leaves work running in the background (#291): the agent tails the deploy log in the background
+ * itself, and starts a subagent in the background that runs the unit tests in the foreground (a task of the SDK's, not
+ * a watcher), then lints and runs the e2e suite in the background. The lint finishes a moment later, reported as the
+ * SDK reports a subagent's (no turn of the agent's); the e2e suite and the subagent run until stopped.
+ */
+const subagentBackgroundWork: AgentScript = {
+  name: 'subagent-background-work',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        SUBAGENT_BACKGROUND_WORK.title,
+        'Get the checks on PR #42 green, fixing the flaky checkout test, and watch the staging deploy.',
+        'A subagent is fixing the flaky checkout test.',
+      ),
+      ...tool(
+        'deploy',
+        'Bash',
+        {
+          command: SUBAGENT_BACKGROUND_WORK.deployCommand,
+          description: SUBAGENT_BACKGROUND_WORK.deploy,
+          run_in_background: true,
+        },
+        'Command running in background with ID: b2d7k4m. Output is being written to: tasks/b2d7k4m.output.',
+      ),
+      background(
+        'fixer',
+        {
+          description: SUBAGENT_BACKGROUND_WORK.subagent,
+          prompt: 'The checkout e2e test fails one run in five on PR #42. Find why, fix it, and check the fix.',
+          subagent_type: 'general-purpose',
+        },
+        [
+          delay(BEAT_MS * 2),
+          say('Reproducing the flaky test first.', 'fixer'),
+          ...tool(
+            'fixer-unit',
+            'Bash',
+            {
+              command: SUBAGENT_BACKGROUND_WORK.unitTestsCommand,
+              description: SUBAGENT_BACKGROUND_WORK.unitTests,
+            },
+            '48 passed (3.1s)',
+            'fixer',
+          ),
+          ...tool(
+            'fixer-lint',
+            'Bash',
+            {
+              command: SUBAGENT_BACKGROUND_WORK.lintCommand,
+              description: SUBAGENT_BACKGROUND_WORK.lint,
+              run_in_background: true,
+            },
+            'Command running in background with ID: b6q1w8r. Output is being written to: tasks/b6q1w8r.output.',
+            'fixer',
+          ),
+          ...tool(
+            'fixer-e2e',
+            'Bash',
+            {
+              command: SUBAGENT_BACKGROUND_WORK.e2eCommand,
+              description: SUBAGENT_BACKGROUND_WORK.e2e,
+              run_in_background: true,
+            },
+            'Command running in background with ID: b9t3y5u. Output is being written to: tasks/b9t3y5u.output.',
+            'fixer',
+          ),
+          delay(BEAT_MS * 4),
+          taskEnd('fixer-lint', SUBAGENT_BACKGROUND_WORK.lintDone),
+          say(SUBAGENT_BACKGROUND_WORK.waiting, 'fixer'),
+          // Until it's stopped.
+          delay(10 * 60_000),
+        ],
+        { summary: 'Fixed the flaky checkout test: the retry waited on the wrong request.' },
+      ),
+      say(SUBAGENT_BACKGROUND_WORK.started),
+      result(),
+    ],
+    [...turnStart(), delay(BEAT_MS), say(SUBAGENT_BACKGROUND_WORK.again), result()],
+  ],
+}
+
 /** A wake's turn: the agent says one thing and ends it. */
 const wakeReply = (text: string): ScriptStep[] => [...turnStart(), delay(BEAT_MS), say(text), result()]
 
@@ -2806,6 +2936,7 @@ export const AGENT_SCRIPT_NAMES = [
   'replies-briefly',
   'ports-sessions',
   'backfills-tasks',
+  'subagent-background-work',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -2854,4 +2985,5 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'replies-briefly': repliesBriefly,
   'ports-sessions': portsSessions,
   'backfills-tasks': backfillsTasks,
+  'subagent-background-work': subagentBackgroundWork,
 }

@@ -355,6 +355,7 @@ describe('parsing SDK messages', () => {
         toolUseId: 'toolu_02',
         background: false,
         taskType: null,
+        isBackgrounded: false,
         description: '',
       },
     ])
@@ -375,6 +376,7 @@ describe('parsing SDK messages', () => {
         toolUseId: 'toolu_q',
         background: true,
         taskType: 'local_agent',
+        isBackgrounded: true,
         description: 'Profile the checkout queries',
       },
     ])
@@ -397,10 +399,14 @@ describe('parsing SDK messages', () => {
       background: false,
     }
     expect(parse({ ...command, task_type: 'local_bash', is_backgrounded: true, description: 'Run the suite' })).toEqual(
-      [{ ...commandStarted, taskType: 'local_bash', description: 'Run the suite' }],
+      [{ ...commandStarted, taskType: 'local_bash', isBackgrounded: true, description: 'Run the suite' }],
     )
+    // A foreground command's task: its call waits on it (docs/sdk-notes.md, "Background work inside a subagent").
+    expect(
+      parse({ ...command, task_type: 'local_bash', is_backgrounded: false, owned_by_subagent: true, description: 'x' }),
+    ).toEqual([{ ...commandStarted, taskType: 'local_bash', isBackgrounded: false, description: 'x' }])
     expect(parse({ ...command, task_type: 42, is_backgrounded: 'yes', description: 7 })).toEqual([
-      { ...commandStarted, taskType: null, description: '' },
+      { ...commandStarted, taskType: null, isBackgrounded: false, description: '' },
     ])
 
     const updated = { type: 'system', subtype: 'task_updated', task_id: 'af1' }

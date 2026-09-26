@@ -437,6 +437,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
             taskId: created.id,
             kind: WatcherKind.Monitor,
             toolUseId: 'toolu_watch',
+            parentToolUseId: null,
             label: secret('watcher_label'),
             detail: secret('watcher_command'),
             schedule: null,

@@ -7,9 +7,12 @@ import { PromptVerdict, type AgentSessionOptions, type SessionHooks, type Sessio
 import { endNotice, eventNotice, ScriptedSession } from './scripted-session'
 import { BLOCKED_PROMPT_REASON } from './sdk-backend'
 import {
+  background,
+  delay,
   init,
   result,
   say,
+  taskEnd,
   tool,
   toolResult,
   toolUse,
@@ -124,7 +127,7 @@ afterEach(() => {
 })
 
 describe('a background task', () => {
-  it('starts for a Monitor, or a Bash in the background, and the call’s result names it', async () => {
+  it('starts for a Monitor, or a Bash in the background, and the call’s result names it; a foreground Bash’s isn’t', async () => {
     const played = play([
       [
         init(),
@@ -147,7 +150,12 @@ describe('a background task', () => {
         task_type: 'local_bash',
       }),
       expect.objectContaining({ task_id: 'bid2w2', tool_use_id: 'toolu_id2_1_tests', description: 'Tests' }),
+      // A foreground command runs as a task too, not backgrounded, and ends before its result.
+      expect.objectContaining({ task_id: 'bid2f1', tool_use_id: 'toolu_id2_1_ls', is_backgrounded: false }),
       expect.objectContaining({ task_id: 'bid2w3', tool_use_id: 'toolu_id2_1_bare', description: '' }),
+    ])
+    expect(of(played.raw, 'task_notification')).toEqual([
+      expect.objectContaining({ task_id: 'bid2f1', tool_use_id: 'toolu_id2_1_ls', status: 'completed', summary: '' }),
     ])
     expect(details(played.raw, 'toolu_id2_1_ci')).toEqual({ taskId: 'bid2w1', timeoutMs: 60_000, persistent: false })
     expect(details(played.raw, 'toolu_id2_1_tests')).toEqual({
@@ -237,6 +245,44 @@ describe('a background task', () => {
     expect(played.prompts).toEqual([])
     // Each skipped wake still leaves the session idle, as the one it scheduled would have.
     expect(played.idles()).toBe(idle + 2)
+  })
+
+  it('a subagent’s starts owned by it, and ends without waking the agent, unless it was stopped (#291)', async () => {
+    const played = play([
+      [
+        init(),
+        background(
+          'fixer',
+          { description: 'Fix the flaky test', prompt: 'Fix it.' },
+          [
+            ...tool('e2e', 'Bash', { command: 'npm run e2e', run_in_background: true }, 'Running.', 'fixer'),
+            ...tool('lint', 'Bash', { command: 'npm run lint', run_in_background: true }, 'Running.', 'fixer'),
+            taskEnd('e2e', 'Background command "e2e" failed with exit code 1', 'failed'),
+            taskEnd('e2e', 'Twice'),
+            delay(10),
+            taskEnd('lint', 'Never'),
+            taskEnd('nope', 'Never'),
+          ],
+          { summary: 'Fixed.' },
+        ),
+        result({ text: 'Started a subagent.' }),
+      ],
+    ])
+    played.session.send('Fix it', 'user-1')
+    await flush()
+    await played.session.stopTask('bid2w2')
+    await flush(20)
+
+    expect(of(played.raw, 'task_started').filter((message) => message.task_type === 'local_bash')).toEqual([
+      expect.objectContaining({ task_id: 'bid2w1', is_backgrounded: true, owned_by_subagent: true }),
+      expect.objectContaining({ task_id: 'bid2w2', is_backgrounded: true, owned_by_subagent: true }),
+    ])
+    expect(of(played.raw, 'task_notification').map(({ task_id, status }) => [task_id, status])).toEqual([
+      ['bid2w1', 'failed'],
+      ['bid2w2', 'stopped'],
+      ['aid21', 'completed'],
+    ])
+    expect(played.prompts).toEqual([])
   })
 
   it('says nothing once the session is closed', async () => {

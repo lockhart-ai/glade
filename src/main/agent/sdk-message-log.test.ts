@@ -116,8 +116,23 @@ describe('describeSdkMessage', () => {
       task_id: 'task-a',
       tool_use_id: 'toolu_09',
       description: 'Explore the tests',
+      task_type: 'local_agent',
+      is_backgrounded: true,
+      prompt: 'Look through the tests.',
       session_id: sdk.SESSION_ID,
     }
+    // Whether a command's task is in the background, and a subagent's, says whether it's a watcher, and whose.
+    const command = {
+      type: 'system',
+      subtype: 'task_started',
+      task_id: 'b-cmd',
+      tool_use_id: 'toolu_10',
+      description: 'Run the suite',
+      task_type: 'local_bash',
+      is_backgrounded: false,
+      owned_by_subagent: true,
+    }
+    const moved = { type: 'system', subtype: 'task_updated', task_id: 'b-cmd', patch: { is_backgrounded: true } }
     const notification = {
       type: 'system',
       subtype: 'task_notification',
@@ -142,6 +157,15 @@ describe('describeSdkMessage', () => {
       task_id: 'task-a',
       tool_use_id: 'toolu_09',
       description: 'Explore the tests',
+      task_type: 'local_agent',
+      is_backgrounded: true,
+    })
+    expect(describeSdkMessage(command).fields).toMatchObject({ is_backgrounded: false, owned_by_subagent: true })
+    expect(describeSdkMessage(moved).fields).toEqual({
+      type: 'system',
+      subtype: 'task_updated',
+      task_id: 'b-cmd',
+      patch: { is_backgrounded: true },
     })
     expect(describeSdkMessage(notification).fields).toMatchObject({ status: 'completed', summary: 'Found it' })
     expect(
