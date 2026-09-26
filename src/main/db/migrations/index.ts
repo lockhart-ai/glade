@@ -33,6 +33,7 @@ import { notificationsMigration } from './0031-notifications'
 import { sdkModelsMigration } from './0032-sdk-models'
 import { accountMigration } from './0033-account'
 import { taskCommitsMigration } from './0034-task-commits'
+import { questionPreambleMigration } from './0037-question-preamble'
 import { compactionFromSdkMigration } from './0039-compaction-from-sdk'
 import { instructionUpdatesMigration } from './0040-instruction-updates'
 
@@ -72,6 +73,7 @@ export const MIGRATIONS: readonly Migration[] = [
   sdkModelsMigration,
   accountMigration,
   taskCommitsMigration,
+  questionPreambleMigration,
   compactionFromSdkMigration,
   instructionUpdatesMigration,
 ]

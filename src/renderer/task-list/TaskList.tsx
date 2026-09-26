@@ -1,5 +1,6 @@
 import { faChevronDown, faChevronRight, faThumbtack } from '@fortawesome/free-solid-svg-icons'
 import { useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { parseTaskFilter, TaskFilter } from '../../shared/attention'
 import { UiStateKey, type Task } from '../../shared/domain'
 import { doneTotal, inDoneList } from '../../shared/doneList'
@@ -24,6 +25,7 @@ import {
   stepSelection,
   type TaskSection,
 } from './sections'
+import { runningSubagentCounts } from '../subagents/subagentsModel'
 import { liveWatcherCount } from '../watchers/watchersModel'
 import { DoneRows } from './DoneRows'
 import { TaskRow } from './TaskRow'
@@ -69,6 +71,7 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
   const store = useGladeStoreApi()
   const tasks = useGladeStore((state) => state.tasks)
   const watchers = useGladeStore((state) => state.watchers)
+  const subagents = useGladeStore(useShallow((state) => runningSubagentCounts(state.toolEvents)))
   const doneLists = useGladeStore((state) => state.doneLists)
   const uiState = useGladeStore((state) => state.uiState)
   const selectedTaskId = useGladeStore((state) => state.selectedTaskId)
@@ -170,6 +173,7 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
       onCancelRename={cancelRename}
       menuTarget={menu.targetProps(task.id)}
       watching={liveWatcherCount(watchers[task.id])}
+      subagents={subagents[task.id]}
     />
   )
   const loadMore = useCallback(() => {

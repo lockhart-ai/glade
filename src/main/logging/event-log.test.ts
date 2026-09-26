@@ -75,6 +75,7 @@ const QUESTION_SET: QuestionSet = {
   id: 'questions-1',
   taskId: 'task-1',
   turn: 1,
+  preamble: null,
   questions: [{ kind: QuestionKind.Text, prompt: 'Which branch?' }],
   state: QuestionSetState.Open,
   reply: null,

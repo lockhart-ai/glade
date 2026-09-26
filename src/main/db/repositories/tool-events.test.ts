@@ -14,6 +14,7 @@ import {
   interruptPausedToolCalls,
   interruptRunningToolCall,
   interruptRunningToolCalls,
+  listRunningToolCallsNamed,
   listToolCallsNamed,
   listToolEvents,
   updateCompaction,
@@ -420,5 +421,30 @@ describe('listToolCallsNamed', () => {
     expect(done.id).toBe(create.id)
     expect(listToolCallsNamed(test.db, task.id, ['Grep'])).toEqual([])
     expect(listToolCallsNamed(test.db, task.id, [])).toEqual([])
+  })
+})
+
+describe('listRunningToolCallsNamed', () => {
+  it("lists every task's running calls to the named tools, by task and in order, and nothing else", () => {
+    const agent = (toolUseId: string, taskId = task.id) => ({
+      ...bashCall(toolUseId),
+      taskId,
+      name: 'Agent',
+      input: { description: toolUseId },
+    })
+    const other = sampleTask(test.db, task.workspaceId)
+    const first = appendToolCall(test.db, agent('toolu_1'), 3_000)
+    appendToolCall(test.db, bashCall('toolu_2'), 3_100)
+    appendToolCall(test.db, agent('toolu_3'), 3_200)
+    updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_3', state: ToolCallState.Done, output: 'Done.' })
+    const nested = appendToolCall(test.db, { ...agent('toolu_4'), parentToolUseId: 'toolu_1' }, 3_300)
+    const elsewhere = appendToolCall(test.db, { ...agent('toolu_5', other.id), name: 'Task' }, 3_400)
+    const own = [first, nested]
+    const everyTask = task.id < other.id ? [...own, elsewhere] : [elsewhere, ...own]
+
+    expect(listRunningToolCallsNamed(test.db, ['Agent', 'Task'])).toEqual(everyTask)
+    expect(listRunningToolCallsNamed(test.db, ['Agent'])).toEqual(own)
+    expect(listRunningToolCallsNamed(test.db, ['Grep'])).toEqual([])
+    expect(listRunningToolCallsNamed(test.db, [])).toEqual([])
   })
 })

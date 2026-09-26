@@ -96,25 +96,27 @@
   text-overflow: ellipsis;
 }
 
-/* The status line with the task's todo progress at its end (09-todos.html): the status ellipsizes before it. */
-.statusRow {
+/* The row's third line (09-todos.html), shown only while it has something: the task's todo progress, running
+   subagents and live watchers, in that order, each an icon and a count, lined up with the title and the status in the
+   time's small, faint type. */
+.indicators {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-lg);
   width: 100%;
   box-sizing: border-box;
   padding-left: 16px;
+  line-height: 16px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
 }
 
-.statusText {
-  flex-grow: 1;
-  min-width: 0;
-  font-size: var(--font-size-secondary-sm);
-  line-height: 1.4;
-  color: var(--color-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.indicator {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .todos {
@@ -122,9 +124,6 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-label);
-  color: var(--color-faint);
 }
 
 .todosIcon {
@@ -186,17 +185,8 @@
   color: var(--color-blue-text);
 }
 
-.unread .status,
-.unread .statusText {
+.unread .status {
   color: var(--color-muted);
-}
-
-/* The eye and count of a task's live watchers, before its time (28-watchers.html). */
-.watching {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--color-faint);
 }
 
 .unreadDot {

@@ -16,7 +16,7 @@ import { appendQuestionSet, getQuestionSet } from '../db/repositories/question-s
 import { getTask } from '../db/repositories/tasks'
 import { setUiState } from '../db/repositories/ui-state'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
-import { createQuestionBroker, toolResultFor, type QuestionBroker } from './questions'
+import { createQuestionBroker, notificationText, toolResultFor, type QuestionBroker } from './questions'
 
 const QUESTIONS: Question[] = [
   { kind: QuestionKind.Pills, prompt: 'Credit contributors?', options: ['GitHub handles', 'No credits'] },
@@ -77,14 +77,45 @@ describe('toolResultFor', () => {
   })
 })
 
+describe('notificationText', () => {
+  it('says the first line of the preamble, or with none, the first question', () => {
+    expect(notificationText({ questions: QUESTIONS })).toBe('Credit contributors?')
+    expect(notificationText({ preamble: 'Yes, they pass.\n\nA few choices first.', questions: QUESTIONS })).toBe(
+      'Yes, they pass.',
+    )
+  })
+
+  it('skips lines with no text once the Markdown is gone, and falls back to the first question if none has any', () => {
+    expect(notificationText({ preamble: '\n```ts\nconst limit = 100\n```', questions: QUESTIONS })).toBe(
+      'const limit = 100',
+    )
+    expect(notificationText({ preamble: '---\n\n```\n```', questions: QUESTIONS })).toBe('Credit contributors?')
+    expect(notificationText({ preamble: '---', questions: [] })).toBe('')
+  })
+})
+
 describe('the question broker: notifications', () => {
+  it("notifies the preamble's first line for a set asked with one, and saves the preamble with the set", () => {
+    setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: 'another-task' })
+    const notify = vi.fn()
+    const notifying = createQuestionBroker({ db: database.db, emit: (event) => events.push(event) }, notify)
+    const preamble = '## Short answer\nThe **tests pass** on `main`.'
+
+    void notifying.ask(task.id, { preamble, questions: QUESTIONS })
+
+    expect(notify).toHaveBeenCalledWith(task.id, '## Short answer')
+    const [opened] = events.flatMap((event) => (event.type === EventType.QuestionOpened ? [event.questionSet] : []))
+    expect(opened?.preamble).toBe(preamble)
+    expect(opened === undefined ? undefined : getQuestionSet(database.db, opened.id)?.preamble).toBe(preamble)
+  })
+
   it("marks a task you aren't viewing unread and notifies its first question, once per set", () => {
     setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: 'another-task' })
     const notify = vi.fn()
     const notifying = createQuestionBroker({ db: database.db, emit: (event) => events.push(event) }, notify)
     const questions: Question[] = [...QUESTIONS, { kind: QuestionKind.Text, prompt: 'Anything else?', optional: true }]
 
-    void notifying.ask(task.id, questions)
+    void notifying.ask(task.id, { questions })
 
     expect(notify).toHaveBeenCalledTimes(1)
     expect(notify).toHaveBeenCalledWith(task.id, 'Credit contributors?')
@@ -95,7 +126,7 @@ describe('the question broker: notifications', () => {
     const notify = vi.fn()
     const notifying = createQuestionBroker({ db: database.db, emit: (event) => events.push(event) }, notify)
 
-    void notifying.ask(task.id, QUESTIONS)
+    void notifying.ask(task.id, { questions: QUESTIONS })
 
     expect(notify).not.toHaveBeenCalled()
     expect(current().unread).toBe(false)
@@ -104,7 +135,7 @@ describe('the question broker: notifications', () => {
   it('marks the task unread without a notifier to call', () => {
     setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: 'another-task' })
 
-    void broker.ask(task.id, QUESTIONS)
+    void broker.ask(task.id, { questions: QUESTIONS })
 
     expect(current().unread).toBe(true)
   })
@@ -114,7 +145,7 @@ describe('the question broker', () => {
   it("opens a set in the task's latest turn, and the task waits on you until it is answered", async () => {
     appendMessage(database.db, { taskId: task.id, role: MessageRole.User, body: 'Draft the notes.', turn: 3 })
 
-    const asked = broker.ask(task.id, QUESTIONS)
+    const asked = broker.ask(task.id, { questions: QUESTIONS })
     const [opened] = events.flatMap((event) => (event.type === EventType.QuestionOpened ? [event.questionSet] : []))
     if (opened === undefined) throw new Error('No question set opened')
 
@@ -136,7 +167,7 @@ describe('the question broker', () => {
   })
 
   it('opens a set in turn 1 for a task with no messages yet', () => {
-    void broker.ask(task.id, QUESTIONS)
+    void broker.ask(task.id, { questions: QUESTIONS })
 
     expect(getQuestionSet(database.db, openId())?.turn).toBe(1)
   })
@@ -167,7 +198,7 @@ describe('the question broker', () => {
     broker.withdraw(task.id)
     expect(events).toEqual([])
 
-    const asked = broker.ask(task.id, QUESTIONS)
+    const asked = broker.ask(task.id, { questions: QUESTIONS })
     drain()
     broker.withdraw(task.id)
 
@@ -180,7 +211,7 @@ describe('the question broker', () => {
 
   it('withdraws a set whose call the SDK cancels, once', async () => {
     const cancel = new AbortController()
-    const asked = broker.ask(task.id, QUESTIONS, cancel.signal)
+    const asked = broker.ask(task.id, { questions: QUESTIONS }, cancel.signal)
     drain()
 
     cancel.abort()
@@ -194,7 +225,7 @@ describe('the question broker', () => {
 
   it('keeps a set open when its call is cancelled after the broker is closed, as the app quits', () => {
     const cancel = new AbortController()
-    void broker.ask(task.id, QUESTIONS, cancel.signal)
+    void broker.ask(task.id, { questions: QUESTIONS }, cancel.signal)
     const id = openId()
     drain()
 
@@ -208,7 +239,7 @@ describe('the question broker', () => {
 
   it('leaves a set already answered alone when its call is cancelled after', async () => {
     const cancel = new AbortController()
-    const asked = broker.ask(task.id, QUESTIONS, cancel.signal)
+    const asked = broker.ask(task.id, { questions: QUESTIONS }, cancel.signal)
     const set = getQuestionSet(database.db, openId())
     if (set === undefined) throw new Error('No question set opened')
     broker.answer(set.id, ANSWERS)

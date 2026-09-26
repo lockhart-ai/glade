@@ -53,6 +53,7 @@ describe('question sets', () => {
       id: set.id,
       taskId: task.id,
       turn: 2,
+      preamble: null,
       questions: QUESTIONS,
       state: QuestionSetState.Open,
       reply: null,
@@ -61,6 +62,21 @@ describe('question sets', () => {
     })
     expect(getQuestionSet(test.db, set.id)).toEqual(set)
     expect(getQuestionSet(test.db, 'gone')).toBeUndefined()
+  })
+
+  it('keeps the preamble a set was asked with, once it is answered or withdrawn', () => {
+    const preamble = 'Yes, the tests pass on `main`.\n\n- one\n- two'
+    const answered = appendQuestionSet(test.db, { taskId: task.id, turn: 1, preamble, questions: QUESTIONS })
+    const withdrawn = appendQuestionSet(test.db, { taskId: task.id, turn: 2, preamble, questions: QUESTIONS })
+    expect(answered.preamble).toBe(preamble)
+
+    closeQuestionSet(test.db, answered.id, { state: QuestionSetState.Answered, reply: ANSWERS })
+    closeQuestionSet(test.db, withdrawn.id, { state: QuestionSetState.Withdrawn })
+
+    expect(listQuestionSets(test.db, task.id).map((set) => [set.state, set.preamble])).toEqual([
+      [QuestionSetState.Answered, preamble],
+      [QuestionSetState.Withdrawn, preamble],
+    ])
   })
 
   it("makes the task's asking true while a set is open", () => {

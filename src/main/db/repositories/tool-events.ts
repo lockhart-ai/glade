@@ -423,6 +423,22 @@ export function listToolCallsNamed(db: Database, taskId: string, names: readonly
     .map((raw) => parseToolCall(new Row('tool_events', raw)))
 }
 
+/**
+ * Every task's calls to any of the named tools that are still running, by task and then in the order they were made:
+ * e.g. the subagents running now, which the task list counts before a task's log is loaded.
+ */
+export function listRunningToolCallsNamed(db: Database, names: readonly string[]): ToolCallEvent[] {
+  if (names.length === 0) return []
+  return db
+    .prepare(
+      `SELECT ${COLUMNS} FROM tool_events
+      WHERE kind = 'tool_call' AND tool_state = ? AND tool_name IN (${names.map(() => '?').join(', ')})
+      ORDER BY task_id, seq`,
+    )
+    .all(ToolCallState.Running, ...names)
+    .map((raw) => parseToolCall(new Row('tool_events', raw)))
+}
+
 /** A task's tool call by its `tool_use` id, or undefined when it has none. */
 export function getToolCall(db: Database, taskId: string, toolUseId: string): ToolCallEvent | undefined {
   const raw: unknown = db

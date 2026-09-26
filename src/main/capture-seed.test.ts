@@ -20,6 +20,8 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  WatcherKind,
+  WatcherState,
 } from '../shared/domain'
 import { applySeed, readSeed, type CaptureSeed } from './capture-seed'
 import { listArtifacts } from './db/repositories/artifacts'
@@ -33,6 +35,7 @@ import { listTaskPermissionRules } from './db/repositories/task-permission-rules
 import { listToolEvents } from './db/repositories/tool-events'
 import { listTasks } from './db/repositories/tasks'
 import { getUiState } from './db/repositories/ui-state'
+import { listWatchers } from './db/repositories/watchers'
 import { listWorkspaces } from './db/repositories/workspaces'
 import { openTestDatabase, type TestDatabase } from './db/repositories/test-database'
 import { DEFAULT_SETTINGS } from '../shared/settings'
@@ -389,6 +392,66 @@ describe('applySeed', () => {
       addedAt: now - 3 * 60_000,
     })
     expect(getHandoff(db, byTitle.get('Plain') ?? '')).toBeUndefined()
+  })
+
+  it('adds a task’s watchers, in order, running unless they say otherwise, started when they say', () => {
+    const { db } = database
+    const now = 100 * 60_000
+
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          {
+            title: 'Watch the CI run on PR #42',
+            minutesAgo: 1,
+            watchers: [
+              {
+                kind: WatcherKind.Monitor,
+                toolUseId: 'w1',
+                label: 'CI on PR #42',
+                detail: 'gh pr checks 42',
+                minutesAgo: 9,
+              },
+              {
+                kind: WatcherKind.Command,
+                toolUseId: 'w2',
+                label: 'Integration tests',
+                detail: 'npm run test:integration',
+                state: WatcherState.Finished,
+                minutesAgo: 5,
+              },
+            ],
+          },
+          { title: 'Plain', minutesAgo: 0 },
+        ],
+      },
+      now,
+    )
+
+    const tasks = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    const byTitle = new Map(tasks.map((task) => [task.title, task.id]))
+    const watchers = listWatchers(db, byTitle.get('Watch the CI run on PR #42') ?? '')
+    expect(
+      watchers.map(({ kind, label, detail, state, startedAt }) => ({ kind, label, detail, state, startedAt })),
+    ).toEqual([
+      {
+        kind: WatcherKind.Monitor,
+        label: 'CI on PR #42',
+        detail: 'gh pr checks 42',
+        state: WatcherState.Running,
+        startedAt: now - 9 * MINUTE,
+      },
+      {
+        kind: WatcherKind.Command,
+        label: 'Integration tests',
+        detail: 'npm run test:integration',
+        state: WatcherState.Finished,
+        startedAt: now - 5 * MINUTE,
+      },
+    ])
+    expect(listWatchers(db, byTitle.get('Plain') ?? '')).toEqual([])
   })
 
   it('declares a task’s artifacts, in order, marking each file that’s there as changed when it was declared', () => {
