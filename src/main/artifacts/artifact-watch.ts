@@ -17,7 +17,7 @@ import { EventType, type GladeEvent } from '../../shared/bridge'
 import { ToolCallState, ToolEventKind, type ToolCallEvent } from '../../shared/domain'
 import { CHANGING_TOOLS, workspaceRelativePath } from '../../shared/files'
 import { listArtifacts } from '../db/repositories/artifacts'
-import { workspaceRoot } from '../files/files'
+import { workspaceFilesRoot, workspaceRoot } from '../files/files'
 import type { TaskServiceContext } from '../tasks/service'
 import { refreshTaskArtifacts } from './artifacts'
 
@@ -135,7 +135,7 @@ export function createArtifactWatcher({
     const root = rootOf(taskId)
     if (root === null) return byFolder
     for (const { path } of listArtifacts(context.db, taskId)) {
-      const folder = dirname(join(root, path))
+      const folder = dirname(join(workspaceFilesRoot(root), path))
       byFolder.set(folder, [...(byFolder.get(folder) ?? []), path])
     }
     return byFolder

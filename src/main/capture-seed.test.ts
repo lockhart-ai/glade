@@ -37,6 +37,7 @@ import { listTasks } from './db/repositories/tasks'
 import { getUiState } from './db/repositories/ui-state'
 import { listWatchers } from './db/repositories/watchers'
 import { listWorkspaces } from './db/repositories/workspaces'
+import { readTaskFile, workspaceFilesRoot } from './files/files'
 import { openTestDatabase, type TestDatabase } from './db/repositories/test-database'
 import { DEFAULT_SETTINGS } from '../shared/settings'
 import { DRIVES_GLADE } from './agent/scripts'
@@ -163,8 +164,14 @@ describe('readSeed', () => {
       const seed = readSeed(join(FIXTURES, name))
       const selected = seed.tasks.find((task) => task.selected)
       expect(selected?.handoff?.body).toContain('### Where it got to')
+      // Shown at a made-up root, with its sample files beside the fixture.
+      expect(seed.workspace).toEqual({
+        name: 'Acme API',
+        rootPath: '/Users/sample/code/api',
+        files: join(FIXTURES, 'backfilled-workspace'),
+      })
       for (const { path } of selected?.artifacts ?? []) {
-        expect(existsSync(join(seed.workspace.rootPath, path))).toBe(true)
+        expect(existsSync(join(seed.workspace.files ?? '', path))).toBe(true)
       }
     }
     const done = readSeed(join(FIXTURES, 'backfilled.json')).tasks.find((task) => task.selected)
@@ -175,21 +182,26 @@ describe('readSeed', () => {
   it('reads the artifacts fixture, its workspace holding the files it declares, small images among them', () => {
     const seed = readSeed(join(FIXTURES, 'artifacts.json'))
 
-    expect(seed.workspace.rootPath).toBe(join(FIXTURES, 'artifacts-workspace'))
+    expect(seed.workspace.rootPath).toBe('/Users/sample/code/api')
+    const files = join(FIXTURES, 'artifacts-workspace')
+    expect(seed.workspace.files).toBe(files)
     const artifacts = seed.tasks.find((task) => task.selected)?.artifacts ?? []
     expect(artifacts).toHaveLength(16)
     expect(artifacts.at(-1)?.title).toBe('Landing page, dark theme')
     for (const { path } of artifacts) {
-      expect(existsSync(join(seed.workspace.rootPath, path)), path).toBe(true)
+      expect(existsSync(join(files, path)), path).toBe(true)
       // Sample images, kept small (CLAUDE.md, "Binaries").
-      if (path.endsWith('.png')) expect(statSync(join(seed.workspace.rootPath, path)).size).toBeLessThan(16 * 1024)
+      if (path.endsWith('.png')) expect(statSync(join(files, path)).size).toBeLessThan(16 * 1024)
     }
   })
 
   it('reads the open file fixture, its workspace a folder beside it', () => {
     const seed = readSeed(join(FIXTURES, 'open-file.json'))
 
-    expect(seed.workspace.rootPath).toBe(join(FIXTURES, 'open-file-workspace'))
+    expect(seed.workspace).toMatchObject({
+      rootPath: '/Users/sample/code/api',
+      files: join(FIXTURES, 'open-file-workspace'),
+    })
     expect(seed).toMatchObject({ panelTab: 'files', panelWidth: 780 })
     expect(seed.tasks.find((task) => task.selected)?.openFiles?.activePath).toBe('docs/rate-limits.md')
   })
@@ -457,6 +469,46 @@ describe('applySeed', () => {
       },
     ])
     expect(listWatchers(db, byTitle.get('Plain') ?? '')).toEqual([])
+  })
+
+  it('shows a made-up root that reads its files from the fixture’s folder of sample files', async () => {
+    const { db } = database
+    const files = mkdtempSync(join(tmpdir(), 'glade-seed-files-'))
+    try {
+      mkdirSync(join(files, 'docs'))
+      writeFileSync(join(files, 'docs', 'notes.md'), '# Notes\n')
+      const now = 100 * 60_000
+      const rootPath = '/Users/sample/code/stand-in'
+
+      applySeed(
+        db,
+        {
+          ...SEED,
+          workspace: { name: 'Acme Docs', rootPath, files },
+          tasks: [
+            {
+              title: 'Draft the docs',
+              minutesAgo: 0,
+              artifacts: [{ path: 'docs/notes.md', title: 'Notes', minutesAgo: 12 }],
+            },
+          ],
+        },
+        now,
+      )
+
+      const [workspace] = listWorkspaces(db)
+      expect(workspace).toMatchObject({ name: 'Acme Docs', rootPath })
+      expect(workspace).not.toHaveProperty('files')
+      expect(workspaceFilesRoot(rootPath)).toBe(files)
+      const taskId = listTasks(db, workspace?.id ?? '')[0]?.id ?? ''
+      expect(listArtifacts(db, taskId)[0]).toMatchObject({ modifiedAt: now - 12 * 60_000, missing: false })
+      expect(statSync(join(files, 'docs', 'notes.md')).mtimeMs).toBe(now - 12 * 60_000)
+      await expect(readTaskFile({ db, emit: () => undefined }, taskId, 'docs/notes.md')).resolves.toMatchObject({
+        text: '# Notes\n',
+      })
+    } finally {
+      rmSync(files, { recursive: true, force: true })
+    }
   })
 
   it('declares a task’s artifacts, in order, marking each file that’s there as changed when it was declared', () => {

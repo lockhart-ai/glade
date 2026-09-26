@@ -74,6 +74,26 @@ function isMissing(error: unknown): boolean {
 }
 
 /**
+ * The folders of sample files that made-up workspace roots stand for, by the made-up root. Only the test modes' seeds
+ * set any (`applySeed`), so a capture shows sample data at an invented root (`~/code/docs`) rather than wherever the
+ * fixture's files are on the machine that makes it. Empty in the app.
+ */
+const rootStandIns = new Map<string, string>()
+
+/**
+ * Has the workspace root `shown` (made up, as the sample data shows it) read its files from the folder `files`. For the
+ * test modes' seeds only.
+ */
+export function standInForWorkspaceRoot(shown: string, files: string): void {
+  rootStandIns.set(shown, files)
+}
+
+/** Where a workspace root's files are: the root itself, or the folder a made-up one stands for. */
+export function workspaceFilesRoot(rootPath: string): string {
+  return rootStandIns.get(rootPath) ?? rootPath
+}
+
+/**
  * The real path of the file at `path` (relative to the workspace root), with every symlink resolved; null when there's
  * nothing there (nor a workspace root). Throws a `CommandFailure` (`outside_workspace`) when the path, or a symlink on
  * it, leads outside the root.
@@ -81,7 +101,7 @@ function isMissing(error: unknown): boolean {
 export async function resolveWorkspaceFile(rootPath: string, path: string): Promise<string | null> {
   let root: string
   try {
-    root = await realpath(rootPath)
+    root = await realpath(workspaceFilesRoot(rootPath))
   } catch (error) {
     if (isMissing(error)) return null
     throw error
