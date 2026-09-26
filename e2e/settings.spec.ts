@@ -68,7 +68,8 @@ test('settings save as you change them: new tasks take the defaults, notificatio
   const relaunched = await launch()
   const again = settings(relaunched.window)
   await chooseMenuItem(relaunched, 'Glade', 'Settings…')
-  await expect(again.model).toHaveText('Sonnet 5')
+  // Task A's session reported the SDK's models, which Glade kept: Sonnet 5 is its Sonnet.
+  await expect(again.model).toHaveText('Sonnet')
   await expect(again.choice('Effort', 'Low')).toBeChecked()
   await again.section('Notifications').click()
   await expect(again.toggle('Notifications')).not.toBeChecked()

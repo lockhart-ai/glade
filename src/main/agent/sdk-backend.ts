@@ -51,6 +51,11 @@ export interface SdkBackendOptions {
   readonly log?: Logger
   /** Glade's version, which each session's agent process names Glade by (`clientAppEnv`). */
   readonly version: string
+  /**
+   * Told the models the SDK offers, unparsed (`initializationResult().models`, `docs/sdk-notes.md` §4), each time a
+   * session's agent process has started. Nothing by default.
+   */
+  readonly onModels?: (models: unknown) => void
 }
 
 /** Finds a module's file, as `require.resolve` does. */
@@ -331,9 +336,14 @@ export function userMessage(text: string, uuid: string, images: readonly ImageDa
  * A settings change and the messages after it are delivered in order: the next message waits for `setModel` and
  * `applyFlagSettings` to finish (`docs/sdk-notes.md` §4), and for `setPermissionMode` when the permission mode changed
  * (§9), each only when what it sets changed. If the SDK refuses a change, the message still goes, on the settings the
- * session had.
+ * session had. Once each session's process has started, the models the SDK offers go to `onModels`, if given.
  */
-export function createSdkBackend({ env, log: backendLog = SILENT_LOGGER, version }: SdkBackendOptions): AgentBackend {
+export function createSdkBackend({
+  env,
+  log: backendLog = SILENT_LOGGER,
+  version,
+  onModels,
+}: SdkBackendOptions): AgentBackend {
   return {
     start(options): AgentSession {
       const log = options.log ?? backendLog
@@ -353,6 +363,17 @@ export function createSdkBackend({ env, log: backendLog = SILENT_LOGGER, version
         })
         return query({ prompt: input, options: sdk })
       })
+      // The models the user's login offers, as the process reports them once it has started.
+      if (onModels !== undefined) {
+        started
+          .then((session) => session.initializationResult())
+          .then(({ models }) => {
+            onModels(models)
+          })
+          .catch((error: unknown) => {
+            log.warn("couldn't read the models the SDK offers", { error })
+          })
+      }
       // Everything asked of the session so far, in order.
       let queue = Promise.resolve()
       // The settings the session was last given: a change applies only what differs from them.

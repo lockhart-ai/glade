@@ -82,8 +82,13 @@ describe('deriveTodoList', () => {
     ])
     expect(deriveTodoList([first])).toEqual({
       items: [
-        { text: 'Find how uploads are stored', state: TodoState.Doing, note: 'Finding how uploads are stored' },
-        { text: 'Copy the files', state: TodoState.Todo, note: null },
+        {
+          text: 'Find how uploads are stored',
+          state: TodoState.Doing,
+          note: 'Finding how uploads are stored',
+          completedAt: null,
+        },
+        { text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null },
       ],
       updatedAt: first.createdAt,
     })
@@ -95,9 +100,9 @@ describe('deriveTodoList', () => {
     ])
     expect(deriveTodoList([first, call('Bash', { command: 'ls' }), second])).toEqual({
       items: [
-        { text: 'Find how uploads are stored', state: TodoState.Done, note: null },
-        { text: 'Copy the files', state: TodoState.Doing, note: 'Copying the files' },
-        { text: 'Delete local copies', state: TodoState.Todo, note: null },
+        { text: 'Find how uploads are stored', state: TodoState.Done, note: null, completedAt: second.createdAt },
+        { text: 'Copy the files', state: TodoState.Doing, note: 'Copying the files', completedAt: null },
+        { text: 'Delete local copies', state: TodoState.Todo, note: null, completedAt: null },
       ],
       updatedAt: second.createdAt,
     })
@@ -112,8 +117,8 @@ describe('deriveTodoList', () => {
         ]),
       ])?.items,
     ).toEqual([
-      { text: 'Copy', state: TodoState.Doing, note: null },
-      { text: 'Check', state: TodoState.Doing, note: null },
+      { text: 'Copy', state: TodoState.Doing, note: null, completedAt: null },
+      { text: 'Check', state: TodoState.Doing, note: null, completedAt: null },
     ])
   })
 
@@ -137,9 +142,9 @@ describe('deriveTodoList', () => {
     ]
     expect(deriveTodoList(calls)).toEqual({
       items: [
-        { text: 'Find how uploads are stored', state: TodoState.Done, note: null },
-        { text: 'Copy the files', state: TodoState.Doing, note: 'Copying the files' },
-        { text: 'Delete the local copies', state: TodoState.Todo, note: null },
+        { text: 'Find how uploads are stored', state: TodoState.Done, note: null, completedAt: calls[4]?.createdAt },
+        { text: 'Copy the files', state: TodoState.Doing, note: 'Copying the files', completedAt: null },
+        { text: 'Delete the local copies', state: TodoState.Todo, note: null, completedAt: null },
       ],
       updatedAt: calls.at(-1)?.createdAt,
     })
@@ -152,7 +157,9 @@ describe('deriveTodoList', () => {
       taskUpdate({ taskId: '1', status: 'deleted' }),
       taskUpdate({ taskId: '9', status: 'completed' }),
     ]
-    expect(deriveTodoList(calls)?.items).toEqual([{ text: 'Copy the files', state: TodoState.Todo, note: null }])
+    expect(deriveTodoList(calls)?.items).toEqual([
+      { text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null },
+    ])
   })
 
   it('replaces an item created again with the same id, and keeps one whose result gives no id', () => {
@@ -163,8 +170,8 @@ describe('deriveTodoList', () => {
       taskUpdate({ taskId: '1', status: 'completed' }),
     ]
     expect(deriveTodoList(calls)?.items).toEqual([
-      { text: 'Find the stored uploads', state: TodoState.Done, note: null },
-      { text: 'Copy the files', state: TodoState.Todo, note: null },
+      { text: 'Find the stored uploads', state: TodoState.Done, note: null, completedAt: calls[3]?.createdAt },
+      { text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null },
     ])
   })
 
@@ -179,9 +186,153 @@ describe('deriveTodoList', () => {
       call('TodoWrite', { todos: [] }, { parent: 'toolu_agent' }),
     ]
     const list = deriveTodoList(calls)
-    expect(list?.items).toEqual([{ text: 'Copy the files', state: TodoState.Todo, note: null }])
+    expect(list?.items).toEqual([{ text: 'Copy the files', state: TodoState.Todo, note: null, completedAt: null }])
     expect(list?.updatedAt).toBe(kept.createdAt)
     expect(deriveTodoList(calls.slice(1))).toBeNull()
+  })
+})
+
+describe('when an item was finished', () => {
+  /** Each item's text and when it was finished. */
+  const finished = (calls: readonly ToolCallEvent[]) =>
+    deriveTodoList(calls)?.items.map(({ text, completedAt }) => [text, completedAt])
+
+  it('is the time of the TaskUpdate that completed it, kept through later updates, and lost when it reopens', () => {
+    const created = [taskCreate('1', 'Find the uploads'), taskCreate('2', 'Copy the files')]
+    const completed = taskUpdate({ taskId: '1', status: 'completed' })
+    const again = taskUpdate({ taskId: '1', status: 'completed' })
+    const renamed = taskUpdate({ taskId: '1', subject: 'Find the stored uploads', activeForm: 'Finding' })
+    expect(finished([...created, completed, again, renamed])).toEqual([
+      ['Find the stored uploads', completed.createdAt],
+      ['Copy the files', null],
+    ])
+
+    const reopened = taskUpdate({ taskId: '1', status: 'in_progress' })
+    expect(finished([...created, completed, reopened])).toEqual([
+      ['Find the uploads', null],
+      ['Copy the files', null],
+    ])
+    const pending = taskUpdate({ taskId: '1', status: 'pending' })
+    expect(finished([...created, completed, pending])?.[0]).toEqual(['Find the uploads', null])
+
+    // Finished again, it's the new time.
+    const recompleted = taskUpdate({ taskId: '1', status: 'completed' })
+    expect(finished([...created, completed, reopened, recompleted])?.[0]).toEqual([
+      'Find the uploads',
+      recompleted.createdAt,
+    ])
+  })
+
+  it('gives each item its own TaskUpdate time, and none to an item created again with the same id', () => {
+    const calls = [
+      taskCreate('1', 'Find the uploads'),
+      taskCreate('2', 'Copy the files'),
+      taskUpdate({ taskId: '2', status: 'completed' }),
+      taskUpdate({ taskId: '1', status: 'completed' }),
+    ]
+    expect(finished(calls)).toEqual([
+      ['Find the uploads', calls[3]?.createdAt],
+      ['Copy the files', calls[2]?.createdAt],
+    ])
+    expect(finished([...calls, taskCreate('2', 'Copy the files')])).toEqual([
+      ['Find the uploads', calls[3]?.createdAt],
+      ['Copy the files', null],
+    ])
+  })
+
+  it('is the time of the first TodoWrite that marked it done, kept by the writes after it', () => {
+    const first = todoWrite([
+      { content: 'Reproduce the flake', status: 'completed' },
+      { content: 'Fix the race', status: 'in_progress' },
+      { content: 'Run the test 200 times', status: 'pending' },
+    ])
+    const second = todoWrite([
+      { content: 'Reproduce the flake', status: 'completed' },
+      { content: 'Fix the race', status: 'completed' },
+      { content: 'Run the test 200 times', status: 'in_progress' },
+    ])
+    const third = todoWrite([
+      { content: 'Reproduce the flake', status: 'completed' },
+      { content: 'Fix the race', status: 'completed' },
+      { content: 'Run the test 200 times', status: 'completed' },
+    ])
+    expect(finished([first, second, third])).toEqual([
+      ['Reproduce the flake', first.createdAt],
+      ['Fix the race', second.createdAt],
+      ['Run the test 200 times', third.createdAt],
+    ])
+  })
+
+  it('gives every item a TodoWrite completes at once the same time', () => {
+    const start = todoWrite([
+      { content: 'Reproduce the flake', status: 'in_progress' },
+      { content: 'Fix the race', status: 'pending' },
+      { content: 'Run the test 200 times', status: 'pending' },
+    ])
+    const all = todoWrite([
+      { content: 'Reproduce the flake', status: 'completed' },
+      { content: 'Fix the race', status: 'completed' },
+      { content: 'Run the test 200 times', status: 'completed' },
+    ])
+    expect(finished([start, all])).toEqual([
+      ['Reproduce the flake', all.createdAt],
+      ['Fix the race', all.createdAt],
+      ['Run the test 200 times', all.createdAt],
+    ])
+    // A single write that starts the list finished does the same.
+    expect(new Set(finished([all])?.map(([, time]) => time))).toEqual(new Set([all.createdAt]))
+  })
+
+  it('loses its time when a TodoWrite reopens it, and takes the new one when it is done again', () => {
+    const done = todoWrite([{ content: 'Fix the race', status: 'completed' }])
+    const reopened = todoWrite([{ content: 'Fix the race', status: 'in_progress' }])
+    const redone = todoWrite([{ content: 'Fix the race', status: 'completed' }])
+    expect(finished([done, reopened])).toEqual([['Fix the race', null]])
+    expect(finished([done, reopened, redone])).toEqual([['Fix the race', redone.createdAt]])
+    // Dropped from the list and written back done, it's finished anew.
+    const dropped = todoWrite([])
+    expect(finished([done, dropped, redone])).toEqual([['Fix the race', redone.createdAt]])
+  })
+
+  it('matches TodoWrite items by their text, one to one, so repeated items keep their own times', () => {
+    const one = todoWrite([
+      { content: 'Run the tests', status: 'completed' },
+      { content: 'Fix the race', status: 'pending' },
+      { content: 'Run the tests', status: 'pending' },
+    ])
+    const two = todoWrite([
+      { content: 'Run the tests', status: 'completed' },
+      { content: 'Fix the race', status: 'completed' },
+      { content: 'Run the tests', status: 'completed' },
+    ])
+    const renamed = todoWrite([
+      { content: 'Run the unit tests', status: 'completed' },
+      { content: 'Fix the race', status: 'completed' },
+      { content: 'Run the tests', status: 'completed' },
+    ])
+    expect(finished([one, two])).toEqual([
+      ['Run the tests', one.createdAt],
+      ['Fix the race', two.createdAt],
+      ['Run the tests', two.createdAt],
+    ])
+    // A renamed item is a new one, finished by the write that renamed it.
+    expect(finished([one, two, renamed])).toEqual([
+      ['Run the unit tests', renamed.createdAt],
+      ['Fix the race', two.createdAt],
+      ['Run the tests', one.createdAt],
+    ])
+  })
+
+  it("keeps its time through calls that don't change the list", () => {
+    const done = todoWrite([{ content: 'Fix the race', status: 'completed' }])
+    const calls = [
+      done,
+      call('TodoWrite', { todos: 'Fix' }),
+      call('TodoWrite', { todos: [] }, { state: ToolCallState.Error }),
+      call('TodoWrite', { todos: [] }, { parent: 'toolu_agent' }),
+      call('Bash', { command: 'ls' }),
+    ]
+    expect(finished(calls)).toEqual([['Fix the race', done.createdAt]])
   })
 })
 
@@ -219,7 +370,7 @@ describe('todoListFor', () => {
     finish('c', 'Updated task #1 status')
 
     expect(todoListFor(db, task.id)).toEqual({
-      items: [{ text: 'Copy the files', state: TodoState.Done, note: null }],
+      items: [{ text: 'Copy the files', state: TodoState.Done, note: null, completedAt: 5_200 }],
       updatedAt: 5_200,
     })
   })
@@ -341,6 +492,36 @@ describe('refreshTodos', () => {
     expect(refreshed(db, task.id)).toEqual({ done: 250, total: 400, doing: ['Migrate table 251'] })
     // One refresh per todo call: it must stay quick however long the list grows.
     expect(performance.now() - started).toBeLessThan(500)
+  })
+})
+
+describe('a finished time across a relaunch', () => {
+  const dirs: string[] = []
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('is worked out from the stored tool log, so a relaunch shows the same times', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'glade-todos-'))
+    dirs.push(dir)
+    const first = openAppDatabase(dir).db
+    const task = sampleTask(first, sampleWorkspace(first).id)
+    logCreate(first, task.id, '1', 'Find the uploads')
+    logCreate(first, task.id, '2', 'Copy the files')
+    logUpdate(first, task.id, { taskId: '1', status: 'completed' })
+    const findDone = at
+    logUpdate(first, task.id, { taskId: '2', status: 'completed' })
+    logUpdate(first, task.id, { taskId: '2', status: 'in_progress' })
+    const before = todoListFor(first, task.id)
+    expect(before?.items.map(({ completedAt }) => completedAt)).toEqual([findDone, null])
+    first.close()
+
+    const relaunched = openAppDatabase(dir).db
+    expect(todoListFor(relaunched, task.id)).toEqual(before)
+    logUpdate(relaunched, task.id, { taskId: '2', status: 'completed' })
+    expect(todoListFor(relaunched, task.id)?.items.map(({ completedAt }) => completedAt)).toEqual([findDone, at])
+    relaunched.close()
   })
 })
 

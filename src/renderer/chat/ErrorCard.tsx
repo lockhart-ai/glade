@@ -1,7 +1,7 @@
 import { faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
 import { useState } from 'react'
 import type { Task } from '../../shared/domain'
-import { MODEL_OPTIONS } from '../../shared/models'
+import { findModel } from '../../shared/models'
 import { errorOpening, NOTHING_LOST, retriesSentence } from '../../shared/taskError'
 import {
   Button,
@@ -38,6 +38,7 @@ export function retryFailureMessage(error: unknown): string {
 export function ErrorCard({ task }: ErrorCardProps): React.JSX.Element {
   const retryTask = useGladeStore((state) => state.retryTask)
   const toast = useToast()
+  const offered = useGladeStore((state) => state.models)
   const [detailsShown, setDetailsShown] = useState(false)
   // The Retry with another model button, while its menu is open.
   const [modelAnchor, setModelAnchor] = useState<HTMLElement | null>(null)
@@ -50,10 +51,11 @@ export function ErrorCard({ task }: ErrorCardProps): React.JSX.Element {
     })
   }
 
-  const models: MenuEntry[] = MODEL_OPTIONS.map((option) => ({
+  const current = findModel(offered, task.model)?.id
+  const models: MenuEntry[] = offered.map((option) => ({
     kind: MenuEntryKind.Item,
     label: option.name,
-    checked: option.id === task.model,
+    checked: option.id === current,
     onSelect: () => {
       retry(option.id)
     },
