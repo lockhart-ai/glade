@@ -23,6 +23,9 @@ let task: Task
 let backend: FakeAgentBackend
 let runner: AgentRunner
 
+// Some tests run real git commands: slow while the whole suite runs at once.
+vi.setConfig({ testTimeout: 30_000 })
+
 /** A tracker that only records what it's told. */
 interface RecordingTracker extends ChangeTracker {
   readonly started: [string, BashStart][]

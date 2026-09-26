@@ -2,13 +2,16 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { Effort, PermissionMode } from '../../shared/domain'
 import { PromptVerdict, type AgentSessionOptions, type BashCallStarting } from './backend'
 import { REJECTED_TOOL_OUTPUT, ScriptedSession } from './scripted-session'
 import { init, result, shell, toolResult, toolUse, waitForInterrupt, type ScriptTurn } from './scripts'
 
 let dir: string
+
+// Each test runs real shell commands: slow while the whole suite runs at once.
+vi.setConfig({ testTimeout: 30_000 })
 
 beforeEach(() => {
   dir = realpathSync(mkdtempSync(join(tmpdir(), 'glade-scripted-shell-')))

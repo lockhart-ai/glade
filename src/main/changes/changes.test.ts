@@ -21,6 +21,9 @@ let task: Task
 let events: GladeEvent[]
 let context: ChangesContext
 
+// Each test runs many real git commands: slow while the whole suite runs at once.
+vi.setConfig({ testTimeout: 30_000 })
+
 beforeEach(() => {
   database = openTestDatabase()
   repos = openTestRepos()

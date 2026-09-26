@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommitFileStatus } from '../../shared/domain'
 import {
   createGit,
@@ -15,6 +15,9 @@ import { openTestRepos, TEST_GIT_RUN, type TestRepos } from './test-repos'
 
 let repos: TestRepos
 let git: Git
+
+// Each test runs many real git commands: slow while the whole suite runs at once.
+vi.setConfig({ testTimeout: 30_000 })
 
 beforeEach(() => {
   repos = openTestRepos()

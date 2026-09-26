@@ -2,7 +2,7 @@
 // (the `PreToolUse` hook), its command really run, then finished (its result), as a task's agent would run it.
 import { join } from 'node:path'
 import type { Database } from 'better-sqlite3'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import type { Task, TaskCommit } from '../../shared/domain'
 import { CommitSource, findTaskCommit, listTaskCommits } from '../db/repositories/task-commits'
@@ -23,6 +23,9 @@ let events: GladeEvent[]
 let log: MemoryLog
 let tracker: ChangeTracker
 let calls: number
+
+// Each test runs many real git commands: slow while the whole suite runs at once.
+vi.setConfig({ testTimeout: 30_000 })
 
 beforeEach(() => {
   database = openTestDatabase()

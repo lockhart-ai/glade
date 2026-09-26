@@ -302,7 +302,8 @@ describe('the changes commands', () => {
     } finally {
       repos.close()
     }
-  })
+    // It runs real git commands: slow while the whole suite runs at once.
+  }, 30_000)
 })
 
 describe('the files commands', () => {
