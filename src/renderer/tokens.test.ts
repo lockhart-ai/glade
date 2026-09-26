@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import tokensMd from '../../docs/design/tokens.md?raw'
 import tokensCss from './tokens.css?raw'
 import { contrastRatio, relativeLuminance } from './contrast'
-import { colors, type ColorToken } from './tokens'
+import { colors, scrollbarTokens, type ColorToken } from './tokens'
 
 /** Every `--name: value;` declaration in tokens.css. */
 function cssDeclarations(): Map<string, string> {
@@ -125,6 +125,43 @@ describe('tokens.css', () => {
     const sources = [...tokensCss.matchAll(/url\(([^)]+)\)/g)].map(([, url]) => url)
 
     expect(sources).toEqual(["'./assets/fonts/Geist-Variable.woff2'", "'./assets/fonts/GeistMono-Variable.woff2'"])
+  })
+})
+
+describe('scroll bar tokens', () => {
+  it('declares the scroll bar tokens from tokens.md', () => {
+    // Rows of the scroll bar table, e.g. | `scrollbar-size` | 10px | ... | or | `scrollbar-thumb` | `strong` | ... |
+    const rows = [...tokensMd.matchAll(/^\| `(scrollbar-[\w-]+)` \| `?([^`|]+?)`? \|/gm)].map(
+      ([, name = '', value = '']) => [`--${name}`, value.endsWith('px') ? value : `var(--color-${value})`],
+    )
+    expect(rows).toEqual([
+      ['--scrollbar-size', '10px'],
+      ['--scrollbar-inset', '2px'],
+      ['--scrollbar-thumb-min', '32px'],
+      ['--scrollbar-thumb', 'var(--color-strong)'],
+      ['--scrollbar-thumb-hover', 'var(--color-slate)'],
+      ['--scrollbar-thumb-active', 'var(--color-faint)'],
+    ])
+    for (const [name = '', value] of rows) expect(cssDeclarations().get(name), name).toBe(value)
+  })
+
+  it('gives the terminal the same thumb colours as tokens.css', () => {
+    expect(cssDeclarations().get('--scrollbar-thumb')).toBe(`var(${scrollbarTokens.thumb})`)
+    expect(cssDeclarations().get('--scrollbar-thumb-hover')).toBe(`var(${scrollbarTokens.thumbHover})`)
+    expect(cssDeclarations().get('--scrollbar-thumb-active')).toBe(`var(${scrollbarTokens.thumbActive})`)
+  })
+
+  it('lightens the thumb under the pointer, and again while it is dragged', () => {
+    const { thumb, thumbHover, thumbActive } = scrollbarTokens
+    expect(relativeLuminance(colors[thumbHover])).toBeGreaterThan(relativeLuminance(colors[thumb]))
+    expect(relativeLuminance(colors[thumbActive])).toBeGreaterThan(relativeLuminance(colors[thumbHover]))
+  })
+
+  it('keeps the thumb standing off the surfaces that scroll', () => {
+    const surfaces: readonly ColorToken[] = ['--color-bg', '--color-panel', '--color-inner', '--color-menu']
+    for (const surface of surfaces) {
+      expect(contrastRatio(colors[scrollbarTokens.thumb], colors[surface]), surface).toBeGreaterThanOrEqual(1.45)
+    }
   })
 })
 

@@ -58,6 +58,8 @@ force-push.
   screens.
 - **`--press` can't reach menu accelerators** in capture mode (⌘, for Settings, ⌘J or ⌘B for panels). Collapse panels
   with the seed's `collapsed` field, and open Settings by clicks (`scripts/screenshot.mjs` has the path).
+- **`--classic-scrollbars`** captures macOS's always-on scroll bars, as a Mac with a mouse or "Show scroll bars:
+  Always" draws them; e2e specs get the same with `launch({ classicScrollbars: true })`.
 - **Interactive changes need a recording:** `npm run record -- --out <dir> [-g <test title>]` writes a `.webm`, `.mp4`
   and `.gif` per e2e test, over the DevTools protocol.
 - Save every PNG, GIF and MP4 to `out/pr-media/pr-<N>/` in your worktree (gitignored) and list their absolute paths in

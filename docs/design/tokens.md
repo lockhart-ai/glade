@@ -92,6 +92,21 @@ And the insets that keep things on shared lines:
   Toasts `0 12px 32px rgba(0,0,0,.45)`.
 - Touch targets at least 28px in dense areas, 44px for the send button.
 
+## Scroll bars
+
+Every scroll bar is a thin rounded thumb on a transparent track, the same with macOS's overlay scroll bars (a trackpad)
+or its always-on ones (a mouse, or "Show scroll bars: Always"). They're styled once, in `global.css`; the terminal's
+(xterm.js draws its own) takes the same colours and shape.
+
+| Token | Value | Use |
+|---|---|---|
+| `scrollbar-size` | 10px | The room the bar takes, across it |
+| `scrollbar-inset` | 2px | The gap between the thumb and the bar's edges: a 6px thumb, fully rounded |
+| `scrollbar-thumb-min` | 32px | The shortest the thumb gets |
+| `scrollbar-thumb` | `strong` | The thumb |
+| `scrollbar-thumb-hover` | `slate` | The thumb under the pointer |
+| `scrollbar-thumb-active` | `faint` | The thumb while it's dragged |
+
 ## Motion
 
 State changes animate rather than jump: short, calm, easing out. Animate opacity, `transform` (or `translate` and
