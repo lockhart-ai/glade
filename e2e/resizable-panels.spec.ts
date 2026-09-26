@@ -15,7 +15,7 @@ const BOTTOM_BAR = { initial: 300, min: 120 } as const
  * The chat column's minimum width (the header card's and input bar's; the chat itself runs a little inside them), the
  * right panel's, and the task card's minimum height.
  */
-const MIN_CHAT_WIDTH = 380
+const MIN_CHAT_WIDTH = 396
 const MIN_PANEL_WIDTH = 320
 const MIN_TASK_HEIGHT = 460
 
