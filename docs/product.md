@@ -30,7 +30,7 @@ There are no follow-up tasks. One task can refer to another through its folder o
 | Title | Set by the agent from your first message (`set_title`). You can rename it. |
 | Objective | Set once by the agent from your first message (`set_objective`). |
 | Status summary | Rewritten by the agent as work moves (`set_status`). Becomes the outcome when done. |
-| Chat log | Append-only. Your messages and the agent's **final reply per turn** only. |
+| Chat log | Append-only. Your messages and the agent's **final reply per turn** only. The system prompt tells the agent so: its final reply must answer you on its own, findings and all, after any follow-up work. |
 | Tool log | Append-only. Every tool call, plus the agent's working notes ("preamble") between them. |
 
 ## The window
