@@ -22,6 +22,7 @@ import {
   type QuestionsAnswerRequest,
   type SearchQueryRequest,
   type SubagentsStopRequest,
+  type WatchersStopRequest,
   type TaskIdRequest,
   type TasksGetRequest,
   type TasksListDoneRequest,
@@ -163,6 +164,11 @@ const subagentsStopRequest = z.strictObject({
   taskId: z.string(),
   toolUseId: z.string(),
 }) satisfies z.ZodType<SubagentsStopRequest>
+
+const watchersStopRequest = z.strictObject({
+  taskId: z.string(),
+  id: z.string(),
+}) satisfies z.ZodType<WatchersStopRequest>
 
 const queueAddRequest = withContent(
   z.strictObject({ taskId: z.string(), text: z.string(), images: z.array(image).readonly().optional() }),
@@ -321,6 +327,8 @@ export const REQUEST_SCHEMAS = {
   [CommandName.TasksRetry]: tasksRetryRequest,
   [CommandName.TasksCompact]: taskIdRequest,
   [CommandName.SubagentsStop]: subagentsStopRequest,
+  [CommandName.WatchersListLive]: emptyRequest,
+  [CommandName.WatchersStop]: watchersStopRequest,
   [CommandName.TasksHistory]: taskIdRequest,
   [CommandName.QueueAdd]: queueAddRequest,
   [CommandName.QueueEdit]: queueEditRequest,

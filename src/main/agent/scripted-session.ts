@@ -16,6 +16,13 @@
  *   `aborted_streaming`).
  * - A `Wake` step has the agent start a turn of its own later, with no message sent (see `ScriptStepKind.Wake`). It
  *   waits for the turn playing to end, like a message sent meanwhile, and a message sent while it plays is folded in.
+ * - A `Monitor` call, or a `Bash` call with `run_in_background`, starts a background task as the SDK does
+ *   (`docs/sdk-notes.md` §13): a `task_started` (`local_bash`) after the call, and its result's `tool_use_result`
+ *   names the task. A `Wake` step can then have it print an event or end; `stopTask` stops it, with the SDK's
+ *   notification (a stopped task never wakes the agent). A `ScheduleWakeup` or `CronCreate` call schedules a job, and
+ *   `CronDelete` (or `ScheduleWakeup` with `stop`) deletes one; each turn's end tells the session's `Stop` hook the jobs
+ *   it has (`hooks.onTurnEnded`). Each wake, and each job firing, is first put to the prompt hook (`hooks.onPrompt`),
+ *   which can turn a job's fire away.
  * - An `Agent` (or `Task`) call starts its subagent as a task, as the SDK does: a `task_started` after the call, and a
  *   `task_updated` and `task_notification` (completed, or failed for an error) just before its result.
  * - A `Background` step starts a subagent in the background (see `ScriptStepKind.Background`): its `Agent` call returns
@@ -38,6 +45,7 @@ import { contextWindowFor } from '../../shared/contextWindow'
 import { PermissionMode, type PermissionRule, type ToolInput } from '../../shared/domain'
 import { AsyncQueue } from './async-queue'
 import {
+  PromptVerdict,
   ToolPermissionBehavior,
   type AgentSession,
   type AgentSessionOptions,
@@ -54,7 +62,7 @@ import {
   PERMISSIONS_DECIDED_AFTER_RESTART_PROMPT,
   RESUME_PROMPT,
 } from './runner'
-import { NO_ONE_TO_ASK, sdkPermissionMode } from './sdk-backend'
+import { BLOCKED_PROMPT_REASON, NO_ONE_TO_ASK, sdkPermissionMode } from './sdk-backend'
 import {
   DEFAULT_COMPACT_TURN,
   ScriptStepKind,
@@ -189,8 +197,8 @@ interface TurnState {
   messageId: number
   /** Whether a tool result came since the last assistant block, so the next block starts a new message. */
   afterResult: boolean
-  /** Tool calls without a result yet, by script id: their SDK id and parent. */
-  readonly running: Map<string, { readonly sdkId: string; readonly parent: string | null }>
+  /** Tool calls without a result yet, by script id. */
+  readonly running: Map<string, RunningCall>
   /** The last top-level text, for the `result`. */
   lastText: string
   /** Whether `onIdle` has been called for this turn. */
@@ -199,6 +207,78 @@ interface TurnState {
   readonly uuids: string[]
   /** The script turns of messages folded into the turn that it hasn't started playing yet. */
   readonly folded: ScriptTurn[]
+}
+
+/** A tool call waiting on its result. */
+interface RunningCall {
+  readonly sdkId: string
+  readonly parent: string | null
+  readonly name: string
+  readonly input: ToolInput
+}
+
+/** A background task a `Monitor` or `Bash` call started (see `ScriptedSession.startWatch`). */
+interface Watch {
+  /** The SDK's id for its task. */
+  readonly taskId: string
+  /** The SDK id of the call that started it. */
+  readonly toolUseId: string
+  readonly description: string
+  /** Whether it's still running: it hasn't ended or been stopped. */
+  running: boolean
+}
+
+/** A job a `ScheduleWakeup` or `CronCreate` call scheduled, as the SDK lists it (`SessionJob`). */
+interface ScheduledJob {
+  /** The SDK id of the call that scheduled it. */
+  readonly toolUseId: string
+  readonly id: string
+  readonly schedule: string
+  readonly recurring: boolean
+  readonly prompt: string
+  /** Whether it's a `ScheduleWakeup`'s. */
+  readonly wakeup: boolean
+}
+
+/** How a background task ends, as the SDK's `task_notification` says. */
+type WatchStatus = 'completed' | 'failed' | 'stopped'
+
+/** `ScheduleWakeup` clamps its delay to 60–3600 seconds, and fires on a whole minute (`docs/sdk-notes.md` §11). */
+const WAKEUP_MIN_DELAY_S = 60
+const WAKEUP_MAX_DELAY_S = 3600
+const MINUTE_MS = 60_000
+
+/** A `Monitor`'s timeout when the call gives none: Claude Code's default. */
+const DEFAULT_MONITOR_TIMEOUT_MS = 300_000
+
+/** Whether a call starts a background task: a `Monitor`, or a `Bash` command with `run_in_background`. */
+function startsWatch(name: string, input: ToolInput): boolean {
+  return name === 'Monitor' || (name === 'Bash' && input.run_in_background === true)
+}
+
+/** A `<task-notification>` for a monitor's event, as the SDK words a wake's prompt (`docs/sdk-notes.md` §13). */
+export function eventNotice(taskId: string, description: string, event: string): string {
+  return [
+    '<task-notification>',
+    `<task-id>${taskId}</task-id>`,
+    `<summary>Monitor event: "${description}"</summary>`,
+    `<event>${event}</event>`,
+    '</task-notification>',
+  ].join('\n')
+}
+
+/** A `<task-notification>` for a background task's ending, with the monitor's last event, if any. */
+export function endNotice(taskId: string, toolUseId: string, status: string, summary: string, event?: string): string {
+  return [
+    '<task-notification>',
+    `<task-id>${taskId}</task-id>`,
+    `<tool-use-id>${toolUseId}</tool-use-id>`,
+    `<output-file>tasks/${taskId}.output</output-file>`,
+    `<status>${status}</status>`,
+    `<summary>${summary}</summary>`,
+    ...(event === undefined ? [] : [`<event>${event}</event>`]),
+    '</task-notification>',
+  ].join('\n')
 }
 
 /** A new turn's state: see `TurnState`. */
@@ -253,6 +333,12 @@ export class ScriptedSession implements AgentSession {
   private readonly foreground = new Map<string, string>()
   /** The background subagents playing, by their SDK task id: each plays as a turn of its own, to interrupt. */
   private readonly running = new Map<string, TurnState>()
+  /** The background tasks `Monitor` and `Bash` calls started, by the SDK id of the call. */
+  private readonly watches = new Map<string, Watch>()
+  /** The jobs the session has scheduled, in the order it scheduled them. */
+  private readonly jobs: ScheduledJob[] = []
+  /** How many background tasks and jobs the session has started: what numbers their ids. */
+  private scheduled = 0
   /** The script the session plays: picked on its first message. */
   private script: AgentScript | null = null
   private turn: TurnState | null = null
@@ -307,7 +393,10 @@ export class ScriptedSession implements AgentSession {
     return script.turns[Math.min(this.turnsRun - 1, script.turns.length - 1)] ?? []
   }
 
-  /** The script to play, picked on the first message; null, having killed the session, when there's none for it. */
+  /**
+   * The script to play, picked on the first message; null, having killed the session, when there's none for it. A
+   * resumed session starts with the script's restored jobs, as the SDK brings a session's cron jobs back.
+   */
   private chooseScript(firstMessage: string): AgentScript | null {
     if (this.script !== null || this.stopped) return this.script
     const { script } = this.options
@@ -315,6 +404,11 @@ export class ScriptedSession implements AgentSession {
       this.script = typeof script === 'function' ? script(firstMessage) : script
     } catch (error) {
       this.die(error instanceof Error ? error : new Error(String(error)))
+    }
+    if (this.options.session.resumeSessionId !== null) {
+      for (const job of this.script?.restoredJobs ?? []) {
+        this.jobs.push({ ...job, toolUseId: `restored-${job.id}`, wakeup: false })
+      }
     }
     return this.script
   }
@@ -338,6 +432,11 @@ export class ScriptedSession implements AgentSession {
    */
   stopTask(sdkTaskId: string): Promise<void> {
     this.running.get(sdkTaskId)?.interrupt()
+    const watch = [...this.watches.values()].find(({ taskId }) => taskId === sdkTaskId)
+    if (watch?.running === true && !this.stopped) {
+      watch.running = false
+      this.endWatch(watch, 'stopped', watch.description)
+    }
     return Promise.resolve()
   }
 
@@ -413,7 +512,7 @@ export class ScriptedSession implements AgentSession {
         this.toolUse(turn, step.id, step.name, step.input, step.parent ?? null, uuid)
         return
       case ScriptStepKind.ToolResult:
-        this.toolResult(turn, step.id, step.output, step.isError ?? false)
+        this.toolResult(turn, step.id, step.output, step.isError ?? false, step.details)
         return
       case ScriptStepKind.GladeTool: {
         this.toolUse(turn, step.id, gladeToolName(step.tool), step.input, null, uuid)
@@ -422,6 +521,10 @@ export class ScriptedSession implements AgentSession {
         return
       }
       case ScriptStepKind.Result:
+        // The session's `Stop` hook runs as the turn ends, before its `result`.
+        this.options.session.hooks?.onTurnEnded(
+          this.jobs.map(({ id, schedule, recurring, prompt }) => ({ id, schedule, recurring, prompt })),
+        )
         this.costUsd += TURN_COST_USD
         this.result(turn, turn.uuids, {
           subtype: 'success',
@@ -492,29 +595,102 @@ export class ScriptedSession implements AgentSession {
   private wake(turn: TurnState, step: WakeStep): void {
     this.options.onWake?.()
     const toolUseId = step.task === undefined ? undefined : this.sdkToolId(turn, step.task)
+    const jobCall = step.job === undefined ? undefined : this.sdkToolId(turn, step.job)
     const cause = step.cause ?? WakeCause.TaskEnded
     setTimeout(() => {
       this.queue = this.queue.then(() => {
         this.wakes += 1
-        if (!this.stopped) this.announceWake(cause, step.summary ?? '', toolUseId)
+        const prompt = this.stopped ? null : this.announceWake(cause, step, toolUseId, jobCall)
+        // A watch stopped, or a job deleted, meanwhile never wakes the agent.
+        if (prompt === false) {
+          this.options.onIdle?.()
+          return
+        }
+        if (prompt !== null && this.options.session.hooks?.onPrompt(prompt) === PromptVerdict.Block) {
+          this.turnedAway(prompt)
+          this.options.onIdle?.()
+          return
+        }
         return this.play(step.turn, `wake-${String(this.wakes)}`, null, cause === WakeCause.Scheduled)
       })
     }, step.ms ?? 0)
   }
 
-  /** What the SDK streams before a turn the agent starts on its own, for what woke it (`docs/sdk-notes.md` §11). */
-  private announceWake(cause: WakeCause, summary: string, toolUseId: string | undefined): void {
+  /**
+   * What the SDK streams before a turn the agent starts on its own, for what woke it (`docs/sdk-notes.md` §11 and §13).
+   * Answers the prompt the wake puts to the prompt hook; null when it names no task or job of the session's (a wake
+   * as the SDK streams it, without the hook); false when its watch was stopped, or its job deleted, meanwhile.
+   */
+  private announceWake(
+    cause: WakeCause,
+    step: WakeStep,
+    toolUseId: string | undefined,
+    jobCall: string | undefined,
+  ): string | null | false {
+    const watch = toolUseId === undefined ? undefined : this.watches.get(toolUseId)
     switch (cause) {
-      case WakeCause.TaskEnded:
-        this.notify(summary, toolUseId)
-        return
+      case WakeCause.TaskEnded: {
+        if (watch === undefined) {
+          this.notify(step.summary ?? '', toolUseId)
+          return null
+        }
+        if (!watch.running) return false
+        watch.running = false
+        const status = step.outcome ?? 'completed'
+        const summary = step.summary ?? ''
+        this.endWatch(watch, status, summary)
+        return endNotice(watch.taskId, watch.toolUseId, status, summary, step.event)
+      }
       case WakeCause.MonitorEvent:
-        return
-      case WakeCause.Scheduled:
+        if (watch === undefined) return null
+        return watch.running ? eventNotice(watch.taskId, watch.description, step.event ?? '') : false
+      case WakeCause.Scheduled: {
+        const index = this.jobs.findIndex((job) => job.toolUseId === jobCall)
+        const job = this.jobs[index]
+        if (jobCall !== undefined && job === undefined) return false
         // The job's prompt runs as a command of the SDK's own: only its lifecycle shows, never the prompt.
         this.push({ type: 'command_lifecycle', command_uuid: randomUUID(), state: 'started', uuid: randomUUID() })
-        return
+        if (job === undefined) return null
+        if (!job.recurring) this.jobs.splice(index, 1)
+        return job.prompt
+      }
     }
+  }
+
+  /** What the SDK streams for a prompt the prompt hook turned away: no turn, just a note and a bare `result`. */
+  private turnedAway(prompt: string): void {
+    this.init()
+    const text = `UserPromptSubmit operation blocked by hook:\n${BLOCKED_PROMPT_REASON}\n\nOriginal prompt: ${prompt}`
+    this.push({
+      type: 'system',
+      subtype: 'informational',
+      content: text,
+      level: 'warning',
+      prevent_continuation: true,
+      uuid: randomUUID(),
+    })
+    this.push({ type: 'result', subtype: 'success', is_error: false, result: text, uuid: randomUUID() })
+  }
+
+  /** What the SDK streams when a `Monitor`'s or background command's task ends (`docs/sdk-notes.md` §13). */
+  private endWatch(watch: Watch, status: WatchStatus, summary: string): void {
+    this.push({
+      type: 'system',
+      subtype: 'task_updated',
+      task_id: watch.taskId,
+      patch: { status: status === 'stopped' ? 'killed' : status, end_time: Date.now() },
+      uuid: randomUUID(),
+    })
+    this.push({
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: watch.taskId,
+      tool_use_id: watch.toolUseId,
+      status,
+      output_file: `tasks/${watch.taskId}.output`,
+      summary,
+      uuid: randomUUID(),
+    })
   }
 
   /** What the SDK streams when a background task finishes, before the turn it starts (`docs/sdk-notes.md`). */
@@ -887,9 +1063,103 @@ export class ScriptedSession implements AgentSession {
   ): void {
     const sdkId = this.sdkToolId(turn, id)
     const sdkParent = parent === null ? null : this.sdkToolId(turn, parent)
-    turn.running.set(id, { sdkId, parent: sdkParent })
+    turn.running.set(id, { sdkId, parent: sdkParent, name, input })
     this.assistant(turn, { type: 'tool_use', id: sdkId, name, input }, sdkParent, uuid)
     if (SUBAGENT_TOOLS.has(name)) this.startForeground(sdkId, input)
+    if (startsWatch(name, input)) this.startWatch(sdkId, input)
+  }
+
+  /**
+   * A `Monitor` call, or a `Bash` call with `run_in_background`, starts its command as a task in the background, as the
+   * SDK does (`docs/sdk-notes.md` §13): its `task_started`, backgrounded, of type `local_bash`.
+   */
+  private startWatch(toolUseId: string, input: ToolInput): void {
+    this.scheduled += 1
+    const taskId = `b${this.idPrefix}w${String(this.scheduled)}`
+    const description = typeof input.description === 'string' ? input.description : ''
+    this.watches.set(toolUseId, { taskId, toolUseId, description, running: true })
+    this.push({
+      type: 'system',
+      subtype: 'task_started',
+      task_id: taskId,
+      tool_use_id: toolUseId,
+      description,
+      is_backgrounded: true,
+      task_type: 'local_bash',
+      uuid: randomUUID(),
+    })
+  }
+
+  /**
+   * What the SDK says of a call's result beside its text (`tool_use_result`), for the tools that start or schedule
+   * something (`docs/sdk-notes.md` §13), which also keeps the job a `ScheduleWakeup` or `CronCreate` schedules, and
+   * drops the one a `CronDelete` deletes. Undefined for any other tool, and a failed call.
+   */
+  private toolDetails(
+    call: RunningCall,
+    isError: boolean,
+    given: Readonly<Record<string, unknown>> | undefined,
+  ): Record<string, unknown> | undefined {
+    if (isError) return undefined
+    const { input, sdkId } = call
+    const watch = this.watches.get(sdkId)
+    switch (call.name) {
+      case 'Monitor': {
+        const timeoutMs = typeof input.timeout_ms === 'number' ? input.timeout_ms : DEFAULT_MONITOR_TIMEOUT_MS
+        return { taskId: watch?.taskId ?? '', timeoutMs, persistent: false }
+      }
+      case 'Bash':
+        return watch === undefined
+          ? undefined
+          : { stdout: '', stderr: '', interrupted: false, noOutputExpected: false, backgroundTaskId: watch.taskId }
+      case 'ScheduleWakeup':
+        return this.scheduleWakeup(sdkId, input)
+      case 'CronCreate':
+        return this.createCron(sdkId, input, typeof given?.id === 'string' ? given.id : undefined)
+      case 'CronDelete': {
+        const id = typeof input.id === 'string' ? input.id : ''
+        const index = this.jobs.findIndex((job) => job.id === id)
+        if (index >= 0) this.jobs.splice(index, 1)
+        return { id }
+      }
+      default:
+        return undefined
+    }
+  }
+
+  /** A `ScheduleWakeup`: a one-off job at the whole minute after its (clamped) delay, or, with `stop`, none left. */
+  private scheduleWakeup(toolUseId: string, input: ToolInput): Record<string, unknown> {
+    if (input.stop === true) {
+      const kept = this.jobs.filter((job) => !job.wakeup)
+      const cancelledWakeups = this.jobs.length - kept.length
+      this.jobs.splice(0, this.jobs.length, ...kept)
+      return { scheduledFor: 0, clampedDelaySeconds: 0, wasClamped: false, stopped: true, cancelledWakeups }
+    }
+    const asked = typeof input.delaySeconds === 'number' ? input.delaySeconds : WAKEUP_MIN_DELAY_S
+    const delay = Math.min(Math.max(asked, WAKEUP_MIN_DELAY_S), WAKEUP_MAX_DELAY_S)
+    const scheduledFor = Math.ceil((Date.now() + delay * 1000) / MINUTE_MS) * MINUTE_MS
+    const at = new Date(scheduledFor)
+    this.scheduled += 1
+    this.jobs.push({
+      toolUseId,
+      id: `${this.idPrefix.slice(0, 6)}w${String(this.scheduled)}`,
+      schedule: `${String(at.getMinutes())} ${String(at.getHours())} * * *`,
+      recurring: false,
+      prompt: typeof input.prompt === 'string' ? input.prompt : '',
+      wakeup: true,
+    })
+    return { scheduledFor, clampedDelaySeconds: delay, wasClamped: delay !== asked }
+  }
+
+  /** A `CronCreate`: a job on its schedule, recurring unless it says not, with the id the script gives it, if any. */
+  private createCron(toolUseId: string, input: ToolInput, given: string | undefined): Record<string, unknown> {
+    this.scheduled += 1
+    const id = given ?? `${this.idPrefix.slice(0, 6)}c${String(this.scheduled)}`
+    const schedule = typeof input.cron === 'string' ? input.cron : ''
+    const recurring = input.recurring !== false
+    const prompt = typeof input.prompt === 'string' ? input.prompt : ''
+    this.jobs.push({ toolUseId, id, schedule, recurring, prompt, wakeup: false })
+    return { id, humanSchedule: schedule, recurring, durable: false }
   }
 
   /**
@@ -915,7 +1185,13 @@ export class ScriptedSession implements AgentSession {
     })
   }
 
-  private toolResult(turn: TurnState, id: string, output: string, isError: boolean): void {
+  private toolResult(
+    turn: TurnState,
+    id: string,
+    output: string,
+    isError: boolean,
+    details?: Readonly<Record<string, unknown>>,
+  ): void {
     const call = turn.running.get(id)
     turn.running.delete(id)
     const taskId = call === undefined ? undefined : this.foreground.get(call.sdkId)
@@ -941,11 +1217,19 @@ export class ScriptedSession implements AgentSession {
         uuid: randomUUID(),
       })
     }
-    this.pushToolResult(call?.sdkId ?? this.sdkToolId(turn, id), call?.parent ?? null, output, isError)
+    const made = call === undefined ? undefined : this.toolDetails(call, isError, details)
+    const merged = made === undefined && details === undefined ? undefined : { ...made, ...details }
+    this.pushToolResult(call?.sdkId ?? this.sdkToolId(turn, id), call?.parent ?? null, output, isError, merged)
     turn.afterResult = true
   }
 
-  private pushToolResult(sdkId: string, parent: string | null, output: string, isError: boolean): void {
+  private pushToolResult(
+    sdkId: string,
+    parent: string | null,
+    output: string,
+    isError: boolean,
+    details?: Readonly<Record<string, unknown>>,
+  ): void {
     this.push({
       type: 'user',
       parent_tool_use_id: parent,
@@ -953,7 +1237,7 @@ export class ScriptedSession implements AgentSession {
         role: 'user',
         content: [{ type: 'tool_result', tool_use_id: sdkId, content: output, is_error: isError }],
       },
-      tool_use_result: { stdout: isError ? '' : output, stderr: isError ? output : '', interrupted: false },
+      tool_use_result: details ?? { stdout: isError ? '' : output, stderr: isError ? output : '', interrupted: false },
     })
   }
 

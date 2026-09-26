@@ -9,6 +9,8 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  WatcherKind,
+  WatcherState,
   type Artifact,
   type DividerEvent,
   type NarrationEvent,
@@ -17,12 +19,20 @@ import {
   type ToolCallEvent,
   type ToolEvent,
   type UiStateEntry,
+  type Watcher,
 } from '../../shared/domain'
 import { requestClose } from '../commands/closeRequest'
 import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
-import { fakeBridge, sampleTask, sampleWorkspace, type FakeBridge, type FakeHandlers } from '../store/test-bridge'
+import {
+  fakeBridge,
+  sampleTask,
+  sampleWatcher,
+  sampleWorkspace,
+  type FakeBridge,
+  type FakeHandlers,
+} from '../store/test-bridge'
 import { FOCUS_HIGHLIGHT_MS, HIGHLIGHT_CLASS } from '../tool-log/ToolLog'
 import { MIN_CHAT_WIDTH, MIN_PANEL_WIDTH, RESIZE_STEP } from '../panels'
 import { TaskPanel } from './TaskPanel'
@@ -71,6 +81,7 @@ interface Setup {
   readonly openFiles?: OpenFiles[]
   readonly todos?: Readonly<Record<string, TodoList>>
   readonly artifacts?: readonly Artifact[]
+  readonly watchers?: Watcher[]
   /** How some commands answer instead of the fake main's own handlers. */
   readonly handlers?: Partial<FakeHandlers>
 }
@@ -82,6 +93,7 @@ async function renderPanel({
   openFiles = [],
   todos,
   artifacts = [],
+  watchers = [],
   handlers = {},
 }: Setup = {}): Promise<FakeBridge & { store: GladeStore }> {
   const fake = fakeBridge(
@@ -96,6 +108,7 @@ async function renderPanel({
       toolEvents,
       openFiles,
       artifacts,
+      watchers,
       ...(todos === undefined ? {} : { todos }),
     },
     handlers,
@@ -145,6 +158,7 @@ describe('TaskPanel', () => {
       'Todos',
       'Artifacts',
       'Subagents',
+      'Watchers',
     ])
     expect(tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
   })
@@ -605,6 +619,55 @@ describe('TaskPanel', () => {
       expect(api).toHaveTextContent('Bashgh pr list')
       expect(api).toHaveTextContent('1 tool call')
       expect(screen.getByRole('group', { name: 'Check links' })).toHaveTextContent('Fixed both links.')
+    })
+  })
+
+  describe('the Watchers tab', () => {
+    const WATCHING = { key: UiStateKey.RightPanelTab, value: 'watchers' }
+
+    it('counts nothing and says so when the agent has left nothing running or scheduled', async () => {
+      await renderPanel({ uiState: [WATCHING] })
+      expect(tab(/^Watchers/)).toHaveTextContent(/^Watchers$/)
+      expect(screen.getByRole('tabpanel')).toHaveTextContent('Nothing running or scheduled.')
+    })
+
+    it('shows nothing without a task', async () => {
+      await renderPanel({ selected: false, uiState: [WATCHING] })
+      expect(screen.getByRole('tabpanel')).toBeEmptyDOMElement()
+    })
+
+    it('lists the task’s watchers, counts the live ones on the tab, and follows them as they change', async () => {
+      const ended = sampleWatcher('docs', 't1', {
+        kind: WatcherKind.Command,
+        label: 'Docs',
+        state: WatcherState.Failed,
+      })
+      const other = sampleWatcher('other', 't2', { label: 'Another task’s' })
+      const { emit, store } = await renderPanel({
+        uiState: [WATCHING],
+        watchers: [sampleWatcher('ci', 't1'), ended, other],
+      })
+      expect(tab(/^Watchers/)).toHaveTextContent('Watchers 1')
+      expect(screen.getByRole('group', { name: 'Watchers by state' })).toHaveTextContent('1 running1 ended')
+      expect(screen.queryByRole('group', { name: 'Another task’s' })).not.toBeInTheDocument()
+
+      act(() => {
+        emit({
+          type: EventType.WatchersChanged,
+          taskId: 't1',
+          watchers: [
+            sampleWatcher('ci', 't1', { wakes: 1, lastOutput: 'lint pass' }),
+            ended,
+            sampleWatcher('queue', 't1', { kind: WatcherKind.Cron, label: 'Queue', state: WatcherState.Scheduled }),
+          ],
+        })
+      })
+      expect(tab(/^Watchers/)).toHaveTextContent('Watchers 2')
+      expect(screen.getByRole('group', { name: 'CI checks on PR #42' })).toHaveTextContent('lastlint pass')
+
+      await act(() => store.getState().selectTask('t2'))
+      expect(tab(/^Watchers/)).toHaveTextContent('Watchers 1')
+      expect(screen.getByRole('group', { name: 'Another task’s' })).toBeInTheDocument()
     })
   })
 

@@ -8,6 +8,8 @@ import {
   TaskErrorSource,
   TaskState,
   UiStateKey,
+  WatcherKind,
+  WatcherState,
   type Task,
   type UiStateEntry,
 } from '../../shared/domain'
@@ -18,6 +20,7 @@ import {
   fakeBridge,
   refuse,
   sampleTask,
+  sampleWatcher,
   sampleWorkspace,
   type FakeBridge,
   type FakeHandlers,
@@ -182,6 +185,36 @@ describe('TaskList', () => {
 
     expect(within(row('Fix flaky login test')).getByRole('img', { name: 'Unread' })).toBeInTheDocument()
     expect(within(row('Add rate limiting')).queryByRole('img', { name: 'Unread' })).toBeNull()
+  })
+
+  it('marks a row with an eye and how many live watchers its agent has, done or not, and follows them', async () => {
+    const watchers = [
+      sampleWatcher('ci', 'a1'),
+      sampleWatcher('queue', 'a1', { kind: WatcherKind.Cron, state: WatcherState.Scheduled }),
+      sampleWatcher('ended', 'a1', { state: WatcherState.Finished }),
+      sampleWatcher('only-ended', 'a3', { state: WatcherState.Stopped }),
+      sampleWatcher('backup', 'd1', { kind: WatcherKind.Cron, state: WatcherState.Suspended }),
+    ]
+    const { fake } = await renderList(
+      TASKS,
+      [{ key: UiStateKey.DoneSectionCollapsed, value: 'false' }],
+      {},
+      { watchers },
+    )
+    const mark = (title: string) => within(row(title)).queryByRole('img', { name: /^Watching/ })
+
+    expect(mark('Add rate limiting')).toHaveAccessibleName('Watching 2 things')
+    expect(mark('Add rate limiting')).toHaveTextContent('2')
+    expect(mark('Upgrade Django')).toHaveAccessibleName('Watching 1 thing')
+    expect(mark('Fix flaky login test')).toBeNull()
+    expect(mark('Move image uploads')).toBeNull()
+
+    act(() => {
+      fake.emit({ type: EventType.WatchersChanged, taskId: 'a1', watchers: [sampleWatcher('ci', 'a1')] })
+      fake.emit({ type: EventType.WatchersChanged, taskId: 'd1', watchers: [] })
+    })
+    expect(mark('Add rate limiting')).toHaveAccessibleName('Watching 1 thing')
+    expect(mark('Upgrade Django')).toBeNull()
   })
 
   it('shows each row’s dot for its indicator', async () => {

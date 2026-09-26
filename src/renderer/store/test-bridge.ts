@@ -31,6 +31,9 @@ import {
   QuestionSetState,
   TaskActivity,
   TaskState,
+  LIVE_WATCHER_STATES,
+  WatcherKind,
+  WatcherState,
   type Artifact,
   type TaskHandoff,
   type FileContent,
@@ -45,6 +48,7 @@ import {
   type TodoList,
   type ToolEvent,
   type UiStateEntry,
+  type Watcher,
   type Workspace,
 } from '../../shared/domain'
 import { noOpenFiles, withClosedFile, withOpenedFile } from '../../shared/files'
@@ -91,6 +95,10 @@ export interface FakeMain {
   readonly openedInEditor?: string[]
   /** The subagents `subagents.stop` stopped, by their `Agent` calls' tool_use ids, oldest first. */
   readonly stoppedSubagents?: string[]
+  /** Every task's watchers; `watchers.stop` stops one (as a job is stopped: at once) and records its id in `stoppedWatchers`. */
+  readonly watchers?: Watcher[]
+  /** The watchers `watchers.stop` was asked to stop, by id, in order. */
+  readonly stoppedWatchers?: string[]
   /** Each task's todo list, by task id; none when left out. */
   readonly todos?: Readonly<Record<string, TodoList>>
   /** Every task's artifacts; none when left out. `artifacts.remove` removes one, from the fake's own copy. */
@@ -344,6 +352,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       todos: main.todos?.[id] ?? null,
       artifacts: artifacts.filter((artifact) => artifact.taskId === id),
       handoff: main.handoffs?.[id] ?? null,
+      watchers: (main.watchers ?? []).filter((watcher) => watcher.taskId === id),
     }),
     [CommandName.QueueAdd]: ({ taskId, text, images: added }) => {
       queued += 1
@@ -429,6 +438,20 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     },
     [CommandName.SubagentsStop]: ({ toolUseId }) => {
       main.stoppedSubagents?.push(toolUseId)
+      return null
+    },
+    [CommandName.WatchersListLive]: () => ({
+      watchers: (main.watchers ?? []).filter(({ state }) => LIVE_WATCHER_STATES.includes(state)),
+    }),
+    [CommandName.WatchersStop]: ({ taskId, id }) => {
+      main.stoppedWatchers?.push(id)
+      const watchers = main.watchers ?? []
+      const index = watchers.findIndex((watcher) => watcher.id === id)
+      const watcher = watchers[index]
+      if (watcher !== undefined) {
+        watchers[index] = { ...watcher, state: WatcherState.Stopped, outcome: 'You stopped it.', nextDueAt: null }
+        emit({ type: EventType.WatchersChanged, taskId, watchers: watchers.filter((w) => w.taskId === taskId) })
+      }
       return null
     },
     [CommandName.FilesInfo]: ({ path }) => ({ info: main.fileInfo?.[path] ?? { kind: FileInfoKind.Missing } }),
@@ -658,6 +681,30 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
     pause: null,
     importedAt: null,
     todos: null,
+  }
+}
+
+/** A running `Monitor` on a PR's CI checks, started at 13:02 on 25 September 2026, unless `overrides` say otherwise. */
+export function sampleWatcher(id: string, taskId: string, overrides: Partial<Watcher> = {}): Watcher {
+  return {
+    id,
+    taskId,
+    kind: WatcherKind.Monitor,
+    toolUseId: `toolu-${id}`,
+    label: 'CI checks on PR #42',
+    detail: 'gh pr checks 42 --watch',
+    schedule: null,
+    recurring: true,
+    state: WatcherState.Running,
+    wakes: 0,
+    lastWokeAt: null,
+    lastOutput: null,
+    nextDueAt: null,
+    expiresAt: null,
+    outcome: null,
+    startedAt: new Date(2026, 8, 25, 13, 2).getTime(),
+    endedAt: null,
+    ...overrides,
   }
 }
 

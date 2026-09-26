@@ -47,8 +47,9 @@ export enum AgentEventKind {
    */
   RateLimit = 'rate_limit',
   /**
-   * A subagent started, as a task the session can stop on its own (`system/task_started`): the SDK's id for the task,
-   * and the `Agent` tool call that started it.
+   * A tool call started a task the session can stop on its own (`system/task_started`): a subagent, or a command in
+   * the background (a `Monitor`'s, or `Bash` with `run_in_background`). The SDK's id for the task, and the tool call
+   * that started it.
    */
   SubagentStarted = 'subagent_started',
   /**
@@ -97,6 +98,11 @@ export interface ToolResultEvent {
    * call returned, but the subagent carries on until its `TaskFinished`.
    */
   readonly launched: boolean
+  /**
+   * The SDK's own account of the result (`tool_use_result`), unparsed, or null when it gives none: what it holds depends
+   * on the tool, so whoever reads it parses it for the tool it knows (the watchers do, `../watchers`).
+   */
+  readonly details: unknown
 }
 
 export interface ContextUsedEvent {
@@ -210,6 +216,10 @@ export interface SubagentStartedEvent {
    * returns at once, and it runs until its `TaskFinished`.
    */
   readonly background: boolean
+  /** The SDK's kind of task (`local_agent`, `local_bash`, …); null when it doesn't say. */
+  readonly taskType: string | null
+  /** What the task is called: its call's description. */
+  readonly description: string
 }
 
 export interface SubagentBackgroundedEvent {
@@ -297,6 +307,7 @@ const taskStartedMessage = z.looseObject({
   // Anything but a clear "a subagent, in the background" is taken as a task its call waits on, as before.
   task_type: z.string().optional().catch(undefined),
   is_backgrounded: z.boolean().optional().catch(undefined),
+  description: z.string().catch(''),
 })
 
 const taskUpdatedMessage = z.looseObject({
@@ -500,6 +511,7 @@ function fromUser(message: z.infer<typeof userMessage>, log: AgentLog): AgentEve
   if (message.isReplay === true || typeof content === 'string') return []
   // The SDK's account of the result belongs to the message's one tool result.
   const launched = message.tool_use_result?.status === 'async_launched'
+  const details = message.tool_use_result ?? null
   return content.flatMap((raw): AgentEvent[] => {
     if (raw.type !== 'tool_result') return []
     const result = toolResultBlock.safeParse(raw)
@@ -515,6 +527,7 @@ function fromUser(message: z.infer<typeof userMessage>, log: AgentLog): AgentEve
         output: resultText(output),
         isError: is_error ?? false,
         launched,
+        details,
       },
     ]
   })
@@ -560,7 +573,11 @@ function fromResult(message: z.infer<typeof resultMessage>): AgentEvent[] {
 function fromTaskStarted(message: z.infer<typeof taskStartedMessage>): AgentEvent[] {
   const { task_id: sdkTaskId, tool_use_id: toolUseId } = message
   const background = message.task_type === 'local_agent' && message.is_backgrounded === true
-  return toolUseId === undefined ? [] : [{ kind: AgentEventKind.SubagentStarted, sdkTaskId, toolUseId, background }]
+  const taskType = message.task_type ?? null
+  const { description } = message
+  return toolUseId === undefined
+    ? []
+    : [{ kind: AgentEventKind.SubagentStarted, sdkTaskId, toolUseId, background, taskType, description }]
 }
 
 function fromTaskUpdated(message: z.infer<typeof taskUpdatedMessage>): AgentEvent[] {

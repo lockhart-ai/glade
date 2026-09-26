@@ -1,6 +1,14 @@
 import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { DividerKind, MessageRole, QuestionKind, type Task, type Workspace } from '../../../shared/domain'
+import {
+  DividerKind,
+  MessageRole,
+  QuestionKind,
+  WatcherKind,
+  WatcherState,
+  type Task,
+  type Workspace,
+} from '../../../shared/domain'
 import { GIF, PNG } from '../../../shared/test-images'
 import { addArtifact } from './artifacts'
 import { setExternalId, setHandoff } from './backfills'
@@ -16,6 +24,7 @@ import { deleteTask, getTask, listTasks } from './tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 import { appendDivider, appendNarration, appendToolCall } from './tool-events'
 import { setWorkspaceSelection } from './workspace-selections'
+import { addWatcher } from './watchers'
 import { getWorkspace } from './workspaces'
 
 let test: TestDatabase
@@ -89,6 +98,20 @@ function fillTask(db: Database, task: Task): void {
   setExternalId(db, taskId, `notes/${taskId}`)
   setSessionContext(db, taskId, { instructions: true, handoffAt: 1 })
   setInputDraft(db, { taskId, text: 'And the admin views', images: [PNG] })
+  addWatcher(db, {
+    taskId,
+    kind: WatcherKind.Monitor,
+    toolUseId: `monitor-${taskId}`,
+    sdkId: `b-${taskId}`,
+    label: 'CI checks',
+    detail: 'gh pr checks 42 --watch',
+    cron: null,
+    schedule: null,
+    recurring: true,
+    state: WatcherState.Running,
+    nextDueAt: null,
+    expiresAt: null,
+  })
 }
 
 /** The tables `fillTask` writes to. A new table that belongs to a task fails the test below until it's added here. */
@@ -112,6 +135,8 @@ const FILLED_TABLES = [
   // The permission rules granted it with Allow for this task.
   'task_permission_rules',
   'tool_events',
+  // What its agent left running or scheduled (the Watchers tab).
+  'watchers',
   'workspace_selections',
 ]
 

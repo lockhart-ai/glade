@@ -124,6 +124,11 @@ export interface ToolResultStep {
   readonly id: string
   readonly output: string
   readonly isError?: boolean
+  /**
+   * What the SDK says of the result beside its text (`tool_use_result`), over what the session makes for the call's
+   * tool (see `ScriptedSession`): e.g. a `CronCreate` job's `humanSchedule`.
+   */
+  readonly details?: Readonly<Record<string, unknown>>
 }
 
 export interface GladeToolStep {
@@ -193,16 +198,27 @@ export interface LimitReachedStep {
   readonly resetInMs: number
 }
 
-/** What wakes the agent in a `Wake` step, and so what the SDK streams before the turn and says on its `result`. */
+/**
+ * What wakes the agent in a `Wake` step, and so what the SDK streams before the turn, what its prompt hook is told
+ * (`SessionHooks.onPrompt`, `docs/sdk-notes.md` §13), and what the turn's `result` says.
+ */
 export enum WakeCause {
   /**
    * A background task (a command, or a `Monitor`'s watch) ended: its `task_updated` and `task_notification`, carrying
-   * `summary`, come first, and the turn's `result` says `origin: task-notification`.
+   * `summary`, come first; the prompt hook is told its ending's `<task-notification>`; and the turn's `result` says
+   * `origin: task-notification`. A task that was stopped meanwhile never wakes it.
    */
   TaskEnded = 'task_ended',
-  /** A `Monitor` printed an event: nothing comes first, and the turn's `result` says `origin: task-notification`. */
+  /**
+   * A `Monitor` printed an event: nothing comes first, the prompt hook is told the event's `<task-notification>`, and
+   * the turn's `result` says `origin: task-notification`. A watch that was stopped meanwhile never wakes it.
+   */
   MonitorEvent = 'monitor_event',
-  /** A `ScheduleWakeup` or `CronCreate` job fired: nothing comes first, and the turn's `result` has no `origin`. */
+  /**
+   * A `ScheduleWakeup` or `CronCreate` job fired: its `command_lifecycle` comes first, the prompt hook is told its
+   * prompt, and the turn's `result` has no `origin`. A job the agent deleted never fires; one the hook turns away runs
+   * no turn (the SDK's informational message and a bare `result` instead).
+   */
   Scheduled = 'scheduled',
 }
 
@@ -212,10 +228,19 @@ export interface WakeStep {
   readonly cause?: WakeCause
   /** How long after this step the agent wakes, in milliseconds: no time by default. */
   readonly ms?: number
-  /** The script id of the tool call, in this turn, whose background task finished; none for a timer or wakeup. */
+  /**
+   * The script id of the tool call, in this turn, whose background task (a `Monitor`, or a `Bash` with
+   * `run_in_background`) finished or printed the event; none for a timer or wakeup.
+   */
   readonly task?: string
   /** What the task notification says finished, for a `TaskEnded` wake; the others stream no notification. */
   readonly summary?: string
+  /** How the task ended, for a `TaskEnded` wake: `completed` by default. */
+  readonly outcome?: BackgroundOutcome
+  /** The lines a `Monitor` printed, for a `MonitorEvent` wake (or with its ending, for a `TaskEnded` one). */
+  readonly event?: string
+  /** The script id of the `ScheduleWakeup` or `CronCreate` call, in this turn, whose job fired, for a `Scheduled` wake. */
+  readonly job?: string
   /** What the agent does in the turn it starts. */
   readonly turn: ScriptTurn
 }
@@ -309,6 +334,19 @@ export interface AgentScript {
    * `DEFAULT_COMPACT_TURN` does. It isn't one of `turns`: the message after it runs the next of those.
    */
   readonly compactTurn?: ScriptTurn
+  /**
+   * The cron jobs the SDK brings back from the session's transcript when it's resumed (`docs/sdk-notes.md` §11): a
+   * resumed session starts with these, as scheduled jobs its `Stop` hook lists. None by default.
+   */
+  readonly restoredJobs?: readonly RestoredJob[]
+}
+
+/** A cron job a resumed session has from before (`AgentScript.restoredJobs`), as its `Stop` hook lists it. */
+export interface RestoredJob {
+  readonly id: string
+  readonly schedule: string
+  readonly recurring: boolean
+  readonly prompt: string
 }
 
 // Step builders, so scripts read as a turn would.
@@ -329,11 +367,17 @@ export const toolUse = (id: string, name: string, input: ToolInput, parent?: str
   ...(parent === undefined ? {} : { parent }),
 })
 
-export const toolResult = (id: string, output: string, isError = false): ToolResultStep => ({
+export const toolResult = (
+  id: string,
+  output: string,
+  isError = false,
+  details?: Readonly<Record<string, unknown>>,
+): ToolResultStep => ({
   kind: ScriptStepKind.ToolResult,
   id,
   output,
   isError,
+  ...(details === undefined ? {} : { details }),
 })
 
 /** A tool call and its result, back to back. */
@@ -1791,6 +1835,7 @@ const permissionAtQuit: AgentScript = {
 export const FOLLOW_UPS = {
   watching: "I'm watching the CI checks on PR #42. I'll report each one that fails, and when the run is done.",
   checkFailed: 'A CI check failed: the unit tests. Reading its log.',
+  checkEvent: 'unit-tests\tfail\t2m13s\thttps://ci.example.com/runs/8812',
   failed: 'The unit tests failed on CI: the UTC formatting test in test/date.test.ts builds its date in local time.',
   runDone: 'The CI run on PR #42 is done: lint and build passed, and the unit tests failed on the date test.',
   deploying: "The docs deploy has started. It takes about five minutes, so I'll check back once it's had time.",
@@ -1841,7 +1886,7 @@ const watchesCi: AgentScript = {
           say(FOLLOW_UPS.failed),
           result(),
         ],
-        { cause: WakeCause.MonitorEvent, ms: BEAT_MS * 4 },
+        { cause: WakeCause.MonitorEvent, ms: BEAT_MS * 4, task: 'watch', event: FOLLOW_UPS.checkEvent },
       ),
       wake([...turnStart(), delay(BEAT_MS), say(FOLLOW_UPS.runDone), result()], {
         ms: BEAT_MS * 6,
@@ -1899,7 +1944,7 @@ const checksBackLater: AgentScript = {
           say(FOLLOW_UPS.deployed),
           result(),
         ],
-        { cause: WakeCause.Scheduled, ms: BEAT_MS * 4 },
+        { cause: WakeCause.Scheduled, ms: BEAT_MS * 4, job: 'wakeup' },
       ),
       say(FOLLOW_UPS.deploying),
       result(),
@@ -1922,17 +1967,18 @@ const scheduledCheck: AgentScript = {
         'Check that the staging migration finishes this afternoon.',
         'A check on the staging migration is scheduled for 2:30 pm.',
       ),
-      ...tool(
+      toolUse('cron', 'CronCreate', {
+        cron: '30 14 25 9 *',
+        prompt: 'Check whether the staging migration finished, and report.',
+        recurring: false,
+        durable: false,
+      }),
+      toolResult(
         'cron',
-        'CronCreate',
-        {
-          cron: '30 14 25 9 *',
-          prompt: 'Check whether the staging migration finished, and report.',
-          recurring: false,
-          durable: false,
-        },
         'Scheduled one-shot task c3f81a2e (30 14 25 9 *). Session-only (not written to disk, dies when Claude ' +
           'exits). It will fire once then auto-delete.',
+        false,
+        { id: 'c3f81a2e', humanSchedule: 'Once at 2:30 PM on Sep 25' },
       ),
       wake(
         [
@@ -1946,12 +1992,137 @@ const scheduledCheck: AgentScript = {
           say(FOLLOW_UPS.migrated),
           result(),
         ],
-        { cause: WakeCause.Scheduled, ms: BEAT_MS * 4 },
+        { cause: WakeCause.Scheduled, ms: BEAT_MS * 4, job: 'cron' },
       ),
       say(FOLLOW_UPS.scheduled),
       result(),
     ],
   ],
+}
+
+/** What the `watches-things` script's agent starts, and says, for the Watchers tab's specs and screenshots. */
+export const WATCHES_THINGS = {
+  prompt:
+    'Watch the CI on PR #42, run the integration tests and build the docs in the background, check the docs ' +
+    'rollout once it has had time, and keep an eye on the staging queue.',
+  title: 'Watch the CI run on PR #42',
+  ci: 'CI checks on PR #42',
+  ciCommand: 'gh pr checks 42 --watch --interval 30 | grep --line-buffered -E "pass|fail"',
+  ciFailed: 'unit-tests\tfail\t2m13s\thttps://ci.example.com/runs/8812',
+  ciPassed: 'lint\tpass\t41s\thttps://ci.example.com/runs/8813',
+  tests: 'Integration tests',
+  testsCommand: 'npm run test:integration -- --reporter=dot',
+  docs: 'Build the docs site',
+  docsCommand: 'npm run build:docs',
+  docsFailed: 'Background command "Build the docs site" failed with exit code 1',
+  rollout: 'Check the docs rollout once it has had time to finish',
+  rolloutPrompt: 'Check whether the docs rollout finished, and report.',
+  queue: 'Check the staging queue depth, and report if it is over 1,000.',
+  queueCron: '*/10 * * * *',
+  queueSchedule: 'Every 10 minutes',
+  queueJob: 'c7a1e04b',
+  started:
+    "I'm watching the CI checks on PR #42, the integration tests and the docs build are running in the background, " +
+    "I'll check the docs rollout in 5 minutes, and I'll look at the staging queue every 10 minutes.",
+  checkFailed: 'A CI check failed: the unit tests. The UTC formatting test builds its date in local time.',
+  docsBuildFailed: 'The docs build failed: a broken link in docs/upgrade.md. The integration tests are still running.',
+  queueChecked: 'The staging queue is at 212 jobs, well under 1,000.',
+  lintPassed: 'Lint passed on CI. Still waiting on the other checks.',
+  again: "Still on it: the watchers I left are in the Watchers tab, and I'll report when they wake me.",
+} as const
+
+/** A wake's turn: the agent says one thing and ends it. */
+const wakeReply = (text: string): ScriptStep[] => [...turnStart(), delay(BEAT_MS), say(text), result()]
+
+/**
+ * Leaves one of each watcher running or scheduled (`docs/sdk-notes.md` §13), as an agent asked to watch several things
+ * would: a `Monitor` on the PR's CI checks, two commands in the background, a `ScheduleWakeup` and a recurring
+ * `CronCreate` job. Then they wake it, a turn each: a failed check, the docs build failing, the job firing and a
+ * passing check. The monitor and the tests keep running, and the wakeup and the job stay scheduled, until something
+ * stops them. Resumed, the session has the job back, as the SDK restores it.
+ */
+const watchesThings: AgentScript = {
+  name: 'watches-things',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        WATCHES_THINGS.title,
+        'Watch the CI checks on PR #42 and report what fails; keep an eye on the docs and the staging queue.',
+        'Watching the CI checks on PR #42.',
+      ),
+      ...tool(
+        'ci',
+        'Monitor',
+        { description: WATCHES_THINGS.ci, timeout_ms: 1_800_000, command: WATCHES_THINGS.ciCommand },
+        'Monitor started (task bm7c2x1, expires in 30m unless the source ends first; you get one notice at expiry — ' +
+          're-arm if you still need the watch). You will be notified on each event.',
+      ),
+      ...tool(
+        'tests',
+        'Bash',
+        { command: WATCHES_THINGS.testsCommand, description: WATCHES_THINGS.tests, run_in_background: true },
+        'Command running in background with ID: b4k2p9x. Output is being written to: tasks/b4k2p9x.output.',
+      ),
+      ...tool(
+        'docs',
+        'Bash',
+        { command: WATCHES_THINGS.docsCommand, description: WATCHES_THINGS.docs, run_in_background: true },
+        'Command running in background with ID: b8d3q1z. Output is being written to: tasks/b8d3q1z.output.',
+      ),
+      ...tool(
+        'rollout',
+        'ScheduleWakeup',
+        { delaySeconds: 300, reason: WATCHES_THINGS.rollout, prompt: WATCHES_THINGS.rolloutPrompt, noop: false },
+        'Next wakeup scheduled (in 300s). Nothing more to do this turn — the harness re-invokes you when the wakeup ' +
+          'fires or a task-notification arrives.',
+      ),
+      toolUse('queue', 'CronCreate', { cron: WATCHES_THINGS.queueCron, prompt: WATCHES_THINGS.queue, recurring: true }),
+      toolResult(
+        'queue',
+        `Scheduled recurring job ${WATCHES_THINGS.queueJob} (${WATCHES_THINGS.queueSchedule}). Session-only (not ` +
+          'written to disk, dies when Claude exits). Auto-expires after 7 days. Use CronDelete to cancel sooner.',
+        false,
+        { id: WATCHES_THINGS.queueJob, humanSchedule: WATCHES_THINGS.queueSchedule },
+      ),
+      wake(wakeReply(WATCHES_THINGS.checkFailed), {
+        cause: WakeCause.MonitorEvent,
+        task: 'ci',
+        event: WATCHES_THINGS.ciFailed,
+        ms: BEAT_MS * 6,
+      }),
+      wake(wakeReply(WATCHES_THINGS.docsBuildFailed), {
+        task: 'docs',
+        outcome: 'failed',
+        summary: WATCHES_THINGS.docsFailed,
+        ms: BEAT_MS * 10,
+      }),
+      wake(wakeReply(WATCHES_THINGS.queueChecked), { cause: WakeCause.Scheduled, job: 'queue', ms: BEAT_MS * 14 }),
+      wake(wakeReply(WATCHES_THINGS.lintPassed), {
+        cause: WakeCause.MonitorEvent,
+        task: 'ci',
+        event: WATCHES_THINGS.ciPassed,
+        ms: BEAT_MS * 18,
+      }),
+      say(WATCHES_THINGS.started),
+      result(),
+    ],
+    wakeReply(WATCHES_THINGS.again),
+  ],
+  restoredJobs: [
+    { id: WATCHES_THINGS.queueJob, schedule: WATCHES_THINGS.queueCron, recurring: true, prompt: WATCHES_THINGS.queue },
+  ],
+}
+
+/**
+ * The `watches-things` task after a relaunch: its session, resumed by your next message, has the cron job back, as the
+ * SDK restores it, and the agent answers without starting anything new.
+ */
+const stillWatching: AgentScript = {
+  name: 'still-watching',
+  turns: [wakeReply(WATCHES_THINGS.again)],
+  restoredJobs: watchesThings.restoredJobs,
 }
 
 /** What the `drives-glade` script's agent does to Glade through its control tools, and says. */
@@ -2149,6 +2320,8 @@ export const AGENT_SCRIPT_NAMES = [
   'watches-ci',
   'checks-back-later',
   'scheduled-check',
+  'watches-things',
+  'still-watching',
   'drives-glade',
   'replies-briefly',
   'ports-sessions',
@@ -2187,6 +2360,8 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'watches-ci': watchesCi,
   'checks-back-later': checksBackLater,
   'scheduled-check': scheduledCheck,
+  'watches-things': watchesThings,
+  'still-watching': stillWatching,
   'drives-glade': drivesGlade,
   'replies-briefly': repliesBriefly,
   'ports-sessions': portsSessions,

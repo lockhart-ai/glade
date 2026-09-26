@@ -206,7 +206,12 @@ describe('a turn', () => {
       scope: LogScope.Agent,
       fields: { taskId: task.id, status: 'allowed_warning', resetsAt: 1_790_000_000_000 },
     })
-    expect(only('subagent started').fields).toEqual({ taskId: task.id, toolUseId: 'toolu_09', sdkTaskId: 'b7f3' })
+    expect(only('task started').fields).toEqual({
+      taskId: task.id,
+      toolUseId: 'toolu_09',
+      sdkTaskId: 'b7f3',
+      taskType: null,
+    })
     expect(only('subagent stop requested').fields).toEqual({
       taskId: task.id,
       toolUseId: 'toolu_09',

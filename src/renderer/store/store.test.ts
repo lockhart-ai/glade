@@ -11,6 +11,7 @@ import {
   TaskState,
   ToolEventKind,
   UiStateKey,
+  WatcherState,
   type UiStateEntry,
 } from '../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
@@ -25,6 +26,7 @@ import {
   sampleQuestionSet,
   sampleQueuedMessage,
   sampleTask,
+  sampleWatcher,
   sampleWorkspace,
   type FakeMain,
 } from './test-bridge'
@@ -988,21 +990,27 @@ describe("a task's logs", () => {
 })
 
 describe('context menu actions', () => {
-  it('copies text, stops a subagent and removes an artifact through main', async () => {
+  it('copies text, stops a subagent and a watcher, and removes an artifact through main', async () => {
     const data: FakeMain = {
       ...main(),
       copied: [],
       stoppedSubagents: [],
+      watchers: [sampleWatcher('w1', 't1')],
+      stoppedWatchers: [],
       artifacts: [{ taskId: 't1', path: 'docs/notes.md', title: 'Notes', addedAt: 1, updatedAt: 1 }],
     }
     const { store } = await hydrated(data)
 
     await store.getState().copyText('glade://task/t1')
     await store.getState().stopSubagent('t1', 'toolu_02')
+    expect(store.getState().watchers.t1?.map(({ state }) => state)).toEqual([WatcherState.Running])
+    await store.getState().stopWatcher('t1', 'w1')
     await store.getState().removeArtifact('t1', 'docs/notes.md')
 
     expect(data.copied).toEqual(['glade://task/t1'])
     expect(data.stoppedSubagents).toEqual(['toolu_02'])
+    expect(data.stoppedWatchers).toEqual(['w1'])
+    expect(store.getState().watchers.t1?.map(({ state }) => state)).toEqual([WatcherState.Stopped])
     expect(store.getState().artifacts.t1).toEqual([])
   })
 

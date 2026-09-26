@@ -11,6 +11,7 @@ import {
   type TodoList,
   type ToolEvent,
   type UiStateEntry,
+  type Watcher,
   type Workspace,
 } from '../../shared/domain'
 import { withCountedChange, withoutDoneLists } from './doneLists'
@@ -102,7 +103,16 @@ export function withHistory(state: GladeData, taskId: string, history: TasksHist
     artifacts: { ...state.artifacts, [taskId]: newerArtifacts(history.artifacts, state.artifacts[taskId]) },
     todos: { ...state.todos, [taskId]: newerTodos(history.todos, state.todos[taskId]) },
     handoffs: { ...state.handoffs, [taskId]: newerHandoff(history.handoff, state.handoffs[taskId]) },
+    // Like the queue, watchers change in place: the loaded ones are as new as any event before them.
+    watchers: { ...state.watchers, [taskId]: history.watchers },
   }
+}
+
+/** Records every task's live watchers, loaded on start: what the task list's marks count until a task's logs load. */
+export function withLiveWatchers(state: GladeData, live: readonly Watcher[]): GladeData {
+  const byTask: Record<string, Watcher[]> = {}
+  for (const watcher of live) (byTask[watcher.taskId] ??= []).push(watcher)
+  return { ...state, watchers: { ...state.watchers, ...byTask } }
 }
 
 /** The loaded handoff note, unless an event already brought one set after it. */
@@ -161,6 +171,7 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     todos: without(state.todos, taskId),
     openFiles: without(state.openFiles, taskId),
     artifacts: without(state.artifacts, taskId),
+    watchers: without(state.watchers, taskId),
     handoffs: without(state.handoffs, taskId),
     inputDrafts: without(state.inputDrafts, taskId),
     fileFocus: state.fileFocus?.taskId === taskId ? null : state.fileFocus,
@@ -235,6 +246,8 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, artifacts: { ...state.artifacts, [event.taskId]: event.artifacts } }
     case EventType.HandoffChanged:
       return { ...state, handoffs: { ...state.handoffs, [event.taskId]: event.handoff } }
+    case EventType.WatchersChanged:
+      return { ...state, watchers: { ...state.watchers, [event.taskId]: event.watchers } }
     case EventType.TerminalTabsChanged: {
       const { renamingTerminalId } = state
       const renaming = event.tabs.some(({ id }) => id === renamingTerminalId) ? renamingTerminalId : null

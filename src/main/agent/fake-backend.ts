@@ -3,11 +3,13 @@
 import type { ImageData } from '../../shared/images'
 import { AsyncQueue } from './async-queue'
 import {
+  PromptVerdict,
   ToolPermissionBehavior,
   type AgentBackend,
   type AgentSession,
   type AgentSessionOptions,
   type AgentSessionSettings,
+  type SessionJob,
   type ToolPermissionAnswer,
   type ToolPermissionCall,
 } from './backend'
@@ -85,6 +87,20 @@ export class FakeAgentSession implements AgentSession {
         controller.abort()
       },
     }
+  }
+
+  /**
+   * Puts a prompt to the session's `UserPromptSubmit` hook, as the SDK does before a turn: one of the runner's own
+   * messages, a background task's wake or a job firing (`docs/sdk-notes.md` §13). Answers the verdict; with no hooks,
+   * everything goes ahead.
+   */
+  submitPrompt(prompt: string): PromptVerdict {
+    return this.options.hooks?.onPrompt(prompt) ?? PromptVerdict.Allow
+  }
+
+  /** Tells the session's `Stop` hook the jobs it has, as the SDK does as each turn ends. */
+  endTurn(jobs: readonly SessionJob[] = []): void {
+    this.options.hooks?.onTurnEnded(jobs)
   }
 
   send(text: string, uuid: string, images: readonly ImageData[] = []): void {

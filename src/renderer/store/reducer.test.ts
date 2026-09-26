@@ -15,9 +15,11 @@ import {
   type TodoList,
   type ToolCallEvent,
   type ToolEvent,
+  WatcherState,
+  type Watcher,
 } from '../../shared/domain'
 import { noOpenFiles } from '../../shared/files'
-import { applyEvent, idFromUiState, withHistory, withOpenedWorkspace } from './reducer'
+import { applyEvent, idFromUiState, withHistory, withLiveWatchers, withOpenedWorkspace } from './reducer'
 import { INITIAL_DATA, type GladeData } from './state'
 import {
   sampleMessage,
@@ -26,6 +28,7 @@ import {
   sampleQueuedMessage,
   sampleTask,
   sampleTerminalTab,
+  sampleWatcher,
   sampleWorkspace,
 } from './test-bridge'
 
@@ -153,6 +156,7 @@ describe('a deleted task', () => {
       openFiles: { t1: { taskId: 't1', paths: ['README.md'], activePath: 'README.md' } },
       artifacts: { t1: [{ taskId: 't1', path: 'README.md', title: 'Readme', addedAt: 1, updatedAt: 1 }] },
       handoffs: { t1: { taskId: 't1', body: '## Where it got to', addedAt: 1 } },
+      watchers: { t1: [sampleWatcher('w1', 't1')] },
       inputDrafts: { t1: { text: 'Half a thought', images: [] } },
       toolLogFocus: { taskId: 't1', turn: 1, request: 1 },
       fileFocus: { taskId: 't1', path: 'README.md', line: null, request: 1 },
@@ -174,6 +178,7 @@ describe('a deleted task', () => {
       openFiles: {},
       artifacts: {},
       handoffs: {},
+      watchers: {},
       inputDrafts: {},
       toolLogFocus: null,
       fileFocus: null,
@@ -227,6 +232,7 @@ describe("a task's logs", () => {
       todos: null,
       artifacts: [],
       handoff: null,
+      watchers: [],
     })
 
     expect(applyEvent(loaded, { type: EventType.ToolEventUpdated, toolEvent: done }).toolEvents).toEqual({
@@ -255,6 +261,7 @@ describe("a task's logs", () => {
       todos: null,
       artifacts: [],
       handoff: null,
+      watchers: [],
     })
 
     expect(next.messages.t1).toEqual([early, late])
@@ -270,6 +277,7 @@ describe("a task's logs", () => {
         todos: null,
         artifacts: [],
         handoff: null,
+        watchers: [],
       }).messages,
     ).toEqual({ t2: [] })
   })
@@ -296,6 +304,7 @@ describe("a task's queue", () => {
       todos: null,
       artifacts: [],
       handoff: null,
+      watchers: [],
     })
     expect(loaded.queuedMessages).toEqual({ t1: [second] })
   })
@@ -335,6 +344,7 @@ describe("a task's questions", () => {
       todos: null,
       artifacts: [],
       handoff: null,
+      watchers: [],
     }
     expect(withHistory(state, 't1', { ...empty, questionSets: [answered] }).questionSets).toEqual({ t1: [answered] })
   })
@@ -378,6 +388,7 @@ describe("a task's permission requests", () => {
       todos: null,
       artifacts: [],
       handoff: null,
+      watchers: [],
     }
     // A request opened while the history loaded stays, after the loaded ones.
     const loaded = withHistory(asked, 't1', { ...empty, permissionRequests: [denied] })
@@ -404,6 +415,7 @@ describe("a task's open files", () => {
       todos: null,
       artifacts: [],
       handoff: null,
+      watchers: [],
     }
     expect(withHistory(changed, 't1', { ...empty, openFiles: noOpenFiles('t1') }).openFiles).toEqual({
       t1: noOpenFiles('t1'),
@@ -439,6 +451,7 @@ describe("a task's artifacts", () => {
     todos: null,
     artifacts,
     handoff: null,
+    watchers: [],
   })
 
   it('takes the whole list from each change, and from a history load unless a change brought a newer one', () => {
@@ -455,6 +468,41 @@ describe("a task's artifacts", () => {
   })
 })
 
+describe("a task's watchers", () => {
+  const history = (watchers: readonly Watcher[]) => ({
+    messages: [],
+    toolEvents: [],
+    queuedMessages: [],
+    questionSets: [],
+    permissionRequests: [],
+    openFiles: noOpenFiles('t1'),
+    todos: null,
+    artifacts: [],
+    handoff: null,
+    watchers,
+  })
+
+  it('takes every task’s live ones on start, by task, over none', () => {
+    const live = [sampleWatcher('a', 't1'), sampleWatcher('b', 't2'), sampleWatcher('c', 't1')]
+    expect(withLiveWatchers(state, live).watchers).toEqual({ t1: [live[0], live[2]], t2: [live[1]] })
+    expect(withLiveWatchers(state, []).watchers).toEqual({})
+  })
+
+  it('takes the whole list from each change, and a task’s whole list, ended ones too, with its history', () => {
+    const started = withLiveWatchers(state, [sampleWatcher('a', 't1')])
+    const ended = sampleWatcher('b', 't1', { state: WatcherState.Finished })
+    const loaded = withHistory(started, 't1', history([sampleWatcher('a', 't1'), ended]))
+    expect(loaded.watchers.t1?.map(({ id }) => id)).toEqual(['a', 'b'])
+
+    const changed = applyEvent(loaded, { type: EventType.WatchersChanged, taskId: 't1', watchers: [ended] })
+    expect(changed.watchers).toEqual({ t1: [ended] })
+    expect(applyEvent(changed, { type: EventType.WatchersChanged, taskId: 't2', watchers: [] }).watchers).toEqual({
+      t1: [ended],
+      t2: [],
+    })
+  })
+})
+
 describe("a task's handoff note", () => {
   const note = (body: string, addedAt: number): TaskHandoff => ({ taskId: 't1', body, addedAt })
   const history = (handoff: TaskHandoff | null) => ({
@@ -467,6 +515,7 @@ describe("a task's handoff note", () => {
     todos: null,
     artifacts: [],
     handoff,
+    watchers: [],
   })
 
   it('takes the note from each change, and a cleared one as none', () => {
@@ -503,6 +552,7 @@ describe("a task's todo list", () => {
     todos,
     artifacts: [],
     handoff: null,
+    watchers: [],
   })
 
   it('takes the list from each change, whole', () => {

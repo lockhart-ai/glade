@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Task } from '../../shared/domain'
 import { openTestDatabase, sampleTask, sampleWorkspace } from '../db/repositories/test-database'
-import { CONTROL_TOOLS_LINE, HANDOFF_HEADING, handoffSection, systemPromptAppend } from './system-prompt'
+import { CONTROL_TOOLS_LINE, HANDOFF_HEADING, handoffSection, systemPromptAppend, WATCHERS_LINE } from './system-prompt'
 
 let task: Task
 
@@ -31,8 +31,13 @@ describe('systemPromptAppend', () => {
         '',
         'When you make a deliverable the user asked for (a report, a document, a draft), call add_artifact with its ' +
           'path and a short title, so it shows in the Artifacts tab and stays with the task after it is done.',
+        '',
+        'When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the ' +
+          "Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows " +
+          "in the task's Watchers tab.",
       ].join('\n'),
     )
+    expect(systemPromptAppend(task)).toContain(WATCHERS_LINE)
   })
 
   it('asks only for what is not set yet', () => {

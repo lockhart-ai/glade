@@ -22,6 +22,7 @@ import {
   type Message,
   type Artifact,
   type TaskHandoff,
+  type Watcher,
   type OpenFiles,
   type PermissionRequest,
   type QuestionSet,
@@ -77,6 +78,7 @@ const TASK_HANDLERS = {
     todos: null,
     artifacts: [],
     handoff: null,
+    watchers: [],
   }),
   [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
@@ -91,6 +93,8 @@ const TASK_HANDLERS = {
   [CommandName.FilesClose]: () => ({ openFiles: {} as OpenFiles }),
   [CommandName.FilesOpenInEditor]: () => null,
   [CommandName.SubagentsStop]: () => null,
+  [CommandName.WatchersListLive]: () => ({ watchers: [] }),
+  [CommandName.WatchersStop]: () => null,
   [CommandName.ClipboardWriteText]: () => null,
   [CommandName.FilesInfo]: () => ({ info: { kind: FileInfoKind.Missing } }),
   [CommandName.FilesCopy]: () => null,
@@ -144,6 +148,8 @@ const TASK_SCHEMAS = {
   [CommandName.FilesClose]: REQUEST_SCHEMAS[CommandName.FilesClose],
   [CommandName.FilesOpenInEditor]: REQUEST_SCHEMAS[CommandName.FilesOpenInEditor],
   [CommandName.SubagentsStop]: REQUEST_SCHEMAS[CommandName.SubagentsStop],
+  [CommandName.WatchersListLive]: REQUEST_SCHEMAS[CommandName.WatchersListLive],
+  [CommandName.WatchersStop]: REQUEST_SCHEMAS[CommandName.WatchersStop],
   [CommandName.ClipboardWriteText]: REQUEST_SCHEMAS[CommandName.ClipboardWriteText],
   [CommandName.FilesInfo]: REQUEST_SCHEMAS[CommandName.FilesInfo],
   [CommandName.FilesCopy]: REQUEST_SCHEMAS[CommandName.FilesCopy],
@@ -206,6 +212,7 @@ describe('the command map', () => {
       readonly todos: TodoList | null
       readonly artifacts: readonly Artifact[]
       readonly handoff: TaskHandoff | null
+      readonly watchers: readonly Watcher[]
     }>()
     expectTypeOf(glade.invoke(CommandName.QueueAdd, { taskId: 't', text: 'Hi' })).resolves.toEqualTypeOf<{
       readonly queuedMessage: QueuedMessage
@@ -413,6 +420,9 @@ describe('events', () => {
           break
         case EventType.HandoffChanged:
           expectTypeOf(event.handoff).toEqualTypeOf<TaskHandoff | null>()
+          break
+        case EventType.WatchersChanged:
+          expectTypeOf(event.watchers).toEqualTypeOf<readonly Watcher[]>()
           break
         case EventType.TerminalTabsChanged:
           expectTypeOf(event.tabs).toEqualTypeOf<readonly TerminalTab[]>()

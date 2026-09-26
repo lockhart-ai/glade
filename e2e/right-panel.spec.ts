@@ -15,8 +15,15 @@ test('right panel: ⌘⌥2 picks a tab; dragging the handle resizes it, kept on 
   const { window } = glade
   const panel = taskPanel(window)
 
-  // Five tabs, with counts only where there's something to count.
-  await expect(panel.panel.getByRole('tab')).toHaveText(['Tool calls 6', 'Files', 'Todos', 'Artifacts', 'Subagents 1'])
+  // Six tabs, with counts only where there's something to count.
+  await expect(panel.panel.getByRole('tab')).toHaveText([
+    'Tool calls 6',
+    'Files',
+    'Todos',
+    'Artifacts',
+    'Subagents 1',
+    'Watchers',
+  ])
 
   // ⌘⌥2 picks Files, wherever the focus is.
   await window.keyboard.press('Meta+Alt+Digit2')

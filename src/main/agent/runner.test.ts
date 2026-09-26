@@ -204,6 +204,8 @@ function drainEvents(): (readonly unknown[])[] {
         return [event.type, event.artifacts.map(({ path }) => path)]
       case EventType.HandoffChanged:
         return [event.type, event.handoff?.body ?? null]
+      case EventType.WatchersChanged:
+        return [event.type, event.watchers.map(({ kind, state }) => [kind, state])]
       case EventType.QuestionOpened:
       case EventType.QuestionAnswered:
       case EventType.QuestionWithdrawn:
@@ -301,6 +303,7 @@ describe('a turn', () => {
       allowedRules: [],
       log: expect.objectContaining({ info: expect.any(Function) as unknown }) as unknown,
       onToolPermission: expect.any(Function) as unknown,
+      hooks: { onPrompt: expect.any(Function) as unknown, onTurnEnded: expect.any(Function) as unknown },
     })
     const [userMessage] = listMessages(database.db, task.id)
     expect(backend.session.sent).toEqual([
@@ -387,6 +390,7 @@ describe('a turn', () => {
       todos: null,
       artifacts: [],
       handoff: null,
+      watchers: [],
     })
   })
 
@@ -3059,6 +3063,7 @@ describe('several tasks at once', () => {
       case EventType.TodosChanged:
       case EventType.ArtifactsChanged:
       case EventType.HandoffChanged:
+      case EventType.WatchersChanged:
         return event.taskId
       case EventType.OpenFilesChanged:
         return event.openFiles.taskId
@@ -3116,6 +3121,7 @@ describe('several tasks at once', () => {
       case EventType.TodosChanged:
       case EventType.ArtifactsChanged:
       case EventType.HandoffChanged:
+      case EventType.WatchersChanged:
       case EventType.TerminalTabsChanged:
       case EventType.TerminalOutput:
       case EventType.TerminalCleared:

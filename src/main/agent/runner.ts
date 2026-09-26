@@ -34,6 +34,14 @@
  * runs. Anything else between turns (a late system message after a result, a foreground subagent's messages) is still
  * ignored.
  *
+ * **Watchers** (`../watchers`, `docs/sdk-notes.md` §13). What the agent leaves running or scheduled with those tools is
+ * followed as a watcher from what the SDK reports: the tasks it starts and ends, the calls' results, and two hooks the
+ * session is given, the prompt hook (each prompt about to start a turn) and the `Stop` hook (the jobs it still has as
+ * each turn ends). The runner remembers the prompts it sends (`give`), so one of its own is never taken for a wake;
+ * anything else goes to the watchers, which count it and can turn away a job you stopped. Stop on a monitor or command
+ * stops its SDK task (`stopWatcher`). A failed session ends its watchers with it, and a launch ends those of every
+ * session, but for the cron jobs, which wait for their session to resume.
+ *
  * **Background subagents** (`docs/sdk-notes.md`, "Background subagents"). An `Agent` call with `run_in_background`
  * returns as soon as its subagent is launched, and the turn carries on and ends without waiting for it, so the task goes
  * back to waiting on you and takes messages while the subagent works. The subagent isn't done then: its `Agent` call's
@@ -185,6 +193,7 @@ import {
   TaskErrorSource,
   TaskState,
   ToolCallState,
+  WatcherKind,
   QuestionReplyKind,
   QuestionSetState,
   type ApiRetry,
@@ -242,7 +251,9 @@ import {
   updateCompaction,
   updateToolCall,
 } from '../db/repositories/tool-events'
+import { getWatcher } from '../db/repositories/watchers'
 import { getWorkspace } from '../db/repositories/workspaces'
+import { createWatcherTracker, StopAction } from '../watchers/watchers'
 import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import type { NotifyReply } from '../notifications/notifications'
 import { permissionVerdict, PermissionVerdict } from '../permissions/classify'
@@ -253,11 +264,13 @@ import { changesTodos, refreshTodos } from '../todos/todos'
 import { noteAgentReply } from '../tasks/attention'
 import { reopenTask, updateTaskFromRunner, updateTaskFromUser, type TaskServiceContext } from '../tasks/service'
 import {
+  PromptVerdict,
   ToolPermissionBehavior,
   type AgentBackend,
   type AgentMcpServers,
   type AgentSession,
   type AgentSessionSettings,
+  type SessionJob,
   type ToolPermissionAnswer,
   type ToolPermissionCall,
 } from './backend'
@@ -368,6 +381,13 @@ export interface AgentRunner {
    */
   stopSubagent(taskId: string, toolUseId: string): Promise<void>
   /**
+   * Stops one of the task's live watchers (`../watchers`), and resolves once the SDK has been asked: a monitor or
+   * background command by its SDK task id, its end arriving as the SDK reports it; a wakeup or cron job at once, its
+   * fires turned away from then on. Throws a `CommandFailure`: `not_found` for no such task or watcher, and
+   * `invalid_transition` for one that has ended, or a monitor or command whose session isn't running.
+   */
+  stopWatcher(taskId: string, id: string): Promise<void>
+  /**
    * Retries the turn an error stopped or a pause holds (see the module comment), on `model` if given, which becomes the
    * task's model. Answers with the task, working again. Throws a `CommandFailure`: `not_found` for no such task, `busy`
    * while a turn is running, and `invalid_transition` for a task whose agent isn't stopped by an error or paused.
@@ -446,7 +466,15 @@ interface LiveSession {
   readonly background: Map<string, number>
   /** The tool calls running inside a background subagent, nested subagents' included: the subagent's `Agent` call. */
   readonly backgroundCalls: Map<string, string>
+  /**
+   * The prompts Glade has sent the session that its prompt hook hasn't seen yet, oldest first, up to `MAX_HANDED`: a
+   * prompt of Glade's own is never a wake, nor turned away.
+   */
+  readonly handed: string[]
 }
+
+/** How many of Glade's own prompts a session remembers for its prompt hook (a message folded into a turn may never pass it). */
+const MAX_HANDED = 20
 
 /** What the tool log says when the user stopped a turn, and what its unfinished tool calls say. */
 export const STOPPED_NOTE = 'You stopped the agent.'
@@ -665,6 +693,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const questions = options.questions ?? createQuestionBroker(context, notifyReply)
   const permissions = options.permissions ?? createPermissionBroker(context, notifyReply)
   const sessions = new Map<string, LiveSession>()
+  const watchers = createWatcherTracker({ db, emit })
   // Resumes a paused turn when its pause is due.
   const timers = createPauseTimers((taskId) => {
     onPauseDue(taskId)
@@ -820,11 +849,37 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     turn.running.set(toolUseId, parentToolUseId)
   }
 
+  /**
+   * Sends the session one of Glade's own prompts, remembering it, so the prompt hook knows it for Glade's and never
+   * takes it for a wake (`promptVerdict`).
+   */
+  const give = (live: LiveSession, text: string, uuid: string, images: readonly ImageData[] = []): void => {
+    live.handed.push(text)
+    live.handed.splice(0, Math.max(0, live.handed.length - MAX_HANDED))
+    live.session.send(text, uuid, images)
+  }
+
+  /**
+   * Whether a prompt about to start a turn goes ahead (the session's prompt hook): one of Glade's own always does, and
+   * is forgotten; anything else is a wake, which the watchers count, and turn away if it's a job you stopped.
+   */
+  const promptVerdict = (taskId: string, live: LiveSession, prompt: string): PromptVerdict => {
+    const own = live.handed.indexOf(prompt)
+    if (own >= 0) {
+      live.handed.splice(own, 1)
+      return PromptVerdict.Allow
+    }
+    if (live.closed) return PromptVerdict.Allow
+    const verdict = watchers.prompt(taskId, prompt)
+    if (verdict === PromptVerdict.Block) taskLog(taskId).info('stopped watcher fired: turned away')
+    return verdict
+  }
+
   /** Hands a user message to the session, with its images, stamped with its id (`uuid`) or a new one's. */
   /** Sends the session a message, after `block` when there's one: what the session was missing (`./session-context`). */
   const hand = (live: LiveSession, message: Message, uuid: string = message.id, block: string | null = null): void => {
     const images = imagesOf(db, { kind: ImageOwnerKind.Message, id: message.id })
-    live.session.send(withContext(block, message.body), uuid, images)
+    give(live, withContext(block, message.body), uuid, images)
   }
 
   /**
@@ -869,6 +924,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       emitTodosChanged(emit, taskId, list)
       if (changed !== null) emitTaskUpdated(emit, changed)
     }
+    watchers.toolResult(taskId, call, event)
     if (parent === null && !turn.stopping && stepFinished(turn)) deliverQueue(taskId, live, turn)
   }
 
@@ -1064,10 +1120,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (sessions.get(taskId) === live) sessions.delete(taskId)
     // Whatever its calls waited on went with it.
     withdrawRequests(live, true)
-    // Its background subagents died with it.
+    // Its background subagents died with it, and so did its watchers' processes and wakeups.
     for (const toolUseId of [...live.background.keys()]) {
       finishBackground(taskId, live, toolUseId, ToolCallState.Error, message, message)
     }
+    watchers.sessionEnded(taskId, message)
     const { turn } = live
     if (turn === null) return
     endTurn(taskId, live, turn)
@@ -1219,8 +1276,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return
     }
     if (event.kind === AgentEventKind.SubagentStarted) {
-      taskLog(taskId).info('subagent started', { toolUseId: event.toolUseId, sdkTaskId: event.sdkTaskId })
+      const { toolUseId, sdkTaskId, taskType } = event
+      taskLog(taskId).info('task started', { toolUseId, sdkTaskId, taskType })
       live.subagents.set(event.toolUseId, event.sdkTaskId)
+      watchers.taskStarted(taskId, event)
       if (event.background) {
         runInBackground(live, event.toolUseId, live.turn?.number ?? Math.max(1, lastTurn(db, taskId)))
       }
@@ -1235,6 +1294,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return
     }
     if (event.kind === AgentEventKind.TaskFinished) {
+      watchers.taskFinished(taskId, event)
       onTaskFinished(taskId, live, event)
       return
     }
@@ -1409,6 +1469,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (task.sessionId === null) setSessionContext(db, task.id, startedContext(handoff))
     // The session's calls are decided against the live session, which exists once the backend has started it.
     let decide: (call: ToolPermissionCall) => Promise<ToolPermissionAnswer> = () => Promise.resolve(WITHDRAWN)
+    let verdict: (prompt: string) => PromptVerdict = () => PromptVerdict.Allow
+    let jobsListed: (jobs: readonly SessionJob[]) => void = () => undefined
     const session = backend.start({
       cwd: workspace.rootPath,
       model: task.model,
@@ -1421,6 +1483,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       allowedRules,
       log: agentLog(task.id),
       onToolPermission: (call) => decide(call),
+      hooks: {
+        onPrompt: (prompt) => verdict(prompt),
+        onTurnEnded: (jobs) => {
+          jobsListed(jobs)
+        },
+      },
     })
     const live: LiveSession = {
       session,
@@ -1435,8 +1503,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       subagents: new Map(),
       background: new Map(),
       backgroundCalls: new Map(),
+      handed: [],
     }
     decide = (call) => decideToolCall(task.id, live, call)
+    verdict = (prompt) => promptVerdict(task.id, live, prompt)
+    jobsListed = (jobs) => {
+      if (!live.closed) watchers.jobsListed(task.id, jobs)
+    }
     sessions.set(task.id, live)
     void pump(task.id, live)
     return live
@@ -1475,7 +1548,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       const uuid = randomUUID()
       live.turn = newTurn(turn)
       live.turn.awaiting.add(uuid)
-      live.session.send(RESUME_PROMPT, uuid)
+      give(live, RESUME_PROMPT, uuid)
       return true
     }
     // The session never started, so the agent never saw the turn's messages: a new session gets them again.
@@ -1651,7 +1724,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const uuid = randomUUID()
     live.turn = newTurn(turn)
     live.turn.awaiting.add(uuid)
-    live.session.send(permissionsDecidedAfterRestart(pending), uuid)
+    give(live, permissionsDecidedAfterRestart(pending), uuid)
   }
 
   /**
@@ -1696,7 +1769,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const uuid = randomUUID()
     live.turn = newTurn(set.turn)
     live.turn.awaiting.add(uuid)
-    live.session.send(answeredAfterRestart(reply), uuid)
+    give(live, answeredAfterRestart(reply), uuid)
   }
 
   /**
@@ -1849,6 +1922,27 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       await live.session.stopTask(sdkTaskId)
     },
 
+    async stopWatcher(taskId, id) {
+      if (getTask(db, taskId) === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
+      const watcher = getWatcher(db, id)
+      if (watcher?.taskId !== taskId) throw new CommandFailure(BridgeErrorCode.NotFound, `No watcher ${id}`)
+      const live = sessions.get(taskId)
+      const isTask = watcher.kind === WatcherKind.Monitor || watcher.kind === WatcherKind.Command
+      if (isTask && live === undefined) {
+        throw new CommandFailure(BridgeErrorCode.InvalidTransition, "The watcher's session isn't running")
+      }
+      const request = watchers.requestStop(taskId, id)
+      if (request === undefined) throw new CommandFailure(BridgeErrorCode.InvalidTransition, 'The watcher has ended')
+      taskLog(taskId).info('watcher stop requested', { watcherId: id, kind: watcher.kind })
+      switch (request.action) {
+        case StopAction.StopTask:
+          await live?.session.stopTask(request.sdkTaskId)
+          return
+        case StopAction.None:
+          return
+      }
+    },
+
     retry(taskId, model) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
@@ -1907,11 +2001,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       live.turn.compaction = compaction.id
       const uuid = randomUUID()
       live.turn.awaiting.add(uuid)
-      live.session.send(COMPACT_COMMAND, uuid)
+      give(live, COMPACT_COMMAND, uuid)
       return getTask(db, taskId) ?? task
     },
 
     resumeInterrupted() {
+      // Every session died with the app: its watchers' processes and wakeups with it, and its cron jobs until it resumes.
+      watchers.relaunched()
       // A permission request or question the app quit on waits on you, not the agent: its turn carries on once you
       // answer it.
       orphanPermissions()

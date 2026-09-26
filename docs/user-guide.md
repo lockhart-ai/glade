@@ -189,8 +189,8 @@ Notifications turns them off or their sound on. Focus and Do Not Disturb are up 
 
 ## The right panel
 
-Five tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Subagents** (⌘⌥1 – ⌘⌥5). ⌘⌥B hides the panel;
-drag its edge to resize it.
+Six tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Subagents · Watchers** (⌘⌥1 – ⌘⌥6). ⌘⌥B hides
+the panel; drag its edge to resize it.
 
 - **Tool calls:** every tool call the task's own agent made, with the agent's working notes between them, split by turn.
   Right-click a call to copy its command or output, open its file, or **Run again in terminal** (the command lands at
@@ -205,6 +205,12 @@ drag its edge to resize it.
 - **Subagents:** one row per subagent, running ones first, with what it's doing now, how long it's run and its tool
   calls. Click one to open its log; right-click a running one to stop it. A subagent's own tool calls live here, not in
   Tool calls.
+- **Watchers:** what the agent left running or scheduled to wake itself later: a watch on a command's output (a PR's
+  CI, a deploy's log, whatever script it wrote), a command in the background, a check-back at a set time, or a
+  recurring job. Each row says what it runs, whether it's running, due, or ended and how, what it last reported, and how
+  many times it woke the agent. **Stop** ends a live one. The count on the tab, and an eye with a count on the task's
+  row in the task list, are the live ones, so a task waiting on you, or done, that still watches something shows it. A
+  relaunch ends what was running (a scheduled job comes back when you next message the task).
 
 ## The terminal
 
@@ -269,7 +275,7 @@ The ones to learn first:
 | ⌘⌥↓ | Next task that needs you |
 | ⌘L | Focus the input bar |
 | ⌘B · ⌘⌥B · ⌘J | Toggle the task list · right panel · bottom bar |
-| ⌘⌥1 – ⌘⌥5 | Tool calls · Files · Todos · Artifacts · Subagents |
+| ⌘⌥1 – ⌘⌥6 | Tool calls · Files · Todos · Artifacts · Subagents · Watchers |
 | ⌘T · ⌃\` | New terminal tab · focus the terminal |
 | ⌘1 – ⌘9 | Switch workspace |
 | ⌘, | Settings |

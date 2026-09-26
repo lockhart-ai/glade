@@ -143,7 +143,10 @@ it runs.
 ## Not tools — from SDK events
 
 Tool calls and preamble (tool log), subagents (Subagents tab), files touched (Files tab list), context usage (meter),
-compaction, errors, turn duration and file/line counts (turn summary).
+compaction, errors, turn duration and file/line counts (turn summary). The Watchers tab follows the monitors,
+background commands, wakeups and cron jobs the agent starts with Claude Code's own tools, from the SDK's task messages
+and the session's `UserPromptSubmit` and `Stop` hooks ([`sdk-notes.md`](sdk-notes.md) §13); Glade adds no tool for
+them.
 
 ## System prompt
 
@@ -165,7 +168,13 @@ The user sees the task through its title, objective and status. Keep them curren
 When you need the user to decide something before you can go on, call ask instead of asking in your reply: it shows your questions on a card and waits for the answers. Ask everything you need at once, with choices or pills when the likely answers are known.
 
 When you make a deliverable the user asked for (a report, a document, a draft), call add_artifact with its path and a short title, so it shows in the Artifacts tab and stays with the task after it is done.
+
+When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows in the task's Watchers tab.
 ```
+
+The last line is for the Watchers tab (#250, [`sdk-notes.md`](sdk-notes.md) §13): Glade follows what the agent starts
+with the SDK's own tools (`Monitor`, background `Bash`, `ScheduleWakeup`, `CronCreate`), whatever script it runs, but
+a script backgrounded inside a foreground `Bash` call (`nohup ./watch.sh &`) is invisible to the SDK, so to Glade too.
 
 The "after the user's first message" line asks only for what isn't set yet, so a resumed session never renames a task
 the user has renamed; with both set, the line goes. With Status summary or Task titles off in Settings › Agent, the
