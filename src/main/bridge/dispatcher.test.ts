@@ -76,6 +76,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
       artifacts: [],
       handoff: null,
       watchers: [],
+      commits: [],
     }),
     [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
     [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
@@ -95,6 +96,9 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.SubagentsListRunning]: () => ({ calls: [] }),
     [CommandName.WatchersListLive]: () => ({ watchers: [] }),
     [CommandName.WatchersStop]: () => null,
+    [CommandName.ChangesFiles]: () => ({ files: { files: [], total: 0 } }),
+    [CommandName.ChangesOpenFile]: () => ({ openFiles: {} as OpenFiles }),
+    [CommandName.ChangesRepository]: () => ({ repository: true }),
     [CommandName.ClipboardWriteText]: () => null,
     [CommandName.FilesInfo]: () => ({ info: { kind: FileInfoKind.Missing } }),
     [CommandName.FilesCopy]: () => null,
@@ -119,6 +123,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.PluginsOpenFolder]: () => null,
     [CommandName.PluginsPlaceView]: () => ({ status: '' }),
     [CommandName.ControlStatus]: () => ({ status: CONTROL_STATUS }),
+    [CommandName.AccountStatus]: () => ({ status: { account: null, usageWarning: null } }),
     [CommandName.ControlRegenerateToken]: () => ({ status: CONTROL_STATUS }),
     [CommandName.WorkspacesUpdate]: () => {
       throw new Error('not in these tests')

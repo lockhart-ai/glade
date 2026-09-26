@@ -40,6 +40,12 @@ describe('Row', () => {
     expect(() => row({ rank: '1' }).real('rank')).toThrow('expected a number')
   })
 
+  it('reads nullable numbers', () => {
+    expect(row({ used: null }).nullableReal('used')).toBeNull()
+    expect(row({ used: 0.85 }).nullableReal('used')).toBe(0.85)
+    expect(() => row({ used: 'x' }).nullableReal('used')).toThrow('expected a number')
+  })
+
   it('reads nullable integers', () => {
     expect(row({ count: null }).nullableInteger('count')).toBeNull()
     expect(row({ count: 7 }).nullableInteger('count')).toBe(7)

@@ -124,3 +124,78 @@ it('logs a failure to take the jobs in, and carries on', async () => {
   // With no logger of its own, it logs nowhere.
   await expect(call(sdkHooks(handlers()), 'Stop', stopInput([]))).resolves.toEqual({})
 })
+
+/** A `PreToolUse` input for a `Bash` call, as the SDK gives it (a subagent's has its `agent_id`). */
+function bashInput(command: string, overrides: Record<string, unknown> = {}): HookInput {
+  return {
+    ...BASE,
+    hook_event_name: 'PreToolUse',
+    tool_name: 'Bash',
+    tool_input: { command, description: 'Commit the fix' },
+    tool_use_id: 'toolu_bash',
+    ...overrides,
+  } as unknown as HookInput
+}
+
+/** Calls the `PreToolUse` hook, checking it's only for `Bash`. */
+function callBash(hooks: ReturnType<typeof sdkHooks>, input: HookInput) {
+  const [matcher] = hooks.PreToolUse ?? []
+  expect(matcher?.matcher).toBe('Bash')
+  const [hook] = matcher?.hooks ?? []
+  if (hook === undefined) throw new Error('no PreToolUse hook')
+  return hook(input, 'toolu_bash', { signal: new AbortController().signal })
+}
+
+it('asks about each Bash call before it runs, only when the session wants to know, and waits for the answer', async () => {
+  expect(Object.keys(sdkHooks(handlers()))).toEqual(['UserPromptSubmit', 'Stop'])
+  let finish = (): void => undefined
+  const onBashStarting = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve
+      }),
+  )
+  const hooks = sdkHooks(handlers({ onBashStarting }))
+  expect(Object.keys(hooks)).toEqual(['UserPromptSubmit', 'Stop', 'PreToolUse'])
+
+  let answered = false
+  const answer = callBash(hooks, bashInput('git commit -m "Fix"', { cwd: '/code/acme-api-docs', agent_id: 'a1' })).then(
+    (output) => {
+      answered = true
+      return output
+    },
+  )
+  await Promise.resolve()
+  expect(answered).toBe(false)
+  expect(onBashStarting).toHaveBeenCalledExactlyOnceWith({
+    toolUseId: 'toolu_bash',
+    cwd: '/code/acme-api-docs',
+    command: 'git commit -m "Fix"',
+  })
+  finish()
+  await expect(answer).resolves.toEqual({})
+})
+
+it('lets a Bash call run anyway when its input can’t be read, telling nothing, or when the answer fails or is slow', async () => {
+  vi.useFakeTimers()
+  try {
+    const log = createMemoryLog()
+    const slow = vi.fn(() => new Promise<void>(() => undefined))
+    const hooks = sdkHooks(handlers({ onBashStarting: slow }), log.logger, 50)
+    await expect(callBash(hooks, bashInput('ls', { tool_input: { description: 'no command' } }))).resolves.toEqual({})
+    expect(slow).not.toHaveBeenCalled()
+
+    const waiting = callBash(hooks, bashInput('npm test'))
+    await vi.advanceTimersByTimeAsync(50)
+    await expect(waiting).resolves.toEqual({})
+    expect(log.withMessage('ran a Bash call without waiting any longer for its hook')).toMatchObject([
+      { level: LogLevel.Warn, fields: { toolUseId: 'toolu_bash' } },
+    ])
+
+    const failing = sdkHooks(handlers({ onBashStarting: () => Promise.reject(new Error('git is gone')) }), log.logger)
+    await expect(callBash(failing, bashInput('git commit'))).resolves.toEqual({})
+    expect(log.withMessage('failed to note a Bash call')).toMatchObject([{ level: LogLevel.Error }])
+  } finally {
+    vi.useRealTimers()
+  }
+})

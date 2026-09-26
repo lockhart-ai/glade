@@ -5,6 +5,9 @@ import { SUBAGENT_TOOL_NAMES } from '../../shared/subagents'
 import type { AgentRunner } from '../agent/runner'
 import { listArtifacts } from '../db/repositories/artifacts'
 import { listLiveWatchers, listWatchers, publicWatcher } from '../db/repositories/watchers'
+import { listTaskCommits } from '../db/repositories/task-commits'
+import { commitFiles, openCommitFile, readCommitFile, workspaceInRepository } from '../changes/changes'
+import { createGit, type Git } from '../git/git'
 import { getHandoff } from '../db/repositories/backfills'
 import { getImage } from '../db/repositories/images'
 import { getInputDraft, setInputDraft } from '../db/repositories/input-drafts'
@@ -47,10 +50,12 @@ import {
 } from '../files/files'
 import { todoListFor } from '../todos/todos'
 import { removeTaskArtifact } from '../artifacts/artifacts'
+import { parseCommitFileKey } from '../../shared/files'
 import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
 import type { ControlEndpoint } from '../control/endpoint'
+import type { AccountTracker } from '../account/account'
 import type { MenuBarCommands } from '../menu-bar/menu-bar'
 import { readMenuBarSnapshot } from '../menu-bar/snapshot'
 
@@ -86,10 +91,14 @@ export interface HandlerContext {
   readonly pluginViews: PluginViews
   /** The control API's HTTP endpoint, which follows Settings › Control. */
   readonly endpoint: ControlEndpoint
+  /** The account the tasks run on and its usage warning. */
+  readonly account: AccountTracker
   /** What the menu bar popover's page asks of main (`menuBar.*`). Nothing by default: no popover, nothing to do. */
   readonly menuBar?: MenuBarCommands
   /** Where errors in the window are logged (`log.rendererError`). Nothing by default. */
   readonly log?: Logger
+  /** Reads git, for the Changes tab. The `git` on the PATH by default. */
+  readonly git?: Git
 }
 
 /** The root of the workspace a new terminal tab starts in, or null for none. */
@@ -101,8 +110,9 @@ function terminalRoot(db: Database, workspaceId: string | null): string | null {
 }
 
 export function createHandlers(context: HandlerContext): Handlers {
-  const { db, emit, chooseFolder, runner, writeClipboard, terminals, plugins, pluginViews, endpoint } = context
+  const { db, emit, chooseFolder, runner, writeClipboard, terminals, plugins, pluginViews, endpoint, account } = context
   const renderer = (context.log ?? SILENT_LOGGER).scoped(LogScope.Renderer)
+  const changes = { db, emit, git: context.git ?? createGit() }
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
     [CommandName.WorkspacesCreate]: ({ rootPath }) => {
@@ -178,8 +188,16 @@ export function createHandlers(context: HandlerContext): Handlers {
         artifacts: listArtifacts(db, id),
         handoff: getHandoff(db, id) ?? null,
         watchers: listWatchers(db, id).map(publicWatcher),
+        commits: listTaskCommits(db, id),
       }
     },
+    [CommandName.ChangesFiles]: async ({ taskId, id }) => ({ files: await commitFiles(changes, taskId, id) }),
+    [CommandName.ChangesOpenFile]: async ({ taskId, id, path }) => ({
+      openFiles: await openCommitFile(changes, taskId, id, path),
+    }),
+    [CommandName.ChangesRepository]: async ({ taskId }) => ({
+      repository: await workspaceInRepository(changes, taskId),
+    }),
     [CommandName.QueueAdd]: ({ taskId, text, images }) => ({ queuedMessage: runner.queue(taskId, text, images) }),
     [CommandName.QueueEdit]: ({ id, text }) => ({ queuedMessage: editQueuedMessage(context, id, text) }),
     [CommandName.QueueRemove]: ({ id }) => {
@@ -203,7 +221,15 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.PermissionsAnswer]: ({ id, decision }) => ({
       permissionRequest: runner.answerPermission(id, decision),
     }),
-    [CommandName.FilesRead]: async ({ taskId, path }) => ({ content: await readTaskFile(context, taskId, path) }),
+    [CommandName.FilesRead]: async ({ taskId, path }) => {
+      const commitFile = parseCommitFileKey(path)
+      return {
+        content:
+          commitFile === null
+            ? await readTaskFile(context, taskId, path)
+            : await readCommitFile(changes, taskId, commitFile),
+      }
+    },
     [CommandName.FilesOpen]: ({ taskId, path }) => ({ openFiles: openTaskFile(context, taskId, path) }),
     [CommandName.FilesClose]: ({ taskId, path }) => ({ openFiles: closeTaskFile(context, taskId, path) }),
     [CommandName.FilesOpenInEditor]: async ({ taskId, path }) => {
@@ -249,6 +275,7 @@ export function createHandlers(context: HandlerContext): Handlers {
       return { settings }
     },
     [CommandName.ControlStatus]: () => ({ status: endpoint.status() }),
+    [CommandName.AccountStatus]: () => ({ status: account.status() }),
     [CommandName.ControlRegenerateToken]: () => ({ status: endpoint.regenerateToken() }),
     [CommandName.SearchQuery]: ({ workspaceId, text }) => ({ results: searchTasks(db, workspaceId, text) }),
     [CommandName.PluginsList]: async () => ({ plugins: await plugins.list() }),

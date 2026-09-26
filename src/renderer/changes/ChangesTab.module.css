@@ -1,0 +1,240 @@
+/* The Changes tab, from docs/design/html/24-changes.html: the Subagents tab's rows, a commit's files open under one. */
+.scroller {
+  flex-grow: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-lg) var(--space-inset);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.empty {
+  margin: auto 0;
+  padding: 10px 8px;
+  text-align: center;
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: var(--font-size-secondary);
+  color: var(--color-faint);
+}
+
+.emptyDetail {
+  margin: var(--space-xs) 0 0;
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-faint);
+}
+
+/* A commit sits flat; open, it's a card. */
+.row {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+}
+
+.row:hover {
+  background: var(--color-inner-2);
+}
+
+.row.expanded {
+  background: var(--color-inner-2);
+  border-color: var(--color-inner-border);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  padding: var(--space-md) var(--space-item);
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.header:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+}
+
+.titleLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.chevron {
+  flex-shrink: 0;
+  display: flex;
+  width: 10px;
+  color: var(--color-faint);
+}
+
+.hash {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-blue-text);
+}
+
+.subject {
+  flex-grow: 1;
+  min-width: 0;
+  font-size: var(--font-size-secondary);
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stats {
+  flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+}
+
+.added {
+  color: var(--color-teal);
+}
+
+.deleted {
+  color: var(--color-pink);
+}
+
+.binary {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  /* In line with the hash, past the chevron. */
+  padding-left: 18px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+.metaText {
+  flex-shrink: 0;
+}
+
+/* The subagent that made it, as a tag. */
+.subagent {
+  min-width: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--color-inner-border);
+  border-radius: 5px;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-label);
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The commit's files, open under it: on the app's darkest ground, as a subagent's log. */
+.files {
+  margin: 0 12px 12px 26px;
+  padding: 6px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-inner-border);
+  border-radius: 8px;
+}
+
+.fileList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 26px;
+  padding: 0 6px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.file:hover {
+  background: var(--color-raised);
+}
+
+.file:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+}
+
+.letter {
+  flex-shrink: 0;
+  width: 14px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  font-weight: 600;
+  text-align: center;
+}
+
+.letter.added {
+  color: var(--color-teal);
+}
+
+.letter.modified {
+  color: var(--color-blue-text);
+}
+
+.letter.deleted {
+  color: var(--color-pink);
+}
+
+.letter.renamed {
+  color: var(--color-purple);
+}
+
+.path {
+  flex-grow: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note {
+  margin: 4px 6px;
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-faint);
+}
+
+.note.failed {
+  color: var(--color-pink);
+}

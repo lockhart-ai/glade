@@ -63,6 +63,12 @@ export enum ScriptStepKind {
    */
   LimitReached = 'limit_reached',
   /**
+   * The account is close to a usage limit: a `rate_limit_event` saying requests are allowed with a warning, with
+   * `utilization` of the `window` used and the window resetting `resetInMs` from now (to the second, as the SDK gives
+   * it), as the SDK sends at the start of each turn while the account is close.
+   */
+  LimitWarning = 'limit_warning',
+  /**
    * The agent starts a turn of its own once the turn it's in has ended, as the SDK does when a background command or
    * subagent finishes, a `Monitor` reports an event, or a scheduled wakeup or cron job fires (`docs/sdk-notes.md`,
    * "Turns the agent starts itself" and §11): `ms` after this step (no time by default), and once no turn is playing,
@@ -97,6 +103,14 @@ export enum ScriptStepKind {
    * call really changes Glade. Denied, its result is the denial, as for a `Permission` step.
    */
   ControlTool = 'control_tool',
+  /**
+   * A `Bash` call that really runs its command, in the session's folder (or `cwd` from it), with `/bin/sh`, as Claude
+   * Code runs one: the `tool_use`, then the session's `PreToolUse` hook (`hooks.onBashStarting`) with the call's folder
+   * and command, which the call waits for, then the command, then its result: what it printed, an error if it exited
+   * non-zero. Git in it reads no config of the machine's (`SHELL_GIT_ENV`), so a script's commits are the same
+   * anywhere. For the Changes tab's scripts, whose agents make real commits (`docs/sdk-notes.md` §14).
+   */
+  Shell = 'shell',
 }
 
 export interface InitStep {
@@ -198,6 +212,16 @@ export interface LimitReachedStep {
   readonly resetInMs: number
 }
 
+export interface LimitWarningStep {
+  readonly kind: ScriptStepKind.LimitWarning
+  /** How much of the window is used, from 0 to 1. */
+  readonly utilization: number
+  /** The window, as the SDK names it (`rateLimitType`), e.g. `five_hour`. */
+  readonly window: string
+  /** How long from now the window resets. */
+  readonly resetInMs: number
+}
+
 /**
  * What wakes the agent in a `Wake` step, and so what the SDK streams before the turn, what its prompt hook is told
  * (`SessionHooks.onPrompt`, `docs/sdk-notes.md` §13), and what the turn's `result` says.
@@ -296,7 +320,20 @@ export interface ControlToolStep {
   readonly input: ToolInput | ((cwd: string) => ToolInput)
 }
 
+export interface ShellStep {
+  readonly kind: ScriptStepKind.Shell
+  readonly id: string
+  readonly command: string
+  /** What the call says it does. */
+  readonly description: string
+  /** The folder it runs in, from the session's; the session's by default. */
+  readonly cwd?: string
+  /** The `Agent` call's id when a subagent makes the call. */
+  readonly parent?: string
+}
+
 export type ScriptStep =
+  | ShellStep
   | InitStep
   | TextStep
   | ToolUseStep
@@ -311,6 +348,7 @@ export type ScriptStep =
   | CompactStep
   | AskStep
   | LimitReachedStep
+  | LimitWarningStep
   | WakeStep
   | BackgroundStep
   | PermissionStep
@@ -412,6 +450,13 @@ export const result = (options: Omit<ResultStep, 'kind'> = {}): ResultStep => ({
   ...options,
 })
 
+export const shell = (
+  id: string,
+  command: string,
+  description: string,
+  options: Pick<ShellStep, 'cwd' | 'parent'> = {},
+): ShellStep => ({ kind: ScriptStepKind.Shell, id, command, description, ...options })
+
 export const emit = (message: unknown): EmitStep => ({ kind: ScriptStepKind.Emit, message })
 
 export const delay = (ms: number): DelayStep => ({ kind: ScriptStepKind.Delay, ms })
@@ -435,6 +480,13 @@ export const ask = (id: string, questions: readonly Question[]): AskStep => ({
 
 export const limitReached = (resetInMs: number): LimitReachedStep => ({
   kind: ScriptStepKind.LimitReached,
+  resetInMs,
+})
+
+export const limitWarning = (utilization: number, window: string, resetInMs: number): LimitWarningStep => ({
+  kind: ScriptStepKind.LimitWarning,
+  utilization,
+  window,
   resetInMs,
 })
 
@@ -865,8 +917,10 @@ const USAGE_LIMIT_ERROR = "You've hit your session limit · resets 11:42am"
  * The account's usage limit runs out, as Claude Code reports it: the limit rejects requests until `resetInMs` from
  * now, and the turn ends on the API's 429. Claude Code doesn't retry it.
  */
-const usageLimitReached = (resetInMs: number): ScriptStep[] => [
-  limitReached(resetInMs),
+const usageLimitReached = (resetInMs: number): ScriptStep[] => [limitReached(resetInMs), ...usageLimitError()]
+
+/** The API's 429 for a spent usage limit, and the turn's error result: Claude Code doesn't retry it. */
+const usageLimitError = (): ScriptStep[] => [
   emit({
     type: 'assistant',
     parent_tool_use_id: null,
@@ -946,6 +1000,68 @@ const usageLimit: AgentScript = {
 const usageLimitHour: AgentScript = {
   name: 'usage-limit-hour',
   turns: [copyUntil(usageLimitReached(HOUR_RESET_MS)), copyCompletes()],
+}
+
+/** How much of its session limit the account has used in the usage-warning scripts. */
+const WARNING_UTILIZATION = 0.85
+
+/** A turn's start while the account is close to its session limit, which resets `resetInMs` from now. */
+const warnedTurnStart = (utilization: number, resetInMs: number): ScriptStep[] => [
+  init(),
+  limitWarning(utilization, 'five_hour', resetInMs),
+  emit({ type: 'system', subtype: 'status', status: 'requesting' }),
+]
+
+/** A short turn while the account is close to its session limit, which resets `resetInMs` from now. */
+const warnedReply = (resetInMs: number): ScriptStep[] => [
+  ...warnedTurnStart(WARNING_UTILIZATION, resetInMs),
+  delay(BEAT_MS),
+  ...describeTask(
+    'Add rate limiting to public API',
+    'Add per-key rate limiting to the public API so one client can’t starve the others.',
+    'Throttle class written; applying it to the viewsets next.',
+  ),
+  say('The throttle class is written. Next I’ll apply it to the three public viewsets.'),
+  result(),
+]
+
+/**
+ * The account is close to its session limit, which resets in an hour: each turn starts with the SDK's warning, and goes
+ * on as usual.
+ */
+const usageWarning: AgentScript = {
+  name: 'usage-warning',
+  turns: [warnedReply(HOUR_RESET_MS)],
+}
+
+/** `usage-warning` with a window that resets a few seconds later, so the warning goes on its own. */
+const usageWarningResets: AgentScript = {
+  name: 'usage-warning-resets',
+  turns: [warnedReply(SHORT_RESET_MS)],
+}
+
+/**
+ * Warned, then over the limit: the first turn warns and replies; the second starts with a closer warning, then runs
+ * into the limit. The API's 429 ends it with no `rejected` event first, so the warning still stands when the task
+ * pauses (to resume after Glade's fallback wait).
+ */
+const usageWarningThenLimit: AgentScript = {
+  name: 'usage-warning-then-limit',
+  turns: [
+    warnedReply(HOUR_RESET_MS),
+    [
+      ...warnedTurnStart(0.97, HOUR_RESET_MS),
+      delay(BEAT_MS),
+      say('Applying the throttle to the viewsets.'),
+      ...tool(
+        'apply',
+        'Edit',
+        { file_path: 'api/views.py', old_string: 'class', new_string: 'class' },
+        'The file api/views.py has been updated.',
+      ),
+      ...usageLimitError(),
+    ],
+  ],
 }
 
 /** A copy that loses the network; the task resumes once it's back, and the copy completes. */
@@ -2491,8 +2607,122 @@ const backfillsTasks: AgentScript = {
   turns: [backfillTurn(BACKFILLS_TASKS.reply, 1), backfillTurn(BACKFILLS_TASKS.again, 2)],
 }
 
+/**
+ * What the `makes-commits` and `makes-another-commit` scripts' agents commit, for the Changes tab's specs and
+ * screenshots: in the workspace's repository (`setup` makes it, as a person's existing one, when it isn't one yet) and,
+ * through a subagent, in a worktree beside it.
+ */
+export const MAKES_COMMITS = {
+  prompt: 'The date formatting test fails in some timezones. Fix it, bump the version, and update the upgrade guide.',
+  title: 'Fix the UTC date test',
+  /** Makes the workspace a repository with a first commit of a person's, and a release script that commits. */
+  setup: [
+    'git init -q -b main',
+    'mkdir -p src docs scripts',
+    "printf 'export const header = (d) => `Report for ${d.toString()}`\\n' > src/date.ts",
+    'printf \'{ "name": "acme-api", "version": "2.4.0" }\\n\' > package.json',
+    "printf '# Upgrading\\n\\nRead the release notes first: they list every change that breaks a client.\\n\\n" +
+      "Back up the database before you upgrade.\\n\\nUpgrade the workers before the web servers.\\n' > docs/upgrade.md",
+    "printf '#!/bin/sh\\nsed -i.bak s/2.4.0/2.4.1/ package.json && rm package.json.bak\\n" +
+      'git commit -qam "Bump the version" > /dev/null\\n\' > scripts/release.sh',
+    'chmod +x scripts/release.sh',
+    'git add -A',
+    'git commit -q -m "Start the Acme API"',
+  ].join(' && '),
+  fix: 'Fix the UTC date test',
+  fixCommand:
+    "printf 'export const header = (d: Date) => `Report for ${d.toISOString().slice(0, 10)}`\\n' > src/date.ts" +
+    ' && git add src/date.ts && git commit -m "Fix the UTC date test"',
+  /** The release script commits, silently: only `HEAD` moving says so. */
+  releaseCommand: './scripts/release.sh',
+  bump: 'Bump the version to 2.4.1',
+  amendCommand: 'git commit --amend -q -m "Bump the version to 2.4.1"',
+  /** The worktree the subagent works in, beside the workspace. */
+  worktree: '../acme-api-docs',
+  worktreeBranch: 'docs/upgrade',
+  worktreeCommand: 'git worktree add -q -b docs/upgrade ../acme-api-docs',
+  subagent: 'Update the upgrade guide',
+  guide: 'Rename the upgrade guide and add the logo',
+  guideCommand:
+    "git mv docs/upgrade.md docs/upgrading.md && printf '\\nRun the migrations before you start the server.\\n' >> " +
+    "docs/upgrading.md && printf '\\211PNG\\r\\n\\032\\n\\000\\000' > docs/logo.png && git add -A && " +
+    'git commit -m "Rename the upgrade guide and add the logo"',
+  merge: 'Merge the upgrade guide',
+  mergeCommand: 'git merge --no-ff -q -m "Merge the upgrade guide" docs/upgrade',
+  reply:
+    'Fixed the UTC date test (it built its date in local time), bumped the version to 2.4.1, and merged the renamed ' +
+    'upgrade guide. The commits are in the Changes tab.',
+  /** The other task's. */
+  otherPrompt: 'Tidy the README.',
+  otherTitle: 'Tidy the README',
+  other: 'Tidy the README',
+  otherCommand:
+    'printf \'# Acme API\\n\\nThe public API.\\n\' > README.md && git add README.md && git commit -m "Tidy the README"',
+  otherReply: 'Tidied the README.',
+} as const
+
+/**
+ * Makes real commits in the workspace's repository (`docs/sdk-notes.md` §14), each a way the Changes tab has to see:
+ * a `git commit` that prints its hash, the release script committing silently, an amend of that commit, a subagent
+ * committing a rename and a binary file in a worktree of its own, and a merge commit of its branch.
+ */
+const makesCommits: AgentScript = {
+  name: 'makes-commits',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        MAKES_COMMITS.title,
+        'Fix the date formatting test that fails in some timezones, bump the version and update the upgrade guide.',
+        'Fixing the UTC date test.',
+      ),
+      shell('setup', `test -d .git || { ${MAKES_COMMITS.setup}; }`, 'Make the workspace a repository if it isn’t one'),
+      say('The test builds its date in local time. Fixing it to use UTC.'),
+      shell('fix', MAKES_COMMITS.fixCommand, 'Fix the date test and commit it'),
+      delay(BEAT_MS),
+      shell('release', MAKES_COMMITS.releaseCommand, 'Bump the version with the release script'),
+      shell('amend', MAKES_COMMITS.amendCommand, 'Say which version in the commit message'),
+      delay(BEAT_MS),
+      shell('worktree', MAKES_COMMITS.worktreeCommand, 'Make a worktree for the upgrade guide'),
+      toolUse('docs', 'Agent', {
+        description: MAKES_COMMITS.subagent,
+        subagent_type: 'general-purpose',
+        prompt: `In ${MAKES_COMMITS.worktree}, rename docs/upgrade.md to docs/upgrading.md, add the migrations step and the logo, and commit.`,
+      }),
+      say('Renaming the guide and adding the logo.', 'docs'),
+      shell('guide', MAKES_COMMITS.guideCommand, 'Rename the guide, add the logo and commit', {
+        cwd: MAKES_COMMITS.worktree,
+        parent: 'docs',
+      }),
+      toolResult('docs', 'Renamed the upgrade guide, added the migrations step and the logo, and committed.'),
+      delay(BEAT_MS),
+      shell('merge', MAKES_COMMITS.mergeCommand, 'Merge the upgrade guide'),
+      say(MAKES_COMMITS.reply),
+      result(),
+    ],
+  ],
+}
+
+/** Makes one commit in the workspace's repository: another task's, in the same repository as `makes-commits`. */
+const makesAnotherCommit: AgentScript = {
+  name: 'makes-another-commit',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(MAKES_COMMITS.otherTitle, 'Tidy the README.', 'Tidying the README.'),
+      shell('readme', MAKES_COMMITS.otherCommand, 'Tidy the README and commit it'),
+      say(MAKES_COMMITS.otherReply),
+      result(),
+    ],
+  ],
+}
+
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
+  'makes-commits',
+  'makes-another-commit',
   'simple-reply',
   'multi-tool-turn',
   'long-running',
@@ -2510,6 +2740,9 @@ export const AGENT_SCRIPT_NAMES = [
   'declares-artifacts',
   'usage-limit',
   'usage-limit-hour',
+  'usage-warning',
+  'usage-warning-resets',
+  'usage-warning-then-limit',
   'offline',
   'keeps-todos',
   'writes-todos',
@@ -2536,6 +2769,8 @@ export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
 
 /** Every script a test mode can run, by name. */
 export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
+  'makes-commits': makesCommits,
+  'makes-another-commit': makesAnotherCommit,
   'simple-reply': simpleReply,
   'multi-tool-turn': multiToolTurn,
   'long-running': longRunning,
@@ -2553,6 +2788,9 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'declares-artifacts': declaresArtifacts,
   'usage-limit': usageLimit,
   'usage-limit-hour': usageLimitHour,
+  'usage-warning': usageWarning,
+  'usage-warning-resets': usageWarningResets,
+  'usage-warning-then-limit': usageWarningThenLimit,
   offline,
   'keeps-todos': keepsTodos,
   'writes-todos': writesTodos,

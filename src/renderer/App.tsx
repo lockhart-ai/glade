@@ -4,7 +4,7 @@ import { ContextMeter } from './context-meter'
 import { ToastProvider } from './components'
 import { FirstRun } from './first-run/FirstRun'
 import { InputBar } from './input-bar'
-import { PauseBanner } from './pause/PauseBanner'
+import { AppBanner } from './pause/UsageNote'
 import { AppShell, BottomBar, Sidebar, SidebarHeader, TaskCard } from './layout'
 import { isMoving, MotionPhase, usePresence } from './motion'
 import { Panel, PanelToggle, usePanel, usePanelSize } from './panels'
@@ -123,7 +123,7 @@ function Layout(): React.JSX.Element {
   useRightPanelShortcuts()
   return (
     <Window
-      banner={<PauseBanner />}
+      banner={<AppBanner />}
       sidebarMotion={sidebarPresence.phase}
       sidebar={
         !sidebarPresence.mounted ? undefined : (

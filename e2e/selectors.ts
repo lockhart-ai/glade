@@ -228,6 +228,28 @@ export function watchersTab(page: Page) {
 }
 
 /**
+ * The right panel's Changes tab: a row per commit the task made, newest first, each opening to the files it changed.
+ */
+export function changesTab(page: Page) {
+  const panel = regions(page).taskPanel.getByRole('tabpanel')
+  /** A commit's row, by its message; `data-hash` is its full hash. */
+  const row = (subject: string) => panel.getByRole('group', { name: subject, exact: true })
+  return {
+    panel,
+    /** Every commit's row, top to bottom. */
+    rows: panel.locator('[data-hash][role="group"]'),
+    row,
+    /** A row's header: its hash, message, lines, branch, when and subagent. Click it to open its files. */
+    header: (subject: string) => row(subject).getByRole('button').first(),
+    /** A commit's files, while it's open, by its short hash. */
+    files: (hash: string) => panel.getByRole('list', { name: `Files in ${hash}` }),
+    /** A file in an open commit's list, by its path (a renamed one's, from and to). */
+    file: (subject: string, path: string | RegExp) =>
+      row(subject).getByRole('listitem').getByRole('button', { name: path }),
+  }
+}
+
+/**
  * A task row's watcher count, on its indicators line: an eye and how many live watchers its agent has, named
  * "2 watchers running" (its tooltip too).
  */
@@ -362,6 +384,11 @@ export function pauseBanner(page: Page) {
   }
 }
 
+/** The quiet note in the banner's spot while the account is close to a usage limit. */
+export function usageNote(page: Page) {
+  return page.getByRole('status', { name: 'Usage warning' })
+}
+
 /** The toasts at the bottom of the window, e.g. Mark done's Undo. */
 export function toasts(page: Page) {
   const region = page.getByRole('region', { name: 'Notifications' })
@@ -489,6 +516,8 @@ export function settings(page: Page) {
     regenerateToken: dialog.getByRole('button', { name: 'Regenerate token' }),
     /** Control's port field. */
     port: dialog.getByRole('textbox', { name: 'Port' }),
+    /** General's account block: the account the tasks run on, as Claude Code reported it. */
+    account: dialog.getByRole('region', { name: 'Account' }),
     /** What Control says of the port in use: that it isn't the one chosen, or why there's none. */
     portNotice: dialog.getByRole('status'),
   }

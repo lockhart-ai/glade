@@ -9,14 +9,15 @@ export enum ButtonVariant {
   Primary = 'primary',
   /** Raised fill with a strong outline (e.g. Open task, a select trigger). */
   Dark = 'dark',
-  /** Transparent with a strong outline (e.g. Mark done). */
+  /** Transparent with a strong outline (e.g. a labelled Mark done). */
   Ghost = 'ghost',
   /** Pink on a pink tint, for the action that deletes something (e.g. a confirmation's Delete). */
   Danger = 'danger',
-  /** A square, borderless icon-only button (e.g. Pin task). Give it an `icon` and an `aria-label`. */
+  /**
+   * A square, borderless icon-only button, the one style for every icon button (e.g. the task header's pin and Mark
+   * done, a panel's collapse button). Give it an `icon` and an `aria-label`; as a toggle, `aria-pressed` fills it.
+   */
   Icon = 'icon',
-  /** An icon button in a square with a strong outline (e.g. the task header's Mark done). Give it an `aria-label`. */
-  IconOutline = 'iconOutline',
 }
 
 export enum ButtonSize {
@@ -46,7 +47,7 @@ export function Button({
   children,
   ...rest
 }: ButtonProps): React.JSX.Element {
-  const isIconButton = variant === ButtonVariant.Icon || variant === ButtonVariant.IconOutline
+  const isIconButton = variant === ButtonVariant.Icon
 
   return (
     <button
