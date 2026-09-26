@@ -38,6 +38,8 @@ import { DEFAULT_SETTINGS } from '../shared/settings'
 import { DRIVES_GLADE } from './agent/scripts'
 import { getSettings } from './db/repositories/settings'
 import { ensureControlToken, readControlToken } from './control/token'
+import { getSessionContext } from './db/repositories/session-context'
+import { INSTRUCTION_UPDATES } from './agent/system-prompt'
 import { getAccount, getUsageWarning } from './db/repositories/account'
 import { UsageWindow } from '../shared/account'
 
@@ -592,7 +594,22 @@ describe('applySeed', () => {
 
     applySeed(db, { ...SEED, tasks: [{ title: '', minutesAgo: 0 }] })
 
-    expect(listTasks(db, listWorkspaces(db)[0]?.id ?? '')[0]?.sessionId).toBeNull()
+    const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    expect(task?.sessionId).toBeNull()
+    expect(getSessionContext(db, task?.id ?? '')).toBeUndefined()
+  })
+
+  it("records a titled task's session as started with Glade's prompt as it is now, with no handoff note yet", () => {
+    const { db } = database
+
+    applySeed(db, { ...SEED, tasks: [{ title: 'Add rate limiting', minutesAgo: 0 }] })
+
+    const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    expect(getSessionContext(db, task?.id ?? '')).toEqual({
+      instructions: true,
+      instructionUpdates: INSTRUCTION_UPDATES.length,
+      handoffAt: null,
+    })
   })
 
   it("writes a task's chat log and tool log, the tool calls done when they have an output", () => {

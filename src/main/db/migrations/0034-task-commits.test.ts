@@ -7,10 +7,8 @@ import { taskCommitsMigration } from './0034-task-commits'
 
 it('is migration 34, after every earlier one', () => {
   expect(taskCommitsMigration.version).toBe(34)
-  // Later versions may be reserved by other work, so only the order before it is fixed.
-  const position = MIGRATIONS.indexOf(taskCommitsMigration)
-  expect(MIGRATIONS.slice(0, position).every((m) => m.version < 34)).toBe(true)
-  expect(MIGRATIONS).toContain(taskCommitsMigration)
+  // Later versions reserved by other work may land after it; it only has to come after every earlier one.
+  expect(MIGRATIONS.indexOf(taskCommitsMigration)).toBe(MIGRATIONS.filter((m) => m.version < 34).length)
 })
 
 it('starts every existing task with no commits, keeps one link per commit, checks its source, and drops them with their task', () => {
