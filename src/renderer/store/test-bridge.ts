@@ -592,7 +592,8 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     },
     [CommandName.MenuBarGet]: () => ({ snapshot: main.menuBar ?? EMPTY_MENU_BAR_SNAPSHOT }),
     [CommandName.MenuBarOpenTask]: ({ id }) => {
-      if (!main.tasks.some((task) => task.id === id)) return refuse(bridgeError(BridgeErrorCode.NotFound, `No task ${id}`))
+      if (!main.tasks.some((task) => task.id === id))
+        return refuse(bridgeError(BridgeErrorCode.NotFound, `No task ${id}`))
       main.menuBarCalls?.push(`openTask ${id}`)
       return null
     },

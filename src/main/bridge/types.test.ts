@@ -11,7 +11,7 @@ import {
   type GladeBridge,
   type GladeEvent,
 } from '../../shared/bridge'
-import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
+import { EMPTY_MENU_BAR_SNAPSHOT, type MenuBarSnapshot } from '../../shared/menuBar'
 import type { Command } from '../../shared/commands'
 import {
   Effort,
@@ -463,6 +463,9 @@ describe('events', () => {
           break
         case EventType.ControlChanged:
           expectTypeOf(event.status).toEqualTypeOf<ControlStatus>()
+          break
+        case EventType.MenuBarChanged:
+          expectTypeOf(event.snapshot).toEqualTypeOf<MenuBarSnapshot>()
           break
       }
     })

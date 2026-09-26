@@ -46,9 +46,9 @@ export function recordNotification(
     const row: unknown = db
       .prepare('INSERT INTO notifications (task_id, title, body, sent_at) VALUES (?, ?, ?, ?) RETURNING *')
       .get(taskId, title, body, now)
-    db.prepare('DELETE FROM notifications WHERE seq NOT IN (SELECT seq FROM notifications ORDER BY seq DESC LIMIT ?)').run(
-      kept,
-    )
+    db.prepare(
+      'DELETE FROM notifications WHERE seq NOT IN (SELECT seq FROM notifications ORDER BY seq DESC LIMIT ?)',
+    ).run(kept)
     return parseNotification(row)
   })()
 }
