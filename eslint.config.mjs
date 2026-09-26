@@ -7,7 +7,8 @@ import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 export default defineConfig(
-  globalIgnores(['out/', 'dist/', 'release/', 'coverage/', 'docs/']),
+  // The sample workspaces the design captures open are made-up files for the app to show, not code of Glade's.
+  globalIgnores(['out/', 'dist/', 'release/', 'coverage/', 'docs/', 'scripts/fixtures/*-workspace/']),
 
   js.configs.recommended,
   tseslint.configs.strictTypeChecked,

@@ -14,7 +14,7 @@ import type { ImageData } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import { describeFailure, lastOpenedWorkspace, loadSnapshot } from './hydrate'
 import { doneListKey, isLoaded, withDoneCounts, withDonePage, withLoadedTasks } from './doneLists'
-import { applyEvent, withHistory, withOpenedWorkspace } from './reducer'
+import { applyEvent, withGroupFold, withHistory, withOpenedWorkspace } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState, type TerminalEvent } from './state'
 
 export type GladeStore = StoreApi<GladeState>
@@ -563,9 +563,9 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.FilesOpenInEditor, { taskId, path })
       },
 
-      async fileInfo(taskId, path) {
-        const { info } = await bridge.invoke(CommandName.FilesInfo, { taskId, path })
-        return info
+      async fileThumbnail(taskId, path) {
+        const { thumbnail } = await bridge.invoke(CommandName.FilesThumbnail, { taskId, path })
+        return thumbnail
       },
 
       async copyFile(taskId, path) {
@@ -583,6 +583,22 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
 
       async removeArtifact(taskId, path) {
         await bridge.invoke(CommandName.ArtifactsRemove, { taskId, path })
+      },
+
+      // The group opens or folds at once; main remembers it for the task.
+      async setArtifactGroupOpen(taskId, group, open) {
+        set(({ artifactGroups }) => ({
+          artifactGroups: { ...artifactGroups, [taskId]: withGroupFold(artifactGroups[taskId] ?? [], { group, open }) },
+        }))
+        await bridge.invoke(CommandName.ArtifactsSetGroupOpen, { taskId, group, open })
+      },
+
+      async watchArtifacts(taskId) {
+        await bridge.invoke(CommandName.ArtifactsWatch, { taskId })
+      },
+
+      async unwatchArtifacts(taskId) {
+        await bridge.invoke(CommandName.ArtifactsUnwatch, { taskId })
       },
 
       async stopSubagent(taskId, toolUseId) {

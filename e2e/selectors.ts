@@ -286,16 +286,40 @@ export function workspaceSwitcher(page: Page) {
   }
 }
 
-/** The right panel's Artifacts tab: a card per artifact, each with its title, path, file line and actions. */
+/** Text for a regular expression that matches it as it is. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * The right panel's Artifacts tab (#307): date groups (Today, Yesterday, This week, Last week, This month, Older), each
+ * a header that folds it and a row per artifact. A row's Open, Reveal in folder and More show only while it's hovered
+ * or has the focus, so hover the row first.
+ */
 export function artifactsTab(page: Page) {
-  const list = regions(page).taskPanel.getByRole('list', { name: 'Artifacts' })
-  const card = (title: string) => list.getByRole('listitem', { name: title, exact: true })
+  const panel = regions(page).taskPanel.getByRole('group', { name: 'Artifacts', exact: true })
+  const row = (title: string) => panel.getByRole('listitem', { name: title, exact: true })
+  const group = (name: string) => panel.getByRole('region', { name, exact: true })
   return {
-    list,
-    cards: list.getByRole('listitem'),
-    card,
-    /** One of a card's actions: Open, Copy or Reveal in folder. */
-    action: (title: string, name: 'Open' | 'Copy' | 'Reveal in folder') => card(title).getByRole('button', { name }),
+    panel,
+    /** Every row showing, in every open group, top to bottom. */
+    rows: panel.getByRole('listitem'),
+    /** An artifact's row, by its title. */
+    row,
+    /** The date groups, top to bottom. */
+    groups: panel.getByRole('region'),
+    group,
+    /** A group's header: its name, then its count; `aria-expanded` while it's open. */
+    header: (name: string) => group(name).getByRole('button', { name: new RegExp(`^${name}\\s?\\d+$`) }),
+    /** The rows of a group, while it's open. */
+    groupRows: (name: string) => group(name).getByRole('listitem'),
+    /** The main part of a row, which opens its file. */
+    open: (title: string) => row(title).getByRole('button', { name: new RegExp(`^${escapeRegExp(title)}`) }),
+    /** One of a row's buttons, shown while it's hovered: Open, Reveal in folder or More. */
+    action: (title: string, name: 'Open' | 'Reveal in folder' | 'More') =>
+      row(title).getByRole('button', { name, exact: true }),
+    /** A row's thumbnail, once there is one. */
+    thumbnail: (title: string) => row(title).locator('img'),
   }
 }
 

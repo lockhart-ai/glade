@@ -1,33 +1,34 @@
 {
   "workspace": {
     "name": "Acme API",
-    "rootPath": "artifacts-workspace"
+    "rootPath": "/Users/sample/code/api",
+    "files": "artifacts-workspace"
   },
   "tasks": [
     {
-      "title": "Draft release notes for 2.4",
-      "objective": "Draft release notes for 2.4 from the PRs merged since the 2.3 tag. Group them into features, fixes and internal changes, and add a short upgrade guide if anything changes for API clients.",
-      "status": "Release notes, an upgrade guide and an announcement email are drafted. Waiting on three layout and credit questions.",
+      "title": "Refresh the developer docs site",
+      "objective": "Refresh docs.acme.dev: a new information architecture, light and dark themes, faster search and a clear rate-limits reference. Share screenshots and drafts in Artifacts as you go.",
+      "status": "Landing page screenshots in both themes and the changelog draft are in Artifacts. Waiting on sign-off for the light theme.",
       "pinned": true,
       "minutesAgo": 4,
-      "startedMinutesAgo": 31,
+      "startedMinutesAgo": 50400,
       "selected": true,
       "contextUsedTokens": 88000,
       "contextWindowTokens": 200000,
       "messages": [
         {
           "role": "user",
-          "body": "Draft release notes for 2.4 from the PRs merged since the 2.3 tag. Group them into features, fixes and internal changes, and add a short upgrade guide if anything changes for API clients.",
+          "body": "Can you screenshot the new landing page in both themes, and draft the changelog page from the 2.4 notes?",
           "turn": 1,
-          "minutesAgo": 30
+          "minutesAgo": 32
         },
         {
           "role": "agent",
-          "body": "Release notes, an upgrade guide and an announcement email are ready in Artifacts. I have three questions about layout and credits whenever you are.",
+          "body": "Both landing page screenshots and the changelog draft are in Artifacts, under Today. The light theme's code blocks are low contrast next to the body text: want me to darken them before I move on to search?",
           "turn": 1,
-          "minutesAgo": 4,
+          "minutesAgo": 8,
           "summary": {
-            "durationMs": 1562000,
+            "durationMs": 1300000,
             "filesChanged": 3,
             "linesAdded": 184,
             "linesRemoved": 0
@@ -37,87 +38,91 @@
       "toolEvents": [
         {
           "kind": "narration",
-          "text": "Listing the PRs merged since the 2.3 tag.",
+          "text": "Building the site and starting a preview server.",
           "turn": 1,
-          "minutesAgo": 29
+          "minutesAgo": 31
         },
         {
           "kind": "tool_call",
           "name": "Bash",
           "input": {
-            "command": "git log --merges --oneline v2.3..HEAD"
+            "command": "npm run docs:build && npm run docs:preview"
           },
-          "output": "41 merge commits",
+          "output": "Preview at http://localhost:4173",
           "turn": 1,
-          "minutesAgo": 28
-        },
-        {
-          "kind": "tool_call",
-          "name": "Read",
-          "input": {
-            "file_path": "CHANGELOG.md"
-          },
-          "output": "# Changelog",
-          "turn": 1,
-          "minutesAgo": 26
-        },
-        {
-          "kind": "tool_call",
-          "name": "Write",
-          "input": {
-            "file_path": "docs/releases/2.4.md"
-          },
-          "output": "File created successfully at: docs/releases/2.4.md",
-          "turn": 1,
-          "minutesAgo": 12
-        },
-        {
-          "kind": "tool_call",
-          "name": "Write",
-          "input": {
-            "file_path": "docs/releases/2.4-upgrade.md"
-          },
-          "output": "File created successfully at: docs/releases/2.4-upgrade.md",
-          "turn": 1,
-          "minutesAgo": 8
-        },
-        {
-          "kind": "tool_call",
-          "name": "Write",
-          "input": {
-            "file_path": "mail/announcement-2.4.txt"
-          },
-          "output": "File created successfully at: mail/announcement-2.4.txt",
-          "turn": 1,
-          "minutesAgo": 6
+          "minutesAgo": 30
         },
         {
           "kind": "tool_call",
           "name": "Bash",
           "input": {
-            "command": "npx markdownlint docs/releases"
+            "command": "npx playwright screenshot --color-scheme dark http://localhost:4173 screens/landing-dark.png"
           },
-          "output": "",
+          "output": "Captured screens/landing-dark.png",
           "turn": 1,
-          "minutesAgo": 5
+          "minutesAgo": 22
+        },
+        {
+          "kind": "tool_call",
+          "name": "Bash",
+          "input": {
+            "command": "npx playwright screenshot --color-scheme light http://localhost:4173 screens/landing-light.png"
+          },
+          "output": "Captured screens/landing-light.png",
+          "turn": 1,
+          "minutesAgo": 21
+        },
+        {
+          "kind": "tool_call",
+          "name": "Write",
+          "input": {
+            "file_path": "docs/site/changelog.md"
+          },
+          "output": "File created successfully at: docs/site/changelog.md",
+          "turn": 1,
+          "minutesAgo": 14
+        },
+        {
+          "kind": "tool_call",
+          "name": "Edit",
+          "input": {
+            "file_path": "docs/site/changelog.md"
+          },
+          "output": "The file docs/site/changelog.md has been updated.",
+          "turn": 1,
+          "minutesAgo": 9
         }
       ],
+      "openFiles": {
+        "paths": ["docs/site/changelog.md"]
+      },
       "artifacts": [
+        { "path": "docs/site/analytics-2026-08.md", "title": "August traffic report", "daysAgo": 30, "time": "12:00" },
+        { "path": "docs/site/brief.md", "title": "Refresh brief", "daysAgo": 16, "time": "10:00" },
+        { "path": "screens/theme-tokens.png", "title": "Theme colour tokens", "daysAgo": 18, "time": "17:20" },
+        { "path": "docs/site/style-guide.md", "title": "Docs style guide", "daysAgo": 8, "time": "14:30" },
+        { "path": "screens/audit-before.png", "title": "Docs site before the refresh", "daysAgo": 9, "time": "11:00" },
+        { "path": "docs/site/page-inventory.csv", "title": "Page inventory", "daysAgo": 10, "time": "15:45" },
         {
-          "path": "docs/releases/2.4.md",
-          "title": "Release notes 2.4",
-          "minutesAgo": 12
+          "path": "docs/site/information-architecture.md",
+          "title": "Information architecture",
+          "daysAgo": 3,
+          "time": "10:15"
         },
+        { "path": "screens/nav-tree.png", "title": "Navigation tree", "daysAgo": 3, "time": "09:40" },
+        { "path": "docs/site/search-plan.md", "title": "Search plan", "daysAgo": 4, "time": "16:05" },
+        { "path": "site/redirects.yml", "title": "Redirect map", "daysAgo": 1, "time": "11:26" },
         {
-          "path": "docs/releases/2.4-upgrade.md",
-          "title": "Upgrade guide",
-          "minutesAgo": 8
+          "path": "site/src/components/NavSidebar.tsx",
+          "title": "Nav sidebar component",
+          "daysAgo": 1,
+          "time": "15:02"
         },
-        {
-          "path": "mail/announcement-2.4.txt",
-          "title": "Announcement email",
-          "minutesAgo": 6
-        }
+        { "path": "screens/search-mobile.png", "title": "Search results on mobile", "daysAgo": 1, "time": "16:40" },
+        { "path": "docs/site/rate-limits.md", "title": "Rate limits reference", "minutesAgo": 125 },
+        { "path": "screens/landing-light.png", "title": "Landing page, light theme", "minutesAgo": 22 },
+        { "path": "docs/site/changelog.md", "title": "Changelog page draft", "minutesAgo": 14 },
+        { "path": "screens/landing-dark.png", "title": "Landing page, dark theme", "minutesAgo": 8 }
       ]
     },
     {

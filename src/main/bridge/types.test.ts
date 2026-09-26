@@ -16,12 +16,13 @@ import type { Command } from '../../shared/commands'
 import {
   Effort,
   FileContentKind,
-  FileInfoKind,
+  FileThumbnailKind,
   PermissionDecisionKind,
   TaskState,
   UiStateKey,
   type Message,
   type Artifact,
+  type ArtifactGroupFold,
   type TaskHandoff,
   type Watcher,
   type TaskCommit,
@@ -81,6 +82,7 @@ const TASK_HANDLERS = {
     openFiles: { taskId: 't', paths: [], activePath: null },
     todos: null,
     artifacts: [],
+    artifactGroups: [],
     handoff: null,
     watchers: [],
     commits: [],
@@ -105,7 +107,7 @@ const TASK_HANDLERS = {
   [CommandName.ChangesOpenFile]: () => ({ openFiles: {} as OpenFiles }),
   [CommandName.ChangesRepository]: () => ({ repository: true }),
   [CommandName.ClipboardWriteText]: () => null,
-  [CommandName.FilesInfo]: () => ({ info: { kind: FileInfoKind.Missing } }),
+  [CommandName.FilesThumbnail]: () => ({ thumbnail: { kind: FileThumbnailKind.Missing } }),
   [CommandName.FilesCopy]: () => null,
   [CommandName.FilesReveal]: () => null,
   [CommandName.WorkspacesUpdate]: () => ({ workspace: WORKSPACE }),
@@ -113,6 +115,9 @@ const TASK_HANDLERS = {
   [CommandName.ModelsList]: () => ({ models: BUILT_IN_MODELS }),
   [CommandName.SettingsUpdate]: () => ({ settings: DEFAULT_SETTINGS }),
   [CommandName.ArtifactsRemove]: () => null,
+  [CommandName.ArtifactsSetGroupOpen]: () => null,
+  [CommandName.ArtifactsWatch]: () => null,
+  [CommandName.ArtifactsUnwatch]: () => null,
   [CommandName.WorkspacesRemove]: () => null,
   [CommandName.MenuUpdate]: () => null,
   [CommandName.WindowClose]: () => null,
@@ -172,13 +177,16 @@ const TASK_SCHEMAS = {
   [CommandName.ChangesOpenFile]: REQUEST_SCHEMAS[CommandName.ChangesOpenFile],
   [CommandName.ChangesRepository]: REQUEST_SCHEMAS[CommandName.ChangesRepository],
   [CommandName.ClipboardWriteText]: REQUEST_SCHEMAS[CommandName.ClipboardWriteText],
-  [CommandName.FilesInfo]: REQUEST_SCHEMAS[CommandName.FilesInfo],
+  [CommandName.FilesThumbnail]: REQUEST_SCHEMAS[CommandName.FilesThumbnail],
   [CommandName.FilesCopy]: REQUEST_SCHEMAS[CommandName.FilesCopy],
   [CommandName.FilesReveal]: REQUEST_SCHEMAS[CommandName.FilesReveal],
   [CommandName.WorkspacesUpdate]: REQUEST_SCHEMAS[CommandName.WorkspacesUpdate],
   [CommandName.SettingsGet]: REQUEST_SCHEMAS[CommandName.SettingsGet],
   [CommandName.SettingsUpdate]: REQUEST_SCHEMAS[CommandName.SettingsUpdate],
   [CommandName.ArtifactsRemove]: REQUEST_SCHEMAS[CommandName.ArtifactsRemove],
+  [CommandName.ArtifactsSetGroupOpen]: REQUEST_SCHEMAS[CommandName.ArtifactsSetGroupOpen],
+  [CommandName.ArtifactsWatch]: REQUEST_SCHEMAS[CommandName.ArtifactsWatch],
+  [CommandName.ArtifactsUnwatch]: REQUEST_SCHEMAS[CommandName.ArtifactsUnwatch],
   [CommandName.SearchQuery]: REQUEST_SCHEMAS[CommandName.SearchQuery],
   [CommandName.WorkspacesRemove]: REQUEST_SCHEMAS[CommandName.WorkspacesRemove],
   [CommandName.MenuUpdate]: REQUEST_SCHEMAS[CommandName.MenuUpdate],
@@ -238,6 +246,7 @@ describe('the command map', () => {
       readonly openFiles: OpenFiles
       readonly todos: TodoList | null
       readonly artifacts: readonly Artifact[]
+      readonly artifactGroups: readonly ArtifactGroupFold[]
       readonly handoff: TaskHandoff | null
       readonly watchers: readonly Watcher[]
       readonly commits: readonly TaskCommit[]

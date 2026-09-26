@@ -65,6 +65,14 @@ function List({ onChoose }: ListProps): React.JSX.Element {
         <span {...menu.targetProps('nested')}>Nested</span>
       </div>
       <span {...menu.targetProps('empty')}>Empty</span>
+      <button
+        type="button"
+        onClick={(event) => {
+          menu.openBelow('second', event.currentTarget)
+        }}
+      >
+        More
+      </button>
       <ContextMenu label="Row actions" state={menu} entries={entries} />
     </>
   )
@@ -115,6 +123,18 @@ describe('useContextMenu', () => {
 
     expect(event).toBe(true)
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('opens a row’s menu from a button, below it', async () => {
+    const onChoose = vi.fn()
+    render(<List onChoose={onChoose} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'More' }))
+    await act(() => Promise.resolve())
+
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Choose second'])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Choose second' }))
+    expect(onChoose).toHaveBeenCalledExactlyOnceWith('second')
   })
 
   it('opens nothing for a target with no items', () => {

@@ -99,8 +99,10 @@ inside the workspace, symlinks included), keeps the artifact in the `artifacts` 
 them; they go only when the task is deleted) and broadcasts `artifacts.changed` with the task's whole list. Declaring a
 path again renames it, keeping its place. The reply is `Added <path> to the artifacts as "<title>".` or
 `Renamed the artifact <path> to "<title>".`; a bad path is a tool error and adds nothing. The system prompt asks the
-agent to declare the deliverables the user asked for with it. The Artifacts tab shows a card per artifact, with its
-type (from the extension), lines (from a cheap read, `files.info`) and when the file last changed.
+agent to declare the deliverables the user asked for with it. The Artifacts tab shows a row per artifact, with a
+thumbnail of an image (`files.thumbnail`) or its type (from the extension), newest first by when its file last changed
+(noted as it's declared, and again when a tool call writes it or, while the tab is open, the file changes on disk),
+under date headers.
 
 | Tool | Input (draft) | Effect |
 |---|---|---|

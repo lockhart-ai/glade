@@ -1,7 +1,8 @@
 {
   "workspace": {
     "name": "Acme API",
-    "rootPath": "open-file-workspace"
+    "rootPath": "/Users/sample/code/api",
+    "files": "open-file-workspace"
   },
   "tasks": [
     {

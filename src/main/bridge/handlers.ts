@@ -4,6 +4,7 @@ import type { MenuState } from '../../shared/commands'
 import { SUBAGENT_TOOL_NAMES } from '../../shared/subagents'
 import type { AgentRunner } from '../agent/runner'
 import { listArtifacts } from '../db/repositories/artifacts'
+import { setArtifactGroupOpen, listArtifactGroups } from '../db/repositories/artifact-groups'
 import { listLiveWatchers, listWatchers, publicWatcher } from '../db/repositories/watchers'
 import { listTaskCommits } from '../db/repositories/task-commits'
 import { commitFiles, openCommitFile, readCommitFile, workspaceInRepository } from '../changes/changes'
@@ -39,7 +40,7 @@ import { changeTask, createTask, deleteTask, markTaskDone, reopenTask, requireTa
 import {
   closeTaskFile,
   copyTaskFile,
-  infoOfTaskFile,
+  thumbnailOfTaskFile,
   openTaskFile,
   openTaskFileInEditor,
   readTaskFile,
@@ -50,6 +51,8 @@ import {
 } from '../files/files'
 import { todoListFor } from '../todos/todos'
 import { removeTaskArtifact } from '../artifacts/artifacts'
+import { NO_THUMBNAILS, type Thumbnails } from '../artifacts/thumbnails'
+import type { ArtifactWatcher } from '../artifacts/artifact-watch'
 import { parseCommitFileKey } from '../../shared/files'
 import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import { CommandFailure } from './errors'
@@ -99,6 +102,10 @@ export interface HandlerContext {
   readonly log?: Logger
   /** Reads git, for the Changes tab. The `git` on the PATH by default. */
   readonly git?: Git
+  /** Makes and keeps the artifacts' thumbnails (`files.thumbnail`). None by default: every file shows its type. */
+  readonly thumbnails?: Thumbnails
+  /** Watches the files of the artifacts the Artifacts tab shows (`artifacts.watch`). None by default: nothing is. */
+  readonly artifactWatch?: ArtifactWatcher
 }
 
 /** The root of the workspace a new terminal tab starts in, or null for none. */
@@ -186,6 +193,7 @@ export function createHandlers(context: HandlerContext): Handlers {
         openFiles: getOpenFiles(db, id),
         todos: todoListFor(db, id),
         artifacts: listArtifacts(db, id),
+        artifactGroups: listArtifactGroups(db, id),
         handoff: getHandoff(db, id) ?? null,
         watchers: listWatchers(db, id).map(publicWatcher),
         commits: listTaskCommits(db, id),
@@ -236,7 +244,9 @@ export function createHandlers(context: HandlerContext): Handlers {
       await openTaskFileInEditor(context, taskId, path)
       return null
     },
-    [CommandName.FilesInfo]: async ({ taskId, path }) => ({ info: await infoOfTaskFile(context, taskId, path) }),
+    [CommandName.FilesThumbnail]: async ({ taskId, path }) => ({
+      thumbnail: await thumbnailOfTaskFile(context, context.thumbnails ?? NO_THUMBNAILS, taskId, path),
+    }),
     [CommandName.FilesCopy]: async ({ taskId, path }) => {
       await copyTaskFile(context, taskId, path)
       return null
@@ -247,6 +257,21 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.ArtifactsRemove]: ({ taskId, path }) => {
       removeTaskArtifact(context, taskId, path)
+      return null
+    },
+    [CommandName.ArtifactsSetGroupOpen]: ({ taskId, group, open }) => {
+      requireTask(db, taskId)
+      setArtifactGroupOpen(db, { taskId, group, open })
+      return null
+    },
+    [CommandName.ArtifactsWatch]: ({ taskId }) => {
+      requireTask(db, taskId)
+      context.artifactWatch?.watch(taskId)
+      return null
+    },
+    // A task deleted while its tab showed it is let go too.
+    [CommandName.ArtifactsUnwatch]: ({ taskId }) => {
+      context.artifactWatch?.unwatch(taskId)
       return null
     },
     [CommandName.ClipboardWriteText]: async ({ text }) => {

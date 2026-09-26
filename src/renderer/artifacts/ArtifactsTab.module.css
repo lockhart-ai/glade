@@ -1,11 +1,9 @@
-/* The Artifacts tab, from docs/design/html/10-artifacts.html. */
+/* The Artifacts tab, from docs/design/html/10-artifacts.html (#307): compact rows with thumbnails, in date groups. */
 .artifacts {
   flex-grow: 1;
   min-height: 0;
   overflow-y: auto;
-  margin: 0;
   padding: var(--space-lg) var(--space-inset);
-  list-style: none;
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
@@ -19,69 +17,202 @@
   color: var(--color-faint);
 }
 
-.card {
+.group {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
-  padding: var(--space-lg);
+  gap: var(--space-2xs);
+}
+
+/* A group's header, as the task list's section headers have theirs. */
+.header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--space-item);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+.header:hover {
+  color: var(--color-muted);
+}
+
+.header:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+}
+
+.chevron {
+  display: flex;
+  width: 12px;
+}
+
+.name {
+  flex-grow: 1;
+  text-align: left;
+}
+
+/* A group's rows, of which only those in view are rendered: each sits at its place in a list as tall as all of them. */
+.rows {
+  position: relative;
+}
+
+.virtualRow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  box-sizing: border-box;
+  padding: 0 var(--space-md) 0 var(--space-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-button);
+  transition: background-color var(--motion-duration-fast) var(--motion-ease);
+}
+
+.row:hover,
+.row:focus-within {
   background: var(--color-inner-2);
-  border: 1px solid var(--color-strong);
-  border-radius: var(--radius-menu);
 }
 
-.head {
+.selected {
+  background: var(--color-inner-2);
+  border-color: var(--color-strong);
+}
+
+/* The row's main part: clicking it opens the file. */
+.open {
+  flex-grow: 1;
+  min-width: 0;
+  align-self: stretch;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.icon {
+.open:disabled {
+  cursor: default;
+}
+
+.open:focus-visible {
+  outline: none;
+}
+
+.row:has(.open:focus-visible) {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+}
+
+/* The thumbnail, or the type's tile in its place. */
+.tile {
+  flex-shrink: 0;
   display: flex;
-  padding-top: 1px;
-  color: var(--color-blue-text);
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 28px;
+  box-sizing: border-box;
+  border: 1px solid var(--color-inner-border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.blank {
+  background: var(--color-panel);
+  color: var(--color-muted);
+}
+
+.thumbnail {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .text {
   flex-grow: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: baseline;
+  gap: var(--space-md);
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .title {
-  font-size: var(--font-size-body);
-  font-weight: 600;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13.5px;
   color: var(--color-text);
-  overflow-wrap: anywhere;
 }
 
-.path {
+.type,
+.age {
+  flex-shrink: 0;
   font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--color-muted);
-  overflow-wrap: anywhere;
-}
-
-.meta {
-  font-size: 12px;
+  font-size: var(--font-size-label);
   color: var(--color-faint);
 }
 
+.age {
+  min-width: 40px;
+  text-align: right;
+}
+
+/* Hovered or focused, the age gives way to the row's buttons. */
 .actions {
+  flex-shrink: 0;
+  display: none;
+  gap: var(--space-2xs);
+}
+
+.row:hover .age,
+.row:focus-within .age {
+  display: none;
+}
+
+.row:hover .actions,
+.row:focus-within .actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
 }
 
 .action {
-  height: 28px;
+  width: 26px;
+  height: 26px;
+  color: var(--color-muted);
 }
 
-/* A file that isn't there any more: the card fades back, its icon and title as faint as the rest. */
-.missing .icon,
+/* A file that's gone: its row fades back, its tile and title as faint as the rest. */
 .missing .title,
-.missing .path {
+.missing .blank {
   color: var(--color-faint);
+}
+
+.missing .tile {
+  opacity: 0.6;
 }

@@ -2,7 +2,7 @@ import { useCallback, useState, type KeyboardEvent, type MouseEvent } from 'reac
 import { WindowCommandId } from '../../shared/commands'
 import { DEFAULT_KEYMAP, type Keymap, type KeyPress } from '../../shared/keymap'
 import { isCommandKey, useKeymap } from '../commands/hooks'
-import { Menu, MenuAnchorKind, type MenuAnchor, type MenuEntry } from '../components'
+import { Menu, MenuAnchorKind, Placement, type MenuAnchor, type MenuEntry } from '../components'
 
 /**
  * Whether a key press opens the context menu of what has the focus: Context menu's binding (⇧F10 unless you've changed
@@ -30,6 +30,8 @@ export interface ContextMenuState<T> {
   readonly opened: OpenContextMenu<T> | null
   /** The props that make an element open the menu for `target`. */
   readonly targetProps: (target: T) => ContextMenuTargetProps
+  /** Opens the menu for `target` below `element`, such as a More button beside it. */
+  readonly openBelow: (target: T, element: HTMLElement) => void
   readonly close: () => void
 }
 
@@ -58,10 +60,13 @@ export function useContextMenu<T>(): ContextMenuState<T> {
     }),
     [keymap],
   )
+  const openBelow = useCallback((target: T, element: HTMLElement) => {
+    setOpened({ target, anchor: { kind: MenuAnchorKind.Element, element, placement: Placement.BottomEnd } })
+  }, [])
   const close = useCallback(() => {
     setOpened(null)
   }, [])
-  return { opened, targetProps, close }
+  return { opened, targetProps, openBelow, close }
 }
 
 /** Where a closed menu is anchored: nowhere it shows. */

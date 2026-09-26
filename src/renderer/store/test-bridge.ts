@@ -19,7 +19,7 @@ import {
   Effort,
   PermissionMode,
   FileContentKind,
-  FileInfoKind,
+  FileThumbnailKind,
   MessageRole,
   PermissionDecisionKind,
   PermissionDestination,
@@ -37,11 +37,12 @@ import {
   WatcherKind,
   WatcherState,
   type Artifact,
+  type ArtifactGroupFold,
   type CommitFiles,
   type TaskCommit,
   type TaskHandoff,
   type FileContent,
-  type FileInfo,
+  type FileThumbnail,
   type InputDraft,
   type Message,
   type OpenFiles,
@@ -125,8 +126,12 @@ export interface FakeMain {
   readonly artifacts?: readonly Artifact[]
   /** Each task's handoff note, by task id; none when left out. */
   readonly handoffs?: Readonly<Record<string, TaskHandoff>>
-  /** What `files.info` answers with, by path, for any task; missing when left out. */
-  readonly fileInfo?: Readonly<Record<string, FileInfo>>
+  /** What `files.thumbnail` answers with, by path, for any task; no thumbnail when left out. */
+  readonly thumbnails?: Readonly<Record<string, FileThumbnail>>
+  /** Each task's artifact date groups opened or folded, by task id; `artifacts.setGroupOpen` changes the fake's own. */
+  readonly artifactGroups?: Record<string, ArtifactGroupFold[]>
+  /** The tasks `artifacts.watch` and `artifacts.unwatch` were asked about, in order: `watch t1`, `unwatch t1`. */
+  readonly watchedArtifacts?: string[]
   /** What was put on the clipboard, oldest first: the path of each file `files.copy` copied, and the text of each
    * `clipboard.writeText`. */
   readonly copied?: string[]
@@ -382,6 +387,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       openFiles: openFilesOf(id),
       todos: main.todos?.[id] ?? null,
       artifacts: artifacts.filter((artifact) => artifact.taskId === id),
+      artifactGroups: main.artifactGroups?.[id] ?? [],
       handoff: main.handoffs?.[id] ?? null,
       watchers: (main.watchers ?? []).filter((watcher) => watcher.taskId === id),
       commits: (main.commits ?? []).filter((commit) => commit.taskId === id),
@@ -503,7 +509,9 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
         withOpenedFile(open, main.currentCommitFiles?.[`${id}:${path}`] ?? commitFileKey({ commitId: id, path })),
       ),
     [CommandName.ChangesRepository]: () => ({ repository: main.inRepository ?? true }),
-    [CommandName.FilesInfo]: ({ path }) => ({ info: main.fileInfo?.[path] ?? { kind: FileInfoKind.Missing } }),
+    [CommandName.FilesThumbnail]: ({ path }) => ({
+      thumbnail: main.thumbnails?.[path] ?? { kind: FileThumbnailKind.None },
+    }),
     [CommandName.FilesCopy]: ({ path }) => {
       main.copied?.push(path)
       return null
@@ -521,6 +529,23 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
         taskId,
         artifacts: artifacts.filter((artifact) => artifact.taskId === taskId),
       })
+      return null
+    },
+    [CommandName.ArtifactsSetGroupOpen]: ({ taskId, group, open }) => {
+      if (main.artifactGroups !== undefined) {
+        main.artifactGroups[taskId] = [
+          ...(main.artifactGroups[taskId] ?? []).filter((fold) => fold.group !== group),
+          { group, open },
+        ]
+      }
+      return null
+    },
+    [CommandName.ArtifactsWatch]: ({ taskId }) => {
+      main.watchedArtifacts?.push(`watch ${taskId}`)
+      return null
+    },
+    [CommandName.ArtifactsUnwatch]: ({ taskId }) => {
+      main.watchedArtifacts?.push(`unwatch ${taskId}`)
       return null
     },
     [CommandName.ClipboardWriteText]: ({ text }) => {

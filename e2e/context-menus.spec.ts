@@ -185,10 +185,10 @@ test('context menus: open, copy, reveal and remove an artifact', async ({ launch
   const panel = taskPanel(window)
   const artifacts = artifactsTab(window)
   await panel.tab(/^Artifacts/).click()
-  await expect(artifacts.cards).toHaveCount(2)
+  await expect(artifacts.rows).toHaveCount(2)
 
   const menu = contextMenu(window, 'Artifact actions')
-  await artifacts.card('Upgrade guide').click({ button: 'right' })
+  await artifacts.row('Upgrade guide').click({ button: 'right' })
   await expect(menu.items).toHaveText([
     'Open↵',
     'Open in editor⌘⇧E',
@@ -199,20 +199,20 @@ test('context menus: open, copy, reveal and remove an artifact', async ({ launch
   ])
   await menu.item('Copy path').click()
   await expect.poll(async () => (await desktop(glade)).copied).toEqual([join(root, 'docs/releases/2.4-upgrade.md')])
-  await artifacts.card('Upgrade guide').click({ button: 'right' })
+  await artifacts.row('Upgrade guide').click({ button: 'right' })
   await menu.item('Reveal in Finder').click()
   await expect
     .poll(async () => (await desktop(glade)).revealed)
     .toEqual([realpathSync(join(root, 'docs', 'releases', '2.4-upgrade.md'))])
 
   // Remove from artifacts takes the card away; the file stays.
-  await artifacts.card('Upgrade guide').click({ button: 'right' })
+  await artifacts.row('Upgrade guide').click({ button: 'right' })
   await menu.item('Remove from artifacts').click()
-  await expect(artifacts.cards).toHaveCount(1)
+  await expect(artifacts.rows).toHaveCount(1)
   await expect(panel.tab(/^Artifacts/)).toHaveText('Artifacts 1')
 
   // Open shows the other in the Files tab.
-  await artifacts.card('Release notes 2.4').click({ button: 'right' })
+  await artifacts.row('Release notes 2.4').click({ button: 'right' })
   await menu.item('Open').click()
   await expect(panel.tab(/^Files/)).toHaveAttribute('aria-selected', 'true')
   await expect(filesTab(window).tab('2.4.md')).toHaveAttribute('aria-pressed', 'true')

@@ -4,7 +4,8 @@ import {
   DividerKind,
   Effort,
   FileContentKind,
-  FileInfoKind,
+  ArtifactDateGroup,
+  FileThumbnailKind,
   MessageRole,
   QuestionSetState,
   TaskActivity,
@@ -997,7 +998,17 @@ describe('context menu actions', () => {
       stoppedSubagents: [],
       watchers: [sampleWatcher('w1', 't1')],
       stoppedWatchers: [],
-      artifacts: [{ taskId: 't1', path: 'docs/notes.md', title: 'Notes', addedAt: 1, updatedAt: 1 }],
+      artifacts: [
+        {
+          taskId: 't1',
+          path: 'docs/notes.md',
+          title: 'Notes',
+          addedAt: 1,
+          updatedAt: 1,
+          modifiedAt: 1,
+          missing: false,
+        },
+      ],
     }
     const { store } = await hydrated(data)
 
@@ -1123,25 +1134,70 @@ describe('context menu actions', () => {
 })
 
 describe('artifact files', () => {
-  it('describes, copies and reveals a file through main', async () => {
+  it('shows, copies and reveals a file through main', async () => {
     const data: FakeMain = {
       ...main(),
-      fileInfo: { 'README.md': { kind: FileInfoKind.Text, lines: 3, modifiedAt: 1 } },
+      thumbnails: { 'shot.png': { kind: FileThumbnailKind.Image, dataUrl: 'data:image/png;base64,cG5n' } },
       copied: [],
       revealed: [],
     }
     const { store, invoke } = await hydrated(data)
 
-    await expect(store.getState().fileInfo('t1', 'README.md')).resolves.toEqual({
-      kind: FileInfoKind.Text,
-      lines: 3,
-      modifiedAt: 1,
+    await expect(store.getState().fileThumbnail('t1', 'shot.png')).resolves.toEqual({
+      kind: FileThumbnailKind.Image,
+      dataUrl: 'data:image/png;base64,cG5n',
     })
-    expect(invoke).toHaveBeenLastCalledWith(CommandName.FilesInfo, { taskId: 't1', path: 'README.md' })
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.FilesThumbnail, { taskId: 't1', path: 'shot.png' })
+    await expect(store.getState().fileThumbnail('t1', 'README.md')).resolves.toEqual({ kind: FileThumbnailKind.None })
     await store.getState().copyFile('t1', 'README.md')
     await store.getState().revealFile('t1', 'README.md')
     expect(data.copied).toEqual(['README.md'])
     expect(data.revealed).toEqual(['README.md'])
+  })
+})
+
+describe('artifact groups and watching', () => {
+  it('opens or folds a group at once, and has main remember it', async () => {
+    const data: FakeMain = { ...main(), artifactGroups: { t1: [{ group: ArtifactDateGroup.Older, open: true }] } }
+    const { store, invoke } = await hydrated(data)
+    await store.getState().loadHistory('t1')
+    expect(store.getState().artifactGroups.t1).toEqual([{ group: ArtifactDateGroup.Older, open: true }])
+
+    const folding = store.getState().setArtifactGroupOpen('t1', ArtifactDateGroup.Today, false)
+    // Before main answers.
+    expect(store.getState().artifactGroups.t1).toEqual([
+      { group: ArtifactDateGroup.Older, open: true },
+      { group: ArtifactDateGroup.Today, open: false },
+    ])
+    await folding
+    await store.getState().setArtifactGroupOpen('t1', ArtifactDateGroup.Older, false)
+
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.ArtifactsSetGroupOpen, {
+      taskId: 't1',
+      group: ArtifactDateGroup.Older,
+      open: false,
+    })
+    expect(store.getState().artifactGroups.t1).toEqual([
+      { group: ArtifactDateGroup.Today, open: false },
+      { group: ArtifactDateGroup.Older, open: false },
+    ])
+    expect(data.artifactGroups?.t1).toEqual(store.getState().artifactGroups.t1)
+  })
+
+  it('opens a group for a task whose logs haven’t loaded', async () => {
+    const { store } = await hydrated({ ...main() })
+    await store.getState().setArtifactGroupOpen('t9', ArtifactDateGroup.LastWeek, true)
+    expect(store.getState().artifactGroups.t9).toEqual([{ group: ArtifactDateGroup.LastWeek, open: true }])
+  })
+
+  it('asks main to watch a task’s artifacts, and to stop', async () => {
+    const data: FakeMain = { ...main(), watchedArtifacts: [] }
+    const { store } = await hydrated(data)
+
+    await store.getState().watchArtifacts('t1')
+    await store.getState().unwatchArtifacts('t1')
+
+    expect(data.watchedArtifacts).toEqual(['watch t1', 'unwatch t1'])
   })
 })
 

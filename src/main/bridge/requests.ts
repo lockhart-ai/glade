@@ -6,6 +6,8 @@ import {
   MAX_RENDERER_ERROR_TEXT,
   RendererErrorKind,
   type ArtifactsRemoveRequest,
+  type ArtifactsSetGroupOpenRequest,
+  type ArtifactsWatchRequest,
   type ClipboardWriteTextRequest,
   type CommandRequest,
   type EmptyRequest,
@@ -53,7 +55,7 @@ import {
 } from '../../shared/bridge'
 import { TaskFilter } from '../../shared/attention'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
-import { Effort, PermissionMode, UiStateKey } from '../../shared/domain'
+import { ArtifactDateGroup, Effort, PermissionMode, UiStateKey } from '../../shared/domain'
 import { isWorkspaceRelativePath, parseCommitFileKey } from '../../shared/files'
 import { MAX_MENU_BAR_HEIGHT } from '../../shared/menuBar'
 import { hasImageSignature, ImageMediaType, MAX_IMAGE_BASE64_LENGTH, type ImageData } from '../../shared/images'
@@ -243,6 +245,14 @@ const artifactsRemoveRequest = z.strictObject({
   path: z.string(),
 }) satisfies z.ZodType<ArtifactsRemoveRequest>
 
+const artifactsSetGroupOpenRequest = z.strictObject({
+  taskId: z.string(),
+  group: z.enum(ArtifactDateGroup),
+  open: z.boolean(),
+}) satisfies z.ZodType<ArtifactsSetGroupOpenRequest>
+
+const artifactsWatchRequest = z.strictObject({ taskId: z.string() }) satisfies z.ZodType<ArtifactsWatchRequest>
+
 const pluginsSetEnabledRequest = z.strictObject({
   id: z.string(),
   enabled: z.boolean(),
@@ -381,10 +391,13 @@ export const REQUEST_SCHEMAS = {
   [CommandName.FilesClose]: openFileRequest,
   [CommandName.FilesOpenInEditor]: fileRequest,
   [CommandName.ClipboardWriteText]: clipboardWriteTextRequest,
-  [CommandName.FilesInfo]: fileRequest,
+  [CommandName.FilesThumbnail]: fileRequest,
   [CommandName.FilesCopy]: fileRequest,
   [CommandName.FilesReveal]: fileRequest,
   [CommandName.ArtifactsRemove]: artifactsRemoveRequest,
+  [CommandName.ArtifactsSetGroupOpen]: artifactsSetGroupOpenRequest,
+  [CommandName.ArtifactsWatch]: artifactsWatchRequest,
+  [CommandName.ArtifactsUnwatch]: artifactsWatchRequest,
   [CommandName.UiStateGet]: uiStateGetRequest,
   [CommandName.UiStateGetAll]: emptyRequest,
   [CommandName.UiStateSet]: uiStateSetRequest,

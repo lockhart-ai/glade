@@ -11,6 +11,8 @@ import { createRateLimiter, type RateLimits } from '../control/rate-limit'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
 import { createAccountTracker, type AccountTracker } from '../account/account'
 import type { OpenPath, RevealPath, WriteClipboard } from '../files/files'
+import type { Thumbnails } from '../artifacts/thumbnails'
+import { createArtifactWatcher, type ArtifactWatcher } from '../artifacts/artifact-watch'
 import type { MenuBarCommands } from '../menu-bar/menu-bar'
 import type { NotifyReply } from '../notifications/notifications'
 import { getSettings } from '../db/repositories/settings'
@@ -51,6 +53,8 @@ export interface BridgeOptions {
   readonly revealPath: RevealPath
   /** Puts text on the clipboard (Electron's `clipboard.writeText`): an artifact's Copy. */
   readonly writeClipboard: WriteClipboard
+  /** Makes and keeps the artifacts' thumbnails (Electron's `nativeImage`, `../artifacts/thumbnails`). None by default. */
+  readonly thumbnails?: Thumbnails
   /** What runs the tasks' agents: the Claude Agent SDK in the app, a scripted stand-in in tests. */
   readonly agentBackend: AgentBackend
   /** Notifies an agent reply in a task you aren't viewing (`../notifications`). Nothing by default. */
@@ -121,6 +125,8 @@ export interface RegisteredBridge {
   readonly endpoint: ControlEndpoint
   /** The account the tasks run on and its usage warning, whose timer ends when the app quits. */
   readonly account: AccountTracker
+  /** What watches the artifacts' files, which stops when the app quits. */
+  readonly artifactWatch: ArtifactWatcher
 }
 
 /** Every task, in every workspace: what the event log and the plugin feed know of them to begin with. */
@@ -140,6 +146,7 @@ export function registerBridge({
   openPath,
   revealPath,
   writeClipboard,
+  thumbnails,
   agentBackend,
   notifyReply,
   isOnline,
@@ -165,9 +172,20 @@ export function registerBridge({
   // too, and passes on what a plugin may know of it.
   const logEvent = createEventLog(log, tasks)
   const feed = createPluginFeed({ source: databaseFeedSource(db), tasks, log: log.scoped(LogScope.Plugins) })
+  // The artifacts' files, looked at again when a tool call or an edit from outside may have changed one. It hears
+  // every event, and broadcasts its own changes (only ever later, once it has looked).
+  const artifactWatch = createArtifactWatcher({
+    context: {
+      db,
+      emit: (event) => {
+        emit(event)
+      },
+    },
+  })
   const emit: Emit = (event) => {
     logEvent(event)
     feed.observe(event)
+    artifactWatch.observe(event)
     broadcast(event)
     observe?.(event)
   }
@@ -239,6 +257,8 @@ export function registerBridge({
       openPath,
       revealPath,
       writeClipboard,
+      ...(thumbnails === undefined ? {} : { thumbnails }),
+      artifactWatch,
       runner,
       updateMenu,
       closeWindow,
@@ -260,5 +280,5 @@ export function registerBridge({
     }
     return dispatch(command, request)
   })
-  return { runner, emit, terminals, plugins, pluginViews, control, endpoint, account }
+  return { runner, emit, terminals, plugins, pluginViews, control, endpoint, account, artifactWatch }
 }

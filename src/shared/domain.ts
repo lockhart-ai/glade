@@ -828,10 +828,40 @@ export interface Artifact {
   readonly path: string
   /** What the agent called it (`Release notes 2.4`); declaring the same path again renames it. */
   readonly title: string
-  /** When the agent first declared it. The tab lists artifacts in this order. */
+  /** When the agent first declared it. */
   readonly addedAt: EpochMs
   /** When the agent last declared it. */
   readonly updatedAt: EpochMs
+  /**
+   * When its file last changed, as Glade last saw it (its mtime); null until Glade has looked. A file that's gone keeps
+   * its last known time. The Artifacts tab lists artifacts newest first by this (by `updatedAt` until it's known),
+   * grouped by its date.
+   */
+  readonly modifiedAt: EpochMs | null
+  /** Whether its file was gone when Glade last looked. */
+  readonly missing: boolean
+}
+
+/**
+ * The Artifacts tab's date groups, newest first, by when each artifact's file last changed, in the local time zone:
+ * today, yesterday, earlier this week (a week starts on Monday), last week, earlier this month, and before that.
+ */
+export enum ArtifactDateGroup {
+  Today = 'today',
+  Yesterday = 'yesterday',
+  ThisWeek = 'this_week',
+  LastWeek = 'last_week',
+  ThisMonth = 'this_month',
+  Older = 'older',
+}
+
+/**
+ * Whether one of a task's artifact date groups is open, as you last left it with its header. A group you haven't
+ * folded or opened has none: Today and Yesterday start open, the others folded.
+ */
+export interface ArtifactGroupFold {
+  readonly group: ArtifactDateGroup
+  readonly open: boolean
 }
 
 /**
@@ -991,32 +1021,29 @@ export interface TaskHandoff {
   readonly addedAt: EpochMs
 }
 
-/** What looking at an artifact's file found. */
-export enum FileInfoKind {
-  /** A text file: its lines are counted. */
-  Text = 'text',
-  /** Not text (it has a NUL byte), or too large to count its lines cheaply. */
-  Other = 'other',
+/** What looking at an artifact's file for its thumbnail found (`files.thumbnail`). */
+export enum FileThumbnailKind {
+  /** An image with a thumbnail: a small PNG of it. */
+  Image = 'image',
+  /** A file with no thumbnail: not an image, or one that can't be read or is too large. Its row shows its type. */
+  None = 'none',
   /** There's no file at that path (any more). */
   Missing = 'missing',
 }
 
-export interface TextFileInfo {
-  readonly kind: FileInfoKind.Text
-  readonly lines: number
-  /** When the file last changed. */
-  readonly modifiedAt: EpochMs
+export interface ImageFileThumbnail {
+  readonly kind: FileThumbnailKind.Image
+  /** The thumbnail, as a `data:image/png;base64,…` URL. */
+  readonly dataUrl: string
 }
 
-export interface OtherFileInfo {
-  readonly kind: FileInfoKind.Other
-  /** When the file last changed. */
-  readonly modifiedAt: EpochMs
+export interface NoFileThumbnail {
+  readonly kind: FileThumbnailKind.None
 }
 
-export interface MissingFileInfo {
-  readonly kind: FileInfoKind.Missing
+export interface MissingFileThumbnail {
+  readonly kind: FileThumbnailKind.Missing
 }
 
-/** An artifact's file, as its card describes it (`files.info`). */
-export type FileInfo = TextFileInfo | OtherFileInfo | MissingFileInfo
+/** An artifact's file, as its row in the Artifacts tab shows it: a thumbnail, its type, or that it's missing. */
+export type FileThumbnail = ImageFileThumbnail | NoFileThumbnail | MissingFileThumbnail

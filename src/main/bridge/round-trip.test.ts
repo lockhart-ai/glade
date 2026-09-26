@@ -1,5 +1,8 @@
 // The bridge end to end: the preload's `window.glade` over a fake IPC pair standing in for Electron's, against the real
 // main-side registry, handlers and repositories on a temporary database.
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { createBridge } from '../../preload/bridge'
 import {
@@ -14,6 +17,7 @@ import { TaskFilter } from '../../shared/attention'
 import { TaskState, ToolCallState, UiStateKey } from '../../shared/domain'
 import { PNG } from '../../shared/test-images'
 import { FakeAgentBackend } from '../agent/fake-backend'
+import { addArtifact } from '../db/repositories/artifacts'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
 import { getUiState } from '../db/repositories/ui-state'
@@ -244,5 +248,36 @@ describe('a database from before todo summaries', () => {
     })
     expect(page.tasks.map(({ todos }) => todos)).toEqual([{ done: 1, total: 1, doing: [] }])
     old.close()
+  })
+})
+
+describe('the Artifacts tab watching a task', () => {
+  it('looks at its artifacts’ files as it opens, and broadcasts when they changed', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'glade-round-trip-'))
+    try {
+      writeFileSync(join(root, 'changelog.md'), '# Changelog\n')
+      const changed = new Date(1_700_000_000_000)
+      utimesSync(join(root, 'changelog.md'), changed, changed)
+      const taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+      // Declared before Glade kept when files changed: not looked at yet.
+      addArtifact(database.db, { taskId, path: 'changelog.md', title: 'Changelog' }, 5)
+      const events: GladeEvent[] = []
+      glade.subscribe((event) => events.push(event))
+
+      await glade.invoke(CommandName.ArtifactsWatch, { taskId })
+
+      await vi.waitFor(() => {
+        expect(events).toEqual([
+          {
+            type: EventType.ArtifactsChanged,
+            taskId,
+            artifacts: [expect.objectContaining({ path: 'changelog.md', modifiedAt: changed.getTime() }) as unknown],
+          },
+        ])
+      })
+      await expect(glade.invoke(CommandName.ArtifactsUnwatch, { taskId })).resolves.toBeNull()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

@@ -796,9 +796,12 @@ describe('TaskPanel', () => {
       title,
       addedAt: AT,
       updatedAt: AT,
+      // Changed just now, so it's in Today, which starts open.
+      modifiedAt: Date.now(),
+      missing: false,
     })
 
-    it('counts the task’s artifacts in the tab, keeps up with the agent, and shows their cards', async () => {
+    it('counts the task’s artifacts in the tab, keeps up with the agent, and shows their rows', async () => {
       const { emit } = await renderPanel({
         artifacts: [artifact('docs/releases/2.4.md', 'Release notes 2.4')],
         uiState: [{ key: UiStateKey.RightPanelTab, value: 'artifacts' }],
@@ -811,7 +814,10 @@ describe('TaskPanel', () => {
         emit({
           type: EventType.ArtifactsChanged,
           taskId: 't1',
-          artifacts: [artifact('docs/releases/2.4.md', 'Release notes 2.4'), artifact('out/email.txt', 'Email')],
+          artifacts: [
+            artifact('docs/releases/2.4.md', 'Release notes 2.4'),
+            { ...artifact('out/email.txt', 'Email'), missing: true },
+          ],
         })
       })
       expect(tab(/^Artifacts/)).toHaveTextContent('Artifacts 2')

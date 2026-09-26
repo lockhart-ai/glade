@@ -1,6 +1,7 @@
 import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  ArtifactDateGroup,
   DividerKind,
   MessageRole,
   QuestionKind,
@@ -10,6 +11,7 @@ import {
   type Workspace,
 } from '../../../shared/domain'
 import { GIF, PNG } from '../../../shared/test-images'
+import { setArtifactGroupOpen } from './artifact-groups'
 import { addArtifact } from './artifacts'
 import { setExternalId, setHandoff } from './backfills'
 import { setSessionContext } from './session-context'
@@ -75,6 +77,7 @@ function fillTask(db: Database, task: Task): void {
   appendQueuedMessage(db, { taskId, body: 'Also cover /search', images: [GIF] })
   setOpenFiles(db, { taskId, paths: ['api/views.py'], activePath: 'api/views.py' })
   addArtifact(db, { taskId, path: 'docs/rate-limits.md', title: 'Rate limits' })
+  setArtifactGroupOpen(db, { taskId, group: ArtifactDateGroup.Today, open: false })
   setWorkspaceSelection(db, task.workspaceId, taskId)
   appendQuestionSet(db, {
     taskId,
@@ -135,6 +138,8 @@ function fillTask(db: Database, task: Task): void {
 
 /** The tables `fillTask` writes to. A new table that belongs to a task fails the test below until it's added here. */
 const FILLED_TABLES = [
+  // The Artifacts tab's date groups you opened or folded.
+  'artifact_groups',
   'artifacts',
   // The images pasted into its messages, sent and queued, and into its input draft.
   'images',

@@ -53,6 +53,7 @@ import {
   type E2eSpec,
 } from './e2e'
 import type { OpenPath, RevealPath, WriteClipboard } from './files/files'
+import { createThumbnails, THUMBNAILS_FOLDER_NAME } from './artifacts/thumbnails'
 import { definedEnv, LoginEnvSource, resolveLoginEnv, type Environment, type LoginEnv } from './login-env'
 import { logCrashes } from './logging/crashes'
 import { createFileLogSink, type FileLogSinkOptions } from './logging/file-sink'
@@ -279,6 +280,7 @@ async function runCapture(spec: CaptureSpec, context: CaptureContext): Promise<v
   }
   context.bridge.runner.close()
   context.bridge.account.close()
+  context.bridge.artifactWatch.close()
   await context.bridge.endpoint.close()
   context.bridge.terminals.shutdown()
   context.database.db.close()
@@ -697,6 +699,11 @@ export function startApp({
           : () => chooseFolder(dialog, BrowserWindow.getFocusedWindow()),
       openPath: createOpenPath(testMode),
       ...createDesktop(testMode),
+      // Kept in the data folder, so a test mode's are in its throwaway one.
+      thumbnails: createThumbnails({
+        folder: join(app.getPath('userData'), THUMBNAILS_FOLDER_NAME),
+        native: nativeImage,
+      }),
       notifyReply,
       // Whether the network is up, for resuming a task paused offline. In e2e mode, the spec decides.
       isOnline: testMode?.kind === TestModeKind.E2e ? createE2eNetwork() : net.isOnline.bind(net),
@@ -765,6 +772,7 @@ export function startApp({
       bridge.account.close()
       void bridge.endpoint.close()
       bridge.pluginViews.close()
+      bridge.artifactWatch.close()
       menuBar?.close()
       // The shells end with the app; their tabs and recent output stay, for the next launch to show.
       if (database.db.open) bridge.terminals.shutdown()

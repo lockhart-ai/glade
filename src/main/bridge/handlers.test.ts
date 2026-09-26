@@ -3,7 +3,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { TaskFilter } from '../../shared/attention'
-import { CommitFileStatus, Effort, FileContentKind, FileInfoKind, TaskState, UiStateKey } from '../../shared/domain'
+import {
+  ArtifactDateGroup,
+  CommitFileStatus,
+  Effort,
+  FileContentKind,
+  FileThumbnailKind,
+  TaskState,
+  UiStateKey,
+} from '../../shared/domain'
 import { commitFileKey } from '../../shared/files'
 import { createChangeTracker } from '../changes/tracker'
 import { createGit } from '../git/git'
@@ -36,7 +44,7 @@ import { createControlEndpoint, type ControlEndpoint } from '../control/endpoint
 import { createAccountTracker } from '../account/account'
 import { createRateLimiter } from '../control/rate-limit'
 import { createControl } from '../control/control'
-import { createHandlers, type Handlers } from './handlers'
+import { createHandlers, type HandlerContext, type Handlers } from './handlers'
 import type { MenuBarCommands } from '../menu-bar/menu-bar'
 import { LogLevel, LogScope } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
@@ -49,6 +57,7 @@ let openPath: Mock<(path: string) => Promise<string>>
 let revealPath: Mock<(path: string) => void>
 let writeClipboard: Mock<(text: string) => Promise<void>>
 let handlers: Handlers
+let context: HandlerContext
 let spawner: FakeSpawner
 let views: FakePluginViews
 
@@ -95,7 +104,7 @@ beforeEach(() => {
   const runner = createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() })
   spawner = createFakeSpawner()
   const terminals = createTerminals({ db: database.db, emit, ...fakeTerminalOptions(spawner) })
-  handlers = createHandlers({
+  context = {
     db: database.db,
     emit,
     chooseFolder,
@@ -107,8 +116,14 @@ beforeEach(() => {
     ...pluginsWithViews(),
     endpoint: endpointOf(),
     account: createAccountTracker({ db: database.db, emit }),
-  })
+  }
+  handlers = createHandlers(context)
 })
+
+/** What the test's handlers were made with, to make others with more. */
+function handlerContext(): HandlerContext {
+  return context
+}
 
 afterEach(() => {
   database.close()
@@ -437,12 +452,15 @@ describe('the files commands', () => {
     expect(history.openFiles).toEqual(opened.openFiles)
   })
 
-  it('describe, copy and reveal a file, and the history carries the task’s artifacts', async () => {
+  it('show, copy and reveal a file, and the history carries the task’s artifacts', async () => {
     const taskId = taskInRoot()
     addArtifact(database.db, { taskId, path: 'docs/rate-limits.md', title: 'Rate limits' }, 5)
 
-    await expect(handlers[CommandName.FilesInfo]({ taskId, path: 'docs/rate-limits.md' })).resolves.toMatchObject({
-      info: { kind: FileInfoKind.Text, lines: 1 },
+    await expect(handlers[CommandName.FilesThumbnail]({ taskId, path: 'docs/rate-limits.md' })).resolves.toEqual({
+      thumbnail: { kind: FileThumbnailKind.None },
+    })
+    await expect(handlers[CommandName.FilesThumbnail]({ taskId, path: 'docs/gone.png' })).resolves.toEqual({
+      thumbnail: { kind: FileThumbnailKind.Missing },
     })
     await expect(handlers[CommandName.FilesCopy]({ taskId, path: 'docs/rate-limits.md' })).resolves.toBeNull()
     await expect(handlers[CommandName.FilesReveal]({ taskId, path: 'docs/rate-limits.md' })).resolves.toBeNull()
@@ -451,8 +469,29 @@ describe('the files commands', () => {
     expect(revealPath).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/\/docs\/rate-limits\.md$/))
     const history = await handlers[CommandName.TasksHistory]({ id: taskId })
     expect(history.artifacts).toEqual([
-      { taskId, path: 'docs/rate-limits.md', title: 'Rate limits', addedAt: 5, updatedAt: 5 },
+      {
+        taskId,
+        path: 'docs/rate-limits.md',
+        title: 'Rate limits',
+        addedAt: 5,
+        updatedAt: 5,
+        modifiedAt: null,
+        missing: false,
+      },
     ])
+    expect(history.artifactGroups).toEqual([])
+  })
+
+  it('make an image’s thumbnail with the thumbnails they’re given', async () => {
+    const taskId = taskInRoot()
+    writeFileSync(join(root, 'docs', 'landing.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    const thumbnailOf = vi.fn(() => Promise.resolve('data:image/png;base64,cG5n'))
+    const withThumbnails = createHandlers({ ...handlerContext(), thumbnails: { thumbnailOf } })
+
+    await expect(withThumbnails[CommandName.FilesThumbnail]({ taskId, path: 'docs/landing.png' })).resolves.toEqual({
+      thumbnail: { kind: FileThumbnailKind.Image, dataUrl: 'data:image/png;base64,cG5n' },
+    })
+    expect(thumbnailOf).toHaveBeenCalledOnce()
   })
 
   it('open a file in the editor by its real path', async () => {
@@ -476,6 +515,49 @@ describe('artifacts.remove', () => {
     expect(() => handlers[CommandName.ArtifactsRemove]({ taskId, path: 'docs/notes.md' })).toThrow(
       expect.objectContaining({ code: BridgeErrorCode.NotFound }),
     )
+  })
+})
+
+describe('artifacts.setGroupOpen', () => {
+  it('remembers a date group opened or folded for the task, which its history carries', async () => {
+    const taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+
+    expect(
+      handlers[CommandName.ArtifactsSetGroupOpen]({ taskId, group: ArtifactDateGroup.Today, open: false }),
+    ).toBeNull()
+    void handlers[CommandName.ArtifactsSetGroupOpen]({ taskId, group: ArtifactDateGroup.Older, open: true })
+
+    expect((await handlers[CommandName.TasksHistory]({ id: taskId })).artifactGroups).toEqual([
+      { group: ArtifactDateGroup.Today, open: false },
+      { group: ArtifactDateGroup.Older, open: true },
+    ])
+    expect(() =>
+      handlers[CommandName.ArtifactsSetGroupOpen]({ taskId: 'gone', group: ArtifactDateGroup.Today, open: true }),
+    ).toThrow(expect.objectContaining({ code: BridgeErrorCode.NotFound }))
+  })
+})
+
+describe('artifacts.watch and artifacts.unwatch', () => {
+  it('have the artifact watcher watch the task while its tab shows it, and let a deleted one go', () => {
+    const taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+    const artifactWatch = { watch: vi.fn(), unwatch: vi.fn(), observe: vi.fn(), close: vi.fn() }
+    const watching = createHandlers({ ...handlerContext(), artifactWatch })
+
+    expect(watching[CommandName.ArtifactsWatch]({ taskId })).toBeNull()
+    expect(watching[CommandName.ArtifactsUnwatch]({ taskId })).toBeNull()
+    expect(watching[CommandName.ArtifactsUnwatch]({ taskId: 'deleted' })).toBeNull()
+
+    expect(artifactWatch.watch).toHaveBeenCalledExactlyOnceWith(taskId)
+    expect(artifactWatch.unwatch.mock.calls).toEqual([[taskId], ['deleted']])
+    expect(() => watching[CommandName.ArtifactsWatch]({ taskId: 'gone' })).toThrow(
+      expect.objectContaining({ code: BridgeErrorCode.NotFound }),
+    )
+  })
+
+  it('do nothing without a watcher', () => {
+    const taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+    expect(handlers[CommandName.ArtifactsWatch]({ taskId })).toBeNull()
+    expect(handlers[CommandName.ArtifactsUnwatch]({ taskId })).toBeNull()
   })
 })
 
