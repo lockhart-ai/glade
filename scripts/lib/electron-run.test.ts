@@ -1,15 +1,18 @@
-import { EventEmitter } from 'node:events'
-import { existsSync, readdirSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { EventEmitter, once } from 'node:events'
+import { existsSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  CLOSE_GRACE_MS,
   describeDuration,
   type ElectronRunOptions,
   type ElectronRunResult,
   exitOnErrors,
   exitWhenOrphaned,
+  groupAlive,
   HANG_HINT,
   INTERRUPTS,
   runElectron,
@@ -17,6 +20,7 @@ import {
   runFailureMessage,
   STEP_PREFIX,
   stepLine,
+  waitUntilGone,
 } from './electron-run.mjs'
 
 /** Where a run's output goes in a test: collected, so a test can read it back. */
@@ -54,11 +58,14 @@ function stub(script: string, io: TestIo, overrides: Partial<ElectronRunOptions>
   }
 }
 
-/** A stub that ignores SIGTERM (as a hung Electron did), prints its pid and a step, and then never exits. */
+/**
+ * A stub that ignores SIGTERM (as a hung Electron did), prints a step and then its pid, and then never exits. Its pid
+ * comes last, so a test that has seen it knows the run has read the step too.
+ */
 const HANGS = `
 process.on('SIGTERM', () => console.log('ignoring SIGTERM'))
-console.log('pid ' + process.pid)
 console.log(${JSON.stringify(stepLine('21-settings: waiting for the window to be 1920×1200'))})
+console.log('pid ' + process.pid)
 setInterval(() => {}, 1000)
 `
 
@@ -79,6 +86,44 @@ function pidOf(output: string): number {
   return Number(match[1])
 }
 
+/** The pid of the helper a stub printed as `helper <pid>`. */
+function helperOf(output: string): number {
+  const match = /helper (\d+)/.exec(output)
+  if (match === null) throw new Error(`no helper in ${output}`)
+  return Number(match[1])
+}
+
+/**
+ * Resolves once the run has printed `text`. It waits on the output, not on a clock, so a child that's slow to start
+ * (a loaded machine can take most of a second to start Node) can't fail a test.
+ */
+function printed(io: TestIo, text: string): Promise<void> {
+  return new Promise((resolve) => {
+    const check = (): void => {
+      if (!io.out().includes(text)) return
+      io.stdout.off('data', check)
+      resolve()
+    }
+    io.stdout.on('data', check)
+    check()
+  })
+}
+
+/**
+ * Fakes the run's timers, so a test says when its timeout or stall window runs out: only once the child is up and has
+ * printed what the test needs. A real 400 ms timeout raced the child's start, and on a loaded machine killed it before
+ * it printed anything.
+ */
+function fakeRunTimers(): void {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+}
+
+/** Moves the run's clock on by `ms`, then goes back to real timers for the rest of the run (its wait for the group). */
+function passTime(ms: number): void {
+  vi.advanceTimersByTime(ms)
+  vi.useRealTimers()
+}
+
 /** A tool name only this test file uses, so other runs' data folders in the temp folder don't count. */
 const FOLDER_TOOL = `electron-run-test-${String(process.pid)}`
 
@@ -87,7 +132,17 @@ function leftoverFolders(): string[] {
   return readdirSync(tmpdir()).filter((name) => name.startsWith(`glade-${FOLDER_TOOL}-`))
 }
 
-describe('runElectron', () => {
+/**
+ * How long a test that starts real Node processes may take. Its timings run on fake timers, so this only bounds how
+ * slowly a loaded machine starts Node, which can take seconds.
+ */
+const SPAWNS_TIMEOUT_MS = 30_000
+
+describe('runElectron', { timeout: SPAWNS_TIMEOUT_MS }, () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('passes the output through and returns the exit code when the child exits by itself', async () => {
     const io = testIo()
     const result = await runElectron(
@@ -99,9 +154,16 @@ describe('runElectron', () => {
   })
 
   it('SIGKILLs a child that ignores SIGTERM when it runs out of time, and names the step it was on', async () => {
+    fakeRunTimers()
     const io = testIo()
     const options = stub(HANGS, io, { timeoutMs: 500 })
-    const result = await runElectron(options)
+    const running = runElectron(options)
+    await printed(io, 'pid ')
+    vi.advanceTimersByTime(499)
+    // Not out of time yet.
+    expect(alive(pidOf(io.out()))).toBe(true)
+    passTime(1)
+    const result = await running
     expect(result).toEqual({
       kind: 'stopped',
       reason: 'timeout',
@@ -118,11 +180,14 @@ describe('runElectron', () => {
   })
 
   it('fails fast when no progress line comes, long before the timeout', async () => {
+    fakeRunTimers()
     const io = testIo()
-    const started = Date.now()
     const options = stub(HANGS, io, { timeoutMs: 60_000, stall: { ms: 400, progress: /^Rendered / } })
-    const result = await runElectron(options)
-    expect(Date.now() - started).toBeLessThan(5000)
+    const running = runElectron(options)
+    await printed(io, 'pid ')
+    // The stall window, a small part of the timeout, is enough to stop it.
+    passTime(400)
+    const result = await running
     expect(result).toMatchObject({ kind: 'stopped', reason: 'stall' })
     expect(alive(pidOf(io.out()))).toBe(false)
     expect(runFailureMessage(options, result)).toMatch(
@@ -131,18 +196,47 @@ describe('runElectron', () => {
   })
 
   it('keeps going while progress lines come, and stops once they stop', async () => {
+    fakeRunTimers()
     const io = testIo()
-    // Renders a screen every 100 ms, five in all, then hangs on the sixth.
+    // Renders five screens, each once the test lets it (by writing a go-<n> file into its data folder), then prints a
+    // step and a line that isn't progress, and hangs.
     const script = `
+      const { existsSync } = require('node:fs')
+      const { join } = require('node:path')
       let count = 0
-      const timer = setInterval(() => {
+      const next = () => {
         count++
-        if (count <= 5) console.log('Rendered ' + count)
-        else { console.log(${JSON.stringify(stepLine('6: waiting for fonts'))}); clearInterval(timer); setInterval(() => {}, 1000) }
-      }, 100)`
-    const result = await runElectron(stub(script, io, { stall: { ms: 350, progress: /^Rendered / } }))
-    // Each screen came well inside the stall window, though all five together took longer than it.
-    expect(io.out()).toBe('Rendered 1\nRendered 2\nRendered 3\nRendered 4\nRendered 5\n')
+        if (count > 5) {
+          console.log(${JSON.stringify(stepLine('6: waiting for fonts'))})
+          console.log('idle')
+          setInterval(() => {}, 1000)
+          return
+        }
+        console.log('Rendered ' + count)
+        const gate = join(process.env.USER_DATA, 'go-' + count)
+        const wait = setInterval(() => { if (existsSync(gate)) { clearInterval(wait); next() } }, 10)
+      }
+      next()`
+    let folder = ''
+    const options = stub(script, io, {
+      stall: { ms: 350, progress: /^Rendered / },
+      env: (userData) => {
+        folder = userData
+        return { PATH: process.env.PATH, USER_DATA: userData }
+      },
+    })
+    const running = runElectron(options)
+    for (let screen = 1; screen <= 5; screen++) {
+      await printed(io, `Rendered ${String(screen)}\n`)
+      // Most of the stall window passes on each screen, 1.5 s in all, but each progress line starts it over.
+      vi.advanceTimersByTime(300)
+      writeFileSync(join(folder, `go-${String(screen)}`), '')
+    }
+    await printed(io, 'idle\n')
+    // The window runs out 350 ms after the last progress line; the line that isn't progress didn't start it over.
+    passTime(50)
+    const result = await running
+    expect(io.out()).toBe('Rendered 1\nRendered 2\nRendered 3\nRendered 4\nRendered 5\nidle\n')
     expect(result).toEqual({ kind: 'stopped', reason: 'stall', step: '6: waiting for fonts' })
   })
 
@@ -158,9 +252,7 @@ describe('runElectron', () => {
     const io = testIo()
     const options = stub(HANGS, io)
     const running = runElectron(options)
-    await vi.waitFor(() => {
-      expect(io.out()).toContain('pid ')
-    })
+    await printed(io, 'pid ')
     expect(io.interrupts.listenerCount('SIGTERM')).toBe(1)
     io.interrupts.emit('SIGTERM')
     const result = await running
@@ -174,7 +266,8 @@ describe('runElectron', () => {
     )
   })
 
-  it('SIGKILLs the helpers a hung child started along with it', async () => {
+  it('SIGKILLs the helpers a hung child started along with it, and returns only once they are gone', async () => {
+    fakeRunTimers()
     const io = testIo()
     // A helper that ignores SIGTERM, as a wedged GPU process would, and outlives the child.
     const script = `
@@ -183,16 +276,16 @@ describe('runElectron', () => {
       )}], { stdio: 'ignore' })
       console.log('helper ' + helper.pid)
       ${HANGS}`
-    const result = await runElectron(stub(script, io, { timeoutMs: 500 }))
+    const running = runElectron(stub(script, io, { timeoutMs: 500 }))
+    await printed(io, 'pid ')
+    passTime(500)
+    const result = await running
     expect(result).toMatchObject({ kind: 'stopped', reason: 'timeout' })
-    const helper = Number(/helper (\d+)/.exec(io.out())?.[1])
-    await vi.waitFor(() => {
-      expect(alive(helper)).toBe(false)
-    })
+    expect(alive(helperOf(io.out()))).toBe(false)
     expect(alive(pidOf(io.out()))).toBe(false)
   })
 
-  it('SIGKILLs a helper left running after the child exits by itself', async () => {
+  it('SIGKILLs a helper left running after the child exits by itself, and returns only once it is gone', async () => {
     const io = testIo()
     const script = `
       const helper = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
@@ -200,10 +293,7 @@ describe('runElectron', () => {
       console.log('helper ' + helper.pid)`
     const result = await runElectron(stub(script, io))
     expect(result).toEqual({ kind: 'exited', code: 0, signal: null })
-    const helper = Number(/helper (\d+)/.exec(io.out())?.[1])
-    await vi.waitFor(() => {
-      expect(alive(helper)).toBe(false)
-    })
+    expect(alive(helperOf(io.out()))).toBe(false)
   })
 
   it('reports a child it could not start', async () => {
@@ -216,15 +306,23 @@ describe('runElectron', () => {
   })
 
   it('stops waiting for output that a process the child started holds open after the child exits', async () => {
+    fakeRunTimers()
     const io = testIo()
     // A grandchild inherits the child's output and outlives it by longer than the grace period.
     const script = `
       require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], { stdio: 'inherit', detached: true }).unref()
       console.log('Rendered')`
-    const started = Date.now()
-    const result = await runElectron(stub(script, io))
-    expect(result).toEqual({ kind: 'exited', code: 0, signal: null })
-    expect(Date.now() - started).toBeLessThan(4500)
+    let done = false
+    const running = runElectron(stub(script, io)).finally(() => {
+      done = true
+    })
+    // The child has exited once the run starts its grace period, a second timer beside the run's timeout.
+    while (vi.getTimerCount() < 2) await new Promise((resolve) => setImmediate(resolve))
+    vi.advanceTimersByTime(CLOSE_GRACE_MS - 1)
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(done).toBe(false)
+    passTime(1)
+    expect(await running).toEqual({ kind: 'exited', code: 0, signal: null })
     expect(io.out()).toBe('Rendered\n')
   })
 
@@ -259,14 +357,76 @@ describe('runElectron', () => {
     })
 
     it('is removed after a hung child is killed, so the next run starts clean', async () => {
+      fakeRunTimers()
       const io = testIo()
+      // A helper in the child's group writes cache files into the folder nonstop, as Electron's do, until it's killed.
+      const writesCache = `
+        const fs = require('node:fs')
+        const { join } = require('node:path')
+        const cache = join(process.env.USER_DATA, 'Cache')
+        fs.mkdirSync(cache, { recursive: true })
+        let count = 0
+        const write = () => {
+          fs.writeFileSync(join(cache, 'f' + count++), 'x'.repeat(4096))
+          if (count === 1) console.log('writing')
+          setImmediate(write)
+        }
+        write()`
       const script = `
-        require('node:fs').writeFileSync(require('node:path').join(process.env.USER_DATA, 'SingletonLock'), 'locked')
+        const { join } = require('node:path')
+        require('node:fs').writeFileSync(join(process.env.USER_DATA, 'SingletonLock'), 'locked')
+        const helper = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(writesCache)}], {
+          stdio: ['ignore', 'inherit', 'ignore'],
+        })
+        console.log('folder ' + process.env.USER_DATA)
+        console.log('helper ' + helper.pid)
         ${HANGS}`
-      const result = await runElectron(stub(script, io, { tool: FOLDER_TOOL, timeoutMs: 400 }))
+      const running = runElectron(stub(script, io, { tool: FOLDER_TOOL, timeoutMs: 400 }))
+      await printed(io, 'pid ')
+      await printed(io, 'writing\n')
+      const folder = /folder (\S+)/.exec(io.out())?.[1] ?? ''
+      expect(readdirSync(folder).sort()).toEqual(['Cache', 'SingletonLock'])
+      passTime(400)
+      const result = await running
       expect(result).toMatchObject({ kind: 'stopped', reason: 'timeout' })
       expect(alive(pidOf(io.out()))).toBe(false)
+      expect(alive(helperOf(io.out()))).toBe(false)
+      expect(existsSync(folder)).toBe(false)
     })
+  })
+})
+
+describe('groupAlive', { timeout: SPAWNS_TIMEOUT_MS }, () => {
+  it('is true while a process group has a process in it, and false once they are all gone', async () => {
+    const leader = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' })
+    await once(leader, 'spawn')
+    const group = leader.pid ?? 0
+    expect(groupAlive(group)).toBe(true)
+    const exited = once(leader, 'exit')
+    process.kill(-group, 'SIGKILL')
+    await exited
+    expect(groupAlive(group)).toBe(false)
+  })
+})
+
+describe('waitUntilGone', () => {
+  it('is done at once when nothing is left', async () => {
+    const stillThere = vi.fn(() => false)
+    expect(await waitUntilGone({ alive: stillThere, timeoutMs: 1000, intervalMs: 10 })).toBe(true)
+    expect(stillThere).toHaveBeenCalledOnce()
+  })
+
+  it('looks again until it is gone', async () => {
+    let looks = 0
+    const stillThere = (): boolean => ++looks < 4
+    expect(await waitUntilGone({ alive: stillThere, timeoutMs: 10_000, intervalMs: 5 })).toBe(true)
+    expect(looks).toBe(4)
+  })
+
+  it('gives up once its time is up, so a process that never goes can’t hold up the run', async () => {
+    const stillThere = vi.fn(() => true)
+    expect(await waitUntilGone({ alive: stillThere, timeoutMs: 50, intervalMs: 10 })).toBe(false)
+    expect(stillThere.mock.calls.length).toBeGreaterThan(1)
   })
 })
 
