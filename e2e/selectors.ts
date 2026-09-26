@@ -174,6 +174,8 @@ export function taskPanel(page: Page) {
     dividers: log.getByRole('separator'),
     /** Each compaction's Compact row: its name, the tokens before and after, its time and how it went. */
     compactions: log.getByRole('group', { name: 'Compact' }),
+    /** What each opened Compact row says the agent carried over. */
+    compactionSummaries: log.getByLabel('Compact summary'),
     /** The Todos tab's progress bar, whose value is how many todos are done. */
     todoProgress: panel.getByRole('progressbar', { name: 'Todos done' }),
     /** The Todos tab's items, top to bottom, each read as its state then its text (`Doing: Copy the files…`). */
@@ -432,6 +434,8 @@ export function contextPopover(page: Page) {
   return {
     popover,
     usage: popover.getByTestId('context-usage'),
+    /** The mark on the bar where the SDK compacts automatically; missing while auto-compact is off. */
+    marker: popover.getByTestId('auto-compact-marker'),
     compactNow: popover.getByRole('button', { name: 'Compact now' }),
   }
 }

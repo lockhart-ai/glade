@@ -1,6 +1,15 @@
 // What the context meter says: "38% · 76k / 200k", and where the SDK will compact. Pure, so the numbers are tested apart
 // from the ring and the popover.
 import { autoCompactThreshold } from '../../shared/contextWindow'
+import { AutoCompactKind, type AutoCompact } from '../../shared/domain'
+
+/** Where the SDK compacts automatically, as a share of the window. */
+export interface ThresholdReading {
+  /** As a whole percentage of the window: 84 for 167k of 200k. */
+  readonly percent: number
+  /** From 0 to 1, for the popover's marker. */
+  readonly fraction: number
+}
 
 /** One reading of the meter. */
 export interface ContextReading {
@@ -12,11 +21,9 @@ export interface ContextReading {
   readonly used: string
   /** The window, e.g. `200k` or `1M`. */
   readonly window: string
-  /** Where the SDK compacts automatically, as a whole percentage of the window: 84 for 167k of 200k. */
-  readonly thresholdPercent: number
-  /** Where the SDK compacts automatically, from 0 to 1, for the popover's marker. */
-  readonly thresholdFraction: number
-  /** Whether the context is near that threshold, or past it: the ring and the popover turn purple. */
+  /** Where the SDK compacts automatically; null when auto-compact is switched off. */
+  readonly threshold: ThresholdReading | null
+  /** Whether the context is near that threshold, or past it: the ring and the popover turn purple. Never when off. */
   readonly nearThreshold: boolean
 }
 
@@ -46,17 +53,40 @@ function fractionOf(part: number, whole: number): number {
   return whole > 0 ? Math.min(1, Math.max(0, part / whole)) : 0
 }
 
-/** The meter's reading for `usedTokens` of a `windowTokens` window. A new task reads `0% · 0k / 200k`. */
-export function contextReading(usedTokens: number, windowTokens: number): ContextReading {
+/**
+ * Where the SDK compacts automatically, in tokens: what it last said (`Task.autoCompact`), or, before it has, its
+ * default for the window. Null when auto-compact is switched off.
+ */
+export function thresholdTokens(windowTokens: number, autoCompact: AutoCompact | null): number | null {
+  if (autoCompact === null) return autoCompactThreshold(windowTokens)
+  switch (autoCompact.kind) {
+    case AutoCompactKind.On:
+      return autoCompact.thresholdTokens
+    case AutoCompactKind.Off:
+      return null
+  }
+}
+
+/**
+ * The meter's reading for `usedTokens` of a `windowTokens` window, with the SDK compacting as `autoCompact` says (its
+ * default until it says). A new task reads `0% · 0k / 200k`.
+ */
+export function contextReading(
+  usedTokens: number,
+  windowTokens: number,
+  autoCompact: AutoCompact | null = null,
+): ContextReading {
   const fraction = fractionOf(usedTokens, windowTokens)
-  const thresholdFraction = fractionOf(autoCompactThreshold(windowTokens), windowTokens)
+  const tokens = thresholdTokens(windowTokens, autoCompact)
+  const thresholdFraction = tokens === null ? null : fractionOf(tokens, windowTokens)
   return {
     percent: Math.round(fraction * 100),
     fraction,
     used: formatTokens(usedTokens),
     window: formatTokens(windowTokens),
-    thresholdPercent: Math.round(thresholdFraction * 100),
-    thresholdFraction,
-    nearThreshold: windowTokens > 0 && fraction >= thresholdFraction - NEAR_THRESHOLD_FRACTION,
+    threshold:
+      thresholdFraction === null ? null : { percent: Math.round(thresholdFraction * 100), fraction: thresholdFraction },
+    nearThreshold:
+      thresholdFraction !== null && windowTokens > 0 && fraction >= thresholdFraction - NEAR_THRESHOLD_FRACTION,
   }
 }

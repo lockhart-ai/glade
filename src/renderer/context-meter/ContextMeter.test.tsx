@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { TaskActivity, TaskState, UiStateKey, type Task } from '../../shared/domain'
+import { AutoCompactKind, TaskActivity, TaskState, UiStateKey, type Task } from '../../shared/domain'
 import { ToastProvider } from '../components'
 import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
@@ -150,6 +150,47 @@ describe('ContextMeterView', () => {
     rerender(<ContextMeterView usedTokens={194_000} windowTokens={200_000} />)
     expect(arcClass()).toMatch(/near/)
     expect(arc()).toBe('36.6 37.7')
+  })
+})
+
+describe('the threshold the SDK says', () => {
+  it('moves the marker and the note, and the ring turns purple near it, not near the default', async () => {
+    await renderMeter({
+      ...TASK,
+      contextUsedTokens: 50_000,
+      autoCompact: { kind: AutoCompactKind.On, thresholdTokens: 67_000 },
+    })
+    expect(arcClass()).toMatch(/near/)
+    const popover = await openPopover()
+    expect(within(popover).getByTestId('auto-compact-marker')).toHaveStyle({ left: '33.5%' })
+    expect(popover).toHaveTextContent('Compacts automatically at 34%.')
+  })
+
+  it('shows no marker, and says so, while auto-compact is off', async () => {
+    await renderMeter({ ...TASK, contextUsedTokens: 194_000, autoCompact: { kind: AutoCompactKind.Off } })
+    expect(arcClass()).not.toMatch(/near/)
+    const popover = await openPopover()
+    expect(within(popover).queryByTestId('auto-compact-marker')).not.toBeInTheDocument()
+    expect(popover).toHaveTextContent(
+      'Auto-compact is off in your Claude Code settings, so it compacts only when you ask.',
+    )
+    expect(within(popover).getByRole('button', { name: 'Compact now' })).toBeEnabled()
+  })
+
+  it("follows the task when main says the SDK's threshold changed", async () => {
+    const fake = await renderMeter({ ...TASK, contextUsedTokens: 50_000 })
+    expect(arcClass()).not.toMatch(/near/)
+    act(() => {
+      fake.emit({
+        type: EventType.TaskUpdated,
+        task: {
+          ...TASK,
+          contextUsedTokens: 50_000,
+          autoCompact: { kind: AutoCompactKind.On, thresholdTokens: 67_000 },
+        },
+      })
+    })
+    expect(arcClass()).toMatch(/near/)
   })
 })
 

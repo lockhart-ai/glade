@@ -1,7 +1,12 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test } from './fixtures'
+import type { Page } from '@playwright/test'
+import { DEFAULT_COMPACT_SUMMARY, type AgentScriptName } from '../src/main/agent/scripts'
+import { expect, test, type Glade, type LaunchOptions } from './fixtures'
 import { chat, contextPopover, firstRun, inputBar, taskList, taskPanel } from './selectors'
+
+/** What the default compaction carried over: its summary block, as the Compact row shows it. */
+const CARRIED_OVER = /1\. Primary Request and Intent:\s+Move user image uploads from local disk to S3/
 
 test('the context meter opens a popover, and Compact now or ⌘⇧K compacts the context and drops the meter', async ({
   launch,
@@ -36,6 +41,12 @@ test('the context meter opens a popover, and Compact now or ⌘⇧K compacts the
   await expect(compacted).toHaveText('Compacted · 950k → 190k')
   await expect(bar.contextMeter).toHaveText('19% · 190k / 1M')
   await expect(taskPanel(window).compactions).toHaveText(/Compact950k → 190k tokens.*Resuming from a summary/)
+  // The Compact row opens to what the agent carried over: the summary, without the model's analysis.
+  const panel = taskPanel(window)
+  await panel.compactions.getByRole('button').click()
+  await expect(panel.compactionSummaries).toHaveText(CARRIED_OVER)
+  await expect(panel.compactionSummaries).not.toContainText('<analysis>')
+  expect(DEFAULT_COMPACT_SUMMARY).toContain('<analysis>')
   // `/compact` never shows as your message.
   await expect(userMessages).toHaveCount(1)
   await expect(chat(window).log).not.toContainText('/compact')
@@ -101,4 +112,56 @@ test('a long turn crosses the auto-compact threshold, compacts on its own and ca
   await expect(taskPanel(window).call(/copy_media_to_s3/)).toBeVisible()
   await expect(taskPanel(window).call(/check_media_sample/)).toBeVisible()
   await expect(inputBar(window).contextMeter).toHaveText('4% · 41k / 1M')
+  // What it carried over is still there to open.
+  await taskPanel(window).compactions.getByRole('button').click()
+  await expect(taskPanel(window).compactionSummaries).toHaveText(CARRIED_OVER)
+})
+
+/** Starts a task on `script` whose first turn leaves the default model's 1M window 95% full, and opens its meter. */
+async function fillAndOpenMeter(
+  launch: (options: LaunchOptions) => Promise<Glade>,
+  folder: string,
+  script: AgentScriptName,
+): Promise<Page> {
+  const root = join(folder, 'acme-api')
+  mkdirSync(root)
+  const { window } = await launch({ agentScript: script, chosenFolder: root })
+  await firstRun(window).openFolder.click()
+  await taskList(window).newTask.click()
+  const bar = inputBar(window)
+  await bar.field.fill('Move image uploads to S3 and copy the existing files over.')
+  await bar.field.press('Enter')
+  await expect(chat(window).agentReplies).toHaveCount(1)
+  await expect(bar.contextMeter).toHaveText('95% · 950k / 1M')
+  await bar.contextButton.click()
+  await expect(contextPopover(window).popover).toBeVisible()
+  return window
+}
+
+test("the meter's threshold follows the SDK: a user's settings that compact early move the marker and the note", async ({
+  launch,
+  tempFolder,
+}) => {
+  const window = await fillAndOpenMeter(launch, tempFolder(), 'compacts-early')
+  const popover = contextPopover(window)
+  await expect(popover.popover).toContainText('Compacts automatically at 60%.')
+  await expect(popover.marker).toHaveAttribute('style', /left: 60%/)
+  // Well past it, so the ring is purple.
+  await expect(inputBar(window).contextMeter).toHaveClass(/near/)
+})
+
+test('with auto-compact switched off, the meter shows no threshold and never turns purple, and Compact now still works', async ({
+  launch,
+  tempFolder,
+}) => {
+  const window = await fillAndOpenMeter(launch, tempFolder(), 'never-auto-compacts')
+  const popover = contextPopover(window)
+  await expect(popover.popover).toContainText(
+    'Auto-compact is off in your Claude Code settings, so it compacts only when you ask.',
+  )
+  await expect(popover.marker).toHaveCount(0)
+  await expect(inputBar(window).contextMeter).not.toHaveClass(/near/)
+
+  await popover.compactNow.click()
+  await expect(chat(window).compacted).toHaveText('Compacted · 950k → 190k')
 })

@@ -115,9 +115,24 @@ function Call({ row, rootPath, turnStart, compact = false }: CallProps): React.J
   )
 }
 
-/** A compaction of the context, laid out like a tool call: "Compact  198k → 41k tokens". */
+/**
+ * A compaction of the context, laid out like a tool call: "Compact  198k → 41k tokens". Once it has the summary it
+ * wrote, click it to see what the agent carried over, as a call opens its output.
+ */
 function Compaction({ compaction, turnStart }: CompactionRow & TurnStartProps): React.JSX.Element {
-  const { state } = compaction
+  const { state, summary } = compaction
+  const [expanded, setExpanded] = useState(false)
+  const line = (
+    <>
+      <span className={styles.callLine}>
+        <Dot state={callIndicator(state)} label={callStateLabel(state)} />
+        <span className={styles.name}>{COMPACTION_NAME}</span>
+        <span className={styles.argument}>{compactionArgument(compaction)}</span>
+        <span className={styles.time}>{clockTime(compaction.createdAt)}</span>
+      </span>
+      <span className={styles.result}>{compactionResult(compaction)}</span>
+    </>
+  )
   return (
     <div className={styles.callGroup} {...{ [TURN_START]: turnStart }}>
       <div
@@ -126,13 +141,27 @@ function Compaction({ compaction, turnStart }: CompactionRow & TurnStartProps): 
         className={classNames(styles.call, styles.compaction, styles[state])}
         data-state={state}
       >
-        <span className={styles.callLine}>
-          <Dot state={callIndicator(state)} label={callStateLabel(state)} />
-          <span className={styles.name}>{COMPACTION_NAME}</span>
-          <span className={styles.argument}>{compactionArgument(compaction)}</span>
-          <span className={styles.time}>{clockTime(compaction.createdAt)}</span>
-        </span>
-        <span className={styles.result}>{compactionResult(compaction)}</span>
+        {summary === null ? (
+          line
+        ) : (
+          <>
+            <button
+              type="button"
+              className={styles.callButton}
+              aria-expanded={expanded}
+              onClick={() => {
+                setExpanded((open) => !open)
+              }}
+            >
+              {line}
+            </button>
+            <Collapse open={expanded}>
+              <pre className={styles.summary} aria-label={`${COMPACTION_NAME} summary`}>
+                {summary}
+              </pre>
+            </Collapse>
+          </>
+        )}
       </div>
     </div>
   )

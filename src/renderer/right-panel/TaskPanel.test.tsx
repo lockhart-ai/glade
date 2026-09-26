@@ -438,6 +438,7 @@ describe('TaskPanel', () => {
         preTokens: null,
         postTokens: null,
         windowTokens: 200_000,
+        summary: null,
       } as const
       const { emit } = await renderPanel({ toolEvents: [...TURN_ONE, running] })
 
@@ -455,6 +456,37 @@ describe('TaskPanel', () => {
         /^Compact198k → 41k tokens10:44Resuming from a summary$/,
       )
       expect(within(within(log()).getByRole('group', { name: 'Compact' })).getByLabelText('Done')).toBeInTheDocument()
+      // With no summary, there's nothing to open.
+      expect(within(within(log()).getByRole('group', { name: 'Compact' })).queryByRole('button')).toBeNull()
+    })
+
+    it("opens a compaction's row to what the agent carried over, and closes it again", async () => {
+      const summary = '1. Primary Request and Intent:\n   Move user image uploads from local disk to S3.'
+      const compaction = {
+        id: 'k1',
+        taskId: 't1',
+        turn: 2,
+        createdAt: AT,
+        kind: ToolEventKind.Compaction,
+        trigger: CompactionTrigger.Auto,
+        state: ToolCallState.Done,
+        preTokens: 198_000,
+        postTokens: 41_000,
+        windowTokens: 200_000,
+        summary,
+      } as const
+      await renderPanel({ toolEvents: [...TURN_ONE, compaction] })
+
+      const row = within(log()).getByRole('group', { name: 'Compact' })
+      const button = within(row).getByRole('button')
+      expect(button).toHaveTextContent(/^Compact198k → 41k tokens10:44Automatic · resuming from a summary$/)
+      expect(button).toHaveAttribute('aria-expanded', 'false')
+      fireEvent.click(button)
+      expect(button).toHaveAttribute('aria-expanded', 'true')
+      // As written, line breaks and all.
+      expect(within(row).getByLabelText('Compact summary').textContent).toBe(summary)
+      fireEvent.click(button)
+      expect(button).toHaveAttribute('aria-expanded', 'false')
     })
 
     it('leaves a subagent’s calls out of the log: its Agent call is one row, and they’re in the Subagents tab', async () => {
