@@ -20,6 +20,19 @@
   background: var(--color-bg) !important;
 }
 
+/*
+ * xterm.js draws its own scroll bar (a slider in a 14px bar, sized and placed by inline styles), so the global
+ * ::-webkit-scrollbar rules never reach it. Its colours come from the terminal's theme (screen.ts); this gives the slider
+ * the shape of every other scroll bar's thumb (docs/design/tokens.md, Scroll bars): as thin, as far in from the right
+ * edge, and rounded. The !important beats the inline width and left.
+ */
+.screen :global(.xterm-scrollable-element > .scrollbar.vertical > .slider) {
+  left: auto !important;
+  right: var(--scrollbar-inset);
+  width: calc(var(--scrollbar-size) - 2 * var(--scrollbar-inset)) !important;
+  border-radius: var(--scrollbar-size);
+}
+
 .empty {
   margin: auto;
   padding: 10px 8px;

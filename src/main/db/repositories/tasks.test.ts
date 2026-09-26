@@ -11,7 +11,18 @@ import {
   type TaskPause,
   type Workspace,
 } from '../../../shared/domain'
-import { createTask, getTask, listPausedTasks, listTasks, listWorkingTasks, updateTask } from './tasks'
+import { TaskFilter } from '../../../shared/attention'
+import {
+  createTask,
+  getTask,
+  listDoneTasks,
+  listPausedTasks,
+  listStaleTodoTaskIds,
+  listTasks,
+  listWorkingTasks,
+  setTaskTodos,
+  updateTask,
+} from './tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 
 let test: TestDatabase
@@ -60,6 +71,7 @@ describe('createTask', () => {
       awaitingPermission: false,
       pause: null,
       importedAt: null,
+      todos: null,
     })
     expect(getTask(test.db, task.id)).toEqual(task)
   })
@@ -318,5 +330,46 @@ describe('updateTask', () => {
     const task = sampleTask(test.db, workspace.id)
     test.db.prepare(`UPDATE tasks SET error = '{"kind":"odd"}' WHERE id = ?`).run(task.id)
     expect(() => getTask(test.db, task.id)).toThrow(/tasks\.error/)
+  })
+})
+
+describe('setTaskTodos', () => {
+  const summary = { done: 3, total: 7, doing: ['Copy the files'] }
+
+  it("keeps a task's todo summary without moving it in the list, and clears it", () => {
+    const task = sampleTask(test.db, workspace.id, 2_000)
+    expect(setTaskTodos(test.db, task.id, summary)).toBe(true)
+    expect(getTask(test.db, task.id)).toEqual({ ...task, todos: summary })
+
+    // Other changes keep it.
+    const renamed = updateTask(test.db, task.id, { title: 'Move uploads to S3' }, 3_000)
+    expect(renamed.todos).toEqual(summary)
+    expect(getTask(test.db, task.id)?.todos).toEqual(summary)
+
+    expect(setTaskTodos(test.db, task.id, null)).toBe(true)
+    expect(getTask(test.db, task.id)?.todos).toBeNull()
+    expect(setTaskTodos(test.db, 'gone', summary)).toBe(false)
+  })
+
+  it('clears the stale mark', () => {
+    const [a, b] = [sampleTask(test.db, workspace.id, 2_000), sampleTask(test.db, workspace.id, 1_000)]
+    test.db.prepare('UPDATE tasks SET todos_stale = 1').run()
+    expect(listStaleTodoTaskIds(test.db)).toEqual([b.id, a.id])
+    setTaskTodos(test.db, b.id, null)
+    expect(listStaleTodoTaskIds(test.db)).toEqual([a.id])
+  })
+
+  it('comes with each page of the Done section', () => {
+    const task = sampleTask(test.db, workspace.id)
+    updateTask(test.db, task.id, { state: TaskState.Done }, 3_000)
+    setTaskTodos(test.db, task.id, summary)
+    const page = listDoneTasks(test.db, { workspaceId: workspace.id, filter: TaskFilter.All, after: null, limit: 10 })
+    expect(page.tasks.map(({ todos }) => todos)).toEqual([summary])
+  })
+
+  it("refuses a summary the schema doesn't hold", () => {
+    const task = sampleTask(test.db, workspace.id)
+    test.db.prepare('UPDATE tasks SET todos = ? WHERE id = ?').run('{"done":1,"total":0,"doing":[]}', task.id)
+    expect(() => getTask(test.db, task.id)).toThrow(/tasks\.todos/)
   })
 })

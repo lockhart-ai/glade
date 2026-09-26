@@ -1,12 +1,12 @@
 // The Todos tab, end to end with the scripted agent: the list follows the agent's own todo tools (Claude Code's
-// TaskCreate and TaskUpdate, or its older TodoWrite) over a turn, the tab counts what's done, and it all survives a
-// relaunch, since it's worked out from the stored tool log.
+// TaskCreate and TaskUpdate, or its older TodoWrite) over a turn, the tab counts what's done, the task's sidebar row
+// shows the same progress, and it all survives a relaunch, since it's worked out from the stored tool log.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { CommandName } from '../src/shared/bridge'
 import { expect, test } from './fixtures'
-import { chat, firstRun, inputBar, taskList, taskPanel } from './selectors'
+import { chat, firstRun, inputBar, taskHeader, taskList, taskPanel } from './selectors'
 import { invoke } from './task-view'
 
 function workspaceRoot(tempFolder: () => string): string {
@@ -54,7 +54,10 @@ test('todos: the list follows TaskCreate and TaskUpdate over a turn, counted in 
   const glade = await launch({ agentScript: 'keeps-todos', chosenFolder: workspaceRoot(tempFolder) })
   const { window } = glade
   const panel = taskPanel(window)
+  const list = taskList(window)
   await startTask(window)
+  // With no list, the row shows no progress.
+  await expect(list.todoProgress(list.rows('Active').first())).toHaveCount(0)
   await send(window, 'Move the image uploads to S3.')
 
   // Partway through the turn the agent asks a question and waits: 3 of 7 done, the copy in progress.
@@ -71,6 +74,11 @@ test('todos: the list follows TaskCreate and TaskUpdate over a turn, counted in 
     `To do: ${PLAN[5] ?? ''}`,
     `To do: ${PLAN[6] ?? ''}`,
   ])
+  // The task's row counts the same, and its tooltip names the item in progress.
+  const progress = list.todoProgress(list.rows('Active').first())
+  await expect(progress).toHaveText('3/7')
+  await expect(progress).toHaveAttribute('title', `3 of 7 todos done · Now: ${PLAN[3] ?? ''}`)
+  await expect(progress).toHaveAttribute('data-done', 'false')
 
   // A reply in words answers it, and the agent works through two more steps before the turn ends.
   await send(window, 'Keep them for now.')
@@ -79,6 +87,8 @@ test('todos: the list follows TaskCreate and TaskUpdate over a turn, counted in 
   await expect(panel.tabPanel).toContainText('6 of 7 done')
   const finished = [...PLAN.slice(0, 6).map((text) => `Done: ${text}`), `To do: ${PLAN[6] ?? ''}`]
   await expect(panel.todos).toHaveText(finished)
+  await expect(progress).toHaveText('6/7')
+  await expect(progress).toHaveAttribute('title', '6 of 7 todos done')
 
   // The todo tool calls stay in the tool log like any others.
   await panel.tab(/^Tool calls/).click()
@@ -93,6 +103,14 @@ test('todos: the list follows TaskCreate and TaskUpdate over a turn, counted in 
   await expect(again.tab(/^Todos/)).toHaveAttribute('aria-selected', 'true')
   await expect(again.tabPanel).toContainText('6 of 7 done')
   await expect(again.todos).toHaveText(finished)
+  const relaunchedList = taskList(relaunched.window)
+  await expect(relaunchedList.todoProgress(relaunchedList.rows('Active').first())).toHaveText('6/7')
+
+  // Marked done, its row in the Done section (which opens to show it, still selected) keeps its progress.
+  await taskHeader(relaunched.window).markDone.click()
+  await expect(relaunchedList.rows('Active')).toHaveCount(0)
+  await expect(relaunchedList.sectionHeader('Done')).toHaveAttribute('aria-expanded', 'true')
+  await expect(relaunchedList.todoProgress(relaunchedList.rows('Done').first())).toHaveText('6/7')
 })
 
 test('todos: the list follows TodoWrite, which replaces it each call', async ({ launch, tempFolder }) => {
@@ -108,4 +126,10 @@ test('todos: the list follows TodoWrite, which replaces it each call', async ({ 
     'Done: Fix the race',
     'Done: Run the test 200 times',
   ])
+  // Every item done: the row shows a check.
+  const list = taskList(window)
+  const progress = list.todoProgress(list.rows('Active').first())
+  await expect(progress).toHaveText('3/3')
+  await expect(progress).toHaveAttribute('data-done', 'true')
+  await expect(progress).toHaveAttribute('title', '3 of 3 todos done')
 })

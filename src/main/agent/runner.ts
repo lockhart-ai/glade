@@ -215,6 +215,7 @@ import { CommandFailure } from '../bridge/errors'
 import {
   emitMessageAppended,
   emitQueueChanged,
+  emitTaskUpdated,
   emitTodosChanged,
   emitToolEventAppended,
   emitToolEventUpdated,
@@ -259,7 +260,7 @@ import { permissionVerdict, PermissionVerdict } from '../permissions/classify'
 import { createPermissionBroker, type PermissionBroker } from '../permissions/permissions'
 import { createQuestionBroker, toolResultFor, type QuestionBroker } from '../questions/questions'
 import { addQueuedMessage } from '../tasks/queue'
-import { changesTodos, todoListFor } from '../todos/todos'
+import { changesTodos, refreshTodos } from '../todos/todos'
 import { noteAgentReply } from '../tasks/attention'
 import { reopenTask, updateTaskFromRunner, updateTaskFromUser, type TaskServiceContext } from '../tasks/service'
 import {
@@ -918,7 +919,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const output = event.isError && turn.stopping ? STOPPED_NOTE : event.output
     const call = updateToolCall(db, { taskId, toolUseId: event.toolUseId, state, output })
     emitToolEventUpdated(emit, call)
-    if (changesTodos(call)) emitTodosChanged(emit, taskId, todoListFor(db, taskId))
+    if (changesTodos(call)) {
+      const { list, changed } = refreshTodos(db, taskId)
+      emitTodosChanged(emit, taskId, list)
+      if (changed !== null) emitTaskUpdated(emit, changed)
+    }
     watchers.toolResult(taskId, call, event)
     if (parent === null && !turn.stopping && stepFinished(turn)) deliverQueue(taskId, live, turn)
   }

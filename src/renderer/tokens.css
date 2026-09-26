@@ -87,6 +87,18 @@
   --touch-target-send: 44px;
 
   /*
+   * Scroll bars (global.css draws them): a thin rounded thumb on a transparent track. The bar takes --scrollbar-size of
+   * room, and the thumb sits --scrollbar-inset in from each side of it. The thumb lightens under the pointer and again
+   * while it's dragged. The terminal's scroll bar (xterm.js draws its own) takes the same colours, from tokens.ts.
+   */
+  --scrollbar-size: 10px;
+  --scrollbar-inset: 2px;
+  --scrollbar-thumb-min: 32px;
+  --scrollbar-thumb: var(--color-strong);
+  --scrollbar-thumb-hover: var(--color-slate);
+  --scrollbar-thumb-active: var(--color-faint);
+
+  /*
    * Motion. Panels, sections and toasts take --motion-duration; menus, popovers and small controls the shorter
    * --motion-duration-fast. Everything eases out. With Reduce motion on, both are 0ms (below), so nothing moves, and
    * src/renderer/motion reads --motion-duration to know how long to keep something on screen while it leaves.

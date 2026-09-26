@@ -80,6 +80,19 @@ function UserMessage({ message, highlight }: UserEntry & HighlightProps): React.
   )
 }
 
+/**
+ * The card an agent's text sits on: every reply, and what the agent said before asking, is on one. The neutral card,
+ * or the purple question card for the latest reply while the agent waits on you.
+ */
+function replyCard(style: ReplyStyle): string {
+  switch (style) {
+    case ReplyStyle.Plain:
+      return classNames(styles.card)
+    case ReplyStyle.Question:
+      return classNames(styles.card, styles.question)
+  }
+}
+
 interface AgentReplyProps extends HighlightProps {
   readonly entry: AgentEntry
   readonly onShowTurn: (turn: number) => void
@@ -139,7 +152,7 @@ function AgentReply({ entry, onShowTurn, onQuote, highlight }: AgentReplyProps):
         ref={rendered}
         source={message.body}
         highlight={highlight}
-        className={classNames(styles.reply, style === ReplyStyle.Question && styles.question)}
+        className={classNames(styles.reply, replyCard(style))}
       />
       {(toolCalls > 0 || summary !== null) && (
         <div className={styles.turn}>
@@ -169,7 +182,13 @@ function AgentReply({ entry, onShowTurn, onQuote, highlight }: AgentReplyProps):
 function AgentQuestions({ questionSet, lead, highlight }: QuestionEntry & HighlightProps): React.JSX.Element {
   return (
     <div className={styles.agent}>
-      {lead !== null && <Markdown source={lead} className={styles.reply} highlight={highlight} />}
+      {lead !== null && (
+        <Markdown
+          source={lead}
+          className={classNames(styles.reply, replyCard(ReplyStyle.Plain))}
+          highlight={highlight}
+        />
+      )}
       <QuestionCard questionSet={questionSet} />
       <span className={styles.meta}>agent · {clockTime(questionSet.createdAt)}</span>
     </div>

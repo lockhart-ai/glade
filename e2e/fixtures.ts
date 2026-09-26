@@ -63,6 +63,9 @@ export function timeZoneAtHour(hour: number, now: Date = new Date()): string {
   return `Etc/GMT${offset > 0 ? '-' : '+'}${String(Math.abs(offset))}`
 }
 
+/** macOS's legacy, always-on scroll bars, as a user default on the command line (its argument domain). */
+const CLASSIC_SCROLLBAR_ARGS = ['-AppleShowScrollBars', 'Always'] as const
+
 /** How to launch the app. */
 export interface LaunchOptions {
   /** The page's location hash, e.g. `#gallery`. The app itself by default. */
@@ -96,6 +99,13 @@ export interface LaunchOptions {
    * motion on, so every change lands at once and no test waits on an animation. Specs of the animations turn it on.
    */
   readonly motion?: boolean
+  /**
+   * Whether macOS draws its legacy scroll bars, which always show and take room, as with System Settings' "Show scroll
+   * bars: Always" or a mouse attached. Off by default: the system's setting, overlay scroll bars on a Mac with a
+   * trackpad. The app gets `-AppleShowScrollBars Always` on its command line, which macOS reads as that user default
+   * for this run only.
+   */
+  readonly classicScrollbars?: boolean
 }
 
 /** The path of a sample-data fixture in `e2e/seeds/`, by file name. */
@@ -217,6 +227,7 @@ export const test = base.extend<Fixtures>({
         loginShell,
         env = {},
         motion = false,
+        classicScrollbars = false,
       } = options
       const spec: E2eSpec = {
         userData,
@@ -230,7 +241,7 @@ export const test = base.extend<Fixtures>({
       // global setup builds it (scripts/e2e-setup.mjs); say so if it's gone anyway.
       if (!existsSync(MAIN)) throw new Error(`No test build at ${MAIN}: run the specs with npm run test:e2e`)
       const app = await electron.launch({
-        args: [MAIN],
+        args: [MAIN, ...(classicScrollbars ? CLASSIC_SCROLLBAR_ARGS : [])],
         env: appEnv(spec, chosenFolder, timeZone, env),
         ...(RECORD_DIR === undefined
           ? {}

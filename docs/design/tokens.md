@@ -10,7 +10,7 @@ can nest one level (header and right panel float inside the task card).
 | `bg` | `#0A0B0F` | Window background, inset fields, code blocks |
 | `panel` | `#181921` | Top-level cards (sidebar, task card, terminal, plugin) |
 | `raised` | `#232531` | Selected rows, input bar, dark buttons |
-| `inner` | `#222430` | Nested cards (header, right panel) |
+| `inner` | `#222430` | Nested cards (header, right panel, the agent's reply cards) |
 | `inner-2` | `#2E3243` | Active tab, highlighted rows inside nested cards |
 | `border` | `#2F3343` | Top-level card borders |
 | `inner-border` | `#373C4F` | Nested card borders and dividers |
@@ -25,7 +25,7 @@ can nest one level (header and right panel float inside the task card).
 | `pink` | `#E58FA8` | Errors, destructive menu items, deleted lines |
 | `teal` | `#7FD1C7` | Added lines, strings in code |
 | user bubble | `#22304D` | Your messages |
-| question highlight | `#1E1B33` / `#3B3366` | Background / border of the agent's question card |
+| question highlight | `#1E1B33` / `#3B3366` | Background / border of the agent's question card, and of its latest reply while it waits on you |
 
 ### Contrast
 
@@ -91,6 +91,21 @@ And the insets that keep things on shared lines:
 - Nested cards get `box-shadow: 0 6px 20px rgba(0,0,0,.25)`. Menus and popovers `0 16px 40px rgba(0,0,0,.55)`.
   Toasts `0 12px 32px rgba(0,0,0,.45)`.
 - Touch targets at least 28px in dense areas, 44px for the send button.
+
+## Scroll bars
+
+Every scroll bar is a thin rounded thumb on a transparent track, the same with macOS's overlay scroll bars (a trackpad)
+or its always-on ones (a mouse, or "Show scroll bars: Always"). They're styled once, in `global.css`; the terminal's
+(xterm.js draws its own) takes the same colours and shape.
+
+| Token | Value | Use |
+|---|---|---|
+| `scrollbar-size` | 10px | The room the bar takes, across it |
+| `scrollbar-inset` | 2px | The gap between the thumb and the bar's edges: a 6px thumb, fully rounded |
+| `scrollbar-thumb-min` | 32px | The shortest the thumb gets |
+| `scrollbar-thumb` | `strong` | The thumb |
+| `scrollbar-thumb-hover` | `slate` | The thumb under the pointer |
+| `scrollbar-thumb-active` | `faint` | The thumb while it's dragged |
 
 ## Motion
 

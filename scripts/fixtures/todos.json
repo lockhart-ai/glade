@@ -277,13 +277,94 @@
       "title": "Fix flaky login test",
       "status": "Waiting on you: run it against Postgres too, or ship the fix as is?",
       "unread": true,
-      "minutesAgo": 0
+      "minutesAgo": 0,
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "TodoWrite",
+          "input": {
+            "todos": [
+              {
+                "content": "Reproduce the failure locally",
+                "status": "completed",
+                "activeForm": "Reproducing the failure"
+              },
+              {
+                "content": "Find the race in the session setup",
+                "status": "completed",
+                "activeForm": "Finding the race"
+              },
+              {
+                "content": "Wait for the session before logging in",
+                "status": "completed",
+                "activeForm": "Fixing the wait"
+              },
+              {
+                "content": "Run the test 200 times",
+                "status": "completed",
+                "activeForm": "Running the test 200 times"
+              },
+              {
+                "content": "Write up the cause",
+                "status": "completed",
+                "activeForm": "Writing up the cause"
+              }
+            ]
+          },
+          "output": "Todos have been modified successfully.",
+          "turn": 1,
+          "minutesAgo": 1
+        }
+      ]
     },
     {
       "title": "Upgrade Django to 5.2",
       "status": "Upgraded; two deprecations fixed",
       "state": "done",
-      "minutesAgo": 2880
+      "minutesAgo": 2880,
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "TodoWrite",
+          "input": {
+            "todos": [
+              {
+                "content": "Read the 5.2 release notes",
+                "status": "completed",
+                "activeForm": "Reading the release notes"
+              },
+              {
+                "content": "Bump Django and its plugins",
+                "status": "completed",
+                "activeForm": "Bumping Django"
+              },
+              {
+                "content": "Fix the two deprecations",
+                "status": "completed",
+                "activeForm": "Fixing the deprecations"
+              },
+              {
+                "content": "Run the test suite",
+                "status": "completed",
+                "activeForm": "Running the tests"
+              },
+              {
+                "content": "Check the admin by hand",
+                "status": "completed",
+                "activeForm": "Checking the admin"
+              },
+              {
+                "content": "Update the changelog",
+                "status": "completed",
+                "activeForm": "Updating the changelog"
+              }
+            ]
+          },
+          "output": "Todos have been modified successfully.",
+          "turn": 1,
+          "minutesAgo": 2900
+        }
+      ]
     },
     {
       "title": "Remove unused feature flags",

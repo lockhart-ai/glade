@@ -86,8 +86,8 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 </div>
 </aside>
 <div style="flex-grow: 1; min-width: 0; box-sizing: border-box; padding: 8px; background: #181921; border: 1px solid #2F3343; border-radius: 16px; display: flex; gap: 8px">
-<div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px">
-<header style="flex-shrink: 0; box-sizing: border-box; padding: 8px 16px 8px 16px; background: #222430; border: 1px solid #373C4F; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.25); display: flex; flex-direction: column; gap: 8px">
+<div style="position: relative; flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+<header style="position: absolute; top: 0; left: 0; right: 0; z-index: 1; box-sizing: border-box; padding: 8px 16px 8px 16px; background: #222430; border: 1px solid #373C4F; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.25); display: flex; flex-direction: column; gap: 8px">
 <div style="display: flex; align-items: center; gap: 8px">
 <div style="flex-grow: 1; min-width: 0; display: flex; align-items: center; gap: 8px">
 <span role="img" aria-label="Active · waiting on you" title="Active · waiting on you" style="flex-shrink: 0; width: 10px; height: 10px; border-radius: 5px; background: #C8B2FF"></span>
@@ -108,7 +108,7 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 </div>
 </header>
 <main style="flex-grow: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column">
-<div style="flex-grow: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 20px; text-align: center">
+<div style="flex-grow: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 128px 20px 20px 20px; text-align: center">
 <div style="font-size: 22px; font-weight: 600; color: #E6E8F0">What should the agent do?</div>
 <p style="margin: 0; max-width: 440px; font-size: 14.5px; line-height: 1.55; color: #AEB3C3">Describe it in your own words. The agent names the task and writes its objective from your first message. It works in the workspace root, ~/code/api.</p>
 </div>

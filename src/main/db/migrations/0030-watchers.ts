@@ -8,7 +8,7 @@ import type { Migration } from '../migrate'
  * session, and its fires are turned away (`docs/sdk-notes.md` §13). A watcher goes with its task.
  */
 export const watchersMigration: Migration = {
-  version: 29,
+  version: 30,
   name: 'Add the watchers',
   up(db) {
     db.exec(`

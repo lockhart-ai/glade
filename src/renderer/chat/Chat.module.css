@@ -3,8 +3,22 @@
   flex-grow: 1;
   min-height: 0;
   overflow-y: auto;
+  /*
+   * The chat runs up under the floating header card (TaskCard.module.css): its top padding keeps the first message
+   * clear of the header, and its scroll padding keeps a match revealed by search (useRevealMatch) out from under it.
+   */
+  padding-top: var(--task-header-clearance, 0px);
+  scroll-padding-top: var(--task-header-clearance, 0px);
   display: flex;
   flex-direction: column;
+}
+
+/*
+ * Its scroll track starts below the header card too, so the thumb never slides under the header. Only the track's
+ * margin: global.css styles the scroll bar itself.
+ */
+.scroller::-webkit-scrollbar-track {
+  margin-top: var(--task-header-clearance, 0px);
 }
 
 /*
@@ -84,12 +98,21 @@
   color: var(--color-text);
 }
 
-/* The agent's latest reply while it waits on you. */
-.question {
+/*
+ * Every agent reply is on a card (#248), with the question card's shape (03-rich-question.html) and the permission
+ * card's neutral fill and border (23-permission-card.html).
+ */
+.card {
   padding: 14px 16px;
-  background: var(--color-question-bg);
-  border: 1px solid var(--color-question-border);
+  background: var(--color-inner);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-nested);
+}
+
+/* The agent's latest reply while it waits on you: the purple question card (task-workspace.html). */
+.question {
+  background: var(--color-question-bg);
+  border-color: var(--color-question-border);
 }
 
 .turn {

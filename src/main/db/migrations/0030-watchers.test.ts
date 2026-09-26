@@ -3,15 +3,15 @@ import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { listWatchers } from '../repositories/watchers'
 import { MIGRATIONS } from '.'
-import { watchersMigration } from './0029-watchers'
+import { watchersMigration } from './0030-watchers'
 
-it('is migration 29', () => {
-  expect(MIGRATIONS[28]).toBe(watchersMigration)
+it('is migration 30', () => {
+  expect(MIGRATIONS[29]).toBe(watchersMigration)
 })
 
 it('starts every existing task with no watchers, keeps one per tool call, checks its values, and drops them with their task', () => {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 28))
+  migrate(db, MIGRATIONS.slice(0, 29))
   db.prepare("INSERT INTO workspaces VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)").run()
   db.prepare(
     `INSERT INTO tasks (id, workspace_id, title, objective, status, state, activity, pinned, unread, model, effort,

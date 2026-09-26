@@ -56,6 +56,7 @@ import { createWorkspace } from './db/repositories/workspaces'
 import { DEFAULT_SETTINGS, type SettingsPatch } from '../shared/settings'
 import { SETTING_SCHEMAS, updateSettings } from './db/repositories/settings'
 import { storeControlToken, storedToken } from './control/token'
+import { refreshTodos } from './todos/todos'
 
 const MINUTE = 60_000
 
@@ -582,6 +583,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       for (const [index, event] of (sample.toolEvents ?? []).entries()) {
         seedToolEvent(db, task.id, event, now, `seed-${String(index)}`)
       }
+      refreshTodos(db, task.id)
       for (const body of sample.queuedMessages ?? []) appendQueuedMessage(db, { taskId: task.id, body }, now)
       if (sample.openFiles !== undefined) {
         const { paths, activePath } = sample.openFiles

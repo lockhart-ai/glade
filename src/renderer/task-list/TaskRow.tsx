@@ -11,6 +11,7 @@ import { isPaused, pausedStatusLine } from '../pause/pauseModel'
 import { Highlighted, Marked } from '../search/Highlight'
 import { watchingLabel } from '../watchers/watchersModel'
 import { formatRelativeTime } from './relativeTime'
+import { RowTodos } from './RowTodos'
 import styles from './TaskRow.module.css'
 
 /** What a task without a title yet is called. */
@@ -115,11 +116,29 @@ function statusLine(task: Task, now: EpochMs): string {
   return task.status === '' && task.state === TaskState.Active ? NO_STATUS : task.status
 }
 
+interface StatusProps {
+  task: Task
+  now: EpochMs
+}
+
+/** The row's status line, with the task's todo progress at its end when the agent keeps a list. */
+function Status({ task, now }: StatusProps): React.JSX.Element {
+  const text = statusLine(task, now)
+  if (task.todos === null) return <span className={styles.status}>{text}</span>
+  return (
+    <span className={styles.statusRow}>
+      <span className={styles.statusText}>{text}</span>
+      <RowTodos todos={task.todos} />
+    </span>
+  )
+}
+
 /**
  * One task in the list: its state dot, title, watcher mark (while its agent has live watchers), relative time, and one
  * line of status ("Error: API overloaded · retry?"
  * while an error has stopped its agent, "Paused: usage limit · resumes 11:42" while it's paused). Unread rows are bold.
- * As a search result, its title has the matches marked, and a snippet around a match can take the status line's place.
+ * When the agent keeps a todo list, the status line ends with its progress (`RowTodos`). As a search result, its title
+ * has the matches marked, and a snippet around a match can take the status line's place.
  */
 export function TaskRow({
   task,
@@ -166,7 +185,7 @@ export function TaskRow({
           <RenameField task={task} onRename={onRename} onCancel={onCancelRename} />
           {time}
         </span>
-        <span className={styles.status}>{statusLine(task, now)}</span>
+        <Status task={task} now={now} />
       </div>
     )
   }
@@ -188,7 +207,7 @@ export function TaskRow({
         {time}
       </span>
       {snippet === null ? (
-        <span className={styles.status}>{statusLine(task, now)}</span>
+        <Status task={task} now={now} />
       ) : (
         <span className={styles.snippet}>
           <Marked parts={snippet} />

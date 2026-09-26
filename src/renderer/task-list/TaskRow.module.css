@@ -96,6 +96,69 @@
   text-overflow: ellipsis;
 }
 
+/* The status line with the task's todo progress at its end (09-todos.html): the status ellipsizes before it. */
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding-left: 16px;
+}
+
+.statusText {
+  flex-grow: 1;
+  min-width: 0;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.4;
+  color: var(--color-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.todos {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+.todosIcon {
+  flex-shrink: 0;
+}
+
+/* The ring: its track in the strong outline colour, the done items' share in blue. */
+.ringTrack,
+.ringDone {
+  fill: none;
+  stroke-width: 2;
+}
+
+.ringTrack {
+  stroke: var(--color-strong);
+}
+
+.ringDone {
+  stroke: var(--color-blue);
+}
+
+/* Every item done: a check on a disc in the done colour, cut out in the sidebar's colour. */
+.checkFill {
+  fill: var(--color-slate);
+}
+
+.checkMark {
+  fill: none;
+  stroke: var(--color-panel);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 /* A search result, from 07-search.html. */
 .result {
   gap: 6px;
@@ -123,7 +186,8 @@
   color: var(--color-blue-text);
 }
 
-.unread .status {
+.unread .status,
+.unread .statusText {
   color: var(--color-muted);
 }
 
