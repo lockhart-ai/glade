@@ -132,7 +132,7 @@ function Section({ section, onOpen }: SectionProps): React.JSX.Element {
 }
 
 /**
- * The popover under Glade's icon in the menu bar (`docs/design/html/23-menu-bar.html`): what needs you, what's working
+ * The popover under Glade's icon in the menu bar (`docs/design/html/29-menu-bar.html`): what needs you, what's working
  * and the latest notifications, each section hidden while it's empty, or "Nothing in flight"; then Open Glade and Quit.
  * Clicking a row opens Glade on its task.
  */

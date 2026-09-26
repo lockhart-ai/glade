@@ -72,7 +72,7 @@ asking, permission, error or a reply waiting), **Working** (its status line, tod
 long its turn has run) and **Recent** (the last notifications Glade sent, with their age; kept in the database, so
 they survive a relaunch), each hidden while empty, or "Nothing in flight". It updates live while open; a row opens
 Glade on its task, switching workspace if needed, and its footer has **Open Glade** and **Quit**. It hides on Esc or
-when it loses focus (`design/html/23-menu-bar.html`).
+when it loses focus (`design/html/29-menu-bar.html`).
 
 ## Settings
 

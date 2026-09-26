@@ -802,7 +802,7 @@ export type MenuUpdateRequest = MenuState
  */
 export type WindowCloseRequest = EmptyRequest
 
-/** What's in flight across every workspace, for the menu bar popover (`docs/design/html/23-menu-bar.html`). */
+/** What's in flight across every workspace, for the menu bar popover (`docs/design/html/29-menu-bar.html`). */
 export interface MenuBarResponse {
   readonly snapshot: MenuBarSnapshot
 }

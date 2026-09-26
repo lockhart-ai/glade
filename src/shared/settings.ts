@@ -37,7 +37,7 @@ export interface Settings {
   readonly controlPort: number
   /**
    * Whether Glade shows its icon in the macOS menu bar, with what's in flight and a popover listing it (Settings ›
-   * General; `docs/design/html/23-menu-bar.html`).
+   * General; `docs/design/html/29-menu-bar.html`).
    */
   readonly showInMenuBar: boolean
 }

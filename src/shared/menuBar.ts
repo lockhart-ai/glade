@@ -1,5 +1,5 @@
 /**
- * Glade in the macOS menu bar (`docs/design/html/23-menu-bar.html`): an icon showing what's in flight, and a popover
+ * Glade in the macOS menu bar (`docs/design/html/29-menu-bar.html`): an icon showing what's in flight, and a popover
  * under it listing it. Main works out what's in flight from the database (`src/main/menu-bar`) as a `MenuBarSnapshot`,
  * draws the icon from it (`menuBarIcon`), and hands it to the popover's page (`src/renderer/menu-bar`), which shows it.
  *
@@ -20,7 +20,7 @@ import {
   type Workspace,
 } from './domain'
 
-/** The popover's width, in CSS pixels (`docs/design/html/23-menu-bar.html`). Its height follows what it lists. */
+/** The popover's width, in CSS pixels (`docs/design/html/29-menu-bar.html`). Its height follows what it lists. */
 export const MENU_BAR_POPOVER_WIDTH = 360
 
 /** The most a popover can ask to be sized to (`menuBar.fit`): more than any screen, which main keeps it within. */

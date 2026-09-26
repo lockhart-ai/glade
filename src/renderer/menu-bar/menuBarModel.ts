@@ -1,5 +1,5 @@
 /**
- * What the menu bar popover shows (`docs/design/html/23-menu-bar.html`), worked out from what's in flight
+ * What the menu bar popover shows (`docs/design/html/29-menu-bar.html`), worked out from what's in flight
  * (`MenuBarSnapshot`, from main) and the time: its sections in order, each left out while it has no rows.
  */
 import type { EpochMs, TodoSummary } from '../../shared/domain'

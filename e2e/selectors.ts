@@ -537,7 +537,7 @@ export function removeWorkspaceDialog(page: Page) {
 export type MenuBarSectionName = 'Needs you' | 'Working' | 'Recent'
 
 /**
- * The popover under Glade's icon in the menu bar (`docs/design/html/23-menu-bar.html`), in its own window's page (see
+ * The popover under Glade's icon in the menu bar (`docs/design/html/29-menu-bar.html`), in its own window's page (see
  * `clickMenuBarIcon`): its sections, each row a button that opens its task, and Open Glade and Quit.
  */
 export function menuBarPopover(page: Page) {

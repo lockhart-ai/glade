@@ -1,5 +1,5 @@
 /**
- * The menu bar icon's pulse (`docs/design/html/23-menu-bar.html`): while any agent works, the glyph steps through a
+ * The menu bar icon's pulse (`docs/design/html/29-menu-bar.html`): while any agent works, the glyph steps through a
  * few frames of itself at lower strength, and back, on a timer. It's the menu bar's version of the working line's
  * dots (`docs/design/tokens.md`, Motion): one round every 7 × `motion-duration`, 1.4s.
  */

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Draws the menu bar icon's glyph (docs/design/html/23-menu-bar.html) at each strength its pulse steps through, as
+# Draws the menu bar icon's glyph (docs/design/html/29-menu-bar.html) at each strength its pulse steps through, as
 # macOS template images: assets/icon/menu-bar/glyph-<n>Template.png (18×18) and glyph-<n>Template@2x.png (36×36).
 # The glyph is the three blades of assets/icon/glade-mark.svg in black; macOS draws a template image in the menu bar's
 # own colour, so only its alpha counts. The strengths are GLYPH_STRENGTHS in src/main/menu-bar/pulse.ts, in order.

@@ -1,5 +1,5 @@
 /**
- * Glade in the macOS menu bar (`docs/design/html/23-menu-bar.html`, #271): an icon showing what's in flight, and a
+ * Glade in the macOS menu bar (`docs/design/html/29-menu-bar.html`, #271): an icon showing what's in flight, and a
  * popover under it listing it.
  *
  * - The icon is a monochrome template glyph (so it follows light and dark menu bars) with, while tasks need you, their

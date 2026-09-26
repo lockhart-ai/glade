@@ -152,7 +152,7 @@ function ModelPicker({ value, onChoose }: ModelPickerProps): React.JSX.Element {
   )
 }
 
-/** Glade in the macOS menu bar (`docs/design/html/23-menu-bar.html`): its icon, and the popover it opens. */
+/** Glade in the macOS menu bar (`docs/design/html/29-menu-bar.html`): its icon, and the popover it opens. */
 export function GeneralSection(): React.JSX.Element {
   const [settings, update] = useSettings()
   return (
