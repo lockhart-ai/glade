@@ -764,11 +764,16 @@ describe('AGENT_SCRIPTS', () => {
     await send(start('writes-todos'), 'Fix the flaky login test.')
 
     expect(reply()).toMatch(/passes 200 runs in a row\.$/)
-    expect(todoListFor(database.db, task.id)?.items).toEqual([
+    const items = todoListFor(database.db, task.id)?.items ?? []
+    expect(items.map(({ text, state, note }) => ({ text, state, note }))).toEqual([
       { text: 'Reproduce the flake', state: TodoState.Done, note: null },
       { text: 'Fix the race', state: TodoState.Done, note: null },
       { text: 'Run the test 200 times', state: TodoState.Done, note: null },
     ])
+    // The first was finished by an earlier write; the last write finished the other two at once.
+    const [reproduced, fixed, ran] = items.map(({ completedAt }) => completedAt ?? 0)
+    expect(fixed).toBe(ran)
+    expect(reproduced).toBeLessThan(fixed ?? 0)
     expect(calls().filter(({ name }) => name === 'TodoWrite')).toHaveLength(3)
   })
 

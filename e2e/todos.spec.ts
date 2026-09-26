@@ -47,6 +47,15 @@ const PLAN = [
   'Delete local copies',
 ]
 
+/** A done item of the plan, as the tab reads it: its text, then when it was finished (just now, or minutes ago). */
+function done(index: number): RegExp {
+  const text = (PLAN[index] ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`^Done: ${text}Finished (just now|\\d+m ago)$`)
+}
+
+/** An exact time, as a finish time's tooltip gives it: `Sep 26, 2026, 12:18 AM`. */
+const FULL_DATE = /^[A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2}\s[AP]M$/
+
 test('todos: the list follows TaskCreate and TaskUpdate over a turn, counted in the tab, and survives a relaunch', async ({
   launch,
   tempFolder,
@@ -65,15 +74,19 @@ test('todos: the list follows TaskCreate and TaskUpdate over a turn, counted in 
   await expect(panel.tab(/^Todos/)).toHaveText('Todos 3/7')
   await expect(panel.tabPanel).toContainText('3 of 7 done')
   await expect(panel.todoProgress).toHaveAttribute('aria-valuenow', '3')
+  // Grouped: the item in progress, then the done ones (the latest finished first, each with its time), then the rest.
   await expect(panel.todos).toHaveText([
-    `Done: ${PLAN[0] ?? ''}`,
-    `Done: ${PLAN[1] ?? ''}`,
-    `Done: ${PLAN[2] ?? ''}`,
     `Doing: ${PLAN[3] ?? ''}Copying files · 1,240 of 3,900`,
+    done(2),
+    done(1),
+    done(0),
     `To do: ${PLAN[4] ?? ''}`,
     `To do: ${PLAN[5] ?? ''}`,
     `To do: ${PLAN[6] ?? ''}`,
   ])
+  // Each finish time gives the exact time on hover.
+  await expect(panel.todoFinished(panel.todos.nth(1))).toHaveAttribute('title', FULL_DATE)
+  await expect(panel.todoFinished(panel.todos.first())).toHaveCount(0)
   // The task's row counts the same, and its tooltip names the item in progress.
   const progress = list.todoProgress(list.rows('Active').first())
   await expect(progress).toHaveText('3/7')
@@ -85,8 +98,12 @@ test('todos: the list follows TaskCreate and TaskUpdate over a turn, counted in 
   await expect(chat(window).agentReplies).toHaveCount(1)
   await expect(panel.tab(/^Todos/)).toHaveText('Todos 6/7')
   await expect(panel.tabPanel).toContainText('6 of 7 done')
-  const finished = [...PLAN.slice(0, 6).map((text) => `Done: ${text}`), `To do: ${PLAN[6] ?? ''}`]
+  // The copy moved from the top to the done items as it finished, and the steps after it followed, each on top.
+  const finished = [done(5), done(4), done(3), done(2), done(1), done(0), `To do: ${PLAN[6] ?? ''}`]
   await expect(panel.todos).toHaveText(finished)
+  const times = await panel.todos.evaluateAll((items) =>
+    items.map((item) => item.querySelector('time')?.getAttribute('datetime') ?? null),
+  )
   await expect(progress).toHaveText('6/7')
   await expect(progress).toHaveAttribute('title', '6 of 7 todos done')
 
@@ -103,6 +120,12 @@ test('todos: the list follows TaskCreate and TaskUpdate over a turn, counted in 
   await expect(again.tab(/^Todos/)).toHaveAttribute('aria-selected', 'true')
   await expect(again.tabPanel).toContainText('6 of 7 done')
   await expect(again.todos).toHaveText(finished)
+  // Each keeps the time it was finished, stored with the tool log.
+  const relaunchedTimes = await again.todos.evaluateAll((items) =>
+    items.map((item) => item.querySelector('time')?.getAttribute('datetime') ?? null),
+  )
+  expect(relaunchedTimes).toEqual(times)
+  expect(times.filter((time) => time !== null)).toHaveLength(6)
   const relaunchedList = taskList(relaunched.window)
   await expect(relaunchedList.todoProgress(relaunchedList.rows('Active').first())).toHaveText('6/7')
 
@@ -121,11 +144,18 @@ test('todos: the list follows TodoWrite, which replaces it each call', async ({ 
 
   await expect(chat(window).agentReplies).toHaveCount(1)
   await expect(panel.tab(/^Todos/)).toHaveText('Todos 3/3')
+  // The last write finished two at once: the one further down the list shows first, then the one before it, then the
+  // item an earlier write finished.
   await expect(panel.todos).toHaveText([
-    'Done: Reproduce the flake',
-    'Done: Fix the race',
-    'Done: Run the test 200 times',
+    /^Done: Run the test 200 timesFinished /,
+    /^Done: Fix the raceFinished /,
+    /^Done: Reproduce the flakeFinished /,
   ])
+  const [run, fix, reproduce] = await panel.todos.evaluateAll((items) =>
+    items.map((item) => Date.parse(item.querySelector('time')?.getAttribute('datetime') ?? '')),
+  )
+  expect(run).toBe(fix)
+  expect(reproduce).toBeLessThan(fix ?? 0)
   // Every item done: the row shows a check.
   const list = taskList(window)
   const progress = list.todoProgress(list.rows('Active').first())

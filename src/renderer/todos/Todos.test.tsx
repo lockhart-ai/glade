@@ -10,17 +10,28 @@ function render(ui: React.ReactElement, wrapper = storeWrapper()) {
 }
 
 const NOW = new Date(2026, 8, 23, 14, 30).getTime()
+const MINUTE = 60_000
 
 /** The list in 09-todos.html. */
 const LIST: TodoList = {
   items: [
-    { text: 'Find how uploads are stored today', state: TodoState.Done, note: null },
-    { text: 'Add an S3 backend for media files', state: TodoState.Done, note: null },
-    { text: 'Check new uploads land in the bucket', state: TodoState.Done, note: null },
-    { text: 'Copy the 3,900 existing files', state: TodoState.Doing, note: 'In progress · 1,240 of 3,900' },
-    { text: 'Spot-check a sample of copied files', state: TodoState.Todo, note: null },
-    { text: 'Update stored paths in the database', state: TodoState.Todo, note: null },
-    { text: 'Delete local copies', state: TodoState.Waiting, note: 'Will ask you before deleting anything' },
+    { text: 'Find how uploads are stored today', state: TodoState.Done, note: null, completedAt: NOW - 19 * MINUTE },
+    { text: 'Add an S3 backend for media files', state: TodoState.Done, note: null, completedAt: NOW - 17 * MINUTE },
+    { text: 'Check new uploads land in the bucket', state: TodoState.Done, note: null, completedAt: NOW - 9 * MINUTE },
+    {
+      text: 'Copy the 3,900 existing files',
+      state: TodoState.Doing,
+      note: 'In progress · 1,240 of 3,900',
+      completedAt: null,
+    },
+    { text: 'Spot-check a sample of copied files', state: TodoState.Todo, note: null, completedAt: null },
+    { text: 'Update stored paths in the database', state: TodoState.Todo, note: null, completedAt: null },
+    {
+      text: 'Delete local copies',
+      state: TodoState.Waiting,
+      note: 'Will ask you before deleting anything',
+      completedAt: null,
+    },
   ],
   updatedAt: NOW - 20_000,
 }
@@ -49,27 +60,137 @@ describe('Todos', () => {
     expect(screen.getByText('updated 4m ago')).toBeInTheDocument()
   })
 
-  it('shows each item in its state, with its note under a doing or waiting one', () => {
+  it('shows the active items, then the done ones (newest first, with when each finished), then those not started', () => {
     render(<Todos taskId="t1" list={LIST} now={NOW} />)
 
     expect(items().map((item) => item.textContent)).toEqual([
-      'Done: Find how uploads are stored today',
-      'Done: Add an S3 backend for media files',
-      'Done: Check new uploads land in the bucket',
       'Doing: Copy the 3,900 existing filesIn progress · 1,240 of 3,900',
+      'Waiting on you: Delete local copiesWill ask you before deleting anything',
+      'Done: Check new uploads land in the bucketFinished 9m ago',
+      'Done: Add an S3 backend for media filesFinished 17m ago',
+      'Done: Find how uploads are stored todayFinished 19m ago',
       'To do: Spot-check a sample of copied files',
       'To do: Update stored paths in the database',
-      'Waiting on you: Delete local copiesWill ask you before deleting anything',
     ])
     const classes = items().map((item) => item.className)
-    expect(classes[0]).toMatch(/done/)
-    expect(classes[3]).toMatch(/doing/)
-    expect(classes[4]).toMatch(/todo/)
-    expect(classes[6]).toMatch(/waiting/)
+    expect(classes[0]).toMatch(/doing/)
+    expect(classes[1]).toMatch(/waiting/)
+    expect(classes[2]).toMatch(/done/)
+    expect(classes[5]).toMatch(/todo/)
     // Done items are ticked; the doing one has a dot in its ring instead of an icon.
-    expect(items()[0]?.querySelector('path')).not.toBeNull()
-    expect(items()[4]?.querySelector('path')).toBeNull()
-    expect(items()[3]?.querySelector('svg')).toBeNull()
+    expect(items()[2]?.querySelector('path')).not.toBeNull()
+    expect(items()[5]?.querySelector('path')).toBeNull()
+    expect(items()[0]?.querySelector('svg')).toBeNull()
+  })
+
+  it("gives a done item's finish time exactly on hover, and none to the items not done", () => {
+    render(<Todos taskId="t1" list={LIST} now={NOW} />)
+
+    const times = items().map((item) => item.querySelector('time'))
+    expect(times.map((time) => time?.title ?? null)).toEqual([
+      null,
+      null,
+      'Sep 23, 2026, 2:21 PM',
+      'Sep 23, 2026, 2:13 PM',
+      'Sep 23, 2026, 2:11 PM',
+      null,
+      null,
+    ])
+    expect(times[2]?.dateTime).toBe(new Date(NOW - 9 * MINUTE).toISOString())
+  })
+
+  it('keeps the finish times current as the clock moves', () => {
+    const list: TodoList = {
+      items: [{ text: 'Fix the race', state: TodoState.Done, note: null, completedAt: NOW - 5_000 }],
+      updatedAt: NOW - 5_000,
+    }
+    const { rerender } = render(<Todos taskId="t1" list={list} now={NOW} />)
+    expect(items()[0]?.textContent).toBe('Done: Fix the raceFinished just now')
+    rerender(<Todos taskId="t1" list={list} now={NOW + 4 * MINUTE} />)
+    expect(items()[0]?.textContent).toBe('Done: Fix the raceFinished 4m ago')
+    rerender(<Todos taskId="t1" list={list} now={NOW + 3 * 60 * MINUTE} />)
+    expect(items()[0]?.textContent).toBe('Done: Fix the raceFinished 3h ago')
+  })
+
+  it('moves items between the groups as their states change, the one just finished to the top of the done ones', () => {
+    const { rerender } = render(<Todos taskId="t1" list={LIST} now={NOW} />)
+    const copying = items()[0]
+
+    // The copy finishes and the spot-check starts.
+    const next: TodoList = {
+      items: LIST.items.map((todo, index) =>
+        index === 3
+          ? { ...todo, state: TodoState.Done, note: null, completedAt: NOW }
+          : index === 4
+            ? { ...todo, state: TodoState.Doing, note: 'Checking 50 files' }
+            : todo,
+      ),
+      updatedAt: NOW,
+    }
+    rerender(<Todos taskId="t1" list={next} now={NOW} />)
+    expect(items().map((item) => item.textContent)).toEqual([
+      'Doing: Spot-check a sample of copied filesChecking 50 files',
+      'Waiting on you: Delete local copiesWill ask you before deleting anything',
+      'Done: Copy the 3,900 existing filesFinished just now',
+      'Done: Check new uploads land in the bucketFinished 9m ago',
+      'Done: Add an S3 backend for media filesFinished 17m ago',
+      'Done: Find how uploads are stored todayFinished 19m ago',
+      'To do: Update stored paths in the database',
+    ])
+    // The same element moved, so the focus and anything else on it goes with the item.
+    expect(items()[2]).toBe(copying)
+
+    // Reopened, a done item goes back to the active ones, without its time.
+    const reopened: TodoList = {
+      items: next.items.map((todo, index) =>
+        index === 0 ? { ...todo, state: TodoState.Doing, note: 'Looking again', completedAt: null } : todo,
+      ),
+      updatedAt: NOW,
+    }
+    rerender(<Todos taskId="t1" list={reopened} now={NOW} />)
+    expect(
+      items()
+        .map((item) => item.textContent)
+        .slice(0, 3),
+    ).toEqual([
+      'Doing: Find how uploads are stored todayLooking again',
+      'Doing: Spot-check a sample of copied filesChecking 50 files',
+      'Waiting on you: Delete local copiesWill ask you before deleting anything',
+    ])
+    expect(items()[0]?.querySelector('time')).toBeNull()
+  })
+
+  it("shows a list with only one group in the agent's order, or newest first when all are done", () => {
+    const only = (state: TodoState, completedAt: (index: number) => number | null): TodoList => ({
+      items: ['Reproduce the flake', 'Fix the race', 'Run the test 200 times'].map((text, index) => ({
+        text,
+        state,
+        note: null,
+        completedAt: completedAt(index),
+      })),
+      updatedAt: NOW,
+    })
+    const texts = () => items().map((item) => item.querySelector('[class*="text"]')?.textContent)
+    const { rerender } = render(<Todos taskId="t1" list={only(TodoState.Todo, () => null)} now={NOW} />)
+    expect(texts()).toEqual(['Reproduce the flake', 'Fix the race', 'Run the test 200 times'])
+    rerender(<Todos taskId="t1" list={only(TodoState.Doing, () => null)} now={NOW} />)
+    expect(texts()).toEqual(['Reproduce the flake', 'Fix the race', 'Run the test 200 times'])
+    rerender(<Todos taskId="t1" list={only(TodoState.Done, (index) => NOW - (3 - index) * MINUTE)} now={NOW} />)
+    expect(texts()).toEqual(['Run the test 200 times', 'Fix the race', 'Reproduce the flake'])
+    expect(screen.getByText('3 of 3 done')).toBeInTheDocument()
+    // All finished by one call: the one furthest down the list first.
+    rerender(<Todos taskId="t1" list={only(TodoState.Done, () => NOW)} now={NOW} />)
+    expect(texts()).toEqual(['Run the test 200 times', 'Fix the race', 'Reproduce the flake'])
+    expect(screen.getAllByText('just now')).toHaveLength(3)
+  })
+
+  it('shows a done item without a finish time with none', () => {
+    const list: TodoList = {
+      items: [{ text: 'Fix the race', state: TodoState.Done, note: null, completedAt: null }],
+      updatedAt: NOW,
+    }
+    render(<Todos taskId="t1" list={list} now={NOW} />)
+    expect(items()[0]?.textContent).toBe('Done: Fix the race')
   })
 
   it('says there are no todos until the agent keeps a list with something on it', () => {
@@ -119,7 +240,7 @@ describe('a todo’s context menu', () => {
 
 describe('askAboutTodo', () => {
   it('names the todo, for you to finish with your question', () => {
-    expect(askAboutTodo({ text: 'Run the tests', state: TodoState.Todo, note: null })).toBe(
+    expect(askAboutTodo({ text: 'Run the tests', state: TodoState.Todo, note: null, completedAt: null })).toBe(
       'About the todo “Run the tests”: ',
     )
   })
