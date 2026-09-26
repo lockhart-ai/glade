@@ -146,7 +146,8 @@ scroll: the chat passes under them.
 **When something goes wrong:**
 
 - An API error that Claude Code's own retries can't get past stops the task with a card saying what happened, with
-  **Retry**, **Retry with another model** and **Show details**.
+  **Retry**, **Retry with another model** and **Show details**. So does Claude Code failing to start, with the reason it
+  gave, such as a missing workspace folder.
 - Hitting your **usage limit**, or losing the network, pauses the affected tasks behind one banner across the top. They
   resume by themselves when the limit resets or the network is back; **Switch model** resumes them now on another model.
   Messages you send meanwhile wait in the queue.
@@ -490,8 +491,18 @@ run your login shell.
 
 ### The first message fails
 
-Check that Claude Code works on its own: run `claude` in a terminal and make sure you're logged in. Then look in the log
-for the `agent` and `runner` lines of that task.
+When Claude Code can't start at all, the error card says why when Claude Code does: the workspace folder is missing,
+there's no shell to run commands with, your organization's settings or gateway refused it, and so on. **Show details**
+shows what it printed. Fix that (for a missing folder, put it back or open the right one as a workspace), then
+**Retry**.
+
+Otherwise, check that Claude Code works on its own: run `claude` in a terminal and make sure you're logged in. Then look
+in the log for the `agent` and `runner` lines of that task. What the Claude Code process printed to its error output is
+there too, as `agent stderr` lines:
+
+```sh
+grep '"msg":"agent stderr' ~/Library/Logs/glade/main.log
+```
 
 ### Where your data lives
 
