@@ -172,6 +172,27 @@ describe("a subagent's background work", () => {
     expect(watcher('Run the e2e suite')).toMatchObject({ state: WatcherState.Stopped, outcome: ENDED_WITH_SUBAGENT })
   })
 
+  it('ends with its stopped subagent even when the SDK refuses to stop its task', async () => {
+    await launchSubagent()
+    backend.session.emit(
+      ...sdk.backgroundCommandStarted('toolu_e2e', 'be2e', 'Run the e2e suite', 'npm run test:e2e', SUB),
+    )
+    await settle()
+    const stopTask = backend.session.stopTask.bind(backend.session)
+    const refused: string[] = []
+    vi.spyOn(backend.session, 'stopTask').mockImplementation((sdkTaskId) => {
+      if (sdkTaskId === SUB_TASK) return stopTask(sdkTaskId)
+      refused.push(sdkTaskId)
+      return Promise.reject(new Error('No such task'))
+    })
+
+    backend.session.emit(...sdk.subagentEnded(SUB, SUB_TASK, 'stopped', 'Fix the flaky checkout test'))
+    await settle()
+
+    expect(refused).toEqual(['be2e'])
+    expect(watcher('Run the e2e suite')).toMatchObject({ state: WatcherState.Stopped, outcome: ENDED_WITH_SUBAGENT })
+  })
+
   it('lives on when its subagent fails or finishes, until its own end arrives', async () => {
     await launchSubagent()
     backend.session.emit(
