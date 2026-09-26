@@ -16,6 +16,7 @@ import {
   type Task,
   type TaskError,
   type TaskPause,
+  type TodoSummary,
 } from '../../../shared/domain'
 import { contextWindowFor } from '../../../shared/contextWindow'
 import { TaskFilter } from '../../../shared/attention'
@@ -64,7 +65,7 @@ export interface TaskPatch {
 
 const COLUMNS = `id, workspace_id, title, objective, status, status_updated_at, state, activity, pinned, unread, model,
   effort, permission_mode, created_at, updated_at, done_at, session_id, context_used_tokens, context_window_tokens, error,
-  retrying, pause, imported_at`
+  retrying, pause, imported_at, todos`
 
 /** What a task is read with: its columns, and whether it has an open question set or permission request. */
 const SELECTED = `${COLUMNS}, EXISTS (SELECT 1 FROM question_sets WHERE question_sets.task_id = tasks.id
@@ -102,6 +103,12 @@ const taskPauseSchema = z.strictObject({
   checks: count,
   details: z.string(),
 }) satisfies z.ZodType<TaskPause>
+
+const todoSummarySchema = z.strictObject({
+  done: count,
+  total: z.int().positive(),
+  doing: z.array(z.string()).readonly(),
+}) satisfies z.ZodType<TodoSummary>
 
 /** A nullable JSON column holding a value `schema` parses. */
 function jsonColumn<T>(row: Row, table: string, column: string, schema: z.ZodType<T>): T | null {
@@ -141,6 +148,7 @@ function parseTask(raw: unknown): Task {
     awaitingPermission: row.flag('awaiting_permission'),
     pause: jsonColumn(row, 'tasks', 'pause', taskPauseSchema),
     importedAt: row.nullableInteger('imported_at'),
+    todos: jsonColumn(row, 'tasks', 'todos', todoSummarySchema),
   }
 }
 
@@ -158,6 +166,7 @@ function toParams(task: Task): Record<string, string | number | null> {
     error: task.error === null ? null : JSON.stringify(task.error),
     retrying: task.retrying === null ? null : JSON.stringify(task.retrying),
     pause: task.pause === null ? null : JSON.stringify(task.pause),
+    todos: task.todos === null ? null : JSON.stringify(task.todos),
   }
 }
 
@@ -190,11 +199,12 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     awaitingPermission: false,
     pause: null,
     importedAt: input.importedAt ?? null,
+    todos: null,
   }
   db.prepare(
     `INSERT INTO tasks (${COLUMNS}) VALUES (@id, @workspaceId, @title, @objective, @status, @statusUpdatedAt, @state,
       @activity, @pinned, @unread, @model, @effort, @permissionMode, @createdAt, @updatedAt, @doneAt, @sessionId,
-      @contextUsedTokens, @contextWindowTokens, @error, @retrying, @pause, @importedAt)`,
+      @contextUsedTokens, @contextWindowTokens, @error, @retrying, @pause, @importedAt, @todos)`,
   ).run(toParams(task))
   return task
 }
@@ -391,6 +401,22 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
     WHERE id = @id`,
   ).run(toParams(updated))
   return updated
+}
+
+/**
+ * Sets a task's todo summary (null for no list) and clears its stale mark. It's worked out from the tool log, not a
+ * change the task made, so it leaves `updatedAt` alone: the task keeps its place in the task list. Answers whether there
+ * was such a task.
+ */
+export function setTaskTodos(db: Database, id: string, todos: TodoSummary | null): boolean {
+  const json = todos === null ? null : JSON.stringify(todos)
+  return db.prepare('UPDATE tasks SET todos = ?, todos_stale = 0 WHERE id = ?').run(json, id).changes > 0
+}
+
+/** The ids of the tasks whose todo summary must be worked out again (see migration 29), oldest first. */
+export function listStaleTodoTaskIds(db: Database): string[] {
+  const ids: unknown[] = db.prepare('SELECT id FROM tasks WHERE todos_stale = 1 ORDER BY created_at, id').pluck().all()
+  return ids.filter((id): id is string => typeof id === 'string')
 }
 
 /**

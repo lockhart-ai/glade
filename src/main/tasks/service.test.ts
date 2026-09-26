@@ -102,6 +102,7 @@ describe('createTask', () => {
       awaitingPermission: false,
       pause: null,
       importedAt: null,
+      todos: null,
     })
     expect(DEFAULT_SETTINGS.defaultEffort).toBe(Effort.High)
     expect(getTask(database.db, task.id)).toEqual(task)

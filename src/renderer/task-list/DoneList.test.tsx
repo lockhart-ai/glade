@@ -207,6 +207,39 @@ describe('the Done section with more than a thousand tasks', () => {
     expect(selectedRow()).toHaveTextContent('Done 2')
   })
 
+  it("shows each done task's todo progress as its rows load, without loading any task's history", async () => {
+    const withTodos = (index: number): Task =>
+      done(index, index % 3 === 0 ? { todos: { done: index % 7, total: 7, doing: [] } } : {})
+    const { store, fake } = await renderList(Array.from({ length: DONE_TASKS }, (_, index) => withTodos(index)))
+    /** The rendered rows' progress, by title. */
+    const progress = (): Map<string, string | null> =>
+      new Map(
+        within(section('Done'))
+          .queryAllByRole('button')
+          .slice(1)
+          .map((row) => [
+            row.firstElementChild?.children[1]?.textContent ?? '',
+            within(row).queryByRole('img', { name: /todos done/ })?.textContent ?? null,
+          ]),
+      )
+
+    expect(progress().get('Done 0')).toBe('0/7')
+    expect(progress().get('Done 1')).toBeNull()
+    expect(progress().get('Done 3')).toBe('3/7')
+    await scrollToBottom(store)
+    const last = DONE_TASKS - 1
+    expect(progress().get(`Done ${String(last)}`)).toBe(last % 3 === 0 ? `${String(last % 7)}/7` : null)
+    expect(progress().get('Done 1197')).toBe(`${String(1197 % 7)}/7`)
+    expect(fake.invoke.mock.calls.filter(([command]) => command === CommandName.TasksHistory)).toEqual([])
+
+    // A done task's list changing (an import, or a relaunch working it out) shows on its row as it's told.
+    scrollTo(0)
+    act(() => {
+      fake.emit({ type: EventType.TaskUpdated, task: { ...done(1), todos: { done: 7, total: 7, doing: [] } } })
+    })
+    expect(progress().get('Done 1')).toBe('7/7')
+  })
+
   it('shows a task marked done while scrolled down at the top of Done, without moving what you’re looking at', async () => {
     const { store, fake } = await renderList([ACTIVE, ...manyDone()])
     await scrollToBottom(store)
