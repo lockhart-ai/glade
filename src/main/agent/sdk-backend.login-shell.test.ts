@@ -64,7 +64,7 @@ function useLoginShell(profile: string): void {
 /** Starts a session as the app does: in the login shell's environment, read from Glade's own. */
 function startSession(): ReturnType<ReturnType<typeof createSdkBackend>['start']> {
   const env = resolveLoginEnv({ shell: process.env.SHELL, base: process.env, cwd: folder, log }).then(({ env }) => env)
-  return createSdkBackend({ env, log: createMemoryLog().logger }).start(OPTIONS)
+  return createSdkBackend({ version: '1.2.3', env, log: createMemoryLog().logger }).start(OPTIONS)
 }
 
 /** The environment the SDK spawned Claude Code with: the one it was given, or Glade's own when it wasn't given one. */

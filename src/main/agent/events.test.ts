@@ -168,6 +168,7 @@ describe('parsing SDK messages', () => {
         contextWindows: { [sdk.MODEL]: sdk.CONTEXT_WINDOW },
         userMessageUuids: null,
         apiErrorStatus: null,
+        startupFailureReason: null,
       },
     ])
   })
@@ -203,10 +204,25 @@ describe('parsing SDK messages', () => {
         result: sdk.OVERLOADED_ERROR,
         terminalReason: 'api_error',
         apiErrorStatus: 529,
+        startupFailureReason: null,
       }),
     ])
     expect(parse(sdk.result('', { api_error_status: 'n/a' }))).toEqual([
       expect.objectContaining({ apiErrorStatus: null }),
+    ])
+  })
+
+  it('reads why Claude Code could not start from its zeroed result, and a malformed reason as none', () => {
+    expect(parse(sdk.startupFailureResult('cwd_unavailable', 'Error: the folder /code/gone does not exist'))).toEqual([
+      expect.objectContaining({
+        kind: AgentEventKind.TurnFinished,
+        isError: true,
+        errors: ['Error: the folder /code/gone does not exist'],
+        startupFailureReason: 'cwd_unavailable',
+      }),
+    ])
+    expect(parse(sdk.result('', { is_error: true, startup_failure_reason: 42 }))).toEqual([
+      expect.objectContaining({ startupFailureReason: null }),
     ])
   })
 
@@ -311,6 +327,7 @@ describe('parsing SDK messages', () => {
         contextWindows: {},
         userMessageUuids: null,
         apiErrorStatus: null,
+        startupFailureReason: null,
       },
     ])
   })
