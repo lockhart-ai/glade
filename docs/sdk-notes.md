@@ -389,6 +389,20 @@ receives `compact_summary`. See §5.
     (15 minutes later without one), or once the network is back. See `src/main/agent/pauses.ts`. Not yet seen live.
 - **[verified] Process failure:** if the binary can't start (e.g. a missing `cwd`), the iterator **throws** and no
   `result` arrives. Glade must catch it and mark the task errored.
+- **[docs] Startup failures with a reason (#280):** with `CLAUDE_CODE_STARTUP_FAILURE_RESULTS=1` in the session's
+  environment, a start that fails for a known reason first writes a zeroed `error_during_execution` result carrying
+  `startup_failure_reason` (`SDKStartupFailureReason`: `cwd_unavailable`, `shell_tool_missing`, `proxy_invalid`,
+  `temp_dir_unusable`, the `org_*`, `gateway_*` and `worktree_*` checks, `managed_settings_invalid`,
+  `remote_settings_required_unavailable`, `session_held_by_background`, `cli_version_too_old`, `bypass_root`), with
+  `errors` holding the same text as stderr; then the process exits. A failure with no known cause still ends with the
+  process alone. From `sdk.d.ts` only: not probed, since a live start failing would need a broken environment.
+  - **Decided:** Glade sets the variable (`SESSION_ENV`). The runner stops the task on such a result with a `startup`
+    error whose code is the reason; the card words each reason (`src/shared/startupFailure.ts`), naming one it doesn't
+    know as the SDK gives it, and **Show details** shows the `errors` text. The process exiting afterwards changes
+    nothing, as the turn has already ended.
+- **[docs] Diagnostics (#280):** the `stderr` option hears the Claude process's error output; Glade logs it to the
+  task's log, rate-limited (`src/main/agent/stderr-log.ts`, `docs/logs.md`). `CLAUDE_AGENT_SDK_CLIENT_APP` names the
+  host in the User-Agent: Glade sets `glade/<version>`.
 
 ### Interrupt [verified]
 

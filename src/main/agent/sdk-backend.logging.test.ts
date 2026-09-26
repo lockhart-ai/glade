@@ -41,7 +41,7 @@ beforeEach(() => {
 it('logs the agent process starting, where and on what, in the session’s own log', async () => {
   const backendLog = createMemoryLog(LogScope.Agent)
   const sessionLog = createMemoryLog(LogScope.Agent)
-  const session = createSdkBackend({ env: Promise.resolve(ENV), log: backendLog.logger }).start({
+  const session = createSdkBackend({ version: '1.2.3', env: Promise.resolve(ENV), log: backendLog.logger }).start({
     ...OPTIONS,
     mcpServers: { glade: { type: 'sdk', name: 'glade', instance: {} as never } },
     log: sessionLog.logger.with({ taskId: 'task-1' }),
@@ -75,7 +75,7 @@ it('logs the agent process starting, where and on what, in the session’s own l
 
 it("logs to the backend's own log when the session has none, and says when there's no PATH", async () => {
   const log = createMemoryLog(LogScope.Agent)
-  const session = createSdkBackend({ env: Promise.resolve({}), log: log.logger }).start(OPTIONS)
+  const session = createSdkBackend({ version: '1.2.3', env: Promise.resolve({}), log: log.logger }).start(OPTIONS)
   await vi.waitFor(() => {
     expect(sdk.query).toHaveBeenCalledOnce()
   })
@@ -86,7 +86,10 @@ it("logs to the backend's own log when the session has none, and says when there
 
 it('logs an interrupt, a stopped task and the process closing', async () => {
   const log = createMemoryLog(LogScope.Agent)
-  const session = createSdkBackend({ env: Promise.resolve(ENV) }).start({ ...OPTIONS, log: log.logger })
+  const session = createSdkBackend({ version: '1.2.3', env: Promise.resolve(ENV) }).start({
+    ...OPTIONS,
+    log: log.logger,
+  })
   await vi.waitFor(() => {
     expect(sdk.query).toHaveBeenCalledOnce()
   })
@@ -105,7 +108,7 @@ it('logs an interrupt, a stopped task and the process closing', async () => {
 
 it('logs nothing anywhere when given no log at all', async () => {
   const spies = (['debug', 'info', 'warn', 'error', 'log'] as const).map((level) => vi.spyOn(console, level))
-  const session = createSdkBackend({ env: Promise.resolve(ENV) }).start(OPTIONS)
+  const session = createSdkBackend({ version: '1.2.3', env: Promise.resolve(ENV) }).start(OPTIONS)
   await session.interrupt()
   session.close()
 
