@@ -23,7 +23,7 @@ can nest one level (header and right panel float inside the task card).
 | `purple` | `#C8B2FF` | Waiting on you, questions, the lit blade |
 | `slate` | `#5C6378` | Done, finished tool calls |
 | `pink` | `#E58FA8` | Errors, destructive menu items, deleted lines |
-| `teal` | `#7FD1C7` | Added lines, strings in code |
+| `teal` | `#7FD1C7` | Added lines, strings in code, done todos |
 | user bubble | `#22304D` | Your messages |
 | question highlight | `#1E1B33` / `#3B3366` | Background / border of the agent's question card, and of its latest reply while it waits on you |
 

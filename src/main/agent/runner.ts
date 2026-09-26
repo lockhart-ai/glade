@@ -255,6 +255,7 @@ import {
   interruptRunningToolCalls,
   listTasksWithRunningToolCalls,
   listToolEvents,
+  setSubagentProgress,
   updateCompaction,
   updateToolCall,
 } from '../db/repositories/tool-events'
@@ -680,6 +681,7 @@ function startsTurn(event: AgentEvent): boolean {
     case AgentEventKind.RateLimit:
     case AgentEventKind.SubagentStarted:
     case AgentEventKind.SubagentBackgrounded:
+    case AgentEventKind.SubagentProgress:
     case AgentEventKind.TaskFinished:
       return false
   }
@@ -1356,6 +1358,15 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           runInBackground(live, toolUseId, live.turn.number)
         }
       }
+      return
+    }
+    if (event.kind === AgentEventKind.SubagentProgress) {
+      // Kept on its `Agent` call while it runs; one that arrives after its subagent finished changes nothing.
+      const { toolUseId, summary } = event
+      const call = setSubagentProgress(db, { taskId, toolUseId, summary })
+      if (call === undefined) return
+      taskLog(taskId).debug('subagent progress', { toolUseId, summary })
+      emitToolEventUpdated(emit, call)
       return
     }
     if (event.kind === AgentEventKind.TaskFinished) {

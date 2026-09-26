@@ -27,21 +27,39 @@ const STATE_CLASSES: Readonly<Record<TodoState, string | undefined>> = {
   [TodoState.Waiting]: styles.waiting,
 }
 
-/** An item's icon: a ring, ticked when done, with a dot in it while it's being worked on. */
+/**
+ * An item's icon (#308): a filled teal check once it's done, and a hollow ring before it's started (or while it waits
+ * on you), so done and not done tell apart at a glance; while it's being worked on, a ring with a dot in it.
+ */
 function StateIcon({ state }: { readonly state: TodoState }): React.JSX.Element {
-  if (state === TodoState.Doing) {
-    return (
-      <span className={styles.doingRing}>
-        <span className={styles.doingDot} />
-      </span>
-    )
+  switch (state) {
+    case TodoState.Doing:
+      return (
+        <span className={styles.doingRing}>
+          <span className={styles.doingDot} />
+        </span>
+      )
+    case TodoState.Done:
+      return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="10" fill="currentColor" />
+          <path
+            className={styles.check}
+            d="m7.5 12.3 3.2 3.2 6.3-6.8"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )
+    case TodoState.Todo:
+    case TodoState.Waiting:
+      return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="12" cy="12" r="8" />
+        </svg>
+      )
   }
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="8" />
-      {state === TodoState.Done && <path d="m8.5 12 2.5 2.5 4.5-5" strokeLinecap="round" strokeLinejoin="round" />}
-    </svg>
-  )
 }
 
 /** What Ask agent about this puts in the message field, for you to finish with your question. */
@@ -96,8 +114,8 @@ export interface TodosProps {
 
 /**
  * The Todos tab (`docs/design/html/09-todos.html`): how many of the agent's todos are done, with a progress bar and when
- * the agent last changed the list, then each item as todo, doing (blue, with its note), done (struck through, with when
- * it was finished) or waiting on you (purple). The items come grouped by state: active, then done (the most recently
+ * the agent last changed the list, then each item as todo (a hollow ring, at full strength), doing (blue, with its note),
+ * done (a filled teal check, dimmed and struck through, with when it was finished) or waiting on you (purple). The items come grouped by state: active, then done (the most recently
  * finished first), then not started (`orderTodos`). The agent keeps the list; you only read it. An item's context menu
  * copies it, or asks the agent about it.
  */

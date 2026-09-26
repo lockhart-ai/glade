@@ -89,6 +89,7 @@ const DOCS_AGENT: ToolEvent = {
   finishedAt: at(26),
   toolUseId: 'toolu_docs',
   parentToolUseId: null,
+  progressSummary: null,
 }
 
 const GUIDE: FileContent = { kind: FileContentKind.Text, text: '# Upgrading\n', truncated: false, size: 12 }

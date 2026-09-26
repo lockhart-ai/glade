@@ -247,9 +247,10 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   for it, and ⌘W, with the focus in the panel, closes the tab. The agent can open a file here for you.
 - **Todos:** the agent's own checklist, as it keeps it, with how many are done. The items come in three groups: what
   the agent is working on now, then what's done (the most recently finished first, each with when it was finished,
-  like `4m ago`; hover it for the exact time), then what it hasn't started. Items move between the groups as the agent
-  works. The task's row in the sidebar shows the same progress on its third line (`3/7`, or a check once all are done);
-  hover it to see what the agent is working on.
+  like `4m ago`; hover it for the exact time), then what it hasn't started. A done item has a filled teal check and
+  dimmed, struck-through text; one not started has an empty ring and full-strength text. Items move between the groups
+  as the agent works. The task's row in the sidebar shows the same progress on its third line (`3/7`, or a check once
+  all are done); hover it to see what the agent is working on.
 - **Artifacts:** the files the agent named as its deliverables, one compact row each: a thumbnail for an image (PNG,
   JPEG, GIF, WebP or SVG), or a tile with the file's type, then its title, its type and when the file last changed.
   They're listed newest first, by when each file last changed, under **Today**, **Yesterday**, **This week**, **Last
@@ -261,9 +262,11 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   known time, marked missing. Artifacts stay after the task is done.
 
   ![The Artifacts tab: screenshots with thumbnails and drafts under Today and Yesterday, older groups folded](images/guide/artifacts.png)
-- **Subagents:** one row per subagent, running ones first, with what it's doing now, how long it's run and its tool
-  calls. Click one to open its log; right-click a running one to stop it. A subagent's own tool calls live here, not in
-  Tool calls. The task's row in the sidebar counts the running ones on its third line.
+- **Subagents:** one row per subagent, running ones first, with how long it's run and its tool calls. A running one
+  shows a one-line summary of what it's doing now under its name (refreshed about every 30 seconds; hover it for the
+  whole line), then its latest tool call or the last thing it said; a finished one shows what it came to.
+  Click one to open its log; right-click a running one to stop it. A subagent's own tool calls live here, not in Tool
+  calls. The task's row in the sidebar counts the running ones on its third line.
 - **Watchers:** what the agent left running or scheduled to wake itself later: a watch on a command's output (a PR's
   CI, a deploy's log, whatever script it wrote), a command in the background, a check-back at a set time, or a
   recurring job. Each row says what it runs, whether it's running, due, or ended and how, what it last reported, and how

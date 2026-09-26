@@ -1,8 +1,15 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { act, fireEvent, render as renderUnwrapped, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { TodoState, type TodoList } from '../../shared/domain'
+import { contrastRatio, relativeLuminance } from '../contrast'
 import { storeWrapper } from '../store/test-wrapper'
+import { colors, type ColorToken } from '../tokens'
 import { askAboutTodo, NO_TODOS, Todos, TODOS_EXPLAINER } from './Todos'
+
+const todosCss = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'Todos.module.css'), 'utf8')
 
 /** Renders under a store, which the items' context menus act through. */
 function render(ui: React.ReactElement, wrapper = storeWrapper()) {
@@ -81,6 +88,47 @@ describe('Todos', () => {
     expect(items()[2]?.querySelector('path')).not.toBeNull()
     expect(items()[5]?.querySelector('path')).toBeNull()
     expect(items()[0]?.querySelector('svg')).toBeNull()
+  })
+
+  it('draws done as a filled check and not started as a hollow ring, so the two tell apart (#308)', () => {
+    render(<Todos taskId="t1" list={LIST} now={NOW} />)
+    const icon = (index: number) => items()[index]?.querySelector('svg')
+    const circle = (index: number) => icon(index)?.querySelector('circle')
+
+    // Every done item: a filled circle with the tick cut out of it.
+    for (const index of [2, 3, 4]) {
+      expect(items()[index]?.className).toMatch(/done/)
+      expect(circle(index)).toHaveAttribute('fill', 'currentColor')
+      expect(icon(index)?.querySelector('path')?.getAttribute('class')).toMatch(/check/)
+    }
+    // Every item not started: an outlined ring, unfilled and unticked.
+    for (const index of [5, 6]) {
+      expect(items()[index]?.className).toMatch(/todo/)
+      expect(icon(index)).toHaveAttribute('stroke', 'currentColor')
+      expect(circle(index)).not.toHaveAttribute('fill')
+      expect(icon(index)?.querySelector('path')).toBeNull()
+    }
+    // Waiting on you keeps its ring, and doing its dotted ring, unchanged.
+    expect(items()[1]?.className).toMatch(/waiting/)
+    expect(circle(1)).not.toHaveAttribute('fill')
+    expect(items()[0]?.querySelector('[class*="doingDot"]')).not.toBeNull()
+  })
+
+  it('switches an item from the hollow ring to the filled check as it gets done, and back when reopened', () => {
+    const list = (state: TodoState): TodoList => ({
+      items: [{ text: 'Fix the race', state, note: null, completedAt: state === TodoState.Done ? NOW : null }],
+      updatedAt: NOW,
+    })
+    const { rerender } = render(<Todos taskId="t1" list={list(TodoState.Todo)} now={NOW} />)
+    const circle = () => items()[0]?.querySelector('circle')
+    expect(circle()).not.toHaveAttribute('fill')
+    rerender(<Todos taskId="t1" list={list(TodoState.Done)} now={NOW} />)
+    expect(items()[0]?.className).toMatch(/done/)
+    expect(circle()).toHaveAttribute('fill', 'currentColor')
+    rerender(<Todos taskId="t1" list={list(TodoState.Todo)} now={NOW} />)
+    expect(items()[0]?.className).toMatch(/todo/)
+    expect(circle()).not.toHaveAttribute('fill')
+    expect(items()[0]?.querySelector('path')).toBeNull()
   })
 
   it("gives a done item's finish time exactly on hover, and none to the items not done", () => {
@@ -243,5 +291,63 @@ describe('askAboutTodo', () => {
     expect(askAboutTodo({ text: 'Run the tests', state: TodoState.Todo, note: null, completedAt: null })).toBe(
       'About the todo “Run the tests”: ',
     )
+  })
+})
+
+/** The declarations of one rule in Todos.module.css, by its exact selector. */
+function rule(selector: string): Map<string, string> {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const body = new RegExp(`(?:^|\\n)${escaped} \\{([^}]*)\\}`).exec(todosCss)?.[1]
+  if (body === undefined) throw new Error(`No rule for ${selector}`)
+  return new Map([...body.matchAll(/([\w-]+):\s*([^;]+);/g)].map(([, name = '', value = '']) => [name, value]))
+}
+
+function isColorToken(name: string | undefined): name is ColorToken {
+  return name !== undefined && name in colors
+}
+
+/** The token a `var(--color-…)` value names. */
+function token(value: string | undefined): ColorToken {
+  const name = /^var\((--color-[\w-]+)\)$/.exec(value ?? '')?.[1]
+  if (!isColorToken(name)) throw new Error(`Not a colour token: ${String(value)}`)
+  return name
+}
+
+describe('Todos state colours (#308)', () => {
+  // The Todos tab sits in the right panel, a nested card.
+  const surface = colors['--color-inner']
+
+  it('fills a done item in the teal accent, with the tick in the panel colour and its text dimmed', () => {
+    expect(token(rule('.done .icon').get('color'))).toBe('--color-teal')
+    expect(token(rule('.check').get('stroke'))).toBe('--color-panel')
+    expect(token(rule('.done .text').get('color'))).toBe('--color-faint')
+    expect(rule('.done .text').get('text-decoration')).toBe('line-through')
+  })
+
+  it('outlines an item not started, with its text at full strength', () => {
+    expect(token(rule('.todo .icon').get('color'))).toBe('--color-muted')
+    expect(token(rule('.todo .text').get('color'))).toBe('--color-text')
+  })
+
+  it('keeps each icon at 3:1 against the panel and each text at 4.5:1, as the tokens require', () => {
+    // WCAG's floor for icons and other non-text marks is 3:1; text is held to 4.5:1 (tokens.md).
+    const teal = colors[token(rule('.done .icon').get('color'))]
+    expect(contrastRatio(teal, surface)).toBeGreaterThanOrEqual(3)
+    expect(contrastRatio(colors[token(rule('.check').get('stroke'))], teal)).toBeGreaterThanOrEqual(3)
+    expect(contrastRatio(colors[token(rule('.todo .icon').get('color'))], surface)).toBeGreaterThanOrEqual(3)
+    expect(contrastRatio(colors[token(rule('.done .text').get('color'))], surface)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(colors[token(rule('.todo .text').get('color'))], surface)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('sets the not-started text brighter than the done text, so done reads as finished', () => {
+    const todoText = colors[token(rule('.todo .text').get('color'))]
+    const doneText = colors[token(rule('.done .text').get('color'))]
+    expect(relativeLuminance(todoText)).toBeGreaterThan(relativeLuminance(doneText))
+  })
+
+  it('names a rule it cannot find, or a colour that is not a token', () => {
+    expect(() => rule('.nowhere')).toThrow('No rule for .nowhere')
+    expect(() => token('#4e5468')).toThrow('Not a colour token: #4e5468')
+    expect(() => token(undefined)).toThrow('Not a colour token: undefined')
   })
 })

@@ -20,6 +20,7 @@ function call(name: string, input: ToolInput, state = ToolCallState.Done, parent
     finishedAt: null,
     toolUseId: id,
     parentToolUseId,
+    progressSummary: null,
   } satisfies ToolEvent
 }
 

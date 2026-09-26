@@ -52,6 +52,7 @@ import {
   appendDivider,
   appendNarration,
   appendToolCall,
+  setSubagentProgress,
   updateToolCall,
 } from './db/repositories/tool-events'
 import { setUiState } from './db/repositories/ui-state'
@@ -107,6 +108,8 @@ export interface SeedToolCall {
   readonly minutesAgo: number
   /** How long before the capture its result arrived, when it has one; `minutesAgo` unless given. */
   readonly finishedMinutesAgo?: number | undefined
+  /** What a running `Agent` call's subagent says it's doing now (its progress summary); none unless given. */
+  readonly progressSummary?: string | undefined
 }
 
 /** A sample divider in the tool log. */
@@ -386,6 +389,7 @@ const seedToolEventSchema: z.ZodType<SeedToolEvent> = z.discriminatedUnion('kind
     turn,
     minutesAgo,
     finishedMinutesAgo: minutesAgo.optional(),
+    progressSummary: z.string().optional(),
   }),
   z.strictObject({ kind: z.literal(ToolEventKind.Divider), dividerKind: z.enum(DividerKind), turn, minutesAgo }),
   z.strictObject({
@@ -600,6 +604,9 @@ function seedToolEvent(db: Database, taskId: string, event: SeedToolEvent, now: 
       if (output !== undefined) {
         const finishedAt = event.finishedMinutesAgo === undefined ? at : now - event.finishedMinutesAgo * MINUTE
         updateToolCall(db, { taskId, toolUseId, state: event.state ?? ToolCallState.Done, output }, finishedAt)
+      }
+      if (event.progressSummary !== undefined) {
+        setSubagentProgress(db, { taskId, toolUseId, summary: event.progressSummary })
       }
       return
     }

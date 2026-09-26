@@ -59,6 +59,11 @@ export enum AgentEventKind {
    */
   SubagentBackgrounded = 'subagent_backgrounded',
   /**
+   * A running subagent's latest one-line summary of what it's doing (`system/task_progress` with a `summary`, sent about
+   * every 30 seconds with `agentProgressSummaries` on; `docs/sdk-notes.md`, "Subagents").
+   */
+  SubagentProgress = 'subagent_progress',
+  /**
    * A task started by a tool call ended (`system/task_notification`): for a background subagent, this, not its `Agent`
    * call's result, is when it finished (`docs/sdk-notes.md`, "Background subagents").
    */
@@ -239,6 +244,14 @@ export interface SubagentBackgroundedEvent {
   readonly sdkTaskId: string
 }
 
+export interface SubagentProgressEvent {
+  readonly kind: AgentEventKind.SubagentProgress
+  /** The `Agent` tool call that started the subagent. */
+  readonly toolUseId: string
+  /** What it's doing now, on one line. */
+  readonly summary: string
+}
+
 /** How a task started by a tool call ended (the SDK's `task_notification.status`). */
 export enum TaskOutcome {
   Completed = 'completed',
@@ -275,6 +288,7 @@ export type AgentEvent =
   | RateLimitEvent
   | SubagentStartedEvent
   | SubagentBackgroundedEvent
+  | SubagentProgressEvent
   | TaskFinishedEvent
 
 /** Where parsing reports what it drops: the task's agent log (`../logging/logger`). */
@@ -326,6 +340,15 @@ const taskUpdatedMessage = z.looseObject({
   subtype: z.literal('task_updated'),
   task_id: z.string().min(1),
   patch: z.looseObject({ is_backgrounded: z.boolean().optional().catch(undefined) }),
+})
+
+// Only a summary matters, and only for a task started by a tool call. Most progress messages carry none: they only
+// count the task's tool calls and tokens.
+const taskProgressMessage = z.looseObject({
+  type: z.literal('system'),
+  subtype: z.literal('task_progress'),
+  tool_use_id: z.string().min(1).optional().catch(undefined),
+  summary: z.string().optional().catch(undefined),
 })
 
 // Only a task started by a tool call can be matched to its row; a status Glade doesn't know drops the message.
@@ -609,6 +632,19 @@ function fromTaskUpdated(message: z.infer<typeof taskUpdatedMessage>): AgentEven
   return [{ kind: AgentEventKind.SubagentBackgrounded, sdkTaskId: message.task_id }]
 }
 
+/** A summary on one line: its runs of whitespace, line breaks included, as single spaces. Empty when it's blank. */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+function fromTaskProgress(message: z.infer<typeof taskProgressMessage>): AgentEvent[] {
+  const { tool_use_id: toolUseId } = message
+  const summary = oneLine(message.summary ?? '')
+  return toolUseId === undefined || summary === ''
+    ? []
+    : [{ kind: AgentEventKind.SubagentProgress, toolUseId, summary }]
+}
+
 function fromTaskNotification(message: z.infer<typeof taskNotificationMessage>): AgentEvent[] {
   const { task_id: sdkTaskId, tool_use_id: toolUseId, status: outcome, summary } = message
   return toolUseId === undefined ? [] : [{ kind: AgentEventKind.TaskFinished, sdkTaskId, toolUseId, outcome, summary }]
@@ -651,6 +687,9 @@ export function createSdkMessageParser(log: AgentLog): (raw: unknown) => AgentEv
         }
         if (subtype === 'task_updated') {
           return parsed(taskUpdatedMessage, raw, log, 'system/task_updated', fromTaskUpdated)
+        }
+        if (subtype === 'task_progress') {
+          return parsed(taskProgressMessage, raw, log, 'system/task_progress', fromTaskProgress)
         }
         if (subtype === 'task_notification') {
           return parsed(taskNotificationMessage, raw, log, 'system/task_notification', fromTaskNotification)

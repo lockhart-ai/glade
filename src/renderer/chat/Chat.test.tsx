@@ -83,6 +83,7 @@ function toolCall(id: string, turn: number): ToolEvent {
     finishedAt: null,
     toolUseId: `use-${id}`,
     parentToolUseId: null,
+    progressSummary: null,
   }
 }
 

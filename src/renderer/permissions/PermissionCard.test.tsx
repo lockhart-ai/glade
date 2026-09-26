@@ -81,6 +81,7 @@ function agentCall(toolUseId: string, input: Record<string, unknown>): ToolCallE
     finishedAt: null,
     toolUseId,
     parentToolUseId: null,
+    progressSummary: null,
     createdAt: 2_500,
   }
 }
