@@ -13,7 +13,8 @@
  *   its `result` answers every message it took.
  * - An interrupt ends the running turn the way the SDK does: tool calls still running get a "rejected" result, then an
  *   interrupt marker and an `error_during_execution` result (`aborted_tools` if a call was running, else
- *   `aborted_streaming`).
+ *   `aborted_streaming`). Background subagents play on only if the SDK options Glade starts a session with declare its
+ *   per-task Stop (`perTaskStopAffordance`); without it, the SDK stops every one with the turn (`docs/sdk-notes.md` §7).
  * - A `Wake` step has the agent start a turn of its own later, with no message sent (see `ScriptStepKind.Wake`). It
  *   waits for the turn playing to end, like a message sent meanwhile, and a message sent while it plays is folded in.
  * - A `Monitor` call, or a `Bash` call with `run_in_background`, starts a background task as the SDK does
@@ -40,6 +41,7 @@
  * - The script can be picked by the session's first message (a `ScriptChooser`), so different tasks can play different
  *   scripts. A chooser that has none for it kills the session as a `Fail` step would.
  */
+import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import { randomUUID } from 'node:crypto'
 import { autoCompactThreshold, contextWindowFor } from '../../shared/contextWindow'
 import { CompactionTrigger, PermissionMode, type PermissionRule, type ToolInput } from '../../shared/domain'
@@ -62,7 +64,7 @@ import {
   PERMISSIONS_DECIDED_AFTER_RESTART_PROMPT,
   RESUME_PROMPT,
 } from './runner'
-import { BLOCKED_PROMPT_REASON, NO_ONE_TO_ASK, sdkPermissionMode } from './sdk-backend'
+import { BLOCKED_PROMPT_REASON, NO_ONE_TO_ASK, sdkOptions, sdkPermissionMode } from './sdk-backend'
 import {
   DEFAULT_COMPACT_SUMMARY,
   DEFAULT_COMPACT_TURN,
@@ -102,6 +104,28 @@ export function scriptedRuleCovers(rule: PermissionRule, toolName: string, input
 /** Picks the script a session plays from the first message sent to it. Throws when it has none for that message. */
 export type ScriptChooser = (firstMessage: string) => AgentScript
 
+/** What a scripted session reads of the SDK options a session would start with. */
+export type SdkStopOptions = Pick<Options, 'perTaskStopAffordance'>
+
+/** A session has no Claude Code binary to find: nothing is spawned. */
+function noExecutable(): string {
+  throw new Error('A scripted session runs no Claude Code binary.')
+}
+
+/** The SDK options the real backend would start the session with (`sdkOptions`). */
+function gladeSdkOptions(session: AgentSessionOptions): SdkStopOptions {
+  return sdkOptions(session, {}, noExecutable)
+}
+
+/**
+ * Whether an interrupt also stops the session's background subagents, as the SDK decides it from the options the
+ * session started with: it spares them only for a host that declares a Stop of its own for each one
+ * (`perTaskStopAffordance`), and otherwise fails closed, stopping them with the turn (`docs/sdk-notes.md` §7).
+ */
+export function interruptStopsSubagents(options: SdkStopOptions): boolean {
+  return options.perTaskStopAffordance !== true
+}
+
 export interface ScriptedSessionOptions {
   /** The script to play, or how to pick it from the first message. */
   readonly script: AgentScript | ScriptChooser
@@ -118,6 +142,11 @@ export interface ScriptedSessionOptions {
    * is called once for it too, when that turn ends or can't play.
    */
   readonly onWake?: () => void
+  /**
+   * The SDK options the session would start with, which decide how it behaves where the SDK's behaviour depends on
+   * them: the real backend's (`sdkOptions`) by default.
+   */
+  readonly sdkOptions?: (session: AgentSessionOptions) => SdkStopOptions
 }
 
 /** The name the SDK gives one of Glade's tools, e.g. `mcp__glade__set_title`. */
@@ -356,6 +385,8 @@ export class ScriptedSession implements AgentSession {
   private contextTokens = INITIAL_CONTEXT_TOKENS
   /** The permission rules the session lets calls through by: its start's, and those answers added since. */
   private readonly rules: PermissionRule[]
+  /** Whether an interrupt stops the background subagents too, as the SDK decides from the session's options. */
+  private readonly interruptStopsSubagents: boolean
 
   constructor(private readonly options: ScriptedSessionOptions) {
     this.model = options.session.model
@@ -365,6 +396,7 @@ export class ScriptedSession implements AgentSession {
     this.sessionId = options.session.resumeSessionId ?? newId()
     this.idPrefix = newId().replaceAll('-', '').slice(0, 8)
     this.tools = createMcpToolCaller(options.session.mcpServers)
+    this.interruptStopsSubagents = interruptStopsSubagents((options.sdkOptions ?? gladeSdkOptions)(options.session))
   }
 
   send(text: string, uuid: string): void {
@@ -424,6 +456,7 @@ export class ScriptedSession implements AgentSession {
 
   interrupt(): Promise<void> {
     this.turn?.interrupt()
+    if (this.interruptStopsSubagents) for (const subagent of this.running.values()) subagent.interrupt()
     return Promise.resolve()
   }
 

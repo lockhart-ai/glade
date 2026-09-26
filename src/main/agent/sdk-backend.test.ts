@@ -97,7 +97,17 @@ it('runs the session in the workspace root, allowing all, with the workspace and
     mcpServers: {},
     disallowedTools: ['AskUserQuestion'],
     forwardSubagentText: true,
+    perTaskStopAffordance: true,
   })
+})
+
+it('declares its own Stop for each background task, so Stop on a turn leaves background subagents running', () => {
+  // Without it, the SDK fails closed: an interrupt kills every background subagent with the turn (docs/sdk-notes.md
+  // §7), though the Subagents and Watchers tabs stop each one with `stopTask`.
+  expect(sdkOptions(OPTIONS, ENV).perTaskStopAffordance).toBe(true)
+  expect(sdkOptions({ ...OPTIONS, permissionMode: PermissionMode.AskBeforeEdits }, ENV).perTaskStopAffordance).toBe(
+    true,
+  )
 })
 
 it("keeps a glade-control server of the user's own config out, so the in-process one is the only one", () => {

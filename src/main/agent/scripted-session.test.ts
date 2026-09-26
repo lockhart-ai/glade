@@ -25,6 +25,7 @@ import { CONTROL_SERVER } from '../control/names'
 import {
   controlToolName,
   gladeToolName,
+  interruptStopsSubagents,
   LAUNCHED_OUTPUT,
   REJECTED_TOOL_OUTPUT,
   ScriptedSession,
@@ -1634,6 +1635,57 @@ describe('ScriptedSession', () => {
       expect(played.idles()).toBe(2)
     })
 
+    /** The subagent's launch, then a turn you stop while it runs. */
+    function stoppedWhileItRuns(options: Partial<ScriptedSessionOptions> = {}): Played {
+      const played = play(
+        [
+          launch(100, {
+            turn: [init(), say('The profile is back.'), result()],
+            stoppedTurn: [init(), say('The profile was stopped.'), result()],
+          }),
+          [init(), say('Looking at the cart.'), waitForInterrupt(), say('Never.')],
+        ],
+        options,
+      )
+      played.session.send('Profile checkout.', 'user-1')
+      played.session.send('Look at the cart too.', 'user-2')
+      return played
+    }
+
+    it("plays on when a turn is stopped, as the SDK spares it for Glade's options, which declare a Stop for each", async () => {
+      const played = stoppedWhileItRuns()
+      await flush()
+      await played.session.interrupt()
+      await flush()
+      expect(played.raw.filter((message) => message.type === 'result').at(-1)).toMatchObject({
+        subtype: 'error_during_execution',
+      })
+      expect(played.raw.filter((message) => message.subtype === 'task_notification')).toEqual([])
+
+      await vi.advanceTimersByTimeAsync(100)
+      expect(played.raw.find((message) => message.subtype === 'task_notification')).toMatchObject({
+        status: 'completed',
+        summary: 'An N+1 in load_cart.',
+      })
+      expect(played.events).toContainEqual(expect.objectContaining({ output: '38 queries' }))
+      expect(played.raw.at(-1)).toMatchObject({ result: 'The profile is back.' })
+    })
+
+    it('is stopped with the turn when the options declare no Stop for each, as the SDK then fails closed', async () => {
+      const played = stoppedWhileItRuns({ sdkOptions: () => ({}) })
+      await flush()
+      await played.session.interrupt()
+      await flush()
+
+      expect(played.raw.find((message) => message.subtype === 'task_notification')).toMatchObject({
+        status: 'stopped',
+        summary: 'Profile the queries',
+      })
+      expect(played.raw.at(-1)).toMatchObject({ result: 'The profile was stopped.' })
+      await vi.advanceTimersByTimeAsync(100)
+      expect(played.events).not.toContainEqual(expect.objectContaining({ output: '38 queries' }))
+    })
+
     it('stops without a word when the session closes, but still goes idle', async () => {
       const played = play([launch(60_000, { turn: [init(), say('Never.'), result()] })])
       played.session.send('Profile checkout.', 'user-1')
@@ -1671,6 +1723,14 @@ describe('ScriptedSession', () => {
 
       expect(await played.ended).toBeInstanceOf(Error)
     })
+  })
+})
+
+describe('interruptStopsSubagents', () => {
+  it('spares background subagents only for options that declare a Stop for each one', () => {
+    expect(interruptStopsSubagents({ perTaskStopAffordance: true })).toBe(false)
+    expect(interruptStopsSubagents({ perTaskStopAffordance: false })).toBe(true)
+    expect(interruptStopsSubagents({})).toBe(true)
   })
 })
 

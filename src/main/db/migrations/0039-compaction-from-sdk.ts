@@ -6,7 +6,7 @@ import type { Migration } from '../migrate'
  * wrote (`compact_summary`), which only a compaction has.
  */
 export const compactionFromSdkMigration: Migration = {
-  version: 31,
+  version: 39,
   name: 'Keep the auto-compact threshold and compaction summaries from the SDK',
   up(db) {
     db.exec(`

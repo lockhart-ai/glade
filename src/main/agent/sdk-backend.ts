@@ -312,6 +312,9 @@ export function sdkOptions(
     disallowedTools: ['AskUserQuestion'],
     // A subagent's own text too, not just its tool calls: the Subagents tab shows the last thing each one said.
     forwardSubagentText: true,
+    // Glade stops each background subagent and watcher from its own tab (`stopTask`), so Stop on a turn ends only the
+    // turn. Without this, the SDK fails closed and an interrupt kills every background subagent (docs/sdk-notes.md §7).
+    perTaskStopAffordance: true,
     // What the session's watchers do, which only its hooks tell (the Watchers tab, docs/sdk-notes.md §13).
     ...(options.hooks === undefined ? {} : { hooks: sdkHooks(options.hooks, options.log ?? SILENT_LOGGER) }),
   }

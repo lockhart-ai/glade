@@ -624,6 +624,15 @@ describe('the rest of the app', () => {
       // The plugins log themselves, in their own scope.
       { type: EventType.PluginsChanged, plugins: [] },
       { type: EventType.PluginStatusChanged, id: 'nekomata', text: '5 cats' },
+      // What's in flight, which only the menu bar popover is sent: its tasks are logged as they change.
+      {
+        type: EventType.MenuBarChanged,
+        snapshot: {
+          needsYou: [],
+          working: [],
+          recent: [{ seq: 1, taskId: 'task-1', title: 'Add rate limiting', body: 'secret reply', sentAt: 1 }],
+        },
+      },
     ]
     for (const event of events) logEvent(event)
 
@@ -643,5 +652,6 @@ describe('the rest of the app', () => {
       rootPath: '/code/acme-api',
     })
     expect(JSON.stringify(log.records)).not.toContain('secret typed here')
+    expect(JSON.stringify(log.records)).not.toContain('secret reply')
   })
 })

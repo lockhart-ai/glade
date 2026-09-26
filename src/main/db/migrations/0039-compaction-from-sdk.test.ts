@@ -5,15 +5,15 @@ import { migrate } from '../migrate'
 import { getTask } from '../repositories/tasks'
 import { listToolEvents } from '../repositories/tool-events'
 import { MIGRATIONS } from '.'
-import { compactionFromSdkMigration } from './0031-compaction-from-sdk'
+import { compactionFromSdkMigration } from './0039-compaction-from-sdk'
 
-it('is migration 31', () => {
-  expect(MIGRATIONS[30]).toBe(compactionFromSdkMigration)
+it('is migration 39', () => {
+  expect(MIGRATIONS[38]).toBe(compactionFromSdkMigration)
 })
 
 it('starts every task with no word from the SDK and every compaction with no summary, and holds each to its kind', () => {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 30))
+  migrate(db, MIGRATIONS.slice(0, 38))
   db.prepare("INSERT INTO workspaces VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)").run()
   db.prepare(
     `INSERT INTO tasks (id, workspace_id, title, objective, status, state, activity, pinned, unread, model, effort,

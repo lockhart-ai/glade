@@ -29,7 +29,8 @@ import { taskBackfillsMigration } from './0027-task-backfills'
 import { inputDraftsMigration } from './0028-input-drafts'
 import { taskTodosMigration } from './0029-task-todos'
 import { watchersMigration } from './0030-watchers'
-import { compactionFromSdkMigration } from './0031-compaction-from-sdk'
+import { notificationsMigration } from './0031-notifications'
+import { compactionFromSdkMigration } from './0039-compaction-from-sdk'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -63,5 +64,6 @@ export const MIGRATIONS: readonly Migration[] = [
   inputDraftsMigration,
   taskTodosMigration,
   watchersMigration,
+  notificationsMigration,
   compactionFromSdkMigration,
 ]
