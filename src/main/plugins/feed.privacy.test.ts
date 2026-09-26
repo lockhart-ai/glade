@@ -40,6 +40,7 @@ import { ImageMediaType } from '../../shared/images'
 import type { PluginEvent } from '../../shared/plugin-api'
 import { pluginEventSchema } from '../../shared/plugin-api-schema'
 import { PluginStatus } from '../../shared/plugins'
+import { BUILT_IN_MODELS } from '../../shared/models'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { appendPermissionRequest } from '../db/repositories/permission-requests'
 import { appendQuestionSet } from '../db/repositories/question-sets'
@@ -456,6 +457,12 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
     [EventType.MenuCommand]: [{ type: EventType.MenuCommand, command: appCommand(AppCommandId.NewTask) }],
     [EventType.SettingsChanged]: [
       { type: EventType.SettingsChanged, settings: { ...DEFAULT_SETTINGS, defaultModel: secret('settings_model') } },
+    ],
+    [EventType.ModelsChanged]: [
+      {
+        type: EventType.ModelsChanged,
+        models: [{ ...BUILT_IN_MODELS[0], name: secret('model_name'), description: secret('model_description') }],
+      },
     ],
     [EventType.PluginsChanged]: [
       {

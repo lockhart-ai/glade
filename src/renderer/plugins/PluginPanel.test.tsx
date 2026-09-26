@@ -520,7 +520,9 @@ const OVERLAYS: readonly OverlayCase[] = [
     open: async (store) => {
       render(
         <GladeStoreProvider store={store}>
-          <SettingsDialog />
+          <ToastProvider>
+            <SettingsDialog />
+          </ToastProvider>
         </GladeStoreProvider>,
       )
       act(() => {

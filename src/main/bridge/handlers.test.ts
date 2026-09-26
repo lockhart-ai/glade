@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { TaskFilter } from '../../shared/attention'
 import { Effort, FileContentKind, FileInfoKind, TaskState, UiStateKey } from '../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
+import { BUILT_IN_MODELS } from '../../shared/models'
+import { SDK_MODELS } from '../../shared/test-models'
 import { BridgeErrorCode, CommandName, EventType, RendererErrorKind, type GladeEvent } from '../../shared/bridge'
 import { EMPTY_MENU_STATE } from '../../shared/commands'
 import { SearchField } from '../../shared/search'
@@ -13,6 +15,7 @@ import { createAgentRunner } from '../agent/runner'
 import { addArtifact } from '../db/repositories/artifacts'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { getSettings } from '../db/repositories/settings'
+import { setSdkModels } from '../db/repositories/sdk-models'
 import { getTask, listTasks, updateTask } from '../db/repositories/tasks'
 import { setUiState } from '../db/repositories/ui-state'
 import { createFakeSpawner, fakeTerminalOptions, type FakeSpawner } from '../terminal/fake-pty'
@@ -316,6 +319,32 @@ describe('the settings commands', () => {
     expect(changed).toEqual({ settings })
     expect(getSettings(database.db)).toEqual(settings)
     expect(emit).toHaveBeenCalledExactlyOnceWith({ type: EventType.SettingsChanged, settings })
+  })
+
+  it('keep the default effort a new default model supports, and fall back to its default otherwise', async () => {
+    setSdkModels(database.db, SDK_MODELS)
+    await handlers[CommandName.SettingsUpdate]({ patch: { defaultModel: 'default', defaultEffort: Effort.XHigh } })
+
+    expect((await handlers[CommandName.SettingsUpdate]({ patch: { defaultModel: 'sonnet' } })).settings).toMatchObject({
+      defaultModel: 'sonnet',
+      defaultEffort: Effort.XHigh,
+    })
+    const lite = await handlers[CommandName.SettingsUpdate]({ patch: { defaultModel: 'lite' } })
+    expect(lite.settings).toMatchObject({ defaultModel: 'lite', defaultEffort: Effort.Low })
+    expect(emit).toHaveBeenLastCalledWith({ type: EventType.SettingsChanged, settings: lite.settings })
+    // Haiku takes none: the default effort stays, for the next model.
+    await handlers[CommandName.SettingsUpdate]({ patch: { defaultModel: 'default', defaultEffort: Effort.Max } })
+    expect(
+      (await handlers[CommandName.SettingsUpdate]({ patch: { defaultModel: 'haiku' } })).settings.defaultEffort,
+    ).toBe(Effort.Max)
+  })
+
+  it('answer with the models the pickers offer: the built-in ones, then the SDK’s', () => {
+    expect(handlers[CommandName.ModelsList]({})).toEqual({ models: BUILT_IN_MODELS })
+
+    setSdkModels(database.db, SDK_MODELS)
+
+    expect(handlers[CommandName.ModelsList]({})).toEqual({ models: SDK_MODELS })
   })
 
   it('answer with the control endpoint as it is, off to begin with', () => {

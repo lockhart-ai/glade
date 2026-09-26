@@ -24,6 +24,7 @@ import type { AgentBackend } from './agent/backend'
 import { createSdkBackend, type SdkBackendOptions } from './agent/sdk-backend'
 import { AGENT_SCRIPTS, type AgentScriptName } from './agent/scripts'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './agent/test-mode-backend'
+import { recordSdkModels } from './models/models'
 import { registerBridge, type RegisteredBridge } from './bridge'
 import {
   captureShots,
@@ -317,13 +318,15 @@ function startTestMode(): TestMode {
 
 /**
  * The agent a test mode's tasks run on: the script its spec names, or none, and for an e2e spec the scripts it picks by
- * a task's first message, read from the database for a session resumed on launch.
+ * a task's first message, read from the database for a session resumed on launch. Each session reports the test mode's
+ * models to `onModels`, as a real one reports the SDK's.
  */
 function createTestModeAgent(
   testMode: NonNullable<TestMode>,
   db: AppDatabase['db'],
   env: Promise<Environment>,
   log: Logger,
+  onModels: (models: unknown) => void,
 ): TestModeAgentBackend {
   const name: AgentScriptName | undefined =
     testMode.kind === TestModeKind.Capture ? testMode.spec.conversation?.agentScript : testMode.spec.agentScript
@@ -335,6 +338,7 @@ function createTestModeAgent(
         Object.entries(byFirstMessage ?? {}).map(([message, script]) => [message, AGENT_SCRIPTS[script]]),
       ),
       firstMessageOf: (sessionId) => firstUserMessageOfSession(db, sessionId),
+      onModels,
       ...(testMode.kind === TestModeKind.E2e ? createE2eAgent() : {}),
     },
     // An e2e spec reads the environment each session would have run in.
@@ -612,8 +616,12 @@ export function startApp({
     }
     const { database } = opening
 
+    // The models each session's SDK reports are kept, for the pickers, once the bridge is registered.
+    const onModels = (models: unknown): void => {
+      recordSdkModels({ db: database.db, emit: bridge.emit, log: log.scoped(LogScope.Agent) }, models)
+    }
     // A test mode never reaches the real Claude API, whatever the app was started with: its agent plays a script.
-    const testAgent = testMode === null ? null : createTestModeAgent(testMode, database.db, env, log)
+    const testAgent = testMode === null ? null : createTestModeAgent(testMode, database.db, env, log, onModels)
     const notifyReply = createReplyNotifications({
       db: database.db,
       notifier: createNotifier(testMode),
@@ -680,7 +688,7 @@ export function startApp({
       // The main windows: the menu bar popover is sent only what's in flight, by the menu bar itself.
       targets: () => mainWindows().map((window) => window.webContents),
       agentBackend:
-        testAgent ?? createAgentBackend({ env, log: log.scoped(LogScope.Agent), version: app.getVersion() }),
+        testAgent ?? createAgentBackend({ env, log: log.scoped(LogScope.Agent), version: app.getVersion(), onModels }),
       // A test can't click a native dialog, so in e2e mode it answers with the folder the test chose.
       chooseFolder:
         testMode?.kind === TestModeKind.E2e
