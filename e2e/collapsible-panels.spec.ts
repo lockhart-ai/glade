@@ -131,18 +131,21 @@ async function expectCleanLayout(window: Page, panels: Panels, size: { width: nu
     const showTaskList = await boxOf(panelToggles(window).showTaskList)
     expect(within(showTaskList, header)).toBe(true)
   }
-  // The header card floats over the top of the chat, which runs up under it (#252), and the input bar sits below both.
-  expect(chatBox.y).toBeLessThanOrEqual(header.y + SLACK)
-  expect(chatBox.y + chatBox.height).toBeGreaterThan(header.y + header.height)
-  expect(inputBar.y).toBeGreaterThanOrEqual(chatBox.y + chatBox.height - SLACK)
+  // The header card and the input bar float over the top and bottom of the chat, which runs under each as far as its
+  // middle (#252, #268, #270).
+  expect(chatBox.y).toBeGreaterThan(header.y)
+  expect(chatBox.y).toBeLessThan(header.y + header.height)
+  expect(chatBox.y + chatBox.height).toBeGreaterThan(inputBar.y)
+  expect(chatBox.y + chatBox.height).toBeLessThan(inputBar.y + inputBar.height)
+  expect(inputBar.y).toBeGreaterThan(header.y + header.height)
   if (panels.rightPanel) {
     const panel = await boxOf(region.taskPanel)
     expect(within(panel, task)).toBe(true)
     for (const box of column) expect(overlaps(box, panel)).toBe(false)
   }
 
-  // The chat keeps room below the header, and its latest message shows above the input bar.
-  expect(chatBox.y + chatBox.height - (header.y + header.height)).toBeGreaterThanOrEqual(MIN_CHAT_HEIGHT)
+  // The chat keeps room between the header and the input bar, and its latest message shows above the input bar.
+  expect(inputBar.y - (header.y + header.height)).toBeGreaterThanOrEqual(MIN_CHAT_HEIGHT)
   const last = chat(window).agentReplies.last()
   await expect(last).toBeInViewport({ ratio: 0.9 })
   const lastBox = await boxOf(last)

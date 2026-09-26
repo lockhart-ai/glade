@@ -16,6 +16,7 @@ import { sampleWorkspace } from '../store/test-bridge'
 import {
   AppShell,
   BottomBar,
+  INPUT_BAR_HEIGHT_VAR,
   RightPanel,
   Sidebar,
   SidebarHeader,
@@ -367,7 +368,7 @@ describe('TaskCard', () => {
     expect(titleBar.compareDocumentPosition(screen.getByText('Header slot'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })
 
-  it('keeps the header’s height on the stage for the chat under it to clear, as the header resizes', () => {
+  it('keeps the header’s and input bar’s heights on the stage for the chat under them to clip and clear, as they resize', () => {
     const resizes: (() => void)[] = []
     let disconnected = false
     vi.stubGlobal(
@@ -382,24 +383,44 @@ describe('TaskCard', () => {
         }
       },
     )
-    let height = 72
-    const offsetHeight = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(() => height)
+    let headerHeight = 72
+    let inputBarHeight = 110
+    const offsetHeight = vi
+      .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return this.dataset.testid === 'input-bar' ? inputBarHeight : headerHeight
+      })
 
     const { unmount } = render(
       <ToastProvider>
-        <TaskCard header={<p>Header slot</p>} chat={<p>Chat slot</p>} inputBar={null} rightPanel={null} />
+        <TaskCard header={<p>Header slot</p>} chat={<p>Chat slot</p>} inputBar={<p>Input slot</p>} rightPanel={null} />
       </ToastProvider>,
     )
 
-    // The header floats over the chat: both are in the stage, the header first.
+    // The header and the input bar float over the chat: all three are in the stage, the header first and the input
+    // bar last.
     const stage = screen.getByTestId('task-stage')
+    const chat = screen.getByRole('region', { name: 'Chat' })
+    const inputBar = screen.getByTestId('input-bar')
     expect(stage).toContainElement(screen.getByText('Header slot'))
-    expect(stage).toContainElement(screen.getByRole('region', { name: 'Chat' }))
+    expect(stage).toContainElement(chat)
+    expect(stage).toContainElement(inputBar)
+    expect(chat.compareDocumentPosition(inputBar)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     expect(stage.style.getPropertyValue(TASK_HEADER_HEIGHT_VAR)).toBe('72px')
+    expect(stage.style.getPropertyValue(INPUT_BAR_HEIGHT_VAR)).toBe('110px')
 
-    // A field wraps, or the header shows up once a task is selected: it grows, and the chat's clearance with it.
-    height = 118
+    // A field wraps, or the header shows up once a task is selected: it grows, and the chat's clip and clearance with
+    // it. The input bar's don't move.
+    headerHeight = 118
     resizes[0]?.()
+    expect(stage.style.getPropertyValue(TASK_HEADER_HEIGHT_VAR)).toBe('118px')
+    expect(stage.style.getPropertyValue(INPUT_BAR_HEIGHT_VAR)).toBe('110px')
+
+    // The queue opens above the input, or the message runs to more lines: the input bar grows, and the chat's clip and
+    // clearance at the bottom with it.
+    inputBarHeight = 196
+    resizes[1]?.()
+    expect(stage.style.getPropertyValue(INPUT_BAR_HEIGHT_VAR)).toBe('196px')
     expect(stage.style.getPropertyValue(TASK_HEADER_HEIGHT_VAR)).toBe('118px')
 
     unmount()
