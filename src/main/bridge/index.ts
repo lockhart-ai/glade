@@ -1,5 +1,5 @@
 import type { Database } from 'better-sqlite3'
-import { COMMAND_CHANNEL, EVENT_CHANNEL } from '../../shared/bridge'
+import { COMMAND_CHANNEL, EVENT_CHANNEL, type GladeEvent } from '../../shared/bridge'
 import type { MenuState } from '../../shared/commands'
 import type { Task } from '../../shared/domain'
 import type { AgentBackend } from '../agent/backend'
@@ -10,6 +10,7 @@ import { CONTROL_SERVER } from '../control/names'
 import { createRateLimiter, type RateLimits } from '../control/rate-limit'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
 import type { OpenPath, RevealPath, WriteClipboard } from '../files/files'
+import type { MenuBarCommands } from '../menu-bar/menu-bar'
 import type { NotifyReply } from '../notifications/notifications'
 import { getSettings } from '../db/repositories/settings'
 import { listTasks } from '../db/repositories/tasks'
@@ -83,6 +84,10 @@ export interface BridgeOptions {
    */
   /** The control API's rate limits, per caller: 3,000 reads and 1,200 changes a minute by default. */
   readonly controlLimits?: RateLimits
+  /** What the menu bar popover's page asks of main (`menuBar.*`). Nothing by default. */
+  readonly menuBar?: MenuBarCommands
+  /** Hears every event on its way to the windows, such as the menu bar keeping what's in flight. Nothing by default. */
+  readonly observe?: (event: GladeEvent) => void
   readonly log?: Logger
 }
 
@@ -143,6 +148,8 @@ export function registerBridge({
   updateMenu,
   closeWindow,
   controlLimits,
+  menuBar,
+  observe,
   log = SILENT_LOGGER,
   claudeProjectsDir,
 }: BridgeOptions): RegisteredBridge {
@@ -159,6 +166,7 @@ export function registerBridge({
     logEvent(event)
     feed.observe(event)
     broadcast(event)
+    observe?.(event)
   }
   // One broker for the agent's questions: the Glade tools' `ask` waits on it, and the runner answers through it.
   const questions = createQuestionBroker({ db, emit }, notifyReply)
@@ -232,6 +240,7 @@ export function registerBridge({
       plugins,
       pluginViews,
       endpoint,
+      ...(menuBar === undefined ? {} : { menuBar }),
       log,
     }),
     REQUEST_SCHEMAS,

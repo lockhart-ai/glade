@@ -230,6 +230,7 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
+      case EventType.MenuBarChanged:
         return [event.type]
     }
   })
@@ -888,6 +889,41 @@ describe('an error turn', () => {
     await send('Just the auth module, then.')
     expect(current()).toMatchObject({ activity: TaskActivity.Working, error: null })
     expect(backend.sessions).toHaveLength(1)
+  })
+
+  it('says why Claude Code could not start, from the reason its result names, and the process exiting after changes nothing', async () => {
+    await send('Find out why the login test is flaky.')
+    backend.session.emit(sdk.startupFailureResult('cwd_unavailable', 'Error: the folder /code/gone does not exist'))
+    backend.session.fail(new Error('Claude Code process exited with code 1'))
+    await settle()
+
+    expect(toolLog()[1]).toEqual({ narration: 'Error: the folder /code/gone does not exist', turn: 1 })
+    expect(current()).toMatchObject({
+      activity: TaskActivity.Error,
+      error: {
+        kind: AgentErrorKind.Permanent,
+        source: TaskErrorSource.Startup,
+        status: null,
+        code: 'cwd_unavailable',
+        details: 'Error: the folder /code/gone does not exist',
+      },
+    })
+    // No failed API row: it never reached the API.
+    expect(toolLog()).not.toContainEqual(expect.objectContaining({ call: API_TOOL_NAME }))
+
+    // The next message starts the session again.
+    await send('The folder is back.')
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, error: null })
+    expect(backend.sessions).toHaveLength(2)
+  })
+
+  it('names the reason when a failed start gives no error text', async () => {
+    await send('Hi')
+    backend.session.emit({ ...(sdk.startupFailureResult('some_new_reason', '') as object), errors: [] })
+    await settle()
+
+    expect(toolLog()[1]).toEqual({ narration: "Claude Code couldn't start (some_new_reason).", turn: 1 })
+    expect(current().error).toMatchObject({ source: TaskErrorSource.Startup, code: 'some_new_reason' })
   })
 
   it('treats a result it cannot read as a failed turn', async () => {
@@ -3086,6 +3122,7 @@ describe('several tasks at once', () => {
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
+      case EventType.MenuBarChanged:
         return null
     }
   }
@@ -3129,6 +3166,7 @@ describe('several tasks at once', () => {
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
+      case EventType.MenuBarChanged:
         return [event.type]
     }
   }

@@ -18,13 +18,15 @@ async function distanceFromBottom(window: Page): Promise<number> {
 }
 
 /**
- * The chat runs all the way up under the header card: its scroller's top is at or above the header's, and at points
- * over the header, the header's own elements are stacked directly on the chat's, with nothing (opaque or not) between.
+ * The chat runs up under the header card: its scroller's top is under the header, cut off partway down it (never above
+ * its top edge, #268; chat-clip.spec.ts checks where), and at points over the header, the header's own elements are
+ * stacked directly on the chat's, with nothing (opaque or not) between.
  */
 async function expectChatUnderTheHeader({ window }: Glade): Promise<void> {
   const header = await boxOf(regions(window).taskHeader)
   const log = await boxOf(chat(window).log)
-  expect(log.y).toBeLessThanOrEqual(header.y)
+  expect(log.y).toBeGreaterThan(header.y)
+  expect(log.y).toBeLessThan(header.y + header.height)
   expect(log.y + log.height).toBeGreaterThan(header.y + header.height)
 
   const stacks = await window.evaluate(

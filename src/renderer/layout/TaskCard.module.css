@@ -30,13 +30,16 @@
 }
 
 /*
- * The header card and the chat, stacked: the header floats over the top of the chat, and the chat runs all the way up
- * under it, so the conversation scrolls under the header rather than being cut off in a band below it. The chat's
- * scroller pads its top by --task-header-clearance, the header's height (measured by TaskCard) and the gap below it, so
- * the first message sits clear of the header when scrolled to the top.
+ * The header card, the chat and the input bar, stacked: the header floats over the top of the chat and the input bar
+ * over its bottom, and the chat runs under each as far as its middle, where it's cut off (#268, #270). So the
+ * conversation scrolls under both cards, but never shows past their outer edges or rounded corners. TaskCard measures
+ * both cards' heights; the chat's scroller pads its top and bottom by --task-header-clearance and
+ * --input-bar-clearance, the rest of each card and the gap beside it, so the first and last messages sit clear of the
+ * cards when scrolled to the ends.
  */
 .stage {
-  --task-header-clearance: calc(var(--task-header-height, 0px) + var(--space-inset));
+  --task-header-clearance: calc(var(--task-header-height, 0px) / 2 + var(--space-inset));
+  --input-bar-clearance: calc(var(--input-bar-height, 0px) / 2 + var(--space-inset));
   position: relative;
   flex-grow: 1;
   min-height: 0;
@@ -57,17 +60,22 @@
   z-index: 1;
 }
 
+/* Cut off halfway under each card, and a little narrower than them, so its sides sit just inside theirs (#268). */
 .chat {
   flex-grow: 1;
   min-height: 0;
+  margin: calc(var(--task-header-height, 0px) / 2) var(--space-inset) calc(var(--input-bar-height, 0px) / 2);
   overflow: auto;
   display: flex;
   flex-direction: column;
 }
 
 .inputBar {
-  position: relative;
-  flex-shrink: 0;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1;
 }
 
 /* Toasts stand clear of the input bar, over the end of the chat (docs/design/html/05-mark-done.html). */

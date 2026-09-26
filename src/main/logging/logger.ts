@@ -55,6 +55,8 @@ export enum LogScope {
   Plugins = 'plugins',
   /** Calls to the `glade-control` tools other agents drive Glade with (`docs/control-api.md`). */
   Control = 'control',
+  /** Glade's icon in the macOS menu bar: added and removed as Settings › General has it. */
+  MenuBar = 'menu-bar',
   /** Errors in the window, forwarded by the renderer. */
   Renderer = 'renderer',
   /** The screenshot and e2e test modes. */
