@@ -8,6 +8,7 @@ import {
   UiStateKey,
   type FileContent,
   type OpenFiles,
+  type TaskCommit,
   type ToolCallEvent,
   type ToolEvent,
 } from '../../shared/domain'
@@ -17,11 +18,13 @@ import { createGladeStore, type GladeStore } from '../store/store'
 import {
   fakeBridge,
   refuse,
+  sampleCommit,
   sampleTask,
   sampleWorkspace,
   type FakeBridge,
   type FakeHandlers,
 } from '../store/test-bridge'
+import { commitFileKey } from '../../shared/files'
 import { colors } from '../tokens'
 import { absolutePath, FilesTab, type FileLineFocus } from './FilesTab'
 
@@ -81,11 +84,17 @@ interface Setup {
   readonly files?: Readonly<Record<string, FileContent>>
   readonly overrides?: Partial<FakeHandlers>
   readonly focus?: FileLineFocus
+  readonly commits?: TaskCommit[]
 }
 
-async function renderTab({ toolEvents = EVENTS, openFiles, files = FILES, overrides = {}, focus }: Setup = {}): Promise<
-  FakeBridge & { store: GladeStore; opened: string[]; copied: string[]; revealed: string[] }
-> {
+async function renderTab({
+  toolEvents = EVENTS,
+  openFiles,
+  files = FILES,
+  overrides = {},
+  focus,
+  commits = [],
+}: Setup = {}): Promise<FakeBridge & { store: GladeStore; opened: string[]; copied: string[]; revealed: string[] }> {
   const opened: string[] = []
   const copied: string[] = []
   const revealed: string[] = []
@@ -103,6 +112,7 @@ async function renderTab({ toolEvents = EVENTS, openFiles, files = FILES, overri
       openedInEditor: opened,
       copied,
       revealed,
+      commits,
     },
     overrides,
   )
@@ -443,6 +453,76 @@ describe('a file tab’s context menu', () => {
     await choose('throttles.py', 'Reveal in Finder')
 
     expect(await screen.findByText('No file there')).toBeInTheDocument()
+  })
+})
+
+describe('a file as a commit left it', () => {
+  const COMMIT = sampleCommit('abc1234', 't1', { subject: 'Rename the upgrade guide' })
+  const KEY = commitFileKey({ commitId: COMMIT.id, path: 'docs/upgrading.md' })
+  const GONE = commitFileKey({ commitId: 'forgotten', path: 'docs/old.md' })
+  const WITH_COMMIT: OpenFiles = { taskId: 't1', paths: ['api/throttles.py', KEY, GONE], activePath: KEY }
+  const GUIDE = '# Upgrading\n\nRun the migrations first.\n'
+
+  async function renderCommitFile(files: Readonly<Record<string, FileContent>> = {}) {
+    return renderTab({
+      openFiles: WITH_COMMIT,
+      commits: [COMMIT],
+      files: {
+        ...FILES,
+        [KEY]: { kind: FileContentKind.Text, text: GUIDE, truncated: false, size: GUIDE.length },
+        ...files,
+      },
+    })
+  }
+
+  it('shows read-only, named by its path in the commit and labelled with the hash, with no Open in editor', async () => {
+    const { opened } = await renderCommitFile()
+
+    const tab = within(openTabs()).getByRole('button', { name: 'upgrading.mdabc1234', pressed: true })
+    expect(tab.parentElement).toHaveAttribute('title', 'docs/upgrading.md (abc1234)')
+    expect(await screen.findByText('Run the migrations first.')).toBeInTheDocument()
+    expect(screen.getByText('docs/upgrading.md', { selector: 'span' })).toBeInTheDocument()
+    expect(screen.getByText('As of abc1234 · read-only')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Open in editor' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'docs/upgrading.md contents' })).toBeInTheDocument()
+
+    // ⌘⇧E has no file to open.
+    fireEvent.keyDown(window, { key: 'E', code: 'KeyE', metaKey: true, shiftKey: true })
+    await act(() => Promise.resolve())
+    expect(opened).toEqual([])
+  })
+
+  it('says so when the task no longer has the commit, or its file can’t be read, or isn’t text', async () => {
+    await renderCommitFile({ [KEY]: { kind: FileContentKind.Binary, size: 2048 } })
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'This file isn’t text (2 KB), so it can’t be shown here.',
+    )
+    expect(screen.getByRole('status')).not.toHaveTextContent('editor')
+
+    fireEvent.click(within(openTabs()).getByRole('button', { name: 'old.md', pressed: false }))
+    expect(await screen.findByText('This commit’s file can’t be read any more.')).toBeInTheDocument()
+    expect(screen.getByText('As a commit left it · read-only')).toBeInTheDocument()
+    expect(within(openTabs()).getByRole('button', { name: 'old.md' }).parentElement).toHaveAttribute(
+      'title',
+      'docs/old.md (a commit)',
+    )
+  })
+
+  it('has only the menu items that apply to a file that’s only in git, and copies its path in the commit', async () => {
+    const { copied } = await renderCommitFile()
+
+    const tab = within(openTabs()).getByRole('button', { name: 'upgrading.mdabc1234' }).parentElement
+    fireEvent.contextMenu(tab ?? document.body)
+    await act(() => Promise.resolve())
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'Close⌘W',
+      'Close others',
+      'Close all',
+      'Copy relative path',
+    ])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Copy relative path' }))
+    await act(() => Promise.resolve())
+    expect(copied).toEqual(['docs/upgrading.md'])
   })
 })
 

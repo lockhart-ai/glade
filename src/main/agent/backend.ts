@@ -96,11 +96,25 @@ export interface SessionJob {
   readonly prompt: string
 }
 
+/** A `Bash` call about to run, as the session's `PreToolUse` hook tells it (`docs/sdk-notes.md` §14). */
+export interface BashCallStarting {
+  /** The call's `tool_use` id, a subagent's call's too. */
+  readonly toolUseId: string
+  /** The folder the command runs in: the session's, or a subagent's (its worktree, for one isolated in one). */
+  readonly cwd: string
+  readonly command: string
+}
+
 /**
- * What the session tells the host as it runs, through Claude Code's hooks (`docs/sdk-notes.md` §13), parsed at the SDK
- * boundary: the prompts that start its turns, and the jobs it has scheduled.
+ * What the session tells the host as it runs, through Claude Code's hooks (`docs/sdk-notes.md` §13 and §14), parsed at
+ * the SDK boundary: the prompts that start its turns, the jobs it has scheduled, and the `Bash` calls about to run.
  */
 export interface SessionHooks {
+  /**
+   * A `Bash` call is about to run (`PreToolUse`): the call waits until this resolves, for a while at most, so the host
+   * can see where things stand first. It never stops the call.
+   */
+  readonly onBashStarting?: (call: BashCallStarting) => Promise<void>
   /**
    * A prompt is about to start a turn (`UserPromptSubmit`): one of the host's messages, a background task's wake (its
    * `<task-notification>` blocks) or a scheduled job firing (its prompt). Answers whether it goes ahead.

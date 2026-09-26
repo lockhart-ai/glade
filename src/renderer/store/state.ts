@@ -21,7 +21,9 @@ import type { SettingsSection } from '../settings/sections'
 import type { Command, MenuState } from '../../shared/commands'
 import type {
   Artifact,
+  CommitFiles,
   Watcher,
+  TaskCommit,
   TaskHandoff,
   FileContent,
   FileInfo,
@@ -179,6 +181,8 @@ export interface GladeData {
    * marks; all of a task's loaded with its logs; then kept current by events.
    */
   readonly watchers: Readonly<Record<string, readonly Watcher[]>>
+  /** Each task's commits (the Changes tab), newest first, by task id: loaded with its logs, then kept current by events. */
+  readonly commits: Readonly<Record<string, readonly TaskCommit[]>>
   /**
    * Each task's handoff note (the Backfilled card), by task id, null when it has none: loaded with its logs, then kept
    * current by events.
@@ -480,6 +484,15 @@ export interface GladeActions {
   stopSubagent: (taskId: string, toolUseId: string) => Promise<void>
   /** Stops one of a task's live watchers (`watchers.stop`). */
   stopWatcher: (taskId: string, id: string) => Promise<void>
+  /** The files one of a task's commits changed (`changes.files`). Not kept in the store: the Changes tab holds them. */
+  commitFiles: (taskId: string, commitId: string) => Promise<CommitFiles>
+  /**
+   * Opens a file one of a task's commits changed in the task's Files tab, as it is now or as the commit left it
+   * (`changes.openFile`), and shows it there: for the selected task, the right panel opens at Files too.
+   */
+  showCommitFile: (taskId: string, commitId: string, path: string) => Promise<void>
+  /** Whether a task's workspace is in a git repository (`changes.repository`). Not kept in the store. */
+  inRepository: (taskId: string) => Promise<boolean>
   /** Puts text on the clipboard (`clipboard.writeText`). */
   copyText: (text: string) => Promise<void>
   /** Asks the input bar to add text to a task's message field and focus it (see `inputInsertion`). */
@@ -566,6 +579,7 @@ export const INITIAL_DATA: GladeData = {
   openFiles: {},
   artifacts: {},
   watchers: {},
+  commits: {},
   handoffs: {},
   todos: {},
   uiState: {},

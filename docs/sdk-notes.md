@@ -1152,6 +1152,36 @@ command }`, which the task messages already say.)
 - A relaunch ends running watchers and wakeups ("Stopped by the relaunch.", as §11 found) and suspends cron jobs until
   the resumed session's first `Stop` hook lists them again.
 
+## 14. Commits: what a task's `Bash` calls committed [not probed]
+
+For the Changes tab (#275). Not probed against a live session: built from the SDK's hook types (`sdk.d.ts`, SDK
+0.3.281) and git's own output, and tested end to end with the scripted agent making real commits
+(`ScriptStepKind.Shell`, `e2e/changes.spec.ts`).
+
+**The hook.** A `PreToolUse` hook with the matcher `Bash` is called before each `Bash` call runs, the session's and a
+subagent's, and the call waits for its callback to resolve. Its input has `tool_use_id` (the `tool_use` block's id,
+which the call's result pairs with), `tool_input.command`, and `cwd`, the folder the command runs in; a subagent's has
+`agent_id` too. Glade's callback waits at most 5 s (`BASH_HOOK_TIMEOUT_MS`), and answers `{}`: it never decides a call.
+
+**What Glade reads, and when.** Before the call: for its `cwd` and each folder the command `cd`s to or runs `git -C`
+in, the repository (`git rev-parse --path-format=absolute --show-toplevel --git-dir --git-common-dir`), and its working
+tree's `HEAD` and reflog length (`git rev-list --walk-reflogs --count HEAD`). After the call's result: the reflog
+entries added meanwhile (`git log -g -n<N> --format=%H%x1f%gs%x1f%gd --date=unix HEAD`). An entry whose message starts
+`commit: `, `commit (initial|amend|merge): `, `cherry-pick`, `revert`, or is a `merge`/`pull` that says `Merge made by`
+made a commit; `checkout: moving from …`, `reset: moving to …` and `Fast-forward` moved `HEAD` to one that was there.
+An amend's entry follows the commit it replaced. `git commit` also prints the commit it made, `[main a1b2c3d] Fix the
+test` (`[main (root-commit) …]`, `[detached HEAD …]`), which is resolved in the call's repositories.
+
+**What's read later.** A commit's row (`git log --no-walk=unsorted --shortstat -M --diff-merges=first-parent`) is kept
+in SQLite; its files (`git show --format= -z --raw --numstat -M --diff-merges=first-parent`) and a file as it left it
+(`git cat-file blob <hash>:<path>`) are read through the common git dir (`--git-dir`), which outlives a removed
+worktree. Every read runs with `GIT_OPTIONAL_LOCKS=0`, `core.quotepath=off` and no colour, pager or signatures.
+
+**Not seen.** A commit made by a command left running in the background (`run_in_background`), which returns before it
+commits, or by a script in a folder the command doesn't name. A rebase's rewritten commits aren't counted as made.
+Unconfirmed: that a subagent isolated in a worktree gets its worktree as the hook's `cwd`; a command that `cd`s into
+it is covered either way.
+
 ---
 
 ## Open risks

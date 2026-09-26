@@ -105,6 +105,8 @@ export function withHistory(state: GladeData, taskId: string, history: TasksHist
     handoffs: { ...state.handoffs, [taskId]: newerHandoff(history.handoff, state.handoffs[taskId]) },
     // Like the queue, watchers change in place: the loaded ones are as new as any event before them.
     watchers: { ...state.watchers, [taskId]: history.watchers },
+    // Commits, too: the loaded list is the task's whole list as it was then.
+    commits: { ...state.commits, [taskId]: history.commits },
   }
 }
 
@@ -172,6 +174,7 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     openFiles: without(state.openFiles, taskId),
     artifacts: without(state.artifacts, taskId),
     watchers: without(state.watchers, taskId),
+    commits: without(state.commits, taskId),
     handoffs: without(state.handoffs, taskId),
     inputDrafts: without(state.inputDrafts, taskId),
     fileFocus: state.fileFocus?.taskId === taskId ? null : state.fileFocus,
@@ -248,6 +251,8 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, handoffs: { ...state.handoffs, [event.taskId]: event.handoff } }
     case EventType.WatchersChanged:
       return { ...state, watchers: { ...state.watchers, [event.taskId]: event.watchers } }
+    case EventType.CommitsChanged:
+      return { ...state, commits: { ...state.commits, [event.taskId]: event.commits } }
     case EventType.TerminalTabsChanged: {
       const { renamingTerminalId } = state
       const renaming = event.tabs.some(({ id }) => id === renamingTerminalId) ? renamingTerminalId : null

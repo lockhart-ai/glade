@@ -9,6 +9,7 @@ import {
   type AgentSession,
   type AgentSessionOptions,
   type AgentSessionSettings,
+  type BashCallStarting,
   type SessionJob,
   type ToolPermissionAnswer,
   type ToolPermissionCall,
@@ -96,6 +97,14 @@ export class FakeAgentSession implements AgentSession {
    */
   submitPrompt(prompt: string): PromptVerdict {
     return this.options.hooks?.onPrompt(prompt) ?? PromptVerdict.Allow
+  }
+
+  /**
+   * Tells the session's `PreToolUse` hook a `Bash` call is about to run, as the SDK does before running one
+   * (`docs/sdk-notes.md` §14), and resolves once the hook has; at once with no hook.
+   */
+  startBash(call: BashCallStarting): Promise<void> {
+    return this.options.hooks?.onBashStarting?.(call) ?? Promise.resolve()
   }
 
   /** Tells the session's `Stop` hook the jobs it has, as the SDK does as each turn ends. */

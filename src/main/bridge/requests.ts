@@ -24,6 +24,9 @@ import {
   type SearchQueryRequest,
   type SubagentsStopRequest,
   type WatchersStopRequest,
+  type ChangesFilesRequest,
+  type ChangesOpenFileRequest,
+  type ChangesRepositoryRequest,
   type TaskIdRequest,
   type TasksGetRequest,
   type TasksListDoneRequest,
@@ -51,7 +54,7 @@ import {
 import { TaskFilter } from '../../shared/attention'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
 import { Effort, PermissionMode, UiStateKey } from '../../shared/domain'
-import { isWorkspaceRelativePath } from '../../shared/files'
+import { isWorkspaceRelativePath, parseCommitFileKey } from '../../shared/files'
 import { MAX_MENU_BAR_HEIGHT } from '../../shared/menuBar'
 import { hasImageSignature, ImageMediaType, MAX_IMAGE_BASE64_LENGTH, type ImageData } from '../../shared/images'
 import { MAX_TERMINAL_NAME, MAX_TERMINAL_SIZE, MAX_TERMINAL_WRITE } from '../../shared/terminal'
@@ -208,6 +211,30 @@ const fileRequest = z.strictObject({
     .refine(isWorkspaceRelativePath, 'Expected a normalized path relative to the workspace root, inside it'),
 }) satisfies z.ZodType<FileRequest>
 
+/** A file the Files tab can have open: one in the workspace, or one as a commit left it (its commit file key). */
+const openFileRequest = z.strictObject({
+  taskId: z.string(),
+  path: z
+    .string()
+    .refine(
+      (path) => isWorkspaceRelativePath(path) || parseCommitFileKey(path) !== null,
+      'Expected a normalized path relative to the workspace root, inside it, or a commit file key',
+    ),
+}) satisfies z.ZodType<FileRequest>
+
+const changesFilesRequest = z.strictObject({
+  taskId: z.string(),
+  id: z.string(),
+}) satisfies z.ZodType<ChangesFilesRequest>
+
+const changesOpenFileRequest = z.strictObject({
+  taskId: z.string(),
+  id: z.string(),
+  path: z.string().refine(isWorkspaceRelativePath, 'Expected a normalized path relative to the repository'),
+}) satisfies z.ZodType<ChangesOpenFileRequest>
+
+const changesRepositoryRequest = z.strictObject({ taskId: z.string() }) satisfies z.ZodType<ChangesRepositoryRequest>
+
 const settingsUpdateRequest = z.strictObject({
   patch: z.strictObject(SETTING_SCHEMAS).partial(),
 }) satisfies z.ZodType<SettingsUpdateRequest>
@@ -336,6 +363,9 @@ export const REQUEST_SCHEMAS = {
   [CommandName.SubagentsStop]: subagentsStopRequest,
   [CommandName.WatchersListLive]: emptyRequest,
   [CommandName.WatchersStop]: watchersStopRequest,
+  [CommandName.ChangesFiles]: changesFilesRequest,
+  [CommandName.ChangesOpenFile]: changesOpenFileRequest,
+  [CommandName.ChangesRepository]: changesRepositoryRequest,
   [CommandName.TasksHistory]: taskIdRequest,
   [CommandName.QueueAdd]: queueAddRequest,
   [CommandName.QueueEdit]: queueEditRequest,
@@ -345,9 +375,9 @@ export const REQUEST_SCHEMAS = {
   [CommandName.DraftsSet]: draftsSetRequest,
   [CommandName.QuestionsAnswer]: questionsAnswerRequest,
   [CommandName.PermissionsAnswer]: permissionsAnswerRequest,
-  [CommandName.FilesRead]: fileRequest,
-  [CommandName.FilesOpen]: fileRequest,
-  [CommandName.FilesClose]: fileRequest,
+  [CommandName.FilesRead]: openFileRequest,
+  [CommandName.FilesOpen]: openFileRequest,
+  [CommandName.FilesClose]: openFileRequest,
   [CommandName.FilesOpenInEditor]: fileRequest,
   [CommandName.ClipboardWriteText]: clipboardWriteTextRequest,
   [CommandName.FilesInfo]: fileRequest,

@@ -212,6 +212,8 @@ function drainEvents(): (readonly unknown[])[] {
         return [event.type, event.handoff?.body ?? null]
       case EventType.WatchersChanged:
         return [event.type, event.watchers.map(({ kind, state }) => [kind, state])]
+      case EventType.CommitsChanged:
+        return [event.type, event.commits.map(({ subject }) => subject)]
       case EventType.QuestionOpened:
       case EventType.QuestionAnswered:
       case EventType.QuestionWithdrawn:
@@ -312,7 +314,11 @@ describe('a turn', () => {
       allowedRules: [],
       log: expect.objectContaining({ info: expect.any(Function) as unknown }) as unknown,
       onToolPermission: expect.any(Function) as unknown,
-      hooks: { onPrompt: expect.any(Function) as unknown, onTurnEnded: expect.any(Function) as unknown },
+      hooks: {
+        onBashStarting: expect.any(Function) as unknown,
+        onPrompt: expect.any(Function) as unknown,
+        onTurnEnded: expect.any(Function) as unknown,
+      },
     })
     const [userMessage] = listMessages(database.db, task.id)
     expect(backend.session.sent).toEqual([
@@ -400,6 +406,7 @@ describe('a turn', () => {
       artifacts: [],
       handoff: null,
       watchers: [],
+      commits: [],
     })
   })
 
@@ -3246,6 +3253,7 @@ describe('several tasks at once', () => {
       case EventType.ArtifactsChanged:
       case EventType.HandoffChanged:
       case EventType.WatchersChanged:
+      case EventType.CommitsChanged:
         return event.taskId
       case EventType.OpenFilesChanged:
         return event.openFiles.taskId
@@ -3307,6 +3315,7 @@ describe('several tasks at once', () => {
       case EventType.ArtifactsChanged:
       case EventType.HandoffChanged:
       case EventType.WatchersChanged:
+      case EventType.CommitsChanged:
       case EventType.TerminalTabsChanged:
       case EventType.TerminalOutput:
       case EventType.TerminalCleared:

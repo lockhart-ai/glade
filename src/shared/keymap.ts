@@ -302,11 +302,11 @@ export const COMMANDS: readonly CommandDefinition[] = [
   command(
     WindowCommandId.ShowPanelTab,
     Panels,
-    'Tool calls · Files · Todos · Artifacts · Subagents · Watchers',
+    'Tool calls · Files · Todos · Artifacts · Subagents · Watchers · Changes',
     Window,
     'Meta+Alt+1',
     {
-      digits: { from: 1, to: 6 },
+      digits: { from: 1, to: 7 },
     },
   ),
   command(AppCommandId.Close, Panels, 'Close file tab', MenuBar, 'Meta+W', {
@@ -634,8 +634,8 @@ export const KEYMAP_LAYOUT: readonly KeymapGroup[] = [
         keys: [{ command: WindowCommandId.ShowPanelTab, digits: { from: 1, to: 3 } }],
       },
       {
-        action: 'Artifacts · Subagents · Watchers',
-        keys: [{ command: WindowCommandId.ShowPanelTab, digits: { from: 4, to: 6 } }],
+        action: 'Artifacts · Subagents · Watchers · Changes',
+        keys: [{ command: WindowCommandId.ShowPanelTab, digits: { from: 4, to: 7 } }],
       },
       row('Close file tab', AppCommandId.Close),
       row('Open file in editor', WindowCommandId.OpenInEditor),
