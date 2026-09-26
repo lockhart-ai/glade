@@ -679,7 +679,8 @@ export function startApp({
       db: database.db,
       // The main windows: the menu bar popover is sent only what's in flight, by the menu bar itself.
       targets: () => mainWindows().map((window) => window.webContents),
-      agentBackend: testAgent ?? createAgentBackend({ env, log: log.scoped(LogScope.Agent) }),
+      agentBackend:
+        testAgent ?? createAgentBackend({ env, log: log.scoped(LogScope.Agent), version: app.getVersion() }),
       // A test can't click a native dialog, so in e2e mode it answers with the folder the test chose.
       chooseFolder:
         testMode?.kind === TestModeKind.E2e

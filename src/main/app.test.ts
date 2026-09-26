@@ -946,6 +946,7 @@ describe('startApp', () => {
     expect(createSdkBackend).toHaveBeenCalledExactlyOnceWith({
       env: expect.any(Promise) as unknown,
       log: expect.objectContaining({ info: expect.any(Function) as unknown }) as unknown,
+      version: '0.0.0-sample',
     })
     expect(resolveLoginEnv).toHaveBeenCalledExactlyOnceWith({
       shell: process.env.SHELL,
