@@ -22,7 +22,7 @@ import {
   type E2eSpec,
 } from './e2e'
 import { openAppDatabase } from './db/database'
-import { MIGRATIONS } from './db/migrations'
+import { LATEST_SCHEMA_VERSION, MIGRATIONS } from './db/migrations'
 import { appendMessage } from './db/repositories/messages'
 import { updateSettings } from './db/repositories/settings'
 import { updateTask } from './db/repositories/tasks'
@@ -581,14 +581,14 @@ describe('startApp', () => {
         scope: 'db',
         file,
         fromVersion: 0,
-        toVersion: MIGRATIONS.length,
+        toVersion: LATEST_SCHEMA_VERSION,
         migrated: true,
       }),
     ])
     expect(onlyWindow()).toBeDefined()
     const db = new Database(file, { readonly: true })
     try {
-      expect(db.prepare('SELECT MAX(version) FROM schema_version').pluck().get()).toBe(MIGRATIONS.length)
+      expect(db.prepare('SELECT MAX(version) FROM schema_version').pluck().get()).toBe(LATEST_SCHEMA_VERSION)
     } finally {
       db.close()
     }

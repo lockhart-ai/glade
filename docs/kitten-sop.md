@@ -83,7 +83,8 @@ force-push.
 - **Merge** by approving, then queueing with `node scripts/gh-team.mjs pr merge <N>`. Don't use `--auto`: it doesn't
   enqueue a PR that's already mergeable.
 - **After every merge**, check the open PRs and the merge queue: others may now conflict or need re-queueing.
-- **Migration numbers** clash between parallel PRs. The second to land renumbers its migration.
+- **Migration numbers:** give each parallel PR its own, so none clash. Gaps are fine: the runner applies every
+  migration a database hasn't recorded, in version order, whichever PR lands first.
 
 ### Phase release
 
