@@ -35,10 +35,8 @@ import {
   type PluginTask,
   type PluginToolCall,
 } from '../../shared/plugin-api'
+import { isSubagentTool } from '../../shared/subagents'
 import { toolDisplayName } from '../../shared/toolName'
-
-/** The tools that start a subagent: `Agent` in `tool_use` (the init tools list calls it `Task`). */
-const SUBAGENT_TOOLS: ReadonlySet<string> = new Set(['Agent', 'Task'])
 
 /** What a subagent is called when its call names neither a description nor a type, as the Subagents tab has it. */
 export const UNNAMED_SUBAGENT = 'Subagent'
@@ -174,7 +172,7 @@ export function pluginToolCall(call: ToolCallEvent, rootPath: string | undefined
 
 /** Whether a tool call starts a subagent. */
 export function startsSubagent(call: ToolCallEvent): boolean {
-  return SUBAGENT_TOOLS.has(call.name)
+  return isSubagentTool(call.name)
 }
 
 function subagentState(state: ToolCallState): PluginSubagentState {

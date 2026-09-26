@@ -15,11 +15,14 @@ import {
   formatElapsed,
   LatestLineKind,
   metaLine,
+  runningSubagentCount,
+  runningSubagentCounts,
   statusIndicator,
   statusLabel,
   subagentCount,
   subagentLogText,
   subagentName,
+  subagentsRunningLabel,
   SubagentStatus,
   tally,
   toolCallsLabel,
@@ -199,6 +202,62 @@ describe('subagentCount', () => {
         said('n', 'Hi', null),
       ]),
     ).toBe(2)
+  })
+})
+
+describe('runningSubagentCount', () => {
+  it('counts the Agent and Task calls still running, nested ones included, and nothing else', () => {
+    expect(runningSubagentCount(undefined)).toBe(0)
+    expect(runningSubagentCount([])).toBe(0)
+    expect(
+      runningSubagentCount([
+        agent('a', 'A'),
+        call({ id: 't', name: 'Task', toolUseId: 'use-t' }),
+        agent('nested', 'Nested', { parentToolUseId: 'use-a' }),
+        // A running call that doesn't start a subagent, and a subagent's own running call.
+        call({ id: 'r', toolUseId: 'use-r' }),
+        call({ id: 'ar', toolUseId: 'use-ar', parentToolUseId: 'use-a' }),
+        said('n', 'Hi', null),
+      ]),
+    ).toBe(3)
+  })
+
+  it('leaves out the subagents that have stopped running, however they stopped', () => {
+    const stopped = [ToolCallState.Done, ToolCallState.Error, ToolCallState.Paused, ToolCallState.Interrupted]
+    const events = stopped.map((state, index) => agent(`s${String(index)}`, 'Stopped', { state }))
+    expect(runningSubagentCount(events)).toBe(0)
+    expect(runningSubagentCount([...events, agent('live', 'Live')])).toBe(1)
+  })
+
+  it('is the Subagents tab’s count of running ones', () => {
+    const events = [
+      agent('a', 'A'),
+      agent('b', 'B', { state: ToolCallState.Done, output: 'Done.' }),
+      agent('c', 'C', { parentToolUseId: 'use-a' }),
+    ]
+    const running = deriveSubagents(events).filter(({ status }) => status === SubagentStatus.Running)
+    expect(runningSubagentCount(events)).toBe(running.length)
+  })
+})
+
+describe('runningSubagentCounts', () => {
+  it('counts each task’s running subagents, leaving out the tasks with none', () => {
+    expect(
+      runningSubagentCounts({
+        t1: [agent('a', 'A'), agent('b', 'B')],
+        t2: [agent('c', 'C', { taskId: 't2', state: ToolCallState.Done })],
+        t3: [],
+        t4: [agent('d', 'D', { taskId: 't4' })],
+      }),
+    ).toEqual({ t1: 2, t4: 1 })
+    expect(runningSubagentCounts({})).toEqual({})
+  })
+})
+
+describe('subagentsRunningLabel', () => {
+  it('says how many are running, in the singular for one', () => {
+    expect(subagentsRunningLabel(1)).toBe('1 subagent running')
+    expect(subagentsRunningLabel(3)).toBe('3 subagents running')
   })
 })
 

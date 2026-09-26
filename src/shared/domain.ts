@@ -586,6 +586,11 @@ export interface QuestionSet {
   readonly taskId: string
   /** The turn that asked it. */
   readonly turn: number
+  /**
+   * What the agent said to you before its questions (`ask`'s `preamble`): its reply to your message, in Markdown, shown
+   * at the top of the card. Null when it asked without one.
+   */
+  readonly preamble: string | null
   /** At least one. */
   readonly questions: readonly Question[]
   readonly state: QuestionSetState

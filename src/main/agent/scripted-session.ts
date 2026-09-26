@@ -1027,7 +1027,10 @@ export class ScriptedSession implements AgentSession {
 
   private async ask(turn: TurnState, step: AskStep, uuid: string | null): Promise<void> {
     const name = gladeToolName(GladeTool.Ask)
-    const input = { questions: step.questions }
+    const input =
+      step.preamble === undefined
+        ? { questions: step.questions }
+        : { preamble: step.preamble, questions: step.questions }
     this.toolUse(turn, step.id, name, input, null, uuid)
     this.idle(turn)
     const cancel = new AbortController()

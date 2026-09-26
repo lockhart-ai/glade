@@ -62,6 +62,13 @@ test('subagents: a tally and a row per subagent, running first, saying what they
   await expect(api).not.toHaveText(apiBefore ?? '')
   await expect(links).toHaveText(linksBefore ?? '')
 
+  // The task's row counts the running ones, on the line under its status.
+  const list = taskList(window)
+  const row = list.rows('Active').first()
+  await expect(list.subagentCount(row)).toHaveAccessibleName('2 subagents running')
+  await expect(list.subagentCount(row)).toHaveAttribute('title', '2 subagents running')
+  await expect(list.indicators(row)).toHaveText('2')
+
   // Clicking a row opens its log inline, as the tool log shows it; clicking again closes it.
   await api.click()
   await expect(api).toHaveAttribute('aria-expanded', 'true')
@@ -87,4 +94,7 @@ test('subagents: a tally and a row per subagent, running first, saying what they
     'error',
     'error',
   ])
+  // With none running, the row's count goes, and its third line with it.
+  await expect(list.subagentCount(row)).toHaveCount(0)
+  await expect(list.indicators(row)).toHaveCount(0)
 })

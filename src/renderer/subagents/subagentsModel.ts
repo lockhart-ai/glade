@@ -5,6 +5,7 @@
  * There's no "queued" subagent: nothing in the stream says a subagent is waiting for a slot (`docs/sdk-notes.md`), so
  * every subagent is running, paused, done, interrupted or failed.
  */
+import { isSubagentTool } from '../../shared/subagents'
 import { TaskIndicator } from '../../shared/taskIndicator'
 import { ToolCallState, ToolEventKind, type EpochMs, type ToolCallEvent, type ToolEvent } from '../../shared/domain'
 import {
@@ -15,9 +16,6 @@ import {
   type SubagentRow,
   type ToolLogRow,
 } from '../tool-log/toolLogModel'
-
-/** The tools that start a subagent: `Agent` in `tool_use` (the init tools list calls it `Task`). */
-const SUBAGENT_TOOLS: ReadonlySet<string> = new Set(['Agent', 'Task'])
 
 /** What a subagent is called when its call names neither a description nor a type. */
 export const UNNAMED_SUBAGENT = 'Subagent'
@@ -150,7 +148,7 @@ function subagentCalls(rows: readonly (ToolLogRow | SubagentRow)[]): CallRow[] {
   return rows.flatMap((row) => {
     if (row.kind !== ToolEventKind.ToolCall) return []
     const nested = subagentCalls(row.children)
-    return SUBAGENT_TOOLS.has(row.call.name) ? [row, ...nested] : nested
+    return isSubagentTool(row.call.name) ? [row, ...nested] : nested
   })
 }
 
@@ -165,7 +163,36 @@ export function deriveSubagents(events: readonly ToolEvent[], rootPath?: string)
 
 /** How many subagents a task has started: the Subagents tab's count. */
 export function subagentCount(events: readonly ToolEvent[]): number {
-  return events.filter((event) => event.kind === ToolEventKind.ToolCall && SUBAGENT_TOOLS.has(event.name)).length
+  return events.filter((event) => event.kind === ToolEventKind.ToolCall && isSubagentTool(event.name)).length
+}
+
+/**
+ * How many of a task's subagents are running now, nested ones included: the Subagents tab's "3 running", and the count
+ * on the task's row in the task list. Counted from whatever of its log is loaded: all of it once the task has been
+ * opened, else the running subagents loaded on start and what events have brought since.
+ */
+export function runningSubagentCount(events: readonly ToolEvent[] | undefined): number {
+  return (events ?? []).filter(
+    (event) =>
+      event.kind === ToolEventKind.ToolCall && event.state === ToolCallState.Running && isSubagentTool(event.name),
+  ).length
+}
+
+/** Each task's running subagents (`runningSubagentCount`), by task id, leaving out the tasks with none. */
+export function runningSubagentCounts(
+  toolEvents: Readonly<Record<string, readonly ToolEvent[]>>,
+): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const [taskId, events] of Object.entries(toolEvents)) {
+    const count = runningSubagentCount(events)
+    if (count > 0) counts[taskId] = count
+  }
+  return counts
+}
+
+/** What a task row's subagent count says in its tooltip and to a screen reader: "3 subagents running". */
+export function subagentsRunningLabel(count: number): string {
+  return `${String(count)} subagent${count === 1 ? '' : 's'} running`
 }
 
 /**

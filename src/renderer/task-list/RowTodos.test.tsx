@@ -26,7 +26,7 @@ describe("a task row's todo progress", () => {
     expect(screen.getByText('Copying files')).toBeInTheDocument()
   })
 
-  it('shows a ring filling with the done items and 3/7 at the end of the status line, naming the item in progress', () => {
+  it('shows a ring filling with the done items and 3/7 on the line under the status, naming the item in progress', () => {
     renderRow(task({ done: 3, total: 7, doing: ['Copy the 3,900 existing files'] }))
     const shown = progress()
     expect(shown).toHaveTextContent('3/7')
@@ -34,8 +34,11 @@ describe("a task row's todo progress", () => {
     expect(shown).toHaveAttribute('title', '3 of 7 todos done · Now: Copy the 3,900 existing files')
     expect(shown).toHaveAttribute('data-done', 'false')
     expect(shown?.querySelectorAll('circle')[1]).toHaveAttribute('stroke-dasharray', '12.12 28.27')
-    // The status still reads in full to a screen reader, before the progress.
-    expect(shown?.previousElementSibling).toHaveTextContent('Copying files')
+    // It's first on the row's third line; the status line above it is the status alone, which reads first.
+    const line = shown?.parentElement
+    expect(line).toHaveAttribute('data-indicators')
+    expect(line?.firstElementChild).toBe(shown)
+    expect(line?.previousElementSibling).toHaveTextContent(/^Copying files$/)
   })
 
   it('shows a check once every item is done', () => {
@@ -47,7 +50,7 @@ describe("a task row's todo progress", () => {
     expect(shown?.querySelector('path')).not.toBeNull()
   })
 
-  it('keeps showing while the title is renamed, and not on a search result, whose snippet replaces the status', () => {
+  it('keeps showing while the title is renamed, and on a search result, under the snippet that replaces the status', () => {
     const summary = { done: 1, total: 2, doing: [] }
     const { unmount } = render(
       <TaskRow
@@ -64,7 +67,8 @@ describe("a task row's todo progress", () => {
     unmount()
 
     renderRow(task(summary), { snippet: [{ text: 'Copying', match: true }] })
-    expect(progress()).toBeNull()
+    expect(progress()).toHaveTextContent('1/2')
+    expect(progress()?.parentElement?.previousElementSibling).toHaveTextContent(/^Copying$/)
   })
 
   it('fits a list of hundreds of items', () => {

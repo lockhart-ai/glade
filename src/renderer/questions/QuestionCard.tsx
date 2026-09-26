@@ -11,6 +11,7 @@ import {
   type QuestionSet,
   type TextQuestion,
 } from '../../shared/domain'
+import { Markdown } from '../chat/Markdown'
 import { Button, ButtonVariant, Icon, IconSize, Input, useToast } from '../components'
 import { classNames } from '../components/classNames'
 import { describeFailure } from '../store/hydrate'
@@ -35,6 +36,24 @@ import styles from './QuestionCard.module.css'
 
 /** The accessible name of the card, open or closed. */
 export const QUESTION_CARD_NAME = 'Questions from the agent'
+
+/** What marks text in the card's preamble: the sidebar's search, as in the chat's replies (`highlightPattern`). */
+interface HighlightProps {
+  readonly highlight?: RegExp | null | undefined
+}
+
+export interface QuestionCardProps extends HighlightProps {
+  readonly questionSet: QuestionSet
+}
+
+/**
+ * What the agent said before its questions, at the top of the card: its reply to your message, rendered as a chat
+ * reply is. Nothing for a set asked without one.
+ */
+function Preamble({ questionSet, highlight }: QuestionCardProps) {
+  if (questionSet.preamble === null) return null
+  return <Markdown source={questionSet.preamble} highlight={highlight ?? null} className={styles.preamble} />
+}
 
 /** Where a key moves the focus within the card. */
 type Move = { readonly question: number } | 'send'
@@ -256,7 +275,11 @@ function tabStop(question: Question, draft: AnswerDraft, index: number, focused:
  * between the questions, 1–9 pick the focused question's options, Space picks the focused one, and ↵ sends once the
  * answers are complete.
  */
-function OpenCard({ questionSet, appear }: { readonly questionSet: QuestionSet; readonly appear: boolean }) {
+interface OpenCardProps extends QuestionCardProps {
+  readonly appear: boolean
+}
+
+function OpenCard({ questionSet, appear, highlight }: OpenCardProps) {
   const { questions } = questionSet
   const answerQuestions = useGladeStore((state) => state.answerQuestions)
   const toast = useToast()
@@ -350,6 +373,7 @@ function OpenCard({ questionSet, appear }: { readonly questionSet: QuestionSet; 
         send()
       }}
     >
+      <Preamble questionSet={questionSet} highlight={highlight} />
       <div className={styles.title}>
         <Icon icon={faCircleQuestion} size={IconSize.Large} />
         {cardTitle(questions)}
@@ -401,14 +425,13 @@ function OpenCard({ questionSet, appear }: { readonly questionSet: QuestionSet; 
 }
 
 /** A closed card: what was asked, and each answer, or that it was answered in words or withdrawn. */
-interface ClosedCardProps {
-  readonly questionSet: QuestionSet
+interface ClosedCardProps extends QuestionCardProps {
   readonly closed: ClosedAs
   /** Whether it has just closed, in view: it then fades in over the open card it replaces. */
   readonly fadeIn: boolean
 }
 
-function ClosedCard({ questionSet, closed, fadeIn }: ClosedCardProps) {
+function ClosedCard({ questionSet, closed, fadeIn, highlight }: ClosedCardProps) {
   const { questions, reply } = questionSet
   const answers = reply?.kind === QuestionReplyKind.Answers ? reply.answers : {}
   return (
@@ -420,6 +443,7 @@ function ClosedCard({ questionSet, closed, fadeIn }: ClosedCardProps) {
         fadeIn && styles.justClosed,
       )}
     >
+      <Preamble questionSet={questionSet} highlight={highlight} />
       <div className={styles.closedTitle}>
         <Icon icon={faCircleQuestion} size={IconSize.Large} />
         {closedTitle(questions, closed)}
@@ -449,17 +473,18 @@ export const APPEAR_WINDOW_MS = 2000
 
 /**
  * The agent's questions in the chat (`docs/design/html/03-rich-question.html`): a card you answer while they're open,
- * which closes once they're answered (showing the answers, or that you answered in your own words) or withdrawn. A card
- * that has just been asked rises and fades in, and one that closes while it's showing fades to its closed state.
+ * which closes once they're answered (showing the answers, or that you answered in your own words) or withdrawn. The
+ * agent's preamble, if it gave one, leads the card, open or closed. A card that has just been asked rises and fades in,
+ * and one that closes while it's showing fades to its closed state.
  */
-export function QuestionCard({ questionSet }: { readonly questionSet: QuestionSet }): React.JSX.Element {
+export function QuestionCard({ questionSet, highlight }: QuestionCardProps): React.JSX.Element {
   const closed = closedAs(questionSet)
   // Whether it was open when it showed, so its closing happens in view, and whether it had just been asked.
   const [shownOpen] = useState(closed === null)
   const [appear] = useState(() => Date.now() - questionSet.createdAt < APPEAR_WINDOW_MS)
   return closed === null ? (
-    <OpenCard questionSet={questionSet} appear={appear} />
+    <OpenCard questionSet={questionSet} appear={appear} highlight={highlight} />
   ) : (
-    <ClosedCard questionSet={questionSet} closed={closed} fadeIn={shownOpen} />
+    <ClosedCard questionSet={questionSet} closed={closed} fadeIn={shownOpen} highlight={highlight} />
   )
 }

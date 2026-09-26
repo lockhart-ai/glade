@@ -24,7 +24,10 @@ it('starts every existing task with no questions, dropped with its task, and che
 
   expect(listQuestionSets(db, 't')).toEqual([])
   expect(getTask(db, 't')?.asking).toBe(false)
-  const insert = db.prepare("INSERT INTO question_sets VALUES ('q', 't', 1, ?, 'open', ?, 2, NULL)")
+  const insert = db.prepare(
+    `INSERT INTO question_sets (id, task_id, turn, questions, state, reply, created_at, closed_at)
+    VALUES ('q', 't', 1, ?, 'open', ?, 2, NULL)`,
+  )
   expect(() => insert.run('{}', null)).toThrow(/CHECK/)
   expect(() => insert.run('[]', '[]')).toThrow(/CHECK/)
   insert.run('[]', null)

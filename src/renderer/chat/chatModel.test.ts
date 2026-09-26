@@ -207,6 +207,7 @@ describe('question cards', () => {
     id,
     taskId: 't1',
     turn,
+    preamble: null,
     questions: [{ kind: QuestionKind.Pills, prompt: 'Credit?', options: ['Yes', 'No'] }],
     state: QuestionSetState.Open,
     reply: null,
@@ -288,6 +289,14 @@ describe('question cards', () => {
     const [entry] = chatEntries(task, [], [said], [set])
     expect(entry).toEqual({ kind: ChatEntryKind.Question, questionSet: set, lead: 'A few choices are yours.' })
   })
+
+  it('leads with nothing for a set with a preamble, which leads the card itself', () => {
+    const set = { ...asked('q1', 2, 5_000), preamble: 'Yes, the tests pass.' }
+    const said = at(narration('n1', 2, 'A few choices are yours.'), 4_000)
+    expect(questionLead(set, [said, ask('c1', 2, 4_500)])).toBeNull()
+    const [entry] = chatEntries(task, [], [said], [set])
+    expect(entry).toEqual({ kind: ChatEntryKind.Question, questionSet: set, lead: null })
+  })
 })
 
 describe('permission cards', () => {
@@ -301,6 +310,7 @@ describe('permission cards', () => {
     id,
     taskId: 't1',
     turn,
+    preamble: null,
     questions: [{ kind: QuestionKind.Pills, prompt: 'Credit?', options: ['Yes', 'No'] }],
     state: QuestionSetState.Open,
     reply: null,

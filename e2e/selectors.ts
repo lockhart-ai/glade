@@ -103,6 +103,13 @@ export function taskList(page: Page) {
      * done. There only while the agent keeps a list.
      */
     todoProgress: (row: Locator) => row.getByRole('img', { name: /todos done/ }),
+    /**
+     * A row's third line, under its status: its todo progress, running subagents and live watchers, in that order.
+     * There only while it has any of them.
+     */
+    indicators: (row: Locator) => row.locator('[data-indicators]'),
+    /** A row's running subagents: an icon and the count, named "3 subagents running" (its tooltip too). */
+    subagentCount: (row: Locator) => row.getByRole('img', { name: /subagents? running$/ }),
   }
 }
 
@@ -244,9 +251,12 @@ export function changesTab(page: Page) {
   }
 }
 
-/** A task row's watcher mark: an eye and how many live watchers its agent has, named "Watching 2 things". */
+/**
+ * A task row's watcher count, on its indicators line: an eye and how many live watchers its agent has, named
+ * "2 watchers running" (its tooltip too).
+ */
 export function watchingMark(row: Locator): Locator {
-  return row.getByRole('img', { name: /^Watching/ })
+  return row.getByRole('img', { name: /watchers? running$/ })
 }
 
 /** A workspace switcher action's name. */
