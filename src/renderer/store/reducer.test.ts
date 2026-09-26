@@ -545,7 +545,7 @@ describe("a task's handoff note", () => {
 
 describe("a task's todo list", () => {
   const list = (text: string, updatedAt: number): TodoList => ({
-    items: [{ text, state: TodoState.Todo, note: null }],
+    items: [{ text, state: TodoState.Todo, note: null, completedAt: null }],
     updatedAt,
   })
   const history = (todos: TodoList | null) => ({

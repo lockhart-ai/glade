@@ -178,6 +178,8 @@ export function taskPanel(page: Page) {
     todoProgress: panel.getByRole('progressbar', { name: 'Todos done' }),
     /** The Todos tab's items, top to bottom, each read as its state then its text (`Doing: Copy the files…`). */
     todos: panel.getByRole('list', { name: 'Todos' }).getByRole('listitem'),
+    /** A done todo's finish time (`4m ago`), with the exact time as its tooltip. */
+    todoFinished: (item: Locator) => item.locator('time'),
   }
 }
 
@@ -358,6 +360,8 @@ export function toasts(page: Page) {
   return {
     region,
     undo: region.getByRole('button', { name: 'Undo' }),
+    /** A toast, by what it says. */
+    saying: (text: string) => region.getByText(text, { exact: true }),
   }
 }
 
@@ -390,6 +394,8 @@ export function inputBar(page: Page) {
     setting: (name: InputBarSetting) => bar.getByRole('button', { name: new RegExp(`^${name}: `) }),
     /** An option in the open setting's menu. */
     option: (name: string) => page.getByRole('menuitemradio', { name, exact: true }),
+    /** Every option in a setting's menu, once it's open, in order. */
+    options: (setting: InputBarSetting) => page.getByRole('menu', { name: setting }).getByRole('menuitemradio'),
     field: bar.getByRole('textbox', { name: 'Message the agent' }),
     send: bar.getByRole('button', { name: 'Send', exact: true }),
     stop: bar.getByRole('button', { name: 'Stop', exact: true }),

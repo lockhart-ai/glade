@@ -127,11 +127,15 @@ export interface ApiRetry {
   readonly since: EpochMs
 }
 
-/** How hard the model thinks, set per task from the input bar's effort picker. */
+/**
+ * How hard the model thinks, set per task from the input bar's effort picker, lowest first: the levels the SDK knows
+ * (`EffortLevel`). Each model supports its own (`ModelChoice.efforts` in `./models`), and some none.
+ */
 export enum Effort {
   Low = 'low',
   Medium = 'medium',
   High = 'high',
+  XHigh = 'xhigh',
   Max = 'max',
 }
 
@@ -408,6 +412,11 @@ export interface Todo {
   readonly state: TodoState
   /** The line under a doing or waiting item, e.g. what the agent is doing on it now; null for none. */
   readonly note: string | null
+  /**
+   * When a done item was finished: the time of the tool call that marked it done (#282). Null for an item that isn't
+   * done, including one that was done and went back to being worked on.
+   */
+  readonly completedAt: EpochMs | null
 }
 
 /**
@@ -415,7 +424,7 @@ export interface Todo {
  * on its own: main works it out from the task's tool log, which is.
  */
 export interface TodoList {
-  /** In the agent's order. */
+  /** In the agent's order (the Todos tab groups them by state: `orderTodos` in `src/renderer/todos`). */
   readonly items: readonly Todo[]
   /** When the agent last changed it: the time of its latest todo tool call. */
   readonly updatedAt: EpochMs

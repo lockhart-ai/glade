@@ -570,9 +570,32 @@ query({ prompt, options: { mcpServers: { glade } } });
   `await q.applyFlagSettings({ effortLevel: "low" })` (`null` resets it). We verified this through the `PreToolUse`
   hook input `effort.level`, which went `medium` → `low` between turns. Haiku 4.5 reports no effort (the field was
   absent).
-- **What the pickers offer:** `q.supportedModels()` / `initializationResult().models` list each model with
+- **What the pickers offer [verified]:** `q.supportedModels()` / `initializationResult().models` list each model with
   `supportsEffort`, `supportedEffortLevels` (`low|medium|high|xhigh|max`), `supportsAdaptiveThinking` and
-  `displayName`. Build the pickers from this list, not a hard-coded one.
+  `displayName`. Glade builds its pickers from this list (#277).
+
+  A probe (SDK 0.3.281, streaming input, no message sent, so no tokens spent) got the same list from both calls, as
+  soon as the process had started. Each entry, trimmed:
+
+  ```json
+  { "value": "sonnet", "resolvedModel": "claude-sonnet-5", "displayName": "Sonnet",
+    "description": "Sonnet 5 · Efficient for routine tasks", "supportsEffort": true,
+    "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"],
+    "supportsAdaptiveThinking": true, "supportsAutoMode": true }
+  ```
+
+  - `value` is what `model` and `setModel` take: mostly **aliases** (`default`, `opus[1m]`, `sonnet`, `haiku`), some
+    full ids. `resolvedModel` is the full id it stands for (`claude-haiku-4-5-20251001`, dated), so a task saved with
+    `claude-sonnet-5` matches the `sonnet` row by it. Two rows can resolve to the same model (`default` and
+    `opus[1m]` were both `claude-opus-5-5[1m]`).
+  - `displayName` is short (`Default (recommended)`, `Sonnet`); the version is in `description`.
+  - **Haiku leaves both effort fields out**: no effort at all. Opus and Sonnet listed all five levels, `xhigh`
+    included.
+  - The list depends on the login: it had a model only some accounts get.
+  - No field names a model's default effort. Glade uses High where the model has it, else its lowest level.
+
+  Glade reads `initializationResult().models` (it's cached; `supportedModels()` asks again) once each session's process
+  has started, keeps it in SQLite (`sdk_models`), and offers the built-in list until the first session reports one.
 - `thinking: {type:"adaptive"|"enabled"|"disabled"}` is session-level. `setMaxThinkingTokens` is deprecated.
 
 **Implication:** both pickers can change mid-session. Apply the change just before delivering the next message, never

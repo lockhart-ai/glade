@@ -250,7 +250,7 @@ describe('REQUEST_SCHEMAS', () => {
       'an unknown effort',
       CommandName.TasksUpdate,
       { id: 't', patch: { effort: 'huge' } },
-      'patch.effort: Invalid option: expected one of "low"|"medium"|"high"|"max"',
+      'patch.effort: Invalid option: expected one of "low"|"medium"|"high"|"xhigh"|"max"',
     ],
     [
       'an empty model',
