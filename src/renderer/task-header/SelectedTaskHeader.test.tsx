@@ -12,6 +12,7 @@ import {
 } from '../../shared/domain'
 import { TaskIndicator } from '../../shared/taskIndicator'
 import { DEFAULT_TOAST_TIMEOUT, ToastProvider } from '../components'
+import buttonStyles from '../components/Button/Button.module.css'
 import dotStyles from '../components/Dot/Dot.module.css'
 import { moduleClass } from '../components/moduleClass'
 import { GladeStoreProvider } from '../store/react'
@@ -28,6 +29,11 @@ import { NOW_REFRESH_MS } from '../task-list/useNow'
 import { SelectedTaskHeader } from './SelectedTaskHeader'
 import styles from './SelectedTaskHeader.module.css'
 import { MARKED_DONE_MESSAGE } from './useMarkDone'
+
+/** A Button's classes for a variant: the base class and the variant's, as an icon button (which has no size) gets. */
+function buttonClass(variant: string): string {
+  return `${moduleClass(buttonStyles, 'button')} ${moduleClass(buttonStyles, variant)}`
+}
 
 const MINUTE = 60_000
 const STARTED = new Date(2026, 8, 23, 10, 42).getTime()
@@ -265,10 +271,62 @@ describe('SelectedTaskHeader', () => {
     const markDone = within(header()).getByRole('button', { name: 'Mark done' })
     expect(pin).toHaveAttribute('title', 'Pin task')
     expect(markDone).toHaveAttribute('title', 'Mark done')
-    // Icon only: no text, just the check in a circle.
+    // Icon only: no text, just the solid check in a circle.
     expect(markDone).toHaveTextContent(/^$/)
     expect(markDone.querySelector('svg')).toHaveAttribute('data-icon', 'circle-check')
     expect(pin.querySelector('svg')).toHaveAttribute('data-icon', 'thumbtack')
+  })
+
+  describe('gives every button on the top line one style (#289)', () => {
+    /** A button's chrome (its classes, bar the pressed and disabled states it shows by attribute) and its icon's style. */
+    function style(name: string): { readonly className: string; readonly iconStyle: string | null } {
+      const button = within(header()).getByRole('button', { name })
+      return {
+        className: button.className,
+        iconStyle: button.querySelector('svg')?.getAttribute('data-prefix') ?? null,
+      }
+    }
+
+    // Font Awesome's free set has no regular (outline) thumbtack, so both icons are solid (`fas`).
+    const SHARED = { className: buttonClass('icon'), iconStyle: 'fas' }
+
+    it('while the task is active and unpinned', async () => {
+      await renderHeader()
+
+      expect(style('Pin task')).toEqual(SHARED)
+      expect(style('Mark done')).toEqual(SHARED)
+    })
+
+    it('while it’s pinned, which only presses the pin', async () => {
+      await renderHeader({ task: { pinned: true } })
+
+      expect(style('Unpin task')).toEqual(SHARED)
+      expect(style('Mark done')).toEqual(SHARED)
+      expect(within(header()).getByRole('button', { name: 'Unpin task' })).toHaveAttribute('aria-pressed', 'true')
+      expect(within(header()).getByRole('button', { name: 'Mark done' })).not.toHaveAttribute('aria-pressed')
+    })
+
+    it('while the agent works, with Mark done disabled', async () => {
+      await renderHeader({ task: { activity: TaskActivity.Working } })
+
+      expect(style('Pin task')).toEqual(SHARED)
+      expect(style('Mark done')).toEqual(SHARED)
+      expect(within(header()).getByRole('button', { name: 'Mark done' })).toBeDisabled()
+    })
+
+    it('with the panels’ show buttons at either end while they’re collapsed', async () => {
+      await renderHeader({ panelCollapsed: true, sidebarCollapsed: true })
+
+      for (const name of ['Show task list', 'Pin task', 'Mark done', 'Show side panel']) {
+        expect(within(header()).getByRole('button', { name }).className).toBe(SHARED.className)
+      }
+    })
+
+    it('while the task is done, with only the pin', async () => {
+      await renderHeader({ task: { state: TaskState.Done, doneAt: NOW } })
+
+      expect(style('Pin task')).toEqual(SHARED)
+    })
   })
 
   it('keeps the buttons in the tab order, as real buttons', async () => {
