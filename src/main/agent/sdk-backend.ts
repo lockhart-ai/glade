@@ -304,6 +304,9 @@ export function sdkOptions(
     forwardSubagentText: true,
     // What the Claude Code process prints to its error output goes to the task's log, within limits (docs/logs.md).
     stderr: stderrLogger(options.log ?? SILENT_LOGGER),
+    // Glade stops each background subagent and watcher from its own tab (`stopTask`), so Stop on a turn ends only the
+    // turn. Without this, the SDK fails closed and an interrupt kills every background subagent (docs/sdk-notes.md §7).
+    perTaskStopAffordance: true,
     // What the session's watchers do, which only its hooks tell (the Watchers tab, docs/sdk-notes.md §13).
     ...(options.hooks === undefined ? {} : { hooks: sdkHooks(options.hooks, options.log ?? SILENT_LOGGER) }),
   }
