@@ -21,12 +21,14 @@ import type { SettingsSection } from '../settings/sections'
 import type { Command, MenuState } from '../../shared/commands'
 import type {
   Artifact,
+  ArtifactDateGroup,
+  ArtifactGroupFold,
   CommitFiles,
   Watcher,
   TaskCommit,
   TaskHandoff,
   FileContent,
-  FileInfo,
+  FileThumbnail,
   InputDraft,
   Message,
   OpenFiles,
@@ -176,6 +178,11 @@ export interface GladeData {
   readonly openFiles: Readonly<Record<string, OpenFiles>>
   /** Each task's artifacts (the Artifacts tab), by task id: loaded with its logs, then kept current by events. */
   readonly artifacts: Readonly<Record<string, readonly Artifact[]>>
+  /**
+   * The Artifacts tab's date groups you opened or folded, by task id: loaded with its logs, then changed as you open
+   * or fold one.
+   */
+  readonly artifactGroups: Readonly<Record<string, readonly ArtifactGroupFold[]>>
   /**
    * Each task's watchers (the Watchers tab), by task id: every task's live ones loaded on start, for the task list's
    * marks; all of a task's loaded with its logs; then kept current by events.
@@ -467,8 +474,8 @@ export interface GladeActions {
   readFile: (taskId: string, path: string) => Promise<FileContent>
   /** Opens a file of a task's workspace in the app macOS opens its kind of file with (`files.openInEditor`). */
   openInEditor: (taskId: string, path: string) => Promise<void>
-  /** Describes a file of a task's workspace for its artifact card (`files.info`). Not kept in the store. */
-  fileInfo: (taskId: string, path: string) => Promise<FileInfo>
+  /** A file of a task's workspace as its artifact's row shows it (`files.thumbnail`). Not kept in the store. */
+  fileThumbnail: (taskId: string, path: string) => Promise<FileThumbnail>
   /** Copies a text file of a task's workspace to the clipboard (`files.copy`). */
   copyFile: (taskId: string, path: string) => Promise<void>
   /** Shows a file of a task's workspace in Finder, selected in its folder (`files.reveal`). */
@@ -480,6 +487,15 @@ export interface GladeActions {
   showFile: (taskId: string, path: string) => Promise<void>
   /** Takes a file off a task's artifacts (`artifacts.remove`); the file stays. */
   removeArtifact: (taskId: string, path: string) => Promise<void>
+  /** Opens or folds one of a task's artifact date groups, at once, and remembers it (`artifacts.setGroupOpen`). */
+  setArtifactGroupOpen: (taskId: string, group: ArtifactDateGroup, open: boolean) => Promise<void>
+  /**
+   * The Artifacts tab shows a task (`artifacts.watch`): main looks at its artifacts' files again, and watches them for
+   * edits from outside the agent until `unwatchArtifacts`.
+   */
+  watchArtifacts: (taskId: string) => Promise<void>
+  /** The Artifacts tab no longer shows the task (`artifacts.unwatch`). */
+  unwatchArtifacts: (taskId: string) => Promise<void>
   /** Stops one of a task's running subagents, by the `Agent` call that started it (`subagents.stop`). */
   stopSubagent: (taskId: string, toolUseId: string) => Promise<void>
   /** Stops one of a task's live watchers (`watchers.stop`). */
@@ -578,6 +594,7 @@ export const INITIAL_DATA: GladeData = {
   permissionRequests: {},
   openFiles: {},
   artifacts: {},
+  artifactGroups: {},
   watchers: {},
   commits: {},
   handoffs: {},

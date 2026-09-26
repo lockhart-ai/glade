@@ -14,6 +14,17 @@ export const MAX_FILE_BYTES = 512 * 1024
 /** The most lines the viewer shows; a longer file shows its first lines, with a notice. */
 export const MAX_FILE_LINES = 5000
 
+/**
+ * The tools that change the file they name, and the input field that names it: the Files tab's changed files, and the
+ * artifacts whose files a finished call may have changed.
+ */
+export const CHANGING_TOOLS: Readonly<Record<string, string>> = {
+  Write: 'file_path',
+  Edit: 'file_path',
+  MultiEdit: 'file_path',
+  NotebookEdit: 'notebook_path',
+}
+
 /** A path with `.` and `..` resolved and repeated or trailing slashes removed. `..` above an absolute root stays at it. */
 export function normalizePath(path: string): string {
   const absolute = path.startsWith('/')

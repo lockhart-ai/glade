@@ -11,12 +11,14 @@
  */
 import type {
   Artifact,
+  ArtifactDateGroup,
+  ArtifactGroupFold,
   CommitFiles,
   TaskCommit,
   TaskHandoff,
   Effort,
   FileContent,
-  FileInfo,
+  FileThumbnail,
   InputDraft,
   Message,
   OpenFiles,
@@ -98,10 +100,13 @@ export enum CommandName {
   FilesClose = 'files.close',
   FilesOpenInEditor = 'files.openInEditor',
   ClipboardWriteText = 'clipboard.writeText',
-  FilesInfo = 'files.info',
+  FilesThumbnail = 'files.thumbnail',
   FilesCopy = 'files.copy',
   FilesReveal = 'files.reveal',
   ArtifactsRemove = 'artifacts.remove',
+  ArtifactsSetGroupOpen = 'artifacts.setGroupOpen',
+  ArtifactsWatch = 'artifacts.watch',
+  ArtifactsUnwatch = 'artifacts.unwatch',
   UiStateGet = 'uiState.get',
   UiStateGetAll = 'uiState.getAll',
   UiStateSet = 'uiState.set',
@@ -476,6 +481,8 @@ export interface TasksHistoryResponse {
   readonly todos: TodoList | null
   /** The files the agent declared as its deliverables (the Artifacts tab), in the order it first declared them. */
   readonly artifacts: readonly Artifact[]
+  /** The Artifacts tab's date groups you opened or folded, as you left them. */
+  readonly artifactGroups: readonly ArtifactGroupFold[]
   /** Its handoff note, from a backfill through the control API (the Backfilled card); null when it has none. */
   readonly handoff: TaskHandoff | null
   /** What its agent left running or scheduled (the Watchers tab), live or ended, in the order they started. */
@@ -648,13 +655,14 @@ export interface OpenFilesResponse {
 export type FilesOpenInEditorRequest = FileRequest
 
 /**
- * Describes a file for its artifact card: its line count (from a cheap read) and when it last changed, or that it's
- * missing. Never fails for a file that isn't there.
+ * A file's thumbnail, for its row in the Artifacts tab: a small PNG of an image (PNG, JPEG, GIF, WebP or SVG), made
+ * once and kept on disk until the file changes; none for any other file, or an image that can't be read or is too
+ * large; or that it's missing. Never fails for a file that isn't there, or can't be read.
  */
-export type FilesInfoRequest = FileRequest
+export type FilesThumbnailRequest = FileRequest
 
-export interface FilesInfoResponse {
-  readonly info: FileInfo
+export interface FilesThumbnailResponse {
+  readonly thumbnail: FileThumbnail
 }
 
 /**
@@ -677,6 +685,26 @@ export interface ArtifactsRemoveRequest {
   readonly taskId: string
   /** Relative to the task's workspace root, as the artifact has it. */
   readonly path: string
+}
+
+/**
+ * The Artifacts tab shows a task (`artifacts.watch`), or no longer does (`artifacts.unwatch`). While it does, main
+ * watches the folders its artifacts' files are in, so an edit from outside the agent (the terminal, an editor) moves
+ * the artifact; opening it looks at every file again. Each `watch` is ended by an `unwatch`. Changes broadcast
+ * `artifacts.changed`.
+ */
+export interface ArtifactsWatchRequest {
+  readonly taskId: string
+}
+
+/**
+ * Opens or folds one of a task's artifact date groups (its header in the Artifacts tab), and remembers it for the task.
+ * Fails with `not_found` when there's no such task.
+ */
+export interface ArtifactsSetGroupOpenRequest {
+  readonly taskId: string
+  readonly group: ArtifactDateGroup
+  readonly open: boolean
 }
 
 /** Puts text on the clipboard (the context menus' Copy items). */
@@ -973,10 +1001,13 @@ export interface CommandMap {
   [CommandName.FilesClose]: CommandSpec<FilesCloseRequest, OpenFilesResponse>
   [CommandName.FilesOpenInEditor]: CommandSpec<FilesOpenInEditorRequest, null>
   [CommandName.ClipboardWriteText]: CommandSpec<ClipboardWriteTextRequest, null>
-  [CommandName.FilesInfo]: CommandSpec<FilesInfoRequest, FilesInfoResponse>
+  [CommandName.FilesThumbnail]: CommandSpec<FilesThumbnailRequest, FilesThumbnailResponse>
   [CommandName.FilesCopy]: CommandSpec<FilesCopyRequest, null>
   [CommandName.FilesReveal]: CommandSpec<FilesRevealRequest, null>
   [CommandName.ArtifactsRemove]: CommandSpec<ArtifactsRemoveRequest, null>
+  [CommandName.ArtifactsSetGroupOpen]: CommandSpec<ArtifactsSetGroupOpenRequest, null>
+  [CommandName.ArtifactsWatch]: CommandSpec<ArtifactsWatchRequest, null>
+  [CommandName.ArtifactsUnwatch]: CommandSpec<ArtifactsWatchRequest, null>
   [CommandName.UiStateGet]: CommandSpec<UiStateGetRequest, UiStateGetResponse>
   [CommandName.UiStateGetAll]: CommandSpec<EmptyRequest, UiStateGetAllResponse>
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>

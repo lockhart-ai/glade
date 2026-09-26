@@ -404,6 +404,7 @@ describe('a turn', () => {
       openFiles: { taskId: task.id, paths: [], activePath: null },
       todos: null,
       artifacts: [],
+      artifactGroups: [],
       handoff: null,
       watchers: [],
       commits: [],

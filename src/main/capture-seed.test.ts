@@ -19,8 +19,9 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  type EpochMs,
 } from '../shared/domain'
-import { applySeed, readSeed, type CaptureSeed } from './capture-seed'
+import { applySeed, readSeed, seedArtifactAt, type CaptureSeed } from './capture-seed'
 import { listArtifacts } from './db/repositories/artifacts'
 import { getHandoff } from './db/repositories/backfills'
 import { listMessages } from './db/repositories/messages'
@@ -168,13 +169,18 @@ describe('readSeed', () => {
     expect(done?.startedMinutesAgo).toBe(done?.minutesAgo)
   })
 
-  it('reads the artifacts fixture, its workspace holding the files it declares', () => {
+  it('reads the artifacts fixture, its workspace holding the files it declares, small images among them', () => {
     const seed = readSeed(join(FIXTURES, 'artifacts.json'))
 
     expect(seed.workspace.rootPath).toBe(join(FIXTURES, 'artifacts-workspace'))
     const artifacts = seed.tasks.find((task) => task.selected)?.artifacts ?? []
-    expect(artifacts.map(({ title }) => title)).toEqual(['Release notes 2.4', 'Upgrade guide', 'Announcement email'])
-    for (const { path } of artifacts) expect(existsSync(join(seed.workspace.rootPath, path))).toBe(true)
+    expect(artifacts).toHaveLength(16)
+    expect(artifacts.at(-1)?.title).toBe('Landing page, dark theme')
+    for (const { path } of artifacts) {
+      expect(existsSync(join(seed.workspace.rootPath, path)), path).toBe(true)
+      // Sample images, kept small (CLAUDE.md, "Binaries").
+      if (path.endsWith('.png')) expect(statSync(join(seed.workspace.rootPath, path)).size).toBeLessThan(16 * 1024)
+    }
   })
 
   it('reads the open file fixture, its workspace a folder beside it', () => {
@@ -418,13 +424,47 @@ describe('applySeed', () => {
       )
 
       const taskId = listTasks(db, listWorkspaces(db)[0]?.id ?? '')[0]?.id ?? ''
-      expect(listArtifacts(db, taskId).map(({ path, title, addedAt }) => [path, title, addedAt])).toEqual([
-        ['docs/notes.md', 'Notes', now - 12 * 60_000],
-        ['out/gone.txt', 'Gone', now - 6 * 60_000],
+      expect(
+        listArtifacts(db, taskId).map(({ path, title, addedAt, modifiedAt, missing }) => [
+          path,
+          title,
+          addedAt,
+          modifiedAt,
+          missing,
+        ]),
+      ).toEqual([
+        ['docs/notes.md', 'Notes', now - 12 * 60_000, now - 12 * 60_000, false],
+        ['out/gone.txt', 'Gone', now - 6 * 60_000, null, true],
       ])
       expect(statSync(join(root, 'docs', 'notes.md')).mtimeMs).toBe(now - 12 * 60_000)
     } finally {
       rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('declares an artifact at a time of day some days back, in the local time zone, and never after now', () => {
+    const now = new Date(2026, 8, 26, 14, 20).getTime()
+    const at = (daysAgo: number, time: string): EpochMs =>
+      seedArtifactAt({ path: 'a.png', title: 'A', daysAgo, time }, now)
+
+    expect(at(1, '15:02')).toBe(new Date(2026, 8, 25, 15, 2).getTime())
+    expect(at(26, '09:05')).toBe(new Date(2026, 7, 31, 9, 5).getTime())
+    expect(at(0, '08:00')).toBe(new Date(2026, 8, 26, 8, 0).getTime())
+    expect(at(0, '23:59')).toBe(now)
+    expect(seedArtifactAt({ path: 'a.png', title: 'A', minutesAgo: 8 }, now)).toBe(now - 8 * 60_000)
+  })
+
+  it('refuses an artifact at a time of day that isn’t one', () => {
+    const folder = mkdtempSync(join(tmpdir(), 'glade-seed-time-'))
+    try {
+      const file = join(folder, 'seed.json')
+      for (const time of ['25:00', '9:05', '12:60', 'noon']) {
+        const artifacts = [{ path: 'a.png', title: 'A', daysAgo: 1, time }]
+        writeFileSync(file, JSON.stringify({ ...SEED, tasks: [{ title: 'T', minutesAgo: 0, artifacts }] }))
+        expect(() => readSeed(file), time).toThrow(/artifacts/)
+      }
+    } finally {
+      rmSync(folder, { recursive: true, force: true })
     }
   })
 

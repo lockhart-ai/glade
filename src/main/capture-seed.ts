@@ -32,7 +32,7 @@ import {
 } from '../shared/domain'
 import { taskPermissionRule } from '../shared/permissions'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
-import { addArtifact } from './db/repositories/artifacts'
+import { addArtifact, setArtifactFile } from './db/repositories/artifacts'
 import { setHandoff } from './db/repositories/backfills'
 import { appendMessage } from './db/repositories/messages'
 import {
@@ -226,13 +226,34 @@ export interface SeedNotification {
 }
 
 /**
- * A sample artifact (`Artifact`), relative to the workspace root. Declared `minutesAgo`; its file, when the workspace
- * has one there, is marked as last changed then too, which is the age its card shows.
+ * A sample artifact (`Artifact`), relative to the workspace root. Declared `minutesAgo`, or at a time of day (`HH:MM`,
+ * local) `daysAgo` days before the capture's, so it lands in the date group it's meant for whatever the time the
+ * capture runs; its file, when the workspace has one there, is marked as last changed then too.
  */
-export interface SeedArtifact {
+export type SeedArtifact = SeedArtifactMinutesAgo | SeedArtifactDaysAgo
+
+export interface SeedArtifactMinutesAgo {
   readonly path: string
   readonly title: string
   readonly minutesAgo: number
+}
+
+export interface SeedArtifactDaysAgo {
+  readonly path: string
+  readonly title: string
+  readonly daysAgo: number
+  /** The time of day, `HH:MM`, 24-hour, in the local time zone. */
+  readonly time: string
+}
+
+/** When a sample artifact was declared: `minutesAgo` before `now`, or at its time of day `daysAgo` days before. */
+export function seedArtifactAt(artifact: SeedArtifact, now: EpochMs): EpochMs {
+  if ('minutesAgo' in artifact) return now - artifact.minutesAgo * MINUTE
+  const [hours = 0, minutes = 0] = artifact.time.split(':').map(Number)
+  const today = new Date(now)
+  const at = new Date(today.getFullYear(), today.getMonth(), today.getDate() - artifact.daysAgo, hours, minutes)
+  // Today at a time still to come is now.
+  return Math.min(at.getTime(), now)
 }
 
 /** A sample handoff note (`TaskHandoff`): Markdown, set `minutesAgo`. */
@@ -436,7 +457,19 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       pause: seedPauseSchema.optional(),
       resumedAfterCrash: z.boolean().optional(),
       openFiles: z.strictObject({ paths: z.array(z.string()), activePath: z.string().optional() }).optional(),
-      artifacts: z.array(z.strictObject({ path: z.string(), title: z.string(), minutesAgo })).optional(),
+      artifacts: z
+        .array(
+          z.union([
+            z.strictObject({ path: z.string(), title: z.string(), minutesAgo }),
+            z.strictObject({
+              path: z.string(),
+              title: z.string(),
+              daysAgo: count,
+              time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+            }),
+          ]),
+        )
+        .optional(),
       handoff: z.strictObject({ body: z.string().min(1), minutesAgo }).optional(),
       permissionMode: z.enum(PermissionMode).optional(),
       workspace: z.strictObject({ name: z.string(), rootPath: z.string() }).optional(),
@@ -692,11 +725,19 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         const { paths, activePath } = sample.openFiles
         setOpenFiles(db, { taskId: task.id, paths, activePath: activePath ?? paths[0] ?? null })
       }
-      for (const { path, title, minutesAgo } of sample.artifacts ?? []) {
-        const declaredAt = now - minutesAgo * MINUTE
+      for (const artifact of sample.artifacts ?? []) {
+        const { path, title } = artifact
+        const declaredAt = seedArtifactAt(artifact, now)
         addArtifact(db, { taskId: task.id, path, title }, declaredAt)
         const file = join(seed.workspace.rootPath, path)
-        if (existsSync(file)) utimesSync(file, new Date(declaredAt), new Date(declaredAt))
+        const there = existsSync(file)
+        if (there) utimesSync(file, new Date(declaredAt), new Date(declaredAt))
+        // As if Glade had looked at it then: the tab lists it by that time, or shows it missing.
+        setArtifactFile(db, {
+          taskId: task.id,
+          path,
+          file: there ? { missing: false, modifiedAt: declaredAt } : { missing: true },
+        })
       }
       if (sample.handoff !== undefined) setHandoff(db, task.id, sample.handoff.body, ago(sample.handoff.minutesAgo))
       for (const request of sample.permissionRequests ?? []) {

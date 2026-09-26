@@ -106,9 +106,9 @@ test('an agent backfills past tasks; the user opens one, sees its handoff and ar
   const panel = taskPanel(window)
   await panel.tab(/^Artifacts/).click()
   await expect(panel.tab(/^Artifacts/)).toHaveText('Artifacts 2')
-  await expect(artifactsTab(window).cards).toHaveCount(2)
-  await expect(artifactsTab(window).card('Migration notes')).toContainText('notes/billing-webhooks/notes.md')
-  await expect(artifactsTab(window).card('Decisions')).toContainText('notes/billing-webhooks/decisions.md')
+  await expect(artifactsTab(window).rows).toHaveCount(2)
+  await expect(artifactsTab(window).open('Migration notes')).toHaveAttribute('title', 'notes/billing-webhooks/notes.md')
+  await expect(artifactsTab(window).open('Decisions')).toHaveAttribute('title', 'notes/billing-webhooks/decisions.md')
 
   // Picking it up reopens it, and the session that starts has the handoff note; the backfilling task's had none.
   await bar.field.fill(PICK_UP)

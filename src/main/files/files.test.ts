@@ -5,22 +5,24 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
+  truncateSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
-import { FileContentKind, FileInfoKind } from '../../shared/domain'
+import { FileContentKind, FileThumbnailKind } from '../../shared/domain'
 import { MAX_FILE_BYTES, MAX_FILE_LINES } from '../../shared/files'
+import { MAX_THUMBNAIL_SOURCE_BYTES, type Thumbnails } from '../artifacts/thumbnails'
 import { CommandFailure } from '../bridge/errors'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import {
   closeTaskFile,
   copyTaskFile,
-  infoOfTaskFile,
+  thumbnailOfTaskFile,
   MAX_ARTIFACT_BYTES,
   openTaskFile,
   openTaskFileInEditor,
@@ -267,53 +269,119 @@ describe('showTaskFile', () => {
   })
 })
 
-describe('infoOfTaskFile', () => {
+describe('thumbnailOfTaskFile', () => {
   const changed = new Date(1_700_000_000_000)
+  const URL = 'data:image/png;base64,iVBORw0KGgo='
 
-  it('counts a text file’s lines, the last one with or without its newline, and says when it changed', async () => {
-    write('docs/notes.md', '# Notes\n\nOne\n')
-    write('docs/open.md', '# Notes\nOne')
-    write('docs/empty.md', '')
-    utimesSync(join(root, 'docs', 'notes.md'), changed, changed)
+  function thumbnails(url: string | null = URL): Thumbnails & { thumbnailOf: Mock<Thumbnails['thumbnailOf']> } {
+    return { thumbnailOf: vi.fn<Thumbnails['thumbnailOf']>(() => Promise.resolve(url)) }
+  }
 
-    await expect(infoOfTaskFile(context, taskId, 'docs/notes.md')).resolves.toEqual({
-      kind: FileInfoKind.Text,
-      lines: 3,
-      modifiedAt: changed.getTime(),
+  /** How each kind of image starts, and a little after. */
+  const IMAGES: Readonly<Record<string, Buffer>> = {
+    png: Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('IHDR')]),
+    jpg: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]),
+    gif: Buffer.from('GIF89a\x01\x00'),
+    webp: Buffer.from('RIFF\x10\x00\x00\x00WEBPVP8 '),
+    svg: Buffer.from('<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>'),
+  }
+
+  it('makes an image’s thumbnail from its real path, size and last change, whatever case its extension', async () => {
+    write('out/screens/landing-dark.png', IMAGES.png ?? '')
+    write('out/screens/Search.JPEG', IMAGES.jpg ?? '')
+    utimesSync(join(root, 'out', 'screens', 'landing-dark.png'), changed, changed)
+    const made = thumbnails()
+
+    await expect(thumbnailOfTaskFile(context, made, taskId, 'out/screens/landing-dark.png')).resolves.toEqual({
+      kind: FileThumbnailKind.Image,
+      dataUrl: URL,
     })
-    await expect(infoOfTaskFile(context, taskId, 'docs/open.md')).resolves.toMatchObject({ lines: 2 })
-    await expect(infoOfTaskFile(context, taskId, 'docs/empty.md')).resolves.toMatchObject({ lines: 0 })
+    await expect(thumbnailOfTaskFile(context, made, taskId, 'out/screens/Search.JPEG')).resolves.toMatchObject({
+      kind: FileThumbnailKind.Image,
+    })
+
+    expect(made.thumbnailOf.mock.calls[0]).toEqual([
+      {
+        realPath: realpathSync(join(root, 'out', 'screens', 'landing-dark.png')),
+        size: 12,
+        modifiedMs: changed.getTime(),
+      },
+    ])
   })
 
-  it('counts the lines of a file read in several chunks', async () => {
-    write('big.txt', 'a line of text\n'.repeat(20_000))
+  it('makes every kind of image the tab shows: PNG, JPEG, GIF, WebP and SVG', async () => {
+    const made = thumbnails()
+    for (const name of ['a.png', 'b.jpg', 'c.jpeg', 'd.gif', 'e.webp', 'f.svg']) {
+      write(name, IMAGES[name.slice(2) === 'jpeg' ? 'jpg' : name.slice(2)] ?? '')
+      await expect(thumbnailOfTaskFile(context, made, taskId, name)).resolves.toMatchObject({
+        kind: FileThumbnailKind.Image,
+      })
+    }
+    expect(made.thumbnailOf.mock.calls).toHaveLength(6)
+  })
 
-    await expect(infoOfTaskFile(context, taskId, 'big.txt')).resolves.toMatchObject({
-      kind: FileInfoKind.Text,
-      lines: 20_000,
+  it('has none for a file that isn’t an image, an image too large, or one no thumbnail can be made of', async () => {
+    write('docs/notes.md', '# Notes\n')
+    write('Makefile', 'all:\n')
+    write('huge.png', IMAGES.png ?? '')
+    // Sparse: as large as it says without taking the room.
+    truncateSync(join(root, 'huge.png'), MAX_THUMBNAIL_SOURCE_BYTES + 1)
+    write('broken.png', IMAGES.png ?? '')
+    const made = thumbnails()
+
+    await expect(thumbnailOfTaskFile(context, made, taskId, 'docs/notes.md')).resolves.toEqual({
+      kind: FileThumbnailKind.None,
+    })
+    await expect(thumbnailOfTaskFile(context, made, taskId, 'Makefile')).resolves.toEqual({
+      kind: FileThumbnailKind.None,
+    })
+    await expect(thumbnailOfTaskFile(context, made, taskId, 'huge.png')).resolves.toEqual({
+      kind: FileThumbnailKind.None,
+    })
+    expect(made.thumbnailOf.mock.calls).toEqual([])
+    await expect(thumbnailOfTaskFile(context, thumbnails(null), taskId, 'broken.png')).resolves.toEqual({
+      kind: FileThumbnailKind.None,
     })
   })
 
-  it('counts no lines of a binary file, or one too large to read cheaply', async () => {
-    write('logo.png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0a]))
-    write('dump.sql', Buffer.alloc(MAX_ARTIFACT_BYTES + 1, 0x0a))
-    utimesSync(join(root, 'logo.png'), changed, changed)
+  it('has none for a file that doesn’t start as the image its name says, without asking for one', async () => {
+    write('screens/cut-short.png', Buffer.from([0x89, 0x50]))
+    write('screens/empty.png', '')
+    write('screens/named-wrong.png', IMAGES.jpg ?? '')
+    write('logo.svg', '<html><body>not an svg</body></html>')
+    write('photo.webp', 'RIFF\x10\x00\x00\x00WAVEfmt ')
+    const made = thumbnails()
 
-    await expect(infoOfTaskFile(context, taskId, 'logo.png')).resolves.toEqual({
-      kind: FileInfoKind.Other,
-      modifiedAt: changed.getTime(),
-    })
-    await expect(infoOfTaskFile(context, taskId, 'dump.sql')).resolves.toMatchObject({ kind: FileInfoKind.Other })
+    for (const path of [
+      'screens/cut-short.png',
+      'screens/empty.png',
+      'screens/named-wrong.png',
+      'logo.svg',
+      'photo.webp',
+    ]) {
+      await expect(thumbnailOfTaskFile(context, made, taskId, path), path).resolves.toEqual({
+        kind: FileThumbnailKind.None,
+      })
+    }
+    expect(made.thumbnailOf.mock.calls).toEqual([])
   })
 
   it('is missing for no file, or a folder, and refuses a path outside the workspace', async () => {
-    mkdirSync(join(root, 'docs'))
-    symlinkSync(join(outside, 'token.txt'), join(root, 'token.txt'))
+    mkdirSync(join(root, 'docs.png'))
+    symlinkSync(join(outside, 'token.txt'), join(root, 'token.png'))
+    const made = thumbnails()
 
-    await expect(infoOfTaskFile(context, taskId, 'docs/gone.md')).resolves.toEqual({ kind: FileInfoKind.Missing })
-    await expect(infoOfTaskFile(context, taskId, 'docs')).resolves.toEqual({ kind: FileInfoKind.Missing })
-    expect((await failure(infoOfTaskFile(context, taskId, 'token.txt'))).code).toBe(BridgeErrorCode.OutsideWorkspace)
-    expect((await failure(infoOfTaskFile(context, 'gone', 'README.md'))).code).toBe(BridgeErrorCode.NotFound)
+    await expect(thumbnailOfTaskFile(context, made, taskId, 'docs/gone.png')).resolves.toEqual({
+      kind: FileThumbnailKind.Missing,
+    })
+    await expect(thumbnailOfTaskFile(context, made, taskId, 'docs.png')).resolves.toEqual({
+      kind: FileThumbnailKind.Missing,
+    })
+    expect((await failure(thumbnailOfTaskFile(context, made, taskId, 'token.png'))).code).toBe(
+      BridgeErrorCode.OutsideWorkspace,
+    )
+    expect((await failure(thumbnailOfTaskFile(context, made, 'gone', 'a.png'))).code).toBe(BridgeErrorCode.NotFound)
+    expect(made.thumbnailOf.mock.calls).toEqual([])
   })
 })
 

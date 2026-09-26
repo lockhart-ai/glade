@@ -3,15 +3,7 @@
  * relative to the workspace root, and what the viewer needs to know about each.
  */
 import { ToolCallState, ToolEventKind, type EpochMs, type ToolCallEvent, type ToolEvent } from '../../shared/domain'
-import { workspaceRelativePath } from '../../shared/files'
-
-/** The tools that change the file they name, and the input field that names it. */
-const CHANGING_TOOLS: Readonly<Record<string, string>> = {
-  Write: 'file_path',
-  Edit: 'file_path',
-  MultiEdit: 'file_path',
-  NotebookEdit: 'notebook_path',
-}
+import { CHANGING_TOOLS, workspaceRelativePath } from '../../shared/files'
 
 /** The tools that read the file they name, and the input field that names it. */
 const READING_TOOLS: Readonly<Record<string, string>> = {

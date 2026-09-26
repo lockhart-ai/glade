@@ -3,6 +3,7 @@ import type { TasksHistoryResponse } from '../../shared/bridge'
 import {
   UiStateKey,
   type Artifact,
+  type ArtifactGroupFold,
   type TaskHandoff,
   type EpochMs,
   type Message,
@@ -101,6 +102,8 @@ export function withHistory(state: GladeData, taskId: string, history: TasksHist
     openFiles: { ...state.openFiles, [taskId]: history.openFiles },
     // Each change carries the whole list; the one declared in last is the newer.
     artifacts: { ...state.artifacts, [taskId]: newerArtifacts(history.artifacts, state.artifacts[taskId]) },
+    // Only this window changes them, and it has by the time a load that follows its change answers.
+    artifactGroups: { ...state.artifactGroups, [taskId]: history.artifactGroups },
     todos: { ...state.todos, [taskId]: newerTodos(history.todos, state.todos[taskId]) },
     handoffs: { ...state.handoffs, [taskId]: newerHandoff(history.handoff, state.handoffs[taskId]) },
     // Like the queue, watchers change in place: the loaded ones are as new as any event before them.
@@ -128,14 +131,19 @@ function newerTodos(loaded: TodoList | null, current: TodoList | null | undefine
   return loaded === null || current.updatedAt > loaded.updatedAt ? current : loaded
 }
 
-/** When a task's artifacts last changed: the latest time one was declared. */
-function lastDeclared(artifacts: readonly Artifact[]): EpochMs {
-  return artifacts.reduce((latest, artifact) => Math.max(latest, artifact.updatedAt), 0)
+/** When a task's artifacts last changed: the latest time one was declared, or one's file was seen to change. */
+function lastChanged(artifacts: readonly Artifact[]): EpochMs {
+  return artifacts.reduce((latest, artifact) => Math.max(latest, artifact.updatedAt, artifact.modifiedAt ?? latest), 0)
 }
 
 /** The loaded artifacts, unless an event already brought newer ones. */
 function newerArtifacts(loaded: readonly Artifact[], current: readonly Artifact[] | undefined): readonly Artifact[] {
-  return current !== undefined && lastDeclared(current) > lastDeclared(loaded) ? current : loaded
+  return current !== undefined && lastChanged(current) > lastChanged(loaded) ? current : loaded
+}
+
+/** A task's artifact date groups opened or folded, with one more: `fold` in place of what it replaces. */
+export function withGroupFold(folds: readonly ArtifactGroupFold[], fold: ArtifactGroupFold): ArtifactGroupFold[] {
+  return [...folds.filter(({ group }) => group !== fold.group), fold]
 }
 
 /**
@@ -173,6 +181,7 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     todos: without(state.todos, taskId),
     openFiles: without(state.openFiles, taskId),
     artifacts: without(state.artifacts, taskId),
+    artifactGroups: without(state.artifactGroups, taskId),
     watchers: without(state.watchers, taskId),
     commits: without(state.commits, taskId),
     handoffs: without(state.handoffs, taskId),

@@ -21,7 +21,7 @@ turn with tool calls; a tool call's Copy command, Copy output, Open file and Run
 output or a file; Expand log reads Collapse log when the log is open; and Stop subagent shows while it runs. Delete
 task always confirms before deleting. A file tab showing a file as a commit left it (opened from the Changes tab) is
 only in git, so its menu has no Open in editor, Reveal in Finder or Copy path; Copy relative path copies its path in
-the commit's repository. A commit in the Changes tab has no menu: the tab only shows what the agent did.
+the commit's repository. An artifact's row also opens its menu from its **More** button, shown while the row is hovered. A commit in the Changes tab has no menu: the tab only shows what the agent did.
 
 **Copy link to task** copies a `glade://task/<id>` link, which names the task but doesn't open anything yet: Glade
 doesn't register the `glade:` scheme with macOS (`src/shared/taskLink.ts`).

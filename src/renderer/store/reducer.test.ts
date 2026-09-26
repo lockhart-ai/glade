@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { EventType } from '../../shared/bridge'
 import { appCommand, AppCommandId } from '../../shared/commands'
 import {
+  ArtifactDateGroup,
   DividerKind,
   PermissionRequestState,
   QuestionReplyKind,
@@ -21,7 +22,7 @@ import {
 } from '../../shared/domain'
 import { noOpenFiles } from '../../shared/files'
 import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
-import { applyEvent, idFromUiState, withHistory, withLiveWatchers, withOpenedWorkspace } from './reducer'
+import { applyEvent, idFromUiState, withGroupFold, withHistory, withLiveWatchers, withOpenedWorkspace } from './reducer'
 import { INITIAL_DATA, type GladeData } from './state'
 import {
   sampleMessage,
@@ -161,7 +162,12 @@ describe('a deleted task', () => {
       permissionRequests: { t1: [samplePermissionRequest('p1', 't1')] },
       todos: { t1: null },
       openFiles: { t1: { taskId: 't1', paths: ['README.md'], activePath: 'README.md' } },
-      artifacts: { t1: [{ taskId: 't1', path: 'README.md', title: 'Readme', addedAt: 1, updatedAt: 1 }] },
+      artifacts: {
+        t1: [
+          { taskId: 't1', path: 'README.md', title: 'Readme', addedAt: 1, updatedAt: 1, modifiedAt: 1, missing: false },
+        ],
+      },
+      artifactGroups: { t1: [{ group: ArtifactDateGroup.Today, open: false }] },
       handoffs: { t1: { taskId: 't1', body: '## Where it got to', addedAt: 1 } },
       watchers: { t1: [sampleWatcher('w1', 't1')] },
       commits: { t1: [sampleCommit('c1', 't1')] },
@@ -185,6 +191,7 @@ describe('a deleted task', () => {
       todos: {},
       openFiles: {},
       artifacts: {},
+      artifactGroups: {},
       handoffs: {},
       watchers: {},
       commits: {},
@@ -240,6 +247,7 @@ describe("a task's logs", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
+      artifactGroups: [],
       handoff: null,
       watchers: [],
       commits: [],
@@ -270,6 +278,7 @@ describe("a task's logs", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
+      artifactGroups: [],
       handoff: null,
       watchers: [],
       commits: [],
@@ -287,6 +296,7 @@ describe("a task's logs", () => {
         openFiles: noOpenFiles('t2'),
         todos: null,
         artifacts: [],
+        artifactGroups: [],
         handoff: null,
         watchers: [],
         commits: [],
@@ -315,6 +325,7 @@ describe("a task's queue", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
+      artifactGroups: [],
       handoff: null,
       watchers: [],
       commits: [],
@@ -356,6 +367,7 @@ describe("a task's questions", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
+      artifactGroups: [],
       handoff: null,
       watchers: [],
       commits: [],
@@ -401,6 +413,7 @@ describe("a task's permission requests", () => {
       openFiles: noOpenFiles('t1'),
       todos: null,
       artifacts: [],
+      artifactGroups: [],
       handoff: null,
       watchers: [],
       commits: [],
@@ -429,6 +442,7 @@ describe("a task's open files", () => {
       permissionRequests: [],
       todos: null,
       artifacts: [],
+      artifactGroups: [],
       handoff: null,
       watchers: [],
       commits: [],
@@ -450,12 +464,14 @@ describe("a task's open files", () => {
 })
 
 describe("a task's artifacts", () => {
-  const artifact = (path: string, updatedAt: number): Artifact => ({
+  const artifact = (path: string, updatedAt: number, modifiedAt: number | null = null): Artifact => ({
     taskId: 't1',
     path,
     title: path,
     addedAt: 1,
     updatedAt,
+    modifiedAt,
+    missing: false,
   })
   const history = (artifacts: readonly Artifact[]) => ({
     messages: [],
@@ -466,6 +482,7 @@ describe("a task's artifacts", () => {
     openFiles: noOpenFiles('t1'),
     todos: null,
     artifacts,
+    artifactGroups: [],
     handoff: null,
     watchers: [],
     commits: [],
@@ -483,6 +500,32 @@ describe("a task's artifacts", () => {
     expect(withHistory(changed, 't1', history([artifact('a.md', 12)])).artifacts.t1).toEqual([artifact('a.md', 12)])
     expect(withHistory(state, 't1', history([])).artifacts).toEqual({ t1: [] })
   })
+
+  it('counts a file seen to change as a newer list, whenever it was declared', () => {
+    const changed = applyEvent(state, {
+      type: EventType.ArtifactsChanged,
+      taskId: 't1',
+      artifacts: [artifact('a.png', 5, 40)],
+    })
+
+    expect(withHistory(changed, 't1', history([artifact('a.png', 5, 30)])).artifacts.t1).toEqual([
+      artifact('a.png', 5, 40),
+    ])
+    expect(withHistory(changed, 't1', history([artifact('a.png', 5, 50)])).artifacts.t1).toEqual([
+      artifact('a.png', 5, 50),
+    ])
+  })
+
+  it('takes the date groups opened or folded from the history, and changes one in place', () => {
+    const loaded = withHistory(state, 't1', {
+      ...history([]),
+      artifactGroups: [{ group: ArtifactDateGroup.Older, open: true }],
+    })
+    expect(loaded.artifactGroups.t1).toEqual([{ group: ArtifactDateGroup.Older, open: true }])
+    expect(
+      withGroupFold([{ group: ArtifactDateGroup.Older, open: true }], { group: ArtifactDateGroup.Older, open: false }),
+    ).toEqual([{ group: ArtifactDateGroup.Older, open: false }])
+  })
 })
 
 describe("a task's watchers", () => {
@@ -495,6 +538,7 @@ describe("a task's watchers", () => {
     openFiles: noOpenFiles('t1'),
     todos: null,
     artifacts: [],
+    artifactGroups: [],
     handoff: null,
     watchers,
     commits: [],
@@ -531,6 +575,7 @@ describe("a task's commits", () => {
     openFiles: noOpenFiles('t1'),
     todos: null,
     artifacts: [],
+    artifactGroups: [],
     handoff: null,
     watchers: [],
     commits,
@@ -562,6 +607,7 @@ describe("a task's handoff note", () => {
     openFiles: noOpenFiles('t1'),
     todos: null,
     artifacts: [],
+    artifactGroups: [],
     handoff,
     watchers: [],
     commits: [],
@@ -600,6 +646,7 @@ describe("a task's todo list", () => {
     openFiles: noOpenFiles('t1'),
     todos,
     artifacts: [],
+    artifactGroups: [],
     handoff: null,
     watchers: [],
     commits: [],

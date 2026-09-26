@@ -2,12 +2,14 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import {
-  FileInfoKind,
-  ToolEventKind,
+  ArtifactDateGroup,
+  FileThumbnailKind,
   UiStateKey,
   type Artifact,
-  type FileInfo,
-  type ToolEvent,
+  type ArtifactGroupFold,
+  type EpochMs,
+  type FileThumbnail,
+  type OpenFiles,
 } from '../../shared/domain'
 import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
@@ -21,43 +23,68 @@ import {
   type FakeHandlers,
   type FakeMain,
 } from '../store/test-bridge'
+import { STUB_ROW_HEIGHT, STUB_VIEWPORT_HEIGHT } from '../test-layout'
 import { ArtifactsTab } from './ArtifactsTab'
 
-const MINUTE = 60_000
-const NOW = 1_000 * MINUTE
-
-function artifact(path: string, title: string, minutesAgo: number): Artifact {
-  const at = NOW - minutesAgo * MINUTE
-  return { taskId: 't1', path, title, addedAt: at, updatedAt: at }
+/** A local time: `month` counts from 1. */
+function local(year: number, month: number, day: number, hours = 0, minutes = 0): EpochMs {
+  return new Date(year, month - 1, day, hours, minutes).getTime()
 }
 
-const NOTES = artifact('docs/releases/2.4.md', 'Release notes 2.4', 12)
-const GUIDE = artifact('docs/releases/2.4-upgrade.md', 'Upgrade guide', 8)
-const EMAIL = artifact('out/announcement-2.4.txt', 'Announcement email', 6)
+// Saturday 26 September 2026, 14:20.
+const NOW = local(2026, 9, 26, 14, 20)
+const MINUTE = 60_000
 
-const INFO: Readonly<Record<string, FileInfo>> = {
-  [NOTES.path]: { kind: FileInfoKind.Text, lines: 128, modifiedAt: NOW - 12 * MINUTE },
-  [GUIDE.path]: { kind: FileInfoKind.Text, lines: 34, modifiedAt: NOW - 8 * MINUTE },
-  [EMAIL.path]: { kind: FileInfoKind.Text, lines: 22, modifiedAt: NOW - 6 * MINUTE },
+function artifact(
+  path: string,
+  title: string,
+  modifiedAt: EpochMs | null,
+  declaredAt: EpochMs = NOW - MINUTE,
+): Artifact {
+  return { taskId: 't1', path, title, addedAt: declaredAt, updatedAt: declaredAt, modifiedAt, missing: false }
+}
+
+const LANDING = artifact('out/screens/landing-dark.png', 'Landing page, dark theme', NOW - 8 * MINUTE)
+const CHANGELOG = artifact('docs/site/changelog.md', 'Changelog page draft', NOW - 14 * MINUTE)
+const RATES = artifact('docs/site/rate-limits.md', 'Rate limits reference', local(2026, 9, 26, 12, 20))
+const SEARCH = artifact('out/screens/search-mobile.png', 'Search results on mobile', local(2026, 9, 25, 16, 40))
+const NAV = artifact('site/src/components/NavSidebar.tsx', 'Nav sidebar component', local(2026, 9, 25, 15, 2))
+const IA = artifact('docs/site/ia.md', 'Information architecture', local(2026, 9, 22, 10, 0))
+const OLD = artifact('docs/site/old-nav.md', 'Old navigation audit', local(2026, 8, 3, 9, 0))
+
+/** Declared in this order: the tab lists them by when each file last changed, not this. */
+const ARTIFACTS = [IA, NAV, LANDING, OLD, RATES, SEARCH, CHANGELOG]
+
+const THUMBNAILS: Readonly<Record<string, FileThumbnail>> = {
+  [LANDING.path]: { kind: FileThumbnailKind.Image, dataUrl: 'data:image/png;base64,bGFuZGluZw==' },
+  [SEARCH.path]: { kind: FileThumbnailKind.Image, dataUrl: 'data:image/png;base64,c2VhcmNo' },
 }
 
 interface Setup {
   readonly artifacts?: readonly Artifact[]
-  readonly fileInfo?: Readonly<Record<string, FileInfo>>
+  readonly thumbnails?: Readonly<Record<string, FileThumbnail>>
+  readonly artifactGroups?: Record<string, ArtifactGroupFold[]>
+  readonly openFiles?: OpenFiles[]
   readonly overrides?: Partial<FakeHandlers>
+  /** The main side to render over, as a relaunch finds it. A new one when left out. */
+  readonly main?: TabMain
+}
+
+type TabMain = FakeMain & {
+  copied: string[]
+  revealed: string[]
+  artifactGroups: Record<string, ArtifactGroupFold[]>
+  watchedArtifacts: string[]
 }
 
 interface Rendered extends FakeBridge {
   readonly store: GladeStore
-  readonly main: FakeMain & { copied: string[]; revealed: string[] }
+  readonly main: TabMain
+  readonly unmount: () => void
 }
 
-async function renderTab({
-  artifacts = [NOTES, GUIDE, EMAIL],
-  fileInfo = INFO,
-  overrides,
-}: Setup = {}): Promise<Rendered> {
-  const main = {
+function tabMain({ artifacts = ARTIFACTS, thumbnails = THUMBNAILS, artifactGroups = {}, openFiles }: Setup): TabMain {
+  return {
     workspaces: [sampleWorkspace('w1')],
     tasks: [sampleTask('t1', 'w1')],
     uiState: [
@@ -66,208 +93,488 @@ async function renderTab({
       { key: UiStateKey.RightPanelTab, value: 'artifacts' },
     ],
     artifacts,
-    fileInfo,
+    thumbnails,
+    artifactGroups,
+    ...(openFiles === undefined ? {} : { openFiles }),
     copied: [],
     revealed: [],
+    watchedArtifacts: [],
   }
-  const fake = fakeBridge(main, overrides)
+}
+
+async function renderTab(setup: Setup = {}): Promise<Rendered> {
+  const main = setup.main ?? tabMain(setup)
+  const fake = fakeBridge(main, setup.overrides)
   const store = createGladeStore(fake.bridge)
   await act(async () => {
     await store.getState().hydrate()
     await store.getState().loadHistory('t1')
   })
-  render(
+  const { unmount } = render(
     <GladeStoreProvider store={store}>
       <ToastProvider>
         <ArtifactsTab taskId="t1" now={NOW} />
       </ToastProvider>
     </GladeStoreProvider>,
   )
-  return { ...fake, store, main }
+  return { ...fake, store, main, unmount }
 }
 
-function card(title: string): HTMLElement {
+/** The tab's date groups. */
+function groups(): HTMLElement[] {
+  const tab = screen.queryByRole('group', { name: 'Artifacts' })
+  return tab === null ? [] : within(tab).queryAllByRole('region')
+}
+
+function group(name: string): HTMLElement {
+  const found = groups().find((element) => element.getAttribute('aria-label') === name)
+  if (found === undefined) throw new Error(`No ${name} group`)
+  return found
+}
+
+/** A group's header: its name, then its count. */
+function header(name: string): HTMLElement {
+  return within(group(name)).getByRole('button', { name: new RegExp(`^${name}\\s?\\d+$`) })
+}
+
+/** The titles of a group's rows, in order. */
+function titles(name: string): (string | null)[] {
+  return within(group(name))
+    .queryAllByRole('listitem')
+    .map((row) => row.getAttribute('aria-label'))
+}
+
+function row(title: string): HTMLElement {
   return screen.getByRole('listitem', { name: title })
 }
 
 function button(title: string, name: string): HTMLElement {
-  return within(card(title)).getByRole('button', { name })
+  return within(row(title)).getByRole('button', { name })
+}
+
+/** How many times the tab asked main for a file's thumbnail. */
+function looks(invoke: FakeBridge['invoke'], path?: string): number {
+  return invoke.mock.calls.filter(
+    ([command, request]) =>
+      command === CommandName.FilesThumbnail && (path === undefined || ('path' in request && request.path === path)),
+  ).length
 }
 
 describe('ArtifactsTab', () => {
-  it('shows a card per artifact, in order, with its title, path, and type · lines · age', async () => {
+  it('groups artifacts by date, newest file first, Today and Yesterday open and the older groups folded', async () => {
     await renderTab()
 
-    const cards = within(screen.getByRole('list', { name: 'Artifacts' })).getAllByRole('listitem')
-    expect(cards.map((element) => element.getAttribute('aria-label'))).toEqual([
-      'Release notes 2.4',
-      'Upgrade guide',
-      'Announcement email',
+    expect(groups().map((element) => element.getAttribute('aria-label'))).toEqual([
+      'Today',
+      'Yesterday',
+      'This week',
+      'Older',
     ])
+    expect(header('Today')).toHaveTextContent('Today3')
+    expect(header('Today')).toHaveAttribute('aria-expanded', 'true')
+    expect(titles('Today')).toEqual(['Landing page, dark theme', 'Changelog page draft', 'Rate limits reference'])
+    expect(titles('Yesterday')).toEqual(['Search results on mobile', 'Nav sidebar component'])
+    expect(header('This week')).toHaveAttribute('aria-expanded', 'false')
+    expect(header('This week')).toHaveTextContent('This week1')
+    expect(titles('This week')).toEqual([])
+    expect(header('Older')).toHaveAttribute('aria-expanded', 'false')
+    expect(titles('Older')).toEqual([])
+  })
+
+  it('shows each row’s title, type and age: minutes or hours today, the time yesterday', async () => {
+    await renderTab()
+
+    expect(row('Landing page, dark theme')).toHaveTextContent(/^Landing page, dark themePNG8m/)
+    expect(row('Rate limits reference')).toHaveTextContent(/^Rate limits referenceMarkdown2h/)
+    expect(row('Nav sidebar component')).toHaveTextContent(/^Nav sidebar componentTypeScript15:02/)
+    expect(within(row('Nav sidebar component')).getByText('15:02')).toHaveAttribute('title', 'Sep 25, 2026, 3:02 PM')
+    expect(within(row('Landing page, dark theme')).getByRole('button', { name: /^Landing page/ })).toHaveAttribute(
+      'title',
+      LANDING.path,
+    )
+  })
+
+  it('shows a thumbnail of an image once main has made it, and a type tile for anything else', async () => {
+    await renderTab()
+
     await waitFor(() => {
-      expect(card('Release notes 2.4')).toHaveTextContent(
-        'Release notes 2.4docs/releases/2.4.mdMarkdown · 128 lines · 12m ago',
+      expect(row('Landing page, dark theme').querySelector('img')).toHaveAttribute(
+        'src',
+        'data:image/png;base64,bGFuZGluZw==',
       )
     })
-    expect(card('Announcement email')).toHaveTextContent('Text · 22 lines · 6m ago')
-    expect(
-      within(card('Upgrade guide'))
-        .getAllByRole('button')
-        .map((element) => element.textContent),
-    ).toEqual(['Open', 'Copy', 'Reveal in folder'])
+    expect(row('Search results on mobile').querySelector('img')).toHaveAttribute(
+      'src',
+      'data:image/png;base64,c2VhcmNo',
+    )
+    expect(row('Changelog page draft').querySelector('img')).toBeNull()
+    expect(row('Changelog page draft').querySelector('svg')).not.toBeNull()
+  })
+
+  it('shows the type tile until the thumbnail is ready, never holding the list back', async () => {
+    let finish: (thumbnail: { thumbnail: FileThumbnail }) => void = () => undefined
+    const made = new Promise<{ thumbnail: FileThumbnail }>((resolve) => {
+      finish = resolve
+    })
+    await renderTab({ overrides: { [CommandName.FilesThumbnail]: () => made } })
+
+    expect(titles('Today')).toHaveLength(3)
+    expect(row('Landing page, dark theme').querySelector('img')).toBeNull()
+    expect(row('Landing page, dark theme')).toHaveAttribute('aria-busy', 'true')
+    await act(async () => {
+      finish({ thumbnail: THUMBNAILS[LANDING.path] ?? { kind: FileThumbnailKind.None } })
+      await made
+    })
+    await waitFor(() => {
+      expect(row('Landing page, dark theme').querySelector('img')).not.toBeNull()
+    })
+    // Still busy until the image has loaded.
+    expect(row('Landing page, dark theme')).toHaveAttribute('aria-busy', 'true')
+    fireEvent.load(row('Landing page, dark theme').querySelector('img') ?? document.body)
+    expect(row('Landing page, dark theme')).toHaveAttribute('aria-busy', 'false')
+  })
+
+  it('shows the type tile for a thumbnail the window can’t draw', async () => {
+    await renderTab()
+    await waitFor(() => {
+      expect(row('Landing page, dark theme').querySelector('img')).not.toBeNull()
+    })
+
+    fireEvent.error(row('Landing page, dark theme').querySelector('img') ?? document.body)
+
+    expect(row('Landing page, dark theme').querySelector('img')).toBeNull()
+    expect(row('Landing page, dark theme')).toHaveAttribute('aria-busy', 'false')
+  })
+
+  it('shows the type tile for an image main can’t make a thumbnail of, or can’t be asked about', async () => {
+    await renderTab({
+      thumbnails: { [LANDING.path]: { kind: FileThumbnailKind.None } },
+      overrides: {
+        [CommandName.FilesThumbnail]: ({ path }) =>
+          path === SEARCH.path
+            ? refuse(bridgeError(BridgeErrorCode.Internal, 'Quick Look failed'))
+            : { thumbnail: { kind: FileThumbnailKind.None } },
+      },
+    })
+
+    await waitFor(() => {
+      expect(button('Search results on mobile', 'Open')).toBeEnabled()
+    })
+    expect(row('Landing page, dark theme').querySelector('img')).toBeNull()
+    expect(row('Search results on mobile').querySelector('img')).toBeNull()
+    expect(row('Search results on mobile').className).not.toMatch(/missing/)
+  })
+
+  it('shows a file that’s gone muted, at its last known time, as missing, with no Open or Reveal', async () => {
+    await renderTab({
+      artifacts: [{ ...LANDING, missing: true }, CHANGELOG],
+      thumbnails: { [CHANGELOG.path]: { kind: FileThumbnailKind.Missing } },
+    })
+
+    expect(titles('Today')).toEqual(['Landing page, dark theme', 'Changelog page draft'])
+    expect(row('Landing page, dark theme')).toHaveTextContent(/PNG · missing8m/)
+    expect(row('Landing page, dark theme').className).toMatch(/missing/)
+    // One main finds gone when it looks for its thumbnail is missing too.
+    await waitFor(() => {
+      expect(row('Changelog page draft')).toHaveTextContent('Markdown · missing')
+    })
+    for (const title of ['Landing page, dark theme', 'Changelog page draft']) {
+      expect(button(title, 'Open')).toBeDisabled()
+      expect(button(title, 'Reveal in folder')).toBeDisabled()
+      expect(button(title, 'More')).toBeEnabled()
+    }
   })
 
   it('says so when the agent has declared none', async () => {
     await renderTab({ artifacts: [] })
 
     expect(screen.getByText('No artifacts yet.')).toBeInTheDocument()
-    expect(screen.queryByRole('list')).toBeNull()
+    expect(groups()).toEqual([])
+    expect(screen.queryByRole('group', { name: 'Artifacts' })).toBeNull()
   })
 
-  it('opens an artifact in the Files tab', async () => {
-    const { store, invoke } = await renderTab()
+  it('makes a single group of artifacts all from one day', async () => {
+    await renderTab({ artifacts: [IA, artifact('docs/site/search.md', 'Search plan', local(2026, 9, 22, 9, 0))] })
+
+    expect(groups().map((element) => element.getAttribute('aria-label'))).toEqual(['This week'])
+    fireEvent.click(header('This week'))
     await waitFor(() => {
-      expect(button('Upgrade guide', 'Open')).toBeEnabled()
+      expect(titles('This week')).toEqual(['Information architecture', 'Search plan'])
+    })
+    expect(row('Search plan')).toHaveTextContent('Sep 22')
+  })
+})
+
+describe('folding a date group', () => {
+  it('folds and opens a group from its header, and has main remember it for the task', async () => {
+    const { invoke, main } = await renderTab()
+
+    fireEvent.click(header('Today'))
+    await waitFor(() => {
+      expect(titles('Today')).toEqual([])
+    })
+    expect(header('Today')).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(header('Older'))
+    await waitFor(() => {
+      expect(titles('Older')).toEqual(['Old navigation audit'])
+    })
+    expect(row('Old navigation audit')).toHaveTextContent('Aug 3')
+
+    expect(invoke).toHaveBeenCalledWith(CommandName.ArtifactsSetGroupOpen, {
+      taskId: 't1',
+      group: ArtifactDateGroup.Today,
+      open: false,
+    })
+    expect(main.artifactGroups.t1).toEqual([
+      { group: ArtifactDateGroup.Today, open: false },
+      { group: ArtifactDateGroup.Older, open: true },
+    ])
+  })
+
+  it('shows the groups as they were left after a relaunch', async () => {
+    const first = await renderTab()
+    fireEvent.click(header('Yesterday'))
+    fireEvent.click(header('This week'))
+    await waitFor(() => {
+      expect(titles('This week')).toEqual(['Information architecture'])
+    })
+    first.unmount()
+
+    // A new window over the same main, as after a relaunch.
+    await renderTab({ main: first.main })
+
+    expect(header('Today')).toHaveAttribute('aria-expanded', 'true')
+    expect(header('Yesterday')).toHaveAttribute('aria-expanded', 'false')
+    expect(titles('Yesterday')).toEqual([])
+    expect(titles('This week')).toEqual(['Information architecture'])
+    expect(header('Older')).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('still folds when main can’t remember it', async () => {
+    await renderTab({
+      overrides: { [CommandName.ArtifactsSetGroupOpen]: () => refuse(bridgeError(BridgeErrorCode.Internal, 'disk')) },
     })
 
-    fireEvent.click(button('Upgrade guide', 'Open'))
+    fireEvent.click(header('Today'))
 
+    await waitFor(() => {
+      expect(titles('Today')).toEqual([])
+    })
+  })
+})
+
+describe('a row', () => {
+  it('opens its file in the Files tab when clicked, or with Open', async () => {
+    const { store, invoke } = await renderTab()
+
+    fireEvent.click(within(row('Changelog page draft')).getByRole('button', { name: /^Changelog page draft/ }))
     await waitFor(() => {
       expect(store.getState().uiState[UiStateKey.RightPanelTab]).toBe('files')
     })
-    expect(invoke).toHaveBeenCalledWith(CommandName.FilesOpen, { taskId: 't1', path: GUIDE.path })
-    expect(store.getState().openFiles.t1?.activePath).toBe(GUIDE.path)
+    expect(invoke).toHaveBeenCalledWith(CommandName.FilesOpen, { taskId: 't1', path: CHANGELOG.path })
+    expect(store.getState().openFiles.t1?.activePath).toBe(CHANGELOG.path)
+
+    fireEvent.click(button('Nav sidebar component', 'Open'))
+    await waitFor(() => {
+      expect(store.getState().openFiles.t1?.activePath).toBe(NAV.path)
+    })
   })
 
-  it('copies an artifact’s contents and reveals it in its folder, through main', async () => {
+  it('offers Open, Reveal in folder and More, in that order', async () => {
+    await renderTab()
+
+    expect(
+      within(row('Search results on mobile'))
+        .getAllByRole('button')
+        .slice(1)
+        .map((element) => element.getAttribute('aria-label')),
+    ).toEqual(['Open', 'Reveal in folder', 'More'])
+  })
+
+  it('reveals its file in its folder, through main', async () => {
     const { main } = await renderTab()
-    await waitFor(() => {
-      expect(button('Release notes 2.4', 'Copy')).toBeEnabled()
-    })
 
-    fireEvent.click(button('Release notes 2.4', 'Copy'))
-    fireEvent.click(button('Announcement email', 'Reveal in folder'))
+    fireEvent.click(button('Search results on mobile', 'Reveal in folder'))
 
     await waitFor(() => {
-      expect(main.revealed).toEqual([EMAIL.path])
-    })
-    expect(main.copied).toEqual([NOTES.path])
-  })
-
-  it('shows a missing file muted, as missing, and offers none of its actions', async () => {
-    await renderTab({ fileInfo: { ...INFO, [GUIDE.path]: { kind: FileInfoKind.Missing } } })
-
-    await waitFor(() => {
-      expect(card('Upgrade guide')).toHaveTextContent('Markdown · missing')
-    })
-    expect(card('Upgrade guide').className).toMatch(/missing/)
-    expect(card('Release notes 2.4').className).not.toMatch(/missing/)
-    for (const name of ['Open', 'Copy', 'Reveal in folder']) expect(button('Upgrade guide', name)).toBeDisabled()
-  })
-
-  it('offers no Copy for a file that isn’t text, and shows only its type and age', async () => {
-    const logo = artifact('assets/logo.png', 'Logo', 3)
-    await renderTab({
-      artifacts: [logo],
-      fileInfo: { [logo.path]: { kind: FileInfoKind.Other, modifiedAt: NOW - 3 * MINUTE } },
-    })
-
-    await waitFor(() => {
-      expect(card('Logo')).toHaveTextContent('PNG · 3m ago')
-    })
-    expect(button('Logo', 'Copy')).toBeDisabled()
-    expect(button('Logo', 'Open')).toBeEnabled()
-    expect(button('Logo', 'Reveal in folder')).toBeEnabled()
-  })
-
-  it('shows a file it can’t look at as missing', async () => {
-    await renderTab({
-      overrides: { [CommandName.FilesInfo]: () => refuse(bridgeError(BridgeErrorCode.Internal, 'EACCES')) },
-    })
-
-    await waitFor(() => {
-      expect(card('Release notes 2.4')).toHaveTextContent('Markdown · missing')
+      expect(main.revealed).toEqual([SEARCH.path])
     })
   })
 
-  it('looks at a file again when an action on it fails, finding it gone', async () => {
-    const info = { ...INFO }
+  it('opens its context menu from More, below the button', async () => {
+    await renderTab()
+
+    fireEvent.click(button('Rate limits reference', 'More'))
+    await act(() => Promise.resolve())
+
+    expect(screen.getByRole('menu', { name: 'Artifact actions' })).toBeInTheDocument()
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toContain('Remove from artifacts')
+  })
+
+  it('is outlined while its file is the one the Files tab shows', async () => {
+    await renderTab({ openFiles: [{ taskId: 't1', paths: [RATES.path, NAV.path], activePath: RATES.path }] })
+
+    expect(row('Rate limits reference')).toHaveAttribute('aria-current', 'true')
+    expect(row('Rate limits reference').className).toMatch(/selected/)
+    expect(row('Nav sidebar component')).not.toHaveAttribute('aria-current')
+  })
+
+  it('looks at its file again when an action on it fails', async () => {
     const { invoke } = await renderTab({
-      fileInfo: info,
       overrides: {
-        [CommandName.FilesCopy]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No file')),
         [CommandName.FilesReveal]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No file')),
         [CommandName.FilesOpen]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No task')),
       },
     })
     await waitFor(() => {
-      expect(button('Release notes 2.4', 'Copy')).toBeEnabled()
+      expect(looks(invoke, SEARCH.path)).toBe(1)
     })
-    const looks = (): number =>
-      invoke.mock.calls.filter(
-        ([command, request]) => command === CommandName.FilesInfo && 'path' in request && request.path === NOTES.path,
-      ).length
 
-    info[NOTES.path] = { kind: FileInfoKind.Missing }
-    fireEvent.click(button('Release notes 2.4', 'Copy'))
+    fireEvent.click(button('Search results on mobile', 'Reveal in folder'))
     await waitFor(() => {
-      expect(card('Release notes 2.4')).toHaveTextContent('Markdown · missing')
+      expect(looks(invoke, SEARCH.path)).toBe(2)
     })
-    expect(looks()).toBe(2)
-
-    fireEvent.click(button('Upgrade guide', 'Reveal in folder'))
-    fireEvent.click(button('Announcement email', 'Open'))
+    fireEvent.click(button('Search results on mobile', 'Open'))
     await waitFor(() => {
-      expect(invoke.mock.calls.filter(([command]) => command === CommandName.FilesInfo)).toHaveLength(6)
+      expect(looks(invoke, SEARCH.path)).toBe(3)
+    })
+  })
+})
+
+describe('keeping up', () => {
+  it('moves an artifact whose file changed to the top, into Today, and looks at its thumbnail again', async () => {
+    const { emit, invoke } = await renderTab()
+    await waitFor(() => {
+      expect(looks(invoke, NAV.path)).toBe(1)
+    })
+
+    act(() => {
+      emit({
+        type: EventType.ArtifactsChanged,
+        taskId: 't1',
+        artifacts: ARTIFACTS.map((each) => (each === NAV ? { ...NAV, modifiedAt: NOW - 30_000 } : each)),
+      })
+    })
+
+    expect(titles('Today')).toEqual([
+      'Nav sidebar component',
+      'Landing page, dark theme',
+      'Changelog page draft',
+      'Rate limits reference',
+    ])
+    expect(row('Nav sidebar component')).toHaveTextContent('TypeScriptnow')
+    expect(titles('Yesterday')).toEqual(['Search results on mobile'])
+    await waitFor(() => {
+      expect(looks(invoke, NAV.path)).toBe(2)
     })
   })
 
-  it('keeps up as the agent declares artifacts and works on their files', async () => {
-    const info = { ...INFO }
-    const { emit, invoke } = await renderTab({ artifacts: [NOTES], fileInfo: info })
-    await waitFor(() => {
-      expect(card('Release notes 2.4')).toHaveTextContent('128 lines')
-    })
+  it('shows a file that goes missing where it was, and takes a new title in place', async () => {
+    const { emit } = await renderTab()
 
     act(() => {
-      emit({ type: EventType.ArtifactsChanged, taskId: 't1', artifacts: [NOTES, GUIDE] })
+      emit({
+        type: EventType.ArtifactsChanged,
+        taskId: 't1',
+        artifacts: ARTIFACTS.map((each) =>
+          each === CHANGELOG
+            ? { ...CHANGELOG, missing: true }
+            : each === RATES
+              ? { ...RATES, title: 'Rate limits, final', updatedAt: NOW }
+              : each,
+        ),
+      })
     })
-    expect(card('Upgrade guide')).toBeInTheDocument()
 
-    // A tool call finishing may have changed the file: the cards look again.
-    info[NOTES.path] = { kind: FileInfoKind.Text, lines: 140, modifiedAt: NOW }
-    const edit: ToolEvent = {
-      id: 'n1',
-      taskId: 't1',
-      turn: 1,
-      createdAt: NOW,
-      kind: ToolEventKind.Narration,
-      text: 'Adding the fixes.',
-      parentToolUseId: null,
-    }
+    expect(titles('Today')).toEqual(['Landing page, dark theme', 'Changelog page draft', 'Rate limits, final'])
+    expect(row('Changelog page draft')).toHaveTextContent('Markdown · missing')
+  })
+
+  it('adds a new artifact in its place, and drops a removed one', async () => {
+    const { emit } = await renderTab()
+    const brief = artifact('docs/site/brief.md', 'Design brief', NOW - 3 * MINUTE)
+
     act(() => {
-      emit({ type: EventType.ToolEventAppended, toolEvent: edit })
+      emit({
+        type: EventType.ArtifactsChanged,
+        taskId: 't1',
+        artifacts: [...ARTIFACTS.filter((each) => each !== LANDING), brief],
+      })
     })
+
+    expect(titles('Today')).toEqual(['Design brief', 'Changelog page draft', 'Rate limits reference'])
+    expect(screen.queryByRole('listitem', { name: 'Landing page, dark theme' })).toBeNull()
+  })
+
+  it('has main watch the task’s files while the tab shows it, and stop once it doesn’t', async () => {
+    const { main, unmount } = await renderTab()
     await waitFor(() => {
-      expect(card('Release notes 2.4')).toHaveTextContent('Markdown · 140 lines · just now')
+      expect(main.watchedArtifacts).toEqual(['watch t1'])
     })
-    expect(invoke).toHaveBeenCalledWith(CommandName.FilesInfo, { taskId: 't1', path: NOTES.path })
+
+    unmount()
+
+    await waitFor(() => {
+      expect(main.watchedArtifacts).toEqual(['watch t1', 'unwatch t1'])
+    })
+  })
+
+  it('shows its artifacts though main can’t watch them', async () => {
+    await renderTab({
+      overrides: {
+        [CommandName.ArtifactsWatch]: () => refuse(bridgeError(BridgeErrorCode.Internal, 'EMFILE')),
+        [CommandName.ArtifactsUnwatch]: () => refuse(bridgeError(BridgeErrorCode.Internal, 'EMFILE')),
+      },
+    })
+
+    expect(titles('Today')).toHaveLength(3)
+  })
+})
+
+describe('hundreds of artifacts', () => {
+  const MANY = Array.from({ length: 250 }, (_, index) =>
+    artifact(
+      `out/screens/shot-${String(index).padStart(3, '0')}.png`,
+      `Screenshot ${String(index)}`,
+      NOW - index * 1000,
+    ),
+  )
+
+  it('renders only the rows in view, and asks for only their thumbnails', async () => {
+    const { invoke } = await renderTab({ artifacts: MANY, thumbnails: {} })
+
+    expect(header('Today')).toHaveTextContent('Today250')
+    const shown = titles('Today')
+    // A screenful, and a few past it: nowhere near all of them.
+    expect(shown.length).toBeGreaterThan(0)
+    expect(shown.length).toBeLessThanOrEqual(Math.ceil(STUB_VIEWPORT_HEIGHT / STUB_ROW_HEIGHT) + 20)
+    expect(shown[0]).toBe('Screenshot 0')
+    await waitFor(() => {
+      expect(looks(invoke)).toBe(shown.length)
+    })
+  })
+
+  it('keeps the list as tall as all of them, so it scrolls as if they were all there', async () => {
+    await renderTab({ artifacts: MANY, thumbnails: {} })
+
+    const list = within(group('Today')).getByRole('list')
+    expect(Number.parseFloat(list.style.height)).toBeGreaterThan(200 * 40)
   })
 })
 
 describe('an artifact’s context menu', () => {
   async function choose(title: string, label: string): Promise<void> {
-    fireEvent.contextMenu(card(title))
+    fireEvent.contextMenu(row(title))
     await act(() => Promise.resolve())
     // The label, then its shortcut if any: "Open" isn't "Open in editor".
     fireEvent.click(screen.getByRole('menuitem', { name: new RegExp(`^${label}(?![ a-z])`) }))
     await act(() => Promise.resolve())
   }
 
-  it('has the reference’s items, and opens on ⇧F10 from the card’s buttons', async () => {
+  it('has the reference’s items, and opens on ⇧F10 from the row’s buttons', async () => {
     await renderTab()
 
-    fireEvent.keyDown(button('Upgrade guide', 'Open'), { key: 'F10', shiftKey: true })
+    fireEvent.keyDown(button('Changelog page draft', 'Open'), { key: 'F10', shiftKey: true })
     await act(() => Promise.resolve())
 
     expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
@@ -283,34 +590,46 @@ describe('an artifact’s context menu', () => {
   it('opens the file in the Files tab or the editor, copies it or its path, and reveals it', async () => {
     const { store, invoke, main } = await renderTab()
 
-    await choose('Upgrade guide', 'Open')
+    await choose('Changelog page draft', 'Open')
     await waitFor(() => {
       expect(store.getState().uiState[UiStateKey.RightPanelTab]).toBe('files')
     })
-    expect(store.getState().openFiles.t1?.activePath).toBe(GUIDE.path)
+    expect(store.getState().openFiles.t1?.activePath).toBe(CHANGELOG.path)
 
-    await choose('Upgrade guide', 'Open in editor')
-    expect(invoke).toHaveBeenCalledWith(CommandName.FilesOpenInEditor, { taskId: 't1', path: GUIDE.path })
+    await choose('Changelog page draft', 'Open in editor')
+    expect(invoke).toHaveBeenCalledWith(CommandName.FilesOpenInEditor, { taskId: 't1', path: CHANGELOG.path })
 
-    await choose('Upgrade guide', 'Copy contents')
-    await choose('Upgrade guide', 'Copy path')
-    await choose('Upgrade guide', 'Reveal in Finder')
-    expect(main.copied).toEqual([GUIDE.path, `${sampleWorkspace('w1').rootPath}/${GUIDE.path}`])
-    expect(main.revealed).toEqual([GUIDE.path])
+    await choose('Changelog page draft', 'Copy contents')
+    await choose('Changelog page draft', 'Copy path')
+    await choose('Changelog page draft', 'Reveal in Finder')
+    expect(main.copied).toEqual([CHANGELOG.path, `${sampleWorkspace('w1').rootPath}/${CHANGELOG.path}`])
+    expect(main.revealed).toEqual([CHANGELOG.path])
   })
 
-  it('removes an artifact, leaving the others', async () => {
+  it('removes an artifact, leaving the others, and the group’s count follows', async () => {
     await renderTab()
 
-    await choose('Upgrade guide', 'Remove from artifacts')
+    await choose('Changelog page draft', 'Remove from artifacts')
 
     await waitFor(() => {
-      expect(screen.queryByRole('listitem', { name: 'Upgrade guide' })).toBeNull()
+      expect(screen.queryByRole('listitem', { name: 'Changelog page draft' })).toBeNull()
     })
-    expect(screen.getAllByRole('listitem').map((element) => element.getAttribute('aria-label'))).toEqual([
-      'Release notes 2.4',
-      'Announcement email',
-    ])
+    expect(titles('Today')).toEqual(['Landing page, dark theme', 'Rate limits reference'])
+    expect(header('Today')).toHaveTextContent('Today2')
+  })
+
+  it('drops a group once its last artifact is removed', async () => {
+    await renderTab({ artifacts: [LANDING, OLD] })
+    fireEvent.click(header('Older'))
+    await waitFor(() => {
+      expect(titles('Older')).toEqual(['Old navigation audit'])
+    })
+
+    await choose('Old navigation audit', 'Remove from artifacts')
+
+    await waitFor(() => {
+      expect(groups().map((element) => element.getAttribute('aria-label'))).toEqual(['Today'])
+    })
   })
 
   it('shows a toast when an item fails', async () => {
@@ -320,7 +639,7 @@ describe('an artifact’s context menu', () => {
       },
     })
 
-    await choose('Upgrade guide', 'Remove from artifacts')
+    await choose('Changelog page draft', 'Remove from artifacts')
 
     expect(await screen.findByText('Not an artifact')).toBeInTheDocument()
   })

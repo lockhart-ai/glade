@@ -1,14 +1,20 @@
 /**
  * The files of a task's workspace, for the Files and Artifacts tabs: reading one for the viewer, the tabs open in it,
- * opening one in your editor, describing, copying and revealing an artifact's file, and the agent's `show_file`. A file is only ever reached inside the task's workspace root: every path is
- * resolved against the root's real path, and so is every symlink along it, so `..` or a symlink can't reach a file
- * outside it.
+ * opening one in your editor, an artifact's file's thumbnail, copying and revealing it, and the agent's `show_file`. A
+ * file is only ever reached inside the task's workspace root: every path is resolved against the root's real path, and
+ * so is every symlink along it, so `..` or a symlink can't reach a file outside it.
  */
 import { constants, type Stats } from 'node:fs'
 import { open, realpath, stat, type FileHandle } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { BridgeErrorCode, EventType } from '../../shared/bridge'
-import { FileContentKind, FileInfoKind, type FileContent, type FileInfo, type OpenFiles } from '../../shared/domain'
+import {
+  FileContentKind,
+  FileThumbnailKind,
+  type FileContent,
+  type FileThumbnail,
+  type OpenFiles,
+} from '../../shared/domain'
 import {
   MAX_FILE_BYTES,
   MAX_FILE_LINES,
@@ -21,6 +27,13 @@ import { getOpenFiles, setOpenFiles } from '../db/repositories/open-files'
 import { getTask } from '../db/repositories/tasks'
 import { getWorkspace } from '../db/repositories/workspaces'
 import type { TaskServiceContext } from '../tasks/service'
+import {
+  IMAGE_HEAD_BYTES,
+  isThumbnailImage,
+  MAX_THUMBNAIL_SOURCE_BYTES,
+  startsAsImage,
+  type Thumbnails,
+} from '../artifacts/thumbnails'
 
 /** Opens a file in the app macOS opens its kind of file with: Electron's `shell.openPath`, which answers with an error message, or `''`. */
 export type OpenPath = (path: string) => Promise<string>
@@ -41,14 +54,8 @@ export interface FilesContext extends TaskServiceContext {
   readonly writeClipboard: WriteClipboard
 }
 
-/**
- * The most of a file an artifact's card reads to count its lines, and the most Copy puts on the clipboard, in bytes.
- * A larger file shows no line count, and can't be copied.
- */
+/** The most an artifact's Copy contents puts on the clipboard, in bytes. A larger file can't be copied. */
 export const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024
-
-/** How much of a file is read at a time to count its lines. */
-const CHUNK_BYTES = 64 * 1024
 
 /** Whether `path` is `root` or inside it. Both are absolute. */
 function isInside(root: string, path: string): boolean {
@@ -245,35 +252,30 @@ async function withTaskFile<T>(
   }
 }
 
-/** The lines in a file, counted a chunk at a time; null when it has a NUL byte, so isn't text. */
-async function countLines(handle: FileHandle, size: number): Promise<number | null> {
-  const buffer = Buffer.alloc(Math.min(size, CHUNK_BYTES))
-  let newlines = 0
-  let last = -1
-  for (let position = 0; position < size;) {
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, position)
-    if (bytesRead === 0) break
-    const chunk = buffer.subarray(0, bytesRead)
-    if (chunk.includes(0)) return null
-    for (let at = chunk.indexOf(10); at !== -1; at = chunk.indexOf(10, at + 1)) newlines++
-    last = chunk[bytesRead - 1] ?? last
-    position += bytesRead
-  }
-  // A last line without a newline still counts.
-  return last === -1 || last === 10 ? newlines : newlines + 1
-}
-
 /**
- * `files.info`: a file of the task's workspace as its artifact card describes it: its lines, counted from a cheap read
- * (none for a file that isn't text, or is larger than `MAX_ARTIFACT_BYTES`), and when it last changed; or missing.
+ * `files.thumbnail`: a file of the task's workspace as its artifact's row shows it: a thumbnail of an image
+ * (`../artifacts/thumbnails`), none for any other file (or an image too large, one that doesn't start as its kind of
+ * image does, or one no thumbnail can be made of), or missing. The file is looked at and let go before its thumbnail
+ * is made.
  */
-export async function infoOfTaskFile(context: TaskServiceContext, taskId: string, path: string): Promise<FileInfo> {
-  return withTaskFile(context, taskId, path, async (file) => {
-    if (file === null) return { kind: FileInfoKind.Missing }
-    const modifiedAt = Math.round(file.info.mtimeMs)
-    const lines = file.info.size > MAX_ARTIFACT_BYTES ? null : await countLines(file.handle, file.info.size)
-    return lines === null ? { kind: FileInfoKind.Other, modifiedAt } : { kind: FileInfoKind.Text, lines, modifiedAt }
+export async function thumbnailOfTaskFile(
+  context: TaskServiceContext,
+  thumbnails: Thumbnails,
+  taskId: string,
+  path: string,
+): Promise<FileThumbnail> {
+  const looked = await withTaskFile(context, taskId, path, async (file) => {
+    if (file === null) return null
+    const source = { realPath: file.real, size: file.info.size, modifiedMs: file.info.mtimeMs }
+    if (!isThumbnailImage(path) || source.size > MAX_THUMBNAIL_SOURCE_BYTES) return { source, image: false }
+    const head = Buffer.alloc(Math.min(source.size, IMAGE_HEAD_BYTES))
+    const { bytesRead } = await file.handle.read(head, 0, head.length, 0)
+    return { source, image: startsAsImage(path, head.subarray(0, bytesRead)) }
   })
+  if (looked === null) return { kind: FileThumbnailKind.Missing }
+  if (!looked.image) return { kind: FileThumbnailKind.None }
+  const dataUrl = await thumbnails.thumbnailOf(looked.source)
+  return dataUrl === null ? { kind: FileThumbnailKind.None } : { kind: FileThumbnailKind.Image, dataUrl }
 }
 
 /** `files.copy`: puts a text file's contents on the clipboard. */

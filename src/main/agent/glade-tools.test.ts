@@ -453,7 +453,16 @@ describe('add_artifact', () => {
     ).resolves.toEqual({ output: 'Renamed the artifact docs/releases/2.4.md to "Release notes 2.4".', isError: false })
 
     expect(listArtifacts(database.db, taskId)).toEqual([
-      { taskId, path: 'docs/releases/2.4.md', title: 'Release notes 2.4', addedAt: 1_000, updatedAt: 2_000 },
+      {
+        taskId,
+        path: 'docs/releases/2.4.md',
+        title: 'Release notes 2.4',
+        addedAt: 1_000,
+        updatedAt: 2_000,
+        // When the file last changed, as it was looked at.
+        modifiedAt: expect.any(Number) as number,
+        missing: false,
+      },
     ])
     expect(changes().at(-1)).toEqual(['docs/releases/2.4.md: Release notes 2.4'])
     vi.useRealTimers()

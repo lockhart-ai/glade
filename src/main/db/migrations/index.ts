@@ -34,6 +34,7 @@ import { sdkModelsMigration } from './0032-sdk-models'
 import { accountMigration } from './0033-account'
 import { taskCommitsMigration } from './0034-task-commits'
 import { instructionUpdatesMigration } from './0040-instruction-updates'
+import { artifactGroupsMigration } from './0041-artifact-groups'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -72,6 +73,7 @@ export const MIGRATIONS: readonly Migration[] = [
   accountMigration,
   taskCommitsMigration,
   instructionUpdatesMigration,
+  artifactGroupsMigration,
 ]
 
 /** The version a database is at once every migration has run: the last one's, which can skip versions still in flight. */

@@ -412,7 +412,15 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
         type: EventType.ArtifactsChanged,
         taskId: created.id,
         artifacts: [
-          { taskId: created.id, path: secret('artifact_path'), title: secret('artifact'), addedAt: 1, updatedAt: 1 },
+          {
+            taskId: created.id,
+            path: secret('artifact_path'),
+            title: secret('artifact'),
+            addedAt: 1,
+            updatedAt: 1,
+            modifiedAt: 1,
+            missing: false,
+          },
         ],
       },
     ],

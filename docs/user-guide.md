@@ -244,8 +244,17 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   like `4m ago`; hover it for the exact time), then what it hasn't started. Items move between the groups as the agent
   works. The task's row in the sidebar shows the same progress (`3/7`, or a check once all are done); hover it to see
   what the agent is working on.
-- **Artifacts:** the files the agent named as its deliverables, as cards with **Open**, **Copy** and **Reveal in
-  folder**. They stay after the task is done.
+- **Artifacts:** the files the agent named as its deliverables, one compact row each: a thumbnail for an image (PNG,
+  JPEG, GIF, WebP or SVG), or a tile with the file's type, then its title, its type and when the file last changed.
+  They're listed newest first, by when each file last changed, under **Today**, **Yesterday**, **This week**, **Last
+  week**, **This month** and **Older**; each header shows its count and folds with a click. Today and Yesterday start
+  open and the older groups folded, and each task remembers how you left them. An artifact that's edited moves back to
+  the top, whether the agent (or one of its subagents) edited it or you did, in the terminal or an editor, while the
+  tab is open. Click a row to open the file in **Files**; hover it for **Open**, **Reveal in folder** and **More**
+  (the same menu as a right-click). The file the Files tab shows is outlined. A file that's gone stays at its last
+  known time, marked missing. Artifacts stay after the task is done.
+
+  ![The Artifacts tab: screenshots with thumbnails and drafts under Today and Yesterday, older groups folded](images/guide/artifacts.png)
 - **Subagents:** one row per subagent, running ones first, with what it's doing now, how long it's run and its tool
   calls. Click one to open its log; right-click a running one to stop it. A subagent's own tool calls live here, not in
   Tool calls.
