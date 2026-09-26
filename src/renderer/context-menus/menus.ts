@@ -34,6 +34,16 @@ function groups(...parts: readonly (readonly MenuItem[])[]): MenuEntry[] {
     .flatMap((part, index): MenuEntry[] => (index === 0 ? [...part] : [SEPARATOR, ...part]))
 }
 
+/** An item for an action there may not be: none when there isn't. */
+function optional(
+  label: string,
+  onSelect: MenuAction | null,
+  shortcut?: ShortcutAction,
+  hints = SHORTCUT_HINTS,
+): MenuItem[] {
+  return onSelect === null ? [] : [item(label, onSelect, shortcut, hints)]
+}
+
 /** The item, or none when it doesn't apply. */
 function when(applies: boolean, entry: () => MenuItem): MenuItem[] {
   return applies ? [entry()] : []
@@ -157,14 +167,17 @@ export function toolCallMenu(call: ToolCallMenuTarget, actions: ToolCallMenuActi
   )
 }
 
-/** What a file tab's menu can do. */
+/**
+ * What a file tab's menu can do. A file as a commit left it (opened from the Changes tab) is only in git: it has no
+ * file to open in your editor, reveal or give the path of, so those are null.
+ */
 export interface FileTabMenuActions {
   readonly close: MenuAction
   readonly closeOthers: MenuAction
   readonly closeAll: MenuAction
-  readonly openInEditor: MenuAction
-  readonly reveal: MenuAction
-  readonly copyPath: MenuAction
+  readonly openInEditor: MenuAction | null
+  readonly reveal: MenuAction | null
+  readonly copyPath: MenuAction | null
   readonly copyRelativePath: MenuAction
 }
 
@@ -177,9 +190,9 @@ export function fileTabMenu(actions: FileTabMenuActions, hints: ShortcutHints): 
       item('Close all', actions.closeAll),
     ],
     [
-      item('Open in editor', actions.openInEditor, ShortcutAction.OpenInEditor, hints),
-      item('Reveal in Finder', actions.reveal),
-      item('Copy path', actions.copyPath),
+      ...optional('Open in editor', actions.openInEditor, ShortcutAction.OpenInEditor, hints),
+      ...optional('Reveal in Finder', actions.reveal),
+      ...optional('Copy path', actions.copyPath),
       item('Copy relative path', actions.copyRelativePath),
     ],
   )

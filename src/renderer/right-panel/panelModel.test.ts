@@ -10,11 +10,11 @@ describe('parsePanelTab', () => {
 })
 
 describe('tabForDigit', () => {
-  it('maps 1–6 to the tabs in tab bar order, and nothing else', () => {
-    expect([1, 2, 3, 4, 5, 6].map(tabForDigit)).toEqual([...PANEL_TABS])
-    expect(PANEL_TABS).toEqual(['tool-calls', 'files', 'todos', 'artifacts', 'subagents', 'watchers'])
+  it('maps 1–7 to the tabs in tab bar order, and nothing else', () => {
+    expect([1, 2, 3, 4, 5, 6, 7].map(tabForDigit)).toEqual([...PANEL_TABS])
+    expect(PANEL_TABS).toEqual(['tool-calls', 'files', 'todos', 'artifacts', 'subagents', 'watchers', 'changes'])
     expect(tabForDigit(0)).toBeUndefined()
-    expect(tabForDigit(7)).toBeUndefined()
+    expect(tabForDigit(8)).toBeUndefined()
   })
 })
 

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  commitFileKey,
   fileName,
   isWorkspaceRelativePath,
+  parseCommitFileKey,
   noOpenFiles,
   normalizePath,
   withClosedFile,
@@ -79,5 +81,23 @@ describe('fileName', () => {
   it('is the last part of a path', () => {
     expect(fileName('docs/rate-limits.md')).toBe('rate-limits.md')
     expect(fileName('README.md')).toBe('README.md')
+  })
+})
+
+describe('commit file keys', () => {
+  it('name a file as a commit left it, apart from any path in the workspace, and read back', () => {
+    const key = commitFileKey({ commitId: 'c1', path: 'docs/upgrading.md' })
+    expect(key).toBe('/commit/c1/docs/upgrading.md')
+    expect(isWorkspaceRelativePath(key)).toBe(false)
+    expect(parseCommitFileKey(key)).toEqual({ commitId: 'c1', path: 'docs/upgrading.md' })
+  })
+
+  it('aren’t read from a path in the workspace, or a key that isn’t well formed', () => {
+    expect(parseCommitFileKey('docs/upgrading.md')).toBeNull()
+    expect(parseCommitFileKey('commit/c1/a.md')).toBeNull()
+    expect(parseCommitFileKey('/commit/c1')).toBeNull()
+    expect(parseCommitFileKey('/commit//a.md')).toBeNull()
+    expect(parseCommitFileKey('/commit/c1/../a.md')).toBeNull()
+    expect(parseCommitFileKey('/commit/c1/')).toBeNull()
   })
 })

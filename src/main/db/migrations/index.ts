@@ -32,6 +32,7 @@ import { watchersMigration } from './0030-watchers'
 import { notificationsMigration } from './0031-notifications'
 import { sdkModelsMigration } from './0032-sdk-models'
 import { accountMigration } from './0033-account'
+import { taskCommitsMigration } from './0034-task-commits'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -68,6 +69,7 @@ export const MIGRATIONS: readonly Migration[] = [
   notificationsMigration,
   sdkModelsMigration,
   accountMigration,
+  taskCommitsMigration,
 ]
 
 /** The version a database is at once every migration has run: the last one's, which can skip versions still in flight. */

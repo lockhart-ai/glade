@@ -70,7 +70,7 @@ describe('useRightPanelShortcuts', () => {
     invoke.mockClear()
 
     for (const init of [
-      { code: 'Digit7', key: '¶', metaKey: true, altKey: true },
+      { code: 'Digit8', key: '•', metaKey: true, altKey: true },
       { code: 'Digit0', key: 'º', metaKey: true, altKey: true },
       { code: 'KeyN', key: '˜', metaKey: true, altKey: true },
       { code: 'ArrowDown', key: 'ArrowDown', metaKey: true, altKey: true },
