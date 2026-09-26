@@ -6,7 +6,7 @@ import type { Migration } from '../migrate'
  * "Subagents"), until it finishes. Only a tool call has one.
  */
 export const subagentProgressMigration: Migration = {
-  version: 31,
+  version: 38,
   name: "Keep each running subagent's latest progress summary",
   up(db) {
     db.exec(`

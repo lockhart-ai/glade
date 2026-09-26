@@ -72,11 +72,12 @@ describe('global.css scroll bars', () => {
     }
   })
 
-  it('starts the chat’s scroll track below the header card it scrolls under', () => {
+  it('runs the chat’s scroll track between the header card and the input bar it scrolls under', () => {
     const chat = stylesheets().get(join('chat', 'Chat.module.css')) ?? ''
     expect(chat).toMatch(/\.scroller \{[^}]*padding-top: var\(--task-header-clearance, 0px\);/)
+    expect(chat).toMatch(/\.scroller \{[^}]*padding-bottom: var\(--input-bar-clearance, 0px\);/)
     expect(chat).toMatch(
-      /\.scroller::-webkit-scrollbar-track \{\s*margin-top: var\(--task-header-clearance, 0px\);\s*\}/,
+      /\.scroller::-webkit-scrollbar-track \{\s*margin-top: var\(--task-header-clearance, 0px\);\s*margin-bottom: var\(--input-bar-clearance, 0px\);\s*\}/,
     )
   })
 })

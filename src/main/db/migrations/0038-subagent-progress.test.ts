@@ -4,15 +4,18 @@ import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { listToolEvents } from '../repositories/tool-events'
 import { MIGRATIONS } from '.'
-import { subagentProgressMigration } from './0031-subagent-progress'
+import { subagentProgressMigration } from './0038-subagent-progress'
 
-it('is migration 31', () => {
-  expect(MIGRATIONS[30]).toBe(subagentProgressMigration)
+it('is migration 38', () => {
+  expect(MIGRATIONS[37]).toBe(subagentProgressMigration)
 })
 
 it('starts every logged call with no summary, and lets only a tool call have one', () => {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 30))
+  migrate(
+    db,
+    MIGRATIONS.filter((migration) => migration.version < 38),
+  )
   db.prepare("INSERT INTO workspaces VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)").run()
   db.prepare(
     `INSERT INTO tasks (id, workspace_id, title, objective, status, state, activity, pinned, unread, model, effort,

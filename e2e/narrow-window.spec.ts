@@ -24,11 +24,13 @@ async function expectChatClearOfTheHeader({ window }: Glade): Promise<void> {
   await expect.poll(async () => (await boxOf(header.header)).height).toBeLessThanOrEqual(MAX_HEADER_HEIGHT)
   await expect(header.markDone).toBeInViewport({ ratio: 1 })
 
-  // The chat keeps room above the input bar, and its latest message shows there, clear of the input bar.
+  // The chat keeps room between the header and the input bar (it runs halfway under each, #268 #270), and its latest
+  // message shows there, clear of the input bar.
   const chatBox = await boxOf(regions(window).chat)
   const barBox = await boxOf(inputBar)
-  expect(chatBox.height).toBeGreaterThanOrEqual(MIN_CHAT_HEIGHT)
-  expect(chatBox.y + chatBox.height).toBeLessThanOrEqual(barBox.y)
+  const headerBox = await boxOf(header.header)
+  expect(barBox.y - (headerBox.y + headerBox.height)).toBeGreaterThanOrEqual(MIN_CHAT_HEIGHT)
+  expect(chatBox.y + chatBox.height).toBeLessThan(barBox.y + barBox.height)
   const last = conversation.agentReplies.last()
   await expect(last).toBeInViewport({ ratio: 0.9 })
   const lastBox = await boxOf(last)

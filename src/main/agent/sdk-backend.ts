@@ -295,6 +295,9 @@ export function sdkOptions(
     // A running subagent's one-line summary of what it's doing now, about every 30 seconds, from a small fork of its
     // conversation: the line under its name in the Subagents tab (docs/sdk-notes.md, "Subagents").
     agentProgressSummaries: true,
+    // Glade stops each background subagent and watcher from its own tab (`stopTask`), so Stop on a turn ends only the
+    // turn. Without this, the SDK fails closed and an interrupt kills every background subagent (docs/sdk-notes.md §7).
+    perTaskStopAffordance: true,
     // What the session's watchers do, which only its hooks tell (the Watchers tab, docs/sdk-notes.md §13).
     ...(options.hooks === undefined ? {} : { hooks: sdkHooks(options.hooks, options.log ?? SILENT_LOGGER) }),
   }

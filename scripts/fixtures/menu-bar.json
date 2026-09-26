@@ -1,0 +1,106 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "tasks": [
+    {
+      "title": "Add rate limiting to /search",
+      "status": "Waiting on you: pick a limit for /search",
+      "unread": true,
+      "minutesAgo": 2,
+      "notifications": [{ "body": "Which limit should /search use per API key?", "minutesAgo": 2 }]
+    },
+    {
+      "title": "Bump the SDK to 0.4",
+      "status": "Upgrading the SDK",
+      "activity": "working",
+      "permissionMode": "ask_before_edits",
+      "minutesAgo": 9,
+      "workspace": { "name": "Glade", "rootPath": "/Users/sample/code/glade" },
+      "permissionRequests": [
+        {
+          "toolName": "Bash",
+          "input": { "command": "npm install @acme/sdk@0.4", "description": "Install the new SDK" },
+          "toolUseId": "install",
+          "turn": 1,
+          "minutesAgo": 9
+        }
+      ],
+      "notifications": [{ "body": "Bash: npm install @acme/sdk@0.4", "minutesAgo": 9 }]
+    },
+    {
+      "title": "Clean up the fixtures",
+      "status": "Removed 14 unused fixtures",
+      "minutesAgo": 18,
+      "notifications": [{ "body": "Removed 14 unused fixtures and updated the seeds.", "minutesAgo": 18 }]
+    },
+    {
+      "title": "Migrate the billing webhooks",
+      "activity": "error",
+      "minutesAgo": 25,
+      "workspace": { "name": "Billing", "rootPath": "/Users/sample/code/billing" },
+      "error": {
+        "kind": "transient",
+        "source": "api",
+        "status": 529,
+        "code": "overloaded",
+        "details": "API Error: 529 Overloaded",
+        "retries": 3,
+        "retryingMs": 118000
+      }
+    },
+    {
+      "title": "Fix the flaky date test",
+      "status": "Running the timezone tests",
+      "activity": "working",
+      "minutesAgo": 0,
+      "startedMinutesAgo": 13,
+      "selected": true,
+      "messages": [
+        {
+          "role": "user",
+          "body": "The date formatting test fails in some timezones. Can you fix it?",
+          "turn": 1,
+          "minutesAgo": 12.67
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "TodoWrite",
+          "input": {
+            "todos": [
+              { "content": "Reproduce the failure", "status": "completed" },
+              { "content": "Find the timezone assumption", "status": "completed" },
+              { "content": "Fix the formatter", "status": "completed" },
+              { "content": "Run the timezone tests", "status": "in_progress" },
+              { "content": "Add a test for UTC+14", "status": "pending" },
+              { "content": "Add a test for UTC-12", "status": "pending" },
+              { "content": "Update the changelog", "status": "pending" }
+            ]
+          },
+          "output": "Todos have been modified successfully.",
+          "turn": 1,
+          "minutesAgo": 11
+        }
+      ]
+    },
+    {
+      "title": "Write the v2 migration guide",
+      "status": "Drafting the upgrade steps",
+      "activity": "working",
+      "minutesAgo": 1,
+      "startedMinutesAgo": 5,
+      "workspace": { "name": "Glade", "rootPath": "/Users/sample/code/glade" },
+      "messages": [
+        {
+          "role": "user",
+          "body": "Write a migration guide for v2.",
+          "turn": 1,
+          "minutesAgo": 4.08
+        }
+      ]
+    }
+  ]
+}
