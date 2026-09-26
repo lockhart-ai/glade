@@ -69,6 +69,11 @@ export interface Subagent {
   readonly call: ToolCallEvent
   readonly name: string
   readonly status: SubagentStatus
+  /**
+   * While it runs, the SDK's latest one-line summary of what it's doing (`ToolCallEvent.progressSummary`); null before
+   * the first, and once it has finished.
+   */
+  readonly summary: string | null
   /** How many tool calls it has made. */
   readonly toolCalls: number
   /** What it's doing or came to; null before it has done anything. */
@@ -133,6 +138,7 @@ function toSubagent(row: CallRow, rootPath: string | undefined): Subagent {
     call: row.call,
     name: subagentName(row.call),
     status: subagentStatus(row.call.state),
+    summary: row.call.state === ToolCallState.Running ? row.call.progressSummary : null,
     toolCalls: row.children.filter((child) => child.kind === ToolEventKind.ToolCall).length,
     latest: latestLine(row, rootPath),
     log: row.children,

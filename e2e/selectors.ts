@@ -194,6 +194,8 @@ export function subagentsTab(page: Page) {
     row,
     /** A row's header: its dot, name, status, latest line, elapsed time and tool call count. Click it to open its log. */
     header: (name: string) => row(name).getByRole('button').first(),
+    /** A running row's progress summary (what it's doing now), by its text, which its tooltip carries whole. */
+    summary: (name: string, text: string) => row(name).getByTitle(text, { exact: true }),
     /** A row's log, while it's open. */
     log: (name: string) => panel.getByRole('log', { name: `${name} log` }),
   }

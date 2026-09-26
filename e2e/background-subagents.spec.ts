@@ -12,6 +12,8 @@ const PROFILED =
 const CACHE_FAILED = "Couldn't reach the Redis staging instance: connection refused."
 const REPORTED =
   'The query profile is back: checkout has an N+1 in load_cart. Batching it should take p95 to about 95 ms.'
+const QUERIES = 'Profile the checkout queries'
+const QUERIES_SUMMARY = 'Timing the checkout queries against the staging copy'
 
 test('background subagents: they run until they really end, while the parent waits on you and takes messages', async ({
   launch,
@@ -46,10 +48,11 @@ test('background subagents: they run until they really end, while the parent wai
   await expect(agentReplies).toHaveCount(2)
   await expect(agentReplies.nth(1)).toContainText(MEANWHILE)
 
-  // Each counts its calls and its time as it goes.
-  const queries = subagents.header('Profile the checkout queries')
+  // Each counts its calls and its time as it goes, and the query profile says what it's doing now.
+  const queries = subagents.header(QUERIES)
   await expect(queries).toContainText('Running')
   await expect(queries).toContainText(/\d+s · 2 tool calls/)
+  await expect(subagents.summary(QUERIES, QUERIES_SUMMARY)).toBeVisible()
 
   // The cache check fails, with the call it was in; the others carry on.
   const cache = subagents.header('Check the cart cache')
@@ -70,6 +73,7 @@ test('background subagents: they run until they really end, while the parent wai
   // Once it really ends, it's done, with what it found, and its time stops; the agent reports it on its own.
   await expect(queries).toContainText('Done')
   await expect(queries).toContainText(PROFILED)
+  await expect(subagents.summary(QUERIES, QUERIES_SUMMARY)).toBeHidden()
   await expect(subagents.tally).toHaveText('1 done2 failed')
   await expect(queries).toContainText(/\d+s · 2 tool calls/)
   const finished = await queries.textContent()
@@ -96,6 +100,7 @@ test('background subagents: one still running when the app quits is interrupted 
     .tab(/^Subagents/)
     .click()
   await expect(subagentsTab(first.window).tally).toHaveText('3 running')
+  await expect(subagentsTab(first.window).summary(QUERIES, QUERIES_SUMMARY)).toBeVisible()
   await first.close()
 
   const second = await launch({ agentScript: 'background-subagents' })
@@ -107,5 +112,8 @@ test('background subagents: one still running when the app quits is interrupted 
   const subagents = subagentsTab(second.window)
   await expect(subagents.tally).toHaveText('3 interrupted')
   await expect(subagents.header('Bisect the slowdown')).toContainText('Interrupted')
+  // What it was doing when the app quit goes with it.
+  await expect(subagents.summary(QUERIES, QUERIES_SUMMARY)).toBeHidden()
+  await expect(subagents.header(QUERIES)).not.toContainText(QUERIES_SUMMARY)
   await expect(list.dot(list.taskRow(TITLE))).toHaveAttribute('data-state', 'waiting')
 })

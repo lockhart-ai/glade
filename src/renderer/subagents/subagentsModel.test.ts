@@ -42,6 +42,7 @@ function call(overrides: Partial<ToolCallEvent> = {}): ToolCallEvent {
     finishedAt: null,
     toolUseId: 'use-1',
     parentToolUseId: null,
+    progressSummary: null,
     ...overrides,
   }
 }
@@ -159,6 +160,31 @@ describe('deriveSubagents', () => {
       ])
       expect(quiet?.latest).toEqual({ kind: LatestLineKind.Said, text: 'All sorted.' })
     })
+  })
+
+  describe('the summary', () => {
+    it("is each running subagent's own latest progress summary, and nothing before its first", () => {
+      const [api, dash, quiet] = deriveSubagents([
+        agent('api', 'API changes', { progressSummary: 'Reading the API PRs' }),
+        agent('dash', 'Dashboard changes', { progressSummary: 'Sorting the dashboard PRs' }),
+        agent('quiet', 'Contributor list'),
+      ])
+      expect([api?.summary, dash?.summary, quiet?.summary]).toEqual([
+        'Reading the API PRs',
+        'Sorting the dashboard PRs',
+        null,
+      ])
+    })
+
+    it.each([ToolCallState.Done, ToolCallState.Error, ToolCallState.Paused, ToolCallState.Interrupted])(
+      'is nothing once it is %s, whatever its call still holds',
+      (state) => {
+        const [subagent] = deriveSubagents([
+          agent('api', 'API changes', { state, output: 'Sorted.', progressSummary: 'Reading the API PRs' }),
+        ])
+        expect(subagent?.summary).toBeNull()
+      },
+    )
   })
 })
 

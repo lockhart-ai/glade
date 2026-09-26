@@ -1,9 +1,10 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { PARALLEL_SUBAGENTS } from '../src/main/agent/scripts'
 import { expect, test } from './fixtures'
 import { firstRun, inputBar, subagentsTab, taskList, taskPanel } from './selectors'
 
-test('subagents: a tally and a row per subagent, running first, that open their logs and tick until stopped', async ({
+test('subagents: a tally and a row per subagent, running first, saying what they are doing, that open their logs and tick until stopped', async ({
   launch,
   tempFolder,
 }) => {
@@ -43,6 +44,18 @@ test('subagents: a tally and a row per subagent, running first, that open their 
   await expect(links).toContainText('Found 2 broken links and fixed both in the draft.')
   await expect(links).toContainText(/\d+s · 2 tool calls/)
 
+  // A running one also says what it's doing now, under its name: the SDK's latest summary, on one line, whole in its
+  // tooltip. The link check's summary came after it finished, so it has none.
+  const apiSummary = subagents.summary('API changes', PARALLEL_SUBAGENTS.apiSummary)
+  await expect(apiSummary).toHaveText(PARALLEL_SUBAGENTS.apiSummary)
+  await expect(subagents.summary('Dashboard changes', PARALLEL_SUBAGENTS.dashboardSummary)).toBeVisible()
+  await expect(links).not.toContainText('Checking the last links')
+  const clamped = await apiSummary.evaluate((element) => ({
+    cut: element.scrollWidth > element.clientWidth,
+    lines: Math.round(element.getBoundingClientRect().height / parseFloat(getComputedStyle(element).lineHeight)),
+  }))
+  expect(clamped).toEqual({ cut: true, lines: 1 })
+
   // A running subagent's elapsed time ticks; a finished one's has stopped.
   await expect(api).toContainText(/\d+s · 3 tool calls/)
   const [apiBefore, linksBefore] = [await api.textContent(), await links.textContent()]
@@ -66,6 +79,9 @@ test('subagents: a tally and a row per subagent, running first, that open their 
   await bar.stop.click()
   await expect(subagents.tally).toHaveText('1 done2 failed')
   await expect(subagents.header('API changes')).toContainText('Failed')
+  // A stopped subagent isn't doing anything now.
+  await expect(apiSummary).toBeHidden()
+  await expect(subagents.header('API changes')).not.toContainText(PARALLEL_SUBAGENTS.apiSummary)
   expect(await subagents.rows.evaluateAll((rows) => rows.map((row) => row.getAttribute('data-status')))).toEqual([
     'done',
     'error',
