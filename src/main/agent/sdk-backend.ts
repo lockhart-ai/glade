@@ -390,6 +390,9 @@ export function createSdkBackend({ env, log: backendLog = SILENT_LOGGER }: SdkBa
           log.info('agent task stopped', { sdkTaskId })
           await (await started).stopTask(sdkTaskId)
         },
+        async accountInfo() {
+          return (await started).accountInfo()
+        },
         close() {
           log.info('agent process closing')
           then(() => {

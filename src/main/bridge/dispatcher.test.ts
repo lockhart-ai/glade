@@ -110,6 +110,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.PluginsOpenFolder]: () => null,
     [CommandName.PluginsPlaceView]: () => ({ status: '' }),
     [CommandName.ControlStatus]: () => ({ status: CONTROL_STATUS }),
+    [CommandName.AccountStatus]: () => ({ status: { account: null, usageWarning: null } }),
     [CommandName.ControlRegenerateToken]: () => ({ status: CONTROL_STATUS }),
     [CommandName.WorkspacesUpdate]: () => {
       throw new Error('not in these tests')

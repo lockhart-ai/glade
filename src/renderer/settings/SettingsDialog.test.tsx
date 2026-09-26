@@ -238,16 +238,16 @@ describe('SettingsDialog', () => {
     expect(within(dialog()).queryByRole('textbox')).not.toBeInTheDocument()
   })
 
-  it.each([
-    [SettingsSection.General, 'General', 'Nothing to set here yet.'],
-    [SettingsSection.Appearance, 'Appearance', 'Glade has one theme, dark. Nothing to change here yet.'],
-  ])('shows %s with nothing to set', async (section, title, text) => {
-    await renderSettings(section)
+  it.each([[SettingsSection.Appearance, 'Appearance', 'Glade has one theme, dark. Nothing to change here yet.']])(
+    'shows %s with nothing to set',
+    async (section, title, text) => {
+      await renderSettings(section)
 
-    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(title)
-    expect(screen.getByText(text)).toBeInTheDocument()
-    expect(within(dialog()).queryByRole('switch')).not.toBeInTheDocument()
-  })
+      expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(title)
+      expect(screen.getByText(text)).toBeInTheDocument()
+      expect(within(dialog()).queryByRole('switch')).not.toBeInTheDocument()
+    },
+  )
 
   describe('Workspace', () => {
     it("shows the workspace's name and root, under its name", async () => {

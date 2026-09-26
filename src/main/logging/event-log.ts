@@ -289,6 +289,9 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
       case EventType.ControlChanged:
         // The endpoint logs its own starting, stopping and failing, and never its token.
         return
+      case EventType.AccountChanged:
+        // The account logs its reads and warnings itself, and never the email or organization.
+        return
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
         // The plugins log themselves as they're read and turned on or off, and their views as their statuses change.

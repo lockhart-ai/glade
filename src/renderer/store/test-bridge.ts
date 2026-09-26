@@ -56,6 +56,7 @@ import { taskPermissionRule } from '../../shared/permissions'
 import type { ImageData, ImageRef } from '../../shared/images'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import { controlUrl, type ControlStatus } from '../../shared/control'
+import type { AccountStatus } from '../../shared/account'
 import { PluginStatus, type InstalledPlugin } from '../../shared/plugins'
 import { highlightParts, highlightPattern, SearchField, type SearchResult } from '../../shared/search'
 import type { TerminalTab } from '../../shared/terminal'
@@ -114,6 +115,8 @@ export interface FakeMain {
   readonly revealed?: string[]
   /** The settings `settings.get` starts answering with; the defaults when left out. `settings.update` changes them. */
   readonly settings?: Settings
+  /** What `account.status` answers with: no account read and no warning when left out. */
+  readonly accountStatus?: AccountStatus
   /** The task last selected in each workspace, by workspace id, which `workspaces.open` selects; none when left out. */
   readonly workspaceSelections?: Readonly<Record<string, string>>
   /** The workspaces `workspaces.reveal` revealed, by id, oldest first. */
@@ -497,6 +500,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       return { settings }
     },
     [CommandName.ControlStatus]: () => ({ status: controlStatus() }),
+    [CommandName.AccountStatus]: () => ({ status: main.accountStatus ?? { account: null, usageWarning: null } }),
     [CommandName.ControlRegenerateToken]: () => {
       tokens += 1
       const status = controlStatus()

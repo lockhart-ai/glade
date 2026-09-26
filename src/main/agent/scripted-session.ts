@@ -117,7 +117,20 @@ export interface ScriptedSessionOptions {
    * is called once for it too, when that turn ends or can't play.
    */
   readonly onWake?: () => void
+  /** What the session says about the account when asked (`accountInfo`): `SCRIPTED_ACCOUNT` by default. */
+  readonly account?: unknown
 }
+
+/**
+ * The account a scripted session runs on, as the SDK reports a Claude subscription login (`docs/sdk-notes.md` §1): an
+ * invented one.
+ */
+export const SCRIPTED_ACCOUNT = {
+  email: 'sam@acme.dev',
+  organization: 'Acme Robotics',
+  subscriptionType: 'Claude Max',
+  apiProvider: 'firstParty',
+} as const
 
 /** The name the SDK gives one of Glade's tools, e.g. `mcp__glade__set_title`. */
 export function gladeToolName(tool: string): string {
@@ -440,6 +453,10 @@ export class ScriptedSession implements AgentSession {
     return Promise.resolve()
   }
 
+  accountInfo(): Promise<unknown> {
+    return Promise.resolve(this.options.account ?? SCRIPTED_ACCOUNT)
+  }
+
   close(): void {
     this.stopped = true
     this.turn?.interrupt()
@@ -576,6 +593,19 @@ export class ScriptedSession implements AgentSession {
             status: 'rejected',
             resetsAt: Math.ceil((Date.now() + step.resetInMs) / 1000),
             rateLimitType: 'five_hour',
+          },
+          uuid: randomUUID(),
+        })
+        return
+      case ScriptStepKind.LimitWarning:
+        this.push({
+          type: 'rate_limit_event',
+          rate_limit_info: {
+            status: 'allowed_warning',
+            resetsAt: Math.ceil((Date.now() + step.resetInMs) / 1000),
+            rateLimitType: step.window,
+            utilization: step.utilization,
+            isUsingOverage: false,
           },
           uuid: randomUUID(),
         })

@@ -9,6 +9,7 @@ import { controlEnv, createControlEndpoint, type ControlEndpoint } from '../cont
 import { CONTROL_SERVER } from '../control/names'
 import { createRateLimiter, type RateLimits } from '../control/rate-limit'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
+import { createAccountTracker, type AccountTracker } from '../account/account'
 import type { OpenPath, RevealPath, WriteClipboard } from '../files/files'
 import type { NotifyReply } from '../notifications/notifications'
 import { getSettings } from '../db/repositories/settings'
@@ -113,6 +114,8 @@ export interface RegisteredBridge {
    * of the switch or the port; closed when the app quits.
    */
   readonly endpoint: ControlEndpoint
+  /** The account the tasks run on and its usage warning, whose timer ends when the app quits. */
+  readonly account: AccountTracker
 }
 
 /** Every task, in every workspace: what the event log and the plugin feed know of them to begin with. */
@@ -164,6 +167,8 @@ export function registerBridge({
   const questions = createQuestionBroker({ db, emit }, notifyReply)
   // The permission requests the ask mode's tool calls wait on, notified as questions are.
   const permissions = createPermissionBroker({ db, emit }, notifyReply)
+  // What the sessions say of the account and its usage limits, for Settings › General and the usage note.
+  const account = createAccountTracker({ db, emit, log: log.scoped(LogScope.Runner) })
   const runner = createAgentRunner({
     db,
     emit,
@@ -172,6 +177,7 @@ export function registerBridge({
     questions,
     permissions,
     isOnline,
+    account,
     log: log.scoped(LogScope.Runner),
     // Each session gets its own Glade tools, built for its task, with the upkeep Settings has on as it starts, and,
     // while agents may control Glade, the control tools, calling as its task.
@@ -232,6 +238,7 @@ export function registerBridge({
       plugins,
       pluginViews,
       endpoint,
+      account,
       log,
     }),
     REQUEST_SCHEMAS,
@@ -244,5 +251,5 @@ export function registerBridge({
     }
     return dispatch(command, request)
   })
-  return { runner, emit, terminals, plugins, pluginViews, control, endpoint }
+  return { runner, emit, terminals, plugins, pluginViews, control, endpoint, account }
 }

@@ -26,6 +26,7 @@ import type { Plugins } from '../plugins/plugins'
 import { PluginStatus } from '../../shared/plugins'
 import { createTerminals } from '../terminal/terminals'
 import { createControlEndpoint, type ControlEndpoint } from '../control/endpoint'
+import { createAccountTracker } from '../account/account'
 import { createRateLimiter } from '../control/rate-limit'
 import { createControl } from '../control/control'
 import { createHandlers, type Handlers } from './handlers'
@@ -97,6 +98,7 @@ beforeEach(() => {
     terminals,
     ...pluginsWithViews(),
     endpoint: endpointOf(),
+    account: createAccountTracker({ db: database.db, emit }),
   })
 })
 
@@ -155,6 +157,7 @@ describe('menu.update and window.close', () => {
       terminals: createTerminals({ db: database.db, emit, ...fakeTerminalOptions() }),
       ...pluginsWithViews(),
       endpoint: endpointOf(),
+      account: createAccountTracker({ db: database.db, emit }),
     })
 
     expect(await withApp[CommandName.MenuUpdate](EMPTY_MENU_STATE)).toBeNull()
@@ -459,6 +462,7 @@ describe('log.rendererError', () => {
       terminals: createTerminals({ db: database.db, emit, ...fakeTerminalOptions(spawner) }),
       ...pluginsWithViews(),
       endpoint: endpointOf(),
+      account: createAccountTracker({ db: database.db, emit }),
       log: log.logger,
     })
     const error = {

@@ -230,6 +230,7 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
+      case EventType.AccountChanged:
         return [event.type]
     }
   })
@@ -3086,6 +3087,7 @@ describe('several tasks at once', () => {
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
+      case EventType.AccountChanged:
         return null
     }
   }
@@ -3129,6 +3131,7 @@ describe('several tasks at once', () => {
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
+      case EventType.AccountChanged:
         return [event.type]
     }
   }
