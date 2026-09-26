@@ -185,6 +185,8 @@ export function taskPanel(page: Page) {
     todoProgress: panel.getByRole('progressbar', { name: 'Todos done' }),
     /** The Todos tab's items, top to bottom, each read as its state then its text (`Doing: Copy the files…`). */
     todos: panel.getByRole('list', { name: 'Todos' }).getByRole('listitem'),
+    /** A done todo's finish time (`4m ago`), with the exact time as its tooltip. */
+    todoFinished: (item: Locator) => item.locator('time'),
   }
 }
 
