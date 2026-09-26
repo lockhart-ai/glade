@@ -211,6 +211,7 @@ describe('a turn', () => {
       toolUseId: 'toolu_09',
       sdkTaskId: 'b7f3',
       taskType: null,
+      isBackgrounded: false,
     })
     expect(only('subagent stop requested').fields).toEqual({
       taskId: task.id,

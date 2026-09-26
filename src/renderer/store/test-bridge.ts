@@ -812,6 +812,7 @@ export function sampleWatcher(id: string, taskId: string, overrides: Partial<Wat
     taskId,
     kind: WatcherKind.Monitor,
     toolUseId: `toolu-${id}`,
+    parentToolUseId: null,
     label: 'CI checks on PR #42',
     detail: 'gh pr checks 42 --watch',
     schedule: null,

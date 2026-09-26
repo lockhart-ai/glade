@@ -84,6 +84,10 @@ outside, ask the supervisor.
 - Save every PNG, GIF and MP4 to `out/pr-media/pr-<N>/` in your worktree (gitignored) and list their absolute paths in
   your report. Never commit them, and never write the `Screenshots:` or `Recordings:` sections of the PR body: the
   supervisor publishes them. When you edit a PR body yourself, fetch it first and change only `Because`/`This commit`.
+- **Name a before/after pair `before-<what>.png` / `after-<what>.png`**, with the same `<what>` for both (e.g.
+  `before-empty-state.png` / `after-empty-state.png`); the publish step tables them side by side under Before | After.
+  Name every other screenshot and recording descriptively (`empty-state.png`, not `screenshot-1.png`): the publish
+  step captions it with that name.
 
 ## Supervisor
 

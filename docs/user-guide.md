@@ -266,13 +266,18 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   shows a one-line summary of what it's doing now under its name (refreshed about every 30 seconds; hover it for the
   whole line), then its latest tool call or the last thing it said; a finished one shows what it came to.
   Click one to open its log; right-click a running one to stop it. A subagent's own tool calls live here, not in Tool
-  calls. The task's row in the sidebar counts the running ones on its third line.
-- **Watchers:** what the agent left running or scheduled to wake itself later: a watch on a command's output (a PR's
-  CI, a deploy's log, whatever script it wrote), a command in the background, a check-back at a set time, or a
-  recurring job. Each row says what it runs, whether it's running, due, or ended and how, what it last reported, and how
-  many times it woke the agent. **Stop** ends a live one. The count on the tab, and an eye with a count on the third
-  line of the task's row in the task list, are the live ones, so a task waiting on you, or done, that still watches
-  something shows it. A relaunch ends what was running (a scheduled job comes back when you next message the task).
+  calls, and so does what it left running in the background: an eye with a count on its row while any of it is live,
+  and its rows, each with **Stop**, under its log. That work runs on after the subagent finishes, until it ends;
+  stopping the subagent ends it too ("Ended with its subagent."). The task's row in the sidebar counts the running
+  subagents on its third line.
+- **Watchers:** what the task's own agent left running or scheduled to wake itself later: a watch on a command's output
+  (a PR's CI, a deploy's log, whatever script it wrote), a command in the background, a check-back at a set time, or a
+  recurring job. A command the agent waits on isn't one, however long it runs; it's a tool call. Nor is what a subagent
+  started: that's under the subagent in Subagents, and isn't counted here. Each row says what it runs, whether it's
+  running, due, or ended and how, what it last reported, and how many times it woke the agent. **Stop** ends a live
+  one. The count on the tab, and an eye with a count on the third line of the task's row in the task list, are the
+  live ones, so a task waiting on you, or done, that still watches something shows it. A relaunch ends what was
+  running (a scheduled job comes back when you next message the task).
 - **Changes:** the commits the task made, newest first. See below.
 
 ### Changes

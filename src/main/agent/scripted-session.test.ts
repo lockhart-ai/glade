@@ -353,6 +353,7 @@ describe('ScriptedSession', () => {
         toolUseId: `${prefix}agent`,
         background: false,
         taskType: 'local_agent',
+        isBackgrounded: false,
         description: 'Look',
       },
       {
@@ -624,8 +625,11 @@ describe('ScriptedSession', () => {
 
       expect(decide).not.toHaveBeenCalled()
       expect(played.raw[0]).toMatchObject({ permissionMode: 'bypassPermissions' })
-      expect(played.events.slice(1, 3)).toEqual([
+      expect(played.events.slice(1, 5)).toEqual([
         expect.objectContaining({ kind: AgentEventKind.ToolCallStarted, name: 'Bash', input: TEST }),
+        // It ran in the foreground, as a task of the SDK's own.
+        expect.objectContaining({ kind: AgentEventKind.SubagentStarted, isBackgrounded: false }),
+        expect.objectContaining({ kind: AgentEventKind.TaskFinished, summary: 'Run the test suite' }),
         expect.objectContaining({ kind: AgentEventKind.ToolResult, output: 'All passed.', isError: false }),
       ])
     })
@@ -694,6 +698,8 @@ describe('ScriptedSession', () => {
       await flush()
 
       expect(played.events.slice(2)).toEqual([
+        expect.objectContaining({ kind: AgentEventKind.SubagentStarted, isBackgrounded: false }),
+        expect.objectContaining({ kind: AgentEventKind.TaskFinished, summary: 'Run the test suite' }),
         expect.objectContaining({ kind: AgentEventKind.ToolResult, output: 'All passed.', isError: false }),
         expect.objectContaining({ kind: AgentEventKind.Text, text: 'Done.' }),
         expect.objectContaining({ kind: AgentEventKind.TurnFinished, result: 'Done.' }),
@@ -1556,6 +1562,9 @@ describe('ScriptedSession', () => {
       expect(kinds(afterResult)).toEqual([
         'assistant',
         'task_progress',
+        // Its Bash call runs in the foreground, as a task the subagent owns.
+        'task_started',
+        'task_notification',
         'user',
         'task_updated',
         'task_notification',
@@ -1571,7 +1580,9 @@ describe('ScriptedSession', () => {
           last_tool_name: 'Bash',
         }),
       ])
-      expect(played.raw.find((message) => message.subtype === 'task_notification')).toMatchObject({
+      expect(
+        played.raw.find((message) => message.subtype === 'task_notification' && message.tool_use_id === agentId),
+      ).toMatchObject({
         tool_use_id: agentId,
         status: 'completed',
         summary: 'An N+1 in load_cart.',
@@ -1662,10 +1673,15 @@ describe('ScriptedSession', () => {
       expect(played.raw.filter((message) => message.subtype === 'task_notification')).toEqual([])
 
       await vi.advanceTimersByTimeAsync(100)
-      expect(played.raw.find((message) => message.subtype === 'task_notification')).toMatchObject({
-        status: 'completed',
-        summary: 'An N+1 in load_cart.',
-      })
+      // Its foreground command's task ends, then the subagent.
+      expect(
+        played.raw
+          .filter((message) => message.subtype === 'task_notification')
+          .map(({ status, summary }) => ({ status, summary })),
+      ).toEqual([
+        { status: 'completed', summary: '' },
+        { status: 'completed', summary: 'An N+1 in load_cart.' },
+      ])
       expect(played.events).toContainEqual(expect.objectContaining({ output: '38 queries' }))
       expect(played.raw.at(-1)).toMatchObject({ result: 'The profile is back.' })
     })

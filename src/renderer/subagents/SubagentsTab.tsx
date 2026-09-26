@@ -1,6 +1,7 @@
+import { faEye } from '@fortawesome/free-regular-svg-icons'
 import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons'
 import { useMemo, useState } from 'react'
-import type { EpochMs, ToolEvent } from '../../shared/domain'
+import type { EpochMs, ToolEvent, Watcher } from '../../shared/domain'
 import { classNames } from '../components/classNames'
 import { Collapse, Dot, Icon, IconSize } from '../components'
 import {
@@ -13,6 +14,7 @@ import {
 import { useGladeStore } from '../store/react'
 import { useNow } from '../task-list/useNow'
 import { SubagentRows, ToolCallMenu } from '../tool-log'
+import { isLive, orderWatchers, subagentWatchers, WatcherRow, watchingLabel } from '../watchers'
 import {
   anyRunning,
   deriveSubagents,
@@ -28,8 +30,10 @@ import {
 } from './subagentsModel'
 import styles from './SubagentsTab.module.css'
 
-/** How often a running subagent's elapsed time ticks. */
+/** How often a running subagent's elapsed time ticks, and its background work's. */
 export const ELAPSED_REFRESH_MS = 1000
+
+const NO_WATCHERS: readonly Watcher[] = []
 
 /** The line under a subagent's name: its latest tool call, the last thing it said (quoted), or what it came to. */
 function Latest({ line }: { readonly line: LatestLine }): React.JSX.Element {
@@ -58,21 +62,36 @@ function Latest({ line }: { readonly line: LatestLine }): React.JSX.Element {
 
 interface RowProps {
   readonly subagent: Subagent
+  /** What it left running or scheduled (`subagentWatchers`), live ones first. */
+  readonly watchers: readonly Watcher[]
   readonly now: EpochMs
   readonly rootPath: string | undefined
   readonly expanded: boolean
   readonly onToggle: () => void
+  /** Stops one of its watchers. */
+  readonly onStopWatcher: (id: string) => void
   /** What opens its context menu from its header. */
   readonly menuTarget: ContextMenuTargetProps
 }
 
 /**
- * One subagent: its dot, name, status, what it's doing and how long it has run. While it runs, the SDK's summary of what
- * it's doing now sits under its name, on one line (the whole of it in its tooltip). Click it to open its log below it
- * (in place of the latest line, which the log ends with); click again to close it.
+ * One subagent: its dot, name, status, what it's doing and how long it has run, and an eye with a count while it has
+ * something running in the background. While it runs, the SDK's summary of what it's doing now sits under its name, on
+ * one line (the whole of it in its tooltip). Click it to open its log below it (in place of the latest line, which the
+ * log ends with), and under that its background work, as the Watchers tab shows the task's own; click again to close it.
  */
-function SubagentRow({ subagent, now, rootPath, expanded, onToggle, menuTarget }: RowProps): React.JSX.Element {
+function SubagentRow({
+  subagent,
+  watchers,
+  now,
+  rootPath,
+  expanded,
+  onToggle,
+  onStopWatcher,
+  menuTarget,
+}: RowProps): React.JSX.Element {
   const { name, status, summary, latest, log } = subagent
+  const watching = watchers.filter(isLive).length
   return (
     <div
       role="group"
@@ -84,6 +103,17 @@ function SubagentRow({ subagent, now, rootPath, expanded, onToggle, menuTarget }
         <span className={styles.titleLine}>
           <Dot state={statusIndicator(status)} />
           <span className={styles.name}>{name}</span>
+          {watching > 0 && (
+            <span
+              className={styles.watching}
+              role="img"
+              aria-label={watchingLabel(watching)}
+              title={watchingLabel(watching)}
+            >
+              <Icon icon={faEye} size={IconSize.Small} />
+              {watching}
+            </span>
+          )}
           <span className={styles.status}>{statusLabel(status)}</span>
           <span className={styles.chevron}>
             <Icon icon={expanded ? faChevronDown : faChevronRight} size={IconSize.Small} />
@@ -105,6 +135,25 @@ function SubagentRow({ subagent, now, rootPath, expanded, onToggle, menuTarget }
             <SubagentRows rows={log} rootPath={rootPath} compact />
           )}
         </div>
+        {watchers.length > 0 && (
+          <div role="group" aria-label={`${name} background work`} className={styles.background}>
+            <p className={styles.backgroundLabel}>Background work</p>
+            {watchers.map((watcher) => (
+              <WatcherRow
+                key={watcher.id}
+                watcher={watcher}
+                now={now}
+                onStop={
+                  isLive(watcher)
+                    ? () => {
+                        onStopWatcher(watcher.id)
+                      }
+                    : null
+                }
+              />
+            ))}
+          </div>
+        )}
       </Collapse>
     </div>
   )
@@ -113,6 +162,8 @@ function SubagentRow({ subagent, now, rootPath, expanded, onToggle, menuTarget }
 export interface SubagentsTabProps {
   readonly taskId: string
   readonly events: readonly ToolEvent[]
+  /** The task's watchers: each subagent shows the ones it started. None by default. */
+  readonly watchers?: readonly Watcher[] | undefined
   /** The workspace root, so file arguments show relative to it. */
   readonly rootPath?: string | undefined
 }
@@ -121,15 +172,23 @@ export interface SubagentsTabProps {
  * The Subagents tab (docs/design/html/11-subagents.html): a tally of the task's subagents by status, then a row for
  * each, running ones first. A running subagent's elapsed time ticks. Rows open and close one at a time or several at
  * once; which are open is kept for as long as the tab shows the task. A row's context menu opens its log or copies it,
- * and stops it while it runs; the tool calls in an open log have their own.
+ * and stops it while it runs; the tool calls in an open log have their own. What a subagent left running in the
+ * background is under its log, with Stop while it's live.
  */
-export function SubagentsTab({ taskId, events, rootPath }: SubagentsTabProps): React.JSX.Element {
+export function SubagentsTab({
+  taskId,
+  events,
+  rootPath,
+  watchers = NO_WATCHERS,
+}: SubagentsTabProps): React.JSX.Element {
   const subagents = useMemo(() => deriveSubagents(events, rootPath), [events, rootPath])
-  const now = useNow(anyRunning(subagents) ? ELAPSED_REFRESH_MS : null)
+  const ordered = useMemo(() => orderWatchers(watchers), [watchers])
+  const now = useNow(anyRunning(subagents) || ordered.some(isLive) ? ELAPSED_REFRESH_MS : null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const menu = useContextMenu<string>()
   const { run, copy } = useMenuCommands()
   const stopSubagent = useGladeStore((state) => state.stopSubagent)
+  const stopWatcher = useGladeStore((state) => state.stopWatcher)
 
   if (subagents.length === 0) return <p className={styles.empty}>No subagents yet.</p>
 
@@ -178,11 +237,15 @@ export function SubagentsTab({ taskId, events, rootPath }: SubagentsTabProps): R
           <SubagentRow
             key={subagent.call.id}
             subagent={subagent}
+            watchers={subagentWatchers(ordered, subagent.call.toolUseId)}
             now={now}
             rootPath={rootPath}
             expanded={expanded.has(subagent.call.id)}
             onToggle={() => {
               toggle(subagent.call.id)
+            }}
+            onStopWatcher={(id) => {
+              run(() => stopWatcher(taskId, id))
             }}
             menuTarget={menu.targetProps(subagent.call.id)}
           />

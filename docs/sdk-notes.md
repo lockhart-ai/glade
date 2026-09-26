@@ -408,6 +408,68 @@ the start.
   `Agent` call (`run_in_background: false`). That turn really does wait for its subagent. Background subagents never
   kept a turn open.
 
+### Background work inside a subagent [verified]
+
+Probed on SDK 0.3.281 with Haiku (#291), in a throwaway folder: the agent ran `sleep 3` in the foreground, then started
+one background subagent that ran, with `Bash`: a 6-second command in the background, a 4-second one in the foreground,
+a 40-second one in the background, an 8-second one in the foreground, and then replied and ended without waiting.
+Timings are seconds from the first message:
+
+```
+ 4.7  assistant  tool_use Bash "sleep 3; echo top-fg"                           ← the agent's own, in the foreground
+ 7.9  system/task_started  { task_id: "bnaq…", tool_use_id: <that call>, task_type: "local_bash", is_backgrounded: false }
+ 8.0  system/task_notification  { task_id: "bnaq…", status: "completed", summary: "top fg" }
+ 8.0  user  tool_result "top-fg"
+11.8  … the Agent call, run_in_background: true, and its task_started (local_agent) and "launched" result
+12.8  result/success                                                             ← the agent's turn ends
+13.8  assistant  { parent_tool_use_id: <Agent call> } tool_use Bash { run_in_background: true, description: "bg alpha" }
+13.8  system/task_started  { task_id: "bfss…", tool_use_id: <that call>, task_type: "local_bash", is_backgrounded: true,
+                             owned_by_subagent: true }
+13.8  user  { parent_tool_use_id: <Agent call> } tool_result "Command running in background with ID: bfss…"  (no tool_use_result)
+15.2  assistant  { parent_tool_use_id: <Agent call> } tool_use Bash "sleep 4; echo fg-beta"
+18.3  system/task_started  { task_id: "b7cf…", task_type: "local_bash", is_backgrounded: false, owned_by_subagent: true }
+19.3  system/task_notification  { task_id: "b7cf…", status: "completed", summary: "fg beta" }
+19.3  user  { parent_tool_use_id: <Agent call> } tool_result "fg-beta"
+19.9  system/task_updated  { task_id: "bfss…", patch: { status: "completed" } }
+19.9  system/task_notification  { task_id: "bfss…", tool_use_id: <bg alpha>, status: "completed",
+                                  summary: "Background command \"bg alpha\" completed (exit code 0)" }
+20.6  … "bg gamma" (sleep 40) starts in the background the same way; "fg wait" (sleep 8) runs in the foreground
+31.7  system/task_notification  { task_id: <subagent>, status: "completed", summary: "sub done" }   ← the subagent ends
+31.8  a turn of the agent's own (the subagent's end): "…This agent stopped with background work of its own still
+      running. It may resume on its own when that work completes…"
+60.7  system/task_notification  { task_id: <bg gamma>, tool_use_id: <bg gamma>, status: "completed", … }
+60.7  system/task_started  { task_id: <subagent>, tool_use_id: <Agent call>, task_type: "local_agent", is_backgrounded: true }
+62.7  assistant  { parent_tool_use_id: <Agent call> } [text] "Acknowledged. The background gamma task has completed…"
+62.7  system/task_notification  { task_id: <subagent>, status: "completed", … }   ← it ends again, and wakes the agent
+```
+
+- **A foreground `Bash` call gets a task too**, once it has run about three seconds: `task_started` with
+  `is_backgrounded: false`, then its `task_notification` just before the call's result. It's the call itself, which the
+  turn waits on, not something left running. The agent's own calls do this as well as a subagent's.
+- **A subagent's background command is reported to the task's session**, as the agent's own is: `task_started`
+  (`is_backgrounded: true`, `owned_by_subagent: true`, and the call's `tool_use_id`, whose `tool_use` carries the
+  subagent's `parent_tool_use_id`), and its `task_updated` and `task_notification` when it ends. Its call's result has
+  no `tool_use_result`. Its end wakes the subagent, not the agent: no `<task-notification>` prompt of the agent's.
+- **It outlives its subagent.** A subagent that finishes with work still running is only paused: the SDK keeps the work
+  running, reports its end as above, then starts the subagent again (a second `task_started` for its `Agent` call),
+  which ends again with a second `task_notification`.
+- A foreground call that runs past its timeout is moved to the background (from the SDK's types and binary, not seen):
+  `task_updated` with `patch.is_backgrounded: true`, and a result saying `Command did not complete within its …
+  timeout and was moved to the background (ID: …)`. From then on it's a background command.
+
+**Implications for Glade (#291)**
+
+- A monitor or command belongs to whoever's call started it: the task's own agent, or the subagent whose `Agent` call is
+  its call's `parent_tool_use_id`. The Watchers tab and every watcher count show only the task's own; a subagent's are
+  under it in the Subagents tab.
+- Only a backgrounded task (`is_backgrounded`, or a call with `run_in_background`) is a watcher. A foreground `Bash`
+  call's task is a tool call; it becomes a watcher only if the SDK moves it to the background. Before #291 every
+  foreground call over three seconds became a command watcher, and the ones whose `task_notification` never came stayed
+  "running"; migration 36 deletes those rows.
+- A subagent's watchers end as the task's own do, by their `task_notification`, even after the subagent has finished.
+  A subagent that's stopped takes its live monitors and commands, and its nested subagents', with it: they end as
+  "Ended with its subagent.", and the runner stops their tasks (not probed whether the SDK stops them itself).
+
 ### Compaction [verified]
 
 This is what a manual `/compact` produced:

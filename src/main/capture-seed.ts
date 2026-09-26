@@ -550,6 +550,7 @@ function seedWatcher(db: Database, taskId: string, watcher: SeedWatcher, at: Epo
       taskId,
       kind,
       toolUseId,
+      parentToolUseId: null,
       sdkId: null,
       label,
       detail,

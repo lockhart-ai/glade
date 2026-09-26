@@ -108,6 +108,7 @@ function fillTask(db: Database, task: Task): void {
     taskId,
     kind: WatcherKind.Monitor,
     toolUseId: `monitor-${taskId}`,
+    parentToolUseId: null,
     sdkId: `b-${taskId}`,
     label: 'CI checks',
     detail: 'gh pr checks 42 --watch',

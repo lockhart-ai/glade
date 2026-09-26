@@ -118,7 +118,11 @@ export function TaskPanel(): React.JSX.Element | null {
       case PanelTab.Todos:
         return task !== undefined && <Todos taskId={task.id} list={todos} now={now} />
       case PanelTab.Subagents:
-        return task !== undefined && <SubagentsTab key={task.id} taskId={task.id} events={events} rootPath={rootPath} />
+        return (
+          task !== undefined && (
+            <SubagentsTab key={task.id} taskId={task.id} events={events} rootPath={rootPath} watchers={watchers} />
+          )
+        )
       case PanelTab.Files:
         return (
           task !== undefined &&

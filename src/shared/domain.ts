@@ -891,6 +891,11 @@ export interface Watcher {
   readonly kind: WatcherKind
   /** The tool call that started it. */
   readonly toolUseId: string
+  /**
+   * The `Agent` call of the subagent whose call started it, which it belongs to (the Subagents tab shows it under that
+   * subagent); null for the task's own (the Watchers tab, and its counts).
+   */
+  readonly parentToolUseId: string | null
   /** What the agent called it: the call's description, a wakeup's reason, or a cron job's prompt. */
   readonly label: string
   /** What it runs: the command, or the prompt it wakes the agent with. */
