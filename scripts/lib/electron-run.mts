@@ -4,8 +4,8 @@
 // exited and left the Electron behind. Here the child is SIGKILLed when it runs out of time or makes no progress for
 // too long, or when the tool itself is interrupted, along with every helper process it started (it runs in its own
 // process group, all of which is killed once it's done), and each run gets its own throwaway data folder, so a hung
-// instance can't hold locks the next one needs. Plain functions over a child process, so they can be unit tested with
-// a stub child instead of Electron.
+// instance can't hold locks the next one needs. The folder is removed once that whole group is gone. Plain functions
+// over a child process, so they can be unit tested with a stub child instead of Electron.
 import { spawn } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -77,19 +77,90 @@ export type ElectronRunResult =
 /**
  * Runs the child to the end with a throwaway data folder, passing its output through (all but its step lines), and
  * SIGKILLs it if it runs past `timeoutMs`, goes `stall.ms` without a progress line, or the tool is interrupted. The
- * data folder is removed once the child has exited, however it ended.
+ * data folder is removed once the child and every helper it started have exited, however it ended.
  */
 export async function runElectron(options: ElectronRunOptions): Promise<ElectronRunResult> {
   const io = options.io ?? { stdout: process.stdout, stderr: process.stderr, interrupts: process }
   const userData = mkdtempSync(join(tmpdir(), `glade-${options.tool}-`))
+  let group: number | undefined
   try {
-    return await superviseChild(options, io, userData)
+    const supervised = await superviseChild(options, io, userData)
+    group = supervised.group
+    return supervised.result
   } finally {
-    rmSync(userData, { recursive: true, force: true })
+    await removeDataFolder(userData, group)
   }
 }
 
-function superviseChild(options: ElectronRunOptions, io: RunIo, userData: string): Promise<ElectronRunResult> {
+/** How long the run waits for the child's killed process group to be gone before it removes the data folder anyway. */
+export const GROUP_EXIT_MS = 2000
+
+/** How often the run looks for the child's process group while it waits for it to be gone. */
+export const GROUP_POLL_MS = 20
+
+/**
+ * How many more times removing the data folder is tried, `RM_RETRY_MS` apart, when it fails because something was
+ * still writing into it (`ENOTEMPTY`, `EBUSY`, `EPERM`).
+ */
+export const RM_RETRIES = 10
+export const RM_RETRY_MS = 50
+
+/**
+ * Removes the run's data folder. The child's process group has been SIGKILLed by now, but its helpers (Electron's GPU
+ * and renderer processes) can still be dying, and one can write a cache file into the folder as `rm` empties it, so
+ * this waits for the group to be gone first, and retries the removal if it still fails.
+ */
+async function removeDataFolder(userData: string, group: number | undefined): Promise<void> {
+  if (group !== undefined) {
+    await waitUntilGone({
+      alive: () => groupAlive(group),
+      timeoutMs: GROUP_EXIT_MS,
+      intervalMs: GROUP_POLL_MS,
+    })
+  }
+  rmSync(userData, { recursive: true, force: true, maxRetries: RM_RETRIES, retryDelay: RM_RETRY_MS })
+}
+
+/**
+ * Whether any process is still running in a process group. On macOS one that's dead but not yet reaped (a zombie,
+ * which can't write anything) doesn't count: signalling a group of only those fails.
+ */
+export function groupAlive(group: number): boolean {
+  try {
+    process.kill(-group, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** What `waitUntilGone` waits on. */
+export interface GoneWatch {
+  /** Whether what it waits on is still there. */
+  readonly alive: () => boolean
+  /** How long to wait at most. */
+  readonly timeoutMs: number
+  /** How long to wait between looks. */
+  readonly intervalMs: number
+}
+
+/** Waits until `alive` says it's gone, or `timeoutMs` has passed; whether it went. */
+export async function waitUntilGone(watch: GoneWatch): Promise<boolean> {
+  const deadline = Date.now() + watch.timeoutMs
+  while (watch.alive()) {
+    if (Date.now() >= deadline) return false
+    await new Promise((resolve) => setTimeout(resolve, watch.intervalMs))
+  }
+  return true
+}
+
+/** How `superviseChild` ended: the run's result, and the child's process group, if it was started. */
+interface Supervised {
+  readonly result: ElectronRunResult
+  readonly group: number | undefined
+}
+
+function superviseChild(options: ElectronRunOptions, io: RunIo, userData: string): Promise<Supervised> {
   return new Promise((resolve) => {
     const child = spawn(options.command, options.args, {
       cwd: options.cwd,
@@ -127,7 +198,8 @@ function superviseChild(options: ElectronRunOptions, io: RunIo, userData: string
       settled = true
       for (const timer of timers) clearTimeout(timer)
       for (const signal of INTERRUPTS) io.interrupts.off(signal, onInterrupt)
-      resolve(result)
+      // The child ran in a process group of its own, whose id is its pid.
+      resolve({ result, group: child.pid })
     }
     const finish = (): void => {
       // Only once the child has exited: its output closing first doesn't mean it's gone.
