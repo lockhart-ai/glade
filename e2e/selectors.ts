@@ -222,6 +222,28 @@ export function watchersTab(page: Page) {
   }
 }
 
+/**
+ * The right panel's Changes tab: a row per commit the task made, newest first, each opening to the files it changed.
+ */
+export function changesTab(page: Page) {
+  const panel = regions(page).taskPanel.getByRole('tabpanel')
+  /** A commit's row, by its message; `data-hash` is its full hash. */
+  const row = (subject: string) => panel.getByRole('group', { name: subject, exact: true })
+  return {
+    panel,
+    /** Every commit's row, top to bottom. */
+    rows: panel.locator('[data-hash][role="group"]'),
+    row,
+    /** A row's header: its hash, message, lines, branch, when and subagent. Click it to open its files. */
+    header: (subject: string) => row(subject).getByRole('button').first(),
+    /** A commit's files, while it's open, by its short hash. */
+    files: (hash: string) => panel.getByRole('list', { name: `Files in ${hash}` }),
+    /** A file in an open commit's list, by its path (a renamed one's, from and to). */
+    file: (subject: string, path: string | RegExp) =>
+      row(subject).getByRole('listitem').getByRole('button', { name: path }),
+  }
+}
+
 /** A task row's watcher mark: an eye and how many live watchers its agent has, named "Watching 2 things". */
 export function watchingMark(row: Locator): Locator {
   return row.getByRole('img', { name: /^Watching/ })

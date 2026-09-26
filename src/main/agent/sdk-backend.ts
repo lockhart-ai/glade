@@ -238,13 +238,29 @@ function sessionJobs(input: unknown, log: Logger): SessionJob[] {
   })
 }
 
+const bashHookInput = z.looseObject({
+  tool_use_id: z.string(),
+  cwd: z.string(),
+  tool_input: z.looseObject({ command: z.string() }),
+})
+
 /**
- * The SDK hooks that tell `hooks` what the session does (`docs/sdk-notes.md` §13): each prompt that's about to start a
- * turn (`UserPromptSubmit`), which it can turn away, the jobs the session has scheduled at the end of each turn
- * (`Stop`), and the summary each compaction writes (`PostCompact`, §5). A hook that fails lets the prompt through, and
- * tells nothing.
+ * The longest a `Bash` call waits for the host's `onBashStarting` before it runs anyway: the host reads git then, which
+ * is quick, but must never hold the agent up for long.
  */
-export function sdkHooks(hooks: SessionHooks, log: Logger = SILENT_LOGGER): NonNullable<Options['hooks']> {
+export const BASH_HOOK_TIMEOUT_MS = 5_000
+
+/**
+ * The SDK hooks that tell `hooks` what the session does (`docs/sdk-notes.md` §13 and §14): each prompt that's about to
+ * start a turn (`UserPromptSubmit`), which it can turn away, the jobs the session has scheduled at the end of each turn
+ * (`Stop`), the summary each compaction writes (`PostCompact`, §5), and each `Bash` call about to run (`PreToolUse`),
+ * which waits for the host a while at most. A hook that fails lets the prompt or call through, and tells nothing.
+ */
+export function sdkHooks(
+  hooks: SessionHooks,
+  log: Logger = SILENT_LOGGER,
+  bashTimeoutMs: number = BASH_HOOK_TIMEOUT_MS,
+): NonNullable<Options['hooks']> {
   const onPrompt: HookCallback = (input) => {
     const parsed = promptHookInput.safeParse(input)
     if (!parsed.success) return Promise.resolve({})
@@ -279,10 +295,34 @@ export function sdkHooks(hooks: SessionHooks, log: Logger = SILENT_LOGGER): NonN
     }
     return Promise.resolve({})
   }
+  const { onBashStarting } = hooks
+  const onBash: HookCallback = async (input) => {
+    const parsed = bashHookInput.safeParse(input)
+    if (!parsed.success || onBashStarting === undefined) return {}
+    const { tool_use_id: toolUseId, cwd, tool_input: toolInput } = parsed.data
+    let timer: NodeJS.Timeout | undefined
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => {
+        resolve('timeout')
+      }, bashTimeoutMs)
+    })
+    try {
+      const done = onBashStarting({ toolUseId, cwd, command: toolInput.command }).then(() => 'done' as const)
+      if ((await Promise.race([done, timeout])) === 'timeout') {
+        log.warn('ran a Bash call without waiting any longer for its hook', { toolUseId })
+      }
+    } catch (error) {
+      log.error('failed to note a Bash call', { error })
+    } finally {
+      clearTimeout(timer)
+    }
+    return {}
+  }
   return {
     UserPromptSubmit: [{ hooks: [onPrompt] }],
     Stop: [{ hooks: [onStop] }],
     PostCompact: [{ hooks: [onPostCompact] }],
+    ...(onBashStarting === undefined ? {} : { PreToolUse: [{ matcher: 'Bash', hooks: [onBash] }] }),
   }
 }
 

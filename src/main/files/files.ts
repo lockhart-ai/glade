@@ -118,21 +118,28 @@ export async function readWorkspaceFile(rootPath: string, path: string): Promise
     const { size } = info
     const buffer = Buffer.alloc(Math.min(size, MAX_FILE_BYTES))
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
-    const bytes = buffer.subarray(0, bytesRead)
-    if (bytes.includes(0)) return { kind: FileContentKind.Binary, size }
-    let text = new TextDecoder().decode(bytes)
-    let truncated = size > bytesRead
-    // Cut short, the last line is likely partial (and may end mid-character): drop it, unless it's the only one.
-    if (truncated && text.includes('\n')) text = text.slice(0, text.lastIndexOf('\n') + 1)
-    const lines = firstLines(text)
-    if (lines !== null) {
-      text = lines
-      truncated = true
-    }
-    return { kind: FileContentKind.Text, text, truncated, size }
+    return fileContentOf(buffer.subarray(0, bytesRead), size)
   } finally {
     await handle.close()
   }
+}
+
+/**
+ * A file as the viewer shows it, from its first bytes (at most `MAX_FILE_BYTES`) and its whole size: its text, cut to
+ * its first lines when it's larger than the viewer shows; binary when it has a NUL byte.
+ */
+export function fileContentOf(bytes: Buffer, size: number): FileContent {
+  if (bytes.includes(0)) return { kind: FileContentKind.Binary, size }
+  let text = new TextDecoder().decode(bytes)
+  let truncated = size > bytes.length
+  // Cut short, the last line is likely partial (and may end mid-character): drop it, unless it's the only one.
+  if (truncated && text.includes('\n')) text = text.slice(0, text.lastIndexOf('\n') + 1)
+  const lines = firstLines(text)
+  if (lines !== null) {
+    text = lines
+    truncated = true
+  }
+  return { kind: FileContentKind.Text, text, truncated, size }
 }
 
 /** The root of a task's workspace. Throws a `CommandFailure` (`not_found`) when there's no such task. */
