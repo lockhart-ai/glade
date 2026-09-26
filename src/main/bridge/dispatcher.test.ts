@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
+import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
 import {
   FileContentKind,
   FileInfoKind,
@@ -43,6 +44,12 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.MenuUpdate]: () => null,
     [CommandName.WindowClose]: () => null,
     [CommandName.LogRendererError]: () => null,
+    [CommandName.MenuBarGet]: () => ({ snapshot: EMPTY_MENU_BAR_SNAPSHOT }),
+    [CommandName.MenuBarOpenTask]: () => null,
+    [CommandName.MenuBarOpenGlade]: () => null,
+    [CommandName.MenuBarHide]: () => null,
+    [CommandName.MenuBarQuit]: () => null,
+    [CommandName.MenuBarFit]: () => null,
     [CommandName.DialogChooseFolder]: () => ({ path: null }),
     [CommandName.TasksList]: () => ({ tasks: [] }),
     [CommandName.TasksListActive]: () => ({ tasks: [], done: { all: 0, unread: 0 } }),

@@ -14,14 +14,17 @@ import {
   E2E_AGENT_ENVS_GLOBAL,
   E2E_CHOSEN_FOLDER_ENV,
   E2E_ENV,
+  E2E_MENU_BAR_GLOBAL,
   E2E_NOTIFIER_GLOBAL,
   E2E_WINDOW_SIZE,
   type E2eAgentEnvs,
+  type E2eMenuBar,
   type E2eSpec,
 } from './e2e'
 import { openAppDatabase } from './db/database'
 import { MIGRATIONS } from './db/migrations'
 import { appendMessage } from './db/repositories/messages'
+import { updateSettings } from './db/repositories/settings'
 import { updateTask } from './db/repositories/tasks'
 import { getUiState, setUiState } from './db/repositories/ui-state'
 import { sampleTask, sampleWorkspace } from './db/repositories/test-database'
@@ -56,7 +59,18 @@ const electron = vi.hoisted(() => {
     readonly options: unknown
     readonly handlers = new Map<string, Handler>()
     readonly onceHandlers = new Map<string, Handler>()
+    // The window's own events (`blur`), apart from its page's.
+    readonly windowHandlers = new Map<string, Handler>()
     readonly show = vi.fn()
+    readonly hide = vi.fn()
+    readonly setBounds = vi.fn()
+    readonly setVisibleOnAllWorkspaces = vi.fn()
+    readonly destroy = vi.fn(() => {
+      windows.splice(windows.indexOf(this), 1)
+    })
+    readonly on = vi.fn((event: string, handler: Handler) => {
+      this.windowHandlers.set(event, handler)
+    })
     readonly loadURL = vi.fn(() => Promise.resolve())
     readonly loadFile = vi.fn(() => Promise.resolve())
     readonly setContentSize = vi.fn()
@@ -155,11 +169,46 @@ const electron = vi.hoisted(() => {
     on: vi.fn(),
   }
 
+  // The menu bar icons made: each is Electron's `Tray`, recording what it's asked to show.
+  const trays: FakeTray[] = []
+  class FakeTray {
+    readonly listeners = new Map<string, Handler>()
+    readonly setToolTip = vi.fn()
+    readonly setImage = vi.fn()
+    readonly setTitle = vi.fn()
+    readonly getBounds = vi.fn(() => ({ x: 1480, y: 0, width: 32, height: 24 }))
+    readonly destroy = vi.fn()
+    constructor(readonly image: unknown) {
+      trays.push(this)
+    }
+    on(event: string, listener: Handler): this {
+      this.listeners.set(event, listener)
+      return this
+    }
+  }
+
   return {
     appHandlers,
     windows,
     captureScene,
+    trays,
+    FakeTray,
+    /** Whether the glyph's images are missing from the app, so each one read is empty. */
+    glyphImagesMissing: false,
+    screen: {
+      getDisplayMatching: vi.fn(() => ({ workArea: { x: 0, y: 25, width: 1512, height: 920 } })),
+    },
+    systemPreferences: {
+      getAnimationSettings: vi.fn(() => ({ prefersReducedMotion: false })),
+      subscribeWorkspaceNotification: vi.fn(),
+    },
     nativeImage: {
+      // The menu bar glyph's images, by path.
+      createFromPath: vi.fn((path: string) => ({
+        path,
+        setTemplateImage: vi.fn(),
+        isEmpty: () => electron.glyphImagesMissing,
+      })),
       createFromBitmap: vi.fn((_bitmap: Buffer, size: { width: number; height: number }) => ({
         getSize: () => size,
         resize: vi.fn(),
@@ -191,12 +240,14 @@ const electron = vi.hoisted(() => {
         return electron.app.userData
       }),
       getVersion: () => '0.0.0-sample',
+      getAppPath: () => '/Applications/Glade.app/Contents/Resources/app.asar',
       whenReady: vi.fn(() => Promise.resolve()),
       on: vi.fn((event: string, handler: Handler) => {
         appHandlers.set(event, handler)
       }),
       quit: vi.fn(),
       exit: vi.fn(),
+      focus: vi.fn(),
     },
     dialog: {
       showErrorBox: vi.fn(),
@@ -228,6 +279,9 @@ vi.mock('electron', () => ({
   shell: electron.shell,
   clipboard: electron.clipboard,
   Menu: electron.Menu,
+  Tray: electron.FakeTray,
+  screen: electron.screen,
+  systemPreferences: electron.systemPreferences,
 }))
 
 // The real agent backend, watched: a test mode must never make one.
@@ -380,7 +434,10 @@ beforeEach(() => {
   electron.appHandlers.clear()
   electron.windows.length = 0
   electron.notifications.length = 0
+  electron.trays.length = 0
+  electron.glyphImagesMissing = false
   Reflect.deleteProperty(globalThis, E2E_NOTIFIER_GLOBAL)
+  Reflect.deleteProperty(globalThis, E2E_MENU_BAR_GLOBAL)
   electron.app.isPackaged = false
   electron.app.userData = mkdtempSync(join(tmpdir(), 'glade-app-'))
   electron.app.logs = mkdtempSync(join(tmpdir(), 'glade-app-logs-'))
@@ -888,6 +945,7 @@ describe('startApp', () => {
     expect(createSdkBackend).toHaveBeenCalledExactlyOnceWith({
       env: expect.any(Promise) as unknown,
       log: expect.objectContaining({ info: expect.any(Function) as unknown }) as unknown,
+      version: '0.0.0-sample',
     })
     expect(resolveLoginEnv).toHaveBeenCalledExactlyOnceWith({
       shell: process.env.SHELL,
@@ -1419,6 +1477,14 @@ describe('startApp in capture mode', () => {
     expect(window.show).toHaveBeenCalledOnce()
     expect(window.webContents.capturePage).not.toHaveBeenCalled()
   })
+
+  it('never puts an icon in the menu bar', async () => {
+    askForCapture()
+    await startAndWaitUntilReady()
+    await waitForExit()
+    expect(electron.trays).toEqual([])
+    expect(Reflect.get(globalThis, E2E_MENU_BAR_GLOBAL)).toBeUndefined()
+  })
 })
 
 describe('startApp in e2e mode', () => {
@@ -1728,5 +1794,297 @@ describe('startApp in e2e mode', () => {
     const window = onlyWindow()
     window.onceHandlers.get('ready-to-show')?.()
     expect(window.show).toHaveBeenCalledOnce()
+  })
+})
+
+describe('startApp: Glade in the menu bar', () => {
+  /** The command handler, as a window's page (or the popover's) calls it. */
+  function commands(): Handler {
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+    if (handler === undefined) throw new Error('no command handler')
+    return handler
+  }
+
+  function onlyTray(): InstanceType<typeof electron.FakeTray> {
+    expect(electron.trays).toHaveLength(1)
+    const tray = electron.trays[0]
+    if (tray === undefined) throw new Error('no tray')
+    return tray
+  }
+
+  /** Clicks the icon, and answers the popover's window. */
+  function clickIcon(): InstanceType<typeof electron.FakeWindow> {
+    onlyTray().listeners.get('click')?.()
+    const popover = electron.windows.find((window) =>
+      (window.loadFile.mock.calls as unknown[][]).some(([, options]) => isMenuBarRoute(options)),
+    )
+    if (popover === undefined) throw new Error('no popover')
+    return popover
+  }
+
+  function isMenuBarRoute(options: unknown): boolean {
+    return typeof options === 'object' && options !== null && Reflect.get(options, 'hash') === 'menu-bar'
+  }
+
+  /** A task that has run, waiting on you, in the database the app opens. */
+  function waitingTask(): string {
+    const { db } = openAppDatabase(electron.app.userData)
+    try {
+      const task = sampleTask(db, sampleWorkspace(db).id)
+      updateTask(db, task.id, { title: 'Add rate limiting', sessionId: 'session-1' })
+      return task.id
+    } finally {
+      db.close()
+    }
+  }
+
+  it("puts Glade's icon in the menu bar from launch: the glyph packaged with the app, as a template image", async () => {
+    await startAndWaitUntilReady()
+
+    const tray = onlyTray()
+    const paths = electron.nativeImage.createFromPath.mock.calls.map(([path]) => path)
+    expect(paths).toEqual(
+      [0, 1, 2].map((frame) =>
+        join(
+          '/Applications/Glade.app/Contents/Resources/app.asar',
+          'assets',
+          'icon',
+          'menu-bar',
+          `glyph-${String(frame)}Template.png`,
+        ),
+      ),
+    )
+    expect(tray.image).toEqual(expect.objectContaining({ path: paths[0] }))
+    for (const { value } of electron.nativeImage.createFromPath.mock.results) {
+      expect((value as { setTemplateImage: ReturnType<typeof vi.fn> }).setTemplateImage).toHaveBeenCalledWith(true)
+    }
+    expect(tray.setTitle).toHaveBeenCalledWith('', { fontType: 'monospacedDigit' })
+    expect(logged('menu bar icon added')).toHaveLength(1)
+    expect(logged("the menu bar glyph's images are missing")).toEqual([])
+  })
+
+  it("says so when the glyph's images are missing", async () => {
+    electron.glyphImagesMissing = true
+    await startAndWaitUntilReady()
+    expect(logged("the menu bar glyph's images are missing")).toHaveLength(1)
+  })
+
+  it('counts the tasks that need you from launch', async () => {
+    waitingTask()
+    await startAndWaitUntilReady()
+    expect(onlyTray().setTitle).toHaveBeenLastCalledWith('1', { fontType: 'monospacedDigit' })
+  })
+
+  it('follows Reduce motion as macOS says it changes', async () => {
+    await startAndWaitUntilReady()
+    const [[name, callback] = []] = electron.systemPreferences.subscribeWorkspaceNotification.mock.calls as [
+      string,
+      () => void,
+    ][]
+    expect(name).toBe('NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification')
+    const reads = electron.systemPreferences.getAnimationSettings.mock.calls.length
+    callback?.()
+    expect(electron.systemPreferences.getAnimationSettings.mock.calls.length).toBe(reads + 1)
+  })
+
+  it('keeps the icon out of the menu bar while Settings has it off, and adds and removes it as it changes', async () => {
+    await startAndWaitUntilReady()
+    const tray = onlyTray()
+    const handler = commands()
+
+    await handler(fromWindow(), CommandName.SettingsUpdate, { patch: { showInMenuBar: false } })
+    expect(tray.destroy).toHaveBeenCalledOnce()
+    expect(logged('menu bar icon removed')).toHaveLength(1)
+
+    await handler(fromWindow(), CommandName.SettingsUpdate, { patch: { showInMenuBar: true } })
+    expect(electron.trays).toHaveLength(2)
+
+    await handler(fromWindow(), CommandName.SettingsUpdate, { patch: { showInMenuBar: false } })
+    expect(electron.trays[1]?.destroy).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the icon out of the menu bar from launch while Settings has it off', async () => {
+    const { db } = openAppDatabase(electron.app.userData)
+    updateSettings(db, { showInMenuBar: false })
+    db.close()
+    await startAndWaitUntilReady()
+    expect(electron.trays).toEqual([])
+  })
+
+  it("opens its popover on a click: a secure, frameless window of Glade's own page, under the icon, focused", async () => {
+    await startAndWaitUntilReady()
+    const main = onlyWindow()
+
+    const popover = clickIcon()
+
+    expect(electron.windows).toHaveLength(2)
+    expect(popover.options).toMatchObject({
+      frame: false,
+      resizable: false,
+      show: false,
+      webPreferences: WINDOW_WEB_PREFERENCES,
+    })
+    expect(popover.loadFile).toHaveBeenCalledWith(expect.stringMatching(/renderer[\\/]index\.html$/), {
+      hash: 'menu-bar',
+    })
+    expect(popover.setBounds).toHaveBeenCalledWith(
+      // Under the icon, moved in from the screen's right edge.
+      expect.objectContaining({ x: 1512 - 8 - 360, y: 25 + 4, width: 360 }),
+    )
+    // It shows once its page says how tall it is.
+    expect(popover.show).not.toHaveBeenCalled()
+    await commands()({ sender: popover.webContents }, CommandName.MenuBarFit, { height: 240 })
+    expect(popover.show).toHaveBeenCalledOnce()
+    expect(popover.focus).toHaveBeenCalledOnce()
+    expect(popover.options).toMatchObject({ type: 'panel' })
+    expect(popover.webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, {
+      type: EventType.MenuBarChanged,
+      snapshot: { needsYou: [], working: [], recent: [] },
+    })
+    // The main window isn't sent what's in flight: it keeps its own tasks.
+    expect(main.webContents.send).not.toHaveBeenCalledWith(
+      EVENT_CHANNEL,
+      expect.objectContaining({ type: EventType.MenuBarChanged }),
+    )
+  })
+
+  it('opens its popover in the dev server in development', async () => {
+    vi.stubEnv('ELECTRON_RENDERER_URL', 'http://localhost:5173/')
+    await startAndWaitUntilReady()
+    onlyTray().listeners.get('click')?.()
+    const popover = electron.windows[1]
+    expect(popover?.loadURL).toHaveBeenCalledWith('http://localhost:5173/#menu-bar')
+  })
+
+  it("answers the popover's page, which is Glade's own, and sends the popover none of the window's events", async () => {
+    await startAndWaitUntilReady()
+    const popover = clickIcon()
+    const handler = commands()
+    popover.webContents.send.mockClear()
+
+    const answer = await handler({ sender: popover.webContents }, CommandName.MenuBarGet, {})
+    expect(answer).toEqual({ ok: true, value: { snapshot: { needsYou: [], working: [], recent: [] } } })
+    await handler(fromWindow(), CommandName.UiStateSet, { key: UiStateKey.ActiveWorkspaceId, value: 'w' })
+    expect(popover.webContents.send).not.toHaveBeenCalled()
+  })
+
+  it('opens the task of a clicked row in the main window, hiding the popover', async () => {
+    const taskId = waitingTask()
+    await startAndWaitUntilReady()
+    const main = onlyWindow()
+    const popover = clickIcon()
+
+    await commands()({ sender: popover.webContents }, CommandName.MenuBarOpenTask, { id: taskId })
+
+    expect(popover.hide).toHaveBeenCalledOnce()
+    expect(main.show).toHaveBeenCalledOnce()
+    expect(main.focus).toHaveBeenCalledOnce()
+    expect(electron.app.focus).toHaveBeenCalledWith({ steal: true })
+    expect(main.webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, { type: EventType.TaskOpenRequested, taskId })
+    expect(popover.webContents.send).not.toHaveBeenCalledWith(
+      EVENT_CHANNEL,
+      expect.objectContaining({ type: EventType.TaskOpenRequested }),
+    )
+  })
+
+  it('opens a main window on the task when every main window is closed, the popover aside', async () => {
+    const taskId = waitingTask()
+    await startAndWaitUntilReady()
+    const popover = clickIcon()
+    electron.windows.splice(0, 1)
+
+    await commands()({ sender: popover.webContents }, CommandName.MenuBarOpenTask, { id: taskId })
+
+    expect(electron.windows).toHaveLength(2)
+    expect(electron.windows[1]?.loadFile).toHaveBeenCalledWith(expect.any(String), { hash: '' })
+  })
+
+  it('brings the main window up with Open Glade, or opens one when every main window is closed', async () => {
+    await startAndWaitUntilReady()
+    const main = onlyWindow()
+    main.isMinimized.mockReturnValue(true)
+    const popover = clickIcon()
+    const handler = commands()
+
+    await handler({ sender: popover.webContents }, CommandName.MenuBarOpenGlade, {})
+    expect(main.restore).toHaveBeenCalledOnce()
+    expect(main.show).toHaveBeenCalledOnce()
+
+    electron.windows.splice(electron.windows.indexOf(main), 1)
+    await handler({ sender: popover.webContents }, CommandName.MenuBarOpenGlade, {})
+    expect(electron.windows).toHaveLength(2)
+  })
+
+  it('reopens a main window on activate when only the popover is open', async () => {
+    await startAndWaitUntilReady()
+    clickIcon()
+    electron.windows.splice(0, 1)
+    appHandler('activate')()
+    expect(electron.windows).toHaveLength(2)
+    appHandler('activate')()
+    expect(electron.windows).toHaveLength(2)
+  })
+
+  it('sizes the popover to its page, hides it on Esc and quits Glade from it', async () => {
+    await startAndWaitUntilReady()
+    const popover = clickIcon()
+    const handler = commands()
+
+    await handler({ sender: popover.webContents }, CommandName.MenuBarFit, { height: 300 })
+    expect(popover.setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 300 }))
+    await handler({ sender: popover.webContents }, CommandName.MenuBarHide, {})
+    expect(popover.hide).toHaveBeenCalledOnce()
+    await handler({ sender: popover.webContents }, CommandName.MenuBarQuit, {})
+    expect(electron.app.quit).toHaveBeenCalledOnce()
+  })
+
+  it('lists a notification it sends in the popover, soon after', async () => {
+    await replyInUnviewedTask()
+    const popover = clickIcon()
+    await vi.waitFor(() => {
+      expect(popover.webContents.send).toHaveBeenCalledWith(
+        EVENT_CHANNEL,
+        expect.objectContaining({
+          type: EventType.MenuBarChanged,
+          snapshot: expect.objectContaining({
+            recent: [expect.objectContaining({ title: 'Fix the login redirect', body: 'It was a race.' })],
+          }) as unknown,
+        }),
+      )
+    })
+  })
+
+  it('takes the icon away and closes the popover when the app quits', async () => {
+    await startAndWaitUntilReady()
+    const popover = clickIcon()
+    appHandler('will-quit')()
+    expect(onlyTray().destroy).toHaveBeenCalledOnce()
+    expect(popover.destroy).toHaveBeenCalledOnce()
+  })
+
+  it('never puts an icon in the menu bar in e2e mode: it records it for the spec, whose click opens a popover that never shows', async () => {
+    vi.stubEnv(E2E_ENV, JSON.stringify({ userData: electron.app.userData, route: '' }))
+    await startAndWaitUntilReady()
+
+    expect(electron.trays).toEqual([])
+    expect(electron.nativeImage.createFromPath).not.toHaveBeenCalled()
+    expect(electron.systemPreferences.subscribeWorkspaceNotification).not.toHaveBeenCalled()
+    const menuBar = Reflect.get(globalThis, E2E_MENU_BAR_GLOBAL) as E2eMenuBar
+    expect([menuBar.shown, menuBar.title, menuBar.open, menuBar.pulsing, menuBar.reduceMotion]).toEqual([
+      true,
+      '',
+      false,
+      false,
+      false,
+    ])
+
+    menuBar.click()
+    expect(menuBar.open).toBe(true)
+    const popover = electron.windows[1]
+    expect(popover?.options).toMatchObject({ show: false, paintWhenInitiallyHidden: true })
+    expect(popover?.show).not.toHaveBeenCalled()
+    menuBar.reduceMotion = true
+    expect(menuBar.reduceMotion).toBe(true)
+    expect(electron.systemPreferences.getAnimationSettings).not.toHaveBeenCalled()
   })
 })

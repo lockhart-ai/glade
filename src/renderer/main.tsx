@@ -1,5 +1,5 @@
 import { createErrorReporter, reactErrorOptions, reportWindowErrors } from './errors/reportErrors'
-import { appPage, mountApp } from './mount'
+import { mountApp, pageFor } from './mount'
 import { ReadySignal } from './ready'
 import './global.css'
 
@@ -23,5 +23,6 @@ if (import.meta.env.DEV && window.location.hash === '#gallery') {
     )
   })
 } else {
-  mountApp(root, appPage(window.glade), options)
+  // The app, or in the menu bar popover's window, its page.
+  mountApp(root, pageFor(window.location.hash, window.glade), options)
 }

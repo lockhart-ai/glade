@@ -55,7 +55,8 @@ import {
 } from './db/repositories/tool-events'
 import { setUiState } from './db/repositories/ui-state'
 import { addWatcher } from './db/repositories/watchers'
-import { createWorkspace } from './db/repositories/workspaces'
+import { createWorkspace, getWorkspaceByRoot } from './db/repositories/workspaces'
+import { recordNotification } from './db/repositories/notifications'
 import { DEFAULT_SETTINGS, type SettingsPatch } from '../shared/settings'
 import { SETTING_SCHEMAS, updateSettings } from './db/repositories/settings'
 import { storeControlToken, storedToken } from './control/token'
@@ -204,6 +205,25 @@ export interface SeedTask {
   readonly permissionRequests?: readonly SeedPermissionRequest[] | undefined
   /** What its agent left running or scheduled (the Watchers tab), in the order it started them. */
   readonly watchers?: readonly SeedWatcher[] | undefined
+  /**
+   * Another workspace to put it in, made (once, by its root) beside the fixture's own, which stays the one open: for a
+   * capture of what's in flight across workspaces (the menu bar popover). The fixture's workspace unless given.
+   */
+  readonly workspace?: SeedWorkspace | undefined
+  /** The notifications Glade sent about it (the menu bar popover's Recent section), oldest first; none unless given. */
+  readonly notifications?: readonly SeedNotification[] | undefined
+}
+
+/** A workspace in a fixture: its name, and its root (usually made up). */
+export interface SeedWorkspace {
+  readonly name: string
+  readonly rootPath: string
+}
+
+/** A sample notification sent about a task, with its title: what it said, and how long before the capture. */
+export interface SeedNotification {
+  readonly body: string
+  readonly minutesAgo: number
 }
 
 /** A sample watcher (`Watcher`), started `minutesAgo`; running unless it has another `state`. */
@@ -388,6 +408,8 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       artifacts: z.array(z.strictObject({ path: z.string(), title: z.string(), minutesAgo })).optional(),
       handoff: z.strictObject({ body: z.string().min(1), minutesAgo }).optional(),
       permissionMode: z.enum(PermissionMode).optional(),
+      workspace: z.strictObject({ name: z.string(), rootPath: z.string() }).optional(),
+      notifications: z.array(z.strictObject({ body: z.string(), minutesAgo })).optional(),
       permissionRequests: z
         .array(
           z.strictObject({
@@ -581,12 +603,18 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       if (collapsed !== undefined) setUiState(db, { key, value: String(collapsed) })
     }
     const resumed: string[] = []
+    // The other workspaces the tasks go in, made as the first task in each needs it.
+    const workspaceOf = (sample: SeedTask): string => {
+      if (sample.workspace === undefined) return workspace.id
+      const found = getWorkspaceByRoot(db, sample.workspace.rootPath)
+      return (found ?? createWorkspace(db, sample.workspace, now)).id
+    }
     for (const [index, sample] of seed.tasks.entries()) {
       const at = now - sample.minutesAgo * MINUTE
       const createdAt = now - (sample.startedMinutesAgo ?? sample.minutesAgo) * MINUTE
       const newTask = {
         ...(sample.id === undefined ? {} : { id: sample.id }),
-        workspaceId: workspace.id,
+        workspaceId: workspaceOf(sample),
         model: DEFAULT_SETTINGS.defaultModel,
         effort: DEFAULT_SETTINGS.defaultEffort,
         permissionMode: sample.permissionMode ?? DEFAULT_SETTINGS.defaultPermissionMode,
@@ -650,6 +678,9 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         seedPermissionRequest(db, task.id, request, ago(request.minutesAgo))
       }
       for (const watcher of sample.watchers ?? []) seedWatcher(db, task.id, watcher, ago(watcher.minutesAgo))
+      for (const { body, minutesAgo } of sample.notifications ?? []) {
+        recordNotification(db, { taskId: task.id, title: sample.title, body }, ago(minutesAgo))
+      }
       if (sample.resumedAfterCrash === true) resumed.push(task.id)
     }
     if (resumed.length > 0) {
