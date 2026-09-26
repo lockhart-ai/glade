@@ -385,11 +385,11 @@ describe('TaskCard', () => {
     )
     let headerHeight = 72
     let inputBarHeight = 110
-    const offsetHeight = vi
-      .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
-      .mockImplementation(function (this: HTMLElement) {
-        return this.dataset.testid === 'input-bar' ? inputBarHeight : headerHeight
-      })
+    const offsetHeight = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.dataset.testid === 'input-bar' ? inputBarHeight : headerHeight
+    })
 
     const { unmount } = render(
       <ToastProvider>

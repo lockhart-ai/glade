@@ -144,7 +144,7 @@ test('scrolled part way, a reply runs under the input bar rather than stopping s
       const last = replies[replies.length - 1]
       return document.elementsFromPoint(x, y).map((element) => ({
         inInputBar: element.closest('[data-testid="input-bar"]') !== null,
-        inReply: last !== undefined && last.contains(element),
+        inReply: last?.contains(element) === true,
       }))
     },
     { x: reply.x + 20, y: reply.y + 4 },
