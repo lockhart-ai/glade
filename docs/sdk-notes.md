@@ -253,9 +253,48 @@ The tool is named `Agent` in `tool_use` (the init `tools` list shows `Task`). A 
   `parent_tool_use_id` set and `content: [{ "type": "text", "text": "…" }]`, the same shape as a top-level one. Its
   prompt also arrives, as a `user` message with a text block and the parent id; its thinking blocks came with empty
   `thinking` text.
-- `agentProgressSummaries: true` adds a one-line `summary` to `task_progress` about every 30s [docs].
+- `agentProgressSummaries: true` adds a one-line `summary` to `task_progress` about every 30s [verified, below].
 - Background Bash commands use the same `task_*` events with `task_type: "local_bash"`, plus
   `system/background_tasks_changed` [verified].
+
+**Progress summaries [verified]** (#278). Probed on SDK 0.3.281 with Haiku, in a throwaway folder, with
+`agentProgressSummaries: true`: one foreground subagent ran four `sleep 20 && echo …` Bash calls, one at a time, for
+82s. Timings are seconds from the start.
+
+```
+ 5.7  system/task_started   { task_id: "ae9b…", tool_use_id: "toolu_011g…", task_type: "local_agent", … }
+ 7.8  system/task_progress  { task_id: "ae9b…", tool_use_id: "toolu_011g…", description: "Running Wait 20 seconds then print one",
+                              usage: { total_tokens: 12170, tool_uses: 1, duration_ms: 2075 }, last_tool_name: "Bash" }
+29.4  system/task_progress  { …, description: "Running Wait 20 seconds then print two", usage: { …, tool_uses: 2 }, last_tool_name: "Bash" }
+39.4  system/task_progress  { task_id: "ae9b…", tool_use_id: "toolu_011g…", description: "Running sleep 20 && echo one",
+                              subagent_type: "general-purpose", usage: { total_tokens: 13530, tool_uses: 2, duration_ms: 33651 },
+                              summary: "Running sleep 20 && echo one" }                  ← no last_tool_name
+50.4  system/task_progress  { …, description: "Running Wait 20 seconds then print three", usage: { …, tool_uses: 3 }, last_tool_name: "Bash" }
+71.5  system/task_progress  { …, description: "Running Wait 15 seconds then print four", usage: { …, tool_uses: 4 }, last_tool_name: "Bash" }
+73.4  system/task_progress  { …, description: "Executing second bash command.", usage: { …, tool_uses: 4, duration_ms: 67675 },
+                              summary: "Executing second bash command." }
+87.5  system/task_updated   { task_id: "ae9b…", patch: { status: "completed", end_time: … } }
+87.5  system/task_notification { task_id: "ae9b…", status: "completed", summary: <its final reply>, usage: { … } }
+```
+
+- A summary comes on a `task_progress` of its own, about every 30s after the subagent starts (here at 39s and 73s),
+  with `summary` set, `description` the same text, and no `last_tool_name`. The progress messages after each tool call
+  carry no `summary`, as before.
+- It's one short line, but not always current: the fork summarises the conversation so far, so it can lag a call or
+  two behind (at 39s it named the first command while the second ran; at 73s it said "second" during the fourth).
+- None came after the subagent ended in this run, but nothing in the SDK's types rules a late one out.
+- The subagent's own foreground Bash calls got `task_started` and `task_notification` of their own (`local_bash`,
+  `owned_by_subagent: true`), as in "Background subagents" below.
+
+**Implications for Glade (#278)**
+
+- Glade sets `agentProgressSummaries: true`. The runner reads a `task_progress` that has a `summary` and names a
+  `tool_use_id`, collapses its whitespace to one line, and keeps it on that `Agent` call's row in SQLite
+  (`progress_summary`) while the call runs. One for a call that has finished, isn't an `Agent` or `Task` call, or
+  isn't in the log is ignored. The row's summary is cleared once the call stops running (done, failed, paused or
+  interrupted, a relaunch included).
+- The Subagents tab shows it under a running subagent's name, on one line with the whole of it in its tooltip. It
+  isn't sent to plugins.
 
 **Implications for Glade (P5-05)**
 
@@ -335,7 +374,7 @@ the start.
   from its call's "launched" result, or from a later move to the background. Its `Agent` call's row keeps running
   until its `task_notification`. Then it's done, or failed with the summary. A stopped one fails with "You stopped the
   subagent.", as a stopped turn's calls do. The Subagents tab counts its calls and times it from the tool log, as for
-  any subagent. Glade doesn't read `task_progress`.
+  any subagent. Glade reads `task_progress` only for its summary (see "Subagents" above).
 - Its calls and notes are logged whenever they arrive, with the turn its `Agent` call was made in. They never open a
   turn, and the end of a turn doesn't fail them. Its calls still running when it ends fail with it.
 - Stop subagent calls `stopTask` with its task id, as for a foreground one.

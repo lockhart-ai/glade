@@ -17,7 +17,7 @@ illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
 | 8 · Open a file | Files tab with open-file tabs, source/preview toggle; the drag handles that resize the sidebar, right panel and bottom bar. | ![8 · Open a file](screens/08-open-file.png) |
 | 9 · Todos | The agent's checklist with progress, and each task's progress on its sidebar row (a ring and `3/7`; a check once all are done). | ![9 · Todos](screens/09-todos.png) |
 | 10 · Artifacts | Deliverables with Open / Copy / Reveal. | ![10 · Artifacts](screens/10-artifacts.png) |
-| 11 · Subagents | Status and latest line per subagent; one expanded inline to its log. | ![11 · Subagents](screens/11-subagents.png) |
+| 11 · Subagents | Status and latest line per subagent, and under a running one's name the SDK's one-line summary of what it's doing now (#278); one expanded inline to its log. | ![11 · Subagents](screens/11-subagents.png) |
 | 12 · Right-click a task | Task context menu in place. ("Reveal folder in Finder" was removed; see `../context-menus.md`.) | ![12 · Right-click a task](screens/12-right-click-task.png) |
 | 13 · Context menus | Every context menu. `../context-menus.md` is authoritative ("Reveal folder in Finder" was removed). | ![13 · Context menus](screens/13-context-menus.png) |
 | 14 · Workspace switcher | Sidebar dropdown with per-workspace counts. | ![14 · Workspace switcher](screens/14-workspace-switcher.png) |
