@@ -96,7 +96,7 @@ test('ask: the card is answered by keyboard alone, then shows the answers, and t
   await expect(questionCard).toContainText('4 questions before I finish')
   // The agent's reply to your message leads the card, as Markdown; what it said just before asking stays in the tool log.
   await expect(questionCard).toContainText(
-    'so the notes get a short upgrade guide too.A few choices are yours before I draft them.4 questions before I finish',
+    /^I read the 41 PRs .* upgrade guide too\.\s*A few choices are yours before I draft them\.4 questions before I finish/,
   )
   await expect(questionCard.locator('code').first()).toHaveText('v2.3.0')
   await expect(questionCard.locator('strong')).toHaveText('upgrade guide')
