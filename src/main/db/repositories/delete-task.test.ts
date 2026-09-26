@@ -98,7 +98,7 @@ function fillTask(db: Database, task: Task): void {
   addTaskPermissionRule(db, { taskId, rule: { toolName: 'Bash', ruleContent: 'npm test *' } })
   setHandoff(db, taskId, '## Where it got to')
   setExternalId(db, taskId, `notes/${taskId}`)
-  setSessionContext(db, taskId, { instructions: true, handoffAt: 1 })
+  setSessionContext(db, taskId, { instructions: true, instructionUpdates: 1, handoffAt: 1 })
   setInputDraft(db, { taskId, text: 'And the admin views', images: [PNG] })
   recordNotification(db, { taskId, title: 'Add rate limiting', body: 'Which limit should /search use?' })
   addWatcher(db, {

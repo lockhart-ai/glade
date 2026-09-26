@@ -307,7 +307,14 @@ import { describeSdkMessage } from './sdk-message-log'
 import { systemPromptAppend } from './system-prompt'
 import { getHandoff } from '../db/repositories/backfills'
 import { getSessionContext, setSessionContext } from '../db/repositories/session-context'
-import { contextAfter, contextBlock, missingContext, startedContext, withContext } from './session-context'
+import {
+  contextAfter,
+  contextBlock,
+  missingContext,
+  startedContext,
+  withContext,
+  type ContextCheck,
+} from './session-context'
 import { summarizeTurn } from './turn-summary'
 
 export interface AgentRunnerOptions {
@@ -1701,14 +1708,15 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       startWorking(taskId, { db, emit: (event) => workingEvents.push(event) })
       // What the session is missing goes ahead of the turn's first message, once: it's recorded as given with it.
       const handoff = getHandoff(db, taskId) ?? null
-      const missing = missingContext({
+      const check: ContextCheck = {
         recorded: getSessionContext(db, taskId),
         startedElsewhere: task.importedAt !== null,
         handoff,
         prompt: systemPromptAppend(task, getSettings(db), live.control, handoff),
-      })
-      if (missing !== null && messages.length > 0) setSessionContext(db, taskId, contextAfter(missing))
-      const block = missing === null || messages.length === 0 ? null : contextBlock(missing)
+      }
+      const missing = messages.length === 0 ? [] : missingContext(check)
+      if (missing.length > 0) setSessionContext(db, taskId, contextAfter(check, missing))
+      const block = contextBlock(missing)
       return { queued, messages, dividers: [...markedDone, ...reopened, divider], block }
     })()
     for (const event of reopenEvents) emit(event)

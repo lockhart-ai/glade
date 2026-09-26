@@ -1,7 +1,15 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Task } from '../../shared/domain'
 import { openTestDatabase, sampleTask, sampleWorkspace } from '../db/repositories/test-database'
-import { CONTROL_TOOLS_LINE, HANDOFF_HEADING, handoffSection, systemPromptAppend, WATCHERS_LINE } from './system-prompt'
+import {
+  CONTROL_TOOLS_LINE,
+  FINAL_REPLY_LINE,
+  HANDOFF_HEADING,
+  handoffSection,
+  INSTRUCTION_UPDATES,
+  systemPromptAppend,
+  WATCHERS_LINE,
+} from './system-prompt'
 
 let task: Task
 
@@ -18,6 +26,11 @@ describe('systemPromptAppend', () => {
         'You are running inside Glade, a desktop app that runs Claude agent sessions as tasks.',
         'This session is one Glade task, with one objective.',
         `Its task id is ${task.id}. Its title is not set yet.`,
+        '',
+        'In the chat, the user sees only your last message of each turn: what you write before a tool call goes to ' +
+          'the tool log, which they rarely read. So end every turn with a complete reply that answers what they ' +
+          'asked or responds to what they said, with any findings, even ones you wrote earlier in the turn. Do ' +
+          'follow-up work (tool calls) before that reply, not after it.',
         '',
         'The user sees the task through its title, objective and status. Keep them current with the Glade tools:',
         "- After the user's first message, before anything else, even for a quick question, call set_title with a short name for the task " +
@@ -39,6 +52,25 @@ describe('systemPromptAppend', () => {
       ].join('\n'),
     )
     expect(systemPromptAppend(task)).toContain(WATCHERS_LINE)
+  })
+
+  it('tells every session that the user sees only its final reply each turn, whatever else it leaves out', () => {
+    const variants = [
+      systemPromptAppend(task),
+      systemPromptAppend({ ...task, title: 'Fix the flaky login test', objective: 'Make it pass.' }),
+      systemPromptAppend(task, { statusSummary: false, taskTitles: false }, true, {
+        taskId: task.id,
+        body: 'Notes: /code/acme-api/notes/',
+        addedAt: 1_000,
+      }),
+    ]
+
+    for (const prompt of variants) expect(prompt.split(FINAL_REPLY_LINE)).toHaveLength(2)
+    expect(FINAL_REPLY_LINE).toContain('only your last message of each turn')
+    expect(FINAL_REPLY_LINE).toContain('before that reply, not after it')
+    // Sessions that started before it get it once, as an instruction added since (`./session-context`).
+    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE])
+    for (const update of INSTRUCTION_UPDATES) expect(systemPromptAppend(task)).toContain(update)
   })
 
   it('asks only for what is not set yet', () => {
