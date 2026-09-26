@@ -189,7 +189,7 @@ function AgentQuestions({ questionSet, lead, highlight }: QuestionEntry & Highli
           highlight={highlight}
         />
       )}
-      <QuestionCard questionSet={questionSet} />
+      <QuestionCard questionSet={questionSet} highlight={highlight} />
       <span className={styles.meta}>agent · {clockTime(questionSet.createdAt)}</span>
     </div>
   )

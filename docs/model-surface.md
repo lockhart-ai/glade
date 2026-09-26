@@ -26,10 +26,22 @@ session starts.
 
 ## Implemented: `ask` (P4-01, names unconfirmed)
 
-`mcp__glade__ask` takes `{ questions: Question[] }`, with `Question` exactly as drafted below (`QuestionKind` and the
-question interfaces in `src/shared/domain.ts`; the zod schema in `src/main/questions/schema.ts`). Beyond the draft:
-every text is trimmed and must not be empty, there is at least one question, a choice or pills question has at least
-two options, and a choice's option ids and a question's pills are each unique.
+`mcp__glade__ask` takes `{ preamble?: string, questions: Question[] }`, with `Question` exactly as drafted below
+(`QuestionKind` and the question interfaces in `src/shared/domain.ts`; the zod schema in
+`src/main/questions/schema.ts`). Beyond the draft: every text is trimmed and must not be empty, there is at least one
+question, a choice or pills question has at least two options, and a choice's option ids and a question's pills are
+each unique.
+
+**Preamble** (#298): the chat shows only the agent's final reply each turn, so what it says before calling `ask` goes
+to the tool log, and a card that answers your message straight away can read as jumping to conclusions. `preamble` is
+the agent's reply to what you just said (answering your question, reacting to your statement, or saying why it asks),
+in Markdown, a few sentences. It's optional, and comes before `questions` in the schema, so the model writes it first.
+It's trimmed, and refused when it's empty (a tool error, as for any empty text) or longer than 2,000 characters
+(`PREAMBLE_MAX_LENGTH`). The card shows it at its top, above the questions, as a chat reply's Markdown (links shown as
+text, images as their alt text, raw HTML dropped); it's saved with the set (`question_sets.preamble`), so it stays on
+the card once it's answered or withdrawn and after a relaunch. A set with a preamble shows no lead: the narration just
+before the call, which a card without one shows above it. The tool's description and the system prompt ask for it:
+"When you ask in response to a message, first respond to it in preamble, then ask."
 
 **Sketch format** (P4-02): an option's `sketch` is a few short lines of plain text, up to about 6 lines of 40
 characters, drawn as is, monospaced, in a small frame above the option's label ([`03-rich-question.png`](design/screens/03-rich-question.png)). Whitespace
@@ -50,7 +62,7 @@ optional text one has an answer. A word too long for its line breaks inside its 
 Send, ← → between a question's options, ↑ ↓ between questions, 1–9 pick the focused question's options, Space the
 focused one, and ↵ sends. Once closed, the card shows each answer, or that it was answered in your words, or that it
 was withdrawn. A set opened in a task you aren't viewing marks it unread and sends a notification, as a final reply
-does, with its first question as the body.
+does, with the first line of its preamble as the body, or with none, its first question.
 
 - **It blocks.** The handler saves an open question set (`QuestionSet`, table `question_sets`) and waits until it's
   answered, however long that takes (`src/main/questions/questions.ts`). Meanwhile the task waits on you: its activity
@@ -95,7 +107,7 @@ type (from the extension), lines (from a cheap read, `files.info`) and when the 
 | `set_title` | `{ title: string }` | Names the task. Called once from the first message; the user can rename later. |
 | `set_objective` | `{ objective: string }` | Distils the objective from the first message. Set once. |
 | `set_status` | `{ status: string }` | Rewrites the status summary shown in the header and the task list. Becomes the outcome on Done. |
-| `ask` | `{ questions: Question[] }` | Shows a rich question card in the chat and blocks until answered. See below. |
+| `ask` | `{ preamble?: string, questions: Question[] }` | Shows a rich question card in the chat, led by the agent's reply to your message, and blocks until answered. See below. |
 | `add_artifact` | `{ path: string, title: string }` | Declares a file as a deliverable of the task (Artifacts tab). |
 | `show_file` | `{ path: string, line?: number }` | Opens a file in the Files tab for the user. |
 
@@ -166,7 +178,7 @@ The user sees the task through its title, objective and status. Keep them curren
 - After the user's first message, before anything else, even for a quick question, call set_title with a short name for the task and set_objective with its objective.
 - Every turn, call set_status with one line on where the work stands, and again before you end the turn if that changed. When the task is done, the status is its outcome.
 
-When you need the user to decide something before you can go on, call ask instead of asking in your reply: it shows your questions on a card and waits for the answers. Ask everything you need at once, with choices or pills when the likely answers are known.
+When you need the user to decide something before you can go on, call ask instead of asking in your reply: it shows your questions on a card and waits for the answers. Ask everything you need at once, with choices or pills when the likely answers are known. When you ask in response to a message, first respond to it in preamble, then ask.
 
 When you make a deliverable the user asked for (a report, a document, a draft), call add_artifact with its path and a short title, so it shows in the Artifacts tab and stays with the task after it is done.
 

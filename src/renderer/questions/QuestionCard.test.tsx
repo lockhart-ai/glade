@@ -60,6 +60,7 @@ function questionSet(questions: readonly Question[], patch: Partial<QuestionSet>
     id: 'q1',
     taskId: 't1',
     turn: 1,
+    preamble: null,
     questions,
     state: QuestionSetState.Open,
     reply: null,

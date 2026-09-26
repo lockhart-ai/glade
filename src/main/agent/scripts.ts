@@ -189,6 +189,8 @@ export interface CompactStep {
 export interface AskStep {
   readonly kind: ScriptStepKind.Ask
   readonly id: string
+  /** What the agent says before its questions, at the top of the card; none unless given. */
+  readonly preamble?: string | undefined
   readonly questions: readonly Question[]
 }
 
@@ -427,10 +429,11 @@ export const compact = (options: Omit<CompactStep, 'kind'> = {}): CompactStep =>
   ...options,
 })
 
-export const ask = (id: string, questions: readonly Question[]): AskStep => ({
+export const ask = (id: string, questions: readonly Question[], preamble?: string): AskStep => ({
   kind: ScriptStepKind.Ask,
   id,
   questions,
+  ...(preamble === undefined ? {} : { preamble }),
 })
 
 export const limitReached = (resetInMs: number): LimitReachedStep => ({
@@ -988,6 +991,13 @@ const copyInBatches: AgentScript = {
 }
 
 /**
+ * What `asks-a-question` says before its questions, at the top of the card: its reply to your message, in Markdown.
+ */
+export const RELEASE_NOTES_PREAMBLE =
+  'I read the 41 PRs merged since `v2.3.0`. The new rate limits on `/search` change what API clients see, so the ' +
+  'notes get a short **upgrade guide** too.\n\nA few choices are yours before I draft them.'
+
+/**
  * The questions `asks-a-question` asks before it drafts the release notes: a choice with sketches, two pills, and an
  * optional text question.
  */
@@ -1041,9 +1051,9 @@ const asksAQuestion: AgentScript = {
           'internal changes.',
         'Waiting on layout, credit and upgrade guide questions.',
       ),
-      // Said just before asking, so the question card leads with it.
-      say('41 PRs since v2.3.0. A few choices are yours before I draft the notes.'),
-      ask('questions', RELEASE_NOTES_QUESTIONS),
+      // Said just before asking: it stays in the tool log, since the card has a preamble of its own.
+      say('41 PRs since v2.3.0: 9 features, 17 fixes and 15 internal changes.'),
+      ask('questions', RELEASE_NOTES_QUESTIONS, RELEASE_NOTES_PREAMBLE),
       delay(BEAT_MS),
       gladeTool('status-drafted', 'set_status', { status: 'Release notes drafted in docs/releases/2.4.md.' }),
       say('Thanks. The release notes for 2.4 are drafted in `docs/releases/2.4.md`, laid out the way you picked.'),

@@ -228,6 +228,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
     id: 'questions-1',
     taskId: created.id,
     turn: 1,
+    preamble: null,
     questions: QUESTIONS,
     state: QuestionSetState.Open,
     reply: null,

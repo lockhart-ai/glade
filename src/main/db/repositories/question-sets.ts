@@ -14,6 +14,8 @@ import { Row, RowError } from './rows'
 export interface NewQuestionSet {
   readonly taskId: string
   readonly turn: number
+  /** What the agent said before its questions; none when left out. */
+  readonly preamble?: string | undefined
   readonly questions: readonly Question[]
 }
 
@@ -23,7 +25,7 @@ export type QuestionSetClosing =
   | { readonly state: QuestionSetState.Withdrawn }
 
 const TABLE = 'question_sets'
-const COLUMNS = 'id, task_id, turn, questions, state, reply, created_at, closed_at'
+const COLUMNS = 'id, task_id, turn, preamble, questions, state, reply, created_at, closed_at'
 const STATES = Object.values(QuestionSetState)
 
 /** A JSON column holding a value `schema` parses. */
@@ -39,6 +41,7 @@ function parseQuestionSet(raw: unknown): QuestionSet {
     id: row.text('id'),
     taskId: row.text('task_id'),
     turn: row.integer('turn'),
+    preamble: row.nullableText('preamble'),
     questions: parsed(row, 'questions', questionsSchema),
     state: row.oneOf('state', STATES),
     reply: row.nullableText('reply') === null ? null : parsed(row, 'reply', questionReplySchema),
@@ -49,9 +52,11 @@ function parseQuestionSet(raw: unknown): QuestionSet {
 
 /** Opens a question set for a task. */
 export function appendQuestionSet(db: Database, input: NewQuestionSet, now: EpochMs = Date.now()): QuestionSet {
+  const { preamble, ...rest } = input
   const set: QuestionSet = {
     id: randomUUID(),
-    ...input,
+    ...rest,
+    preamble: preamble ?? null,
     state: QuestionSetState.Open,
     reply: null,
     createdAt: now,
@@ -59,7 +64,7 @@ export function appendQuestionSet(db: Database, input: NewQuestionSet, now: Epoc
   }
   db.prepare(
     `INSERT INTO ${TABLE} (${COLUMNS})
-    VALUES (@id, @taskId, @turn, @questions, @state, NULL, @createdAt, NULL)`,
+    VALUES (@id, @taskId, @turn, @preamble, @questions, @state, NULL, @createdAt, NULL)`,
   ).run({ ...set, questions: JSON.stringify(set.questions) })
   return set
 }

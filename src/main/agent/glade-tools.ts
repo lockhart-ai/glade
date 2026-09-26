@@ -19,7 +19,7 @@ import { addTaskArtifact } from '../artifacts/artifacts'
 import { getTask } from '../db/repositories/tasks'
 import { showTaskFile } from '../files/files'
 import { toolResultFor, type QuestionBroker } from '../questions/questions'
-import { questionsSchema } from '../questions/schema'
+import { preambleSchema, questionsSchema } from '../questions/schema'
 import { updateTaskFromAgent, type TaskServiceContext } from '../tasks/service'
 
 /**
@@ -68,6 +68,7 @@ export interface SetStatusInput {
 }
 
 export interface AskInput {
+  readonly preamble?: string | undefined
   readonly questions: readonly Question[]
 }
 
@@ -96,7 +97,14 @@ const setObjectiveInput = z.object({
 const setStatusInput = z.object({
   status: text('status').describe('One line on where the work stands.'),
 }) satisfies z.ZodType<SetStatusInput>
+// The preamble comes first, so the model writes its reply to the user before its questions.
 const askInput = z.object({
+  preamble: preambleSchema
+    .optional()
+    .describe(
+      "Optional: your reply to what the user just said, in Markdown, a few sentences: answer their question, react " +
+        "to what they told you, or say why you're asking. It's shown at the top of the card, above the questions.",
+    ),
   questions: questionsSchema.describe('The questions, shown together on one card, in this order.'),
 }) satisfies z.ZodType<AskInput>
 
@@ -155,8 +163,8 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
       updateTaskFromAgent(context, taskId, { status })
       return reply('Status updated.')
     },
-    async ask({ questions }, signal) {
-      const answered = await context.questions.ask(taskId, questions, signal)
+    async ask(input, signal) {
+      const answered = await context.questions.ask(taskId, input, signal)
       return answered === null ? { ...reply(QUESTIONS_WITHDRAWN), isError: true } : reply(toolResultFor(answered))
     },
     async showFile({ path, line }) {
@@ -191,10 +199,11 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
     'Replace the one-line status shown to the user in the header and the task list. Keep it current every turn. When ' +
     'the task is done, it is the outcome.',
   [GladeTool.Ask]:
-    'Ask the user one or more questions on a card in the chat, and wait for the answers. Each question is a choice ' +
-    '(option cards, each with an id, a label and optionally a detail line and a sketch: a few short lines of plain ' +
-    'text shown monospaced, with # lines as headings), pills (short options) or text ' +
-    '(a text box). Choices and pills take one pick unless `multiple` is set. Returns the answers as JSON keyed by ' +
+    'Ask the user one or more questions on a card in the chat, and wait for the answers. When you ask in response to ' +
+    "the user's message, first respond to it in `preamble` (shown at the top of the card), then ask. Each question " +
+    'is a choice (option cards, each with an id, a label and optionally a detail line and a sketch: a few short ' +
+    'lines of plain text shown monospaced, with # lines as headings), pills (short options) or text (a text box). ' +
+    'Choices and pills take one pick unless `multiple` is set. Returns the answers as JSON keyed by ' +
     'question index from 0: a choice gives the option id, pills the pill text, text the text typed (an optional one ' +
     'left empty has no key), and `multiple` gives an array. The user can reply in their own words instead; then it ' +
     'returns {"freeText": "…"}.',
