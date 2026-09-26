@@ -849,6 +849,7 @@ export function sampleQuestionSet(id: string, taskId: string): QuestionSet {
     id,
     taskId,
     turn: 1,
+    preamble: null,
     questions: [
       {
         kind: QuestionKind.Choice,

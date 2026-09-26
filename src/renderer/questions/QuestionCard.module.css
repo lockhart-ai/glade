@@ -48,6 +48,18 @@
   }
 }
 
+/*
+ * The agent's reply to your message, leading the card (#298): a chat reply's type (Chat.module.css .reply), set off
+ * from the questions below by a rule.
+ */
+.preamble {
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-chat);
+  line-height: var(--line-height-chat);
+  color: var(--color-text);
+}
+
 .title,
 .closedTitle {
   display: flex;

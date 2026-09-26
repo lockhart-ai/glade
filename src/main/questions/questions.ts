@@ -5,7 +5,7 @@
  *   and waits, however long it takes, until the set is answered or withdrawn. The task's agent is waiting on you while
  *   it does, though its turn is still running: its activity is waiting, and `task.asking` is true. Questions in a task
  *   you aren't viewing mark it unread and are notified, as a final reply is (`../tasks/attention`): the notification
- *   says the first question.
+ *   says the first line of the agent's preamble, or with none, the first question.
  * - **Answering** closes the set with your reply (`question.answered`), and the call that waits on it returns it; the
  *   task is working again.
  * - **Withdrawing** closes the set without one (`question.withdrawn`), when the turn that asked it ends some other way:
@@ -34,16 +34,23 @@ import {
   type QuestionSetClosing,
 } from '../db/repositories/question-sets'
 import { getTask } from '../db/repositories/tasks'
-import type { NotifyReply } from '../notifications/notifications'
+import { plainText, type NotifyReply } from '../notifications/notifications'
 import { noteAgentReply } from '../tasks/attention'
 import { updateTaskFromRunner, type TaskServiceContext } from '../tasks/service'
+
+/** What one `ask` call asks: its questions, and what the agent says before them, if anything. */
+export interface Asking {
+  /** The agent's reply to your message, in Markdown, shown at the top of the card. */
+  readonly preamble?: string | undefined
+  readonly questions: readonly Question[]
+}
 
 export interface QuestionBroker {
   /**
    * Opens a question set for the task and waits on it. Resolves with your reply once it's answered, or null once it's
    * withdrawn, or `signal` aborts (the SDK cancelled the call), which withdraws it.
    */
-  ask(taskId: string, questions: readonly Question[], signal?: AbortSignal): Promise<QuestionReply | null>
+  ask(taskId: string, asking: Asking, signal?: AbortSignal): Promise<QuestionReply | null>
   /** Whether a call in this process is waiting on the set. */
   isWaiting(id: string): boolean
   /**
@@ -68,6 +75,15 @@ export function toolResultFor(reply: QuestionReply): string {
     case QuestionReplyKind.FreeText:
       return JSON.stringify({ freeText: reply.text })
   }
+}
+
+/**
+ * What a question set's notification says: the first line of the preamble that has any text, or with none, the first
+ * question. The notification makes it plain text and cuts it short.
+ */
+export function notificationText({ preamble, questions }: Asking): string {
+  const line = preamble?.split('\n').find((candidate) => plainText(candidate) !== '')
+  return line ?? questions[0]?.prompt ?? ''
 }
 
 /**
@@ -107,12 +123,11 @@ export function createQuestionBroker(
   }
 
   return {
-    ask(taskId, questions, signal) {
-      const set = appendQuestionSet(db, { taskId, turn: Math.max(1, lastTurn(db, taskId)), questions })
+    ask(taskId, asking, signal) {
+      const set = appendQuestionSet(db, { taskId, turn: Math.max(1, lastTurn(db, taskId)), ...asking })
       emitQuestionSet(emit, set)
       updateTaskFromRunner(context, taskId, { activity: TaskActivity.Waiting })
-      const [first] = questions
-      if (first !== undefined && noteAgentReply(context, taskId)) notify(taskId, first.prompt)
+      if (noteAgentReply(context, taskId)) notify(taskId, notificationText(asking))
       return new Promise((resolve) => {
         waiting.set(set.id, resolve)
         const cancel = (): void => {
