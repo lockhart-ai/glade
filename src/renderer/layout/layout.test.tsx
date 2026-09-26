@@ -13,7 +13,17 @@ import {
   MIN_TASK_HEIGHT,
 } from '../panels'
 import { sampleWorkspace } from '../store/test-bridge'
-import { AppShell, BottomBar, RightPanel, Sidebar, SidebarHeader, TaskCard, TaskHeader, type AppShellProps } from '.'
+import {
+  AppShell,
+  BottomBar,
+  RightPanel,
+  Sidebar,
+  SidebarHeader,
+  TASK_HEADER_HEIGHT_VAR,
+  TaskCard,
+  TaskHeader,
+  type AppShellProps,
+} from '.'
 import appShellStyles from './AppShell.module.css'
 import bottomBarStyles from './BottomBar.module.css'
 
@@ -355,6 +365,47 @@ describe('TaskCard', () => {
     const titleBar = screen.getByTestId('task-title-bar')
     expect(within(titleBar).getByRole('button', { name: 'Show task list' })).toBeInTheDocument()
     expect(titleBar.compareDocumentPosition(screen.getByText('Header slot'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+
+  it('keeps the header’s height on the stage for the chat under it to clear, as the header resizes', () => {
+    const resizes: (() => void)[] = []
+    let disconnected = false
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          resizes.push(callback)
+        }
+        observe = (): void => undefined
+        disconnect = (): void => {
+          disconnected = true
+        }
+      },
+    )
+    let height = 72
+    const offsetHeight = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(() => height)
+
+    const { unmount } = render(
+      <ToastProvider>
+        <TaskCard header={<p>Header slot</p>} chat={<p>Chat slot</p>} inputBar={null} rightPanel={null} />
+      </ToastProvider>,
+    )
+
+    // The header floats over the chat: both are in the stage, the header first.
+    const stage = screen.getByTestId('task-stage')
+    expect(stage).toContainElement(screen.getByText('Header slot'))
+    expect(stage).toContainElement(screen.getByRole('region', { name: 'Chat' }))
+    expect(stage.style.getPropertyValue(TASK_HEADER_HEIGHT_VAR)).toBe('72px')
+
+    // A field wraps, or the header shows up once a task is selected: it grows, and the chat's clearance with it.
+    height = 118
+    resizes[0]?.()
+    expect(stage.style.getPropertyValue(TASK_HEADER_HEIGHT_VAR)).toBe('118px')
+
+    unmount()
+    expect(disconnected).toBe(true)
+    offsetHeight.mockRestore()
+    vi.unstubAllGlobals()
   })
 
   it('shows toasts above the input bar', () => {

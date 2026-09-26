@@ -125,7 +125,10 @@ State changes animate rather than jump: short, calm, easing out. Animate opacity
 - Toasts rise 8px and fade in, and fade out. The question card rises and fades in when the agent asks, and cross-fades
   to its answered state. Menus and popovers fade in from 97% scale; they close at once.
 - Things that are already on screen when a window or task opens don't animate in.
-- **Reduce motion** (macOS, `prefers-reduced-motion`): both durations are 0, so every change is instant.
+- The working line's three dots pulse in turn while the agent works: each fades from 33% up to full and back over
+  7 × `motion-duration`, one `motion-duration` behind the dot before it. It's the one thing that moves on its own.
+- **Reduce motion** (macOS, `prefers-reduced-motion`): both durations are 0, so every change is instant, and the
+  working dots hold still in the design's frame.
 
 The exact markup for every screen is in `html/` — open a file to read the CSS values. After changing one, re-render
 its PNG in `screens/` with `npm run render-design -- <name>` (e.g. `task-workspace`; no names renders them all). It
