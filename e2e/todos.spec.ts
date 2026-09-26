@@ -3,7 +3,7 @@
 // shows the same progress, and it all survives a relaunch, since it's worked out from the stored tool log.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { CommandName } from '../src/shared/bridge'
 import { expect, test } from './fixtures'
 import { chat, firstRun, inputBar, taskHeader, taskList, taskPanel } from './selectors'
@@ -53,6 +53,35 @@ function done(index: number): RegExp {
   return new RegExp(`^Done: ${text}Finished (just now|\\d+m ago)$`)
 }
 
+/** How an item draws (#308): whether its icon's circle is filled, the icon's colour, and its text's colour and line. */
+interface ItemLook {
+  readonly filled: boolean
+  readonly icon: string
+  readonly text: string
+  readonly struck: boolean
+}
+
+async function look(item: Locator): Promise<ItemLook> {
+  return item.evaluate((element) => {
+    const icon = element.querySelector('[aria-hidden="true"]')
+    // The item's body: the state read to a screen reader, then the text.
+    const text = element.children[1]?.children[1]
+    if (icon === null || text === undefined) throw new Error('An item without its icon or text')
+    return {
+      filled: icon.querySelector('circle')?.getAttribute('fill') === 'currentColor',
+      icon: getComputedStyle(icon).color,
+      text: getComputedStyle(text).color,
+      struck: getComputedStyle(text).textDecorationLine === 'line-through',
+    }
+  })
+}
+
+/** tokens.css's teal, muted, text and faint, as computed styles give them. */
+const TEAL = 'rgb(127, 209, 199)'
+const MUTED = 'rgb(174, 179, 195)'
+const TEXT = 'rgb(230, 232, 240)'
+const FAINT = 'rgb(153, 157, 176)'
+
 /** An exact time, as a finish time's tooltip gives it: `Sep 26, 2026, 12:18 AM`. */
 const FULL_DATE = /^[A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2}\s[AP]M$/
 
@@ -84,6 +113,10 @@ test('todos: the list follows TaskCreate and TaskUpdate over a turn, counted in 
     `To do: ${PLAN[5] ?? ''}`,
     `To do: ${PLAN[6] ?? ''}`,
   ])
+  // Done and not started tell apart at a glance: a filled teal check over dimmed, struck-through text, against a hollow
+  // ring with the text at full strength (#308).
+  expect(await look(panel.todos.nth(1))).toEqual({ filled: true, icon: TEAL, text: FAINT, struck: true })
+  expect(await look(panel.todos.nth(4))).toEqual({ filled: false, icon: MUTED, text: TEXT, struck: false })
   // Each finish time gives the exact time on hover.
   await expect(panel.todoFinished(panel.todos.nth(1))).toHaveAttribute('title', FULL_DATE)
   await expect(panel.todoFinished(panel.todos.first())).toHaveCount(0)
@@ -101,6 +134,9 @@ test('todos: the list follows TaskCreate and TaskUpdate over a turn, counted in 
   // The copy moved from the top to the done items as it finished, and the steps after it followed, each on top.
   const finished = [done(5), done(4), done(3), done(2), done(1), done(0), `To do: ${PLAN[6] ?? ''}`]
   await expect(panel.todos).toHaveText(finished)
+  // The copy, done now, took the filled check; the item left keeps its hollow ring.
+  expect(await look(panel.todos.nth(2))).toEqual({ filled: true, icon: TEAL, text: FAINT, struck: true })
+  expect(await look(panel.todos.last())).toEqual({ filled: false, icon: MUTED, text: TEXT, struck: false })
   const times = await panel.todos.evaluateAll((items) =>
     items.map((item) => item.querySelector('time')?.getAttribute('datetime') ?? null),
   )

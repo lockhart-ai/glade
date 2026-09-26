@@ -247,9 +247,10 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   for it, and ⌘W, with the focus in the panel, closes the tab. The agent can open a file here for you.
 - **Todos:** the agent's own checklist, as it keeps it, with how many are done. The items come in three groups: what
   the agent is working on now, then what's done (the most recently finished first, each with when it was finished,
-  like `4m ago`; hover it for the exact time), then what it hasn't started. Items move between the groups as the agent
-  works. The task's row in the sidebar shows the same progress on its third line (`3/7`, or a check once all are done);
-  hover it to see what the agent is working on.
+  like `4m ago`; hover it for the exact time), then what it hasn't started. A done item has a filled teal check and
+  dimmed, struck-through text; one not started has an empty ring and full-strength text. Items move between the groups
+  as the agent works. The task's row in the sidebar shows the same progress on its third line (`3/7`, or a check once
+  all are done); hover it to see what the agent is working on.
 - **Artifacts:** the files the agent named as its deliverables, as cards with **Open**, **Copy** and **Reveal in
   folder**. They stay after the task is done.
 - **Subagents:** one row per subagent, running ones first, with how long it's run and its tool calls. A running one

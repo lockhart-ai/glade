@@ -139,19 +139,26 @@
   white-space: nowrap;
 }
 
-/* #4E5468 in 09-todos.html: the ring of an item not started yet, and the line through a done one. */
+/* Not started (#308): a hollow ring, with the text at full strength, since it's still to do. */
 .todo .icon {
-  color: #4e5468;
-}
-
-.todo .text {
   color: var(--color-muted);
 }
 
-.done .icon {
-  color: var(--color-slate);
+.todo .text {
+  color: var(--color-text);
 }
 
+/* Done (#308): a filled check in the quiet teal, with the text dimmed and struck through. */
+.done .icon {
+  color: var(--color-teal);
+}
+
+/* The tick, cut out of the filled circle in the panel's colour. */
+.check {
+  stroke: var(--color-panel);
+}
+
+/* #4E5468 in 09-todos.html: the line through a done item. */
 .done .text {
   color: var(--color-faint);
   text-decoration: line-through;
