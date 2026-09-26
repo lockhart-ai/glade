@@ -65,11 +65,20 @@ tool and what it acts on), with **Open task** and an inline **Reply** that sends
 opening Glade. Settings › Notifications turns them off, or their sound on (off by default); Focus and Do Not Disturb
 are left to the OS.
 
+**The menu bar.** Glade's icon in the macOS menu bar shows what's in flight in every workspace: a monochrome glyph
+that follows light and dark menu bars, with the count of tasks that need you beside it, pulsing gently while any agent
+works (still with Reduce motion). Clicking it drops a popover under it: **Needs you** (the task, its workspace and why:
+asking, permission, error or a reply waiting), **Working** (its status line, todo progress with a thin bar, and how
+long its turn has run) and **Recent** (the last notifications Glade sent, with their age; kept in the database, so
+they survive a relaunch), each hidden while empty, or "Nothing in flight". It updates live while open; a row opens
+Glade on its task, switching workspace if needed, and its footer has **Open Glade** and **Quit**. It hides on Esc or
+when it loses focus (`design/html/23-menu-bar.html`).
+
 ## Settings
 
 Settings (⌘,) opens on Agent. Changes save as you make them.
 
-- **General:** nothing to set yet.
+- **General:** **Show Glade in the menu bar** (on by default): its icon, and the list under it (see Attention).
 - **Agent:** the defaults for new tasks (model, effort and permissions: Ask first or Allow all; **Allow edits** is shown
   but disabled, as it isn't a mode yet), and two switches for what the agent keeps current: **Status summary**
   (`set_status` every turn) and **Task titles** (`set_title` from your first message). A session started with one off
