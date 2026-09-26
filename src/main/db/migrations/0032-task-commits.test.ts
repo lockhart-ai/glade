@@ -3,15 +3,15 @@ import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { listTaskCommits } from '../repositories/task-commits'
 import { MIGRATIONS } from '.'
-import { taskCommitsMigration } from './0031-task-commits'
+import { taskCommitsMigration } from './0032-task-commits'
 
-it('is migration 31', () => {
-  expect(MIGRATIONS[30]).toBe(taskCommitsMigration)
+it('is migration 32', () => {
+  expect(MIGRATIONS[31]).toBe(taskCommitsMigration)
 })
 
 it('starts every existing task with no commits, keeps one link per commit, checks its source, and drops them with their task', () => {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 30))
+  migrate(db, MIGRATIONS.slice(0, 31))
   db.prepare("INSERT INTO workspaces VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)").run()
   db.prepare(
     `INSERT INTO tasks (id, workspace_id, title, objective, status, state, activity, pinned, unread, model, effort,

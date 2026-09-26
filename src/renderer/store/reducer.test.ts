@@ -20,6 +20,7 @@ import {
   type Watcher,
 } from '../../shared/domain'
 import { noOpenFiles } from '../../shared/files'
+import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
 import { applyEvent, idFromUiState, withHistory, withLiveWatchers, withOpenedWorkspace } from './reducer'
 import { INITIAL_DATA, type GladeData } from './state'
 import {
@@ -47,6 +48,10 @@ describe('applyEvent', () => {
 
   it('leaves the state alone for a menu bar command, which the window runs', () => {
     expect(applyEvent(state, { type: EventType.MenuCommand, command: appCommand(AppCommandId.NewTask) })).toBe(state)
+  })
+
+  it("leaves the state alone for what's in flight, which only the menu bar popover is sent", () => {
+    expect(applyEvent(state, { type: EventType.MenuBarChanged, snapshot: EMPTY_MENU_BAR_SNAPSHOT })).toBe(state)
   })
 
   it('forgets a removed workspace, its tasks and the confirmation that named it', () => {
