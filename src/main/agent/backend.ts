@@ -166,6 +166,11 @@ export interface AgentSession {
    * and Stop on a running watcher, use it.
    */
   stopTask(sdkTaskId: string): Promise<void>
+  /**
+   * What Claude Code says about the account it runs on (the SDK's `accountInfo()`, `docs/sdk-notes.md` §1), unparsed:
+   * the runner parses it at the boundary. Rejects if the agent process can't say, e.g. because it failed to start.
+   */
+  accountInfo(): Promise<unknown>
   /** Ends the session and its agent process. */
   close(): void
 }

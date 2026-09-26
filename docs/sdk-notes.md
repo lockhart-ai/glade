@@ -93,7 +93,31 @@ vars. Not exercised in this spike, because no key was available.
 - Glade runs on the user's existing `claude` login and adds no key setting. If `ANTHROPIC_API_KEY` happens to be set in
   the environment, the binary uses it instead, per the precedence above.
 - Show which credential is in use (from `system/init.apiKeySource`, and from `accountInfo()` or
-  `initializationResult().account`) so the user is never surprised about billing.
+  `initializationResult().account`) so the user is never surprised about billing. #281: Settings › General shows it,
+  read with `accountInfo()` as each task's session starts and kept in SQLite (`src/main/account/account.ts`).
+
+### Account info [verified]
+
+Probed on SDK 0.3.281 with Haiku (#281): `accountInfo()` answers straight after `query()` starts, before any message is
+sent, so reading it costs no API call; `initializationResult().account` is the same object. Its fields depend on the
+credential. Values below are invented:
+
+```jsonc
+// A Claude subscription login (no tokenSource; subscriptionType is Claude Code's display name)
+{ "email": "sam@acme.dev", "organization": "Acme Robotics", "subscriptionType": "Claude Max", "apiProvider": "firstParty" }
+// ANTHROPIC_API_KEY set, on a machine that also has a login: the key is used, and there's no email or plan
+{ "tokenSource": "claude.ai", "apiKeySource": "ANTHROPIC_API_KEY", "apiProvider": "firstParty" }
+// Nothing signed in (an empty CLAUDE_CONFIG_DIR)
+{ "tokenSource": "none", "apiProvider": "firstParty" }
+```
+
+- `system/init.apiKeySource` was `"none"` for the login, as in §1. `accountInfo()` carries the same `apiKeySource`
+  when there's a key, so Glade reads only `accountInfo()`.
+- From the bundled binary [docs]: a non-`firstParty` `apiProvider` (Bedrock, Vertex, Foundry, a gateway, …) comes
+  alone; `tokenSource` is left out for a subscription (then `subscriptionType` is set) and set for
+  `CLAUDE_CODE_OAUTH_TOKEN`; email and organization come only for a claude.ai or `/login managed key` login. With a
+  plan and a key both present, Claude Code uses the plan and calls the key "not in use". Glade's `accountKind` follows
+  that order.
 
 ## 2. Event shapes
 
@@ -418,6 +442,16 @@ receives `compact_summary`. See §5.
   `USAGE_WARNING_PREFIXES` for recognising limit messages.
 - **[verified]** `rate_limit_event.rate_limit_info` gives `status`, `resetsAt` and per-window `utilization`. This is
   useful for the P3 usage-limit screen.
+  - A probe on SDK 0.3.281 (#281), invented values:
+    `{ "status": "allowed_warning", "resetsAt": 1790920800, "rateLimitType": "seven_day", "utilization": 0.28,
+    "isUsingOverage": false, "unifiedWindows": { "five_hour": { "utilization": 0.36, "resetsAt": … },
+    "seven_day": { "utilization": 0.28, "resetsAt": … } } }`. `utilization` is a fraction of the `rateLimitType`
+    window; `unifiedWindows` isn't in the SDK's types.
+  - `allowed_warning` can come early: 28% of a week, above. Claude Code shows its own warning ("You've used 85% of
+    your session limit · resets 2pm") only from 70% (`utilization` ≥ 0.7, or none given), so Glade does the same: the
+    quiet note in the banner's spot (#281, `docs/design/html/17-usage-limit.html`). It clears on `allowed`, a warning
+    below 70%, `rejected` (the pause banner takes over) or its `resetsAt`.
+  - Glade never reads `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`.
   - `resetsAt` is **Unix epoch seconds** (the `anthropic-ratelimit-unified-reset` header; the bundled binary's schema
     says so). `status: "rejected"` means the limit is refusing requests until then. Only subscription logins get the
     event; an API key gets none.

@@ -26,6 +26,7 @@ import {
   LAUNCHED_OUTPUT,
   REJECTED_TOOL_OUTPUT,
   ScriptedSession,
+  SCRIPTED_ACCOUNT,
   scriptedRuleCovers,
   type ScriptedSessionOptions,
 } from './scripted-session'
@@ -40,6 +41,7 @@ import {
   fillContext,
   gladeTool,
   init,
+  limitWarning,
   permission,
   bashSuggestions,
   progress,
@@ -955,6 +957,35 @@ describe('ScriptedSession', () => {
       expect(created).toEqual([])
       expect(played.events.at(-1)).toMatchObject({ kind: AgentEventKind.TurnFinished, terminalReason: 'aborted_tools' })
     })
+  })
+
+  it('warns of a close usage limit as the SDK does: how much of which window, resetting when, to the second', async () => {
+    vi.setSystemTime(1_790_000_000_400)
+    const played = play([[limitWarning(0.85, 'five_hour', 3_600_000), result()]])
+    played.session.send('Go', 'user-1')
+    await flush()
+
+    expect(played.raw[0]).toMatchObject({
+      type: 'rate_limit_event',
+      rate_limit_info: {
+        status: 'allowed_warning',
+        utilization: 0.85,
+        rateLimitType: 'five_hour',
+        resetsAt: 1_790_003_601,
+      },
+    })
+    expect(played.events[0]).toEqual({
+      kind: AgentEventKind.RateLimit,
+      status: 'allowed_warning',
+      utilization: 0.85,
+      window: 'five_hour',
+      resetsAt: 1_790_003_601_000,
+    })
+  })
+
+  it('reports the invented login as its account, or the one it is given', async () => {
+    expect(await play([]).session.accountInfo()).toEqual(SCRIPTED_ACCOUNT)
+    expect(await play([], { account: { tokenSource: 'none' } }).session.accountInfo()).toEqual({ tokenSource: 'none' })
   })
 
   it('passes an emit step’s message through as is', async () => {

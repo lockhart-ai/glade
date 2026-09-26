@@ -15,18 +15,35 @@
 //
 // `--check` (check-design, run in CI) writes nothing: it renders every screen the same way, and also fails if a
 // committed PNG in docs/design/screens is missing, the wrong size, or has no text where its HTML lays text out.
-import { spawnSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+//
+// Electron runs as a child (see scripts/lib/electron-run.mts) with its own throwaway data folder. It's SIGKILLed if no
+// screen finishes for STALL_MS (or the whole run passes TIMEOUT_MS), and the script fails with the step it was stuck
+// on: a hidden window that never paints (in a command sandbox, or while the Mac sleeps) otherwise hangs it for good.
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { basename, dirname, extname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { backoffMs, captureProblems, captureWithRetries, pageProblems } from './lib/design-capture.mts'
+import {
+  exitOnErrors,
+  exitWhenOrphaned,
+  runElectron,
+  runExitCode,
+  runFailureMessage,
+  stepLine,
+} from './lib/electron-run.mts'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const HTML = join(ROOT, 'docs/design/html')
 const SCREENS = join(ROOT, 'docs/design/screens')
 const TIMEOUT_MS = 300_000
+/** How long Electron may go without a screen finishing (rendered, checked or failed) before it's stopped. */
+const STALL_MS = 60_000
+/** A line that says a screen finished: `Rendered …`, `Checked …`, or one of the script's own warnings or errors. */
+const PROGRESS = /^(Rendered |Checked |render-design: )/
+/** How long a screen's page may take to lay out at the screen's size before the screen fails. */
+const SIZE_WAIT_MS = 10_000
 /** How many times a screen is captured before the script gives up on it. */
 const ATTEMPTS = 6
 
@@ -73,21 +90,50 @@ async function serveDesigns() {
   return server
 }
 
-// waitForPage and measureText run in the page (passed as source to executeJavaScript), so they use its globals.
-/* global document, innerWidth, innerHeight, requestAnimationFrame, NodeFilter, getComputedStyle */
+// The waits and measureText run in the page (passed as source to executeJavaScript), so they use its globals.
+/* global document, innerWidth, innerHeight, devicePixelRatio, requestAnimationFrame, NodeFilter, getComputedStyle */
 
-/**
- * Runs in the page. Asks for every declared font face and image, waits for `document.fonts.ready`, for the window to
- * lay out at the screen's size and for a frame to paint after that.
- */
-async function waitForPage(width, height) {
+/** Runs in the page. Asks for every declared font face and image, and waits for them and `document.fonts.ready`. */
+async function waitForFonts() {
   await Promise.all([
     ...[...document.fonts].map((font) => font.load().catch(() => undefined)),
     ...[...document.images].map((image) => image.decode().catch(() => undefined)),
   ])
   await document.fonts.ready
-  while (innerWidth !== width || innerHeight !== height) await new Promise((resolve) => setTimeout(resolve, 20))
-  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+}
+
+/**
+ * Runs in the page. Waits for the window to lay out at the screen's size, and fails after `giveUpMs` with the size it
+ * has instead. A page zoomed to 2x, say, lays out at half the window's size and never gets there.
+ */
+async function waitForSize(width, height, giveUpMs) {
+  const giveUp = Date.now() + giveUpMs
+  while (innerWidth !== width || innerHeight !== height) {
+    if (Date.now() > giveUp) {
+      throw new Error(
+        `the page laid out at ${String(innerWidth)}×${String(innerHeight)} (devicePixelRatio ${String(devicePixelRatio)}), ` +
+          `not ${String(width)}×${String(height)}, after ${String(giveUpMs / 1000)} s`,
+      )
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+}
+
+/** Runs in the page. Waits for a frame to paint. */
+function waitForFrame() {
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+}
+
+/** Says which step the render is on (see STEP_PREFIX in scripts/lib/electron-run.mts). */
+function step(text) {
+  console.log(stepLine(text))
+}
+
+/** Waits for what's been printed to reach the script: its output is a pipe, which Node writes to asynchronously. */
+function flushOutput() {
+  return Promise.all(
+    [process.stdout, process.stderr].map((stream) => new Promise((resolve) => stream.write('', resolve))),
+  )
 }
 
 /**
@@ -140,9 +186,29 @@ function scaled(image, width, height) {
 
 async function renderInElectron() {
   const { app, BrowserWindow, nativeImage } = await import('electron')
-  const { screens, check } = JSON.parse(process.env.GLADE_RENDER_DESIGN ?? '{}')
+  const { screens, check, userData } = JSON.parse(process.env.GLADE_RENDER_DESIGN ?? '{}')
+  // Its own data folder, which the script removes afterwards, so no other Electron's locks or caches are in the way.
+  app.setPath('userData', userData)
   app.dock?.hide()
+  // If the script is killed outright, it can't stop this Electron or remove its data folder, so Electron does both:
+  // on its next line of output, which fails once nothing reads it, or when it notices it's orphaned. It kills itself
+  // rather than quitting, which waits on a GPU process that may be wedged, and never waits in Electron's error dialog.
+  // (Its helpers exit with it; one may write a cache index back into the folder as they go, which the OS clears.)
+  const abandon = () => {
+    rmSync(userData, { recursive: true, force: true })
+    process.kill(process.pid, 'SIGKILL')
+  }
+  exitOnErrors({
+    streams: [process.stdout, process.stderr],
+    errors: process,
+    report: (error) => console.error(`render-design: ${error.stack ?? error.message}`),
+    exit: () => app.exit(1),
+    abandon,
+  })
+  exitWhenOrphaned({ parent: process.ppid, currentParent: () => process.ppid, exit: abandon, intervalMs: 1000 })
+  step('waiting for Electron to get ready')
   await app.whenReady()
+  step('serving the designs and opening a hidden window')
   const server = await serveDesigns()
   const { port } = server.address()
   const window = new BrowserWindow({
@@ -155,11 +221,21 @@ async function renderInElectron() {
   const failures = []
   for (const screen of screens) {
     try {
+      const size = `${String(screen.width)}×${String(screen.height)}`
       window.setContentSize(screen.width, screen.height)
+      step(`${screen.name}: loading ${screen.page}`)
       await window.loadURL(`http://127.0.0.1:${String(port)}/${screen.page}`)
+      // Chromium keeps a zoom level per host, and every screen is served from 127.0.0.1: one zoom level saved in a
+      // shared data folder once laid every later render out at half size, so its wait for the size never ended.
+      window.webContents.setZoomFactor(1)
+      step(`${screen.name}: waiting for its fonts and images`)
+      await window.webContents.executeJavaScript(`(${waitForFonts.toString()})()`)
+      step(`${screen.name}: waiting for the window to be ${size}`)
       await window.webContents.executeJavaScript(
-        `(${waitForPage.toString()})(${String(screen.width)}, ${String(screen.height)})`,
+        `(${waitForSize.toString()})(${String(screen.width)}, ${String(screen.height)}, ${String(SIZE_WAIT_MS)})`,
       )
+      step(`${screen.name}: waiting for a frame to paint`)
+      await window.webContents.executeJavaScript(`(${waitForFrame.toString()})()`)
       const { image, report } = await captureWithRetries({
         label: screen.page,
         attempts: ATTEMPTS,
@@ -170,14 +246,15 @@ async function renderInElectron() {
         run: async (attempt) => {
           // After a failed attempt, ask for a fresh frame rather than the one that just came back without text.
           if (attempt > 1) {
+            step(`${screen.name}: attempt ${String(attempt)}: waiting for a fresh frame to paint`)
             window.webContents.invalidate()
-            await window.webContents.executeJavaScript(
-              'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
-            )
+            await window.webContents.executeJavaScript(`(${waitForFrame.toString()})()`)
           }
+          step(`${screen.name}: attempt ${String(attempt)}: measuring its text boxes`)
           const report = await window.webContents.executeJavaScript(`(${measureText.toString()})()`)
           const notReady = pageProblems(report)
           if (notReady.length > 0) return { ok: false, problems: notReady }
+          step(`${screen.name}: attempt ${String(attempt)}: capturing the window`)
           const { image, bitmap } = scaled(await window.webContents.capturePage(), screen.width, screen.height)
           const problems = captureProblems(bitmap, report.textBoxes, screen.width, screen.height)
           return problems.length > 0 ? { ok: false, problems } : { ok: true, value: { image, report } }
@@ -211,6 +288,7 @@ async function renderInElectron() {
     console.error(`render-design: ${String(failures.length)} of ${String(screens.length)} screens failed:`)
     for (const failure of failures) console.error(`  ${failure.split('\n')[0]}`)
     if (check) console.error('Re-render them with `npm run render-design -- <name> ...` and commit the PNGs.')
+    await flushOutput()
     app.exit(1)
     return
   }
@@ -219,23 +297,30 @@ async function renderInElectron() {
 
 if (process.versions.electron !== undefined) {
   // Not awaited: Electron doesn't get ready while its ESM entry point is still evaluating.
-  renderInElectron().catch((error) => {
+  renderInElectron().catch(async (error) => {
     console.error(`render-design: ${error.message}`)
+    await flushOutput()
     process.exit(1)
   })
 } else {
   const args = process.argv.slice(2)
   const check = args.includes('--check')
   const screens = screensToRender(args.filter((arg) => arg !== '--check'))
-  const env = { ...process.env, GLADE_RENDER_DESIGN: JSON.stringify({ screens, check }) }
-  delete env.ELECTRON_RUN_AS_NODE
-  const electron = createRequire(import.meta.url)('electron')
-  const run = spawnSync(electron, [fileURLToPath(import.meta.url)], {
+  const options = {
+    tool: 'render-design',
+    command: createRequire(import.meta.url)('electron'),
+    args: [fileURLToPath(import.meta.url)],
     cwd: ROOT,
-    env,
-    stdio: 'inherit',
-    timeout: TIMEOUT_MS,
-  })
-  if (run.error !== undefined) console.error(`render-design: ${run.error.message}`)
-  process.exit(run.status ?? 1)
+    env: (userData) => {
+      const env = { ...process.env, GLADE_RENDER_DESIGN: JSON.stringify({ screens, check, userData }) }
+      delete env.ELECTRON_RUN_AS_NODE
+      return env
+    },
+    timeoutMs: TIMEOUT_MS,
+    stall: { ms: STALL_MS, progress: PROGRESS },
+  }
+  const result = await runElectron(options)
+  const message = runFailureMessage(options, result)
+  if (message !== undefined) console.error(message)
+  process.exit(runExitCode(result))
 }

@@ -38,6 +38,8 @@ import { DEFAULT_SETTINGS } from '../shared/settings'
 import { DRIVES_GLADE } from './agent/scripts'
 import { getSettings } from './db/repositories/settings'
 import { ensureControlToken, readControlToken } from './control/token'
+import { getAccount, getUsageWarning } from './db/repositories/account'
+import { UsageWindow } from '../shared/account'
 
 const FIXTURES = join(import.meta.dirname, '..', '..', 'scripts', 'fixtures')
 const FIXTURE = join(FIXTURES, 'task-workspace.json')
@@ -223,6 +225,14 @@ describe('readSeed', () => {
     expect(() => readSeed(write(JSON.stringify({ ...SEED, controlToken: `${SAMPLE_TOKEN.slice(1)}!` })))).toThrow(
       /is invalid: /,
     )
+  })
+
+  it('refuses an account or a usage warning of the wrong shape', () => {
+    expect(() => readSeed(write(JSON.stringify({ ...SEED, account: { email: 'sam@acme.dev' } })))).toThrow(
+      /is invalid: /,
+    )
+    const warning = { utilization: -1, window: 'five_hour', resetsInMinutes: 5 }
+    expect(() => readSeed(write(JSON.stringify({ ...SEED, usageWarning: warning })))).toThrow(/is invalid: /)
   })
 
   it('refuses a fixture that is missing or not JSON', () => {
@@ -475,6 +485,52 @@ describe('applySeed', () => {
     expect(readControlToken(db)).toBe(SAMPLE_TOKEN)
     expect(ensureControlToken(db)).toBe(SAMPLE_TOKEN)
     expect(getSettings(db)).toEqual({ ...DEFAULT_SETTINGS, controlEnabled: true })
+  })
+
+  it('stores no account and no usage warning unless given', () => {
+    const { db } = database
+    applySeed(db, SEED, NOW)
+    expect(getAccount(db)).toBeNull()
+    expect(getUsageWarning(db)).toBeNull()
+  })
+
+  it('stores the account and usage warning it gives, timed from now', () => {
+    const { db } = database
+    applySeed(
+      db,
+      {
+        ...SEED,
+        account: {
+          email: 'sam@acme.dev',
+          subscriptionType: 'Claude Max',
+          apiProvider: 'firstParty',
+          readMinutesAgo: 2,
+        },
+        usageWarning: { utilization: 0.85, window: UsageWindow.Session, resetsInMinutes: 90 },
+      },
+      NOW,
+    )
+
+    expect(getAccount(db)).toEqual({
+      email: 'sam@acme.dev',
+      organization: null,
+      subscriptionType: 'Claude Max',
+      tokenSource: null,
+      apiKeySource: null,
+      apiProvider: 'firstParty',
+      readAt: NOW - 2 * 60_000,
+    })
+    expect(getUsageWarning(db)).toEqual({ utilization: 0.85, window: UsageWindow.Session, resetsAt: NOW + 90 * 60_000 })
+  })
+
+  it('stores a usage warning with no reset time', () => {
+    const { db } = database
+    applySeed(
+      db,
+      { ...SEED, usageWarning: { utilization: null, window: UsageWindow.Weekly, resetsInMinutes: null } },
+      NOW,
+    )
+    expect(getUsageWarning(db)).toEqual({ utilization: null, window: UsageWindow.Weekly, resetsAt: null })
   })
 
   it('selects nothing unless a task asks to be', () => {

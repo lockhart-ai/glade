@@ -41,6 +41,7 @@ import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import type { Handlers } from './handlers'
 import { DEFAULT_CONTROL_PORT, type ControlStatus } from '../../shared/control'
+import type { AccountStatus } from '../../shared/account'
 import { REQUEST_SCHEMAS, type RequestSchemas } from './requests'
 
 const CONTROL_STATUS: ControlStatus = {
@@ -132,6 +133,7 @@ const TASK_HANDLERS = {
   [CommandName.PluginsOpenFolder]: () => null,
   [CommandName.PluginsPlaceView]: () => ({ status: '' }),
   [CommandName.ControlStatus]: () => ({ status: CONTROL_STATUS }),
+  [CommandName.AccountStatus]: () => ({ status: { account: null, usageWarning: null } }),
   [CommandName.ControlRegenerateToken]: () => ({ status: CONTROL_STATUS }),
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
@@ -468,6 +470,9 @@ describe('events', () => {
           break
         case EventType.ControlChanged:
           expectTypeOf(event.status).toEqualTypeOf<ControlStatus>()
+          break
+        case EventType.AccountChanged:
+          expectTypeOf(event.status).toEqualTypeOf<AccountStatus>()
           break
         case EventType.MenuBarChanged:
           expectTypeOf(event.snapshot).toEqualTypeOf<MenuBarSnapshot>()

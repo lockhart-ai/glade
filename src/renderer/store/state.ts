@@ -16,6 +16,7 @@ import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../shared/settings'
 import type { InstalledPlugin } from '../../shared/plugins'
 import type { ControlStatus } from '../../shared/control'
+import type { AccountStatus } from '../../shared/account'
 import type { SettingsSection } from '../settings/sections'
 import type { Command, MenuState } from '../../shared/commands'
 import type {
@@ -237,6 +238,11 @@ export interface GladeData {
    * for when it opens) or broadcast it; null until it's first read.
    */
   readonly controlStatus: ControlStatus | null
+  /**
+   * The account the tasks run on and its usage warning (Settings › General, and the note in the banner's spot), as main
+   * answered at launch (`account.status`) or last broadcast them.
+   */
+  readonly accountStatus: AccountStatus
   /** The latest request to add text to a task's message field; null until one is made. A one-off UI intent. */
   readonly inputInsertion: InputInsertion | null
   /**
@@ -575,6 +581,7 @@ export const INITIAL_DATA: GladeData = {
   plugins: null,
   pluginStatuses: {},
   controlStatus: null,
+  accountStatus: { account: null, usageWarning: null },
   inputInsertion: null,
   inputDrafts: {},
   searchText: '',

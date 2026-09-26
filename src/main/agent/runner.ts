@@ -277,6 +277,7 @@ import {
   type ToolPermissionCall,
 } from './backend'
 import { CONTROL_SERVER } from '../control/names'
+import type { AccountSink } from '../account/account'
 import { classifyAgentError } from './error-classification'
 import { gladeOwnServers } from './glade-tools'
 import {
@@ -332,6 +333,11 @@ export interface AgentRunnerOptions {
    * in the app. Always up by default.
    */
   readonly isOnline?: () => boolean
+  /**
+   * Told what each session says of the account (`../account/account`): the account, asked for as the session starts,
+   * and every `rate_limit_event`. Nothing is asked or told by default.
+   */
+  readonly account?: AccountSink
 }
 
 /** A message you sent: its text, and the images pasted into it, in order. */
@@ -1284,8 +1290,14 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return
     }
     if (event.kind === AgentEventKind.RateLimit) {
-      agentLog(taskId).info('rate limit', { status: event.status, resetsAt: event.resetsAt })
+      agentLog(taskId).info('rate limit', {
+        status: event.status,
+        resetsAt: event.resetsAt,
+        utilization: event.utilization,
+        window: event.window,
+      })
       live.limit = { rejected: event.status === RateLimitStatus.Rejected, resetsAt: event.resetsAt }
+      options.account?.rateLimit(event)
       return
     }
     if (event.kind === AgentEventKind.SubagentStarted) {
@@ -1534,7 +1546,22 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
     sessions.set(task.id, live)
     void pump(task.id, live)
+    readAccount(task.id, live)
     return live
+  }
+
+  /** Asks a session that just started which account it runs on, for Settings › General (`AgentRunnerOptions.account`). */
+  const readAccount = (taskId: string, live: LiveSession): void => {
+    const { account } = options
+    if (account === undefined) return
+    live.session.accountInfo().then(
+      (info) => {
+        if (!live.closed) account.accountRead(info)
+      },
+      (error: unknown) => {
+        agentLog(taskId).warn("couldn't read the account", { error })
+      },
+    )
   }
 
   /**
