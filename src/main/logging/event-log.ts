@@ -264,6 +264,14 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
           watchers: event.watchers.map(({ kind, state, wakes }) => `${kind} ${state} ${String(wakes)}`),
         })
         return
+      case EventType.CommitsChanged:
+        // Hashes only: a commit's message is what the agent wrote, which the log never keeps above debug.
+        tools.info('commits changed', { taskId: event.taskId, commits: event.commits.map(({ hash }) => hash) })
+        tools.debug('commit messages', {
+          taskId: event.taskId,
+          subjects: event.commits.map(({ subject }) => excerpt(subject)),
+        })
+        return
       case EventType.FileShown:
         tools.info('file shown', { taskId: event.taskId, path: event.path, line: event.line })
         return

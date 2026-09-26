@@ -25,6 +25,7 @@ import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from
 import { appendDivider, appendNarration, appendToolCall } from './tool-events'
 import { setWorkspaceSelection } from './workspace-selections'
 import { addWatcher } from './watchers'
+import { addTaskCommit, CommitSource } from './task-commits'
 import { getWorkspace } from './workspaces'
 
 let test: TestDatabase
@@ -112,6 +113,21 @@ function fillTask(db: Database, task: Task): void {
     nextDueAt: null,
     expiresAt: null,
   })
+  addTaskCommit(db, {
+    taskId,
+    gitDir: '/code/acme-api/.git',
+    repoPath: '/code/acme-api',
+    hash: taskId.replaceAll('-', '').padEnd(40, '0').slice(0, 40),
+    subject: 'Fix the UTC date test',
+    branch: 'main',
+    committedAt: 1,
+    additions: 1,
+    deletions: 1,
+    filesChanged: 1,
+    parents: 1,
+    toolUseId: `bash-${taskId}`,
+    source: CommitSource.Printed,
+  })
 }
 
 /** The tables `fillTask` writes to. A new table that belongs to a task fails the test below until it's added here. */
@@ -132,6 +148,8 @@ const FILLED_TABLES = [
   'session_context',
   // Its handoff note and the caller's own id for it, from a backfill through the control API.
   'task_backfills',
+  // The commits its agent made (the Changes tab).
+  'task_commits',
   // The permission rules granted it with Allow for this task.
   'task_permission_rules',
   'tool_events',

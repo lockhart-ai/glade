@@ -35,6 +35,8 @@ import {
   WatcherKind,
   WatcherState,
   type Artifact,
+  type CommitFiles,
+  type TaskCommit,
   type TaskHandoff,
   type FileContent,
   type FileInfo,
@@ -51,7 +53,7 @@ import {
   type Watcher,
   type Workspace,
 } from '../../shared/domain'
-import { noOpenFiles, withClosedFile, withOpenedFile } from '../../shared/files'
+import { commitFileKey, noOpenFiles, withClosedFile, withOpenedFile } from '../../shared/files'
 import { taskPermissionRule } from '../../shared/permissions'
 import type { ImageData, ImageRef } from '../../shared/images'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
@@ -99,6 +101,17 @@ export interface FakeMain {
   readonly watchers?: Watcher[]
   /** The watchers `watchers.stop` was asked to stop, by id, in order. */
   readonly stoppedWatchers?: string[]
+  /** Every task's commits, newest first; none when left out. */
+  readonly commits?: TaskCommit[]
+  /** What `changes.files` answers with, by commit id; a commit left out fails, as one its repository no longer has. */
+  readonly commitFiles?: Readonly<Record<string, CommitFiles>>
+  /**
+   * The files that are still in the workspace, by `<commit id>:<path>`, with the path relative to the workspace root
+   * that `changes.openFile` opens for each; any other opens as its commit left it (its commit file key).
+   */
+  readonly currentCommitFiles?: Readonly<Record<string, string>>
+  /** Whether `changes.repository` says the workspace is in a git repository; it is when left out. */
+  readonly inRepository?: boolean
   /** Each task's todo list, by task id; none when left out. */
   readonly todos?: Readonly<Record<string, TodoList>>
   /** Every task's artifacts; none when left out. `artifacts.remove` removes one, from the fake's own copy. */
@@ -353,6 +366,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       artifacts: artifacts.filter((artifact) => artifact.taskId === id),
       handoff: main.handoffs?.[id] ?? null,
       watchers: (main.watchers ?? []).filter((watcher) => watcher.taskId === id),
+      commits: (main.commits ?? []).filter((commit) => commit.taskId === id),
     }),
     [CommandName.QueueAdd]: ({ taskId, text, images: added }) => {
       queued += 1
@@ -454,6 +468,17 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       }
       return null
     },
+    [CommandName.ChangesFiles]: ({ id }) => {
+      const files = main.commitFiles?.[id]
+      return files === undefined
+        ? refuse(bridgeError(BridgeErrorCode.Internal, `Couldn't read the files of commit ${id}`))
+        : { files }
+    },
+    [CommandName.ChangesOpenFile]: ({ taskId, id, path }) =>
+      changeOpenFiles(taskId, (open) =>
+        withOpenedFile(open, main.currentCommitFiles?.[`${id}:${path}`] ?? commitFileKey({ commitId: id, path })),
+      ),
+    [CommandName.ChangesRepository]: () => ({ repository: main.inRepository ?? true }),
     [CommandName.FilesInfo]: ({ path }) => ({ info: main.fileInfo?.[path] ?? { kind: FileInfoKind.Missing } }),
     [CommandName.FilesCopy]: ({ path }) => {
       main.copied?.push(path)
@@ -685,6 +710,28 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
 }
 
 /** A running `Monitor` on a PR's CI checks, started at 13:02 on 25 September 2026, unless `overrides` say otherwise. */
+/**
+ * A commit fixing the UTC date test on `fix/date-test`, made by the task's own agent at 13:02 on 25 September 2026,
+ * unless `overrides` say otherwise. Its hash is its id's, repeated.
+ */
+export function sampleCommit(id: string, taskId: string, overrides: Partial<TaskCommit> = {}): TaskCommit {
+  return {
+    id,
+    taskId,
+    hash: `${id}0123456789abcdef`.padEnd(40, '0').slice(0, 40),
+    subject: 'Fix the UTC date test',
+    branch: 'fix/date-test',
+    committedAt: new Date(2026, 8, 25, 13, 2).getTime(),
+    additions: 12,
+    deletions: 3,
+    filesChanged: 2,
+    merge: false,
+    repoPath: '/code/acme-api',
+    subagentToolUseId: null,
+    ...overrides,
+  }
+}
+
 export function sampleWatcher(id: string, taskId: string, overrides: Partial<Watcher> = {}): Watcher {
   return {
     id,

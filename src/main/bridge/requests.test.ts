@@ -448,3 +448,34 @@ describe('REQUEST_SCHEMAS', () => {
     if (!parsed.success) expect(describeIssues(parsed.error)).toBe(message)
   })
 })
+
+describe('the Changes tab’s requests', () => {
+  const KEY = '/commit/c1/docs/upgrading.md'
+
+  it('take a commit file’s key where the Files tab can have one open, and nowhere else', () => {
+    for (const command of [CommandName.FilesRead, CommandName.FilesOpen, CommandName.FilesClose] as const) {
+      expect(REQUEST_SCHEMAS[command].parse({ taskId: 't', path: KEY })).toEqual({ taskId: 't', path: KEY })
+      expect(REQUEST_SCHEMAS[command].parse({ taskId: 't', path: 'src/date.ts' })).toEqual({
+        taskId: 't',
+        path: 'src/date.ts',
+      })
+      expect(REQUEST_SCHEMAS[command].safeParse({ taskId: 't', path: '/commit/c1/../secrets' }).success).toBe(false)
+      expect(REQUEST_SCHEMAS[command].safeParse({ taskId: 't', path: '/etc/hosts' }).success).toBe(false)
+    }
+    for (const command of [CommandName.FilesOpenInEditor, CommandName.FilesReveal, CommandName.FilesCopy] as const) {
+      expect(REQUEST_SCHEMAS[command].safeParse({ taskId: 't', path: KEY }).success).toBe(false)
+    }
+  })
+
+  it('name a commit by its id, and a file by its path in the commit’s repository', () => {
+    expect(REQUEST_SCHEMAS[CommandName.ChangesFiles].parse({ taskId: 't', id: 'c1' })).toEqual({
+      taskId: 't',
+      id: 'c1',
+    })
+    const open = { taskId: 't', id: 'c1', path: 'docs/upgrading.md' }
+    expect(REQUEST_SCHEMAS[CommandName.ChangesOpenFile].parse(open)).toEqual(open)
+    expect(REQUEST_SCHEMAS[CommandName.ChangesOpenFile].safeParse({ ...open, path: '../x' }).success).toBe(false)
+    expect(REQUEST_SCHEMAS[CommandName.ChangesRepository].parse({ taskId: 't' })).toEqual({ taskId: 't' })
+    expect(REQUEST_SCHEMAS[CommandName.ChangesRepository].safeParse({ id: 't' }).success).toBe(false)
+  })
+})

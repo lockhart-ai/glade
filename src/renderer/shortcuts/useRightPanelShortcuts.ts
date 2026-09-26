@@ -19,8 +19,8 @@ export function panelTabEntries(digit: number, uiState: UiStateValues): UiStateE
 }
 
 /**
- * Tool calls · Files · Todos · Artifacts · Subagents · Watchers (⌘⌥1–6) pick the right panel's tab, wherever the focus
- * is.
+ * Tool calls · Files · Todos · Artifacts · Subagents · Watchers · Changes (⌘⌥1–7) pick the right panel's tab, wherever
+ * the focus is.
  */
 export function useRightPanelShortcuts(): void {
   const store = useGladeStoreApi()

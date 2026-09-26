@@ -863,6 +863,63 @@ export interface Watcher {
   readonly endedAt: EpochMs | null
 }
 
+/**
+ * A commit made within a task, as the Changes tab lists it: one the task's agent or one of its subagents made with the
+ * `Bash` tool, however it made it (`git commit`, an amend, a merge, a script). Glade only watches git: it never commits,
+ * pushes or changes a repository itself.
+ */
+export interface TaskCommit {
+  /** Glade's own id for the task's link to the commit. */
+  readonly id: string
+  readonly taskId: string
+  /** The commit's full hash. */
+  readonly hash: string
+  /** The first line of its message. */
+  readonly subject: string
+  /** The branch it was made on; null when it was made on a detached HEAD. */
+  readonly branch: string | null
+  /** When it was committed (its committer date). */
+  readonly committedAt: EpochMs
+  /** Lines added and removed, against its first parent for a merge. */
+  readonly additions: number
+  readonly deletions: number
+  /** How many files it changed. */
+  readonly filesChanged: number
+  /** Whether it's a merge: it has more than one parent. */
+  readonly merge: boolean
+  /** The working tree it was made in: the repository's own, or a worktree's (which may since have been removed). */
+  readonly repoPath: string
+  /** The `Agent` call of the subagent that made it; null when the task's own agent did. */
+  readonly subagentToolUseId: string | null
+}
+
+/** How a commit changed a file. A copy counts as added, and a change of type as modified. */
+export enum CommitFileStatus {
+  Added = 'added',
+  Modified = 'modified',
+  Deleted = 'deleted',
+  Renamed = 'renamed',
+}
+
+/** A file a commit changed, as an expanded commit lists it. */
+export interface CommitFile {
+  /** Relative to the top of the commit's repository. */
+  readonly path: string
+  /** A renamed file's path before; null for the other statuses. */
+  readonly oldPath: string | null
+  readonly status: CommitFileStatus
+  /** Lines added and removed; null for a binary file, which has no lines. */
+  readonly additions: number | null
+  readonly deletions: number | null
+}
+
+/** The files a commit changed (`changes.files`): the first ones, up to a cap, and how many there are in all. */
+export interface CommitFiles {
+  readonly files: readonly CommitFile[]
+  /** Every file it changed: more than `files` holds when the list is capped ("and N more"). */
+  readonly total: number
+}
+
 /** How long a task's handoff note may be: 32 KB of UTF-8. */
 export const MAX_HANDOFF_BYTES = 32 * 1024
 

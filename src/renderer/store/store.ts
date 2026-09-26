@@ -593,6 +593,21 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.WatchersStop, { taskId, id })
       },
 
+      async commitFiles(taskId, commitId) {
+        const { files } = await bridge.invoke(CommandName.ChangesFiles, { taskId, id: commitId })
+        return files
+      },
+
+      async showCommitFile(taskId, commitId, path) {
+        applyOpenFiles(await bridge.invoke(CommandName.ChangesOpenFile, { taskId, id: commitId, path }))
+        showPanelTab(taskId, PanelTab.Files)
+      },
+
+      async inRepository(taskId) {
+        const { repository } = await bridge.invoke(CommandName.ChangesRepository, { taskId })
+        return repository
+      },
+
       async copyText(text) {
         await bridge.invoke(CommandName.ClipboardWriteText, { text })
       },
