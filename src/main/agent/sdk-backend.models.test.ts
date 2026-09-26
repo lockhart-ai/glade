@@ -40,7 +40,7 @@ beforeEach(() => {
 
 it('reports the models the SDK offers, unparsed, once each session’s agent process has started', async () => {
   const onModels = vi.fn()
-  const backend = createSdkBackend({ env: Promise.resolve(ENV), onModels })
+  const backend = createSdkBackend({ version: '1.2.3', env: Promise.resolve(ENV), onModels })
 
   backend.start(OPTIONS)
   backend.start(OPTIONS)
@@ -55,7 +55,7 @@ it('reports the models the SDK offers, unparsed, once each session’s agent pro
 it('waits for the environment, like the agent process', async () => {
   const onModels = vi.fn()
   let resolve: (env: typeof ENV) => void = () => undefined
-  createSdkBackend({ env: new Promise((done) => (resolve = done)), onModels }).start(OPTIONS)
+  createSdkBackend({ version: '1.2.3', env: new Promise((done) => (resolve = done)), onModels }).start(OPTIONS)
   await Promise.resolve()
   expect(sdk.session.initializationResult).not.toHaveBeenCalled()
 
@@ -67,7 +67,7 @@ it('waits for the environment, like the agent process', async () => {
 })
 
 it('asks for no models when nothing hears them', async () => {
-  createSdkBackend({ env: Promise.resolve(ENV) }).start(OPTIONS)
+  createSdkBackend({ version: '1.2.3', env: Promise.resolve(ENV) }).start(OPTIONS)
   await vi.waitFor(() => {
     expect(sdk.query).toHaveBeenCalledOnce()
   })
@@ -80,7 +80,10 @@ it('logs a session whose models it couldn’t read, and the session goes on', as
   sdk.session.initializationResult.mockRejectedValueOnce(new Error('The process exited'))
   const onModels = vi.fn()
   const log = createMemoryLog(LogScope.Agent)
-  const session = createSdkBackend({ env: Promise.resolve(ENV), onModels }).start({ ...OPTIONS, log: log.logger })
+  const session = createSdkBackend({ version: '1.2.3', env: Promise.resolve(ENV), onModels }).start({
+    ...OPTIONS,
+    log: log.logger,
+  })
 
   await vi.waitFor(() => {
     expect(log.withMessage("couldn't read the models the SDK offers")).toEqual([

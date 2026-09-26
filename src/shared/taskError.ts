@@ -3,6 +3,7 @@
  * line, and the tool log's failed API row (`docs/design/html/16-error.html`).
  */
 import { AgentErrorKind, TaskErrorSource, type TaskError } from './domain'
+import { startupFailureMessage } from './startupFailure'
 
 /** The SDK's name for an error, in words: `server_error` → `server error`. Null for none, or `unknown`. */
 function codeName(code: string | null): string | null {
@@ -31,6 +32,8 @@ export function errorHeadline(error: TaskError | null): string {
   switch (error.source) {
     case TaskErrorSource.Session:
       return 'the agent process stopped'
+    case TaskErrorSource.Startup:
+      return 'Claude Code couldn’t start'
     case TaskErrorSource.Turn:
       return 'the turn failed'
     case TaskErrorSource.Api: {
@@ -62,6 +65,14 @@ export function errorOpening(error: TaskError | null): ErrorOpening {
   switch (error.source) {
     case TaskErrorSource.Session:
       return { lead: 'The agent’s process stopped unexpectedly.', label: null }
+    case TaskErrorSource.Startup: {
+      // A reason Glade doesn't know (a newer SDK's) is named as the SDK gives it.
+      const message = error.code === null ? null : startupFailureMessage(error.code)
+      if (message !== null) return { lead: message, label: null }
+      return error.code === null
+        ? { lead: 'Claude Code couldn’t start.', label: null }
+        : { lead: 'Claude Code couldn’t start: ', label: error.code }
+    }
     case TaskErrorSource.Turn:
       return { lead: 'The turn ended on an error.', label: null }
     case TaskErrorSource.Api: {
