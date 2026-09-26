@@ -102,7 +102,7 @@ const askInput = z.object({
   preamble: preambleSchema
     .optional()
     .describe(
-      "Optional: your reply to what the user just said, in Markdown, a few sentences: answer their question, react " +
+      'Optional: your reply to what the user just said, in Markdown, a few sentences: answer their question, react ' +
         "to what they told you, or say why you're asking. It's shown at the top of the card, above the questions.",
     ),
   questions: questionsSchema.describe('The questions, shown together on one card, in this order.'),

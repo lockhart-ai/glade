@@ -16,7 +16,7 @@ import { appendQuestionSet, getQuestionSet } from '../db/repositories/question-s
 import { getTask } from '../db/repositories/tasks'
 import { setUiState } from '../db/repositories/ui-state'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
-import { createQuestionBroker, toolResultFor, type QuestionBroker } from './questions'
+import { createQuestionBroker, notificationText, toolResultFor, type QuestionBroker } from './questions'
 
 const QUESTIONS: Question[] = [
   { kind: QuestionKind.Pills, prompt: 'Credit contributors?', options: ['GitHub handles', 'No credits'] },
@@ -77,7 +77,38 @@ describe('toolResultFor', () => {
   })
 })
 
+describe('notificationText', () => {
+  it('says the first line of the preamble, or with none, the first question', () => {
+    expect(notificationText({ questions: QUESTIONS })).toBe('Credit contributors?')
+    expect(notificationText({ preamble: 'Yes, they pass.\n\nA few choices first.', questions: QUESTIONS })).toBe(
+      'Yes, they pass.',
+    )
+  })
+
+  it('skips lines with no text once the Markdown is gone, and falls back to the first question if none has any', () => {
+    expect(notificationText({ preamble: '\n```ts\nconst limit = 100\n```', questions: QUESTIONS })).toBe(
+      'const limit = 100',
+    )
+    expect(notificationText({ preamble: '---\n\n```\n```', questions: QUESTIONS })).toBe('Credit contributors?')
+    expect(notificationText({ preamble: '---', questions: [] })).toBe('')
+  })
+})
+
 describe('the question broker: notifications', () => {
+  it("notifies the preamble's first line for a set asked with one, and saves the preamble with the set", () => {
+    setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: 'another-task' })
+    const notify = vi.fn()
+    const notifying = createQuestionBroker({ db: database.db, emit: (event) => events.push(event) }, notify)
+    const preamble = '## Short answer\nThe **tests pass** on `main`.'
+
+    void notifying.ask(task.id, { preamble, questions: QUESTIONS })
+
+    expect(notify).toHaveBeenCalledWith(task.id, '## Short answer')
+    const [opened] = events.flatMap((event) => (event.type === EventType.QuestionOpened ? [event.questionSet] : []))
+    expect(opened?.preamble).toBe(preamble)
+    expect(opened === undefined ? undefined : getQuestionSet(database.db, opened.id)?.preamble).toBe(preamble)
+  })
+
   it("marks a task you aren't viewing unread and notifies its first question, once per set", () => {
     setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: 'another-task' })
     const notify = vi.fn()

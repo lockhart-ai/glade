@@ -4,7 +4,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
-import { RELEASE_NOTES_QUESTIONS } from '../src/main/agent/scripts'
+import { RELEASE_NOTES_PREAMBLE, RELEASE_NOTES_QUESTIONS } from '../src/main/agent/scripts'
 import { BridgeErrorCode, CommandName } from '../src/shared/bridge'
 import { QuestionSetState, TaskActivity, type QuestionSet, type Task } from '../src/shared/domain'
 import { expect, notifications, test, type Glade } from './fixtures'
@@ -57,7 +57,11 @@ test('ask: the task needs you while its questions are open, and the answers carr
   const { window } = glade
   const open = await askForReleaseNotes(glade)
 
-  expect(open).toMatchObject({ state: QuestionSetState.Open, questions: RELEASE_NOTES_QUESTIONS })
+  expect(open).toMatchObject({
+    state: QuestionSetState.Open,
+    preamble: RELEASE_NOTES_PREAMBLE,
+    questions: RELEASE_NOTES_QUESTIONS,
+  })
   expect(await onlyTask(window)).toMatchObject({ activity: TaskActivity.Waiting, asking: true })
   await expect(taskList(window).filter('Needs you')).toHaveText('Needs you1')
   await expect(chat(window).agentReplies).toHaveCount(0)
@@ -90,8 +94,13 @@ test('ask: the card is answered by keyboard alone, then shows the answers, and t
   const open = await askForReleaseNotes(glade)
   const { log, questionCard, closedQuestions, agentReplies } = chat(window)
   await expect(questionCard).toContainText('4 questions before I finish')
-  // What the agent said just before asking leads the card.
-  await expect(log).toContainText('A few choices are yours before I draft the notes.4 questions before I finish')
+  // The agent's reply to your message leads the card, as Markdown; what it said just before asking stays in the tool log.
+  await expect(questionCard).toContainText(
+    'so the notes get a short upgrade guide too.A few choices are yours before I draft them.4 questions before I finish',
+  )
+  await expect(questionCard.locator('code').first()).toHaveText('v2.3.0')
+  await expect(questionCard.locator('strong')).toHaveText('upgrade guide')
+  await expect(log).not.toContainText('9 features, 17 fixes and 15 internal changes')
   await expect(questionCard).toContainText('0 of 4 answered')
   await expect(inputBar(window).field).toBeFocused()
 
@@ -124,6 +133,7 @@ test('ask: the card is answered by keyboard alone, then shows the answers, and t
 
   await expect(questionCard).toHaveCount(0)
   await expect(closedQuestions).toContainText('4 questions · answered')
+  await expect(closedQuestions).toContainText('A few choices are yours before I draft them.')
   await expect(closedQuestions.getByRole('definition')).toHaveText([
     'By type',
     'Internal changes',
@@ -143,7 +153,7 @@ test('ask: the card is answered by keyboard alone, then shows the answers, and t
   })
 })
 
-test("ask: questions in a task you aren't viewing notify with the first question and mark it unread", async ({
+test("ask: questions in a task you aren't viewing notify with the agent's reply and mark it unread", async ({
   launch,
   tempFolder,
 }) => {
@@ -163,7 +173,11 @@ test("ask: questions in a task you aren't viewing notify with the first question
   await expect(row.getByRole('img', { name: 'Unread' })).toBeVisible()
   await expect.poll(() => notifications(glade)).toHaveLength(1)
   const [shown] = await notifications(glade)
-  expect(shown).toMatchObject({ title: 'Draft release notes for 2.4', body: 'How should the notes be laid out?' })
+  // The first line of the agent's reply on the card, as plain text, cut short.
+  expect(shown).toMatchObject({
+    title: 'Draft release notes for 2.4',
+    body: 'I read the 41 PRs merged since v2.3.0. The new rate limits on /search change what API clients see…',
+  })
   await expect(list.filter('Needs you')).toHaveText('Needs you1')
 
   // Opening it shows its card, and makes it read.
@@ -192,6 +206,7 @@ test('ask: a reply in words from the input bar answers the questions, and shows 
   await expect(chat(window).questionCard).toHaveCount(0)
   await expect(chat(window).closedQuestions).toContainText('4 questions · answered in your words')
   await expect(chat(window).closedQuestions.getByRole('definition')).toHaveCount(0)
+  await expect(chat(window).closedQuestions).toContainText('A few choices are yours before I draft them.')
   const [answered] = await questionSets(window)
   expect(answered?.reply).toEqual({
     kind: 'free_text',
@@ -210,6 +225,8 @@ test('ask: questions open when the app is force-quit are still open after a rela
   const { window } = await launch({ agentScript: 'asks-a-question' })
   expect(await onlyTask(window)).toMatchObject({ activity: TaskActivity.Waiting, asking: true })
   expect(await questionSets(window)).toEqual([open])
+  expect(open.preamble).toBe(RELEASE_NOTES_PREAMBLE)
+  await expect(chat(window).questionCard).toContainText('A few choices are yours before I draft them.')
 
   await invoke(window, CommandName.QuestionsAnswer, {
     id: open.id,
@@ -220,4 +237,24 @@ test('ask: questions open when the app is force-quit are still open after a rela
   await expect(chat(window).agentReplies.first()).toContainText('Got your answers after the restart.')
   await expect(chat(window).restarts).toHaveCount(1)
   await expect.poll(async () => (await onlyTask(window))?.activity).toBe(TaskActivity.Waiting)
+})
+
+test('ask: a card asked without a preamble leads with what the agent said just before asking', async ({
+  launch,
+  tempFolder,
+}) => {
+  const { window } = await launch({ agentScript: 'asks-many-choices', chosenFolder: workspaceRoot(tempFolder) })
+  await firstRun(window).openFolder.click()
+  await taskList(window).newTask.click()
+  const bar = inputBar(window)
+  await bar.field.fill('Add per-endpoint rate limits.')
+  await bar.field.press('Enter')
+
+  const { log, questionCard } = chat(window)
+  await expect(questionCard).toBeVisible()
+  expect((await questionSets(window))[0]?.preamble).toBeNull()
+  await expect(log).toContainText(
+    'The limiter is in. A few choices are yours before I go on.5 questions before I finish',
+  )
+  await expect(questionCard).not.toContainText('The limiter is in.')
 })

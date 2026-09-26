@@ -9,7 +9,7 @@ Sample data is illustrative. Tokens are in `tokens.md`; exact markup per screen 
 | Task lifecycle | Active ⇄ Done and the task record. | ![Task lifecycle](screens/lifecycle.png) |
 | 1 · New task | An empty task; the first message sets the title and objective. | ![1 · New task](screens/01-new-task.png) |
 | 2 · Agent working | Live working line, Stop, message queue above the input, pasted images above the text, context meter. | ![2 · Agent working](screens/02-agent-working.png) |
-| 3 · Rich question | The `ask` card: option cards with sketches, pills, Send answers. | ![3 · Rich question](screens/03-rich-question.png) |
+| 3 · Rich question | The `ask` card: the agent's reply to your message, then option cards with sketches, pills, Send answers. | ![3 · Rich question](screens/03-rich-question.png) |
 | 4 · Needs you | Unread row in the sidebar and a native notification from another task. | ![4 · Needs you](screens/04-needs-you.png) |
 | 5 · Mark done | No dialog; Undo toast; the task moves to Done with its outcome. | ![5 · Mark done](screens/05-mark-done.png) |
 | 6 · Reopen by chatting | A message in a done task reopens it, with dividers in chat and log. | ![6 · Reopen by chatting](screens/06-reopen.png) |

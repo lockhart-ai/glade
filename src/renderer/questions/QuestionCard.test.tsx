@@ -15,7 +15,8 @@ import { Chat } from '../chat/Chat'
 import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore } from '../store/store'
-import { APPEAR_WINDOW_MS } from './QuestionCard'
+import { highlightPattern } from '../../shared/search'
+import { APPEAR_WINDOW_MS, QuestionCard } from './QuestionCard'
 import styles from './QuestionCard.module.css'
 import { fakeBridge, refuse, sampleMessage, sampleTask, sampleWorkspace, type FakeHandlers } from '../store/test-bridge'
 
@@ -356,6 +357,126 @@ describe('QuestionCard', () => {
     const closed = screen.getByRole('region', { name: 'Questions from the agent' })
     expect(closed).toHaveTextContent('1 question · withdrawn')
     expect(within(closed).queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  describe('with a preamble', () => {
+    const PREAMBLE = 'Yes, the tests pass on `main`. The new **rate limits** change what clients see.'
+
+    /** The card's preamble: the Markdown at its top, before its title. */
+    function preambleOf(element: HTMLElement): HTMLElement {
+      return present(element.querySelector<HTMLElement>(`.${moduleClass(styles, 'preamble')}`))
+    }
+
+    it('opens the card with it, as Markdown above the title and questions', async () => {
+      await renderCard([questionSet([LAYOUT, DJANGO], { preamble: PREAMBLE })])
+
+      const preamble = preambleOf(card())
+      expect(preamble).toHaveTextContent('Yes, the tests pass on main. The new rate limits change what clients see.')
+      expect(within(preamble).getByText('main').tagName).toBe('CODE')
+      expect(within(preamble).getByText('rate limits').tagName).toBe('STRONG')
+      expect(card().firstElementChild).toBe(preamble)
+      expect(card()).toHaveTextContent(/change what clients see\.2 questions before I finish/)
+    })
+
+    it('shows nothing above the title for a set asked without one', async () => {
+      await renderCard([questionSet([LAYOUT])])
+
+      expect(card().querySelector(`.${moduleClass(styles, 'preamble')}`)).toBeNull()
+      expect(card()).toHaveTextContent(/^1 question before I finish/)
+    })
+
+    it('renders long Markdown as a chat reply does, with links, images and HTML inert', async () => {
+      const preamble = [
+        'Here is what I found:',
+        '',
+        '- the `/search` limits changed',
+        '- [the PR](https://example.com/pr/41) says why',
+        '',
+        '```ts',
+        'const limit = 100',
+        '```',
+        '',
+        '![a chart](https://example.com/chart.png) <script>alert(1)</script><b>bold</b>',
+        '',
+        'x'.repeat(1_500),
+      ].join('\n')
+      await renderCard([questionSet([LAYOUT], { preamble })])
+
+      const shown = preambleOf(card())
+      expect(
+        within(shown)
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual(['the /search limits changed', 'the PR says why'])
+      expect(present(shown.querySelector('pre')).textContent).toContain('const limit = 100')
+      expect(shown.querySelector('a, img, script, b, [href], [src]')).toBeNull()
+      expect(shown).toHaveTextContent('a chart')
+      expect(shown).toHaveTextContent('x'.repeat(1_500))
+    })
+
+    it('keeps it on the card once the questions are answered', async () => {
+      const { invoke } = await renderCard([questionSet([DJANGO], { preamble: PREAMBLE })])
+      fireEvent.click(within(card()).getByRole('radio', { name: 'Internal changes' }))
+
+      await act(async () => {
+        fireEvent.click(sendButton())
+        await Promise.resolve()
+      })
+
+      expect(invoke).toHaveBeenCalledWith(CommandName.QuestionsAnswer, { id: 'q1', answers: { 0: 'Internal changes' } })
+      const closed = screen.getByRole('region', { name: 'Questions from the agent' })
+      expect(preambleOf(closed)).toHaveTextContent('Yes, the tests pass on main.')
+      expect(closed.firstElementChild).toBe(preambleOf(closed))
+      expect(closed).toHaveTextContent('1 question · answered')
+    })
+
+    it('keeps it on the card once the questions are answered in your words, or withdrawn', async () => {
+      const fake = await renderCard([
+        questionSet([LAYOUT], { preamble: PREAMBLE }),
+        questionSet([DJANGO], { id: 'q2', turn: 2, preamble: 'Second thoughts.', createdAt: 7_000 }),
+      ])
+
+      act(() => {
+        fake.emit({
+          type: EventType.QuestionAnswered,
+          questionSet: questionSet([LAYOUT], {
+            preamble: PREAMBLE,
+            state: QuestionSetState.Answered,
+            reply: { kind: QuestionReplyKind.FreeText, text: 'By type.' },
+            closedAt: 6_000,
+          }),
+        })
+        fake.emit({
+          type: EventType.QuestionWithdrawn,
+          questionSet: questionSet([DJANGO], {
+            id: 'q2',
+            turn: 2,
+            preamble: 'Second thoughts.',
+            state: QuestionSetState.Withdrawn,
+            createdAt: 7_000,
+            closedAt: 8_000,
+          }),
+        })
+      })
+
+      const [inWords, withdrawn] = screen.getAllByRole('region', { name: 'Questions from the agent' })
+      expect(preambleOf(present(inWords))).toHaveTextContent('Yes, the tests pass on main.')
+      expect(inWords).toHaveTextContent('1 question · answered in your words')
+      expect(preambleOf(present(withdrawn))).toHaveTextContent('Second thoughts.')
+      expect(withdrawn).toHaveTextContent('1 question · withdrawn')
+    })
+
+    it('marks what the search matches in it', () => {
+      render(
+        <QuestionCard
+          questionSet={questionSet([LAYOUT], { preamble: PREAMBLE, state: QuestionSetState.Withdrawn, closedAt: 6 })}
+          highlight={highlightPattern('rate')}
+        />,
+      )
+
+      const marks = [...document.querySelectorAll('mark')].map((mark) => mark.textContent)
+      expect(marks).toEqual(['rate'])
+    })
   })
 
   describe('motion', () => {

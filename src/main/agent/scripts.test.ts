@@ -49,6 +49,7 @@ import {
   FOLLOW_UPS,
   MANY_CHOICES_QUESTIONS,
   PERMISSION_AT_QUIT,
+  RELEASE_NOTES_PREAMBLE,
   RELEASE_NOTES_QUESTIONS,
   S3_PLAN,
   SUBAGENT_CALLS_REPLY,
@@ -564,6 +565,7 @@ describe('AGENT_SCRIPTS', () => {
 
     const open = getOpenQuestionSet(database.db, task.id)
     expect(open?.questions).toEqual(RELEASE_NOTES_QUESTIONS)
+    expect(open?.preamble).toBe(RELEASE_NOTES_PREAMBLE)
     expect(getTask(database.db, task.id)).toMatchObject({
       title: 'Draft release notes for 2.4',
       status: 'Waiting on layout, credit and upgrade guide questions.',
@@ -591,6 +593,7 @@ describe('AGENT_SCRIPTS', () => {
 
     const open = getOpenQuestionSet(database.db, task.id)
     expect(open?.questions).toEqual(MANY_CHOICES_QUESTIONS)
+    expect(open?.preamble).toBeNull()
     expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, asking: true })
     expect(reply()).toBeUndefined()
 
