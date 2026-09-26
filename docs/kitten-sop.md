@@ -41,6 +41,11 @@ its PR, sends back fixes, and approves and merges it. This SOP starts simple and
 Review fixes go on the same branch as new commits. If you conflict with `main`, merge `origin/main` in; never rebase or
 force-push.
 
+Stay inside the repo. Only read and search inside your worktree, `/tmp` and paths your brief names; never run `find`,
+`grep -r`, `ls`, `du` or `mdfind` over the home folder (`~`) or other folders outside those. Walking `~` touches
+Desktop, Documents, Downloads and Photos and pops macOS privacy prompts on Jared's screen. If you need something from
+outside, ask the supervisor.
+
 ### Tests
 
 - **Bug fixes recreate the bug.** A bug-fix PR adds a test that fails without the fix and passes with it, and the PR
