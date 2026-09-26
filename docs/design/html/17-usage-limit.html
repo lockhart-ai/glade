@@ -15,6 +15,7 @@ body{margin:0;background:#0A0B0F}
 a{color:#8FB2F5}a:hover{color:#B5CBF8}
 </style>
 </helmet>
+<div style="width: 1920px; height: 1300px; display: flex; flex-direction: column; background: #0A0B0F; color: #E6E8F0; font-family: Geist, system-ui, sans-serif">
 <div style="position: relative; width: 1920px; height: 1200px; box-sizing: border-box; padding: 32px 8px 8px 8px; gap: 8px; display: flex; flex-direction: column; background: #0A0B0F; color: #E6E8F0; font-family: Geist, system-ui, sans-serif; overflow: hidden">
 <div aria-label="Title bar" style="position: absolute; left: 0; top: 0px; width: 100%; height: 32px; box-sizing: border-box; padding-left: 13px; display: flex; align-items: center; gap: 8px; z-index: 9"><span style="flex-shrink: 0; width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; background: #FF5F57; border: 0.5px solid #E0443E"></span><span style="flex-shrink: 0; width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; background: #FEBC2E; border: 0.5px solid #DEA123"></span><span style="flex-shrink: 0; width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; background: #28C840; border: 0.5px solid #1AAB29"></span></div>
 <div role="status" style="flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px; background: #211A30; border: 1px solid #3B3366; border-radius: 12px">
@@ -233,8 +234,16 @@ a{color:#8FB2F5}a:hover{color:#B5CBF8}
 </section>
 </div>
 </div>
+<div aria-label="Approaching the limit" style="flex-grow: 1; box-sizing: border-box; padding: 16px 8px 8px 8px; border-top: 1px solid #2F3343; display: flex; flex-direction: column; gap: 10px">
+<div style="padding-left: 4px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #999DB0">Before the limit · the same spot, quieter; tasks keep working</div>
+<div role="status" style="flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 16px; background: #181921; border: 1px solid #2F3343; border-radius: 12px">
+<span style="display: flex; color: #999DB0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4"></path><path d="M3.34 19a10 10 0 1 1 17.32 0"></path></svg></span>
+<span style="font-size: 13.5px; color: #AEB3C3"><span style="font-weight: 500; color: #E6E8F0">You’ve used 85% of your session limit</span> · resets 11:42</span>
+</div>
+</div>
+</div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1920,"height":1200}}'>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1920,"height":1300}}'>
 class Component extends DCLogic {
 renderVals() {
 return {};
