@@ -10,12 +10,15 @@ import {
   net,
   Notification,
   protocol,
+  screen,
   shell,
+  systemPreferences,
+  Tray,
   WebContentsView,
   type Point,
   type WebPreferences,
 } from 'electron'
-import { EventType } from '../shared/bridge'
+import { EventType, type GladeEvent } from '../shared/bridge'
 import { PLUGINS_FOLDER_NAME } from '../shared/plugins'
 import type { AgentBackend } from './agent/backend'
 import { createSdkBackend, type SdkBackendOptions } from './agent/sdk-backend'
@@ -40,6 +43,7 @@ import {
   createE2eAgent,
   createE2eEditor,
   createE2eNetwork,
+  E2E_MENU_BAR_GLOBAL,
   E2E_NOTIFIER_GLOBAL,
   E2E_WINDOW_SIZE,
   e2eChosenFolder,
@@ -54,6 +58,9 @@ import { createFileLogSink, type FileLogSinkOptions } from './logging/file-sink'
 import { redactEnv } from './logging/format'
 import { CONSOLE_LOGGER, createLogger, LogScope, type Logger, type LogSink } from './logging/logger'
 import { installAppMenu } from './menu/app-menu'
+import { createElectronPopover, createElectronTray, GLYPH_FOLDER, loadGlyphImages } from './menu-bar/electron'
+import { createMenuBar, type CreateTray, type MenuBar } from './menu-bar/menu-bar'
+import { createRecordingTray, e2eMenuBar, type RecordedMotion } from './menu-bar/recording'
 import { createElectronNotifier } from './notifications/electron-notifier'
 import { createReplyNotifications } from './notifications/notifications'
 import type { Notifier } from './notifications/notifier'
@@ -147,6 +154,30 @@ function describeError(error: Error): string {
   return error.cause instanceof Error ? `${error.message}: ${error.cause.message}` : error.message
 }
 
+/** The menu bar popover's page: Glade's own, at its own route (`src/renderer/menu-bar`). */
+export const MENU_BAR_ROUTE = '#menu-bar'
+
+/** The menu bar popover's windows (`./menu-bar/electron`), which aren't Glade's main windows. */
+const popoverWindows = new Set<BrowserWindow>()
+
+/** Glade's main windows, open now: every window but the menu bar popover. */
+function mainWindows(): BrowserWindow[] {
+  return BrowserWindow.getAllWindows().filter((window) => !popoverWindows.has(window))
+}
+
+/**
+ * Loads Glade's page in a window at `route` (e.g. `#menu-bar`; `''` for the app): from electron-vite's dev server, with
+ * hot reload, in development, and the built file otherwise.
+ */
+function loadPage(window: BrowserWindow, route: string): void {
+  const devServerUrl = process.env.ELECTRON_RENDERER_URL
+  if (!app.isPackaged && devServerUrl !== undefined) {
+    void window.loadURL(`${devServerUrl}${route}`)
+  } else {
+    void window.loadFile(join(__dirname, '../renderer/index.html'), { hash: route.replace(/^#/, '') })
+  }
+}
+
 /**
  * Opens the main window: shown once it's ready, except in a test mode, where it's never shown (but still paints, so it
  * can be captured and recorded) and opens at the spec's route. In e2e mode it's the size of the recordings.
@@ -187,14 +218,7 @@ function createWindow(testMode: TestMode, log: Logger): BrowserWindow {
     window.setContentSize(E2E_WINDOW_SIZE.width, E2E_WINDOW_SIZE.height)
   }
 
-  // In development electron-vite serves the renderer with hot reload; otherwise load the built file.
-  const route = testMode?.spec.route ?? ''
-  const devServerUrl = process.env.ELECTRON_RENDERER_URL
-  if (!app.isPackaged && devServerUrl !== undefined) {
-    void window.loadURL(`${devServerUrl}${route}`)
-  } else {
-    void window.loadFile(join(__dirname, '../renderer/index.html'), { hash: route.replace(/^#/, '') })
-  }
+  loadPage(window, testMode?.spec.route ?? '')
   return window
 }
 
@@ -404,7 +428,7 @@ function isFromWindow(event: unknown): boolean {
   return BrowserWindow.getAllWindows().some((window) => window.webContents === sender)
 }
 
-/** What opening a task from its notification needs from the running app. */
+/** What opening a task from outside its window needs from the running app. */
 interface OpenTaskContext {
   readonly testMode: TestMode
   readonly database: AppDatabase
@@ -413,23 +437,82 @@ interface OpenTaskContext {
 }
 
 /**
- * Opens a task, when its notification is clicked: brings the window up, restoring it if it's minimised, and asks it to
- * open the task, as clicking its row does. With every window closed, it selects the task itself and opens a window on
- * it. A test mode's window stays hidden.
+ * Brings a window up: restores it if it's minimised, shows it and focuses it, bringing Glade to the front (from the
+ * menu bar popover, it may not be). A test mode's window stays hidden.
  */
-function openTaskFromNotification(taskId: string, { testMode, database, bridge, log }: OpenTaskContext): void {
-  const [window] = BrowserWindow.getAllWindows()
+function bringUp(window: BrowserWindow, testMode: TestMode): void {
+  if (testMode !== null) return
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
+  app.focus({ steal: true })
+}
+
+/**
+ * Opens a task, when its notification or its row in the menu bar popover is clicked: brings the window up and asks it
+ * to open the task, as clicking its row does (switching workspace if it has to). With every window closed, it selects
+ * the task itself and opens a window on it. A test mode's window stays hidden.
+ */
+function openTaskInWindow(taskId: string, { testMode, database, bridge, log }: OpenTaskContext): void {
+  const [window] = mainWindows()
   if (window === undefined) {
     openTaskWithoutWindow({ db: database.db, emit: bridge.emit }, taskId)
     createWindow(testMode, log)
     return
   }
-  if (testMode === null) {
-    if (window.isMinimized()) window.restore()
-    window.show()
-    window.focus()
-  }
+  bringUp(window, testMode)
   bridge.emit({ type: EventType.TaskOpenRequested, taskId })
+}
+
+/** Brings Glade's window up (the menu bar popover's Open Glade), opening one when every window is closed. */
+function openGlade(testMode: TestMode, log: Logger): void {
+  const [window] = mainWindows()
+  if (window === undefined) {
+    createWindow(testMode, log)
+    return
+  }
+  bringUp(window, testMode)
+}
+
+/** What the menu bar icon is drawn with, and how it learns Reduce motion is on. */
+interface MenuBarDrawing {
+  readonly createTray: CreateTray
+  readonly reduceMotion: () => boolean
+  /** Hands the running menu bar over, e.g. for e2e mode to put it on the global object. */
+  readonly started: (menuBar: MenuBar) => void
+}
+
+/** The macOS notification that an accessibility display option changed, Reduce motion among them. */
+const ACCESSIBILITY_CHANGED = 'NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification'
+
+/**
+ * The real menu bar icon (Electron's `Tray`, drawing the glyph's images packaged with the app) and macOS's Reduce
+ * motion, whose changes it follows. E2e mode never puts a real icon in the menu bar: it records it instead, with Reduce
+ * motion off until the spec turns it on, and puts both on the global object (`E2E_MENU_BAR_GLOBAL`) for the spec.
+ */
+function menuBarDrawing(testMode: TestMode, log: Logger): MenuBarDrawing {
+  if (testMode === null) {
+    const images = loadGlyphImages(nativeImage, join(app.getAppPath(), GLYPH_FOLDER))
+    if (images.some((image) => image.isEmpty())) log.warn("the menu bar glyph's images are missing")
+    return {
+      createTray: createElectronTray(Tray, images),
+      reduceMotion: () => systemPreferences.getAnimationSettings().prefersReducedMotion,
+      started: (menuBar) => {
+        systemPreferences.subscribeWorkspaceNotification(ACCESSIBILITY_CHANGED, () => {
+          menuBar.motionChanged()
+        })
+      },
+    }
+  }
+  const tray = createRecordingTray()
+  const motion: RecordedMotion = { reduceMotion: false }
+  return {
+    createTray: tray.createTray,
+    reduceMotion: () => motion.reduceMotion,
+    started: (menuBar) => {
+      Reflect.set(globalThis, E2E_MENU_BAR_GLOBAL, e2eMenuBar(menuBar, tray, motion))
+    },
+  }
 }
 
 /** What the app can be started with. */
@@ -535,7 +618,11 @@ export function startApp({
       db: database.db,
       notifier: createNotifier(testMode),
       openTask: (taskId) => {
-        openTaskFromNotification(taskId, { testMode, database, bridge, log })
+        openTaskInWindow(taskId, { testMode, database, bridge, log })
+      },
+      // The menu bar popover's Recent section lists it.
+      onSent: () => {
+        menuBar?.changed()
       },
       log: log.scoped(LogScope.Notifications),
       // The bridge's runner, once it's registered: a notification is only shown after that.
@@ -553,11 +640,47 @@ export function startApp({
         bridge.emit({ type: EventType.MenuCommand, command })
       },
     })
+    // Glade in the macOS menu bar: its icon, and the popover it opens. Never in a capture, which only captures a page.
+    const drawing =
+      testMode?.kind === TestModeKind.Capture ? null : menuBarDrawing(testMode, log.scoped(LogScope.MenuBar))
+    const menuBar: MenuBar | null =
+      drawing === null
+        ? null
+        : createMenuBar({
+            db: database.db,
+            createTray: drawing.createTray,
+            createPopover: createElectronPopover({
+              BrowserWindow,
+              webPreferences: WINDOW_WEB_PREFERENCES,
+              load: (window) => {
+                loadPage(window, MENU_BAR_ROUTE)
+              },
+              workArea: (anchor) => screen.getDisplayMatching(anchor).workArea,
+              hidden: testMode !== null,
+              track: (window, alive) => {
+                if (alive) popoverWindows.add(window)
+                else popoverWindows.delete(window)
+              },
+            }),
+            reduceMotion: drawing.reduceMotion,
+            openTask: (taskId) => {
+              openTaskInWindow(taskId, { testMode, database, bridge, log })
+            },
+            openGlade: () => {
+              openGlade(testMode, log)
+            },
+            quit: () => {
+              app.quit()
+            },
+            log: log.scoped(LogScope.MenuBar),
+          })
     const bridge: RegisteredBridge = registerBridge({
       ipc: ipcMain,
       db: database.db,
-      targets: () => BrowserWindow.getAllWindows().map((window) => window.webContents),
-      agentBackend: testAgent ?? createAgentBackend({ env, log: log.scoped(LogScope.Agent) }),
+      // The main windows: the menu bar popover is sent only what's in flight, by the menu bar itself.
+      targets: () => mainWindows().map((window) => window.webContents),
+      agentBackend:
+        testAgent ?? createAgentBackend({ env, log: log.scoped(LogScope.Agent), version: app.getVersion() }),
       // A test can't click a native dialog, so in e2e mode it answers with the folder the test chose.
       chooseFolder:
         testMode?.kind === TestModeKind.E2e
@@ -573,7 +696,7 @@ export function startApp({
       pluginsFolder: join(app.getPath('userData'), PLUGINS_FOLDER_NAME),
       // The shown plugin goes in Glade's window, over the plugin card; its DevTools never open in a packaged app.
       createPluginView: createElectronPluginViews({
-        window: () => BrowserWindow.getAllWindows()[0],
+        window: () => mainWindows()[0],
         devTools: !app.isPackaged,
         offscreen: testMode?.kind === TestModeKind.Capture,
         log: log.scoped(LogScope.Plugins),
@@ -586,6 +709,14 @@ export function startApp({
       closeWindow: () => {
         BrowserWindow.getFocusedWindow()?.close()
       },
+      ...(menuBar === null
+        ? {}
+        : {
+            menuBar,
+            observe: (event: GladeEvent) => {
+              menuBar.observe(event)
+            },
+          }),
       log,
     })
 
@@ -612,6 +743,11 @@ export function startApp({
     backfillWorkspaceSelections(database.db)
     // The plugins are read when Glade starts, noting the new ones, and again each time Settings › Plugins opens.
     void bridge.plugins.list()
+    // The menu bar icon shows from launch while Settings › General has it on (after an e2e seed, which may turn it off).
+    if (menuBar !== null && drawing !== null) {
+      menuBar.sync()
+      drawing.started(menuBar)
+    }
 
     app.on('will-quit', () => {
       log.info('app quitting')
@@ -619,6 +755,7 @@ export function startApp({
       runner.close()
       void bridge.endpoint.close()
       bridge.pluginViews.close()
+      menuBar?.close()
       // The shells end with the app; their tabs and recent output stay, for the next launch to show.
       if (database.db.open) bridge.terminals.shutdown()
       // Quitting can get here again once the database is closed; the mark went with the first time.
@@ -629,7 +766,7 @@ export function startApp({
     createWindow(testMode, log)
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow(testMode, log)
+      if (mainWindows().length === 0) createWindow(testMode, log)
     })
   })
 

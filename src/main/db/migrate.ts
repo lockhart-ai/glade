@@ -1,8 +1,10 @@
 import type { Database } from 'better-sqlite3'
 
 /**
- * One forward-only step in the database schema. Versions start at 1 and go up by one; a migration is never edited or
- * removed once it has shipped.
+ * One forward-only step in the database schema. Versions start at 1 and rise; a migration is never edited or removed
+ * once it has shipped. Parallel PRs reserve their numbers, so there can be gaps, and a migration can land after a
+ * higher-numbered one has already run on a database: it then runs on the schema that one left, so it mustn't assume it
+ * runs straight after its predecessor.
  */
 export interface Migration {
   readonly version: number
@@ -38,13 +40,27 @@ export function schemaVersion(db: Database): number {
   return typeof version === 'number' ? version : 0
 }
 
+/** The highest version in `migrations`, which `checkOrder` keeps last; 0 when there are none. */
+export function latestVersion(migrations: readonly Migration[]): number {
+  return migrations.at(-1)?.version ?? 0
+}
+
+/** The versions of every migration applied to `db`; none for a fresh database. */
+function appliedVersions(db: Database): Set<number> {
+  if (schemaVersion(db) === 0) return new Set()
+  return new Set(db.prepare(`SELECT version FROM ${SCHEMA_VERSION_TABLE}`).pluck().all() as number[])
+}
+
 function checkOrder(migrations: readonly Migration[]): void {
+  let previous = 0
   migrations.forEach((migration, index) => {
-    if (migration.version !== index + 1) {
+    const inOrder = index === 0 ? migration.version === 1 : migration.version > previous
+    if (!Number.isInteger(migration.version) || !inOrder) {
       throw new Error(
-        `Migrations must be numbered 1, 2, 3, … in order: position ${String(index + 1)} has version ${String(migration.version)}`,
+        `Migrations must start at 1 and rise: position ${String(index + 1)} has version ${String(migration.version)}`,
       )
     }
+    previous = migration.version
   })
 }
 
@@ -69,22 +85,30 @@ function withoutForeignKeys(db: Database, apply: () => void): void {
 }
 
 /**
- * Brings `db` up to the latest of `migrations`. Each pending migration runs in its own transaction together with its
- * bookkeeping row, so a migration that throws rolls back completely and leaves the version where it was (earlier
- * migrations in the same call stay applied). Running it again on a current database does nothing.
+ * Brings `db` up to the latest of `migrations`, running every one it hasn't recorded, in version order: a migration
+ * below the database's version runs too, when it landed after a higher-numbered one. Each runs in its own transaction
+ * together with its bookkeeping row, so a migration that throws rolls back completely and leaves the version where it
+ * was (earlier migrations in the same call stay applied). Running it again on a current database does nothing.
  */
 export function migrate(db: Database, migrations: readonly Migration[]): MigrationResult {
   checkOrder(migrations)
 
   const fromVersion = schemaVersion(db)
-  if (fromVersion > migrations.length) {
+  const latest = latestVersion(migrations)
+  if (fromVersion > latest) {
     throw new Error(
-      `The database is at schema version ${String(fromVersion)}, newer than this app knows (${String(migrations.length)})`,
+      `The database is at schema version ${String(fromVersion)}, newer than this app knows (${String(latest)})`,
     )
+  }
+  const recorded = appliedVersions(db)
+  const known = new Set(migrations.map((migration) => migration.version))
+  const unknown = [...recorded].find((version) => !known.has(version))
+  if (unknown !== undefined) {
+    throw new Error(`The database has migration ${String(unknown)}, which this app doesn't know`)
   }
 
   const applied: number[] = []
-  for (const migration of migrations.slice(fromVersion)) {
+  for (const migration of migrations.filter((pending) => !recorded.has(pending.version))) {
     const apply = db.transaction(() => {
       migration.up(db)
       if (migration.rebuildsReferencedTable === true) checkForeignKeys(db)

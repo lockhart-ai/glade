@@ -1,4 +1,4 @@
-import type { Migration } from '../migrate'
+import { latestVersion, type Migration } from '../migrate'
 import { schemaVersionMigration } from './0001-schema-version'
 import { coreTablesMigration } from './0002-core-tables'
 import { taskActivityMigration } from './0003-task-activity'
@@ -29,9 +29,13 @@ import { taskBackfillsMigration } from './0027-task-backfills'
 import { inputDraftsMigration } from './0028-input-drafts'
 import { taskTodosMigration } from './0029-task-todos'
 import { watchersMigration } from './0030-watchers'
+import { notificationsMigration } from './0031-notifications'
 import { questionPreambleMigration } from './0037-question-preamble'
 
-/** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
+/**
+ * Every migration, in version order. Add new ones in order of their version (an open PR's number is reserved, so there
+ * can be gaps); never edit or reorder shipped ones.
+ */
 export const MIGRATIONS: readonly Migration[] = [
   schemaVersionMigration,
   coreTablesMigration,
@@ -63,5 +67,9 @@ export const MIGRATIONS: readonly Migration[] = [
   inputDraftsMigration,
   taskTodosMigration,
   watchersMigration,
+  notificationsMigration,
   questionPreambleMigration,
 ]
+
+/** The schema version a database is at once every migration has run. */
+export const LATEST_SCHEMA_VERSION = latestVersion(MIGRATIONS)

@@ -478,6 +478,17 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
         },
       },
     ],
+    // Sent to the menu bar popover alone, never through the feed; had it been, a plugin would see nothing of it.
+    [EventType.MenuBarChanged]: [
+      {
+        type: EventType.MenuBarChanged,
+        snapshot: {
+          needsYou: [],
+          working: [],
+          recent: [{ seq: 1, taskId: created.id, title: secret('recent_title'), body: secret('recent'), sentAt: 1 }],
+        },
+      },
+    ],
     [EventType.TerminalTabsChanged]: [
       {
         type: EventType.TerminalTabsChanged,

@@ -178,6 +178,29 @@ export function createE2eNetwork(): () => boolean {
   return () => network.online
 }
 
+/**
+ * Where e2e mode puts the menu bar icon on the main process's global object: an `E2eMenuBar`, since an e2e run never
+ * puts a real icon in the menu bar (`./menu-bar/recording`). A spec reads and clicks it through Playwright's
+ * `app.evaluate`; clicking it opens the popover's window, hidden, for the spec to drive.
+ */
+export const E2E_MENU_BAR_GLOBAL = '__gladeE2eMenuBar'
+
+/** The menu bar icon in e2e mode (`E2E_MENU_BAR_GLOBAL`), as it is when read. */
+export interface E2eMenuBar {
+  /** Whether the icon is in the menu bar (Settings › General › Show Glade in the menu bar). */
+  readonly shown: boolean
+  /** The text beside its glyph: how many tasks need you, or nothing. */
+  readonly title: string
+  /** Whether its glyph is pulsing. */
+  readonly pulsing: boolean
+  /** Whether its popover is showing. */
+  readonly open: boolean
+  /** Whether macOS's Reduce motion is on, as the icon sees it: off until a spec turns it on. */
+  reduceMotion: boolean
+  /** Clicks the icon: shows its popover, or hides it. */
+  click(): void
+}
+
 /** The window's content size in e2e mode, which is also the size of the recordings. */
 export const E2E_WINDOW_SIZE = { width: 1920, height: 1200 } as const
 

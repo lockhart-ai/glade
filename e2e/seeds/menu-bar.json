@@ -1,0 +1,51 @@
+{
+  "workspace": { "name": "Acme API", "rootPath": "/Users/sample/code/api" },
+  "tasks": [
+    {
+      "title": "Fix the flaky date test",
+      "status": "Running the timezone tests",
+      "activity": "working",
+      "minutesAgo": 0,
+      "startedMinutesAgo": 13,
+      "messages": [
+        {
+          "role": "user",
+          "body": "The date formatting test fails in some timezones. Can you fix it?",
+          "turn": 1,
+          "minutesAgo": 12
+        }
+      ],
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "TodoWrite",
+          "input": {
+            "todos": [
+              { "content": "Reproduce the failure", "status": "completed" },
+              { "content": "Fix the formatter", "status": "completed" },
+              { "content": "Run the timezone tests", "status": "in_progress" },
+              { "content": "Update the changelog", "status": "pending" }
+            ]
+          },
+          "output": "Todos have been modified successfully.",
+          "turn": 1,
+          "minutesAgo": 11
+        }
+      ]
+    },
+    {
+      "title": "Draft the release notes",
+      "status": "Collecting the merged PRs",
+      "state": "done",
+      "minutesAgo": 30,
+      "selected": true
+    },
+    {
+      "title": "Migrate the billing webhooks",
+      "status": "Waiting on you: which endpoint to keep",
+      "minutesAgo": 4,
+      "workspace": { "name": "Billing", "rootPath": "/Users/sample/code/billing" },
+      "notifications": [{ "body": "Which endpoint should the webhooks keep?", "minutesAgo": 4 }]
+    }
+  ]
+}

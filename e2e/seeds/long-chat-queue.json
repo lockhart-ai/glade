@@ -1,0 +1,70 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "tasks": [
+    {
+      "title": "Add per-key rate limiting to the public API and give the search endpoint its own tighter limit",
+      "objective": "Add per-key rate limiting to the public API so one client can't starve the others. Over the limit, return 429 with a Retry-After header. The /search endpoint is much heavier than the rest, so it needs its own, tighter limit, and the limits should be configurable per environment without a deploy.",
+      "status": "Throttle class written and applied to the three public viewsets; 14 new tests pass. The /search limit is set to 60 a minute, the settings read from the environment, and the docs updated. Needs a final decision on burst allowance before finishing.",
+      "minutesAgo": 4,
+      "startedMinutesAgo": 42,
+      "selected": true,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Add per-key rate limiting to the public API so one client can't starve the others. Over the limit, return 429 with a Retry-After header.",
+          "turn": 1,
+          "minutesAgo": 40
+        },
+        {
+          "role": "agent",
+          "body": "I'll start by reading how the API views are set up, then add a throttle class keyed on the API key.",
+          "turn": 1,
+          "minutesAgo": 38
+        },
+        {
+          "role": "user",
+          "body": "Sounds good. Keep the default at 120 a minute.",
+          "turn": 2,
+          "minutesAgo": 30
+        },
+        {
+          "role": "agent",
+          "body": "Done: the throttle class is written and applied to the three public viewsets.\n\nTests pass — 14 new ones cover the limit, the 429 response and the Retry-After header.",
+          "turn": 2,
+          "minutesAgo": 26
+        },
+        {
+          "role": "user",
+          "body": "Give /search its own limit of 60 a minute.",
+          "turn": 3,
+          "minutesAgo": 20
+        },
+        {
+          "role": "agent",
+          "body": "The /search endpoint now has its own scope at 60 a minute, and the settings read both limits from the environment so you can change them without a deploy.",
+          "turn": 3,
+          "minutesAgo": 15
+        },
+        {
+          "role": "user",
+          "body": "Update the docs too.",
+          "turn": 4,
+          "minutesAgo": 10
+        },
+        {
+          "role": "agent",
+          "body": "Docs updated. Should clients get a burst of 10 above the limit, or none?",
+          "turn": 4,
+          "minutesAgo": 4
+        }
+      ],
+      "queuedMessages": [
+        "Keep the burst at 10 above the limit.",
+        "When that is in, run the whole test suite and tell me how long it takes."
+      ]
+    }
+  ]
+}

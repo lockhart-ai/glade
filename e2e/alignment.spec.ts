@@ -99,12 +99,14 @@ for (const size of [{ width: 1920, height: 1200 }, MIN_WINDOW]) {
     // The input bar's bottom edge and the right panel card's are one line.
     expectNear(input.bottom, panel.bottom, 'input bar and right panel card, bottom')
 
-    // The chat column runs between the same lines: an agent reply starts where the input bar does, and a message of
-    // yours ends where it ends.
-    const reply = await boxOf(chat(window).agentReplies.first())
-    expectNear(reply.x, bar.x, 'agent reply, left')
+    // The header card and the input bar share their edges, and the chat runs just inside them (#268): an agent reply
+    // starts the panel inset in from the input bar's left edge. (Its right edge moves in for the chat's scroll bar,
+    // when it has one.)
     const headerBox = await boxOf(areas.taskHeader)
+    expectNear(headerBox.x, bar.x, 'header card and input bar, left')
     expectNear(headerBox.x + headerBox.width, bar.x + bar.width, 'header card and input bar, right')
+    const reply = await boxOf(chat(window).agentReplies.first())
+    expectNear(reply.x, bar.x + INSET, 'agent reply, left')
 
     // The right panel's rows sit the panel inset in from its edges, the tabs and the tool log alike.
     const panelBox = await boxOf(areas.taskPanel)
