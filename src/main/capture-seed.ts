@@ -56,6 +56,8 @@ import {
 import { setUiState } from './db/repositories/ui-state'
 import { createWorkspace, getWorkspaceByRoot } from './db/repositories/workspaces'
 import { recordNotification } from './db/repositories/notifications'
+import { setSessionContext } from './db/repositories/session-context'
+import { INSTRUCTION_UPDATES } from './agent/system-prompt'
 import { DEFAULT_SETTINGS, type SettingsPatch } from '../shared/settings'
 import { SETTING_SCHEMAS, updateSettings } from './db/repositories/settings'
 import { saveAccount, setUsageWarning } from './db/repositories/account'
@@ -677,6 +679,15 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         },
         at,
       )
+      // Its session started with Glade's prompt as it is now, so it isn't sent the lines added since
+      // (`INSTRUCTION_UPDATES`). A handoff note is as it was: one set by the seed goes to the session once.
+      if (sample.title !== '') {
+        setSessionContext(db, task.id, {
+          instructions: true,
+          instructionUpdates: INSTRUCTION_UPDATES.length,
+          handoffAt: null,
+        })
+      }
       if (sample.selected === true) setUiState(db, { key: UiStateKey.SelectedTaskId, value: task.id })
       const ago = (minutes: number): EpochMs => now - minutes * MINUTE
       for (const message of sample.messages ?? []) {

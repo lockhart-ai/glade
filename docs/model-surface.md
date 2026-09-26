@@ -165,6 +165,8 @@ You are running inside Glade, a desktop app that runs Claude agent sessions as t
 This session is one Glade task, with one objective.
 Its task id is <id>. Its title is not set yet.
 
+In the chat, the user sees only your last message of each turn: what you write before a tool call goes to the tool log, which they rarely read. So end every turn with a complete reply that answers what they asked or responds to what they said, with any findings, even ones you wrote earlier in the turn. Do follow-up work (tool calls) before that reply, not after it.
+
 The user sees the task through its title, objective and status. Keep them current with the Glade tools:
 - After the user's first message, before anything else, even for a quick question, call set_title with a short name for the task and set_objective with its objective.
 - Every turn, call set_status with one line on where the work stands, and again before you end the turn if that changed. When the task is done, the status is its outcome.
@@ -175,6 +177,11 @@ When you make a deliverable the user asked for (a report, a document, a draft), 
 
 When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows in the task's Watchers tab.
 ```
+
+The line about the last message is for the chat (#301): it shows only the agent's final reply each turn
+([`product.md`](product.md), the chat log), and everything before a later tool call goes to the tool log. An agent
+that answers and then carries on (files an issue, updates its notes) would otherwise end on a line about that, and
+the answer would be buried. Narration between tool calls stays in the tool log.
 
 The last line is for the Watchers tab (#250, [`sdk-notes.md`](sdk-notes.md) §13): Glade follows what the agent starts
 with the SDK's own tools (`Monitor`, background `Bash`, `ScheduleWakeup`, `CronCreate`), whatever script it runs, but
@@ -192,3 +199,12 @@ Two more parts are added after that, each after a blank line, when they apply:
 - **A handoff note:** for a task backfilled with one ([`control-api.md`](control-api.md#backfilling-past-tasks)), the
   note under `## Handoff for this task (backfilled from earlier notes)`, after a line saying the task was worked on
   before it was in Glade, to pick up from there, and that the paths the note names are real.
+
+**Resumed sessions.** Claude Code keeps a session's system prompt when it resumes it
+([`sdk-notes.md` §8](sdk-notes.md#8-resume-verified)), so a line added to the prompt reaches only sessions started
+after it. The lines added since sessions first had Glade's prompt are listed, oldest first, in `INSTRUCTION_UPDATES`
+(so far only the last-message line, #301). A session that started before one was added is sent the ones it hasn't
+had once, as a `[Glade: new instructions for this session] … [end]` block ahead of the next message Glade sends it;
+the chat shows only your message. How many each session has had is kept in SQLite
+(`session_context.instruction_updates`), so a relaunch neither loses nor repeats the block. An imported session gets
+Glade's whole prompt instead ([`control-api.md`](control-api.md)), these lines and all.

@@ -60,10 +60,16 @@ import {
   STOPPED_NOTE,
   type AgentRunner,
 } from './runner'
-import { HANDOFF_HEADING, handoffSection, systemPromptAppend } from './system-prompt'
+import {
+  FINAL_REPLY_LINE,
+  HANDOFF_HEADING,
+  handoffSection,
+  INSTRUCTION_UPDATES,
+  systemPromptAppend,
+} from './system-prompt'
 import { updateSettings } from '../db/repositories/settings'
 import { setHandoff } from '../db/repositories/backfills'
-import { getSessionContext } from '../db/repositories/session-context'
+import { getSessionContext, setSessionContext } from '../db/repositories/session-context'
 import * as sdk from './test-sdk-messages'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
 import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
@@ -2829,7 +2835,11 @@ describe("a task's handoff note", () => {
     expect(backend.sessions).toHaveLength(1)
     expect(backend.session.options.systemPromptAppend).toBe(systemPromptAppend(task, undefined, false, handoff))
     expect(sentTexts()).toEqual(["Let's pick this up.", 'Carry on.'])
-    expect(getSessionContext(database.db, task.id)).toEqual({ instructions: true, handoffAt: 1_000 })
+    expect(getSessionContext(database.db, task.id)).toEqual({
+      instructions: true,
+      instructionUpdates: 1,
+      handoffAt: 1_000,
+    })
   })
 
   it('is still in the prompt of the session when it is resumed, or carried on after a relaunch, and not sent again', async () => {
@@ -2894,7 +2904,11 @@ describe("a task's handoff note", () => {
       `[Glade: handoff for this task]\n${handoffSection(changed)}\n[end]\n\nCarry on.`,
       'Anything else?',
     ])
-    expect(getSessionContext(database.db, task.id)).toEqual({ instructions: true, handoffAt: 2_000 })
+    expect(getSessionContext(database.db, task.id)).toEqual({
+      instructions: true,
+      instructionUpdates: 1,
+      handoffAt: 2_000,
+    })
   })
 
   it('is neither lost nor sent twice across relaunches between setting it and sending', async () => {
@@ -2960,6 +2974,136 @@ describe("a task's handoff note", () => {
     await send('Carry on.')
 
     expect(sentTexts()).toEqual(['Find out why the login test is flaky.', 'Carry on.'])
+  })
+})
+
+describe('instructions added to the prompt since a session started', () => {
+  const UPDATE = `[Glade: new instructions for this session]\n${FINAL_REPLY_LINE}\n[end]`
+
+  /** What the session was sent, in order. */
+  function sentTexts(): string[] {
+    return backend.session.sent.map(({ text }) => text)
+  }
+
+  /** Ends the running turn with a reply, and lets the runner handle it. */
+  async function reply(text = 'Done.'): Promise<void> {
+    backend.session.emit(sdk.init(), sdk.result(text))
+    await settle()
+  }
+
+  /** Leaves the task with a session Glade started before the final-reply rule, as the migration leaves one. */
+  function startedBeforeTheRule(recorded: boolean): void {
+    database.db.prepare('UPDATE tasks SET session_id = ? WHERE id = ?').run('old-session', task.id)
+    if (recorded)
+      setSessionContext(database.db, task.id, { instructions: true, instructionUpdates: 0, handoffAt: null })
+  }
+
+  it('are in the prompt of a session Glade starts, which is sent none of them', async () => {
+    await send('Why is the login test flaky?')
+    await reply()
+    await send('And the logout test?')
+
+    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE])
+    expect(backend.session.options.systemPromptAppend).toContain(FINAL_REPLY_LINE)
+    expect(sentTexts()).toEqual(['Why is the login test flaky?', 'And the logout test?'])
+    expect(getSessionContext(database.db, task.id)).toEqual({
+      instructions: true,
+      instructionUpdates: 1,
+      handoffAt: null,
+    })
+  })
+
+  it.each([
+    ['recorded', true],
+    ['from before recording began', false],
+  ])(
+    'go once, ahead of the next message, to a resumed session that started without them (%s)',
+    async (_name, recorded) => {
+      startedBeforeTheRule(recorded)
+
+      await send('Why is the login test flaky?')
+      await reply()
+      await send('And the logout test?')
+
+      expect(backend.sessions).toHaveLength(1)
+      expect(backend.session.options.resumeSessionId).toBe('old-session')
+      expect(sentTexts()).toEqual([`${UPDATE}\n\nWhy is the login test flaky?`, 'And the logout test?'])
+      // The chat keeps only what you wrote.
+      expect(chat()).toEqual([
+        { role: MessageRole.User, body: 'Why is the login test flaky?', turn: 1 },
+        { role: MessageRole.Agent, body: 'Done.', turn: 1 },
+        { role: MessageRole.User, body: 'And the logout test?', turn: 2 },
+      ])
+      expect(getSessionContext(database.db, task.id)).toEqual({
+        instructions: true,
+        instructionUpdates: 1,
+        handoffAt: null,
+      })
+    },
+  )
+
+  it('are not sent again after a relaunch, nor when the session is resumed again', async () => {
+    startedBeforeTheRule(true)
+    await send('Why is the login test flaky?')
+    await reply()
+
+    relaunch()
+    await send('And the logout test?')
+    expect(sentTexts()).toEqual(['And the logout test?'])
+    await reply()
+    backend.session.end()
+    await settle()
+    await send('And the signup test?')
+
+    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
+    expect(sentTexts()).toEqual(['And the signup test?'])
+  })
+
+  it('are neither lost nor sent by a relaunch mid-turn, which carries the turn on without them', async () => {
+    startedBeforeTheRule(true)
+    await send('Why is the login test flaky?')
+    backend.session.emit(sdk.init(), sdk.toolUse('toolu_01', 'Bash', { command: 'npm test' }))
+    await settle()
+
+    relaunch()
+    runner.resumeInterrupted()
+
+    expect(sentTexts()).toEqual([RESUME_PROMPT])
+    expect(getSessionContext(database.db, task.id)?.instructionUpdates).toBe(1)
+  })
+
+  it('go in one message with a new handoff note, the instructions first', async () => {
+    startedBeforeTheRule(true)
+    const handoff = setHandoff(database.db, task.id, '## Next\n\nShip it.', 5_000)
+    if (handoff === undefined) throw new Error('No handoff')
+
+    await send('Carry on.')
+    await reply()
+    await send('Anything else?')
+
+    expect(sentTexts()).toEqual([
+      `${UPDATE}\n\n[Glade: handoff for this task]\n${handoffSection(handoff)}\n[end]\n\nCarry on.`,
+      'Anything else?',
+    ])
+    expect(getSessionContext(database.db, task.id)).toEqual({
+      instructions: true,
+      instructionUpdates: 1,
+      handoffAt: 5_000,
+    })
+  })
+
+  it("go to a session imported from Claude Code as part of Glade's whole prompt, not again on their own", async () => {
+    database.db.prepare('UPDATE tasks SET imported_at = 1, session_id = ? WHERE id = ?').run('cli-session', task.id)
+
+    await send('Carry on where we left off.')
+    await reply()
+    await send('And the logout test.')
+
+    const [first, second] = sentTexts()
+    expect(first).toMatch(/^\[Glade: instructions for this session\]\n/)
+    expect(first).toContain(FINAL_REPLY_LINE)
+    expect(first).not.toContain('[Glade: new instructions for this session]')
+    expect(second).toBe('And the logout test.')
   })
 })
 
