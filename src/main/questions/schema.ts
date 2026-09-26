@@ -79,6 +79,15 @@ export const questionSchema = z.discriminatedUnion('kind', [
 /** The questions of one `ask` call: at least one. */
 export const questionsSchema = z.array(questionSchema).min(1, 'Ask at least one question.')
 
+/** The most characters a preamble takes, once trimmed: a few paragraphs, well past the few sentences it's for. */
+export const PREAMBLE_MAX_LENGTH = 2000
+
+/** What the agent says before its questions (`ask`'s `preamble`): Markdown, trimmed, not empty and not too long. */
+export const preambleSchema = text('preamble').max(
+  PREAMBLE_MAX_LENGTH,
+  `The preamble is too long: keep it to a few sentences (at most ${String(PREAMBLE_MAX_LENGTH)} characters).`,
+)
+
 /** Answers keyed by question index, as `questions.answer` takes them. `checkAnswers` checks them against the questions. */
 export const questionAnswersSchema = z.record(
   z.string(),

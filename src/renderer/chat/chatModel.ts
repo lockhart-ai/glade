@@ -99,7 +99,10 @@ export interface CompactedEntry {
 export interface QuestionEntry {
   readonly kind: ChatEntryKind.Question
   readonly questionSet: QuestionSet
-  /** What the agent said just before it asked (the narration right before its `ask` call), or null. */
+  /**
+   * What the agent said just before it asked (the narration right before its `ask` call), or null. Always null for a
+   * set with a preamble, which leads the card itself.
+   */
   readonly lead: string | null
 }
 
@@ -233,9 +236,11 @@ const ASK_TOOL = 'mcp__glade__ask'
 
 /**
  * What the agent said just before it asked a question set: the narration of its turn that came right before its `ask`
- * call, or null when something else (another tool call) came between.
+ * call, or null when something else (another tool call) came between. Null too for a set with a preamble: that's the
+ * agent's reply to you, at the top of the card, and the narration stays in the tool log.
  */
 export function questionLead(set: QuestionSet, toolEvents: readonly ToolEvent[]): string | null {
+  if (set.preamble !== null) return null
   const before = toolEvents.filter(
     (event) =>
       event.turn === set.turn &&

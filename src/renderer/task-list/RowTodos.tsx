@@ -16,7 +16,7 @@ export function ringDash({ done, total }: TodoSummary): string {
 }
 
 /**
- * A task's todo progress, at the end of its row's status line (`docs/design/html/09-todos.html`): a ring filling with
+ * A task's todo progress, first on its row's indicators line (`docs/design/html/09-todos.html`): a ring filling with
  * the done items and `3/7`, or a check once every item is done. Its tooltip names the items being worked on now.
  */
 export function RowTodos({ todos }: RowTodosProps): React.JSX.Element {

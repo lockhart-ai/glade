@@ -24,6 +24,8 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  WatcherKind,
+  WatcherState,
   type EpochMs,
   type PermissionSuggestion,
   type TaskError,
@@ -52,6 +54,7 @@ import {
   updateToolCall,
 } from './db/repositories/tool-events'
 import { setUiState } from './db/repositories/ui-state'
+import { addWatcher } from './db/repositories/watchers'
 import { createWorkspace, getWorkspaceByRoot } from './db/repositories/workspaces'
 import { recordNotification } from './db/repositories/notifications'
 import { setSessionContext } from './db/repositories/session-context'
@@ -204,6 +207,8 @@ export interface SeedTask {
   readonly permissionMode?: PermissionMode | undefined
   /** Its agent's tool calls that wait, or waited, on your OK, in the order they asked. */
   readonly permissionRequests?: readonly SeedPermissionRequest[] | undefined
+  /** What its agent left running or scheduled (the Watchers tab), in the order it started them. */
+  readonly watchers?: readonly SeedWatcher[] | undefined
   /**
    * Another workspace to put it in, made (once, by its root) beside the fixture's own, which stays the one open: for a
    * capture of what's in flight across workspaces (the menu bar popover). The fixture's workspace unless given.
@@ -222,6 +227,16 @@ export interface SeedWorkspace {
 /** A sample notification sent about a task, with its title: what it said, and how long before the capture. */
 export interface SeedNotification {
   readonly body: string
+  readonly minutesAgo: number
+}
+
+/** A sample watcher (`Watcher`), started `minutesAgo`; running unless it has another `state`. */
+export interface SeedWatcher {
+  readonly kind: WatcherKind
+  readonly toolUseId: string
+  readonly label: string
+  readonly detail: string
+  readonly state?: WatcherState | undefined
   readonly minutesAgo: number
 }
 
@@ -460,9 +475,44 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
           }),
         )
         .optional(),
+      watchers: z
+        .array(
+          z.strictObject({
+            kind: z.enum(WatcherKind),
+            toolUseId: z.string(),
+            label: z.string(),
+            detail: z.string(),
+            state: z.enum(WatcherState).optional(),
+            minutesAgo,
+          }),
+        )
+        .optional(),
     }),
   ),
 })
+
+/** Adds a sample watcher to a task, started `at`. */
+function seedWatcher(db: Database, taskId: string, watcher: SeedWatcher, at: EpochMs): void {
+  const { kind, toolUseId, label, detail } = watcher
+  addWatcher(
+    db,
+    {
+      taskId,
+      kind,
+      toolUseId,
+      sdkId: null,
+      label,
+      detail,
+      cron: null,
+      schedule: null,
+      recurring: false,
+      state: watcher.state ?? WatcherState.Running,
+      nextDueAt: null,
+      expiresAt: null,
+    },
+    at,
+  )
+}
 
 /** Reads and checks a seed fixture. Throws when it can't be read or isn't a valid fixture. */
 export function readSeed(path: string): CaptureSeed {
@@ -702,6 +752,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       for (const request of sample.permissionRequests ?? []) {
         seedPermissionRequest(db, task.id, request, ago(request.minutesAgo))
       }
+      for (const watcher of sample.watchers ?? []) seedWatcher(db, task.id, watcher, ago(watcher.minutesAgo))
       for (const { body, minutesAgo } of sample.notifications ?? []) {
         recordNotification(db, { taskId: task.id, title: sample.title, body }, ago(minutesAgo))
       }

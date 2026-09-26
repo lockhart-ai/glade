@@ -136,7 +136,9 @@ scroll: the chat passes under them.
   stops only the turn: subagents and watchers the agent left running in the background carry on, and you stop each
   one from its row in the Subagents or Watchers tab.
 - **Questions:** when a choice is yours, the agent asks it on a **question card** in the chat, with options to pick,
-  pills or a line of text, and its turn waits however long you take. Options and pills that don't fit on one row wrap
+  pills or a line of text, and its turn waits however long you take. When it asks in reply to your message, the card
+  opens with its answer to what you said, above the questions; that reply stays on the card once you've answered, and
+  its first line is what a notification for the card says. Options and pills that don't fit on one row wrap
   onto more rows, up to three options to a row. Click through the card, or use the keyboard (the digits 1 – 9 pick an
   option, ← → move between options, ↵ sends). Or just type a reply in the input bar: it answers the questions in your
   own words.
@@ -182,8 +184,12 @@ When the task list or right panel is hidden, the header has a button to show it 
   first. Esc, or clearing the field, brings the list back.
 - **Filter chips:** All, **Needs you** and **Unread**, each with its count.
 - **Sections:** Pinned, Active and Done, each collapsible. Done loads as you scroll, however long it gets.
-- **Each row** has the status dot, the title, a one-line status and how long ago it changed. Unread rows are bold with a
-  blue dot.
+- **Each row** has the status dot, the title and how long ago it changed, then a one-line status. Unread rows are bold
+  with a blue dot.
+- **A third line** shows under the status while the task has something going on, and only then: its todo progress
+  (`3/7`, or a check once all are done), how many subagents are running, and how many watchers are running, always in
+  that order, each only when it isn't zero. Hover one to see what it counts ("3 subagents running"); hover the todo
+  progress to see what the agent is working on. A row with none of them keeps its two lines.
 - **Moving around:** ⌥↓ / ⌥↑ go to the next or previous task (from the input bar too, carrying the focus to the new
   task's input), and ⌘⌥↓ goes to the next task that needs you.
 - **Right-click a task** (or ⇧F10) for Open, Pin to top, Rename…, Mark as unread, Mark done, Copy link to task and
@@ -243,19 +249,19 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   the agent is working on now, then what's done (the most recently finished first, each with when it was finished,
   like `4m ago`; hover it for the exact time), then what it hasn't started. A done item has a filled teal check and
   dimmed, struck-through text; one not started has an empty ring and full-strength text. Items move between the groups
-  as the agent works. The task's row in the sidebar shows the same progress (`3/7`, or a check once all are done);
-  hover it to see what the agent is working on.
+  as the agent works. The task's row in the sidebar shows the same progress on its third line (`3/7`, or a check once
+  all are done); hover it to see what the agent is working on.
 - **Artifacts:** the files the agent named as its deliverables, as cards with **Open**, **Copy** and **Reveal in
   folder**. They stay after the task is done.
 - **Subagents:** one row per subagent, running ones first, with what it's doing now, how long it's run and its tool
   calls. Click one to open its log; right-click a running one to stop it. A subagent's own tool calls live here, not in
-  Tool calls.
+  Tool calls. The task's row in the sidebar counts the running ones on its third line.
 - **Watchers:** what the agent left running or scheduled to wake itself later: a watch on a command's output (a PR's
   CI, a deploy's log, whatever script it wrote), a command in the background, a check-back at a set time, or a
   recurring job. Each row says what it runs, whether it's running, due, or ended and how, what it last reported, and how
-  many times it woke the agent. **Stop** ends a live one. The count on the tab, and an eye with a count on the task's
-  row in the task list, are the live ones, so a task waiting on you, or done, that still watches something shows it. A
-  relaunch ends what was running (a scheduled job comes back when you next message the task).
+  many times it woke the agent. **Stop** ends a live one. The count on the tab, and an eye with a count on the third
+  line of the task's row in the task list, are the live ones, so a task waiting on you, or done, that still watches
+  something shows it. A relaunch ends what was running (a scheduled job comes back when you next message the task).
 - **Changes:** the commits the task made, newest first. See below.
 
 ### Changes

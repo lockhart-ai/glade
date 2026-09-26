@@ -99,7 +99,7 @@ test('a plugin sees a task created, working, asking a question and marked done, 
     type: PluginEventType.AgentNote,
     taskId,
     subagentId: null,
-    text: '41 PRs since v2.3.0. A few choices are yours before I draft the notes.',
+    text: '41 PRs since v2.3.0: 9 features, 17 fixes and 15 internal changes.',
     at: expect.any(Number) as unknown,
   })
   expect(asking).toContainEqual({
@@ -135,10 +135,11 @@ test('a plugin sees a task created, working, asking a question and marked done, 
     .poll(() => last(glade, PluginEventType.TaskUpdated))
     .toMatchObject({ task: { id: taskId, state: 'done', needsYou: false } })
 
-  // Nothing of the chat, the answers or the questions' options reached the plugin.
+  // Nothing of the chat, the agent's reply on the card, the answers or the questions' options reached the plugin.
   const everything = JSON.stringify(await inPlugin(glade, 'window.received'))
   for (const text of [
     'Draft the release notes for 2.4.',
+    'change what API clients see',
     'laid out the way you picked',
     'Matches the 2.3 notes',
     'GitHub handles',

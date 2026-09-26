@@ -69,13 +69,13 @@ test('watchers: each thing the agent left running or scheduled, with its state, 
 
   // The task list marks the task as still watching things while it waits on you.
   const row = taskList(window).taskRow(WATCHES_THINGS.title)
-  await expect(watchingMark(row)).toHaveAccessibleName('Watching 4 things')
+  await expect(watchingMark(row)).toHaveAccessibleName('4 watchers running')
   await expect(taskList(window).dot(row)).toHaveAttribute('data-state', 'waiting')
 
   // Marked done, it's still watching them: the Done row keeps the mark, and the tab its watchers.
   await taskHeader(window).markDone.click()
   const done = taskList(window).row('Done', WATCHES_THINGS.title)
-  await expect(watchingMark(done)).toHaveAccessibleName('Watching 4 things')
+  await expect(watchingMark(done)).toHaveAccessibleName('4 watchers running')
   await expect(taskPanel(window).tab(/^Watch/)).toHaveText('Watchers 4')
   await expect(watchers.stop(WATCHES_THINGS.ci)).toBeVisible()
 })
@@ -98,7 +98,7 @@ test('watchers: Stop stops each kind, the SDK’s way where it has one, and the 
   await expect(tab).toHaveText('Watchers 3')
   await watchers.stop(WATCHES_THINGS.tests).click()
   await expect(watchers.row(WATCHES_THINGS.tests)).toHaveAttribute('data-state', 'stopped')
-  await expect(mark).toHaveAccessibleName('Watching 2 things')
+  await expect(mark).toHaveAccessibleName('2 watchers running')
 
   // The wakeup and the cron job stop at once: only the agent could delete them, so their fires are turned away.
   await watchers.stop(WATCHES_THINGS.rollout).click()
@@ -143,7 +143,7 @@ test('watchers: a relaunch stops what died with the session, and the cron job co
   await expect(queue).toHaveAttribute('data-state', 'suspended')
   await expect(queue).toContainText('back when the session resumes')
   await expect(taskPanel(window).tab(/^Watch/)).toHaveText('Watchers 1')
-  await expect(watchingMark(taskList(window).taskRow(WATCHES_THINGS.title))).toHaveAccessibleName('Watching 1 thing')
+  await expect(watchingMark(taskList(window).taskRow(WATCHES_THINGS.title))).toHaveAccessibleName('1 watcher running')
 
   const bar = inputBar(window)
   await bar.field.fill('How is it going?')
