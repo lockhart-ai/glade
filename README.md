@@ -107,7 +107,8 @@ the next.
 3. **Work alongside it.** Keep typing while it works: your messages queue and reach the agent after its current step.
    Watch its tool calls, files and todos in the right panel, and press ⌘. to stop it.
 4. **Answer when it needs you.** A task that asks a question or waits for permission gets a purple dot and counts under
-   **Needs you**. If you're looking at another task, you get a macOS notification you can reply to directly.
+   **Needs you**. If you're looking at another task, you get a macOS notification you can reply to directly, and
+   Glade's icon in the menu bar counts it.
 5. **Mark it done.** ⌘⇧D (or the check in the header) marks the task done, and its latest status becomes the outcome.
    Undo if you didn't mean it. A done task stays open to chat: send it a message and it reopens.
 
@@ -120,6 +121,7 @@ Press ⌘, for Settings, including every shortcut, which you can rebind.
 | **Tasks** | One objective, two states (Active and Done), an agent-maintained title, goal and status, pinning, search across every chat in the workspace, and several workspaces side by side (⌘1–⌘9). |
 | **Built to keep going** | Automatic and manual compaction, retries on a flaky API, usage limits and lost networks that pause tasks instead of failing them, and crash recovery that resumes every task that was mid-turn. |
 | **Questions** | Choices, pills and text, answered by mouse or keyboard, surviving a relaunch. |
+| **Menu bar** | Glade's icon in the macOS menu bar counts what needs you and pulses while an agent works; click it for what needs you, what's working and the latest notifications, in every workspace. |
 | **Permissions** | Allow all, or ask before edits and commands, with per-task rules for what you've allowed. |
 | **Right panel** | Tool calls, the files a task touched (with a read-only viewer), its todo list, the artifacts it delivered, and its subagents. |
 | **Terminal** | Tabs of your login shell in the bottom bar, kept with their scrollback across launches. Right-click a Bash call in the tool log to run it again there. |
