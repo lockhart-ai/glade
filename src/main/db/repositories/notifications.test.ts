@@ -60,12 +60,23 @@ describe('recordNotification', () => {
 })
 
 describe('listRecentNotifications', () => {
-  it('lists the newest first, in the order they were sent even when sent at the same time, up to the limit', () => {
+  it('lists the newest first, those sent at the same moment in the order they were noted, up to the limit', () => {
     send('first', 1_000)
     send('second', 1_000)
-    send('third', 900)
+    send('third', 2_000)
     expect(listRecentNotifications(test.db, 2).map(({ body }) => body)).toEqual(['third', 'second'])
     expect(listRecentNotifications(test.db, 5).map(({ body }) => body)).toEqual(['third', 'second', 'first'])
+  })
+
+  it('goes by when they were sent, whatever order they were noted in, and keeps the latest sent', () => {
+    for (const [body, at] of [
+      ['late', 3_000],
+      ['early', 1_000],
+      ['middle', 2_000],
+    ] as const) {
+      recordNotification(test.db, { taskId: task.id, title: 'T', body }, at, 2)
+    }
+    expect(listRecentNotifications(test.db, 5).map(({ body }) => body)).toEqual(['late', 'middle'])
   })
 
   it("drops a deleted task's notifications and keeps the others", () => {

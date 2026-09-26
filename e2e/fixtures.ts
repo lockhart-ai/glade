@@ -17,6 +17,7 @@ import {
   E2E_DESKTOP_GLOBAL,
   E2E_EDITOR_GLOBAL,
   E2E_ENV,
+  E2E_MENU_BAR_GLOBAL,
   E2E_NETWORK_GLOBAL,
   E2E_NOTIFIER_GLOBAL,
   E2E_WINDOW_SIZE,
@@ -24,6 +25,7 @@ import {
   type E2eAgentEnvs,
   type E2eDesktop,
   type E2eEditor,
+  type E2eMenuBar,
   type E2eNetwork,
   type E2eSpec,
 } from '../src/main/e2e'
@@ -358,6 +360,45 @@ export async function holdCommand({ app }: Glade, command: CommandName): Promise
       }, COMMAND_HOLD_GLOBAL)
     },
   }
+}
+
+/** Glade's icon in the menu bar as it is now: an e2e run never puts a real one there, it records it (`E2E_MENU_BAR_GLOBAL`). */
+export type MenuBarIconState = Omit<E2eMenuBar, 'click'>
+
+/** Glade's icon in the menu bar as it is now: whether it's there, its count, whether it pulses, and its popover. */
+export async function menuBarIcon({ app }: Glade): Promise<MenuBarIconState> {
+  return app.evaluate((_, name) => {
+    const { shown, title, pulsing, open, reduceMotion } = Reflect.get(globalThis, name) as E2eMenuBar
+    return { shown, title, pulsing, open, reduceMotion }
+  }, E2E_MENU_BAR_GLOBAL)
+}
+
+/** Turns macOS's Reduce motion on or off, as the menu bar icon sees it (off until a spec turns it on). */
+export async function setReduceMotion({ app }: Glade, on: boolean): Promise<void> {
+  await app.evaluate(
+    (_, { name, on }) => {
+      ;(Reflect.get(globalThis, name) as E2eMenuBar).reduceMotion = on
+    },
+    { name: E2E_MENU_BAR_GLOBAL, on },
+  )
+}
+
+/** The route the menu bar popover's page is at. */
+const MENU_BAR_ROUTE = '#menu-bar'
+
+/**
+ * Clicks Glade's icon in the menu bar, as you would, and answers the popover's page once it's ready. The first click
+ * makes the popover's window (hidden, as every window in an e2e run); a later one shows or hides the same one.
+ */
+export async function clickMenuBarIcon({ app }: Glade): Promise<Page> {
+  const existing = app.windows().find((page) => page.url().endsWith(MENU_BAR_ROUTE))
+  const opened = existing === undefined ? app.waitForEvent('window') : Promise.resolve(existing)
+  await app.evaluate((_, name) => {
+    ;(Reflect.get(globalThis, name) as E2eMenuBar).click()
+  }, E2E_MENU_BAR_GLOBAL)
+  const popover = await opened
+  await popover.locator(`html[${READY_ATTRIBUTE}]`).waitFor({ state: 'attached' })
+  return popover
 }
 
 /**

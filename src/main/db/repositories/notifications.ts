@@ -12,6 +12,9 @@ import { Row } from './rows'
  */
 export const NOTIFICATIONS_KEPT = 20
 
+/** The latest first: by when they were sent, and those sent at the same moment by the order they were noted in. */
+const LATEST_FIRST = 'ORDER BY sent_at DESC, seq DESC'
+
 /** A notification to note as sent. */
 export interface NewNotification {
   readonly taskId: string
@@ -47,7 +50,7 @@ export function recordNotification(
       .prepare('INSERT INTO notifications (task_id, title, body, sent_at) VALUES (?, ?, ?, ?) RETURNING *')
       .get(taskId, title, body, now)
     db.prepare(
-      'DELETE FROM notifications WHERE seq NOT IN (SELECT seq FROM notifications ORDER BY seq DESC LIMIT ?)',
+      `DELETE FROM notifications WHERE seq NOT IN (SELECT seq FROM notifications ${LATEST_FIRST} LIMIT ?)`,
     ).run(kept)
     return parseNotification(row)
   })()
@@ -55,5 +58,5 @@ export function recordNotification(
 
 /** The latest notifications sent, newest first, at most `limit` of them. */
 export function listRecentNotifications(db: Database, limit: number): SentNotification[] {
-  return db.prepare('SELECT * FROM notifications ORDER BY seq DESC LIMIT ?').all(limit).map(parseNotification)
+  return db.prepare(`SELECT * FROM notifications ${LATEST_FIRST} LIMIT ?`).all(limit).map(parseNotification)
 }
