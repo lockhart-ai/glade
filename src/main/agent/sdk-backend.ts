@@ -449,6 +449,9 @@ export function createSdkBackend({
         async contextUsage() {
           return (await started).getContextUsage({ detail: 'summary' })
         },
+        async accountInfo() {
+          return (await started).accountInfo()
+        },
         close() {
           log.info('agent process closing')
           then(() => {

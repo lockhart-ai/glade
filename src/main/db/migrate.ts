@@ -1,10 +1,9 @@
 import type { Database } from 'better-sqlite3'
 
 /**
- * One forward-only step in the database schema. Versions start at 1 and rise; a migration is never edited or removed
- * once it has shipped. Parallel PRs reserve their numbers, so there can be gaps, and a migration can land after a
- * higher-numbered one has already run on a database: it then runs on the schema that one left, so it mustn't assume it
- * runs straight after its predecessor.
+ * One forward-only step in the database schema. Versions start at 1 and go up; a migration is never edited or removed
+ * once it has shipped. Parallel work reserves its versions ahead, so the list can skip one that hasn't landed yet: a
+ * database records each version it applied, and a skipped one runs whenever it arrives.
  */
 export interface Migration {
   readonly version: number
@@ -29,38 +28,38 @@ export interface MigrationResult {
 /** The bookkeeping table: one row per applied migration. Migration 1 creates it. */
 export const SCHEMA_VERSION_TABLE = 'schema_version'
 
-/** The schema version of `db`: the highest applied migration, or 0 for a fresh database. */
-export function schemaVersion(db: Database): number {
+function hasVersionTable(db: Database): boolean {
   const table = db
     .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = ?")
     .pluck()
     .get(SCHEMA_VERSION_TABLE)
-  if (table === undefined) return 0
+  return table !== undefined
+}
+
+/** The schema version of `db`: the highest applied migration, or 0 for a fresh database. */
+export function schemaVersion(db: Database): number {
+  if (!hasVersionTable(db)) return 0
   const version = db.prepare(`SELECT MAX(version) FROM ${SCHEMA_VERSION_TABLE}`).pluck().get()
   return typeof version === 'number' ? version : 0
 }
 
-/** The highest version in `migrations`, which `checkOrder` keeps last; 0 when there are none. */
-export function latestVersion(migrations: readonly Migration[]): number {
-  return migrations.at(-1)?.version ?? 0
-}
-
-/** The versions of every migration applied to `db`; none for a fresh database. */
+/** Every version applied to `db`; empty for a fresh database. */
 function appliedVersions(db: Database): Set<number> {
-  if (schemaVersion(db) === 0) return new Set()
-  return new Set(db.prepare(`SELECT version FROM ${SCHEMA_VERSION_TABLE}`).pluck().all() as number[])
+  if (!hasVersionTable(db)) return new Set()
+  const versions = db.prepare(`SELECT version FROM ${SCHEMA_VERSION_TABLE}`).pluck().all()
+  return new Set(versions.filter((version): version is number => typeof version === 'number'))
 }
 
 function checkOrder(migrations: readonly Migration[]): void {
   let previous = 0
   migrations.forEach((migration, index) => {
-    const inOrder = index === 0 ? migration.version === 1 : migration.version > previous
-    if (!Number.isInteger(migration.version) || !inOrder) {
+    const valid = index === 0 ? migration.version === 1 : migration.version > previous
+    previous = migration.version
+    if (!valid) {
       throw new Error(
-        `Migrations must start at 1 and rise: position ${String(index + 1)} has version ${String(migration.version)}`,
+        `Migrations must start at 1 and go up: position ${String(index + 1)} has version ${String(migration.version)}`,
       )
     }
-    previous = migration.version
   })
 }
 
@@ -85,30 +84,25 @@ function withoutForeignKeys(db: Database, apply: () => void): void {
 }
 
 /**
- * Brings `db` up to the latest of `migrations`, running every one it hasn't recorded, in version order: a migration
- * below the database's version runs too, when it landed after a higher-numbered one. Each runs in its own transaction
- * together with its bookkeeping row, so a migration that throws rolls back completely and leaves the version where it
- * was (earlier migrations in the same call stay applied). Running it again on a current database does nothing.
+ * Brings `db` up to the latest of `migrations`, running each one it hasn't applied yet, in version order (including one
+ * below the database's version that landed after a higher one). Each runs in its own transaction together with its
+ * bookkeeping row, so a migration that throws rolls back completely and leaves the version where it was (earlier
+ * migrations in the same call stay applied). Running it again on a current database does nothing.
  */
 export function migrate(db: Database, migrations: readonly Migration[]): MigrationResult {
   checkOrder(migrations)
 
   const fromVersion = schemaVersion(db)
-  const latest = latestVersion(migrations)
+  const latest = migrations.at(-1)?.version ?? 0
   if (fromVersion > latest) {
     throw new Error(
       `The database is at schema version ${String(fromVersion)}, newer than this app knows (${String(latest)})`,
     )
   }
-  const recorded = appliedVersions(db)
-  const known = new Set(migrations.map((migration) => migration.version))
-  const unknown = [...recorded].find((version) => !known.has(version))
-  if (unknown !== undefined) {
-    throw new Error(`The database has migration ${String(unknown)}, which this app doesn't know`)
-  }
 
+  const done = appliedVersions(db)
   const applied: number[] = []
-  for (const migration of migrations.filter((pending) => !recorded.has(pending.version))) {
+  for (const migration of migrations.filter(({ version }) => !done.has(version))) {
     const apply = db.transaction(() => {
       migration.up(db)
       if (migration.rebuildsReferencedTable === true) checkForeignKeys(db)

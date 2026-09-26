@@ -41,6 +41,7 @@ import type { DoneCounts, DonePage, DonePageRequest } from './doneList'
 import type { TerminalTab } from './terminal'
 import type { InstalledPlugin } from './plugins'
 import type { ControlStatus } from './control'
+import type { AccountStatus } from './account'
 import type { MenuBarSnapshot } from './menuBar'
 
 /** The name the bridge is exposed under on `window`. */
@@ -109,6 +110,7 @@ export enum CommandName {
   PluginsPlaceView = 'plugins.placeView',
   ControlStatus = 'control.status',
   ControlRegenerateToken = 'control.regenerateToken',
+  AccountStatus = 'account.status',
   TerminalList = 'terminal.list',
   TerminalCreate = 'terminal.create',
   TerminalDuplicate = 'terminal.duplicate',
@@ -704,6 +706,14 @@ export interface ControlStatusResponse {
   readonly status: ControlStatus
 }
 
+/**
+ * The account the tasks run on and the warning while it's close to a usage limit (`./account`), as Claude Code last
+ * reported them: `account.status` answers with them, and `account.changed` broadcasts them as they change.
+ */
+export interface AccountStatusResponse {
+  readonly status: AccountStatus
+}
+
 /** Opens the plugins folder in Finder (Open plugins folder), creating it if it's missing. */
 export type PluginsOpenFolderRequest = EmptyRequest
 
@@ -919,6 +929,7 @@ export interface CommandMap {
   [CommandName.PluginsList]: CommandSpec<EmptyRequest, PluginsResponse>
   [CommandName.ControlStatus]: CommandSpec<EmptyRequest, ControlStatusResponse>
   [CommandName.ControlRegenerateToken]: CommandSpec<EmptyRequest, ControlStatusResponse>
+  [CommandName.AccountStatus]: CommandSpec<EmptyRequest, AccountStatusResponse>
   [CommandName.PluginsSetEnabled]: CommandSpec<PluginsSetEnabledRequest, PluginsResponse>
   [CommandName.PluginsOpenFolder]: CommandSpec<PluginsOpenFolderRequest, null>
   [CommandName.PluginsPlaceView]: CommandSpec<PluginsPlaceViewRequest, PluginsPlaceViewResponse>
@@ -988,6 +999,7 @@ export enum EventType {
   PluginsChanged = 'plugins.changed',
   PluginStatusChanged = 'plugin.statusChanged',
   ControlChanged = 'control.changed',
+  AccountChanged = 'account.changed',
   MenuBarChanged = 'menuBar.changed',
 }
 
@@ -1218,6 +1230,15 @@ export interface ControlChangedEvent {
 }
 
 /**
+ * The account was read again as a task's session started, or its usage warning came, changed or went. Carries both, as
+ * they now are.
+ */
+export interface AccountChangedEvent {
+  readonly type: EventType.AccountChanged
+  readonly status: AccountStatus
+}
+
+/**
  * What's in flight changed: a task started or stopped working or needing you, or a notification was sent. Sent to the
  * menu bar popover only, while it's open or hidden, with the whole snapshot as it now is.
  */
@@ -1259,6 +1280,7 @@ export type GladeEvent =
   | PluginsChangedEvent
   | PluginStatusChangedEvent
   | ControlChangedEvent
+  | AccountChangedEvent
   | MenuBarChangedEvent
 
 export type EventListener = (event: GladeEvent) => void

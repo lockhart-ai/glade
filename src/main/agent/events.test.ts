@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { UsageWindow } from '../../shared/account'
 import { CompactionTrigger } from '../../shared/domain'
 import { AgentEventKind, createSdkMessageParser, RateLimitStatus, TaskOutcome, type AgentEvent } from './events'
 import * as sdk from './test-sdk-messages'
@@ -235,15 +236,73 @@ describe('parsing SDK messages', () => {
 
   it("reads where the usage limit stands, with its reset time in milliseconds when it's given", () => {
     expect(parse(sdk.rateLimit('rejected', 1_790_000_000))).toEqual([
-      { kind: AgentEventKind.RateLimit, status: RateLimitStatus.Rejected, resetsAt: 1_790_000_000_000 },
+      {
+        kind: AgentEventKind.RateLimit,
+        status: RateLimitStatus.Rejected,
+        resetsAt: 1_790_000_000_000,
+        utilization: null,
+        window: UsageWindow.Session,
+      },
     ])
     expect(parse(sdk.turnStartNoise().find(isRateLimit))).toEqual([
-      { kind: AgentEventKind.RateLimit, status: RateLimitStatus.Allowed, resetsAt: null },
+      {
+        kind: AgentEventKind.RateLimit,
+        status: RateLimitStatus.Allowed,
+        resetsAt: null,
+        utilization: null,
+        window: UsageWindow.Other,
+      },
     ])
-    const malformed = { type: 'rate_limit_event', rate_limit_info: { status: 'allowed_warning', resetsAt: 'soon' } }
+    const malformed = {
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'allowed_warning', resetsAt: 'soon', utilization: -1, rateLimitType: 'fortnightly' },
+    }
     expect(parse(malformed)).toEqual([
-      { kind: AgentEventKind.RateLimit, status: RateLimitStatus.AllowedWarning, resetsAt: null },
+      {
+        kind: AgentEventKind.RateLimit,
+        status: RateLimitStatus.AllowedWarning,
+        resetsAt: null,
+        utilization: null,
+        window: UsageWindow.Other,
+      },
     ])
+  })
+
+  it('reads how much of which window a warning says is used, as the SDK sends it (a probe on SDK 0.3.281)', () => {
+    const warning = {
+      type: 'rate_limit_event',
+      rate_limit_info: {
+        status: 'allowed_warning',
+        resetsAt: 1_790_920_800,
+        rateLimitType: 'seven_day',
+        utilization: 0.28,
+        isUsingOverage: false,
+        unifiedWindows: {
+          five_hour: { utilization: 0.36, resetsAt: 1_790_401_800 },
+          seven_day: { utilization: 0.28, resetsAt: 1_790_920_800 },
+        },
+      },
+      uuid: 'rate-limit-warning',
+      session_id: 'session-1',
+    }
+    expect(parse(warning)).toEqual([
+      {
+        kind: AgentEventKind.RateLimit,
+        status: RateLimitStatus.AllowedWarning,
+        resetsAt: 1_790_920_800_000,
+        utilization: 0.28,
+        window: UsageWindow.Weekly,
+      },
+    ])
+    for (const [rateLimitType, window] of [
+      ['five_hour', UsageWindow.Session],
+      ['seven_day_opus', UsageWindow.WeeklyOpus],
+      ['seven_day_sonnet', UsageWindow.WeeklySonnet],
+      ['overage', UsageWindow.Other],
+    ] as const) {
+      const event = { type: 'rate_limit_event', rate_limit_info: { status: 'allowed', rateLimitType, utilization: 0 } }
+      expect(parse(event)).toEqual([expect.objectContaining({ window, utilization: 0 })])
+    }
   })
 
   it('reads the message an API error makes as the error, not as text or context used', () => {
