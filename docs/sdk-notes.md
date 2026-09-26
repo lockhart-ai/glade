@@ -604,13 +604,50 @@ The context meter should show `autoCompactThreshold` from `getContextUsage()`.
   completed.
 - It returns a receipt `{ still_queued: string[] }`, the uuids of pushed messages that will still run. Setting
   `cancel_queued` drops them as well (capability `interrupt_cancel_queued_v1`) [docs].
-- Background tasks get killed on interrupt unless `perTaskStopAffordance: true` [docs].
+- Background subagents get killed on interrupt unless `perTaskStopAffordance: true` [verified, below].
 - `q.close()` kills the subprocess outright. Use it to shut a task down, not to stop a turn.
 - Watch out: the Bash tool itself refuses a standalone `sleep N` and may push long commands into the background, where
   they then report through `task_*` events [verified].
 
 **Implication:** the Stop button maps to `interrupt()`. Record the aborted partial text (`aborted: true`) in the tool
 log or as a truncated reply, and show the turn as stopped rather than failed (`terminal_reason` `aborted_*`).
+
+### What an interrupt leaves running [verified]
+
+Probed for #276 on SDK 0.3.281 (Claude Code 2.1.281), with Haiku in a throwaway folder, streaming input mode and
+`bypassPermissions`, once without `perTaskStopAffordance` and once with it. One turn started a `Bash` with
+`run_in_background` (`sleep 90 && …`), an `Agent` with `run_in_background` (a subagent making ten foreground
+`sleep 6 && echo N` calls, one after another) and a `Monitor` (a tick every 20 s), and replied "launched". The next
+turn was interrupted as it started streaming text, with all three still running. Seconds from the start:
+
+```
+without perTaskStopAffordance
+19.3  interrupt()  → { still_queued: [] }
+19.3  system/background_tasks_changed  { tasks: ["bg sleeper", "ticker"] }       ← the subagent gone
+19.3  system/task_updated       { task_id: "ad11…", patch: { status: "killed" } }
+19.3  system/task_notification  { task_id: "ad11…", status: "stopped", summary: "Slow sub" }
+19.3  result/error_during_execution  { terminal_reason: "aborted_streaming" }
+27.3  (8 s on) still running: the background Bash and the Monitor; stopTask then stopped each
+
+with perTaskStopAffordance: true
+17.9  interrupt()  → { still_queued: [] }
+17.9  result/error_during_execution  { terminal_reason: "aborted_streaming" }    ← nothing else
+20.8  system/task_started  { task_type: "local_bash", owned_by_subagent: true }  ← the subagent's next call
+25.9  (8 s on) still running: all three; stopTask then stopped each, as usual
+```
+
+- **Without the declaration, an interrupt kills every running background subagent**, with the turn: `task_updated`
+  `killed` and a `stopped` `task_notification` whose summary is its description, as `stopTask` gives (no wake turn
+  followed it). A background command a subagent had started (`owned_by_subagent`) was killed too, in an earlier run
+  where its subagent had already ended.
+- The session's own background `Bash` and `Monitor` survived the interrupt either way, as §11 saw.
+- **With `perTaskStopAffordance: true`, the interrupt ends only the turn.** Every background task carried on (the
+  subagent made its next call three seconds later), and `stopTask` still stopped each one.
+
+**Decided (#276):** Glade passes `perTaskStopAffordance: true` (`sdkOptions` in `src/main/agent/sdk-backend.ts`): it
+has a Stop of its own for each background subagent and watcher (the Subagents and Watchers tabs, which call
+`stopTask`), so Stop on a turn stops only the turn. The scripted backend models both behaviours from the options Glade
+passes (`interruptStopsSubagents` in `src/main/agent/scripted-session.ts`).
 
 ## 8. Resume [verified]
 
