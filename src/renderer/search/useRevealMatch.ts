@@ -2,15 +2,17 @@ import { useEffect, type RefObject } from 'react'
 import { useGladeStore } from '../store/react'
 
 /**
- * Whether `element` shows whole within the scroller's visible area: below its scroll padding, where the header card
- * floats over the chat's top (see TaskCard.module.css).
+ * Whether `element` shows whole within the scroller's visible area: between its scroll paddings, where the header card
+ * and the input bar float over the chat's top and bottom (see TaskCard.module.css).
  */
 function inView(element: Element, scroller: Element): boolean {
   const box = element.getBoundingClientRect()
   const view = scroller.getBoundingClientRect()
+  const style = getComputedStyle(scroller)
   // An unset scroll padding reads as `auto`, which is none.
-  const covered = Number.parseFloat(getComputedStyle(scroller).scrollPaddingTop) || 0
-  return box.top >= view.top + covered && box.bottom <= view.bottom
+  const coveredTop = Number.parseFloat(style.scrollPaddingTop) || 0
+  const coveredBottom = Number.parseFloat(style.scrollPaddingBottom) || 0
+  return box.top >= view.top + coveredTop && box.bottom <= view.bottom - coveredBottom
 }
 
 /**
