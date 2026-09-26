@@ -121,7 +121,10 @@ async function removeDataFolder(userData: string, group: number | undefined): Pr
   rmSync(userData, { recursive: true, force: true, maxRetries: RM_RETRIES, retryDelay: RM_RETRY_MS })
 }
 
-/** Whether any process is left in a process group (a zombie waiting to be reaped counts). */
+/**
+ * Whether any process is still running in a process group. On macOS one that's dead but not yet reaped (a zombie,
+ * which can't write anything) doesn't count: signalling a group of only those fails.
+ */
 export function groupAlive(group: number): boolean {
   try {
     process.kill(-group, 0)

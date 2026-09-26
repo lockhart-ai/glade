@@ -94,6 +94,20 @@ function helperOf(output: string): number {
 }
 
 /**
+ * Resolves once the helper a stub printed is gone. It's SIGKILLed with the child's group before the run returns, but
+ * can stay a zombie (dead, so writing nothing) for a moment until launchd reaps it, and a zombie still answers `kill 0`.
+ */
+async function helperReaped(io: TestIo): Promise<void> {
+  const helper = helperOf(io.out())
+  await vi.waitFor(
+    () => {
+      expect(alive(helper)).toBe(false)
+    },
+    { timeout: 5000 },
+  )
+}
+
+/**
  * Resolves once the run has printed `text`. It waits on the output, not on a clock, so a child that's slow to start
  * (a loaded machine can take most of a second to start Node) can't fail a test.
  */
@@ -266,7 +280,7 @@ describe('runElectron', { timeout: SPAWNS_TIMEOUT_MS }, () => {
     )
   })
 
-  it('SIGKILLs the helpers a hung child started along with it, and returns only once they are gone', async () => {
+  it('SIGKILLs the helpers a hung child started along with it', async () => {
     fakeRunTimers()
     const io = testIo()
     // A helper that ignores SIGTERM, as a wedged GPU process would, and outlives the child.
@@ -281,11 +295,11 @@ describe('runElectron', { timeout: SPAWNS_TIMEOUT_MS }, () => {
     passTime(500)
     const result = await running
     expect(result).toMatchObject({ kind: 'stopped', reason: 'timeout' })
-    expect(alive(helperOf(io.out()))).toBe(false)
+    await helperReaped(io)
     expect(alive(pidOf(io.out()))).toBe(false)
   })
 
-  it('SIGKILLs a helper left running after the child exits by itself, and returns only once it is gone', async () => {
+  it('SIGKILLs a helper left running after the child exits by itself', async () => {
     const io = testIo()
     const script = `
       const helper = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
@@ -293,7 +307,7 @@ describe('runElectron', { timeout: SPAWNS_TIMEOUT_MS }, () => {
       console.log('helper ' + helper.pid)`
     const result = await runElectron(stub(script, io))
     expect(result).toEqual({ kind: 'exited', code: 0, signal: null })
-    expect(alive(helperOf(io.out()))).toBe(false)
+    await helperReaped(io)
   })
 
   it('reports a child it could not start', async () => {
@@ -390,7 +404,7 @@ describe('runElectron', { timeout: SPAWNS_TIMEOUT_MS }, () => {
       const result = await running
       expect(result).toMatchObject({ kind: 'stopped', reason: 'timeout' })
       expect(alive(pidOf(io.out()))).toBe(false)
-      expect(alive(helperOf(io.out()))).toBe(false)
+      await helperReaped(io)
       expect(existsSync(folder)).toBe(false)
     })
   })
