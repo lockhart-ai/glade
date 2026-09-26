@@ -807,6 +807,29 @@ const failingTurn: AgentScript = {
   ],
 }
 
+/** What the `fails-to-start` agent's Claude Code prints as it gives up. */
+export const STARTUP_FAILURE_ERROR = 'Error: The working directory no longer exists. Open the workspace folder again.'
+
+/**
+ * A session Claude Code can't start, because the workspace folder is gone: it ends at once with the zeroed result that
+ * names why (`startup_failure_reason`, as `CLAUDE_CODE_STARTUP_FAILURE_RESULTS` asks), and no `init`, then its process
+ * exits. Every message fails the same way.
+ */
+const failsToStart: AgentScript = {
+  name: 'fails-to-start',
+  turns: [
+    [
+      result({
+        isError: true,
+        text: '',
+        errors: [STARTUP_FAILURE_ERROR],
+        extra: { subtype: 'error_during_execution', num_turns: 0, startup_failure_reason: 'cwd_unavailable' },
+      }),
+      fail('Claude Code process exited with code 1'),
+    ],
+  ],
+}
+
 /**
  * A turn that fails on an overloaded API after it has started working, and a retry of it that gets through: the API
  * is still overloaded at first, but the request goes through on the first retry this time, and the turn finishes.
@@ -2508,6 +2531,7 @@ export const AGENT_SCRIPT_NAMES = [
   'long-running',
   'long-build',
   'failing-turn',
+  'fails-to-start',
   'flaky-api',
   'copy-in-batches',
   'long-context',
@@ -2550,6 +2574,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'long-running': longRunning,
   'long-build': longBuild,
   'failing-turn': failingTurn,
+  'fails-to-start': failsToStart,
   'flaky-api': flakyApi,
   'copy-in-batches': copyInBatches,
   'long-context': longContext,

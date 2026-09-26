@@ -2,6 +2,7 @@
 import type {
   CanUseTool,
   McpSdkServerConfigWithInstance,
+  Options,
   PermissionUpdate,
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
@@ -72,7 +73,7 @@ const ENV: Environment = { PATH: '/opt/homebrew/bin:/usr/bin:/bin', HOME: '/User
 
 /** A backend whose sessions run in `ENV`. */
 const backendIn = (env: Environment = ENV): ReturnType<typeof createSdkBackend> =>
-  createSdkBackend({ env: Promise.resolve(env) })
+  createSdkBackend({ version: '1.2.3', env: Promise.resolve(env) })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -80,7 +81,7 @@ beforeEach(() => {
 
 it('runs the session in the workspace root, allowing all, with the workspace and user settings and the prompt', () => {
   expect(sdkOptions(OPTIONS, ENV)).toEqual({
-    env: { ...ENV, CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' },
+    env: { ...ENV, CLAUDE_CODE_ENABLE_TODO_TOOLS: '1', CLAUDE_CODE_STARTUP_FAILURE_RESULTS: '1' },
     cwd: '/code/acme-api',
     model: 'claude-sample-1',
     effort: 'high',
@@ -95,6 +96,7 @@ it('runs the session in the workspace root, allowing all, with the workspace and
     disallowedTools: ['AskUserQuestion'],
     forwardSubagentText: true,
     agentProgressSummaries: true,
+    stderr: expect.any(Function) as unknown,
     perTaskStopAffordance: true,
   })
 })
@@ -130,6 +132,7 @@ it("adds the session's own variables to the login shell's environment, under the
     ...ENV,
     GLADE_CONTROL_URL: 'http://127.0.0.1:45233',
     CLAUDE_CODE_ENABLE_TODO_TOOLS: '1',
+    CLAUDE_CODE_STARTUP_FAILURE_RESULTS: '1',
   })
 })
 
@@ -235,7 +238,11 @@ it('starts one streaming-input query per session, in the environment, and pushes
 
   expect(sdk.query).toHaveBeenCalledExactlyOnceWith({
     prompt: expect.anything() as unknown,
-    options: { ...sdkOptions(OPTIONS, ENV), canUseTool: expect.any(Function) as unknown },
+    options: {
+      ...sdkOptions(OPTIONS, { ...ENV, CLAUDE_AGENT_SDK_CLIENT_APP: 'glade/1.2.3' }),
+      canUseTool: expect.any(Function) as unknown,
+      stderr: expect.any(Function) as unknown,
+    },
   })
   const streamed: unknown[] = []
   for await (const message of session.messages) streamed.push(message)
@@ -294,7 +301,7 @@ it('changes the model and effort before delivering the next message, never after
 it('still delivers the message, on the old settings, when the SDK refuses a change', async () => {
   sdk.session.setModel.mockRejectedValueOnce(new Error('model_not_found'))
   const log = createMemoryLog(LogScope.Agent)
-  const session = createSdkBackend({ env: Promise.resolve(ENV), log: log.logger }).start(OPTIONS)
+  const session = createSdkBackend({ version: '1.2.3', env: Promise.resolve(ENV), log: log.logger }).start(OPTIONS)
 
   session.configure({ model: 'claude-missing', effort: Effort.Low, permissionMode: PermissionMode.AllowAll })
   session.send('Hi', 'uuid-1')
@@ -320,7 +327,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 
 it("doesn't start the agent until the environment is known, then does what was asked of it meanwhile, in order", async () => {
   const env = deferred<Environment>()
-  const session = createSdkBackend({ env: env.promise }).start(OPTIONS)
+  const session = createSdkBackend({ version: '1.2.3', env: env.promise }).start(OPTIONS)
 
   session.send('Hi', 'uuid-1')
   session.configure({ model: 'claude-sample-2', effort: Effort.Max, permissionMode: PermissionMode.AllowAll })
@@ -343,7 +350,11 @@ it("doesn't start the agent until the environment is known, then does what was a
 
   expect(sdk.query).toHaveBeenCalledExactlyOnceWith({
     prompt: expect.anything() as unknown,
-    options: { ...sdkOptions(OPTIONS, ENV), canUseTool: expect.any(Function) as unknown },
+    options: {
+      ...sdkOptions(OPTIONS, { ...ENV, CLAUDE_AGENT_SDK_CLIENT_APP: 'glade/1.2.3' }),
+      canUseTool: expect.any(Function) as unknown,
+      stderr: expect.any(Function) as unknown,
+    },
   })
   expect(await pushedMessages(2)).toEqual(['Hi', 'Fix it.'])
   expect(sdk.session.setModel).toHaveBeenCalledExactlyOnceWith('claude-sample-2')
@@ -354,7 +365,7 @@ it("doesn't start the agent until the environment is known, then does what was a
 
 it('closes a session closed before its environment was known once its agent starts, having given it what was sent', async () => {
   const env = deferred<Environment>()
-  const session = createSdkBackend({ env: env.promise }).start(OPTIONS)
+  const session = createSdkBackend({ version: '1.2.3', env: env.promise }).start(OPTIONS)
 
   session.send('Hi', 'uuid-1')
   session.close()
@@ -600,7 +611,7 @@ it('switches a live session’s permission mode in order with its messages, and 
     return Promise.resolve(undefined)
   })
   const log = createMemoryLog(LogScope.Agent)
-  const session = createSdkBackend({ env: Promise.resolve(ENV), log: log.logger }).start(OPTIONS)
+  const session = createSdkBackend({ version: '1.2.3', env: Promise.resolve(ENV), log: log.logger }).start(OPTIONS)
   const { model, effort } = OPTIONS
 
   session.send('Hi', 'uuid-1')
@@ -621,7 +632,7 @@ it('switches a live session’s permission mode in order with its messages, and 
 it('changes the model and the permission mode together, and still delivers the message when the SDK refuses the mode', async () => {
   sdk.session.setPermissionMode.mockRejectedValueOnce(new Error('mode refused'))
   const log = createMemoryLog(LogScope.Agent)
-  const session = createSdkBackend({ env: Promise.resolve(ENV), log: log.logger }).start(OPTIONS)
+  const session = createSdkBackend({ version: '1.2.3', env: Promise.resolve(ENV), log: log.logger }).start(OPTIONS)
 
   session.configure({ model: 'claude-sample-2', effort: Effort.High, permissionMode: PermissionMode.AskBeforeEdits })
   session.send('Hi', 'uuid-1')
@@ -634,5 +645,66 @@ it('changes the model and the permission mode together, and still delivers the m
       level: LogLevel.Warn,
       fields: { permissionMode: PermissionMode.AskBeforeEdits, error: expect.any(Error) as unknown },
     }),
+  ])
+})
+
+/** The options the SDK's `query()` was last started with. */
+function queried(): Options {
+  const options = sdk.query.mock.calls.at(-1)?.[0].options
+  if (options === undefined) throw new Error('No query started')
+  return options as Options
+}
+
+it('names Glade and its version to the API, and has a failed start say why, in every session', async () => {
+  createSdkBackend({ version: '0.13.0', env: Promise.resolve(ENV) }).start({
+    ...OPTIONS,
+    env: { CLAUDE_CODE_STARTUP_FAILURE_RESULTS: '0' },
+  })
+  await settle()
+
+  expect(queried().env).toMatchObject({
+    ...ENV,
+    CLAUDE_AGENT_SDK_CLIENT_APP: 'glade/0.13.0',
+    CLAUDE_CODE_STARTUP_FAILURE_RESULTS: '1',
+  })
+})
+
+it("names Glade even when the login shell's environment names another app", async () => {
+  createSdkBackend({
+    version: '0.13.0',
+    env: Promise.resolve({ ...ENV, CLAUDE_AGENT_SDK_CLIENT_APP: 'shell-app/2.0' }),
+  }).start(OPTIONS)
+  await settle()
+
+  expect(queried().env).toMatchObject({ CLAUDE_AGENT_SDK_CLIENT_APP: 'glade/0.13.0' })
+})
+
+it("logs what the agent process prints to its error output in the session's own log, for its task", async () => {
+  const backendLog = createMemoryLog(LogScope.Agent)
+  const taskLog = createMemoryLog(LogScope.Agent)
+  createSdkBackend({ version: '1.2.3', env: Promise.resolve(ENV), log: backendLog.logger }).start({
+    ...OPTIONS,
+    log: taskLog.logger.with({ taskId: 'task-1' }),
+  })
+  await settle()
+
+  queried().stderr?.('Error: spawn /bin/zsh ENOENT\n')
+  expect(taskLog.withMessage('agent stderr')).toEqual([
+    expect.objectContaining({
+      level: LogLevel.Warn,
+      fields: { taskId: 'task-1', line: 'Error: spawn /bin/zsh ENOENT' },
+    }),
+  ])
+  expect(backendLog.withMessage('agent stderr')).toEqual([])
+})
+
+it("logs the error output of a session with no log of its own in the backend's", async () => {
+  const backendLog = createMemoryLog(LogScope.Agent)
+  createSdkBackend({ version: '1.2.3', env: Promise.resolve(ENV), log: backendLog.logger }).start(OPTIONS)
+  await settle()
+
+  queried().stderr?.('warning: proxy ignored')
+  expect(backendLog.withMessage('agent stderr').map(({ fields }) => fields)).toEqual([
+    { line: 'warning: proxy ignored' },
   ])
 })

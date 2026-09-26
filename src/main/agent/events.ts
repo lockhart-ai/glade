@@ -167,6 +167,12 @@ export interface TurnFinishedEvent {
   readonly userMessageUuids: readonly string[] | null
   /** The HTTP status of the API error the turn ended on; null when it didn't end on one. */
   readonly apiErrorStatus: number | null
+  /**
+   * Why Claude Code couldn't start the session, when it names a reason (`startup_failure_reason`, e.g.
+   * `cwd_unavailable`): the result a failed start ends with, since Glade sets `CLAUDE_CODE_STARTUP_FAILURE_RESULTS`.
+   * Null for any other result.
+   */
+  readonly startupFailureReason: string | null
 }
 
 export interface SessionFailedEvent {
@@ -441,6 +447,7 @@ const resultMessage = z.looseObject({
   modelUsage: z.record(z.string(), z.unknown()).catch({}),
   user_message_uuids: z.array(z.string()).nullable().optional().catch(null),
   api_error_status: z.int().nullable().optional().catch(null),
+  startup_failure_reason: z.string().nullable().optional().catch(null),
 })
 
 function fromStatus(message: z.infer<typeof statusMessage>): AgentEvent[] {
@@ -580,6 +587,7 @@ function fromResult(message: z.infer<typeof resultMessage>): AgentEvent[] {
       contextWindows: contextWindows(message.modelUsage),
       userMessageUuids: message.user_message_uuids ?? null,
       apiErrorStatus: message.api_error_status ?? null,
+      startupFailureReason: message.startup_failure_reason ?? null,
       usage:
         turnUsage === null
           ? null

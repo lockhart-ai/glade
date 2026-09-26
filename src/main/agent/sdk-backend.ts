@@ -34,6 +34,7 @@ import {
   type ToolPermissionCall,
   type ToolPermissionHandler,
 } from './backend'
+import { stderrLogger } from './stderr-log'
 import { userContent } from './user-content'
 
 /** How to make the real backend. */
@@ -48,6 +49,8 @@ export interface SdkBackendOptions {
    * has no log of its own (`AgentSessionOptions.log`). Nothing by default.
    */
   readonly log?: Logger
+  /** Glade's version, which each session's agent process names Glade by (`clientAppEnv`). */
+  readonly version: string
 }
 
 /** Finds a module's file, as `require.resolve` does. */
@@ -84,8 +87,15 @@ export function claudeCodeExecutable(
  * sessions on newer models (Opus 5.5, Sonnet 5), turning them on by default only for older ones
  * (`docs/sdk-notes.md` §10). The tools the agent schedules its own follow-ups with (background `Bash` and `Agent`,
  * `Monitor`, `ScheduleWakeup`, `CronCreate`) need nothing: SDK sessions have them already (§11).
+ * `CLAUDE_CODE_STARTUP_FAILURE_RESULTS` has a session Claude Code can't start end with a result naming why
+ * (`startup_failure_reason`), which the error card words, rather than only a failed process.
  */
-export const SESSION_ENV: Environment = { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' }
+export const SESSION_ENV: Environment = { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1', CLAUDE_CODE_STARTUP_FAILURE_RESULTS: '1' }
+
+/** What names Glade to the API, in the User-Agent of each session's requests: `glade/0.13.0`. */
+export function clientAppEnv(version: string): Environment {
+  return { CLAUDE_AGENT_SDK_CLIENT_APP: `glade/${version}` }
+}
 
 /**
  * The SDK permission mode each of Glade's runs in (`docs/sdk-notes.md` §9): Allow all bypasses every check, so
@@ -295,6 +305,8 @@ export function sdkOptions(
     // A running subagent's one-line summary of what it's doing now, about every 30 seconds, from a small fork of its
     // conversation: the line under its name in the Subagents tab (docs/sdk-notes.md, "Subagents").
     agentProgressSummaries: true,
+    // What the Claude Code process prints to its error output goes to the task's log, within limits (docs/logs.md).
+    stderr: stderrLogger(options.log ?? SILENT_LOGGER),
     // Glade stops each background subagent and watcher from its own tab (`stopTask`), so Stop on a turn ends only the
     // turn. Without this, the SDK fails closed and an interrupt kills every background subagent (docs/sdk-notes.md §7).
     perTaskStopAffordance: true,
@@ -324,13 +336,13 @@ export function userMessage(text: string, uuid: string, images: readonly ImageDa
  * (§9), each only when what it sets changed. If the SDK refuses a change, the message still goes, on the settings the
  * session had.
  */
-export function createSdkBackend({ env, log: backendLog = SILENT_LOGGER }: SdkBackendOptions): AgentBackend {
+export function createSdkBackend({ env, log: backendLog = SILENT_LOGGER, version }: SdkBackendOptions): AgentBackend {
   return {
     start(options): AgentSession {
       const log = options.log ?? backendLog
       const input = new AsyncQueue<SDKUserMessage>()
       const started: Promise<Query> = env.then((resolved) => {
-        const sdk = sdkOptions(options, resolved)
+        const sdk = sdkOptions({ ...options, log }, { ...resolved, ...clientAppEnv(version) })
         log.info('agent process starting', {
           executable: sdk.pathToClaudeCodeExecutable ?? null,
           cwd: options.cwd,

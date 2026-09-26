@@ -82,7 +82,8 @@
  * turn ends on an error anyway, or the session fails mid-turn, the task stops on it: its activity is error and its
  * `error` says what happened (`./error-classification` sorts it into a kind), for the chat's error card. Its held-back
  * text goes to the tool log as narration and its unfinished tool calls end as errors; an API error adds a failed "API"
- * row to the tool log, and any other error a note saying why. What the turn already saved stays.
+ * row to the tool log, and any other error a note saying why. What the turn already saved stays. A session Claude Code
+ * couldn't start ends its turn with a result naming the reason (`startup_failure_reason`), which the card words.
  *
  * **Pauses** (`docs/design/html/17-usage-limit.html`, `./pauses`). A turn that ends on the account's usage limit, or
  * because the API can't be reached, doesn't stop the task on an error: the task pauses, its activity paused and its
@@ -1075,6 +1076,16 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     flushPreamble(taskId, turn)
     const { apiError } = turn
     const reported = event.errors.join('\n')
+    const { startupFailureReason } = event
+    if (startupFailureReason !== null) {
+      // Claude Code couldn't start the session: the card says why, from the reason it named.
+      failRunning(taskId, turn, STOPPED_BY_ERROR_NOTE)
+      const details = reported === '' ? `Claude Code couldn't start (${startupFailureReason}).` : reported
+      emitToolEventAppended(emit, appendNarration(db, { taskId, turn: turn.number, text: details }))
+      const failure = { source: TaskErrorSource.Startup, status: null, code: startupFailureReason, details }
+      stopOnError(taskId, withRetries(turn, failure))
+      return
+    }
     const isApiError = apiError !== null || event.apiErrorStatus !== null || event.terminalReason === 'api_error'
     if (!isApiError) {
       failRunning(taskId, turn, STOPPED_BY_ERROR_NOTE)
