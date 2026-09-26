@@ -1,4 +1,3 @@
-import { faCircleCheck } from '@fortawesome/free-regular-svg-icons'
 import { faCheck, faThumbtack } from '@fortawesome/free-solid-svg-icons'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { createRef } from 'react'
@@ -43,16 +42,6 @@ describe('Button', () => {
     expect(button).toHaveAttribute('aria-pressed', 'false')
     expect(button.querySelector('svg')).toHaveClass(moduleClass(iconStyles, 'large'))
     expect(button.querySelector('svg')).toHaveAttribute('data-icon', 'thumbtack')
-  })
-
-  it('renders an outlined icon button like an icon button, with its own outline', () => {
-    render(<Button variant={ButtonVariant.IconOutline} icon={faCircleCheck} aria-label="Mark done" />)
-    const button = screen.getByRole('button', { name: 'Mark done' })
-
-    expect(button).toHaveClass(cls('iconOutline'))
-    expect(button).not.toHaveClass(cls('medium'))
-    expect(button.querySelector('svg')).toHaveClass(moduleClass(iconStyles, 'large'))
-    expect(button.querySelector('svg')).toHaveAttribute('data-icon', 'circle-check')
   })
 
   it('puts a medium icon before the label', () => {

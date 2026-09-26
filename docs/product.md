@@ -80,7 +80,12 @@ when it loses focus (`design/html/29-menu-bar.html`).
 
 Settings (⌘,) opens on Agent. Changes save as you make them.
 
-- **General:** **Show Glade in the menu bar** (on by default): its icon, and the list under it (see Attention).
+- **General:** **Show Glade in the menu bar** (on by default): its icon, and the list under it (see Attention). Then
+  the account the tasks run on and bill to, as Claude Code reports it when a task starts: the email (or "API key", a
+  cloud provider, or "Not signed in"), organization, plan, and what it's signed in with. Nothing to change: Claude Code
+  owns the login. While the account is close to a usage limit (70% of a window or more), a quiet note in the app-wide
+  banner's spot says how much is used and when it resets; the paused tasks' banner takes its place if the limit runs
+  out.
 - **Agent:** the defaults for new tasks (model, effort and permissions: Ask first or Allow all; **Allow edits** is shown
   but disabled, as it isn't a mode yet), and two switches for what the agent keeps current: **Status summary**
   (`set_status` every turn) and **Task titles** (`set_title` from your first message). A session started with one off

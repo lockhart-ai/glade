@@ -50,6 +50,7 @@ import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
 import type { ControlEndpoint } from '../control/endpoint'
+import type { AccountTracker } from '../account/account'
 import type { MenuBarCommands } from '../menu-bar/menu-bar'
 import { readMenuBarSnapshot } from '../menu-bar/snapshot'
 
@@ -85,6 +86,8 @@ export interface HandlerContext {
   readonly pluginViews: PluginViews
   /** The control API's HTTP endpoint, which follows Settings › Control. */
   readonly endpoint: ControlEndpoint
+  /** The account the tasks run on and its usage warning. */
+  readonly account: AccountTracker
   /** What the menu bar popover's page asks of main (`menuBar.*`). Nothing by default: no popover, nothing to do. */
   readonly menuBar?: MenuBarCommands
   /** Where errors in the window are logged (`log.rendererError`). Nothing by default. */
@@ -100,7 +103,7 @@ function terminalRoot(db: Database, workspaceId: string | null): string | null {
 }
 
 export function createHandlers(context: HandlerContext): Handlers {
-  const { db, emit, chooseFolder, runner, writeClipboard, terminals, plugins, pluginViews, endpoint } = context
+  const { db, emit, chooseFolder, runner, writeClipboard, terminals, plugins, pluginViews, endpoint, account } = context
   const renderer = (context.log ?? SILENT_LOGGER).scoped(LogScope.Renderer)
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
@@ -247,6 +250,7 @@ export function createHandlers(context: HandlerContext): Handlers {
       return { settings }
     },
     [CommandName.ControlStatus]: () => ({ status: endpoint.status() }),
+    [CommandName.AccountStatus]: () => ({ status: account.status() }),
     [CommandName.ControlRegenerateToken]: () => ({ status: endpoint.regenerateToken() }),
     [CommandName.SearchQuery]: ({ workspaceId, text }) => ({ results: searchTasks(db, workspaceId, text) }),
     [CommandName.PluginsList]: async () => ({ plugins: await plugins.list() }),

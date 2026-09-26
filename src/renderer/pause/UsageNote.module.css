@@ -1,0 +1,31 @@
+/*
+ * The usage note, from docs/design/html/17-usage-limit.html: in the paused tasks' banner's spot, but quiet, a top-level
+ * card rather than the banner's purple tint.
+ */
+.note {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 16px;
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-nested);
+  -webkit-app-region: no-drag;
+}
+
+.icon {
+  display: flex;
+  color: var(--color-faint);
+}
+
+.text {
+  min-width: 0;
+  font-size: 13.5px;
+  color: var(--color-muted);
+}
+
+.lead {
+  font-weight: 500;
+  color: var(--color-text);
+}
