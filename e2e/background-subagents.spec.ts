@@ -1,7 +1,8 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { STOP_SPARES_BACKGROUND } from '../src/main/agent/scripts'
 import { expect, test } from './fixtures'
-import { chat, contextMenu, firstRun, inputBar, subagentsTab, taskList, taskPanel } from './selectors'
+import { chat, contextMenu, firstRun, inputBar, subagentsTab, taskList, taskPanel, watchersTab } from './selectors'
 
 // What the background-subagents agent says (`BACKGROUND_SUBAGENTS` in src/main/agent/scripts.ts).
 const TITLE = 'Find why checkout is slow'
@@ -108,4 +109,49 @@ test('background subagents: one still running when the app quits is interrupted 
   await expect(subagents.tally).toHaveText('3 interrupted')
   await expect(subagents.header('Bisect the slowdown')).toContainText('Interrupted')
   await expect(list.dot(list.taskRow(TITLE))).toHaveAttribute('data-state', 'waiting')
+})
+
+test('background subagents: Stop on a turn leaves a background subagent and a watcher running, each stoppable from its tab', async ({
+  launch,
+  tempFolder,
+}) => {
+  const root = join(tempFolder(), 'acme-api')
+  mkdirSync(root)
+  const { window } = await launch({ agentScript: 'stop-spares-background', chosenFolder: root })
+  await firstRun(window).openFolder.click()
+  await taskList(window).newTask.click()
+  const bar = inputBar(window)
+  await bar.field.fill(STOP_SPARES_BACKGROUND.prompt)
+  await bar.field.press('Enter')
+  const { agentReplies } = chat(window)
+  await expect(agentReplies.first()).toContainText(STOP_SPARES_BACKGROUND.started)
+
+  // The next turn runs a long benchmark, and you stop it.
+  await bar.field.fill(STOP_SPARES_BACKGROUND.next)
+  await bar.field.press('Enter')
+  await expect(bar.stop).toBeVisible()
+  await bar.stop.click()
+  await expect(bar.stop).toHaveCount(0)
+  await expect(bar.send).toBeVisible()
+
+  // Only the turn stopped: the subagent and the watcher started before it are still running.
+  const panel = taskPanel(window)
+  const subagents = subagentsTab(window)
+  await panel.tab(/^Subagents/).click()
+  const bisect = subagents.header(STOP_SPARES_BACKGROUND.bisect)
+  await expect(bisect).toContainText('Running')
+  await expect(subagents.tally).toHaveText('1 running')
+  await panel.tab(/^Watch/).click()
+  const watchers = watchersTab(window)
+  await expect(watchers.row(STOP_SPARES_BACKGROUND.ci)).toHaveAttribute('data-state', 'running')
+
+  // Each still stops from its own tab.
+  await watchers.stop(STOP_SPARES_BACKGROUND.ci).click()
+  await expect(watchers.row(STOP_SPARES_BACKGROUND.ci)).toHaveAttribute('data-state', 'stopped')
+  await panel.tab(/^Subagents/).click()
+  await bisect.click({ button: 'right' })
+  await contextMenu(window, 'Subagent actions').item('Stop subagent').click()
+  await expect(bisect).toContainText('Failed')
+  await expect(bisect).toContainText('You stopped the subagent.')
+  await expect(subagents.tally).toHaveText('1 failed')
 })
