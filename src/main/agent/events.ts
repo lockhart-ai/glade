@@ -9,6 +9,7 @@
  * a turn that has already finished.
  */
 import { z } from 'zod'
+import { UsageWindow } from '../../shared/account'
 import { CompactionTrigger, type EpochMs, type ToolInput } from '../../shared/domain'
 import type { Logger } from '../logging/logger'
 
@@ -209,6 +210,10 @@ export interface RateLimitEvent {
   readonly status: RateLimitStatus
   /** When the limit resets; null when the SDK doesn't say. The SDK gives epoch seconds; this is milliseconds. */
   readonly resetsAt: EpochMs | null
+  /** How much of the limit's window is used, from 0 to 1; null when the SDK doesn't say. */
+  readonly utilization: number | null
+  /** The limit's window (`rateLimitType`): `Other` when the SDK doesn't say, or names one Glade doesn't know. */
+  readonly window: UsageWindow
 }
 
 export interface SubagentStartedEvent {
@@ -344,6 +349,9 @@ const rateLimitMessage = z.looseObject({
     status: z.enum(RateLimitStatus),
     // Unix epoch seconds (the `anthropic-ratelimit-unified-reset` header). A malformed one is as good as missing.
     resetsAt: z.number().positive().optional().catch(undefined),
+    // A fraction of the window. A malformed one is as good as missing, and so is a window Glade doesn't know.
+    utilization: z.number().nonnegative().optional().catch(undefined),
+    rateLimitType: z.enum(UsageWindow).optional().catch(undefined),
   }),
 })
 
@@ -466,8 +474,16 @@ function fromApiRetry(message: z.infer<typeof apiRetryMessage>): AgentEvent[] {
 }
 
 function fromRateLimit(message: z.infer<typeof rateLimitMessage>): AgentEvent[] {
-  const { status, resetsAt } = message.rate_limit_info
-  return [{ kind: AgentEventKind.RateLimit, status, resetsAt: resetsAt === undefined ? null : resetsAt * 1000 }]
+  const { status, resetsAt, utilization, rateLimitType } = message.rate_limit_info
+  return [
+    {
+      kind: AgentEventKind.RateLimit,
+      status,
+      resetsAt: resetsAt === undefined ? null : resetsAt * 1000,
+      utilization: utilization ?? null,
+      window: rateLimitType ?? UsageWindow.Other,
+    },
+  ]
 }
 
 /** An API error's message: its text blocks, joined. */

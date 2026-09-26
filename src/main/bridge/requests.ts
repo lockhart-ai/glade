@@ -363,6 +363,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.SearchQuery]: searchQueryRequest,
   [CommandName.PluginsList]: emptyRequest,
   [CommandName.ControlStatus]: emptyRequest,
+  [CommandName.AccountStatus]: emptyRequest,
   [CommandName.ControlRegenerateToken]: emptyRequest,
   [CommandName.PluginsSetEnabled]: pluginsSetEnabledRequest,
   [CommandName.PluginsOpenFolder]: emptyRequest,

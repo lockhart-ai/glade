@@ -163,6 +163,7 @@ export function createTestModeAgentBackend(
         },
         interrupt: () => session.interrupt(),
         stopTask: (sdkTaskId) => session.stopTask(sdkTaskId),
+        accountInfo: () => session.accountInfo(),
         close: () => {
           session.close()
         },
