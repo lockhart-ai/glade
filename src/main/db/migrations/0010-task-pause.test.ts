@@ -74,6 +74,7 @@ it('keeps every task and what references it, and lets a task pause', () => {
     pause: null,
     importedAt: null,
     todos: null,
+    autoCompact: null,
     asking: false,
     permissionMode: PermissionMode.AllowAll,
     awaitingPermission: false,

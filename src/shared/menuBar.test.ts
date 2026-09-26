@@ -56,6 +56,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     pause: null,
     importedAt: null,
     todos: null,
+    autoCompact: null,
     ...overrides,
   }
 }

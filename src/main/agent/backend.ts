@@ -4,7 +4,14 @@
  * mode) pass a scripted one instead.
  */
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
-import type { Effort, PermissionMode, PermissionRule, PermissionSuggestion, ToolInput } from '../../shared/domain'
+import type {
+  CompactionTrigger,
+  Effort,
+  PermissionMode,
+  PermissionRule,
+  PermissionSuggestion,
+  ToolInput,
+} from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
 import type { Logger } from '../logging/logger'
 
@@ -96,6 +103,13 @@ export interface SessionJob {
   readonly prompt: string
 }
 
+/** A compaction's summary, as the `PostCompact` hook gives it (`docs/sdk-notes.md` §5). */
+export interface CompactSummary {
+  readonly trigger: CompactionTrigger
+  /** The summary it wrote, as is: its `<analysis>` and `<summary>` blocks. */
+  readonly summary: string
+}
+
 /** A `Bash` call about to run, as the session's `PreToolUse` hook tells it (`docs/sdk-notes.md` §14). */
 export interface BashCallStarting {
   /** The call's `tool_use` id, a subagent's call's too. */
@@ -107,7 +121,8 @@ export interface BashCallStarting {
 
 /**
  * What the session tells the host as it runs, through Claude Code's hooks (`docs/sdk-notes.md` §13 and §14), parsed at
- * the SDK boundary: the prompts that start its turns, the jobs it has scheduled, and the `Bash` calls about to run.
+ * the SDK boundary: the prompts that start its turns, the jobs it has scheduled, the summaries its compactions write
+ * (§5) and the `Bash` calls about to run.
  */
 export interface SessionHooks {
   /**
@@ -122,6 +137,8 @@ export interface SessionHooks {
   readonly onPrompt: (prompt: string) => PromptVerdict
   /** A turn ended (`Stop`): the jobs the session has scheduled now. */
   readonly onTurnEnded: (jobs: readonly SessionJob[]) => void
+  /** A compaction wrote its summary (`PostCompact`), just before the SDK reports it done (`compact_boundary`). */
+  readonly onCompacted: (compaction: CompactSummary) => void
 }
 
 /** How to start one task's agent session. */
@@ -180,6 +197,12 @@ export interface AgentSession {
    * and Stop on a running watcher, use it.
    */
   stopTask(sdkTaskId: string): Promise<void>
+  /**
+   * The SDK's account of the session's context (`getContextUsage({ detail: 'summary' })`, `docs/sdk-notes.md` §5),
+   * unparsed: the runner reads where it compacts automatically from it. Rejects when the SDK can't say, e.g. once the
+   * session has closed.
+   */
+  contextUsage(): Promise<unknown>
   /**
    * What Claude Code says about the account it runs on (the SDK's `accountInfo()`, `docs/sdk-notes.md` §1), unparsed:
    * the runner parses it at the boundary. Rejects if the agent process can't say, e.g. because it failed to start.

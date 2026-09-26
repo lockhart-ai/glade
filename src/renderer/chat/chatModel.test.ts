@@ -401,6 +401,7 @@ describe('after a compaction', () => {
       preTokens: 198_000,
       postTokens: 41_000,
       windowTokens: 200_000,
+      summary: null,
       ...change,
     }) satisfies CompactionEvent
   const at = (id: string, role: MessageRole, turn: number, createdAt: number): Message => ({

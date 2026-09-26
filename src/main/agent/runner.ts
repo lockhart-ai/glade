@@ -282,12 +282,14 @@ import {
   type AgentMcpServers,
   type AgentSession,
   type AgentSessionSettings,
+  type CompactSummary,
   type SessionJob,
   type ToolPermissionAnswer,
   type ToolPermissionCall,
 } from './backend'
 import { CONTROL_SERVER } from '../control/names'
 import type { AccountSink } from '../account/account'
+import { autoCompactFrom, carriedOver, sameAutoCompact } from './compaction'
 import { classifyAgentError } from './error-classification'
 import { gladeOwnServers } from './glade-tools'
 import {
@@ -506,6 +508,11 @@ interface LiveSession {
    * prompt of Glade's own is never a wake, nor turned away.
    */
   readonly handed: string[]
+  /**
+   * What the compaction under way carried over, from its `PostCompact` hook, until the SDK reports it done
+   * (`compact_boundary`), which comes just after; null otherwise.
+   */
+  compactSummary: string | null
 }
 
 /** How many of Glade's own prompts a session remembers for its prompt hook (a message folded into a turn may never pass it). */
@@ -1053,13 +1060,15 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   /**
-   * Logs a compaction the SDK reports: fills in its running row, or adds one if the SDK never said it was compacting.
-   * The context usage drops to what it reports is left.
+   * Logs a compaction the SDK reports: fills in its running row, or adds one if the SDK never said it was compacting,
+   * with what it carried over (its hook said just before). The context usage drops to what it reports is left.
    */
-  const onCompacted = (taskId: string, turn: Turn, event: CompactedEvent): void => {
+  const onCompacted = (taskId: string, live: LiveSession, turn: Turn, event: CompactedEvent): void => {
     const task = getTask(db, taskId)
     if (task === undefined) return
-    const outcome = { state: ToolCallState.Done, preTokens: event.preTokens, postTokens: event.postTokens }
+    const summary = live.compactSummary
+    live.compactSummary = null
+    const outcome = { state: ToolCallState.Done, preTokens: event.preTokens, postTokens: event.postTokens, summary }
     if (turn.compaction === null) {
       const { trigger } = event
       const compaction = { taskId, turn: turn.number, trigger, windowTokens: task.contextWindowTokens, ...outcome }
@@ -1172,6 +1181,35 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   /** Keeps the context window the result reports for the session's model, if it reports one. */
+  /**
+   * Asks the SDK where it compacts the session automatically (`getContextUsage`, `docs/sdk-notes.md` §5), which follows
+   * the user's own Claude Code settings, and keeps it on the task for the context meter. Only for the threshold: its
+   * token count runs stale after a compaction, so the meter's comes from the messages. When the SDK can't say, or the
+   * task's model changed meanwhile, the last known value stays.
+   */
+  const refreshAutoCompact = (taskId: string, live: LiveSession): void => {
+    const model = getTask(db, taskId)?.model
+    live.session.contextUsage().then(
+      (raw) => {
+        const task = getTask(db, taskId)
+        if (live.closed || task === undefined || task.model !== model) return
+        const autoCompact = autoCompactFrom(raw)
+        if (autoCompact === undefined) {
+          agentLog(taskId).warn('the context usage says nothing of auto-compact; keeping the last known')
+          return
+        }
+        if (sameAutoCompact(task.autoCompact, autoCompact)) return
+        agentLog(taskId).info('auto-compact changed', { autoCompact })
+        updateTaskFromRunner(context, taskId, { autoCompact })
+      },
+      (error: unknown) => {
+        agentLog(taskId).warn('could not read the context usage; keeping the last known', {
+          error: describeError(error),
+        })
+      },
+    )
+  }
+
   const recordContextWindow = (taskId: string, live: LiveSession, event: TurnFinishedEvent): void => {
     const window = live.sdkModel === null ? undefined : event.contextWindows[live.sdkModel]
     if (window !== undefined && getTask(db, taskId)?.contextWindowTokens !== window) {
@@ -1441,10 +1479,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           preTokens: event.preTokens,
           postTokens: event.postTokens,
         })
-        onCompacted(taskId, turn, event)
+        onCompacted(taskId, live, turn, event)
         return
       case AgentEventKind.CompactionFailed:
         taskLog(taskId).warn('compaction failed', { turn: turn.number })
+        // Whatever its hook said isn't carried over.
+        live.compactSummary = null
         failCompaction(turn)
         return
       case AgentEventKind.TurnFinished: {
@@ -1453,7 +1493,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         if (isError) taskLog(taskId).warn('turn result', fields)
         else taskLog(taskId).info('turn result', fields)
         recordContextWindow(taskId, live, event)
+        // A compaction reports done before its turn's result: a summary still here belongs to none.
+        live.compactSummary = null
         onTurnFinished(taskId, live, turn, event)
+        refreshAutoCompact(taskId, live)
         return
       }
     }
@@ -1572,6 +1615,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     let decide: (call: ToolPermissionCall) => Promise<ToolPermissionAnswer> = () => Promise.resolve(WITHDRAWN)
     let verdict: (prompt: string) => PromptVerdict = () => PromptVerdict.Allow
     let jobsListed: (jobs: readonly SessionJob[]) => void = () => undefined
+    let compacted: (compaction: CompactSummary) => void = () => undefined
     const session = backend.start({
       cwd: workspace.rootPath,
       model: task.model,
@@ -1590,6 +1634,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         onTurnEnded: (jobs) => {
           jobsListed(jobs)
         },
+        onCompacted: (compaction) => {
+          compacted(compaction)
+        },
       },
     })
     const live: LiveSession = {
@@ -1607,11 +1654,17 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       backgroundCalls: new Map(),
       callParents: new Map(),
       handed: [],
+      compactSummary: null,
     }
     decide = (call) => decideToolCall(task.id, live, call)
     verdict = (prompt) => promptVerdict(task.id, live, prompt)
     jobsListed = (jobs) => {
       if (!live.closed) watchers.jobsListed(task.id, jobs)
+    }
+    compacted = ({ trigger, summary }) => {
+      if (live.closed) return
+      agentLog(task.id).info('compaction summary', { trigger, length: summary.length })
+      live.compactSummary = carriedOver(summary)
     }
     sessions.set(task.id, live)
     void pump(task.id, live)

@@ -375,6 +375,7 @@ describe('Chat', () => {
       preTokens: null,
       postTokens: null,
       windowTokens: 200_000,
+      summary: null,
     } as const
     const { emit } = await renderChat({
       task: { activity: TaskActivity.Working },
@@ -868,6 +869,7 @@ describe('every agent reply is on a card', () => {
       preTokens: 198_000,
       postTokens: 41_000,
       windowTokens: 200_000,
+      summary: null,
     }
     await renderChat({
       messages: [user('u1', 1, at(9)), agent('a1', 1, at(10)), user('u2', 2, at(12)), agent('a2', 2, at(13))],

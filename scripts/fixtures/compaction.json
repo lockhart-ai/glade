@@ -78,6 +78,7 @@
           "preTokens": 198000,
           "postTokens": 41000,
           "windowTokens": 200000,
+          "summary": "1. Primary Request and Intent:\n   Move user image uploads from local disk to S3. New uploads go straight to the bucket; copy the existing files over and update their stored paths.\n\n2. Key Technical Concepts:\n   - STORAGES in config/settings/base.py points media at the acme-api-media bucket (us-east-1)\n   - Keys: media/<yyyy>/<mm>/<uuid>\n\n3. Files and Code Sections:\n   - scripts/copy_media_to_s3.py: copies the existing files\n   - manage.py update_media_paths: rewrites the stored paths\n\n4. Current Work:\n   All 3,900 files are copied, and 50 random ones match byte for byte.\n\n5. Next Step:\n   Update the stored paths in the database, in 8 batches of 500.",
           "turn": 1,
           "minutesAgo": 30
         },

@@ -713,12 +713,51 @@ mid-turn.
   both fired. The model still knew CLAUDE.md facts after compaction. The types list `compact` as a CLAUDE.md
   `load_reason`, which suggests CLAUDE.md is reloaded after compaction.
 
+**Probed again (#279) [verified]**, SDK 0.3.281 on Haiku, in a throwaway folder: `getContextUsage({ detail: "summary" })`
+before the first message, after each turn and after a `/compact`, with the user's settings changed per run, and the
+compaction hooks registered.
+
+```
+default                            { maxTokens: 200000, autoCompactThreshold: 167000, isAutoCompactEnabled: true,  autocompactSource: "auto" }
+settings { autoCompactWindow: 100000 }   { maxTokens: 100000, autoCompactThreshold: 67000,  isAutoCompactEnabled: true,  autocompactSource: "settings" }
+CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000  { maxTokens: 100000, autoCompactThreshold: 67000,  isAutoCompactEnabled: true,  autocompactSource: "env" }
+settings { autoCompactEnabled: false }  { maxTokens: 200000, isAutoCompactEnabled: false }        ← no autoCompactThreshold key
+DISABLE_AUTO_COMPACT=1             { maxTokens: 200000, isAutoCompactEnabled: false }            ← no autoCompactThreshold key
+CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50 { autoCompactThreshold: 167000, autocompactSource: "auto" }   ← no change on this version
+settings { autoCompactWindow: 40000 }    { autoCompactThreshold: 167000 }                         ← too small: ignored
+```
+
+- It answers before the first message (before `system/init`), and each call on the `summary` detail took no time.
+  After `close()` it rejects: `Query closed before response received`.
+- The threshold is in tokens, against the window the SDK compacts in (`maxTokens`), which `autoCompactWindow` shrinks;
+  the model's own window (`modelUsage[model].contextWindow`, 200k) is unchanged. So the meter keeps its window and
+  puts the threshold at `autoCompactThreshold / window`: 67k of 200k is 34%.
+- `totalTokens` is stale right after a compaction (23.6k just after `/compact` left 1.7k), so it's used for nothing.
+- `PostCompact` fired after `PreCompact` and before `status: null` / `compact_boundary`, with
+  `{ hook_event_name: "PostCompact", trigger: "manual", compact_summary }`. `compact_summary` is the model's whole
+  output: an `<analysis>…</analysis>` block, then `<summary>…</summary>` with numbered sections (1–2.8k characters in
+  these runs). The user message the session carries on from ("This session is being continued … Summary: …") is the
+  summary block alone. An automatic compaction wasn't probed (it needs 167k of context); the SDK's types give it the
+  same hook with `trigger: "auto"`.
+
+**Implications for Glade (#279)**
+
+- After each turn's `result`, the runner asks `getContextUsage({ detail: "summary" })` and keeps where the SDK
+  compacts on the task (`auto_compact`: on at a threshold, or off). A rejected call, or an answer without the fields,
+  keeps the last known value; before the SDK has said (a new task, or a model change), the meter falls back to
+  `autoCompactThreshold()` in `shared/contextWindow.ts`, the SDK's default.
+- The meter's marker, its note and its purple zone follow that threshold. With auto-compact off there's no marker, the
+  note says so, and the ring never turns purple.
+- Glade registers `PostCompact` and keeps the summary block (the whole text less any `<analysis>`, if there's no
+  block) on the Compact row, which opens to it. An empty one is kept as none. It's stored with the row, so it's there
+  after a relaunch.
+
 **Decided (Jared):** Glade uses the SDK's default auto-compact threshold. Manual compaction (`/compact`) is triggered
 from the context meter or ⌘⇧K. A custom threshold is deferred to Later. If it is revisited: the setting can only lower
 the threshold, and disabling SDK auto-compaction so Glade compacts at a higher level risks the summarising request
 itself hitting prompt-too-long.
 
-The context meter should show `autoCompactThreshold` from `getContextUsage()`.
+The context meter shows `autoCompactThreshold` from `getContextUsage()` (#279, above).
 
 ## 6. CLAUDE.md loading [verified + docs]
 

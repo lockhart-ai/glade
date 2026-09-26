@@ -45,6 +45,7 @@ function play(turn: ScriptTurn, hooks = true): Played {
           hooks: {
             onPrompt: () => PromptVerdict.Allow,
             onTurnEnded: () => undefined,
+            onCompacted: () => undefined,
             onBashStarting: (call) => {
               started.push(call)
               return Promise.resolve()

@@ -250,6 +250,7 @@ describe('compactions', () => {
     preTokens: 198_000,
     postTokens: 41_000,
     windowTokens: 200_000,
+    summary: null,
     ...change,
   })
 

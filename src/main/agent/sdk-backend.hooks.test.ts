@@ -2,7 +2,7 @@
 // was probed to call them with.
 import type { HookInput } from '@anthropic-ai/claude-agent-sdk'
 import { expect, it, vi } from 'vitest'
-import { Effort, PermissionMode } from '../../shared/domain'
+import { CompactionTrigger, Effort, PermissionMode } from '../../shared/domain'
 import { LogLevel } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
 import { PromptVerdict, type AgentSessionOptions, type SessionHooks } from './backend'
@@ -37,8 +37,16 @@ function stopInput(crons: unknown): HookInput {
   } as HookInput
 }
 
+function postCompactInput(trigger: string, summary: unknown): HookInput {
+  return { ...BASE, hook_event_name: 'PostCompact', trigger, compact_summary: summary } as HookInput
+}
+
 /** Calls the one hook registered for an event, as the SDK does. */
-function call(hooks: ReturnType<typeof sdkHooks>, event: 'UserPromptSubmit' | 'Stop', input: HookInput) {
+function call(
+  hooks: ReturnType<typeof sdkHooks>,
+  event: 'UserPromptSubmit' | 'Stop' | 'PostCompact',
+  input: HookInput,
+) {
   const [matcher] = hooks[event] ?? []
   const [hook] = matcher?.hooks ?? []
   if (hook === undefined) throw new Error(`no ${event} hook`)
@@ -46,13 +54,13 @@ function call(hooks: ReturnType<typeof sdkHooks>, event: 'UserPromptSubmit' | 'S
 }
 
 function handlers(overrides: Partial<SessionHooks> = {}): SessionHooks {
-  return { onPrompt: vi.fn(() => PromptVerdict.Allow), onTurnEnded: vi.fn(), ...overrides }
+  return { onPrompt: vi.fn(() => PromptVerdict.Allow), onTurnEnded: vi.fn(), onCompacted: vi.fn(), ...overrides }
 }
 
 it('gives the SDK the hooks only when the session has some to tell', () => {
   expect(sdkOptions(OPTIONS, {})).not.toHaveProperty('hooks')
   const options = sdkOptions({ ...OPTIONS, hooks: handlers() }, {})
-  expect(Object.keys(options.hooks ?? {})).toEqual(['UserPromptSubmit', 'Stop'])
+  expect(Object.keys(options.hooks ?? {})).toEqual(['UserPromptSubmit', 'Stop', 'PostCompact'])
 })
 
 it('asks about each prompt, letting it through or turning it away with the reason', async () => {
@@ -125,6 +133,41 @@ it('logs a failure to take the jobs in, and carries on', async () => {
   await expect(call(sdkHooks(handlers()), 'Stop', stopInput([]))).resolves.toEqual({})
 })
 
+it('tells the summary each compaction wrote, manual or automatic, empty ones included', async () => {
+  const onCompacted = vi.fn()
+  const hooks = sdkHooks(handlers({ onCompacted }))
+  const written = '<analysis>\nBrief.\n</analysis>\n\n<summary>\n1. Primary Request and Intent: …\n</summary>'
+
+  await expect(call(hooks, 'PostCompact', postCompactInput('manual', written))).resolves.toEqual({})
+  await call(hooks, 'PostCompact', postCompactInput('auto', ''))
+
+  expect(onCompacted.mock.calls).toEqual([
+    [{ trigger: CompactionTrigger.Manual, summary: written }],
+    [{ trigger: CompactionTrigger.Auto, summary: '' }],
+  ])
+})
+
+it('ignores a compaction summary it can’t read, and logs a failure to keep one', async () => {
+  const log = createMemoryLog()
+  const onCompacted = vi.fn()
+  const hooks = sdkHooks(handlers({ onCompacted }), log.logger)
+  await expect(call(hooks, 'PostCompact', postCompactInput('sometimes', 'Brief.'))).resolves.toEqual({})
+  await call(hooks, 'PostCompact', postCompactInput('manual', 42))
+  expect(onCompacted).not.toHaveBeenCalled()
+  expect(log.withMessage('ignored a compaction summary of a shape Glade does not know')).toHaveLength(2)
+
+  const failing = sdkHooks(
+    handlers({
+      onCompacted: () => {
+        throw new Error('the database is gone')
+      },
+    }),
+    log.logger,
+  )
+  await expect(call(failing, 'PostCompact', postCompactInput('manual', 'Brief.'))).resolves.toEqual({})
+  expect(log.withMessage('failed to keep a compaction summary')).toMatchObject([{ level: LogLevel.Error }])
+})
+
 /** A `PreToolUse` input for a `Bash` call, as the SDK gives it (a subagent's has its `agent_id`). */
 function bashInput(command: string, overrides: Record<string, unknown> = {}): HookInput {
   return {
@@ -147,7 +190,7 @@ function callBash(hooks: ReturnType<typeof sdkHooks>, input: HookInput) {
 }
 
 it('asks about each Bash call before it runs, only when the session wants to know, and waits for the answer', async () => {
-  expect(Object.keys(sdkHooks(handlers()))).toEqual(['UserPromptSubmit', 'Stop'])
+  expect(Object.keys(sdkHooks(handlers()))).toEqual(['UserPromptSubmit', 'Stop', 'PostCompact'])
   let finish = (): void => undefined
   const onBashStarting = vi.fn(
     () =>
@@ -156,7 +199,7 @@ it('asks about each Bash call before it runs, only when the session wants to kno
       }),
   )
   const hooks = sdkHooks(handlers({ onBashStarting }))
-  expect(Object.keys(hooks)).toEqual(['UserPromptSubmit', 'Stop', 'PreToolUse'])
+  expect(Object.keys(hooks)).toEqual(['UserPromptSubmit', 'Stop', 'PostCompact', 'PreToolUse'])
 
   let answered = false
   const answer = callBash(hooks, bashInput('git commit -m "Fix"', { cwd: '/code/acme-api-docs', agent_id: 'a1' })).then(

@@ -9,6 +9,7 @@ import {
   type AgentSession,
   type AgentSessionOptions,
   type AgentSessionSettings,
+  type CompactSummary,
   type BashCallStarting,
   type SessionJob,
   type ToolPermissionAnswer,
@@ -99,6 +100,25 @@ export class FakeAgentSession implements AgentSession {
     return this.options.hooks?.onPrompt(prompt) ?? PromptVerdict.Allow
   }
 
+  /** Tells the session's `PostCompact` hook the summary a compaction wrote, as the SDK does before its boundary. */
+  compacted(compaction: CompactSummary): void {
+    this.options.hooks?.onCompacted(compaction)
+  }
+
+  /**
+   * What `contextUsage` answers, as the SDK's `getContextUsage` would. By default it never answers, so a test about
+   * something else sees the task left alone; a test of the threshold sets an answer, or a rejection.
+   */
+  onContextUsage: () => Promise<unknown> = () => new Promise<unknown>(() => undefined)
+
+  /** How many times the runner asked for the context usage. */
+  contextUsageAsked = 0
+
+  contextUsage(): Promise<unknown> {
+    this.contextUsageAsked += 1
+    return this.onContextUsage()
+  }
+
   /**
    * Tells the session's `PreToolUse` hook a `Bash` call is about to run, as the SDK does before running one
    * (`docs/sdk-notes.md` §14), and resolves once the hook has; at once with no hook.
@@ -185,12 +205,16 @@ export class FakeAgentSession implements AgentSession {
 export class FakeAgentBackend implements AgentBackend {
   readonly sessions: FakeAgentSession[] = []
 
+  /** Sets up each session as it starts, before the runner asks anything of it: nothing by default. */
+  onSessionStart: (session: FakeAgentSession) => void = () => undefined
+
   /** What each session started from now on says about the account; unset, each never answers. */
   onAccountInfo?: () => Promise<unknown>
 
   start(options: AgentSessionOptions): FakeAgentSession {
     const session = new FakeAgentSession(options)
     if (this.onAccountInfo !== undefined) session.onAccountInfo = this.onAccountInfo
+    this.onSessionStart(session)
     this.sessions.push(session)
     return session
   }

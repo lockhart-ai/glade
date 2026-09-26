@@ -10,8 +10,11 @@ import {
   type PermissionRule,
 } from '../../shared/domain'
 import {
+  PromptVerdict,
   ToolPermissionBehavior,
   type AgentSessionOptions,
+  type CompactSummary,
+  type SessionHooks,
   type ToolPermissionAnswer,
   type ToolPermissionCall,
 } from './backend'
@@ -53,6 +56,7 @@ import {
   waitForInterrupt,
   wake,
   WakeCause,
+  DEFAULT_COMPACT_SUMMARY,
   type AgentScript,
   type ScriptTurn,
 } from './scripts'
@@ -1155,6 +1159,73 @@ describe('ScriptedSession', () => {
       preTokens: 22_846,
       postTokens: 41_000,
     })
+  })
+
+  it("tells the PostCompact hook the summary it wrote, the step's own or the default", async () => {
+    const summaries: CompactSummary[] = []
+    const hooks: SessionHooks = {
+      onPrompt: () => PromptVerdict.Allow,
+      onTurnEnded: () => undefined,
+      onCompacted: (compaction) => {
+        summaries.push(compaction)
+      },
+    }
+    const script: AgentScript = {
+      name: 'test',
+      turns: [[compact({ trigger: 'auto', summary: '<summary>Moved.</summary>' }), result()]],
+    }
+    const played = play([], { script, session: { ...SESSION, hooks } })
+    played.session.send('Go', 'user-1')
+    await flush()
+    played.session.send(COMPACT_COMMAND, 'compact-1')
+    // The default compact turn takes a beat before it compacts.
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    expect(summaries).toEqual([
+      { trigger: CompactionTrigger.Auto, summary: '<summary>Moved.</summary>' },
+      { trigger: CompactionTrigger.Manual, summary: DEFAULT_COMPACT_SUMMARY },
+    ])
+    expect(played.raw.filter((message) => message.subtype === 'compact_boundary')).toHaveLength(2)
+  })
+
+  it("answers getContextUsage as the SDK does: the script's, or the default threshold for the model's window", async () => {
+    const played = play([[say('One.'), result()]])
+    await expect(played.session.contextUsage()).resolves.toEqual({
+      totalTokens: 22_846,
+      maxTokens: 200_000,
+      rawMaxTokens: 200_000,
+      percentage: 11,
+      model: 'claude-sample-1',
+      autoCompactThreshold: 167_000,
+      isAutoCompactEnabled: true,
+    })
+    played.session.configure({
+      model: 'claude-sample-1[1m]',
+      effort: Effort.High,
+      permissionMode: PermissionMode.AllowAll,
+    })
+    played.session.send('Go', 'user-1')
+    await flush()
+    await expect(played.session.contextUsage()).resolves.toMatchObject({
+      maxTokens: 1_000_000,
+      autoCompactThreshold: 967_000,
+    })
+
+    const off = play([], {
+      script: { name: 'off', turns: [[result()]], contextUsage: { isAutoCompactEnabled: false } },
+    })
+    off.session.send('Go', 'user-1')
+    await flush()
+    const answer = await off.session.contextUsage()
+    expect(answer).toMatchObject({ isAutoCompactEnabled: false })
+    expect(answer).not.toHaveProperty('autoCompactThreshold')
+
+    const fails = play([], { script: { name: 'fails', turns: [[result()]], contextUsage: 'fails' } })
+    fails.session.send('Go', 'user-1')
+    await flush()
+    await expect(fails.session.contextUsage()).rejects.toThrow('Query closed before response received')
+    played.session.close()
+    await expect(played.session.contextUsage()).rejects.toThrow('Query closed before response received')
   })
 
   it('plays nothing for a script with no turns', async () => {

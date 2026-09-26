@@ -318,6 +318,7 @@ describe('a turn', () => {
         onBashStarting: expect.any(Function) as unknown,
         onPrompt: expect.any(Function) as unknown,
         onTurnEnded: expect.any(Function) as unknown,
+        onCompacted: expect.any(Function) as unknown,
       },
     })
     const [userMessage] = listMessages(database.db, task.id)

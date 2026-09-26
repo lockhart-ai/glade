@@ -113,7 +113,10 @@ The **input bar** under the chat sets how this task runs:
 - **Permissions:** Allow all, or Ask before edits and commands (see [Permissions](#permissions)).
 - **Context meter**, at the right: how full the task's context is. Click it to see where it compacts by itself, and
   for **Compact now** (or press ⌘⇧K). Long tasks compact automatically; the chat marks where, and the full chat and
-  tool log stay in Glade.
+  tool log stay in Glade. The ring turns purple as the context nears where it compacts, which comes from Claude Code
+  itself, so your own Claude Code settings move it (`autoCompactWindow`). With auto-compact switched off there
+  (`autoCompactEnabled: false` or `DISABLE_AUTO_COMPACT`), the meter shows no threshold, never turns purple, and only
+  Compact now compacts.
 
 Each task keeps its own settings; new tasks start from the defaults in Settings › Agent. Each task also keeps its
 unsent draft, pasted images included, while you're on another task and across a relaunch.
@@ -241,7 +244,8 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
 
 - **Tool calls:** every tool call the task's own agent made, with the agent's working notes between them, split by turn.
   Right-click a call to copy its command or output, open its file, or **Run again in terminal** (the command lands at
-  the terminal's prompt for you to edit or run; it never runs by itself).
+  the terminal's prompt for you to edit or run; it never runs by itself). Each compaction is a **Compact** row; click
+  it to read the summary the agent carried over.
 - **Files:** the files the task changed (with a blue dot) and read. Each opens in a tab, in a read-only viewer with line
   numbers and syntax colours; Markdown has a Preview. **Open in editor** (⌘⇧E) opens the file in the app macOS uses
   for it, and ⌘W, with the focus in the panel, closes the tab. The agent can open a file here for you.

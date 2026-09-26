@@ -41,6 +41,9 @@ const sdk = vi.hoisted(() => {
   const session = {
     interrupt: vi.fn(() => Promise.resolve(undefined)),
     stopTask: vi.fn<(taskId: string) => Promise<void>>(() => Promise.resolve(undefined)),
+    getContextUsage: vi.fn<(options: unknown) => Promise<unknown>>(() =>
+      Promise.resolve({ autoCompactThreshold: 167_000, isAutoCompactEnabled: true }),
+    ),
     // As probed on SDK 0.3.281, for a subscription login: an invented account.
     accountInfo: vi.fn(() =>
       Promise.resolve({ email: 'sam@acme.dev', subscriptionType: 'Claude Max', apiProvider: 'firstParty' }),
@@ -257,6 +260,7 @@ it('starts one streaming-input query per session, in the environment, and pushes
   session.send('Fix it.', 'uuid-2', [GIF])
   await session.interrupt()
   await session.stopTask('b7f3')
+  await expect(session.contextUsage()).resolves.toEqual({ autoCompactThreshold: 167_000, isAutoCompactEnabled: true })
   expect(await session.accountInfo()).toEqual({
     email: 'sam@acme.dev',
     subscriptionType: 'Claude Max',
@@ -269,6 +273,8 @@ it('starts one streaming-input query per session, in the environment, and pushes
   expect(pushed).toEqual([userMessage('Hi', 'uuid-1'), userMessage('Fix it.', 'uuid-2', [GIF])])
   expect(sdk.session.interrupt).toHaveBeenCalledOnce()
   expect(sdk.session.stopTask).toHaveBeenCalledExactlyOnceWith('b7f3')
+  // Only the summary: the per-category counts would cost a token-count call each.
+  expect(sdk.session.getContextUsage).toHaveBeenCalledExactlyOnceWith({ detail: 'summary' })
   expect(sdk.session.close).toHaveBeenCalledOnce()
 })
 

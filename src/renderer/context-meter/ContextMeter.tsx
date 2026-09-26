@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Task } from '../../shared/domain'
+import type { AutoCompact, Task } from '../../shared/domain'
 import { WindowCommandId } from '../../shared/commands'
 import { bindingHint, useBinding, type BindingHint } from '../commands/hooks'
 import { Button, ButtonSize, Popover } from '../components'
@@ -17,6 +17,8 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 export interface ContextMeterViewProps {
   readonly usedTokens: number
   readonly windowTokens: number
+  /** Where the SDK compacts automatically, as it last said (`Task.autoCompact`); its default until it has. */
+  readonly autoCompact?: AutoCompact | null
 }
 
 /** "38%", as the meter and its popover show it. */
@@ -28,8 +30,12 @@ function percentLabel(reading: ContextReading): string {
  * How full the context is: a small ring and "38% · 76k / 200k". The ring turns purple near the auto-compact threshold
  * (`NEAR_THRESHOLD_FRACTION`).
  */
-export function ContextMeterView({ usedTokens, windowTokens }: ContextMeterViewProps): React.JSX.Element {
-  const reading = contextReading(usedTokens, windowTokens)
+export function ContextMeterView({
+  usedTokens,
+  windowTokens,
+  autoCompact = null,
+}: ContextMeterViewProps): React.JSX.Element {
+  const reading = contextReading(usedTokens, windowTokens, autoCompact)
   const percent = percentLabel(reading)
   const amount = `${reading.used} / ${reading.window}`
   const arc = (reading.fraction * CIRCUMFERENCE).toFixed(1)
@@ -71,19 +77,27 @@ export interface ContextDetailsProps extends ContextMeterViewProps {
   readonly shortcut?: BindingHint
 }
 
+/** What the popover says of compacting: where the SDK does it on its own, if it does, and what compacting does. */
+function compactingNote(reading: ContextReading): string {
+  const what = 'Compacting replaces older turns with a summary for the agent; the full chat and tool log stay here.'
+  return reading.threshold === null
+    ? `Auto-compact is off in your Claude Code settings, so it compacts only when you ask. ${what}`
+    : `Compacts automatically at ${String(reading.threshold.percent)}%. ${what}`
+}
+
 /**
  * The context meter's popover (docs/design/html/19-compaction.html): how full the context is, a bar with a marker
- * where the SDK compacts automatically, and Compact now.
+ * where the SDK compacts automatically (none while auto-compact is off), and Compact now.
  */
 export function ContextDetails({
   usedTokens,
   windowTokens,
+  autoCompact = null,
   compactable,
   onCompact,
   shortcut = bindingHint(WindowCommandId.CompactContext),
 }: ContextDetailsProps): React.JSX.Element {
-  const reading = contextReading(usedTokens, windowTokens)
-  const threshold = `${String(reading.thresholdPercent)}%`
+  const reading = contextReading(usedTokens, windowTokens, autoCompact)
   return (
     <div className={classNames(styles.details, reading.nearThreshold && styles.near)}>
       <div className={styles.header}>
@@ -94,16 +108,15 @@ export function ContextDetails({
       </div>
       <div className={styles.bar} aria-hidden>
         <div className={styles.fill} style={{ width: `${String(reading.fraction * 100)}%` }} />
-        <div
-          className={styles.marker}
-          data-testid="auto-compact-marker"
-          style={{ left: `${String(reading.thresholdFraction * 100)}%` }}
-        />
+        {reading.threshold !== null && (
+          <div
+            className={styles.marker}
+            data-testid="auto-compact-marker"
+            style={{ left: `${String(reading.threshold.fraction * 100)}%` }}
+          />
+        )}
       </div>
-      <p className={styles.note}>
-        Compacts automatically at {threshold}. Compacting replaces older turns with a summary for the agent; the full
-        chat and tool log stay here.
-      </p>
+      <p className={styles.note}>{compactingNote(reading)}</p>
       <div className={styles.actions}>
         <Button
           size={ButtonSize.Small}
@@ -141,7 +154,11 @@ function TaskContextMeter({ task }: TaskContextMeterProps): React.JSX.Element {
           setOpen((isOpen) => !isOpen)
         }}
       >
-        <ContextMeterView usedTokens={task.contextUsedTokens} windowTokens={task.contextWindowTokens} />
+        <ContextMeterView
+          usedTokens={task.contextUsedTokens}
+          windowTokens={task.contextWindowTokens}
+          autoCompact={task.autoCompact}
+        />
       </button>
       <Popover
         label="Context"
@@ -155,6 +172,7 @@ function TaskContextMeter({ task }: TaskContextMeterProps): React.JSX.Element {
         <ContextDetails
           usedTokens={task.contextUsedTokens}
           windowTokens={task.contextWindowTokens}
+          autoCompact={task.autoCompact}
           compactable={canCompact(task)}
           onCompact={() => {
             setOpen(false)

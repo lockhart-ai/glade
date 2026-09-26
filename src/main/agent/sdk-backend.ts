@@ -12,7 +12,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk'
 import { createRequire } from 'node:module'
 import { z } from 'zod'
-import { PermissionMode, type PermissionSuggestion, type ToolInput } from '../../shared/domain'
+import { CompactionTrigger, PermissionMode, type PermissionSuggestion, type ToolInput } from '../../shared/domain'
 import { permissionRuleString } from '../../shared/permissions'
 import { CONTROL_SERVER_NAME } from '../../shared/control'
 import type { ImageData } from '../../shared/images'
@@ -221,6 +221,8 @@ const sessionJob = z.looseObject({ id: z.string(), schedule: z.string(), recurri
 
 const stopHookInput = z.looseObject({ session_crons: z.array(z.unknown()).optional().catch(undefined) })
 
+const postCompactHookInput = z.looseObject({ trigger: z.enum(CompactionTrigger), compact_summary: z.string() })
+
 /** The jobs a `Stop` hook lists, skipping any of a shape Glade doesn't know. */
 function sessionJobs(input: unknown, log: Logger): SessionJob[] {
   const parsed = stopHookInput.safeParse(input)
@@ -251,8 +253,8 @@ export const BASH_HOOK_TIMEOUT_MS = 5_000
 /**
  * The SDK hooks that tell `hooks` what the session does (`docs/sdk-notes.md` §13 and §14): each prompt that's about to
  * start a turn (`UserPromptSubmit`), which it can turn away, the jobs the session has scheduled at the end of each turn
- * (`Stop`), and each `Bash` call about to run (`PreToolUse`), which waits for the host a while at most. A hook that
- * fails lets the prompt or call through, and tells nothing.
+ * (`Stop`), the summary each compaction writes (`PostCompact`, §5), and each `Bash` call about to run (`PreToolUse`),
+ * which waits for the host a while at most. A hook that fails lets the prompt or call through, and tells nothing.
  */
 export function sdkHooks(
   hooks: SessionHooks,
@@ -277,6 +279,19 @@ export function sdkHooks(
       hooks.onTurnEnded(sessionJobs(input, log))
     } catch (error) {
       log.error('failed to read the scheduled jobs', { error })
+    }
+    return Promise.resolve({})
+  }
+  const onPostCompact: HookCallback = (input) => {
+    const parsed = postCompactHookInput.safeParse(input)
+    if (!parsed.success) {
+      log.warn('ignored a compaction summary of a shape Glade does not know', { problem: parsed.error.message })
+      return Promise.resolve({})
+    }
+    try {
+      hooks.onCompacted({ trigger: parsed.data.trigger, summary: parsed.data.compact_summary })
+    } catch (error) {
+      log.error('failed to keep a compaction summary', { error })
     }
     return Promise.resolve({})
   }
@@ -306,6 +321,7 @@ export function sdkHooks(
   return {
     UserPromptSubmit: [{ hooks: [onPrompt] }],
     Stop: [{ hooks: [onStop] }],
+    PostCompact: [{ hooks: [onPostCompact] }],
     ...(onBashStarting === undefined ? {} : { PreToolUse: [{ matcher: 'Bash', hooks: [onBash] }] }),
   }
 }
@@ -472,6 +488,9 @@ export function createSdkBackend({
         async stopTask(sdkTaskId) {
           log.info('agent task stopped', { sdkTaskId })
           await (await started).stopTask(sdkTaskId)
+        },
+        async contextUsage() {
+          return (await started).getContextUsage({ detail: 'summary' })
         },
         async accountInfo() {
           return (await started).accountInfo()
