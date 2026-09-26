@@ -247,6 +247,7 @@ const electron = vi.hoisted(() => {
       }),
       quit: vi.fn(),
       exit: vi.fn(),
+      focus: vi.fn(),
     },
     dialog: {
       showErrorBox: vi.fn(),
@@ -1929,8 +1930,12 @@ describe('startApp: Glade in the menu bar', () => {
       // Under the icon, moved in from the screen's right edge.
       expect.objectContaining({ x: 1512 - 8 - 360, y: 25 + 4, width: 360 }),
     )
+    // It shows once its page says how tall it is.
+    expect(popover.show).not.toHaveBeenCalled()
+    await commands()({ sender: popover.webContents }, CommandName.MenuBarFit, { height: 240 })
     expect(popover.show).toHaveBeenCalledOnce()
     expect(popover.focus).toHaveBeenCalledOnce()
+    expect(popover.options).toMatchObject({ type: 'panel' })
     expect(popover.webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, {
       type: EventType.MenuBarChanged,
       snapshot: { needsYou: [], working: [], recent: [] },
@@ -1973,6 +1978,7 @@ describe('startApp: Glade in the menu bar', () => {
     expect(popover.hide).toHaveBeenCalledOnce()
     expect(main.show).toHaveBeenCalledOnce()
     expect(main.focus).toHaveBeenCalledOnce()
+    expect(electron.app.focus).toHaveBeenCalledWith({ steal: true })
     expect(main.webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, { type: EventType.TaskOpenRequested, taskId })
     expect(popover.webContents.send).not.toHaveBeenCalledWith(
       EVENT_CHANNEL,

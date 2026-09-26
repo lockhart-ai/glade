@@ -436,12 +436,16 @@ interface OpenTaskContext {
   readonly log: Logger
 }
 
-/** Brings a window up: restores it if it's minimised, shows it and focuses it. A test mode's window stays hidden. */
+/**
+ * Brings a window up: restores it if it's minimised, shows it and focuses it, bringing Glade to the front (from the
+ * menu bar popover, it may not be). A test mode's window stays hidden.
+ */
 function bringUp(window: BrowserWindow, testMode: TestMode): void {
   if (testMode !== null) return
   if (window.isMinimized()) window.restore()
   window.show()
   window.focus()
+  app.focus({ steal: true })
 }
 
 /**

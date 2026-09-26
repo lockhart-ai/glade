@@ -15,6 +15,12 @@ import { GLYPH_STRENGTHS, RESTING_FRAME } from './pulse'
 /** The `menu` design token: the popover's window is painted it before its page draws. */
 const POPOVER_BACKGROUND = '#262935'
 
+/**
+ * The longest the popover waits, the first time it shows, for its page to say how tall it is (`fit`), so it doesn't
+ * show at its least height first. Past it, it shows anyway.
+ */
+export const FIRST_FIT_TIMEOUT_MS = 500
+
 /** What the icon says under the pointer. */
 export const TRAY_TOOLTIP = 'Glade'
 
@@ -92,8 +98,10 @@ export interface ElectronPopoverOptions {
 }
 
 /**
- * Makes the popover's window: frameless, fixed-size, off the Dock and Mission Control, above other windows and on
- * every Space, hidden until the icon is clicked. It hides when it loses the focus.
+ * Makes the popover's window: a frameless, fixed-size panel, off the Dock and Mission Control, above other windows
+ * (full-screen ones too) and on every Space, hidden until the icon is clicked. As a panel it takes the focus without
+ * bringing Glade's other windows forward. It hides when it loses the focus. The first time it shows, it waits for its
+ * page to say how tall it is (up to `FIRST_FIT_TIMEOUT_MS`).
  */
 export function createElectronPopover({
   BrowserWindow: WindowClass,
@@ -109,6 +117,7 @@ export function createElectronPopover({
       height: MIN_POPOVER_HEIGHT,
       show: false,
       ...(hidden ? { paintWhenInitiallyHidden: true } : {}),
+      type: 'panel',
       frame: false,
       resizable: false,
       movable: false,
@@ -135,29 +144,46 @@ export function createElectronPopover({
     load(window)
     let anchor: Bounds | null = null
     let height = MIN_POPOVER_HEIGHT
+    // Whether its page has said how tall it is, and, until it has, whether it's waiting to show.
+    let fitted = false
+    let waiting: ReturnType<typeof setTimeout> | null = null
     const place = (): void => {
       if (anchor === null) return
       window.setBounds(popoverBounds({ anchor, width: MENU_BAR_POPOVER_WIDTH, height, workArea: workArea(anchor) }))
+    }
+    const stopWaiting = (): void => {
+      if (waiting === null) return
+      clearTimeout(waiting)
+      waiting = null
+    }
+    const reveal = (): void => {
+      stopWaiting()
+      if (hidden) return
+      window.show()
+      window.focus()
     }
     return {
       show: (bounds) => {
         anchor = bounds
         place()
-        if (hidden) return
-        window.show()
-        window.focus()
+        if (fitted) reveal()
+        else waiting ??= setTimeout(reveal, FIRST_FIT_TIMEOUT_MS)
       },
       hide: () => {
+        stopWaiting()
         window.hide()
       },
       send: (event) => {
         window.webContents.send(EVENT_CHANNEL, event)
       },
-      fit: (fitted) => {
-        height = fitted
+      fit: (to) => {
+        height = to
+        fitted = true
         place()
+        if (waiting !== null) reveal()
       },
       destroy: () => {
+        stopWaiting()
         track(window, false)
         window.destroy()
       },

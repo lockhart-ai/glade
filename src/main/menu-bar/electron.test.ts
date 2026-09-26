@@ -1,12 +1,13 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { BrowserWindowConstructorOptions, NativeImage } from 'electron'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EVENT_CHANNEL, EventType } from '../../shared/bridge'
 import { EMPTY_MENU_BAR_SNAPSHOT, MENU_BAR_POPOVER_WIDTH } from '../../shared/menuBar'
 import {
   createElectronPopover,
   createElectronTray,
+  FIRST_FIT_TIMEOUT_MS,
   GLYPH_FOLDER,
   glyphFile,
   loadGlyphImages,
@@ -174,6 +175,7 @@ describe('the popover window', () => {
       width: MENU_BAR_POPOVER_WIDTH,
       height: MIN_POPOVER_HEIGHT,
       show: false,
+      type: 'panel',
       frame: false,
       resizable: false,
       movable: false,
@@ -198,7 +200,7 @@ describe('the popover window', () => {
     expect(event.preventDefault).toHaveBeenCalledOnce()
   })
 
-  it('shows under the icon and takes the focus, sized to its page', () => {
+  it('shows under the icon, the first time once its page has said how tall it is, and takes the focus', () => {
     const { popover, window } = make()
     popover.show(ANCHOR)
     expect(window.setBounds).toHaveBeenLastCalledWith({
@@ -207,10 +209,57 @@ describe('the popover window', () => {
       width: MENU_BAR_POPOVER_WIDTH,
       height: MIN_POPOVER_HEIGHT,
     })
-    expect(window.show).toHaveBeenCalledOnce()
-    expect(window.focus).toHaveBeenCalledOnce()
+    expect(window.show).not.toHaveBeenCalled()
+
     popover.fit(412)
     expect(window.setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 412 }))
+    expect(window.show).toHaveBeenCalledOnce()
+    expect(window.focus).toHaveBeenCalledOnce()
+
+    // It already knows how tall it is: later, it shows at once, and a change of height only moves it.
+    popover.hide()
+    popover.show(ANCHOR)
+    expect(window.show).toHaveBeenCalledTimes(2)
+    popover.fit(300)
+    expect(window.show).toHaveBeenCalledTimes(2)
+    expect(window.setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 300 }))
+  })
+
+  describe('waiting for its page', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('shows anyway when its page takes too long to say how tall it is, and only once', () => {
+      const { popover, window } = make()
+      popover.show(ANCHOR)
+      popover.show(ANCHOR)
+      vi.advanceTimersByTime(FIRST_FIT_TIMEOUT_MS - 1)
+      expect(window.show).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(1)
+      expect(window.show).toHaveBeenCalledOnce()
+      popover.fit(412)
+      expect(window.show).toHaveBeenCalledOnce()
+    })
+
+    it('stops waiting when it is hidden or destroyed first', () => {
+      const hiding = make()
+      hiding.popover.show(ANCHOR)
+      hiding.popover.hide()
+      hiding.popover.fit(412)
+      vi.advanceTimersByTime(FIRST_FIT_TIMEOUT_MS)
+      expect(hiding.window.show).not.toHaveBeenCalled()
+
+      const going = make()
+      going.popover.show(ANCHOR)
+      going.popover.destroy()
+      vi.advanceTimersByTime(FIRST_FIT_TIMEOUT_MS)
+      expect(going.window.show).not.toHaveBeenCalled()
+    })
   })
 
   it('waits to be placed until it has been shown under the icon', () => {
@@ -249,6 +298,7 @@ describe('the popover window', () => {
     const { popover, window } = make({ hidden: true })
     expect(window.options).toMatchObject({ show: false, paintWhenInitiallyHidden: true })
     popover.show(ANCHOR)
+    popover.fit(300)
     expect(window.setBounds).toHaveBeenCalled()
     expect(window.show).not.toHaveBeenCalled()
     expect(window.focus).not.toHaveBeenCalled()
