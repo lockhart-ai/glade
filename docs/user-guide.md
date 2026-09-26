@@ -21,6 +21,7 @@ New here? The [README](../README.md) says what Glade is. The [docs index](README
 - [The terminal](#the-terminal)
 - [Permissions](#permissions)
 - [Settings](#settings)
+  - [Your account](#your-account)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Plugins](#plugins)
 - [Let agents control Glade](#let-agents-control-glade)
@@ -139,9 +140,12 @@ files it changed; click **N tool calls** to see that turn's calls.
 
 - An API error that Claude Code's own retries can't get past stops the task with a card saying what happened, with
   **Retry**, **Retry with another model** and **Show details**.
-- Hitting your **usage limit**, or losing the network, pauses the affected tasks behind one banner across the top. They
-  resume by themselves when the limit resets or the network is back; **Switch model** resumes them now on another model.
-  Messages you send meanwhile wait in the queue.
+- Before you hit a **usage limit**, a quiet note takes the banner's spot across the top once Claude Code says you're
+  close (70% of a window or more), e.g. "You've used 85% of your session limit · resets 14:00". Tasks keep working; the
+  note goes when the window resets.
+- Hitting your **usage limit**, or losing the network, pauses the affected tasks behind one banner across the top, in
+  place of that note. They resume by themselves when the limit resets or the network is back; **Switch model** resumes
+  them now on another model. Messages you send meanwhile wait in the queue.
 - If Glade quit mid-turn, a notice at the next launch says how many tasks resumed.
 
 ## The task header, done and reopening
@@ -251,7 +255,7 @@ A card left open when Glade quits is still there after the relaunch; answering i
 
 | Section | What's there |
 |---|---|
-| General | Nothing yet. |
+| General | The **account** your tasks run on and bill to, as Claude Code reports it (below). |
 | Agent | Defaults for new tasks: **Model**, **Effort** and **Permissions** (Ask first or Allow all; Allow edits isn't available yet). **Status summary**: have the agent rewrite the task's status after every turn. **Task titles**: have the agent name the task from your first message. |
 | Notifications | **Notifications** on or off, and **Sound**. |
 | Appearance | Nothing yet: Glade has one theme, dark. |
@@ -259,6 +263,17 @@ A card left open when Glade quits is still there after the relaunch; answering i
 | Plugins | The installed plugins, a switch for each, and **Open plugins folder** (see [Plugins](#plugins)). |
 | Control | **Let agents control Glade** (see [below](#let-agents-control-glade)). |
 | *(your workspace)* | Its **Name** and **Root folder**. |
+
+### Your account
+
+Glade runs on Claude Code's own login and never asks for one. Settings › General shows what Claude Code says it's
+using, read each time a task starts: the **account** (your email, or "API key"), its **organization**, the **plan**
+whose usage limits every task shares (or "Pay as you go" for an API key), and what it's **signed in with** (Claude
+Code's login, the `ANTHROPIC_API_KEY` variable, an `apiKeyHelper` script, …). If it says **Not signed in**, run
+`claude` in a terminal and sign in with `/login`, then start a task. To use another account, sign in again in Claude
+Code; the next task that starts picks it up.
+
+![Settings › General, showing the account (sample data)](images/guide/settings-general.png)
 
 ## Keyboard shortcuts
 
@@ -456,8 +471,9 @@ run your login shell.
 
 ### The first message fails
 
-Check that Claude Code works on its own: run `claude` in a terminal and make sure you're logged in. Then look in the log
-for the `agent` and `runner` lines of that task.
+Check that Claude Code works on its own: run `claude` in a terminal and make sure you're logged in. Settings › General
+shows the account the last task started on, or **Not signed in**. Then look in the log for the `agent` and `runner`
+lines of that task.
 
 ### Where your data lives
 

@@ -350,6 +350,11 @@ export function pauseBanner(page: Page) {
   }
 }
 
+/** The quiet note in the banner's spot while the account is close to a usage limit. */
+export function usageNote(page: Page) {
+  return page.getByRole('status', { name: 'Usage warning' })
+}
+
 /** The toasts at the bottom of the window, e.g. Mark done's Undo. */
 export function toasts(page: Page) {
   const region = page.getByRole('region', { name: 'Notifications' })
@@ -473,6 +478,8 @@ export function settings(page: Page) {
     regenerateToken: dialog.getByRole('button', { name: 'Regenerate token' }),
     /** Control's port field. */
     port: dialog.getByRole('textbox', { name: 'Port' }),
+    /** General's account block: the account the tasks run on, as Claude Code reported it. */
+    account: dialog.getByRole('region', { name: 'Account' }),
     /** What Control says of the port in use: that it isn't the one chosen, or why there's none. */
     portNotice: dialog.getByRole('status'),
   }

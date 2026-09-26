@@ -55,6 +55,8 @@ import { setUiState } from './db/repositories/ui-state'
 import { createWorkspace } from './db/repositories/workspaces'
 import { DEFAULT_SETTINGS, type SettingsPatch } from '../shared/settings'
 import { SETTING_SCHEMAS, updateSettings } from './db/repositories/settings'
+import { saveAccount, setUsageWarning } from './db/repositories/account'
+import { UsageWindow } from '../shared/account'
 import { storeControlToken, storedToken } from './control/token'
 import { refreshTodos } from './todos/todos'
 
@@ -232,6 +234,26 @@ export interface SeedPause {
   readonly details: string
 }
 
+/** The account the tasks ran on, as Claude Code reported it (`Account`): each field left out is one it didn't give. */
+export interface SeedAccount {
+  readonly email?: string | undefined
+  readonly organization?: string | undefined
+  readonly subscriptionType?: string | undefined
+  readonly tokenSource?: string | undefined
+  readonly apiKeySource?: string | undefined
+  readonly apiProvider?: string | undefined
+  /** How long before the capture it was read. */
+  readonly readMinutesAgo: number
+}
+
+/** The usage warning standing at the capture (`UsageWarning`). */
+export interface SeedUsageWarning {
+  readonly utilization: number | null
+  readonly window: UsageWindow
+  /** How long after the capture its window resets; null for a warning with no reset time. */
+  readonly resetsInMinutes: number | null
+}
+
 /** A fixture: one workspace, opened, and its tasks. */
 export interface CaptureSeed {
   /**
@@ -255,6 +277,10 @@ export interface CaptureSeed {
   readonly pluginWidth?: number | undefined
   /** The panels to show collapsed; each is open unless given. */
   readonly collapsed?: SeedCollapsed | undefined
+  /** The account Settings › General shows; none read unless given. */
+  readonly account?: SeedAccount | undefined
+  /** The usage warning standing; none unless given. */
+  readonly usageWarning?: SeedUsageWarning | undefined
 }
 
 /** Which panels a seed collapses. */
@@ -324,8 +350,26 @@ const seedPauseSchema = z.strictObject({
   details: z.string(),
 }) satisfies z.ZodType<SeedPause>
 
+const seedAccountSchema = z.strictObject({
+  email: z.string().optional(),
+  organization: z.string().optional(),
+  subscriptionType: z.string().optional(),
+  tokenSource: z.string().optional(),
+  apiKeySource: z.string().optional(),
+  apiProvider: z.string().optional(),
+  readMinutesAgo: minutesAgo,
+}) satisfies z.ZodType<SeedAccount>
+
+const seedUsageWarningSchema = z.strictObject({
+  utilization: z.number().nonnegative().nullable(),
+  window: z.enum(UsageWindow),
+  resetsInMinutes: minutesAgo.nullable(),
+}) satisfies z.ZodType<SeedUsageWarning>
+
 const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
   workspace: z.strictObject({ id: z.string().optional(), name: z.string(), rootPath: z.string() }),
+  account: seedAccountSchema.optional(),
+  usageWarning: seedUsageWarningSchema.optional(),
   settings: z.strictObject(SETTING_SCHEMAS).partial().optional(),
   controlToken: storedToken.optional(),
   panelTab: z.string().optional(),
@@ -514,6 +558,26 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
   db.transaction(() => {
     if (seed.settings !== undefined) updateSettings(db, seed.settings)
     if (seed.controlToken !== undefined) storeControlToken(db, seed.controlToken)
+    if (seed.account !== undefined) {
+      const { readMinutesAgo, ...fields } = seed.account
+      saveAccount(db, {
+        email: fields.email ?? null,
+        organization: fields.organization ?? null,
+        subscriptionType: fields.subscriptionType ?? null,
+        tokenSource: fields.tokenSource ?? null,
+        apiKeySource: fields.apiKeySource ?? null,
+        apiProvider: fields.apiProvider ?? null,
+        readAt: now - readMinutesAgo * MINUTE,
+      })
+    }
+    if (seed.usageWarning !== undefined) {
+      const { utilization, window, resetsInMinutes } = seed.usageWarning
+      setUsageWarning(db, {
+        utilization,
+        window,
+        resetsAt: resetsInMinutes === null ? null : now + resetsInMinutes * MINUTE,
+      })
+    }
     const workspace = createWorkspace(db, seed.workspace, now)
     setUiState(db, { key: UiStateKey.ActiveWorkspaceId, value: workspace.id })
     if (seed.panelTab !== undefined) setUiState(db, { key: UiStateKey.RightPanelTab, value: seed.panelTab })
