@@ -6,9 +6,9 @@ import { join, resolve } from 'node:path'
 import { inflateSync } from 'node:zlib'
 import type { Locator, Page } from '@playwright/test'
 import { colors, scrollbarTokens, type ColorToken } from '../src/renderer/tokens'
-import { expect, test, type Glade, type LaunchOptions } from './fixtures'
+import { expect, openWorkspace, test, type Glade, type LaunchOptions } from './fixtures'
 import { chooseMenuItem } from './menu'
-import { chat, firstRun, settings, taskHeader, taskList, taskPanel, terminal, workspaceSwitcher } from './selectors'
+import { chat, settings, taskHeader, taskList, taskPanel, terminal, workspaceSwitcher } from './selectors'
 import { boxOf, MIN_WINDOW, resize } from './window-layout'
 
 /** The sample workspace of the design screens: enough tasks, messages and tool calls to scroll in a small window. */
@@ -269,7 +269,7 @@ test('scroll bars: the terminal’s own scroll bar takes the same thumb', async 
   mkdirSync(root)
   const glade = await launch({ chosenFolder: root, classicScrollbars: true })
   const { window } = glade
-  await firstRun(window).openFolder.click()
+  await openWorkspace(window)
   const term = terminal(window)
   await term.newTab.click()
   await expect(term.rows.filter({ hasText: 'acme-api $' })).toHaveCount(1)
