@@ -262,11 +262,16 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return state
     case EventType.SettingsChanged:
       return { ...state, settings: event.settings }
+    case EventType.ModelsChanged:
+      return { ...state, models: event.models }
     case EventType.PluginsChanged:
       return { ...state, plugins: event.plugins }
     case EventType.PluginStatusChanged:
       return { ...state, pluginStatuses: { ...state.pluginStatuses, [event.id]: event.text } }
     case EventType.ControlChanged:
       return { ...state, controlStatus: event.status }
+    case EventType.MenuBarChanged:
+      // Only the menu bar popover's page is sent it (`../menu-bar`); the window keeps its own tasks.
+      return state
   }
 }

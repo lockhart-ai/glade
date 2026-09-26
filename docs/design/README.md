@@ -1,7 +1,7 @@
 # Design
 
-Screens are 1920×1200 at 1× (the lifecycle board is 1440×900; the interaction map is 3200×1720). Sample data is
-illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
+Screens are 1920×1200 at 1× (the lifecycle board and the menu bar are 1440×900; the interaction map is 3200×1720).
+Sample data is illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
 
 | Screen | What it shows | |
 |---|---|---|
@@ -15,7 +15,7 @@ illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
 | 6 · Reopen by chatting | A message in a done task reopens it, with dividers in chat and log. | ![6 · Reopen by chatting](screens/06-reopen.png) |
 | 7 · Search | Results across titles, objectives, outcomes and chat logs; matches highlighted. | ![7 · Search](screens/07-search.png) |
 | 8 · Open a file | Files tab with open-file tabs, source/preview toggle; the drag handles that resize the sidebar, right panel and bottom bar. | ![8 · Open a file](screens/08-open-file.png) |
-| 9 · Todos | The agent's checklist with progress, and each task's progress on its sidebar row (a ring and `3/7`; a check once all are done). | ![9 · Todos](screens/09-todos.png) |
+| 9 · Todos | The agent's checklist with progress, grouped: active, then done (newest first, each with when it finished), then not started (#282); and each task's progress on its sidebar row (a ring and `3/7`; a check once all are done). | ![9 · Todos](screens/09-todos.png) |
 | 10 · Artifacts | Deliverables with Open / Copy / Reveal. | ![10 · Artifacts](screens/10-artifacts.png) |
 | 11 · Subagents | Status and latest line per subagent; one expanded inline to its log. | ![11 · Subagents](screens/11-subagents.png) |
 | 12 · Right-click a task | Task context menu in place. ("Reveal folder in Finder" was removed; see `../context-menus.md`.) | ![12 · Right-click a task](screens/12-right-click-task.png) |
@@ -27,7 +27,7 @@ illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
 | 18 · Relaunch after a crash | Mid-turn tasks resume; notice and dividers. | ![18 · Relaunch after a crash](screens/18-relaunch.png) |
 | 19 · Compaction | Context popover at 97%, Compact now. (The "notes saved to CLAUDE.md" line is superseded: Glade doesn't manage notes.) | ![19 · Compaction](screens/19-compaction.png) |
 | 20 · First run | No workspace yet: Open folder / Create a new folder. | ![20 · First run](screens/20-first-run.png) |
-| 21 · Settings | Modal; Agent section shown. | ![21 · Settings](screens/21-settings.png) |
+| 21 · Settings | Modal; Agent section shown. Model lists the models the SDK offers; Effort offers the default model's own levels (Extra high among them), and hides for a model with none. | ![21 · Settings](screens/21-settings.png) |
 | 21 · Settings › Plugins | Plugins section: the plugins folder, one row per plugin with its toggle, an invalid one with its reason. | ![21 · Settings › Plugins](screens/21-settings-plugins.png) |
 | 21 · Settings › Control | Control section: Let agents control Glade on, the endpoint, the `claude mcp add` command with Copy, Regenerate token, the port with its fallback notice, and the note on Glade's own tasks. | ![21 · Settings › Control](screens/21-settings-control.png) |
 | 22 · Keymap | Every shortcut. Also in `../keymap.md`. | ![22 · Keymap](screens/22-keymap.png) |
@@ -37,6 +37,7 @@ illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
 | 26 · Backfilled, collapsed | The same task reopened by a message: the card collapsed to its one line above the conversation. | ![26 · Backfilled, collapsed](screens/26-backfilled-collapsed.png) |
 | 27 · Tab overflow | The right panel at its narrowest, too narrow for its tabs: the row scrolls sideways (wheel, trackpad or chevron) with no scroll bar. Here it's scrolled to the end to show the selected Subagents, with a chevron over a fade at the left end; the same shows at the right end while tabs are past it. Built from 11 · Subagents; no original design. | ![27 · Tab overflow](screens/27-tab-overflow.png) |
 | 28 · Watchers | The Watchers tab: what the agent left running or scheduled (Monitor watches, background commands, wakeups, cron jobs), each with its state, what it runs, its last output, how many times it woke the agent and when, and Stop while it is live; the count of live ones on the tab. The eye and count on a sidebar row: a task with live watchers, done or not. Built from the Subagents tab; no original design. | ![28 · Watchers](screens/28-watchers.png) |
+| 29 · Menu bar | Glade's icon in the macOS menu bar (1440×900): a monochrome template glyph on dark and light bars, idle, pulsing while an agent works (its frames), with the count of tasks that need you, and highlighted while open; its popover under it, with Needs you (task, workspace and why), Working (status line, todo progress and bar, elapsed) and Recent (the last notifications, with their age), and Open Glade and Quit; and the popover with nothing in flight. | ![29 · Menu bar](screens/29-menu-bar.png) |
 | Interaction map | Every screen, state and action as a graph. | ![Interaction map](screens/interaction-map.png) |
 | Decisions | The decisions board. | ![Decisions](screens/decisions.png) |
 | Icon exploration | Variations of the chosen icon; W07 is the one. | ![Icon exploration](screens/icon-exploration.png) |

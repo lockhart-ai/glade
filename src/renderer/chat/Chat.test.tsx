@@ -25,6 +25,8 @@ import {
 } from '../../shared/domain'
 import { imageDataUrl, type ImageData } from '../../shared/images'
 import { GIF, PNG } from '../../shared/test-images'
+import type { ModelChoice } from '../../shared/models'
+import { SDK_MODELS } from '../../shared/test-models'
 import { ToastProvider } from '../components'
 import { IMAGE_LABEL } from '../images/StoredImage'
 import { GladeStoreProvider } from '../store/react'
@@ -103,6 +105,8 @@ interface Setup {
   readonly images?: Record<string, ImageData>
   /** The task's handoff note; none when left out. */
   readonly handoff?: TaskHandoff
+  /** The models the pickers offer; the built-in ones when left out. */
+  readonly models?: readonly ModelChoice[]
 }
 
 async function renderChat({
@@ -115,6 +119,7 @@ async function renderChat({
   copied,
   images = {},
   handoff,
+  models,
 }: Setup = {}): Promise<FakeBridge & { store: GladeStore }> {
   const fake = fakeBridge({
     workspaces: [sampleWorkspace('w1')],
@@ -130,6 +135,7 @@ async function renderChat({
     images,
     ...(copied === undefined ? {} : { copied }),
     ...(handoff === undefined ? {} : { handoffs: { t1: handoff } }),
+    ...(models === undefined ? {} : { models }),
   })
   const store = createGladeStore(fake.bridge)
   render(
@@ -611,6 +617,31 @@ describe('Chat', () => {
 
       expect(invoke).toHaveBeenLastCalledWith(CommandName.TasksRetry, { id: 't1', model: 'claude-sonnet-5' })
       expect(await screen.findByRole('status')).toHaveTextContent('Working')
+    })
+
+    it('offers the SDK’s models, the task’s checked by the full id it was saved with', async () => {
+      const { invoke } = await renderChat({
+        task: { ...stopped, model: 'claude-sonnet-5' },
+        messages: [ASK],
+        models: SDK_MODELS,
+      })
+
+      fireEvent.click(within(card()).getByRole('button', { name: 'Retry with another model' }))
+      const menu = await screen.findByRole('menu')
+      expect(
+        within(menu)
+          .getAllByRole('menuitemradio')
+          .map((item) => [item.textContent, item.getAttribute('aria-checked')]),
+      ).toEqual([
+        ['Default (recommended)', 'false'],
+        ['Opus (1M context)', 'false'],
+        ['Sonnet', 'true'],
+        ['Lite', 'false'],
+        ['Haiku', 'false'],
+      ])
+      fireEvent.click(within(menu).getByRole('menuitemradio', { name: 'Haiku' }))
+
+      expect(invoke).toHaveBeenLastCalledWith(CommandName.TasksRetry, { id: 't1', model: 'haiku' })
     })
 
     it('closes the model menu without retrying', async () => {

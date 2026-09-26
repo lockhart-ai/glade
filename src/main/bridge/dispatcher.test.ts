@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
+import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
 import {
   FileContentKind,
   FileInfoKind,
@@ -11,6 +12,7 @@ import {
   type QueuedMessage,
   type Task,
 } from '../../shared/domain'
+import { BUILT_IN_MODELS } from '../../shared/models'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { commandTaskId, createBroadcast, createDispatcher } from './dispatcher'
 import { CommandFailure } from './errors'
@@ -43,6 +45,12 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.MenuUpdate]: () => null,
     [CommandName.WindowClose]: () => null,
     [CommandName.LogRendererError]: () => null,
+    [CommandName.MenuBarGet]: () => ({ snapshot: EMPTY_MENU_BAR_SNAPSHOT }),
+    [CommandName.MenuBarOpenTask]: () => null,
+    [CommandName.MenuBarOpenGlade]: () => null,
+    [CommandName.MenuBarHide]: () => null,
+    [CommandName.MenuBarQuit]: () => null,
+    [CommandName.MenuBarFit]: () => null,
     [CommandName.DialogChooseFolder]: () => ({ path: null }),
     [CommandName.TasksList]: () => ({ tasks: [] }),
     [CommandName.TasksListActive]: () => ({ tasks: [], done: { all: 0, unread: 0 } }),
@@ -115,6 +123,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
       throw new Error('not in these tests')
     },
     [CommandName.SettingsGet]: () => ({ settings: DEFAULT_SETTINGS }),
+    [CommandName.ModelsList]: () => ({ models: BUILT_IN_MODELS }),
     [CommandName.SettingsUpdate]: () => ({ settings: DEFAULT_SETTINGS }),
     ...overrides,
   }

@@ -17,6 +17,7 @@ import { countDoneTasks, getTasks, listActiveTasks, listDoneTasks, listTasks } f
 import { listToolEvents } from '../db/repositories/tool-events'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
 import { getSettings, updateSettings } from '../db/repositories/settings'
+import { effortWithModel, listModels } from '../models/models'
 import { getWorkspace, listWorkspaces } from '../db/repositories/workspaces'
 import type { Plugins } from '../plugins/plugins'
 import type { PluginViews } from '../plugins/views'
@@ -49,6 +50,8 @@ import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
 import type { ControlEndpoint } from '../control/endpoint'
+import type { MenuBarCommands } from '../menu-bar/menu-bar'
+import { readMenuBarSnapshot } from '../menu-bar/snapshot'
 
 /**
  * One handler per command, taking the parsed request. A command in `CommandMap` without a handler here, or a handler
@@ -82,6 +85,8 @@ export interface HandlerContext {
   readonly pluginViews: PluginViews
   /** The control API's HTTP endpoint, which follows Settings › Control. */
   readonly endpoint: ControlEndpoint
+  /** What the menu bar popover's page asks of main (`menuBar.*`). Nothing by default: no popover, nothing to do. */
+  readonly menuBar?: MenuBarCommands
   /** Where errors in the window are logged (`log.rendererError`). Nothing by default. */
   readonly log?: Logger
 }
@@ -230,8 +235,12 @@ export function createHandlers(context: HandlerContext): Handlers {
       return null
     },
     [CommandName.SettingsGet]: () => ({ settings: getSettings(db) }),
+    [CommandName.ModelsList]: () => ({ models: listModels(db) }),
     [CommandName.SettingsUpdate]: async ({ patch }) => {
-      const settings = updateSettings(db, patch)
+      // A new default model keeps the default effort only if it supports it.
+      const { defaultModel, defaultEffort } = patch
+      const effort = effortWithModel(db, defaultModel, defaultEffort, getSettings(db).defaultEffort)
+      const settings = updateSettings(db, effort === undefined ? patch : { ...patch, defaultEffort: effort })
       emit({ type: EventType.SettingsChanged, settings })
       // The endpoint follows the switch and the port: answered once it has started, stopped or moved.
       if (patch.controlEnabled !== undefined || patch.controlPort !== undefined) await endpoint.sync()
@@ -285,6 +294,28 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.LogRendererError]: (error) => {
       renderer.error('renderer error', { ...error })
+      return null
+    },
+    [CommandName.MenuBarGet]: () => ({ snapshot: readMenuBarSnapshot(db) }),
+    [CommandName.MenuBarOpenTask]: ({ id }) => {
+      requireTask(db, id)
+      context.menuBar?.openTask(id)
+      return null
+    },
+    [CommandName.MenuBarOpenGlade]: () => {
+      context.menuBar?.openGlade()
+      return null
+    },
+    [CommandName.MenuBarHide]: () => {
+      context.menuBar?.hide()
+      return null
+    },
+    [CommandName.MenuBarQuit]: () => {
+      context.menuBar?.quit()
+      return null
+    },
+    [CommandName.MenuBarFit]: ({ height }) => {
+      context.menuBar?.fit(height)
       return null
     },
   }

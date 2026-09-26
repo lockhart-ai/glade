@@ -289,6 +289,12 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
       case EventType.ControlChanged:
         // The endpoint logs its own starting, stopping and failing, and never its token.
         return
+      case EventType.MenuBarChanged:
+        // Sent to the menu bar popover alone, never through here: what's in it is logged as the tasks change.
+        return
+      case EventType.ModelsChanged:
+        // Logged as the SDK reports them (`recordSdkModels`).
+        return
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
         // The plugins log themselves as they're read and turned on or off, and their views as their statuses change.

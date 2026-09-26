@@ -4,16 +4,19 @@ import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { listWatchers } from '../repositories/watchers'
 import { MIGRATIONS } from '.'
-import { watcherSubagentsMigration } from './0031-watcher-subagents'
+import { watcherSubagentsMigration } from './0036-watcher-subagents'
 
-it('is migration 31', () => {
-  expect(MIGRATIONS[30]).toBe(watcherSubagentsMigration)
+it('is migration 36', () => {
+  expect(MIGRATIONS.find((migration) => migration.version === 36)).toBe(watcherSubagentsMigration)
 })
 
 /** A database at the schema before this migration, with one task. */
 function before(): Database {
   const db = openDatabase(':memory:')
-  migrate(db, MIGRATIONS.slice(0, 30))
+  migrate(
+    db,
+    MIGRATIONS.filter((migration) => migration.version < 36),
+  )
   db.prepare("INSERT INTO workspaces VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)").run()
   db.prepare(
     `INSERT INTO tasks (id, workspace_id, title, objective, status, state, activity, pinned, unread, model, effort,

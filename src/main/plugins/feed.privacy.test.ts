@@ -40,6 +40,7 @@ import { ImageMediaType } from '../../shared/images'
 import type { PluginEvent } from '../../shared/plugin-api'
 import { pluginEventSchema } from '../../shared/plugin-api-schema'
 import { PluginStatus } from '../../shared/plugins'
+import { BUILT_IN_MODELS } from '../../shared/models'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { appendPermissionRequest } from '../db/repositories/permission-requests'
 import { appendQuestionSet } from '../db/repositories/question-sets'
@@ -400,7 +401,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
         type: EventType.TodosChanged,
         taskId: created.id,
         todos: {
-          items: [{ text: secret('todo_text'), state: TodoState.Doing, note: secret('todo_note') }],
+          items: [{ text: secret('todo_text'), state: TodoState.Doing, note: secret('todo_note'), completedAt: null }],
           updatedAt: 1,
         },
       },
@@ -458,6 +459,12 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
     [EventType.SettingsChanged]: [
       { type: EventType.SettingsChanged, settings: { ...DEFAULT_SETTINGS, defaultModel: secret('settings_model') } },
     ],
+    [EventType.ModelsChanged]: [
+      {
+        type: EventType.ModelsChanged,
+        models: [{ ...BUILT_IN_MODELS[0], name: secret('model_name'), description: secret('model_description') }],
+      },
+    ],
     [EventType.PluginsChanged]: [
       {
         type: EventType.PluginsChanged,
@@ -475,6 +482,17 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           url: 'http://127.0.0.1:45233/mcp',
           token: secret('token'),
           error: null,
+        },
+      },
+    ],
+    // Sent to the menu bar popover alone, never through the feed; had it been, a plugin would see nothing of it.
+    [EventType.MenuBarChanged]: [
+      {
+        type: EventType.MenuBarChanged,
+        snapshot: {
+          needsYou: [],
+          working: [],
+          recent: [{ seq: 1, taskId: created.id, title: secret('recent_title'), body: secret('recent'), sentAt: 1 }],
         },
       },
     ],

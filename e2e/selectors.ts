@@ -178,6 +178,8 @@ export function taskPanel(page: Page) {
     todoProgress: panel.getByRole('progressbar', { name: 'Todos done' }),
     /** The Todos tab's items, top to bottom, each read as its state then its text (`Doing: Copy the files…`). */
     todos: panel.getByRole('list', { name: 'Todos' }).getByRole('listitem'),
+    /** A done todo's finish time (`4m ago`), with the exact time as its tooltip. */
+    todoFinished: (item: Locator) => item.locator('time'),
   }
 }
 
@@ -360,6 +362,8 @@ export function toasts(page: Page) {
   return {
     region,
     undo: region.getByRole('button', { name: 'Undo' }),
+    /** A toast, by what it says. */
+    saying: (text: string) => region.getByText(text, { exact: true }),
   }
 }
 
@@ -392,6 +396,8 @@ export function inputBar(page: Page) {
     setting: (name: InputBarSetting) => bar.getByRole('button', { name: new RegExp(`^${name}: `) }),
     /** An option in the open setting's menu. */
     option: (name: string) => page.getByRole('menuitemradio', { name, exact: true }),
+    /** Every option in a setting's menu, once it's open, in order. */
+    options: (setting: InputBarSetting) => page.getByRole('menu', { name: setting }).getByRole('menuitemradio'),
     field: bar.getByRole('textbox', { name: 'Message the agent' }),
     send: bar.getByRole('button', { name: 'Send', exact: true }),
     stop: bar.getByRole('button', { name: 'Stop', exact: true }),
@@ -534,5 +540,31 @@ export function removeWorkspaceDialog(page: Page) {
     dialog,
     cancel: dialog.getByRole('button', { name: 'Cancel' }),
     confirm: dialog.getByRole('button', { name: 'Remove' }),
+  }
+}
+
+/** A section of the menu bar popover, by its heading. */
+export type MenuBarSectionName = 'Needs you' | 'Working' | 'Recent'
+
+/**
+ * The popover under Glade's icon in the menu bar (`docs/design/html/29-menu-bar.html`), in its own window's page (see
+ * `clickMenuBarIcon`): its sections, each row a button that opens its task, and Open Glade and Quit.
+ */
+export function menuBarPopover(page: Page) {
+  const dialog = page.getByRole('dialog', { name: 'Glade' })
+  const section = (name: MenuBarSectionName) => dialog.getByRole('region', { name })
+  return {
+    dialog,
+    section,
+    /** A section's rows, top to bottom. */
+    rows: (name: MenuBarSectionName) => section(name).getByRole('button'),
+    /** A section's row for the task with this title. */
+    row: (name: MenuBarSectionName, title: string) => section(name).getByRole('button').filter({ hasText: title }),
+    /** A working row's todo progress (`3/7`), named `3 of 7 todos done · Now: …`. */
+    todoProgress: (row: Locator) => row.getByRole('img', { name: /todos done/ }),
+    /** What it says with nothing in flight. */
+    empty: dialog.getByText('Nothing in flight'),
+    openGlade: dialog.getByRole('button', { name: 'Open Glade', exact: true }),
+    quit: dialog.getByRole('button', { name: 'Quit', exact: true }),
   }
 }

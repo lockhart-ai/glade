@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { TaskFilter } from '../../shared/attention'
 import { Effort, FileContentKind, FileInfoKind, TaskState, UiStateKey } from '../../shared/domain'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
+import { BUILT_IN_MODELS } from '../../shared/models'
+import { SDK_MODELS } from '../../shared/test-models'
 import { BridgeErrorCode, CommandName, EventType, RendererErrorKind, type GladeEvent } from '../../shared/bridge'
 import { EMPTY_MENU_STATE } from '../../shared/commands'
 import { SearchField } from '../../shared/search'
@@ -13,6 +15,7 @@ import { createAgentRunner } from '../agent/runner'
 import { addArtifact } from '../db/repositories/artifacts'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { getSettings } from '../db/repositories/settings'
+import { setSdkModels } from '../db/repositories/sdk-models'
 import { getTask, listTasks, updateTask } from '../db/repositories/tasks'
 import { setUiState } from '../db/repositories/ui-state'
 import { createFakeSpawner, fakeTerminalOptions, type FakeSpawner } from '../terminal/fake-pty'
@@ -29,6 +32,7 @@ import { createControlEndpoint, type ControlEndpoint } from '../control/endpoint
 import { createRateLimiter } from '../control/rate-limit'
 import { createControl } from '../control/control'
 import { createHandlers, type Handlers } from './handlers'
+import type { MenuBarCommands } from '../menu-bar/menu-bar'
 import { LogLevel, LogScope } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
 
@@ -170,6 +174,70 @@ describe('menu.update and window.close', () => {
   })
 })
 
+describe('the menu bar commands', () => {
+  function withMenuBar(): { menuBar: MenuBarCommands; calls: string[]; handlers: Handlers } {
+    const calls: string[] = []
+    const menuBar: MenuBarCommands = {
+      openTask: (id) => calls.push(`openTask ${id}`),
+      openGlade: () => calls.push('openGlade'),
+      hide: () => calls.push('hide'),
+      quit: () => calls.push('quit'),
+      fit: (height) => calls.push(`fit ${String(height)}`),
+    }
+    const runner = createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() })
+    const withApp = createHandlers({
+      db: database.db,
+      emit,
+      chooseFolder,
+      openPath,
+      revealPath,
+      writeClipboard,
+      runner,
+      terminals: createTerminals({ db: database.db, emit, ...fakeTerminalOptions() }),
+      ...pluginsWithViews(),
+      endpoint: endpointOf(),
+      menuBar,
+    })
+    return { menuBar, calls, handlers: withApp }
+  }
+
+  it("answers what's in flight across every workspace", async () => {
+    const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+    updateTask(database.db, task.id, { title: 'Add rate limiting', sessionId: 'session-1' })
+    const { snapshot } = await handlers[CommandName.MenuBarGet]({})
+    expect(snapshot.needsYou.map(({ taskId }) => taskId)).toEqual([task.id])
+    expect(snapshot.working).toEqual([])
+  })
+
+  it('hands opening a task, opening Glade, hiding, quitting and sizing to the menu bar', async () => {
+    const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+    const { calls, handlers: withApp } = withMenuBar()
+    expect(await withApp[CommandName.MenuBarOpenTask]({ id: task.id })).toBeNull()
+    expect(await withApp[CommandName.MenuBarOpenGlade]({})).toBeNull()
+    expect(await withApp[CommandName.MenuBarHide]({})).toBeNull()
+    expect(await withApp[CommandName.MenuBarFit]({ height: 412 })).toBeNull()
+    expect(await withApp[CommandName.MenuBarQuit]({})).toBeNull()
+    expect(calls).toEqual([`openTask ${task.id}`, 'openGlade', 'hide', 'fit 412', 'quit'])
+  })
+
+  it("refuses to open a task that isn't there", () => {
+    const { calls, handlers: withApp } = withMenuBar()
+    expect(() => withApp[CommandName.MenuBarOpenTask]({ id: 'gone' })).toThrow(
+      expect.objectContaining({ code: BridgeErrorCode.NotFound }),
+    )
+    expect(calls).toEqual([])
+  })
+
+  it('do nothing without a menu bar', async () => {
+    const task = sampleTask(database.db, sampleWorkspace(database.db).id)
+    expect(await handlers[CommandName.MenuBarOpenTask]({ id: task.id })).toBeNull()
+    expect(await handlers[CommandName.MenuBarOpenGlade]({})).toBeNull()
+    expect(await handlers[CommandName.MenuBarHide]({})).toBeNull()
+    expect(await handlers[CommandName.MenuBarFit]({ height: 1 })).toBeNull()
+    expect(await handlers[CommandName.MenuBarQuit]({})).toBeNull()
+  })
+})
+
 describe('workspaces.open', () => {
   it('broadcasts the opened workspace and each UI state value it changed', async () => {
     const other = sampleWorkspace(database.db, '/code/acme-web')
@@ -251,6 +319,32 @@ describe('the settings commands', () => {
     expect(changed).toEqual({ settings })
     expect(getSettings(database.db)).toEqual(settings)
     expect(emit).toHaveBeenCalledExactlyOnceWith({ type: EventType.SettingsChanged, settings })
+  })
+
+  it('keep the default effort a new default model supports, and fall back to its default otherwise', async () => {
+    setSdkModels(database.db, SDK_MODELS)
+    await handlers[CommandName.SettingsUpdate]({ patch: { defaultModel: 'default', defaultEffort: Effort.XHigh } })
+
+    expect((await handlers[CommandName.SettingsUpdate]({ patch: { defaultModel: 'sonnet' } })).settings).toMatchObject({
+      defaultModel: 'sonnet',
+      defaultEffort: Effort.XHigh,
+    })
+    const lite = await handlers[CommandName.SettingsUpdate]({ patch: { defaultModel: 'lite' } })
+    expect(lite.settings).toMatchObject({ defaultModel: 'lite', defaultEffort: Effort.Low })
+    expect(emit).toHaveBeenLastCalledWith({ type: EventType.SettingsChanged, settings: lite.settings })
+    // Haiku takes none: the default effort stays, for the next model.
+    await handlers[CommandName.SettingsUpdate]({ patch: { defaultModel: 'default', defaultEffort: Effort.Max } })
+    expect(
+      (await handlers[CommandName.SettingsUpdate]({ patch: { defaultModel: 'haiku' } })).settings.defaultEffort,
+    ).toBe(Effort.Max)
+  })
+
+  it('answer with the models the pickers offer: the built-in ones, then the SDK’s', () => {
+    expect(handlers[CommandName.ModelsList]({})).toEqual({ models: BUILT_IN_MODELS })
+
+    setSdkModels(database.db, SDK_MODELS)
+
+    expect(handlers[CommandName.ModelsList]({})).toEqual({ models: SDK_MODELS })
   })
 
   it('answer with the control endpoint as it is, off to begin with', () => {

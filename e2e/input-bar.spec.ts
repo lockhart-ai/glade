@@ -57,10 +57,12 @@ test('input bar: ⌘L focuses it, ⇧↵ adds a line, the pickers persist, and �
   await expect(conversation.agentReplies.first()).toContainText('The client retries idempotent requests')
   await expect(bar.send).toBeEnabled()
   await expect(bar.stop).toHaveCount(0)
+  // The session reported the SDK's models: the task's is its Sonnet now.
+  await expect(bar.setting('Model')).toHaveText('ModelSonnet')
 
   await glade.close()
   const relaunched = inputBar((await launch()).window)
-  await expect(relaunched.setting('Model')).toHaveText('ModelSonnet 5')
+  await expect(relaunched.setting('Model')).toHaveText('ModelSonnet')
   await expect(relaunched.setting('Effort')).toHaveText('EffortLow')
 })
 

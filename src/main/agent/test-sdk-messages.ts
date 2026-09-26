@@ -218,6 +218,29 @@ export function interruptMarker(duringTool = false): unknown {
 }
 
 /** The result of an interrupted turn (`docs/sdk-notes.md`, Interrupt). */
+/**
+ * The zeroed result Claude Code writes before it exits on a start that failed for a known reason, with
+ * `CLAUDE_CODE_STARTUP_FAILURE_RESULTS` set (from the SDK's types: `SDKResultError.startup_failure_reason`). Its
+ * `errors` carry what it printed to stderr. No `system/init` comes before it.
+ */
+export function startupFailureResult(reason: string, error: string): unknown {
+  return {
+    type: 'result',
+    subtype: 'error_during_execution',
+    is_error: true,
+    session_id: SESSION_ID,
+    num_turns: 0,
+    duration_ms: 0,
+    duration_api_ms: 0,
+    total_cost_usd: 0,
+    usage: { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 },
+    modelUsage: {},
+    permission_denials: [],
+    errors: [error],
+    startup_failure_reason: reason,
+  }
+}
+
 export function abortedResult(terminalReason: 'aborted_streaming' | 'aborted_tools' = 'aborted_streaming'): unknown {
   return result('', { subtype: 'error_during_execution', is_error: true, terminal_reason: terminalReason })
 }

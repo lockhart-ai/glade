@@ -15,6 +15,7 @@ import { setExternalId, setHandoff } from './backfills'
 import { setSessionContext } from './session-context'
 import { setInputDraft } from './input-drafts'
 import { appendMessage } from './messages'
+import { recordNotification } from './notifications'
 import { setOpenFiles } from './open-files'
 import { appendPermissionRequest } from './permission-requests'
 import { addTaskPermissionRule } from './task-permission-rules'
@@ -98,6 +99,7 @@ function fillTask(db: Database, task: Task): void {
   setExternalId(db, taskId, `notes/${taskId}`)
   setSessionContext(db, taskId, { instructions: true, handoffAt: 1 })
   setInputDraft(db, { taskId, text: 'And the admin views', images: [PNG] })
+  recordNotification(db, { taskId, title: 'Add rate limiting', body: 'Which limit should /search use?' })
   addWatcher(db, {
     taskId,
     kind: WatcherKind.Monitor,
@@ -123,6 +125,8 @@ const FILLED_TABLES = [
   // Its unsent input draft.
   'input_drafts',
   'messages',
+  // The notifications sent about it, for the menu bar popover's Recent section.
+  'notifications',
   'open_files',
   'permission_requests',
   'question_sets',

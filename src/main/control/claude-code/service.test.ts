@@ -24,7 +24,9 @@ import {
   ToolEventKind,
   type Workspace,
 } from '../../../shared/domain'
-import { MODEL_OPTIONS } from '../../../shared/models'
+import { BUILT_IN_MODELS } from '../../../shared/models'
+import { SDK_MODELS } from '../../../shared/test-models'
+import { setSdkModels } from '../../db/repositories/sdk-models'
 import { listMessages } from '../../db/repositories/messages'
 import { updateSettings } from '../../db/repositories/settings'
 import { getTask, updateTask } from '../../db/repositories/tasks'
@@ -265,6 +267,24 @@ describe('import', () => {
       effort: Effort.Low,
       permissionMode: PermissionMode.AskBeforeEdits,
     })
+  })
+
+  it("puts the task on the SDK's model the transcript used, at Settings' effort fitted to it", async () => {
+    setSdkModels(database.db, SDK_MODELS)
+    updateSettings(database.db, { defaultEffort: Effort.Max })
+    writeTranscript(
+      projects,
+      cwd,
+      plainChat(cwd)
+        .say(80, 'On Sonnet.', {
+          message: { model: 'claude-sonnet-5', content: [{ type: 'text', text: 'x' }] },
+        })
+        .toJsonl(),
+    )
+
+    const { task } = await sessions.import(importInput())
+
+    expect(task).toMatchObject({ model: 'sonnet', effort: Effort.High })
   })
 
   it('is idempotent: importing again returns the same task and changes nothing', async () => {
@@ -596,14 +616,30 @@ describe('cursors', () => {
 
 describe('offeredModel', () => {
   it('finds the model Glade offers by its id, dated or not', () => {
-    expect(offeredModel('claude-haiku-4-5-20251001')).toBe('claude-haiku-4-5')
-    expect(offeredModel('claude-haiku-4-5')).toBe('claude-haiku-4-5')
-    expect(offeredModel('claude-sonnet-5')).toBe('claude-sonnet-5')
-    expect(offeredModel('claude-opus-5-5')).toBe(MODEL_OPTIONS[0].id)
-    expect(offeredModel('claude-opus-5-5[1m]')).toBe(MODEL_OPTIONS[0].id)
-    expect(offeredModel('claude-opus-5-5-20260101[1m]')).toBe(MODEL_OPTIONS[0].id)
+    const offered = (model: string): string | null => offeredModel(BUILT_IN_MODELS, model)
+    expect(offered('claude-haiku-4-5-20251001')).toBe('claude-haiku-4-5')
+    expect(offered('claude-haiku-4-5')).toBe('claude-haiku-4-5')
+    expect(offered('claude-sonnet-5')).toBe('claude-sonnet-5')
+    expect(offered('claude-opus-5-5')).toBe(BUILT_IN_MODELS[0].id)
+    expect(offered('claude-opus-5-5[1m]')).toBe(BUILT_IN_MODELS[0].id)
+    expect(offered('claude-opus-5-5-20260101[1m]')).toBe(BUILT_IN_MODELS[0].id)
     // Not a different version that happens to start the same.
-    expect(offeredModel('claude-sonnet-5-5')).toBeNull()
-    expect(offeredModel('claude-3-opus-20240229')).toBeNull()
+    expect(offered('claude-sonnet-5-5')).toBeNull()
+    expect(offered('claude-3-opus-20240229')).toBeNull()
+  })
+
+  it("finds the SDK's model by its alias or the full id it stands for, dated or not", () => {
+    const offered = (model: string): string | null => offeredModel(SDK_MODELS, model)
+    expect(offered('sonnet')).toBe('sonnet')
+    expect(offered('claude-sonnet-5')).toBe('sonnet')
+    // The SDK's full id is dated; a transcript's may not be, or be dated differently.
+    expect(offered('claude-haiku-4-5-20251001')).toBe('haiku')
+    expect(offered('claude-haiku-4-5')).toBe('haiku')
+    expect(offered('claude-haiku-4-5-20260301')).toBe('haiku')
+    // The first model that is it: the default, over the alias for the same model.
+    expect(offered('claude-opus-5-5[1m]')).toBe('default')
+    expect(offered('opus[1m]')).toBe('opus[1m]')
+    expect(offered('claude-opus-5-5')).toBe('default')
+    expect(offered('claude-sonnet-4-5')).toBeNull()
   })
 })

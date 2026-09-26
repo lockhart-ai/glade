@@ -11,6 +11,7 @@ import {
   type GladeBridge,
   type GladeEvent,
 } from '../../shared/bridge'
+import { EMPTY_MENU_BAR_SNAPSHOT, type MenuBarSnapshot } from '../../shared/menuBar'
 import type { Command } from '../../shared/commands'
 import {
   Effort,
@@ -36,6 +37,7 @@ import {
 import { ImageMediaType } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import type { InstalledPlugin } from '../../shared/plugins'
+import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import type { Handlers } from './handlers'
 import { DEFAULT_CONTROL_PORT, type ControlStatus } from '../../shared/control'
@@ -101,12 +103,19 @@ const TASK_HANDLERS = {
   [CommandName.FilesReveal]: () => null,
   [CommandName.WorkspacesUpdate]: () => ({ workspace: WORKSPACE }),
   [CommandName.SettingsGet]: () => ({ settings: DEFAULT_SETTINGS }),
+  [CommandName.ModelsList]: () => ({ models: BUILT_IN_MODELS }),
   [CommandName.SettingsUpdate]: () => ({ settings: DEFAULT_SETTINGS }),
   [CommandName.ArtifactsRemove]: () => null,
   [CommandName.WorkspacesRemove]: () => null,
   [CommandName.MenuUpdate]: () => null,
   [CommandName.WindowClose]: () => null,
   [CommandName.LogRendererError]: () => null,
+  [CommandName.MenuBarGet]: () => ({ snapshot: EMPTY_MENU_BAR_SNAPSHOT }),
+  [CommandName.MenuBarOpenTask]: () => null,
+  [CommandName.MenuBarOpenGlade]: () => null,
+  [CommandName.MenuBarHide]: () => null,
+  [CommandName.MenuBarQuit]: () => null,
+  [CommandName.MenuBarFit]: () => null,
   [CommandName.SearchQuery]: () => ({ results: [] }),
   [CommandName.TerminalList]: () => ({ tabs: [] }),
   [CommandName.TerminalCreate]: () => ({ tab: {} as TerminalTab }),
@@ -163,6 +172,12 @@ const TASK_SCHEMAS = {
   [CommandName.MenuUpdate]: REQUEST_SCHEMAS[CommandName.MenuUpdate],
   [CommandName.WindowClose]: REQUEST_SCHEMAS[CommandName.WindowClose],
   [CommandName.LogRendererError]: REQUEST_SCHEMAS[CommandName.LogRendererError],
+  [CommandName.MenuBarGet]: REQUEST_SCHEMAS[CommandName.MenuBarGet],
+  [CommandName.MenuBarOpenTask]: REQUEST_SCHEMAS[CommandName.MenuBarOpenTask],
+  [CommandName.MenuBarOpenGlade]: REQUEST_SCHEMAS[CommandName.MenuBarOpenGlade],
+  [CommandName.MenuBarHide]: REQUEST_SCHEMAS[CommandName.MenuBarHide],
+  [CommandName.MenuBarQuit]: REQUEST_SCHEMAS[CommandName.MenuBarQuit],
+  [CommandName.MenuBarFit]: REQUEST_SCHEMAS[CommandName.MenuBarFit],
 } satisfies Partial<RequestSchemas>
 
 describe('the command map', () => {
@@ -442,6 +457,9 @@ describe('events', () => {
         case EventType.SettingsChanged:
           expectTypeOf(event.settings).toEqualTypeOf<Settings>()
           break
+        case EventType.ModelsChanged:
+          expectTypeOf(event.models).toEqualTypeOf<readonly ModelChoice[]>()
+          break
         case EventType.PluginsChanged:
           expectTypeOf(event.plugins).toEqualTypeOf<readonly InstalledPlugin[]>()
           break
@@ -450,6 +468,9 @@ describe('events', () => {
           break
         case EventType.ControlChanged:
           expectTypeOf(event.status).toEqualTypeOf<ControlStatus>()
+          break
+        case EventType.MenuBarChanged:
+          expectTypeOf(event.snapshot).toEqualTypeOf<MenuBarSnapshot>()
           break
       }
     })

@@ -37,7 +37,7 @@ One JSON object per line:
 | `env`           | The environment the agents run in: from the login shell or Glade's own (and why), its `PATH`, and at debug every variable, with secrets redacted. |
 | `db`            | The database opening: its file, and the schema version before and after migrating.                        |
 | `ipc`           | Every command from the window: its name, task, how long it took, and whether it failed (with the error). Never its request. |
-| `agent`         | Each agent session starting, resuming and closing (model, effort, folder, the SDK session id, the Claude Code executable and `PATH`); every message the SDK sends, by type and subtype, with tool names and ids, and usage, cost and duration for results; the usage limit; messages it couldn't read. |
+| `agent`         | Each agent session starting, resuming and closing (model, effort, folder, the SDK session id, the Claude Code executable and `PATH`); the models the SDK offers when they change, each with its effort levels; every message the SDK sends, by type and subtype, with tool names and ids, and usage, cost and duration for results; the usage limit; messages it couldn't read; and what the Claude Code process prints to its error output, a warning per line (`agent stderr`, below). |
 | `runner`        | Turns starting and ending, and each result; stops, retries, API errors and their retries; pauses resuming; subagents starting and being stopped; compaction; the queue delivered mid-turn; turns resumed after a relaunch; tool calls allowed without asking (debug), and permission requests made, answered and withdrawn. |
 | `task`          | A task created, deleted, and each change of its state, activity, error, pause, retry, question, permission request waiting, title, model, effort, permission mode and session id. |
 | `chat`          | Each message added (who, which turn, how long) and the queue. The text itself at debug.                   |
@@ -48,6 +48,7 @@ One JSON object per line:
 | `terminal`      | Terminal tabs opening and closing, shells starting and exiting (with their exit code or signal).          |
 | `plugins`       | The plugins found each time the plugins folder is read (how many, and each invalid one with its reason), plugins turned on and off, and the folder failing to be read. The shown plugin's view made and destroyed (and why), the status it sets (debug), its event feed starting after each `ready` (debug: how many tasks the snapshot held), and what its sandbox refuses: requests, files outside its folder, navigation, new windows, permissions, downloads, and messages that are malformed or too many. |
 | `control`       | Each call to the `glade-control` tools ([`control-api.md`](control-api.md)): the tool, the caller (the calling task's id, or `http`, over MCP or `/v1`), the task it acts on, how long it took, and `ok` or the error code. The text of a message it sends at debug, cut short. The HTTP endpoint starting (host, port, and the chosen port when it fell back), stopping and failing to start; the token regenerated; each request refused before a tool saw it (why: bad host, origin or token, no token, no such path or tool, wrong method, too large, not JSON, rate limited; the status, method and path); and a request failing inside Glade. Never a token. |
+| `menu-bar`      | Glade's icon in the menu bar added and removed (Settings › General › Show Glade in the menu bar), and its glyph's images missing. |
 | `renderer`      | Errors in the window: uncaught errors, unhandled rejections, and errors React caught (with its component stack). |
 | `test-mode`     | The screenshot and e2e runs.                                                                              |
 
@@ -60,6 +61,21 @@ One JSON object per line:
   `*_SECRET`, `*PASSWORD*`, `authorization`, `cookie`, …) is logged as `[redacted]`, however deep it is. Glade never
   handles your Claude credentials itself, so they never reach the log.
 - **Never logged:** what you type into a terminal tab, its output, and the requests the window sends main.
+
+## The agent's error output
+
+What each task's Claude Code process prints to its error output (stderr) goes to the log, a warning per non-blank line,
+in the `agent` scope with the task's id: `{"msg":"agent stderr","line":"…"}`. It's limited, so a process that floods
+it can't flood the log:
+
+- A line is cut to 1,000 characters, saying how many more there were.
+- At most 20 lines are logged every 10 seconds, per task. The first line past that logs `agent stderr limited` (with the
+  limits); the rest are counted, and the next line logged after the 10 seconds logs `agent stderr lines dropped` with
+  how many weren't. A line split across two writes is logged as two.
+
+```sh
+grep '"msg":"agent stderr' ~/Library/Logs/glade/main.log
+```
 
 ## Reading it
 

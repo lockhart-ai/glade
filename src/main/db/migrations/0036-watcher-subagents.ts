@@ -10,7 +10,7 @@ import type { Migration } from '../migrate'
  * call ran past its timeout and the SDK moved it to the background, which its result says.
  */
 export const watcherSubagentsMigration: Migration = {
-  version: 31,
+  version: 36,
   name: "Attribute watchers to their subagents, and drop foreground commands'",
   up(db) {
     db.exec(`

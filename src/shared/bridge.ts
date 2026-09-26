@@ -34,12 +34,14 @@ import type {
 } from './domain'
 import type { Command, MenuState } from './commands'
 import type { ImageData } from './images'
+import type { ModelChoice } from './models'
 import type { Settings, SettingsPatch } from './settings'
 import type { SearchResult } from './search'
 import type { DoneCounts, DonePage, DonePageRequest } from './doneList'
 import type { TerminalTab } from './terminal'
 import type { InstalledPlugin } from './plugins'
 import type { ControlStatus } from './control'
+import type { MenuBarSnapshot } from './menuBar'
 
 /** The name the bridge is exposed under on `window`. */
 export const BRIDGE_KEY = 'glade'
@@ -99,6 +101,7 @@ export enum CommandName {
   UiStateSet = 'uiState.set',
   SettingsGet = 'settings.get',
   SettingsUpdate = 'settings.update',
+  ModelsList = 'models.list',
   SearchQuery = 'search.query',
   PluginsList = 'plugins.list',
   PluginsSetEnabled = 'plugins.setEnabled',
@@ -119,6 +122,12 @@ export enum CommandName {
   MenuUpdate = 'menu.update',
   WindowClose = 'window.close',
   LogRendererError = 'log.rendererError',
+  MenuBarGet = 'menuBar.get',
+  MenuBarOpenTask = 'menuBar.openTask',
+  MenuBarOpenGlade = 'menuBar.openGlade',
+  MenuBarHide = 'menuBar.hide',
+  MenuBarQuit = 'menuBar.quit',
+  MenuBarFit = 'menuBar.fit',
 }
 
 /** The request of a command that takes no arguments: pass `{}`. */
@@ -645,6 +654,11 @@ export interface SettingsUpdateRequest {
   readonly patch: SettingsPatch
 }
 
+/** `models.list` answers with the models the pickers offer: the SDK's, or the built-in ones until a session reports them. */
+export interface ModelsResponse {
+  readonly models: readonly ModelChoice[]
+}
+
 /**
  * Searches a workspace's tasks: their titles, objectives, statuses (outcomes once done) and chat messages, yours and
  * the agent's. What you type is plain text, never query syntax (see `src/shared/search.ts`): every word must appear
@@ -795,6 +809,25 @@ export type MenuUpdateRequest = MenuState
  */
 export type WindowCloseRequest = EmptyRequest
 
+/** What's in flight across every workspace, for the menu bar popover (`docs/design/html/29-menu-bar.html`). */
+export interface MenuBarResponse {
+  readonly snapshot: MenuBarSnapshot
+}
+
+/**
+ * Opens Glade on a task from its row in the menu bar popover, as clicking its notification does: hides the popover,
+ * brings the window up (opening one when there's none) and selects the task, in its workspace.
+ */
+export type MenuBarOpenTaskRequest = TaskIdRequest
+
+/**
+ * Sizes the menu bar popover to its content: the height its page lays out at, in CSS pixels. Main keeps it within the
+ * screen, and the page scrolls what doesn't fit.
+ */
+export interface MenuBarFitRequest {
+  readonly height: number
+}
+
 /** Where in the window an error was caught, for the main log. */
 export enum RendererErrorKind {
   /** An uncaught error (`window`'s `error` event). */
@@ -881,6 +914,7 @@ export interface CommandMap {
   [CommandName.UiStateSet]: CommandSpec<UiStateSetRequest, null>
   [CommandName.SettingsGet]: CommandSpec<EmptyRequest, SettingsResponse>
   [CommandName.SettingsUpdate]: CommandSpec<SettingsUpdateRequest, SettingsResponse>
+  [CommandName.ModelsList]: CommandSpec<EmptyRequest, ModelsResponse>
   [CommandName.SearchQuery]: CommandSpec<SearchQueryRequest, SearchQueryResponse>
   [CommandName.PluginsList]: CommandSpec<EmptyRequest, PluginsResponse>
   [CommandName.ControlStatus]: CommandSpec<EmptyRequest, ControlStatusResponse>
@@ -906,6 +940,15 @@ export interface CommandMap {
   [CommandName.WindowClose]: CommandSpec<EmptyRequest, null>
   /** Writes an error in the window to the main log. */
   [CommandName.LogRendererError]: CommandSpec<LogRendererErrorRequest, null>
+  [CommandName.MenuBarGet]: CommandSpec<EmptyRequest, MenuBarResponse>
+  [CommandName.MenuBarOpenTask]: CommandSpec<MenuBarOpenTaskRequest, null>
+  /** Hides the menu bar popover and brings Glade's window up, opening one when there's none (Open Glade). */
+  [CommandName.MenuBarOpenGlade]: CommandSpec<EmptyRequest, null>
+  /** Hides the menu bar popover (Esc). */
+  [CommandName.MenuBarHide]: CommandSpec<EmptyRequest, null>
+  /** Quits Glade (the menu bar popover's Quit). */
+  [CommandName.MenuBarQuit]: CommandSpec<EmptyRequest, null>
+  [CommandName.MenuBarFit]: CommandSpec<MenuBarFitRequest, null>
 }
 
 export type CommandRequest<C extends CommandName> = CommandMap[C]['request']
@@ -941,9 +984,11 @@ export enum EventType {
   TerminalCleared = 'terminal.cleared',
   MenuCommand = 'menu.command',
   SettingsChanged = 'settings.changed',
+  ModelsChanged = 'models.changed',
   PluginsChanged = 'plugins.changed',
   PluginStatusChanged = 'plugin.statusChanged',
   ControlChanged = 'control.changed',
+  MenuBarChanged = 'menuBar.changed',
 }
 
 export interface UiStateChangedEvent {
@@ -1140,6 +1185,12 @@ export interface SettingsChangedEvent {
   readonly settings: Settings
 }
 
+/** A session reported a different list of models from the SDK. Carries them all as they now are. */
+export interface ModelsChangedEvent {
+  readonly type: EventType.ModelsChanged
+  readonly models: readonly ModelChoice[]
+}
+
 /**
  * The plugins changed: one was turned on or off, or reading the plugins folder found it changed (a plugin added,
  * removed or edited). Carries them all as they now are.
@@ -1164,6 +1215,15 @@ export interface PluginStatusChangedEvent {
 export interface ControlChangedEvent {
   readonly type: EventType.ControlChanged
   readonly status: ControlStatus
+}
+
+/**
+ * What's in flight changed: a task started or stopped working or needing you, or a notification was sent. Sent to the
+ * menu bar popover only, while it's open or hidden, with the whole snapshot as it now is.
+ */
+export interface MenuBarChangedEvent {
+  readonly type: EventType.MenuBarChanged
+  readonly snapshot: MenuBarSnapshot
 }
 
 /** Everything main broadcasts to the windows. */
@@ -1195,9 +1255,11 @@ export type GladeEvent =
   | TerminalClearedEvent
   | MenuCommandEvent
   | SettingsChangedEvent
+  | ModelsChangedEvent
   | PluginsChangedEvent
   | PluginStatusChangedEvent
   | ControlChangedEvent
+  | MenuBarChangedEvent
 
 export type EventListener = (event: GladeEvent) => void
 

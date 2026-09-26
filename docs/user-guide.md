@@ -17,6 +17,7 @@ New here? The [README](../README.md) says what Glade is. The [docs index](README
 - [The task header, done and reopening](#the-task-header-done-and-reopening)
 - [The sidebar](#the-sidebar)
 - [Knowing when a task needs you](#knowing-when-a-task-needs-you)
+- [Glade in the menu bar](#glade-in-the-menu-bar)
 - [The right panel](#the-right-panel)
 - [The terminal](#the-terminal)
 - [Permissions](#permissions)
@@ -100,8 +101,13 @@ inside that folder. Edit it to suit you; Glade never changes a `CLAUDE.md` that 
 
 The **input bar** under the chat sets how this task runs:
 
-- **Model:** Opus 5.5, Sonnet 5 or Haiku 4.5.
-- **Effort:** Low, Medium, High or Max: how long the agent thinks before acting.
+- **Model:** the models your Claude Code login offers, as Claude Code names them (e.g. Default (recommended), Opus,
+  Sonnet, Haiku). Glade learns the list each time an agent starts and remembers it, so it's there offline and after a
+  relaunch; until the first agent has started, it offers Opus 5.5, Sonnet 5 and Haiku 4.5.
+- **Effort:** how long the agent thinks before acting: Low, Medium, High, Extra high or Max, as far as the model
+  supports them. Some models, like Haiku, take no effort, and the picker hides. Switch to a model that doesn't offer
+  the task's effort and the effort moves to the model's default (High, where it has it), and a toast says so. A model
+  with no effort keeps the task's for the next model that has one.
 - **Permissions:** Allow all, or Ask before edits and commands (see [Permissions](#permissions)).
 - **Context meter**, at the right: how full the task's context is. Click it to see where it compacts by itself, and
   for **Compact now** (or press ⌘⇧K). Long tasks compact automatically; the chat marks where, and the full chat and
@@ -118,12 +124,15 @@ You can run as many tasks at once as you like. Switching tasks never interrupts 
 
 The chat shows your messages and the agent's **final reply** for each turn. Everything in between (tool calls and the
 agent's working notes) goes to the Tool calls tab. Under each reply, a line says how long the turn took and how many
-files it changed; click **N tool calls** to see that turn's calls.
+files it changed; click **N tool calls** to see that turn's calls. The header card and the input bar stay put as you
+scroll: the chat passes under them.
 
 - **Sending while it works queues.** A message sent while the agent is working waits in a numbered queue above the input
   and goes in as soon as the agent finishes its current step. Edit a queued message with its pencil (or **↑** in an
   empty input for the last one), or remove it. There's no "send now" and no reordering.
-- **Stop:** the Stop button, or **⌘.**, ends the turn. It also withdraws an open question or permission card.
+- **Stop:** the Stop button, or **⌘.**, ends the turn. It also withdraws an open question or permission card. It
+  stops only the turn: subagents and watchers the agent left running in the background carry on, and you stop each
+  one from its row in the Subagents or Watchers tab.
 - **Questions:** when a choice is yours, the agent asks it on a **question card** in the chat, with options to pick,
   pills or a line of text, and its turn waits however long you take. Options and pills that don't fit on one row wrap
   onto more rows, up to three options to a row. Click through the card, or use the keyboard (the digits 1 – 9 pick an
@@ -139,7 +148,8 @@ files it changed; click **N tool calls** to see that turn's calls.
 **When something goes wrong:**
 
 - An API error that Claude Code's own retries can't get past stops the task with a card saying what happened, with
-  **Retry**, **Retry with another model** and **Show details**.
+  **Retry**, **Retry with another model** and **Show details**. So does Claude Code failing to start, with the reason it
+  gave, such as a missing workspace folder.
 - Hitting your **usage limit**, or losing the network, pauses the affected tasks behind one banner across the top. They
   resume by themselves when the limit resets or the network is back; **Switch model** resumes them now on another model.
   Messages you send meanwhile wait in the queue.
@@ -188,6 +198,31 @@ A task you aren't looking at can still need you. When its agent replies, asks a 
 Opening a task marks it read; ⌘⇧U marks it unread again. Notifications are silent by default; Settings ›
 Notifications turns them off or their sound on. Focus and Do Not Disturb are up to macOS.
 
+## Glade in the menu bar
+
+Glade keeps an icon in the macOS menu bar, at the top right, so you can see what's in flight without switching to it.
+It's Glade's mark in the menu bar's own colour, light or dark:
+
+- while tasks need you, **how many** shows beside it;
+- while any agent is working, it **pulses** gently (with Reduce motion on in macOS, it holds still).
+
+Click it for a list, in every workspace:
+
+- **Needs you:** each task waiting on you, its workspace, and why: asking a question, waiting for permission, stopped
+  on an error, or a reply waiting.
+- **Working:** each task whose agent is working, its status, its todo progress (`3/7` and a thin bar) and how long its
+  turn has run.
+- **Recent:** the last few notifications Glade sent, and how long ago. They're kept, so they're still there after a
+  relaunch.
+
+A section only shows while it has something in it; with nothing at all, the list says "Nothing in flight". The list
+keeps up while it's open. Click a row to open Glade on that task, in its workspace. **Open Glade** brings the window
+up and **Quit** quits. Esc, or clicking anywhere else, closes the list.
+
+![The menu bar list: two tasks that need you, one working with its todo progress, and recent notifications](images/guide/menu-bar.png)
+
+Settings › General › **Show Glade in the menu bar** turns the icon off, and on again (it's on to begin with).
+
 ## The right panel
 
 Six tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Subagents · Watchers** (⌘⌥1 – ⌘⌥6). ⌘⌥B hides
@@ -199,8 +234,11 @@ the panel; drag its edge to resize it.
 - **Files:** the files the task changed (with a blue dot) and read. Each opens in a tab, in a read-only viewer with line
   numbers and syntax colours; Markdown has a Preview. **Open in editor** (⌘⇧E) opens the file in the app macOS uses
   for it, and ⌘W, with the focus in the panel, closes the tab. The agent can open a file here for you.
-- **Todos:** the agent's own checklist, as it keeps it, with how many are done. The task's row in the sidebar shows the
-  same progress (`3/7`, or a check once all are done); hover it to see what the agent is working on.
+- **Todos:** the agent's own checklist, as it keeps it, with how many are done. The items come in three groups: what
+  the agent is working on now, then what's done (the most recently finished first, each with when it was finished,
+  like `4m ago`; hover it for the exact time), then what it hasn't started. Items move between the groups as the agent
+  works. The task's row in the sidebar shows the same progress (`3/7`, or a check once all are done); hover it to see
+  what the agent is working on.
 - **Artifacts:** the files the agent named as its deliverables, as cards with **Open**, **Copy** and **Reveal in
   folder**. They stay after the task is done.
 - **Subagents:** one row per subagent, running ones first, with what it's doing now, how long it's run and its tool
@@ -252,8 +290,8 @@ A card left open when Glade quits is still there after the relaunch; answering i
 
 | Section | What's there |
 |---|---|
-| General | Nothing yet. |
-| Agent | Defaults for new tasks: **Model**, **Effort** and **Permissions** (Ask first or Allow all; Allow edits isn't available yet). **Status summary**: have the agent rewrite the task's status after every turn. **Task titles**: have the agent name the task from your first message. |
+| General | **Show Glade in the menu bar**: the icon with what needs you and what's working (see [Glade in the menu bar](#glade-in-the-menu-bar)). On to begin with. |
+| Agent | Defaults for new tasks: **Model** and **Effort**, from the same list as the input bar's pickers (Effort shows only the levels the model supports, and hides for one with none), and **Permissions** (Ask first or Allow all; Allow edits isn't available yet). **Status summary**: have the agent rewrite the task's status after every turn. **Task titles**: have the agent name the task from your first message. |
 | Notifications | **Notifications** on or off, and **Sound**. |
 | Appearance | Nothing yet: Glade has one theme, dark. |
 | Keyboard | Every shortcut, and a way to change it (below). |
@@ -457,8 +495,18 @@ run your login shell.
 
 ### The first message fails
 
-Check that Claude Code works on its own: run `claude` in a terminal and make sure you're logged in. Then look in the log
-for the `agent` and `runner` lines of that task.
+When Claude Code can't start at all, the error card says why when Claude Code does: the workspace folder is missing,
+there's no shell to run commands with, your organization's settings or gateway refused it, and so on. **Show details**
+shows what it printed. Fix that (for a missing folder, put it back or open the right one as a workspace), then
+**Retry**.
+
+Otherwise, check that Claude Code works on its own: run `claude` in a terminal and make sure you're logged in. Then look
+in the log for the `agent` and `runner` lines of that task. What the Claude Code process printed to its error output is
+there too, as `agent stderr` lines:
+
+```sh
+grep '"msg":"agent stderr' ~/Library/Logs/glade/main.log
+```
 
 ### Where your data lives
 

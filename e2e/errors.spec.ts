@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
+import { STARTUP_FAILURE_ERROR } from '../src/main/agent/scripts'
 import { expect, test } from './fixtures'
 import { chat, firstRun, inputBar, taskHeader, taskList, taskPanel } from './selectors'
 
@@ -70,11 +71,37 @@ test('Retry with another model picks the model, then retries on it', async ({ la
   await startFailingTask(window)
   await expectStoppedByError(window)
   const bar = inputBar(window)
-  await expect(bar.setting('Model')).toHaveAccessibleName('Model: Opus 5.5')
+  // The session has reported the SDK's models: the task's Opus 5.5 is its default.
+  await expect(bar.setting('Model')).toHaveAccessibleName('Model: Default (recommended)')
 
   await chat(window).errorButton('Retry with another model').click()
-  await window.getByRole('menuitemradio', { name: 'Sonnet 5', exact: true }).click()
+  await window.getByRole('menuitemradio', { name: 'Sonnet', exact: true }).click()
 
   await expectRecovered(window)
-  await expect(bar.setting('Model')).toHaveAccessibleName('Model: Sonnet 5')
+  await expect(bar.setting('Model')).toHaveAccessibleName('Model: Sonnet')
+})
+
+test('a session Claude Code can’t start says why on the card, with what it printed in the details', async ({
+  launch,
+  tempFolder,
+}) => {
+  const root = join(tempFolder(), 'acme-api')
+  mkdirSync(root)
+  const { window } = await launch({ agentScript: 'fails-to-start', chosenFolder: root })
+  await startFailingTask(window)
+
+  const { errorCard, agentReplies } = chat(window)
+  await expect(errorCard).toContainText('The agent stopped')
+  await expect(errorCard).toContainText('The workspace folder is missing, so Claude Code couldn’t start in it.')
+  await expect(errorCard).toContainText('Nothing is lost: the chat, tool log and files are as they were.')
+  await expect(agentReplies).toHaveCount(0)
+  await expect(taskHeader(window).stateDot).toHaveAccessibleName('Active · stopped by an error')
+  const row = taskList(window).rows('Active').first()
+  await expect(row).toContainText('Error: Claude Code couldn’t start · retry?')
+  await expect(taskList(window).dot(row)).toHaveAttribute('data-state', 'error')
+  // It never reached the API: no failed API row.
+  await expect(taskPanel(window).call(/API/)).toHaveCount(0)
+
+  await chat(window).errorButton('Show details').click()
+  await expect(chat(window).errorDetails).toHaveText(STARTUP_FAILURE_ERROR)
 })

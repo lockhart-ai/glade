@@ -16,9 +16,10 @@ its PR, sends back fixes, and approves and merges it. This SOP starts simple and
    docs (`docs/keymap.md`, `docs/context-menus.md`, `docs/model-surface.md`, `docs/control-api.md`,
    `docs/plugin-api.md`), the README and the docs index. If it changes how anything looks, update the screenshots that
    show it too: the design screens in `docs/design/` and the images in the README and user guide.
-4. **Push up a PR.** Every `gh` call goes through `node scripts/gh-team.mjs <gh args>`. Title `<id>: <issue title>`.
-   The body is brief and ends at `Closes #N`, with no "Generated with Claude Code" footer or other attribution lines
-   (commit messages keep their Co-Authored-By trailer):
+4. **Push up a PR.** Every `gh` call goes through `node scripts/gh-team.mjs <gh args>`. Open it as a draft
+   (`pr create --draft`) and don't mark it ready: the supervisor does that once its media is published. Title
+   `<id>: <issue title>`. The body is brief and ends at `Closes #N`, with no "Generated with Claude Code" footer or
+   other attribution lines (commit messages keep their Co-Authored-By trailer):
 
    ```
    Because:
@@ -39,6 +40,11 @@ its PR, sends back fixes, and approves and merges it. This SOP starts simple and
 
 Review fixes go on the same branch as new commits. If you conflict with `main`, merge `origin/main` in; never rebase or
 force-push.
+
+Stay inside the repo. Only read and search inside your worktree, `/tmp` and paths your brief names; never run `find`,
+`grep -r`, `ls`, `du` or `mdfind` over the home folder (`~`) or other folders outside those. Walking `~` touches
+Desktop, Documents, Downloads and Photos and pops macOS privacy prompts on Jared's screen. If you need something from
+outside, ask the supervisor.
 
 ### Tests
 
@@ -80,6 +86,8 @@ force-push.
   merges with an empty Screenshots or Recordings section. Publish with `node scripts/publish-media.mjs <N> <folder>`
   (`--dry-run` first to check the new body). It pushes to the orphan `screenshots` branch and rewrites the PR's
   Screenshots and Recordings sections.
+- **Mark it ready last.** Kittens open PRs as drafts, so a draft is still in progress and a non-draft PR always has its
+  media. Publish the media, review, then mark it ready with `node scripts/gh-team.mjs pr ready <N>` before approving.
 - **Merge** by approving, then queueing with `node scripts/gh-team.mjs pr merge <N>`. Don't use `--auto`: it doesn't
   enqueue a PR that's already mergeable.
 - **After every merge**, check the open PRs and the merge queue: others may now conflict or need re-queueing.

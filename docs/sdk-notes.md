@@ -389,6 +389,20 @@ receives `compact_summary`. See §5.
     (15 minutes later without one), or once the network is back. See `src/main/agent/pauses.ts`. Not yet seen live.
 - **[verified] Process failure:** if the binary can't start (e.g. a missing `cwd`), the iterator **throws** and no
   `result` arrives. Glade must catch it and mark the task errored.
+- **[docs] Startup failures with a reason (#280):** with `CLAUDE_CODE_STARTUP_FAILURE_RESULTS=1` in the session's
+  environment, a start that fails for a known reason first writes a zeroed `error_during_execution` result carrying
+  `startup_failure_reason` (`SDKStartupFailureReason`: `cwd_unavailable`, `shell_tool_missing`, `proxy_invalid`,
+  `temp_dir_unusable`, the `org_*`, `gateway_*` and `worktree_*` checks, `managed_settings_invalid`,
+  `remote_settings_required_unavailable`, `session_held_by_background`, `cli_version_too_old`, `bypass_root`), with
+  `errors` holding the same text as stderr; then the process exits. A failure with no known cause still ends with the
+  process alone. From `sdk.d.ts` only: not probed, since a live start failing would need a broken environment.
+  - **Decided:** Glade sets the variable (`SESSION_ENV`). The runner stops the task on such a result with a `startup`
+    error whose code is the reason; the card words each reason (`src/shared/startupFailure.ts`), naming one it doesn't
+    know as the SDK gives it, and **Show details** shows the `errors` text. The process exiting afterwards changes
+    nothing, as the turn has already ended.
+- **[docs] Diagnostics (#280):** the `stderr` option hears the Claude process's error output; Glade logs it to the
+  task's log, rate-limited (`src/main/agent/stderr-log.ts`, `docs/logs.md`). `CLAUDE_AGENT_SDK_CLIENT_APP` names the
+  host in the User-Agent: Glade sets `glade/<version>`.
 
 ### Interrupt [verified]
 
@@ -517,9 +531,32 @@ query({ prompt, options: { mcpServers: { glade } } });
   `await q.applyFlagSettings({ effortLevel: "low" })` (`null` resets it). We verified this through the `PreToolUse`
   hook input `effort.level`, which went `medium` → `low` between turns. Haiku 4.5 reports no effort (the field was
   absent).
-- **What the pickers offer:** `q.supportedModels()` / `initializationResult().models` list each model with
+- **What the pickers offer [verified]:** `q.supportedModels()` / `initializationResult().models` list each model with
   `supportsEffort`, `supportedEffortLevels` (`low|medium|high|xhigh|max`), `supportsAdaptiveThinking` and
-  `displayName`. Build the pickers from this list, not a hard-coded one.
+  `displayName`. Glade builds its pickers from this list (#277).
+
+  A probe (SDK 0.3.281, streaming input, no message sent, so no tokens spent) got the same list from both calls, as
+  soon as the process had started. Each entry, trimmed:
+
+  ```json
+  { "value": "sonnet", "resolvedModel": "claude-sonnet-5", "displayName": "Sonnet",
+    "description": "Sonnet 5 · Efficient for routine tasks", "supportsEffort": true,
+    "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"],
+    "supportsAdaptiveThinking": true, "supportsAutoMode": true }
+  ```
+
+  - `value` is what `model` and `setModel` take: mostly **aliases** (`default`, `opus[1m]`, `sonnet`, `haiku`), some
+    full ids. `resolvedModel` is the full id it stands for (`claude-haiku-4-5-20251001`, dated), so a task saved with
+    `claude-sonnet-5` matches the `sonnet` row by it. Two rows can resolve to the same model (`default` and
+    `opus[1m]` were both `claude-opus-5-5[1m]`).
+  - `displayName` is short (`Default (recommended)`, `Sonnet`); the version is in `description`.
+  - **Haiku leaves both effort fields out**: no effort at all. Opus and Sonnet listed all five levels, `xhigh`
+    included.
+  - The list depends on the login: it had a model only some accounts get.
+  - No field names a model's default effort. Glade uses High where the model has it, else its lowest level.
+
+  Glade reads `initializationResult().models` (it's cached; `supportedModels()` asks again) once each session's process
+  has started, keeps it in SQLite (`sdk_models`), and offers the built-in list until the first session reports one.
 - `thinking: {type:"adaptive"|"enabled"|"disabled"}` is session-level. `setMaxThinkingTokens` is deprecated.
 
 **Implication:** both pickers can change mid-session. Apply the change just before delivering the next message, never
@@ -581,13 +618,50 @@ The context meter should show `autoCompactThreshold` from `getContextUsage()`.
   completed.
 - It returns a receipt `{ still_queued: string[] }`, the uuids of pushed messages that will still run. Setting
   `cancel_queued` drops them as well (capability `interrupt_cancel_queued_v1`) [docs].
-- Background tasks get killed on interrupt unless `perTaskStopAffordance: true` [docs].
+- Background subagents get killed on interrupt unless `perTaskStopAffordance: true` [verified, below].
 - `q.close()` kills the subprocess outright. Use it to shut a task down, not to stop a turn.
 - Watch out: the Bash tool itself refuses a standalone `sleep N` and may push long commands into the background, where
   they then report through `task_*` events [verified].
 
 **Implication:** the Stop button maps to `interrupt()`. Record the aborted partial text (`aborted: true`) in the tool
 log or as a truncated reply, and show the turn as stopped rather than failed (`terminal_reason` `aborted_*`).
+
+### What an interrupt leaves running [verified]
+
+Probed for #276 on SDK 0.3.281 (Claude Code 2.1.281), with Haiku in a throwaway folder, streaming input mode and
+`bypassPermissions`, once without `perTaskStopAffordance` and once with it. One turn started a `Bash` with
+`run_in_background` (`sleep 90 && …`), an `Agent` with `run_in_background` (a subagent making ten foreground
+`sleep 6 && echo N` calls, one after another) and a `Monitor` (a tick every 20 s), and replied "launched". The next
+turn was interrupted as it started streaming text, with all three still running. Seconds from the start:
+
+```
+without perTaskStopAffordance
+19.3  interrupt()  → { still_queued: [] }
+19.3  system/background_tasks_changed  { tasks: ["bg sleeper", "ticker"] }       ← the subagent gone
+19.3  system/task_updated       { task_id: "ad11…", patch: { status: "killed" } }
+19.3  system/task_notification  { task_id: "ad11…", status: "stopped", summary: "Slow sub" }
+19.3  result/error_during_execution  { terminal_reason: "aborted_streaming" }
+27.3  (8 s on) still running: the background Bash and the Monitor; stopTask then stopped each
+
+with perTaskStopAffordance: true
+17.9  interrupt()  → { still_queued: [] }
+17.9  result/error_during_execution  { terminal_reason: "aborted_streaming" }    ← nothing else
+20.8  system/task_started  { task_type: "local_bash", owned_by_subagent: true }  ← the subagent's next call
+25.9  (8 s on) still running: all three; stopTask then stopped each, as usual
+```
+
+- **Without the declaration, an interrupt kills every running background subagent**, with the turn: `task_updated`
+  `killed` and a `stopped` `task_notification` whose summary is its description, as `stopTask` gives (no wake turn
+  followed it). A background command a subagent had started (`owned_by_subagent`) was killed too, in an earlier run
+  where its subagent had already ended.
+- The session's own background `Bash` and `Monitor` survived the interrupt either way, as §11 saw.
+- **With `perTaskStopAffordance: true`, the interrupt ends only the turn.** Every background task carried on (the
+  subagent made its next call three seconds later), and `stopTask` still stopped each one.
+
+**Decided (#276):** Glade passes `perTaskStopAffordance: true` (`sdkOptions` in `src/main/agent/sdk-backend.ts`): it
+has a Stop of its own for each background subagent and watcher (the Subagents and Watchers tabs, which call
+`stopTask`), so Stop on a turn stops only the turn. The scripted backend models both behaviours from the options Glade
+passes (`interruptStopsSubagents` in `src/main/agent/scripted-session.ts`).
 
 ## 8. Resume [verified]
 
