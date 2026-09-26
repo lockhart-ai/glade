@@ -47,6 +47,7 @@ import {
   ASKS_PERMISSION,
   DELETE_LOCAL_COPIES_QUESTION,
   FOLLOW_UPS,
+  PARALLEL_SUBAGENTS,
   PERMISSION_AT_QUIT,
   RELEASE_NOTES_QUESTIONS,
   S3_PLAN,
@@ -288,10 +289,11 @@ describe('AGENT_SCRIPTS', () => {
     await send(agent, 'Draft the 2.4 release notes.')
 
     const agents = calls().filter((call) => call.name === 'Agent')
-    expect(agents.map((call) => [call.input.description, call.state])).toEqual([
-      ['API changes', ToolCallState.Running],
-      ['Dashboard changes', ToolCallState.Running],
-      ['Check links in the 2.3 notes', ToolCallState.Done],
+    // Each running one says what it's doing now; the link check's late summary changed nothing.
+    expect(agents.map((call) => [call.input.description, call.state, call.progressSummary])).toEqual([
+      ['API changes', ToolCallState.Running, PARALLEL_SUBAGENTS.apiSummary],
+      ['Dashboard changes', ToolCallState.Running, PARALLEL_SUBAGENTS.dashboardSummary],
+      ['Check links in the 2.3 notes', ToolCallState.Done, null],
     ])
     const [api, dashboard, links] = agents.map((call) => call.toolUseId)
     const nested = (parent: string | undefined): ToolEvent[] =>
@@ -323,6 +325,7 @@ describe('AGENT_SCRIPTS', () => {
         .filter((call) => call.name === 'Agent')
         .map((call) => call.state),
     ).toEqual([ToolCallState.Error, ToolCallState.Error, ToolCallState.Done])
+    expect(calls().filter((call) => call.progressSummary !== null)).toEqual([])
   })
 
   it('long-running: keeps working, with its command running, until stopped', async () => {

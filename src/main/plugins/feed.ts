@@ -201,6 +201,8 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
   }
 
   const toolCall = (call: ToolCallEvent, appended: boolean): void => {
+    // A call changes while it runs only when its subagent says what it's doing now, which plugins aren't told.
+    if (!appended && call.state === ToolCallState.Running) return
     const root = rootOf(call.taskId)
     if (appended && call.parentToolUseId !== null) {
       parents.set(call.toolUseId, call.parentToolUseId)

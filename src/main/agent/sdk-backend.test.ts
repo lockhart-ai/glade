@@ -94,6 +94,7 @@ it('runs the session in the workspace root, allowing all, with the workspace and
     mcpServers: {},
     disallowedTools: ['AskUserQuestion'],
     forwardSubagentText: true,
+    agentProgressSummaries: true,
   })
 })
 

@@ -43,6 +43,7 @@ function call(overrides: Partial<ToolCallEvent> = {}): ToolCallEvent {
     finishedAt: null,
     toolUseId: 'use-1',
     parentToolUseId: null,
+    progressSummary: null,
     ...overrides,
   }
 }

@@ -337,6 +337,26 @@ describe('parsing SDK messages', () => {
     expect(warn).toHaveBeenCalledOnce()
   })
 
+  it("reads a running subagent's progress summary, by the tool call that started it, on one line", () => {
+    expect(parse(sdk.subagentProgress('toolu_q', 'aq1', 'Reading the API PRs, newest first'))).toEqual([
+      { kind: AgentEventKind.SubagentProgress, toolUseId: 'toolu_q', summary: 'Reading the API PRs, newest first' },
+    ])
+    expect(parse(sdk.subagentProgress('toolu_q', 'aq1', '  Sorting PRs\n\tinto   features  '))).toEqual([
+      { kind: AgentEventKind.SubagentProgress, toolUseId: 'toolu_q', summary: 'Sorting PRs into features' },
+    ])
+    // Most progress messages only count its calls; a blank summary says nothing either.
+    expect(parse(sdk.subagentProgress('toolu_q', 'aq1'))).toEqual([])
+    expect(parse(sdk.subagentProgress('toolu_q', 'aq1', ' \n '))).toEqual([])
+    // A task no tool call started has no row to show it on; a malformed field is as good as missing.
+    const bare = { type: 'system', subtype: 'task_progress', task_id: 'aq1', summary: 'Reading' }
+    expect(parse(bare)).toEqual([])
+    expect(parse({ ...bare, tool_use_id: 7 })).toEqual([])
+    expect(parse({ ...bare, tool_use_id: 'toolu_q', summary: ['Reading'] })).toEqual([])
+    const { parse: parseLogged, warn } = parser()
+    expect(parseLogged({ type: 'system', subtype: 'task_progress', summary: 'Reading' })).toEqual([])
+    expect(warn).not.toHaveBeenCalled()
+  })
+
   it('reads a task ending, by the tool call that started it', () => {
     const [, notification] = sdk.subagentEnded('toolu_q', 'aq1', 'failed', 'Connection refused.')
     expect(parse(notification)).toEqual([

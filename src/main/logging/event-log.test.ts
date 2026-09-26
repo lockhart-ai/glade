@@ -69,6 +69,7 @@ const TOOL_CALL: ToolCallEvent = {
   finishedAt: null,
   toolUseId: 'toolu_01',
   parentToolUseId: null,
+  progressSummary: null,
 }
 
 const QUESTION_SET: QuestionSet = {

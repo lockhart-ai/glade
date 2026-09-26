@@ -292,6 +292,9 @@ export function sdkOptions(
     disallowedTools: ['AskUserQuestion'],
     // A subagent's own text too, not just its tool calls: the Subagents tab shows the last thing each one said.
     forwardSubagentText: true,
+    // A running subagent's one-line summary of what it's doing now, about every 30 seconds, from a small fork of its
+    // conversation: the line under its name in the Subagents tab (docs/sdk-notes.md, "Subagents").
+    agentProgressSummaries: true,
     // What the session's watchers do, which only its hooks tell (the Watchers tab, docs/sdk-notes.md §13).
     ...(options.hooks === undefined ? {} : { hooks: sdkHooks(options.hooks, options.log ?? SILENT_LOGGER) }),
   }

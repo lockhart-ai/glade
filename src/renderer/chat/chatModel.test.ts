@@ -68,6 +68,7 @@ function toolCall(id: string, turn: number, parentToolUseId: string | null = nul
     finishedAt: null,
     toolUseId: `use-${id}`,
     parentToolUseId,
+    progressSummary: null,
   }
 }
 
@@ -226,6 +227,7 @@ describe('question cards', () => {
     finishedAt: null,
     toolUseId: `use-${id}`,
     parentToolUseId: null,
+    progressSummary: null,
   })
 
   it("shows each where it was asked: after its turn's earlier messages, before later ones and the reply", () => {

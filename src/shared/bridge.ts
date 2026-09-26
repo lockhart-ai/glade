@@ -987,7 +987,10 @@ export interface ToolEventAppendedEvent {
   readonly toolEvent: ToolEvent
 }
 
-/** A tool log entry changed: a tool call's result arrived, or a compaction finished. Carries the whole entry as it now is. */
+/**
+ * A tool log entry changed: a tool call's result arrived, a running subagent's progress summary changed, or a
+ * compaction finished. Carries the whole entry as it now is.
+ */
 export interface ToolEventUpdatedEvent {
   readonly type: EventType.ToolEventUpdated
   readonly toolEvent: ToolEvent
