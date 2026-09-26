@@ -4,6 +4,8 @@ import { taskPanel } from './selectors'
 
 /** How many steps of the resize handle's → narrow the panel from its 440px default to its 320px minimum. */
 const STEPS_TO_NARROWEST = 8
+/** Steps (16px each) past the default width that make room for every tab, Watchers too. */
+const STEPS_PAST_DEFAULT = 6
 
 /** How much of a tab must show to count as whole: scroll positions can be fractional. */
 const WHOLE = 0.99
@@ -40,9 +42,10 @@ test('right panel tabs: a narrow panel scrolls its tabs by chevron and wheel, an
   const right = panel.panel.getByRole('button', { name: 'Scroll tabs right' })
   const chevrons = panel.panel.getByRole('button', { name: /^Scroll tabs/ })
 
-  // At its default width every tab fits: no chevrons.
+  // At its default width all but the last tab fit: Watchers is past the right end, behind a chevron there.
   await expect(panel.tab('Subagents 1')).toBeInViewport({ ratio: WHOLE })
-  await expect(chevrons).toHaveCount(0)
+  await expect(right).toBeVisible()
+  await expect(left).toHaveCount(0)
 
   // Narrowed to its minimum, the tabs overflow: a chevron at the right, where the rest are, and no scroll bar.
   await panel.resizeHandle.focus()
@@ -64,7 +67,7 @@ test('right panel tabs: a narrow panel scrolls its tabs by chevron and wheel, an
     await expect(right).toHaveCount(0, { timeout: 1000 })
   }).toPass()
   await expect(left).toBeVisible()
-  await expect(panel.tab('Subagents 1')).toBeInViewport({ ratio: WHOLE })
+  await expect(panel.tab('Watchers')).toBeInViewport({ ratio: WHOLE })
 
   // The wheel turned up scrolls it back to the start, where only the right chevron shows.
   await row.hover()
@@ -79,11 +82,11 @@ test('right panel tabs: a narrow panel scrolls its tabs by chevron and wheel, an
   await window.mouse.wheel(-1000, 0)
   await expect.poll(() => scrollLeftOf(row)).toBe(0)
 
-  // ⌘⌥5 picks Subagents, off past the right edge: the row scrolls it into view, clear of the chevrons.
-  await window.keyboard.press('Meta+Alt+Digit5')
-  await expect(panel.tab('Subagents 1')).toHaveAttribute('aria-selected', 'true')
-  await expect(panel.tab('Subagents 1')).toBeInViewport({ ratio: WHOLE })
-  await expect.poll(() => clearOfChevrons(strip, panel.tab('Subagents 1'), chevrons)).toBe(true)
+  // ⌘⌥6 picks Watchers, off past the right edge: the row scrolls it into view, clear of the chevrons.
+  await window.keyboard.press('Meta+Alt+Digit6')
+  await expect(panel.tab('Watchers')).toHaveAttribute('aria-selected', 'true')
+  await expect(panel.tab('Watchers')).toBeInViewport({ ratio: WHOLE })
+  await expect.poll(() => clearOfChevrons(strip, panel.tab('Watchers'), chevrons)).toBe(true)
 
   // ⌘⌥1 picks Tool calls, back at the start: it scrolls back.
   await window.keyboard.press('Meta+Alt+Digit1')
@@ -94,12 +97,12 @@ test('right panel tabs: a narrow panel scrolls its tabs by chevron and wheel, an
   // The arrow keys move along the row, each tab scrolling into view as it's picked.
   await panel.tab('Tool calls 6').focus()
   await window.keyboard.press('ArrowLeft')
-  await expect(panel.tab('Subagents 1')).toBeFocused()
-  await expect.poll(() => clearOfChevrons(strip, panel.tab('Subagents 1'), chevrons)).toBe(true)
+  await expect(panel.tab('Watchers')).toBeFocused()
+  await expect.poll(() => clearOfChevrons(strip, panel.tab('Watchers'), chevrons)).toBe(true)
 
-  // Widened back past the tabs (the same steps from the minimum, 16px each), the chevrons go.
+  // Widened back past the tabs (16px a step, past the default), the chevrons go.
   await panel.resizeHandle.focus()
-  for (let step = 0; step < STEPS_TO_NARROWEST; step++) await window.keyboard.press('ArrowLeft')
-  await expect.poll(async () => (await panel.panel.boundingBox())?.width).toBe(448)
+  for (let step = 0; step < STEPS_TO_NARROWEST + STEPS_PAST_DEFAULT; step++) await window.keyboard.press('ArrowLeft')
+  await expect.poll(async () => (await panel.panel.boundingBox())?.width).toBe(448 + 16 * STEPS_PAST_DEFAULT)
   await expect(chevrons).toHaveCount(0)
 })
