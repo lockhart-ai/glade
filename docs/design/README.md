@@ -1,7 +1,7 @@
 # Design
 
-Screens are 1920×1200 at 1× (the lifecycle board and the menu bar are 1440×900; the interaction map is 3200×1720). Sample data is
-illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
+Screens are 1920×1200 at 1× (the lifecycle board and the menu bar are 1440×900; the interaction map is 3200×1720).
+Sample data is illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
 
 | Screen | What it shows | |
 |---|---|---|
