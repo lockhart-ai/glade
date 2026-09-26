@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AgentErrorKind, TaskErrorSource, type TaskError } from './domain'
+import { StartupFailureReason } from './startupFailure'
 import {
   apiErrorLabel,
   apiRowArgument,
@@ -45,6 +46,10 @@ describe('errorHeadline and errorStatusLine', () => {
     [error({ kind: AgentErrorKind.UsageLimit }), 'usage limit reached'],
     [error({ source: TaskErrorSource.Session, kind: AgentErrorKind.Permanent }), 'the agent process stopped'],
     [error({ source: TaskErrorSource.Turn, kind: AgentErrorKind.Permanent }), 'the turn failed'],
+    [
+      error({ source: TaskErrorSource.Startup, kind: AgentErrorKind.Permanent, code: 'cwd_unavailable' }),
+      'Claude Code couldn’t start',
+    ],
     [null, 'the agent stopped'],
   ])('says what went wrong in a few words', (stopped, headline) => {
     expect(errorHeadline(stopped)).toBe(headline)
@@ -62,9 +67,35 @@ describe('errorOpening', () => {
     [error({ kind: AgentErrorKind.Offline }), { lead: 'Glade couldn’t reach the API.', label: null }],
     [error({ source: TaskErrorSource.Session }), { lead: 'The agent’s process stopped unexpectedly.', label: null }],
     [error({ source: TaskErrorSource.Turn }), { lead: 'The turn ended on an error.', label: null }],
+    [
+      error({ source: TaskErrorSource.Startup, status: null, code: 'cwd_unavailable' }),
+      { lead: 'The workspace folder is missing, so Claude Code couldn’t start in it.', label: null },
+    ],
+    [
+      error({ source: TaskErrorSource.Startup, status: null, code: 'some_new_reason' }),
+      { lead: 'Claude Code couldn’t start: ', label: 'some_new_reason' },
+    ],
+    [
+      error({ source: TaskErrorSource.Startup, status: null, code: null }),
+      { lead: 'Claude Code couldn’t start.', label: null },
+    ],
     [null, { lead: 'The agent stopped on an error.', label: null }],
   ])('says what happened', (stopped, opening) => {
     expect(errorOpening(stopped)).toEqual(opening)
+  })
+
+  it.each(Object.values(StartupFailureReason))('says what stopped Claude Code starting: %s', (reason) => {
+    const opening = errorOpening(error({ source: TaskErrorSource.Startup, status: null, code: reason }))
+    expect(opening.label).toBeNull()
+    expect(opening.lead).toMatch(/^[A-Z].*\.$/)
+    expect(opening.lead).not.toContain(reason)
+  })
+
+  it('says something different for each reason Claude Code gives', () => {
+    const leads = Object.values(StartupFailureReason).map(
+      (reason) => errorOpening(error({ source: TaskErrorSource.Startup, status: null, code: reason })).lead,
+    )
+    expect(new Set(leads).size).toBe(leads.length)
   })
 })
 

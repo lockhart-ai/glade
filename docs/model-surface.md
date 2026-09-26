@@ -44,8 +44,9 @@ it's shown in the accent blue; every other line is shown muted. Nothing else is 
 ```
 
 **The card** (P4-02, `src/renderer/questions/QuestionCard.tsx`): each question with its option cards (radios, or
-checkboxes with `multiple`), pills (the same) or text field, "N of M answered" and Send answers, which is enabled once
-every question but an optional text one has an answer. Keyboard: Tab moves between the questions (one stop each) and
+checkboxes with `multiple`; at least 160px wide and at most three to a row, wrapping onto more rows), pills (the same,
+wrapping onto more rows) or text field, "N of M answered" and Send answers, which is enabled once every question but an
+optional text one has an answer. A word too long for its line breaks inside its option or pill. Keyboard: Tab moves between the questions (one stop each) and
 Send, ← → between a question's options, ↑ ↓ between questions, 1–9 pick the focused question's options, Space the
 focused one, and ↵ sends. Once closed, the card shows each answer, or that it was answered in your words, or that it
 was withdrawn. A set opened in a task you aren't viewing marks it unread and sends a notification, as a final reply

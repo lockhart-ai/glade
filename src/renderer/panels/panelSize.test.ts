@@ -55,7 +55,7 @@ describe('panelSize', () => {
 
 describe('sizeBounds', () => {
   it('gives a panel the room there is, up to its own maximum', () => {
-    expect(sizeBounds(Panel.RightPanel, 1540 - MIN_CHAT_WIDTH)).toEqual({ min: MIN_PANEL_WIDTH, max: 1160 })
+    expect(sizeBounds(Panel.RightPanel, 1540 - MIN_CHAT_WIDTH)).toEqual({ min: MIN_PANEL_WIDTH, max: 1144 })
     expect(sizeBounds(Panel.BottomBar, 716.4)).toEqual({ min: MIN_BOTTOM_BAR_HEIGHT, max: 716 })
     expect(sizeBounds(Panel.Sidebar, 352)).toEqual({ min: MIN_SIDEBAR_WIDTH, max: 352 })
     expect(sizeBounds(Panel.Sidebar, 1172)).toEqual({ min: MIN_SIDEBAR_WIDTH, max: MAX_SIDEBAR_WIDTH })
@@ -67,7 +67,7 @@ describe('sizeBounds', () => {
     // The right panel in a 1100px window's task card: 1100 less the outer padding, the sidebar, the gaps and the chat.
     expect(sizeBounds(Panel.RightPanel, 1100 - 16 - 300 - 8 - 2 - 24 - MIN_CHAT_WIDTH)).toEqual({
       min: MIN_PANEL_WIDTH,
-      max: 370,
+      max: 354,
     })
     for (const panel of PANELS) {
       const { min } = panelSize(panel)

@@ -55,9 +55,11 @@ export const MIN_BOTTOM_BAR_HEIGHT = 120
 /**
  * The narrowest the chat column gets while the right panel is wider than its minimum, or the sidebar wider than its
  * own. At the 1100px window minimum this leaves the right panel about its minimum width, and in a 1920px window the
- * panel can reach 08-open-file's 780px and more.
+ * panel can reach 08-open-file's 780px and more. It's the column's width, the header card's and input bar's: the chat
+ * runs `--space-inset` (8px) inside them on each side (#268), so the chat itself keeps 380px, enough for a question's
+ * two option cards to share a row beside its scroll bar (QuestionCard.module.css).
  */
-export const MIN_CHAT_WIDTH = 380
+export const MIN_CHAT_WIDTH = 396
 
 /**
  * The shortest the task card gets, which the bottom bar gives way to: room for the compact header, the input bar and

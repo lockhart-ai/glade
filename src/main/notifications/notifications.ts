@@ -15,6 +15,7 @@ import { BridgeErrorCode } from '../../shared/bridge'
 import { TaskActivity, TaskState, UNTITLED_TASK_TITLE, type Task } from '../../shared/domain'
 import type { AgentRunner } from '../agent/runner'
 import { CommandFailure } from '../bridge/errors'
+import { recordNotification } from '../db/repositories/notifications'
 import { getSettings } from '../db/repositories/settings'
 import { getTask } from '../db/repositories/tasks'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
@@ -117,6 +118,11 @@ export interface ReplyNotificationsOptions {
   readonly openTask: (taskId: string) => void
   /** What a notification's inline reply is sent through, without opening the window. */
   readonly runner: ReplyRunner
+  /**
+   * Called after each notification is sent and noted in the database, for the menu bar popover's Recent section to
+   * show it. Nothing by default.
+   */
+  readonly onSent?: () => void
   /** Where each notification sent, clicked and replied to is logged. Nothing by default. */
   readonly log?: Logger
 }
@@ -124,13 +130,15 @@ export interface ReplyNotificationsOptions {
 /**
  * Notifies each reply it's given with `notifier`, unless notifications are off in the settings, making a sound only
  * when they have it on: its Open task action (or a click) opens the reply's task, and its
- * inline reply is sent to the task (`sendToTask`), leaving the window as it is.
+ * inline reply is sent to the task (`sendToTask`), leaving the window as it is. Each one sent is noted in the database
+ * (`recordNotification`), for the menu bar popover's Recent section, and `onSent` told.
  */
 export function createReplyNotifications({
   db,
   notifier,
   openTask,
   runner,
+  onSent,
   log = SILENT_LOGGER,
 }: ReplyNotificationsOptions): NotifyReply {
   return (taskId, reply) => {
@@ -158,5 +166,7 @@ export function createReplyNotifications({
         }
       },
     })
+    recordNotification(db, { taskId, title: notification.title, body: notification.body })
+    onSent?.()
   }
 }

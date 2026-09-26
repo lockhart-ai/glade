@@ -67,6 +67,11 @@ export enum TaskErrorSource {
   Turn = 'turn',
   /** The agent's process failed, or its session ended, mid-turn. */
   Session = 'session',
+  /**
+   * Claude Code couldn't start the session, for a reason it named (`startup_failure_reason`): the error's `code` is that
+   * reason, e.g. `cwd_unavailable` (`./startupFailure`).
+   */
+  Startup = 'startup',
 }
 
 /** What stopped a task's agent, for the chat's error card and the task list's status line. */

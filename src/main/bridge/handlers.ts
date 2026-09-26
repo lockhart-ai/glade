@@ -49,6 +49,8 @@ import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
 import type { ControlEndpoint } from '../control/endpoint'
+import type { MenuBarCommands } from '../menu-bar/menu-bar'
+import { readMenuBarSnapshot } from '../menu-bar/snapshot'
 
 /**
  * One handler per command, taking the parsed request. A command in `CommandMap` without a handler here, or a handler
@@ -82,6 +84,8 @@ export interface HandlerContext {
   readonly pluginViews: PluginViews
   /** The control API's HTTP endpoint, which follows Settings › Control. */
   readonly endpoint: ControlEndpoint
+  /** What the menu bar popover's page asks of main (`menuBar.*`). Nothing by default: no popover, nothing to do. */
+  readonly menuBar?: MenuBarCommands
   /** Where errors in the window are logged (`log.rendererError`). Nothing by default. */
   readonly log?: Logger
 }
@@ -285,6 +289,28 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.LogRendererError]: (error) => {
       renderer.error('renderer error', { ...error })
+      return null
+    },
+    [CommandName.MenuBarGet]: () => ({ snapshot: readMenuBarSnapshot(db) }),
+    [CommandName.MenuBarOpenTask]: ({ id }) => {
+      requireTask(db, id)
+      context.menuBar?.openTask(id)
+      return null
+    },
+    [CommandName.MenuBarOpenGlade]: () => {
+      context.menuBar?.openGlade()
+      return null
+    },
+    [CommandName.MenuBarHide]: () => {
+      context.menuBar?.hide()
+      return null
+    },
+    [CommandName.MenuBarQuit]: () => {
+      context.menuBar?.quit()
+      return null
+    },
+    [CommandName.MenuBarFit]: ({ height }) => {
+      context.menuBar?.fit(height)
       return null
     },
   }

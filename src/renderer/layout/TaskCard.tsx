@@ -2,8 +2,11 @@ import { useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { Card, ToastAnchor } from '../components'
 import styles from './TaskCard.module.css'
 
-/** The header card's height, which the chat under it pads its top by (see `TaskCard.module.css`). */
+/** The header card's height, which the chat under it clips and pads its top by (see `TaskCard.module.css`). */
 export const TASK_HEADER_HEIGHT_VAR = '--task-header-height'
+
+/** The input bar's height, which the chat under it clips and pads its bottom by (see `TaskCard.module.css`). */
+export const INPUT_BAR_HEIGHT_VAR = '--input-bar-height'
 
 export interface TaskCardProps {
   /** The header card at the top (see `TaskHeader`). */
@@ -21,37 +24,47 @@ export interface TaskCardProps {
   titleBar?: ReactNode
 }
 
-/**
- * Keeps `--task-header-height` on `stage` at the height of `header` as it changes (a task selected or none, a field
- * showing or not), so the chat under the header can pad its top by that much and its first message is never hidden.
- * Measured before the first paint, then on every resize.
- */
-function useHeaderHeight(stage: RefObject<HTMLDivElement | null>, header: RefObject<HTMLDivElement | null>): void {
-  useLayoutEffect(() => {
-    const stageElement = stage.current
-    const headerElement = header.current
-    if (stageElement === null || headerElement === null) return
-    const measure = (): void => {
-      stageElement.style.setProperty(TASK_HEADER_HEIGHT_VAR, `${String(headerElement.offsetHeight)}px`)
-    }
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(headerElement)
-    return () => {
-      observer.disconnect()
-    }
-  }, [stage, header])
+/** Where a floating layer's height is kept: the stage the chat is in, the layer, and the CSS variable. */
+interface LayerHeight {
+  readonly stage: RefObject<HTMLDivElement | null>
+  readonly layer: RefObject<HTMLDivElement | null>
+  readonly variable: string
 }
 
 /**
- * The task card: the header, chat and input bar in a column, with the right panel card beside them. The header card
- * floats over the top of the chat, which scrolls under it. Toasts stand above the input bar, centred on the chat
- * column, so it must be used under a `ToastProvider`.
+ * Keeps `variable` on `stage` at the height of `layer` as it changes (the header: a task selected or none, a field
+ * showing or not; the input bar: its queue, images or field growing), so the chat under the layer can clip and pad
+ * itself by it and its first and last messages are never hidden. Measured before the first paint, then on every resize.
+ */
+function useLayerHeight({ stage, layer, variable }: LayerHeight): void {
+  useLayoutEffect(() => {
+    const stageElement = stage.current
+    const layerElement = layer.current
+    if (stageElement === null || layerElement === null) return
+    const measure = (): void => {
+      stageElement.style.setProperty(variable, `${String(layerElement.offsetHeight)}px`)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(layerElement)
+    return () => {
+      observer.disconnect()
+    }
+  }, [stage, layer, variable])
+}
+
+/**
+ * The task card: the header, chat and input bar in a column, with the right panel card beside them. The header card and
+ * the input bar float over the top and bottom of the chat, which scrolls under them and is cut off halfway under each
+ * (#268, #270). Toasts stand above the input bar, centred on the chat column, so it must be used under a
+ * `ToastProvider`.
  */
 export function TaskCard({ header, chat, inputBar, rightPanel, titleBar }: TaskCardProps): React.JSX.Element {
   const stage = useRef<HTMLDivElement>(null)
   const headerLayer = useRef<HTMLDivElement>(null)
-  useHeaderHeight(stage, headerLayer)
+  const inputLayer = useRef<HTMLDivElement>(null)
+  useLayerHeight({ stage, layer: headerLayer, variable: TASK_HEADER_HEIGHT_VAR })
+  useLayerHeight({ stage, layer: inputLayer, variable: INPUT_BAR_HEIGHT_VAR })
 
   return (
     <Card role="main" aria-label="Task" className={styles.task}>
@@ -68,10 +81,10 @@ export function TaskCard({ header, chat, inputBar, rightPanel, titleBar }: TaskC
           <section aria-label="Chat" className={styles.chat}>
             {chat}
           </section>
-        </div>
-        <div className={styles.inputBar} data-testid="input-bar">
-          <ToastAnchor className={styles.toastAnchor} />
-          {inputBar}
+          <div ref={inputLayer} className={styles.inputBar} data-testid="input-bar">
+            <ToastAnchor className={styles.toastAnchor} />
+            {inputBar}
+          </div>
         </div>
       </div>
       {rightPanel}
