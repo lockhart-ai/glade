@@ -397,7 +397,7 @@ describe('a subagent’s background work (#291)', () => {
       storeWrapper({ watchers: [...WATCHERS], stoppedWatchers }),
     )
 
-    expect(within(row('API changes')).getByRole('img', { name: 'Watching 1 thing' })).toHaveTextContent('1')
+    expect(within(row('API changes')).getByRole('img', { name: '1 watcher running' })).toHaveTextContent('1')
     // Ended work isn't live: no mark.
     expect(within(row('Dashboard changes')).queryByRole('img')).toBeNull()
     expect(screen.queryByRole('group', { name: 'API changes background work' })).toBeNull()

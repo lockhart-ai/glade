@@ -207,8 +207,8 @@ export function subagentsTab(page: Page) {
     summary: (name: string, text: string) => row(name).getByTitle(text, { exact: true }),
     /** A row's log, while it's open. */
     log: (name: string) => panel.getByRole('log', { name: `${name} log` }),
-    /** A row's eye and count of its live background work, named "Watching 2 things". */
-    watching: (name: string) => row(name).getByRole('img', { name: /^Watching/ }),
+    /** A row's eye and count of its live background work, named "2 watchers running". */
+    watching: (name: string) => row(name).getByRole('img', { name: /watchers? running$/ }),
     /** What a subagent left running or scheduled, under its log while it's open: a watcher row each. */
     background: (name: string) => panel.getByRole('group', { name: `${name} background work` }),
   }

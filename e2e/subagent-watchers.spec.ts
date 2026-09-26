@@ -36,7 +36,7 @@ test('subagent watchers: a subagent’s background work is under it, not counted
   const subagents = subagentsTab(window)
   await panel.tab(/^Subagents/).click()
   await expect(subagents.log(WORK.subagent)).toHaveCount(0)
-  await expect(subagents.watching(WORK.subagent)).toHaveAccessibleName('Watching 1 thing')
+  await expect(subagents.watching(WORK.subagent)).toHaveAccessibleName('1 watcher running')
   await subagents.header(WORK.subagent).click()
   await expect(subagents.log(WORK.subagent)).toContainText(WORK.waiting)
   const work = subagents.background(WORK.subagent)
@@ -54,7 +54,7 @@ test('subagent watchers: a subagent’s background work is under it, not counted
 
   // The task's own Watchers tab, and its row in the task list, count only its own: the deploy log.
   await expect(panel.tab(/^Watch/)).toHaveText('Watchers 1')
-  await expect(watchingMark(list.taskRow(WORK.title))).toHaveAccessibleName('Watching 1 thing')
+  await expect(watchingMark(list.taskRow(WORK.title))).toHaveAccessibleName('1 watcher running')
   await panel.tab(/^Watch/).click()
   const watchers = watchersTab(window)
   await expect(watchers.rows).toHaveCount(1)
