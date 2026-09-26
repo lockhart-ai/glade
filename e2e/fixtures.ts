@@ -206,6 +206,8 @@ export const test = base.extend<Fixtures>({
      */
     async function closeApp({ app, window }: Glade, index: number, kill: boolean): Promise<void> {
       const video = window.video()
+      // The app's other windows, such as the menu bar popover's, are recorded too, each as its own video.
+      const others = app.windows().filter((page) => page !== window)
       if (video !== null) await window.waitForTimeout(RECORDING_HOLD_MS)
       if (kill) {
         const exited = app.waitForEvent('close')
@@ -218,6 +220,11 @@ export const test = base.extend<Fixtures>({
         mkdirSync(RECORD_DIR, { recursive: true })
         const suffix = index === 0 ? '' : `-${String(index + 1)}`
         renameSync(await video.path(), join(RECORD_DIR, `${name}${suffix}.webm`))
+        for (const [other, page] of others.entries()) {
+          const path = await page.video()?.path()
+          if (path !== undefined)
+            renameSync(path, join(RECORD_DIR, `${name}${suffix}-window-${String(other + 2)}.webm`))
+        }
       }
     }
 
