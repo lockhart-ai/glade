@@ -1,5 +1,4 @@
-import { faCircleCheck } from '@fortawesome/free-regular-svg-icons'
-import { faThumbtack } from '@fortawesome/free-solid-svg-icons'
+import { faCircleCheck, faThumbtack } from '@fortawesome/free-solid-svg-icons'
 import { useMemo, type ReactNode } from 'react'
 import { TaskState, type Task, type ToolEvent } from '../../shared/domain'
 import { taskIndicator } from '../../shared/taskIndicator'
@@ -109,9 +108,10 @@ function Header({ task }: HeaderProps): React.JSX.Element {
           title={pinLabel}
           onClick={() => void run(updateTask(task.id, { pinned: !task.pinned }))}
         />
+        {/* Mark done matches the pin: the same icon button, and a solid icon like the pin's (#289). */}
         {offersMarkDone(task) && (
           <Button
-            variant={ButtonVariant.IconOutline}
+            variant={ButtonVariant.Icon}
             icon={faCircleCheck}
             aria-label="Mark done"
             title="Mark done"
