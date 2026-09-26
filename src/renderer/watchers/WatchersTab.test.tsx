@@ -13,7 +13,7 @@ function render(ui: React.ReactElement, wrapper = storeWrapper()) {
 
 const at = (hour: number, minute: number, second = 0): number => new Date(2026, 8, 25, hour, minute, second).getTime()
 
-/** One of each, as the design shows them (27-watchers.html). */
+/** One of each, as the design shows them (28-watchers.html). */
 const WATCHERS: readonly Watcher[] = [
   sampleWatcher('ci', 't1', { wakes: 3, lastWokeAt: at(13, 18), lastOutput: 'unit-tests\tfail\t2m13s' }),
   sampleWatcher('tests', 't1', {

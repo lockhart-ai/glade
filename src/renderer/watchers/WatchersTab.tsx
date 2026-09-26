@@ -81,7 +81,7 @@ export interface WatchersTabProps {
 }
 
 /**
- * The Watchers tab (docs/design/html/27-watchers.html): a tally of what the task's agent left running or scheduled,
+ * The Watchers tab (docs/design/html/28-watchers.html): a tally of what the task's agent left running or scheduled,
  * then a row for each, the live ones first. Glade builds none of them: the agent starts them with the SDK's own tools
  * (a `Monitor` watch, a background command, a wakeup, a cron job), and each row follows one. A live one has Stop.
  */

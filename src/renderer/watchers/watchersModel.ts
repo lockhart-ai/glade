@@ -1,4 +1,4 @@
-// What the Watchers tab (docs/design/html/27-watchers.html) and the task list's watcher marks show of a task's
+// What the Watchers tab (docs/design/html/28-watchers.html) and the task list's watcher marks show of a task's
 // watchers: what its agent left running or scheduled with the SDK's own tools (docs/sdk-notes.md §13).
 import { LIVE_WATCHER_STATES, WatcherKind, WatcherState, type EpochMs, type Watcher } from '../../shared/domain'
 import { TaskIndicator } from '../../shared/taskIndicator'

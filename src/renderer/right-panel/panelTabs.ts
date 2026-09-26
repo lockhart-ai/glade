@@ -36,6 +36,6 @@ export const PANEL_TAB_DEFINITIONS: readonly PanelTabDefinition[] = [
     label: 'Subagents',
     count: (state, taskId) => subagentCount(state.toolEvents[taskId] ?? []),
   },
-  // What's still live: running, or waiting to wake the agent (27-watchers.png: "Watchers 3").
+  // What's still live: running, or waiting to wake the agent (28-watchers.png: "Watchers 3").
   { tab: PanelTab.Watchers, label: 'Watchers', count: (state, taskId) => liveWatcherCount(state.watchers[taskId]) },
 ]

@@ -10,25 +10,32 @@ const TABS: TabItem<string>[] = [
 
 /** The tab row's layout, as jsdom (which doesn't lay out) reports it. */
 const layout = { scrollLeft: 0, scrollWidth: 300, clientWidth: 300 }
-let resized: (() => void) | undefined
+/** Each ResizeObserver watching the row, by its callback: the row's edges, and its selected tab's place. */
+const observers = new Set<() => void>()
+
+/** The row resizing: every observer calls back, as a browser's would. */
+function resized(): void {
+  for (const callback of observers) callback()
+}
 
 beforeEach(() => {
   Object.assign(layout, { scrollLeft: 0, scrollWidth: 300, clientWidth: 300 })
-  resized = undefined
+  observers.clear()
   for (const property of ['scrollLeft', 'scrollWidth', 'clientWidth'] as const) {
     vi.spyOn(HTMLElement.prototype, property, 'get').mockImplementation(() => layout[property])
   }
   vi.stubGlobal(
     'ResizeObserver',
     class {
+      readonly callback: () => void
       constructor(callback: () => void) {
-        resized = callback
+        this.callback = callback
       }
       observe(): void {
-        // Nothing to watch: the test calls back itself.
+        observers.add(this.callback)
       }
       disconnect(): void {
-        resized = undefined
+        observers.delete(this.callback)
       }
     },
   )
@@ -43,8 +50,15 @@ function row(): HTMLElement {
   return screen.getByRole('tablist', { name: 'Task panels' })
 }
 
+/** The strip around the row, which carries which ends overflow. */
+function strip(): HTMLElement {
+  const element = row().parentElement
+  if (element === null) throw new Error('The tab row has no strip around it')
+  return element
+}
+
 function edges(): [string | null, string | null] {
-  return [row().getAttribute('data-overflow-start'), row().getAttribute('data-overflow-end')]
+  return [strip().getAttribute('data-overflow-start'), strip().getAttribute('data-overflow-end')]
 }
 
 function renderTabs(tabs = TABS): ReturnType<typeof render> {
@@ -81,7 +95,7 @@ it('measures again when the row is resized and when its tabs change', () => {
 
   layout.clientWidth = 250
   act(() => {
-    resized?.()
+    resized()
   })
   expect(edges()).toEqual(['false', 'true'])
 
@@ -95,5 +109,5 @@ it('stops listening once the row is gone', () => {
 
   unmount()
 
-  expect(resized).toBeUndefined()
+  expect(observers.size).toBe(0)
 })
