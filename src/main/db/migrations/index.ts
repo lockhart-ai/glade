@@ -30,6 +30,7 @@ import { inputDraftsMigration } from './0028-input-drafts'
 import { taskTodosMigration } from './0029-task-todos'
 import { watchersMigration } from './0030-watchers'
 import { notificationsMigration } from './0031-notifications'
+import { sdkModelsMigration } from './0032-sdk-models'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -64,4 +65,5 @@ export const MIGRATIONS: readonly Migration[] = [
   taskTodosMigration,
   watchersMigration,
   notificationsMigration,
+  sdkModelsMigration,
 ]

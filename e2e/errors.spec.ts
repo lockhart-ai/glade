@@ -71,13 +71,14 @@ test('Retry with another model picks the model, then retries on it', async ({ la
   await startFailingTask(window)
   await expectStoppedByError(window)
   const bar = inputBar(window)
-  await expect(bar.setting('Model')).toHaveAccessibleName('Model: Opus 5.5')
+  // The session has reported the SDK's models: the task's Opus 5.5 is its default.
+  await expect(bar.setting('Model')).toHaveAccessibleName('Model: Default (recommended)')
 
   await chat(window).errorButton('Retry with another model').click()
-  await window.getByRole('menuitemradio', { name: 'Sonnet 5', exact: true }).click()
+  await window.getByRole('menuitemradio', { name: 'Sonnet', exact: true }).click()
 
   await expectRecovered(window)
-  await expect(bar.setting('Model')).toHaveAccessibleName('Model: Sonnet 5')
+  await expect(bar.setting('Model')).toHaveAccessibleName('Model: Sonnet')
 })
 
 test('a session Claude Code can’t start says why on the card, with what it printed in the details', async ({
