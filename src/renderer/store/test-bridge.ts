@@ -31,6 +31,8 @@ import {
   QuestionSetState,
   TaskActivity,
   TaskState,
+  ToolCallState,
+  ToolEventKind,
   LIVE_WATCHER_STATES,
   WatcherKind,
   WatcherState,
@@ -48,12 +50,14 @@ import {
   type QueuedMessage,
   type Task,
   type TodoList,
+  type ToolCallEvent,
   type ToolEvent,
   type UiStateEntry,
   type Watcher,
   type Workspace,
 } from '../../shared/domain'
 import { commitFileKey, noOpenFiles, withClosedFile, withOpenedFile } from '../../shared/files'
+import { isSubagentTool } from '../../shared/subagents'
 import { taskPermissionRule } from '../../shared/permissions'
 import type { ImageData, ImageRef } from '../../shared/images'
 import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
@@ -468,6 +472,12 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       main.stoppedSubagents?.push(toolUseId)
       return null
     },
+    [CommandName.SubagentsListRunning]: () => ({
+      calls: (main.toolEvents ?? []).filter(
+        (event): event is ToolCallEvent =>
+          event.kind === ToolEventKind.ToolCall && event.state === ToolCallState.Running && isSubagentTool(event.name),
+      ),
+    }),
     [CommandName.WatchersListLive]: () => ({
       watchers: (main.watchers ?? []).filter(({ state }) => LIVE_WATCHER_STATES.includes(state)),
     }),

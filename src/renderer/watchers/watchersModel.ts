@@ -179,7 +179,7 @@ export function tally(watchers: readonly Watcher[]): TallyPart[] {
   })
 }
 
-/** How the task list's mark reads to a screen reader and in its tooltip: "Watching 2 things". */
+/** How the task list's watcher count reads to a screen reader and in its tooltip: "2 watchers running". */
 export function watchingLabel(count: number): string {
-  return `Watching ${String(count)} thing${count === 1 ? '' : 's'}`
+  return `${String(count)} watcher${count === 1 ? '' : 's'} running`
 }

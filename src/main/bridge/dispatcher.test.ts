@@ -93,6 +93,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.FilesClose]: () => ({ openFiles: {} as OpenFiles }),
     [CommandName.FilesOpenInEditor]: () => null,
     [CommandName.SubagentsStop]: () => null,
+    [CommandName.SubagentsListRunning]: () => ({ calls: [] }),
     [CommandName.WatchersListLive]: () => ({ watchers: [] }),
     [CommandName.WatchersStop]: () => null,
     [CommandName.ChangesFiles]: () => ({ files: { files: [], total: 0 } }),
