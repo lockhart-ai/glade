@@ -197,8 +197,8 @@ interface PluginPermissionRequest {
 ```
 
 **Not sent:** chat messages and final replies, the queue, file contents, tool inputs beyond the summary above and all
-tool results (a subagent's outcome included), question options and answers, permission prompts and deny notes, todos,
-artifacts, the terminal, settings, and anything about the machine. A plugin sees what the task list, tool log and Subagents tab summarise, and no more.
+tool results (a subagent's outcome included), a running subagent's progress summary, question options and answers,
+permission prompts and deny notes, todos, artifacts, the terminal, settings, and anything about the machine. A plugin sees what the task list, tool log and Subagents tab summarise, and no more.
 
 ## Messages (plugin to Glade)
 

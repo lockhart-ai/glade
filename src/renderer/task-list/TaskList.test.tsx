@@ -237,6 +237,7 @@ describe('TaskList', () => {
       finishedAt: null,
       toolUseId: `use-${id}`,
       parentToolUseId: null,
+      progressSummary: null,
       ...change,
     })
     const { fake } = await renderList(

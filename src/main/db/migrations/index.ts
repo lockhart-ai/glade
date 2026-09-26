@@ -34,6 +34,7 @@ import { sdkModelsMigration } from './0032-sdk-models'
 import { accountMigration } from './0033-account'
 import { taskCommitsMigration } from './0034-task-commits'
 import { questionPreambleMigration } from './0037-question-preamble'
+import { subagentProgressMigration } from './0038-subagent-progress'
 import { compactionFromSdkMigration } from './0039-compaction-from-sdk'
 import { instructionUpdatesMigration } from './0040-instruction-updates'
 
@@ -74,6 +75,7 @@ export const MIGRATIONS: readonly Migration[] = [
   accountMigration,
   taskCommitsMigration,
   questionPreambleMigration,
+  subagentProgressMigration,
   compactionFromSdkMigration,
   instructionUpdatesMigration,
 ]

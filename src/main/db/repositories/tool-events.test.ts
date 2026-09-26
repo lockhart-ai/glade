@@ -17,6 +17,7 @@ import {
   listRunningToolCallsNamed,
   listToolCallsNamed,
   listToolEvents,
+  setSubagentProgress,
   updateCompaction,
   updateToolCall,
 } from './tool-events'
@@ -91,6 +92,7 @@ describe('appendToolCall', () => {
       finishedAt: null,
       toolUseId: 'toolu_bash',
       parentToolUseId: null,
+      progressSummary: null,
     })
     expect(listToolEvents(test.db, task.id)).toEqual([event])
   })
@@ -263,6 +265,98 @@ describe('interruptPausedToolCalls', () => {
   })
 })
 
+describe('setSubagentProgress', () => {
+  function agentCall(toolUseId = 'toolu_agent', name = 'Agent') {
+    return appendToolCall(test.db, { ...bashCall(toolUseId), name, input: { description: 'API changes' } })
+  }
+
+  const progress = (summary: string, toolUseId = 'toolu_agent') => ({ taskId: task.id, toolUseId, summary })
+
+  it("keeps a running subagent's latest summary on its call, and says so", () => {
+    const call = agentCall()
+
+    const first = setSubagentProgress(test.db, progress('Reading the API PRs'))
+    expect(first).toEqual({ ...call, progressSummary: 'Reading the API PRs' })
+    const second = setSubagentProgress(test.db, progress('Sorting 14 PRs into features and fixes'))
+    expect(second).toEqual({ ...call, progressSummary: 'Sorting 14 PRs into features and fixes' })
+    expect(listToolEvents(test.db, task.id)).toEqual([second])
+  })
+
+  it('takes a `Task` call too, the name the init tools list gives the tool', () => {
+    agentCall('toolu_task', 'Task')
+    expect(setSubagentProgress(test.db, progress('Reading', 'toolu_task'))?.progressSummary).toBe('Reading')
+  })
+
+  it('changes nothing for the summary it already has', () => {
+    agentCall()
+    setSubagentProgress(test.db, progress('Reading the API PRs'))
+    expect(setSubagentProgress(test.db, progress('Reading the API PRs'))).toBeUndefined()
+  })
+
+  it('ignores a summary for a subagent that has finished, one that never started, and a call that is no subagent', () => {
+    agentCall()
+    setSubagentProgress(test.db, progress('Reading the API PRs'))
+    updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_agent', state: ToolCallState.Done, output: 'Done.' })
+    appendToolCall(test.db, bashCall('toolu_bash'))
+
+    expect(setSubagentProgress(test.db, progress('Late news'))).toBeUndefined()
+    expect(setSubagentProgress(test.db, progress('Reading', 'toolu_missing'))).toBeUndefined()
+    expect(setSubagentProgress(test.db, progress('Running npm test', 'toolu_bash'))).toBeUndefined()
+    expect(listToolEvents(test.db, task.id)).toMatchObject([
+      { state: ToolCallState.Done, progressSummary: null },
+      { name: 'Bash', progressSummary: null },
+    ])
+  })
+
+  it("only touches this task's call", () => {
+    const other = sampleTask(test.db, task.workspaceId)
+    appendToolCall(test.db, { ...bashCall('toolu_agent'), taskId: other.id, name: 'Agent' })
+    agentCall()
+
+    setSubagentProgress(test.db, progress('Reading the API PRs'))
+
+    expect(listToolEvents(test.db, other.id)).toMatchObject([{ progressSummary: null }])
+    expect(listToolEvents(test.db, task.id)).toMatchObject([{ progressSummary: 'Reading the API PRs' }])
+  })
+
+  it.each([ToolCallState.Done, ToolCallState.Error, ToolCallState.Paused, ToolCallState.Interrupted])(
+    'drops the summary once its call is %s',
+    (state) => {
+      agentCall()
+      setSubagentProgress(test.db, progress('Reading the API PRs'))
+
+      expect(updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_agent', state, output: 'x' })).toMatchObject({
+        state,
+        progressSummary: null,
+      })
+    },
+  )
+
+  it('drops the summary of a subagent the app quit on, when its call is interrupted', () => {
+    agentCall()
+    setSubagentProgress(test.db, progress('Reading the API PRs'))
+
+    expect(interruptRunningToolCalls(test.db, task.id, 'Glade quit.')).toMatchObject([{ progressSummary: null }])
+  })
+
+  it('survives a relaunch: the database reopened still has it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'glade-repo-'))
+    try {
+      const first = openAppDatabase(dir).db
+      const running = sampleTask(first, sampleWorkspace(first).id)
+      appendToolCall(first, { ...bashCall(), taskId: running.id, name: 'Agent' })
+      setSubagentProgress(first, { taskId: running.id, toolUseId: 'toolu_bash', summary: 'Reading the API PRs' })
+      first.close()
+
+      const second = openAppDatabase(dir).db
+      expect(listToolEvents(second, running.id)).toMatchObject([{ progressSummary: 'Reading the API PRs' }])
+      second.close()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('the tool_events table', () => {
   function insert(columns: string, values: string): () => void {
     return () =>
@@ -282,6 +376,8 @@ describe('the tool_events table', () => {
     expect(insert('kind, text', "'divider', 'x'")).toThrow('CHECK constraint failed')
     // Only a compaction has a summary.
     expect(insert('kind, text, compact_summary', "'narration', 'x', 'Kept.'")).toThrow('CHECK constraint failed')
+    // Only a tool call has a progress summary.
+    expect(insert('kind, text, progress_summary', "'narration', 'x', 'Reading'")).toThrow('CHECK constraint failed')
   })
 
   it('checks enum values and that the input is a JSON object', () => {

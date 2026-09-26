@@ -96,12 +96,13 @@ interface ToolEventParams {
   readonly preTokens: number | null
   readonly postTokens: number | null
   readonly windowTokens: number | null
+  readonly progressSummary: string | null
   readonly compactSummary: string | null
 }
 
 const COLUMNS = `id, task_id, kind, turn, created_at, text, tool_name, tool_input, tool_output, finished_at, tool_state,
   tool_use_id, parent_tool_use_id, divider_kind, compact_trigger, pre_tokens, post_tokens, window_tokens,
-  compact_summary`
+  progress_summary, compact_summary`
 
 const KINDS = Object.values(ToolEventKind)
 const TOOL_CALL_STATES = Object.values(ToolCallState)
@@ -128,6 +129,7 @@ function toParams(event: ToolEvent): ToolEventParams {
     preTokens: null,
     postTokens: null,
     windowTokens: null,
+    progressSummary: null,
     compactSummary: null,
   }
   switch (event.kind) {
@@ -143,6 +145,7 @@ function toParams(event: ToolEvent): ToolEventParams {
         toolState: event.state,
         toolUseId: event.toolUseId,
         parentToolUseId: event.parentToolUseId,
+        progressSummary: event.progressSummary,
       }
     case ToolEventKind.Divider:
       return { ...base, dividerKind: event.dividerKind }
@@ -179,6 +182,7 @@ function parseToolCall(row: Row): ToolCallEvent {
     finishedAt: row.nullableInteger('finished_at'),
     toolUseId: row.text('tool_use_id'),
     parentToolUseId: row.nullableText('parent_tool_use_id'),
+    progressSummary: row.nullableText('progress_summary'),
   }
 }
 
@@ -221,7 +225,7 @@ function append(db: Database, event: ToolEvent): void {
     `INSERT INTO tool_events (seq, ${COLUMNS})
     VALUES ((SELECT COALESCE(MAX(seq), 0) + 1 FROM tool_events WHERE task_id = @taskId), @id, @taskId, @kind, @turn,
       @createdAt, @text, @toolName, @toolInput, @toolOutput, @finishedAt, @toolState, @toolUseId, @parentToolUseId, @dividerKind,
-      @compactTrigger, @preTokens, @postTokens, @windowTokens, @compactSummary)`,
+      @compactTrigger, @preTokens, @postTokens, @windowTokens, @progressSummary, @compactSummary)`,
   ).run(toParams(event))
 }
 
@@ -253,6 +257,7 @@ export function appendToolCall(db: Database, input: NewToolCall, now: EpochMs = 
     finishedAt: null,
     toolUseId: input.toolUseId,
     parentToolUseId: input.parentToolUseId,
+    progressSummary: null,
   }
   append(db, event)
   return event
@@ -332,13 +337,15 @@ export function listToolEvents(db: Database, taskId: string): ToolEvent[] {
 
 /**
  * Records a tool call's result, arrived at `now`, and returns the call updated. A call that has already finished (a
- * paused one, later interrupted) keeps the time it first did. Throws if the task has no call with that id.
+ * paused one, later interrupted) keeps the time it first did. A subagent's progress summary goes once its call is no
+ * longer running. Throws if the task has no call with that id.
  */
 export function updateToolCall(db: Database, result: ToolCallResult, now: EpochMs = Date.now()): ToolCallEvent {
   const row: unknown = db
     .prepare(
       `UPDATE tool_events SET tool_state = @state, tool_output = @output,
-        finished_at = COALESCE(finished_at, @finishedAt)
+        finished_at = COALESCE(finished_at, @finishedAt),
+        progress_summary = CASE WHEN @state = 'running' THEN progress_summary END
       WHERE task_id = @taskId AND tool_use_id = @toolUseId AND kind = 'tool_call'
       RETURNING ${COLUMNS}`,
     )
@@ -445,4 +452,29 @@ export function getToolCall(db: Database, taskId: string, toolUseId: string): To
     .prepare(`SELECT ${COLUMNS} FROM tool_events WHERE task_id = ? AND tool_use_id = ? AND kind = 'tool_call'`)
     .get(taskId, toolUseId)
   return raw === undefined ? undefined : parseToolCall(new Row('tool_events', raw))
+}
+
+/** A subagent's latest progress summary, for its `Agent` call. */
+export interface SubagentProgress {
+  readonly taskId: string
+  /** The `Agent` call that started the subagent. */
+  readonly toolUseId: string
+  readonly summary: string
+}
+
+/**
+ * Records the latest progress summary of a running subagent on its `Agent` (or `Task`) call, and returns the call
+ * updated. Returns undefined, and records nothing, when the task has no such call still running (a summary that arrives
+ * after its subagent finished) or the call already has that summary.
+ */
+export function setSubagentProgress(db: Database, progress: SubagentProgress): ToolCallEvent | undefined {
+  const row: unknown = db
+    .prepare(
+      `UPDATE tool_events SET progress_summary = @summary
+      WHERE task_id = @taskId AND tool_use_id = @toolUseId AND kind = 'tool_call' AND tool_state = 'running'
+        AND tool_name IN ('Agent', 'Task') AND progress_summary IS NOT @summary
+      RETURNING ${COLUMNS}`,
+    )
+    .get(progress)
+  return row === undefined ? undefined : parseToolCall(new Row('tool_events', row))
 }

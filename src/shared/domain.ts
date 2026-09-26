@@ -366,6 +366,11 @@ export interface ToolCallEvent extends ToolEventBase {
   readonly toolUseId: string
   /** The `Agent` tool call's `tool_use` id when the call was made inside a subagent; null at the top level. */
   readonly parentToolUseId: string | null
+  /**
+   * For an `Agent` call whose subagent is running: the latest one-line summary of what it's doing now, as the SDK sends
+   * it (`task_progress.summary`, `docs/sdk-notes.md`, "Subagents"). Null before the first, and once the call finishes.
+   */
+  readonly progressSummary: string | null
 }
 
 export interface DividerEvent extends ToolEventBase {

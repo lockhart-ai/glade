@@ -976,6 +976,35 @@ describe('applySeed', () => {
     ])
   })
 
+  it("writes what a running subagent says it's doing now", () => {
+    const { db } = database
+    const agent = { kind: ToolEventKind.ToolCall, name: 'Agent', turn: 1, minutesAgo: 4 } as const
+
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          {
+            title: 'Draft release notes for 2.4',
+            minutesAgo: 0,
+            toolEvents: [
+              { ...agent, input: { description: 'API changes' }, progressSummary: 'Reading the API PRs' },
+              { ...agent, input: { description: 'Dashboard changes' } },
+            ],
+          },
+        ],
+      },
+      NOW,
+    )
+
+    const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    expect(listToolEvents(db, task?.id ?? '')).toMatchObject([
+      { state: ToolCallState.Running, progressSummary: 'Reading the API PRs' },
+      { state: ToolCallState.Running, progressSummary: null },
+    ])
+  })
+
   it('writes where the SDK compacts automatically, and what a compaction carried over', () => {
     const { db } = database
     applySeed(

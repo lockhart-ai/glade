@@ -43,6 +43,7 @@ function call(toolUseId: string, name: string, parentToolUseId: string | null, i
     turn: 1,
     toolUseId,
     parentToolUseId,
+    progressSummary: null,
     name,
     input,
     state: ToolCallState.Running,

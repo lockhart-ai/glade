@@ -42,7 +42,7 @@ import {
 } from '../db/repositories/permission-requests'
 import { appendQuestionSet, closeQuestionSet } from '../db/repositories/question-sets'
 import { createTask, listTasks, updateTask } from '../db/repositories/tasks'
-import { appendNarration, appendToolCall, updateToolCall } from '../db/repositories/tool-events'
+import { appendNarration, appendToolCall, setSubagentProgress, updateToolCall } from '../db/repositories/tool-events'
 import { createWorkspace, listWorkspaces, updateWorkspace } from '../db/repositories/workspaces'
 import { openTestDatabase, type TestDatabase } from '../db/repositories/test-database'
 import { createMemoryLog } from '../logging/memory-sink'
@@ -531,6 +531,17 @@ describe('agent events', () => {
         }) as unknown,
       },
     ])
+  })
+
+  it("sends nothing when a running subagent's progress summary changes: plugins aren't told it", () => {
+    const agent = started(task, 'toolu_s', 'Agent', { description: 'Sort the PRs', prompt: 'Sort them' })
+    sent.length = 0
+    const progress = { taskId: task.id, toolUseId: agent.toolUseId, summary: 'Sorting 14 PRs into features' }
+    emit({ type: EventType.ToolEventUpdated, toolEvent: setSubagentProgress(database.db, progress) ?? agent })
+
+    expect(sent).toEqual([])
+    ended(task, 'toolu_s', ToolCallState.Done, 'Three features.')
+    expect(sent.map((event) => event.type)).toEqual([PluginEventType.AgentToolCall, PluginEventType.SubagentUpdated])
   })
 
   it('sends nothing for dividers and compactions', () => {

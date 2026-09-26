@@ -105,6 +105,13 @@ export enum ScriptStepKind {
    */
   ControlTool = 'control_tool',
   /**
+   * A subagent's progress summary, as the SDK sends one about every 30 seconds with `agentProgressSummaries` on
+   * (`docs/sdk-notes.md`, "Subagents"): a `task_progress` for the subagent its `Agent` call `id` started (in the
+   * foreground or the background), carrying `summary`. It's sent whether or not the subagent is still running, as a late
+   * one can be.
+   */
+  Progress = 'progress',
+  /**
    * A `Bash` call that really runs its command, in the session's folder (or `cwd` from it), with `/bin/sh`, as Claude
    * Code runs one: the `tool_use`, then the session's `PreToolUse` hook (`hooks.onBashStarting`) with the call's folder
    * and command, which the call waits for, then the command, then its result: what it printed, an error if it exited
@@ -337,6 +344,14 @@ export interface ControlToolStep {
   readonly input: ToolInput | ((cwd: string) => ToolInput)
 }
 
+export interface ProgressStep {
+  readonly kind: ScriptStepKind.Progress
+  /** The script id of the `Agent` call that started the subagent. */
+  readonly id: string
+  /** What it's doing now, on one line. */
+  readonly summary: string
+}
+
 export interface ShellStep {
   readonly kind: ScriptStepKind.Shell
   readonly id: string
@@ -370,6 +385,7 @@ export type ScriptStep =
   | BackgroundStep
   | PermissionStep
   | ControlToolStep
+  | ProgressStep
 
 export type ScriptTurn = readonly ScriptStep[]
 
@@ -525,6 +541,8 @@ export const background = (
   steps: ScriptTurn,
   options: Omit<BackgroundStep, 'kind' | 'id' | 'input' | 'steps'>,
 ): BackgroundStep => ({ kind: ScriptStepKind.Background, id, input, steps, ...options })
+
+export const progress = (id: string, summary: string): ProgressStep => ({ kind: ScriptStepKind.Progress, id, summary })
 
 export const permission = (
   id: string,
@@ -1267,10 +1285,17 @@ const asksAQuestion: AgentScript = {
   ],
 }
 
+/** The progress summaries `parallel-subagents` ends on, one per subagent still running. */
+export const PARALLEL_SUBAGENTS = {
+  apiSummary: 'Reading PR 1402, the rate limiting change, to see if API clients need an upgrade guide',
+  dashboardSummary: 'Sorting the dashboard PRs into features and fixes',
+} as const
+
 /**
  * Three subagents run side by side, splitting the release notes by area: one checks the links in the last notes and
- * finishes, while the other two keep reading PRs (one last said something, the other is in a tool call) until the turn
- * is stopped, so a spec can watch them run, then see them fail when it stops them.
+ * finishes, while the other two keep reading PRs (one last said something, the other is in a tool call), each saying
+ * what it's doing now, until the turn is stopped, so a spec can watch them run, then see them fail when it stops them.
+ * A summary for the link check arrives after it finished, and changes nothing.
  */
 const parallelSubagents: AgentScript = {
   name: 'parallel-subagents',
@@ -1301,6 +1326,7 @@ const parallelSubagents: AgentScript = {
         subagent_type: 'general-purpose',
       }),
       say('Reading the API PRs, newest first.', 'api'),
+      progress('api', 'Listing the API PRs merged since v2.3.0'),
       ...tool(
         'api-list',
         'Bash',
@@ -1317,6 +1343,7 @@ const parallelSubagents: AgentScript = {
         '1418\tMove the charts onto the new query',
         'dashboard',
       ),
+      progress('dashboard', PARALLEL_SUBAGENTS.dashboardSummary),
       ...tool(
         'links-fix',
         'Edit',
@@ -1325,6 +1352,8 @@ const parallelSubagents: AgentScript = {
         'links',
       ),
       toolResult('links', 'Found 2 broken links and fixed both in the draft.'),
+      // Late: the link check has finished, so it changes nothing.
+      progress('links', 'Checking the last links in the 2.3 notes'),
       ...tool(
         'api-view',
         'Bash',
@@ -1333,6 +1362,7 @@ const parallelSubagents: AgentScript = {
         'api',
       ),
       say('#1418 moves the charts onto the new query, so it belongs under features, not fixes.', 'dashboard'),
+      progress('api', PARALLEL_SUBAGENTS.apiSummary),
       toolUse('api-read', 'Read', { file_path: 'api/throttles.py' }, 'api'),
       waitForInterrupt(),
     ],
@@ -1750,6 +1780,8 @@ export const BACKGROUND_SUBAGENTS = {
   profiled: 'Checkout runs one query per cart item: an N+1 in load_cart. Batching it takes p95 from 840 ms to 95 ms.',
   cacheFailed: "Couldn't reach the Redis staging instance: connection refused.",
   reported: 'The query profile is back: checkout has an N+1 in load_cart. Batching it should take p95 to about 95 ms.',
+  /** What the query profile says it's doing while it runs (its progress summary). */
+  queriesSummary: 'Timing the checkout queries against the staging copy',
 } as const
 
 /**
@@ -1779,6 +1811,7 @@ const backgroundSubagents: AgentScript = {
         [
           delay(BEAT_MS * 2),
           say('Timing the checkout queries against the staging copy.', 'queries'),
+          progress('queries', BACKGROUND_SUBAGENTS.queriesSummary),
           ...tool(
             'queries-read',
             'Read',

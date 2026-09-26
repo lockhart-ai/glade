@@ -67,11 +67,12 @@ interface RowProps {
 }
 
 /**
- * One subagent: its dot, name, status, what it's doing and how long it has run. Click it to open its log below it
+ * One subagent: its dot, name, status, what it's doing and how long it has run. While it runs, the SDK's summary of what
+ * it's doing now sits under its name, on one line (the whole of it in its tooltip). Click it to open its log below it
  * (in place of the latest line, which the log ends with); click again to close it.
  */
 function SubagentRow({ subagent, now, rootPath, expanded, onToggle, menuTarget }: RowProps): React.JSX.Element {
-  const { name, status, latest, log } = subagent
+  const { name, status, summary, latest, log } = subagent
   return (
     <div
       role="group"
@@ -88,6 +89,11 @@ function SubagentRow({ subagent, now, rootPath, expanded, onToggle, menuTarget }
             <Icon icon={expanded ? faChevronDown : faChevronRight} size={IconSize.Small} />
           </span>
         </span>
+        {summary !== null && (
+          <span className={styles.summary} title={summary}>
+            {summary}
+          </span>
+        )}
         {!expanded && latest !== null && <Latest line={latest} />}
         <span className={styles.meta}>{metaLine(subagent, now)}</span>
       </button>
