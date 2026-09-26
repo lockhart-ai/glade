@@ -1,0 +1,177 @@
+/* From docs/design/html/23-menu-bar.html: the popover under Glade's icon in the menu bar. */
+
+/*
+ * The popover fills its window, which main sizes to the popover's content (`menuBar.fit`), up to the room under the
+ * menu bar: past that, it scrolls. Outside its window (a screenshot of the page) it's as tall as what it lists.
+ */
+.popover {
+  width: 360px;
+  max-height: 100vh;
+  box-sizing: border-box;
+  overflow-y: auto;
+  background: var(--color-menu);
+  border: 1px solid var(--color-strong);
+  border-radius: var(--radius-menu);
+  color: var(--color-text);
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-sm);
+}
+
+.separator {
+  flex-shrink: 0;
+  height: 1px;
+  margin: 5px var(--space-sm);
+  background: var(--color-inner-border);
+}
+
+/* A section's heading, and its count: mono labels. */
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-md) var(--space-xs);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px var(--space-md);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease);
+}
+
+.row:hover {
+  background: var(--color-inner-2);
+}
+
+.row:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+}
+
+/* A line under the title, in from the dot's column. */
+.subLine {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  box-sizing: border-box;
+  padding-left: 16px;
+}
+
+.title {
+  flex-grow: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The workspace, elapsed time or age at the right of a row's first line. */
+.meta {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+.secondary {
+  flex-grow: 1;
+  min-width: 0;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.4;
+  color: var(--color-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A working task's todo progress as a thin bar, under its status line. */
+.bar {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-xs) 0 var(--space-2xs) 16px;
+}
+
+.track {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-inner-border);
+  overflow: hidden;
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--color-blue);
+}
+
+.empty {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px var(--space-xl);
+  font-size: 13.5px;
+  color: var(--color-muted);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: var(--space-2xs);
+}
+
+.footerButton {
+  height: var(--touch-target-dense);
+  padding: 0 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease);
+}
+
+.footerButton:hover {
+  background: var(--color-inner-2);
+}
+
+.footerButton:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+}

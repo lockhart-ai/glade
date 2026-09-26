@@ -40,6 +40,7 @@ import type { DoneCounts, DonePage, DonePageRequest } from './doneList'
 import type { TerminalTab } from './terminal'
 import type { InstalledPlugin } from './plugins'
 import type { ControlStatus } from './control'
+import type { MenuBarSnapshot } from './menuBar'
 
 /** The name the bridge is exposed under on `window`. */
 export const BRIDGE_KEY = 'glade'
@@ -119,6 +120,12 @@ export enum CommandName {
   MenuUpdate = 'menu.update',
   WindowClose = 'window.close',
   LogRendererError = 'log.rendererError',
+  MenuBarGet = 'menuBar.get',
+  MenuBarOpenTask = 'menuBar.openTask',
+  MenuBarOpenGlade = 'menuBar.openGlade',
+  MenuBarHide = 'menuBar.hide',
+  MenuBarQuit = 'menuBar.quit',
+  MenuBarFit = 'menuBar.fit',
 }
 
 /** The request of a command that takes no arguments: pass `{}`. */
@@ -795,6 +802,25 @@ export type MenuUpdateRequest = MenuState
  */
 export type WindowCloseRequest = EmptyRequest
 
+/** What's in flight across every workspace, for the menu bar popover (`docs/design/html/23-menu-bar.html`). */
+export interface MenuBarResponse {
+  readonly snapshot: MenuBarSnapshot
+}
+
+/**
+ * Opens Glade on a task from its row in the menu bar popover, as clicking its notification does: hides the popover,
+ * brings the window up (opening one when there's none) and selects the task, in its workspace.
+ */
+export type MenuBarOpenTaskRequest = TaskIdRequest
+
+/**
+ * Sizes the menu bar popover to its content: the height its page lays out at, in CSS pixels. Main keeps it within the
+ * screen, and the page scrolls what doesn't fit.
+ */
+export interface MenuBarFitRequest {
+  readonly height: number
+}
+
 /** Where in the window an error was caught, for the main log. */
 export enum RendererErrorKind {
   /** An uncaught error (`window`'s `error` event). */
@@ -906,6 +932,15 @@ export interface CommandMap {
   [CommandName.WindowClose]: CommandSpec<EmptyRequest, null>
   /** Writes an error in the window to the main log. */
   [CommandName.LogRendererError]: CommandSpec<LogRendererErrorRequest, null>
+  [CommandName.MenuBarGet]: CommandSpec<EmptyRequest, MenuBarResponse>
+  [CommandName.MenuBarOpenTask]: CommandSpec<MenuBarOpenTaskRequest, null>
+  /** Hides the menu bar popover and brings Glade's window up, opening one when there's none (Open Glade). */
+  [CommandName.MenuBarOpenGlade]: CommandSpec<EmptyRequest, null>
+  /** Hides the menu bar popover (Esc). */
+  [CommandName.MenuBarHide]: CommandSpec<EmptyRequest, null>
+  /** Quits Glade (the menu bar popover's Quit). */
+  [CommandName.MenuBarQuit]: CommandSpec<EmptyRequest, null>
+  [CommandName.MenuBarFit]: CommandSpec<MenuBarFitRequest, null>
 }
 
 export type CommandRequest<C extends CommandName> = CommandMap[C]['request']
@@ -944,6 +979,7 @@ export enum EventType {
   PluginsChanged = 'plugins.changed',
   PluginStatusChanged = 'plugin.statusChanged',
   ControlChanged = 'control.changed',
+  MenuBarChanged = 'menuBar.changed',
 }
 
 export interface UiStateChangedEvent {
@@ -1166,6 +1202,15 @@ export interface ControlChangedEvent {
   readonly status: ControlStatus
 }
 
+/**
+ * What's in flight changed: a task started or stopped working or needing you, or a notification was sent. Sent to the
+ * menu bar popover only, while it's open or hidden, with the whole snapshot as it now is.
+ */
+export interface MenuBarChangedEvent {
+  readonly type: EventType.MenuBarChanged
+  readonly snapshot: MenuBarSnapshot
+}
+
 /** Everything main broadcasts to the windows. */
 export type GladeEvent =
   | UiStateChangedEvent
@@ -1198,6 +1243,7 @@ export type GladeEvent =
   | PluginsChangedEvent
   | PluginStatusChangedEvent
   | ControlChangedEvent
+  | MenuBarChangedEvent
 
 export type EventListener = (event: GladeEvent) => void
 

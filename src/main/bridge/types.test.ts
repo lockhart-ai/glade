@@ -11,6 +11,7 @@ import {
   type GladeBridge,
   type GladeEvent,
 } from '../../shared/bridge'
+import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
 import type { Command } from '../../shared/commands'
 import {
   Effort,
@@ -107,6 +108,12 @@ const TASK_HANDLERS = {
   [CommandName.MenuUpdate]: () => null,
   [CommandName.WindowClose]: () => null,
   [CommandName.LogRendererError]: () => null,
+  [CommandName.MenuBarGet]: () => ({ snapshot: EMPTY_MENU_BAR_SNAPSHOT }),
+  [CommandName.MenuBarOpenTask]: () => null,
+  [CommandName.MenuBarOpenGlade]: () => null,
+  [CommandName.MenuBarHide]: () => null,
+  [CommandName.MenuBarQuit]: () => null,
+  [CommandName.MenuBarFit]: () => null,
   [CommandName.SearchQuery]: () => ({ results: [] }),
   [CommandName.TerminalList]: () => ({ tabs: [] }),
   [CommandName.TerminalCreate]: () => ({ tab: {} as TerminalTab }),
@@ -163,6 +170,12 @@ const TASK_SCHEMAS = {
   [CommandName.MenuUpdate]: REQUEST_SCHEMAS[CommandName.MenuUpdate],
   [CommandName.WindowClose]: REQUEST_SCHEMAS[CommandName.WindowClose],
   [CommandName.LogRendererError]: REQUEST_SCHEMAS[CommandName.LogRendererError],
+  [CommandName.MenuBarGet]: REQUEST_SCHEMAS[CommandName.MenuBarGet],
+  [CommandName.MenuBarOpenTask]: REQUEST_SCHEMAS[CommandName.MenuBarOpenTask],
+  [CommandName.MenuBarOpenGlade]: REQUEST_SCHEMAS[CommandName.MenuBarOpenGlade],
+  [CommandName.MenuBarHide]: REQUEST_SCHEMAS[CommandName.MenuBarHide],
+  [CommandName.MenuBarQuit]: REQUEST_SCHEMAS[CommandName.MenuBarQuit],
+  [CommandName.MenuBarFit]: REQUEST_SCHEMAS[CommandName.MenuBarFit],
 } satisfies Partial<RequestSchemas>
 
 describe('the command map', () => {

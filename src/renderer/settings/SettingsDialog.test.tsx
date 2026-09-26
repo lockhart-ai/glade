@@ -238,8 +238,31 @@ describe('SettingsDialog', () => {
     expect(within(dialog()).queryByRole('textbox')).not.toBeInTheDocument()
   })
 
+  describe('General', () => {
+    it('shows Glade in the menu bar by default, and turns it off and back on', async () => {
+      const { invoke, store } = await renderSettings(SettingsSection.General)
+
+      expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('General')
+      const menuBar = screen.getByRole('switch', { name: 'Show Glade in the menu bar' })
+      expect(menuBar).toBeChecked()
+
+      fireEvent.click(menuBar)
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(screen.getByRole('switch', { name: 'Show Glade in the menu bar' })).not.toBeChecked()
+      expect(store.getState().settings.showInMenuBar).toBe(false)
+      fireEvent.click(screen.getByRole('switch', { name: 'Show Glade in the menu bar' }))
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      expect(settingsUpdates(invoke)).toEqual([{ patch: { showInMenuBar: false } }, { patch: { showInMenuBar: true } }])
+      expect(screen.getByRole('switch', { name: 'Show Glade in the menu bar' })).toBeChecked()
+    })
+  })
+
   it.each([
-    [SettingsSection.General, 'General', 'Nothing to set here yet.'],
     [SettingsSection.Appearance, 'Appearance', 'Glade has one theme, dark. Nothing to change here yet.'],
   ])('shows %s with nothing to set', async (section, title, text) => {
     await renderSettings(section)

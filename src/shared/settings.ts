@@ -35,6 +35,11 @@ export interface Settings {
    * are tried (`./control`).
    */
   readonly controlPort: number
+  /**
+   * Whether Glade shows its icon in the macOS menu bar, with what's in flight and a popover listing it (Settings ›
+   * General; `docs/design/html/23-menu-bar.html`).
+   */
+  readonly showInMenuBar: boolean
 }
 
 /** The settings you change at once: the ones left out keep their value. */
@@ -42,7 +47,7 @@ export type SettingsPatch = Partial<Settings>
 
 /**
  * The settings before you change any: the SDK's default model (the picker's first) at high effort, allowing every tool
- * call, notifying silently, and with no agent allowed to control Glade.
+ * call, notifying silently, with no agent allowed to control Glade, and showing Glade in the menu bar.
  */
 export const DEFAULT_SETTINGS: Settings = {
   defaultModel: MODEL_OPTIONS[0].id,
@@ -55,4 +60,5 @@ export const DEFAULT_SETTINGS: Settings = {
   keyBindings: {},
   controlEnabled: false,
   controlPort: DEFAULT_CONTROL_PORT,
+  showInMenuBar: true,
 }

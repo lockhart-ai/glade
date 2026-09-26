@@ -14,9 +14,11 @@ import {
   E2E_AGENT_ENVS_GLOBAL,
   E2E_CHOSEN_FOLDER_ENV,
   E2E_ENV,
+  E2E_MENU_BAR_GLOBAL,
   E2E_NOTIFIER_GLOBAL,
   E2E_WINDOW_SIZE,
   type E2eAgentEnvs,
+  type E2eMenuBar,
   type E2eSpec,
 } from './e2e'
 import { openAppDatabase } from './db/database'
@@ -56,7 +58,18 @@ const electron = vi.hoisted(() => {
     readonly options: unknown
     readonly handlers = new Map<string, Handler>()
     readonly onceHandlers = new Map<string, Handler>()
+    // The window's own events (`blur`), apart from its page's.
+    readonly windowHandlers = new Map<string, Handler>()
     readonly show = vi.fn()
+    readonly hide = vi.fn()
+    readonly setBounds = vi.fn()
+    readonly setVisibleOnAllWorkspaces = vi.fn()
+    readonly destroy = vi.fn(() => {
+      windows.splice(windows.indexOf(this), 1)
+    })
+    readonly on = vi.fn((event: string, handler: Handler) => {
+      this.windowHandlers.set(event, handler)
+    })
     readonly loadURL = vi.fn(() => Promise.resolve())
     readonly loadFile = vi.fn(() => Promise.resolve())
     readonly setContentSize = vi.fn()
@@ -155,11 +168,40 @@ const electron = vi.hoisted(() => {
     on: vi.fn(),
   }
 
+  // The menu bar icons made: each is Electron's `Tray`, recording what it's asked to show.
+  const trays: FakeTray[] = []
+  class FakeTray {
+    readonly listeners = new Map<string, Handler>()
+    readonly setToolTip = vi.fn()
+    readonly setImage = vi.fn()
+    readonly setTitle = vi.fn()
+    readonly getBounds = vi.fn(() => ({ x: 1480, y: 0, width: 32, height: 24 }))
+    readonly destroy = vi.fn()
+    constructor(readonly image: unknown) {
+      trays.push(this)
+    }
+    on(event: string, listener: Handler): this {
+      this.listeners.set(event, listener)
+      return this
+    }
+  }
+
   return {
     appHandlers,
     windows,
     captureScene,
+    trays,
+    FakeTray,
+    screen: {
+      getDisplayMatching: vi.fn(() => ({ workArea: { x: 0, y: 25, width: 1512, height: 920 } })),
+    },
+    systemPreferences: {
+      getAnimationSettings: vi.fn(() => ({ prefersReducedMotion: false })),
+      subscribeWorkspaceNotification: vi.fn(),
+    },
     nativeImage: {
+      // The menu bar glyph's images, by path.
+      createFromPath: vi.fn((path: string) => ({ path, setTemplateImage: vi.fn(), isEmpty: () => false })),
       createFromBitmap: vi.fn((_bitmap: Buffer, size: { width: number; height: number }) => ({
         getSize: () => size,
         resize: vi.fn(),
@@ -191,6 +233,7 @@ const electron = vi.hoisted(() => {
         return electron.app.userData
       }),
       getVersion: () => '0.0.0-sample',
+      getAppPath: () => '/Applications/Glade.app/Contents/Resources/app.asar',
       whenReady: vi.fn(() => Promise.resolve()),
       on: vi.fn((event: string, handler: Handler) => {
         appHandlers.set(event, handler)
@@ -228,6 +271,9 @@ vi.mock('electron', () => ({
   shell: electron.shell,
   clipboard: electron.clipboard,
   Menu: electron.Menu,
+  Tray: electron.FakeTray,
+  screen: electron.screen,
+  systemPreferences: electron.systemPreferences,
 }))
 
 // The real agent backend, watched: a test mode must never make one.
@@ -380,7 +426,9 @@ beforeEach(() => {
   electron.appHandlers.clear()
   electron.windows.length = 0
   electron.notifications.length = 0
+  electron.trays.length = 0
   Reflect.deleteProperty(globalThis, E2E_NOTIFIER_GLOBAL)
+  Reflect.deleteProperty(globalThis, E2E_MENU_BAR_GLOBAL)
   electron.app.isPackaged = false
   electron.app.userData = mkdtempSync(join(tmpdir(), 'glade-app-'))
   electron.app.logs = mkdtempSync(join(tmpdir(), 'glade-app-logs-'))

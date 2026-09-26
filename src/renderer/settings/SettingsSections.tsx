@@ -152,9 +152,26 @@ function ModelPicker({ value, onChoose }: ModelPickerProps): React.JSX.Element {
   )
 }
 
-/** Nothing here yet: every app-wide setting so far belongs to another section. */
+/** Glade in the macOS menu bar (`docs/design/html/23-menu-bar.html`): its icon, and the popover it opens. */
 export function GeneralSection(): React.JSX.Element {
-  return <Intro>Nothing to set here yet.</Intro>
+  const [settings, update] = useSettings()
+  return (
+    <>
+      <Intro>Changes save automatically.</Intro>
+      <SettingRow
+        name="Show Glade in the menu bar"
+        description="An icon with what needs you and what's working; click it for the list."
+      >
+        <Toggle
+          label="Show Glade in the menu bar"
+          checked={settings.showInMenuBar}
+          onChange={(showInMenuBar) => {
+            update({ showInMenuBar })
+          }}
+        />
+      </SettingRow>
+    </>
+  )
 }
 
 /** The defaults for new tasks, and what the agent keeps current (the design's section). */
