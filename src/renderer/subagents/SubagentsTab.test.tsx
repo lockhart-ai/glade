@@ -1,8 +1,17 @@
 import { act, fireEvent, render as renderUnwrapped, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName } from '../../shared/bridge'
-import { ToolCallState, ToolEventKind, UiStateKey, type NarrationEvent, type ToolCallEvent } from '../../shared/domain'
-import { refuse, sampleWorkspace } from '../store/test-bridge'
+import {
+  ToolCallState,
+  ToolEventKind,
+  UiStateKey,
+  WatcherKind,
+  WatcherState,
+  type NarrationEvent,
+  type ToolCallEvent,
+  type Watcher,
+} from '../../shared/domain'
+import { refuse, sampleWatcher, sampleWorkspace } from '../store/test-bridge'
 import { storeWrapper } from '../store/test-wrapper'
 import { ELAPSED_REFRESH_MS, SubagentsTab } from './SubagentsTab'
 
@@ -285,5 +294,80 @@ describe('a subagent’s context menu', () => {
     await act(() => Promise.resolve())
 
     expect(screen.getByRole('menu', { name: 'Tool call actions' })).toBeInTheDocument()
+  })
+})
+
+describe('a subagent’s background work (#291)', () => {
+  /** What the API subagent left running and what ended, beside the task's own command. */
+  const WATCHERS: readonly Watcher[] = [
+    sampleWatcher('own', 't1', { kind: WatcherKind.Command, label: 'Tail the deploy log', parentToolUseId: null }),
+    sampleWatcher('e2e', 't1', {
+      kind: WatcherKind.Command,
+      label: 'Run the e2e suite',
+      detail: 'npm run test:e2e',
+      recurring: false,
+      parentToolUseId: 'use-api',
+      startedAt: AT,
+    }),
+    sampleWatcher('lint', 't1', {
+      kind: WatcherKind.Command,
+      label: 'Lint',
+      detail: 'npm run lint',
+      state: WatcherState.Finished,
+      outcome: 'Background command "Lint" completed (exit code 0)',
+      parentToolUseId: 'use-api',
+      startedAt: AT,
+      endedAt: AT + 30_000,
+    }),
+    sampleWatcher('dash-ci', 't1', { label: 'Dashboard CI', parentToolUseId: 'use-dash', state: WatcherState.Stopped }),
+  ]
+
+  it('marks a subagent with live background work, and lists it under the subagent’s log with Stop', async () => {
+    const stoppedWatchers: string[] = []
+    render(
+      <SubagentsTab taskId="t1" events={EVENTS} rootPath={ROOT} watchers={WATCHERS} />,
+      storeWrapper({ watchers: [...WATCHERS], stoppedWatchers }),
+    )
+
+    expect(within(row('API changes')).getByRole('img', { name: 'Watching 1 thing' })).toHaveTextContent('1')
+    // Ended work isn't live: no mark.
+    expect(within(row('Dashboard changes')).queryByRole('img')).toBeNull()
+    expect(screen.queryByRole('group', { name: 'API changes background work' })).toBeNull()
+
+    fireEvent.click(header('API changes'))
+    const work = screen.getByRole('group', { name: 'API changes background work' })
+    expect(
+      within(work)
+        .getAllByRole('group')
+        .map((each) => each.getAttribute('aria-label')),
+    ).toEqual(['Run the e2e suite', 'Lint'])
+    expect(within(work).getByRole('group', { name: 'Lint' })).toHaveTextContent(
+      'Background command "Lint" completed (exit code 0)',
+    )
+    // The task's own isn't a subagent's.
+    expect(screen.queryByText('Tail the deploy log')).toBeNull()
+
+    fireEvent.click(within(work).getByRole('button', { name: 'Stop Run the e2e suite' }))
+    await act(() => Promise.resolve())
+    expect(stoppedWatchers).toEqual(['e2e'])
+    expect(within(work).queryByRole('button', { name: 'Stop Lint' })).toBeNull()
+  })
+
+  it('shows nothing for a subagent that left nothing running', () => {
+    render(<SubagentsTab taskId="t1" events={EVENTS} rootPath={ROOT} watchers={WATCHERS} />)
+    fireEvent.click(header('Admin & internal changes'))
+    expect(screen.queryByRole('group', { name: 'Admin & internal changes background work' })).toBeNull()
+  })
+
+  it('ticks while a finished subagent’s work runs on', () => {
+    vi.useFakeTimers({ now: AT + 60_000 })
+    const finished = agent('api', 'API changes', { state: ToolCallState.Done, output: 'Done.', finishedAt: AT })
+    render(<SubagentsTab taskId="t1" events={[finished]} watchers={WATCHERS} />)
+    fireEvent.click(header('API changes'))
+    expect(row('Run the e2e suite')).toHaveTextContent('1m 00s')
+    act(() => {
+      vi.advanceTimersByTime(5 * ELAPSED_REFRESH_MS)
+    })
+    expect(row('Run the e2e suite')).toHaveTextContent('1m 05s')
   })
 })

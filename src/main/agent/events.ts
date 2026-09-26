@@ -218,6 +218,12 @@ export interface SubagentStartedEvent {
   readonly background: boolean
   /** The SDK's kind of task (`local_agent`, `local_bash`, …); null when it doesn't say. */
   readonly taskType: string | null
+  /**
+   * Whether the SDK runs the task in the background (`is_backgrounded`), whatever its kind: a background subagent, a
+   * `Monitor`, or a `Bash` call with `run_in_background`. A foreground `Bash` call that runs for a few seconds gets a
+   * task too, not backgrounded, which its call waits on (`docs/sdk-notes.md`, "Background work inside a subagent").
+   */
+  readonly isBackgrounded: boolean
   /** What the task is called: its call's description. */
   readonly description: string
 }
@@ -574,10 +580,21 @@ function fromTaskStarted(message: z.infer<typeof taskStartedMessage>): AgentEven
   const { task_id: sdkTaskId, tool_use_id: toolUseId } = message
   const background = message.task_type === 'local_agent' && message.is_backgrounded === true
   const taskType = message.task_type ?? null
+  const isBackgrounded = message.is_backgrounded === true
   const { description } = message
   return toolUseId === undefined
     ? []
-    : [{ kind: AgentEventKind.SubagentStarted, sdkTaskId, toolUseId, background, taskType, description }]
+    : [
+        {
+          kind: AgentEventKind.SubagentStarted,
+          sdkTaskId,
+          toolUseId,
+          background,
+          taskType,
+          isBackgrounded,
+          description,
+        },
+      ]
 }
 
 function fromTaskUpdated(message: z.infer<typeof taskUpdatedMessage>): AgentEvent[] {

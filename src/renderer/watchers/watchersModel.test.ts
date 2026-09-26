@@ -11,7 +11,9 @@ import {
   orderWatchers,
   outputLine,
   OutputLineKind,
+  ownWatchers,
   statusLabel,
+  subagentWatchers,
   tally,
   TallyGroup,
   wakesLabel,
@@ -33,6 +35,20 @@ describe('which watchers are live', () => {
     expect(liveWatcherCount(watchers)).toBe(3)
     expect(liveWatcherCount(undefined)).toBe(0)
     expect(liveWatcherCount([])).toBe(0)
+  })
+
+  it('counts only the task’s own: a subagent’s are its own, under it (#291)', () => {
+    const own = sampleWatcher('own', 't1')
+    const api = sampleWatcher('api', 't1', { parentToolUseId: 'toolu_api' })
+    const apiEnded = sampleWatcher('api-ended', 't1', { parentToolUseId: 'toolu_api', state: WatcherState.Finished })
+    const nested = sampleWatcher('nested', 't1', { parentToolUseId: 'toolu_nested' })
+    const watchers = [own, api, apiEnded, nested]
+    expect(liveWatcherCount(watchers)).toBe(1)
+    expect(liveWatcherCount([api, nested])).toBe(0)
+    expect(ownWatchers(watchers)).toEqual([own])
+    expect(subagentWatchers(watchers, 'toolu_api')).toEqual([api, apiEnded])
+    expect(subagentWatchers(watchers, 'toolu_nested')).toEqual([nested])
+    expect(subagentWatchers(watchers, 'toolu_none')).toEqual([])
   })
 
   it('lists the live ones first, in the order they started, then the ended ones, latest to end first', () => {

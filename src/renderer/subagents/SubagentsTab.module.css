@@ -188,6 +188,37 @@
   color: var(--color-faint);
 }
 
+/* The eye and count of its live background work, as a task's row in the task list shows its own (28-watchers.html). */
+.watching {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+/* What it left running, under its log: the Watchers tab's rows, inset as the log is. */
+.background {
+  margin: 0 12px 12px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+/* As the search results' section labels. */
+.backgroundLabel {
+  margin: 0;
+  padding: var(--space-xs) calc(var(--space-item) + 1px) 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  font-weight: 400;
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
 /* The subagent's log, open under its row: the tool log's rows on the app's darkest ground. */
 .log {
   margin: 0 12px 12px 28px;

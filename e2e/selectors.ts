@@ -196,6 +196,10 @@ export function subagentsTab(page: Page) {
     header: (name: string) => row(name).getByRole('button').first(),
     /** A row's log, while it's open. */
     log: (name: string) => panel.getByRole('log', { name: `${name} log` }),
+    /** A row's eye and count of its live background work, named "Watching 2 things". */
+    watching: (name: string) => row(name).getByRole('img', { name: /^Watching/ }),
+    /** What a subagent left running or scheduled, under its log while it's open: a watcher row each. */
+    background: (name: string) => panel.getByRole('group', { name: `${name} background work` }),
   }
 }
 

@@ -40,7 +40,9 @@
  * each turn ends). The runner remembers the prompts it sends (`give`), so one of its own is never taken for a wake;
  * anything else goes to the watchers, which count it and can turn away a job you stopped. Stop on a monitor or command
  * stops its SDK task (`stopWatcher`). A failed session ends its watchers with it, and a launch ends those of every
- * session, but for the cron jobs, which wait for their session to resume.
+ * session, but for the cron jobs, which wait for their session to resume. What a subagent leaves running is its own,
+ * not the task's: the runner tells the watchers which subagent's call started each (`callParents`, for a call the tool
+ * log doesn't have), and when a subagent is stopped, stops the monitors and commands it leaves behind.
  *
  * **Background subagents** (`docs/sdk-notes.md`, "Background subagents"). An `Agent` call with `run_in_background`
  * returns as soon as its subagent is launched, and the turn carries on and ends without waiting for it, so the task goes
@@ -466,6 +468,11 @@ interface LiveSession {
   readonly background: Map<string, number>
   /** The tool calls running inside a background subagent, nested subagents' included: the subagent's `Agent` call. */
   readonly backgroundCalls: Map<string, string>
+  /**
+   * Every tool call the session has made that hasn't had its result, logged or not: the `Agent` call of the subagent
+   * that made it, or null for the agent's own. Whose a background task is, when the SDK starts one for the call.
+   */
+  readonly callParents: Map<string, string | null>
   /**
    * The prompts Glade has sent the session that its prompt hook hasn't seen yet, oldest first, up to `MAX_HANDED`: a
    * prompt of Glade's own is never a wake, nor turned away.
@@ -1185,7 +1192,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (event.kind !== AgentEventKind.ToolResult || !live.backgroundCalls.delete(event.toolUseId)) return false
     live.subagents.delete(event.toolUseId)
     const state = event.isError ? ToolCallState.Error : ToolCallState.Done
-    emitToolEventUpdated(emit, updateToolCall(db, { taskId, toolUseId: event.toolUseId, state, output: event.output }))
+    const call = updateToolCall(db, { taskId, toolUseId: event.toolUseId, state, output: event.output })
+    emitToolEventUpdated(emit, call)
+    watchers.toolResult(taskId, call, event)
     return true
   }
 
@@ -1256,8 +1265,23 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     return live.turn
   }
 
+  /**
+   * A subagent was stopped: the monitors and commands it leaves running end with it, and their tasks are stopped, in
+   * case the SDK leaves them running.
+   */
+  const onSubagentStopped = (taskId: string, live: LiveSession, toolUseId: string): void => {
+    for (const sdkTaskId of watchers.subagentStopped(taskId, toolUseId)) {
+      taskLog(taskId).info("stopping a stopped subagent's watcher", { toolUseId, sdkTaskId })
+      live.session.stopTask(sdkTaskId).catch((error: unknown) => {
+        taskLog(taskId).warn("couldn't stop a stopped subagent's watcher", { sdkTaskId, error })
+      })
+    }
+  }
+
   const onEvent = (taskId: string, live: LiveSession, event: AgentEvent): void => {
     if (live.closed) return
+    if (event.kind === AgentEventKind.ToolCallStarted) live.callParents.set(event.toolUseId, event.parentToolUseId)
+    if (event.kind === AgentEventKind.ToolResult) live.callParents.delete(event.toolUseId)
     if (event.kind === AgentEventKind.SessionStarted) {
       live.sdkModel = event.model
       if (getTask(db, taskId)?.sessionId !== event.sessionId) {
@@ -1276,16 +1300,17 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return
     }
     if (event.kind === AgentEventKind.SubagentStarted) {
-      const { toolUseId, sdkTaskId, taskType } = event
-      taskLog(taskId).info('task started', { toolUseId, sdkTaskId, taskType })
+      const { toolUseId, sdkTaskId, taskType, isBackgrounded } = event
+      taskLog(taskId).info('task started', { toolUseId, sdkTaskId, taskType, isBackgrounded })
       live.subagents.set(event.toolUseId, event.sdkTaskId)
-      watchers.taskStarted(taskId, event)
+      watchers.taskStarted(taskId, event, live.callParents.get(toolUseId) ?? null)
       if (event.background) {
         runInBackground(live, event.toolUseId, live.turn?.number ?? Math.max(1, lastTurn(db, taskId)))
       }
       return
     }
     if (event.kind === AgentEventKind.SubagentBackgrounded) {
+      watchers.taskBackgrounded(taskId, event.sdkTaskId)
       for (const [toolUseId, sdkTaskId] of live.subagents) {
         if (sdkTaskId === event.sdkTaskId && live.turn?.running.get(toolUseId) === null) {
           runInBackground(live, toolUseId, live.turn.number)
@@ -1295,6 +1320,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
     if (event.kind === AgentEventKind.TaskFinished) {
       watchers.taskFinished(taskId, event)
+      if (event.outcome === TaskOutcome.Stopped) onSubagentStopped(taskId, live, event.toolUseId)
       onTaskFinished(taskId, live, event)
       return
     }
@@ -1503,6 +1529,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       subagents: new Map(),
       background: new Map(),
       backgroundCalls: new Map(),
+      callParents: new Map(),
       handed: [],
     }
     decide = (call) => decideToolCall(task.id, live, call)

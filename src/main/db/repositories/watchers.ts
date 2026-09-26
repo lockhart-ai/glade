@@ -8,6 +8,8 @@ export interface NewWatcher {
   readonly taskId: string
   readonly kind: WatcherKind
   readonly toolUseId: string
+  /** The `Agent` call of the subagent whose call started it; null for the task's own. */
+  readonly parentToolUseId: string | null
   /** The SDK's id for it, if it's known yet. */
   readonly sdkId: string | null
   readonly label: string
@@ -43,7 +45,7 @@ export interface WatcherChange {
   readonly endedAt?: EpochMs | null
 }
 
-const COLUMNS = `id, task_id, kind, tool_use_id, sdk_id, label, detail, cron, schedule, recurring, state, wakes,
+const COLUMNS = `id, task_id, kind, tool_use_id, parent_tool_use_id, sdk_id, label, detail, cron, schedule, recurring, state, wakes,
   last_woke_at, last_output, next_due_at, expires_at, outcome, stopped_by_you, started_at, ended_at`
 
 const LIVE = `(${LIVE_WATCHER_STATES.map((state) => `'${state}'`).join(', ')})`
@@ -55,6 +57,7 @@ function parseWatcher(raw: unknown): StoredWatcher {
     taskId: row.text('task_id'),
     kind: row.oneOf('kind', Object.values(WatcherKind)),
     toolUseId: row.text('tool_use_id'),
+    parentToolUseId: row.nullableText('parent_tool_use_id'),
     sdkId: row.nullableText('sdk_id'),
     label: row.text('label'),
     detail: row.text('detail'),
@@ -81,6 +84,7 @@ export function publicWatcher(stored: StoredWatcher): Watcher {
     taskId: stored.taskId,
     kind: stored.kind,
     toolUseId: stored.toolUseId,
+    parentToolUseId: stored.parentToolUseId,
     label: stored.label,
     detail: stored.detail,
     schedule: stored.schedule,
@@ -103,15 +107,16 @@ export function publicWatcher(stored: StoredWatcher): Watcher {
  */
 export function addWatcher(db: Database, watcher: NewWatcher, now: EpochMs = Date.now()): StoredWatcher {
   db.prepare(
-    `INSERT INTO watchers (id, task_id, kind, tool_use_id, sdk_id, label, detail, cron, schedule, recurring, state,
-      next_due_at, expires_at, started_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO watchers (id, task_id, kind, tool_use_id, parent_tool_use_id, sdk_id, label, detail, cron, schedule,
+      recurring, state, next_due_at, expires_at, started_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (task_id, tool_use_id) DO NOTHING`,
   ).run(
     randomUUID(),
     watcher.taskId,
     watcher.kind,
     watcher.toolUseId,
+    watcher.parentToolUseId,
     watcher.sdkId,
     watcher.label,
     watcher.detail,

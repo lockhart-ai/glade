@@ -17,9 +17,12 @@
  * - A `Wake` step has the agent start a turn of its own later, with no message sent (see `ScriptStepKind.Wake`). It
  *   waits for the turn playing to end, like a message sent meanwhile, and a message sent while it plays is folded in.
  * - A `Monitor` call, or a `Bash` call with `run_in_background`, starts a background task as the SDK does
- *   (`docs/sdk-notes.md` §13): a `task_started` (`local_bash`) after the call, and its result's `tool_use_result`
- *   names the task. A `Wake` step can then have it print an event or end; `stopTask` stops it, with the SDK's
- *   notification (a stopped task never wakes the agent). A `ScheduleWakeup` or `CronCreate` call schedules a job, and
+ *   (`docs/sdk-notes.md` §13): a `task_started` (`local_bash`, backgrounded, and `owned_by_subagent` for a subagent's)
+ *   after the call, and its result's `tool_use_result` names the task. Any other `Bash` call runs as a foreground task,
+ *   as the SDK runs one that takes a few seconds (`docs/sdk-notes.md`, "Background work inside a subagent"): its
+ *   `task_started`, not backgrounded, and its `task_notification`, just before its result. A `Wake` step can then have
+ *   a background one print an event or end, and a `TaskEnd` step can end it without waking the agent, as a subagent's
+ *   ends; `stopTask` stops it, with the SDK's notification (a stopped task never wakes the agent). A `ScheduleWakeup` or `CronCreate` call schedules a job, and
  *   `CronDelete` (or `ScheduleWakeup` with `stop`) deletes one; each turn's end tells the session's `Stop` hook the jobs
  *   it has (`hooks.onTurnEnded`). Each wake, and each job firing, is first put to the prompt hook (`hooks.onPrompt`),
  *   which can turn a job's fire away.
@@ -339,6 +342,8 @@ export class ScriptedSession implements AgentSession {
   private readonly jobs: ScheduledJob[] = []
   /** How many background tasks and jobs the session has started: what numbers their ids. */
   private scheduled = 0
+  /** How many foreground `Bash` calls the session has run as tasks: what numbers theirs. */
+  private foregroundCommands = 0
   /** The script the session plays: picked on its first message. */
   private script: AgentScript | null = null
   private turn: TurnState | null = null
@@ -560,6 +565,13 @@ export class ScriptedSession implements AgentSession {
       case ScriptStepKind.Wake:
         this.wake(turn, step)
         return
+      case ScriptStepKind.TaskEnd: {
+        const watch = this.watches.get(this.sdkToolId(turn, step.task))
+        if (watch?.running !== true) return
+        watch.running = false
+        this.endWatch(watch, step.outcome ?? 'completed', step.summary)
+        return
+      }
       case ScriptStepKind.Background:
         this.background(turn, step, uuid)
         return
@@ -1066,14 +1078,14 @@ export class ScriptedSession implements AgentSession {
     turn.running.set(id, { sdkId, parent: sdkParent, name, input })
     this.assistant(turn, { type: 'tool_use', id: sdkId, name, input }, sdkParent, uuid)
     if (SUBAGENT_TOOLS.has(name)) this.startForeground(sdkId, input)
-    if (startsWatch(name, input)) this.startWatch(sdkId, input)
+    if (startsWatch(name, input)) this.startWatch(sdkId, input, sdkParent)
   }
 
   /**
    * A `Monitor` call, or a `Bash` call with `run_in_background`, starts its command as a task in the background, as the
    * SDK does (`docs/sdk-notes.md` §13): its `task_started`, backgrounded, of type `local_bash`.
    */
-  private startWatch(toolUseId: string, input: ToolInput): void {
+  private startWatch(toolUseId: string, input: ToolInput, parent: string | null): void {
     this.scheduled += 1
     const taskId = `b${this.idPrefix}w${String(this.scheduled)}`
     const description = typeof input.description === 'string' ? input.description : ''
@@ -1086,6 +1098,40 @@ export class ScriptedSession implements AgentSession {
       description,
       is_backgrounded: true,
       task_type: 'local_bash',
+      ...(parent === null ? {} : { owned_by_subagent: true }),
+      uuid: randomUUID(),
+    })
+  }
+
+  /**
+   * A foreground `Bash` call that succeeded ends as the SDK ends one that ran a few seconds (`docs/sdk-notes.md`,
+   * "Background work inside a subagent"): the task it ran as, not backgrounded, then that task's notification, whose
+   * summary is the call's description.
+   */
+  private endForegroundCommand(call: RunningCall): void {
+    this.foregroundCommands += 1
+    const taskId = `b${this.idPrefix}f${String(this.foregroundCommands)}`
+    const description = typeof call.input.description === 'string' ? call.input.description : ''
+    const owned = call.parent === null ? {} : { owned_by_subagent: true }
+    this.push({
+      type: 'system',
+      subtype: 'task_started',
+      task_id: taskId,
+      tool_use_id: call.sdkId,
+      description,
+      is_backgrounded: false,
+      task_type: 'local_bash',
+      ...owned,
+      uuid: randomUUID(),
+    })
+    this.push({
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: taskId,
+      tool_use_id: call.sdkId,
+      status: 'completed',
+      output_file: '',
+      summary: description,
       uuid: randomUUID(),
     })
   }
@@ -1217,6 +1263,7 @@ export class ScriptedSession implements AgentSession {
         uuid: randomUUID(),
       })
     }
+    if (call?.name === 'Bash' && !isError && !this.watches.has(call.sdkId)) this.endForegroundCommand(call)
     const made = call === undefined ? undefined : this.toolDetails(call, isError, details)
     const merged = made === undefined && details === undefined ? undefined : { ...made, ...details }
     this.pushToolResult(call?.sdkId ?? this.sdkToolId(turn, id), call?.parent ?? null, output, isError, merged)

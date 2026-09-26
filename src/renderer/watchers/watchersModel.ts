@@ -10,9 +10,25 @@ export function isLive(watcher: Watcher): boolean {
   return LIVE_WATCHER_STATES.includes(watcher.state)
 }
 
-/** How many of a task's watchers are live: the tab's count, and the task list's mark. */
+/**
+ * The watchers the task's own agent started: what the Watchers tab lists and counts. A subagent's are its own, under it
+ * in the Subagents tab (`subagentWatchers`).
+ */
+export function ownWatchers(watchers: readonly Watcher[]): Watcher[] {
+  return watchers.filter((watcher) => watcher.parentToolUseId === null)
+}
+
+/** The watchers a subagent started, by its `Agent` call, in the order they started. */
+export function subagentWatchers(watchers: readonly Watcher[], toolUseId: string): Watcher[] {
+  return watchers.filter((watcher) => watcher.parentToolUseId === toolUseId)
+}
+
+/**
+ * How many of a task's own watchers are live: the tab's count, and the task list's mark. Its subagents' don't count
+ * (`ownWatchers`).
+ */
 export function liveWatcherCount(watchers: readonly Watcher[] | undefined): number {
-  return watchers?.filter(isLive).length ?? 0
+  return ownWatchers(watchers ?? []).filter(isLive).length
 }
 
 /** The tab's order: the live ones first, in the order they started, then the ended ones, the latest to end first. */

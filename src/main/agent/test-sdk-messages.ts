@@ -414,9 +414,10 @@ export function backgroundCommandStarted(
   sdkTaskId: string,
   description: string,
   command: string,
+  parent: string | null = null,
 ): unknown[] {
   return [
-    toolUse(toolUseId, 'Bash', { command, description, run_in_background: true }),
+    toolUse(toolUseId, 'Bash', { command, description, run_in_background: true }, parent, `msg_${toolUseId}`),
     {
       type: 'system',
       subtype: 'task_started',
@@ -425,12 +426,88 @@ export function backgroundCommandStarted(
       description,
       is_backgrounded: true,
       task_type: 'local_bash',
+      // Set only on a subagent's (docs/sdk-notes.md, "Background work inside a subagent").
+      ...(parent === null ? {} : { owned_by_subagent: true }),
       session_id: SESSION_ID,
     },
     {
-      ...(toolResult(toolUseId, `Command running in background with ID: ${sdkTaskId}.`) as object),
-      tool_use_result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: sdkTaskId },
+      // A subagent's call's result has no `tool_use_result`.
+      ...(toolResult(toolUseId, `Command running in background with ID: ${sdkTaskId}.`, false, parent) as object),
+      tool_use_result:
+        parent === null ? { stdout: '', stderr: '', interrupted: false, backgroundTaskId: sdkTaskId } : undefined,
     },
+  ]
+}
+
+/**
+ * What the SDK streams for a `Bash` call in the foreground that runs for a few seconds (`docs/sdk-notes.md`,
+ * "Background work inside a subagent"): the call, a task for it, not backgrounded, some seconds in; then, as it ends,
+ * the task's notification (its summary just the call's description) and the call's result.
+ */
+export function foregroundCommand(
+  toolUseId: string,
+  sdkTaskId: string,
+  description: string,
+  output: string,
+  parent: string | null = null,
+): unknown[] {
+  return [
+    toolUse(toolUseId, 'Bash', { command: 'npm test', description }, parent, `msg_${toolUseId}`),
+    foregroundCommandStarted(toolUseId, sdkTaskId, description, parent),
+    {
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: sdkTaskId,
+      tool_use_id: toolUseId,
+      status: 'completed',
+      output_file: '',
+      summary: description,
+      session_id: SESSION_ID,
+    },
+    toolResult(toolUseId, output, false, parent),
+  ]
+}
+
+/** The task the SDK starts for a foreground `Bash` call once it has run a few seconds: not backgrounded. */
+export function foregroundCommandStarted(
+  toolUseId: string,
+  sdkTaskId: string,
+  description: string,
+  parent: string | null = null,
+): unknown {
+  return {
+    type: 'system',
+    subtype: 'task_started',
+    task_id: sdkTaskId,
+    tool_use_id: toolUseId,
+    description,
+    task_type: 'local_bash',
+    is_backgrounded: false,
+    ...(parent === null ? {} : { owned_by_subagent: true }),
+    session_id: SESSION_ID,
+  }
+}
+
+/**
+ * What the SDK streams when a foreground `Bash` call runs past its timeout: its task moves to the background, and the
+ * call returns saying so. The command runs on, and ends as any background command does.
+ */
+export function movedToBackground(toolUseId: string, sdkTaskId: string, parent: string | null = null): unknown[] {
+  return [
+    {
+      type: 'system',
+      subtype: 'task_updated',
+      task_id: sdkTaskId,
+      patch: { is_backgrounded: true },
+      session_id: SESSION_ID,
+    },
+    toolResult(
+      toolUseId,
+      `Command did not complete within its 600s timeout and was moved to the background (ID: ${sdkTaskId}). ` +
+        `Output is being written to: /tmp/tasks/${sdkTaskId}.output. You will be notified when it completes.`,
+      false,
+      parent,
+    ),
   ]
 }
 

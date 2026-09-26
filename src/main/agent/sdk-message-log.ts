@@ -65,7 +65,8 @@ function block(raw: unknown): Json {
 const SYSTEM_FIELDS: Readonly<Record<string, readonly string[]>> = {
   init: ['session_id', 'model', 'cwd', 'permissionMode', 'claude_code_version', 'apiKeySource'],
   api_retry: ['attempt', 'max_retries', 'retry_delay_ms', 'error_status', 'error'],
-  task_started: ['task_id', 'tool_use_id', 'description', 'task_type'],
+  task_started: ['task_id', 'tool_use_id', 'description', 'task_type', 'is_backgrounded', 'owned_by_subagent'],
+  task_updated: ['task_id', 'patch'],
   task_progress: ['task_id', 'tool_use_id', 'last_tool_name', 'usage'],
   task_notification: ['task_id', 'tool_use_id', 'status', 'summary', 'usage'],
   compact_boundary: ['compact_metadata'],

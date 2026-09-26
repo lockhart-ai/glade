@@ -12,6 +12,7 @@ import {
   metaLine,
   orderWatchers,
   outputLine,
+  ownWatchers,
   statusLabel,
   tally,
   watcherIndicator,
@@ -22,7 +23,7 @@ import styles from './WatchersTab.module.css'
 /** How often the tab's times tick while a watcher is live: its elapsed time and when it's due. */
 export const WATCHERS_REFRESH_MS = 1000
 
-interface RowProps {
+export interface WatcherRowProps {
   readonly watcher: Watcher
   readonly now: EpochMs
   /** Stops it; given while it's live. */
@@ -31,9 +32,9 @@ interface RowProps {
 
 /**
  * One watcher: its dot, name, state and Stop while it's live; then its kind and what it runs, what it last reported
- * (or how it ended), and how many times it woke the agent and when.
+ * (or how it ended), and how many times it woke the agent and when. The Subagents tab shows a subagent's the same way.
  */
-function WatcherRow({ watcher, now, onStop }: RowProps): React.JSX.Element {
+export function WatcherRow({ watcher, now, onStop }: WatcherRowProps): React.JSX.Element {
   const output = outputLine(watcher)
   return (
     <div
@@ -77,16 +78,18 @@ function WatcherRow({ watcher, now, onStop }: RowProps): React.JSX.Element {
 
 export interface WatchersTabProps {
   readonly taskId: string
+  /** The task's watchers, its subagents' too: the tab lists only its own (`ownWatchers`). */
   readonly watchers: readonly Watcher[]
 }
 
 /**
  * The Watchers tab (docs/design/html/28-watchers.html): a tally of what the task's agent left running or scheduled,
  * then a row for each, the live ones first. Glade builds none of them: the agent starts them with the SDK's own tools
- * (a `Monitor` watch, a background command, a wakeup, a cron job), and each row follows one. A live one has Stop.
+ * (a `Monitor` watch, a background command, a wakeup, a cron job), and each row follows one. A live one has Stop. What
+ * a subagent started is its own, under it in the Subagents tab.
  */
 export function WatchersTab({ taskId, watchers }: WatchersTabProps): React.JSX.Element {
-  const ordered = useMemo(() => orderWatchers(watchers), [watchers])
+  const ordered = useMemo(() => orderWatchers(ownWatchers(watchers)), [watchers])
   const now = useNow(ordered.some(isLive) ? WATCHERS_REFRESH_MS : null)
   const stopWatcher = useGladeStore((state) => state.stopWatcher)
   const { run } = useMenuCommands()

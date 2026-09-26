@@ -107,6 +107,23 @@ describe('WatchersTab', () => {
     )
   })
 
+  it('leaves out what a subagent started: that’s under the subagent (#291)', () => {
+    const subagents = [
+      sampleWatcher('sub', 't1', { label: 'A subagent’s e2e run', parentToolUseId: 'use-api' }),
+      sampleWatcher('sub-ended', 't1', {
+        label: 'A subagent’s lint',
+        parentToolUseId: 'use-api',
+        state: WatcherState.Finished,
+      }),
+    ]
+    const { rerender } = render(<WatchersTab taskId="t1" watchers={[sample('ci'), ...subagents]} />)
+    expect(screen.getByRole('group', { name: 'Watchers by state' })).toHaveTextContent(/^1 running$/)
+    expect(screen.queryByText('A subagent’s e2e run')).toBeNull()
+
+    rerender(<WatchersTab taskId="t1" watchers={subagents} />)
+    expect(screen.getByText('Nothing running or scheduled.')).toBeInTheDocument()
+  })
+
   it('stops a live watcher with its Stop, and says so if main refuses', async () => {
     const stoppedWatchers: string[] = []
     const wrapper = storeWrapper({ watchers: [...WATCHERS], stoppedWatchers })

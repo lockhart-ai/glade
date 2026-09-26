@@ -4,10 +4,13 @@
  * it with `Monitor` or `Bash`'s `run_in_background`, or schedules itself with `ScheduleWakeup` or `CronCreate`, and
  * Glade follows each one from what the SDK reports:
  *
- * - **Monitor** and **Command** (a background `Bash`): the SDK starts a task for each (`task_started`, `local_bash`),
- *   which the watcher is made from, with the call's description and command. Each time one wakes the agent, its
- *   wake's prompt names it (`./notices`): a monitor's event lines, or its ending. The SDK's `task_notification` says
- *   how it ended: finished, failed or stopped (by you, the agent, or its timeout).
+ * - **Monitor** and **Command** (a background `Bash`): the SDK starts a task for each (`task_started`, `local_bash`,
+ *   backgrounded), which the watcher is made from, with the call's description and command. Each time one wakes the
+ *   agent, its wake's prompt names it (`./notices`): a monitor's event lines, or its ending. The SDK's
+ *   `task_notification` says how it ended: finished, failed or stopped (by you, the agent, or its timeout). A foreground
+ *   `Bash` call that runs a few seconds gets a task too, not backgrounded: that's a tool call, not a watcher, unless
+ *   the SDK moves it to the background when it runs past its timeout (`docs/sdk-notes.md`, "Background work inside a
+ *   subagent").
  * - **Wakeup** (`ScheduleWakeup`) and **Cron** (`CronCreate`): made from the call's result (the wakeup's time, the
  *   job's id and schedule). A job firing wakes the agent with its prompt, which is how its wakes are counted: a
  *   wakeup, or a one-off job, is finished once it fires. At the end of each turn the SDK lists the jobs it still has:
@@ -19,6 +22,12 @@
  * its ending says so. A wakeup or job has no such means from outside the session (only the agent's `CronDelete`): it's
  * marked stopped at once, and its fires are turned away before they start a turn (`prompt` answers `Block`), for as
  * long as the session keeps it. A message of yours is never turned away: the runner checks its own prompts first.
+ *
+ * **Subagents.** A watcher belongs to whoever's call started it: the task's own agent, or one of its subagents (the
+ * call's `parentToolUseId`, which the Subagents tab shows it under). A subagent's are followed just as the task's own,
+ * and end the same ways: the SDK reports their ends to the task's session, even once the subagent itself has finished
+ * (it keeps them running, and wakes the subagent again when they end). A subagent that's stopped takes its monitors
+ * and commands with it (`subagentStopped`): they end as "Ended with its subagent.", and the runner stops their tasks.
  *
  * **Relaunches.** A session's processes and wakeups die with it; its cron jobs come back when it resumes. So on launch,
  * and when a session fails, running watchers and scheduled wakeups end as stopped, and scheduled cron jobs are
@@ -62,9 +71,12 @@ export const FIRED = 'It fired.'
 export const NO_LONGER_SCHEDULED = 'The agent’s session no longer has it.'
 /** What a watcher the app quit on says: its process or wakeup died with the session. */
 export const STOPPED_BY_RELAUNCH = 'Stopped by the relaunch.'
+/** What a monitor or command of a subagent that was stopped says. */
+export const ENDED_WITH_SUBAGENT = 'Ended with its subagent.'
 
 /** The tools that start a task Glade follows as a watcher, by the name of the call that started it. */
 const MONITOR_TOOL = 'Monitor'
+const BASH_TOOL = 'Bash'
 const SCHEDULE_WAKEUP_TOOL = 'ScheduleWakeup'
 const CRON_CREATE_TOOL = 'CronCreate'
 const CRON_DELETE_TOOL = 'CronDelete'
@@ -94,7 +106,15 @@ const monitorResult = z.looseObject({
   timeoutMs: z.number().nonnegative().optional().catch(undefined),
   persistent: z.boolean().optional().catch(undefined),
 })
-const bashInput = z.looseObject({ description: optionalText, command: optionalText })
+const bashInput = z.looseObject({
+  description: optionalText,
+  command: optionalText,
+  run_in_background: z.boolean().optional().catch(undefined),
+})
+/** A `Bash` call's result, when the SDK moved it to the background: the task it runs on as. */
+const movedResult = z.looseObject({ backgroundTaskId: z.string().min(1) })
+/** What a `Bash` call's result says when it ran past its timeout and the SDK moved it to the background. */
+const MOVED_TO_BACKGROUND = 'moved to the background'
 const wakeupInput = z.looseObject({
   reason: optionalText,
   prompt: optionalText,
@@ -128,12 +148,23 @@ export type StopRequest =
   { readonly action: StopAction.StopTask; readonly sdkTaskId: string } | { readonly action: StopAction.None }
 
 export interface WatcherTracker {
-  /** The SDK started a task for a tool call: a monitor or background command becomes a watcher. */
-  taskStarted(taskId: string, event: SubagentStartedEvent): void
+  /**
+   * The SDK started a task for a tool call: a monitor or background command becomes a watcher, belonging to the
+   * subagent whose call it is (`parentToolUseId`, when the call isn't in the tool log to say). A foreground command is
+   * remembered, in case the SDK moves it to the background.
+   */
+  taskStarted(taskId: string, event: SubagentStartedEvent, parentToolUseId: string | null): void
+  /** The SDK moved a task to the background (`task_updated`): a foreground command becomes a watcher. */
+  taskBackgrounded(taskId: string, sdkTaskId: string): void
   /** A tool call got its result: a wakeup or cron job is made, or one is deleted, by the agent. */
   toolResult(taskId: string, call: ToolCallEvent, event: ToolResultEvent): void
   /** The SDK says a task ended: its watcher ends the same way. */
   taskFinished(taskId: string, event: TaskFinishedEvent): void
+  /**
+   * A subagent was stopped (its `Agent` call, `toolUseId`): its live monitors and commands, and those of the subagents
+   * it started, end with it. Answers the SDK's ids of their tasks, for the runner to stop.
+   */
+  subagentStopped(taskId: string, toolUseId: string): readonly string[]
   /**
    * A prompt not of Glade's own is about to start a turn: a wake, which is counted on the watcher it's from. Answers
    * whether it goes ahead: a job you stopped is turned away.
@@ -157,7 +188,26 @@ function monitorCommand(input: z.infer<typeof monitorInput>): string {
   return input.command ?? input.ws?.url ?? ''
 }
 
+/** A foreground command the SDK runs as a task, which becomes a watcher if it's moved to the background. */
+interface ForegroundCommand {
+  readonly event: SubagentStartedEvent
+  readonly parentToolUseId: string | null
+  readonly startedAt: EpochMs
+}
+
 export function createWatcherTracker({ db, emit, now = Date.now }: WatcherTrackerOptions): WatcherTracker {
+  /** Each task's foreground commands running as SDK tasks, by the SDK's task id. Forgotten as each one ends. */
+  const foreground = new Map<string, Map<string, ForegroundCommand>>()
+
+  const foregroundOf = (taskId: string): Map<string, ForegroundCommand> => {
+    let commands = foreground.get(taskId)
+    if (commands === undefined) {
+      commands = new Map()
+      foreground.set(taskId, commands)
+    }
+    return commands
+  }
+
   const broadcast = (taskId: string): void => {
     emit({ type: EventType.WatchersChanged, taskId, watchers: listWatchers(db, taskId).map(publicWatcher) })
   }
@@ -249,7 +299,12 @@ export function createWatcherTracker({ db, emit, now = Date.now }: WatcherTracke
     return true
   }
 
-  const addMonitor = (taskId: string, event: SubagentStartedEvent, call: ToolCallEvent): void => {
+  const addMonitor = (
+    taskId: string,
+    event: SubagentStartedEvent,
+    call: ToolCallEvent,
+    parentToolUseId: string | null,
+  ): void => {
     const input = monitorInput.catch({}).parse(call.input)
     const timeout = Math.min(input.timeout_ms ?? MONITOR_DEFAULT_TIMEOUT_MS, MONITOR_MAX_TIMEOUT_MS)
     const started = now()
@@ -259,6 +314,7 @@ export function createWatcherTracker({ db, emit, now = Date.now }: WatcherTracke
         taskId,
         kind: WatcherKind.Monitor,
         toolUseId: event.toolUseId,
+        parentToolUseId,
         sdkId: event.sdkTaskId,
         label: input.description ?? event.description,
         detail: monitorCommand(input),
@@ -273,7 +329,13 @@ export function createWatcherTracker({ db, emit, now = Date.now }: WatcherTracke
     )
   }
 
-  const addCommand = (taskId: string, event: SubagentStartedEvent, call: ToolCallEvent | undefined): void => {
+  const addCommand = (
+    taskId: string,
+    event: SubagentStartedEvent,
+    call: ToolCallEvent | undefined,
+    parentToolUseId: string | null,
+    started: EpochMs = now(),
+  ): void => {
     const input = bashInput.catch({}).parse(call?.input ?? {})
     const command = input.command ?? ''
     addWatcher(
@@ -282,6 +344,7 @@ export function createWatcherTracker({ db, emit, now = Date.now }: WatcherTracke
         taskId,
         kind: WatcherKind.Command,
         toolUseId: event.toolUseId,
+        parentToolUseId,
         sdkId: event.sdkTaskId,
         label: input.description ?? (event.description === '' ? command : event.description),
         detail: command,
@@ -292,8 +355,34 @@ export function createWatcherTracker({ db, emit, now = Date.now }: WatcherTracke
         nextDueAt: null,
         expiresAt: null,
       },
-      now(),
+      started,
     )
+  }
+
+  /** A foreground command the SDK moved to the background becomes a watcher; answers whether one did. */
+  const promote = (taskId: string, sdkTaskId: string): boolean => {
+    const command = foreground.get(taskId)?.get(sdkTaskId)
+    if (command === undefined) return false
+    foreground.get(taskId)?.delete(sdkTaskId)
+    const { event, parentToolUseId, startedAt } = command
+    addCommand(taskId, event, getToolCall(db, taskId, event.toolUseId), parentToolUseId, startedAt)
+    return true
+  }
+
+  /** The SDK's id for the foreground command a tool call runs as, if the SDK runs it as a task. */
+  const foregroundCall = (taskId: string, toolUseId: string): string | undefined =>
+    [...(foreground.get(taskId) ?? [])].find(([, { event }]) => event.toolUseId === toolUseId)?.[0]
+
+  /** Whether a call made by `parentToolUseId` is made inside the subagent `toolUseId` started, however deep. */
+  const isInside = (taskId: string, parentToolUseId: string | null, toolUseId: string): boolean => {
+    const seen = new Set<string>()
+    let parent = parentToolUseId
+    while (parent !== null && !seen.has(parent)) {
+      if (parent === toolUseId) return true
+      seen.add(parent)
+      parent = getToolCall(db, taskId, parent)?.parentToolUseId ?? null
+    }
+    return false
   }
 
   const addWakeup = (taskId: string, call: ToolCallEvent, details: unknown): boolean => {
@@ -315,6 +404,7 @@ export function createWatcherTracker({ db, emit, now = Date.now }: WatcherTracke
         taskId,
         kind: WatcherKind.Wakeup,
         toolUseId: call.toolUseId,
+        parentToolUseId: call.parentToolUseId,
         sdkId: null,
         label: input.reason ?? 'Wakeup',
         detail: input.prompt ?? '',
@@ -342,6 +432,7 @@ export function createWatcherTracker({ db, emit, now = Date.now }: WatcherTracke
         taskId,
         kind: WatcherKind.Cron,
         toolUseId: call.toolUseId,
+        parentToolUseId: call.parentToolUseId,
         sdkId: result.data.id,
         label: lastLine(prompt.split('\n').find((line) => line.trim() !== '') ?? '') ?? prompt,
         detail: prompt,
@@ -367,15 +458,34 @@ export function createWatcherTracker({ db, emit, now = Date.now }: WatcherTracke
   }
 
   return {
-    taskStarted(taskId, event) {
+    taskStarted(taskId, event, parentToolUseId) {
       if (event.taskType !== 'local_bash') return
       const call = getToolCall(db, taskId, event.toolUseId)
-      if (call?.name === MONITOR_TOOL) addMonitor(taskId, event, call)
-      else addCommand(taskId, event, call)
+      const parent = call === undefined ? parentToolUseId : call.parentToolUseId
+      if (call?.name === MONITOR_TOOL) addMonitor(taskId, event, call, parent)
+      else if (event.isBackgrounded || bashInput.catch({}).parse(call?.input ?? {}).run_in_background === true) {
+        addCommand(taskId, event, call, parent)
+      } else {
+        foregroundOf(taskId).set(event.sdkTaskId, { event, parentToolUseId: parent, startedAt: now() })
+        return
+      }
       broadcast(taskId)
     },
 
+    taskBackgrounded(taskId, sdkTaskId) {
+      if (promote(taskId, sdkTaskId)) broadcast(taskId)
+    },
+
     toolResult(taskId, call, event) {
+      // A foreground command's result: it ended, or the SDK moved it to the background, which the result says.
+      const running = call.name === BASH_TOOL ? foregroundCall(taskId, call.toolUseId) : undefined
+      if (running !== undefined) {
+        const moved =
+          !event.isError && (movedResult.safeParse(event.details).success || event.output.includes(MOVED_TO_BACKGROUND))
+        if (moved && promote(taskId, running)) broadcast(taskId)
+        else foreground.get(taskId)?.delete(running)
+        return
+      }
       if (event.isError) return
       let changed = false
       switch (call.name) {
@@ -405,8 +515,24 @@ export function createWatcherTracker({ db, emit, now = Date.now }: WatcherTracke
     },
 
     taskFinished(taskId, event) {
+      foreground.get(taskId)?.delete(event.sdkTaskId)
       const watcher = findWatcherBySdkId(db, taskId, event.sdkTaskId, TASK_KINDS)
       if (watcher !== undefined && endTask(watcher, event.outcome, event.summary)) broadcast(taskId)
+    },
+
+    subagentStopped(taskId, toolUseId) {
+      const commands = foreground.get(taskId)
+      for (const [sdkTaskId, { parentToolUseId }] of commands ?? []) {
+        if (isInside(taskId, parentToolUseId, toolUseId)) commands?.delete(sdkTaskId)
+      }
+      const ended = listWatchers(db, taskId).filter(
+        (watcher) =>
+          TASK_KINDS.includes(watcher.kind) && isLive(watcher) && isInside(taskId, watcher.parentToolUseId, toolUseId),
+      )
+      if (ended.length === 0) return []
+      for (const watcher of ended) updateWatcher(db, watcher.id, ending(WatcherState.Stopped, ENDED_WITH_SUBAGENT))
+      broadcast(taskId)
+      return ended.flatMap(({ sdkId }) => (sdkId === null ? [] : [sdkId]))
     },
 
     prompt(taskId, prompt) {
@@ -458,6 +584,7 @@ export function createWatcherTracker({ db, emit, now = Date.now }: WatcherTracke
     },
 
     sessionEnded(taskId, outcome) {
+      foreground.delete(taskId)
       let changed = false
       for (const watcher of listWatchers(db, taskId)) changed = endWithSession(watcher, outcome) || changed
       if (changed) broadcast(taskId)
