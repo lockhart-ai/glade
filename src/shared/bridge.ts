@@ -11,6 +11,8 @@
  */
 import type {
   Artifact,
+  CommitFiles,
+  TaskCommit,
   TaskHandoff,
   Effort,
   FileContent,
@@ -79,6 +81,9 @@ export enum CommandName {
   SubagentsStop = 'subagents.stop',
   WatchersListLive = 'watchers.listLive',
   WatchersStop = 'watchers.stop',
+  ChangesFiles = 'changes.files',
+  ChangesOpenFile = 'changes.openFile',
+  ChangesRepository = 'changes.repository',
   TasksHistory = 'tasks.history',
   QueueAdd = 'queue.add',
   QueueEdit = 'queue.edit',
@@ -410,6 +415,49 @@ export interface WatchersStopRequest {
 }
 
 /**
+ * The files one of a task's commits changed (a commit expanded in the Changes tab), read from git through the
+ * repository's common git dir, so they can be read after the commit's worktree is removed. Capped at `MAX_COMMIT_FILES`
+ * (`./files`), with how many there are in all. Fails with `not_found` when the task has no such commit, and `internal`
+ * when its repository no longer has it.
+ */
+export interface ChangesFilesRequest {
+  readonly taskId: string
+  /** The commit's id, as the Changes tab has it (`TaskCommit.id`). */
+  readonly id: string
+}
+
+export interface ChangesFilesResponse {
+  readonly files: CommitFiles
+}
+
+/**
+ * Opens a file one of a task's commits changed in its Files tab, and shows it (a file clicked in the Changes tab): the
+ * file as it is now, when it's still at that path in the task's workspace; otherwise (deleted since, its worktree
+ * removed, or outside the workspace) the file as the commit left it, read-only, under its commit file key
+ * (`commitFileKey` in `./files`). Broadcasts `openFiles.changed`. Fails with `not_found` when the task has no such
+ * commit.
+ */
+export interface ChangesOpenFileRequest {
+  readonly taskId: string
+  /** The commit's id (`TaskCommit.id`). */
+  readonly id: string
+  /** The file's path, relative to the top of the commit's repository, as the commit's files list it. */
+  readonly path: string
+}
+
+/**
+ * Whether a task's workspace root is in a git repository: the Changes tab says so when it isn't, rather than that the
+ * task has made no commits yet.
+ */
+export interface ChangesRepositoryRequest {
+  readonly taskId: string
+}
+
+export interface ChangesRepositoryResponse {
+  readonly repository: boolean
+}
+
+/**
  * A task's chat log and tool log, each in the order they were appended, its message queue, its questions and its
  * permission requests.
  */
@@ -432,6 +480,8 @@ export interface TasksHistoryResponse {
   readonly handoff: TaskHandoff | null
   /** What its agent left running or scheduled (the Watchers tab), live or ended, in the order they started. */
   readonly watchers: readonly Watcher[]
+  /** The commits its agent and subagents made (the Changes tab), newest first. */
+  readonly commits: readonly TaskCommit[]
 }
 
 /**
@@ -554,14 +604,19 @@ export interface PermissionRequestResponse {
  */
 export interface FileRequest {
   readonly taskId: string
-  /** Relative to the task's workspace root, normalized: no `.` or `..` parts, no leading or trailing `/`. */
+  /**
+   * Relative to the task's workspace root, normalized: no `.` or `..` parts, no leading or trailing `/`. `files.read`,
+   * `files.open` and `files.close` also take a commit file's key (`commitFileKey` in `./files`): a file as one of the
+   * task's commits left it, which the Changes tab opens read-only.
+   */
   readonly path: string
 }
 
 /**
  * Reads a file for the Files tab's viewer. A file larger than the viewer shows (`MAX_FILE_BYTES` or `MAX_FILE_LINES` in
  * `./files`) comes back truncated to its first lines; a binary one, or one that isn't there, comes back as such rather
- * than failing.
+ * than failing. A commit file's key reads the file as that commit left it, from git (a file the commit deleted, as it
+ * was before); it's missing when the task no longer has the commit, or its repository can't be read.
  */
 export type FilesReadRequest = FileRequest
 
@@ -901,6 +956,9 @@ export interface CommandMap {
   [CommandName.SubagentsStop]: CommandSpec<SubagentsStopRequest, null>
   [CommandName.WatchersListLive]: CommandSpec<EmptyRequest, WatchersListLiveResponse>
   [CommandName.WatchersStop]: CommandSpec<WatchersStopRequest, null>
+  [CommandName.ChangesFiles]: CommandSpec<ChangesFilesRequest, ChangesFilesResponse>
+  [CommandName.ChangesOpenFile]: CommandSpec<ChangesOpenFileRequest, OpenFilesResponse>
+  [CommandName.ChangesRepository]: CommandSpec<ChangesRepositoryRequest, ChangesRepositoryResponse>
   [CommandName.TasksHistory]: CommandSpec<TaskIdRequest, TasksHistoryResponse>
   [CommandName.QueueAdd]: CommandSpec<QueueAddRequest, QueuedMessageResponse>
   [CommandName.QueueEdit]: CommandSpec<QueueEditRequest, QueuedMessageResponse>
@@ -990,6 +1048,7 @@ export enum EventType {
   ArtifactsChanged = 'artifacts.changed',
   HandoffChanged = 'handoff.changed',
   WatchersChanged = 'watchers.changed',
+  CommitsChanged = 'commits.changed',
   TerminalTabsChanged = 'terminal.tabsChanged',
   TerminalOutput = 'terminal.output',
   TerminalCleared = 'terminal.cleared',
@@ -1165,6 +1224,16 @@ export interface WatchersChangedEvent {
 }
 
 /**
+ * A task's commits changed: its agent or one of its subagents made one (or amended one, or a commit Glade had given
+ * another task turned out to be this one's). Carries every commit of the task as it now is, newest first.
+ */
+export interface CommitsChangedEvent {
+  readonly type: EventType.CommitsChanged
+  readonly taskId: string
+  readonly commits: readonly TaskCommit[]
+}
+
+/**
  * The terminal tabs changed: one was added, closed or renamed, or what's running in one changed (its running dot and
  * default name). Carries every tab as it now is, in order. A tab whose shell exits closes.
  */
@@ -1274,6 +1343,7 @@ export type GladeEvent =
   | ArtifactsChangedEvent
   | HandoffChangedEvent
   | WatchersChangedEvent
+  | CommitsChangedEvent
   | TerminalTabsChangedEvent
   | TerminalOutputEvent
   | TerminalClearedEvent

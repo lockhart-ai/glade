@@ -24,6 +24,7 @@ import {
   type Artifact,
   type TaskHandoff,
   type Watcher,
+  type TaskCommit,
   type OpenFiles,
   type PermissionRequest,
   type QuestionSet,
@@ -82,6 +83,7 @@ const TASK_HANDLERS = {
     artifacts: [],
     handoff: null,
     watchers: [],
+    commits: [],
   }),
   [CommandName.QueueAdd]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
@@ -98,6 +100,9 @@ const TASK_HANDLERS = {
   [CommandName.SubagentsStop]: () => null,
   [CommandName.WatchersListLive]: () => ({ watchers: [] }),
   [CommandName.WatchersStop]: () => null,
+  [CommandName.ChangesFiles]: () => ({ files: { files: [], total: 0 } }),
+  [CommandName.ChangesOpenFile]: () => ({ openFiles: {} as OpenFiles }),
+  [CommandName.ChangesRepository]: () => ({ repository: true }),
   [CommandName.ClipboardWriteText]: () => null,
   [CommandName.FilesInfo]: () => ({ info: { kind: FileInfoKind.Missing } }),
   [CommandName.FilesCopy]: () => null,
@@ -161,6 +166,9 @@ const TASK_SCHEMAS = {
   [CommandName.SubagentsStop]: REQUEST_SCHEMAS[CommandName.SubagentsStop],
   [CommandName.WatchersListLive]: REQUEST_SCHEMAS[CommandName.WatchersListLive],
   [CommandName.WatchersStop]: REQUEST_SCHEMAS[CommandName.WatchersStop],
+  [CommandName.ChangesFiles]: REQUEST_SCHEMAS[CommandName.ChangesFiles],
+  [CommandName.ChangesOpenFile]: REQUEST_SCHEMAS[CommandName.ChangesOpenFile],
+  [CommandName.ChangesRepository]: REQUEST_SCHEMAS[CommandName.ChangesRepository],
   [CommandName.ClipboardWriteText]: REQUEST_SCHEMAS[CommandName.ClipboardWriteText],
   [CommandName.FilesInfo]: REQUEST_SCHEMAS[CommandName.FilesInfo],
   [CommandName.FilesCopy]: REQUEST_SCHEMAS[CommandName.FilesCopy],
@@ -230,6 +238,7 @@ describe('the command map', () => {
       readonly artifacts: readonly Artifact[]
       readonly handoff: TaskHandoff | null
       readonly watchers: readonly Watcher[]
+      readonly commits: readonly TaskCommit[]
     }>()
     expectTypeOf(glade.invoke(CommandName.QueueAdd, { taskId: 't', text: 'Hi' })).resolves.toEqualTypeOf<{
       readonly queuedMessage: QueuedMessage
@@ -440,6 +449,9 @@ describe('events', () => {
           break
         case EventType.WatchersChanged:
           expectTypeOf(event.watchers).toEqualTypeOf<readonly Watcher[]>()
+          break
+        case EventType.CommitsChanged:
+          expectTypeOf(event.commits).toEqualTypeOf<readonly TaskCommit[]>()
           break
         case EventType.TerminalTabsChanged:
           expectTypeOf(event.tabs).toEqualTypeOf<readonly TerminalTab[]>()

@@ -453,6 +453,28 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
         ],
       },
     ],
+    [EventType.CommitsChanged]: [
+      {
+        type: EventType.CommitsChanged,
+        taskId: created.id,
+        commits: [
+          {
+            id: 'commit-1',
+            taskId: created.id,
+            hash: secret('commit_hash'),
+            subject: secret('commit_subject'),
+            branch: secret('commit_branch'),
+            committedAt: 1,
+            additions: 12,
+            deletions: 3,
+            filesChanged: 2,
+            merge: false,
+            repoPath: secret('commit_repo'),
+            subagentToolUseId: null,
+          },
+        ],
+      },
+    ],
     [EventType.TaskOpenRequested]: [{ type: EventType.TaskOpenRequested, taskId: created.id }],
     [EventType.UiStateChanged]: [
       { type: EventType.UiStateChanged, entry: { key: UiStateKey.RelaunchNotice, value: secret('ui_state') } },

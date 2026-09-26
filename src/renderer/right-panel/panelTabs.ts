@@ -38,4 +38,6 @@ export const PANEL_TAB_DEFINITIONS: readonly PanelTabDefinition[] = [
   },
   // What's still live: running, or waiting to wake the agent (28-watchers.png: "Watchers 3").
   { tab: PanelTab.Watchers, label: 'Watchers', count: (state, taskId) => liveWatcherCount(state.watchers[taskId]) },
+  // The commits the task made (24-changes.png: "Changes 4").
+  { tab: PanelTab.Changes, label: 'Changes', count: (state, taskId) => state.commits[taskId]?.length ?? 0 },
 ]

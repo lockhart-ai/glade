@@ -3,7 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { TaskFilter } from '../../shared/attention'
-import { Effort, FileContentKind, FileInfoKind, TaskState, UiStateKey } from '../../shared/domain'
+import { CommitFileStatus, Effort, FileContentKind, FileInfoKind, TaskState, UiStateKey } from '../../shared/domain'
+import { commitFileKey } from '../../shared/files'
+import { createChangeTracker } from '../changes/tracker'
+import { createGit } from '../git/git'
+import { openTestRepos, TEST_GIT_RUN } from '../git/test-repos'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { BUILT_IN_MODELS } from '../../shared/models'
 import { SDK_MODELS } from '../../shared/test-models'
@@ -363,6 +367,41 @@ describe('the settings commands', () => {
       },
     })
   })
+})
+
+describe('the changes commands', () => {
+  it('list a commit’s files, open one and read it as the commit left it, and say whether the workspace is a repository', async () => {
+    const repos = openTestRepos()
+    try {
+      const api = repos.repo('acme-api', { 'docs/upgrade.md': '# Upgrading\n' })
+      const taskId = sampleTask(database.db, sampleWorkspace(database.db, api).id).id
+      const tracker = createChangeTracker({ db: database.db, emit, git: createGit(TEST_GIT_RUN) })
+      const command = 'git rm -q docs/upgrade.md && git commit -m "Drop the guide"'
+      await tracker.bashStarting(taskId, { toolUseId: 'toolu_1', cwd: api, command })
+      const output = repos.sh(command, api)
+      await tracker.bashFinished(taskId, { toolUseId: 'toolu_1', command, output, cwd: api })
+      const [commit] = (await handlers[CommandName.TasksHistory]({ id: taskId })).commits
+      const id = commit?.id ?? ''
+
+      await expect(handlers[CommandName.ChangesFiles]({ taskId, id })).resolves.toMatchObject({
+        files: { files: [{ path: 'docs/upgrade.md', status: CommitFileStatus.Deleted }], total: 1 },
+      })
+      const key = commitFileKey({ commitId: id, path: 'docs/upgrade.md' })
+      await expect(handlers[CommandName.ChangesOpenFile]({ taskId, id, path: 'docs/upgrade.md' })).resolves.toEqual({
+        openFiles: { taskId, paths: [key], activePath: key },
+      })
+      await expect(handlers[CommandName.FilesRead]({ taskId, path: key })).resolves.toEqual({
+        content: { kind: FileContentKind.Text, text: '# Upgrading\n', truncated: false, size: 12 },
+      })
+      await expect(handlers[CommandName.ChangesRepository]({ taskId })).resolves.toEqual({ repository: true })
+      await expect(handlers[CommandName.ChangesFiles]({ taskId, id: 'nope' })).rejects.toMatchObject({
+        code: BridgeErrorCode.NotFound,
+      })
+    } finally {
+      repos.close()
+    }
+    // It runs real git commands: slow while the whole suite runs at once.
+  }, 30_000)
 })
 
 describe('the files commands', () => {

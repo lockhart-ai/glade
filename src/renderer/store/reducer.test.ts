@@ -12,6 +12,7 @@ import {
   UiStateKey,
   type Artifact,
   type TaskHandoff,
+  type TaskCommit,
   type TodoList,
   type ToolCallEvent,
   type ToolEvent,
@@ -30,6 +31,7 @@ import {
   sampleTask,
   sampleTerminalTab,
   sampleWatcher,
+  sampleCommit,
   sampleWorkspace,
 } from './test-bridge'
 
@@ -163,6 +165,7 @@ describe('a deleted task', () => {
       artifacts: { t1: [{ taskId: 't1', path: 'README.md', title: 'Readme', addedAt: 1, updatedAt: 1 }] },
       handoffs: { t1: { taskId: 't1', body: '## Where it got to', addedAt: 1 } },
       watchers: { t1: [sampleWatcher('w1', 't1')] },
+      commits: { t1: [sampleCommit('c1', 't1')] },
       inputDrafts: { t1: { text: 'Half a thought', images: [] } },
       toolLogFocus: { taskId: 't1', turn: 1, request: 1 },
       fileFocus: { taskId: 't1', path: 'README.md', line: null, request: 1 },
@@ -185,6 +188,7 @@ describe('a deleted task', () => {
       artifacts: {},
       handoffs: {},
       watchers: {},
+      commits: {},
       inputDrafts: {},
       toolLogFocus: null,
       fileFocus: null,
@@ -239,6 +243,7 @@ describe("a task's logs", () => {
       artifacts: [],
       handoff: null,
       watchers: [],
+      commits: [],
     })
 
     expect(applyEvent(loaded, { type: EventType.ToolEventUpdated, toolEvent: done }).toolEvents).toEqual({
@@ -268,6 +273,7 @@ describe("a task's logs", () => {
       artifacts: [],
       handoff: null,
       watchers: [],
+      commits: [],
     })
 
     expect(next.messages.t1).toEqual([early, late])
@@ -284,6 +290,7 @@ describe("a task's logs", () => {
         artifacts: [],
         handoff: null,
         watchers: [],
+        commits: [],
       }).messages,
     ).toEqual({ t2: [] })
   })
@@ -311,6 +318,7 @@ describe("a task's queue", () => {
       artifacts: [],
       handoff: null,
       watchers: [],
+      commits: [],
     })
     expect(loaded.queuedMessages).toEqual({ t1: [second] })
   })
@@ -351,6 +359,7 @@ describe("a task's questions", () => {
       artifacts: [],
       handoff: null,
       watchers: [],
+      commits: [],
     }
     expect(withHistory(state, 't1', { ...empty, questionSets: [answered] }).questionSets).toEqual({ t1: [answered] })
   })
@@ -395,6 +404,7 @@ describe("a task's permission requests", () => {
       artifacts: [],
       handoff: null,
       watchers: [],
+      commits: [],
     }
     // A request opened while the history loaded stays, after the loaded ones.
     const loaded = withHistory(asked, 't1', { ...empty, permissionRequests: [denied] })
@@ -422,6 +432,7 @@ describe("a task's open files", () => {
       artifacts: [],
       handoff: null,
       watchers: [],
+      commits: [],
     }
     expect(withHistory(changed, 't1', { ...empty, openFiles: noOpenFiles('t1') }).openFiles).toEqual({
       t1: noOpenFiles('t1'),
@@ -458,6 +469,7 @@ describe("a task's artifacts", () => {
     artifacts,
     handoff: null,
     watchers: [],
+    commits: [],
   })
 
   it('takes the whole list from each change, and from a history load unless a change brought a newer one', () => {
@@ -486,6 +498,7 @@ describe("a task's watchers", () => {
     artifacts: [],
     handoff: null,
     watchers,
+    commits: [],
   })
 
   it('takes every task’s live ones on start, by task, over none', () => {
@@ -509,6 +522,36 @@ describe("a task's watchers", () => {
   })
 })
 
+describe("a task's commits", () => {
+  const history = (commits: readonly TaskCommit[]) => ({
+    messages: [],
+    toolEvents: [],
+    queuedMessages: [],
+    questionSets: [],
+    permissionRequests: [],
+    openFiles: noOpenFiles('t1'),
+    todos: null,
+    artifacts: [],
+    handoff: null,
+    watchers: [],
+    commits,
+  })
+
+  it('takes a task’s whole list with its history, and from each change, each task’s its own', () => {
+    const fix = sampleCommit('c1', 't1')
+    const merge = sampleCommit('c2', 't1', { subject: 'Merge the upgrade guide', merge: true })
+    const loaded = withHistory(state, 't1', history([fix]))
+    expect(loaded.commits).toEqual({ t1: [fix] })
+
+    const changed = applyEvent(loaded, { type: EventType.CommitsChanged, taskId: 't1', commits: [merge, fix] })
+    expect(changed.commits).toEqual({ t1: [merge, fix] })
+    expect(applyEvent(changed, { type: EventType.CommitsChanged, taskId: 't2', commits: [] }).commits).toEqual({
+      t1: [merge, fix],
+      t2: [],
+    })
+  })
+})
+
 describe("a task's handoff note", () => {
   const note = (body: string, addedAt: number): TaskHandoff => ({ taskId: 't1', body, addedAt })
   const history = (handoff: TaskHandoff | null) => ({
@@ -522,6 +565,7 @@ describe("a task's handoff note", () => {
     artifacts: [],
     handoff,
     watchers: [],
+    commits: [],
   })
 
   it('takes the note from each change, and a cleared one as none', () => {
@@ -559,6 +603,7 @@ describe("a task's todo list", () => {
     artifacts: [],
     handoff: null,
     watchers: [],
+    commits: [],
   })
 
   it('takes the list from each change, whole', () => {

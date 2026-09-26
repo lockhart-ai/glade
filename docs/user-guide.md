@@ -19,6 +19,7 @@ New here? The [README](../README.md) says what Glade is. The [docs index](README
 - [Knowing when a task needs you](#knowing-when-a-task-needs-you)
 - [Glade in the menu bar](#glade-in-the-menu-bar)
 - [The right panel](#the-right-panel)
+  - [Changes](#changes)
 - [The terminal](#the-terminal)
 - [Permissions](#permissions)
 - [Settings](#settings)
@@ -229,8 +230,8 @@ Settings › General › **Show Glade in the menu bar** turns the icon off, and 
 
 ## The right panel
 
-Six tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Subagents · Watchers** (⌘⌥1 – ⌘⌥6). ⌘⌥B hides
-the panel; drag its edge to resize it.
+Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Subagents · Watchers · Changes** (⌘⌥1 –
+⌘⌥7). ⌘⌥B hides the panel; drag its edge to resize it.
 
 - **Tool calls:** every tool call the task's own agent made, with the agent's working notes between them, split by turn.
   Right-click a call to copy its command or output, open its file, or **Run again in terminal** (the command lands at
@@ -256,6 +257,36 @@ the panel; drag its edge to resize it.
   many times it woke the agent. **Stop** ends a live one. The count on the tab, and an eye with a count on the task's
   row in the task list, are the live ones, so a task waiting on you, or done, that still watches something shows it. A
   relaunch ends what was running (a scheduled job comes back when you next message the task).
+- **Changes:** the commits the task made, newest first. See below.
+
+### Changes
+
+![The Changes tab](design/screens/24-changes.png)
+
+The Changes tab lists the commits the task made, newest first, and its count is how many. Glade only watches git here:
+the agent commits, branches and makes worktrees as it likes, and the tab shows what it did. There's nothing to commit,
+push or revert from it, and it never looks anything up on GitHub.
+
+Each row shows the commit's short hash, the first line of its message, the lines it added and removed (`+12 −3`, a
+merge's against the branch it merged into), the branch it was made on, and when. A commit a subagent made (say one
+working in its own worktree) carries the subagent's name. Click a row to open the files the commit changed: each with
+its status (**A**dded, **M**odified, **D**eleted, **R**enamed, from and to), and its lines, or `binary`. A huge commit
+lists its first 100 files, then how many more there are.
+
+Click a file to open it in Files. It opens as it is now when it's still at that path in the workspace. When it isn't
+(deleted since, or made in a worktree that's gone, or outside the workspace), it opens as the commit left it:
+read-only, labelled **As of** and the hash, with no Open in editor. A file the commit deleted shows as it was before.
+
+What counts as the task's commits: every commit its `Bash` calls made, its subagents' included, however they made it
+(`git commit`, an amend, which replaces the commit it amends, a merge commit, a cherry-pick, a script that commits).
+Glade notes where each repository's `HEAD` is before a call runs and looks again once it's done, so a commit you make
+at the terminal meanwhile can be counted too; a checkout, a reset or a fast-forward counts for nothing, nor does a
+rebase. When two tasks commit in one repository at once, the one whose call printed the commit gets it. A commit made
+by a command left running in the background isn't seen.
+
+The list is kept with the task, so it's still there after a relaunch, and a commit's files can still be read after its
+worktree is removed (git keeps them). In a workspace that isn't a git repository, the tab says so; commits the agent
+makes in a repository inside the workspace still show.
 
 ## The terminal
 
@@ -331,7 +362,7 @@ The ones to learn first:
 | ⌘⌥↓ | Next task that needs you |
 | ⌘L | Focus the input bar |
 | ⌘B · ⌘⌥B · ⌘J | Toggle the task list · right panel · bottom bar |
-| ⌘⌥1 – ⌘⌥6 | Tool calls · Files · Todos · Artifacts · Subagents · Watchers |
+| ⌘⌥1 – ⌘⌥7 | Tool calls · Files · Todos · Artifacts · Subagents · Watchers · Changes |
 | ⌘T · ⌃\` | New terminal tab · focus the terminal |
 | ⌘1 – ⌘9 | Switch workspace |
 | ⌘, | Settings |
