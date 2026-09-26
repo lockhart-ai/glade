@@ -69,7 +69,7 @@ export function SidebarHeader({
           {content}
         </button>
       )}
-      {collapseButton}
+      {collapseButton !== undefined && <span className={styles.collapse}>{collapseButton}</span>}
     </section>
   )
 }

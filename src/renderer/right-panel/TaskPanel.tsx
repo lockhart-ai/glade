@@ -144,7 +144,8 @@ export function TaskPanel(): React.JSX.Element | null {
       onCloseRequest={closeActiveFile}
       tabs={
         <>
-          <Tabs id={TABS_ID} label="Task panels" tabs={tabs} value={tab} onChange={selectTab} className={styles.tabs} />
+          {/* In a narrow panel the tabs scroll sideways (see Tabs) rather than push the collapse button out of reach. */}
+          <Tabs id={TABS_ID} label="Task panels" tabs={tabs} value={tab} onChange={selectTab} />
           <span className={styles.spacer} />
           <PanelToggle panel={Panel.RightPanel} className={styles.collapse} />
         </>

@@ -122,7 +122,7 @@ async function expectCleanLayout(window: Page, panels: Panels, size: { width: nu
   expect(bottom.y - (task.y + task.height)).toBeCloseTo(OUTER, 0)
   expect(bottom.y + bottom.height).toBeCloseTo(size.height - OUTER, 0)
 
-  // Inside the task card, the header, chat and input bar stack without overlapping, beside the right panel.
+  // The header, chat and input bar sit inside the task card, beside the right panel.
   const column = [header, chatBox, inputBar]
   for (const box of column) expect(within(box, task)).toBe(true)
   // The cards start below the title bar row; the button that shows the sidebar again leads the header.
@@ -131,19 +131,18 @@ async function expectCleanLayout(window: Page, panels: Panels, size: { width: nu
     const showTaskList = await boxOf(panelToggles(window).showTaskList)
     expect(within(showTaskList, header)).toBe(true)
   }
-  for (const [index, box] of column.slice(1).entries()) {
-    const above = column[index]
-    if (above === undefined) throw new Error('unreachable')
-    expect(box.y).toBeGreaterThanOrEqual(above.y + above.height - SLACK)
-  }
+  // The header card floats over the top of the chat, which runs up under it (#252), and the input bar sits below both.
+  expect(chatBox.y).toBeLessThanOrEqual(header.y + SLACK)
+  expect(chatBox.y + chatBox.height).toBeGreaterThan(header.y + header.height)
+  expect(inputBar.y).toBeGreaterThanOrEqual(chatBox.y + chatBox.height - SLACK)
   if (panels.rightPanel) {
     const panel = await boxOf(region.taskPanel)
     expect(within(panel, task)).toBe(true)
     for (const box of column) expect(overlaps(box, panel)).toBe(false)
   }
 
-  // The chat keeps room, and its latest message shows above the input bar.
-  expect(chatBox.height).toBeGreaterThanOrEqual(MIN_CHAT_HEIGHT)
+  // The chat keeps room below the header, and its latest message shows above the input bar.
+  expect(chatBox.y + chatBox.height - (header.y + header.height)).toBeGreaterThanOrEqual(MIN_CHAT_HEIGHT)
   const last = chat(window).agentReplies.last()
   await expect(last).toBeInViewport({ ratio: 0.9 })
   const lastBox = await boxOf(last)
