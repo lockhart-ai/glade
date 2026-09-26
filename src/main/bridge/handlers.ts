@@ -17,6 +17,7 @@ import { countDoneTasks, getTasks, listActiveTasks, listDoneTasks, listTasks } f
 import { listToolEvents } from '../db/repositories/tool-events'
 import { getUiState, listUiState, setUiState } from '../db/repositories/ui-state'
 import { getSettings, updateSettings } from '../db/repositories/settings'
+import { effortWithModel, listModels } from '../models/models'
 import { getWorkspace, listWorkspaces } from '../db/repositories/workspaces'
 import type { Plugins } from '../plugins/plugins'
 import type { PluginViews } from '../plugins/views'
@@ -230,8 +231,12 @@ export function createHandlers(context: HandlerContext): Handlers {
       return null
     },
     [CommandName.SettingsGet]: () => ({ settings: getSettings(db) }),
+    [CommandName.ModelsList]: () => ({ models: listModels(db) }),
     [CommandName.SettingsUpdate]: async ({ patch }) => {
-      const settings = updateSettings(db, patch)
+      // A new default model keeps the default effort only if it supports it.
+      const { defaultModel, defaultEffort } = patch
+      const effort = effortWithModel(db, defaultModel, defaultEffort, getSettings(db).defaultEffort)
+      const settings = updateSettings(db, effort === undefined ? patch : { ...patch, defaultEffort: effort })
       emit({ type: EventType.SettingsChanged, settings })
       // The endpoint follows the switch and the port: answered once it has started, stopped or moved.
       if (patch.controlEnabled !== undefined || patch.controlPort !== undefined) await endpoint.sync()

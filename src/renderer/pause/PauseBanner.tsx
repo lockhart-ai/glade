@@ -1,6 +1,6 @@
 import { faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
 import { useMemo, useState } from 'react'
-import { MODEL_OPTIONS } from '../../shared/models'
+import { findModel } from '../../shared/models'
 import {
   Button,
   ButtonSize,
@@ -68,6 +68,7 @@ export function PauseBanner(): React.JSX.Element | null {
   const retryTask = useGladeStore((state) => state.retryTask)
   const toast = useToast()
   const now = useNow()
+  const offered = useGladeStore((state) => state.models)
   const [detailsShown, setDetailsShown] = useState(false)
   // The Switch model button, while its menu is open.
   const [modelAnchor, setModelAnchor] = useState<HTMLElement | null>(null)
@@ -83,10 +84,10 @@ export function PauseBanner(): React.JSX.Element | null {
       })
     }
   }
-  const models: MenuEntry[] = MODEL_OPTIONS.map((option) => ({
+  const models: MenuEntry[] = offered.map((option) => ({
     kind: MenuEntryKind.Item,
     label: option.name,
-    checked: switchable.every((task) => task.model === option.id),
+    checked: switchable.every((task) => findModel(offered, task.model)?.id === option.id),
     onSelect: () => {
       switchTo(option.id)
     },

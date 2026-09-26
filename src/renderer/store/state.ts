@@ -12,6 +12,7 @@ import type {
   Unsubscribe,
   WorkspaceUserPatch,
 } from '../../shared/bridge'
+import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../shared/settings'
 import type { InstalledPlugin } from '../../shared/plugins'
 import type { ControlStatus } from '../../shared/control'
@@ -214,6 +215,11 @@ export interface GladeData {
   readonly removingWorkspaceId: string | null
   /** The app's settings, as main last broadcast them. */
   readonly settings: Settings
+  /**
+   * The models the pickers offer, as main last broadcast them: the SDK's, or the built-in ones until a session has
+   * reported them (`src/shared/models.ts`).
+   */
+  readonly models: readonly ModelChoice[]
   /** The section the Settings modal shows; null while it's closed. A one-off UI intent. */
   readonly settingsSection: SettingsSection | null
   /**
@@ -564,6 +570,7 @@ export const INITIAL_DATA: GladeData = {
   deletingTaskId: null,
   removingWorkspaceId: null,
   settings: DEFAULT_SETTINGS,
+  models: BUILT_IN_MODELS,
   settingsSection: null,
   plugins: null,
   pluginStatuses: {},

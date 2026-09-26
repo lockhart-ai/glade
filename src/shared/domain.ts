@@ -122,11 +122,15 @@ export interface ApiRetry {
   readonly since: EpochMs
 }
 
-/** How hard the model thinks, set per task from the input bar's effort picker. */
+/**
+ * How hard the model thinks, set per task from the input bar's effort picker, lowest first: the levels the SDK knows
+ * (`EffortLevel`). Each model supports its own (`ModelChoice.efforts` in `./models`), and some none.
+ */
 export enum Effort {
   Low = 'low',
   Medium = 'medium',
   High = 'high',
+  XHigh = 'xhigh',
   Max = 'max',
 }
 

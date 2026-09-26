@@ -27,6 +27,7 @@ import { interruptPausedToolCalls } from '../db/repositories/tool-events'
 import { getUiState, setUiState } from '../db/repositories/ui-state'
 import { getWorkspace } from '../db/repositories/workspaces'
 import { getSettings } from '../db/repositories/settings'
+import { effortWithModel } from '../models/models'
 import { applyTransition, TaskTransition } from './taskLifecycle'
 
 export interface TaskServiceContext {
@@ -88,7 +89,8 @@ export interface NewTaskFields {
 
 /**
  * Creates an active task in the workspace: empty title, objective and status, and the model, effort and permission mode
- * Settings has as the defaults for new tasks, unless `fields` gives them.
+ * Settings has as the defaults for new tasks, unless `fields` gives them. The effort is fitted to the model: its default
+ * when the model doesn't support it.
  */
 export function createTask(context: TaskServiceContext, workspaceId: string, fields: NewTaskFields = {}): Task {
   const task = insertNewTask(context.db, workspaceId, fields)
@@ -110,12 +112,13 @@ export function insertNewTask(
     throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${workspaceId}`)
   }
   const { defaultModel, defaultEffort, defaultPermissionMode } = getSettings(db)
+  const model = fields.model ?? defaultModel
   return insertTask(
     db,
     {
       workspaceId,
-      model: fields.model ?? defaultModel,
-      effort: fields.effort ?? defaultEffort,
+      model,
+      effort: effortWithModel(db, model, fields.effort, defaultEffort) ?? defaultEffort,
       permissionMode: fields.permissionMode ?? defaultPermissionMode,
       ...(fields.title === undefined ? {} : { title: fields.title }),
       ...(fields.objective === undefined ? {} : { objective: fields.objective }),
@@ -142,10 +145,13 @@ export function reopenTask(context: TaskServiceContext, id: string): Task {
   return move(context, id, TaskTransition.Reopen)
 }
 
-/** Applies the user's changes to a task: its title, pin, unread flag, model, effort or permission mode. */
+/**
+ * Applies the user's changes to a task: its title, pin, unread flag, model, effort or permission mode. A new model keeps
+ * the task's effort only if it supports it; otherwise the task takes the model's default effort.
+ */
 export function updateTaskFromUser(context: TaskServiceContext, id: string, patch: TaskUserPatch): Task {
-  requireTask(context.db, id)
-  const { title, pinned, unread, model, effort, permissionMode } = patch
+  const { title, pinned, unread, model, permissionMode } = patch
+  const effort = effortWithModel(context.db, model, patch.effort, requireTask(context.db, id).effort)
   return write(context, id, { title, pinned, unread, model, effort, permissionMode })
 }
 
@@ -165,11 +171,13 @@ export interface TaskChangeContext extends TaskServiceContext {
 
 /**
  * Changes a task (`tasks.update`, and the control API's `update_task`) in one write. A new permission mode reaches the
- * task's running session at once: it applies from the agent's next tool call, not its next turn.
+ * task's running session at once: it applies from the agent's next tool call, not its next turn. A new model keeps the
+ * task's effort only if it supports it, as `updateTaskFromUser` does.
  */
 export function changeTask(context: TaskChangeContext, id: string, change: TaskChange): Task {
-  requireTask(context.db, id)
-  const { title, objective, status, pinned, unread, model, effort, permissionMode } = change
+  const { title, objective, status, pinned, unread, model, permissionMode } = change
+  // A new model keeps the task's effort only if it supports it.
+  const effort = effortWithModel(context.db, model, change.effort, requireTask(context.db, id).effort)
   const task = write(context, id, { title, objective, status, pinned, unread, model, effort, permissionMode })
   if (permissionMode !== undefined) context.runner.applyPermissionMode(id)
   return task

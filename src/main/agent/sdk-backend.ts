@@ -48,6 +48,11 @@ export interface SdkBackendOptions {
    * has no log of its own (`AgentSessionOptions.log`). Nothing by default.
    */
   readonly log?: Logger
+  /**
+   * Told the models the SDK offers, unparsed (`initializationResult().models`, `docs/sdk-notes.md` §4), each time a
+   * session's agent process has started. Nothing by default.
+   */
+  readonly onModels?: (models: unknown) => void
 }
 
 /** Finds a module's file, as `require.resolve` does. */
@@ -318,7 +323,7 @@ export function userMessage(text: string, uuid: string, images: readonly ImageDa
  * (§9), each only when what it sets changed. If the SDK refuses a change, the message still goes, on the settings the
  * session had.
  */
-export function createSdkBackend({ env, log: backendLog = SILENT_LOGGER }: SdkBackendOptions): AgentBackend {
+export function createSdkBackend({ env, log: backendLog = SILENT_LOGGER, onModels }: SdkBackendOptions): AgentBackend {
   return {
     start(options): AgentSession {
       const log = options.log ?? backendLog
@@ -338,6 +343,17 @@ export function createSdkBackend({ env, log: backendLog = SILENT_LOGGER }: SdkBa
         })
         return query({ prompt: input, options: sdk })
       })
+      // The models the user's login offers, as the process reports them once it has started.
+      if (onModels !== undefined) {
+        started
+          .then((session) => session.initializationResult())
+          .then(({ models }) => {
+            onModels(models)
+          })
+          .catch((error: unknown) => {
+            log.warn("couldn't read the models the SDK offers", { error })
+          })
+      }
       // Everything asked of the session so far, in order.
       let queue = Promise.resolve()
       // The settings the session was last given: a change applies only what differs from them.

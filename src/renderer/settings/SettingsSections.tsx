@@ -1,7 +1,15 @@
 import { faChevronDown, faPuzzlePiece, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Effort, PermissionMode } from '../../shared/domain'
-import { EFFORT_NAMES, MODEL_OPTIONS, modelName } from '../../shared/models'
+import {
+  EFFORT_NAMES,
+  effortFallbackNotice,
+  effortFor,
+  effortsOf,
+  findModel,
+  modelName,
+  type ModelChoice,
+} from '../../shared/models'
 import { PluginStatus, type InstalledPlugin } from '../../shared/plugins'
 import type { Settings, SettingsPatch } from '../../shared/settings'
 import {
@@ -18,6 +26,7 @@ import {
   Toggle,
   type MenuEntry,
   type SegmentedOption,
+  useToast,
 } from '../components'
 import { classNames } from '../components/classNames'
 import { shortenHomePath } from '../paths'
@@ -64,11 +73,6 @@ export function useSettings(): [Settings, (patch: SettingsPatch) => void] {
   return [settings, (patch) => void updateSettings(patch)]
 }
 
-const EFFORT_OPTIONS: readonly SegmentedOption<Effort>[] = Object.values(Effort).map((effort) => ({
-  value: effort,
-  label: EFFORT_NAMES[effort],
-}))
-
 /**
  * What the agent may do without asking, as the design's Permissions setting offers it: Ask first is the ask mode
  * (`PermissionMode.AskBeforeEdits`), Allow all is Allow all, and Allow edits isn't a mode yet, so it's disabled
@@ -109,17 +113,20 @@ export function permissionModeOf(permission: Permission): PermissionMode | null 
 }
 
 interface ModelPickerProps {
+  /** The models it offers. */
+  models: readonly ModelChoice[]
   value: string
   onChoose: (model: string) => void
 }
 
 /** The default model: a button naming it, which opens a menu of the models with it checked. */
-function ModelPicker({ value, onChoose }: ModelPickerProps): React.JSX.Element {
+function ModelPicker({ models, value, onChoose }: ModelPickerProps): React.JSX.Element {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
-  const entries: MenuEntry[] = MODEL_OPTIONS.map((option) => ({
+  const selected = findModel(models, value)?.id
+  const entries: MenuEntry[] = models.map((option) => ({
     kind: MenuEntryKind.Item,
     label: option.name,
-    checked: option.id === value,
+    checked: option.id === selected,
     onSelect: () => {
       onChoose(option.id)
     },
@@ -128,7 +135,7 @@ function ModelPicker({ value, onChoose }: ModelPickerProps): React.JSX.Element {
     <>
       <button
         type="button"
-        aria-label={`Model: ${modelName(value)}`}
+        aria-label={`Model: ${modelName(models, value)}`}
         aria-haspopup="menu"
         aria-expanded={anchor !== null}
         className={styles.select}
@@ -136,7 +143,7 @@ function ModelPicker({ value, onChoose }: ModelPickerProps): React.JSX.Element {
           setAnchor(event.currentTarget)
         }}
       >
-        {modelName(value)}
+        {modelName(models, value)}
         <Icon icon={faChevronDown} size={IconSize.Small} />
       </button>
       <Menu
@@ -160,27 +167,36 @@ export function GeneralSection(): React.JSX.Element {
 /** The defaults for new tasks, and what the agent keeps current (the design's section). */
 export function AgentSection(): React.JSX.Element {
   const [settings, update] = useSettings()
+  const models = useGladeStore((state) => state.models)
+  const toast = useToast()
+  // The effort levels the default model supports: none hides the setting.
+  const efforts = effortsOf(models, settings.defaultModel)
+  /** Changes the default model, and the default effort with it when the new model doesn't support it, saying so. */
+  const chooseModel = (defaultModel: string): void => {
+    const { defaultEffort } = settings
+    const effort = effortFor(models, defaultModel, defaultEffort)
+    update(effort === defaultEffort ? { defaultModel } : { defaultModel, defaultEffort: effort })
+    const notice = effortFallbackNotice(models, defaultModel, defaultEffort, effort)
+    if (notice !== null) toast.show({ message: notice })
+  }
   return (
     <>
       <Intro>Defaults for new tasks. Each task can change these from its input bar. Changes save automatically.</Intro>
       <SettingRow name="Model" description="Used for new tasks.">
-        <ModelPicker
-          value={settings.defaultModel}
-          onChoose={(defaultModel) => {
-            update({ defaultModel })
-          }}
-        />
+        <ModelPicker models={models} value={settings.defaultModel} onChoose={chooseModel} />
       </SettingRow>
-      <SettingRow name="Effort" description="How long the agent thinks before acting.">
-        <Segmented
-          label="Effort"
-          options={EFFORT_OPTIONS}
-          value={settings.defaultEffort}
-          onChange={(defaultEffort) => {
-            update({ defaultEffort })
-          }}
-        />
-      </SettingRow>
+      {efforts.length > 0 && (
+        <SettingRow name="Effort" description="How long the agent thinks before acting.">
+          <Segmented
+            label="Effort"
+            options={efforts.map((effort): SegmentedOption<Effort> => ({ value: effort, label: EFFORT_NAMES[effort] }))}
+            value={settings.defaultEffort}
+            onChange={(defaultEffort) => {
+              update({ defaultEffort })
+            }}
+          />
+        </SettingRow>
+      )}
       <SettingRow name="Permissions" description="What the agent may do without asking.">
         <Segmented
           label="Permissions"

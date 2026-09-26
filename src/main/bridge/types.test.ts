@@ -36,6 +36,7 @@ import {
 import { ImageMediaType } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import type { InstalledPlugin } from '../../shared/plugins'
+import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import type { Handlers } from './handlers'
 import { DEFAULT_CONTROL_PORT, type ControlStatus } from '../../shared/control'
@@ -101,6 +102,7 @@ const TASK_HANDLERS = {
   [CommandName.FilesReveal]: () => null,
   [CommandName.WorkspacesUpdate]: () => ({ workspace: WORKSPACE }),
   [CommandName.SettingsGet]: () => ({ settings: DEFAULT_SETTINGS }),
+  [CommandName.ModelsList]: () => ({ models: BUILT_IN_MODELS }),
   [CommandName.SettingsUpdate]: () => ({ settings: DEFAULT_SETTINGS }),
   [CommandName.ArtifactsRemove]: () => null,
   [CommandName.WorkspacesRemove]: () => null,
@@ -441,6 +443,9 @@ describe('events', () => {
           break
         case EventType.SettingsChanged:
           expectTypeOf(event.settings).toEqualTypeOf<Settings>()
+          break
+        case EventType.ModelsChanged:
+          expectTypeOf(event.models).toEqualTypeOf<readonly ModelChoice[]>()
           break
         case EventType.PluginsChanged:
           expectTypeOf(event.plugins).toEqualTypeOf<readonly InstalledPlugin[]>()

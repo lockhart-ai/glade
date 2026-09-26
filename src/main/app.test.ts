@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { COMMAND_CHANNEL, CommandName, EVENT_CHANNEL, EventType, RendererErrorKind } from '../shared/bridge'
 import { appCommand, AppCommandId, EMPTY_MENU_STATE } from '../shared/commands'
 import { MessageRole, TaskActivity, UiStateKey } from '../shared/domain'
+import { BUILT_IN_MODELS } from '../shared/models'
 import { CAPTURE_ENV, type CaptureSpec } from './capture'
 import { FakeAgentBackend, settle } from './agent/fake-backend'
 import * as sdk from './agent/test-sdk-messages'
@@ -888,6 +889,7 @@ describe('startApp', () => {
     expect(createSdkBackend).toHaveBeenCalledExactlyOnceWith({
       env: expect.any(Promise) as unknown,
       log: expect.objectContaining({ info: expect.any(Function) as unknown }) as unknown,
+      onModels: expect.any(Function) as unknown,
     })
     expect(resolveLoginEnv).toHaveBeenCalledExactlyOnceWith({
       shell: process.env.SHELL,
@@ -895,6 +897,37 @@ describe('startApp', () => {
       cwd: '/Users/sample',
       log: expect.objectContaining({ info: expect.any(Function) as unknown }) as unknown,
     })
+  })
+
+  it('keeps the models a session reports, tells the window, and answers with them from then on', async () => {
+    let onModels: ((models: unknown) => void) | undefined
+    startApp({
+      createAgentBackend: (options) => {
+        onModels = options.onModels
+        return new FakeAgentBackend()
+      },
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+    await expect(handler?.(fromWindow(), CommandName.ModelsList, {})).resolves.toEqual({
+      ok: true,
+      value: { models: BUILT_IN_MODELS },
+    })
+
+    onModels?.([{ value: 'haiku', displayName: 'Haiku', description: 'Haiku 4.5 · Fastest for quick answers' }])
+
+    const models = [
+      {
+        id: 'haiku',
+        resolvedModel: null,
+        name: 'Haiku',
+        description: 'Haiku 4.5 · Fastest for quick answers',
+        efforts: [],
+      },
+    ]
+    expect(onlyWindow().webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, { type: EventType.ModelsChanged, models })
+    await expect(handler?.(fromWindow(), CommandName.ModelsList, {})).resolves.toEqual({ ok: true, value: { models } })
   })
 
   it("logs the agents' environment, its PATH, and every variable but its secrets", async () => {

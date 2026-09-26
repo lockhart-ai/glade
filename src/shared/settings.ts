@@ -6,7 +6,7 @@
 import { Effort, PermissionMode } from './domain'
 import type { KeyBindingOverrides } from './keymap'
 import { DEFAULT_CONTROL_PORT } from './control'
-import { MODEL_OPTIONS } from './models'
+import { BUILT_IN_MODELS } from './models'
 
 export interface Settings {
   /** The model a new task starts with, as the SDK names it. Each task can change its own from its input bar. */
@@ -41,11 +41,11 @@ export interface Settings {
 export type SettingsPatch = Partial<Settings>
 
 /**
- * The settings before you change any: the SDK's default model (the picker's first) at high effort, allowing every tool
+ * The settings before you change any: the SDK's default model (the built-in list's first) at high effort, allowing every tool
  * call, notifying silently, and with no agent allowed to control Glade.
  */
 export const DEFAULT_SETTINGS: Settings = {
-  defaultModel: MODEL_OPTIONS[0].id,
+  defaultModel: BUILT_IN_MODELS[0].id,
   defaultEffort: Effort.High,
   defaultPermissionMode: PermissionMode.AllowAll,
   statusSummary: true,

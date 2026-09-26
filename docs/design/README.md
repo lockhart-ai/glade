@@ -27,7 +27,7 @@ illustrative. Tokens are in `tokens.md`; exact markup per screen in `html/`.
 | 18 · Relaunch after a crash | Mid-turn tasks resume; notice and dividers. | ![18 · Relaunch after a crash](screens/18-relaunch.png) |
 | 19 · Compaction | Context popover at 97%, Compact now. (The "notes saved to CLAUDE.md" line is superseded: Glade doesn't manage notes.) | ![19 · Compaction](screens/19-compaction.png) |
 | 20 · First run | No workspace yet: Open folder / Create a new folder. | ![20 · First run](screens/20-first-run.png) |
-| 21 · Settings | Modal; Agent section shown. | ![21 · Settings](screens/21-settings.png) |
+| 21 · Settings | Modal; Agent section shown. Model lists the models the SDK offers; Effort offers the default model's own levels (Extra high among them), and hides for a model with none. | ![21 · Settings](screens/21-settings.png) |
 | 21 · Settings › Plugins | Plugins section: the plugins folder, one row per plugin with its toggle, an invalid one with its reason. | ![21 · Settings › Plugins](screens/21-settings-plugins.png) |
 | 21 · Settings › Control | Control section: Let agents control Glade on, the endpoint, the `claude mcp add` command with Copy, Regenerate token, the port with its fallback notice, and the note on Glade's own tasks. | ![21 · Settings › Control](screens/21-settings-control.png) |
 | 22 · Keymap | Every shortcut. Also in `../keymap.md`. | ![22 · Keymap](screens/22-keymap.png) |

@@ -227,6 +227,7 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.TerminalOutput:
       case EventType.TerminalCleared:
       case EventType.SettingsChanged:
+      case EventType.ModelsChanged:
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
@@ -3083,6 +3084,7 @@ describe('several tasks at once', () => {
       case EventType.WorkspaceRemoved:
       case EventType.MenuCommand:
       case EventType.SettingsChanged:
+      case EventType.ModelsChanged:
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
@@ -3126,6 +3128,7 @@ describe('several tasks at once', () => {
       case EventType.TerminalOutput:
       case EventType.TerminalCleared:
       case EventType.SettingsChanged:
+      case EventType.ModelsChanged:
       case EventType.PluginsChanged:
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:

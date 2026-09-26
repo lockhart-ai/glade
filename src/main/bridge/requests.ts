@@ -351,6 +351,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.UiStateGetAll]: emptyRequest,
   [CommandName.UiStateSet]: uiStateSetRequest,
   [CommandName.SettingsGet]: emptyRequest,
+  [CommandName.ModelsList]: emptyRequest,
   [CommandName.SettingsUpdate]: settingsUpdateRequest,
   [CommandName.SearchQuery]: searchQueryRequest,
   [CommandName.PluginsList]: emptyRequest,

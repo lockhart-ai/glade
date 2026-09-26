@@ -11,6 +11,8 @@ import {
   type Task,
 } from '../../shared/domain'
 import { WindowCommandId } from '../../shared/commands'
+import type { ModelChoice } from '../../shared/models'
+import { SDK_MODELS } from '../../shared/test-models'
 import { ToastProvider } from '../components'
 import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
@@ -46,6 +48,8 @@ interface Setup {
   readonly contextMeter?: React.ReactNode
   /** The selected task's queue. */
   readonly queued?: readonly string[]
+  /** The models the pickers offer; the built-in ones when left out. */
+  readonly models?: readonly ModelChoice[]
 }
 
 type Rendered = FakeBridge & { store: GladeStore }
@@ -56,6 +60,7 @@ async function renderBar({
   overrides = {},
   contextMeter,
   queued = [],
+  models,
 }: Setup = {}): Promise<Rendered> {
   const fake = fakeBridge(
     {
@@ -70,6 +75,7 @@ async function renderBar({
       ],
       messages: [],
       queuedMessages: queued.map((body, index) => sampleQueuedMessage(`q${String(index + 1)}`, 't1', body)),
+      ...(models === undefined ? {} : { models }),
     },
     overrides,
   )
@@ -140,6 +146,17 @@ function stops(fake: FakeBridge): unknown[] {
 
 function updates(fake: FakeBridge): unknown[] {
   return fake.invoke.mock.calls.filter(([command]) => command === CommandName.TasksUpdate).map(([, request]) => request)
+}
+
+/** The items of a picker's menu, opened and closed again. */
+function menuItems(picker: string, menuName: string): (string | null)[] {
+  fireEvent.click(screen.getByRole('button', { name: picker }))
+  const menu = screen.getByRole('menu', { name: menuName })
+  const items = within(menu)
+    .getAllByRole('menuitemradio')
+    .map((item) => item.textContent)
+  fireEvent.keyDown(menu, { key: 'Escape' })
+  return items
 }
 
 async function choose(picker: string, option: string): Promise<void> {
@@ -528,6 +545,134 @@ describe('InputBar', () => {
         'Couldn’t change the permissions: No task t1',
       )
       expect(screen.getByRole('button', { name: 'Permissions: Allow all' })).toBeInTheDocument()
+    })
+
+    it('offers only the levels the task’s model supports, Extra high included, lowest first', async () => {
+      await renderBar({ task: { model: 'sonnet', effort: Effort.XHigh }, models: SDK_MODELS })
+
+      expect(menuItems('Effort: Extra high', 'Effort')).toEqual(['Low', 'Medium', 'High', 'Extra high'])
+    })
+
+    it('hides the effort picker for a model that takes no effort', async () => {
+      await renderBar({ task: { model: 'haiku', effort: Effort.Max }, models: SDK_MODELS })
+
+      expect(screen.getByRole('button', { name: 'Model: Haiku' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /^Effort/ })).toBeNull()
+      expect(screen.getByRole('button', { name: 'Permissions: Allow all' })).toBeInTheDocument()
+    })
+
+    it('lists the SDK’s models, checking the task’s even when it was saved by the full id', async () => {
+      const fake = await renderBar({ task: { model: 'claude-sonnet-5' }, models: SDK_MODELS })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Model: Sonnet' }))
+      await settleFloating()
+      const menu = screen.getByRole('menu', { name: 'Model' })
+      expect(
+        within(menu)
+          .getAllByRole('menuitemradio')
+          .map((item) => [item.textContent, item.getAttribute('aria-checked')]),
+      ).toEqual([
+        ['Default (recommended)', 'false'],
+        ['Opus (1M context)', 'false'],
+        ['Sonnet', 'true'],
+        ['Lite', 'false'],
+        ['Haiku', 'false'],
+      ])
+      fireEvent.keyDown(menu, { key: 'Escape' })
+      await settleFloating()
+
+      // The same model under its alias is no change.
+      await choose('Model: Sonnet', 'Sonnet')
+      expect(updates(fake)).toEqual([])
+    })
+
+    it('falls back to the new model’s default effort when it doesn’t support the task’s, and says so', async () => {
+      const fake = await renderBar({ task: { model: 'default', effort: Effort.Max }, models: SDK_MODELS })
+
+      await choose('Model: Default (recommended)', 'Sonnet')
+
+      expect(updates(fake)).toEqual([{ id: 't1', patch: { model: 'sonnet', effort: Effort.High } }])
+      expect(screen.getByRole('button', { name: 'Effort: High' })).toBeInTheDocument()
+      expect(screen.getByRole('region', { name: 'Notifications' })).toHaveTextContent(
+        'Sonnet doesn’t offer Max effort, so it’s now High.',
+      )
+    })
+
+    it('keeps the effort, unsaid, when the new model supports it or takes none', async () => {
+      const fake = await renderBar({ task: { model: 'default', effort: Effort.XHigh }, models: SDK_MODELS })
+
+      await choose('Model: Default (recommended)', 'Sonnet')
+      await choose('Model: Sonnet', 'Haiku')
+
+      expect(updates(fake)).toEqual([
+        { id: 't1', patch: { model: 'sonnet' } },
+        { id: 't1', patch: { model: 'haiku' } },
+      ])
+      expect(screen.queryByRole('button', { name: /^Effort/ })).toBeNull()
+      expect(screen.queryByRole('region', { name: 'Notifications' })?.textContent ?? '').not.toContain('effort')
+
+      await choose('Model: Haiku', 'Opus (1M context)')
+      expect(screen.getByRole('button', { name: 'Effort: Extra high' })).toBeInTheDocument()
+    })
+
+    it('says nothing of the effort when the model change fails', async () => {
+      await renderBar({
+        task: { model: 'default', effort: Effort.Max },
+        models: SDK_MODELS,
+        overrides: { [CommandName.TasksUpdate]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No task t1')) },
+      })
+
+      await choose('Model: Default (recommended)', 'Sonnet')
+
+      const toasts = screen.getByRole('region', { name: 'Notifications' })
+      expect(toasts).toHaveTextContent('Couldn’t change the model: No task t1')
+      expect(toasts).not.toHaveTextContent('doesn’t offer')
+      expect(screen.getByRole('button', { name: 'Effort: Max' })).toBeInTheDocument()
+    })
+
+    it('shows a saved model the list doesn’t have by its id, none checked, with every effort level', async () => {
+      await renderBar({ task: { model: 'claude-retired-3', effort: Effort.Medium }, models: SDK_MODELS })
+
+      expect(menuItems('Effort: Medium', 'Effort')).toEqual(['Low', 'Medium', 'High', 'Extra high', 'Max'])
+      fireEvent.click(screen.getByRole('button', { name: 'Model: claude-retired-3' }))
+      await settleFloating()
+      const menu = screen.getByRole('menu', { name: 'Model' })
+      expect(within(menu).queryByRole('menuitemradio', { checked: true })).toBeNull()
+    })
+
+    it('takes the SDK’s list when a session reports it, and a model it stops offering shows by its id', async () => {
+      const fake = await renderBar({ task: { model: 'lite', effort: Effort.Low }, models: SDK_MODELS })
+      expect(screen.getByRole('button', { name: 'Model: Lite' })).toBeInTheDocument()
+
+      act(() => {
+        fake.emit({ type: EventType.ModelsChanged, models: SDK_MODELS.filter(({ id }) => id !== 'lite') })
+      })
+
+      expect(screen.getByRole('button', { name: 'Model: lite' })).toBeInTheDocument()
+      expect(menuItems('Model: lite', 'Model')).toEqual([
+        'Default (recommended)',
+        'Opus (1M context)',
+        'Sonnet',
+        'Haiku',
+      ])
+    })
+
+    it('starts on the built-in list, then offers the SDK’s once a session reports it', async () => {
+      const fake = await renderBar()
+      expect(menuItems('Model: Opus 5.5', 'Model')).toEqual(['Opus 5.5', 'Sonnet 5', 'Haiku 4.5'])
+
+      act(() => {
+        fake.emit({ type: EventType.ModelsChanged, models: SDK_MODELS })
+      })
+
+      // The task's Opus 5.5 is the SDK's default model.
+      expect(menuItems('Model: Default (recommended)', 'Model')).toEqual([
+        'Default (recommended)',
+        'Opus (1M context)',
+        'Sonnet',
+        'Lite',
+        'Haiku',
+      ])
     })
 
     it('does nothing when you choose the current model, effort or permission mode', async () => {
