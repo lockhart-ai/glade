@@ -10,7 +10,7 @@ import type { Migration } from '../migrate'
  * (`UNIQUE (git_dir, hash)`). A link goes with its task.
  */
 export const taskCommitsMigration: Migration = {
-  version: 32,
+  version: 34,
   name: 'Add the commits each task made',
   up(db) {
     db.exec(`

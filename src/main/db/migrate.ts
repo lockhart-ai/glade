@@ -1,8 +1,9 @@
 import type { Database } from 'better-sqlite3'
 
 /**
- * One forward-only step in the database schema. Versions start at 1 and go up by one; a migration is never edited or
- * removed once it has shipped.
+ * One forward-only step in the database schema. Versions start at 1 and go up; a migration is never edited or removed
+ * once it has shipped. A version can be held for a branch that hasn't landed yet, so the list can skip numbers, and a
+ * migration that lands below one a database already has still runs there (see `migrate`).
  */
 export interface Migration {
   readonly version: number
@@ -38,13 +39,28 @@ export function schemaVersion(db: Database): number {
   return typeof version === 'number' ? version : 0
 }
 
+/** The version a database is at once `migrations` have run: the highest of them, or 0 when there are none. */
+export function latestVersion(migrations: readonly Migration[]): number {
+  return migrations.at(-1)?.version ?? 0
+}
+
+/** The versions applied to `db`: none for a fresh database. */
+function appliedVersions(db: Database): ReadonlySet<number> {
+  if (schemaVersion(db) === 0) return new Set()
+  const versions = db.prepare(`SELECT version FROM ${SCHEMA_VERSION_TABLE}`).pluck().all() as number[]
+  return new Set(versions)
+}
+
+/** Throws unless the list starts at 1 and each version is higher than the one before (skipping numbers is fine). */
 function checkOrder(migrations: readonly Migration[]): void {
+  let previous = 0
   migrations.forEach((migration, index) => {
-    if (migration.version !== index + 1) {
+    if (previous === 0 ? migration.version !== 1 : migration.version <= previous) {
       throw new Error(
-        `Migrations must be numbered 1, 2, 3, … in order: position ${String(index + 1)} has version ${String(migration.version)}`,
+        `Migrations must start at 1 and go up: position ${String(index + 1)} has version ${String(migration.version)}`,
       )
     }
+    previous = migration.version
   })
 }
 
@@ -69,22 +85,26 @@ function withoutForeignKeys(db: Database, apply: () => void): void {
 }
 
 /**
- * Brings `db` up to the latest of `migrations`. Each pending migration runs in its own transaction together with its
- * bookkeeping row, so a migration that throws rolls back completely and leaves the version where it was (earlier
- * migrations in the same call stay applied). Running it again on a current database does nothing.
+ * Brings `db` up to the latest of `migrations`. A migration is pending when its version isn't recorded in `db`, so one
+ * that lands after a higher-numbered one (its number was held while it was on a branch) still runs on a database that
+ * already has the higher one. Each pending migration runs in its own transaction together with its bookkeeping row, so
+ * a migration that throws rolls back completely and leaves the version where it was (earlier migrations in the same
+ * call stay applied). Running it again on a current database does nothing.
  */
 export function migrate(db: Database, migrations: readonly Migration[]): MigrationResult {
   checkOrder(migrations)
 
   const fromVersion = schemaVersion(db)
-  if (fromVersion > migrations.length) {
+  const latest = latestVersion(migrations)
+  if (fromVersion > latest) {
     throw new Error(
-      `The database is at schema version ${String(fromVersion)}, newer than this app knows (${String(migrations.length)})`,
+      `The database is at schema version ${String(fromVersion)}, newer than this app knows (${String(latest)})`,
     )
   }
 
+  const done = appliedVersions(db)
   const applied: number[] = []
-  for (const migration of migrations.slice(fromVersion)) {
+  for (const migration of migrations.filter((m) => !done.has(m.version))) {
     const apply = db.transaction(() => {
       migration.up(db)
       if (migration.rebuildsReferencedTable === true) checkForeignKeys(db)

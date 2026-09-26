@@ -107,12 +107,38 @@ describe('migrate', () => {
     expect(migrate(db, [schemaVersionMigration, createTable(2, 'alpha')]).applied).toEqual([2])
   })
 
-  it('refuses migrations that are not numbered 1, 2, 3, … in order', () => {
-    expect(() => migrate(db, [schemaVersionMigration, createTable(3, 'alpha')])).toThrow(
-      'Migrations must be numbered 1, 2, 3, … in order: position 2 has version 3',
+  it('refuses migrations that do not start at 1 and go up', () => {
+    expect(() => migrate(db, [schemaVersionMigration, createTable(3, 'alpha'), createTable(3, 'beta')])).toThrow(
+      'Migrations must start at 1 and go up: position 3 has version 3',
+    )
+    expect(() => migrate(db, [schemaVersionMigration, createTable(3, 'alpha'), createTable(2, 'beta')])).toThrow(
+      'position 3 has version 2',
     )
     expect(() => migrate(db, [createTable(2, 'alpha'), schemaVersionMigration])).toThrow('position 1 has version 2')
     expect(schemaVersion(db)).toBe(0)
+  })
+
+  it('skips numbers held for migrations that have not landed yet', () => {
+    const result = migrate(db, [schemaVersionMigration, createTable(2, 'alpha'), createTable(5, 'beta')])
+
+    expect(result).toEqual({ fromVersion: 0, toVersion: 5, applied: [1, 2, 5] })
+    expect(tableNames(db)).toEqual(['alpha', 'beta', 'schema_version'])
+  })
+
+  it('runs a migration that lands below the version the database is already at', () => {
+    migrate(db, [schemaVersionMigration, createTable(2, 'alpha'), createTable(5, 'beta')])
+
+    const result = migrate(db, [
+      schemaVersionMigration,
+      createTable(2, 'alpha'),
+      createTable(3, 'gamma'),
+      createTable(4, 'delta'),
+      createTable(5, 'beta'),
+    ])
+
+    expect(result).toEqual({ fromVersion: 5, toVersion: 5, applied: [3, 4] })
+    expect(tableNames(db)).toEqual(['alpha', 'beta', 'delta', 'gamma', 'schema_version'])
+    expect(db.prepare('SELECT version FROM schema_version ORDER BY version').pluck().all()).toEqual([1, 2, 3, 4, 5])
   })
 
   describe('a migration that rebuilds a referenced table', () => {
@@ -165,10 +191,11 @@ describe('migrate', () => {
   })
 
   it('refuses a database newer than the app', () => {
-    migrate(db, [schemaVersionMigration, createTable(2, 'alpha')])
+    migrate(db, [schemaVersionMigration, createTable(2, 'alpha'), createTable(4, 'beta')])
 
-    expect(() => migrate(db, [schemaVersionMigration])).toThrow(
-      'The database is at schema version 2, newer than this app knows (1)',
+    expect(() => migrate(db, [schemaVersionMigration, createTable(2, 'alpha'), createTable(3, 'gamma')])).toThrow(
+      'The database is at schema version 4, newer than this app knows (3)',
     )
+    expect(() => migrate(db, [])).toThrow('newer than this app knows (0)')
   })
 })

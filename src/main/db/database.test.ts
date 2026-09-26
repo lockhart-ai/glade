@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DATABASE_FILE_NAME, openAppDatabase, openDatabase } from './database'
-import { schemaVersion } from './migrate'
+import { latestVersion, schemaVersion } from './migrate'
 import { MIGRATIONS } from './migrations'
 
 let dataDir: string
@@ -47,7 +47,7 @@ describe('openAppDatabase', () => {
       expect(existsSync(file)).toBe(true)
       expect(migration).toEqual({
         fromVersion: 0,
-        toVersion: MIGRATIONS.length,
+        toVersion: latestVersion(MIGRATIONS),
         applied: MIGRATIONS.map((m) => m.version),
       })
       expect(db.pragma('journal_mode', { simple: true })).toBe('wal')
@@ -61,7 +61,11 @@ describe('openAppDatabase', () => {
 
     const { db, migration } = openAppDatabase(dataDir)
     try {
-      expect(migration).toEqual({ fromVersion: MIGRATIONS.length, toVersion: MIGRATIONS.length, applied: [] })
+      expect(migration).toEqual({
+        fromVersion: latestVersion(MIGRATIONS),
+        toVersion: latestVersion(MIGRATIONS),
+        applied: [],
+      })
     } finally {
       db.close()
     }
@@ -69,19 +73,19 @@ describe('openAppDatabase', () => {
 
   it('rethrows when a migration fails, leaving the version where it was', () => {
     const failing = {
-      version: MIGRATIONS.length + 1,
+      version: latestVersion(MIGRATIONS) + 1,
       name: 'Fail',
       up() {
         throw new Error('boom')
       },
     }
     expect(() => openAppDatabase(dataDir, [...MIGRATIONS, failing])).toThrow(
-      `Migration ${String(MIGRATIONS.length + 1)} (Fail) failed`,
+      `Migration ${String(latestVersion(MIGRATIONS) + 1)} (Fail) failed`,
     )
 
     const db = openDatabase(join(dataDir, DATABASE_FILE_NAME))
     try {
-      expect(schemaVersion(db)).toBe(MIGRATIONS.length)
+      expect(schemaVersion(db)).toBe(latestVersion(MIGRATIONS))
     } finally {
       db.close()
     }
