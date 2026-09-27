@@ -115,9 +115,9 @@ export interface TodosProps {
 /**
  * The Todos tab (`docs/design/html/09-todos.html`): how many of the agent's todos are done, with a progress bar and when
  * the agent last changed the list, then each item as todo (a hollow ring, at full strength), doing (blue, with its note),
- * done (a filled teal check, dimmed and struck through, with when it was finished) or waiting on you (purple). The items come grouped by state: active, then done (the most recently
- * finished first), then not started (`orderTodos`). The agent keeps the list; you only read it. An item's context menu
- * copies it, or asks the agent about it.
+ * done (a filled teal check, dimmed and struck through, with when it was finished) or waiting on you (purple). The items
+ * come grouped by state: active, then not started, then done (the most recently finished first; `orderTodos`). The agent
+ * keeps the list; you only read it. An item's context menu copies it, or asks the agent about it.
  */
 export function Todos({ taskId, list, now }: TodosProps): React.JSX.Element {
   const menu = useContextMenu<Todo>()

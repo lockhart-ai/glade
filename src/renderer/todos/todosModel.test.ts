@@ -54,7 +54,7 @@ describe('orderTodos', () => {
   })
   const texts = (items: readonly Todo[]) => orderTodos(items).map(({ todo: { text } }) => text)
 
-  it('shows the active items, then the completed ones newest first, then the ones not started', () => {
+  it('shows the active items, then the ones not started, then the completed ones newest first', () => {
     const items = [
       todo('a', TodoState.Todo),
       todo('b', TodoState.Done, 10),
@@ -64,9 +64,27 @@ describe('orderTodos', () => {
       todo('f', TodoState.Waiting),
       todo('g', TodoState.Done, 20),
     ]
-    expect(texts(items)).toEqual(['c', 'f', 'd', 'g', 'b', 'a', 'e'])
+    expect(texts(items)).toEqual(['c', 'f', 'a', 'e', 'd', 'g', 'b'])
     // Each keeps its place in the agent's list.
-    expect(orderTodos(items).map(({ position }) => position)).toEqual([2, 5, 3, 6, 1, 0, 4])
+    expect(orderTodos(items).map(({ position }) => position)).toEqual([2, 5, 0, 4, 3, 6, 1])
+  })
+
+  it("shows what's still to do before what's done, wherever each sits in the agent's list (#322)", () => {
+    // The agent's own order puts the done items first, as it works down its list.
+    expect(
+      texts([todo('done', TodoState.Done, 1), todo('next', TodoState.Todo), todo('last', TodoState.Todo)]),
+    ).toEqual(['next', 'last', 'done'])
+    // And a not-started item listed above a finished one still comes before it.
+    expect(texts([todo('later', TodoState.Todo), todo('finished', TodoState.Done, 1)])).toEqual(['later', 'finished'])
+    // With nothing active, not started still leads.
+    expect(
+      texts([
+        todo('d1', TodoState.Done, 2),
+        todo('t1', TodoState.Todo),
+        todo('d2', TodoState.Done, 3),
+        todo('t2', TodoState.Todo),
+      ]),
+    ).toEqual(['t1', 't2', 'd2', 'd1'])
   })
 
   it('shows items finished at the same moment with the one further down the list first', () => {
@@ -107,7 +125,7 @@ describe('orderTodos', () => {
     const ordered = orderTodos(items)
     expect(new Set(ordered.map(({ position }) => position)).size).toBe(items.length)
     const ranks = ordered.map(({ todo: { state } }) =>
-      [TodoGroup.Active, TodoGroup.Completed, TodoGroup.NotStarted].indexOf(todoGroup(state)),
+      [TodoGroup.Active, TodoGroup.NotStarted, TodoGroup.Completed].indexOf(todoGroup(state)),
     )
     expect(ranks).toEqual([...ranks].sort((a, b) => a - b))
     for (let index = 1; index < ordered.length; index += 1) {
