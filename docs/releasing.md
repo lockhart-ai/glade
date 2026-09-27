@@ -75,7 +75,8 @@ where it is: never install a test build into `/Applications`.
 ## Dependency updates
 
 Dependency bumps come from Dependabot (`.github/dependabot.yml`), weekly: the Claude Agent SDK on its own, the other
-npm packages (minor and patch grouped, majors one by one), and GitHub Actions. `docs/kitten-sop.md` says how each kind
+npm packages (minor and patch grouped, majors one by one, except `@types/node` and `typescript` majors, which are
+raised by hand), and GitHub Actions. `docs/kitten-sop.md` says how each kind
 is handled. Bumps land on `main` like any other PR and ship in the next release.
 
 ## Artifacts

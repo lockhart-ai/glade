@@ -128,6 +128,12 @@ Dependabot (`.github/dependabot.yml`) checks for updates every week and opens th
 - **Everything else on npm:** every minor and patch update in one grouped PR, and each major update as its own PR.
 - **GitHub Actions** (`ci: bump …`): one PR per action.
 
+It skips two majors, which we raise by hand:
+
+- **`@types/node`:** the main process runs on Electron's Node (Node 24 in Electron 44), so the Node types stay on that
+  major. Raise them with the Electron major that moves Node.
+- **`typescript`:** TypeScript 7, the native port, is held until typescript-eslint and vitest support it.
+
 ### SDK bumps
 
 The supervisor dispatches a kitten to each SDK bump. It works on the Dependabot branch (merging `origin/main` in if it
