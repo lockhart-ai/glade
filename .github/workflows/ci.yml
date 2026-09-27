@@ -1,3 +1,6 @@
+# See docs/kitten-sop.md ("Check it") for how these jobs mirror the local checks. Split into parallel jobs balanced
+# by measured time (#354): static checks, unit tests and e2e shards each land around the same wall-clock time, with a
+# final `ci` job that gates on all of them, since branch protection and the merge queue require a check named `ci`.
 name: CI
 
 on:
@@ -14,8 +17,8 @@ permissions:
   contents: read
 
 jobs:
-  ci:
-    name: ci
+  static:
+    name: static
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
@@ -29,7 +32,53 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run format:check
-      - run: npm test
       - run: npm run build
-      - run: npm run test:e2e
       - run: npm run check-design
+
+  unit:
+    name: unit
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+
+  e2e:
+    name: e2e (${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+      # test:e2e's global setup builds the app into out/testing itself (it's per-shard: nothing is shared between jobs).
+      - run: npm run test:e2e -- --shard=${{ matrix.shard }}/3
+
+  ci:
+    name: ci
+    if: always()
+    needs: [static, unit, e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all jobs succeeded
+        run: |
+          for result in "${{ needs.static.result }}" "${{ needs.unit.result }}" "${{ needs.e2e.result }}"; do
+            if [ "$result" != "success" ]; then
+              echo "::error::a required job did not succeed (got: $result)"
+              exit 1
+            fi
+          done

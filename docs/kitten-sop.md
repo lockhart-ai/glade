@@ -35,6 +35,10 @@ its PR, sends back fixes, and approves and merges it. This SOP starts simple and
 5. **Check it.** Before reporting back, run `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test`
    (100% line coverage), `npm run build` and `npm run test:e2e` locally, and wait for the required `ci` check to go
    green on the PR (`node scripts/gh-team.mjs pr checks <N> --watch`). If it goes red, fix it with new commits.
+   CI itself (`.github/workflows/ci.yml`) splits that work into parallel jobs, balanced to land around the same
+   wall-clock time: `static` (typecheck, lint, format, build, check-design), `unit` (`npm test`) and `e2e` (three
+   `playwright test --shard` jobs, each building its own `out/testing`). A final `ci` job needs all of them and fails
+   if any failed or was cancelled, so branch protection and the merge queue still gate on one check.
 6. **Report back** briefly: the PR URL, how you checked each acceptance criterion, the docs you updated, media paths,
    and decisions or open questions.
 
