@@ -5,6 +5,13 @@ Screens are 1920×1200 at 1× (the lifecycle board and the menu bar are 1440×90
 thumbnails' states under it). Sample data is illustrative. Tokens are in
 `tokens.md`; exact markup per screen in `html/`.
 
+The window has no title bar row (#320): the cards rise to its 8px outer inset, and the sidebar card starts with a 28px
+strip that holds the macOS traffic lights, centred in it as macOS draws them (14px circles, 23px apart, 7px inside the
+card's corner).
+With the sidebar collapsed (31), the task card's chat column holds the strip instead; while the app-wide banner shows
+(17), the banner starts below the lights and the strip folds away. The workspace switcher's box has a 12px corner,
+concentric with the card's.
+
 | Screen | What it shows | |
 |---|---|---|
 | Task workspace | The main window: sidebar, task card with header, chat and right panel, bottom bar. Done section collapsed. | ![Task workspace](screens/task-workspace.png) |
@@ -44,6 +51,7 @@ thumbnails' states under it). Sample data is illustrative. Tokens are in
 | 24 · Changes, none yet | The Changes tab of a task that has made no commits yet. A workspace that isn't a git repository says "This workspace isn’t a git repository." in its place. | ![24 · Changes, none yet](screens/24-changes-empty.png) |
 | 29 · Menu bar | Glade's icon in the macOS menu bar (1440×900): a monochrome template glyph on dark and light bars that never moves: idle, with the count of tasks that need you, and highlighted while open; its popover under it, with Needs you (task, workspace and why), Working (status line, todo progress and bar, elapsed) and Recent (the last notifications, with their age), and Open Glade and Quit; and the popover with nothing in flight. | ![29 · Menu bar](screens/29-menu-bar.png) |
 | 30 · Image viewer | A chat thumbnail opened full size (1920×1400): the second of a message's three images, at its own size (as large as fits the window, never larger) on the Settings modal's dimmed backdrop, with × at the top right and the pager ("2 of 3", ← →, going round at the ends) under it. Under the window: the thumbnails' states (at rest, hover with a lighter border and a pointer cursor, keyboard focus), a queued message's thumbnail on hover, the viewer's single-image chrome (× only), and the card in place of an image that can't be loaded. The same viewer opens from the queue. The input bar's thumbnails don't open it. Built from 2 · Agent working and 21 · Settings; no original design. | ![30 · Image viewer](screens/30-image-viewer.png) |
+| 31 · Sidebar collapsed | The task list collapsed (⌘B): the task card takes the window's width, its chat column starts with the strip that holds the traffic lights (on the same pixels as in the sidebar's strip), the header starts below it with Show task list leading its first row and the Goal and Now rows moved over with the title; the right panel stays where it is (#320). | ![31 · Sidebar collapsed](screens/31-sidebar-collapsed.png) |
 | Interaction map | Every screen, state and action as a graph. | ![Interaction map](screens/interaction-map.png) |
 | Decisions | The decisions board. | ![Decisions](screens/decisions.png) |
 | Icon exploration | Variations of the chosen icon; W07 is the one. | ![Icon exploration](screens/icon-exploration.png) |

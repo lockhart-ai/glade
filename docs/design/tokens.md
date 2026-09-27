@@ -73,9 +73,14 @@ One scale; every padding, margin and gap comes from it.
 And the insets that keep things on shared lines:
 
 - `space-outer` = 8: the window's outer padding and the gaps between top-level cards.
-- `title-bar-height` = 32: the title bar row across the top of the window, in place of the outer padding there. It
-  holds the macOS window controls (the traffic lights, placed 12 in and 8 down, so they're centred in it) and nothing
-  else for now; it drags the window, and double-clicking it zooms. The cards start below it, sidebar open or collapsed.
+- `title-bar-height` = 28: there's no title bar row; the cards rise to the window's outer inset, as on the other sides.
+  The card in the window's top-left corner starts with a strip this tall that holds the macOS window controls (the
+  traffic lights, placed 16 in and 16 down: centred in it, 7 inside the card's top and left edges, as macOS draws them
+  14px across) and nothing else: the sidebar's, or, while the sidebar is collapsed, the task card's chat column's (the
+  header starts below it; the right panel doesn't move). The lights stay on the same pixels either way. The strip, and
+  the outer inset along the window's top, drag the window, and double-clicking them zooms. While the app-wide banner
+  shows, it starts below the lights (the top inset is the strip's height taller), and the cards' strips fold away.
+  Settings keeps as far clear of the window's top and bottom.
 - `space-inset` = 8: every panel's inset, from a card's edge to the cards, rows and fields inside it. The task card's
   header, chat column, input bar and right panel all sit 8 in from its edges; in the sidebar the workspace button,
   search field, filter chips, section headers and task rows share one left edge 8 in; the right panel's rows sit 8 in
@@ -88,6 +93,8 @@ And the insets that keep things on shared lines:
 ## Shape
 
 - Top-level card radius 16; nested cards 12; buttons 7–8; pills 13; menus 10.
+- A box drawn inside a card, a few pixels in from its edge, takes the radius that keeps its corner concentric with the
+  card's: the card's 16, less its 1px border and the gap. The workspace switcher's hover and open box, 3px in, is 12.
 - Nested cards get `box-shadow: 0 6px 20px rgba(0,0,0,.25)`. Menus and popovers `0 16px 40px rgba(0,0,0,.55)`.
   Toasts `0 12px 32px rgba(0,0,0,.45)`.
 - Touch targets at least 28px in dense areas, 44px for the send button.

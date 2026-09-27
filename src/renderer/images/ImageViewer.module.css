@@ -2,7 +2,7 @@
 .backdrop {
   z-index: 20;
   background: rgba(5, 6, 10, 0.66);
-  /* It covers the title bar too: a click there closes the viewer rather than dragging the window. */
+  /* It covers the traffic lights' strip too: a click there closes the viewer rather than dragging the window. */
   -webkit-app-region: no-drag;
 }
 

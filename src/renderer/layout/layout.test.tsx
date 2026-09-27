@@ -27,6 +27,8 @@ import {
 } from '.'
 import appShellStyles from './AppShell.module.css'
 import bottomBarStyles from './BottomBar.module.css'
+import sidebarStyles from './Sidebar.module.css'
+import taskCardStyles from './TaskCard.module.css'
 
 /** The sizes and handlers every `AppShell` takes, for tests that aren't about them. */
 const SIZES = {
@@ -68,9 +70,11 @@ describe('AppShell', () => {
     expect(screen.getByText('Sidebar slot')).toBeInTheDocument()
     expect(screen.getByText('Task slot')).toBeInTheDocument()
     expect(screen.getByText('Bottom slot')).toBeInTheDocument()
-    // The title bar row holds nothing: the traffic lights are the window's own.
-    expect(screen.getByTestId('window-title-bar')).toBeEmptyDOMElement()
-    expect(screen.getByTestId('window-title-bar')).toHaveClass(moduleClass(appShellStyles, 'titleBar'))
+    // There's no title bar row: only the window's top edge, which holds nothing and drags the window.
+    expect(screen.getByTestId('window-top-edge')).toBeEmptyDOMElement()
+    expect(screen.getByTestId('window-top-edge')).toHaveClass(moduleClass(appShellStyles, 'topEdge'))
+    // No banner, no slot for one.
+    expect(screen.queryByTestId('banner-slot')).toBeNull()
     expect(screen.getByText('Task slot').parentElement).not.toHaveClass(moduleClass(appShellStyles, 'full'))
     expect(screen.getByText('Bottom slot').parentElement).not.toHaveClass(moduleClass(appShellStyles, 'collapsed'))
   })
@@ -98,6 +102,20 @@ describe('AppShell', () => {
     expect(screen.getByText('Banner').compareDocumentPosition(screen.getByText('Sidebar slot'))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     )
+    // In its own slot, which the stylesheet reads to fold the cards' strips for the traffic lights away while it shows.
+    const slot = screen.getByTestId('banner-slot')
+    expect(slot).toHaveClass(moduleClass(appShellStyles, 'banner'))
+    expect(slot).toHaveTextContent('Banner')
+    expect(slot.parentElement).toHaveClass(moduleClass(appShellStyles, 'shell'))
+  })
+
+  it('keeps an empty slot while the banner has nothing to say, which the stylesheet hides', () => {
+    function Silent(): null {
+      return null
+    }
+    render(<AppShell {...SIZES} task={<p>Task</p>} bottomBar={<p>Bar</p>} banner={<Silent />} />)
+
+    expect(screen.getByTestId('banner-slot')).toBeEmptyDOMElement()
   })
 
   it('sets the sizes you chose, and the limits, for the stylesheet to cap', () => {
@@ -291,12 +309,16 @@ describe('AppShell', () => {
 })
 
 describe('Sidebar', () => {
-  it('is a navigation landmark, its content from the top: the window’s title bar row clears the traffic lights', () => {
+  it('is a navigation landmark that starts with the empty strip for the traffic lights, then its content', () => {
     render(<Sidebar>Tasks list</Sidebar>)
 
     const nav = screen.getByRole('navigation', { name: 'Tasks' })
     expect(nav).toHaveTextContent('Tasks list')
-    expect(nav.firstElementChild).toHaveTextContent('Tasks list')
+    const strip = within(nav).getByTestId('lights-strip')
+    expect(nav.firstElementChild).toBe(strip)
+    expect(strip).toBeEmptyDOMElement()
+    expect(strip).toHaveClass(moduleClass(sidebarStyles, 'lightsStrip'))
+    expect(strip.nextElementSibling).toHaveTextContent('Tasks list')
   })
 })
 
@@ -348,6 +370,52 @@ describe('TaskCard', () => {
     expect(within(main).getByTestId('input-bar')).toHaveTextContent('Input slot')
     expect(within(main).getByText('Panel slot')).toBeInTheDocument()
     expect(within(main).queryByTestId('task-title-bar')).toBeNull()
+    // The sidebar holds the traffic lights while it's open, so the task card has no strip for them.
+    expect(within(main).queryByTestId('lights-strip')).toBeNull()
+  })
+
+  it('starts its chat column with the empty strip for the traffic lights while it is given one, the right panel beside', () => {
+    render(
+      <ToastProvider>
+        <TaskCard
+          lightsStrip
+          header={<p>Header slot</p>}
+          chat={null}
+          inputBar={null}
+          rightPanel={<aside>Panel slot</aside>}
+        />
+      </ToastProvider>,
+    )
+
+    const main = screen.getByRole('main', { name: 'Task' })
+    const strip = within(main).getByTestId('lights-strip')
+    expect(strip).toBeEmptyDOMElement()
+    expect(strip).toHaveClass(moduleClass(taskCardStyles, 'lightsStrip'))
+    // First in the column, above the header; the right panel isn't in the column, so it doesn't move down.
+    const column = strip.parentElement
+    expect(column).toHaveClass(moduleClass(taskCardStyles, 'column'))
+    expect(column?.firstElementChild).toBe(strip)
+    expect(strip.compareDocumentPosition(screen.getByText('Header slot'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(column).not.toContainElement(screen.getByText('Panel slot'))
+  })
+
+  it('keeps the title row under the strip, with no task and the sidebar collapsed', () => {
+    render(
+      <ToastProvider>
+        <TaskCard
+          lightsStrip
+          titleBar={<button type="button">Show task list</button>}
+          header={null}
+          chat={null}
+          inputBar={null}
+          rightPanel={null}
+        />
+      </ToastProvider>,
+    )
+
+    const strip = screen.getByTestId('lights-strip')
+    expect(strip.nextElementSibling).toBe(screen.getByTestId('task-title-bar'))
+    expect(strip).not.toContainElement(screen.getByRole('button', { name: 'Show task list' }))
   })
 
   it('shows a title row above the header while it is given one', () => {

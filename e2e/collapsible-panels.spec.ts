@@ -38,8 +38,11 @@ const MIN_CHAT_HEIGHT = 80
 /** The window's outer padding (`--space-outer`). */
 const OUTER = 8
 
-/** The title bar row across the top of the window (`--title-bar-height`), which holds the traffic lights. */
-const TITLE_BAR_HEIGHT = 32
+/**
+ * The strip at the top of the card in the window's top-left corner (`--title-bar-height`), which holds the traffic
+ * lights: the sidebar's, or the task card's chat column's while the sidebar is collapsed.
+ */
+const LIGHTS_STRIP_HEIGHT = 28
 
 /** Layout rounding: boxes may sit this far past an edge and still count as inside it. */
 const SLACK = 0.5
@@ -125,9 +128,11 @@ async function expectCleanLayout(window: Page, panels: Panels, size: { width: nu
   // The header, chat and input bar sit inside the task card, beside the right panel.
   const column = [header, chatBox, inputBar]
   for (const box of column) expect(within(box, task)).toBe(true)
-  // The cards start below the title bar row; the button that shows the sidebar again leads the header.
-  expect(task.y).toBeCloseTo(TITLE_BAR_HEIGHT, 0)
+  // There's no title bar row: the cards start at the window's outer inset. With the sidebar collapsed, the header starts
+  // below the task card's strip for the traffic lights, and the button that shows the sidebar again leads it.
+  expect(task.y).toBeCloseTo(OUTER, 0)
   if (!panels.sidebar) {
+    expect(header.y).toBeCloseTo(task.y + 1 + LIGHTS_STRIP_HEIGHT, 0)
     const showTaskList = await boxOf(panelToggles(window).showTaskList)
     expect(within(showTaskList, header)).toBe(true)
   }
