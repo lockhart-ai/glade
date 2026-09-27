@@ -2,7 +2,7 @@
  * The account the tasks run on and bill to, and how close it is to its usage limits, as Claude Code reports them
  * (`docs/sdk-notes.md` §1 and "Errors and retries"). Settings › General shows the account
  * (`docs/design/html/21-settings.html`); the usage meter at the foot of the sidebar shows how much of each limit is used
- * (`docs/design/html/30-usage-meter.html`). Main reads both from the SDK and keeps them in SQLite; the window only shows
+ * (`docs/design/html/32-usage-meter.html`). Main reads both from the SDK and keeps them in SQLite; the window only shows
  * them.
  */
 import type { EpochMs } from './domain'

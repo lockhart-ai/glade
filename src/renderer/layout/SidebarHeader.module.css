@@ -10,7 +10,9 @@
 /*
  * The workspace's badge starts on the sidebar's left edge, where the search field and the filter chips do (#253). The
  * button around it draws nothing until hovered, so it reaches out past that edge by its border and its left padding,
- * which is the same as its top and bottom so its hover box wraps the badge evenly.
+ * which is the same as its top and bottom so its hover box wraps the badge evenly. That leaves the box 3px inside the
+ * card, so its corner is the nested cards' (12px): the card's 16px, less its 1px border and those 3px, so the two
+ * curves are concentric (#320).
  */
 .workspace {
   flex-grow: 1;
@@ -21,7 +23,7 @@
   margin-left: calc(-1 * (var(--space-xs) + 1px));
   padding: var(--space-xs) var(--space-item) var(--space-xs) var(--space-xs);
   border: 1px solid transparent;
-  border-radius: var(--radius-menu);
+  border-radius: var(--radius-nested);
 }
 
 /*

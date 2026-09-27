@@ -140,7 +140,7 @@ uses without being asked, so the system prompt says nothing about todos (`src/ma
 `pending`, `in_progress` and `completed` map to todo, doing and done; a doing item's `activeForm` is its note, and a
 done item's `completedAt` is the time of the call that marked it done (the `TaskUpdate` that set it completed, or the
 first `TodoWrite` that has listed it completed since; `TodoWrite`'s items are matched by their text), cleared when it
-goes back (#282). The Todos tab groups the items: active, then done (newest first), then not started. Only the
+goes back (#282). The Todos tab groups the items: active, then not started, then done (newest first). Only the
 main agent's successful calls count. The list isn't stored on its own: main works it out from the task's tool log
 (`todoListFor`), sends it with `tasks.history`, and broadcasts `todos.changed` when a todo tool call finishes. Each
 task also keeps a summary of it (`todos` on the task: done, total and the items in progress), updated at the same

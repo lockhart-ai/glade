@@ -27,7 +27,7 @@ interface UsageRowProps {
   readonly now: EpochMs
 }
 
-/** The row's ring and words, by its state (`docs/design/html/30-usage-meter.html`). */
+/** The row's ring and words, by its state (`docs/design/html/32-usage-meter.html`). */
 function UsageRow({ state, now }: UsageRowProps): React.JSX.Element {
   switch (state.kind) {
     case UsageMeterKind.Unknown:
@@ -116,7 +116,7 @@ export function UsageDetails({ plan, readings, now }: UsageDetailsProps): React.
 }
 
 /**
- * The usage meter at the foot of the sidebar (`docs/design/html/30-usage-meter.html`): one row with the limit closest
+ * The usage meter at the foot of the sidebar (`docs/design/html/32-usage-meter.html`): one row with the limit closest
  * to running out, which opens a popover with every limit. Hidden for an account plan limits don't apply to.
  */
 export function UsageMeter(): React.JSX.Element | null {

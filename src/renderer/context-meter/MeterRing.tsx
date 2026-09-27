@@ -14,7 +14,7 @@ export interface MeterRingProps {
 
 /**
  * The small ring the context meter and the usage meter share (`docs/design/html/task-workspace.html`,
- * `30-usage-meter.html`): a track, and a blue arc from the top that turns purple when `near`.
+ * `32-usage-meter.html`): a track, and a blue arc from the top that turns purple when `near`.
  */
 export function MeterRing({ fraction, near = false }: MeterRingProps): React.JSX.Element {
   return (

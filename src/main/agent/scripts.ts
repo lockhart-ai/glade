@@ -2512,12 +2512,16 @@ export const WATCHES_THINGS = {
   rollout: 'Check the docs rollout once it has had time to finish',
   rolloutPrompt: 'Check whether the docs rollout finished, and report.',
   queue: 'Check the staging queue depth, and report if it is over 1,000.',
-  queueCron: '*/10 * * * *',
-  queueSchedule: 'Every 10 minutes',
+  /**
+   * Daily at 9:00, hours from the e2e clock's noon (`LOCAL_HOUR` in e2e/fixtures.ts), so it can't come due while a spec
+   * runs. A job due every few minutes would: its next time is on the wall clock, which a spec can't hold still.
+   */
+  queueCron: '0 9 * * *',
+  queueSchedule: 'Every day at 9:00 AM',
   queueJob: 'c7a1e04b',
   started:
     "I'm watching the CI checks on PR #42, the integration tests and the docs build are running in the background, " +
-    "I'll check the docs rollout in 5 minutes, and I'll look at the staging queue every 10 minutes.",
+    "I'll check the docs rollout in 5 minutes, and I'll look at the staging queue every morning at 9.",
   checkFailed: 'A CI check failed: the unit tests. The UTC formatting test builds its date in local time.',
   docsBuildFailed: 'The docs build failed: a broken link in docs/upgrade.md. The integration tests are still running.',
   queueChecked: 'The staging queue is at 212 jobs, well under 1,000.',

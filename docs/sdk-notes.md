@@ -2,8 +2,9 @@
 
 What the rest of P1 needs to know about the Claude Agent SDK, with evidence.
 
-- **Tested:** `@anthropic-ai/claude-agent-sdk` **0.3.281**, which bundles Claude Code **2.1.281** as a native binary.
-  Node 25, macOS (arm64). September 2026.
+- **Tested:** `@anthropic-ai/claude-agent-sdk` **0.3.283**, which bundles Claude Code **2.1.283** as a native binary.
+  Node 25, macOS (arm64). September 2026. Most probes below ran on 0.3.281 (Claude Code 2.1.281) and say so; each bump
+  since is checked against them from its changelog and `sdk.d.ts` (see "SDK bumps", at the end).
 - **How:** throwaway `tsx` scripts outside the repo, one long-lived `query()` per session in streaming-input mode,
   mostly on `haiku` to keep runs cheap. Auth came from the machine's existing Claude Code login, with no API key set.
 - **Labels:** **[verified]** means we saw it in a real run. **[docs]** means it comes from the docs or the SDK's
@@ -511,7 +512,7 @@ receives `compact_summary`. See §5.
     window; `unifiedWindows` isn't in the SDK's types.
   - `allowed_warning` can come early: 28% of a week, above. Claude Code shows its own warning ("You've used 85% of
     your session limit · resets 2pm") only from 70% (`utilization` ≥ 0.7, or none given), so the usage meter turns
-    purple only from there too (#327, `docs/design/html/30-usage-meter.html`). An event names one window
+    purple only from there too (#327, `docs/design/html/32-usage-meter.html`). An event names one window
     (`rateLimitType`: `five_hour`, `seven_day`, `seven_day_opus`, `seven_day_sonnet`, `seven_day_overage_included`,
     `overage`), arrives as each turn starts, and mostly carries `utilization` only once it warns.
   - **Decision (#327, approved by Jared):** Glade reads the experimental
@@ -1334,6 +1335,40 @@ worktree. Every read runs with `GIT_OPTIONAL_LOCKS=0`, `core.quotepath=off` and 
 commits, or by a script in a folder the command doesn't name. A rebase's rewritten commits aren't counted as made.
 Unconfirmed: that a subagent isolated in a worktree gets its worktree as the hook's `cwd`; a command that `cd`s into
 it is covered either way.
+
+---
+
+## SDK bumps
+
+What each bump changed, from the SDK's changelog, Claude Code's changelog and a diff of `sdk.d.ts`, and what it means
+for Glade. Dependabot opens each bump (`docs/kitten-sop.md`, "Dependabot PRs").
+
+### 0.3.281 → 0.3.283 (Claude Code 2.1.283) (#329)
+
+Nothing Glade relies on changed shape: the diff of `sdk.d.ts` leaves `SDKMessage`, `system/init`, `result`, the task
+events, `compact_boundary`, `rate_limit_event` (and its `usage_EXPERIMENTAL_…` field, which Glade doesn't read),
+`AccountInfo`, `ModelInfo` and the startup failure reasons as they were. The packaged app ran one Haiku turn from its
+bundled binary. What did change:
+
+- **`system/informational` messages mid-turn.** Claude Code now streams warnings and notices raised during a turn as
+  `system/informational` messages; before, it dropped them. Glade's parser ignores that subtype (§2), so they change
+  nothing on screen. The one Glade relies on, a prompt its `UserPromptSubmit` hook turned away (§13), came as one
+  already.
+- **`system/init` gains `plugin_errors`** (optional: a Claude Code plugin that didn't load, with a `path` for a plugin
+  directory). Glade passes no `plugins` and doesn't read it; the user's own plugins may now show up there.
+- **`set_max_thinking_tokens`:** leaving `max_thinking_tokens` out now keeps the budget; `null` resets it. Glade never
+  sends it (§4: thinking is session-level).
+- **Alpha, unused:** `prewarm()` and `SpareProcess.claim()` start a Claude Code process before its folder is known and
+  bind it later, and `@anthropic-ai/claude-agent-sdk/core` is a smaller entry point. Both are candidates for the "one
+  CLI subprocess per live task" risk below, not adopted.
+- **Fixes:** `getSessionMessages()` and `forkSession()` no longer return or copy a rewound-away branch; Glade reads
+  Claude Code transcripts itself for imports (§8) and calls neither. Claude Code 2.1.283 also fixes SDK sessions losing
+  a deferred tool call or finished tool result when a turn ended early, and a non-streaming fallback's `result.usage`.
+- **Managed settings:** `availableModelsMatch`, `deniedModels`, `strictKnownMarketplaces` and `blockedMarketplaces`
+  are new. A managed policy that blocks every model now fails startup with `managed_settings_invalid`, a reason Glade
+  already handles.
+- A new remote-session `subkind` (`session-inbox`) on a user message's origin, and `_meta` keys under `com.anthropic/`
+  dropped from `readMcpResource()`: Glade reads neither.
 
 ---
 

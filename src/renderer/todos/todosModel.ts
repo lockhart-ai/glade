@@ -25,17 +25,17 @@ export function progressBar({ done, doing, total }: TodoProgress): ProgressBar {
   return { done: (done / total) * 100, doing: (doing / 2 / total) * 100 }
 }
 
-/** The groups the Todos tab shows the items in, in this order (#282). */
+/** The groups the Todos tab shows the items in, in this order: what's still to do before what's done (#282, #322). */
 export enum TodoGroup {
   /** Being worked on, or waiting on you: in the agent's order. */
   Active = 'active',
-  /** Done: the most recently finished first. */
-  Completed = 'completed',
   /** Not started yet: in the agent's order. */
   NotStarted = 'not-started',
+  /** Done: the most recently finished first. */
+  Completed = 'completed',
 }
 
-const GROUP_ORDER: readonly TodoGroup[] = [TodoGroup.Active, TodoGroup.Completed, TodoGroup.NotStarted]
+const GROUP_ORDER: readonly TodoGroup[] = [TodoGroup.Active, TodoGroup.NotStarted, TodoGroup.Completed]
 
 /** Which group an item's state puts it in. */
 export function todoGroup(state: TodoState): TodoGroup {
@@ -58,7 +58,7 @@ export interface OrderedTodo {
 }
 
 /**
- * The items in the tab's order: active, then completed, then not started. Active and not-started items keep the agent's
+ * The items in the tab's order: active, then not started, then completed. Active and not-started items keep the agent's
  * order. Completed ones show the most recently finished first; of those finished at the same moment (several in one
  * call), the one further down the agent's list comes first, as the agent works down its list. A done item with no time
  * (main always gives one, but the type allows none) counts as the oldest.

@@ -1,5 +1,5 @@
 /**
- * What the usage meter at the foot of the sidebar says (`docs/design/html/30-usage-meter.html`): the most-used limit in
+ * What the usage meter at the foot of the sidebar says (`docs/design/html/32-usage-meter.html`): the most-used limit in
  * its row ("Session 38% · resets 15:40"), and every limit in its popover. Pure, so the wording is tested apart from the
  * row and the popover.
  */

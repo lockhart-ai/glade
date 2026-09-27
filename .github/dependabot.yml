@@ -1,0 +1,74 @@
+# Weekly dependency updates. docs/kitten-sop.md says how each kind of PR is handled.
+version: 2
+updates:
+  # One npm block for the whole repo: Dependabot allows only one per ecosystem, directory and branch, so the two npm
+  # update groups live in it. A dependency joins the first group it matches.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # Keep package.json's ranges as they are written and raise them to the new version: the SDK's exact pin stays
+    # exact (0.3.281 becomes 0.3.283), and `^1.2.3` becomes `^1.2.4`.
+    versioning-strategy: increase
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+    commit-message:
+      prefix: deps
+      prefix-development: deps-dev
+    ignore:
+      # The main process runs on Electron's Node, not the system's: Electron 44 (package.json's `electron`) ships
+      # Node 24, so the Node types stay on 24. Raise this major by hand with the Electron major that moves Node.
+      - dependency-name: '@types/node'
+        update-types:
+          - version-update:semver-major
+      # TypeScript 7 (the native port) is held until typescript-eslint and vitest support it. Revisit by hand.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+      # ESLint 10 is held: eslint-plugin-react 7.37.5 doesn't support it (jsx-eslint/eslint-plugin-react#3977).
+      # Revisit when eslint-plugin-react ships a release that supports ESLint 10.
+      - dependency-name: eslint
+        update-types:
+          - version-update:semver-major
+      - dependency-name: '@eslint/js'
+        update-types:
+          - version-update:semver-major
+      # Vite 8 is held: electron-vite 5 accepts only vite 5 to 7 (vite 8 support is only in the 6.0.0 betas), and
+      # @vitejs/plugin-react 6 needs vite 8. Revisit when electron-vite 6.0.0 is stable.
+      - dependency-name: vite
+        update-types:
+          - version-update:semver-major
+      - dependency-name: '@vitejs/plugin-react'
+        update-types:
+          - version-update:semver-major
+    groups:
+      # The Claude Agent SDK and the platform packages that carry its bundled Claude Code binary, in one PR per
+      # bump, of any size. The platform packages are the SDK's own optional dependencies, pinned by it, so they move
+      # with it in the lockfile.
+      claude-agent-sdk:
+        patterns:
+          - '@anthropic-ai/claude-agent-sdk'
+          - '@anthropic-ai/claude-agent-sdk-*'
+      # Everything else: minor and patch updates together in one PR. Major updates match no group, so each comes as
+      # its own PR.
+      npm-minor-and-patch:
+        patterns:
+          - '*'
+        exclude-patterns:
+          - '@anthropic-ai/claude-agent-sdk'
+          - '@anthropic-ai/claude-agent-sdk-*'
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - infra
+    commit-message:
+      prefix: ci

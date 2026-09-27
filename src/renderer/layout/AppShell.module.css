@@ -7,8 +7,10 @@
   container-type: inline-size;
   position: relative;
   box-sizing: border-box;
+  /* How far down the window the banner and the cards start. */
+  --shell-top: var(--space-outer);
   height: 100vh;
-  padding: var(--title-bar-height) var(--space-outer) var(--space-outer);
+  padding: var(--shell-top) var(--space-outer) var(--space-outer);
   display: flex;
   flex-direction: column;
   gap: var(--space-outer);
@@ -44,14 +46,30 @@
 }
 
 /*
- * The title bar row across the top, which holds the macOS traffic lights and nothing else for now. It drags the window,
- * and double-clicking it zooms (or whatever the system's title bar setting says), as a native title bar does.
+ * The window's top edge, above the cards: it drags the window, and double-clicking it zooms (or whatever the system's
+ * title bar setting says), as a native title bar does. The strip at the top of the card in the top-left corner, which
+ * holds the traffic lights, does too.
  */
-.titleBar {
+.topEdge {
   position: absolute;
   inset: 0 0 auto;
-  height: var(--title-bar-height);
+  height: var(--shell-top);
   -webkit-app-region: drag;
+}
+
+/* The banner's slot, which takes no room while the banner has nothing to say. */
+.banner:empty {
+  display: none;
+}
+
+/*
+ * While the banner shows, it's what's in the window's top-left corner: it starts below the traffic lights, which sit
+ * in the draggable top edge above it (as tall as the strip they'd have in a card, and the outer inset above that), and
+ * the cards' strips for them fold away (--lights-strip-display, read by Sidebar.module.css and TaskCard.module.css).
+ */
+.shell:has(> .banner:not(:empty)) {
+  --shell-top: calc(var(--space-outer) + var(--title-bar-height));
+  --lights-strip-display: none;
 }
 
 /*

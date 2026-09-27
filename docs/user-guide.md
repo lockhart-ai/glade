@@ -147,7 +147,8 @@ scroll: the chat passes under them.
   own words.
 - **Pasted images:** paste a screenshot or image (PNG, JPEG, GIF or WebP, up to 3.75 MB each) into the input bar. It
   shows as a thumbnail you can remove, and goes to the agent with your message. Images can't go with an answer to a
-  question card; send them after.
+  question card; send them after. Once sent (or queued), click a thumbnail, or press ↵ or Space on it, to see the image
+  full size; ← and → step through the message's other images, and Esc or a click beside the image closes it.
 - **Right-click a reply** to copy it (as text or Markdown), quote it in your reply, or show that turn's tool calls.
 - **The agent can come back by itself.** If it watches a command, schedules a check-back or runs something in the
   background, it can wake up later and carry on; that turn shows in the chat like any other.
@@ -250,8 +251,8 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   numbers and syntax colours; Markdown has a Preview. **Open in editor** (⌘⇧E) opens the file in the app macOS uses
   for it, and ⌘W, with the focus in the panel, closes the tab. The agent can open a file here for you.
 - **Todos:** the agent's own checklist, as it keeps it, with how many are done. The items come in three groups: what
-  the agent is working on now, then what's done (the most recently finished first, each with when it was finished,
-  like `4m ago`; hover it for the exact time), then what it hasn't started. A done item has a filled teal check and
+  the agent is working on now, then what it hasn't started, then what's done (the most recently finished first, each
+  with when it was finished, like `4m ago`; hover it for the exact time). A done item has a filled teal check and
   dimmed, struck-through text; one not started has an empty ring and full-strength text. Items move between the groups
   as the agent works. The task's row in the sidebar shows the same progress on its third line (`3/7`, or a check once
   all are done); hover it to see what the agent is working on.

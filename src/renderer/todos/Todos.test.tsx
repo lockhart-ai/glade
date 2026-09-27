@@ -67,26 +67,27 @@ describe('Todos', () => {
     expect(screen.getByText('updated 4m ago')).toBeInTheDocument()
   })
 
-  it('shows the active items, then the done ones (newest first, with when each finished), then those not started', () => {
+  it('shows the active items, then those not started, then the done ones (newest first, with when each finished)', () => {
     render(<Todos taskId="t1" list={LIST} now={NOW} />)
 
+    // What's still to do comes before what's done (#322), though the agent lists the done items first.
     expect(items().map((item) => item.textContent)).toEqual([
       'Doing: Copy the 3,900 existing filesIn progress · 1,240 of 3,900',
       'Waiting on you: Delete local copiesWill ask you before deleting anything',
+      'To do: Spot-check a sample of copied files',
+      'To do: Update stored paths in the database',
       'Done: Check new uploads land in the bucketFinished 9m ago',
       'Done: Add an S3 backend for media filesFinished 17m ago',
       'Done: Find how uploads are stored todayFinished 19m ago',
-      'To do: Spot-check a sample of copied files',
-      'To do: Update stored paths in the database',
     ])
     const classes = items().map((item) => item.className)
     expect(classes[0]).toMatch(/doing/)
     expect(classes[1]).toMatch(/waiting/)
-    expect(classes[2]).toMatch(/done/)
-    expect(classes[5]).toMatch(/todo/)
+    expect(classes[2]).toMatch(/todo/)
+    expect(classes[4]).toMatch(/done/)
     // Done items are ticked; the doing one has a dot in its ring instead of an icon.
-    expect(items()[2]?.querySelector('path')).not.toBeNull()
-    expect(items()[5]?.querySelector('path')).toBeNull()
+    expect(items()[4]?.querySelector('path')).not.toBeNull()
+    expect(items()[2]?.querySelector('path')).toBeNull()
     expect(items()[0]?.querySelector('svg')).toBeNull()
   })
 
@@ -96,13 +97,13 @@ describe('Todos', () => {
     const circle = (index: number) => icon(index)?.querySelector('circle')
 
     // Every done item: a filled circle with the tick cut out of it.
-    for (const index of [2, 3, 4]) {
+    for (const index of [4, 5, 6]) {
       expect(items()[index]?.className).toMatch(/done/)
       expect(circle(index)).toHaveAttribute('fill', 'currentColor')
       expect(icon(index)?.querySelector('path')?.getAttribute('class')).toMatch(/check/)
     }
     // Every item not started: an outlined ring, unfilled and unticked.
-    for (const index of [5, 6]) {
+    for (const index of [2, 3]) {
       expect(items()[index]?.className).toMatch(/todo/)
       expect(icon(index)).toHaveAttribute('stroke', 'currentColor')
       expect(circle(index)).not.toHaveAttribute('fill')
@@ -138,13 +139,13 @@ describe('Todos', () => {
     expect(times.map((time) => time?.title ?? null)).toEqual([
       null,
       null,
+      null,
+      null,
       'Sep 23, 2026, 2:21 PM',
       'Sep 23, 2026, 2:13 PM',
       'Sep 23, 2026, 2:11 PM',
-      null,
-      null,
     ])
-    expect(times[2]?.dateTime).toBe(new Date(NOW - 9 * MINUTE).toISOString())
+    expect(times[4]?.dateTime).toBe(new Date(NOW - 9 * MINUTE).toISOString())
   })
 
   it('keeps the finish times current as the clock moves', () => {
@@ -179,14 +180,14 @@ describe('Todos', () => {
     expect(items().map((item) => item.textContent)).toEqual([
       'Doing: Spot-check a sample of copied filesChecking 50 files',
       'Waiting on you: Delete local copiesWill ask you before deleting anything',
+      'To do: Update stored paths in the database',
       'Done: Copy the 3,900 existing filesFinished just now',
       'Done: Check new uploads land in the bucketFinished 9m ago',
       'Done: Add an S3 backend for media filesFinished 17m ago',
       'Done: Find how uploads are stored todayFinished 19m ago',
-      'To do: Update stored paths in the database',
     ])
     // The same element moved, so the focus and anything else on it goes with the item.
-    expect(items()[2]).toBe(copying)
+    expect(items()[3]).toBe(copying)
 
     // Reopened, a done item goes back to the active ones, without its time.
     const reopened: TodoList = {

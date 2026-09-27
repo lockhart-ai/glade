@@ -28,6 +28,8 @@ import { GIF, PNG } from '../../shared/test-images'
 import type { ModelChoice } from '../../shared/models'
 import { SDK_MODELS } from '../../shared/test-models'
 import { ToastProvider } from '../components'
+import { settleFloating } from '../components/settleFloating'
+import { VIEWER_LABEL } from '../images/ImageViewer'
 import { IMAGE_LABEL } from '../images/StoredImage'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
@@ -266,6 +268,40 @@ describe('Chat', () => {
     ).toEqual([imageDataUrl(PNG), imageDataUrl(GIF)])
     expect(you).toHaveTextContent(ASK.body)
     expect(within(screen.getByRole('article', { name: 'Agent' })).queryByRole('img')).toBeNull()
+  })
+
+  it('opens a thumbnail in the image viewer, which steps through that message’s images and closes back to it', async () => {
+    const images = [
+      { id: 'i1', mediaType: PNG.mediaType },
+      { id: 'i2', mediaType: GIF.mediaType },
+    ]
+    await renderChat({
+      messages: [
+        { ...ASK, images },
+        REPLY,
+        { ...ASK, id: 'm3', turn: 2, images: [{ id: 'i3', mediaType: PNG.mediaType }] },
+      ],
+      images: { i1: PNG, i2: GIF, i3: PNG },
+    })
+    await act(() => Promise.resolve())
+
+    const [first] = screen.getAllByRole('article', { name: 'You' })
+    const second = within(first ?? document.body).getByRole('button', { name: 'View pasted image 2 of 2' })
+    second.focus()
+    fireEvent.click(second)
+    await settleFloating()
+
+    const viewer = screen.getByRole('dialog', { name: VIEWER_LABEL })
+    expect(within(viewer).getByRole('img', { name: IMAGE_LABEL })).toHaveAttribute('src', imageDataUrl(GIF))
+    expect(viewer).toHaveTextContent('2 of 2')
+    fireEvent.keyDown(viewer, { key: 'ArrowRight' })
+    expect(within(viewer).getByRole('img', { name: IMAGE_LABEL })).toHaveAttribute('src', imageDataUrl(PNG))
+    expect(viewer).toHaveTextContent('1 of 2')
+
+    fireEvent.keyDown(viewer, { key: 'Escape' })
+    await settleFloating()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(within(first ?? document.body).getByRole('button', { name: 'View pasted image 1 of 2' })).toHaveFocus()
   })
 
   it('shows a message that is only images without an empty bubble', async () => {

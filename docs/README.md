@@ -26,8 +26,9 @@ for where to start can read [`llms.txt`](../llms.txt) at the repo root.
 - [Product](product.md): the concepts (tasks, workspaces, active and done) and how the app behaves.
 - [Decisions](decisions.md): everything already decided, and why.
 - [Plan](plan.md): the phases, in order, and what each one builds.
-- [Kitten SOP](kitten-sop.md): how a worker agent takes an issue to a PR, and how the supervisor reviews, merges and
-  releases.
-- [Releasing](releasing.md): cutting a release, from the version bump to the published build.
+- [Kitten SOP](kitten-sop.md): how a worker agent takes an issue to a PR, how the supervisor reviews, merges and
+  releases, and how Dependabot PRs are handled.
+- [Releasing](releasing.md): cutting a release, from the version bump to the published build, checking a packaged
+  build, and where dependency updates come from.
 - [SDK notes](sdk-notes.md): what the Claude Agent SDK does, with evidence, as Glade relies on it.
 - [Design](design/README.md): every screen, with screenshots and the markup to build it to.

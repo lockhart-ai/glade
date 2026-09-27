@@ -7,9 +7,22 @@ export interface PastedFile {
   readonly type: string
   /** The accent colour of the screenshot drawn for an image; a file of another type holds a few bytes instead. */
   readonly accent?: string
+  /** The screenshot's size in pixels: 320 × 200 unless given. */
+  readonly size?: ScreenshotSize
 }
 
-export const screenshot = (name: string, accent: string): PastedFile => ({ name, type: 'image/png', accent })
+/** How large a made-up screenshot is, in pixels. */
+export interface ScreenshotSize {
+  readonly width: number
+  readonly height: number
+}
+
+export const screenshot = (name: string, accent: string, size?: ScreenshotSize): PastedFile => ({
+  name,
+  type: 'image/png',
+  accent,
+  ...(size === undefined ? {} : { size }),
+})
 
 /**
  * Pastes into the field as the clipboard would, without touching the real one: a `paste` event carrying the text, or
@@ -28,10 +41,12 @@ export async function paste(
         let contents: Blob = new Blob(['II*\u0000'], { type: file.type })
         if (file.accent !== undefined) {
           const canvas = document.createElement('canvas')
-          canvas.width = 320
-          canvas.height = 200
+          canvas.width = file.size?.width ?? 320
+          canvas.height = file.size?.height ?? 200
           const context = canvas.getContext('2d')
           if (context === null) throw new Error('No 2D canvas')
+          // Drawn at 320 × 200 and stretched to its size.
+          context.scale(canvas.width / 320, canvas.height / 200)
           context.fillStyle = '#14151c'
           context.fillRect(0, 0, 320, 200)
           context.fillStyle = '#5c6378'

@@ -35,11 +35,18 @@ export interface ContextMenuState<T> {
   readonly close: () => void
 }
 
+/** Whether an event came from inside its target on the page, not from a portal React bubbled it up from. */
+function inTarget(event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>): boolean {
+  return event.target instanceof Node && event.currentTarget.contains(event.target)
+}
+
 /**
  * One context menu for a set of targets, such as the rows of a list: each row spreads `targetProps(row)`, and the menu
  * (`ContextMenu`) opens for the row it was asked on. A right-click opens it at the pointer; ⇧F10 or the context-menu key
  * opens it below the focused row. The innermost target wins: opening it stops the event there, so a row inside another
- * row opens its own menu.
+ * row opens its own menu. Only what's in the target on the page counts: React passes a portal's events up through
+ * whatever renders it, so a dialog opened from a row (a queued message's image viewer) would otherwise open the row's
+ * menu.
  */
 export function useContextMenu<T>(): ContextMenuState<T> {
   const [opened, setOpened] = useState<OpenContextMenu<T> | null>(null)
@@ -47,12 +54,13 @@ export function useContextMenu<T>(): ContextMenuState<T> {
   const targetProps = useCallback(
     (target: T): ContextMenuTargetProps => ({
       onContextMenu: (event) => {
+        if (!inTarget(event)) return
         event.preventDefault()
         event.stopPropagation()
         setOpened({ target, anchor: { kind: MenuAnchorKind.Point, x: event.clientX, y: event.clientY } })
       },
       onKeyDown: (event) => {
-        if (!isContextMenuKey(event, keymap)) return
+        if (!inTarget(event) || !isContextMenuKey(event, keymap)) return
         event.preventDefault()
         event.stopPropagation()
         setOpened({ target, anchor: { kind: MenuAnchorKind.Element, element: event.currentTarget } })

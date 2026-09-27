@@ -7,8 +7,13 @@ import type { Locator, Page } from '@playwright/test'
 /** The window's regions (see src/renderer/layout and src/renderer/App.tsx). */
 export function regions(page: Page) {
   return {
-    /** The empty row across the top of the window that holds the macOS traffic lights and drags the window. */
-    titleBar: page.getByTestId('window-title-bar'),
+    /** The window's top edge, above the cards, which drags the window. */
+    topEdge: page.getByTestId('window-top-edge'),
+    /**
+     * The empty strip that holds the macOS traffic lights and drags the window, at the top of the card in the window's
+     * top-left corner: the sidebar's, or the task card's chat column's while the sidebar is collapsed.
+     */
+    lightsStrip: page.getByTestId('lights-strip'),
     sidebar: page.getByRole('navigation', { name: 'Tasks' }),
     /** The top of the sidebar: the workspace's name and root folder. */
     workspace: page.getByRole('region', { name: 'Workspace' }),
@@ -86,6 +91,8 @@ export function taskList(page: Page) {
       sidebar.getByRole('group', { name: 'Filter tasks' }).getByRole('button', { name: new RegExp(`^${name}`) }),
     /** A task's row, in whichever section it is, by its title. */
     taskRow: (title: string) => sidebar.getByRole('listitem').getByRole('button', { name: new RegExp(`^${title}`) }),
+    /** The list item of the task you're viewing (its row is `aria-current`), whose `data-task-id` is the task's id. */
+    current: sidebar.getByRole('listitem').filter({ has: page.locator('[aria-current="true"]') }),
     section,
     /** A section's header, which collapses and expands it. */
     sectionHeader: (name: TaskSectionName) => section(name).getByRole('button').first(),
@@ -363,6 +370,8 @@ export function chat(page: Page) {
   return {
     log,
     userMessages: log.getByRole('article', { name: 'You' }),
+    /** The thumbnails of the images pasted into your messages, which open the image viewer: all of them, in order. */
+    thumbnails: log.getByRole('article', { name: 'You' }).getByRole('button', { name: /^View pasted image/ }),
     agentReplies: log.getByRole('article', { name: 'Agent' }),
     /** The summary under each finished turn's reply: "Finished in 24m 10s · 4 files +61 −3". */
     turnSummaries: log.getByRole('note', { name: 'Turn summary' }),
@@ -494,6 +503,13 @@ export function inputBar(page: Page) {
     removeImage: (position: number) => bar.getByRole('button', { name: `Remove image ${String(position)}` }),
     /** Why something pasted wasn't attached, one line each. */
     refusals: bar.getByRole('alert'),
+    /** A queued message's thumbnails, which open the image viewer, by its number. */
+    queuedThumbnails: (position: number) =>
+      bar
+        .getByRole('region', { name: 'Queued messages' })
+        .getByRole('listitem')
+        .nth(position - 1)
+        .getByRole('button', { name: /^View pasted image/ }),
     /** A queued message's images, by its number. */
     queuedImages: (position: number) =>
       bar
@@ -577,6 +593,23 @@ export function contextMenu(page: Page, name: string) {
 }
 
 /** The confirmation Delete task… asks for. */
+/** The image viewer, over the window: a message's image at full size, its close button and its pager. */
+export function imageViewer(page: Page) {
+  const viewer = page.getByRole('dialog', { name: 'Image viewer' })
+  return {
+    viewer,
+    /** The image showing (the others are loaded, hidden). */
+    image: viewer.getByRole('img', { name: 'Pasted image' }),
+    /** In place of an image that can't be loaded. */
+    missing: viewer.getByRole('img', { name: 'Image not available' }),
+    close: viewer.getByRole('button', { name: 'Close image' }),
+    /** The pager, with several images: Previous image, "2 of 3" and Next image. */
+    pager: viewer.getByRole('group', { name: 'Images' }),
+    previous: viewer.getByRole('button', { name: 'Previous image' }),
+    next: viewer.getByRole('button', { name: 'Next image' }),
+  }
+}
+
 export function deleteTaskDialog(page: Page) {
   const dialog = page.getByRole('alertdialog')
   return {

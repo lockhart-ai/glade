@@ -6,6 +6,13 @@ import { expect, test, type Glade, type LaunchOptions } from './fixtures'
 import { chat, firstRun, inputBar, taskHeader, taskList, taskPanel, watchersTab, watchingMark } from './selectors'
 
 /**
+ * How long to wait for the agent's first reply and its four wakes' replies. The wakes come on the agent's own clock,
+ * a few seconds apart, and each reply is a turn; held to its efficiency cores (`taskpolicy -b`) the app took longer
+ * than the default 15s to show them all in one run in fifty.
+ */
+const REPLIES_TIMEOUT_MS = 30_000
+
+/**
  * A task whose agent leaves one of each watcher (the `watches-things` script): a Monitor on PR #42's CI, the
  * integration tests and the docs build in the background, a wakeup to check the rollout and a cron job on the staging
  * queue. Waits for the four wakes they bring, then shows the Watchers tab (⌘⌥6).
@@ -18,7 +25,7 @@ async function watchThings(launch: (options: LaunchOptions) => Promise<Glade>, r
   await bar.field.fill(WATCHES_THINGS.prompt)
   await bar.field.press('Enter')
   // Its first reply, then one for each wake: a failed check, the docs build failing, the job firing and a passing check.
-  await expect(chat(window).agentReplies).toHaveCount(5)
+  await expect(chat(window).agentReplies).toHaveCount(5, { timeout: REPLIES_TIMEOUT_MS })
   await expect(chat(window).agentReplies.last()).toContainText(WATCHES_THINGS.lintPassed)
   await window.keyboard.press('Meta+Alt+Digit6')
   await expect(taskPanel(window).tab(/^Watch/)).toHaveAttribute('aria-selected', 'true')
@@ -59,7 +66,8 @@ test('watchers: each thing the agent left running or scheduled, with its state, 
   await expect(rollout).toContainText(/Due in [56]mStopWakeup/)
   await expect(rollout).toContainText(WATCHES_THINGS.rolloutPrompt)
   const queue = watchers.row(WATCHES_THINGS.queue)
-  await expect(queue).toContainText(/Due in \d+[sm]StopCron/)
+  // Due at 9:00, hours from the app's noon (the job's cron), so however long the spec takes it isn't due yet.
+  await expect(queue).toContainText(/Due in (19|20|21)h \d\dmStopCron/)
   await expect(queue).toContainText(WATCHES_THINGS.queueSchedule)
   await expect(queue).toContainText(/1 wake · last \d\d:\d\d · next/)
   const docs = watchers.row(WATCHES_THINGS.docs)
@@ -127,7 +135,7 @@ test('watchers: a relaunch stops what died with the session, and the cron job co
   const firstBar = inputBar(first.window)
   await firstBar.field.fill(WATCHES_THINGS.prompt)
   await firstBar.field.press('Enter')
-  await expect(chat(first.window).agentReplies).toHaveCount(5)
+  await expect(chat(first.window).agentReplies).toHaveCount(5, { timeout: REPLIES_TIMEOUT_MS })
   await first.kill()
 
   const { window } = await launch({ agentScript: 'still-watching' })
@@ -150,6 +158,6 @@ test('watchers: a relaunch stops what died with the session, and the cron job co
   await bar.field.press('Enter')
   await expect(chat(window).agentReplies.last()).toContainText(WATCHES_THINGS.again)
   await expect(queue).toHaveAttribute('data-state', 'scheduled')
-  await expect(queue).toContainText(/Due in \d+[sm]/)
+  await expect(queue).toContainText(/Due in (19|20|21)h \d\dm/)
   await expect(watchers.tally).toHaveText('1 scheduled4 ended')
 })
