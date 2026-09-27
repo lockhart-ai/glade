@@ -103,22 +103,23 @@ test('todos: the list follows TaskCreate and TaskUpdate over a turn, counted in 
   await expect(panel.tab(/^Todos/)).toHaveText('Todos 3/7')
   await expect(panel.tabPanel).toContainText('3 of 7 done')
   await expect(panel.todoProgress).toHaveAttribute('aria-valuenow', '3')
-  // Grouped: the item in progress, then the done ones (the latest finished first, each with its time), then the rest.
+  // Grouped: the item in progress, then the ones not started, then the done ones (the latest finished first, each with
+  // its time), so what's still to do comes before what's done (#322).
   await expect(panel.todos).toHaveText([
     `Doing: ${PLAN[3] ?? ''}Copying files · 1,240 of 3,900`,
-    done(2),
-    done(1),
-    done(0),
     `To do: ${PLAN[4] ?? ''}`,
     `To do: ${PLAN[5] ?? ''}`,
     `To do: ${PLAN[6] ?? ''}`,
+    done(2),
+    done(1),
+    done(0),
   ])
   // Done and not started tell apart at a glance: a filled teal check over dimmed, struck-through text, against a hollow
   // ring with the text at full strength (#308).
-  expect(await look(panel.todos.nth(1))).toEqual({ filled: true, icon: TEAL, text: FAINT, struck: true })
-  expect(await look(panel.todos.nth(4))).toEqual({ filled: false, icon: MUTED, text: TEXT, struck: false })
+  expect(await look(panel.todos.nth(4))).toEqual({ filled: true, icon: TEAL, text: FAINT, struck: true })
+  expect(await look(panel.todos.nth(1))).toEqual({ filled: false, icon: MUTED, text: TEXT, struck: false })
   // Each finish time gives the exact time on hover.
-  await expect(panel.todoFinished(panel.todos.nth(1))).toHaveAttribute('title', FULL_DATE)
+  await expect(panel.todoFinished(panel.todos.nth(4))).toHaveAttribute('title', FULL_DATE)
   await expect(panel.todoFinished(panel.todos.first())).toHaveCount(0)
   // The task's row counts the same, and its tooltip names the item in progress.
   const progress = list.todoProgress(list.rows('Active').first())
@@ -131,12 +132,13 @@ test('todos: the list follows TaskCreate and TaskUpdate over a turn, counted in 
   await expect(chat(window).agentReplies).toHaveCount(1)
   await expect(panel.tab(/^Todos/)).toHaveText('Todos 6/7')
   await expect(panel.tabPanel).toContainText('6 of 7 done')
-  // The copy moved from the top to the done items as it finished, and the steps after it followed, each on top.
-  const finished = [done(5), done(4), done(3), done(2), done(1), done(0), `To do: ${PLAN[6] ?? ''}`]
+  // The item left comes first; the copy moved from the top to the done items as it finished, and the steps after it
+  // followed, each on top of them.
+  const finished = [`To do: ${PLAN[6] ?? ''}`, done(5), done(4), done(3), done(2), done(1), done(0)]
   await expect(panel.todos).toHaveText(finished)
   // The copy, done now, took the filled check; the item left keeps its hollow ring.
-  expect(await look(panel.todos.nth(2))).toEqual({ filled: true, icon: TEAL, text: FAINT, struck: true })
-  expect(await look(panel.todos.last())).toEqual({ filled: false, icon: MUTED, text: TEXT, struck: false })
+  expect(await look(panel.todos.nth(3))).toEqual({ filled: true, icon: TEAL, text: FAINT, struck: true })
+  expect(await look(panel.todos.first())).toEqual({ filled: false, icon: MUTED, text: TEXT, struck: false })
   const times = await panel.todos.evaluateAll((items) =>
     items.map((item) => item.querySelector('time')?.getAttribute('datetime') ?? null),
   )
