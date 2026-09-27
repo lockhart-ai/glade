@@ -4,6 +4,7 @@ import type { EpochMs, Watcher } from '../../shared/domain'
 import { classNames } from '../components/classNames'
 import { Dot, Icon, IconSize } from '../components'
 import { useMenuCommands } from '../context-menus'
+import { LinkedText } from '../links'
 import { useGladeStore } from '../store/react'
 import { useNow } from '../task-list/useNow'
 import {
@@ -67,7 +68,7 @@ export function WatcherRow({ watcher, now, onStop }: WatcherRowProps): React.JSX
         <span className={styles.line}>
           <span className={styles.lineLabel}>{output.kind}</span>
           <span className={styles.output} title={output.text}>
-            {output.text}
+            <LinkedText text={output.text} />
           </span>
         </span>
       )}

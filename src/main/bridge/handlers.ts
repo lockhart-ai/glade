@@ -54,6 +54,7 @@ import { removeTaskArtifact } from '../artifacts/artifacts'
 import { NO_THUMBNAILS, type Thumbnails } from '../artifacts/thumbnails'
 import type { ArtifactWatcher } from '../artifacts/artifact-watch'
 import { parseCommitFileKey } from '../../shared/files'
+import { openLink, type OpenExternal } from '../links/links'
 import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import { CommandFailure } from './errors'
 import type { Emit } from './events'
@@ -82,6 +83,8 @@ export interface HandlerContext {
   readonly revealPath: RevealPath
   /** Puts text on the clipboard (Electron's `clipboard.writeText`). */
   readonly writeClipboard: WriteClipboard
+  /** Opens a link in the browser (Electron's `shell.openExternal`). Nothing by default: a test never opens one. */
+  readonly openExternal?: OpenExternal
   /** Rebuilds the menu bar from what the window says it shows (`menu.update`). Nothing by default. */
   readonly updateMenu?: (state: MenuState) => void
   /** Closes the focused window (`window.close`). Nothing by default. */
@@ -119,6 +122,7 @@ function terminalRoot(db: Database, workspaceId: string | null): string | null {
 export function createHandlers(context: HandlerContext): Handlers {
   const { db, emit, chooseFolder, runner, writeClipboard, terminals, plugins, pluginViews, endpoint, account } = context
   const renderer = (context.log ?? SILENT_LOGGER).scoped(LogScope.Renderer)
+  const ipcLog = (context.log ?? SILENT_LOGGER).scoped(LogScope.Ipc)
   const changes = { db, emit, git: context.git ?? createGit() }
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
@@ -276,6 +280,10 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.ClipboardWriteText]: async ({ text }) => {
       await writeClipboard(text)
+      return null
+    },
+    [CommandName.LinksOpen]: async ({ url }) => {
+      await openLink({ openExternal: context.openExternal ?? (() => Promise.resolve()), log: ipcLog }, url)
       return null
     },
     [CommandName.UiStateGet]: ({ key }) => ({ value: getUiState(db, key) ?? null }),

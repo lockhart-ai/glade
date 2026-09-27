@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { moduleClass } from '../components/moduleClass'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
@@ -329,6 +329,48 @@ describe('QuestionCard', () => {
     expect(invoke).toHaveBeenCalledWith(CommandName.QuestionsAnswer, { id: 'q1', answers: { 0: 'Because.' } })
   })
 
+  it('makes the URLs in the prompts and your answers links, open or answered, but never in an option', async () => {
+    const guide: Question = {
+      kind: QuestionKind.Text,
+      prompt: 'Which staging URL? The list is on https://example.com/envs.',
+    }
+    const where: Question = {
+      kind: QuestionKind.Choice,
+      prompt: 'Follow https://example.com/docs/layout?',
+      options: [
+        { id: 'yes', label: 'Yes, as https://example.com/docs/layout says' },
+        { id: 'no', label: 'No' },
+      ],
+    }
+    await renderCard([questionSet([guide, where])])
+
+    expect(
+      within(card())
+        .getAllByRole('link')
+        .map((link) => link.getAttribute('href')),
+    ).toEqual(['https://example.com/envs', 'https://example.com/docs/layout'])
+    expect(within(within(card()).getByRole('radio', { name: /Yes/ })).queryByRole('link')).toBeNull()
+
+    cleanup()
+    const answered = questionSet([guide, where], {
+      state: QuestionSetState.Answered,
+      reply: { kind: QuestionReplyKind.Answers, answers: { 0: 'https://staging.example.com', 1: 'yes' } },
+      closedAt: 6_000,
+    })
+    await renderCard([answered])
+    const closed = screen.getByRole('region', { name: 'Questions from the agent' })
+    expect(
+      within(closed)
+        .getAllByRole('link')
+        .map((link) => link.getAttribute('href')),
+    ).toEqual([
+      'https://example.com/envs',
+      'https://staging.example.com/',
+      'https://example.com/docs/layout',
+      'https://example.com/docs/layout',
+    ])
+  })
+
   it('shows a set answered in your words as such, with your message after it', async () => {
     const answered = questionSet([LAYOUT, DJANGO], {
       state: QuestionSetState.Answered,
@@ -385,7 +427,7 @@ describe('QuestionCard', () => {
       expect(card()).toHaveTextContent(/^1 question before I finish/)
     })
 
-    it('renders long Markdown as a chat reply does, with links, images and HTML inert', async () => {
+    it('renders long Markdown as a chat reply does, with its link to open, and images and HTML inert', async () => {
       const preamble = [
         'Here is what I found:',
         '',
@@ -409,7 +451,10 @@ describe('QuestionCard', () => {
           .map((item) => item.textContent),
       ).toEqual(['the /search limits changed', 'the PR says why'])
       expect(present(shown.querySelector('pre')).textContent).toContain('const limit = 100')
-      expect(shown.querySelector('a, img, script, b, [href], [src]')).toBeNull()
+      // The link opens in the browser; nothing else has an address, and nothing loads.
+      expect(within(shown).getByRole('link', { name: 'the PR' })).toHaveAttribute('href', 'https://example.com/pr/41')
+      expect(shown.querySelectorAll('[href]')).toHaveLength(1)
+      expect(shown.querySelector('img, script, b, [src]')).toBeNull()
       expect(shown).toHaveTextContent('a chart')
       expect(shown).toHaveTextContent('x'.repeat(1_500))
     })

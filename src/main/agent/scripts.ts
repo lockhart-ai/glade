@@ -2955,6 +2955,54 @@ const makesAnotherCommit: AgentScript = {
   ],
 }
 
+/** The reply `shares-links` ends on: a Markdown link, a bare URL, and a URL in code, which stays plain. */
+export const SHARES_LINKS_REPLY =
+  'The limits are in [the API docs](https://example.com/docs/limits), and the status page is ' +
+  'https://example.com/status. To check it yourself, run `curl https://example.com/api/health`.'
+
+/**
+ * A turn that puts links everywhere text shows (#349): in its goal and status, a working note, a todo, a command's
+ * output and its reply, each a made-up example.com address.
+ */
+const sharesLinks: AgentScript = {
+  name: 'shares-links',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      say('Checking what [the API docs](https://example.com/docs/limits) say about the rate limits.'),
+      ...describeTask(
+        'Find the API rate limits',
+        'Find the public API’s rate limits, as https://example.com/docs/limits documents them.',
+        'Checked https://example.com/status: all systems up.',
+      ),
+      ...tool(
+        'plan',
+        'TodoWrite',
+        {
+          todos: [
+            {
+              content: 'Read https://example.com/docs/limits',
+              status: 'completed',
+              activeForm: 'Reading https://example.com/docs/limits',
+            },
+            { content: 'Check the status page', status: 'in_progress', activeForm: 'Checking the status page' },
+          ],
+        },
+        'Todos have been modified successfully.',
+      ),
+      ...tool(
+        'health',
+        'Bash',
+        { command: 'curl -s https://example.com/api/health', description: 'Check the API answers' },
+        '{"status":"ok"}\nDocs: https://example.com/docs/health',
+      ),
+      say(SHARES_LINKS_REPLY),
+      result(),
+    ],
+  ],
+}
+
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
   'makes-commits',
@@ -3002,6 +3050,7 @@ export const AGENT_SCRIPT_NAMES = [
   'ports-sessions',
   'backfills-tasks',
   'subagent-background-work',
+  'shares-links',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -3053,4 +3102,5 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'ports-sessions': portsSessions,
   'backfills-tasks': backfillsTasks,
   'subagent-background-work': subagentBackgroundWork,
+  'shares-links': sharesLinks,
 }

@@ -628,6 +628,10 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.ClipboardWriteText, { text })
       },
 
+      async openLink(url) {
+        await bridge.invoke(CommandName.LinksOpen, { url })
+      },
+
       insertIntoInput(taskId, text) {
         set(({ inputInsertion }) => ({
           inputInsertion: { taskId, text, request: (inputInsertion?.request ?? 0) + 1 },

@@ -101,6 +101,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.ChangesOpenFile]: () => ({ openFiles: {} as OpenFiles }),
     [CommandName.ChangesRepository]: () => ({ repository: true }),
     [CommandName.ClipboardWriteText]: () => null,
+    [CommandName.LinksOpen]: () => null,
     [CommandName.FilesThumbnail]: () => ({ thumbnail: { kind: FileThumbnailKind.Missing } }),
     [CommandName.FilesCopy]: () => null,
     [CommandName.FilesReveal]: () => null,

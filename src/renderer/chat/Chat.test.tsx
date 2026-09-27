@@ -809,6 +809,73 @@ describe('an agent reply’s context menu', () => {
   })
 })
 
+describe('links in the chat', () => {
+  const LINKED_ASK: Message = {
+    ...ASK,
+    body: 'The limits are on https://example.com/docs/limits, see `https://example.com/api`.',
+  }
+  const LINKED_REPLY: Message = {
+    ...REPLY,
+    body: 'Read [the limits page](https://example.com/docs/limits) and https://example.com/status.\n\n`curl https://example.com/api`',
+  }
+
+  it('makes the URLs in your messages and the agent’s replies links, but not those in code', async () => {
+    await renderChat({ messages: [LINKED_ASK, LINKED_REPLY] })
+
+    const you = within(conversation()).getByRole('article', { name: 'You' })
+    expect(
+      within(you)
+        .getAllByRole('link')
+        .map((link) => link.getAttribute('href')),
+    ).toEqual(['https://example.com/docs/limits'])
+    expect(you).toHaveTextContent('see `https://example.com/api`.')
+    const agent = within(conversation()).getByRole('article', { name: 'Agent' })
+    expect(
+      within(agent)
+        .getAllByRole('link')
+        .map((link) => [link.textContent, link.getAttribute('href')]),
+    ).toEqual([
+      ['the limits page', 'https://example.com/docs/limits'],
+      ['https://example.com/status', 'https://example.com/status'],
+    ])
+  })
+
+  it('marks what the search matches in your message’s links', async () => {
+    const { store } = await renderChat({ messages: [LINKED_ASK, LINKED_REPLY] })
+
+    act(() => {
+      store.getState().setSearchText('limits')
+    })
+
+    const you = within(conversation()).getByRole('article', { name: 'You' })
+    expect(within(you).getByRole('link').querySelector('mark')).toHaveTextContent('limits')
+    const agent = within(conversation()).getByRole('article', { name: 'Agent' })
+    expect(within(agent).getByRole('link', { name: 'the limits page' }).querySelector('mark')).toHaveTextContent(
+      'limits',
+    )
+  })
+
+  it('opens a link’s own menu on it, not the reply’s, by right-click or ⇧F10', async () => {
+    const copied: string[] = []
+    await renderChat({ messages: [LINKED_ASK, LINKED_REPLY], copied })
+    const agent = within(conversation()).getByRole('article', { name: 'Agent' })
+    const link = within(agent).getByRole('link', { name: 'the limits page' })
+
+    fireEvent.contextMenu(link)
+    expect(screen.queryByRole('menu', { name: 'Reply actions' })).toBeNull()
+    fireEvent.click(
+      within(screen.getByRole('menu', { name: 'Link actions' })).getByRole('menuitem', { name: 'Copy link' }),
+    )
+    await act(() => Promise.resolve())
+    expect(copied).toEqual(['https://example.com/docs/limits'])
+
+    link.focus()
+    fireEvent.keyDown(link, { key: 'F10', shiftKey: true })
+    expect(screen.getByRole('menu', { name: 'Link actions' })).toBeInTheDocument()
+    expect(screen.queryByRole('menu', { name: 'Reply actions' })).toBeNull()
+  })
+})
+
 /**
  * #248: some replies showed as bare text. Only the latest reply while the agent waited on you had a card (the purple
  * question card); every other reply, and what the agent said before asking, had none. Every shape of turn the chat

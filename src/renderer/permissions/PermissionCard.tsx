@@ -8,6 +8,7 @@ import {
 } from '../../shared/domain'
 import { Button, ButtonVariant, Icon, IconSize, Input, useToast } from '../components'
 import { classNames } from '../components/classNames'
+import { LinkedText } from '../links'
 import { APPEAR_WINDOW_MS } from '../questions/QuestionCard'
 import { describeFailure } from '../store/hydrate'
 import { useGladeStore } from '../store/react'
@@ -112,7 +113,9 @@ function CallInput({ body }: { readonly body: PermissionBody }): React.JSX.Eleme
         </button>
       )}
       {body.kind === PermissionBodyKind.Command && body.description !== null && (
-        <p className={styles.description}>{body.description}</p>
+        <p className={styles.description}>
+          <LinkedText text={body.description} />
+        </p>
       )}
     </>
   )

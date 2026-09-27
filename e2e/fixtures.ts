@@ -468,14 +468,14 @@ export async function openedInEditor({ app }: Glade): Promise<string[]> {
 }
 
 /**
- * What an artifact's Reveal in folder and Copy did so far: the real paths shown in Finder and the text put on the
- * clipboard, oldest first. An e2e run never opens Finder or touches the clipboard: main records them in their place
- * (`E2E_DESKTOP_GLOBAL`).
+ * What an artifact's Reveal in folder, the menus' Copy items and clicked links did so far: the real paths shown in
+ * Finder, the text put on the clipboard and the links opened in the browser, oldest first. An e2e run never opens
+ * Finder or a browser, or touches the clipboard: main records them in their place (`E2E_DESKTOP_GLOBAL`).
  */
 export async function desktop({ app }: Glade): Promise<E2eDesktop> {
   return app.evaluate((_, name) => {
-    const { revealed, copied } = Reflect.get(globalThis, name) as E2eDesktop
-    return { revealed: [...revealed], copied: [...copied] }
+    const { revealed, copied, opened } = Reflect.get(globalThis, name) as E2eDesktop
+    return { revealed: [...revealed], copied: [...copied], opened: [...opened] }
   }, E2E_DESKTOP_GLOBAL)
 }
 

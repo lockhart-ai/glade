@@ -153,6 +153,26 @@ describe('SelectedTaskHeader', () => {
     expect(within(header()).queryByText('Active · waiting on you')).toBeNull()
   })
 
+  it('makes the URLs in the goal and status links, leaving the title plain', async () => {
+    await renderHeader({
+      task: {
+        title: 'Fix https://example.com/login',
+        objective: 'Match the spec at https://example.com/docs/limits.',
+        status: 'Deployed to https://staging.example.com; mail support@example.com',
+      },
+    })
+
+    expect(within(header()).getByRole('heading', { level: 1 })).toHaveTextContent('Fix https://example.com/login')
+    expect(within(within(header()).getByRole('heading', { level: 1 })).queryByRole('link')).toBeNull()
+    expect(within(field('Goal')).getByRole('link')).toHaveAttribute('href', 'https://example.com/docs/limits')
+    expect(
+      within(field('Now'))
+        .getAllByRole('link')
+        .map((link) => link.getAttribute('href')),
+    ).toEqual(['https://staging.example.com/', 'mailto:support@example.com'])
+    expect(field('Now')).toHaveTextContent(/^Deployed to https:\/\/staging\.example\.com; mail support@example\.com$/)
+  })
+
   it('labels the rows Goal and Now in mono caps, with no Objective or Status', async () => {
     await renderHeader()
 

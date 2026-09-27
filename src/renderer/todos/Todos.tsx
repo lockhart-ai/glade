@@ -1,6 +1,7 @@
 import { TodoState, type EpochMs, type Todo, type TodoList } from '../../shared/domain'
 import { classNames } from '../components/classNames'
 import { ContextMenu, todoMenu, useContextMenu, useMenuCommands, type ContextMenuTargetProps } from '../context-menus'
+import { LinkedText } from '../links'
 import { useGladeStore } from '../store/react'
 import { formatAgo, formatFullDate } from '../task-header/headerModel'
 import { orderTodos, progressBar, progressHeading, todoProgress } from './todosModel'
@@ -97,8 +98,14 @@ function TodoItem({ todo, now, menuTarget }: TodoItemProps): React.JSX.Element {
       </span>
       <div className={styles.body}>
         <span className={styles.hidden}>{`${STATE_LABELS[todo.state]}: `}</span>
-        <div className={styles.text}>{todo.text}</div>
-        {todo.note !== null && <div className={styles.note}>{todo.note}</div>}
+        <div className={styles.text}>
+          <LinkedText text={todo.text} />
+        </div>
+        {todo.note !== null && (
+          <div className={styles.note}>
+            <LinkedText text={todo.note} />
+          </div>
+        )}
       </div>
       {todo.state === TodoState.Done && todo.completedAt !== null && <FinishedAt at={todo.completedAt} now={now} />}
     </li>

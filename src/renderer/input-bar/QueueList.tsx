@@ -4,6 +4,7 @@ import type { QueuedMessage } from '../../shared/domain'
 import { Button, ButtonVariant, Textarea } from '../components'
 import { ContextMenu, queuedMessageMenu, useContextMenu, type ContextMenuTargetProps } from '../context-menus'
 import { ImageThumbnails } from '../images/ImageThumbnails'
+import { LinkedText } from '../links'
 import styles from './QueueList.module.css'
 
 /** What the queue's header says about when its messages go: after the agent's step, or with your next message. */
@@ -84,7 +85,7 @@ function QueueRow({ message, position, menuTarget, editingId, onEdit, onSave, on
         <QueueEditor message={message} onSave={onSave} onCancel={onCancel} />
       ) : (
         <span className={styles.body} title={message.body}>
-          {message.body}
+          <LinkedText text={message.body} />
         </span>
       )}
       {!editing && (
