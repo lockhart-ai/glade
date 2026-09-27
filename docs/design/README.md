@@ -1,12 +1,12 @@
 # Design
 
 Screens are 1920×1200 at 1× (the lifecycle board and the menu bar are 1440×900; the interaction map is 3200×1720;
-17 · Usage limit is 1920×1300, with its warning state under the window). Sample data is illustrative. Tokens are in
+30 · Usage meter is 1920×1500, with the meter's states under the window). Sample data is illustrative. Tokens are in
 `tokens.md`; exact markup per screen in `html/`.
 
 | Screen | What it shows | |
 |---|---|---|
-| Task workspace | The main window: sidebar, task card with header, chat and right panel, bottom bar. Done section collapsed. | ![Task workspace](screens/task-workspace.png) |
+| Task workspace | The main window: sidebar (with the usage meter at its foot), task card with header, chat and right panel, bottom bar. Done section collapsed. | ![Task workspace](screens/task-workspace.png) |
 | Task lifecycle | Active ⇄ Done and the task record. | ![Task lifecycle](screens/lifecycle.png) |
 | 1 · New task | An empty task; the first message sets the title and objective. | ![1 · New task](screens/01-new-task.png) |
 | 2 · Agent working | Live working line, Stop, message queue above the input, pasted images above the text, context meter. | ![2 · Agent working](screens/02-agent-working.png) |
@@ -24,7 +24,7 @@ Screens are 1920×1200 at 1× (the lifecycle board and the menu bar are 1440×90
 | 14 · Workspace switcher | Sidebar dropdown with per-workspace counts. | ![14 · Workspace switcher](screens/14-workspace-switcher.png) |
 | 15 · Workspace menu | The macOS menu bar's Workspace menu. | ![15 · Workspace menu](screens/15-workspace-menu.png) |
 | 16 · Error in a task | Agent stopped after retries; Retry / Retry with another model / Show details. | ![16 · Error in a task](screens/16-error.png) |
-| 17 · Usage limit or offline | App-wide banner; tasks pause and resume on their own. Under the window, the state before it: a quieter note in the same spot once Claude Code warns that the account is close to a limit ("You've used 85% of your session limit · resets 11:42"), while tasks keep working. The pause banner takes its place; the two never show together. | ![17 · Usage limit or offline](screens/17-usage-limit.png) |
+| 17 · Usage limit or offline | App-wide banner; tasks pause and resume on their own. The usage meter at the foot of the sidebar is at the limit: the question card's highlight, "Session limit · Resets at 11:42". Before the limit there's no note up top: the meter shows how close it is (30 · Usage meter). | ![17 · Usage limit or offline](screens/17-usage-limit.png) |
 | 18 · Relaunch after a crash | Mid-turn tasks resume; notice and dividers. | ![18 · Relaunch after a crash](screens/18-relaunch.png) |
 | 19 · Compaction | Context popover at 97%, Compact now; the tool log's Compact row opened to the summary the agent carried over (#279). The threshold is the one the SDK reports; with auto-compact off the popover shows no marker and says so. (The "notes saved to CLAUDE.md" line and "Change the threshold in Settings" are superseded: Glade doesn't manage notes, and the threshold comes from Claude Code's own settings.) | ![19 · Compaction](screens/19-compaction.png) |
 | 20 · First run | No workspace yet: Open folder / Create a new folder. | ![20 · First run](screens/20-first-run.png) |
@@ -42,6 +42,7 @@ Screens are 1920×1200 at 1× (the lifecycle board and the menu bar are 1440×90
 | 24 · Changes | The Changes tab: the commits the task made, newest first (short hash, message, `+N −M`, branch, when, `merge`, and the subagent that made one as a tag), with two opened to their files (status letter, path, a rename's from and to, `+N −M` or `binary`); the count of commits on the tab. View only: no git actions. Built from the Subagents and Watchers tabs; no original design. (Numbered as #275 asked; 24 · Permissions picker has the number too.) | ![24 · Changes](screens/24-changes.png) |
 | 24 · Changes, none yet | The Changes tab of a task that has made no commits yet. A workspace that isn't a git repository says "This workspace isn’t a git repository." in its place. | ![24 · Changes, none yet](screens/24-changes-empty.png) |
 | 29 · Menu bar | Glade's icon in the macOS menu bar (1440×900): a monochrome template glyph on dark and light bars, idle, pulsing while an agent works (its frames), with the count of tasks that need you, and highlighted while open; its popover under it, with Needs you (task, workspace and why), Working (status line, todo progress and bar, elapsed) and Recent (the last notifications, with their age), and Open Glade and Quit; and the popover with nothing in flight. | ![29 · Menu bar](screens/29-menu-bar.png) |
+| 30 · Usage meter | The usage meter at the foot of the sidebar, under a divider, with the task list scrolling above it: one row with a ring in the context meter's colours, the limit closest to running out ("Session 38%") and when it resets. Clicked, a popover over it lists every limit Claude Code has told of (Session, This week, each model's week, extra usage while it's on), each with a bar, how much is used and when it resets, under the plan's name and above "From Claude Code · updated 2 min ago". Under the window, the row closed in each state: nothing read yet or nothing said of how much (an empty ring, "Usage · within limits"), normal (blue), from 70% (purple), and at the limit (the question card's highlight). Hidden for an API key or a cloud provider, which have no plan limits. From mockup 33b (#327). | ![30 · Usage meter](screens/30-usage-meter.png) |
 | Interaction map | Every screen, state and action as a graph. | ![Interaction map](screens/interaction-map.png) |
 | Decisions | The decisions board. | ![Decisions](screens/decisions.png) |
 | Icon exploration | Variations of the chosen icon; W07 is the one. | ![Icon exploration](screens/icon-exploration.png) |

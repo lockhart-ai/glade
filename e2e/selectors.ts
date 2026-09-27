@@ -416,9 +416,16 @@ export function pauseBanner(page: Page) {
   }
 }
 
-/** The quiet note in the banner's spot while the account is close to a usage limit. */
-export function usageNote(page: Page) {
-  return page.getByRole('status', { name: 'Usage warning' })
+/** The usage meter at the foot of the sidebar, and its popover. */
+export function usageMeter(page: Page) {
+  const popover = page.getByRole('dialog', { name: 'Usage' })
+  return {
+    /** The row: its ring, the limit closest to running out, and when it resets. */
+    row: page.getByRole('navigation', { name: 'Tasks' }).getByRole('button', { name: 'Usage', exact: true }),
+    popover,
+    /** The popover's limits, each with its name, how much is used and when it resets. */
+    limits: popover.getByRole('group'),
+  }
 }
 
 /** The toasts at the bottom of the window, e.g. Mark done's Undo. */

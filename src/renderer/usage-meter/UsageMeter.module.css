@@ -1,0 +1,199 @@
+/*
+ * The usage meter at the foot of the sidebar and its popover, from docs/design/html/30-usage-meter.html. The ring is the
+ * context meter's; at the limit the row takes the question card's highlight.
+ */
+.footer {
+  flex-shrink: 0;
+  padding: var(--space-inset);
+  border-top: 1px solid var(--color-inner-border);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 var(--space-item);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-button);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover,
+.row[aria-expanded='true'] {
+  background: var(--color-raised);
+  border-color: var(--color-border);
+}
+
+.row:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 1px;
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.percent {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.spacer {
+  flex-grow: 1;
+}
+
+.detail {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+  white-space: nowrap;
+}
+
+.chevron {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--color-faint);
+}
+
+/* Close to a limit: the percentage turns purple with the ring. */
+.warning .percent {
+  color: var(--color-purple);
+}
+
+/* At the limit: the question card's highlight, the name stronger and the reset time purple. */
+.limited,
+.limited:hover,
+.limited[aria-expanded='true'] {
+  background: var(--color-question-bg);
+  border-color: var(--color-question-border);
+}
+
+.limited .name {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.limited .detail {
+  color: var(--color-purple);
+}
+
+/* The popover: a menu's card, padded as a menu is. */
+.popover[role='dialog'] {
+  gap: var(--space-2xs);
+  padding: var(--space-sm);
+  border-color: var(--color-inner-border);
+  border-radius: var(--radius-menu);
+}
+
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  padding: var(--space-sm) var(--space-md) var(--space-xs);
+}
+
+.title {
+  flex-grow: 1;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+.plan {
+  font-size: 12px;
+  color: var(--color-faint);
+}
+
+.empty {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+.limit {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: var(--space-sm) var(--space-md);
+}
+
+.limitHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+}
+
+.limitName {
+  flex-grow: 1;
+  font-size: var(--font-size-secondary);
+  color: var(--color-text);
+}
+
+.limitPercent {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.bar {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-strong);
+  overflow: hidden;
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--color-blue-text);
+}
+
+.near .limitPercent {
+  color: var(--color-purple);
+}
+
+.near .fill {
+  background: var(--color-purple);
+}
+
+.resets {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+.foot {
+  margin: var(--space-xs) 2px 0;
+  padding: var(--space-md) var(--space-sm) var(--space-xs);
+  border-top: 1px solid var(--color-inner-border);
+  font-size: 12px;
+  color: var(--color-faint);
+}

@@ -358,8 +358,9 @@ export interface AgentRunnerOptions {
    */
   readonly changes?: ChangeTracker
   /**
-   * Told what each session says of the account (`../account/account`): the account, asked for as the session starts,
-   * and every `rate_limit_event`. Nothing is asked or told by default.
+   * Told what each session says of the account (`../account/account`): the account, asked for as the session starts;
+   * its usage, asked for as the session starts and after each turn; and every `rate_limit_event`. Nothing is asked or
+   * told by default.
    */
   readonly account?: AccountSink
 }
@@ -1497,6 +1498,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         live.compactSummary = null
         onTurnFinished(taskId, live, turn, event)
         refreshAutoCompact(taskId, live)
+        readUsage(taskId, live)
         return
       }
     }
@@ -1669,6 +1671,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     sessions.set(task.id, live)
     void pump(task.id, live)
     readAccount(task.id, live)
+    readUsage(task.id, live)
     return live
   }
 
@@ -1682,6 +1685,26 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       },
       (error: unknown) => {
         agentLog(taskId).warn("couldn't read the account", { error })
+      },
+    )
+  }
+
+  /**
+   * Asks a session how much of the account's usage limits is used, for the sidebar's usage meter
+   * (`AgentRunnerOptions.account`): as it starts, and after each turn. The call is experimental: when it fails, the
+   * meter goes on with what the rate limit events say.
+   */
+  const readUsage = (taskId: string, live: LiveSession): void => {
+    const { account } = options
+    if (account === undefined) return
+    live.session.usage().then(
+      (usage) => {
+        if (!live.closed) account.usageRead(usage)
+      },
+      (error: unknown) => {
+        agentLog(taskId).info("couldn't read usage: going on with the rate limit events", {
+          error: describeError(error),
+        })
       },
     )
   }

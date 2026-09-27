@@ -165,6 +165,7 @@ export function createTestModeAgentBackend(
         stopTask: (sdkTaskId) => session.stopTask(sdkTaskId),
         contextUsage: () => session.contextUsage(),
         accountInfo: () => session.accountInfo(),
+        usage: () => session.usage(),
         close: () => {
           session.close()
         },

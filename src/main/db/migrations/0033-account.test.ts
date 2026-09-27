@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import { openDatabase } from '../database'
 import { migrate } from '../migrate'
-import { getAccount, getUsageWarning } from '../repositories/account'
+import { getAccount } from '../repositories/account'
 import { MIGRATIONS } from '.'
 import { accountMigration } from './0033-account'
 
@@ -15,10 +15,12 @@ it('is migration 33, after every earlier one', () => {
 it('starts with no account and no warning, keeps one row of each, and checks the warning’s values', () => {
   const db = openDatabase(':memory:')
   migrate(db, MIGRATIONS.slice(0, position))
-  migrate(db, MIGRATIONS)
+  // Up to this migration only: migration 42 replaces the warning.
+  migrate(db, MIGRATIONS.slice(0, position + 1))
 
   expect(getAccount(db)).toBeNull()
-  expect(getUsageWarning(db)).toBeNull()
+  const warnings = () => db.prepare('SELECT utilization, usage_window, resets_at FROM usage_warning').all()
+  expect(warnings()).toEqual([])
 
   db.prepare("INSERT INTO account (id, email, read_at) VALUES (1, 'sam@acme.dev', 1)").run()
   expect(() => db.prepare('INSERT INTO account (id, read_at) VALUES (2, 1)').run()).toThrow(/CHECK/)
@@ -32,6 +34,6 @@ it('starts with no account and no warning, keeps one row of each, and checks the
   expect(() => warn(1, -0.1, 'five_hour')).toThrow(/CHECK/)
   expect(() => warn(1, 0.8, 'fortnightly')).toThrow(/CHECK/)
   warn(1, null, 'seven_day')
-  expect(getUsageWarning(db)).toEqual({ utilization: null, window: 'seven_day', resetsAt: null })
+  expect(warnings()).toEqual([{ utilization: null, usage_window: 'seven_day', resets_at: null }])
   db.close()
 })

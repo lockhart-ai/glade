@@ -39,6 +39,7 @@ import { subagentProgressMigration } from './0038-subagent-progress'
 import { compactionFromSdkMigration } from './0039-compaction-from-sdk'
 import { instructionUpdatesMigration } from './0040-instruction-updates'
 import { artifactGroupsMigration } from './0041-artifact-groups'
+import { usageReadingsMigration } from './0042-usage-readings'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -82,6 +83,7 @@ export const MIGRATIONS: readonly Migration[] = [
   compactionFromSdkMigration,
   instructionUpdatesMigration,
   artifactGroupsMigration,
+  usageReadingsMigration,
 ]
 
 /** The version a database is at once every migration has run: the last one's, which can skip versions still in flight. */

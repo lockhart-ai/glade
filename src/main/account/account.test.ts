@@ -1,16 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { UsageWindow, type UsageWarning } from '../../shared/account'
+import { UsageLevel, UsageLimitKind, UsageWindow, type UsageReading } from '../../shared/account'
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import { AgentEventKind, RateLimitStatus, type RateLimitEvent } from '../agent/events'
 import { MAX_TIMER_MS } from '../agent/pauses'
-import { getAccount, getUsageWarning, saveAccount, setUsageWarning } from '../db/repositories/account'
+import { getAccount, listUsageReadings, replaceUsageReadings, saveAccount } from '../db/repositories/account'
 import { openTestDatabase, type TestDatabase } from '../db/repositories/test-database'
 import { LogLevel } from '../logging/logger'
 import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
-import { createAccountTracker, parseAccountInfo, usageWarningFor, type AccountTracker } from './account'
+import {
+  createAccountTracker,
+  eventReading,
+  limitOfWindow,
+  parseAccountInfo,
+  parseUsage,
+  UsageAnswerKind,
+  type AccountTracker,
+} from './account'
 
 const NOW = 1_790_000_000_000
+const MINUTE = 60_000
 const HOUR = 3_600_000
+const DAY = 24 * HOUR
 
 let database: TestDatabase
 let events: GladeEvent[]
@@ -33,7 +43,46 @@ function limit(fields: Partial<RateLimitEvent> = {}): RateLimitEvent {
   }
 }
 
-const WARNING: UsageWarning = { utilization: 0.85, window: UsageWindow.Session, resetsAt: NOW + HOUR }
+/** An ISO time `ms` from now, as the usage call gives its resets. */
+const iso = (ms: number): string => new Date(NOW + ms).toISOString()
+
+/** The usage call's answer, as probed on SDK 0.3.281 for a Max login: invented values. */
+function answer(rateLimits: Record<string, unknown> | null = {}, available = true): unknown {
+  return {
+    session: { total_cost_usd: 0.4, model_usage: {} },
+    subscription_type: 'max',
+    rate_limits_available: available,
+    rate_limits:
+      rateLimits === null
+        ? null
+        : {
+            five_hour: { utilization: 38, resets_at: iso(2 * HOUR) },
+            seven_day: { utilization: 22, resets_at: iso(4 * DAY) },
+            seven_day_oauth_apps: null,
+            seven_day_opus: { utilization: 9, resets_at: iso(4 * DAY) },
+            seven_day_sonnet: null,
+            extra_usage: { is_enabled: false, monthly_limit: null, used_credits: null, utilization: null },
+            ...rateLimits,
+          },
+    behaviors: null,
+  }
+}
+
+const SESSION: UsageReading = {
+  limit: { kind: UsageLimitKind.Session },
+  utilization: 0.38,
+  resetsAt: NOW + 2 * HOUR,
+  level: UsageLevel.Within,
+  readAt: NOW,
+}
+const WEEK: UsageReading = {
+  limit: { kind: UsageLimitKind.Weekly },
+  utilization: 0.22,
+  resetsAt: NOW + 4 * DAY,
+  level: UsageLevel.Within,
+  readAt: NOW,
+}
+const OPUS: UsageReading = { ...WEEK, limit: { kind: UsageLimitKind.WeeklyModel, model: 'Opus' }, utilization: 0.09 }
 
 beforeEach(() => {
   vi.useFakeTimers({ now: NOW })
@@ -87,33 +136,143 @@ describe('parseAccountInfo', () => {
   })
 })
 
-describe('usageWarningFor', () => {
-  it('warns from 70% of the window, as Claude Code does, however early the API says allowed_warning', () => {
-    expect(usageWarningFor(limit(), NOW)).toEqual(WARNING)
-    expect(usageWarningFor(limit({ utilization: 0.7 }), NOW)).toMatchObject({ utilization: 0.7 })
-    // As probed: a warning at 28% of a week. Claude Code shows nothing, and nor does Glade.
-    expect(usageWarningFor(limit({ utilization: 0.28, window: UsageWindow.Weekly }), NOW)).toBeNull()
-    expect(usageWarningFor(limit({ utilization: 0.69 }), NOW)).toBeNull()
+describe('parseUsage', () => {
+  it('reads every window with how much is used, as a fraction, and when it resets', () => {
+    expect(parseUsage(answer(), NOW)).toEqual({ kind: UsageAnswerKind.Readings, readings: [SESSION, WEEK, OPUS] })
   })
 
-  it("warns when the SDK doesn't say how much is used, or when the window resets", () => {
-    expect(usageWarningFor(limit({ utilization: null, resetsAt: null }), NOW)).toEqual({
-      utilization: null,
-      window: UsageWindow.Session,
-      resetsAt: null,
+  it('reads the per-model windows the server names, and extra usage while it’s on', () => {
+    const parsed = parseUsage(
+      answer({
+        five_hour: { utilization: 100, resets_at: iso(HOUR) },
+        seven_day_sonnet: { utilization: 71, resets_at: iso(4 * DAY) },
+        model_scoped: [
+          { display_name: 'Fable', utilization: 40, resets_at: iso(4 * DAY) },
+          // A model already read from its own window keeps that reading.
+          { display_name: 'Opus', utilization: 50, resets_at: iso(4 * DAY) },
+          { display_name: '', utilization: 3 },
+          'nonsense',
+        ],
+        extra_usage: { is_enabled: true, monthly_limit: 5000, used_credits: 1240, utilization: 24.8 },
+      }),
+      NOW,
+    )
+    expect(parsed).toEqual({
+      kind: UsageAnswerKind.Readings,
+      readings: [
+        { ...SESSION, utilization: 1, resetsAt: NOW + HOUR, level: UsageLevel.Limited },
+        WEEK,
+        { ...WEEK, limit: { kind: UsageLimitKind.WeeklyModel, model: 'Fable' }, utilization: 0.4 },
+        OPUS,
+        {
+          ...WEEK,
+          limit: { kind: UsageLimitKind.WeeklyModel, model: 'Sonnet' },
+          utilization: 0.71,
+          level: UsageLevel.Warning,
+        },
+        { ...SESSION, limit: { kind: UsageLimitKind.ExtraUsage }, utilization: 0.248, resetsAt: null },
+      ],
     })
   })
 
-  it('has no warning for a limit that is fine, spent, or whose window has already reset', () => {
-    expect(usageWarningFor(limit({ status: RateLimitStatus.Allowed }), NOW)).toBeNull()
-    expect(usageWarningFor(limit({ status: RateLimitStatus.Rejected }), NOW)).toBeNull()
-    expect(usageWarningFor(limit({ resetsAt: NOW }), NOW)).toBeNull()
+  it('leaves out a malformed window, one with no amount, and one already reset; a bad reset time is none', () => {
+    const parsed = parseUsage(
+      answer({
+        five_hour: { utilization: 'lots', resets_at: iso(HOUR) },
+        seven_day: { utilization: null, resets_at: iso(4 * DAY) },
+        seven_day_opus: { utilization: 9, resets_at: iso(-MINUTE) },
+        seven_day_sonnet: { utilization: 12, resets_at: 'next Tuesday' },
+        model_scoped: 'none',
+        extra_usage: 'on',
+      }),
+      NOW,
+    )
+    expect(parsed).toEqual({
+      kind: UsageAnswerKind.Readings,
+      readings: [
+        {
+          ...WEEK,
+          limit: { kind: UsageLimitKind.WeeklyModel, model: 'Sonnet' },
+          utilization: 0.12,
+          resetsAt: null,
+        },
+      ],
+    })
+  })
+
+  it('says when plan limits don’t apply, as for an API key', () => {
+    expect(parseUsage(answer(null, false), NOW)).toEqual({ kind: UsageAnswerKind.NoPlanLimits })
+    expect(parseUsage(answer(null), NOW)).toEqual({ kind: UsageAnswerKind.NoPlanLimits })
+  })
+
+  it('makes nothing of an answer of another shape, or one with not one window in it', () => {
+    for (const raw of [
+      null,
+      'usage',
+      [],
+      {},
+      { rate_limits_available: 'yes', rate_limits: {} },
+      { rate_limits_available: true, rate_limits: 'all fine' },
+      answer({ five_hour: null, seven_day: null, seven_day_opus: null }),
+    ]) {
+      expect(parseUsage(raw, NOW)).toEqual({ kind: UsageAnswerKind.NotUnderstood })
+    }
+  })
+})
+
+describe('eventReading', () => {
+  it('knows each window the SDK names, and none it doesn’t', () => {
+    expect(limitOfWindow(UsageWindow.Session)).toEqual({ kind: UsageLimitKind.Session })
+    expect(limitOfWindow(UsageWindow.Weekly)).toEqual({ kind: UsageLimitKind.Weekly })
+    expect(limitOfWindow(UsageWindow.WeeklyOpus)).toEqual({ kind: UsageLimitKind.WeeklyModel, model: 'Opus' })
+    expect(limitOfWindow(UsageWindow.WeeklySonnet)).toEqual({ kind: UsageLimitKind.WeeklyModel, model: 'Sonnet' })
+    expect(limitOfWindow(UsageWindow.Overage)).toEqual({ kind: UsageLimitKind.ExtraUsage })
+    expect(limitOfWindow(UsageWindow.Other)).toBeNull()
+    expect(eventReading(limit({ window: UsageWindow.Other }), undefined, NOW)).toBeNull()
+  })
+
+  it('is close to the limit from 70%, as Claude Code warns, however early the API says allowed_warning', () => {
+    expect(eventReading(limit(), undefined, NOW)).toEqual({
+      limit: { kind: UsageLimitKind.Session },
+      utilization: 0.85,
+      resetsAt: NOW + HOUR,
+      level: UsageLevel.Warning,
+      readAt: NOW,
+    })
+    expect(eventReading(limit({ utilization: 0.7 }), undefined, NOW)?.level).toBe(UsageLevel.Warning)
+    // As probed: a warning at 28% of a week. Claude Code shows nothing, and the meter stays blue.
+    expect(eventReading(limit({ utilization: 0.28 }), undefined, NOW)?.level).toBe(UsageLevel.Within)
+    expect(eventReading(limit({ utilization: null }), undefined, NOW)?.level).toBe(UsageLevel.Warning)
+  })
+
+  it('is at the limit only once the SDK refuses requests', () => {
+    const rejected = limit({ status: RateLimitStatus.Rejected, utilization: null })
+    expect(eventReading(rejected, undefined, NOW)?.level).toBe(UsageLevel.Limited)
+    expect(eventReading(limit({ status: RateLimitStatus.Allowed, utilization: 1 }), undefined, NOW)?.level).toBe(
+      UsageLevel.Warning,
+    )
+    expect(eventReading(limit({ status: RateLimitStatus.Allowed, utilization: null }), undefined, NOW)?.level).toBe(
+      UsageLevel.Within,
+    )
+  })
+
+  it('keeps how much was used, and when it resets, when the event doesn’t say', () => {
+    const allowed = limit({ status: RateLimitStatus.Allowed, utilization: null, resetsAt: null })
+    expect(eventReading(allowed, { ...SESSION, utilization: 0.75, readAt: 1 }, NOW)).toEqual({
+      ...SESSION,
+      utilization: 0.75,
+      level: UsageLevel.Warning,
+    })
+  })
+
+  it('reads nothing of a window that has already reset', () => {
+    expect(eventReading(limit({ resetsAt: NOW }), undefined, NOW)).toBeNull()
   })
 })
 
 describe('createAccountTracker', () => {
-  it('has no account and no warning to begin with', () => {
-    expect(track().status()).toEqual({ account: null, usageWarning: null })
+  it('has no account and no usage to begin with', () => {
+    expect(track().status()).toEqual({ account: null, usage: [] })
   })
 
   it('saves each account read, broadcasts it, and logs it without the email or organization', () => {
@@ -127,7 +286,7 @@ describe('createAccountTracker', () => {
 
     const saved = getAccount(database.db)
     expect(saved).toMatchObject({ email: 'sam@acme.dev', subscriptionType: 'Claude Max', readAt: NOW })
-    expect(events).toEqual([{ type: EventType.AccountChanged, status: { account: saved, usageWarning: null } }])
+    expect(events).toEqual([{ type: EventType.AccountChanged, status: { account: saved, usage: [] } }])
     expect(JSON.stringify(log.records)).not.toMatch(/sam@acme|Acme Robotics/)
     expect(log.withMessage('account read')[0]?.fields).toMatchObject({ kind: 'login', plan: 'Claude Max' })
 
@@ -158,108 +317,141 @@ describe('createAccountTracker', () => {
     expect(log.records).toContainEqual(expect.objectContaining({ level: LogLevel.Warn }))
   })
 
-  it('warns, and broadcasts only when the warning changes', () => {
+  it('reads every window from the usage call, in place of every reading before, and broadcasts them', () => {
     const account = track()
-    account.rateLimit(limit())
-    account.rateLimit(limit())
+    account.rateLimit(limit({ window: UsageWindow.WeeklySonnet }))
+    account.usageRead(answer())
 
-    expect(getUsageWarning(database.db)).toEqual(WARNING)
-    expect(events).toEqual([{ type: EventType.AccountChanged, status: { account: null, usageWarning: WARNING } }])
-
-    account.rateLimit(limit({ utilization: 0.9 }))
-    expect(events).toHaveLength(2)
-    expect(account.status().usageWarning?.utilization).toBe(0.9)
+    expect(account.status().usage).toEqual([SESSION, WEEK, OPUS])
+    expect(listUsageReadings(database.db)).toEqual([SESSION, WEEK, OPUS])
+    expect(events.at(-1)).toEqual({
+      type: EventType.AccountChanged,
+      status: { account: null, usage: [SESSION, WEEK, OPUS] },
+    })
+    expect(log.withMessage('usage read from the usage call')).toHaveLength(1)
   })
 
-  it('never broadcasts for limits that stay fine', () => {
+  it('falls back to the rate limit events when the call makes no sense, and keeps what they said', () => {
     const account = track()
-    account.rateLimit(limit({ status: RateLimitStatus.Allowed }))
-    account.rateLimit(limit({ utilization: 0.3 }))
+    account.rateLimit(limit())
+    const read = account.status().usage
 
+    account.usageRead({ rate_limits: 'unexpected' })
+    account.usageRead(answer({ five_hour: null, seven_day: null, seven_day_opus: null }))
+
+    expect(account.status().usage).toEqual(read)
+    expect(events).toHaveLength(1)
+    expect(log.withMessage('usage call not understood: keeping the readings there are')).toHaveLength(2)
+  })
+
+  it('keeps the readings it has when the call says plan limits don’t apply', () => {
+    const account = track()
+    account.usageRead(answer())
+    account.usageRead(answer(null, false))
+
+    expect(account.status().usage).toEqual([SESSION, WEEK, OPUS])
+    expect(events).toHaveLength(1)
+    expect(log.withMessage('usage call: no plan limits apply')).toHaveLength(1)
+  })
+
+  it('updates one window from each rate limit event, keeping how much the call said was used', () => {
+    const account = track()
+    account.usageRead(answer())
+    vi.advanceTimersByTime(MINUTE)
+
+    // As each turn starts: the SDK says the session is fine, without saying how much is used.
+    account.rateLimit(limit({ status: RateLimitStatus.Allowed, utilization: null, resetsAt: SESSION.resetsAt }))
+    expect(account.status().usage).toEqual([{ ...SESSION, readAt: NOW + MINUTE }, WEEK, OPUS])
+
+    account.rateLimit(limit({ window: UsageWindow.Weekly, utilization: 0.91, resetsAt: WEEK.resetsAt }))
+    expect(account.status().usage[1]).toEqual({
+      ...WEEK,
+      utilization: 0.91,
+      level: UsageLevel.Warning,
+      readAt: NOW + MINUTE,
+    })
+    expect(events).toHaveLength(3)
+  })
+
+  it('reads nothing from an event for a window it doesn’t know', () => {
+    const account = track()
+    account.rateLimit(limit({ window: UsageWindow.Other }))
+
+    expect(account.status().usage).toEqual([])
     expect(events).toEqual([])
+    expect(log.withMessage('rate limit not read: an unknown window, or one already reset')).toHaveLength(1)
   })
 
-  it('clears the warning once the limit is spent, so the paused tasks’ banner takes over', () => {
+  it('is at the limit once the SDK refuses requests, and back within it when it says so', () => {
     const account = track()
-    account.rateLimit(limit())
-    account.rateLimit(limit({ status: RateLimitStatus.Rejected }))
+    account.rateLimit(limit({ status: RateLimitStatus.Rejected, utilization: null }))
+    expect(account.status().usage[0]).toMatchObject({ utilization: null, level: UsageLevel.Limited })
 
-    expect(getUsageWarning(database.db)).toBeNull()
-    expect(events.at(-1)).toEqual({ type: EventType.AccountChanged, status: { account: null, usageWarning: null } })
+    account.rateLimit(limit({ status: RateLimitStatus.Allowed, utilization: 0.02 }))
+    expect(account.status().usage[0]).toMatchObject({ utilization: 0.02, level: UsageLevel.Within })
   })
 
-  it('clears the warning when the SDK says the limit is fine again', () => {
+  it('drops each reading when its window resets, and not a moment before', () => {
     const account = track()
-    account.rateLimit(limit())
-    account.rateLimit(limit({ status: RateLimitStatus.Allowed, utilization: 0.1 }))
+    account.usageRead(answer())
 
-    expect(account.status().usageWarning).toBeNull()
-    expect(events).toHaveLength(2)
-  })
-
-  it('clears the warning when its window resets, and not a moment before', () => {
-    const account = track()
-    account.rateLimit(limit())
-
-    vi.advanceTimersByTime(HOUR - 1)
-    expect(account.status().usageWarning).toEqual(WARNING)
+    vi.advanceTimersByTime(2 * HOUR - 1)
+    expect(account.status().usage).toEqual([SESSION, WEEK, OPUS])
     vi.advanceTimersByTime(1)
-    expect(account.status().usageWarning).toBeNull()
-    expect(events.at(-1)).toEqual({ type: EventType.AccountChanged, status: { account: null, usageWarning: null } })
-    expect(log.records).toContainEqual(expect.objectContaining({ message: 'usage warning over: its window reset' }))
+    expect(account.status().usage).toEqual([WEEK, OPUS])
+    expect(events.at(-1)).toEqual({ type: EventType.AccountChanged, status: { account: null, usage: [WEEK, OPUS] } })
+    expect(log.withMessage('usage readings over: their windows reset')[0]?.fields).toEqual({ count: 1 })
+
+    // Both weekly windows reset at once.
+    vi.advanceTimersByTime(4 * DAY)
+    expect(account.status().usage).toEqual([])
+    expect(events).toHaveLength(3)
   })
 
-  it('times a newer warning’s window, not the one it replaced', () => {
+  it('times the newest reading’s reset, not the one it replaced', () => {
     const account = track()
     account.rateLimit(limit({ resetsAt: NOW + 1000 }))
     account.rateLimit(limit({ resetsAt: NOW + HOUR }))
 
     vi.advanceTimersByTime(1000)
-    expect(account.status().usageWarning).toEqual(WARNING)
+    expect(account.status().usage).toHaveLength(1)
     vi.advanceTimersByTime(HOUR)
-    expect(account.status().usageWarning).toBeNull()
+    expect(account.status().usage).toEqual([])
   })
 
-  it('keeps a warning with no reset time until the SDK says otherwise', () => {
+  it('keeps a reading with no reset time until Claude Code says otherwise', () => {
     const account = track()
     account.rateLimit(limit({ resetsAt: null }))
 
-    vi.advanceTimersByTime(7 * 24 * HOUR)
-    expect(account.status().usageWarning).toMatchObject({ resetsAt: null })
+    vi.advanceTimersByTime(30 * DAY)
+    expect(account.status().usage).toMatchObject([{ resetsAt: null }])
   })
 
   it('waits out a window longer than one timer can', () => {
     const account = track()
-    const far = NOW + MAX_TIMER_MS + HOUR
-    account.rateLimit(limit({ resetsAt: far }))
+    account.rateLimit(limit({ resetsAt: NOW + MAX_TIMER_MS + HOUR }))
 
     vi.advanceTimersByTime(MAX_TIMER_MS)
-    expect(account.status().usageWarning).not.toBeNull()
+    expect(account.status().usage).toHaveLength(1)
     vi.advanceTimersByTime(HOUR)
-    expect(account.status().usageWarning).toBeNull()
+    expect(account.status().usage).toEqual([])
   })
 
-  it('times a warning left from before a relaunch again, and drops one whose window reset while the app was closed', () => {
-    setUsageWarning(database.db, WARNING)
+  it('shows the readings from before a relaunch again, dropping those whose window reset while it was closed', () => {
+    replaceUsageReadings(database.db, [{ ...SESSION, resetsAt: NOW }, WEEK, { ...OPUS, resetsAt: null }])
     const account = track()
-    expect(account.status().usageWarning).toEqual(WARNING)
-    vi.advanceTimersByTime(HOUR)
-    expect(account.status().usageWarning).toBeNull()
-    account.close()
+    expect(account.status().usage).toEqual([WEEK, { ...OPUS, resetsAt: null }])
 
-    setUsageWarning(database.db, { ...WARNING, resetsAt: NOW })
-    expect(track().status().usageWarning).toBeNull()
-
-    setUsageWarning(database.db, { ...WARNING, resetsAt: null })
-    expect(track().status().usageWarning).toEqual({ ...WARNING, resetsAt: null })
+    vi.advanceTimersByTime(4 * DAY)
+    expect(account.status().usage).toEqual([{ ...OPUS, resetsAt: null }])
   })
 
   it('does nothing once closed', () => {
     const account = track()
-    account.rateLimit(limit())
+    account.usageRead(answer())
     account.close()
 
-    vi.advanceTimersByTime(HOUR)
-    expect(getUsageWarning(database.db)).toEqual(WARNING)
+    vi.advanceTimersByTime(4 * DAY)
+    expect(listUsageReadings(database.db)).toEqual([SESSION, WEEK, OPUS])
   })
 })

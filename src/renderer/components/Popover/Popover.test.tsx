@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState, type ReactNode } from 'react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { moduleClass } from '../moduleClass'
 import { Placement } from '../Placement'
 import { settleFloating } from '../settleFloating'
@@ -11,11 +11,13 @@ const cls = (name: string): string => moduleClass(styles, name)
 
 interface HarnessProps {
   placement?: Placement
+  matchAnchorWidth?: boolean
   children?: ReactNode
 }
 
 /** A button that toggles a popover beside it. */
 function Harness({
+  matchAnchorWidth,
   placement,
   children = <button type="button">Compact now</button>,
 }: HarnessProps): React.JSX.Element {
@@ -42,6 +44,7 @@ function Harness({
           setOpen(false)
         }}
         placement={placement}
+        matchAnchorWidth={matchAnchorWidth}
         className="extra"
       >
         {children}
@@ -106,6 +109,23 @@ describe('Popover', () => {
     await settleFloating()
 
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('is as wide as its anchor when asked, and as its content otherwise', async () => {
+    const rect = { x: 16, y: 800, top: 800, left: 16, bottom: 832, right: 300, width: 284, height: 32 }
+    const measure = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue({ ...rect, toJSON: () => rect })
+    try {
+      await openPopover({ matchAnchorWidth: true })
+      expect(screen.getByRole('dialog').style.width).toBe('284px')
+      cleanup()
+
+      await openPopover()
+      expect(screen.getByRole('dialog').style.width).toBe('')
+    } finally {
+      measure.mockRestore()
+    }
   })
 
   it('toggles closed from its trigger', async () => {

@@ -9,10 +9,7 @@ import { selectSelectedTask } from '../store/state'
 import styles from './ContextMeter.module.css'
 import { canCompact, useCompact } from './compact'
 import { contextReading, type ContextReading } from './format'
-
-/** The ring's radius, in the 16px icon's units. */
-const RADIUS = 6
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS
+import { MeterRing } from './MeterRing'
 
 export interface ContextMeterViewProps {
   readonly usedTokens: number
@@ -38,7 +35,6 @@ export function ContextMeterView({
   const reading = contextReading(usedTokens, windowTokens, autoCompact)
   const percent = percentLabel(reading)
   const amount = `${reading.used} / ${reading.window}`
-  const arc = (reading.fraction * CIRCUMFERENCE).toFixed(1)
   return (
     <span
       className={classNames(styles.meter, reading.nearThreshold && styles.near)}
@@ -50,17 +46,7 @@ export function ContextMeterView({
       aria-valuetext={`${percent} · ${amount}`}
       title="Context used"
     >
-      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-        <circle className={styles.track} cx="8" cy="8" r={RADIUS} />
-        <circle
-          className={styles.arc}
-          cx="8"
-          cy="8"
-          r={RADIUS}
-          strokeDasharray={`${arc} ${CIRCUMFERENCE.toFixed(1)}`}
-          transform="rotate(-90 8 8)"
-        />
-      </svg>
+      <MeterRing fraction={reading.fraction} near={reading.nearThreshold} />
       <span>
         <span className={styles.percent}>{percent}</span>
         <span className={styles.amount}> · {amount}</span>
