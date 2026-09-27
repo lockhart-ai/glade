@@ -2,9 +2,21 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName } from '../../shared/bridge'
 import { UiStateKey } from '../../shared/domain'
-import { refuse, sampleTerminalTab, type FakeHandlers, type FakeMain } from '../store/test-bridge'
+import { parseTerminalSelection, type TerminalTab } from '../../shared/terminal'
+import { refuse, sampleTerminalTab, sampleWorkspace, type FakeHandlers, type FakeMain } from '../store/test-bridge'
 import { storeWrapper, type StoreWrapper } from '../store/test-wrapper'
 import { TerminalTabs } from './TerminalTabs'
+
+/** A tab of the workspace the window shows, `w1`. */
+function tab(id: string, overrides: Partial<TerminalTab> = {}): TerminalTab {
+  return sampleTerminalTab(id, { workspaceId: 'w1', ...overrides })
+}
+
+/** The tab the store has picked for the workspace showing. */
+function pickedTab(store: StoreWrapper['store']): string | undefined {
+  const { uiState, selectedWorkspaceId } = store.getState()
+  return parseTerminalSelection(uiState[UiStateKey.TerminalSelection])[selectedWorkspaceId ?? '']
+}
 
 async function renderTabs(
   main: Partial<FakeMain> = {},
@@ -13,14 +25,11 @@ async function renderTabs(
   const calls: string[] = []
   const wrapper = storeWrapper(
     {
-      terminalTabs: [
-        sampleTerminalTab('a', { process: 'python3', running: true }),
-        sampleTerminalTab('b', { name: 'server', cwd: '/code/web' }),
-      ],
+      terminalTabs: [tab('a', { process: 'python3', running: true }), tab('b', { name: 'server', cwd: '/code/web' })],
       terminalCalls: calls,
       uiState: [
         { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
-        { key: UiStateKey.TerminalTab, value: 'b' },
+        { key: UiStateKey.TerminalSelection, value: JSON.stringify({ w1: 'b' }) },
       ],
       ...main,
     },
@@ -66,6 +75,28 @@ describe('TerminalTabs', () => {
     expect(screen.getByText('/code/web')).toBeInTheDocument()
   })
 
+  it('shows only the tabs of the workspace showing, and switches them with it', async () => {
+    const { store } = await renderTabs({
+      workspaces: [sampleWorkspace('w1', 'Acme API'), sampleWorkspace('w2', 'Acme Web')],
+      terminalTabs: [
+        tab('a', { name: 'api' }),
+        tab('x', { name: 'web', workspaceId: 'w2', cwd: '/code/acme-web' }),
+        tab('y', { name: 'worker', workspaceId: 'w2', cwd: '/code/acme-web/worker' }),
+      ],
+      uiState: [
+        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+        { key: UiStateKey.TerminalSelection, value: JSON.stringify({ w2: 'y' }) },
+      ],
+    })
+    expect(tabButtons().map((button) => button.textContent)).toEqual(['api'])
+
+    await act(() => store.getState().openWorkspace('w2'))
+
+    expect(tabButtons().map((button) => button.textContent)).toEqual(['web', 'worker'])
+    expect(tabButtons().map((button) => button.getAttribute('aria-pressed'))).toEqual(['false', 'true'])
+    expect(screen.getByText('/code/acme-web/worker')).toBeInTheDocument()
+  })
+
   it('shows no folder while there is no tab', async () => {
     await renderTabs({ terminalTabs: [] })
 
@@ -78,7 +109,7 @@ describe('TerminalTabs', () => {
 
     fireEvent.click(tabButtons()[0] ?? document.body)
     await act(() => Promise.resolve())
-    expect(store.getState().uiState[UiStateKey.TerminalTab]).toBe('a')
+    expect(pickedTab(store)).toBe('a')
 
     fireEvent.click(screen.getByRole('button', { name: 'Close server' }))
     await act(() => Promise.resolve())
@@ -87,7 +118,7 @@ describe('TerminalTabs', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New terminal' }))
     await act(() => Promise.resolve())
     expect(tabButtons().map((button) => button.textContent)).toEqual(['python3', 'zsh'])
-    expect(store.getState().uiState[UiStateKey.TerminalTab]).toBe('term-1')
+    expect(pickedTab(store)).toBe('term-1')
   })
 
   it('has a context menu to rename, duplicate, clear, interrupt and close a tab', async () => {

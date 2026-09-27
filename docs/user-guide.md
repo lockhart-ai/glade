@@ -87,8 +87,9 @@ Workspace settings… and Reveal root in Finder.
   workspaces keep running and notifying.
 - **Rename it or move its root:** the **Workspace** menu in the menu bar (Rename workspace…, Change root folder…), or
   Workspace settings…. Changing the root moves nothing on disk.
-- **Close workspace** (⌘⇧W) shows another workspace; the closed one stays in the list. **Remove from list…** asks
-  first, then forgets the workspace and deletes its tasks from Glade. Its folder is never touched.
+- **Close workspace** (⌘⇧W) shows another workspace; the closed one stays in the list, and its terminal tabs close.
+  **Remove from list…** asks first, then forgets the workspace, deletes its tasks from Glade and closes its terminal
+  tabs. Its folder is never touched.
 
 **Your `CLAUDE.md` decides how tasks keep their files.** Glade doesn't impose a layout. The starter `CLAUDE.md` it
 writes for a new folder suggests one: each task keeps its files in `tasks/<task-id>-<slug>/`, with any git worktree
@@ -314,8 +315,10 @@ makes in a repository inside the workspace still show.
 
 ## The terminal
 
-The bottom bar holds real shells: your login shell, with your profile. It's global: its tabs stay put as you move
-between tasks and workspaces.
+The bottom bar holds real shells: your login shell, with your profile. Each workspace has its own tabs: they stay put
+as you move between its tasks, and switching workspace shows that workspace's tabs, with the one you last had open
+there. The other workspaces' shells keep running meanwhile, and whatever they print is there when you switch back.
+Closing or removing a workspace ends its shells.
 
 - **⌘T** or **+** opens a tab in the current workspace's root folder. **⌃\`** focuses the terminal (opening it if it's
   hidden).

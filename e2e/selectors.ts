@@ -625,6 +625,8 @@ export function terminal(page: Page) {
     empty: region.getByText('No terminal open'),
     screen,
     rows: screen.locator('.xterm-rows > div'),
+    /** The rows of the screens not showing: other tabs', and other workspaces'. */
+    hiddenRows: region.locator('[data-testid="terminal-screen"][data-active="false"] .xterm-rows > div'),
   }
 }
 
