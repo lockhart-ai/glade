@@ -51,6 +51,33 @@ gh workflow run release.yml --ref <branch> -f dry_run=true
 It builds and packages, then uploads the `.dmg` and `.zip` as a workflow artifact (`glade-packages`) instead of creating
 a release.
 
+## Checking a packaged build
+
+A change that can affect the packaged app (an SDK bump, Electron, electron-builder) gets checked on a local build:
+
+```sh
+npm run package
+node scripts/check-packaged-claude.mjs release/mac-arm64/Glade.app
+```
+
+`check-packaged-claude` checks the bundled Claude Code binary is unpacked from `app.asar` and runs, as the release
+workflow does. An SDK bump also gets one real probe of the packaged app: a small script, run by the app's own Electron as
+Node, that loads the SDK from the app bundle, points it at the unpacked binary and runs one Haiku `query()` in a temp
+folder:
+
+```sh
+ELECTRON_RUN_AS_NODE=1 release/mac-arm64/Glade.app/Contents/MacOS/Glade <probe.cjs> "$PWD/release/mac-arm64/Glade.app"
+```
+
+It should print a `success` result. Give the app's path in full (the probe resolves the SDK from it). Run the build
+where it is: never install a test build into `/Applications`.
+
+## Dependency updates
+
+Dependency bumps come from Dependabot (`.github/dependabot.yml`), weekly: the Claude Agent SDK on its own, the other
+npm packages (minor and patch grouped, majors one by one), and GitHub Actions. `docs/kitten-sop.md` says how each kind
+is handled. Bumps land on `main` like any other PR and ship in the next release.
+
 ## Artifacts
 
 `Glade-X.Y.Z-arm64.dmg` and `Glade-X.Y.Z-arm64.zip`, for Apple silicon only (`electron-builder.yml`). An Intel build
