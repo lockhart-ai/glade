@@ -65,8 +65,8 @@ import { setSessionContext } from './db/repositories/session-context'
 import { INSTRUCTION_UPDATES } from './agent/system-prompt'
 import { DEFAULT_SETTINGS, type SettingsPatch } from '../shared/settings'
 import { SETTING_SCHEMAS, updateSettings } from './db/repositories/settings'
-import { saveAccount, setUsageWarning } from './db/repositories/account'
-import { UsageWindow } from '../shared/account'
+import { replaceUsageReadings, saveAccount } from './db/repositories/account'
+import { usageLevel, UsageLevel, UsageLimitKind, type UsageLimit } from '../shared/account'
 import { storeControlToken, storedToken } from './control/token'
 import { refreshTodos } from './todos/todos'
 
@@ -314,12 +314,18 @@ export interface SeedAccount {
   readonly readMinutesAgo: number
 }
 
-/** The usage warning standing at the capture (`UsageWarning`). */
-export interface SeedUsageWarning {
+/** A usage limit's reading at the capture (`UsageReading`). */
+export interface SeedUsageReading {
+  readonly kind: UsageLimitKind
+  /** The model a per-model weekly limit counts (`UsageLimitKind.WeeklyModel` only), e.g. `Opus`. */
+  readonly model?: string | undefined
   readonly utilization: number | null
-  readonly window: UsageWindow
-  /** How long after the capture its window resets; null for a warning with no reset time. */
+  /** Where the limit stands; by `utilization` unless given (`usageLevel`). */
+  readonly level?: UsageLevel | undefined
+  /** How long after the capture its window resets; null for a reading with no reset time. */
   readonly resetsInMinutes: number | null
+  /** How long before the capture it was read. */
+  readonly readMinutesAgo: number
 }
 
 /** A fixture: one workspace, opened, and its tasks. */
@@ -354,8 +360,8 @@ export interface CaptureSeed {
   readonly collapsed?: SeedCollapsed | undefined
   /** The account Settings › General shows; none read unless given. */
   readonly account?: SeedAccount | undefined
-  /** The usage warning standing; none unless given. */
-  readonly usageWarning?: SeedUsageWarning | undefined
+  /** The usage meter's readings; none unless given. */
+  readonly usage?: readonly SeedUsageReading[] | undefined
 }
 
 /** Which panels a seed collapses. */
@@ -437,11 +443,23 @@ const seedAccountSchema = z.strictObject({
   readMinutesAgo: minutesAgo,
 }) satisfies z.ZodType<SeedAccount>
 
-const seedUsageWarningSchema = z.strictObject({
-  utilization: z.number().nonnegative().nullable(),
-  window: z.enum(UsageWindow),
-  resetsInMinutes: minutesAgo.nullable(),
-}) satisfies z.ZodType<SeedUsageWarning>
+const seedUsageReadingSchema = z
+  .strictObject({
+    kind: z.enum(UsageLimitKind),
+    model: z.string().min(1).optional(),
+    utilization: z.number().nonnegative().nullable(),
+    level: z.enum(UsageLevel).optional(),
+    resetsInMinutes: minutesAgo.nullable(),
+    readMinutesAgo: minutesAgo,
+  })
+  .refine(({ kind, model }) => (kind === UsageLimitKind.WeeklyModel) === (model !== undefined), {
+    message: 'a model is given for a per-model weekly limit, and only for one',
+  }) satisfies z.ZodType<SeedUsageReading>
+
+/** The limit a seed's reading is of. */
+function seedUsageLimit({ kind, model }: SeedUsageReading): UsageLimit {
+  return kind === UsageLimitKind.WeeklyModel ? { kind, model: model ?? '' } : { kind }
+}
 
 const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
   workspace: z.strictObject({
@@ -451,7 +469,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
     files: z.string().optional(),
   }),
   account: seedAccountSchema.optional(),
-  usageWarning: seedUsageWarningSchema.optional(),
+  usage: z.array(seedUsageReadingSchema).optional(),
   settings: z.strictObject(SETTING_SCHEMAS).partial().optional(),
   controlToken: storedToken.optional(),
   panelTab: z.string().optional(),
@@ -717,13 +735,17 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         readAt: now - readMinutesAgo * MINUTE,
       })
     }
-    if (seed.usageWarning !== undefined) {
-      const { utilization, window, resetsInMinutes } = seed.usageWarning
-      setUsageWarning(db, {
-        utilization,
-        window,
-        resetsAt: resetsInMinutes === null ? null : now + resetsInMinutes * MINUTE,
-      })
+    if (seed.usage !== undefined) {
+      replaceUsageReadings(
+        db,
+        seed.usage.map((reading) => ({
+          limit: seedUsageLimit(reading),
+          utilization: reading.utilization,
+          resetsAt: reading.resetsInMinutes === null ? null : now + reading.resetsInMinutes * MINUTE,
+          level: reading.level ?? usageLevel(reading.utilization),
+          readAt: now - reading.readMinutesAgo * MINUTE,
+        })),
+      )
     }
     const { files, ...shown } = seed.workspace
     // The made-up root reads its files from the fixture's folder of sample files.

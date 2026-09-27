@@ -3,11 +3,17 @@
     "name": "Acme API",
     "rootPath": "/Users/sample/code/api"
   },
-  "usageWarning": {
-    "utilization": 0.85,
-    "window": "five_hour",
-    "resetsInMinutes": 95
+  "account": {
+    "email": "sam@acme.dev",
+    "subscriptionType": "Claude Max",
+    "apiProvider": "firstParty",
+    "readMinutesAgo": 42
   },
+  "usage": [
+    { "kind": "session", "utilization": 0.85, "resetsInMinutes": 95, "readMinutesAgo": 2 },
+    { "kind": "weekly", "utilization": 0.41, "resetsInMinutes": 5400, "readMinutesAgo": 2 },
+    { "kind": "weekly_model", "model": "Opus", "utilization": 0.12, "resetsInMinutes": 5400, "readMinutesAgo": 2 }
+  ],
   "tasks": [
     {
       "title": "Draft release notes for 2.4",

@@ -159,12 +159,14 @@ scroll: the chat passes under them.
 - An API error that Claude Code's own retries can't get past stops the task with a card saying what happened, with
   **Retry**, **Retry with another model** and **Show details**. So does Claude Code failing to start, with the reason it
   gave, such as a missing workspace folder.
-- Before you hit a **usage limit**, a quiet note takes the banner's spot across the top once Claude Code says you're
-  close (70% of a window or more), e.g. "You've used 85% of your session limit · resets 14:00". Tasks keep working; the
-  note goes when the window resets.
-- Hitting your **usage limit**, or losing the network, pauses the affected tasks behind one banner across the top, in
-  place of that note. They resume by themselves when the limit resets or the network is back; **Switch model** resumes
-  them now on another model. Messages you send meanwhile wait in the queue.
+- The **usage meter** at the foot of the sidebar shows how close you are to your plan's **usage limits**: the limit
+  closest to running out, how much of it is used and when it resets, e.g. "Session 38% · resets 15:40". It turns
+  purple from 70%. Click it for every limit (the session, this week, each model's week and extra usage), the plan, and
+  how long ago Claude Code said. It's hidden when you run on an API key or a cloud provider, which have no plan
+  limits.
+- Hitting your **usage limit**, or losing the network, pauses the affected tasks behind one banner across the top; the
+  meter says which limit ran out and when it resets. They resume by themselves when the limit resets or the network is
+  back; **Switch model** resumes them now on another model. Messages you send meanwhile wait in the queue.
 - If Glade quit mid-turn, a notice at the next launch says how many tasks resumed.
 
 ## The task header, done and reopening

@@ -168,6 +168,20 @@ export class FakeAgentSession implements AgentSession {
     return this.onAccountInfo()
   }
 
+  /** How many times the runner asked how much of the usage limits is used. */
+  usageCalls = 0
+
+  /**
+   * What the session says of the usage limits when asked (`usage`), as the SDK's experimental call would. By default it
+   * never answers, so a test that doesn't care about usage sees nothing change.
+   */
+  onUsage: () => Promise<unknown> = () => new Promise(() => undefined)
+
+  usage(): Promise<unknown> {
+    this.usageCalls += 1
+    return this.onUsage()
+  }
+
   close(): void {
     this.closed = true
     this.stream.end()
@@ -211,9 +225,13 @@ export class FakeAgentBackend implements AgentBackend {
   /** What each session started from now on says about the account; unset, each never answers. */
   onAccountInfo?: () => Promise<unknown>
 
+  /** What each session started from now on says of the usage limits; unset, each never answers. */
+  onUsage?: () => Promise<unknown>
+
   start(options: AgentSessionOptions): FakeAgentSession {
     const session = new FakeAgentSession(options)
     if (this.onAccountInfo !== undefined) session.onAccountInfo = this.onAccountInfo
+    if (this.onUsage !== undefined) session.onUsage = this.onUsage
     this.onSessionStart(session)
     this.sessions.push(session)
     return session

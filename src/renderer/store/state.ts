@@ -614,7 +614,7 @@ export const INITIAL_DATA: GladeData = {
   plugins: null,
   pluginStatuses: {},
   controlStatus: null,
-  accountStatus: { account: null, usageWarning: null },
+  accountStatus: { account: null, usage: [] },
   inputInsertion: null,
   inputDrafts: {},
   searchText: '',

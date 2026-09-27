@@ -229,6 +229,22 @@ export type ScriptedContextUsage =
   | { readonly isAutoCompactEnabled: false }
   | 'fails'
 
+/** One window of the usage call's answer (`ScriptedUsage`): how much of it is used, and how soon it resets. */
+export interface ScriptedUsageWindow {
+  /** The answer's key for it, e.g. `five_hour`, `seven_day`, `seven_day_opus`. */
+  readonly window: string
+  /** How much of it is used, from 0 to 100, as the call gives it. */
+  readonly percent: number
+  readonly resetInMs: number
+}
+
+/** What the session's usage call answers (`AgentSession.usage`): the plan's name and its windows. */
+export interface ScriptedUsage {
+  /** As the call names it, e.g. `max`. */
+  readonly subscriptionType: string
+  readonly windows: readonly ScriptedUsageWindow[]
+}
+
 export interface AskStep {
   readonly kind: ScriptStepKind.Ask
   readonly id: string
@@ -433,6 +449,11 @@ export interface AgentScript {
    * default threshold for the session model's window, as with no settings of the user's own.
    */
   readonly contextUsage?: ScriptedContextUsage
+  /**
+   * What the session's usage call answers (the SDK's experimental one). By default it rejects, as an SDK without the
+   * call would, so the usage meter reads the rate limit events alone.
+   */
+  readonly usage?: ScriptedUsage
 }
 
 /** A cron job a resumed session has from before (`AgentScript.restoredJobs`), as its `Stop` hook lists it. */
@@ -1167,6 +1188,35 @@ const usageWarningThenLimit: AgentScript = {
       ...usageLimitError(),
     ],
   ],
+}
+
+/**
+ * A short turn on a plan whose usage call answers: the session 38% used, the week 22% and Opus's week 9%. No rate limit
+ * event says anything, so the usage meter reads the call alone, from the first turn's end.
+ */
+const usageMeter: AgentScript = {
+  name: 'usage-meter',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Add rate limiting to public API',
+        'Add per-key rate limiting to the public API so one client can’t starve the others.',
+        'Throttle class written; applying it to the viewsets next.',
+      ),
+      say('The throttle class is written. Next I’ll apply it to the three public viewsets.'),
+      result(),
+    ],
+  ],
+  usage: {
+    subscriptionType: 'max',
+    windows: [
+      { window: 'five_hour', percent: 38, resetInMs: 3 * HOUR_RESET_MS },
+      { window: 'seven_day', percent: 22, resetInMs: 4 * 24 * HOUR_RESET_MS },
+      { window: 'seven_day_opus', percent: 9, resetInMs: 4 * 24 * HOUR_RESET_MS },
+    ],
+  },
 }
 
 /** A copy that loses the network; the task resumes once it's back, and the copy completes. */
@@ -2981,6 +3031,7 @@ export const AGENT_SCRIPT_NAMES = [
   'usage-warning',
   'usage-warning-resets',
   'usage-warning-then-limit',
+  'usage-meter',
   'offline',
   'keeps-todos',
   'writes-todos',
@@ -3032,6 +3083,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'usage-warning': usageWarning,
   'usage-warning-resets': usageWarningResets,
   'usage-warning-then-limit': usageWarningThenLimit,
+  'usage-meter': usageMeter,
   offline,
   'keeps-todos': keepsTodos,
   'writes-todos': writesTodos,

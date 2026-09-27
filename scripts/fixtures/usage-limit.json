@@ -3,6 +3,16 @@
     "name": "Acme API",
     "rootPath": "/Users/sample/code/api"
   },
+  "account": {
+    "email": "sam@acme.dev",
+    "subscriptionType": "Claude Max",
+    "apiProvider": "firstParty",
+    "readMinutesAgo": 42
+  },
+  "usage": [
+    { "kind": "session", "utilization": 1, "level": "limited", "resetsInMinutes": 42, "readMinutesAgo": 3 },
+    { "kind": "weekly", "utilization": 0.64, "resetsInMinutes": 5400, "readMinutesAgo": 3 }
+  ],
   "tasks": [
     {
       "title": "Draft release notes for 2.4",

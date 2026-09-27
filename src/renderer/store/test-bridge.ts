@@ -575,7 +575,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       return { settings }
     },
     [CommandName.ControlStatus]: () => ({ status: controlStatus() }),
-    [CommandName.AccountStatus]: () => ({ status: main.accountStatus ?? { account: null, usageWarning: null } }),
+    [CommandName.AccountStatus]: () => ({ status: main.accountStatus ?? { account: null, usage: [] } }),
     [CommandName.ControlRegenerateToken]: () => {
       tokens += 1
       const status = controlStatus()

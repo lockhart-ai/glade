@@ -46,8 +46,8 @@ import { getSettings } from './db/repositories/settings'
 import { ensureControlToken, readControlToken } from './control/token'
 import { getSessionContext } from './db/repositories/session-context'
 import { INSTRUCTION_UPDATES } from './agent/system-prompt'
-import { getAccount, getUsageWarning } from './db/repositories/account'
-import { UsageWindow } from '../shared/account'
+import { getAccount, listUsageReadings } from './db/repositories/account'
+import { UsageLevel, UsageLimitKind } from '../shared/account'
 
 const FIXTURES = join(import.meta.dirname, '..', '..', 'scripts', 'fixtures')
 const FIXTURE = join(FIXTURES, 'task-workspace.json')
@@ -251,12 +251,21 @@ describe('readSeed', () => {
     )
   })
 
-  it('refuses an account or a usage warning of the wrong shape', () => {
+  it('refuses an account or a usage reading of the wrong shape', () => {
     expect(() => readSeed(write(JSON.stringify({ ...SEED, account: { email: 'sam@acme.dev' } })))).toThrow(
       /is invalid: /,
     )
-    const warning = { utilization: -1, window: 'five_hour', resetsInMinutes: 5 }
-    expect(() => readSeed(write(JSON.stringify({ ...SEED, usageWarning: warning })))).toThrow(/is invalid: /)
+    const reading = { kind: 'session', utilization: 0.4, resetsInMinutes: 5, readMinutesAgo: 1 }
+    for (const bad of [
+      { ...reading, utilization: -1 },
+      { ...reading, kind: 'fortnightly' },
+      // A model is named for a per-model weekly limit, and only for one.
+      { ...reading, kind: 'weekly_model' },
+      { ...reading, model: 'Opus' },
+    ]) {
+      expect(() => readSeed(write(JSON.stringify({ ...SEED, usage: [bad] })))).toThrow(/is invalid: /)
+    }
+    expect(readSeed(write(JSON.stringify({ ...SEED, usage: [reading] }))).usage).toEqual([reading])
   })
 
   it('refuses a fixture that is missing or not JSON', () => {
@@ -645,14 +654,14 @@ describe('applySeed', () => {
     expect(getSettings(db)).toEqual({ ...DEFAULT_SETTINGS, controlEnabled: true })
   })
 
-  it('stores no account and no usage warning unless given', () => {
+  it('stores no account and no usage readings unless given', () => {
     const { db } = database
     applySeed(db, SEED, NOW)
     expect(getAccount(db)).toBeNull()
-    expect(getUsageWarning(db)).toBeNull()
+    expect(listUsageReadings(db)).toEqual([])
   })
 
-  it('stores the account and usage warning it gives, timed from now', () => {
+  it('stores the account and usage readings it gives, timed from now', () => {
     const { db } = database
     applySeed(
       db,
@@ -664,7 +673,17 @@ describe('applySeed', () => {
           apiProvider: 'firstParty',
           readMinutesAgo: 2,
         },
-        usageWarning: { utilization: 0.85, window: UsageWindow.Session, resetsInMinutes: 90 },
+        usage: [
+          { kind: UsageLimitKind.Session, utilization: 0.85, resetsInMinutes: 90, readMinutesAgo: 1 },
+          {
+            kind: UsageLimitKind.WeeklyModel,
+            model: 'Opus',
+            utilization: 1,
+            level: UsageLevel.Warning,
+            resetsInMinutes: null,
+            readMinutesAgo: 0,
+          },
+        ],
       },
       NOW,
     )
@@ -678,17 +697,23 @@ describe('applySeed', () => {
       apiProvider: 'firstParty',
       readAt: NOW - 2 * 60_000,
     })
-    expect(getUsageWarning(db)).toEqual({ utilization: 0.85, window: UsageWindow.Session, resetsAt: NOW + 90 * 60_000 })
-  })
-
-  it('stores a usage warning with no reset time', () => {
-    const { db } = database
-    applySeed(
-      db,
-      { ...SEED, usageWarning: { utilization: null, window: UsageWindow.Weekly, resetsInMinutes: null } },
-      NOW,
-    )
-    expect(getUsageWarning(db)).toEqual({ utilization: null, window: UsageWindow.Weekly, resetsAt: null })
+    // Each at the level its utilization makes it, unless the seed says otherwise.
+    expect(listUsageReadings(db)).toEqual([
+      {
+        limit: { kind: UsageLimitKind.Session },
+        utilization: 0.85,
+        resetsAt: NOW + 90 * 60_000,
+        level: UsageLevel.Warning,
+        readAt: NOW - 60_000,
+      },
+      {
+        limit: { kind: UsageLimitKind.WeeklyModel, model: 'Opus' },
+        utilization: 1,
+        resetsAt: null,
+        level: UsageLevel.Warning,
+        readAt: NOW,
+      },
+    ])
   })
 
   it('selects nothing unless a task asks to be', () => {

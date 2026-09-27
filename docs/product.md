@@ -41,7 +41,7 @@ There are no follow-up tasks. One task can refer to another through its folder o
   a one-line status. Under them, only while there's something to show, a compact third line of what's going on in the
   task, in this order: its todo progress (a ring and `3/7`, a check once all are done, the item in progress as its
   tooltip), its running subagents and its live watchers, each an icon and a count with a tooltip. Unread rows are bold
-  with a blue dot. Resizable, collapsible.
+  with a blue dot. At its foot, under a divider, the **usage meter** (see Usage). Resizable, collapsible.
 - **Task card** (centre) — a header card (state dot, title, age, pin toggle, Mark done, goal and status) floating over
   the top of the chat, and the input bar floating over its bottom. The chat, a little narrower than both, scrolls under
   them and is cut off halfway under each, so it never shows past their outer edges. The input bar has model, effort
@@ -66,6 +66,22 @@ back at the size you left it, and a relaunch keeps every size. The plugin panel 
 the gap between them: it takes room from the terminal, which keeps its minimum width.
 
 State dot colours: blue = working, purple = waiting on you, slate = done, pink = error.
+
+### Usage
+
+The usage meter at the foot of the sidebar (`design/screens/32-usage-meter.png`) is one row: a small ring in the
+context meter's colours, the usage limit closest to running out with how much of it is used ("Session 38%"), and when
+it resets. Nothing read yet, or nothing said of how much is used, it's an empty ring and "Usage · within limits"; from
+70% of a limit the ring and percentage turn purple, as Claude Code's own warning starts there; at a limit the row
+takes the question card's highlight ("Session limit · Resets at 15:40"), while the paused tasks' banner shows across
+the top as before. Clicking the row opens a popover over it that lists every limit Claude Code has told of (Session,
+This week, each model's week, extra usage while it's on), each with a bar, how much is used and when it resets, under
+the plan's name and above how long ago it was read ("From Claude Code · updated 2 min ago").
+
+Glade asks Claude Code as each task's session starts and after each turn (its experimental usage call), and also reads
+the rate limit events that come as each turn starts; when the call fails, the events alone keep the meter going. It
+keeps the latest reading of each limit, so a relaunch shows them again, and drops each when its window resets. An API
+key or a cloud provider has no plan limits, so the meter is hidden for them.
 
 ## Attention
 
@@ -93,9 +109,8 @@ Settings (⌘,) opens on Agent. Changes save as you make them.
 - **General:** **Show Glade in the menu bar** (on by default): its icon, and the list under it (see Attention). Then
   the account the tasks run on and bill to, as Claude Code reports it when a task starts: the email (or "API key", a
   cloud provider, or "Not signed in"), organization, plan, and what it's signed in with. Nothing to change: Claude Code
-  owns the login. While the account is close to a usage limit (70% of a window or more), a quiet note in the app-wide
-  banner's spot says how much is used and when it resets; the paused tasks' banner takes its place if the limit runs
-  out.
+  owns the login. How much of its usage limits is used shows in the usage meter at the foot of the sidebar (see
+  Usage).
 - **Agent:** the defaults for new tasks (model, effort and permissions: Ask first or Allow all; **Allow edits** is shown
   but disabled, as it isn't a mode yet), and two switches for what the agent keeps current: **Status summary**
   (`set_status` every turn) and **Task titles** (`set_title` from your first message). A session started with one off

@@ -144,7 +144,7 @@ const TASK_HANDLERS = {
   [CommandName.PluginsOpenFolder]: () => null,
   [CommandName.PluginsPlaceView]: () => ({ status: '' }),
   [CommandName.ControlStatus]: () => ({ status: CONTROL_STATUS }),
-  [CommandName.AccountStatus]: () => ({ status: { account: null, usageWarning: null } }),
+  [CommandName.AccountStatus]: () => ({ status: { account: null, usage: [] } }),
   [CommandName.ControlRegenerateToken]: () => ({ status: CONTROL_STATUS }),
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {

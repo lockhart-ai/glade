@@ -525,6 +525,26 @@ export class ScriptedSession implements AgentSession {
     return Promise.resolve(this.options.account ?? SCRIPTED_ACCOUNT)
   }
 
+  /**
+   * What the SDK's experimental usage call answers: the script's `usage`, each window resetting that long from now.
+   * Without one, or before a script is picked, it rejects, as an SDK without the call would.
+   */
+  usage(): Promise<unknown> {
+    const usage = this.script?.usage
+    if (usage === undefined) return Promise.reject(new Error('This SDK has no usage call.'))
+    const now = Date.now()
+    const windows = usage.windows.map(({ window, percent, resetInMs }) => [
+      window,
+      { utilization: percent, resets_at: new Date(now + resetInMs).toISOString() },
+    ])
+    return Promise.resolve({
+      subscription_type: usage.subscriptionType,
+      rate_limits_available: true,
+      rate_limits: Object.fromEntries(windows) as unknown,
+      behaviors: null,
+    })
+  }
+
   close(): void {
     this.stopped = true
     this.turn?.interrupt()

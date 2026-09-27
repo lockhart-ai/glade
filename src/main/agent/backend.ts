@@ -208,6 +208,12 @@ export interface AgentSession {
    * the runner parses it at the boundary. Rejects if the agent process can't say, e.g. because it failed to start.
    */
   accountInfo(): Promise<unknown>
+  /**
+   * How much of the account's usage limits is used (the SDK's experimental
+   * `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true })`, `docs/sdk-notes.md` "Usage
+   * limits"), unparsed: the account parses it at the boundary. Rejects when the SDK has no such call, or can't say.
+   */
+  usage(): Promise<unknown>
   /** Ends the session and its agent process. */
   close(): void
 }

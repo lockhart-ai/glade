@@ -1,0 +1,23 @@
+/* The meters' ring, from docs/design/html/task-workspace.html: a blue arc on a track, purple near a limit. */
+.ring {
+  flex-shrink: 0;
+}
+
+.track,
+.arc {
+  fill: none;
+  stroke-width: 2.4;
+}
+
+.track {
+  stroke: var(--color-strong);
+}
+
+.arc {
+  stroke: var(--color-blue-text);
+  stroke-linecap: round;
+}
+
+.near {
+  stroke: var(--color-purple);
+}

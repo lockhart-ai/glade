@@ -48,6 +48,9 @@ const sdk = vi.hoisted(() => {
     accountInfo: vi.fn(() =>
       Promise.resolve({ email: 'sam@acme.dev', subscriptionType: 'Claude Max', apiProvider: 'firstParty' }),
     ),
+    usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: vi.fn<(options: unknown) => Promise<unknown>>(() =>
+      Promise.resolve({ rate_limits_available: true, rate_limits: { five_hour: { utilization: 38 } } }),
+    ),
     setModel: vi.fn<(model?: string) => Promise<void>>(() => Promise.resolve(undefined)),
     applyFlagSettings: vi.fn<(settings: unknown) => Promise<void>>(() => Promise.resolve(undefined)),
     setPermissionMode: vi.fn<(mode: string) => Promise<void>>(() => Promise.resolve(undefined)),
@@ -266,6 +269,14 @@ it('starts one streaming-input query per session, in the environment, and pushes
     subscriptionType: 'Claude Max',
     apiProvider: 'firstParty',
   })
+  expect(await session.usage()).toEqual({
+    rate_limits_available: true,
+    rate_limits: { five_hour: { utilization: 38 } },
+  })
+  // Only the plan's limits: the behaviours would scan a week of local transcripts.
+  expect(sdk.session.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET).toHaveBeenCalledExactlyOnceWith({
+    skipBehaviors: true,
+  })
   session.close()
 
   const pushed: SDKUserMessage[] = []
@@ -276,6 +287,18 @@ it('starts one streaming-input query per session, in the environment, and pushes
   // Only the summary: the per-category counts would cost a token-count call each.
   expect(sdk.session.getContextUsage).toHaveBeenCalledExactlyOnceWith({ detail: 'summary' })
   expect(sdk.session.close).toHaveBeenCalledOnce()
+})
+
+it('rejects the usage call when the SDK has no such call, as a later SDK may not', async () => {
+  const call = sdk.session.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET
+  Reflect.deleteProperty(sdk.session, 'usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET')
+  try {
+    const session = backendIn().start(OPTIONS)
+    await expect(session.usage()).rejects.toThrow('This SDK has no usage call.')
+    session.close()
+  } finally {
+    sdk.session.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET = call
+  }
 })
 
 /** The messages pushed into a session's prompt: its first `count`. */

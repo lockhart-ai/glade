@@ -58,7 +58,7 @@ import {
 } from './scripts'
 import { OFFLINE_FIRST_CHECK_MS, USAGE_LIMIT_FALLBACK_MS } from './pauses'
 import { createAccountTracker, type AccountSink, type AccountTracker } from '../account/account'
-import { UsageWindow } from '../../shared/account'
+import { UsageLevel, UsageLimitKind } from '../../shared/account'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './test-mode-backend'
 import { createMemoryLog } from '../logging/memory-sink'
 import type { Logger } from '../logging/logger'
@@ -557,13 +557,33 @@ describe('AGENT_SCRIPTS', () => {
       account.close()
     })
 
+    it('usage-meter: the usage call answers once the turn ends, with every window and when each resets', async () => {
+      start('usage-meter', { account }).send(task.id, 'Add rate limiting.')
+      await vi.advanceTimersByTimeAsync(2_000)
+
+      const usage = account.status().usage
+      expect(usage.map(({ limit, utilization }) => ({ limit, utilization }))).toEqual([
+        { limit: { kind: UsageLimitKind.Session }, utilization: 0.38 },
+        { limit: { kind: UsageLimitKind.Weekly }, utilization: 0.22 },
+        { limit: { kind: UsageLimitKind.WeeklyModel, model: 'Opus' }, utilization: 0.09 },
+      ])
+      // Hours, to within a few seconds of the turn.
+      const hoursLeft = usage.map(({ resetsAt }) => Math.round(((resetsAt ?? 0) - Date.now()) / 3_600_000))
+      expect(hoursLeft).toEqual([3, 96, 96])
+      expect(reply()).toMatch(/^The throttle class is written/)
+    })
+
     it('usage-warning: warns at 85% of the session limit, which resets in an hour, and goes on as usual', async () => {
       // Not every timer: the warning's would run out the hour.
       start('usage-warning', { account }).send(task.id, 'Add rate limiting.')
       await vi.advanceTimersByTimeAsync(2_000)
 
-      const warning = account.status().usageWarning
-      expect(warning).toMatchObject({ utilization: 0.85, window: UsageWindow.Session })
+      const warning = account.status().usage[0]
+      expect(warning).toMatchObject({
+        limit: { kind: UsageLimitKind.Session },
+        utilization: 0.85,
+        level: UsageLevel.Warning,
+      })
       const resetsIn = (warning?.resetsAt ?? 0) - Date.now()
       expect(resetsIn).toBeGreaterThan(59 * 60_000)
       expect(resetsIn).toBeLessThanOrEqual(60 * 60_000)
@@ -576,26 +596,26 @@ describe('AGENT_SCRIPTS', () => {
     it('usage-warning-resets: warns, and the warning goes on its own seconds later', async () => {
       await send(start('usage-warning-resets', { account }), 'Add rate limiting.')
       // `send` runs every timer, the warning's too.
-      expect(account.status().usageWarning).toBeNull()
+      expect(account.status().usage).toEqual([])
 
       start('usage-warning-resets', { account }).send(task.id, 'Carry on.')
       await vi.advanceTimersByTimeAsync(1_000)
-      expect(account.status().usageWarning).not.toBeNull()
+      expect(account.status().usage).toHaveLength(1)
       await vi.advanceTimersByTimeAsync(6_000)
-      expect(account.status().usageWarning).toBeNull()
+      expect(account.status().usage).toEqual([])
     })
 
     it('usage-warning-then-limit: warns, then pauses on the limit with the warning still standing', async () => {
       const agent = start('usage-warning-then-limit', { account })
       agent.send(task.id, 'Add rate limiting.')
       await vi.advanceTimersByTimeAsync(1_000)
-      expect(account.status().usageWarning).toMatchObject({ utilization: 0.85 })
+      expect(account.status().usage[0]).toMatchObject({ utilization: 0.85 })
 
       const pause = await pausedBy(agent, 'Apply it to the viewsets.')
       expect(pause).toMatchObject({ reason: PauseReason.UsageLimit })
-      // No rejected event came first, so the pause waits Glade's own while, and the warning is still there to hide.
+      // No rejected event came first, so the pause waits Glade's own while, and the meter still reads the last warning.
       expect((pause?.resumesAt ?? 0) - (pause?.since ?? 0)).toBe(USAGE_LIMIT_FALLBACK_MS)
-      expect(account.status().usageWarning).toMatchObject({ utilization: 0.97 })
+      expect(account.status().usage[0]).toMatchObject({ utilization: 0.97 })
     })
   })
 
