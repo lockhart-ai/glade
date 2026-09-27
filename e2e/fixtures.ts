@@ -372,22 +372,12 @@ export async function holdCommand({ app }: Glade, command: CommandName): Promise
 /** Glade's icon in the menu bar as it is now: an e2e run never puts a real one there, it records it (`E2E_MENU_BAR_GLOBAL`). */
 export type MenuBarIconState = Omit<E2eMenuBar, 'click'>
 
-/** Glade's icon in the menu bar as it is now: whether it's there, its count, whether it pulses, and its popover. */
+/** Glade's icon in the menu bar as it is now: whether it's there, its count, and its popover. */
 export async function menuBarIcon({ app }: Glade): Promise<MenuBarIconState> {
   return app.evaluate((_, name) => {
-    const { shown, title, pulsing, open, reduceMotion } = Reflect.get(globalThis, name) as E2eMenuBar
-    return { shown, title, pulsing, open, reduceMotion }
+    const { shown, title, open } = Reflect.get(globalThis, name) as E2eMenuBar
+    return { shown, title, open }
   }, E2E_MENU_BAR_GLOBAL)
-}
-
-/** Turns macOS's Reduce motion on or off, as the menu bar icon sees it (off until a spec turns it on). */
-export async function setReduceMotion({ app }: Glade, on: boolean): Promise<void> {
-  await app.evaluate(
-    (_, { name, on }) => {
-      ;(Reflect.get(globalThis, name) as E2eMenuBar).reduceMotion = on
-    },
-    { name: E2E_MENU_BAR_GLOBAL, on },
-  )
 }
 
 /** The route the menu bar popover's page is at. */
