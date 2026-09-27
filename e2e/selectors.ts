@@ -86,6 +86,8 @@ export function taskList(page: Page) {
       sidebar.getByRole('group', { name: 'Filter tasks' }).getByRole('button', { name: new RegExp(`^${name}`) }),
     /** A task's row, in whichever section it is, by its title. */
     taskRow: (title: string) => sidebar.getByRole('listitem').getByRole('button', { name: new RegExp(`^${title}`) }),
+    /** The list item of the task you're viewing (its row is `aria-current`), whose `data-task-id` is the task's id. */
+    current: sidebar.getByRole('listitem').filter({ has: page.locator('[aria-current="true"]') }),
     section,
     /** A section's header, which collapses and expands it. */
     sectionHeader: (name: TaskSectionName) => section(name).getByRole('button').first(),

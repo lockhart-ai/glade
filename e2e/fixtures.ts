@@ -33,10 +33,12 @@ import { testModeLogsFolder } from '../src/main/isolation'
 import { LOG_FILE_NAME } from '../src/main/logging/file-sink'
 import type { TaskNotification } from '../src/main/notifications/notifier'
 import type { RecordingNotifier } from '../src/main/notifications/recording-notifier'
-import { COMMAND_CHANNEL, type CommandName } from '../src/shared/bridge'
+import { COMMAND_CHANNEL, CommandName } from '../src/shared/bridge'
+import { UiStateKey } from '../src/shared/domain'
 import { PLUGINS_FOLDER_NAME } from '../src/shared/plugins'
 import { READY_ATTRIBUTE } from '../src/shared/ready'
-import { firstRun, taskList } from './selectors'
+import { chat, firstRun, inputBar, taskList } from './selectors'
+import { invoke } from './task-view'
 
 export { expect } from '@playwright/test'
 
@@ -368,6 +370,36 @@ export async function holdCommand({ app }: Glade, command: CommandName): Promise
       }, COMMAND_HOLD_GLOBAL)
     },
   }
+}
+
+/** The task main has stored as the one you're viewing, which it judges each reply against: null for none. */
+async function viewedInMain(window: Page): Promise<string | null> {
+  const { entries } = await invoke(window, CommandName.UiStateGetAll, {})
+  const selected = entries.find(({ key }) => key === UiStateKey.SelectedTaskId)?.value ?? ''
+  return selected === '' ? null : selected
+}
+
+/**
+ * Sends `message` from the task you're viewing, then opens a new task before its agent can answer. The window shows a
+ * task as soon as you open it and tells main a moment later, and main judges each reply against the task it was told
+ * of (`noteAgentReply`); the scripted agent keeps its own pace, so on a slow machine it could answer before main hears
+ * you've left. Main holds the message (`holdCommand`) until it has the new task, so the answer always comes after.
+ */
+export async function sendAndOpenNewTask(glade: Glade, message: string): Promise<void> {
+  const { window } = glade
+  const list = taskList(window)
+  const bar = inputBar(window)
+  const from = await list.current.getAttribute('data-task-id')
+  const sending = await holdCommand(glade, CommandName.TasksSend)
+  await bar.field.fill(message)
+  await bar.field.press('Enter')
+  await sending.reached()
+  await list.newTask.click()
+  await expect(chat(window).newTaskPrompt).toBeVisible()
+  await expect(list.current).not.toHaveAttribute('data-task-id', from ?? '')
+  const to = await list.current.getAttribute('data-task-id')
+  await expect.poll(() => viewedInMain(window)).toBe(to)
+  await sending.release()
 }
 
 /** Glade's icon in the menu bar as it is now: an e2e run never puts a real one there, it records it (`E2E_MENU_BAR_GLOBAL`). */
