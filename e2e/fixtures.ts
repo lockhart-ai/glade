@@ -51,7 +51,8 @@ const RECORD_DIR = process.env.GLADE_RECORD_DIR
 
 /**
  * The hour of the day the app's clock reads during a test. Seeds and specs work in minutes before now, and a date
- * label ("Sep 25, 00:03") shows up wherever those times straddle midnight; midday keeps them hours from it.
+ * label ("Sep 25, 00:03") shows up wherever those times straddle midnight; midday keeps them hours from it. It keeps
+ * the watchers spec's daily 9:00 cron job hours away too, so it never comes due mid-spec (`WATCHES_THINGS.queueCron`).
  */
 const LOCAL_HOUR = 12
 
