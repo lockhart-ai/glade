@@ -240,21 +240,40 @@ export function sourceLines(text: string): readonly string[] {
   return lines
 }
 
+/** The grammar's state at the start of a line: what highlighting needs to carry on from there. */
+export type HighlightState = GrammarState | undefined
+
+/** Where highlighting carries on from: a line that starts a chunk, and the grammar's state there. */
+export interface HighlightResume {
+  /** The line's index, a multiple of `HIGHLIGHT_CHUNK_LINES`. */
+  readonly start: number
+  readonly state: HighlightState
+}
+
 /**
- * Highlights `lines` in `language`, a chunk of lines at a time: each chunk's tokens go to `onLines` with the index of
- * its first line, and the page gets a turn between chunks. Stops early, without calling `onLines` again, once `signal`
- * is aborted.
+ * Takes each chunk's tokens: the index of its first line, a line's tokens for each of its lines, and the grammar's
+ * state after its last line, where the next chunk starts.
+ */
+export type OnHighlightedLines = (start: number, highlighted: readonly HighlightedLine[], after: HighlightState) => void
+
+const FROM_THE_TOP: HighlightResume = { start: 0, state: undefined }
+
+/**
+ * Highlights `lines` in `language`, a chunk of lines at a time, from the top or from where `from` says: each chunk's
+ * tokens go to `onLines`, and the page gets a turn between chunks. Stops early, without calling `onLines` again, once
+ * `signal` is aborted.
  */
 export async function highlight(
   lines: readonly string[],
   language: Language,
-  onLines: (start: number, highlighted: readonly HighlightedLine[]) => void,
+  onLines: OnHighlightedLines,
   signal: AbortSignal,
+  from: HighlightResume = FROM_THE_TOP,
 ): Promise<void> {
   const shiki = await getHighlighter()
   await shiki.loadLanguage(LANGUAGES[language]())
-  let grammarState: GrammarState | undefined
-  for (let start = 0; start < lines.length; start += HIGHLIGHT_CHUNK_LINES) {
+  let grammarState = from.state
+  for (let start = from.start; start < lines.length; start += HIGHLIGHT_CHUNK_LINES) {
     if (signal.aborted) return
     const chunk = lines.slice(start, start + HIGHLIGHT_CHUNK_LINES).join('\n')
     const result = shiki.codeToTokens(chunk, {
@@ -267,6 +286,7 @@ export async function highlight(
     onLines(
       start,
       result.tokens.map((line) => line.map(toToken)),
+      grammarState,
     )
     await nextTask()
   }

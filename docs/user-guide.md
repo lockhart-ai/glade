@@ -245,9 +245,15 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   Right-click a call to copy its command or output, open its file, or **Run again in terminal** (the command lands at
   the terminal's prompt for you to edit or run; it never runs by itself). Each compaction is a **Compact** row; click
   it to read the summary the agent carried over.
-- **Files:** the files the task changed (with a blue dot) and read. Each opens in a tab, in a read-only viewer with line
-  numbers and syntax colours; Markdown has a Preview. **Open in editor** (⌘⇧E) opens the file in the app macOS uses
-  for it, and ⌘W, with the focus in the panel, closes the tab. The agent can open a file here for you.
+- **Files:** the files the task changed (with a blue dot) and read. Each opens in a tab, with line numbers and syntax
+  colours, and you can edit it right there: click to put the caret in, type, select, paste, undo and redo (⌘Z, ⇧⌘Z),
+  find (⌘F) and indent with Tab. **⌘S** saves it. While a file has unsaved edits its tab shows a dot where the × is;
+  closing the tab, switching task or quitting asks you to **Save**, **Discard** or **Cancel** first. If the agent
+  changes a file you're editing, it simply reloads when you have no unsaved edits; with unsaved edits, a bar says it
+  changed on disk, with **Reload** (take the agent's version, dropping yours) and **Keep mine** (your next save writes
+  over it). Markdown has a Preview. Files from a commit, binary files and files too large to show whole are read-only.
+  **Open in editor** (⌘⇧E) opens the file in the app macOS uses for it, and ⌘W, with the focus in the panel, closes the
+  tab. The agent can open a file here for you.
 - **Todos:** the agent's own checklist, as it keeps it, with how many are done. The items come in three groups: what
   the agent is working on now, then what it hasn't started, then what's done (the most recently finished first, each
   with when it was finished, like `4m ago`; hover it for the exact time). A done item has a filled teal check and

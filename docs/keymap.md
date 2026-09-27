@@ -32,6 +32,7 @@ current binding. The menu bar answers the keys of its items; the window listens 
 | | Tool calls · Files · Todos · Artifacts · Subagents · Watchers · Changes | ⌘⌥1 – ⌘⌥7 |
 | | Close file tab (the window, when no tab has the focus) | ⌘W |
 | | Open file in editor | ⌘⇧E |
+| | Save file | ⌘S |
 | Terminal | Focus terminal | ⌃` |
 | | New terminal tab | ⌘T |
 | | Next / previous tab | ⌃⇥ / ⌃⇧⇥ |

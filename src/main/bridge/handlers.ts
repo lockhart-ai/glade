@@ -44,6 +44,7 @@ import {
   openTaskFile,
   openTaskFileInEditor,
   readTaskFile,
+  writeTaskFile,
   revealTaskFile,
   type OpenPath,
   type RevealPath,
@@ -86,6 +87,10 @@ export interface HandlerContext {
   readonly updateMenu?: (state: MenuState) => void
   /** Closes the focused window (`window.close`). Nothing by default. */
   readonly closeWindow?: () => void
+  /** Quits the app (`app.quit`). Nothing by default. */
+  readonly quit?: () => void
+  /** Hears whether the window has unsaved edits (`window.setUnsavedEdits`). Nothing by default. */
+  readonly setUnsavedEdits?: (unsaved: boolean) => void
   /** The global terminal's tabs and their shells. */
   readonly terminals: Terminals
   /** The plugins in the plugins folder. */
@@ -238,6 +243,10 @@ export function createHandlers(context: HandlerContext): Handlers {
             : await readCommitFile(changes, taskId, commitFile),
       }
     },
+    [CommandName.FilesWrite]: async ({ taskId, path, text }) => {
+      await writeTaskFile(context, taskId, path, text)
+      return null
+    },
     [CommandName.FilesOpen]: ({ taskId, path }) => ({ openFiles: openTaskFile(context, taskId, path) }),
     [CommandName.FilesClose]: ({ taskId, path }) => ({ openFiles: closeTaskFile(context, taskId, path) }),
     [CommandName.FilesOpenInEditor]: async ({ taskId, path }) => {
@@ -344,6 +353,14 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.WindowClose]: () => {
       context.closeWindow?.()
+      return null
+    },
+    [CommandName.AppQuit]: () => {
+      context.quit?.()
+      return null
+    },
+    [CommandName.WindowSetUnsavedEdits]: ({ unsaved }) => {
+      context.setUnsavedEdits?.(unsaved)
       return null
     },
     [CommandName.LogRendererError]: (error) => {

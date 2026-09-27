@@ -27,6 +27,8 @@
     // Which terminal tab shows, and what Run again in terminal pastes, which the store reads; plain functions too.
     "src/renderer/terminal/terminalModel.ts",
     // The Settings modal's sections, which the store keeps the open one of.
-    "src/renderer/settings/sections.ts"
+    "src/renderer/settings/sections.ts",
+    // The Files tab's unsaved edits, which the store keeps; the editor itself is behind an interface there.
+    "src/renderer/files/unsaved.ts"
   ]
 }

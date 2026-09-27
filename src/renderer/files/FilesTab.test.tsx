@@ -137,12 +137,25 @@ function source(): HTMLElement {
   return screen.getByTestId('source')
 }
 
-/** The number and text of each line the viewer shows. */
+/** The number and text of each line the read-only viewer shows. */
 function shownLines(): [string, string][] {
   return [...source().querySelectorAll('[data-line]')].map((line) => [
     line.firstElementChild?.textContent ?? '',
     line.lastElementChild?.textContent ?? '',
   ])
+}
+
+/** The editor a workspace file shows in. */
+function editor(): HTMLElement {
+  return screen.getByTestId('editor')
+}
+
+/** The number and text of each line the editor shows (a final empty line has no number). */
+function editorLines(): [string, string][] {
+  const numbers = [...editor().querySelectorAll('.cm-lineNumbers .cm-gutterElement')]
+    .filter((number) => !(number instanceof HTMLElement && number.style.visibility === 'hidden'))
+    .map((number) => number.textContent)
+  return [...editor().querySelectorAll('.cm-line')].map((line, index) => [numbers[index] ?? '', line.textContent])
 }
 
 const OPEN: OpenFiles = {
@@ -182,7 +195,7 @@ describe('FilesTab', () => {
       expect(within(openTabs()).getByRole('button', { name: /rate-limits\.md/, pressed: true })).toBeInTheDocument()
     })
     expect(invoke).toHaveBeenCalledWith(CommandName.FilesOpen, { taskId: 't1', path: 'docs/rate-limits.md' })
-    expect(await screen.findByTestId('source')).toBeInTheDocument()
+    expect(await screen.findByTestId('editor')).toBeInTheDocument()
   })
 
   it('shows a tab per open file, a blue dot on the ones the agent changed, and switches and closes them', async () => {
@@ -214,17 +227,23 @@ describe('FilesTab', () => {
     expect(within(openTabs()).getByRole('button', { name: 'settings.py', pressed: true })).toBeInTheDocument()
   })
 
-  it('shows the file with line numbers, how the agent last touched it, and colours it', async () => {
+  it('shows the file in its editor, with line numbers, how the agent last touched it, and colours it', async () => {
     await renderTab({ openFiles: OPEN })
 
     expect(screen.getByText('Edited by the agent · 11:22')).toBeInTheDocument()
     await waitFor(() => {
-      expect(shownLines()).toHaveLength(8)
+      expect(editorLines()).toHaveLength(9)
     })
-    expect(shownLines()[0]).toEqual(['1', '# Rate limits'])
-    expect(shownLines()[6]).toEqual(['7', '| /search  | 60    |'])
+    expect(editorLines()[0]).toEqual(['1', '# Rate limits'])
+    expect(editorLines()[6]).toEqual(['7', '| /search  | 60    |'])
+    // The final newline ends the last line: the empty line after it has no number.
+    expect(editorLines()[8]).toEqual(['', ''])
+    expect(screen.getByRole('textbox', { name: 'docs/rate-limits.md contents' })).toHaveAttribute(
+      'contenteditable',
+      'true',
+    )
     await waitFor(() => {
-      const heading = source().querySelector('[data-line="1"] span[style]')
+      const heading = editor().querySelector('.cm-line span[style]')
       expect(heading).toHaveStyle({ color: colors['--color-blue-text'], fontWeight: '600' })
     })
   })
@@ -237,20 +256,20 @@ describe('FilesTab', () => {
 
   it('switches a Markdown file between its source and a preview', async () => {
     await renderTab({ openFiles: OPEN })
-    await screen.findByTestId('source')
+    await screen.findByTestId('editor')
 
     fireEvent.click(screen.getByRole('radio', { name: 'Preview' }))
 
     expect(screen.getByRole('heading', { level: 1, name: 'Rate limits' })).toBeInTheDocument()
     expect(screen.getByRole('table')).toBeInTheDocument()
-    expect(screen.queryByTestId('source')).toBeNull()
+    expect(screen.queryByTestId('editor')).toBeNull()
     fireEvent.click(screen.getByRole('radio', { name: 'Source' }))
-    expect(screen.getByTestId('source')).toBeInTheDocument()
+    expect(screen.getByTestId('editor')).toBeInTheDocument()
   })
 
   it('offers no preview for a file that isn’t Markdown', async () => {
     await renderTab({ openFiles: { ...OPEN, activePath: 'api/throttles.py' } })
-    await screen.findByTestId('source')
+    await screen.findByTestId('editor')
 
     expect(screen.queryByRole('radiogroup', { name: 'Show as' })).toBeNull()
   })
@@ -260,12 +279,21 @@ describe('FilesTab', () => {
     await renderTab({
       openFiles: { ...OPEN, activePath: 'config/settings.py' },
       files: { 'config/settings.py': { kind: FileContentKind.Text, text, truncated: true, size: 2.4 * 1024 * 1024 } },
+      focus: { path: 'config/settings.py', line: 4000, request: 1 },
     })
 
+    // The line the agent shows is marked and scrolled to, as ever.
+    await waitFor(() => {
+      expect(source().querySelector('[data-line="4000"]')).toHaveAttribute('data-focused', 'true')
+    })
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
     expect(await screen.findByRole('note')).toHaveTextContent(
       'This file is large (2.4 MB), so only its first 5,000 lines are shown. Open it in your editor to see it all.',
     )
+    // Read-only, as ever: never the editor.
     expect(shownLines()).toHaveLength(5000)
+    expect(screen.queryByTestId('editor')).toBeNull()
+    expect(screen.getByRole('region', { name: 'config/settings.py contents' })).toHaveAttribute('tabindex', '0')
   })
 
   it('says when a file isn’t text, isn’t there, or can’t be read', async () => {
@@ -319,7 +347,7 @@ describe('FilesTab', () => {
   it('reads the file again when the agent changes it', async () => {
     const { emit, invoke } = await renderTab({ openFiles: OPEN })
     await waitFor(() => {
-      expect(shownLines()).toHaveLength(8)
+      expect(editorLines()).toHaveLength(9)
     })
     const reads = (): number => invoke.mock.calls.filter(([command]) => command === CommandName.FilesRead).length
     const before = reads()
@@ -341,22 +369,22 @@ describe('FilesTab', () => {
   it('marks and scrolls to the line the agent shows, while its file shows', async () => {
     await renderTab({ openFiles: OPEN, focus: { path: 'docs/rate-limits.md', line: 7, request: 1 } })
     await waitFor(() => {
-      expect(shownLines()).toHaveLength(8)
+      expect(editorLines()).toHaveLength(9)
     })
 
-    expect(source().querySelector('[data-line="7"]')).toHaveAttribute('data-focused', 'true')
-    expect(source().querySelectorAll('[data-focused]')).toHaveLength(1)
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
+    // The line and its number, as the viewer marks them.
+    expect(editor().querySelectorAll('.cm-line.cm-glade-marked')).toHaveLength(1)
+    expect(editor().querySelector('.cm-line.cm-glade-marked')?.textContent).toBe('| /search  | 60    |')
+    expect(editor().querySelector('.cm-gutterElement.cm-glade-marked')).toHaveTextContent('7')
   })
 
   it('marks no line for another file', async () => {
     await renderTab({ openFiles: OPEN, focus: { path: 'api/throttles.py', line: 1, request: 1 } })
     await waitFor(() => {
-      expect(shownLines()).toHaveLength(8)
+      expect(editorLines()).toHaveLength(9)
     })
 
-    expect(source().querySelectorAll('[data-focused]')).toHaveLength(0)
-    expect(scrollIntoView).not.toHaveBeenCalled()
+    expect(editor().querySelectorAll('.cm-glade-marked')).toHaveLength(0)
   })
 
   it('closes the list when you choose Escape', async () => {
@@ -482,6 +510,9 @@ describe('a file as a commit left it', () => {
     const tab = within(openTabs()).getByRole('button', { name: 'upgrading.mdabc1234', pressed: true })
     expect(tab.parentElement).toHaveAttribute('title', 'docs/upgrading.md (abc1234)')
     expect(await screen.findByText('Run the migrations first.')).toBeInTheDocument()
+    // Only in git: read-only, never the editor.
+    expect(screen.getByTestId('source')).toBeInTheDocument()
+    expect(screen.queryByTestId('editor')).toBeNull()
     expect(screen.getByText('docs/upgrading.md', { selector: 'span' })).toBeInTheDocument()
     expect(screen.getByText('As of abc1234 · read-only')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Open in editor' })).not.toBeInTheDocument()

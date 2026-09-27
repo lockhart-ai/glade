@@ -6,6 +6,7 @@ import { z } from 'zod'
 import {
   CommandName,
   EventType,
+  type CloseKind,
   type CommandRequest,
   type CommandResponse,
   type GladeBridge,
@@ -96,6 +97,7 @@ const TASK_HANDLERS = {
   [CommandName.QuestionsAnswer]: () => ({ questionSet: {} as QuestionSet }),
   [CommandName.PermissionsAnswer]: () => ({ permissionRequest: {} as PermissionRequest }),
   [CommandName.FilesRead]: () => ({ content: { kind: FileContentKind.Missing } }),
+  [CommandName.FilesWrite]: () => null,
   [CommandName.FilesOpen]: () => ({ openFiles: {} as OpenFiles }),
   [CommandName.FilesClose]: () => ({ openFiles: {} as OpenFiles }),
   [CommandName.FilesOpenInEditor]: () => null,
@@ -121,6 +123,8 @@ const TASK_HANDLERS = {
   [CommandName.WorkspacesRemove]: () => null,
   [CommandName.MenuUpdate]: () => null,
   [CommandName.WindowClose]: () => null,
+  [CommandName.AppQuit]: () => null,
+  [CommandName.WindowSetUnsavedEdits]: () => null,
   [CommandName.LogRendererError]: () => null,
   [CommandName.MenuBarGet]: () => ({ snapshot: EMPTY_MENU_BAR_SNAPSHOT }),
   [CommandName.MenuBarOpenTask]: () => null,
@@ -166,6 +170,7 @@ const TASK_SCHEMAS = {
   [CommandName.QuestionsAnswer]: REQUEST_SCHEMAS[CommandName.QuestionsAnswer],
   [CommandName.PermissionsAnswer]: REQUEST_SCHEMAS[CommandName.PermissionsAnswer],
   [CommandName.FilesRead]: REQUEST_SCHEMAS[CommandName.FilesRead],
+  [CommandName.FilesWrite]: REQUEST_SCHEMAS[CommandName.FilesWrite],
   [CommandName.FilesOpen]: REQUEST_SCHEMAS[CommandName.FilesOpen],
   [CommandName.FilesClose]: REQUEST_SCHEMAS[CommandName.FilesClose],
   [CommandName.FilesOpenInEditor]: REQUEST_SCHEMAS[CommandName.FilesOpenInEditor],
@@ -191,6 +196,8 @@ const TASK_SCHEMAS = {
   [CommandName.WorkspacesRemove]: REQUEST_SCHEMAS[CommandName.WorkspacesRemove],
   [CommandName.MenuUpdate]: REQUEST_SCHEMAS[CommandName.MenuUpdate],
   [CommandName.WindowClose]: REQUEST_SCHEMAS[CommandName.WindowClose],
+  [CommandName.AppQuit]: REQUEST_SCHEMAS[CommandName.AppQuit],
+  [CommandName.WindowSetUnsavedEdits]: REQUEST_SCHEMAS[CommandName.WindowSetUnsavedEdits],
   [CommandName.LogRendererError]: REQUEST_SCHEMAS[CommandName.LogRendererError],
   [CommandName.MenuBarGet]: REQUEST_SCHEMAS[CommandName.MenuBarGet],
   [CommandName.MenuBarOpenTask]: REQUEST_SCHEMAS[CommandName.MenuBarOpenTask],
@@ -478,6 +485,9 @@ describe('events', () => {
           break
         case EventType.MenuCommand:
           expectTypeOf(event.command).toEqualTypeOf<Command>()
+          break
+        case EventType.CloseBlocked:
+          expectTypeOf(event.kind).toEqualTypeOf<CloseKind>()
           break
         case EventType.SettingsChanged:
           expectTypeOf(event.settings).toEqualTypeOf<Settings>()

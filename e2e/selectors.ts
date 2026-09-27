@@ -355,9 +355,24 @@ export function filesTab(page: Page) {
     close: (name: string) => openFiles.getByRole('button', { name: `Close ${name}`, exact: true }),
     /** The scrolling area the file shows in. */
     contents: panel.getByRole('region', { name: / contents$/ }),
+    /** A file shown read-only: one as a commit left it, or too large to show whole. */
     source,
-    /** A line of the source, by its number from 1: its number, then its text. */
+    /** A line of the read-only source, by its number from 1: its number, then its text. */
     line: (number: number) => source.locator(`[data-line="${String(number)}"]`),
+    /** A workspace file's editor: the text you type into. */
+    editor: panel.getByRole('textbox', { name: / contents$/ }),
+    /** A line of the editor, by its number from 1 (while every line shows: a short file). */
+    editorLine: (number: number) => panel.locator('.cm-content .cm-line').nth(number - 1),
+    /** The editor's line numbers, as they show. */
+    lineNumbers: panel.locator('.cm-lineNumbers .cm-gutterElement:not([style*="visibility"])'),
+    /** An open file's close button while it has unsaved edits: a dot in place of the cross. */
+    unsaved: (name: string) => openFiles.getByRole('button', { name: `Close ${name} (unsaved edits)`, exact: true }),
+    /** The bar that says the file changed on disk under your unsaved edits. */
+    changedOnDisk: panel.getByRole('alert').filter({ hasText: 'changed on disk' }),
+    reload: panel.getByRole('button', { name: 'Reload', exact: true }),
+    keepMine: panel.getByRole('button', { name: 'Keep mine', exact: true }),
+    /** The editor's find bar (⌘F). */
+    findField: panel.getByRole('textbox', { name: 'Find in file' }),
     openInEditor: panel.getByRole('button', { name: 'Open in editor' }),
     /** Source or Preview, for a Markdown file. */
     mode: (name: 'Source' | 'Preview') => panel.getByRole('radio', { name }),
@@ -632,6 +647,17 @@ export function terminal(page: Page) {
     empty: region.getByText('No terminal open'),
     screen,
     rows: screen.locator('.xterm-rows > div'),
+  }
+}
+
+/** The prompt about unsaved edits in the Files tab: Discard, Cancel and Save. */
+export function unsavedDialog(page: Page) {
+  const dialog = page.getByRole('alertdialog')
+  return {
+    dialog,
+    discard: dialog.getByRole('button', { name: 'Discard' }),
+    cancel: dialog.getByRole('button', { name: 'Cancel' }),
+    save: dialog.getByRole('button', { name: 'Save' }),
   }
 }
 

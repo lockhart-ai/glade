@@ -5,12 +5,23 @@ import { fileName, parseCommitFileKey } from '../../shared/files'
 import { shortHash } from '../changes/changesModel'
 import { WindowCommandId } from '../../shared/commands'
 import { useCommand } from '../commands/hooks'
-import { Icon, IconSize, Menu, MenuAnchorKind, MenuEntryKind, type MenuEntry, type MenuItem } from '../components'
+import {
+  Icon,
+  IconSize,
+  Menu,
+  MenuAnchorKind,
+  MenuEntryKind,
+  useToast,
+  type MenuEntry,
+  type MenuItem,
+} from '../components'
 import { classNames } from '../components/classNames'
 import { ContextMenu, fileTabMenu, useContextMenu, useMenuCommands } from '../context-menus'
+import { describeFailure } from '../store/hydrate'
 import { useGladeStore } from '../store/react'
 import { FileViewer, type FileVersion } from './FileViewer'
 import { isChanged, touchedCount, touchedFiles, touchOfFile, type TouchedFile, type TouchedFiles } from './filesModel'
+import type { OpenFileEdit } from './unsaved'
 import styles from './FilesTab.module.css'
 
 export interface FilesTabProps {
@@ -24,6 +35,7 @@ export interface FilesTabProps {
 const NO_TOOL_EVENTS: readonly ToolEvent[] = []
 const NO_PATHS: readonly string[] = []
 const NO_COMMITS: readonly TaskCommit[] = []
+const NO_EDITS: Readonly<Record<string, OpenFileEdit>> = {}
 
 /** A line of a file to mark, asked for by the agent's `show_file`. */
 export interface FileLineFocus {
@@ -73,6 +85,9 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
   const closeFile = useGladeStore((state) => state.closeFile)
   const openInEditor = useGladeStore((state) => state.openInEditor)
   const revealFile = useGladeStore((state) => state.revealFile)
+  const saveFile = useGladeStore((state) => state.saveFile)
+  const edits = useGladeStore((state) => state.fileEdits[taskId]) ?? NO_EDITS
+  const toast = useToast()
   const menu = useContextMenu<string>()
   const { run, copy, hints } = useMenuCommands()
   const touched = useMemo(() => touchedFiles(events, rootPath), [events, rootPath])
@@ -89,6 +104,18 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
         },
   )
 
+  // Save file (⌘S) saves the file showing; a failure says why, and the edits stay.
+  useCommand(
+    WindowCommandId.SaveFile,
+    activePath === null || parseCommitFileKey(activePath) !== null
+      ? null
+      : () => {
+          saveFile({ taskId, path: activePath }).catch((error: unknown) => {
+            toast.show({ message: `Couldn’t save ${fileName(activePath)}: ${describeFailure(error)}` })
+          })
+        },
+  )
+
   const open = (path: string): void => {
     void openFile(taskId, path)
   }
@@ -98,10 +125,11 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
 
   const focused = focus !== null && focus.path === activePath ? focus : null
 
-  // Closes the tabs one by one, in order: each close shows the next tab, as closing it by hand would.
+  // Closes the tabs one by one, in order: each close shows the next tab, as closing it by hand would. Cancelling the
+  // prompt about a file's unsaved edits stops there.
   const closeAll = (closing: readonly string[]): void => {
     run(async () => {
-      for (const path of closing) await closeFile(taskId, path)
+      for (const path of closing) if (!(await closeFile(taskId, path))) return
     })
   }
   const tabMenu = (path: string) => {
@@ -185,11 +213,13 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
             const fromCommit = versionOf(path)
             const name = fileName(fromCommit?.path ?? path)
             const active = path === activePath
+            const unsaved = edits[path]?.unsaved === true
             return (
               <div
                 key={path}
                 className={classNames(styles.tab, active && styles.active)}
                 title={fromCommit === null ? path : `${fromCommit.path} (${fromCommit.hash ?? 'a commit'})`}
+                data-unsaved={unsaved ? true : undefined}
                 {...menu.targetProps(path)}
               >
                 <button
@@ -206,14 +236,16 @@ export function FilesTab({ taskId, rootPath, focus }: FilesTabProps): React.JSX.
                   <span className={styles.name}>{name}</span>
                   {fromCommit?.hash != null && <span className={styles.version}>{fromCommit.hash}</span>}
                 </button>
+                {/* Unsaved edits show as a dot in place of the cross, as a Mac shows an edited document's; hovering shows the cross. */}
                 <button
                   type="button"
-                  aria-label={`Close ${name}`}
-                  title="Close (⌘W)"
+                  aria-label={unsaved ? `Close ${name} (unsaved edits)` : `Close ${name}`}
+                  title={unsaved ? 'Unsaved edits · Close (⌘W)' : 'Close (⌘W)'}
                   className={styles.close}
                   onClick={() => void closeFile(taskId, path)}
                 >
-                  <Icon icon={faXmark} size={IconSize.Small} />
+                  {unsaved && <span className={styles.unsaved} />}
+                  <Icon icon={faXmark} size={IconSize.Small} className={styles.cross} />
                 </button>
               </div>
             )

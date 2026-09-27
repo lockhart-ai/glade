@@ -26,6 +26,7 @@ import { TaskPanel } from './right-panel'
 import { RelaunchNotice } from './relaunch-notice'
 import { Terminal, TerminalTabs, useTerminalShortcuts } from './terminal'
 import { PluginPanel } from './plugins'
+import { UnsavedChangesDialog } from './files'
 
 interface WindowProps {
   /** The sidebar, or nothing while it's collapsed. */
@@ -178,6 +179,7 @@ export function App(): React.JSX.Element {
       return (
         <ToastProvider>
           <MenuBar />
+          <UnsavedChangesDialog />
           {hasWorkspace ? <Layout /> : <FirstRunLayout />}
         </ToastProvider>
       )

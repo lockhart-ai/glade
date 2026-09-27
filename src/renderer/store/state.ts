@@ -18,6 +18,7 @@ import type { InstalledPlugin } from '../../shared/plugins'
 import type { ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
 import type { SettingsSection } from '../settings/sections'
+import type { FileEdits, OpenEditSession, TaskFile, UnsavedChoice, UnsavedPrompt } from '../files/unsaved'
 import type { Command, MenuState } from '../../shared/commands'
 import type {
   Artifact,
@@ -287,6 +288,15 @@ export interface GladeData {
   readonly terminalFocusRequest: number
   /** The latest request to put text at a terminal tab's prompt; null until one is made. A one-off UI intent. */
   readonly terminalPaste: TerminalPaste | null
+  /**
+   * The workspace files open for editing in the Files tab, by task, then by path: each one's editor, and whether it has
+   * unsaved edits or changed on disk under them. The one thing the store keeps only in the window: unsaved edits are an
+   * editor's, not the app's, and the file on disk stays the file. Closing a file's tab, switching task, or closing the
+   * window or quitting with unsaved edits asks first (`unsavedPrompt`).
+   */
+  readonly fileEdits: FileEdits
+  /** The Save / Discard / Cancel prompt showing, about unsaved edits; null when none is. */
+  readonly unsavedPrompt: UnsavedPrompt | null
 }
 
 /**
@@ -384,8 +394,11 @@ export interface GladeActions {
   /** Loads a task's chat log and tool log from main. */
   loadHistory: (taskId: string) => Promise<void>
   setUiState: (entry: UiStateEntry) => Promise<void>
-  /** Creates an active, empty task in the workspace and selects it. Resolves with the new task. */
-  createTask: (workspaceId: string) => Promise<Task>
+  /**
+   * Creates an active, empty task in the workspace and selects it. Resolves with the new task; or null, making none,
+   * when you cancel the prompt about the unsaved edits of the task you're leaving.
+   */
+  createTask: (workspaceId: string) => Promise<Task | null>
   /** Marks an active task done. */
   markTaskDone: (taskId: string) => Promise<void>
   /** Reopens a done task. Straight after `markTaskDone`, this is Undo: it restores every field but `updatedAt`. */
@@ -468,10 +481,31 @@ export interface GladeActions {
   focusInput: () => void
   /** Opens a file in a task's Files tab and shows it (`files.open`). */
   openFile: (taskId: string, path: string) => Promise<void>
-  /** Closes a file's tab in a task's Files tab (`files.close`). */
-  closeFile: (taskId: string, path: string) => Promise<void>
+  /**
+   * Closes a file's tab in a task's Files tab (`files.close`), and its editor. With unsaved edits, asks Save / Discard
+   * / Cancel first. Resolves with whether it closed: false when you cancelled, or saving failed (rejecting then).
+   */
+  closeFile: (taskId: string, path: string) => Promise<boolean>
   /** Reads a file of a task's workspace for the viewer (`files.read`). Not kept in the store: the viewer holds it. */
   readFile: (taskId: string, path: string) => Promise<FileContent>
+  /** Starts editing a workspace file of a task, from its text on disk; its editor is in `fileEdits` from then. */
+  startEditing: (file: TaskFile, openSession: OpenEditSession) => void
+  /** Stops editing a file: its editor, and any unsaved edits, are dropped. */
+  stopEditing: (file: TaskFile) => void
+  /**
+   * Saves a file's editor to disk (⌘S, `files.write`); nothing to do without unsaved edits. Rejects with the
+   * `BridgeError` when main can't save it, keeping the edits.
+   */
+  saveFile: (file: TaskFile) => Promise<void>
+  /** The changed-on-disk bar's Reload: the file's editor takes what's on disk, dropping the unsaved edits. */
+  reloadFile: (file: TaskFile) => void
+  /** The changed-on-disk bar's Keep mine: the edits stay, and the next save writes over what's on disk. */
+  keepMyEdits: (file: TaskFile) => void
+  /**
+   * Answers the unsaved edits prompt: Save saves its files (rejecting, as if cancelled, when one can't be saved),
+   * Discard drops their edits, and either goes on with what the prompt was for; Cancel stays.
+   */
+  answerUnsavedPrompt: (choice: UnsavedChoice) => Promise<void>
   /** Opens a file of a task's workspace in the app macOS opens its kind of file with (`files.openInEditor`). */
   openInEditor: (taskId: string, path: string) => Promise<void>
   /** A file of a task's workspace as its artifact's row shows it (`files.thumbnail`). Not kept in the store. */
@@ -622,6 +656,8 @@ export const INITIAL_DATA: GladeData = {
   renamingTerminalId: null,
   terminalFocusRequest: 0,
   terminalPaste: null,
+  fileEdits: {},
+  unsavedPrompt: null,
 }
 
 export function selectSelectedWorkspace(state: GladeData): Workspace | undefined {

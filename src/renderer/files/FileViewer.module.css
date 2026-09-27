@@ -49,6 +49,38 @@
   overflow: auto;
 }
 
+/* An editor scrolls itself: the body only holds it. */
+.editing {
+  flex-grow: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The changed-on-disk bar: a slim row under the header, like the large file's note, with its two choices. */
+.changedOnDisk {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-xl);
+  border-bottom: 1px solid var(--color-inner-border);
+  background: color-mix(in srgb, var(--color-purple) 8%, transparent);
+}
+
+.changedText {
+  flex-grow: 1;
+  min-width: 0;
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-text);
+}
+
+/* The bar's buttons, a size smaller than the header's, as the Source / Preview toggle is. */
+.changedOnDisk > button {
+  height: 26px;
+  padding: 0 10px;
+  font-size: var(--font-size-secondary-sm);
+}
+
 .body:focus-visible {
   outline: 2px solid var(--color-blue-text);
   outline-offset: -2px;

@@ -4,7 +4,7 @@
 // fields a plugin may see carry markers of their own, which must come out, so the test can't pass by sending nothing.
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import { UsageWindow } from '../../shared/account'
-import { EventType, type GladeEvent } from '../../shared/bridge'
+import { CloseKind, EventType, type GladeEvent } from '../../shared/bridge'
 import { appCommand, AppCommandId } from '../../shared/commands'
 import {
   AgentErrorKind,
@@ -491,6 +491,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
       { type: EventType.UiStateChanged, entry: { key: UiStateKey.RelaunchNotice, value: secret('ui_state') } },
     ],
     [EventType.MenuCommand]: [{ type: EventType.MenuCommand, command: appCommand(AppCommandId.NewTask) }],
+    [EventType.CloseBlocked]: [{ type: EventType.CloseBlocked, kind: CloseKind.Quit }],
     [EventType.SettingsChanged]: [
       { type: EventType.SettingsChanged, settings: { ...DEFAULT_SETTINGS, defaultModel: secret('settings_model') } },
     ],

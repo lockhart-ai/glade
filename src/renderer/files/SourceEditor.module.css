@@ -1,0 +1,5 @@
+/* The editor fills the viewer's body and scrolls itself (CodeMirror's scroller), as the viewer's body scrolls the source. */
+.editor {
+  height: 100%;
+  min-height: 0;
+}

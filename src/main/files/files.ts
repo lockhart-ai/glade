@@ -1,12 +1,12 @@
 /**
- * The files of a task's workspace, for the Files and Artifacts tabs: reading one for the viewer, the tabs open in it,
- * opening one in your editor, an artifact's file's thumbnail, copying and revealing it, and the agent's `show_file`. A
- * file is only ever reached inside the task's workspace root: every path is resolved against the root's real path, and
- * so is every symlink along it, so `..` or a symlink can't reach a file outside it.
+ * The files of a task's workspace, for the Files and Artifacts tabs: reading one for the viewer and saving one from the
+ * editor, the tabs open in it, opening one in your editor, an artifact's file's thumbnail, copying and revealing it,
+ * and the agent's `show_file`. A file is only ever reached inside the task's workspace root: every path is resolved
+ * against the root's real path, and so is every symlink along it, so `..` or a symlink can't reach a file outside it.
  */
 import { constants, type Stats } from 'node:fs'
-import { open, realpath, stat, type FileHandle } from 'node:fs/promises'
-import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { lstat, open, realpath, stat, type FileHandle } from 'node:fs/promises'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { BridgeErrorCode, EventType } from '../../shared/bridge'
 import {
   FileContentKind,
@@ -18,6 +18,7 @@ import {
 import {
   MAX_FILE_BYTES,
   MAX_FILE_LINES,
+  MAX_SAVE_BYTES,
   withClosedFile,
   withOpenedFile,
   workspaceRelativePath,
@@ -180,6 +181,91 @@ export function workspaceRoot(context: TaskServiceContext, taskId: string): stri
 /** `files.read`: a file of the task's workspace, for the viewer. */
 export async function readTaskFile(context: TaskServiceContext, taskId: string, path: string): Promise<FileContent> {
   return readWorkspaceFile(workspaceRoot(context, taskId), path)
+}
+
+/** What an error from the file system means for a save, as the failure the editor shows. */
+export function saveFailure(path: string, error: unknown): unknown {
+  if (isMissing(error)) return new CommandFailure(BridgeErrorCode.NotFound, `${path}'s folder isn't there`)
+  const code: unknown = typeof error === 'object' && error !== null ? Reflect.get(error, 'code') : undefined
+  // Something appeared at the path since it was looked at: a symlink (never followed) or a folder.
+  if (code === 'EEXIST' || code === 'ELOOP' || code === 'EISDIR') {
+    return new CommandFailure(BridgeErrorCode.InvalidRequest, `${path} isn't a file`)
+  }
+  // Said plainly, without the file's whole path.
+  if (code === 'EACCES' || code === 'EPERM') return new Error(`you don't have permission to write ${path}`)
+  if (code === 'EROFS') return new Error(`${path} is on a read-only disk`)
+  return error
+}
+
+/**
+ * The absolute path to make a file of the workspace at, when there's nothing at `path` now (the file went): its folder,
+ * resolved as any path is, so it's inside the root. Throws a `CommandFailure`: `not_found` when the folder isn't there,
+ * `invalid_request` when something is at the path after all (a symlink that leads nowhere), `outside_workspace` when
+ * the folder, or a symlink on the way to it, leads outside the root.
+ */
+async function newWorkspaceFile(rootPath: string, path: string): Promise<string> {
+  const slash = path.lastIndexOf('/')
+  const folder = await resolveWorkspaceFile(rootPath, slash === -1 ? '' : path.slice(0, slash))
+  if (folder === null) throw new CommandFailure(BridgeErrorCode.NotFound, `${path}'s folder isn't there`)
+  const target = join(folder, path.slice(slash + 1))
+  // Anything there can only be a symlink that leads nowhere (its path resolved to nothing). Any other trouble looking is
+  // left to opening it, which makes it only if nothing is there.
+  const there = await lstat(target).then(
+    () => true,
+    () => false,
+  )
+  if (there) throw new CommandFailure(BridgeErrorCode.InvalidRequest, `${path} is a link to nothing`)
+  return target
+}
+
+/**
+ * Opens a file of the workspace to write over it, or makes it again when it's gone: only ever inside the root. The path
+ * is resolved as for reading, and the file opened without following a symlink swapped in since, or, when it's made
+ * again, only if nothing has appeared at its path meanwhile.
+ */
+async function openForSaving(rootPath: string, path: string): Promise<FileHandle> {
+  const real = await resolveWorkspaceFile(rootPath, path)
+  if (real === null) {
+    const target = await newWorkspaceFile(rootPath, path)
+    return open(target, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW)
+  }
+  // Never a folder, a pipe or a device: only a file is written.
+  if (!(await lstat(real)).isFile()) throw new CommandFailure(BridgeErrorCode.InvalidRequest, `${path} isn't a file`)
+  return open(real, constants.O_WRONLY | constants.O_TRUNC | constants.O_NOFOLLOW)
+}
+
+/**
+ * Saves a file of the workspace: writes `text` over it in place (keeping its permissions and any hard links), or makes
+ * it again when it's gone (`openForSaving`). Throws a `CommandFailure`: `outside_workspace` for a path, or a symlink on
+ * it, leading outside the root; `not_found` when its folder isn't there; `invalid_request` for text larger than
+ * `MAX_SAVE_BYTES`, or something other than a file at the path. A file it may not write says so plainly.
+ */
+export async function writeWorkspaceFile(rootPath: string, path: string, text: string): Promise<void> {
+  const bytes = Buffer.from(text, 'utf8')
+  if (bytes.length > MAX_SAVE_BYTES) {
+    throw new CommandFailure(BridgeErrorCode.InvalidRequest, `${path} is too large to save`)
+  }
+  let handle: FileHandle
+  try {
+    handle = await openForSaving(rootPath, path)
+  } catch (error) {
+    throw saveFailure(path, error)
+  }
+  try {
+    await handle.writeFile(bytes)
+  } finally {
+    await handle.close()
+  }
+}
+
+/** `files.write`: saves a file of the task's workspace from the editor. */
+export async function writeTaskFile(
+  context: TaskServiceContext,
+  taskId: string,
+  path: string,
+  text: string,
+): Promise<void> {
+  await writeWorkspaceFile(workspaceRoot(context, taskId), path, text)
 }
 
 function changeOpenFiles(
