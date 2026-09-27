@@ -1,12 +1,19 @@
 // Porting a long Claude Code session in has to stay quick: a 20,000-line transcript imports in under 5 seconds and
 // lists in under 1, and a few hundred sessions page quickly once read.
 //
-// The budgets are in CPU time, not on the wall clock (see search.perf.test.ts): on a shared CI runner the test files
-// running alongside take the CPU away, which the wall clock counts and CPU time doesn't. Reading the transcript is also
-// held to a baseline measured in the same run, a transcript a tenth as long, so a parser that slows down as the
-// transcript grows fails however fast the machine is. (The import as a whole isn't: its database writes grow a little
-// faster than linear on a busy machine, and they would hide a parser's quadratic cost at this size anyway.)
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+// The budgets are in CPU time (see search.perf.test.ts), counted in references timed just before, on the same machine
+// under the same load: the least any reader of the transcript has to do (read the file and JSON.parse each line), and
+// for the import the least any importer has to do (that, then write each line into a table in one transaction). An
+// idle Mac, a busy one and one held to its efficiency cores differ several times over in milliseconds, but little in
+// references, so a budget can be tight enough that twice the work fails without a slow or busy machine failing. (On
+// the Mac they were set on, the import's budget of 18 references is about 2.7s, inside its 5s.)
+//
+// Each is timed a few times and the fastest counts: on a busy machine noise only ever adds time (a collection the last
+// step left behind, another process's cache misses, a disk others are writing to), so the fastest run is the one
+// closest to the work itself. Reading is also held to linear time, reading the transcript once against reading one a
+// tenth as long ten times, so a parser that slows down as the transcript grows fails however fast the machine is. (The
+// import as a whole isn't: its database writes would hide a parser's quadratic cost at this size.)
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
@@ -16,16 +23,46 @@ import { openTestDatabase, sampleWorkspace, type TestDatabase } from '../../db/r
 import { listToolEvents } from '../../db/repositories/tool-events'
 import { createClaudeCodeSessions, type ClaudeCodeSessions } from './service'
 import { SESSION_ID, TranscriptBuilder, writeTranscript } from './test-transcripts'
-import { readTranscript } from './transcripts'
+import { readTranscript, type TranscriptFile } from './transcripts'
 
 const LINES = 20_000
-const IMPORT_BUDGET_MS = 5_000
-const LIST_BUDGET_MS = 1_000
-/** The baseline: a transcript a tenth as long, which a linear parser reads in a tenth of the time. */
+/** The baseline for linear time: a transcript a tenth as long, read ten times over. */
 const BASELINE_LINES = LINES / 10
-/** How many baselines reading the full transcript may take: half again linear, so noise passes and quadratic fails. */
-const MAX_SCALING = 15
-const RUNS = 3
+const BASELINE_READS = LINES / BASELINE_LINES
+
+/**
+ * The budgets, in references, as `npm test` measures them (with coverage): each is about 1.75 times what it takes on an
+ * idle Mac, so twice the work fails, and about 1.4 times the most it took on a busy one held to its efficiency cores.
+ */
+const BUDGET = {
+  /** Reading the transcript: about 4, and at most 5.3. */
+  read: 7,
+  /** Listing it, which reads it too: about 4, and at most 4.9. */
+  list: 7,
+  /** Importing it: about 10, and at most 12. */
+  import: 18,
+  /**
+   * Listing the second page of 300 sessions once the first has read them: about 0.15. It shows the page comes from
+   * what the first read, which took about 3.5: reading them all again would fail.
+   */
+  page: 1,
+} as const
+
+/** How much longer reading the transcript once may take than reading a tenth of it ten times: it takes about as long. */
+const MAX_SCALING = 1.5
+
+/** How many times each thing is timed, the fastest counting. */
+const RUNS = 5
+/** How many times the import is timed: it takes much longer. */
+const IMPORT_RUNS = 5
+/** How many times a reference is timed before each timing, the fastest counting. */
+const REFERENCE_RUNS = 3
+
+/**
+ * A guard against a hang, not a budget: the budgets are CPU time, and a machine this test runs on at a tenth of its
+ * speed would still pass them.
+ */
+const TIMEOUT_MS = 300_000
 
 /** A fresh database and projects folder, with one workspace, to list and import sessions from. */
 interface Fixture {
@@ -65,15 +102,17 @@ function cpuMs(): number {
 }
 
 /** How much CPU time `run` takes, in milliseconds. */
-async function cpuTime(run: () => Promise<void>): Promise<number> {
+async function cpuTime(run: () => Promise<void> | void): Promise<number> {
   const start = cpuMs()
   await run()
   return cpuMs() - start
 }
 
-function median(times: readonly number[]): number {
-  const sorted = [...times].sort((a, b) => a - b)
-  return sorted[Math.floor(sorted.length / 2)] ?? Infinity
+/** The fastest of `runs` timings of `run`, in milliseconds of CPU time. */
+async function fastest(runs: number, run: () => Promise<void> | void): Promise<number> {
+  let best = Infinity
+  for (let time = 0; time < runs; time += 1) best = Math.min(best, await cpuTime(run))
+  return best
 }
 
 /**
@@ -102,90 +141,167 @@ function longSession(cwd: string, lines: number): TranscriptBuilder {
   return builder
 }
 
-/** What reading, listing and then importing a session took, in milliseconds of CPU time. */
-interface Timing {
-  readonly readMs: number
-  readonly listMs: number
-  readonly importMs: number
+/** A long session, written into a fresh fixture's projects folder. */
+interface LongSession {
+  readonly fixture: Fixture
+  readonly file: TranscriptFile
+  /** Its turns: nine lines each, seven of conversation and two of noise. */
+  readonly turns: number
 }
 
-/** Reads, lists and imports a fresh session of `lines` lines, checking it all came in, and answers how long each took. */
-async function measure(lines: number): Promise<Timing> {
-  const { database, projects, cwd, sessions } = fixture()
-  const builder = longSession(cwd, lines)
-  const text = builder.toJsonl()
-  const path = writeTranscript(projects, cwd, text)
+function writeLongSession(lines: number): LongSession {
+  const created = fixture()
+  const builder = longSession(created.cwd, lines)
   expect(builder.lines.length).toBeGreaterThanOrEqual(lines)
-
-  // The transcript parser on its own: the import's writes to the database would hide it growing faster than linear.
-  const readMs = await cpuTime(async () => {
-    const file = { path, sessionId: SESSION_ID, size: text.length, modifiedAt: 0 }
-    expect((await readTranscript(file)).turns).toHaveLength(builder.lines.length / 9)
-  })
-  const listMs = await cpuTime(async () => {
-    expect((await sessions.list({ limit: 50 })).sessions).toHaveLength(1)
-  })
-  let taskId = ''
-  const importMs = await cpuTime(async () => {
-    const { task, imported } = await sessions.import({
-      session: { sessionId: SESSION_ID },
-      state: TaskState.Done,
-      createWorkspace: false,
-    })
-    expect(imported).toBe(true)
-    taskId = task.id
-  })
-
-  // Nine lines a turn: seven of conversation and two of noise.
-  const turns = builder.lines.length / 9
-  expect(listMessages(database.db, taskId)).toHaveLength(turns * 2)
-  expect(listToolEvents(database.db, taskId)).toHaveLength(turns * 4)
-  return { readMs, listMs, importMs }
-}
-
-/** The median of each timing over a few runs, after a warm-up. */
-async function medianTiming(lines: number): Promise<Timing> {
-  await measure(lines)
-  const runs: Timing[] = []
-  for (let run = 0; run < RUNS; run += 1) runs.push(await measure(lines))
+  const text = builder.toJsonl()
+  const path = writeTranscript(created.projects, created.cwd, text)
   return {
-    readMs: median(runs.map((timing) => timing.readMs)),
-    listMs: median(runs.map((timing) => timing.listMs)),
-    importMs: median(runs.map((timing) => timing.importMs)),
+    fixture: created,
+    file: { path, sessionId: SESSION_ID, size: text.length, modifiedAt: 0 },
+    turns: builder.lines.length / 9,
   }
 }
 
-it(`imports a ${String(LINES)}-line transcript in under ${String(IMPORT_BUDGET_MS / 1000)}s, and lists it in under ${String(LIST_BUDGET_MS / 1000)}s, of CPU time`, async () => {
-  const baseline = await medianTiming(BASELINE_LINES)
-  const full = await medianTiming(LINES)
+/** A session's lines, as Claude Code wrote them. */
+function linesOf({ file }: LongSession): string[] {
+  return readFileSync(file.path, 'utf8').split('\n').slice(0, -1)
+}
 
-  expect(full.listMs).toBeLessThan(LIST_BUDGET_MS)
-  expect(full.importMs).toBeLessThan(IMPORT_BUDGET_MS)
-  // Ten times the lines take about ten times as long to read.
-  expect(full.readMs).toBeLessThan(baseline.readMs * MAX_SCALING)
-}, 60_000)
-
-it('lists a few hundred sessions, and pages through them quickly once read', async () => {
-  const { projects, cwd, sessions } = fixture()
-  for (let index = 0; index < 300; index += 1) {
-    const builder = new TranscriptBuilder(cwd)
-    for (let turn = 0; turn < 10; turn += 1) {
-      builder
-        .prompt(index * 100 + turn, `Session ${String(index)}, step ${String(turn)}`)
-        .say(index * 100 + turn, 'Done.')
-    }
-    writeTranscript(projects, cwd, builder.toJsonl(), `session-${String(index).padStart(3, '0')}`)
-  }
-
-  const first = await sessions.list({ limit: 200 })
-  expect(first.sessions).toHaveLength(200)
-  expect(first.sessions[0]?.sessionId).toBe('session-299')
-
-  let second = first
-  const pageMs = await cpuTime(async () => {
-    second = await sessions.list({ limit: 200, ...(first.nextCursor === null ? {} : { cursor: first.nextCursor }) })
+/** The read reference: reading a session's file and JSON.parse on each of its lines, in milliseconds of CPU time. */
+function readReferenceMs(session: LongSession): Promise<number> {
+  return fastest(REFERENCE_RUNS, () => {
+    for (const line of linesOf(session)) JSON.parse(line)
   })
-  expect(second.sessions).toHaveLength(100)
-  expect(second.nextCursor).toBeNull()
-  expect(pageMs).toBeLessThan(LIST_BUDGET_MS)
-}, 30_000)
+}
+
+/**
+ * The store reference: writing each of a session's lines into a table of a fresh database, in one transaction, in
+ * milliseconds of CPU time.
+ */
+function storeReferenceMs(session: LongSession): Promise<number> {
+  const lines = linesOf(session)
+  return fastest(REFERENCE_RUNS, () => {
+    const database = openTestDatabase()
+    try {
+      database.db.exec('CREATE TABLE lines (id INTEGER PRIMARY KEY, line TEXT NOT NULL)')
+      const insert = database.db.prepare('INSERT INTO lines (line) VALUES (?)')
+      database.db.transaction(() => {
+        for (const line of lines) insert.run(line)
+      })()
+    } finally {
+      database.close()
+    }
+  })
+}
+
+/** Reads a session's transcript, checking it all came through. */
+async function read({ file, turns }: LongSession): Promise<void> {
+  expect((await readTranscript(file)).turns).toHaveLength(turns)
+}
+
+/** Lists a session's projects folder afresh, as a new window would, with nothing read yet. */
+async function listAfresh({ fixture: { database, projects } }: LongSession): Promise<void> {
+  const sessions = createClaudeCodeSessions({ db: database.db, emit: () => undefined, projectsDir: projects })
+  expect((await sessions.list({ limit: 50 })).sessions).toHaveLength(1)
+}
+
+it(
+  `reads a ${String(LINES)}-line transcript in linear time within ${String(BUDGET.read)} references, and lists it within ${String(BUDGET.list)}`,
+  async () => {
+    const full = writeLongSession(LINES)
+    const baseline = writeLongSession(BASELINE_LINES)
+
+    let readRefs = Infinity
+    let listRefs = Infinity
+    let fullMs = Infinity
+    let baselineMs = Infinity
+    for (let run = 0; run < RUNS; run += 1) {
+      const reference = await readReferenceMs(full)
+      const readMs = await cpuTime(() => read(full))
+      const listMs = await cpuTime(() => listAfresh(full))
+      readRefs = Math.min(readRefs, readMs / reference)
+      listRefs = Math.min(listRefs, listMs / reference)
+      fullMs = Math.min(fullMs, readMs)
+      baselineMs = Math.min(
+        baselineMs,
+        await cpuTime(async () => {
+          for (let time = 0; time < BASELINE_READS; time += 1) await read(baseline)
+        }),
+      )
+    }
+
+    expect(readRefs).toBeLessThan(BUDGET.read)
+    expect(listRefs).toBeLessThan(BUDGET.list)
+    // Ten times the lines, once, take about as long as a tenth of them ten times.
+    expect(fullMs).toBeLessThan(baselineMs * MAX_SCALING)
+  },
+  TIMEOUT_MS,
+)
+
+it(
+  `imports a ${String(LINES)}-line transcript within ${String(BUDGET.import)} references`,
+  async () => {
+    // A warm-up, a tenth the size.
+    const { sessions } = writeLongSession(BASELINE_LINES).fixture
+    await sessions.import({ session: { sessionId: SESSION_ID }, state: TaskState.Done, createWorkspace: false })
+
+    let importRefs = Infinity
+    for (let run = 0; run < IMPORT_RUNS; run += 1) {
+      // Each import needs a database that doesn't have the session yet.
+      const session = writeLongSession(LINES)
+      const { database, sessions } = session.fixture
+      const reference = (await readReferenceMs(session)) + (await storeReferenceMs(session))
+      let taskId = ''
+      const importMs = await cpuTime(async () => {
+        const { task, imported } = await sessions.import({
+          session: { sessionId: SESSION_ID },
+          state: TaskState.Done,
+          createWorkspace: false,
+        })
+        expect(imported).toBe(true)
+        taskId = task.id
+      })
+      expect(listMessages(database.db, taskId)).toHaveLength(session.turns * 2)
+      expect(listToolEvents(database.db, taskId)).toHaveLength(session.turns * 4)
+      importRefs = Math.min(importRefs, importMs / reference)
+    }
+
+    expect(importRefs).toBeLessThan(BUDGET.import)
+  },
+  TIMEOUT_MS,
+)
+
+it(
+  `lists a few hundred sessions, and pages through them within ${String(BUDGET.page)} reference once read`,
+  async () => {
+    const { projects, cwd, sessions } = fixture()
+    for (let index = 0; index < 300; index += 1) {
+      const builder = new TranscriptBuilder(cwd)
+      for (let turn = 0; turn < 10; turn += 1) {
+        builder
+          .prompt(index * 100 + turn, `Session ${String(index)}, step ${String(turn)}`)
+          .say(index * 100 + turn, 'Done.')
+      }
+      writeTranscript(projects, cwd, builder.toJsonl(), `session-${String(index).padStart(3, '0')}`)
+    }
+    const long = writeLongSession(LINES)
+
+    const first = await sessions.list({ limit: 200 })
+    expect(first.sessions).toHaveLength(200)
+    expect(first.sessions[0]?.sessionId).toBe('session-299')
+    const cursor = first.nextCursor === null ? {} : { cursor: first.nextCursor }
+
+    let pageRefs = Infinity
+    for (let run = 0; run < RUNS; run += 1) {
+      const reference = await readReferenceMs(long)
+      const pageMs = await cpuTime(async () => {
+        const second = await sessions.list({ limit: 200, ...cursor })
+        expect(second.sessions).toHaveLength(100)
+        expect(second.nextCursor).toBeNull()
+      })
+      pageRefs = Math.min(pageRefs, pageMs / reference)
+    }
+    expect(pageRefs).toBeLessThan(BUDGET.page)
+  },
+  TIMEOUT_MS,
+)
