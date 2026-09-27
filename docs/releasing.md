@@ -66,10 +66,11 @@ Node, that loads the SDK from the app bundle, points it at the unpacked binary a
 folder:
 
 ```sh
-ELECTRON_RUN_AS_NODE=1 release/mac-arm64/Glade.app/Contents/MacOS/Glade <probe.cjs> release/mac-arm64/Glade.app
+ELECTRON_RUN_AS_NODE=1 release/mac-arm64/Glade.app/Contents/MacOS/Glade <probe.cjs> "$PWD/release/mac-arm64/Glade.app"
 ```
 
-It should print a `success` result. Run it from the build folder; never install a test build into `/Applications`.
+It should print a `success` result. Give the app's path in full (the probe resolves the SDK from it). Run the build
+where it is: never install a test build into `/Applications`.
 
 ## Dependency updates
 
