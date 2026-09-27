@@ -196,6 +196,8 @@ export enum KeyScope {
   OpenMenu = 'open_menu',
   /** A question card, with the focus in it. */
   QuestionCard = 'question_card',
+  /** The image viewer, while it's open. */
+  ImageViewer = 'image_viewer',
 }
 
 /** The scopes the window's key dispatcher runs. */
@@ -340,6 +342,14 @@ export const COMMANDS: readonly CommandDefinition[] = [
       digits: NINE,
       fixed: FixedReason.Menus,
     },
+  ),
+  command(
+    WindowCommandId.StepImage,
+    MenusAndDialogs,
+    'Previous / next image in the image viewer',
+    KeyScope.ImageViewer,
+    ['ArrowLeft', 'ArrowRight'],
+    { fixed: FixedReason.Menus },
   ),
 ]
 
@@ -658,6 +668,7 @@ export const KEYMAP_LAYOUT: readonly KeymapGroup[] = [
       row('Choose', WindowCommandId.MenuChoose),
       row('Close', WindowCommandId.MenuClose),
       row('Select an answer in a question card', WindowCommandId.SelectAnswer),
+      row('Previous / next image in the image viewer', WindowCommandId.StepImage),
     ],
   },
 ]

@@ -72,6 +72,7 @@ const HANDLED_BY_FOCUS: Readonly<
   [KeyScope.OpenMenu]: 'Menu (Floating UI’s list navigation)',
   [KeyScope.MenuBar]: 'the menu bar (src/main/menu/template.ts, which template.test.ts checks)',
   [KeyScope.QuestionCard]: 'QuestionCard',
+  [KeyScope.ImageViewer]: 'ImageViewer',
 }
 
 describe('docs/keymap.md', () => {

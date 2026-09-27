@@ -17,6 +17,8 @@ import {
   type FakeBridge,
   type FakeHandlers,
 } from '../store/test-bridge'
+import { settleFloating } from '../components/settleFloating'
+import { VIEWER_LABEL } from '../images/ImageViewer'
 import { IMAGE_LABEL } from '../images/StoredImage'
 import { ASKING_IMAGES_REFUSAL, InputBar } from './InputBar'
 
@@ -265,6 +267,37 @@ describe('pasting images', () => {
     await act(() => Promise.resolve())
     expect(row()).toHaveTextContent('Use these two.')
     expect(sources()).toEqual([imageDataUrl(PNG), imageDataUrl(GIF)])
+  })
+
+  it('opens a queued message’s thumbnail in the image viewer, whose keys and right-clicks aren’t the row’s', async () => {
+    await renderBar({ task: { activity: TaskActivity.Working } })
+    paste({ files: [imageFile(PNG), imageFile(GIF)] })
+    await attached(2)
+    type('Use these.')
+    await send()
+    await act(() => Promise.resolve())
+
+    const queue = screen.getByRole('region', { name: 'Queued messages' })
+    const thumbnail = within(queue).getByRole('button', { name: 'View pasted image 2 of 2' })
+    thumbnail.focus()
+    fireEvent.click(thumbnail)
+    await settleFloating()
+    const viewer = screen.getByRole('dialog', { name: VIEWER_LABEL })
+    expect(within(viewer).getByRole('img', { name: IMAGE_LABEL })).toHaveAttribute('src', imageDataUrl(GIF))
+
+    // The row's context menu stays shut: the viewer is rendered from inside the row, but isn't in it on the page.
+    fireEvent.contextMenu(within(viewer).getByRole('img', { name: IMAGE_LABEL }))
+    fireEvent.keyDown(viewer, { key: 'F10', shiftKey: true })
+    await act(() => Promise.resolve())
+    expect(screen.queryByRole('menu', { name: 'Queued message actions' })).not.toBeInTheDocument()
+
+    fireEvent.keyDown(viewer, { key: 'ArrowLeft' })
+    expect(within(viewer).getByRole('img', { name: IMAGE_LABEL })).toHaveAttribute('src', imageDataUrl(PNG))
+    fireEvent.click(within(viewer).getByRole('button', { name: 'Close image' }))
+    await settleFloating()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(within(queue).getByRole('button', { name: 'View pasted image 1 of 2' })).toHaveFocus()
+    expect(within(queue).getAllByRole('listitem')).toHaveLength(1)
   })
 
   it('queues them instead when the agent started working since the bar last heard', async () => {

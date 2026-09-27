@@ -60,12 +60,12 @@
   margin-bottom: var(--space-2xs);
 }
 
+/* Each a button that opens the image viewer (its hover and focus are in ../images/ImageThumbnails.module.css). */
 .image {
   display: block;
   width: 160px;
   height: 100px;
   box-sizing: border-box;
-  object-fit: cover;
   border: 1px solid var(--color-strong);
   border-radius: 10px;
 }
