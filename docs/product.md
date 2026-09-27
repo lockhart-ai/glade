@@ -47,6 +47,11 @@ There are no follow-up tasks. One task can refer to another through its folder o
   and permissions pickers and a context
   meter at the right. Each task keeps its unsent draft, text and pasted images, while you're on another task and
   across a relaunch or a crash, until it's sent.
+  A message's pasted images show as thumbnails above its text in the chat, and small in its row while it's queued.
+  Clicking one (or ↵ or Space on it) opens the **image viewer** over the window: the image as large as fits, never
+  scaled past its own size, on a dimmed backdrop. With several, ← and → step through the message's images, round from
+  the last to the first, under a "2 of 3"; Esc, a click on the backdrop or × closes it, and the focus goes back to the
+  thumbnail of the image it showed. ![Image viewer](design/screens/30-image-viewer.png)
 - **Right panel** (inside the task card) — tabs: Tool calls, Files, Todos, Artifacts, Subagents, Watchers, Changes (the
   commits the task made; Glade watches git and never drives it). Resizable, collapsible. Too narrow for its tabs, the
   tab row scrolls sideways, with chevrons at the ends that have more tabs past them.

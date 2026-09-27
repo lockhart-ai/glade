@@ -147,7 +147,8 @@ scroll: the chat passes under them.
   own words.
 - **Pasted images:** paste a screenshot or image (PNG, JPEG, GIF or WebP, up to 3.75 MB each) into the input bar. It
   shows as a thumbnail you can remove, and goes to the agent with your message. Images can't go with an answer to a
-  question card; send them after.
+  question card; send them after. Once sent (or queued), click a thumbnail, or press ↵ or Space on it, to see the image
+  full size; ← and → step through the message's other images, and Esc or a click beside the image closes it.
 - **Right-click a reply** to copy it (as text or Markdown), quote it in your reply, or show that turn's tool calls.
 - **The agent can come back by itself.** If it watches a command, schedules a check-back or runs something in the
   background, it can wake up later and carry on; that turn shows in the chat like any other.
