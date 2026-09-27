@@ -19,14 +19,14 @@ import {
   type TrayHandlers,
 } from './menu-bar'
 import type { Bounds } from './position'
-import { PULSE_FRAME_MS, RESTING_FRAME } from './pulse'
 
 const TRAY_BOUNDS: Bounds = { x: 1480, y: 0, width: 32, height: 24 }
 
 /** A recorded icon: what it shows, and its click. */
 interface FakeTray extends MenuBarTray {
   title: string
-  frames: number[]
+  /** Every title it was set to, in order. */
+  titles: string[]
   destroyed: boolean
   readonly handlers: TrayHandlers
 }
@@ -45,7 +45,6 @@ let test: TestDatabase
 let workspace: Workspace
 let trays: FakeTray[]
 let popovers: FakePopover[]
-let reduceMotion: boolean
 let clock: number
 let opened: string[]
 let calls: string[]
@@ -57,14 +56,12 @@ function start(overrides: Partial<MenuBarOptions> = {}): MenuBar {
     createTray: (handlers) => {
       const tray: FakeTray = {
         title: '',
-        frames: [],
+        titles: [],
         destroyed: false,
         handlers,
-        setFrame: (frame) => {
-          tray.frames.push(frame)
-        },
         setTitle: (title) => {
           tray.title = title
+          tray.titles.push(title)
         },
         bounds: () => TRAY_BOUNDS,
         destroy: () => {
@@ -101,7 +98,6 @@ function start(overrides: Partial<MenuBarOptions> = {}): MenuBar {
       popovers.push(popover)
       return popover
     },
-    reduceMotion: () => reduceMotion,
     openTask: (taskId) => {
       opened.push(taskId)
     },
@@ -155,7 +151,6 @@ beforeEach(() => {
   workspace = sampleWorkspace(test.db)
   trays = []
   popovers = []
-  reduceMotion = false
   clock = 100_000
   opened = []
   calls = []
@@ -168,13 +163,10 @@ afterEach(() => {
 })
 
 describe('the icon', () => {
-  it('is in the menu bar by default, still and saying nothing while nothing is in flight', () => {
+  it('is in the menu bar by default, saying nothing while nothing needs you', () => {
     start()
     expect(menuBar.shown).toBe(true)
     expect(tray().title).toBe('')
-    expect(menuBar.pulsing).toBe(false)
-    vi.advanceTimersByTime(PULSE_FRAME_MS * 4)
-    expect(tray().frames).toEqual([])
   })
 
   it('counts the tasks that need you from launch, and keeps counting as they change', () => {
@@ -197,38 +189,14 @@ describe('the icon', () => {
     expect(tray().title).toBe('')
   })
 
-  it('pulses while an agent works, and rests the glyph once none does', () => {
-    const task = ranTask({ activity: TaskActivity.Working })
-    start()
-    expect(menuBar.pulsing).toBe(true)
-    vi.advanceTimersByTime(PULSE_FRAME_MS * 4)
-    expect(tray().frames).toEqual([1, 2, 1, 0])
-
-    change(task, { activity: TaskActivity.Waiting })
-    vi.advanceTimersByTime(REFRESH_DELAY_MS)
-    expect(menuBar.pulsing).toBe(false)
-    expect(tray().frames.at(-1)).toBe(RESTING_FRAME)
-    const drawn = tray().frames.length
-    vi.advanceTimersByTime(PULSE_FRAME_MS * 4)
-    expect(tray().frames).toHaveLength(drawn)
-  })
-
-  it('holds still with Reduce motion on, and follows it being turned off and on again', () => {
+  it('never animates: working agents, and time passing, change nothing on it and leave no timer running', () => {
     ranTask({ activity: TaskActivity.Working })
-    reduceMotion = true
+    ranTask({ activity: TaskActivity.Working })
     start()
-    expect(menuBar.pulsing).toBe(false)
-    vi.advanceTimersByTime(PULSE_FRAME_MS * 4)
-    expect(tray().frames).toEqual([])
-
-    reduceMotion = false
-    menuBar.motionChanged()
-    expect(menuBar.pulsing).toBe(true)
-
-    reduceMotion = true
-    menuBar.motionChanged()
-    expect(menuBar.pulsing).toBe(false)
-    expect(tray().frames.at(-1)).toBe(RESTING_FRAME)
+    const titles = [...tray().titles]
+    vi.advanceTimersByTime(60_000)
+    expect(tray().titles).toEqual(titles)
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('catches up once for a burst of changes, a moment after the last one starts it', () => {
@@ -293,7 +261,7 @@ describe('Show Glade in the menu bar', () => {
   })
 
   it('takes the icon away as it is turned off, closing the popover, and puts it back as it is turned on', () => {
-    ranTask({ activity: TaskActivity.Working })
+    ranTask()
     const log = createMemoryLog()
     start({ log: log.logger })
     menuBar.toggle()
@@ -305,17 +273,17 @@ describe('Show Glade in the menu bar', () => {
     expect(first.destroyed).toBe(true)
     expect(popover().destroyed).toBe(true)
     expect(menuBar.open).toBe(false)
-    expect(menuBar.pulsing).toBe(false)
     // Nothing is drawn on the icon that's gone.
-    const drawn = first.frames.length
-    vi.advanceTimersByTime(PULSE_FRAME_MS * 4)
-    expect(first.frames).toHaveLength(drawn)
+    const titles = first.titles.length
+    menuBar.refresh()
+    expect(first.titles).toHaveLength(titles)
 
     const on = updateSettings(test.db, { showInMenuBar: true })
     menuBar.observe({ type: EventType.SettingsChanged, settings: on })
     expect(menuBar.shown).toBe(true)
     expect(tray()).not.toBe(first)
-    expect(menuBar.pulsing).toBe(true)
+    // The new icon counts again.
+    expect(tray().title).toBe('1')
     expect(log.records.map(({ message }) => message)).toEqual([
       'menu bar icon added',
       'menu bar icon removed',
@@ -341,7 +309,6 @@ describe('Show Glade in the menu bar', () => {
     vi.advanceTimersByTime(REFRESH_DELAY_MS)
     menuBar.changed()
     menuBar.refresh()
-    menuBar.motionChanged()
     expect(popover().sent).toHaveLength(sent)
   })
 })
@@ -455,7 +422,6 @@ describe('the popover', () => {
     expect(trays[0]?.destroyed).toBe(true)
     expect(popover().destroyed).toBe(true)
     expect(menuBar.shown).toBe(false)
-    expect(menuBar.pulsing).toBe(false)
     menuBar.close()
   })
 })

@@ -3,7 +3,7 @@
  * start ends with, `docs/sdk-notes.md` "Errors and retries"), and how the error card says it.
  */
 
-/** The reasons the SDK gives, SDK 0.3.281. A newer SDK may give others: `startupFailureMessage` has a fallback. */
+/** The reasons the SDK gives, SDK 0.3.283. A newer SDK may give others: `startupFailureMessage` has a fallback. */
 export enum StartupFailureReason {
   OrgPinApiKeyConflict = 'org_pin_api_key_conflict',
   OrgVerifyFailed = 'org_verify_failed',
