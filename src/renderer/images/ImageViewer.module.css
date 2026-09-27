@@ -1,0 +1,89 @@
+/* The image viewer, docs/design/html/30-image-viewer.html: the Settings modal's backdrop, with the image over it. */
+.backdrop {
+  z-index: 20;
+  background: rgba(5, 6, 10, 0.66);
+  /* It covers the title bar too: a click there closes the viewer rather than dragging the window. */
+  -webkit-app-region: no-drag;
+}
+
+/* The whole window: a click on it, around the image, is a click on the backdrop. */
+.viewer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.viewer:focus {
+  outline: none;
+}
+
+/* As large as fits between the close button and the pager, and never larger than it is (no width or height is set). */
+.image {
+  display: block;
+  max-width: calc(100vw - 96px);
+  max-height: calc(100vh - 160px);
+  box-sizing: border-box;
+  background: var(--color-panel);
+  border: 1px solid var(--color-strong);
+  border-radius: var(--radius-nested);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+
+/* In place of an image that can't be loaded: a card in the Settings modal's colours. */
+.missing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 360px;
+  height: 100px;
+  box-sizing: border-box;
+  background: var(--color-inner);
+  border: 1px solid var(--color-strong);
+  border-radius: var(--radius-card);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  font-size: var(--font-size-secondary);
+  color: var(--color-muted);
+}
+
+/* The message's other images, loaded so that stepping to one shows it at once. */
+.image[hidden],
+.missing[hidden] {
+  display: none;
+}
+
+/* The close button and the pager sit on chips in the menus' colours, so they read over any image. */
+.close,
+.pager {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: 3px;
+  background: var(--color-menu);
+  border: 1px solid var(--color-strong);
+  border-radius: var(--radius-menu);
+  box-shadow: var(--shadow-menu);
+}
+
+.close {
+  top: var(--space-xl);
+  right: var(--space-xl);
+}
+
+.pager {
+  bottom: var(--space-2xl);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.position {
+  min-width: 52px;
+  padding: 0 var(--space-xs);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-muted);
+  text-align: center;
+}

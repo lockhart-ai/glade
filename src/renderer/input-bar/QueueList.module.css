@@ -53,14 +53,13 @@
   color: var(--color-faint);
 }
 
-/* An image pasted into the queued message, as a 26px thumbnail. */
+/* An image pasted into the queued message, as a 26px thumbnail that opens the image viewer. */
 .thumbnail {
   flex-shrink: 0;
   display: block;
   width: 26px;
   height: 26px;
   box-sizing: border-box;
-  object-fit: cover;
   border: 1px solid var(--color-strong);
   border-radius: 5px;
 }

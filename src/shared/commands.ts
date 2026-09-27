@@ -81,6 +81,7 @@ export enum WindowCommandId {
   MenuChoose = 'window.menuChoose',
   MenuClose = 'window.menuClose',
   SelectAnswer = 'window.selectAnswer',
+  StepImage = 'window.stepImage',
 }
 
 /** The commands the menu bar runs. */

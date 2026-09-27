@@ -152,6 +152,7 @@ describe('the commands', () => {
       [WindowCommandId.MenuChoose, FixedReason.Menus],
       [WindowCommandId.MenuClose, FixedReason.Menus],
       [WindowCommandId.SelectAnswer, FixedReason.Menus],
+      [WindowCommandId.StepImage, FixedReason.Menus],
     ])
     for (const { id, defaults } of COMMANDS) if (isRebindable(id)) expect(defaults).toHaveLength(1)
   })

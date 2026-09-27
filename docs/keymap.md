@@ -39,6 +39,7 @@ current binding. The menu bar answers the keys of its items; the window listens 
 | | Kill process | ⌃C |
 | Menus and dialogs | Move / choose / close | ↑↓ / ↵ / Esc |
 | | Select an answer in a question card | 1 – 9 |
+| | Previous / next image in the image viewer | ←→ |
 
 ## Rebinding
 
@@ -61,7 +62,7 @@ rebinds a shortcut by recording the keys you press; Reset puts back its default.
   ⌘⇥, ⌘⇧⇥, ⌘Space, the Edit menu's ⌘Z, ⌘⇧Z, ⌘X, ⌘C, ⌘V and ⌘A, and the View menu's ⌘0, ⌘+, ⌘=, ⌘- and ⌃⌘F); and,
   for a shortcut that works in text fields too, keys without ⌘, ⌃ or ⌥ (F-keys excepted).
 - **Fixed:** New line (⇧↵), Close file tab (⌘W, the menu bar's Close, which closes the window when no tab has the
-  focus), Kill process (⌃C, which the terminal sends to the shell), and the menus' and dialogs' Move, Choose, Close and
-  question-card answers (1 – 9).
+  focus), Kill process (⌃C, which the terminal sends to the shell), and the menus' and dialogs' Move, Choose, Close,
+  question-card answers (1 – 9) and the image viewer's Previous / next image (← →).
 - **Ranges:** Switch workspace (⌘1 – ⌘9) and the right panel's tabs (⌘⌥1 – ⌘⌥7) rebind their modifiers: press one of
   the digits with the modifiers to use.

@@ -1,4 +1,5 @@
 import { act, fireEvent, render as renderUnwrapped, screen } from '@testing-library/react'
+import { createPortal } from 'react-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { WindowCommandId } from '../../shared/commands'
 import { resolveKeymap } from '../../shared/keymap'
@@ -40,7 +41,10 @@ interface ListProps {
   readonly onChoose: (row: string) => void
 }
 
-/** Two rows sharing one menu; the second holds a nested target, and a row with no items opens nothing. */
+/**
+ * Two rows sharing one menu; the second holds a nested target, and a dialog in a portal (as a queued message's image
+ * viewer is), and a row with no items opens nothing.
+ */
 function List({ onChoose }: ListProps): React.JSX.Element {
   const menu = useContextMenu<string>()
   const entries = (row: string): MenuEntry[] =>
@@ -63,6 +67,7 @@ function List({ onChoose }: ListProps): React.JSX.Element {
       <div {...menu.targetProps('second')}>
         Second <button type="button">Inside second</button>
         <span {...menu.targetProps('nested')}>Nested</span>
+        {createPortal(<button type="button">In a portal</button>, document.body)}
       </div>
       <span {...menu.targetProps('empty')}>Empty</span>
       <button
@@ -135,6 +140,17 @@ describe('useContextMenu', () => {
     expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Choose second'])
     fireEvent.click(screen.getByRole('menuitem', { name: 'Choose second' }))
     expect(onChoose).toHaveBeenCalledExactlyOnceWith('second')
+  })
+
+  it('leaves a right-click or ⇧F10 in a portal the row renders alone: it isn’t in the row on the page', () => {
+    render(<List onChoose={vi.fn()} />)
+    const portaled = screen.getByRole('button', { name: 'In a portal' })
+
+    expect(fireEvent.contextMenu(portaled)).toBe(true)
+    expect(fireEvent.keyDown(portaled, { key: 'F10', shiftKey: true })).toBe(true)
+    expect(fireEvent.keyDown(portaled, { key: 'ContextMenu' })).toBe(true)
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
   it('opens nothing for a target with no items', () => {
