@@ -22,7 +22,8 @@ of truth, and a pushed tag `vX.Y.Z` builds and publishes the release (`.github/w
 
    Open the PR as usual.
 
-2. **Merge** it through the merge queue.
+2. **Merge** it through the merge queue. It waits on the required `ci` check, which itself gates on `static`, `unit`
+   and three `e2e` shard jobs (`.github/workflows/ci.yml`) run in parallel.
 
 3. **Tag** the merged commit on `main` and push the tag:
 
