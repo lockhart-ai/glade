@@ -6,6 +6,13 @@ import { expect, test, type Glade, type LaunchOptions } from './fixtures'
 import { chat, firstRun, inputBar, taskHeader, taskList, taskPanel, watchersTab, watchingMark } from './selectors'
 
 /**
+ * How long to wait for the agent's first reply and its four wakes' replies. The wakes come on the agent's own clock,
+ * a few seconds apart, and each reply is a turn; held to its efficiency cores (`taskpolicy -b`) the app took longer
+ * than the default 15s to show them all in one run in fifty.
+ */
+const REPLIES_TIMEOUT_MS = 30_000
+
+/**
  * A task whose agent leaves one of each watcher (the `watches-things` script): a Monitor on PR #42's CI, the
  * integration tests and the docs build in the background, a wakeup to check the rollout and a cron job on the staging
  * queue. Waits for the four wakes they bring, then shows the Watchers tab (⌘⌥6).
@@ -18,7 +25,7 @@ async function watchThings(launch: (options: LaunchOptions) => Promise<Glade>, r
   await bar.field.fill(WATCHES_THINGS.prompt)
   await bar.field.press('Enter')
   // Its first reply, then one for each wake: a failed check, the docs build failing, the job firing and a passing check.
-  await expect(chat(window).agentReplies).toHaveCount(5)
+  await expect(chat(window).agentReplies).toHaveCount(5, { timeout: REPLIES_TIMEOUT_MS })
   await expect(chat(window).agentReplies.last()).toContainText(WATCHES_THINGS.lintPassed)
   await window.keyboard.press('Meta+Alt+Digit6')
   await expect(taskPanel(window).tab(/^Watch/)).toHaveAttribute('aria-selected', 'true')
@@ -128,7 +135,7 @@ test('watchers: a relaunch stops what died with the session, and the cron job co
   const firstBar = inputBar(first.window)
   await firstBar.field.fill(WATCHES_THINGS.prompt)
   await firstBar.field.press('Enter')
-  await expect(chat(first.window).agentReplies).toHaveCount(5)
+  await expect(chat(first.window).agentReplies).toHaveCount(5, { timeout: REPLIES_TIMEOUT_MS })
   await first.kill()
 
   const { window } = await launch({ agentScript: 'still-watching' })
