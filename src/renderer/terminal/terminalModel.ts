@@ -1,15 +1,53 @@
 // The terminal's logic, apart from React and xterm.js: which tab shows, which keys it leaves to the app, and which
 // output a window already has.
 import { WindowCommandId } from '../../shared/commands'
-import { UiStateKey } from '../../shared/domain'
+import { UiStateKey, type UiStateEntry } from '../../shared/domain'
 import { chordFromEvent, COMMANDS, KeyScope, matchCommand, type Keymap, type KeyPress } from '../../shared/keymap'
-import type { TerminalTab } from '../../shared/terminal'
+import {
+  parseTerminalSelection,
+  serializeTerminalSelection,
+  terminalWorkspaceKey,
+  type TerminalTab,
+} from '../../shared/terminal'
 import type { UiStateValues } from '../store/state'
 
-/** The tab the bottom bar shows: the one last picked, or the first while that one's gone (or none was). */
-export function activeTerminalTab(tabs: readonly TerminalTab[], uiState: UiStateValues): TerminalTab | undefined {
-  const picked = uiState[UiStateKey.TerminalTab]
-  return tabs.find((tab) => tab.id === picked) ?? tabs[0]
+/**
+ * The tabs of the workspace the window shows, in their tab row's order: the bottom bar shows these, and no other
+ * workspace's. With no workspace shown (null), the tabs opened while none was.
+ */
+export function shownTerminalTabs(tabs: readonly TerminalTab[], workspaceId: string | null): TerminalTab[] {
+  return tabs.filter((tab) => tab.workspaceId === workspaceId)
+}
+
+/**
+ * The tab the bottom bar shows in a workspace: the one last picked there, or its first while that one's gone (or none
+ * was). Never another workspace's tab.
+ */
+export function activeTerminalTab(
+  tabs: readonly TerminalTab[],
+  uiState: UiStateValues,
+  workspaceId: string | null,
+): TerminalTab | undefined {
+  const shown = shownTerminalTabs(tabs, workspaceId)
+  const picked = parseTerminalSelection(uiState[UiStateKey.TerminalSelection])[terminalWorkspaceKey(workspaceId)]
+  return shown.find((tab) => tab.id === picked) ?? shown[0]
+}
+
+/**
+ * The UI state that makes `tabId` the tab a workspace's bottom bar shows, keeping every other workspace's; with null,
+ * the one that forgets the workspace's.
+ */
+export function terminalSelectionEntry(
+  uiState: UiStateValues,
+  workspaceId: string | null,
+  tabId: string | null,
+): UiStateEntry {
+  const key = terminalWorkspaceKey(workspaceId)
+  const kept = Object.entries(parseTerminalSelection(uiState[UiStateKey.TerminalSelection])).filter(
+    ([workspace]) => workspace !== key,
+  )
+  const selection = Object.fromEntries(tabId === null ? kept : [...kept, [key, tabId]])
+  return { key: UiStateKey.TerminalSelection, value: serializeTerminalSelection(selection) }
 }
 
 /** The scopes of the shortcuts that reach the app with the focus in the terminal, rather than its shell. */

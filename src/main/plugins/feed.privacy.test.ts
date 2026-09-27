@@ -552,7 +552,16 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
     [EventType.TerminalTabsChanged]: [
       {
         type: EventType.TerminalTabsChanged,
-        tabs: [{ id: 'tab-1', name: secret('tab'), process: secret('process'), running: true, cwd: secret('cwd') }],
+        tabs: [
+          {
+            id: 'tab-1',
+            workspaceId: secret('tab_workspace'),
+            name: secret('tab'),
+            process: secret('process'),
+            running: true,
+            cwd: secret('cwd'),
+          },
+        ],
       },
     ],
     [EventType.TerminalOutput]: [{ type: EventType.TerminalOutput, tabId: 'tab-1', offset: 0, data: secret('output') }],

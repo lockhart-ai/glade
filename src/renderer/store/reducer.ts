@@ -45,7 +45,7 @@ export function withUiState(state: GladeData, entry: UiStateEntry): GladeData {
     case UiStateKey.BottomBarCollapsed:
     case UiStateKey.BottomBarHeight:
     case UiStateKey.PluginWidth:
-    case UiStateKey.TerminalTab:
+    case UiStateKey.TerminalSelection:
       return next
   }
 }

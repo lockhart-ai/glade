@@ -331,6 +331,9 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
         main.tasks.splice(main.tasks.indexOf(task), 1)
         emit({ type: EventType.TaskDeleted, taskId: task.id })
       }
+      const closing = terminalTabs.filter(({ workspaceId }) => workspaceId === id)
+      for (const tab of closing) terminalTabs.splice(terminalTabs.indexOf(tab), 1)
+      if (closing.length > 0) tabsChanged()
       emit({ type: EventType.WorkspaceRemoved, workspaceId: id })
       return null
     },
@@ -620,12 +623,15 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     },
     [CommandName.TerminalList]: () => ({ tabs: [...terminalTabs] }),
     [CommandName.TerminalCreate]: ({ workspaceId }) => {
-      const cwd = main.workspaces.find(({ id }) => id === workspaceId)?.rootPath ?? '/Users/sample'
-      return addTerminal({ name: null, process: 'zsh', running: false, cwd }, terminalTabs.length)
+      const workspace = main.workspaces.find(({ id }) => id === workspaceId)
+      const cwd = workspace?.rootPath ?? '/Users/sample'
+      const tab = { workspaceId: workspace?.id ?? null, name: null, process: 'zsh', running: false, cwd }
+      return addTerminal(tab, terminalTabs.length)
     },
     [CommandName.TerminalDuplicate]: ({ id }) => {
       const { index, tab } = terminalAt(id)
-      return addTerminal({ name: tab.name, process: 'zsh', running: false, cwd: tab.cwd }, index + 1)
+      const { workspaceId, name, cwd } = tab
+      return addTerminal({ workspaceId, name, process: 'zsh', running: false, cwd }, index + 1)
     },
     [CommandName.TerminalAttach]: ({ id, cols, rows }) => {
       terminalCalls.push(`attach ${id} ${String(cols)}x${String(rows)}`)
@@ -765,9 +771,17 @@ export function refuse(error: BridgeError): Promise<never> {
   return Promise.reject(error)
 }
 
-/** A terminal tab at its shell's prompt, starting in `/code/api`. */
+/** A terminal tab at its shell's prompt, starting in `/code/api`, of the window with no workspace open. */
 export function sampleTerminalTab(id: string, overrides: Partial<TerminalTab> = {}): TerminalTab {
-  return { id, name: null, process: 'zsh', running: false, cwd: '/Users/sample/code/api', ...overrides }
+  return {
+    id,
+    workspaceId: null,
+    name: null,
+    process: 'zsh',
+    running: false,
+    cwd: '/Users/sample/code/api',
+    ...overrides,
+  }
 }
 
 export function sampleWorkspace(id: string, name = 'Acme API'): Workspace {

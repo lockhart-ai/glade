@@ -37,7 +37,11 @@
   edited or removed. No "send now", no reordering.
 - **Notifications:** native OS notifications for any agent message in a task you're not viewing, even while Glade is
   focused. Task name + start of the message. Sound off. Focus/DND handled by the OS.
-- **Terminal** is global (not per task). **Settings** are a modal.
+- **Terminal** is per workspace, not per task (#347): each workspace has its own tabs, and the bottom bar shows the
+  tabs of the workspace you're looking at, with the one you last picked there. Switching workspace never ends a shell;
+  the others keep running, and their output is kept. Close workspace is a switch too: its shells keep running for
+  when it's opened again. Only Remove from list… ends a workspace's shells and deletes its tabs. The bottom bar's
+  size and collapsed state, and the plugin panel, stay app-wide. **Settings** are a modal.
 - **Name:** Glade. **Icon:** "Stepping up" — three grass blades rising into the wind, the middle one lit
   (`assets/icon/`).
 
@@ -46,14 +50,16 @@
   React Testing Library (unit/integration, 100% line coverage), ESLint (typescript-eslint) + Prettier, electron-builder
   (packaging), xterm.js + node-pty (terminal).
 - **Terminal internals:** main owns the shells, one node-pty pseudo-terminal per tab, each your login shell (`$SHELL
-  -l`) started in the root of the workspace you're looking at. The renderer draws them with xterm.js (`@xterm/xterm`
+  -l`) started in the root of the workspace the tab belongs to. The renderer draws them with xterm.js (`@xterm/xterm`
   and its fit addon) and reaches them only through typed, zod-validated bridge commands (attach, type, resize, clear,
   interrupt, close): it can't name a program or a folder to run, only type into a shell you opened. node-pty is a
   Node-API addon with prebuilt macOS binaries, so it loads under Node and Electron alike and needs no rebuild
   (`npmRebuild: false`, as for better-sqlite3); `scripts/fix-node-pty.mjs` makes its prebuilt spawn-helper executable
   after install (1.1.0 ships it without the bit), and electron-builder unpacks it from the asar archive. Unit tests run
   on a fake pseudo-terminal; only the app and the e2e specs start real shells (e2e mode runs a plain bash). Tabs,
-  names, folders and each tab's last 100,000 characters of output live in SQLite; a relaunch shows that output above a
+  their workspaces, names, folders and each tab's last 100,000 characters of output live in SQLite, and the tab each
+  workspace shows in `ui_state` (`terminal_selection`); every workspace's tabs keep their xterm.js screens in the page,
+  hidden while another workspace shows; a relaunch shows that output above a
   new shell under a dim "restored" divider, since processes don't survive a restart.
 - **Icons:** Font Awesome (free regular + solid SVG icons via the official React packages), bundled locally; regular
   style preferred to match the designs' thin strokes.

@@ -1,15 +1,18 @@
 /**
- * The global terminal's tabs, in main: main owns every shell, each in its own pseudo-terminal, and the renderer only
- * shows them. It types into a tab's shell and resizes it through bridge commands, and gets its output as events.
+ * The terminal's tabs, in main: main owns every shell, each in its own pseudo-terminal, and the renderer only shows
+ * them. It types into a tab's shell and resizes it through bridge commands, and gets its output as events. Each tab
+ * belongs to a workspace, whose bottom bar shows it; every workspace's shells run whichever the window shows, and
+ * removing a workspace ends its shells.
  *
- * What survives a restart is in SQLite (`terminal_tabs`): the tabs, in order, with their names and folders, and each
- * one's recent output. Processes don't survive: on relaunch each tab shows its old output, a dim divider saying so, and
+ * What survives a restart is in SQLite (`terminal_tabs`): the tabs, in order, with their workspaces, names and
+ * folders, and each one's recent output. Processes don't survive: on relaunch each tab shows its old output, a dim divider saying so, and
  * a new shell under it. A tab's shell starts when the window first shows it (`attach`), at the terminal's size.
  */
 import { randomUUID } from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, EventType } from '../../shared/bridge'
+import type { Workspace } from '../../shared/domain'
 import type { TerminalTab } from '../../shared/terminal'
 import { CommandFailure } from '../bridge/errors'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
@@ -76,13 +79,19 @@ export interface TerminalsContext {
   readonly log?: Logger
 }
 
+/** The workspace a new tab belongs to, and whose root its shell starts in. */
+export type TerminalWorkspace = Pick<Workspace, 'id' | 'rootPath'>
+
 /** The terminal tabs. Every method that names a tab throws a `not_found` `CommandFailure` when there's no such tab. */
 export interface Terminals {
-  /** Every tab, in the tab row's order. */
+  /** Every workspace's tabs, each in its tab row's order. */
   list(): TerminalTab[]
-  /** Adds a tab at the end whose shell will start in `cwd`, or in the fallback folder when it's null. */
-  create(cwd: string | null): TerminalTab
-  /** Adds a tab after `id`, with its name and folder. */
+  /**
+   * Adds a tab at the end of `workspace`'s, whose shell will start in its root; with no workspace, a tab of the window
+   * with none open, whose shell will start in the fallback folder.
+   */
+  create(workspace: TerminalWorkspace | null): TerminalTab
+  /** Adds a tab after `id`, in its workspace, with its name and folder. */
   duplicate(id: string): TerminalTab
   /** Starts the tab's shell at `size`, if it hasn't started, and answers with its output so far. */
   attach(id: string, size: TerminalSize): TerminalSnapshot
@@ -100,6 +109,8 @@ export interface Terminals {
   interrupt(id: string): void
   /** Ends the tab's shell and removes the tab. */
   close(id: string): void
+  /** Ends the shells of a workspace's tabs and removes them, as closing each would: for removing the workspace. */
+  closeWorkspace(workspaceId: string): void
   /** Saves every tab's output now, and ends every shell, keeping the tabs: for the app quitting. */
   shutdown(): void
 }
@@ -107,6 +118,7 @@ export interface Terminals {
 /** A tab, and its shell once it has started. */
 interface LiveTab {
   readonly id: string
+  readonly workspaceId: string | null
   name: string | null
   readonly cwd: string
   pty: Pty | null
@@ -144,10 +156,11 @@ export function createTerminals({
   let save: NodeJS.Timeout | null = null
 
   const restored = (scrollback: string): string => (scrollback === '' ? '' : `${scrollback}${RESTORED_DIVIDER}`)
-  const tabs: LiveTab[] = listTerminalTabs(db).map(({ id, name, cwd, scrollback }) => {
+  const tabs: LiveTab[] = listTerminalTabs(db).map(({ id, workspaceId, name, cwd, scrollback }) => {
     const output = trimScrollback(restored(scrollback))
     return {
       id,
+      workspaceId,
       name,
       cwd,
       pty: null,
@@ -161,7 +174,14 @@ export function createTerminals({
     }
   })
 
-  const view = ({ id, name, cwd, process, running }: LiveTab): TerminalTab => ({ id, name, process, running, cwd })
+  const view = ({ id, workspaceId, name, cwd, process, running }: LiveTab): TerminalTab => ({
+    id,
+    workspaceId,
+    name,
+    process,
+    running,
+    cwd,
+  })
 
   const tabsChanged = (): void => {
     emit({ type: EventType.TerminalTabsChanged, tabs: tabs.map(view) })
@@ -245,19 +265,28 @@ export function createTerminals({
     return pty
   }
 
-  const remove = (tab: LiveTab): void => {
+  // Ends a tab's shell, if it's running, and forgets the tab; the windows hear of it once the caller is done.
+  const drop = (tab: LiveTab): void => {
+    const { pty } = tab
+    tab.pty = null
+    pty?.kill()
     log.info('terminal tab closed', { tabId: tab.id })
     tabs.splice(tabs.indexOf(tab), 1)
     removeTerminalTab(db, tab.id)
+  }
+
+  const remove = (tab: LiveTab): void => {
+    drop(tab)
     stopPolling()
     tabsChanged()
   }
 
-  const add = (name: string | null, cwd: string, after: string | null): TerminalTab => {
+  const add = (workspaceId: string | null, name: string | null, cwd: string, after: string | null): TerminalTab => {
     const id = randomUUID()
-    addTerminalTab(db, { id, name, cwd, after })
+    addTerminalTab(db, { id, workspaceId, name, cwd, after })
     const tab: LiveTab = {
       id,
+      workspaceId,
       name,
       cwd,
       pty: null,
@@ -271,7 +300,7 @@ export function createTerminals({
     }
     const index = after === null ? -1 : tabs.findIndex((candidate) => candidate.id === after)
     tabs.splice(index === -1 ? tabs.length : index + 1, 0, tab)
-    log.info('terminal tab opened', { tabId: id, cwd, after })
+    log.info('terminal tab opened', { tabId: id, workspaceId, cwd, after })
     tabsChanged()
     return view(tab)
   }
@@ -279,11 +308,11 @@ export function createTerminals({
   return {
     list: () => tabs.map(view),
 
-    create: (cwd) => add(null, cwd ?? fallbackCwd, null),
+    create: (workspace) => add(workspace?.id ?? null, null, workspace?.rootPath ?? fallbackCwd, null),
 
     duplicate: (id) => {
-      const { name, cwd } = find(id)
-      return add(name, cwd, id)
+      const { workspaceId, name, cwd } = find(id)
+      return add(workspaceId, name, cwd, id)
     },
 
     attach: (id, size) => {
@@ -322,11 +351,16 @@ export function createTerminals({
     },
 
     close: (id) => {
-      const tab = find(id)
-      const { pty } = tab
-      tab.pty = null
-      pty?.kill()
-      remove(tab)
+      remove(find(id))
+    },
+
+    closeWorkspace: (workspaceId) => {
+      const closing = tabs.filter((tab) => tab.workspaceId === workspaceId)
+      if (closing.length === 0) return
+      log.info('closing workspace terminal tabs', { workspaceId, tabs: closing.length })
+      for (const tab of closing) drop(tab)
+      stopPolling()
+      tabsChanged()
     },
 
     shutdown: () => {

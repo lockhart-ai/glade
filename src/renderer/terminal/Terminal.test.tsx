@@ -2,7 +2,8 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType, type TerminalAttachResponse } from '../../shared/bridge'
 import { UiStateKey } from '../../shared/domain'
-import { refuse, sampleTerminalTab, type FakeHandlers, type FakeMain } from '../store/test-bridge'
+import { parseTerminalSelection, type TerminalTab } from '../../shared/terminal'
+import { refuse, sampleTerminalTab, sampleWorkspace, type FakeHandlers, type FakeMain } from '../store/test-bridge'
 import { storeWrapper, type StoreWrapper } from '../store/test-wrapper'
 import { WindowCommandId } from '../../shared/commands'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
@@ -34,6 +35,17 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+/** A tab of the workspace the window shows, `w1`. */
+function tab(id: string, overrides: Partial<TerminalTab> = {}): TerminalTab {
+  return sampleTerminalTab(id, { workspaceId: 'w1', ...overrides })
+}
+
+/** The tab the store has picked for the workspace showing. */
+function pickedTab(store: StoreWrapper['store']): string | undefined {
+  const { uiState, selectedWorkspaceId } = store.getState()
+  return parseTerminalSelection(uiState[UiStateKey.TerminalSelection])[selectedWorkspaceId ?? '']
+}
+
 async function renderTerminal(
   main: Partial<FakeMain> = {},
   overrides: Partial<FakeHandlers> = {},
@@ -41,7 +53,7 @@ async function renderTerminal(
   const calls: string[] = []
   const wrapper = storeWrapper(
     {
-      terminalTabs: [sampleTerminalTab('a'), sampleTerminalTab('b')],
+      terminalTabs: [tab('a'), tab('b')],
       terminalOutput: { a: '$ echo hi\r\nhi\r\n$ ' },
       terminalCalls: calls,
       ...main,
@@ -85,7 +97,7 @@ describe('Terminal', () => {
   it('shows output as it comes, and what came while the output so far loaded, once', async () => {
     let answer: (response: TerminalAttachResponse) => void = () => undefined
     const { fake } = await renderTerminal(
-      { terminalTabs: [sampleTerminalTab('a')] },
+      { terminalTabs: [tab('a')] },
       {
         [CommandName.TerminalAttach]: () =>
           new Promise((resolve) => {
@@ -130,7 +142,7 @@ describe('Terminal', () => {
 
   it('shows a toast when the shell can’t be started, or typed into', async () => {
     await renderTerminal(
-      { terminalTabs: [sampleTerminalTab('a')] },
+      { terminalTabs: [tab('a')] },
       {
         [CommandName.TerminalAttach]: () => refuse(bridgeError(BridgeErrorCode.Internal, 'posix_spawnp failed.')),
         [CommandName.TerminalWrite]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No terminal tab a')),
@@ -172,10 +184,10 @@ describe('Terminal', () => {
 
     fireEvent.keyDown(first, { code: 'Tab', key: 'Tab', ctrlKey: true })
     await act(() => Promise.resolve())
-    expect(store.getState().uiState[UiStateKey.TerminalTab]).toBe('b')
+    expect(pickedTab(store)).toBe('b')
     fireEvent.keyDown(first, { code: 'Tab', key: 'Tab', ctrlKey: true, shiftKey: true })
     await act(() => Promise.resolve())
-    expect(store.getState().uiState[UiStateKey.TerminalTab]).toBe('a')
+    expect(pickedTab(store)).toBe('a')
 
     fireEvent.keyDown(first, { code: 'KeyK', key: 'k', metaKey: true })
     await act(() => Promise.resolve())
@@ -248,7 +260,7 @@ describe('Terminal', () => {
   it('shows nothing it loads for a tab that closed before its output loaded', async () => {
     let answer: (response: TerminalAttachResponse) => void = () => undefined
     const { store } = await renderTerminal(
-      { terminalTabs: [sampleTerminalTab('a')] },
+      { terminalTabs: [tab('a')] },
       {
         [CommandName.TerminalAttach]: () =>
           new Promise((resolve) => {
@@ -264,5 +276,59 @@ describe('Terminal', () => {
     })
 
     expect(screenOf(0).shown).toBe('')
+  })
+})
+
+describe('Terminal, across workspaces', () => {
+  const workspaces = [sampleWorkspace('w1', 'Acme API'), sampleWorkspace('w2', 'Acme Web')]
+
+  it('keeps every workspace’s screens, showing the workspace’s tab, and what a hidden one output when you come back', async () => {
+    const { store, fake, calls } = await renderTerminal({
+      workspaces,
+      terminalTabs: [tab('a'), tab('x', { workspaceId: 'w2' })],
+      terminalOutput: { a: 'acme-api $ ', x: 'acme-web $ ' },
+    })
+    expect(screenElements().map((element) => element.dataset.active)).toEqual(['true', 'false'])
+
+    await act(() => store.getState().selectTerminal('a'))
+    expect(screenOf(0).focuses).toBe(1)
+    fake.emit({ type: EventType.TerminalOutput, tabId: 'x', offset: 11, data: 'npm run dev\r\nready\r\n' })
+    const fits = screenOf(1).fits
+    await act(() => store.getState().openWorkspace('w2'))
+
+    // The tab now showing fits the card, but switching workspace doesn't take the focus.
+    expect(screenOf(1).fits).toBe(fits + 1)
+    expect(screens.map(({ focuses }) => focuses)).toEqual([1, 0])
+
+    expect(screenElements().map((element) => element.dataset.active)).toEqual(['false', 'true'])
+    expect(screenOf(1).shown).toBe('acme-web $ npm run dev\r\nready\r\n')
+    expect(screens.map(({ disposed }) => disposed)).toEqual([false, false])
+    // Switching loads nothing again and starts no shell: each screen stayed in the page.
+    expect(calls).toEqual(['attach a 80x24', 'attach x 80x24'])
+    expect(screen.queryByText('No terminal open. Start one with + or ⌘T.')).toBeNull()
+
+    await act(() => store.getState().openWorkspace('w1'))
+    expect(screenElements().map((element) => element.dataset.active)).toEqual(['true', 'false'])
+    expect(screenOf(0).shown).toBe('acme-api $ ')
+  })
+
+  it('says how to start a terminal in a workspace with none, over the other workspaces’ hidden screens', async () => {
+    const { store, calls } = await renderTerminal({
+      workspaces,
+      terminalTabs: [tab('x', { workspaceId: 'w2' })],
+    })
+
+    expect(screen.getByText('No terminal open. Start one with + or ⌘T.')).toBeInTheDocument()
+    expect(screenElements().map((element) => element.dataset.active)).toEqual(['false'])
+
+    // With no tab of its own showing, the terminal's keys and Close do nothing to the other workspace's.
+    const [hidden] = screenElements()
+    if (hidden === undefined) throw new Error('No screen')
+    expect(fireEvent.keyDown(hidden, { code: 'KeyK', key: 'k', metaKey: true })).toBe(true)
+    hidden.tabIndex = -1
+    hidden.focus()
+    expect(requestClose()).toBe(false)
+    expect(calls).toEqual(['attach x 80x24'])
+    expect(store.getState().terminalTabs).toHaveLength(1)
   })
 })

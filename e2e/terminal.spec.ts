@@ -1,13 +1,13 @@
-// The global terminal in the bottom bar, end to end on real shells (node-pty): e2e mode runs a plain bash with no
-// profile, and a prompt of the folder's name. Nothing here waits on a timer: every step waits for the terminal to
+// The terminal in the bottom bar, end to end on real shells (node-pty): e2e mode runs a plain bash with no profile,
+// and a prompt of the folder's name. Each workspace has its own tabs. Nothing here waits on a timer: every step waits for the terminal to
 // show what it should.
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { CommandName } from '../src/shared/bridge'
-import { expect, holdCommand, openWorkspace, test } from './fixtures'
+import { chooseFolder, expect, holdCommand, openWorkspace, test } from './fixtures'
 import { chooseMenuItem } from './menu'
-import { chat, contextMenu, inputBar, taskList, taskPanel, terminal } from './selectors'
+import { chat, contextMenu, inputBar, regions, removeWorkspaceDialog, taskList, taskPanel, terminal } from './selectors'
 
 /** The prompt of a shell in the workspace `acme-api`. */
 const PROMPT = 'acme-api $'
@@ -151,10 +151,106 @@ test('terminal: the specs wait for the folder to open, since a shell opened befo
   await expect(line(window, `${basename(userData)} $`)).toHaveCount(1)
   await expect(line(window, PROMPT)).toHaveCount(0)
 
-  // Once the folder has opened, the wait is over, and a new shell starts in the workspace.
+  // Once the folder has opened, the wait is over, and a new shell starts in the workspace. The shell opened with no
+  // workspace open isn't the workspace's: it shows only while no workspace does.
   await hold.release()
   await opening
+  await expect(term.empty).toBeVisible()
+  await window.keyboard.press('Meta+KeyT')
+  await expect(term.tabs).toHaveText(['bash'])
+  await expect(line(window, PROMPT)).toHaveCount(1)
+})
+
+// #347: each workspace has its own terminal tabs. Switching shows them, with the one last picked there; the other
+// workspaces' shells keep running, and what they print while hidden is there on the way back. A relaunch brings back
+// each workspace's tabs. Closing a workspace keeps its shells; removing it ends them.
+test('terminal: each workspace has its own tabs, and switching keeps the others’ shells running with their output', async ({
+  launch,
+  tempFolder,
+}) => {
+  const parent = tempFolder()
+  const api = join(parent, 'acme-api')
+  const web = join(parent, 'acme-web')
+  mkdirSync(api)
+  mkdirSync(web)
+  const glade = await launch({ chosenFolder: api })
+  const { window } = glade
+  await openWorkspace(window)
+  const term = terminal(window)
+  const workspace = regions(window).workspace
+
+  // acme-api gets two tabs, and the first is picked again.
+  await term.newTab.click()
+  await expect(line(window, 'acme-api $')).toHaveCount(1)
+  await run(window, 'echo api-first')
   await window.keyboard.press('Meta+KeyT')
   await expect(term.tabs).toHaveText(['bash', 'bash'])
-  await expect(line(window, PROMPT)).toHaveCount(1)
+  await expect(line(window, 'acme-api $')).toHaveCount(1)
+  await term.tabs.nth(0).click()
+  await expect(line(window, 'api-first')).toHaveCount(1)
+
+  // acme-web starts with none of acme-api's tabs, and gets its own, in its own root.
+  await chooseFolder(glade, web)
+  await chooseMenuItem(glade, 'Workspace', 'New workspace…')
+  await expect(workspace).toContainText('acme-web')
+  await expect(term.tabs).toHaveCount(0)
+  await expect(term.empty).toBeVisible()
+  await term.newTab.click()
+  await expect(term.tabs).toHaveText(['bash'])
+  await expect(line(window, 'acme-web $')).toHaveCount(1)
+  // It prints once a file appears, which the spec makes while acme-web is hidden, then makes a file of its own to say
+  // it has. (A hidden screen needn't draw what it's sent, so the spec asks the shell rather than the screen.)
+  const go = join(parent, 'go')
+  const printed = join(parent, 'printed')
+  await run(window, `while [ ! -e ${go} ]; do sleep 0.1; done; echo web-while-hidden; touch ${printed}`)
+
+  // Back in acme-api: its two tabs, the first still picked, with its output.
+  await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-api')
+  await expect(workspace).toContainText('acme-api')
+  await expect(term.tabs).toHaveText(['bash', 'bash'])
+  await expect(term.tabs.nth(0)).toHaveAttribute('aria-pressed', 'true')
+  await expect(line(window, 'api-first')).toHaveCount(1)
+  writeFileSync(go, '')
+  await expect.poll(() => existsSync(printed)).toBe(true)
+
+  // acme-web's shell kept running: what it printed is there, and it still answers.
+  await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-web')
+  await expect(term.tabs).toHaveText(['bash'])
+  await expect(line(window, 'web-while-hidden')).toHaveCount(1)
+  await run(window, 'echo web-still-here')
+  await expect(line(window, 'web-still-here')).toHaveCount(1)
+
+  // A relaunch brings back each workspace's own tabs and output, and the tab picked in each.
+  await glade.close()
+  const relaunched = await launch({ chosenFolder: api })
+  const again = terminal(relaunched.window)
+  await expect(regions(relaunched.window).workspace).toContainText('acme-web')
+  await expect(again.tabs).toHaveText(['bash'])
+  await expect(line(relaunched.window, 'web-still-here')).toHaveCount(1)
+  await chooseMenuItem(relaunched, 'Workspace', 'Switch workspace', 'acme-api')
+  await expect(again.tabs).toHaveText(['bash', 'bash'])
+  await expect(again.tabs.nth(0)).toHaveAttribute('aria-pressed', 'true')
+  await expect(line(relaunched.window, 'api-first')).toHaveCount(1)
+
+  await again.tabs.nth(1).click()
+  // Its restored prompt, above the divider, and its new shell's.
+  await expect(line(relaunched.window, 'acme-api $')).toHaveCount(2)
+  await run(relaunched.window, 'sleep 6347')
+  await expect(again.tabs.nth(1)).toHaveAccessibleName('Running sleep')
+
+  // Close workspace only switches away: acme-api's tabs, and the program running in one, are there when it's back.
+  await chooseMenuItem(relaunched, 'Workspace', 'Close workspace')
+  await expect(regions(relaunched.window).workspace).toContainText('acme-web')
+  await expect(again.tabs).toHaveText(['bash'])
+  await chooseMenuItem(relaunched, 'Workspace', 'Switch workspace', 'acme-api')
+  await expect(again.tabs).toHaveText(['bash', 'sleep'])
+  await expect(again.tabs.nth(1)).toHaveAccessibleName('Running sleep')
+
+  // Removing acme-api ends its shells: the program running in one stops, and acme-web's tab is all that's left.
+  await chooseMenuItem(relaunched, 'Workspace', 'Remove from list…')
+  await removeWorkspaceDialog(relaunched.window).confirm.click()
+  await expect(regions(relaunched.window).workspace).toContainText('acme-web')
+  await expect(again.tabs).toHaveText(['bash'])
+  await run(relaunched.window, "while pgrep -f 'sleep 6347' > /dev/null; do sleep 0.1; done; echo api-sleep-ended")
+  await expect(line(relaunched.window, 'api-sleep-ended')).toHaveCount(1)
 })
