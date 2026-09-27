@@ -31,6 +31,7 @@ import {
 } from '../src/main/e2e'
 import { testModeLogsFolder } from '../src/main/isolation'
 import { LOG_FILE_NAME } from '../src/main/logging/file-sink'
+import type { MenuBarAppearance } from '../src/main/menu-bar/glyph'
 import type { TaskNotification } from '../src/main/notifications/notifier'
 import type { RecordingNotifier } from '../src/main/notifications/recording-notifier'
 import { COMMAND_CHANNEL, type CommandName } from '../src/shared/bridge'
@@ -372,21 +373,21 @@ export async function holdCommand({ app }: Glade, command: CommandName): Promise
 /** Glade's icon in the menu bar as it is now: an e2e run never puts a real one there, it records it (`E2E_MENU_BAR_GLOBAL`). */
 export type MenuBarIconState = Omit<E2eMenuBar, 'click'>
 
-/** Glade's icon in the menu bar as it is now: whether it's there, its count, whether it pulses, and its popover. */
+/** Glade's icon in the menu bar as it is now: whether it's there, its count, its glyph, its popover and the appearance. */
 export async function menuBarIcon({ app }: Glade): Promise<MenuBarIconState> {
   return app.evaluate((_, name) => {
-    const { shown, title, pulsing, open, reduceMotion } = Reflect.get(globalThis, name) as E2eMenuBar
-    return { shown, title, pulsing, open, reduceMotion }
+    const { shown, title, glyph, open, appearance } = Reflect.get(globalThis, name) as E2eMenuBar
+    return { shown, title, glyph, open, appearance }
   }, E2E_MENU_BAR_GLOBAL)
 }
 
-/** Turns macOS's Reduce motion on or off, as the menu bar icon sees it (off until a spec turns it on). */
-export async function setReduceMotion({ app }: Glade, on: boolean): Promise<void> {
+/** Switches the menu bar between light and dark, as the icon sees it (dark until a spec switches it). */
+export async function setMenuBarAppearance({ app }: Glade, appearance: MenuBarAppearance): Promise<void> {
   await app.evaluate(
-    (_, { name, on }) => {
-      ;(Reflect.get(globalThis, name) as E2eMenuBar).reduceMotion = on
+    (_, { name, appearance }) => {
+      ;(Reflect.get(globalThis, name) as E2eMenuBar).appearance = appearance
     },
-    { name: E2E_MENU_BAR_GLOBAL, on },
+    { name: E2E_MENU_BAR_GLOBAL, appearance },
   )
 }
 

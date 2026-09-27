@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { BrowserWindowConstructorOptions, NativeImage } from 'electron'
+import type { BrowserWindowConstructorOptions } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EVENT_CHANNEL, EventType } from '../../shared/bridge'
 import { EMPTY_MENU_BAR_SNAPSHOT, MENU_BAR_POPOVER_WIDTH } from '../../shared/menuBar'
@@ -9,15 +9,15 @@ import {
   createElectronTray,
   FIRST_FIT_TIMEOUT_MS,
   GLYPH_FOLDER,
-  glyphFile,
   loadGlyphImages,
   TRAY_TOOLTIP,
+  type GlyphImages,
   type ElectronPopoverOptions,
   type TrayClass,
   type WindowClass,
 } from './electron'
+import { GLYPH_FILES, GLYPHS, Glyph } from './glyph'
 import { MIN_POPOVER_HEIGHT, POPOVER_GAP, type Bounds } from './position'
-import { GLYPH_STRENGTHS, RESTING_FRAME } from './pulse'
 
 const ROOT = join(__dirname, '..', '..', '..')
 
@@ -81,23 +81,28 @@ class FakeWindow {
   }
 }
 
-const images = GLYPH_STRENGTHS.map((_, frame) => fakeImage(glyphFile(frame))) as unknown as NativeImage[]
+const images = {
+  [Glyph.Plain]: fakeImage(GLYPH_FILES[Glyph.Plain]),
+  [Glyph.DotOnDark]: fakeImage(GLYPH_FILES[Glyph.DotOnDark]),
+  [Glyph.DotOnLight]: fakeImage(GLYPH_FILES[Glyph.DotOnLight]),
+} as unknown as GlyphImages
 
 describe('the glyph images', () => {
-  it('are one per strength, each a template image read from the folder, @2x beside it', () => {
+  it('are read from the folder, one per glyph, and only the plain one is a template image', () => {
     const createFromPath = vi.fn(fakeImage)
     const loaded = loadGlyphImages({ createFromPath } as unknown as Parameters<typeof loadGlyphImages>[0], '/app')
     expect(createFromPath.mock.calls.map(([path]) => path)).toEqual([
-      join('/app', 'glyph-0Template.png'),
-      join('/app', 'glyph-1Template.png'),
-      join('/app', 'glyph-2Template.png'),
+      join('/app', 'glyphTemplate.png'),
+      join('/app', 'glyph-dot-on-dark.png'),
+      join('/app', 'glyph-dot-on-light.png'),
     ])
-    for (const image of loaded as unknown as FakeImage[]) expect(image.setTemplateImage).toHaveBeenCalledWith(true)
+    const templates = GLYPHS.map((glyph) => (loaded[glyph] as unknown as FakeImage).setTemplateImage.mock.calls)
+    expect(templates).toEqual([[[true]], [[false]], [[false]]])
   })
 
-  it('are in the repo, @1x and @2x, 18 and 36 pixels square, and packaged with the app', () => {
-    for (const [frame] of GLYPH_STRENGTHS.entries()) {
-      const file = join(ROOT, GLYPH_FOLDER, glyphFile(frame))
+  it('are in the repo, @1x and @2x, 18 and 36 pixels square, so they stay crisp, and packaged with the app', () => {
+    for (const glyph of GLYPHS) {
+      const file = join(ROOT, GLYPH_FOLDER, GLYPH_FILES[glyph])
       for (const [path, size] of [
         [file, 18],
         [file.replace('.png', '@2x.png'), 36],
@@ -113,35 +118,34 @@ describe('the glyph images', () => {
 })
 
 describe('the tray', () => {
-  it('shows the glyph at full strength, named, and hears clicks', () => {
+  it('shows the plain glyph, named, and hears clicks', () => {
     FakeTray.made = []
     const onClick = vi.fn()
     createElectronTray(FakeTray as unknown as TrayClass, images)({ onClick })
     const [tray] = FakeTray.made
-    expect(tray?.image).toBe(images[RESTING_FRAME])
+    expect(tray?.image).toBe(images[Glyph.Plain])
     expect(tray?.setToolTip).toHaveBeenCalledWith(TRAY_TOOLTIP)
     tray?.listeners.get('click')?.()
     expect(onClick).toHaveBeenCalledOnce()
   })
 
-  it('draws each frame, sets the count in digits of one width, says where it is, and goes', () => {
+  it('draws each glyph, sets the count in digits of one width, says where it is, and goes', () => {
     FakeTray.made = []
     const icon = createElectronTray(FakeTray as unknown as TrayClass, images)({ onClick: vi.fn() })
     const [tray] = FakeTray.made
-    icon.setFrame(2)
-    icon.setFrame(99)
-    expect(tray?.setImage.mock.calls).toEqual([[images[2]], [images[RESTING_FRAME]]])
+    icon.setGlyph(Glyph.DotOnDark)
+    icon.setGlyph(Glyph.DotOnLight)
+    icon.setGlyph(Glyph.Plain)
+    expect(tray?.setImage.mock.calls).toEqual([
+      [images[Glyph.DotOnDark]],
+      [images[Glyph.DotOnLight]],
+      [images[Glyph.Plain]],
+    ])
     icon.setTitle('3')
     expect(tray?.setTitle).toHaveBeenCalledWith('3', { fontType: 'monospacedDigit' })
     expect(icon.bounds()).toEqual({ x: 1480, y: 0, width: 32, height: 24 })
     icon.destroy()
     expect(tray?.destroy).toHaveBeenCalledOnce()
-  })
-
-  it('refuses to be made with no images', () => {
-    expect(() => createElectronTray(FakeTray as unknown as TrayClass, [])({ onClick: vi.fn() })).toThrow(
-      'No menu bar glyph images',
-    )
   })
 })
 

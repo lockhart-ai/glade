@@ -1,4 +1,5 @@
-import { clickMenuBarIcon, expect, menuBarIcon, seedPath, setReduceMotion, test } from './fixtures'
+import { Glyph, MenuBarAppearance } from '../src/main/menu-bar/glyph'
+import { clickMenuBarIcon, expect, menuBarIcon, seedPath, setMenuBarAppearance, test } from './fixtures'
 import { chooseMenuItem } from './menu'
 import { menuBarPopover, regions, settings, taskHeader, taskList } from './selectors'
 
@@ -7,14 +8,22 @@ const WORKING = 'Fix the flaky date test'
 const NEEDS_YOU = 'Migrate the billing webhooks'
 const DONE = 'Draft the release notes'
 
-test("Glade's icon in the menu bar counts what needs you, pulses while an agent works, and its popover opens Glade on a task", async ({
+test("Glade's icon in the menu bar shows a purple dot and counts what needs you, and its popover opens Glade on a task", async ({
   launch,
 }) => {
   const glade = await launch({ seed: seedPath('menu-bar.json') })
   const { window } = glade
 
-  // The icon: one task needs you, and one agent is working, so it pulses.
-  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ shown: true, title: '1', pulsing: true, open: false })
+  // The icon: one task needs you, so it has the dot, drawn for the dark menu bar, and the count.
+  await expect
+    .poll(() => menuBarIcon(glade))
+    .toMatchObject({ shown: true, title: '1', glyph: Glyph.DotOnDark, open: false })
+
+  // The dot is redrawn for a light menu bar as the appearance switches, and back again.
+  await setMenuBarAppearance(glade, MenuBarAppearance.Light)
+  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ title: '1', glyph: Glyph.DotOnLight })
+  await setMenuBarAppearance(glade, MenuBarAppearance.Dark)
+  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ title: '1', glyph: Glyph.DotOnDark })
 
   // Clicking it opens the popover, listing what's in flight across both workspaces.
   const page = await clickMenuBarIcon(glade)
@@ -42,18 +51,15 @@ test("Glade's icon in the menu bar counts what needs you, pulses while an agent 
   await expect(taskList(window).taskRow(NEEDS_YOU)).toHaveAttribute('aria-current', 'true')
   await expect.poll(() => menuBarIcon(glade)).toMatchObject({ open: false })
 
-  // It stays up to date: marking the task done takes it out of Needs you, and the count goes.
+  // It stays up to date: marking the task done takes it out of Needs you, and the count and the dot go. An agent is
+  // still working, but the icon doesn't show that: it's the plain glyph, still, on either menu bar.
   await clickMenuBarIcon(glade)
   await taskHeader(window).markDone.click()
   await expect(popover.section('Needs you')).toHaveCount(0)
   await expect(popover.rows('Working')).toHaveCount(1)
-  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ title: '', pulsing: true })
-
-  // With Reduce motion on, it holds still, and pulses again once it's off.
-  await setReduceMotion(glade, true)
-  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ pulsing: false })
-  await setReduceMotion(glade, false)
-  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ pulsing: true })
+  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ title: '', glyph: Glyph.Plain })
+  await setMenuBarAppearance(glade, MenuBarAppearance.Light)
+  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ title: '', glyph: Glyph.Plain })
 
   // Esc hides it; a working row opens its task back in the first workspace.
   await page.keyboard.press('Escape')
@@ -72,7 +78,7 @@ test("Glade's icon in the menu bar counts what needs you, pulses while an agent 
 
 test('the popover says when nothing is in flight', async ({ launch }) => {
   const glade = await launch()
-  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ shown: true, title: '', pulsing: false })
+  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ shown: true, title: '', glyph: Glyph.Plain })
 
   const popover = menuBarPopover(await clickMenuBarIcon(glade))
   await expect(popover.empty).toBeVisible()
@@ -95,10 +101,10 @@ test('Settings › General takes the icon out of the menu bar and puts it back, 
 
   await toggle.click()
   await expect(toggle).not.toBeChecked()
-  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ shown: false, pulsing: false })
+  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ shown: false })
 
   await toggle.click()
-  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ shown: true, title: '1', pulsing: true })
+  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ shown: true, title: '1', glyph: Glyph.DotOnDark })
 
   // Off, it stays off after a relaunch.
   await toggle.click()

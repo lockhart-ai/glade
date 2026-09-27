@@ -1,9 +1,10 @@
 /**
- * Glade in the macOS menu bar (`docs/design/html/29-menu-bar.html`, #271): an icon showing what's in flight, and a
- * popover under it listing it.
+ * Glade in the macOS menu bar (`docs/design/html/29-menu-bar.html`, #271, #317): an icon showing what's waiting on you,
+ * and a popover under it listing what's in flight.
  *
- * - The icon is a monochrome template glyph (so it follows light and dark menu bars) with, while tasks need you, their
- *   count beside it. While any agent works it pulses (`./pulse`), unless Reduce motion is on.
+ * - The icon is Glade's glyph, still. While tasks need you it has a purple dot, drawn for the menu bar's appearance
+ *   (`./glyph`) and redrawn when that changes, and their count beside it. Otherwise it's the plain glyph, a template
+ *   image that follows light and dark menu bars.
  * - Clicking it shows the popover: a small window of Glade's own page (`#menu-bar`), anchored under the icon. It hides
  *   when it loses focus, on Esc, or on a second click of the icon, and its page is kept up to date while it's open.
  * - Settings › General › Show Glade in the menu bar (`showInMenuBar`, on by default) adds and removes it as it changes.
@@ -16,8 +17,8 @@ import { EventType, type GladeEvent } from '../../shared/bridge'
 import { menuBarIcon, type MenuBarSnapshot } from '../../shared/menuBar'
 import { getSettings } from '../db/repositories/settings'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
+import { Glyph, glyphFor, type MenuBarAppearance } from './glyph'
 import type { Bounds } from './position'
-import { createPulse } from './pulse'
 import { readMenuBarSnapshot } from './snapshot'
 
 /** How long after a change the icon and popover catch up: a burst of changes (a turn streaming in) makes one refresh. */
@@ -31,8 +32,8 @@ export const REOPEN_GRACE_MS = 300
 
 /** The icon in the menu bar. */
 export interface MenuBarTray {
-  /** Draws the glyph at one of its strengths (`GLYPH_STRENGTHS`): 0 is full strength. */
-  setFrame(frame: number): void
+  /** Draws one of the glyph's images: plain, or with the dot for a light or dark menu bar. */
+  setGlyph(glyph: Glyph): void
   /** Sets the text beside the glyph: the Needs you count, or nothing. */
   setTitle(title: string): void
   /** Where the icon is on the screen, for the popover to drop under it. */
@@ -46,7 +47,7 @@ export interface TrayHandlers {
   readonly onClick: () => void
 }
 
-/** Puts the icon in the menu bar, showing the glyph at full strength. */
+/** Puts the icon in the menu bar, showing the plain glyph. */
 export type CreateTray = (handlers: TrayHandlers) => MenuBarTray
 
 /** The popover: a window of Glade's own page, under the icon. */
@@ -88,8 +89,8 @@ export interface MenuBarOptions {
   readonly db: Database
   readonly createTray: CreateTray
   readonly createPopover: CreatePopover
-  /** Whether macOS has Reduce motion on: read each time the icon is drawn, and again when `motionChanged` is called. */
-  readonly reduceMotion: () => boolean
+  /** Whether the menu bar is light or dark: read each time the icon is drawn, and when `appearanceChanged` is called. */
+  readonly appearance: () => MenuBarAppearance
   /** Opens Glade on a task, switching workspace if it has to, as clicking its notification does. */
   readonly openTask: (taskId: string) => void
   /** Brings Glade's window up, opening one when there's none. */
@@ -110,8 +111,8 @@ export interface MenuBar extends MenuBarCommands {
   refresh(): void
   /** Catches up soon (`REFRESH_DELAY_MS`), once for a burst of changes, such as a notification being sent. */
   changed(): void
-  /** Reduce motion was turned on or off: the pulse stops or starts. */
-  motionChanged(): void
+  /** The system's appearance changed, light or dark: the glyph with the dot is redrawn for it. */
+  appearanceChanged(): void
   /** Clicking the icon: shows the popover, or hides it if it's showing. */
   toggle(): void
   /** Takes the icon away and closes the popover, when the app quits. */
@@ -120,8 +121,6 @@ export interface MenuBar extends MenuBarCommands {
   readonly shown: boolean
   /** Whether the popover is showing. */
   readonly open: boolean
-  /** Whether the icon is pulsing. */
-  readonly pulsing: boolean
 }
 
 /**
@@ -173,7 +172,7 @@ export function createMenuBar({
   db,
   createTray,
   createPopover,
-  reduceMotion,
+  appearance,
   openTask,
   openGlade,
   quit,
@@ -185,9 +184,8 @@ export function createMenuBar({
   let open = false
   let hiddenAt = Number.NEGATIVE_INFINITY
   let timer: ReturnType<typeof setTimeout> | null = null
-  const pulse = createPulse((frame) => {
-    tray?.setFrame(frame)
-  })
+  // The glyph the icon shows, so a refresh that changes nothing doesn't swap its image.
+  let glyph = Glyph.Plain
 
   const cancelRefresh = (): void => {
     if (timer === null) return
@@ -195,12 +193,15 @@ export function createMenuBar({
     timer = null
   }
 
-  /** Draws the icon for `snapshot`, pulsing it while anything works and motion's allowed. */
+  /** Draws the icon for `snapshot`: the count, and the dot while anything needs you, for the menu bar's appearance. */
   const draw = (snapshot: MenuBarSnapshot): void => {
     if (tray === null) return
-    const icon = menuBarIcon(snapshot, reduceMotion())
+    const icon = menuBarIcon(snapshot)
     tray.setTitle(icon.title)
-    pulse.set(icon.pulse)
+    const drawn = glyphFor(icon.dot, appearance())
+    if (drawn === glyph) return
+    glyph = drawn
+    tray.setGlyph(drawn)
   }
 
   const refresh = (): void => {
@@ -241,13 +242,13 @@ export function createMenuBar({
   const add = (): void => {
     log.info('menu bar icon added')
     tray = createTray({ onClick: toggle })
+    glyph = Glyph.Plain
     refresh()
   }
 
   const remove = (): void => {
     log.info('menu bar icon removed')
     cancelRefresh()
-    pulse.set(false)
     open = false
     popover?.destroy()
     popover = null
@@ -278,9 +279,6 @@ export function createMenuBar({
     get open() {
       return open
     },
-    get pulsing() {
-      return pulse.on
-    },
     sync,
     observe(event) {
       if (event.type === EventType.SettingsChanged) {
@@ -291,7 +289,7 @@ export function createMenuBar({
     },
     refresh,
     changed,
-    motionChanged() {
+    appearanceChanged() {
       if (tray === null) return
       draw(readMenuBarSnapshot(db))
     },

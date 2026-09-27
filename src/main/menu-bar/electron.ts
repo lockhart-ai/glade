@@ -9,8 +9,8 @@ import type { BrowserWindow, BrowserWindowConstructorOptions, NativeImage, Tray 
 import { EVENT_CHANNEL } from '../../shared/bridge'
 import { MENU_BAR_POPOVER_WIDTH } from '../../shared/menuBar'
 import type { CreatePopover, CreateTray } from './menu-bar'
+import { GLYPH_FILES, Glyph, isTemplateGlyph } from './glyph'
 import { MIN_POPOVER_HEIGHT, popoverBounds, type Bounds } from './position'
-import { GLYPH_STRENGTHS, RESTING_FRAME } from './pulse'
 
 /** The `menu` design token: the popover's window is painted it before its page draws. */
 const POPOVER_BACKGROUND = '#262935'
@@ -27,45 +27,43 @@ export const TRAY_TOOLTIP = 'Glade'
 /** Where the glyph's images are, from the app's folder (`app.getAppPath()`), which packages them. */
 export const GLYPH_FOLDER = join('assets', 'icon', 'menu-bar')
 
-/**
- * The file of the glyph at a strength (`GLYPH_STRENGTHS`), its @1x image: macOS picks the `@2x` beside it on a Retina
- * display, and draws it as a template (in the menu bar's own colour, light or dark) for the `Template` in its name.
- */
-export function glyphFile(frame: number): string {
-  return `glyph-${String(frame)}Template.png`
-}
-
 /** The part of Electron's `nativeImage` the tray uses. */
 export interface NativeImages {
   createFromPath(path: string): NativeImage
 }
 
-/** The glyph's images, one per strength, from `folder`, each marked a template image. */
-export function loadGlyphImages(nativeImage: NativeImages, folder: string): NativeImage[] {
-  return GLYPH_STRENGTHS.map((_, frame) => {
-    const image = nativeImage.createFromPath(join(folder, glyphFile(frame)))
-    image.setTemplateImage(true)
+/** The glyph's images, one per `Glyph`. */
+export type GlyphImages = Readonly<Record<Glyph, NativeImage>>
+
+/**
+ * The glyph's images from `folder` (`GLYPH_FILES`): Electron reads each one's `@2x` beside it too, for a Retina display.
+ * Only the plain glyph is marked a template image; the ones with the dot keep their colours.
+ */
+export function loadGlyphImages(nativeImage: NativeImages, folder: string): GlyphImages {
+  const load = (glyph: Glyph): NativeImage => {
+    const image = nativeImage.createFromPath(join(folder, GLYPH_FILES[glyph]))
+    image.setTemplateImage(isTemplateGlyph(glyph))
     return image
-  })
+  }
+  return {
+    [Glyph.Plain]: load(Glyph.Plain),
+    [Glyph.DotOnDark]: load(Glyph.DotOnDark),
+    [Glyph.DotOnLight]: load(Glyph.DotOnLight),
+  }
 }
 
 /** Electron's `Tray` class, as the tray uses it. */
 export type TrayClass = new (image: NativeImage) => Tray
 
 /** Puts the icon in the menu bar with Electron's `Tray`, drawing the glyph from `images` (`loadGlyphImages`). */
-export function createElectronTray(TrayClass: TrayClass, images: readonly NativeImage[]): CreateTray {
-  const image = (frame: number): NativeImage => {
-    const found = images[frame] ?? images[RESTING_FRAME]
-    if (found === undefined) throw new Error('No menu bar glyph images')
-    return found
-  }
+export function createElectronTray(TrayClass: TrayClass, images: GlyphImages): CreateTray {
   return ({ onClick }) => {
-    const tray = new TrayClass(image(RESTING_FRAME))
+    const tray = new TrayClass(images[Glyph.Plain])
     tray.setToolTip(TRAY_TOOLTIP)
     tray.on('click', onClick)
     return {
-      setFrame: (frame) => {
-        tray.setImage(image(frame))
+      setGlyph: (glyph) => {
+        tray.setImage(images[glyph])
       },
       setTitle: (title) => {
         // Digits of one width, so the count doesn't shift the glyph as it changes.

@@ -18,15 +18,16 @@ import {
   type PopoverHandlers,
   type TrayHandlers,
 } from './menu-bar'
+import { Glyph, MenuBarAppearance } from './glyph'
 import type { Bounds } from './position'
-import { PULSE_FRAME_MS, RESTING_FRAME } from './pulse'
 
 const TRAY_BOUNDS: Bounds = { x: 1480, y: 0, width: 32, height: 24 }
 
 /** A recorded icon: what it shows, and its click. */
 interface FakeTray extends MenuBarTray {
   title: string
-  frames: number[]
+  /** The glyphs it was asked to draw, in order: none until one changes from the plain glyph it starts with. */
+  glyphs: Glyph[]
   destroyed: boolean
   readonly handlers: TrayHandlers
 }
@@ -45,7 +46,7 @@ let test: TestDatabase
 let workspace: Workspace
 let trays: FakeTray[]
 let popovers: FakePopover[]
-let reduceMotion: boolean
+let appearance: MenuBarAppearance
 let clock: number
 let opened: string[]
 let calls: string[]
@@ -57,11 +58,11 @@ function start(overrides: Partial<MenuBarOptions> = {}): MenuBar {
     createTray: (handlers) => {
       const tray: FakeTray = {
         title: '',
-        frames: [],
+        glyphs: [],
         destroyed: false,
         handlers,
-        setFrame: (frame) => {
-          tray.frames.push(frame)
+        setGlyph: (glyph) => {
+          tray.glyphs.push(glyph)
         },
         setTitle: (title) => {
           tray.title = title
@@ -101,7 +102,7 @@ function start(overrides: Partial<MenuBarOptions> = {}): MenuBar {
       popovers.push(popover)
       return popover
     },
-    reduceMotion: () => reduceMotion,
+    appearance: () => appearance,
     openTask: (taskId) => {
       opened.push(taskId)
     },
@@ -142,6 +143,11 @@ function change(task: Task, patch: Parameters<typeof updateTask>[2]): void {
   menuBar.observe({ type: EventType.TaskUpdated, task: updated })
 }
 
+/** The glyph the icon shows now: the plain one it starts with, or the last it was asked to draw. */
+function glyph(): Glyph {
+  return tray().glyphs.at(-1) ?? Glyph.Plain
+}
+
 /** The last snapshot the popover's page was sent. */
 function lastSent(): Extract<GladeEvent, { type: EventType.MenuBarChanged }>['snapshot'] {
   const event = popover().sent.at(-1)
@@ -155,7 +161,7 @@ beforeEach(() => {
   workspace = sampleWorkspace(test.db)
   trays = []
   popovers = []
-  reduceMotion = false
+  appearance = MenuBarAppearance.Dark
   clock = 100_000
   opened = []
   calls = []
@@ -168,13 +174,11 @@ afterEach(() => {
 })
 
 describe('the icon', () => {
-  it('is in the menu bar by default, still and saying nothing while nothing is in flight', () => {
+  it('is in the menu bar by default, the plain glyph saying nothing while nothing needs you', () => {
     start()
     expect(menuBar.shown).toBe(true)
     expect(tray().title).toBe('')
-    expect(menuBar.pulsing).toBe(false)
-    vi.advanceTimersByTime(PULSE_FRAME_MS * 4)
-    expect(tray().frames).toEqual([])
+    expect(tray().glyphs).toEqual([])
   })
 
   it('counts the tasks that need you from launch, and keeps counting as they change', () => {
@@ -197,38 +201,80 @@ describe('the icon', () => {
     expect(tray().title).toBe('')
   })
 
-  it('pulses while an agent works, and rests the glyph once none does', () => {
+  it('has the purple dot while anything needs you, and goes back to the plain glyph once nothing does', () => {
     const task = ranTask({ activity: TaskActivity.Working })
     start()
-    expect(menuBar.pulsing).toBe(true)
-    vi.advanceTimersByTime(PULSE_FRAME_MS * 4)
-    expect(tray().frames).toEqual([1, 2, 1, 0])
+    expect(glyph()).toBe(Glyph.Plain)
 
     change(task, { activity: TaskActivity.Waiting })
     vi.advanceTimersByTime(REFRESH_DELAY_MS)
-    expect(menuBar.pulsing).toBe(false)
-    expect(tray().frames.at(-1)).toBe(RESTING_FRAME)
-    const drawn = tray().frames.length
-    vi.advanceTimersByTime(PULSE_FRAME_MS * 4)
-    expect(tray().frames).toHaveLength(drawn)
+    expect([glyph(), tray().title]).toEqual([Glyph.DotOnDark, '1'])
+
+    change(task, { activity: TaskActivity.Working })
+    vi.advanceTimersByTime(REFRESH_DELAY_MS)
+    expect([glyph(), tray().title]).toEqual([Glyph.Plain, ''])
+    expect(tray().glyphs).toEqual([Glyph.DotOnDark, Glyph.Plain])
   })
 
-  it('holds still with Reduce motion on, and follows it being turned off and on again', () => {
+  it('never animates: working agents, and time passing, leave the glyph as it is', () => {
     ranTask({ activity: TaskActivity.Working })
-    reduceMotion = true
+    ranTask({ activity: TaskActivity.Working })
     start()
-    expect(menuBar.pulsing).toBe(false)
-    vi.advanceTimersByTime(PULSE_FRAME_MS * 4)
-    expect(tray().frames).toEqual([])
+    vi.advanceTimersByTime(60_000)
+    expect(tray().glyphs).toEqual([])
+    expect(vi.getTimerCount()).toBe(0)
+  })
 
-    reduceMotion = false
-    menuBar.motionChanged()
-    expect(menuBar.pulsing).toBe(true)
+  it('swaps its image only when the glyph changes, not on every refresh', () => {
+    const task = ranTask()
+    const other = ranTask()
+    start()
+    expect(tray().glyphs).toEqual([Glyph.DotOnDark])
+    change(task, { status: 'Still waiting' })
+    vi.advanceTimersByTime(REFRESH_DELAY_MS)
+    change(other, { activity: TaskActivity.Working })
+    vi.advanceTimersByTime(REFRESH_DELAY_MS)
+    expect(tray().title).toBe('1')
+    expect(tray().glyphs).toEqual([Glyph.DotOnDark])
+  })
 
-    reduceMotion = true
-    menuBar.motionChanged()
-    expect(menuBar.pulsing).toBe(false)
-    expect(tray().frames.at(-1)).toBe(RESTING_FRAME)
+  it('draws the dot for a light menu bar from launch', () => {
+    ranTask()
+    appearance = MenuBarAppearance.Light
+    start()
+    expect(tray().glyphs).toEqual([Glyph.DotOnLight])
+  })
+
+  it('redraws the dot when the appearance switches between light and dark, and back', () => {
+    ranTask()
+    start()
+    appearance = MenuBarAppearance.Light
+    menuBar.appearanceChanged()
+    expect(glyph()).toBe(Glyph.DotOnLight)
+    appearance = MenuBarAppearance.Dark
+    menuBar.appearanceChanged()
+    expect(glyph()).toBe(Glyph.DotOnDark)
+    expect(tray().glyphs).toEqual([Glyph.DotOnDark, Glyph.DotOnLight, Glyph.DotOnDark])
+    expect(tray().title).toBe('1')
+  })
+
+  it('keeps the plain glyph, a template that follows the menu bar itself, when the appearance switches', () => {
+    start()
+    appearance = MenuBarAppearance.Light
+    menuBar.appearanceChanged()
+    appearance = MenuBarAppearance.Dark
+    menuBar.appearanceChanged()
+    expect(tray().glyphs).toEqual([])
+  })
+
+  it('draws a dot that arrives after an appearance switch for the new appearance', () => {
+    const task = ranTask({ activity: TaskActivity.Working })
+    start()
+    appearance = MenuBarAppearance.Light
+    menuBar.appearanceChanged()
+    change(task, { activity: TaskActivity.Error })
+    vi.advanceTimersByTime(REFRESH_DELAY_MS)
+    expect(tray().glyphs).toEqual([Glyph.DotOnLight])
   })
 
   it('catches up once for a burst of changes, a moment after the last one starts it', () => {
@@ -293,7 +339,7 @@ describe('Show Glade in the menu bar', () => {
   })
 
   it('takes the icon away as it is turned off, closing the popover, and puts it back as it is turned on', () => {
-    ranTask({ activity: TaskActivity.Working })
+    ranTask()
     const log = createMemoryLog()
     start({ log: log.logger })
     menuBar.toggle()
@@ -305,17 +351,16 @@ describe('Show Glade in the menu bar', () => {
     expect(first.destroyed).toBe(true)
     expect(popover().destroyed).toBe(true)
     expect(menuBar.open).toBe(false)
-    expect(menuBar.pulsing).toBe(false)
     // Nothing is drawn on the icon that's gone.
-    const drawn = first.frames.length
-    vi.advanceTimersByTime(PULSE_FRAME_MS * 4)
-    expect(first.frames).toHaveLength(drawn)
+    menuBar.appearanceChanged()
+    expect(first.glyphs).toEqual([Glyph.DotOnDark])
 
     const on = updateSettings(test.db, { showInMenuBar: true })
     menuBar.observe({ type: EventType.SettingsChanged, settings: on })
     expect(menuBar.shown).toBe(true)
     expect(tray()).not.toBe(first)
-    expect(menuBar.pulsing).toBe(true)
+    // The new icon starts plain, and is drawn with the dot again.
+    expect([tray().title, tray().glyphs]).toEqual(['1', [Glyph.DotOnDark]])
     expect(log.records.map(({ message }) => message)).toEqual([
       'menu bar icon added',
       'menu bar icon removed',
@@ -341,7 +386,7 @@ describe('Show Glade in the menu bar', () => {
     vi.advanceTimersByTime(REFRESH_DELAY_MS)
     menuBar.changed()
     menuBar.refresh()
-    menuBar.motionChanged()
+    menuBar.appearanceChanged()
     expect(popover().sent).toHaveLength(sent)
   })
 })
@@ -455,7 +500,6 @@ describe('the popover', () => {
     expect(trays[0]?.destroyed).toBe(true)
     expect(popover().destroyed).toBe(true)
     expect(menuBar.shown).toBe(false)
-    expect(menuBar.pulsing).toBe(false)
     menuBar.close()
   })
 })

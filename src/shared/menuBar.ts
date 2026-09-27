@@ -1,7 +1,8 @@
 /**
- * Glade in the macOS menu bar (`docs/design/html/29-menu-bar.html`): an icon showing what's in flight, and a popover
- * under it listing it. Main works out what's in flight from the database (`src/main/menu-bar`) as a `MenuBarSnapshot`,
- * draws the icon from it (`menuBarIcon`), and hands it to the popover's page (`src/renderer/menu-bar`), which shows it.
+ * Glade in the macOS menu bar (`docs/design/html/29-menu-bar.html`): an icon showing what's waiting on you, and a
+ * popover under it listing what's in flight. Main works out what's in flight from the database (`src/main/menu-bar`)
+ * as a `MenuBarSnapshot`, draws the icon from it (`menuBarIcon`), and hands it to the popover's page
+ * (`src/renderer/menu-bar`), which shows it.
  *
  * - **Needs you:** every workspace's tasks that need you (the task list's rule, `needsYou`), with why.
  * - **Working:** every workspace's tasks whose agent is working (or paused, which resumes on its own), with their
@@ -182,16 +183,15 @@ function startOrder(startedAt: EpochMs | null): number {
 export interface MenuBarIcon {
   /** Beside the glyph: how many tasks need you, or nothing when none do. */
   readonly title: string
-  /** Whether the glyph pulses: while any agent works (a paused one waits), unless Reduce motion is on. */
-  readonly pulse: boolean
+  /** Whether the glyph has the purple dot: while any task needs you. */
+  readonly dot: boolean
 }
 
 /**
- * What the icon shows for a snapshot: the Needs you count, and a pulse while any agent works and motion's allowed. A
- * paused turn is listed under Working, but its agent isn't doing anything until it resumes, so it doesn't pulse.
+ * What the icon shows for a snapshot: while tasks need you, the purple dot on the glyph and their count beside it;
+ * otherwise the plain glyph alone. It never moves, whatever the agents are doing.
  */
-export function menuBarIcon(snapshot: MenuBarSnapshot, reduceMotion: boolean): MenuBarIcon {
+export function menuBarIcon(snapshot: MenuBarSnapshot): MenuBarIcon {
   const count = snapshot.needsYou.length
-  const working = snapshot.working.some((item) => item.pause === null)
-  return { title: count === 0 ? '' : String(count), pulse: working && !reduceMotion }
+  return { title: count === 0 ? '' : String(count), dot: count > 0 }
 }

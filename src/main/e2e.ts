@@ -10,6 +10,7 @@ import { AGENT_SCRIPT_NAMES, type AgentScriptName } from './agent/scripts'
 import type { UserContent } from './agent/user-content'
 import { isInTempFolder, isolateApp, type IsolatedApp } from './isolation'
 import type { Environment } from './login-env'
+import type { Glyph, MenuBarAppearance } from './menu-bar/glyph'
 
 /** The environment variable that carries the e2e spec, as JSON. */
 export const E2E_ENV = 'GLADE_E2E'
@@ -191,12 +192,12 @@ export interface E2eMenuBar {
   readonly shown: boolean
   /** The text beside its glyph: how many tasks need you, or nothing. */
   readonly title: string
-  /** Whether its glyph is pulsing. */
-  readonly pulsing: boolean
+  /** The glyph it shows: plain, or with the purple dot for a light or dark menu bar while something needs you. */
+  readonly glyph: Glyph
   /** Whether its popover is showing. */
   readonly open: boolean
-  /** Whether macOS's Reduce motion is on, as the icon sees it: off until a spec turns it on. */
-  reduceMotion: boolean
+  /** Whether the menu bar is light or dark, as the icon sees it: dark until a spec switches it. */
+  appearance: MenuBarAppearance
   /** Clicks the icon: shows its popover, or hides it. */
   click(): void
 }

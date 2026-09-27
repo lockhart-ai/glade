@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
+import { Glyph, MenuBarAppearance } from './glyph'
 import type { MenuBar } from './menu-bar'
-import { createRecordingTray, e2eMenuBar, RECORDED_TRAY_BOUNDS } from './recording'
-import { RESTING_FRAME } from './pulse'
+import { createRecordingTray, e2eMenuBar, RECORDED_TRAY_BOUNDS, type RecordedAppearance } from './recording'
 
 describe('createRecordingTray', () => {
   it('has no icon until one is made, and none to click', () => {
     const recording = createRecordingTray()
     expect(recording.shown).toBe(false)
     expect(recording.title).toBe('')
-    expect(recording.frame).toBe(RESTING_FRAME)
+    expect(recording.glyph).toBe(Glyph.Plain)
     expect(() => {
       recording.click()
     }).toThrow('There is no menu bar icon to click')
@@ -19,9 +19,10 @@ describe('createRecordingTray', () => {
     const onClick = vi.fn()
     const icon = recording.createTray({ onClick })
     expect(recording.shown).toBe(true)
+    expect(recording.glyph).toBe(Glyph.Plain)
     icon.setTitle('2')
-    icon.setFrame(2)
-    expect([recording.title, recording.frame]).toEqual(['2', 2])
+    icon.setGlyph(Glyph.DotOnLight)
+    expect([recording.title, recording.glyph]).toEqual(['2', Glyph.DotOnLight])
     expect(icon.bounds()).toEqual(RECORDED_TRAY_BOUNDS)
     recording.click()
     expect(onClick).toHaveBeenCalledOnce()
@@ -42,27 +43,29 @@ describe('createRecordingTray', () => {
 })
 
 describe('e2eMenuBar', () => {
-  it('reads the icon and the menu bar as they are, clicks the icon, and tells the menu bar when Reduce motion changes', () => {
+  it('reads the icon and the menu bar as they are, clicks the icon, and tells the menu bar when the appearance switches', () => {
     const recording = createRecordingTray()
     const onClick = vi.fn()
-    recording.createTray({ onClick }).setTitle('3')
-    const motionChanged = vi.fn()
-    const menuBar = { pulsing: true, open: false, motionChanged } as unknown as MenuBar
-    const motion = { reduceMotion: false }
-    const seen = e2eMenuBar(menuBar, recording, motion)
+    const icon = recording.createTray({ onClick })
+    icon.setTitle('3')
+    icon.setGlyph(Glyph.DotOnDark)
+    const appearanceChanged = vi.fn()
+    const menuBar = { open: false, appearanceChanged } as unknown as MenuBar
+    const recorded: RecordedAppearance = { appearance: MenuBarAppearance.Dark }
+    const seen = e2eMenuBar(menuBar, recording, recorded)
 
-    expect([seen.shown, seen.title, seen.pulsing, seen.open, seen.reduceMotion]).toEqual([
+    expect([seen.shown, seen.title, seen.glyph, seen.open, seen.appearance]).toEqual([
       true,
       '3',
-      true,
+      Glyph.DotOnDark,
       false,
-      false,
+      MenuBarAppearance.Dark,
     ])
     seen.click()
     expect(onClick).toHaveBeenCalledOnce()
-    seen.reduceMotion = true
-    expect(motion.reduceMotion).toBe(true)
-    expect(seen.reduceMotion).toBe(true)
-    expect(motionChanged).toHaveBeenCalledOnce()
+    seen.appearance = MenuBarAppearance.Light
+    expect(recorded.appearance).toBe(MenuBarAppearance.Light)
+    expect(seen.appearance).toBe(MenuBarAppearance.Light)
+    expect(appearanceChanged).toHaveBeenCalledOnce()
   })
 })

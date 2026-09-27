@@ -7,12 +7,12 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  nativeTheme,
   net,
   Notification,
   protocol,
   screen,
   shell,
-  systemPreferences,
   Tray,
   WebContentsView,
   type Point,
@@ -62,7 +62,8 @@ import { CONSOLE_LOGGER, createLogger, LogScope, type Logger, type LogSink } fro
 import { installAppMenu } from './menu/app-menu'
 import { createElectronPopover, createElectronTray, GLYPH_FOLDER, loadGlyphImages } from './menu-bar/electron'
 import { createMenuBar, type CreateTray, type MenuBar } from './menu-bar/menu-bar'
-import { createRecordingTray, e2eMenuBar, type RecordedMotion } from './menu-bar/recording'
+import { MenuBarAppearance } from './menu-bar/glyph'
+import { createRecordingTray, e2eMenuBar, type RecordedAppearance } from './menu-bar/recording'
 import { createElectronNotifier } from './notifications/electron-notifier'
 import { createReplyNotifications } from './notifications/notifications'
 import type { Notifier } from './notifications/notifier'
@@ -481,43 +482,46 @@ function openGlade(testMode: TestMode, log: Logger): void {
   bringUp(window, testMode)
 }
 
-/** What the menu bar icon is drawn with, and how it learns Reduce motion is on. */
+/** What the menu bar icon is drawn with, and how it learns whether the menu bar is light or dark. */
 interface MenuBarDrawing {
   readonly createTray: CreateTray
-  readonly reduceMotion: () => boolean
+  readonly appearance: () => MenuBarAppearance
   /** Hands the running menu bar over, e.g. for e2e mode to put it on the global object. */
   readonly started: (menuBar: MenuBar) => void
 }
 
-/** The macOS notification that an accessibility display option changed, Reduce motion among them. */
-const ACCESSIBILITY_CHANGED = 'NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification'
+/** The system's appearance, which the menu bar follows. */
+function systemAppearance(): MenuBarAppearance {
+  return nativeTheme.shouldUseDarkColors ? MenuBarAppearance.Dark : MenuBarAppearance.Light
+}
 
 /**
- * The real menu bar icon (Electron's `Tray`, drawing the glyph's images packaged with the app) and macOS's Reduce
- * motion, whose changes it follows. E2e mode never puts a real icon in the menu bar: it records it instead, with Reduce
- * motion off until the spec turns it on, and puts both on the global object (`E2E_MENU_BAR_GLOBAL`) for the spec.
+ * The real menu bar icon (Electron's `Tray`, drawing the glyph's images packaged with the app) and the system's
+ * appearance, light or dark, whose changes it follows (`nativeTheme`'s `updated`). E2e mode never puts a real icon in
+ * the menu bar: it records it instead, with a dark menu bar until the spec switches it, and puts both on the global
+ * object (`E2E_MENU_BAR_GLOBAL`) for the spec.
  */
 function menuBarDrawing(testMode: TestMode, log: Logger): MenuBarDrawing {
   if (testMode === null) {
     const images = loadGlyphImages(nativeImage, join(app.getAppPath(), GLYPH_FOLDER))
-    if (images.some((image) => image.isEmpty())) log.warn("the menu bar glyph's images are missing")
+    if (Object.values(images).some((image) => image.isEmpty())) log.warn("the menu bar glyph's images are missing")
     return {
       createTray: createElectronTray(Tray, images),
-      reduceMotion: () => systemPreferences.getAnimationSettings().prefersReducedMotion,
+      appearance: systemAppearance,
       started: (menuBar) => {
-        systemPreferences.subscribeWorkspaceNotification(ACCESSIBILITY_CHANGED, () => {
-          menuBar.motionChanged()
+        nativeTheme.on('updated', () => {
+          menuBar.appearanceChanged()
         })
       },
     }
   }
   const tray = createRecordingTray()
-  const motion: RecordedMotion = { reduceMotion: false }
+  const recorded: RecordedAppearance = { appearance: MenuBarAppearance.Dark }
   return {
     createTray: tray.createTray,
-    reduceMotion: () => motion.reduceMotion,
+    appearance: () => recorded.appearance,
     started: (menuBar) => {
-      Reflect.set(globalThis, E2E_MENU_BAR_GLOBAL, e2eMenuBar(menuBar, tray, motion))
+      Reflect.set(globalThis, E2E_MENU_BAR_GLOBAL, e2eMenuBar(menuBar, tray, recorded))
     },
   }
 }
@@ -673,7 +677,7 @@ export function startApp({
                 else popoverWindows.delete(window)
               },
             }),
-            reduceMotion: drawing.reduceMotion,
+            appearance: drawing.appearance,
             openTask: (taskId) => {
               openTaskInWindow(taskId, { testMode, database, bridge, log })
             },

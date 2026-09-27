@@ -227,35 +227,29 @@ describe('menuBarIcon', () => {
   const waiting = snapshotOf([task('a'), task('b', { asking: true })])
   const both = snapshotOf([task('w', { activity: TaskActivity.Working }), task('a', { activity: TaskActivity.Error })])
 
-  it('is still and says nothing when nothing is in flight, or only notifications are', () => {
-    expect(menuBarIcon(EMPTY_MENU_BAR_SNAPSHOT, false)).toEqual({ title: '', pulse: false })
-    expect(menuBarIcon({ ...EMPTY_MENU_BAR_SNAPSHOT, recent: [sent(1)] }, false)).toEqual({ title: '', pulse: false })
+  it('is the plain glyph, saying nothing, when nothing needs you, or only notifications are', () => {
+    expect(menuBarIcon(EMPTY_MENU_BAR_SNAPSHOT)).toEqual({ title: '', dot: false })
+    expect(menuBarIcon({ ...EMPTY_MENU_BAR_SNAPSHOT, recent: [sent(1)] })).toEqual({ title: '', dot: false })
   })
 
-  it('pulses while an agent works', () => {
-    expect(menuBarIcon(working, false)).toEqual({ title: '', pulse: true })
-  })
-
-  it('counts the tasks that need you', () => {
-    expect(menuBarIcon(waiting, false)).toEqual({ title: '2', pulse: false })
-    expect(menuBarIcon(both, false)).toEqual({ title: '1', pulse: true })
-  })
-
-  it('counts as the tasks change: up, down, and to nothing', () => {
-    const counts = [[task('a')], [task('a'), task('b')], [task('b')], []].map(
-      (tasks) => menuBarIcon(snapshotOf(tasks), false).title,
-    )
-    expect(counts).toEqual(['1', '2', '1', ''])
-  })
-
-  it('holds still with Reduce motion on, still counting', () => {
-    expect(menuBarIcon(working, true)).toEqual({ title: '', pulse: false })
-    expect(menuBarIcon(both, true)).toEqual({ title: '1', pulse: false })
-  })
-
-  it('holds still while every turn under way is paused, and pulses again once one works', () => {
+  it('stays plain while agents work, or wait paused: only what needs you shows', () => {
     const paused = task('p', { activity: TaskActivity.Paused, pause: PAUSE })
-    expect(menuBarIcon(snapshotOf([paused]), false)).toEqual({ title: '', pulse: false })
-    expect(menuBarIcon(snapshotOf([paused, task('w', { activity: TaskActivity.Working })]), false).pulse).toBe(true)
+    expect(menuBarIcon(working)).toEqual({ title: '', dot: false })
+    expect(menuBarIcon(snapshotOf([paused]))).toEqual({ title: '', dot: false })
+  })
+
+  it('has the dot and counts the tasks that need you, whatever else is working', () => {
+    expect(menuBarIcon(waiting)).toEqual({ title: '2', dot: true })
+    expect(menuBarIcon(both)).toEqual({ title: '1', dot: true })
+  })
+
+  it('keeps the dot and count in step as the tasks change: up, down, and to nothing', () => {
+    const icons = [[task('a')], [task('a'), task('b')], [task('b')], []].map((tasks) => menuBarIcon(snapshotOf(tasks)))
+    expect(icons).toEqual([
+      { title: '1', dot: true },
+      { title: '2', dot: true },
+      { title: '1', dot: true },
+      { title: '', dot: false },
+    ])
   })
 })
