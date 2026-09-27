@@ -54,15 +54,16 @@ const MAX_SCALING = 1.5
 /** How many times each thing is timed, the fastest counting. */
 const RUNS = 5
 /** How many times the import is timed: it takes much longer. */
-const IMPORT_RUNS = 5
+const IMPORT_RUNS = 3
 /** How many times a reference is timed before each timing, the fastest counting. */
 const REFERENCE_RUNS = 3
 
 /**
  * A guard against a hang, not a budget: the budgets are CPU time, and a machine this test runs on at a tenth of its
- * speed would still pass them.
+ * speed would still pass them. (Held to its efficiency cores with the other test files alongside, the import's test
+ * once took over 5 minutes on the clock.)
  */
-const TIMEOUT_MS = 300_000
+const TIMEOUT_MS = 600_000
 
 /** A fresh database and projects folder, with one workspace, to list and import sessions from. */
 interface Fixture {
