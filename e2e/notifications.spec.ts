@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { clickNotification, expect, notifications, replyToNotification, test } from './fixtures'
+import { clickNotification, expect, notifications, replyToNotification, sendAndOpenNewTask, test } from './fixtures'
 import { chat, firstRun, inputBar, taskHeader, taskList } from './selectors'
 
 /** Task A's first message: it plays `multi-tool-turn`, which titles the task and replies after a dozen tool calls. */
@@ -33,10 +33,7 @@ test("a reply in a task you aren't viewing sends a notification you can reply to
 
   // Task A: ask it something, then move to a new task B before its agent replies.
   await list.newTask.click()
-  await bar.field.fill(FIX_DATE)
-  await bar.field.press('Enter')
-  await list.newTask.click()
-  await expect(chat(window).newTaskPrompt).toBeVisible()
+  await sendAndOpenNewTask(glade, FIX_DATE)
 
   // A's reply arrives while you're on B: one notification, with A's title and the start of its reply as plain text.
   const rowA = list.taskRow(A_TITLE)

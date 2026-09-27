@@ -1,9 +1,9 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Locator } from '@playwright/test'
-import { expect, test } from './fixtures'
+import { expect, sendAndOpenNewTask, test } from './fixtures'
 import { chooseMenuItem } from './menu'
-import { chat, firstRun, inputBar, taskHeader, taskList } from './selectors'
+import { firstRun, taskHeader, taskList } from './selectors'
 
 /** The title the multi-tool-turn agent gives its task. */
 const ASKED = 'Fix the flaky date test'
@@ -29,11 +29,7 @@ test('unread and needs you: a reply in a task you left marks it, the chips filte
 
   // Task A: ask it something, then move to a new task B before the agent replies.
   await list.newTask.click()
-  const bar = inputBar(window)
-  await bar.field.fill('The date test is flaky. Can you fix it?')
-  await bar.field.press('Enter')
-  await list.newTask.click()
-  await expect(chat(window).newTaskPrompt).toBeVisible()
+  await sendAndOpenNewTask(first, 'The date test is flaky. Can you fix it?')
 
   // A's reply arrives while you're on B: A goes bold with the blue dot, and counts under Needs you and Unread. B has
   // never run, so it doesn't need you.
