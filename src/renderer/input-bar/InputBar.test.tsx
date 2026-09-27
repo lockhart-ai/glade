@@ -410,6 +410,31 @@ describe('InputBar', () => {
       expect(sends(fake)).toEqual([{ id: 't1', text: 'Carry on.' }])
     })
 
+    it('shows Stop as an icon alone, named Stop, with ⌘. in its tooltip, just before Send', async () => {
+      const fake = await renderBar()
+      setActivity(fake, TaskActivity.Working)
+
+      const stop = screen.getByRole('button', { name: 'Stop' })
+      expect(stop).toHaveTextContent('')
+      expect(stop.querySelector('svg')).not.toBeNull()
+      expect(stop).toHaveAttribute('title', 'Stop (⌘.)')
+      expect(stop).toHaveAttribute('aria-keyshortcuts', 'Meta+.')
+      expect(stop.nextElementSibling).toBe(queueButton())
+    })
+
+    it('follows Stop’s rebound keys in its tooltip', async () => {
+      const fake = await renderBar()
+      setActivity(fake, TaskActivity.Working)
+
+      await act(() =>
+        fake.store.getState().updateSettings({ keyBindings: { [WindowCommandId.StopAgent]: 'Meta+Shift+X' } }),
+      )
+
+      const stop = screen.getByRole('button', { name: 'Stop' })
+      expect(stop).toHaveAttribute('title', 'Stop (⌘⇧X)')
+      expect(stop).toHaveAttribute('aria-keyshortcuts', 'Meta+Shift+X')
+    })
+
     it('queues the message when the agent turns out to be working already', async () => {
       const fake = await renderBar({
         overrides: {
