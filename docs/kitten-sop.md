@@ -116,3 +116,41 @@ outside, ask the supervisor.
    review)": every call made where the docs were silent.
 4. **Tag** the merged commit and push the tag.
 5. **Close the meta issue** with a comment: the release link, what was verified, and the handback markdown.
+
+## Dependabot PRs
+
+Dependabot (`.github/dependabot.yml`) checks for updates every week and opens three kinds of PR, labelled
+`dependencies`:
+
+- **The Claude Agent SDK** (`deps: bump the claude-agent-sdk group …`): `@anthropic-ai/claude-agent-sdk` and its
+  platform packages, which carry the Claude Code binary Glade ships. One PR per bump, whatever its size, keeping the
+  exact pin.
+- **Everything else on npm:** every minor and patch update in one grouped PR, and each major update as its own PR.
+- **GitHub Actions** (`ci: bump …`): one PR per action.
+
+### SDK bumps
+
+The supervisor dispatches a kitten to each SDK bump. It works on the Dependabot branch (merging `origin/main` in if it
+falls behind, like any other PR) and:
+
+1. **Reads the changelog** between the old and new versions (`npm view @anthropic-ai/claude-agent-sdk` and the
+   package's `CHANGELOG.md`), and diffs the SDK's `sdk.d.ts` between them.
+2. **Re-checks `docs/sdk-notes.md`** against the new types and behaviour: the event shapes Glade parses, the rate limit
+   event, the experimental usage call, compaction, `supportedModels`, `accountInfo`, and anything else the notes flag.
+   It fixes whatever breaks on the same branch, and records anything that changed in the notes.
+3. **Updates the notes' pinned version** (the "Tested" line at the top).
+4. **Runs every check** in "Check it" above, e2e included.
+5. **Packages the app and probes it** as `docs/releasing.md` describes: `check-packaged-claude` on the build, then one
+   real probe of the packaged app, which must return a result. That probe is the only real Claude call.
+6. **Reports back** with the changes it found and what it did about each, and the probe's output.
+
+### Other npm and Actions bumps
+
+- **The grouped minor and patch PR** merges once CI passes, unless it includes Electron or electron-builder: then a
+  kitten packages the app and runs `check-packaged-claude` on it first.
+- **A major update** gets a kitten: it reads the release notes for breaking changes, fixes what breaks on the same
+  branch, and runs every check. Electron and electron-builder majors also get the packaged-app check.
+- **An Actions bump** merges once CI passes. If it touches an action that only `release.yml` uses, dry-run the release
+  workflow on the branch first (`docs/releasing.md`).
+
+The supervisor reviews and merges Dependabot PRs like any other: approve, then queue.

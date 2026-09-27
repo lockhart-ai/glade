@@ -47,6 +47,11 @@ There are no follow-up tasks. One task can refer to another through its folder o
   and permissions pickers and a context
   meter at the right. Each task keeps its unsent draft, text and pasted images, while you're on another task and
   across a relaunch or a crash, until it's sent.
+  A message's pasted images show as thumbnails above its text in the chat, and small in its row while it's queued.
+  Clicking one (or ↵ or Space on it) opens the **image viewer** over the window: the image as large as fits, never
+  scaled past its own size, on a dimmed backdrop. With several, ← and → step through the message's images, round from
+  the last to the first, under a "2 of 3"; Esc, a click on the backdrop or × closes it, and the focus goes back to the
+  thumbnail of the image it showed. ![Image viewer](design/screens/30-image-viewer.png)
 - **Right panel** (inside the task card) — tabs: Tool calls, Files, Todos, Artifacts, Subagents, Watchers, Changes (the
   commits the task made; Glade watches git and never drives it). Resizable, collapsible. Too narrow for its tabs, the
   tab row scrolls sideways, with chevrons at the ends that have more tabs past them.
@@ -69,14 +74,14 @@ tool and what it acts on), with **Open task** and an inline **Reply** that sends
 opening Glade. Settings › Notifications turns them off, or their sound on (off by default); Focus and Do Not Disturb
 are left to the OS.
 
-**The menu bar.** Glade's icon in the macOS menu bar shows what's in flight in every workspace: a monochrome glyph
-that follows light and dark menu bars, with the count of tasks that need you beside it, pulsing gently while any agent
-works (still with Reduce motion). Clicking it drops a popover under it: **Needs you** (the task, its workspace and why:
-asking, permission, error or a reply waiting), **Working** (its status line, todo progress with a thin bar, and how
-long its turn has run) and **Recent** (the last notifications Glade sent, with their age; kept in the database, so
-they survive a relaunch), each hidden while empty, or "Nothing in flight". It updates live while open; a row opens
-Glade on its task, switching workspace if needed, and its footer has **Open Glade** and **Quit**. It hides on Esc or
-when it loses focus (`design/html/29-menu-bar.html`).
+**The menu bar.** Glade's icon in the macOS menu bar shows what's waiting on you in every workspace: a monochrome glyph
+that follows light and dark menu bars and never moves, with the count of tasks that need you beside it (blank when none
+do). Clicking it drops a popover under it: **Needs you** (the task, its workspace and why: asking, permission, error or
+a reply waiting), **Working** (its status line, todo progress with a thin bar, and how long its turn has run) and
+**Recent** (the last notifications Glade sent, with their age; kept in the database, so they survive a relaunch), each
+hidden while empty, or "Nothing in flight". It updates live while open; a row opens Glade on its task, switching
+workspace if needed, and its footer has **Open Glade** and **Quit**. It hides on Esc or when it loses focus
+(`design/html/29-menu-bar.html`).
 
 ## Settings
 

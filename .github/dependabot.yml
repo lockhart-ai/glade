@@ -1,0 +1,48 @@
+# Weekly dependency updates. docs/kitten-sop.md says how each kind of PR is handled.
+version: 2
+updates:
+  # One npm block for the whole repo: Dependabot allows only one per ecosystem, directory and branch, so the two npm
+  # update groups live in it. A dependency joins the first group it matches.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # Keep package.json's ranges as they are written and raise them to the new version: the SDK's exact pin stays
+    # exact (0.3.281 becomes 0.3.283), and `^1.2.3` becomes `^1.2.4`.
+    versioning-strategy: increase
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+    commit-message:
+      prefix: deps
+      prefix-development: deps-dev
+    groups:
+      # The Claude Agent SDK and the platform packages that carry its bundled Claude Code binary, in one PR per
+      # bump, of any size. The platform packages are the SDK's own optional dependencies, pinned by it, so they move
+      # with it in the lockfile.
+      claude-agent-sdk:
+        patterns:
+          - '@anthropic-ai/claude-agent-sdk'
+          - '@anthropic-ai/claude-agent-sdk-*'
+      # Everything else: minor and patch updates together in one PR. Major updates match no group, so each comes as
+      # its own PR.
+      npm-minor-and-patch:
+        patterns:
+          - '*'
+        exclude-patterns:
+          - '@anthropic-ai/claude-agent-sdk'
+          - '@anthropic-ai/claude-agent-sdk-*'
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - infra
+    commit-message:
+      prefix: ci

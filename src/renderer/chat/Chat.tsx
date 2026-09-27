@@ -44,7 +44,7 @@ import { subagentOrigin } from '../permissions/permissionCardModel'
 import { ErrorCard } from './ErrorCard'
 import { HandoffCard } from './HandoffCard'
 import { Markdown } from './Markdown'
-import { StoredImage } from '../images/StoredImage'
+import { ImageThumbnails } from '../images/ImageThumbnails'
 import { Highlighted, useSearchHighlight } from '../search/Highlight'
 import { useRevealMatch } from '../search/useRevealMatch'
 import { useStickToBottom } from './useStickToBottom'
@@ -65,9 +65,7 @@ function UserMessage({ message, highlight }: UserEntry & HighlightProps): React.
     <article aria-label="You" className={styles.user}>
       {message.images.length > 0 && (
         <div className={styles.images}>
-          {message.images.map((image) => (
-            <StoredImage key={image.id} image={image} className={styles.image} />
-          ))}
+          <ImageThumbnails images={message.images} className={styles.image} />
         </div>
       )}
       {message.body !== '' && (

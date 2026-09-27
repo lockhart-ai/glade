@@ -368,6 +368,8 @@ export function chat(page: Page) {
   return {
     log,
     userMessages: log.getByRole('article', { name: 'You' }),
+    /** The thumbnails of the images pasted into your messages, which open the image viewer: all of them, in order. */
+    thumbnails: log.getByRole('article', { name: 'You' }).getByRole('button', { name: /^View pasted image/ }),
     agentReplies: log.getByRole('article', { name: 'Agent' }),
     /** The summary under each finished turn's reply: "Finished in 24m 10s · 4 files +61 −3". */
     turnSummaries: log.getByRole('note', { name: 'Turn summary' }),
@@ -492,6 +494,13 @@ export function inputBar(page: Page) {
     removeImage: (position: number) => bar.getByRole('button', { name: `Remove image ${String(position)}` }),
     /** Why something pasted wasn't attached, one line each. */
     refusals: bar.getByRole('alert'),
+    /** A queued message's thumbnails, which open the image viewer, by its number. */
+    queuedThumbnails: (position: number) =>
+      bar
+        .getByRole('region', { name: 'Queued messages' })
+        .getByRole('listitem')
+        .nth(position - 1)
+        .getByRole('button', { name: /^View pasted image/ }),
     /** A queued message's images, by its number. */
     queuedImages: (position: number) =>
       bar
@@ -575,6 +584,23 @@ export function contextMenu(page: Page, name: string) {
 }
 
 /** The confirmation Delete task… asks for. */
+/** The image viewer, over the window: a message's image at full size, its close button and its pager. */
+export function imageViewer(page: Page) {
+  const viewer = page.getByRole('dialog', { name: 'Image viewer' })
+  return {
+    viewer,
+    /** The image showing (the others are loaded, hidden). */
+    image: viewer.getByRole('img', { name: 'Pasted image' }),
+    /** In place of an image that can't be loaded. */
+    missing: viewer.getByRole('img', { name: 'Image not available' }),
+    close: viewer.getByRole('button', { name: 'Close image' }),
+    /** The pager, with several images: Previous image, "2 of 3" and Next image. */
+    pager: viewer.getByRole('group', { name: 'Images' }),
+    previous: viewer.getByRole('button', { name: 'Previous image' }),
+    next: viewer.getByRole('button', { name: 'Next image' }),
+  }
+}
+
 export function deleteTaskDialog(page: Page) {
   const dialog = page.getByRole('alertdialog')
   return {
