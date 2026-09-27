@@ -22,7 +22,7 @@ import {
 } from '../../shared/domain'
 import { WindowCommandId } from '../../shared/commands'
 import { EFFORT_NAMES, effortFallbackNotice, effortFor, effortsOf, findModel, modelName } from '../../shared/models'
-import { isCommandKey, useCommand, useKeymap } from '../commands/hooks'
+import { bindingHint, isCommandKey, useCommand, useKeymap } from '../commands/hooks'
 import { MESSAGE_FIELD_PROPS } from '../commands/registry'
 import { Icon, IconSize, Textarea, useToast } from '../components'
 import { describeFailure } from '../store/hydrate'
@@ -194,6 +194,8 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   const started = useGladeStore((state) => (state.messages[task.id]?.length ?? 0) > 0)
   const toast = useToast()
   const keymap = useKeymap()
+  /** Stop's keys, for its tooltip (`Stop (⌘.)`); `useStopShortcut` handles the shortcut itself. */
+  const stopKeys = bindingHint(WindowCommandId.StopAgent, keymap)
   const field = useRef<HTMLTextAreaElement>(null)
   const keepInputDraft = useGladeStore((state) => state.keepInputDraft)
   const loadInputDraft = useGladeStore((state) => state.loadInputDraft)
@@ -477,6 +479,9 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
         {working && (
           <button
             type="button"
+            aria-label="Stop"
+            aria-keyshortcuts={stopKeys.ariaKeyShortcuts}
+            title={`Stop (${stopKeys.label})`}
             className={styles.stop}
             onClick={() => {
               stopTask(task.id).catch((error: unknown) => {
@@ -484,8 +489,7 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
               })
             }}
           >
-            <Icon icon={faSquare} size={IconSize.Medium} />
-            Stop
+            <Icon icon={faSquare} size={IconSize.Large} />
           </button>
         )}
         <button

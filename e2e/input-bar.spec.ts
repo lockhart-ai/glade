@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from './fixtures'
 import { chat, firstRun, inputBar, taskList } from './selectors'
+import { boxOf } from './window-layout'
 
 test('input bar: ⌘L focuses it, ⇧↵ adds a line, the pickers persist, and ↵ sends to the agent', async ({
   launch,
@@ -66,7 +67,7 @@ test('input bar: ⌘L focuses it, ⇧↵ adds a line, the pickers persist, and �
   await expect(relaunched.setting('Effort')).toHaveText('EffortLow')
 })
 
-test('input bar: while the agent works, Send queues instead and the Stop button stops it', async ({
+test('input bar: while the agent works, Send queues instead and the icon-only Stop button stops it', async ({
   launch,
   tempFolder,
 }) => {
@@ -85,6 +86,16 @@ test('input bar: while the agent works, Send queues instead and the Stop button 
   await expect(bar.stop).toBeVisible()
   await expect(bar.send).toHaveCount(0)
   await expect(bar.queue).toBeEnabled()
+  // Stop is its icon alone, named for screen readers, with its shortcut in its tooltip: a square the size of Send,
+  // just before it, lined up with it.
+  await expect(bar.stop).toHaveText('')
+  await expect(bar.stop).toHaveAttribute('title', 'Stop (⌘.)')
+  const stopBox = await boxOf(bar.stop)
+  const queueBox = await boxOf(bar.queue)
+  expect(stopBox.width).toBe(queueBox.width)
+  expect(stopBox.height).toBe(queueBox.height)
+  expect(stopBox.y).toBe(queueBox.y)
+  expect(stopBox.x + stopBox.width).toBeLessThan(queueBox.x)
   await bar.field.fill('Only run the unit tests.')
   await expect(chat(glade.window).userMessages).toHaveCount(1)
 

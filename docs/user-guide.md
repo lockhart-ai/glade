@@ -135,9 +135,9 @@ scroll: the chat passes under them.
 - **Sending while it works queues.** A message sent while the agent is working waits in a numbered queue above the input
   and goes in as soon as the agent finishes its current step. Edit a queued message with its pencil (or **↑** in an
   empty input for the last one), or remove it. There's no "send now" and no reordering.
-- **Stop:** the Stop button, or **⌘.**, ends the turn. It also withdraws an open question or permission card. It
-  stops only the turn: subagents and watchers the agent left running in the background carry on, and you stop each
-  one from its row in the Subagents or Watchers tab.
+- **Stop:** the square Stop button beside Send, or **⌘.**, ends the turn. It also withdraws an open question or
+  permission card. It stops only the turn: subagents and watchers the agent left running in the background carry on,
+  and you stop each one from its row in the Subagents or Watchers tab.
 - **Questions:** when a choice is yours, the agent asks it on a **question card** in the chat, with options to pick,
   pills or a line of text, and its turn waits however long you take. When it asks in reply to your message, the card
   opens with its answer to what you said, above the questions; that reply stays on the card once you've answered, and
