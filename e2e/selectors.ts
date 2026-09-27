@@ -7,8 +7,13 @@ import type { Locator, Page } from '@playwright/test'
 /** The window's regions (see src/renderer/layout and src/renderer/App.tsx). */
 export function regions(page: Page) {
   return {
-    /** The empty row across the top of the window that holds the macOS traffic lights and drags the window. */
-    titleBar: page.getByTestId('window-title-bar'),
+    /** The window's top edge, above the cards, which drags the window. */
+    topEdge: page.getByTestId('window-top-edge'),
+    /**
+     * The empty strip that holds the macOS traffic lights and drags the window, at the top of the card in the window's
+     * top-left corner: the sidebar's, or the task card's chat column's while the sidebar is collapsed.
+     */
+    lightsStrip: page.getByTestId('lights-strip'),
     sidebar: page.getByRole('navigation', { name: 'Tasks' }),
     /** The top of the sidebar: the workspace's name and root folder. */
     workspace: page.getByRole('region', { name: 'Workspace' }),

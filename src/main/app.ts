@@ -87,11 +87,13 @@ const WINDOW_BACKGROUND = '#0A0B0F'
 const APP_NAME = 'Glade'
 
 /**
- * Where the macOS window controls (the traffic lights) sit: centred in the title bar row across the top of the window
- * (`--title-bar-height`, 32px, in src/renderer/tokens.css), which the renderer keeps clear of everything else. The
- * buttons are 16px tall, so 8px down centres them.
+ * Where the macOS window controls (the traffic lights) sit: in the strip at the top of the card in the window's top-left
+ * corner (`--title-bar-height`, 28px, in src/renderer/tokens.css), centred in it. The card starts at the window's 8px
+ * outer inset and has a 1px border, so the strip runs from 9px to 37px down. AppKit puts the close button's frame
+ * exactly here, and on current macOS its circle fills the frame, 14px square: so 16px in and down centres the lights
+ * in the strip (16–30px, around its middle at 23px), 7px inside the card's top and left edges alike.
  */
-export const TRAFFIC_LIGHT_POSITION: Point = { x: 12, y: 8 }
+export const TRAFFIC_LIGHT_POSITION: Point = { x: 16, y: 16 }
 
 /** The smallest the window can be made. */
 const WINDOW_MIN_SIZE: MinimumSize = { width: 1100, height: 700 }

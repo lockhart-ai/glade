@@ -105,8 +105,9 @@ function FirstRunLayout(): React.JSX.Element {
 }
 
 /**
- * The window layout: the sidebar, the task card and the bottom bar. While the sidebar is collapsed, a button at the top
- * left of the task card shows it again: at the start of the task header, or on a row of its own with no task selected.
+ * The window layout: the sidebar, the task card and the bottom bar. While the sidebar is collapsed, the task card's
+ * chat column starts with the strip for the traffic lights in its place, and a button under it shows the sidebar
+ * again: at the start of the task header, or on a row of its own with no task selected.
  * The sidebar slides open and shut, and stays on screen while it slides shut.
  */
 function Layout(): React.JSX.Element {
@@ -141,6 +142,7 @@ function Layout(): React.JSX.Element {
       taskHasRightPanel={!rightPanel.collapsed}
       task={
         <TaskCard
+          lightsStrip={sidebar.collapsed}
           titleBar={sidebar.collapsed && !hasTask ? <PanelToggle panel={Panel.Sidebar} /> : undefined}
           header={<SelectedTaskHeader />}
           chat={<Chat />}

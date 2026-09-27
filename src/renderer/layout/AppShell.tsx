@@ -49,7 +49,8 @@ export interface AppShellProps {
   onBottomBarHeightChange: (height: number) => void
   /**
    * The app-wide banner across the top of the window (see `PauseBanner`), when there is one. It renders nothing while
-   * there's nothing to say, and then takes no room.
+   * there's nothing to say, and then takes no room. While it shows, it starts below the traffic lights, and the cards'
+   * strips for them fold away.
    */
   banner?: ReactNode
   /** What floats over the window, such as the relaunch notice; positioned by itself against the frame. */
@@ -82,8 +83,9 @@ function shellStyle(sidebarWidth: number, bottomBarHeight: number): CSSPropertie
 
 /**
  * The window frame: a flat background with the sidebar and task card side by side above the bottom bar, under the
- * app-wide banner when there is one. They all start below the title bar row, which holds the macOS traffic lights and
- * drags the window.
+ * app-wide banner when there is one. There's no title bar row: the cards start at the window's outer inset, which drags
+ * the window across the top, and the card in the top-left corner holds the macOS traffic lights in a strip of its own
+ * (see `Sidebar`, and `TaskCard`'s `lightsStrip`).
  *
  * The sidebar and the bottom bar each have a drag handle on the edge facing the task card. Dragging one takes room from
  * the task card, or gives it back, down to the task card's minimum: the chat keeps its minimum width (and the right
@@ -142,8 +144,12 @@ export function AppShell({
 
   return (
     <div ref={shell} className={styles.shell} style={shellStyle(sidebarWidth, bottomBarHeight)}>
-      <div className={styles.titleBar} data-testid="window-title-bar" />
-      {banner}
+      <div className={styles.topEdge} data-testid="window-top-edge" />
+      {banner !== undefined && (
+        <div className={styles.banner} data-testid="banner-slot">
+          {banner}
+        </div>
+      )}
       <div
         ref={top}
         className={classNames(styles.top, sidebar === undefined ? styles.full : panelMotionClass(sidebarMotion))}
