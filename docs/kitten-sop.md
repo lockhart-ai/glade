@@ -128,6 +128,18 @@ Dependabot (`.github/dependabot.yml`) checks for updates every week and opens th
 - **Everything else on npm:** every minor and patch update in one grouped PR, and each major update as its own PR.
 - **GitHub Actions** (`ci: bump …`): one PR per action.
 
+**Held majors.** Dependabot skips these major updates (the `ignore` list in `dependabot.yml`); we raise them by hand
+once the reason goes away:
+
+- **`@types/node`:** the main process runs on Electron's Node (Node 24 in Electron 44), so the Node types stay on that
+  major. Raise them with the Electron major that moves Node.
+- **`typescript`:** TypeScript 7, the native port, waits until typescript-eslint and vitest support it.
+- **`eslint` and `@eslint/js`:** eslint-plugin-react 7.37.5 doesn't support ESLint 10
+  ([jsx-eslint/eslint-plugin-react#3977](https://github.com/jsx-eslint/eslint-plugin-react/issues/3977)). Revisit
+  when it ships a release that does.
+- **`vite` and `@vitejs/plugin-react`:** electron-vite 5 accepts only vite 5 to 7 (vite 8 support is only in its 6.0.0
+  betas), and plugin-react 6 needs vite 8. Revisit when electron-vite 6.0.0 is stable.
+
 ### SDK bumps
 
 The supervisor dispatches a kitten to each SDK bump. It works on the Dependabot branch (merging `origin/main` in if it

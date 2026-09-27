@@ -16,6 +16,32 @@ updates:
     commit-message:
       prefix: deps
       prefix-development: deps-dev
+    ignore:
+      # The main process runs on Electron's Node, not the system's: Electron 44 (package.json's `electron`) ships
+      # Node 24, so the Node types stay on 24. Raise this major by hand with the Electron major that moves Node.
+      - dependency-name: '@types/node'
+        update-types:
+          - version-update:semver-major
+      # TypeScript 7 (the native port) is held until typescript-eslint and vitest support it. Revisit by hand.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+      # ESLint 10 is held: eslint-plugin-react 7.37.5 doesn't support it (jsx-eslint/eslint-plugin-react#3977).
+      # Revisit when eslint-plugin-react ships a release that supports ESLint 10.
+      - dependency-name: eslint
+        update-types:
+          - version-update:semver-major
+      - dependency-name: '@eslint/js'
+        update-types:
+          - version-update:semver-major
+      # Vite 8 is held: electron-vite 5 accepts only vite 5 to 7 (vite 8 support is only in the 6.0.0 betas), and
+      # @vitejs/plugin-react 6 needs vite 8. Revisit when electron-vite 6.0.0 is stable.
+      - dependency-name: vite
+        update-types:
+          - version-update:semver-major
+      - dependency-name: '@vitejs/plugin-react'
+        update-types:
+          - version-update:semver-major
     groups:
       # The Claude Agent SDK and the platform packages that carry its bundled Claude Code binary, in one PR per
       # bump, of any size. The platform packages are the SDK's own optional dependencies, pinned by it, so they move
