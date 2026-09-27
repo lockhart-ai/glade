@@ -1,7 +1,7 @@
 // The terminal in the bottom bar, end to end on real shells (node-pty): e2e mode runs a plain bash with no profile,
 // and a prompt of the folder's name. Each workspace has its own tabs. Nothing here waits on a timer: every step waits for the terminal to
 // show what it should.
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { CommandName } from '../src/shared/bridge'
@@ -198,9 +198,11 @@ test('terminal: each workspace has its own tabs, and switching keeps the othersâ
   await term.newTab.click()
   await expect(term.tabs).toHaveText(['bash'])
   await expect(line(window, 'acme-web $')).toHaveCount(1)
-  // It prints once a file appears, which the spec makes while acme-web is hidden.
+  // It prints once a file appears, which the spec makes while acme-web is hidden, then makes a file of its own to say
+  // it has. (A hidden screen needn't draw what it's sent, so the spec asks the shell rather than the screen.)
   const go = join(parent, 'go')
-  await run(window, `while [ ! -e ${go} ]; do sleep 0.1; done; echo web-while-hidden`)
+  const printed = join(parent, 'printed')
+  await run(window, `while [ ! -e ${go} ]; do sleep 0.1; done; echo web-while-hidden; touch ${printed}`)
 
   // Back in acme-api: its two tabs, the first still picked, with its output.
   await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-api')
@@ -209,7 +211,7 @@ test('terminal: each workspace has its own tabs, and switching keeps the othersâ
   await expect(term.tabs.nth(0)).toHaveAttribute('aria-pressed', 'true')
   await expect(line(window, 'api-first')).toHaveCount(1)
   writeFileSync(go, '')
-  await expect(term.hiddenRows.filter({ hasText: /^web-while-hidden\s*$/ })).toHaveCount(1)
+  await expect.poll(() => existsSync(printed)).toBe(true)
 
   // acme-web's shell kept running: what it printed is there, and it still answers.
   await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-web')
