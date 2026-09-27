@@ -43,7 +43,7 @@ const BUDGET = {
   import: 18,
   /**
    * Listing the second page of 300 sessions once the first has read them: about 0.15. It shows the page comes from
-   * what the first read, which took about 3.5: reading them all again would fail.
+   * what the first read, which took about 2: reading them all again fails.
    */
   page: 1,
 } as const
