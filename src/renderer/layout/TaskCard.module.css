@@ -17,6 +17,21 @@
   gap: var(--space-inset);
 }
 
+/*
+ * The strip at the top of the chat column while the sidebar is collapsed, which holds the macOS traffic lights
+ * (src/main/app.ts centres them in it, on the pixels the sidebar's strip has them) and nothing else. It drags the
+ * window. It reaches out over the card's padding to the card's top and left edges (and over the gap to the right
+ * panel), and the header (or the row below) starts right under it. It folds away while the app-wide banner shows, with
+ * the lights above it instead (AppShell.module.css).
+ */
+.lightsStrip {
+  flex-shrink: 0;
+  display: var(--lights-strip-display, block);
+  height: var(--title-bar-height);
+  margin: calc(-1 * var(--space-inset));
+  -webkit-app-region: drag;
+}
+
 /* The row above the chat, with the sidebar collapsed and no task header. It drags the window everywhere but its buttons. */
 .titleBar {
   flex-shrink: 0;

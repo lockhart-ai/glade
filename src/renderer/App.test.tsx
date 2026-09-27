@@ -53,6 +53,9 @@ it('shows the first-run screen when there is no workspace', async () => {
     'No workspaceOpen a folder to begin',
   )
   expect(sidebar).toHaveTextContent('Tasks will appear here once you open a workspace.')
+  // The sidebar starts with the strip for the traffic lights, as it does with a workspace.
+  expect(sidebar.firstElementChild).toBe(within(sidebar).getByTestId('lights-strip'))
+  expect(screen.getAllByTestId('lights-strip')).toHaveLength(1)
   expect(screen.getByRole('main', { name: 'Welcome' })).toBeInTheDocument()
   expect(screen.queryByRole('main', { name: 'Task' })).toBeNull()
   expect(screen.getByRole('region', { name: 'Terminal' })).toBeInTheDocument()
@@ -128,15 +131,26 @@ it('says why when the store could not load', async () => {
 
 it('collapses the task list from its header, and shows it again from the top of the task card', async () => {
   const { store } = await renderApp([sampleWorkspace('w1')])
+  // The sidebar holds the strip for the traffic lights, and the task card has none.
+  const lightsStrips = (): HTMLElement[] => screen.queryAllByTestId('lights-strip')
+  expect(lightsStrips()).toHaveLength(1)
+  expect(within(screen.getByRole('navigation', { name: 'Tasks' })).getByTestId('lights-strip')).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Collapse task list' }))
 
   expect(store.getState().uiState[UiStateKey.SidebarCollapsed]).toBe('true')
   expect(screen.queryByRole('navigation', { name: 'Tasks' })).toBeNull()
-  const titleBar = within(screen.getByRole('main', { name: 'Task' })).getByTestId('task-title-bar')
+  // Collapsed, the task card takes the strip over, above the row that holds Show task list.
+  const task = screen.getByRole('main', { name: 'Task' })
+  expect(lightsStrips()).toHaveLength(1)
+  const strip = within(task).getByTestId('lights-strip')
+  const titleBar = within(task).getByTestId('task-title-bar')
+  expect(strip.nextElementSibling).toBe(titleBar)
   fireEvent.click(within(titleBar).getByRole('button', { name: 'Show task list' }))
   expect(screen.getByRole('navigation', { name: 'Tasks' })).toBeInTheDocument()
   expect(screen.queryByTestId('task-title-bar')).toBeNull()
+  expect(within(task).queryByTestId('lights-strip')).toBeNull()
+  expect(lightsStrips()).toHaveLength(1)
 })
 
 it('keeps each panel on screen, inert, while it slides shut, and the terminal showing until the bar is shut', async () => {
@@ -223,7 +237,7 @@ it('sizes the task list and bottom bar from UI state, keeps the sizes you resize
     </GladeStoreProvider>,
   )
   await act(() => store.getState().hydrate())
-  const shell = screen.getByTestId('window-title-bar').parentElement
+  const shell = screen.getByTestId('window-top-edge').parentElement
   const size = (property: string): string | undefined => shell?.style.getPropertyValue(property)
   expect(size('--sidebar-width')).toBe('400px')
   expect(size('--bottom-bar-height')).toBe('250px')

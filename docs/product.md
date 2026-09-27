@@ -9,7 +9,8 @@
 database. How tasks organise files on disk (a folder per task, worktrees inside it) is a convention written in that
 `CLAUDE.md`, not something Glade enforces; Glade seeds a starter `CLAUDE.md` for a new workspace that has none. You can
 have several workspaces and switch between them from the sidebar or the menu bar (⌘1–9). Close workspace (⌘⇧W) shows
-the most recently opened other workspace, or the welcome screen when there's none; the workspace stays in the list.
+the most recently opened other workspace, or the welcome screen when there's none; the workspace stays in the list,
+with its terminal tabs and their shells still running.
 Remove from list… asks first, then forgets the workspace and deletes its tasks from Glade; its folder is never touched.
 
 **Task.** One agent session with one objective. A task has exactly two states:
@@ -61,7 +62,9 @@ There are no follow-up tasks. One task can refer to another through its folder o
 - **Right panel** (inside the task card) — tabs: Tool calls, Files, Todos, Artifacts, Subagents, Watchers, Changes (the
   commits the task made; Glade watches git and never drives it). Resizable, collapsible. Too narrow for its tabs, the
   tab row scrolls sideways, with chevrons at the ends that have more tabs past them.
-- **Bottom bar** (full width) — a global terminal with tabs, and a plugin panel (Nekomata). Resizable, collapsible.
+- **Bottom bar** (full width) — the workspace's terminal, with tabs, and a plugin panel (Nekomata). Resizable,
+  collapsible. Each workspace has its own terminal tabs; switching workspace switches them, and the other
+  workspaces' shells keep running. Removing a workspace ends its shells.
 
 Each resizable panel has a drag handle in the gap on its inner edge. Dragging it takes room from the chat or gives it
 back, within limits (the chat keeps its minimum width and height); collapsing a panel and showing it again brings it

@@ -13,7 +13,7 @@ function Shortcuts(): null {
 
 it('focuses the terminal with ⌃`, and opens a new tab with ⌘T, wherever the focus is', async () => {
   const { store, wrapper } = storeWrapper({
-    terminalTabs: [sampleTerminalTab('a')],
+    terminalTabs: [sampleTerminalTab('a', { workspaceId: 'w1' })],
     uiState: [{ key: UiStateKey.BottomBarCollapsed, value: 'true' }],
   })
   await act(() => store.getState().hydrate())

@@ -9,13 +9,17 @@ import { TerminalView } from './TerminalView'
 import styles from './Terminal.module.css'
 
 /**
- * The terminal card's body: every tab's screen, the one showing on top. With the focus in it, Next tab and Previous tab
- * (⌃⇥, ⌃⇧⇥) pick another tab and Clear (⌘K) clears the tab showing, as the keymap binds them; Close (⌘W, the menu
- * bar's) closes it. ⌃C goes to the shell, as in any terminal.
+ * The terminal card's body: every tab's screen, the one showing on top. Every workspace's tabs keep their screens in
+ * the page, hidden while another workspace shows, so switching back shows each as it was, with what its shell output
+ * meanwhile; the workspace showing picks the tab on top. With the focus in it, Next tab and Previous tab (⌃⇥, ⌃⇧⇥)
+ * pick another tab and Clear (⌘K) clears the tab showing, as the keymap binds them; Close (⌘W, the menu bar's) closes
+ * it. ⌃C goes to the shell, as in any terminal.
  */
 export function Terminal(): React.JSX.Element {
   const tabs = useGladeStore((state) => state.terminalTabs)
-  const active = useGladeStore((state) => activeTerminalTab(state.terminalTabs, state.uiState))
+  const active = useGladeStore((state) =>
+    activeTerminalTab(state.terminalTabs, state.uiState, state.selectedWorkspaceId),
+  )
   const cycleTerminal = useGladeStore((state) => state.cycleTerminal)
   const clearTerminal = useGladeStore((state) => state.clearTerminal)
   const closeTerminal = useGladeStore((state) => state.closeTerminal)
@@ -38,11 +42,8 @@ export function Terminal(): React.JSX.Element {
     }
   }, [activeId, closeTerminal, run])
 
-  if (active === undefined) {
-    return <p className={styles.empty}>No terminal open. Start one with + or ⌘T.</p>
-  }
-
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (active === undefined) return
     if (isCommandKey(WindowCommandId.NextTerminalTab, keymap, event)) {
       run(() => cycleTerminal(1))
     } else if (isCommandKey(WindowCommandId.PreviousTerminalTab, keymap, event)) {
@@ -58,8 +59,9 @@ export function Terminal(): React.JSX.Element {
   return (
     <div ref={screens} className={styles.screens} onKeyDown={onKeyDown}>
       {tabs.map((tab) => (
-        <TerminalView key={tab.id} tabId={tab.id} active={tab.id === active.id} />
+        <TerminalView key={tab.id} tabId={tab.id} active={tab.id === activeId} />
       ))}
+      {active === undefined && <p className={styles.empty}>No terminal open. Start one with + or ⌘T.</p>}
     </div>
   )
 }

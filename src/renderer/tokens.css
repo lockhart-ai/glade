@@ -111,10 +111,12 @@
    * Window layout. The panels are resizable, so their sizes are set from src/renderer/panels/panelSize.ts instead, whose
    * defaults are docs/design/html/task-workspace.html's.
    *
-   * The title bar row across the top of the window, in place of the outer padding there. The macOS traffic lights sit
-   * in it (TRAFFIC_LIGHT_POSITION in src/main/app.ts centres them), and the cards start below it.
+   * There's no title bar row: the cards rise to the window's outer inset, and the card in the window's top-left corner
+   * (the sidebar, or the task card's chat column while the sidebar is collapsed) starts with a strip this tall that
+   * holds the macOS traffic lights (TRAFFIC_LIGHT_POSITION in src/main/app.ts centres them in it)
+   * and drags the window.
    */
-  --title-bar-height: 32px;
+  --title-bar-height: 28px;
 }
 
 /* macOS "Reduce motion": no movement. Everything that animates takes these tokens, so it all lands at once. */

@@ -499,8 +499,11 @@ export enum UiStateKey {
   BottomBarHeight = 'bottom_bar_height',
   /** The plugin card's width beside the terminal in CSS pixels, as you last dragged it. Unset means the design's default. */
   PluginWidth = 'plugin_width',
-  /** The id of the terminal tab the bottom bar shows. Unset, or a tab that's gone, means the first tab. */
-  TerminalTab = 'terminal_tab',
+  /**
+   * The terminal tab each workspace's bottom bar shows: a `TerminalSelection` (`./terminal`) as JSON. A workspace with
+   * no entry, or whose entry names a tab that's gone, shows its first tab.
+   */
+  TerminalSelection = 'terminal_selection',
 }
 
 export interface UiStateEntry {

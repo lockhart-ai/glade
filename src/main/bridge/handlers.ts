@@ -1,6 +1,7 @@
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, CommandName, EventType, type CommandRequest, type CommandResponse } from '../../shared/bridge'
 import type { MenuState } from '../../shared/commands'
+import type { Workspace } from '../../shared/domain'
 import { SUBAGENT_TOOL_NAMES } from '../../shared/subagents'
 import type { AgentRunner } from '../agent/runner'
 import { listArtifacts } from '../db/repositories/artifacts'
@@ -89,7 +90,7 @@ export interface HandlerContext {
   readonly updateMenu?: (state: MenuState) => void
   /** Closes the focused window (`window.close`). Nothing by default. */
   readonly closeWindow?: () => void
-  /** The global terminal's tabs and their shells. */
+  /** Every workspace's terminal tabs and their shells. */
   readonly terminals: Terminals
   /** The plugins in the plugins folder. */
   readonly plugins: Plugins
@@ -111,12 +112,12 @@ export interface HandlerContext {
   readonly artifactWatch?: ArtifactWatcher
 }
 
-/** The root of the workspace a new terminal tab starts in, or null for none. */
-function terminalRoot(db: Database, workspaceId: string | null): string | null {
+/** The workspace a new terminal tab belongs to and starts in, or null for none. */
+function terminalWorkspace(db: Database, workspaceId: string | null): Workspace | null {
   if (workspaceId === null) return null
   const workspace = getWorkspace(db, workspaceId)
   if (workspace === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${workspaceId}`)
-  return workspace.rootPath
+  return workspace
 }
 
 export function createHandlers(context: HandlerContext): Handlers {
@@ -319,7 +320,9 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.PluginsPlaceView]: ({ id, bounds }) => pluginViews.place(id, bounds),
     [CommandName.TerminalList]: () => ({ tabs: terminals.list() }),
-    [CommandName.TerminalCreate]: ({ workspaceId }) => ({ tab: terminals.create(terminalRoot(db, workspaceId)) }),
+    [CommandName.TerminalCreate]: ({ workspaceId }) => ({
+      tab: terminals.create(terminalWorkspace(db, workspaceId)),
+    }),
     [CommandName.TerminalDuplicate]: ({ id }) => ({ tab: terminals.duplicate(id) }),
     [CommandName.TerminalAttach]: ({ id, cols, rows }) => terminals.attach(id, { cols, rows }),
     [CommandName.TerminalWrite]: ({ id, data }) => {

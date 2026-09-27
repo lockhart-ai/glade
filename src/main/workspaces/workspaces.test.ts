@@ -334,7 +334,7 @@ function select(workspaceId: string, taskId: string): void {
 
 describe('removeWorkspace', () => {
   function removal() {
-    return { db: database.db, emit: vi.fn(), runner: { discard: vi.fn() } }
+    return { db: database.db, emit: vi.fn(), runner: { discard: vi.fn() }, terminals: { closeWorkspace: vi.fn() } }
   }
 
   it("closes its tasks' sessions and deletes it and everything of its tasks, leaving the others and the folder", () => {
@@ -353,6 +353,7 @@ describe('removeWorkspace', () => {
     removeWorkspace(context, acme.id)
 
     expect(context.runner.discard.mock.calls).toEqual([[first.id], [second.id]].sort())
+    expect(context.terminals.closeWorkspace.mock.calls).toEqual([[acme.id]])
     expect(listWorkspaces(database.db)).toEqual([web])
     expect(listTasks(database.db, acme.id)).toEqual([])
     expect(listMessages(database.db, first.id)).toEqual([])
@@ -381,9 +382,11 @@ describe('removeWorkspace', () => {
     ])
   })
 
-  it('refuses an unknown workspace', () => {
+  it('refuses an unknown workspace, closing no terminal tabs', () => {
+    const context = removal()
     expect(() => {
-      removeWorkspace(removal(), 'nope')
+      removeWorkspace(context, 'nope')
     }).toThrow(new CommandFailure(BridgeErrorCode.NotFound, 'No workspace nope'))
+    expect(context.terminals.closeWorkspace).not.toHaveBeenCalled()
   })
 })

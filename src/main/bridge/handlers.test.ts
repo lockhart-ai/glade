@@ -40,6 +40,7 @@ import { createPluginViews, type PluginViews } from '../plugins/views'
 import type { Plugins } from '../plugins/plugins'
 import { PluginStatus } from '../../shared/plugins'
 import { createTerminals } from '../terminal/terminals'
+import { listTerminalTabs } from '../db/repositories/terminal-tabs'
 import { createControlEndpoint, type ControlEndpoint } from '../control/endpoint'
 import { createAccountTracker } from '../account/account'
 import { createRateLimiter } from '../control/rate-limit'
@@ -158,6 +159,26 @@ describe('workspaces.remove', () => {
     expect(emit.mock.calls.map(([event]) => event)).toEqual([
       { type: EventType.TaskDeleted, taskId: task.id },
       { type: EventType.WorkspaceRemoved, workspaceId: workspace.id },
+    ])
+  })
+
+  it('ends its terminal tabs’ shells and removes them, leaving the other workspaces’ running', async () => {
+    const workspace = sampleWorkspace(database.db, root)
+    const other = sampleWorkspace(database.db, '/code/acme-web')
+    const { tab: removed } = await handlers[CommandName.TerminalCreate]({ workspaceId: workspace.id })
+    const { tab: kept } = await handlers[CommandName.TerminalCreate]({ workspaceId: other.id })
+    await handlers[CommandName.TerminalAttach]({ id: removed.id, cols: 80, rows: 24 })
+    await handlers[CommandName.TerminalAttach]({ id: kept.id, cols: 80, rows: 24 })
+    emit.mockClear()
+
+    await handlers[CommandName.WorkspacesRemove]({ id: workspace.id })
+
+    expect(spawner.spawned.map(({ killed }) => killed)).toEqual([true, false])
+    expect((await handlers[CommandName.TerminalList]({})).tabs).toEqual([expect.objectContaining({ id: kept.id })])
+    expect(listTerminalTabs(database.db).map(({ id }) => id)).toEqual([kept.id])
+    expect(emit.mock.calls.map(([event]) => event.type)).toEqual([
+      EventType.TerminalTabsChanged,
+      EventType.WorkspaceRemoved,
     ])
   })
 })
@@ -659,9 +680,9 @@ describe('the terminal commands', () => {
   it('starts a new tab in the workspace root, or the fallback folder with none, and refuses an unknown workspace', async () => {
     const workspace = sampleWorkspace(database.db, root)
     const { tab } = await handlers[CommandName.TerminalCreate]({ workspaceId: workspace.id })
-    expect(tab).toMatchObject({ cwd: root, name: null, process: 'zsh', running: false })
+    expect(tab).toMatchObject({ workspaceId: workspace.id, cwd: root, name: null, process: 'zsh', running: false })
     const { tab: homeless } = await handlers[CommandName.TerminalCreate]({ workspaceId: null })
-    expect(homeless.cwd).toBe(tmpdir())
+    expect(homeless).toMatchObject({ workspaceId: null, cwd: tmpdir() })
     await expect(async () => handlers[CommandName.TerminalCreate]({ workspaceId: 'gone' })).rejects.toMatchObject({
       code: BridgeErrorCode.NotFound,
     })

@@ -5,6 +5,24 @@
   overflow: hidden;
 }
 
+/*
+ * The strip across the top of the card, which holds the macOS traffic lights (src/main/app.ts centres them in it, 7px
+ * inside the card's corner) and nothing else. It drags the window, and double-clicking it zooms, as a native title bar
+ * does. The header under it keeps its own top padding, the panel inset, which reaches up into the strip by that much,
+ * so the workspace switcher's box starts right below the strip; the strip stays on top there, since the padding has
+ * nothing to click. It folds away while the app-wide banner shows, with the lights above it instead
+ * (AppShell.module.css).
+ */
+.lightsStrip {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  display: var(--lights-strip-display, block);
+  height: var(--title-bar-height);
+  margin-bottom: calc(-1 * var(--space-inset));
+  -webkit-app-region: drag;
+}
+
 .content {
   flex-grow: 1;
   min-height: 0;

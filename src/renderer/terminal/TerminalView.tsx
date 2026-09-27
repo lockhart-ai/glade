@@ -89,11 +89,18 @@ export function TerminalView({ tabId, active }: TerminalViewProps): React.JSX.El
     }
   }, [store, toast, tabId])
 
+  // Whether it's showing, as of the latest render, for the focus request below.
+  const showing = useRef(active)
   useEffect(() => {
-    if (!active || focusRequest === 0) return
-    screen.current?.fit()
+    showing.current = active
+    if (active) screen.current?.fit()
+  }, [active])
+
+  // Only a request takes the focus: a tab showing because you switched workspace leaves it where it is.
+  useEffect(() => {
+    if (!showing.current || focusRequest === 0) return
     screen.current?.focus()
-  }, [active, focusRequest])
+  }, [focusRequest])
 
   useEffect(() => {
     if (paste?.tabId !== tabId) return
