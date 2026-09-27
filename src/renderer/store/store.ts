@@ -187,15 +187,6 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       return activeTerminalTab(terminalTabs, uiState, selectedWorkspaceId)
     }
 
-    // Ends a workspace's shells and forgets its tabs, and which of them its bottom bar showed.
-    const closeWorkspaceTerminals = async (workspaceId: string): Promise<void> => {
-      const closing = shownTerminalTabs(get().terminalTabs, workspaceId).map(({ id }) => id)
-      for (const id of closing) await bridge.invoke(CommandName.TerminalClose, { id })
-      // Main's terminal.tabsChanged normally arrives first; make sure the tabs are gone either way.
-      set((state) => ({ terminalTabs: state.terminalTabs.filter((tab) => tab.workspaceId !== workspaceId) }))
-      await setUiState(terminalSelectionEntry(get().uiState, workspaceId, null))
-    }
-
     // Shows a new terminal tab, with the focus in it.
     const showNewTerminal = async (tab: TerminalTab): Promise<TerminalTab> => {
       withTerminalTab(tab)
@@ -321,10 +312,9 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.WorkspacesReveal, { id: workspaceId })
       },
 
+      // Like switching away: the workspace's terminal tabs, and their shells, stay for when it's opened again.
       async closeWorkspace(workspaceId) {
-        if (get().selectedWorkspaceId !== workspaceId) return
-        await showAnotherWorkspace(workspaceId)
-        await closeWorkspaceTerminals(workspaceId)
+        if (get().selectedWorkspaceId === workspaceId) await showAnotherWorkspace(workspaceId)
       },
 
       requestRemoveWorkspace(workspaceId) {

@@ -39,7 +39,8 @@
   focused. Task name + start of the message. Sound off. Focus/DND handled by the OS.
 - **Terminal** is per workspace, not per task (#347): each workspace has its own tabs, and the bottom bar shows the
   tabs of the workspace you're looking at, with the one you last picked there. Switching workspace never ends a shell;
-  the others keep running, and their output is kept. Closing or removing a workspace ends its shells. The bottom bar's
+  the others keep running, and their output is kept. Close workspace is a switch too: its shells keep running for
+  when it's opened again. Only Remove from list… ends a workspace's shells and deletes its tabs. The bottom bar's
   size and collapsed state, and the plugin panel, stay app-wide. **Settings** are a modal.
 - **Name:** Glade. **Icon:** "Stepping up" — three grass blades rising into the wind, the middle one lit
   (`assets/icon/`).

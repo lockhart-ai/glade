@@ -355,8 +355,9 @@ describe('each workspace’s terminal tabs', () => {
     expect(store.getState().selectedWorkspaceId).toBeNull()
     expect(shown(store)).toBe('none')
     await store.getState().createTerminal()
-    expect(ids(store)).toEqual(['none', 'term-1'])
-    expect(store.getState().terminalTabs[1]?.workspaceId).toBeNull()
+    // w1 is closed, not removed: its tabs stay.
+    expect(ids(store)).toEqual(['a1', 'a2', 'none', 'term-1'])
+    expect(store.getState().terminalTabs[3]?.workspaceId).toBeNull()
     expect(shown(store)).toBe('term-1')
   })
 
@@ -368,25 +369,28 @@ describe('each workspace’s terminal tabs', () => {
     expect(JSON.parse(store.getState().uiState[UiStateKey.TerminalSelection] ?? '')).toEqual({ w1: 'unheard' })
   })
 
-  it('ends a workspace’s shells when you close it, and forgets its pick, leaving the others’', async () => {
+  it('keeps a workspace’s tabs, their shells and its pick when you close it, for when it’s opened again', async () => {
     const { store, fake } = await loadTwo([picked({ w1: 'a2', w2: 'w2' })])
     await store.getState().openWorkspace('w2')
 
     await store.getState().closeWorkspace('w2')
 
-    expect(fake.invoke).toHaveBeenCalledWith(CommandName.TerminalClose, { id: 'w1' })
-    expect(fake.invoke).toHaveBeenCalledWith(CommandName.TerminalClose, { id: 'w2' })
-    expect(ids(store)).toEqual(['a1', 'a2', 'none'])
     expect(store.getState().selectedWorkspaceId).toBe('w1')
     expect(shown(store)).toBe('a2')
-    expect(JSON.parse(store.getState().uiState[UiStateKey.TerminalSelection] ?? '')).toEqual({ w1: 'a2' })
+    expect(fake.invoke).not.toHaveBeenCalledWith(CommandName.TerminalClose, expect.anything())
+    expect(ids(store)).toEqual(['a1', 'w1', 'a2', 'w2', 'none'])
+    expect(JSON.parse(store.getState().uiState[UiStateKey.TerminalSelection] ?? '')).toEqual({ w1: 'a2', w2: 'w2' })
+
+    await store.getState().openWorkspace('w2')
+    expect(shown(store)).toBe('w2')
   })
 
-  it('closes no tabs for a workspace that isn’t showing', async () => {
+  it('closes nothing for a workspace that isn’t showing', async () => {
     const { store, fake } = await loadTwo()
 
     await store.getState().closeWorkspace('w2')
 
+    expect(store.getState().selectedWorkspaceId).toBe('w1')
     expect(fake.invoke).not.toHaveBeenCalledWith(CommandName.TerminalClose, expect.anything())
     expect(ids(store)).toHaveLength(5)
   })

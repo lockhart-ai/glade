@@ -163,7 +163,7 @@ test('terminal: the specs wait for the folder to open, since a shell opened befo
 
 // #347: each workspace has its own terminal tabs. Switching shows them, with the one last picked there; the other
 // workspaces' shells keep running, and what they print while hidden is there on the way back. A relaunch brings back
-// each workspace's tabs, and removing a workspace ends its shells.
+// each workspace's tabs. Closing a workspace keeps its shells; removing it ends them.
 test('terminal: each workspace has its own tabs, and switching keeps the others’ shells running with their output', async ({
   launch,
   tempFolder,
@@ -232,12 +232,21 @@ test('terminal: each workspace has its own tabs, and switching keeps the others�
   await expect(again.tabs.nth(0)).toHaveAttribute('aria-pressed', 'true')
   await expect(line(relaunched.window, 'api-first')).toHaveCount(1)
 
-  // Removing acme-api ends its shells: a program running in one stops, and acme-web's tab is all that's left.
   await again.tabs.nth(1).click()
   // Its restored prompt, above the divider, and its new shell's.
   await expect(line(relaunched.window, 'acme-api $')).toHaveCount(2)
   await run(relaunched.window, 'sleep 6347')
   await expect(again.tabs.nth(1)).toHaveAccessibleName('Running sleep')
+
+  // Close workspace only switches away: acme-api's tabs, and the program running in one, are there when it's back.
+  await chooseMenuItem(relaunched, 'Workspace', 'Close workspace')
+  await expect(regions(relaunched.window).workspace).toContainText('acme-web')
+  await expect(again.tabs).toHaveText(['bash'])
+  await chooseMenuItem(relaunched, 'Workspace', 'Switch workspace', 'acme-api')
+  await expect(again.tabs).toHaveText(['bash', 'sleep'])
+  await expect(again.tabs.nth(1)).toHaveAccessibleName('Running sleep')
+
+  // Removing acme-api ends its shells: the program running in one stops, and acme-web's tab is all that's left.
   await chooseMenuItem(relaunched, 'Workspace', 'Remove from list…')
   await removeWorkspaceDialog(relaunched.window).confirm.click()
   await expect(regions(relaunched.window).workspace).toContainText('acme-web')
