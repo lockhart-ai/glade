@@ -33,7 +33,6 @@ import { CHOOSE_FOLDER_OPTIONS } from './dialogs'
 import type { RecordingNotifier } from './notifications/recording-notifier'
 import type { SdkBackendOptions } from './agent/sdk-backend'
 import type { LoginEnvOptions } from './login-env'
-import { Glyph, MenuBarAppearance } from './menu-bar/glyph'
 import { markRunning } from './relaunch'
 import type { FileLogSinkOptions } from './logging/file-sink'
 import { createFakeSpawner } from './terminal/fake-pty'
@@ -195,15 +194,10 @@ const electron = vi.hoisted(() => {
     captureScene,
     trays,
     FakeTray,
-    /** Whether the glyph's images are missing from the app, so each one read is empty. */
+    /** Whether the glyph's images are missing from the app, so the one read is empty. */
     glyphImagesMissing: false,
     screen: {
       getDisplayMatching: vi.fn(() => ({ workArea: { x: 0, y: 25, width: 1512, height: 920 } })),
-    },
-    /** The system's appearance: dark unless a test makes it light, and the listeners told when it changes. */
-    nativeTheme: {
-      shouldUseDarkColors: true,
-      on: vi.fn(),
     },
     nativeImage: {
       // The menu bar glyph's images, by path.
@@ -284,7 +278,6 @@ vi.mock('electron', () => ({
   Menu: electron.Menu,
   Tray: electron.FakeTray,
   screen: electron.screen,
-  nativeTheme: electron.nativeTheme,
 }))
 
 // The real agent backend, watched: a test mode must never make one.
@@ -439,7 +432,6 @@ beforeEach(() => {
   electron.notifications.length = 0
   electron.trays.length = 0
   electron.glyphImagesMissing = false
-  electron.nativeTheme.shouldUseDarkColors = true
   Reflect.deleteProperty(globalThis, E2E_NOTIFIER_GLOBAL)
   Reflect.deleteProperty(globalThis, E2E_MENU_BAR_GLOBAL)
   electron.app.isPackaged = false
@@ -1874,21 +1866,17 @@ describe('startApp: Glade in the menu bar', () => {
     }
   }
 
-  it("puts Glade's icon in the menu bar from launch: the glyphs packaged with the app, the plain one a template", async () => {
+  it("puts Glade's icon in the menu bar from launch: the glyph packaged with the app, as a template image", async () => {
     await startAndWaitUntilReady()
 
     const tray = onlyTray()
     const paths = electron.nativeImage.createFromPath.mock.calls.map(([path]) => path)
-    expect(paths).toEqual(
-      ['glyphTemplate.png', 'glyph-dot-on-dark.png', 'glyph-dot-on-light.png'].map((file) =>
-        join('/Applications/Glade.app/Contents/Resources/app.asar', 'assets', 'icon', 'menu-bar', file),
-      ),
-    )
+    expect(paths).toEqual([
+      join('/Applications/Glade.app/Contents/Resources/app.asar', 'assets', 'icon', 'menu-bar', 'glyphTemplate.png'),
+    ])
     expect(tray.image).toEqual(expect.objectContaining({ path: paths[0] }))
-    const templates = electron.nativeImage.createFromPath.mock.results.map(
-      ({ value }) => (value as { setTemplateImage: ReturnType<typeof vi.fn> }).setTemplateImage.mock.calls,
-    )
-    expect(templates).toEqual([[[true]], [[false]], [[false]]])
+    const [{ value: image } = { value: undefined }] = electron.nativeImage.createFromPath.mock.results
+    expect((image as { setTemplateImage: ReturnType<typeof vi.fn> }).setTemplateImage).toHaveBeenCalledWith(true)
     expect(tray.setTitle).toHaveBeenCalledWith('', { fontType: 'monospacedDigit' })
     expect(tray.setImage).not.toHaveBeenCalled()
     expect(logged('menu bar icon added')).toHaveLength(1)
@@ -1901,34 +1889,11 @@ describe('startApp: Glade in the menu bar', () => {
     expect(logged("the menu bar glyph's images are missing")).toHaveLength(1)
   })
 
-  /** The image the icon was last drawn with, by the file it was read from. */
-  function drawnGlyph(): string | undefined {
-    const call: unknown[] = onlyTray().setImage.mock.lastCall ?? []
-    return (call[0] as { path: string } | undefined)?.path.split('/').at(-1)
-  }
-
-  it('counts the tasks that need you from launch, with the dot drawn for a dark menu bar', async () => {
+  it('counts the tasks that need you from launch, beside the glyph, which never changes', async () => {
     waitingTask()
     await startAndWaitUntilReady()
     expect(onlyTray().setTitle).toHaveBeenLastCalledWith('1', { fontType: 'monospacedDigit' })
-    expect(drawnGlyph()).toBe('glyph-dot-on-dark.png')
-  })
-
-  it('draws the dot for a light menu bar, and redraws it as the system appearance changes', async () => {
-    waitingTask()
-    electron.nativeTheme.shouldUseDarkColors = false
-    await startAndWaitUntilReady()
-    expect(drawnGlyph()).toBe('glyph-dot-on-light.png')
-
-    const [[event, listener] = []] = electron.nativeTheme.on.mock.calls as [string, () => void][]
-    expect(event).toBe('updated')
-    electron.nativeTheme.shouldUseDarkColors = true
-    listener?.()
-    expect(drawnGlyph()).toBe('glyph-dot-on-dark.png')
-    electron.nativeTheme.shouldUseDarkColors = false
-    listener?.()
-    expect(drawnGlyph()).toBe('glyph-dot-on-light.png')
-    expect(onlyTray().setImage).toHaveBeenCalledTimes(3)
+    expect(onlyTray().setImage).not.toHaveBeenCalled()
   })
 
   it('keeps the icon out of the menu bar while Settings has it off, and adds and removes it as it changes', async () => {
@@ -2112,23 +2077,13 @@ describe('startApp: Glade in the menu bar', () => {
 
     expect(electron.trays).toEqual([])
     expect(electron.nativeImage.createFromPath).not.toHaveBeenCalled()
-    expect(electron.nativeTheme.on).not.toHaveBeenCalled()
     const menuBar = Reflect.get(globalThis, E2E_MENU_BAR_GLOBAL) as E2eMenuBar
-    expect([menuBar.shown, menuBar.title, menuBar.glyph, menuBar.open, menuBar.appearance]).toEqual([
-      true,
-      '',
-      Glyph.Plain,
-      false,
-      MenuBarAppearance.Dark,
-    ])
+    expect([menuBar.shown, menuBar.title, menuBar.open]).toEqual([true, '', false])
 
     menuBar.click()
     expect(menuBar.open).toBe(true)
     const popover = electron.windows[1]
     expect(popover?.options).toMatchObject({ show: false, paintWhenInitiallyHidden: true })
     expect(popover?.show).not.toHaveBeenCalled()
-    menuBar.appearance = MenuBarAppearance.Light
-    expect(menuBar.appearance).toBe(MenuBarAppearance.Light)
-    expect(electron.nativeTheme.on).not.toHaveBeenCalled()
   })
 })

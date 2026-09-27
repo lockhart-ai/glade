@@ -5,7 +5,6 @@
  * Playwright's `app.evaluate`.
  */
 import type { E2eMenuBar } from '../e2e'
-import { Glyph, type MenuBarAppearance } from './glyph'
 import type { CreateTray, MenuBar } from './menu-bar'
 import type { Bounds } from './position'
 
@@ -20,15 +19,12 @@ export interface RecordingTray {
   readonly shown: boolean
   /** The text beside its glyph. */
   readonly title: string
-  /** The glyph it shows: plain, or with the dot for a light or dark menu bar. */
-  readonly glyph: Glyph
   /** Clicks it. Throws when there's no icon. */
   click(): void
 }
 
 interface Recorded {
   title: string
-  glyph: Glyph
   readonly onClick: () => void
 }
 
@@ -36,12 +32,9 @@ export function createRecordingTray(): RecordingTray {
   let current: Recorded | null = null
   return {
     createTray: ({ onClick }) => {
-      const recorded: Recorded = { title: '', glyph: Glyph.Plain, onClick }
+      const recorded: Recorded = { title: '', onClick }
       current = recorded
       return {
-        setGlyph: (glyph) => {
-          recorded.glyph = glyph
-        },
         setTitle: (title) => {
           recorded.title = title
         },
@@ -57,9 +50,6 @@ export function createRecordingTray(): RecordingTray {
     get title() {
       return current?.title ?? ''
     },
-    get glyph() {
-      return current?.glyph ?? Glyph.Plain
-    },
     click() {
       if (current === null) throw new Error('There is no menu bar icon to click')
       current.onClick()
@@ -67,16 +57,11 @@ export function createRecordingTray(): RecordingTray {
   }
 }
 
-/** The menu bar's appearance, as e2e mode has it: dark until a spec switches it (`E2eMenuBar.appearance`). */
-export interface RecordedAppearance {
-  appearance: MenuBarAppearance
-}
-
 /**
  * What a spec sees of the menu bar (`E2E_MENU_BAR_GLOBAL`): the recorded icon and the menu bar's state, read as they
- * are when asked. Switching the appearance tells the menu bar, as macOS would.
+ * are when asked.
  */
-export function e2eMenuBar(menuBar: MenuBar, tray: RecordingTray, recorded: RecordedAppearance): E2eMenuBar {
+export function e2eMenuBar(menuBar: MenuBar, tray: RecordingTray): E2eMenuBar {
   return {
     get shown() {
       return tray.shown
@@ -84,18 +69,8 @@ export function e2eMenuBar(menuBar: MenuBar, tray: RecordingTray, recorded: Reco
     get title() {
       return tray.title
     },
-    get glyph() {
-      return tray.glyph
-    },
     get open() {
       return menuBar.open
-    },
-    get appearance() {
-      return recorded.appearance
-    },
-    set appearance(appearance) {
-      recorded.appearance = appearance
-      menuBar.appearanceChanged()
     },
     click() {
       tray.click()

@@ -183,15 +183,13 @@ function startOrder(startedAt: EpochMs | null): number {
 export interface MenuBarIcon {
   /** Beside the glyph: how many tasks need you, or nothing when none do. */
   readonly title: string
-  /** Whether the glyph has the purple dot: while any task needs you. */
-  readonly dot: boolean
 }
 
 /**
- * What the icon shows for a snapshot: while tasks need you, the purple dot on the glyph and their count beside it;
- * otherwise the plain glyph alone. It never moves, whatever the agents are doing.
+ * What the icon shows for a snapshot, beside its glyph: the count of tasks that need you, or nothing. The glyph itself
+ * never changes or moves, whatever the agents are doing.
  */
 export function menuBarIcon(snapshot: MenuBarSnapshot): MenuBarIcon {
   const count = snapshot.needsYou.length
-  return { title: count === 0 ? '' : String(count), dot: count > 0 }
+  return { title: count === 0 ? '' : String(count) }
 }

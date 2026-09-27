@@ -69,15 +69,14 @@ tool and what it acts on), with **Open task** and an inline **Reply** that sends
 opening Glade. Settings › Notifications turns them off, or their sound on (off by default); Focus and Do Not Disturb
 are left to the OS.
 
-**The menu bar.** Glade's icon in the macOS menu bar shows what's waiting on you in every workspace. It never moves.
-With nothing waiting it's the plain glyph, in the menu bar's own colour; while any task needs you, the glyph has a
-purple dot (the Needs you purple) and the count of those tasks sits beside it. The dotted glyph is drawn for light and
-dark menu bars and redrawn when the system appearance changes. Clicking it drops a popover under it: **Needs you** (the
-task, its workspace and why: asking, permission, error or a reply waiting), **Working** (its status line, todo progress
-with a thin bar, and how long its turn has run) and **Recent** (the last notifications Glade sent, with their age; kept
-in the database, so they survive a relaunch), each hidden while empty, or "Nothing in flight". It updates live while
-open; a row opens Glade on its task, switching workspace if needed, and its footer has **Open Glade** and **Quit**. It
-hides on Esc or when it loses focus (`design/html/29-menu-bar.html`).
+**The menu bar.** Glade's icon in the macOS menu bar shows what's waiting on you in every workspace: a monochrome glyph
+that follows light and dark menu bars and never moves, with the count of tasks that need you beside it (blank when none
+do). Clicking it drops a popover under it: **Needs you** (the task, its workspace and why: asking, permission, error or
+a reply waiting), **Working** (its status line, todo progress with a thin bar, and how long its turn has run) and
+**Recent** (the last notifications Glade sent, with their age; kept in the database, so they survive a relaunch), each
+hidden while empty, or "Nothing in flight". It updates live while open; a row opens Glade on its task, switching
+workspace if needed, and its footer has **Open Glade** and **Quit**. It hides on Esc or when it loses focus
+(`design/html/29-menu-bar.html`).
 
 ## Settings
 

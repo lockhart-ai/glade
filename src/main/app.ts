@@ -7,7 +7,6 @@ import {
   ipcMain,
   Menu,
   nativeImage,
-  nativeTheme,
   net,
   Notification,
   protocol,
@@ -60,10 +59,9 @@ import { createFileLogSink, type FileLogSinkOptions } from './logging/file-sink'
 import { redactEnv } from './logging/format'
 import { CONSOLE_LOGGER, createLogger, LogScope, type Logger, type LogSink } from './logging/logger'
 import { installAppMenu } from './menu/app-menu'
-import { createElectronPopover, createElectronTray, GLYPH_FOLDER, loadGlyphImages } from './menu-bar/electron'
+import { createElectronPopover, createElectronTray, GLYPH_FOLDER, loadGlyphImage } from './menu-bar/electron'
 import { createMenuBar, type CreateTray, type MenuBar } from './menu-bar/menu-bar'
-import { MenuBarAppearance } from './menu-bar/glyph'
-import { createRecordingTray, e2eMenuBar, type RecordedAppearance } from './menu-bar/recording'
+import { createRecordingTray, e2eMenuBar } from './menu-bar/recording'
 import { createElectronNotifier } from './notifications/electron-notifier'
 import { createReplyNotifications } from './notifications/notifications'
 import type { Notifier } from './notifications/notifier'
@@ -482,46 +480,33 @@ function openGlade(testMode: TestMode, log: Logger): void {
   bringUp(window, testMode)
 }
 
-/** What the menu bar icon is drawn with, and how it learns whether the menu bar is light or dark. */
+/** What the menu bar icon is drawn with. */
 interface MenuBarDrawing {
   readonly createTray: CreateTray
-  readonly appearance: () => MenuBarAppearance
   /** Hands the running menu bar over, e.g. for e2e mode to put it on the global object. */
   readonly started: (menuBar: MenuBar) => void
 }
 
-/** The system's appearance, which the menu bar follows. */
-function systemAppearance(): MenuBarAppearance {
-  return nativeTheme.shouldUseDarkColors ? MenuBarAppearance.Dark : MenuBarAppearance.Light
-}
-
 /**
- * The real menu bar icon (Electron's `Tray`, drawing the glyph's images packaged with the app) and the system's
- * appearance, light or dark, whose changes it follows (`nativeTheme`'s `updated`). E2e mode never puts a real icon in
- * the menu bar: it records it instead, with a dark menu bar until the spec switches it, and puts both on the global
- * object (`E2E_MENU_BAR_GLOBAL`) for the spec.
+ * The real menu bar icon: Electron's `Tray`, drawing the glyph's image packaged with the app. E2e mode never puts a
+ * real icon in the menu bar: it records it instead, and puts it on the global object (`E2E_MENU_BAR_GLOBAL`) for the
+ * spec.
  */
 function menuBarDrawing(testMode: TestMode, log: Logger): MenuBarDrawing {
   if (testMode === null) {
-    const images = loadGlyphImages(nativeImage, join(app.getAppPath(), GLYPH_FOLDER))
-    if (Object.values(images).some((image) => image.isEmpty())) log.warn("the menu bar glyph's images are missing")
+    const image = loadGlyphImage(nativeImage, join(app.getAppPath(), GLYPH_FOLDER))
+    if (image.isEmpty()) log.warn("the menu bar glyph's images are missing")
     return {
-      createTray: createElectronTray(Tray, images),
-      appearance: systemAppearance,
-      started: (menuBar) => {
-        nativeTheme.on('updated', () => {
-          menuBar.appearanceChanged()
-        })
-      },
+      createTray: createElectronTray(Tray, image),
+      // Nothing to hand over: the real icon needs nothing more once it's running.
+      started: () => undefined,
     }
   }
   const tray = createRecordingTray()
-  const recorded: RecordedAppearance = { appearance: MenuBarAppearance.Dark }
   return {
     createTray: tray.createTray,
-    appearance: () => recorded.appearance,
     started: (menuBar) => {
-      Reflect.set(globalThis, E2E_MENU_BAR_GLOBAL, e2eMenuBar(menuBar, tray, recorded))
+      Reflect.set(globalThis, E2E_MENU_BAR_GLOBAL, e2eMenuBar(menuBar, tray))
     },
   }
 }
@@ -677,7 +662,6 @@ export function startApp({
                 else popoverWindows.delete(window)
               },
             }),
-            appearance: drawing.appearance,
             openTask: (taskId) => {
               openTaskInWindow(taskId, { testMode, database, bridge, log })
             },
