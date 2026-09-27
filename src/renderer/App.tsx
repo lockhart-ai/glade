@@ -41,8 +41,8 @@ interface WindowProps {
 }
 
 /**
- * The window frame, with the global terminal in the bottom bar, which slides shut to its tab row. The sidebar and the
- * bottom bar keep the sizes you drag them to. The terminal's own shortcuts (⌃` and ⌘T) work wherever the focus is.
+ * The window frame, with the workspace's terminal in the bottom bar, which slides shut to its tab row. The sidebar and
+ * the bottom bar keep the sizes you drag them to. The terminal's own shortcuts (⌃` and ⌘T) work wherever the focus is.
  */
 function Window({
   sidebar,

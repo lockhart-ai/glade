@@ -33,8 +33,14 @@
   border-radius: var(--scrollbar-size);
 }
 
+/* Over the hidden screens of the other workspaces' tabs, centred in the body. */
 .empty {
-  margin: auto;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
   padding: 10px 8px;
   text-align: center;
   font-size: var(--font-size-secondary);

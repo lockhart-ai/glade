@@ -8,6 +8,7 @@ import { CommandFailure } from '../bridge/errors'
 import type { Emit } from '../bridge/events'
 import { getTask, listTasks } from '../db/repositories/tasks'
 import { getUiState, setUiState } from '../db/repositories/ui-state'
+import type { Terminals } from '../terminal/terminals'
 import {
   clearWorkspaceSelection,
   getWorkspaceSelection,
@@ -139,24 +140,29 @@ export function backfillWorkspaceSelections(db: Database): void {
   ).run(UiStateKey.SelectedTaskId)
 }
 
-/** What removing a workspace needs: the database, the windows to tell, and the runner whose sessions it closes. */
+/**
+ * What removing a workspace needs: the database, the windows to tell, the runner whose sessions it closes, and the
+ * terminal tabs whose shells it ends.
+ */
 export interface WorkspaceRemovalContext {
   readonly db: Database
   readonly emit: Emit
   readonly runner: Pick<AgentRunner, 'discard'>
+  readonly terminals: Pick<Terminals, 'closeWorkspace'>
 }
 
 /**
- * Removes a workspace from the list (`workspaces.remove`): closes its tasks' live agent sessions, then deletes the
- * workspace, which takes its tasks and everything of theirs with it. Nothing on disk is touched. When the window shows
+ * Removes a workspace from the list (`workspaces.remove`): closes its tasks' live agent sessions and its terminal tabs,
+ * ending their shells, then deletes the workspace, which takes its tasks and everything of theirs with it. Nothing on disk is touched. When the window shows
  * it, the window is left showing no workspace and no task.
  *
  * @throws CommandFailure `not_found` when there's no such workspace.
  */
-export function removeWorkspace({ db, emit, runner }: WorkspaceRemovalContext, id: string): void {
+export function removeWorkspace({ db, emit, runner, terminals }: WorkspaceRemovalContext, id: string): void {
   if (getWorkspace(db, id) === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${id}`)
   const tasks = listTasks(db, id)
   for (const task of tasks) runner.discard(task.id)
+  terminals.closeWorkspace(id)
   const cleared: UiStateEntry[] =
     getUiState(db, UiStateKey.ActiveWorkspaceId) === id
       ? [

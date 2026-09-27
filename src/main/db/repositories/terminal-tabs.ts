@@ -5,6 +5,8 @@ import { Row } from './rows'
 /** A terminal tab as it's stored: what survives a restart. */
 export interface TerminalTabRow {
   readonly id: string
+  /** The workspace it belongs to; null for one opened with no workspace open. It goes with its workspace. */
+  readonly workspaceId: string | null
   /** The name you gave it, or null for the default. */
   readonly name: string | null
   /** The folder its shell starts in. */
@@ -16,25 +18,27 @@ export interface TerminalTabRow {
 /** A terminal tab to add. */
 export interface NewTerminalTab {
   readonly id: string
+  readonly workspaceId: string | null
   readonly name: string | null
   readonly cwd: string
   /** The tab it goes after in the tab row; at the end when null. */
   readonly after: string | null
 }
 
-const COLUMNS = 'id, name, cwd, scrollback'
+const COLUMNS = 'id, workspace_id, name, cwd, scrollback'
 
 function parseTerminalTab(raw: unknown): TerminalTabRow {
   const row = new Row('terminal_tabs', raw)
   return {
     id: row.text('id'),
+    workspaceId: row.nullableText('workspace_id'),
     name: row.nullableText('name'),
     cwd: row.text('cwd'),
     scrollback: row.text('scrollback'),
   }
 }
 
-/** Every terminal tab, in the tab row's order. */
+/** Every workspace's terminal tabs, in their tab rows' order. */
 export function listTerminalTabs(db: Database): TerminalTabRow[] {
   return db.prepare(`SELECT ${COLUMNS} FROM terminal_tabs ORDER BY position, rowid`).all().map(parseTerminalTab)
 }
@@ -42,7 +46,7 @@ export function listTerminalTabs(db: Database): TerminalTabRow[] {
 /** Adds a terminal tab with no output, after the tab `after` names (or at the end, when it's null or gone). */
 export function addTerminalTab(
   db: Database,
-  { id, name, cwd, after }: NewTerminalTab,
+  { id, workspaceId, name, cwd, after }: NewTerminalTab,
   now: EpochMs = Date.now(),
 ): void {
   db.transaction(() => {
@@ -57,13 +61,9 @@ export function addTerminalTab(
       position = before + 1
       db.prepare('UPDATE terminal_tabs SET position = position + 1 WHERE position >= ?').run(position)
     }
-    db.prepare('INSERT INTO terminal_tabs (id, name, cwd, position, created_at) VALUES (?, ?, ?, ?, ?)').run(
-      id,
-      name,
-      cwd,
-      position,
-      now,
-    )
+    db.prepare(
+      'INSERT INTO terminal_tabs (id, workspace_id, name, cwd, position, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run(id, workspaceId, name, cwd, position, now)
   })()
 }
 

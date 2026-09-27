@@ -14,7 +14,7 @@ concentric with the card's.
 
 | Screen | What it shows | |
 |---|---|---|
-| Task workspace | The main window: sidebar, task card with header, chat and right panel, bottom bar. Done section collapsed. | ![Task workspace](screens/task-workspace.png) |
+| Task workspace | The main window: sidebar, task card with header, chat and right panel, bottom bar (the workspace's own terminal tabs, and the plugin). Done section collapsed. | ![Task workspace](screens/task-workspace.png) |
 | Task lifecycle | Active ⇄ Done and the task record. | ![Task lifecycle](screens/lifecycle.png) |
 | 1 · New task | An empty task; the first message sets the title and objective. | ![1 · New task](screens/01-new-task.png) |
 | 2 · Agent working | Live working line, Stop, message queue above the input, pasted images above the text, context meter. | ![2 · Agent working](screens/02-agent-working.png) |

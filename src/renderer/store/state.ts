@@ -345,7 +345,8 @@ export interface GladeActions {
   /**
    * Closes the shown workspace (Close workspace): shows the most recently opened of the others, with its selection, or
    * the first-run window when there's no other. The workspace stays in the list, as do its tasks, and opening it again
-   * brings back its selection. Does nothing for a workspace that isn't shown.
+   * brings back its selection. Its terminal tabs' shells keep running, as when you switch away, and its tabs show
+   * again when it's opened. Does nothing for a workspace that isn't shown.
    */
   closeWorkspace: (workspaceId: string) => Promise<void>
   /** Asks you to confirm removing a workspace (Remove from list…): see `removingWorkspaceId`. */
@@ -354,7 +355,8 @@ export interface GladeActions {
   cancelRemoveWorkspace: () => void
   /**
    * Removes a workspace from the list, once you've confirmed it (`workspaces.remove`): its tasks' agents are stopped,
-   * and it and its tasks go from Glade; its folder stays on disk. When it was shown, shows another as closing it would.
+   * its terminal tabs' shells end, and it, its tasks and its tabs go from Glade; its folder stays on disk. When it was
+   * shown, shows another as closing it would.
    */
   removeWorkspace: (workspaceId: string) => Promise<void>
   /** Closes the window (`window.close`). */
