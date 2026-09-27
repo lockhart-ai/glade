@@ -3,23 +3,84 @@ import { UiStateKey } from '../../shared/domain'
 import { sampleTerminalTab } from '../store/test-bridge'
 import { WindowCommandId } from '../../shared/commands'
 import { resolveKeymap, DEFAULT_KEYMAP, type KeyPress } from '../../shared/keymap'
-import { activeTerminalTab, commandToPaste, cycledTab, isAppKey, unseenOutput } from './terminalModel'
+import {
+  activeTerminalTab,
+  commandToPaste,
+  cycledTab,
+  isAppKey,
+  shownTerminalTabs,
+  terminalSelectionEntry,
+  unseenOutput,
+} from './terminalModel'
 
 function keys(key: string, code: string, modifiers: Partial<KeyPress> = {}): KeyPress {
   return { key, code, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...modifiers }
 }
 
 describe('activeTerminalTab', () => {
-  const tabs = [sampleTerminalTab('a'), sampleTerminalTab('b')]
-
-  it('is the tab last picked', () => {
-    expect(activeTerminalTab(tabs, { [UiStateKey.TerminalTab]: 'b' })?.id).toBe('b')
+  const tabs = [
+    sampleTerminalTab('a', { workspaceId: 'w1' }),
+    sampleTerminalTab('other', { workspaceId: 'w2' }),
+    sampleTerminalTab('b', { workspaceId: 'w1' }),
+    sampleTerminalTab('none'),
+  ]
+  const picked = (selection: Record<string, string>) => ({
+    [UiStateKey.TerminalSelection]: JSON.stringify(selection),
   })
 
-  it('is the first tab while none was picked, or the one picked has gone', () => {
-    expect(activeTerminalTab(tabs, {})?.id).toBe('a')
-    expect(activeTerminalTab(tabs, { [UiStateKey.TerminalTab]: 'gone' })?.id).toBe('a')
-    expect(activeTerminalTab([], {})).toBeUndefined()
+  it('is the tab last picked in the workspace', () => {
+    expect(activeTerminalTab(tabs, picked({ w1: 'b', w2: 'other' }), 'w1')?.id).toBe('b')
+    expect(activeTerminalTab(tabs, picked({ w1: 'b', w2: 'other' }), 'w2')?.id).toBe('other')
+  })
+
+  it('is the workspace’s first tab while none was picked there, or the one picked has gone', () => {
+    expect(activeTerminalTab(tabs, {}, 'w1')?.id).toBe('a')
+    expect(activeTerminalTab(tabs, picked({ w1: 'gone' }), 'w1')?.id).toBe('a')
+    expect(activeTerminalTab(tabs, { [UiStateKey.TerminalSelection]: 'not json' }, 'w1')?.id).toBe('a')
+    expect(activeTerminalTab([], {}, 'w1')).toBeUndefined()
+  })
+
+  it('is never another workspace’s tab, even one picked for this one', () => {
+    expect(activeTerminalTab(tabs, picked({ w1: 'other' }), 'w1')?.id).toBe('a')
+    expect(activeTerminalTab(tabs, {}, 'w3')).toBeUndefined()
+  })
+
+  it('is a tab of none, with no workspace showing', () => {
+    expect(activeTerminalTab(tabs, picked({ '': 'none' }), null)?.id).toBe('none')
+    expect(activeTerminalTab(tabs, {}, null)?.id).toBe('none')
+  })
+})
+
+describe('shownTerminalTabs', () => {
+  it('is the workspace’s tabs in order, or none’s with no workspace', () => {
+    const tabs = [
+      sampleTerminalTab('a', { workspaceId: 'w1' }),
+      sampleTerminalTab('x', { workspaceId: 'w2' }),
+      sampleTerminalTab('b', { workspaceId: 'w1' }),
+      sampleTerminalTab('n'),
+    ]
+    expect(shownTerminalTabs(tabs, 'w1').map(({ id }) => id)).toEqual(['a', 'b'])
+    expect(shownTerminalTabs(tabs, null).map(({ id }) => id)).toEqual(['n'])
+    expect(shownTerminalTabs(tabs, 'w3')).toEqual([])
+  })
+})
+
+describe('terminalSelectionEntry', () => {
+  it('picks a tab for one workspace, keeping the others’ picks', () => {
+    const uiState = { [UiStateKey.TerminalSelection]: JSON.stringify({ w1: 'a', w2: 'x' }) }
+    const entry = terminalSelectionEntry(uiState, 'w1', 'b')
+    expect(entry.key).toBe(UiStateKey.TerminalSelection)
+    expect(JSON.parse(entry.value)).toEqual({ w1: 'b', w2: 'x' })
+    expect(JSON.parse(terminalSelectionEntry(uiState, null, 'n').value)).toEqual({ w1: 'a', w2: 'x', '': 'n' })
+  })
+
+  it('forgets a workspace’s pick with null, and starts afresh from none or a broken value', () => {
+    const uiState = { [UiStateKey.TerminalSelection]: JSON.stringify({ w1: 'a', w2: 'x' }) }
+    expect(JSON.parse(terminalSelectionEntry(uiState, 'w2', null).value)).toEqual({ w1: 'a' })
+    expect(JSON.parse(terminalSelectionEntry({}, 'w1', 'a').value)).toEqual({ w1: 'a' })
+    expect(JSON.parse(terminalSelectionEntry({ [UiStateKey.TerminalSelection]: '[1]' }, 'w1', 'a').value)).toEqual({
+      w1: 'a',
+    })
   })
 })
 

@@ -9,7 +9,13 @@ import { DEFAULT_SETTINGS_SECTION } from '../settings/sections'
 import { collapsedEntry, isCollapsed, Panel } from '../panels/panels'
 import { PanelTab, parsePanelTab } from '../right-panel/panelModel'
 import { listedTaskIds, selectionAfterDeleting } from '../task-list/sections'
-import { activeTerminalTab, commandToPaste, cycledTab } from '../terminal/terminalModel'
+import {
+  activeTerminalTab,
+  commandToPaste,
+  cycledTab,
+  shownTerminalTabs,
+  terminalSelectionEntry,
+} from '../terminal/terminalModel'
 import type { ImageData } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import { describeFailure, lastOpenedWorkspace, loadSnapshot } from './hydrate'
@@ -170,10 +176,21 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       if (isCollapsed(get().uiState, Panel.BottomBar)) await setUiState(collapsedEntry(Panel.BottomBar, false))
     }
 
+    // Makes a terminal tab the one its workspace's bottom bar shows.
+    const pickTerminal = async (workspaceId: string | null, tabId: string): Promise<void> => {
+      await setUiState(terminalSelectionEntry(get().uiState, workspaceId, tabId))
+    }
+
+    // The tab the bottom bar shows, in the workspace the window shows.
+    const shownTerminal = (): TerminalTab | undefined => {
+      const { terminalTabs, uiState, selectedWorkspaceId } = get()
+      return activeTerminalTab(terminalTabs, uiState, selectedWorkspaceId)
+    }
+
     // Shows a new terminal tab, with the focus in it.
     const showNewTerminal = async (tab: TerminalTab): Promise<TerminalTab> => {
       withTerminalTab(tab)
-      await setUiState({ key: UiStateKey.TerminalTab, value: tab.id })
+      await pickTerminal(tab.workspaceId, tab.id)
       await showBottomBar()
       requestTerminalFocus()
       return tab
@@ -295,6 +312,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.WorkspacesReveal, { id: workspaceId })
       },
 
+      // Like switching away: the workspace's terminal tabs, and their shells, stay for when it's opened again.
       async closeWorkspace(workspaceId) {
         if (get().selectedWorkspaceId === workspaceId) await showAnotherWorkspace(workspaceId)
       },
@@ -311,9 +329,14 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         const shown = get().selectedWorkspaceId === workspaceId
         if (get().removingWorkspaceId === workspaceId) set({ removingWorkspaceId: null })
         await bridge.invoke(CommandName.WorkspacesRemove, { id: workspaceId })
-        // Main's events normally arrive first; make sure the workspace is gone either way.
-        set((state) => applyEvent(state, { type: EventType.WorkspaceRemoved, workspaceId }))
+        // Main's events normally arrive first; make sure the workspace is gone either way, and its terminal tabs, whose
+        // shells main has ended.
+        set((state) => ({
+          ...applyEvent(state, { type: EventType.WorkspaceRemoved, workspaceId }),
+          terminalTabs: state.terminalTabs.filter((tab) => tab.workspaceId !== workspaceId),
+        }))
         if (shown) await showAnotherWorkspace(workspaceId)
+        await setUiState(terminalSelectionEntry(get().uiState, workspaceId, null))
       },
 
       async closeWindow() {
@@ -691,21 +714,22 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       async selectTerminal(tabId) {
-        await setUiState({ key: UiStateKey.TerminalTab, value: tabId })
+        const { terminalTabs, selectedWorkspaceId } = get()
+        const tab = terminalTabs.find(({ id }) => id === tabId)
+        await pickTerminal(tab === undefined ? selectedWorkspaceId : tab.workspaceId, tabId)
         requestTerminalFocus()
       },
 
       async cycleTerminal(step) {
-        const { terminalTabs, uiState } = get()
-        const active = activeTerminalTab(terminalTabs, uiState)
+        const active = shownTerminal()
         if (active === undefined) return
         const next = cycledTab(
-          terminalTabs.map(({ id }) => id),
+          shownTerminalTabs(get().terminalTabs, active.workspaceId).map(({ id }) => id),
           active.id,
           step,
         )
         if (next === undefined || next === active.id) return
-        await setUiState({ key: UiStateKey.TerminalTab, value: next })
+        await pickTerminal(active.workspaceId, next)
         requestTerminalFocus()
       },
 
@@ -715,17 +739,18 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       async closeTerminal(tabId) {
-        const { terminalTabs, uiState } = get()
-        const closingActive = activeTerminalTab(terminalTabs, uiState)?.id === tabId
+        const { terminalTabs, uiState, selectedWorkspaceId } = get()
+        const workspaceId = terminalTabs.find(({ id }) => id === tabId)?.workspaceId ?? selectedWorkspaceId
+        const closingActive = activeTerminalTab(terminalTabs, uiState, workspaceId)?.id === tabId
         const next = selectionAfterDeleting(
-          terminalTabs.map(({ id }) => id),
+          shownTerminalTabs(terminalTabs, workspaceId).map(({ id }) => id),
           tabId,
         )
         await bridge.invoke(CommandName.TerminalClose, { id: tabId })
         // Main's terminal.tabsChanged normally arrives first; make sure the tab is gone either way.
         set((state) => ({ terminalTabs: state.terminalTabs.filter(({ id }) => id !== tabId) }))
         if (!closingActive || next === null) return
-        await setUiState({ key: UiStateKey.TerminalTab, value: next })
+        await pickTerminal(workspaceId, next)
         requestTerminalFocus()
       },
 
@@ -779,7 +804,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       async focusTerminal() {
-        if (get().terminalTabs.length === 0) {
+        if (shownTerminal() === undefined) {
           await get().createTerminal()
           return
         }
@@ -788,8 +813,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       async runInTerminal(command) {
-        const { terminalTabs, uiState } = get()
-        const tab = activeTerminalTab(terminalTabs, uiState) ?? (await get().createTerminal())
+        const tab = shownTerminal() ?? (await get().createTerminal())
         await showBottomBar()
         set(({ terminalPaste }) => ({
           terminalPaste: { tabId: tab.id, text: commandToPaste(command), request: (terminalPaste?.request ?? 0) + 1 },

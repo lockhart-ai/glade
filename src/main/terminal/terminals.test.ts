@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
+import type { Workspace } from '../../shared/domain'
 import { listTerminalTabs } from '../db/repositories/terminal-tabs'
+import { createWorkspace, getWorkspaceByRoot } from '../db/repositories/workspaces'
 import { openTestDatabase, type TestDatabase } from '../db/repositories/test-database'
 import { LogScope } from '../logging/logger'
 import { createMemoryLog, type MemoryLog } from '../logging/memory-sink'
@@ -32,6 +34,11 @@ function relaunch(): Terminals {
   spawner = createFakeSpawner()
   terminals = createTerminals({ db: database.db, emit, spawn: spawner.spawn, shell: FAKE_SHELL, fallbackCwd: root })
   return terminals
+}
+
+/** The workspace whose root is `rootPath`, added the first time it's asked for. */
+function workspaceAt(rootPath: string): Workspace {
+  return getWorkspaceByRoot(database.db, rootPath) ?? createWorkspace(database.db, { name: 'Acme API', rootPath })
 }
 
 /** The shell a tab started, the nth to start. */
@@ -80,9 +87,16 @@ describe('trimScrollback', () => {
 
 describe('the terminal tabs', () => {
   it('adds a tab whose shell starts in its folder, at the terminal’s size, when a window first shows it', () => {
-    const tab = terminals.create(root)
+    const tab = terminals.create(workspaceAt(root))
 
-    expect(tab).toEqual({ id: tab.id, name: null, process: 'zsh', running: false, cwd: root })
+    expect(tab).toEqual({
+      id: tab.id,
+      workspaceId: workspaceAt(root).id,
+      name: null,
+      process: 'zsh',
+      running: false,
+      cwd: root,
+    })
     expect(emitted(EventType.TerminalTabsChanged)).toEqual([{ type: EventType.TerminalTabsChanged, tabs: [tab] }])
     expect(spawner.spawned).toEqual([])
 
@@ -95,7 +109,7 @@ describe('the terminal tabs', () => {
 
   it('starts a shell with no workspace, or whose folder has gone, in the fallback folder', () => {
     const homeless = terminals.create(null)
-    const gone = terminals.create(join(root, 'gone'))
+    const gone = terminals.create(workspaceAt(join(root, 'gone')))
     expect(homeless.cwd).toBe(tmpdir())
 
     terminals.attach(homeless.id, SIZE)
@@ -107,7 +121,7 @@ describe('the terminal tabs', () => {
   })
 
   it('broadcasts the shell’s output, counting where each piece starts', () => {
-    const { id } = terminals.create(root)
+    const { id } = terminals.create(workspaceAt(root))
     terminals.attach(id, SIZE)
 
     shell().output('~/code/api $ ')
@@ -121,7 +135,7 @@ describe('the terminal tabs', () => {
   })
 
   it('types into the shell once it has shown its prompt, keeping what was typed before in order', () => {
-    const { id } = terminals.create(root)
+    const { id } = terminals.create(workspaceAt(root))
     terminals.write(id, 'npm ')
     terminals.attach(id, SIZE)
     terminals.write(id, 'test')
@@ -134,7 +148,7 @@ describe('the terminal tabs', () => {
   })
 
   it('resizes the shell’s terminal, and interrupts what runs in it', () => {
-    const { id } = terminals.create(root)
+    const { id } = terminals.create(workspaceAt(root))
     terminals.resize(id, { cols: 10, rows: 5 })
     terminals.interrupt(id)
     terminals.attach(id, SIZE)
@@ -147,8 +161,8 @@ describe('the terminal tabs', () => {
   })
 
   it('names a tab, and duplicates it after itself with its name and folder', () => {
-    const first = terminals.create(root)
-    const last = terminals.create(root)
+    const first = terminals.create(workspaceAt(root))
+    const last = terminals.create(workspaceAt(root))
     terminals.rename(first.id, 'server')
 
     const copy = terminals.duplicate(first.id)
@@ -164,8 +178,8 @@ describe('the terminal tabs', () => {
   })
 
   it('closes a tab, ending its shell', () => {
-    const { id } = terminals.create(root)
-    const other = terminals.create(root)
+    const { id } = terminals.create(workspaceAt(root))
+    const other = terminals.create(workspaceAt(root))
     terminals.attach(id, SIZE)
 
     terminals.close(id)
@@ -178,7 +192,7 @@ describe('the terminal tabs', () => {
   })
 
   it('closes a tab whose shell exits', () => {
-    const { id } = terminals.create(root)
+    const { id } = terminals.create(workspaceAt(root))
     terminals.attach(id, SIZE)
 
     shell().exit()
@@ -204,7 +218,7 @@ describe('the terminal tabs', () => {
 
 describe('what’s running in a tab', () => {
   it('follows the foreground process: its name, and a running dot while it isn’t the shell', () => {
-    const { id } = terminals.create(root)
+    const { id } = terminals.create(workspaceAt(root))
     terminals.attach(id, SIZE)
     emit.mockClear()
 
@@ -214,7 +228,7 @@ describe('what’s running in a tab', () => {
     shell().process = 'python3'
     vi.advanceTimersByTime(PROCESS_POLL_MS)
     expect(emitted(EventType.TerminalTabsChanged).at(-1)?.tabs).toEqual([
-      { id, name: null, process: 'python3', running: true, cwd: root },
+      { id, workspaceId: workspaceAt(root).id, name: null, process: 'python3', running: true, cwd: root },
     ])
 
     shell().process = 'zsh'
@@ -224,8 +238,8 @@ describe('what’s running in a tab', () => {
   })
 
   it('stops checking once no shell runs', () => {
-    const { id } = terminals.create(root)
-    const idle = terminals.create(root)
+    const { id } = terminals.create(workspaceAt(root))
+    const idle = terminals.create(workspaceAt(root))
     terminals.attach(id, SIZE)
     terminals.close(idle.id)
     expect(vi.getTimerCount()).toBe(1)
@@ -238,8 +252,8 @@ describe('what’s running in a tab', () => {
 
 describe('across a relaunch', () => {
   it('keeps the tabs, in order, with their names, folders and recent output over a divider and a new shell', () => {
-    const first = terminals.create(root)
-    const second = terminals.create(root)
+    const first = terminals.create(workspaceAt(root))
+    const second = terminals.create(workspaceAt(root))
     terminals.rename(second.id, 'server')
     terminals.attach(first.id, SIZE)
     shell().output('$ echo hello\r\nhello\r\n$ ')
@@ -248,8 +262,8 @@ describe('across a relaunch', () => {
 
     const history = `$ echo hello\r\nhello\r\n$ ${RESTORED_DIVIDER}`
     expect(terminals.list()).toEqual([
-      { id: first.id, name: null, process: 'zsh', running: false, cwd: root },
-      { id: second.id, name: 'server', process: 'zsh', running: false, cwd: root },
+      { id: first.id, workspaceId: workspaceAt(root).id, name: null, process: 'zsh', running: false, cwd: root },
+      { id: second.id, workspaceId: workspaceAt(root).id, name: 'server', process: 'zsh', running: false, cwd: root },
     ])
     expect(terminals.attach(first.id, SIZE)).toEqual({ output: history, end: history.length })
     expect(terminals.attach(second.id, SIZE)).toEqual({ output: '', end: 0 })
@@ -262,7 +276,7 @@ describe('across a relaunch', () => {
   })
 
   it('saves output a moment after it arrives, not on every piece', () => {
-    const { id } = terminals.create(root)
+    const { id } = terminals.create(workspaceAt(root))
     terminals.attach(id, SIZE)
     shell().output('a')
     shell().output('b')
@@ -274,7 +288,7 @@ describe('across a relaunch', () => {
   })
 
   it('keeps only the recent output', () => {
-    const { id } = terminals.create(root)
+    const { id } = terminals.create(workspaceAt(root))
     terminals.attach(id, SIZE)
     const line = `${'x'.repeat(99)}\n`
     for (let index = 0; index < (SCROLLBACK_LIMIT / line.length) * 2; index += 1) shell().output(line)
@@ -288,7 +302,7 @@ describe('across a relaunch', () => {
   })
 
   it('forgets a cleared tab’s output, and tells the windows to clear it', () => {
-    const { id } = terminals.create(root)
+    const { id } = terminals.create(workspaceAt(root))
     terminals.attach(id, SIZE)
     shell().output('secret\r\n')
 
@@ -301,7 +315,7 @@ describe('across a relaunch', () => {
   })
 
   it('ends the shells when the app quits, keeping their tabs', () => {
-    const { id } = terminals.create(root)
+    const { id } = terminals.create(workspaceAt(root))
     terminals.attach(id, SIZE)
 
     terminals.shutdown()
@@ -332,7 +346,8 @@ describe('the terminal log', () => {
     const log = createMemoryLog(LogScope.Terminal)
     const tabs = logging(log)
 
-    const first = tabs.create(root)
+    const { id: workspaceId } = workspaceAt(root)
+    const first = tabs.create(workspaceAt(root))
     tabs.attach(first.id, SIZE)
     const second = tabs.duplicate(first.id)
     tabs.attach(second.id, SIZE)
@@ -340,12 +355,12 @@ describe('the terminal log', () => {
     tabs.close(second.id)
 
     expect(log.records.map(({ message, fields }) => ({ message, fields }))).toEqual([
-      { message: 'terminal tab opened', fields: { tabId: first.id, cwd: root, after: null } },
+      { message: 'terminal tab opened', fields: { tabId: first.id, workspaceId, cwd: root, after: null } },
       {
         message: 'shell starting',
         fields: { tabId: first.id, shell: FAKE_SHELL.file, args: FAKE_SHELL.args, cwd: root, size: SIZE },
       },
-      { message: 'terminal tab opened', fields: { tabId: second.id, cwd: root, after: first.id } },
+      { message: 'terminal tab opened', fields: { tabId: second.id, workspaceId, cwd: root, after: first.id } },
       expect.objectContaining({
         message: 'shell starting',
         fields: expect.objectContaining({ tabId: second.id }) as unknown,
@@ -361,8 +376,8 @@ describe('the terminal log', () => {
   it('logs the shells ending with the app', () => {
     const log = createMemoryLog(LogScope.Terminal)
     const tabs = logging(log)
-    const tab = tabs.create(root)
-    tabs.create(root)
+    const tab = tabs.create(workspaceAt(root))
+    tabs.create(workspaceAt(root))
     tabs.attach(tab.id, SIZE)
 
     tabs.shutdown()
@@ -370,6 +385,120 @@ describe('the terminal log', () => {
     expect(log.records.slice(-2).map(({ message, fields }) => ({ message, fields }))).toEqual([
       { message: 'terminals shutting down', fields: { tabs: 2, running: 1 } },
       { message: 'shell exited', fields: { tabId: tab.id, exitCode: 0, signal: 1, closing: true } },
+    ])
+  })
+
+  it('logs a workspace’s tabs closing with it', () => {
+    const log = createMemoryLog(LogScope.Terminal)
+    const tabs = logging(log)
+    const workspace = workspaceAt(root)
+    const tab = tabs.create(workspace)
+
+    tabs.closeWorkspace(workspace.id)
+
+    expect(log.records.slice(-2).map(({ message, fields }) => ({ message, fields }))).toEqual([
+      { message: 'closing workspace terminal tabs', fields: { workspaceId: workspace.id, tabs: 1 } },
+      { message: 'terminal tab closed', fields: { tabId: tab.id } },
+    ])
+  })
+})
+
+describe('each workspace’s tabs', () => {
+  let api: Workspace
+  let web: Workspace
+
+  beforeEach(() => {
+    api = workspaceAt(join(root, 'acme-api'))
+    web = workspaceAt(join(root, 'acme-web'))
+  })
+
+  it('belong to the workspace they were opened in, as do their duplicates, and list together', () => {
+    const apiTab = terminals.create(api)
+    const webTab = terminals.create(web)
+    const none = terminals.create(null)
+    const copy = terminals.duplicate(webTab.id)
+
+    expect(terminals.list().map(({ id, workspaceId, cwd }) => ({ id, workspaceId, cwd }))).toEqual([
+      { id: apiTab.id, workspaceId: api.id, cwd: api.rootPath },
+      { id: webTab.id, workspaceId: web.id, cwd: web.rootPath },
+      { id: copy.id, workspaceId: web.id, cwd: web.rootPath },
+      { id: none.id, workspaceId: null, cwd: tmpdir() },
+    ])
+    expect(listTerminalTabs(database.db).map(({ id, workspaceId }) => ({ id, workspaceId }))).toEqual([
+      { id: apiTab.id, workspaceId: api.id },
+      { id: webTab.id, workspaceId: web.id },
+      { id: copy.id, workspaceId: web.id },
+      { id: none.id, workspaceId: null },
+    ])
+  })
+
+  it('keep their shells running, and their output, while another workspace’s show', () => {
+    const apiTab = terminals.create(api)
+    const webTab = terminals.create(web)
+    terminals.attach(apiTab.id, SIZE)
+    terminals.attach(webTab.id, SIZE)
+
+    shell(0).output('acme-api $ npm start\r\nListening on 8000\r\n')
+    vi.advanceTimersByTime(SAVE_DELAY_MS)
+
+    expect(terminals.attach(apiTab.id, SIZE)).toEqual({
+      output: 'acme-api $ npm start\r\nListening on 8000\r\n',
+      end: 41,
+    })
+    expect(listTerminalTabs(database.db)[0]?.scrollback).toBe('acme-api $ npm start\r\nListening on 8000\r\n')
+    expect(shell(0).killed).toBe(false)
+    expect(spawner.spawned).toHaveLength(2)
+  })
+
+  it('close with their workspace: its shells end and its tabs go, and no other workspace’s', () => {
+    const apiTab = terminals.create(api)
+    const apiServer = terminals.create(api)
+    const webTab = terminals.create(web)
+    const none = terminals.create(null)
+    for (const { id } of [apiTab, apiServer, webTab, none]) terminals.attach(id, SIZE)
+    emit.mockClear()
+
+    terminals.closeWorkspace(api.id)
+
+    expect(spawner.spawned.map(({ killed }) => killed)).toEqual([true, true, false, false])
+    expect(terminals.list().map(({ id }) => id)).toEqual([webTab.id, none.id])
+    expect(listTerminalTabs(database.db).map(({ id }) => id)).toEqual([webTab.id, none.id])
+    expect(emitted(EventType.TerminalTabsChanged)).toEqual([
+      { type: EventType.TerminalTabsChanged, tabs: terminals.list() },
+    ])
+    expect(() => terminals.attach(apiTab.id, SIZE)).toThrow(expect.objectContaining({ code: BridgeErrorCode.NotFound }))
+  })
+
+  it('stop the process check once the last running shell closes with its workspace', () => {
+    const { id } = terminals.create(api)
+    terminals.create(web)
+    terminals.attach(id, SIZE)
+    expect(vi.getTimerCount()).toBe(1)
+
+    terminals.closeWorkspace(api.id)
+
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('close nothing, and say nothing, for a workspace with no tabs', () => {
+    terminals.create(web)
+    emit.mockClear()
+
+    terminals.closeWorkspace(api.id)
+
+    expect(terminals.list()).toHaveLength(1)
+    expect(emit).not.toHaveBeenCalled()
+  })
+
+  it('come back after a relaunch in their own workspaces', () => {
+    const apiTab = terminals.create(api)
+    const webTab = terminals.create(web)
+
+    const tabs = relaunch().list()
+
+    expect(tabs.map(({ id, workspaceId }) => ({ id, workspaceId }))).toEqual([
+      { id: apiTab.id, workspaceId: api.id },
+      { id: webTab.id, workspaceId: web.id },
     ])
   })
 })

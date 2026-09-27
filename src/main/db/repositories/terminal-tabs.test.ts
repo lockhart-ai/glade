@@ -7,6 +7,7 @@ import {
   saveTerminalScrollback,
 } from './terminal-tabs'
 import { openTestDatabase, type TestDatabase } from './test-database'
+import { createWorkspace, deleteWorkspace } from './workspaces'
 
 let database: TestDatabase
 
@@ -28,24 +29,31 @@ it('starts with no tabs', () => {
 
 it('adds tabs at the end, or after another', () => {
   const { db } = database
-  addTerminalTab(db, { id: 'a', name: null, cwd: '/code/api', after: null })
-  addTerminalTab(db, { id: 'b', name: null, cwd: '/code/api', after: null })
-  addTerminalTab(db, { id: 'c', name: 'server', cwd: '/code/web', after: 'a' })
-  addTerminalTab(db, { id: 'd', name: null, cwd: '/code/web', after: 'gone' })
+  addTerminalTab(db, { id: 'a', workspaceId: null, name: null, cwd: '/code/api', after: null })
+  addTerminalTab(db, { id: 'b', workspaceId: null, name: null, cwd: '/code/api', after: null })
+  addTerminalTab(db, { id: 'c', workspaceId: null, name: 'server', cwd: '/code/web', after: 'a' })
+  addTerminalTab(db, { id: 'd', workspaceId: null, name: null, cwd: '/code/web', after: 'gone' })
 
   expect(ids()).toEqual(['a', 'c', 'b', 'd'])
-  expect(listTerminalTabs(db)[1]).toEqual({ id: 'c', name: 'server', cwd: '/code/web', scrollback: '' })
+  expect(listTerminalTabs(db)[1]).toEqual({
+    id: 'c',
+    workspaceId: null,
+    name: 'server',
+    cwd: '/code/web',
+    scrollback: '',
+  })
 })
 
 it('renames a tab, keeps its output, and removes it', () => {
   const { db } = database
-  addTerminalTab(db, { id: 'a', name: null, cwd: '/code/api', after: null })
-  addTerminalTab(db, { id: 'b', name: null, cwd: '/code/api', after: null })
+  addTerminalTab(db, { id: 'a', workspaceId: null, name: null, cwd: '/code/api', after: null })
+  addTerminalTab(db, { id: 'b', workspaceId: null, name: null, cwd: '/code/api', after: null })
 
   renameTerminalTab(db, 'a', 'server')
   saveTerminalScrollback(db, 'a', '$ npm start\r\nListening on 8000\r\n')
   expect(listTerminalTabs(db)[0]).toEqual({
     id: 'a',
+    workspaceId: null,
     name: 'server',
     cwd: '/code/api',
     scrollback: '$ npm start\r\nListening on 8000\r\n',
@@ -55,4 +63,28 @@ it('renames a tab, keeps its output, and removes it', () => {
 
   removeTerminalTab(db, 'a')
   expect(ids()).toEqual(['b'])
+})
+
+it('keeps each tab’s workspace, and removes its tabs with it', () => {
+  const { db } = database
+  createWorkspace(db, { id: 'api', name: 'Acme API', rootPath: '/code/acme-api' })
+  createWorkspace(db, { id: 'web', name: 'Acme Web', rootPath: '/code/acme-web' })
+  addTerminalTab(db, { id: 'a', workspaceId: 'api', name: null, cwd: '/code/acme-api', after: null })
+  addTerminalTab(db, { id: 'w', workspaceId: 'web', name: null, cwd: '/code/acme-web', after: null })
+  addTerminalTab(db, { id: 'n', workspaceId: null, name: null, cwd: '/Users/sample', after: null })
+
+  expect(listTerminalTabs(db).map(({ id, workspaceId }) => ({ id, workspaceId }))).toEqual([
+    { id: 'a', workspaceId: 'api' },
+    { id: 'w', workspaceId: 'web' },
+    { id: 'n', workspaceId: null },
+  ])
+
+  deleteWorkspace(db, 'api')
+  expect(ids()).toEqual(['w', 'n'])
+})
+
+it('refuses a tab of a workspace that isn’t there', () => {
+  expect(() => {
+    addTerminalTab(database.db, { id: 'a', workspaceId: 'gone', name: null, cwd: '/code/api', after: null })
+  }).toThrow(/FOREIGN KEY/)
 })

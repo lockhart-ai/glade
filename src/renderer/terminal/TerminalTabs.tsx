@@ -1,5 +1,5 @@
 import { faPlus, faTerminal, faXmark } from '@fortawesome/free-solid-svg-icons'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { terminalTitle, type TerminalTab } from '../../shared/terminal'
 import { Icon, IconSize, useToast } from '../components'
 import { classNames } from '../components/classNames'
@@ -7,7 +7,7 @@ import { ContextMenu, terminalTabMenu, useContextMenu, useMenuCommands } from '.
 import { shortenHomePath } from '../paths'
 import { describeFailure } from '../store/hydrate'
 import { useGladeStore } from '../store/react'
-import { activeTerminalTab } from './terminalModel'
+import { activeTerminalTab, shownTerminalTabs } from './terminalModel'
 import styles from './TerminalTabs.module.css'
 
 interface RenameFieldProps {
@@ -67,13 +67,16 @@ function RenameField({ tab, onRename, onCancel }: RenameFieldProps): React.JSX.E
 }
 
 /**
- * The terminal card's tab row (`docs/design/html/task-workspace.html`): a tab for each shell, with a blue dot while a
- * program runs in it and a button to close it, then + for a new tab; at the far end, the folder the tab showing
- * started in. A tab's context menu renames, duplicates, clears, interrupts or closes it.
+ * The terminal card's tab row (`docs/design/html/task-workspace.html`): a tab for each shell of the workspace showing
+ * (another workspace's tabs show when it does), with a blue dot while a program runs in it and a button to close it,
+ * then + for a new tab; at the far end, the folder the tab showing started in. A tab's context menu renames,
+ * duplicates, clears, interrupts or closes it.
  */
 export function TerminalTabs(): React.JSX.Element {
-  const tabs = useGladeStore((state) => state.terminalTabs)
-  const active = useGladeStore((state) => activeTerminalTab(state.terminalTabs, state.uiState))
+  const allTabs = useGladeStore((state) => state.terminalTabs)
+  const workspaceId = useGladeStore((state) => state.selectedWorkspaceId)
+  const tabs = useMemo(() => shownTerminalTabs(allTabs, workspaceId), [allTabs, workspaceId])
+  const active = useGladeStore((state) => activeTerminalTab(state.terminalTabs, state.uiState, workspaceId))
   const renamingId = useGladeStore((state) => state.renamingTerminalId)
   const selectTerminal = useGladeStore((state) => state.selectTerminal)
   const createTerminal = useGladeStore((state) => state.createTerminal)
