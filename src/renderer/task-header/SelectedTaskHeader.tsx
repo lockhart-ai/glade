@@ -24,6 +24,7 @@ import {
 } from './headerModel'
 import styles from './SelectedTaskHeader.module.css'
 import { useMarkDone } from './useMarkDone'
+import { LinkedText } from '../links'
 import { Highlighted, useSearchHighlight } from '../search/Highlight'
 
 const NO_TOOL_EVENTS: readonly ToolEvent[] = []
@@ -126,7 +127,7 @@ function Header({ task }: HeaderProps): React.JSX.Element {
           {task.objective === '' ? (
             <Empty>{EMPTY_OBJECTIVE}</Empty>
           ) : (
-            <Highlighted text={task.objective} pattern={highlight} />
+            <LinkedText text={task.objective} pattern={highlight} />
           )}
         </FieldRow>
         <FieldRow
@@ -135,7 +136,7 @@ function Header({ task }: HeaderProps): React.JSX.Element {
           text={task.status}
           trailing={statusAge !== null && <span className={styles.updated}>{statusAge}</span>}
         >
-          {task.status === '' ? <Empty>{EMPTY_STATUS}</Empty> : <Highlighted text={task.status} pattern={highlight} />}
+          {task.status === '' ? <Empty>{EMPTY_STATUS}</Empty> : <LinkedText text={task.status} pattern={highlight} />}
         </FieldRow>
       </div>
     </>

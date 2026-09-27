@@ -151,6 +151,11 @@ scroll: the chat passes under them.
   question card; send them after. Once sent (or queued), click a thumbnail, or press ↵ or Space on it, to see the image
   full size; ← and → step through the message's other images, and Esc or a click beside the image closes it.
 - **Right-click a reply** to copy it (as text or Markdown), quote it in your reply, or show that turn's tool calls.
+- **Links open in your browser.** A link or a bare URL in a reply, your message, a card, the tool log, the header, a
+  todo or anywhere else Glade shows what the agent or you wrote is clickable (⌘-click works too, and ↵ on a focused
+  link); an email address opens your mail app. URLs in code stay plain. When a link's text isn't its address, hover it
+  to see where it goes. Right-click a link to open it or copy its address. Glade only opens web and mail links, and
+  never inside its own window.
 - **The agent can come back by itself.** If it watches a command, schedules a check-back or runs something in the
   background, it can wake up later and carry on; that turn shows in the chat like any other.
 

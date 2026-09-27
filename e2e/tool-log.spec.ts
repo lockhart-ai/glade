@@ -67,7 +67,7 @@ test('tool log: a turn divider reads just its time even when the host clock is j
   }
 })
 
-test('tool log: a call a quit cut off looks finished, a paused one purple, and notes show inline code', async ({
+test('tool log: a call a quit cut off looks finished, a paused one purple, and notes show inline code and links', async ({
   launch,
 }) => {
   const panel = taskPanel((await launch({ seed: seedPath('interrupted-calls.json') })).window)
@@ -83,9 +83,10 @@ test('tool log: a call a quit cut off looks finished, a paused one purple, and n
   await interrupted.click()
   await expect(panel.log.getByLabel('Bash output')).toHaveText('Glade quit before this tool call finished.')
 
-  // A note's inline code and emphasis are formatted; a link is just its text.
+  // A note's inline code and emphasis are formatted, and its link is a link that opens in the browser (#349).
   await expect(panel.log.locator('code', { hasText: 'django-storages' })).toBeVisible()
   await expect(panel.log.locator('em', { hasText: 'static' })).toBeVisible()
   await expect(panel.log).toContainText("so I'll add an S3 backend. See the docs.")
-  await expect(panel.log.locator('a')).toHaveCount(0)
+  await expect(panel.log.getByRole('link')).toHaveCount(1)
+  await expect(panel.log.getByRole('link', { name: 'the docs' })).toHaveAttribute('href', 'https://example.com/docs')
 })

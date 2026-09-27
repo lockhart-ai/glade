@@ -53,6 +53,12 @@ There are no follow-up tasks. One task can refer to another through its folder o
   scaled past its own size, on a dimmed backdrop. With several, ← and → step through the message's images, round from
   the last to the first, under a "2 of 3"; Esc, a click on the backdrop or × closes it, and the focus goes back to the
   thumbnail of the image it showed. ![Image viewer](design/screens/30-image-viewer.png)
+- **Links** — a link in what the agent or you wrote opens in your browser (a `mailto:` link in your mail app), never in
+  Glade: in replies and your messages, the question and permission cards, the tool log's notes and output, the goal
+  and status, todos, watchers and queued messages. Markdown links and bare URLs and email addresses are links; URLs in
+  code aren't. A link underlines on hover, shows its address as a tooltip when its text says something else, takes the
+  focus with Tab and opens with ↵; ⌘-click opens it too. Right-click it for Open link and Copy link. Only web and mail
+  links open: any other kind shows as its text.
 - **Right panel** (inside the task card) — tabs: Tool calls, Files, Todos, Artifacts, Subagents, Watchers, Changes (the
   commits the task made; Glade watches git and never drives it). Resizable, collapsible. Too narrow for its tabs, the
   tab row scrolls sideways, with chevrons at the ends that have more tabs past them.

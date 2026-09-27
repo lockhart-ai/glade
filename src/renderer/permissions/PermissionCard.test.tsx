@@ -178,6 +178,24 @@ describe('the permission card', () => {
     expect(screen.getByText(/^agent · /)).toBeInTheDocument()
   })
 
+  it('makes the URLs in what a call is for links, but not those in its command', async () => {
+    await renderChat([
+      request('p1', {
+        input: {
+          command: 'curl -sf https://example.com/health',
+          description: 'Check the service answers, as https://example.com/docs/health says',
+        },
+      }),
+    ])
+
+    const open = card()
+    expect(within(within(open).getByLabelText('Command')).queryByRole('link')).toBeNull()
+    expect(within(open).getByRole('link')).toHaveAttribute('href', 'https://example.com/docs/health')
+    expect(within(open).getByText(/Check the service answers/)).toHaveTextContent(
+      'Check the service answers, as https://example.com/docs/health says',
+    )
+  })
+
   it("shows an Edit's file relative to the workspace, and its change marked line by line", async () => {
     await renderChat([EDIT])
 

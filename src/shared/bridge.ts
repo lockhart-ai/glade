@@ -102,6 +102,7 @@ export enum CommandName {
   FilesClose = 'files.close',
   FilesOpenInEditor = 'files.openInEditor',
   ClipboardWriteText = 'clipboard.writeText',
+  LinksOpen = 'links.open',
   FilesThumbnail = 'files.thumbnail',
   FilesCopy = 'files.copy',
   FilesReveal = 'files.reveal',
@@ -722,6 +723,15 @@ export interface ClipboardWriteTextRequest {
   readonly text: string
 }
 
+/**
+ * Opens a link in your browser (or a `mailto:` link in your mail app), never in Glade: clicking a link in a reply, a
+ * todo or anything else the app shows, or its Open link. Only `http:`, `https:` and `mailto:` links open (`checkLink` in
+ * `./links`); anything else fails with `invalid_request`, and main logs it.
+ */
+export interface LinksOpenRequest {
+  readonly url: string
+}
+
 export interface UiStateGetRequest {
   readonly key: UiStateKey
 }
@@ -1012,6 +1022,7 @@ export interface CommandMap {
   [CommandName.FilesClose]: CommandSpec<FilesCloseRequest, OpenFilesResponse>
   [CommandName.FilesOpenInEditor]: CommandSpec<FilesOpenInEditorRequest, null>
   [CommandName.ClipboardWriteText]: CommandSpec<ClipboardWriteTextRequest, null>
+  [CommandName.LinksOpen]: CommandSpec<LinksOpenRequest, null>
   [CommandName.FilesThumbnail]: CommandSpec<FilesThumbnailRequest, FilesThumbnailResponse>
   [CommandName.FilesCopy]: CommandSpec<FilesCopyRequest, null>
   [CommandName.FilesReveal]: CommandSpec<FilesRevealRequest, null>

@@ -70,6 +70,7 @@ import { highlightParts, highlightPattern, SearchField, type SearchResult } from
 import type { TerminalTab } from '../../shared/terminal'
 import { addDoneCounts, doneCountsOf, isInDoneSection, NO_DONE_TASKS, pageOfDone } from '../../shared/doneList'
 import { EMPTY_MENU_BAR_SNAPSHOT, type MenuBarSnapshot } from '../../shared/menuBar'
+import { openableUrl } from '../../shared/links'
 
 export type FakeHandlers = {
   readonly [C in CommandName]: (request: CommandRequest<C>) => CommandResponse<C> | Promise<CommandResponse<C>>
@@ -135,6 +136,8 @@ export interface FakeMain {
   /** What was put on the clipboard, oldest first: the path of each file `files.copy` copied, and the text of each
    * `clipboard.writeText`. */
   readonly copied?: string[]
+  /** The links `links.open` opened in the browser, oldest first. */
+  readonly opened?: string[]
   /** The paths `files.reveal` revealed, oldest first. */
   readonly revealed?: string[]
   /** The settings `settings.get` starts answering with; the defaults when left out. `settings.update` changes them. */
@@ -553,6 +556,13 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     },
     [CommandName.ClipboardWriteText]: ({ text }) => {
       main.copied?.push(text)
+      return null
+    },
+    // As main does, it opens only a web or mail link.
+    [CommandName.LinksOpen]: ({ url }) => {
+      const link = openableUrl(url)
+      if (link === null) return refuse(bridgeError(BridgeErrorCode.InvalidRequest, 'Not a link Glade can open'))
+      main.opened?.push(link)
       return null
     },
     [CommandName.UiStateGet]: ({ key }) => ({ value: main.uiState.find((entry) => entry.key === key)?.value ?? null }),

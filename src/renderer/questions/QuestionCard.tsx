@@ -14,6 +14,7 @@ import {
 import { Markdown } from '../chat/Markdown'
 import { Button, ButtonVariant, Icon, IconSize, Input, useToast } from '../components'
 import { classNames } from '../components/classNames'
+import { LinkedText } from '../links'
 import { describeFailure } from '../store/hydrate'
 import { useGladeStore } from '../store/react'
 import {
@@ -216,7 +217,7 @@ function Prompt({ question, index, id }: { readonly question: Question; readonly
     <div className={styles.prompt}>
       <span className={styles.number}>{index + 1}</span>
       <span id={id} className={styles.promptText}>
-        {question.prompt}
+        <LinkedText text={question.prompt} />
       </span>
       {question.kind === QuestionKind.Text && question.optional === true && (
         <span className={styles.optional}>optional</span>
@@ -453,10 +454,14 @@ function ClosedCard({ questionSet, closed, fadeIn, highlight }: ClosedCardProps)
           <div key={index} className={styles.answer}>
             <dt className={styles.prompt}>
               <span className={styles.number}>{index + 1}</span>
-              <span className={styles.promptText}>{question.prompt}</span>
+              <span className={styles.promptText}>
+                <LinkedText text={question.prompt} />
+              </span>
             </dt>
             {closed === ClosedAs.Answers && (
-              <dd className={styles.answerText}>{answerText(question, answers[String(index)])}</dd>
+              <dd className={styles.answerText}>
+                <LinkedText text={answerText(question, answers[String(index)])} />
+              </dd>
             )}
           </div>
         ))}

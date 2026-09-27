@@ -52,6 +52,7 @@ import {
   type E2eSpec,
 } from './e2e'
 import type { OpenPath, RevealPath, WriteClipboard } from './files/files'
+import type { OpenExternal } from './links/links'
 import { createThumbnails, THUMBNAILS_FOLDER_NAME } from './artifacts/thumbnails'
 import { definedEnv, LoginEnvSource, resolveLoginEnv, type Environment, type LoginEnv } from './login-env'
 import { logCrashes } from './logging/crashes'
@@ -200,7 +201,8 @@ function createWindow(testMode: TestMode, log: Logger): BrowserWindow {
     webPreferences: WINDOW_WEB_PREFERENCES,
   })
 
-  // The renderer only ever shows the app's own page: no popups, no navigating away.
+  // The renderer only ever shows the app's own page: no popups, no navigating away. A link opens in the browser, from
+  // main (`links.open`), and never here.
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event) => {
     event.preventDefault()
@@ -405,15 +407,19 @@ function createOpenPath(testMode: TestMode): OpenPath {
   return () => Promise.resolve('')
 }
 
-/** Showing a file in Finder, and the clipboard: the desktop an artifact's Reveal in folder and Copy use. */
+/**
+ * Showing a file in Finder, the clipboard and the browser: the desktop an artifact's Reveal in folder, the menus' Copy
+ * items and a clicked link use.
+ */
 interface Desktop {
   readonly revealPath: RevealPath
   readonly writeClipboard: WriteClipboard
+  readonly openExternal: OpenExternal
 }
 
 /**
- * The real Finder and clipboard. A test mode never touches them: e2e mode records what they'd have done instead, for
- * the spec to read (`E2E_DESKTOP_GLOBAL`), and a capture ignores it.
+ * The real Finder, clipboard and browser. A test mode never touches them: e2e mode records what they'd have done
+ * instead, for the spec to read (`E2E_DESKTOP_GLOBAL`), and a capture ignores it.
  */
 function createDesktop(testMode: TestMode): Desktop {
   if (testMode === null) {
@@ -424,10 +430,12 @@ function createDesktop(testMode: TestMode): Desktop {
       writeClipboard: (text) => {
         return clipboard.writeText(text)
       },
+      // Only ever a link main has checked is a web or mail link (`./links/links`).
+      openExternal: (url) => shell.openExternal(url),
     }
   }
   if (testMode.kind === TestModeKind.E2e) return createE2eDesktop()
-  return { revealPath: () => undefined, writeClipboard: () => Promise.resolve() }
+  return { revealPath: () => undefined, writeClipboard: () => Promise.resolve(), openExternal: () => Promise.resolve() }
 }
 
 /** Whether an IPC event came from one of Glade's windows' own pages, and not a plugin's (or anything else). */

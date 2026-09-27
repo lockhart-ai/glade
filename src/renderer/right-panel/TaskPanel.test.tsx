@@ -348,6 +348,20 @@ describe('TaskPanel', () => {
       expect(screen.queryByLabelText('Read output')).toBeNull()
     })
 
+    it('makes the URLs in a call’s output links, keeping its text as it is', async () => {
+      const output = 'Built in 2.1s\n  Preview at http://localhost:4173\n  Docs: https://example.com/docs.'
+      await renderPanel({ toolEvents: [call('c1', { name: 'Bash', input: { command: 'npm run preview' }, output })] })
+
+      fireEvent.click(row(/Bash/))
+      const shown = screen.getByLabelText('Bash output')
+      expect(shown.textContent).toBe(output)
+      expect(
+        within(shown)
+          .getAllByRole('link')
+          .map((link) => link.getAttribute('href')),
+      ).toEqual(['http://localhost:4173/', 'https://example.com/docs'])
+    })
+
     it('says a running call has no output yet, and shows a failed call’s error', async () => {
       await renderPanel({
         toolEvents: [
@@ -398,7 +412,7 @@ describe('TaskPanel', () => {
       expect(paused.parentElement?.className).toMatch(/paused/)
     })
 
-    it('shows inline code and emphasis in the agent’s notes, and nothing that loads or links', async () => {
+    it('shows inline code, emphasis and links in the agent’s notes, and nothing that loads', async () => {
       await renderPanel({
         toolEvents: [
           narration(
@@ -413,7 +427,8 @@ describe('TaskPanel', () => {
       expect(within(note).getByText('django-storages').tagName).toBe('CODE')
       expect(within(note).getByText('static').tagName).toBe('EM')
       expect(note).toHaveTextContent('The project uses django-storages for static files. See the docs logo 10:43')
-      expect(note.querySelector('a, img')).toBeNull()
+      expect(within(note).getByRole('link', { name: 'the docs' })).toHaveAttribute('href', 'https://example.com/')
+      expect(note.querySelector('img, [src]')).toBeNull()
     })
 
     it('marks where each turn after the first starts, and what else happened', async () => {
@@ -464,7 +479,8 @@ describe('TaskPanel', () => {
     })
 
     it("opens a compaction's row to what the agent carried over, and closes it again", async () => {
-      const summary = '1. Primary Request and Intent:\n   Move user image uploads from local disk to S3.'
+      const summary =
+        '1. Primary Request and Intent:\n   Move user image uploads from local disk to S3, per https://example.com/docs/s3.'
       const compaction = {
         id: 'k1',
         taskId: 't1',
@@ -486,8 +502,12 @@ describe('TaskPanel', () => {
       expect(button).toHaveAttribute('aria-expanded', 'false')
       fireEvent.click(button)
       expect(button).toHaveAttribute('aria-expanded', 'true')
-      // As written, line breaks and all.
+      // As written, line breaks and all, with its URLs as links.
       expect(within(row).getByLabelText('Compact summary').textContent).toBe(summary)
+      expect(within(within(row).getByLabelText('Compact summary')).getByRole('link')).toHaveAttribute(
+        'href',
+        'https://example.com/docs/s3',
+      )
       fireEvent.click(button)
       expect(button).toHaveAttribute('aria-expanded', 'false')
     })

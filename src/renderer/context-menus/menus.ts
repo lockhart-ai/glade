@@ -293,3 +293,14 @@ export interface TodoMenuActions {
 export function todoMenu(actions: TodoMenuActions): MenuEntry[] {
   return groups([item('Copy', actions.copy), item('Ask agent about this', actions.ask)])
 }
+
+/** What a link's menu can do. */
+export interface LinkMenuActions {
+  readonly open: MenuAction
+  readonly copy: MenuAction
+}
+
+/** A link's menu, wherever it's shown: open it in the browser, as clicking it does, or copy its address. */
+export function linkMenu(actions: LinkMenuActions): MenuEntry[] {
+  return groups([item('Open link', actions.open)], [item('Copy link', actions.copy)])
+}

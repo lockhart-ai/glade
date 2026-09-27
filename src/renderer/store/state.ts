@@ -513,6 +513,8 @@ export interface GladeActions {
   inRepository: (taskId: string) => Promise<boolean>
   /** Puts text on the clipboard (`clipboard.writeText`). */
   copyText: (text: string) => Promise<void>
+  /** Opens a link in the browser, through main, which opens only web and mail links (`links.open`). */
+  openLink: (url: string) => Promise<void>
   /** Asks the input bar to add text to a task's message field and focus it (see `inputInsertion`). */
   insertIntoInput: (taskId: string, text: string) => void
   /** Keeps a task's unsent message for when its input bar comes back (see `inputDrafts`); an empty one is forgotten. */

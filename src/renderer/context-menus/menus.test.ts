@@ -6,6 +6,7 @@ import {
   agentReplyMenu,
   artifactMenu,
   fileTabMenu,
+  linkMenu,
   pinLabel,
   queuedMessageMenu,
   subagentMenu,
@@ -134,6 +135,11 @@ const CASES: readonly Case[] = [
   {
     target: 'Todo',
     entries: todoMenu(spies('copy', 'ask')),
+    leftOut: [],
+  },
+  {
+    target: 'Link',
+    entries: linkMenu(spies('open', 'copy')),
     leftOut: [],
   },
 ]

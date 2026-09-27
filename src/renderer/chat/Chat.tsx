@@ -45,7 +45,8 @@ import { ErrorCard } from './ErrorCard'
 import { HandoffCard } from './HandoffCard'
 import { Markdown } from './Markdown'
 import { ImageThumbnails } from '../images/ImageThumbnails'
-import { Highlighted, useSearchHighlight } from '../search/Highlight'
+import { LinkedText } from '../links'
+import { useSearchHighlight } from '../search/Highlight'
 import { useRevealMatch } from '../search/useRevealMatch'
 import { useStickToBottom } from './useStickToBottom'
 import styles from './Chat.module.css'
@@ -70,7 +71,7 @@ function UserMessage({ message, highlight }: UserEntry & HighlightProps): React.
       )}
       {message.body !== '' && (
         <div className={styles.bubble}>
-          <Highlighted text={message.body} pattern={highlight} />
+          <LinkedText text={message.body} pattern={highlight} />
         </div>
       )}
       <span className={styles.meta}>you · {clockTime(message.createdAt)}</span>
