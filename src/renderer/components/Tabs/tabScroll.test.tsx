@@ -100,13 +100,10 @@ beforeEach(() => {
   vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) => {
     const style = computed(element, pseudo)
     if (element.getAttribute('role') !== 'tablist' || !layout.scrollPadding) return style
-    const room = `${String(END_ROOM)}px`
-    return new Proxy(style, {
-      get: (target, property) =>
-        property === 'scrollPaddingLeft' || property === 'scrollPaddingRight'
-          ? room
-          : (Reflect.get(target, property) as unknown),
-    })
+    // Shadow the two properties on this fresh declaration itself: jsdom's methods (which Testing Library calls)
+    // reject a Proxy standing in for a real CSSStyleDeclaration.
+    const room = { value: `${String(END_ROOM)}px` }
+    return Object.defineProperties(style, { scrollPaddingLeft: room, scrollPaddingRight: room })
   })
   Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: scrollTo })
   Object.defineProperty(HTMLElement.prototype, 'scrollBy', { configurable: true, value: scrollBy })
