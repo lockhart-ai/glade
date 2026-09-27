@@ -59,7 +59,8 @@ test('watchers: each thing the agent left running or scheduled, with its state, 
   await expect(rollout).toContainText(/Due in [56]mStopWakeup/)
   await expect(rollout).toContainText(WATCHES_THINGS.rolloutPrompt)
   const queue = watchers.row(WATCHES_THINGS.queue)
-  await expect(queue).toContainText(/Due in \d+[sm]StopCron/)
+  // Due at 9:00, hours from the app's noon (the job's cron), so however long the spec takes it isn't due yet.
+  await expect(queue).toContainText(/Due in (19|20|21)h \d\dmStopCron/)
   await expect(queue).toContainText(WATCHES_THINGS.queueSchedule)
   await expect(queue).toContainText(/1 wake · last \d\d:\d\d · next/)
   const docs = watchers.row(WATCHES_THINGS.docs)
@@ -150,6 +151,6 @@ test('watchers: a relaunch stops what died with the session, and the cron job co
   await bar.field.press('Enter')
   await expect(chat(window).agentReplies.last()).toContainText(WATCHES_THINGS.again)
   await expect(queue).toHaveAttribute('data-state', 'scheduled')
-  await expect(queue).toContainText(/Due in \d+[sm]/)
+  await expect(queue).toContainText(/Due in (19|20|21)h \d\dm/)
   await expect(watchers.tally).toHaveText('1 scheduled4 ended')
 })
