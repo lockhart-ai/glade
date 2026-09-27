@@ -216,11 +216,9 @@ Notifications turns them off or their sound on. Focus and Do Not Disturb are up 
 
 ## Glade in the menu bar
 
-Glade keeps an icon in the macOS menu bar, at the top right, so you can see what's in flight without switching to it.
-It's Glade's mark in the menu bar's own colour, light or dark:
-
-- while tasks need you, **how many** shows beside it;
-- while any agent is working, it **pulses** gently (with Reduce motion on in macOS, it holds still).
+Glade keeps an icon in the macOS menu bar, at the top right, so you can see what's waiting on you without switching to
+it. It's Glade's mark in the menu bar's own colour, light or dark, and it never moves. While tasks need you, **how
+many** shows beside it; once nothing's waiting, it's the mark alone.
 
 Click it for a list, in every workspace:
 

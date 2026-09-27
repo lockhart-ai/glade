@@ -194,14 +194,10 @@ const electron = vi.hoisted(() => {
     captureScene,
     trays,
     FakeTray,
-    /** Whether the glyph's images are missing from the app, so each one read is empty. */
+    /** Whether the glyph's images are missing from the app, so the one read is empty. */
     glyphImagesMissing: false,
     screen: {
       getDisplayMatching: vi.fn(() => ({ workArea: { x: 0, y: 25, width: 1512, height: 920 } })),
-    },
-    systemPreferences: {
-      getAnimationSettings: vi.fn(() => ({ prefersReducedMotion: false })),
-      subscribeWorkspaceNotification: vi.fn(),
     },
     nativeImage: {
       // The menu bar glyph's images, by path.
@@ -282,7 +278,6 @@ vi.mock('electron', () => ({
   Menu: electron.Menu,
   Tray: electron.FakeTray,
   screen: electron.screen,
-  systemPreferences: electron.systemPreferences,
 }))
 
 // The real agent backend, watched: a test mode must never make one.
@@ -1876,22 +1871,14 @@ describe('startApp: Glade in the menu bar', () => {
 
     const tray = onlyTray()
     const paths = electron.nativeImage.createFromPath.mock.calls.map(([path]) => path)
-    expect(paths).toEqual(
-      [0, 1, 2].map((frame) =>
-        join(
-          '/Applications/Glade.app/Contents/Resources/app.asar',
-          'assets',
-          'icon',
-          'menu-bar',
-          `glyph-${String(frame)}Template.png`,
-        ),
-      ),
-    )
+    expect(paths).toEqual([
+      join('/Applications/Glade.app/Contents/Resources/app.asar', 'assets', 'icon', 'menu-bar', 'glyphTemplate.png'),
+    ])
     expect(tray.image).toEqual(expect.objectContaining({ path: paths[0] }))
-    for (const { value } of electron.nativeImage.createFromPath.mock.results) {
-      expect((value as { setTemplateImage: ReturnType<typeof vi.fn> }).setTemplateImage).toHaveBeenCalledWith(true)
-    }
+    const [{ value: image } = { value: undefined }] = electron.nativeImage.createFromPath.mock.results
+    expect((image as { setTemplateImage: ReturnType<typeof vi.fn> }).setTemplateImage).toHaveBeenCalledWith(true)
     expect(tray.setTitle).toHaveBeenCalledWith('', { fontType: 'monospacedDigit' })
+    expect(tray.setImage).not.toHaveBeenCalled()
     expect(logged('menu bar icon added')).toHaveLength(1)
     expect(logged("the menu bar glyph's images are missing")).toEqual([])
   })
@@ -1902,22 +1889,11 @@ describe('startApp: Glade in the menu bar', () => {
     expect(logged("the menu bar glyph's images are missing")).toHaveLength(1)
   })
 
-  it('counts the tasks that need you from launch', async () => {
+  it('counts the tasks that need you from launch, beside the glyph, which never changes', async () => {
     waitingTask()
     await startAndWaitUntilReady()
     expect(onlyTray().setTitle).toHaveBeenLastCalledWith('1', { fontType: 'monospacedDigit' })
-  })
-
-  it('follows Reduce motion as macOS says it changes', async () => {
-    await startAndWaitUntilReady()
-    const [[name, callback] = []] = electron.systemPreferences.subscribeWorkspaceNotification.mock.calls as [
-      string,
-      () => void,
-    ][]
-    expect(name).toBe('NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification')
-    const reads = electron.systemPreferences.getAnimationSettings.mock.calls.length
-    callback?.()
-    expect(electron.systemPreferences.getAnimationSettings.mock.calls.length).toBe(reads + 1)
+    expect(onlyTray().setImage).not.toHaveBeenCalled()
   })
 
   it('keeps the icon out of the menu bar while Settings has it off, and adds and removes it as it changes', async () => {
@@ -2101,23 +2077,13 @@ describe('startApp: Glade in the menu bar', () => {
 
     expect(electron.trays).toEqual([])
     expect(electron.nativeImage.createFromPath).not.toHaveBeenCalled()
-    expect(electron.systemPreferences.subscribeWorkspaceNotification).not.toHaveBeenCalled()
     const menuBar = Reflect.get(globalThis, E2E_MENU_BAR_GLOBAL) as E2eMenuBar
-    expect([menuBar.shown, menuBar.title, menuBar.open, menuBar.pulsing, menuBar.reduceMotion]).toEqual([
-      true,
-      '',
-      false,
-      false,
-      false,
-    ])
+    expect([menuBar.shown, menuBar.title, menuBar.open]).toEqual([true, '', false])
 
     menuBar.click()
     expect(menuBar.open).toBe(true)
     const popover = electron.windows[1]
     expect(popover?.options).toMatchObject({ show: false, paintWhenInitiallyHidden: true })
     expect(popover?.show).not.toHaveBeenCalled()
-    menuBar.reduceMotion = true
-    expect(menuBar.reduceMotion).toBe(true)
-    expect(electron.systemPreferences.getAnimationSettings).not.toHaveBeenCalled()
   })
 })

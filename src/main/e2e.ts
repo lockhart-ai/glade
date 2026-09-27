@@ -191,12 +191,8 @@ export interface E2eMenuBar {
   readonly shown: boolean
   /** The text beside its glyph: how many tasks need you, or nothing. */
   readonly title: string
-  /** Whether its glyph is pulsing. */
-  readonly pulsing: boolean
   /** Whether its popover is showing. */
   readonly open: boolean
-  /** Whether macOS's Reduce motion is on, as the icon sees it: off until a spec turns it on. */
-  reduceMotion: boolean
   /** Clicks the icon: shows its popover, or hides it. */
   click(): void
 }
