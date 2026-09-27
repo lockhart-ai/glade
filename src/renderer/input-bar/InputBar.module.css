@@ -176,20 +176,19 @@
   border: 0;
 }
 
+/* Icon-only, the same size as Send beside it, outlined where Send is filled. */
 .stop {
   display: flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 7px;
+  justify-content: center;
+  width: var(--touch-target-send);
   height: var(--touch-target-send);
-  padding: 0 14px;
+  padding: 0;
   background: transparent;
   color: var(--color-text);
   border: 1px solid var(--color-strong);
   border-radius: 9px;
-  font: inherit;
-  font-size: var(--font-size-secondary);
-  font-weight: 500;
   cursor: pointer;
 }
 
