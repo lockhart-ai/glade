@@ -53,6 +53,10 @@ There are no follow-up tasks. One task can refer to another through its folder o
   scaled past its own size, on a dimmed backdrop. With several, ← and → step through the message's images, round from
   the last to the first, under a "2 of 3"; Esc, a click on the backdrop or × closes it, and the focus goes back to the
   thumbnail of the image it showed. ![Image viewer](design/screens/30-image-viewer.png)
+  The same viewer opens an image artifact from the Artifacts tab, and the one file showing in the Files tab (#372): for
+  an artifact, it also shows the artifact's title and two actions, Open in Files and Reveal in Finder, and steps
+  through the task's image artifacts in the Artifacts tab's order; for a Files tab image, it shows that one file alone.
+  ![Artifact and file images](design/screens/35-artifact-image.png)
 - **Pasted text** (#363) — pasting more than one line, or ~80 characters or more, into the input bar marks it as its
   own block, kept apart from what you typed, rather than dumping it into the field: a short inline token stands for it
   there, and a compact chip shows above the field ("Pasted text · 42 lines"), with a ✕ to remove it and a click to
@@ -80,7 +84,9 @@ There are no follow-up tasks. One task can refer to another through its folder o
   a workspace file edits in place and saves with ⌘S, its tab showing a dot while it has unsaved edits, and closing it,
   switching task or quitting asks to Save, Discard or Cancel. When the agent changes a file you're editing, it reloads
   quietly, or, with unsaved edits, a bar offers Reload or Keep mine. Files from a commit, binary files and files too
-  large to show whole are read-only. Too narrow for its tabs, the
+  large to show whole are read-only. An image (PNG, JPEG, GIF, WebP or SVG, up to 8 MB) shows as a picture instead of
+  the binary notice, fit to the panel but never scaled past its own size, on a checkerboard behind transparency;
+  clicking it opens the image viewer, above. Too narrow for its tabs, the
   tab row scrolls sideways, with chevrons at the ends that have more tabs past them.
 - **Bottom bar** (full width) — the workspace's terminal, with tabs, and a plugin panel (Nekomata). Resizable,
   collapsible. Each workspace has its own terminal tabs; switching workspace switches them, and the other

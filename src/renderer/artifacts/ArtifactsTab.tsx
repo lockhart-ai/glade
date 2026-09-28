@@ -2,7 +2,7 @@ import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import { faFileCode, faFileImage, faFileLines, faFolder } from '@fortawesome/free-regular-svg-icons'
 import { faArrowUpRightFromSquare, faChevronDown, faChevronRight, faEllipsis } from '@fortawesome/free-solid-svg-icons'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import {
   FileThumbnailKind,
   type Artifact,
@@ -21,6 +21,8 @@ import {
   type ContextMenuTargetProps,
 } from '../context-menus'
 import { absolutePath } from '../files/FilesTab'
+import { ImageViewer, type ImageViewerHeader } from '../images/ImageViewer'
+import { ImageSourceKind, workspaceImageSource, type ImageViewerSource } from '../images/imageSources'
 import { useGladeStore } from '../store/react'
 import { formatFullDate } from '../task-header/headerModel'
 import {
@@ -30,6 +32,7 @@ import {
   fileTypeName,
   formatArtifactAge,
   groupArtifacts,
+  isImageArtifact,
 } from './artifactsModel'
 import { dateGroupTitle, isGroupOpen } from './dateGroups'
 import styles from './ArtifactsTab.module.css'
@@ -74,12 +77,16 @@ interface ArtifactRowProps {
   readonly menuTarget: ContextMenuTargetProps
   /** Opens its context menu below its More button. */
   readonly onMore: (path: string, button: HTMLElement) => void
+  /** Opens the image viewer on an image artifact, from the button clicked (or activated by ↵ or Space), for the focus
+   * to return to once it closes. */
+  readonly onOpenImage: (artifact: Artifact, trigger: HTMLElement) => void
 }
 
 /**
  * One artifact, in one 40px row: a thumbnail of an image (once main has made it), or its type's tile, then its title,
  * its type and how long ago its file changed. Hovered or focused, the age gives way to Open, Reveal in folder and More
- * (its context menu). Clicking it opens the file in the Files tab. A file that's gone shows muted, as missing, and
+ * (its context menu). Clicking an image artifact (or Open) opens the image viewer, stepping through the task's image
+ * artifacts; any other artifact opens in the Files tab, as before. A file that's gone shows muted, as missing, and
  * can't be opened or revealed.
  */
 const ArtifactRow = memo(function ArtifactRow({
@@ -88,11 +95,13 @@ const ArtifactRow = memo(function ArtifactRow({
   selected,
   menuTarget,
   onMore,
+  onOpenImage,
 }: ArtifactRowProps): React.JSX.Element {
   const { taskId, path, title, modifiedAt, missing: gone } = artifact
   const fileThumbnail = useGladeStore((state) => state.fileThumbnail)
   const showFile = useGladeStore((state) => state.showFile)
   const revealFile = useGladeStore((state) => state.revealFile)
+  const isImage = isImageArtifact(artifact)
   const [thumbnail, setThumbnail] = useState<FileThumbnail>()
   // The thumbnail that has loaded, which shows.
   const [loaded, setLoaded] = useState<string | null>(null)
@@ -121,7 +130,11 @@ const ArtifactRow = memo(function ArtifactRow({
   const missing = gone || thumbnail?.kind === FileThumbnailKind.Missing
   const image = thumbnail?.kind === FileThumbnailKind.Image ? thumbnail.dataUrl : null
   const time = artifactTime(artifact)
-  const open = (): void => {
+  const open = (event: MouseEvent<HTMLButtonElement>): void => {
+    if (isImage) {
+      onOpenImage(artifact, event.currentTarget)
+      return
+    }
     void showFile(taskId, path).catch(lookAgain)
   }
 
@@ -347,6 +360,51 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
 
   const groups = useMemo(() => groupArtifacts(artifacts, now), [artifacts, now])
   const { openBelow, targetProps } = menu
+
+  // The image viewer, over an image artifact: which of the task's image artifacts, in the tab's own (newest-first)
+  // order across every date group, whichever are folded; null while it's shut.
+  const imageArtifacts = useMemo(() => groups.flatMap(({ items }) => items).filter(isImageArtifact), [groups])
+  const [viewingPath, setViewingPath] = useState<string | null>(null)
+  const viewerReturnFocus = useRef<HTMLElement | null>(null)
+  const viewingIndex = viewingPath === null ? -1 : imageArtifacts.findIndex((artifact) => artifact.path === viewingPath)
+  // The artifact it showed is no longer one of the task's images (removed, or its file changed kind): it closes.
+  if (viewingPath !== null && viewingIndex === -1) setViewingPath(null)
+
+  const onOpenImage = useCallback((artifact: Artifact, trigger: HTMLElement) => {
+    viewerReturnFocus.current = trigger
+    setViewingPath(artifact.path)
+  }, [])
+  const closeViewer = useCallback(() => {
+    setViewingPath(null)
+  }, [])
+  const viewerHeader = useCallback(
+    (source: ImageViewerSource): ImageViewerHeader | undefined => {
+      if (source.kind !== ImageSourceKind.Workspace) return undefined
+      const { taskId: sourceTaskId, path } = source
+      return {
+        title: source.title,
+        actions: [
+          {
+            icon: faArrowUpRightFromSquare,
+            label: 'Open in Files',
+            onClick: () => {
+              closeViewer()
+              run(() => showFile(sourceTaskId, path))
+            },
+          },
+          {
+            icon: faFolder,
+            label: 'Reveal in Finder',
+            onClick: () => {
+              run(() => revealFile(sourceTaskId, path))
+            },
+          },
+        ],
+      }
+    },
+    [closeViewer, run, showFile, revealFile],
+  )
+
   const row = useCallback(
     (artifact: Artifact) => (
       <ArtifactRow
@@ -355,9 +413,10 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
         selected={artifact.path === selectedPath}
         menuTarget={targetProps(artifact.path)}
         onMore={openBelow}
+        onOpenImage={onOpenImage}
       />
     ),
-    [now, selectedPath, targetProps, openBelow],
+    [now, selectedPath, targetProps, openBelow, onOpenImage],
   )
   const toggle = useCallback(
     (group: ArtifactDateGroup, open: boolean) => {
@@ -408,6 +467,19 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
         />
       ))}
       <ContextMenu label="Artifact actions" state={menu} entries={entries} />
+      {viewingIndex !== -1 && (
+        <ImageViewer
+          images={imageArtifacts.map((artifact) => workspaceImageSource(taskId, artifact.path, artifact.title))}
+          index={viewingIndex}
+          onIndexChange={(next) => {
+            const artifact = imageArtifacts[next]
+            if (artifact !== undefined) setViewingPath(artifact.path)
+          }}
+          onClose={closeViewer}
+          returnFocus={viewerReturnFocus}
+          header={viewerHeader}
+        />
+      )}
     </div>
   )
 }

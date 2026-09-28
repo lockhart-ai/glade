@@ -1882,6 +1882,24 @@ const showsAFile: AgentScript = {
   ],
 }
 
+/**
+ * A turn that shows you an image with `show_file` (#372): the file must be in the workspace (a spec makes it, a real
+ * PNG) for the Glade tool to open it, and for the Files tab to show it as a picture.
+ */
+const showsAnImage: AgentScript = {
+  name: 'shows-an-image',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask('Show the logo', 'Show me the current logo.', 'Showing the logo.'),
+      gladeTool('show-logo', 'show_file', { path: 'assets/logo.png' }),
+      say('Here it is: `assets/logo.png`.'),
+      result(),
+    ],
+  ],
+}
+
 /** A later turn of `edits-a-shown-file`: the agent edits the doc it showed you (its `n`th edit). */
 function editsTheShownDoc(n: number): ScriptStep[] {
   return [
@@ -3272,6 +3290,7 @@ export const AGENT_SCRIPT_NAMES = [
   'asks-many-choices',
   'parallel-subagents',
   'shows-a-file',
+  'shows-an-image',
   'edits-a-shown-file',
   'declares-artifacts',
   'usage-limit',
@@ -3329,6 +3348,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'asks-many-choices': asksManyChoices,
   'parallel-subagents': parallelSubagents,
   'shows-a-file': showsAFile,
+  'shows-an-image': showsAnImage,
   'edits-a-shown-file': editsAShownFile,
   'declares-artifacts': declaresArtifacts,
   'usage-limit': usageLimit,

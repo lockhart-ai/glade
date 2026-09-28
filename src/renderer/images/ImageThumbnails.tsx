@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { ImageRef } from '../../shared/images'
 import { classNames } from '../components/classNames'
 import { ImageViewer, imagePosition } from './ImageViewer'
+import { pastedImageSource } from './imageSources'
 import { StoredImage } from './StoredImage'
 import styles from './ImageThumbnails.module.css'
 
@@ -26,6 +27,7 @@ export function ImageThumbnails({ images, className }: ImageThumbnailsProps): Re
   const [viewing, setViewing] = useState<number | null>(null)
   const thumbnails = useRef<(HTMLButtonElement | null)[]>([])
   const returnFocus = useRef<HTMLElement | null>(null)
+  const sources = useMemo(() => images.map(pastedImageSource), [images])
 
   // The image it showed is no longer the message's: it closes, and stays closed if the image comes back.
   if (viewing !== null && viewing >= images.length) setViewing(null)
@@ -55,7 +57,7 @@ export function ImageThumbnails({ images, className }: ImageThumbnailsProps): Re
       ))}
       {viewing !== null && viewing < images.length && (
         <ImageViewer
-          images={images}
+          images={sources}
           index={viewing}
           onIndexChange={view}
           onClose={() => {

@@ -6,13 +6,16 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  WorkspaceImageMediaType,
   type FileContent,
   type OpenFiles,
   type TaskCommit,
   type ToolCallEvent,
   type ToolEvent,
 } from '../../shared/domain'
+import { settleFloating } from '../components/settleFloating'
 import { ToastProvider } from '../components'
+import { VIEWER_LABEL } from '../images/ImageViewer'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import {
@@ -307,6 +310,38 @@ describe('FilesTab', () => {
 
     fireEvent.click(within(openTabs()).getByRole('button', { name: /settings\.py/, pressed: false }))
     expect(await screen.findByText('This file isn’t there any more.')).toBeInTheDocument()
+  })
+
+  it('shows an image file as a picture, fit to the panel, and opens it full size when clicked', async () => {
+    const dataUrl = 'data:image/png;base64,c2hvdA=='
+    await renderTab({
+      openFiles: { ...OPEN, activePath: 'api/throttles.py' },
+      files: {
+        'api/throttles.py': { kind: FileContentKind.Image, mediaType: WorkspaceImageMediaType.Png, dataUrl, size: 4 },
+      },
+    })
+
+    const picture = await screen.findByRole('img', { name: 'throttles.py' })
+    expect(picture).toHaveAttribute('src', dataUrl)
+    expect(screen.queryByRole('status')).toBeNull()
+    // The header stays: the path and Open in editor, over the picture.
+    expect(screen.getByText('api/throttles.py', { selector: 'bdi' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open in editor' })).toBeInTheDocument()
+
+    const button = screen.getByRole('button', { name: 'View throttles.py full size' })
+    fireEvent.click(button)
+    await settleFloating()
+
+    const viewer = screen.getByRole('dialog', { name: VIEWER_LABEL })
+    expect(within(viewer).getByRole('img', { name: 'throttles.py' })).toHaveAttribute('src', dataUrl)
+    // One image: no pager, and only the close chrome (no title or actions, unlike the Artifacts overlay).
+    expect(within(viewer).queryByRole('group', { name: 'Images' })).not.toBeInTheDocument()
+    expect(within(viewer).queryByTestId('image-viewer-title')).not.toBeInTheDocument()
+
+    fireEvent.keyDown(viewer, { key: 'Escape' })
+    await settleFloating()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(button).toHaveFocus()
   })
 
   it('says why a file couldn’t be read', async () => {

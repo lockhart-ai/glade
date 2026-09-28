@@ -378,6 +378,10 @@ export function filesTab(page: Page) {
     openInEditor: panel.getByRole('button', { name: 'Open in editor' }),
     /** Source or Preview, for a Markdown file. */
     mode: (name: 'Source' | 'Preview') => panel.getByRole('radio', { name }),
+    /** An image file's picture, by its name (#372): fit to the panel, on a checkerboard. */
+    image: (name: string) => panel.getByRole('img', { name }),
+    /** The button over an image file's picture that opens it full size in the image viewer. */
+    viewImage: (name: string) => panel.getByRole('button', { name: `View ${name} full size` }),
   }
 }
 
@@ -648,6 +652,12 @@ export function imageViewer(page: Page) {
     pager: viewer.getByRole('group', { name: 'Images' }),
     previous: viewer.getByRole('button', { name: 'Previous image' }),
     next: viewer.getByRole('button', { name: 'Next image' }),
+    /** A workspace image showing, by its accessible name (#372): an artifact's title, or a Files tab file's name. */
+    shown: (name: string) => viewer.getByRole('img', { name }),
+    /** The artifact's title, over an image opened from the Artifacts tab; absent for one opened from Files. */
+    title: viewer.getByTestId('image-viewer-title'),
+    openInFiles: viewer.getByRole('button', { name: 'Open in Files' }),
+    revealInFinder: viewer.getByRole('button', { name: 'Reveal in Finder' }),
   }
 }
 

@@ -19,8 +19,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
-import { FileContentKind, FileThumbnailKind } from '../../shared/domain'
+import { FileContentKind, FileThumbnailKind, WorkspaceImageMediaType } from '../../shared/domain'
 import { MAX_FILE_BYTES, MAX_FILE_LINES, MAX_SAVE_BYTES } from '../../shared/files'
+import { GIF, JPEG, PNG, WEBP } from '../../shared/test-images'
 import { MAX_THUMBNAIL_SOURCE_BYTES, type Thumbnails } from '../artifacts/thumbnails'
 import { CommandFailure } from '../bridge/errors'
 import { getOpenFiles } from '../db/repositories/open-files'
@@ -30,6 +31,7 @@ import {
   copyTaskFile,
   thumbnailOfTaskFile,
   MAX_ARTIFACT_BYTES,
+  MAX_IMAGE_FILE_BYTES,
   openTaskFile,
   openTaskFileInEditor,
   readTaskFile,
@@ -208,6 +210,68 @@ describe('readWorkspaceFile', () => {
     symlinkSync(join(outside, 'token.txt'), join(root, 'token.txt'))
 
     expect((await failure(readWorkspaceFile(root, 'token.txt'))).code).toBe(BridgeErrorCode.OutsideWorkspace)
+  })
+
+  it('reads an image whole, as a data URL, by its kind (PNG, JPEG, GIF or WebP)', async () => {
+    write('shot.png', Buffer.from(PNG.data, 'base64'))
+    write('cover.jpg', Buffer.from(JPEG.data, 'base64'))
+    write('spinner.gif', Buffer.from(GIF.data, 'base64'))
+    write('sticker.webp', Buffer.from(WEBP.data, 'base64'))
+
+    await expect(readWorkspaceFile(root, 'shot.png')).resolves.toEqual({
+      kind: FileContentKind.Image,
+      mediaType: WorkspaceImageMediaType.Png,
+      dataUrl: `data:image/png;base64,${PNG.data}`,
+      size: Buffer.from(PNG.data, 'base64').length,
+    })
+    await expect(readWorkspaceFile(root, 'cover.jpg')).resolves.toMatchObject({
+      kind: FileContentKind.Image,
+      mediaType: WorkspaceImageMediaType.Jpeg,
+    })
+    await expect(readWorkspaceFile(root, 'spinner.gif')).resolves.toMatchObject({
+      kind: FileContentKind.Image,
+      mediaType: WorkspaceImageMediaType.Gif,
+    })
+    await expect(readWorkspaceFile(root, 'sticker.webp')).resolves.toMatchObject({
+      kind: FileContentKind.Image,
+      mediaType: WorkspaceImageMediaType.Webp,
+    })
+  })
+
+  it('reads an SVG as an image (a data URL), never inlining its markup', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4"/></svg>'
+    write('icon.svg', svg)
+
+    const content = await readWorkspaceFile(root, 'icon.svg')
+
+    expect(content).toEqual({
+      kind: FileContentKind.Image,
+      mediaType: WorkspaceImageMediaType.Svg,
+      dataUrl: `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`,
+      size: Buffer.byteLength(svg),
+    })
+    if (content.kind !== FileContentKind.Image) throw new Error('Not an image')
+    expect(content.dataUrl).not.toContain('<svg')
+  })
+
+  it('shows the binary notice for an image file too large to read whole, without reading its bytes', async () => {
+    write('poster.png', Buffer.alloc(MAX_IMAGE_FILE_BYTES + 1))
+
+    await expect(readWorkspaceFile(root, 'poster.png')).resolves.toEqual({
+      kind: FileContentKind.Binary,
+      size: MAX_IMAGE_FILE_BYTES + 1,
+    })
+  })
+
+  it('falls back to reading a mis-named image as text or binary, when it doesn’t start as its kind of image', async () => {
+    write('notes.png', 'Just some notes, not really a picture.\n')
+
+    await expect(readWorkspaceFile(root, 'notes.png')).resolves.toEqual({
+      kind: FileContentKind.Text,
+      text: 'Just some notes, not really a picture.\n',
+      truncated: false,
+      size: 39,
+    })
   })
 })
 

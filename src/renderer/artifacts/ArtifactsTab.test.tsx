@@ -3,15 +3,20 @@ import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import {
   ArtifactDateGroup,
+  FileContentKind,
   FileThumbnailKind,
   UiStateKey,
+  WorkspaceImageMediaType,
   type Artifact,
   type ArtifactGroupFold,
   type EpochMs,
+  type FileContent,
   type FileThumbnail,
   type OpenFiles,
 } from '../../shared/domain'
+import { settleFloating } from '../components/settleFloating'
 import { ToastProvider } from '../components'
+import { VIEWER_LABEL } from '../images/ImageViewer'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import {
@@ -60,9 +65,26 @@ const THUMBNAILS: Readonly<Record<string, FileThumbnail>> = {
   [SEARCH.path]: { kind: FileThumbnailKind.Image, dataUrl: 'data:image/png;base64,c2VhcmNo' },
 }
 
+/** The two image artifacts' full-size reads (`files.read`), for the image viewer. */
+const IMAGE_FILES: Readonly<Record<string, FileContent>> = {
+  [LANDING.path]: {
+    kind: FileContentKind.Image,
+    mediaType: WorkspaceImageMediaType.Png,
+    dataUrl: 'data:image/png;base64,bGFuZGluZyBmdWxs',
+    size: 11,
+  },
+  [SEARCH.path]: {
+    kind: FileContentKind.Image,
+    mediaType: WorkspaceImageMediaType.Png,
+    dataUrl: 'data:image/png;base64,c2VhcmNoIGZ1bGw=',
+    size: 10,
+  },
+}
+
 interface Setup {
   readonly artifacts?: readonly Artifact[]
   readonly thumbnails?: Readonly<Record<string, FileThumbnail>>
+  readonly files?: Readonly<Record<string, FileContent>>
   readonly artifactGroups?: Record<string, ArtifactGroupFold[]>
   readonly openFiles?: OpenFiles[]
   readonly overrides?: Partial<FakeHandlers>
@@ -83,7 +105,13 @@ interface Rendered extends FakeBridge {
   readonly unmount: () => void
 }
 
-function tabMain({ artifacts = ARTIFACTS, thumbnails = THUMBNAILS, artifactGroups = {}, openFiles }: Setup): TabMain {
+function tabMain({
+  artifacts = ARTIFACTS,
+  thumbnails = THUMBNAILS,
+  files,
+  artifactGroups = {},
+  openFiles,
+}: Setup): TabMain {
   return {
     workspaces: [sampleWorkspace('w1')],
     tasks: [sampleTask('t1', 'w1')],
@@ -94,6 +122,7 @@ function tabMain({ artifacts = ARTIFACTS, thumbnails = THUMBNAILS, artifactGroup
     ],
     artifacts,
     thumbnails,
+    ...(files === undefined ? {} : { files }),
     artifactGroups,
     ...(openFiles === undefined ? {} : { openFiles }),
     copied: [],
@@ -420,6 +449,7 @@ describe('a row', () => {
   })
 
   it('looks at its file again when an action on it fails', async () => {
+    // A non-image artifact: Open opens it in Files, as it does for any artifact that isn't an image.
     const { invoke } = await renderTab({
       overrides: {
         [CommandName.FilesReveal]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No file')),
@@ -427,16 +457,16 @@ describe('a row', () => {
       },
     })
     await waitFor(() => {
-      expect(looks(invoke, SEARCH.path)).toBe(1)
+      expect(looks(invoke, NAV.path)).toBe(1)
     })
 
-    fireEvent.click(button('Search results on mobile', 'Reveal in folder'))
+    fireEvent.click(button('Nav sidebar component', 'Reveal in folder'))
     await waitFor(() => {
-      expect(looks(invoke, SEARCH.path)).toBe(2)
+      expect(looks(invoke, NAV.path)).toBe(2)
     })
-    fireEvent.click(button('Search results on mobile', 'Open'))
+    fireEvent.click(button('Nav sidebar component', 'Open'))
     await waitFor(() => {
-      expect(looks(invoke, SEARCH.path)).toBe(3)
+      expect(looks(invoke, NAV.path)).toBe(3)
     })
   })
 })
@@ -642,5 +672,135 @@ describe('an artifact’s context menu', () => {
     await choose('Changelog page draft', 'Remove from artifacts')
 
     expect(await screen.findByText('Not an artifact')).toBeInTheDocument()
+  })
+})
+
+describe('the image viewer', () => {
+  /** Clicks an artifact's row and waits for the viewer to open. */
+  async function openViewer(title: string): Promise<HTMLElement> {
+    fireEvent.click(within(row(title)).getByRole('button', { name: new RegExp(`^${title}`) }))
+    await settleFloating()
+    return screen.getByRole('dialog', { name: VIEWER_LABEL })
+  }
+
+  const viewerTitle = (viewer: HTMLElement): string | null =>
+    within(viewer).getByTestId('image-viewer-title').textContent
+
+  it('opens an image artifact’s row, steps through the task’s images (in date order, not the group’s), and returns the focus on close', async () => {
+    await renderTab({ files: IMAGE_FILES })
+    const trigger = within(row('Landing page, dark theme')).getByRole('button', {
+      name: /^Landing page, dark theme/,
+    })
+
+    fireEvent.click(trigger)
+    await settleFloating()
+    const viewer = screen.getByRole('dialog', { name: VIEWER_LABEL })
+    expect(viewerTitle(viewer)).toBe('Landing page, dark theme')
+    const landingImage = IMAGE_FILES[LANDING.path]
+    if (landingImage?.kind !== FileContentKind.Image) throw new Error('Not an image')
+    expect(within(viewer).getByRole('img', { name: 'Landing page, dark theme' })).toHaveAttribute(
+      'src',
+      landingImage.dataUrl,
+    )
+    expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('1 of 2')
+
+    // → steps to the task's other image artifact (Yesterday's Search results), skipping every non-image one between.
+    fireEvent.keyDown(viewer, { key: 'ArrowRight' })
+    expect(viewerTitle(viewer)).toBe('Search results on mobile')
+    expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('2 of 2')
+
+    // Round from the last back to the first.
+    fireEvent.keyDown(viewer, { key: 'ArrowRight' })
+    expect(viewerTitle(viewer)).toBe('Landing page, dark theme')
+
+    fireEvent.keyDown(viewer, { key: 'Escape' })
+    await settleFloating()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it('opens on a focused row’s ↵ (as a click on a button does) and with the Open action', async () => {
+    await renderTab({ files: IMAGE_FILES })
+
+    const trigger = within(row('Search results on mobile')).getByRole('button', { name: /^Search results/ })
+    trigger.focus()
+    fireEvent.click(trigger)
+    await settleFloating()
+    expect(screen.getByRole('dialog', { name: VIEWER_LABEL })).toBeInTheDocument()
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+    await settleFloating()
+
+    fireEvent.click(button('Search results on mobile', 'Open'))
+    await settleFloating()
+    expect(screen.getByRole('dialog', { name: VIEWER_LABEL })).toBeInTheDocument()
+  })
+
+  it('a non-image artifact still opens in the Files tab, not the viewer', async () => {
+    const { store } = await renderTab({ files: IMAGE_FILES })
+
+    fireEvent.click(within(row('Changelog page draft')).getByRole('button', { name: /^Changelog page draft/ }))
+    await waitFor(() => {
+      expect(store.getState().openFiles.t1?.activePath).toBe(CHANGELOG.path)
+    })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('Open in Files closes the viewer and opens the file in the Files tab', async () => {
+    const { store, invoke } = await renderTab({ files: IMAGE_FILES })
+    const viewer = await openViewer('Landing page, dark theme')
+
+    fireEvent.click(within(viewer).getByRole('button', { name: 'Open in Files' }))
+
+    await waitFor(() => {
+      expect(store.getState().uiState[UiStateKey.RightPanelTab]).toBe('files')
+    })
+    expect(store.getState().openFiles.t1?.activePath).toBe(LANDING.path)
+    expect(invoke).toHaveBeenCalledWith(CommandName.FilesOpen, { taskId: 't1', path: LANDING.path })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('Reveal in Finder reveals the file without closing the viewer', async () => {
+    const { main } = await renderTab({ files: IMAGE_FILES })
+    const viewer = await openViewer('Landing page, dark theme')
+
+    fireEvent.click(within(viewer).getByRole('button', { name: 'Reveal in Finder' }))
+
+    await waitFor(() => {
+      expect(main.revealed).toEqual([LANDING.path])
+    })
+    expect(screen.getByRole('dialog', { name: VIEWER_LABEL })).toBeInTheDocument()
+  })
+
+  it('closes if the image it shows is no longer one of the task’s (removed, or no longer an image)', async () => {
+    const { emit } = await renderTab({ files: IMAGE_FILES })
+    await openViewer('Landing page, dark theme')
+
+    act(() => {
+      emit({
+        type: EventType.ArtifactsChanged,
+        taskId: 't1',
+        artifacts: ARTIFACTS.filter((each) => each !== LANDING),
+      })
+    })
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('shows the missing card for an image artifact main can’t read', async () => {
+    // No files.read answer for Landing: main has nothing to read, as for a file that's gone.
+    await renderTab({ files: {} })
+    const viewer = await openViewer('Landing page, dark theme')
+
+    expect(within(viewer).getByRole('img', { name: 'Image not available' })).toBeInTheDocument()
+    expect(within(viewer).queryByRole('img', { name: 'Landing page, dark theme' })).not.toBeInTheDocument()
+  })
+
+  it('shows the missing card when the read itself fails', async () => {
+    await renderTab({
+      overrides: { [CommandName.FilesRead]: () => refuse(bridgeError(BridgeErrorCode.Internal, 'disk error')) },
+    })
+    const viewer = await openViewer('Landing page, dark theme')
+
+    expect(within(viewer).getByRole('img', { name: 'Image not available' })).toBeInTheDocument()
   })
 })

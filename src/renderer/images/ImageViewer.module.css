@@ -73,6 +73,20 @@
   right: var(--space-xl);
 }
 
+/*
+ * An artifact's title, in the close chip itself, before its actions (#372 review: a top-left chip would sit under the
+ * macOS traffic lights, open or collapsed, in every state; grouping it here keeps that whole corner clear).
+ */
+.chipTitle {
+  max-width: 30vw;
+  padding: 0 var(--space-xs) 0 var(--space-sm);
+  font-size: var(--font-size-secondary);
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .pager {
   bottom: var(--space-2xl);
   left: 50%;
