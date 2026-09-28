@@ -70,7 +70,7 @@ function CodeSpan({ children, className }: CodeSpanProps): React.JSX.Element {
       }}
     >
       {children}
-      {copied && <CopiedTag />}
+      {copied && <CopiedTag placement="beside" />}
     </code>
   )
 }

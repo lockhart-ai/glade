@@ -34,7 +34,8 @@ test('code copy: a span copies its text on click, not a drag, and Enter; a block
   await expect(reply).toContainText('mail.example.com')
 
   // A hovered code span: a pointer, and a brighter background.
-  const mxRecord = reply.locator('code', { hasText: /^mail\.example\.com$/ })
+  // Not end-anchored: once a click shows Copied inside the span, its text is "mail.example.comCopied".
+  const mxRecord = reply.locator('code', { hasText: /^mail\.example\.com/ })
   await mxRecord.hover()
   await expect(mxRecord).toHaveCSS('cursor', 'pointer')
 
@@ -45,7 +46,7 @@ test('code copy: a span copies its text on click, not a drag, and Enter; a block
   await expect(mxRecord.getByRole('status')).toHaveCount(0)
 
   // Dragging to select part of the span leaves it as ordinary selection: no second copy.
-  const aRecord = reply.locator('code', { hasText: /^203\.0\.113\.7$/ })
+  const aRecord = reply.locator('code', { hasText: /^203\.0\.113\.7/ })
   const box = await aRecord.boundingBox()
   if (box === null) throw new Error('No bounding box for the A record’s span')
   await window.mouse.move(box.x + 2, box.y + box.height / 2)
@@ -65,7 +66,8 @@ test('code copy: a span copies its text on click, not a drag, and Enter; a block
   await expect.poll(() => copied(glade)).toEqual(['mail.example.com', '203.0.113.7', 'mail.example.com'])
 
   // The fenced code block's corner icon, shown on hover, copies the whole block.
-  const block = reply.locator('pre', { hasText: 'dig +short mail.example.com' })
+  // The copy icon is the code block's own wrapper's, a sibling of the `<pre>` rather than inside it.
+  const block = reply.locator('pre', { hasText: 'dig +short mail.example.com' }).locator('xpath=..')
   const copyBlock = block.getByRole('button', { name: 'Copy code' })
   await block.hover()
   await expect(copyBlock).toBeVisible()

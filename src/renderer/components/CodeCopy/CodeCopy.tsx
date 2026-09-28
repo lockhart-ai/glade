@@ -60,15 +60,21 @@ export function useCopyFeedback(): CopyFeedback {
 
 export interface CopiedTagProps {
   readonly className?: string
+  /**
+   * Where it floats relative to its anchor (which must be `position: relative`, or itself absolutely positioned):
+   * above a code block's copy button by default, which has room above it; `beside` an inline code span instead,
+   * which can sit in a dense table row with no room above or below it (#352).
+   */
+  readonly placement?: 'above' | 'beside'
 }
 
-/**
- * The small "Copied" tooltip a copy shows for about a second, floating above its anchor (which must be
- * `position: relative`, or itself absolutely positioned): a code span, or a code block's copy button.
- */
-export function CopiedTag({ className }: CopiedTagProps): React.JSX.Element {
+/** The small "Copied" tooltip a copy shows for about a second: a code span, or a code block's copy button. */
+export function CopiedTag({ className, placement = 'above' }: CopiedTagProps): React.JSX.Element {
   return (
-    <span role="status" className={classNames(styles.tag, className)}>
+    <span
+      role="status"
+      className={classNames(styles.tag, placement === 'above' ? styles.above : styles.beside, className)}
+    >
       Copied
     </span>
   )
@@ -105,7 +111,7 @@ export function CopyBlockButton({ getText, label = 'Copy code', className }: Cop
           copy(getText())
         }}
       />
-      {copied && <CopiedTag className={styles.blockTag} />}
+      {copied && <CopiedTag />}
     </span>
   )
 }
