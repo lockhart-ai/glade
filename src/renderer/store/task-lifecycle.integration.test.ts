@@ -9,7 +9,7 @@ import { getTask } from '../../main/db/repositories/tasks'
 import { openTestDatabase, sampleWorkspace, type TestDatabase } from '../../main/db/repositories/test-database'
 import { createBridge } from '../../preload/bridge'
 import { EventType, type GladeEvent } from '../../shared/bridge'
-import { TaskState, type Workspace } from '../../shared/domain'
+import { TaskState, type Task, type Workspace } from '../../shared/domain'
 import { selectSelectedTask } from './state'
 import { createGladeStore, type GladeStore } from './store'
 import { fakeTerminalOptions } from '../../main/terminal/fake-pty'
@@ -47,12 +47,19 @@ afterEach(() => {
   database.close()
 })
 
+/** Creates a task through the store, as + does. */
+async function createTask(): Promise<Task> {
+  const task = await store.getState().createTask(workspace.id)
+  if (task === null) throw new Error('No task was made')
+  return task
+}
+
 function taskEvents(): GladeEvent[] {
   return events.filter((event) => event.type === EventType.TaskUpdated)
 }
 
 it('creates, marks done and reopens a task through the bridge, the store following each event', async () => {
-  const created = await store.getState().createTask(workspace.id)
+  const created = await createTask()
   expect(selectSelectedTask(store.getState())).toEqual(created)
   expect(store.getState().selectedWorkspaceId).toBe(workspace.id)
   expect(getTask(database.db, created.id)).toEqual(created)
@@ -76,7 +83,7 @@ it('creates, marks done and reopens a task through the bridge, the store followi
 })
 
 it("rejects with main's typed error when the transition isn't allowed, leaving the store alone", async () => {
-  const created = await store.getState().createTask(workspace.id)
+  const created = await createTask()
 
   await expect(store.getState().reopenTask(created.id)).rejects.toMatchObject({ code: 'invalid_transition' })
 

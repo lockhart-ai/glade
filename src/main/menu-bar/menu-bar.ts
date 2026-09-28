@@ -149,6 +149,7 @@ function changesWhatsInFlight(event: GladeEvent): boolean {
     case EventType.TerminalOutput:
     case EventType.TerminalCleared:
     case EventType.MenuCommand:
+    case EventType.CloseBlocked:
     case EventType.SettingsChanged:
     case EventType.ModelsChanged:
     case EventType.PluginsChanged:

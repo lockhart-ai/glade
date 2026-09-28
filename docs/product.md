@@ -66,7 +66,11 @@ There are no follow-up tasks. One task can refer to another through its folder o
   Markdown code (replies, question cards and their preamble, backfilled notes, the tool log's notes and permission
   cards), but not the Files viewer's preview or the terminal.
 - **Right panel** (inside the task card) — tabs: Tool calls, Files, Todos, Artifacts, Subagents, Watchers, Changes (the
-  commits the task made; Glade watches git and never drives it). Resizable, collapsible. Too narrow for its tabs, the
+  commits the task made; Glade watches git and never drives it). Resizable, collapsible. Files is a plain-text editor:
+  a workspace file edits in place and saves with ⌘S, its tab showing a dot while it has unsaved edits, and closing it,
+  switching task or quitting asks to Save, Discard or Cancel. When the agent changes a file you're editing, it reloads
+  quietly, or, with unsaved edits, a bar offers Reload or Keep mine. Files from a commit, binary files and files too
+  large to show whole are read-only. Too narrow for its tabs, the
   tab row scrolls sideways, with chevrons at the ends that have more tabs past them.
 - **Bottom bar** (full width) — the workspace's terminal, with tabs, and a plugin panel (Nekomata). Resizable,
   collapsible. Each workspace has its own terminal tabs; switching workspace switches them, and the other

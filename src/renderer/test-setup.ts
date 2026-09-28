@@ -26,6 +26,15 @@ Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
   },
 })
 
+// jsdom has no layout for text either: the Files tab's editor (CodeMirror) measures ranges of text, which jsdom's
+// `Range` can't. Stand in empty measurements, so it lays out as if everything were 0px, as the rest of the page is.
+Range.prototype.getClientRects = function getClientRects(): DOMRectList {
+  return document.createElement('span').getClientRects()
+}
+Range.prototype.getBoundingClientRect = function getBoundingClientRect(): DOMRect {
+  return new DOMRect()
+}
+
 afterEach(() => {
   cleanup()
 })

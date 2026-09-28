@@ -460,6 +460,34 @@ describe('REQUEST_SCHEMAS', () => {
   })
 })
 
+describe('files.write', () => {
+  const schema = REQUEST_SCHEMAS[CommandName.FilesWrite]
+
+  it('takes a file of the workspace and its whole new text', () => {
+    const save = { taskId: 't', path: 'docs/rate-limits.md', text: '# Rate limits\n' }
+    expect(schema.parse(save)).toEqual(save)
+    expect(schema.parse({ ...save, text: '' })).toEqual({ ...save, text: '' })
+  })
+
+  it('refuses `..`, an absolute path, a commit’s file, and a request without its text or with more', () => {
+    for (const path of ['../secrets.txt', 'docs/../../x', '/etc/hosts', '/commit/c1/docs/upgrading.md', '', 'a//b']) {
+      expect(schema.safeParse({ taskId: 't', path, text: 'x' }).success, path).toBe(false)
+    }
+    expect(schema.safeParse({ taskId: 't', path: 'a.md' }).success).toBe(false)
+    expect(schema.safeParse({ taskId: 't', path: 'a.md', text: 1 }).success).toBe(false)
+    expect(schema.safeParse({ taskId: 't', path: 'a.md', text: 'x', mode: 0o777 }).success).toBe(false)
+  })
+})
+
+describe('window.setUnsavedEdits', () => {
+  it('takes whether the window has unsaved edits, and nothing else', () => {
+    const schema = REQUEST_SCHEMAS[CommandName.WindowSetUnsavedEdits]
+    expect(schema.parse({ unsaved: true })).toEqual({ unsaved: true })
+    expect(schema.safeParse({ unsaved: 'yes' }).success).toBe(false)
+    expect(schema.safeParse({}).success).toBe(false)
+  })
+})
+
 describe('the Changes tab’s requests', () => {
   const KEY = '/commit/c1/docs/upgrading.md'
 

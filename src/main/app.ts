@@ -17,7 +17,7 @@ import {
   type Point,
   type WebPreferences,
 } from 'electron'
-import { EventType, type GladeEvent } from '../shared/bridge'
+import { CloseKind, EventType, type GladeEvent } from '../shared/bridge'
 import { PLUGINS_FOLDER_NAME } from '../shared/plugins'
 import type { AgentBackend } from './agent/backend'
 import { createSdkBackend, type SdkBackendOptions } from './agent/sdk-backend'
@@ -69,6 +69,7 @@ import type { Notifier } from './notifications/notifier'
 import { createRecordingNotifier } from './notifications/recording-notifier'
 import { openTaskWithoutWindow } from './tasks/attention'
 import { markQuit, markRunning, noteRelaunch } from './relaunch'
+import { CloseGuard } from './close-guard'
 import { testModeLogsFolder } from './isolation'
 import { checkSecurity, describeViolations } from './security'
 import { createElectronPluginViews, PLUGIN_VIEW_RADIUS, registerPluginScheme } from './plugins/electron-view'
@@ -683,6 +684,10 @@ export function startApp({
             },
             log: log.scoped(LogScope.MenuBar),
           })
+    // What the window says about its unsaved edits, which closing it or quitting asks about first (see below).
+    const closeGuard = new CloseGuard((event) => {
+      bridge.emit(event)
+    })
     const bridge: RegisteredBridge = registerBridge({
       ipc: ipcMain,
       db: database.db,
@@ -720,8 +725,15 @@ export function startApp({
       updateMenu: (state) => {
         appMenu.update(state)
       },
+      // The focused window; else Glade's (a hidden test mode window never has the focus).
       closeWindow: () => {
-        BrowserWindow.getFocusedWindow()?.close()
+        ;(BrowserWindow.getFocusedWindow() ?? mainWindows()[0])?.close()
+      },
+      quit: () => {
+        app.quit()
+      },
+      setUnsavedEdits: (unsaved) => {
+        closeGuard.setUnsaved(unsaved)
       },
       ...(menuBar === null
         ? {}
@@ -735,6 +747,17 @@ export function startApp({
     })
 
     const { runner } = bridge
+
+    // Closing the window, or quitting, with unsaved edits in the Files tab is called off, and the window asks what to do
+    // with them first; then it closes or quits again.
+    app.on('before-quit', (event) => {
+      if (closeGuard.callsOff(CloseKind.Quit)) event.preventDefault()
+    })
+    app.on('browser-window-created', (_event, window) => {
+      window.on('close', (event) => {
+        if (mainWindows().includes(window) && closeGuard.callsOff(CloseKind.Window)) event.preventDefault()
+      })
+    })
 
     if (testMode?.kind === TestModeKind.Capture && testAgent !== null) {
       void runCapture(testMode.spec, { database, bridge, agent: testAgent, log })

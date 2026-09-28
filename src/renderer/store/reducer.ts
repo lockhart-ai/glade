@@ -281,7 +281,9 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       // A terminal's output goes straight to its terminal (see `subscribeTerminal` in `./store`), not into the store.
       return state
     case EventType.MenuCommand:
-      // Running a command is an action, not a change of state: the window runs it (see `./store`).
+    case EventType.CloseBlocked:
+      // Running a command, or asking about unsaved edits, is an action, not a change of state: the window does it
+      // (see `./store`).
       return state
     case EventType.SettingsChanged:
       return { ...state, settings: event.settings }

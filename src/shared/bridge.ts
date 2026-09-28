@@ -98,6 +98,7 @@ export enum CommandName {
   QuestionsAnswer = 'questions.answer',
   PermissionsAnswer = 'permissions.answer',
   FilesRead = 'files.read',
+  FilesWrite = 'files.write',
   FilesOpen = 'files.open',
   FilesClose = 'files.close',
   FilesOpenInEditor = 'files.openInEditor',
@@ -136,6 +137,8 @@ export enum CommandName {
   TerminalClose = 'terminal.close',
   MenuUpdate = 'menu.update',
   WindowClose = 'window.close',
+  AppQuit = 'app.quit',
+  WindowSetUnsavedEdits = 'window.setUnsavedEdits',
   LogRendererError = 'log.rendererError',
   MenuBarGet = 'menuBar.get',
   MenuBarOpenTask = 'menuBar.openTask',
@@ -643,6 +646,19 @@ export interface FilesReadResponse {
 }
 
 /**
+ * Saves a file of the task's workspace from the Files tab's editor (⌘S): writes `text` over it, in place, keeping the
+ * file's permissions, or makes it again if it's gone. It reaches only files inside the root, as `files.read` does: a
+ * path that isn't relative and normalized fails with `invalid_request`, and one that a symlink (on the path, or the
+ * file itself) takes outside the root with `outside_workspace`. Fails with `not_found` when the file's folder isn't
+ * there, and `invalid_request` when something other than a file is at the path, or the text is larger than
+ * `MAX_SAVE_BYTES` (in `./files`).
+ */
+export interface FilesWriteRequest extends FileRequest {
+  /** The file's whole new text, as UTF-8. */
+  readonly text: string
+}
+
+/**
  * Opens a file in the task's Files tab, as a new tab at the end (or the tab it already has), and shows it. The file
  * needn't exist. Broadcasts `openFiles.changed`.
  */
@@ -922,6 +938,14 @@ export type MenuUpdateRequest = MenuState
  */
 export type WindowCloseRequest = EmptyRequest
 
+/**
+ * Tells main whether the Files tab has unsaved edits, each time that changes. While it has, closing the window or
+ * quitting is called off, and main tells the window to ask about them first (`close.blocked`).
+ */
+export interface WindowSetUnsavedEditsRequest {
+  readonly unsaved: boolean
+}
+
 /** What's in flight across every workspace, for the menu bar popover (`docs/design/html/29-menu-bar.html`). */
 export interface MenuBarResponse {
   readonly snapshot: MenuBarSnapshot
@@ -1018,6 +1042,7 @@ export interface CommandMap {
   [CommandName.QuestionsAnswer]: CommandSpec<QuestionsAnswerRequest, QuestionSetResponse>
   [CommandName.PermissionsAnswer]: CommandSpec<PermissionsAnswerRequest, PermissionRequestResponse>
   [CommandName.FilesRead]: CommandSpec<FilesReadRequest, FilesReadResponse>
+  [CommandName.FilesWrite]: CommandSpec<FilesWriteRequest, null>
   [CommandName.FilesOpen]: CommandSpec<FilesOpenRequest, OpenFilesResponse>
   [CommandName.FilesClose]: CommandSpec<FilesCloseRequest, OpenFilesResponse>
   [CommandName.FilesOpenInEditor]: CommandSpec<FilesOpenInEditorRequest, null>
@@ -1060,6 +1085,9 @@ export interface CommandMap {
   [CommandName.TerminalClose]: CommandSpec<TerminalIdRequest, null>
   [CommandName.MenuUpdate]: CommandSpec<MenuUpdateRequest, null>
   [CommandName.WindowClose]: CommandSpec<EmptyRequest, null>
+  /** Quits Glade, as ⌘Q does: after Save or Discard, when quitting was called off for unsaved edits (`close.blocked`). */
+  [CommandName.AppQuit]: CommandSpec<EmptyRequest, null>
+  [CommandName.WindowSetUnsavedEdits]: CommandSpec<WindowSetUnsavedEditsRequest, null>
   /** Writes an error in the window to the main log. */
   [CommandName.LogRendererError]: CommandSpec<LogRendererErrorRequest, null>
   [CommandName.MenuBarGet]: CommandSpec<EmptyRequest, MenuBarResponse>
@@ -1106,6 +1134,7 @@ export enum EventType {
   TerminalOutput = 'terminal.output',
   TerminalCleared = 'terminal.cleared',
   MenuCommand = 'menu.command',
+  CloseBlocked = 'close.blocked',
   SettingsChanged = 'settings.changed',
   ModelsChanged = 'models.changed',
   PluginsChanged = 'plugins.changed',
@@ -1310,6 +1339,22 @@ export interface TerminalClearedEvent {
   readonly tabId: string
 }
 
+/** What closing the window was for: closing it (⌘W), or quitting Glade (⌘Q). */
+export enum CloseKind {
+  Window = 'window',
+  Quit = 'quit',
+}
+
+/**
+ * Closing the window, or quitting, was called off because the Files tab has unsaved edits (`window.setUnsavedEdits`).
+ * The window asks Save / Discard / Cancel, then closes (`window.close`) or quits (`app.quit`) again, whichever `kind`
+ * says, unless you cancel.
+ */
+export interface CloseBlockedEvent {
+  readonly type: EventType.CloseBlocked
+  readonly kind: CloseKind
+}
+
 /** You chose a menu bar item, or pressed its key: the window runs its command. */
 export interface MenuCommandEvent {
   readonly type: EventType.MenuCommand
@@ -1408,6 +1453,7 @@ export type GladeEvent =
   | ControlChangedEvent
   | AccountChangedEvent
   | MenuBarChangedEvent
+  | CloseBlockedEvent
 
 export type EventListener = (event: GladeEvent) => void
 

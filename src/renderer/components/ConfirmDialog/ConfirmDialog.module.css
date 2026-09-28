@@ -47,3 +47,8 @@
   gap: 8px;
   margin-top: 8px;
 }
+
+/* A third answer (Discard) sits apart, on the left, away from the confirming button. */
+.alternative {
+  margin-right: auto;
+}

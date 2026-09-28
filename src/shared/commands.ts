@@ -71,6 +71,7 @@ export enum WindowCommandId {
   FocusInput = 'window.focusInput',
   ShowPanelTab = 'window.showPanelTab',
   OpenInEditor = 'window.openInEditor',
+  SaveFile = 'window.saveFile',
   FocusTerminal = 'window.focusTerminal',
   NewTerminalTab = 'window.newTerminalTab',
   NextTerminalTab = 'window.nextTerminalTab',

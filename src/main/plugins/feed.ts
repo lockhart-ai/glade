@@ -308,6 +308,7 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       case EventType.TaskOpenRequested:
       case EventType.UiStateChanged:
       case EventType.MenuCommand:
+      case EventType.CloseBlocked:
       case EventType.SettingsChanged:
       case EventType.ModelsChanged:
       case EventType.PluginsChanged:

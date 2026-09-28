@@ -865,7 +865,9 @@ describe('TaskPanel', () => {
 
       expect(requestClose()).toBe(true)
 
-      expect(invoke).toHaveBeenCalledWith(CommandName.FilesClose, { taskId: 't1', path: 'api/views.py' })
+      await waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith(CommandName.FilesClose, { taskId: 't1', path: 'api/views.py' })
+      })
       await waitFor(() => {
         expect(screen.getByRole('tabpanel')).toHaveFocus()
       })
@@ -920,7 +922,7 @@ describe('TaskPanel', () => {
       })
       expect(tab(/^Files/)).toHaveAttribute('aria-selected', 'true')
       await waitFor(() => {
-        expect(screen.getByTestId('source').querySelector('[data-line="9"]')).toHaveAttribute('data-focused', 'true')
+        expect(screen.getByTestId('editor').querySelector('.cm-line.cm-glade-marked')).toHaveTextContent('line 9')
       })
     })
 

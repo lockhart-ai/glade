@@ -136,7 +136,7 @@ test('artifacts: the agent’s deliverables in Today, newest file first; hover a
   await artifacts.open('Upgrade guide').click()
   await expect(panel.tab(/^Files/)).toHaveAttribute('aria-selected', 'true')
   await expect(files.tab('2.4-upgrade.md')).toHaveAttribute('aria-pressed', 'true')
-  await expect(files.line(1)).toContainText('# Upgrading to 2.4')
+  await expect(files.editorLine(1)).toContainText('# Upgrading to 2.4')
   await window.keyboard.press('Meta+Alt+Digit4')
   await expect(artifacts.row('Upgrade guide')).toHaveAttribute('aria-current', 'true')
 
