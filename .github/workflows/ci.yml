@@ -66,12 +66,7 @@ jobs:
 
       - run: npm ci
       # test:e2e's global setup builds the app into out/testing itself (it's per-shard: nothing is shared between jobs).
-      - run: npm run test:e2e -- --shard=${{ matrix.shard }}/3 --retries=0 --repeat-each=20 e2e/terminal.spec.ts e2e/diag-terminal.spec.ts
-      - name: Dump #375 diagnostics
-        if: always()
-        run: |
-          ls -la /tmp/glade-diag || true
-          for f in /tmp/glade-diag/*; do echo "===== $f"; cat "$f"; done || true
+      - run: npm run test:e2e -- --shard=${{ matrix.shard }}/3
 
   ci:
     name: ci
