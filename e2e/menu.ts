@@ -5,6 +5,7 @@
  */
 import { expect } from '@playwright/test'
 import type { MenuItem } from 'electron'
+import { alive } from './diag'
 import type { Glade } from './fixtures'
 
 /** A menu bar item as a spec sees it. */
@@ -43,11 +44,16 @@ export async function menuItem(glade: Glade, ...path: string[]): Promise<MenuBar
  * it shows to main, which rebuilds the menu bar, so an item can take a moment to catch up.
  */
 export async function chooseMenuItem(glade: Glade, ...path: string[]): Promise<void> {
-  await expect
-    .poll(async () => (await findMenuItem(glade, path))?.enabled ?? false, {
-      message: `Menu bar item ${path.join(' › ')} never became enabled`,
-    })
-    .toBe(true)
+  try {
+    await expect
+      .poll(async () => (await findMenuItem(glade, path))?.enabled ?? false, {
+        message: `Menu bar item ${path.join(' › ')} never became enabled`,
+      })
+      .toBe(true)
+  } catch (error) {
+    await alive(glade, `menu ${path.join(' › ')}`)
+    throw error
+  }
   await glade.app.evaluate(({ Menu }, labels) => {
     let items = Menu.getApplicationMenu()?.items ?? []
     let found: MenuItem | undefined
