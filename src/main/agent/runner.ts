@@ -190,6 +190,7 @@ import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, type GladeEvent } from '../../shared/bridge'
 import {
   API_TOOL_NAME,
+  AgentErrorKind,
   CompactionTrigger,
   DividerKind,
   MessageRole,
@@ -197,6 +198,7 @@ import {
   PermissionDecisionKind,
   PermissionMode,
   PermissionRequestState,
+  RefusalScope,
   TaskActivity,
   TaskErrorSource,
   TaskState,
@@ -229,6 +231,7 @@ import {
   emitTaskUpdated,
   emitTodosChanged,
   emitToolEventAppended,
+  emitToolEventRemoved,
   emitToolEventUpdated,
   type Emit,
 } from '../bridge/events'
@@ -252,7 +255,9 @@ import {
   appendCompaction,
   appendDivider,
   appendNarration,
+  appendRefusalFallback,
   appendToolCall,
+  deleteToolEvent,
   failRunningCompactions,
   interruptPausedToolCalls,
   interruptRunningToolCall,
@@ -301,6 +306,7 @@ import {
   type ApiErrorEvent,
   type ApiRetryEvent,
   type CompactedEvent,
+  type ModelRefusalFallbackEvent,
   RateLimitStatus,
   type TextEvent,
   type ToolCallStartedEvent,
@@ -456,11 +462,30 @@ export interface AgentRunner {
   close(): void
 }
 
+/** Top-level text pushed since the last tool call, with the assistant message it came from, for eviction. */
+interface PendingText {
+  readonly text: string
+  readonly sdkUuid: string | null
+}
+
+/** Where a row a refusal-fallback retry may supersede came from: the tool call it's for, when it is one. */
+interface SdkRow {
+  readonly id: string
+  readonly toolUseId: string | null
+}
+
+/** What a turn's `model_refusal_no_fallback` said, kept until the turn's result ends it as declined. */
+interface TurnRefusal {
+  readonly category: string | null
+  readonly explanation: string | null
+  readonly content: string
+}
+
 /** The in-flight turn's bookkeeping. */
 interface Turn {
   readonly number: number
   /** Top-level text since the last tool call: preamble if a tool call follows, else the final reply. */
-  readonly pending: string[]
+  readonly pending: PendingText[]
   /** The tool calls waiting on their results, with the `Agent` call each was made in (null at the top level). */
   readonly running: Map<string, string | null>
   /** The uuids of the messages handed to the session in this turn that no result has answered yet. */
@@ -473,6 +498,13 @@ interface Turn {
   apiError: ApiErrorEvent | null
   /** The id of the running Compact row, until the SDK reports how the compaction went; null otherwise. */
   compaction: string | null
+  /**
+   * The turn's own rows a refusal-fallback retry may still supersede, by the SDK message uuid that made each: the
+   * turn's narration and tool call rows logged so far (`./events.ts`, `TextEvent.sdkUuid`).
+   */
+  readonly sdkRows: Map<string, SdkRow>
+  /** What the turn's `model_refusal_no_fallback` said, once it has; null while none has, or none did. */
+  refusal: TurnRefusal | null
   /** Resolves once the turn has ended, however it ended. */
   readonly ended: Promise<void>
   readonly end: () => void
@@ -553,6 +585,9 @@ export const NOT_RESUMED_NOTE = "Glade quit before the agent's session started, 
 
 /** What a tool call cut short by an error says. */
 export const STOPPED_BY_ERROR_NOTE = 'The agent stopped on an error before this tool call finished.'
+
+/** What the tool log says when a request was declined by a safety check with no fallback model to retry it on. */
+export const DECLINED_TOOL_NOTE = 'The agent stopped: the request was declined by a safety check.'
 
 /** What the `ask` call the app quit on says: its question stays open, and its answer goes to the agent as a message. */
 export const ASK_RESTARTED_NOTE = 'Glade quit while this question was open. Its answer goes to the agent in a message.'
@@ -706,6 +741,11 @@ function startsTurn(event: AgentEvent): boolean {
     case AgentEventKind.SubagentBackgrounded:
     case AgentEventKind.SubagentProgress:
     case AgentEventKind.TaskFinished:
+    case AgentEventKind.ModelRefusalFallback:
+    case AgentEventKind.ModelRefusalNoFallback:
+    case AgentEventKind.MessagesEvicted:
+      // A refusal-fallback notice, the eviction it (or a superseding message) carries, and a no-fallback refusal all
+      // belong to a turn already under way: with none running, there's nothing to attribute them to.
       return false
   }
 }
@@ -724,6 +764,8 @@ function newTurn(number: number): Turn {
     retrying: null,
     apiError: null,
     compaction: null,
+    sdkRows: new Map(),
+    refusal: null,
     ended,
     end,
   }
@@ -870,10 +912,19 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     updateTaskFromRunner(context, taskId, { retrying: null })
   }
 
-  /** Saves the held-back text as narration, if there is any. */
+  /** Saves the held-back text as narration, if there is any, and remembers it for a later eviction, if it names a uuid. */
   const flushPreamble = (taskId: string, turn: Turn): void => {
-    const text = turn.pending.splice(0).join('\n\n').trim()
-    if (text !== '') emitToolEventAppended(emit, appendNarration(db, { taskId, turn: turn.number, text }))
+    const parts = turn.pending.splice(0)
+    const text = parts
+      .map((part) => part.text)
+      .join('\n\n')
+      .trim()
+    if (text === '') return
+    const narration = appendNarration(db, { taskId, turn: turn.number, text })
+    emitToolEventAppended(emit, narration)
+    for (const { sdkUuid } of parts) {
+      if (sdkUuid !== null) turn.sdkRows.set(sdkUuid, { id: narration.id, toolUseId: null })
+    }
   }
 
   /** Marks the calls that never got a result as failed, or as paused when the turn pauses. */
@@ -885,9 +936,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   const onText = (taskId: string, turn: Turn, event: TextEvent): void => {
-    const { text, parentToolUseId } = event
+    const { text, parentToolUseId, sdkUuid } = event
     if (parentToolUseId === null) {
-      turn.pending.push(text)
+      turn.pending.push({ text, sdkUuid })
       return
     }
     // A subagent's text is the subagent's business, not the chat's: it's what the Subagents tab says it's doing.
@@ -897,12 +948,32 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   const onToolCall = (taskId: string, turn: Turn, event: ToolCallStartedEvent): void => {
     flushPreamble(taskId, turn)
-    const { toolUseId, name, input, parentToolUseId } = event
-    emitToolEventAppended(
-      emit,
-      appendToolCall(db, { taskId, turn: turn.number, name, input, toolUseId, parentToolUseId }),
-    )
+    const { toolUseId, name, input, parentToolUseId, sdkUuid } = event
+    const call = appendToolCall(db, { taskId, turn: turn.number, name, input, toolUseId, parentToolUseId })
+    emitToolEventAppended(emit, call)
     turn.running.set(toolUseId, parentToolUseId)
+    if (sdkUuid !== null) turn.sdkRows.set(sdkUuid, { id: call.id, toolUseId })
+  }
+
+  /**
+   * Evicts the turn's own rows a refusal-fallback retry supersedes (see the module comment, and `./events.ts`): any of
+   * the turn's not-yet-flushed preamble that named one of `uuids`, and any narration or tool call row already logged
+   * for one. Idempotent: a uuid the turn never logged, or already evicted, is a no-op.
+   */
+  const evictSuperseded = (taskId: string, turn: Turn, uuids: readonly string[]): void => {
+    if (uuids.length === 0) return
+    const named = new Set(uuids)
+    for (let index = turn.pending.length - 1; index >= 0; index--) {
+      const sdkUuid = turn.pending[index]?.sdkUuid ?? null
+      if (sdkUuid !== null && named.has(sdkUuid)) turn.pending.splice(index, 1)
+    }
+    for (const uuid of uuids) {
+      const row = turn.sdkRows.get(uuid)
+      if (row === undefined) continue
+      turn.sdkRows.delete(uuid)
+      if (row.toolUseId !== null) turn.running.delete(row.toolUseId)
+      if (deleteToolEvent(db, taskId, row.id)) emitToolEventRemoved(emit, taskId, row.id)
+    }
   }
 
   /**
@@ -1093,11 +1164,54 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
   }
 
+  /**
+   * A refused request was retried on a fallback model, which answered (see the module comment): the refused leg's rows
+   * the retry supersedes are evicted (idempotent with the eviction each of its own messages already carried), a quiet
+   * notice row says so, and, with `scope: 'session'`, the task's model follows the swap, so its picker shows it.
+   */
+  const onModelRefusalFallback = (
+    taskId: string,
+    live: LiveSession,
+    turn: Turn,
+    event: ModelRefusalFallbackEvent,
+  ): void => {
+    taskLog(taskId).info('refusal answered by fallback model', {
+      turn: turn.number,
+      originalModel: event.originalModel,
+      fallbackModel: event.fallbackModel,
+      category: event.category,
+      scope: event.scope,
+    })
+    evictSuperseded(taskId, turn, event.uuids)
+    emitToolEventAppended(
+      emit,
+      appendRefusalFallback(db, {
+        taskId,
+        turn: turn.number,
+        originalModel: event.originalModel,
+        fallbackModel: event.fallbackModel,
+        category: event.category,
+        scope: event.scope,
+      }),
+    )
+    if (event.scope === RefusalScope.Session && getTask(db, taskId)?.model !== event.fallbackModel) {
+      // The task's effort follows, as it does for a model the picker changes to: the fallback model's default unless
+      // it supports the task's own.
+      const switched = updateTaskFromUser(context, taskId, { model: event.fallbackModel })
+      live.settings = { ...live.settings, model: switched.model, effort: switched.effort }
+    }
+  }
+
   const onTurnFinished = (taskId: string, live: LiveSession, turn: Turn, event: TurnFinishedEvent): void => {
     failCompaction(turn)
     if (event.isError && (turn.stopping || isAborted(event.terminalReason))) {
       endTurn(taskId, live, turn)
       onTurnStopped(taskId, turn)
+      return
+    }
+    if (turn.refusal !== null) {
+      endTurn(taskId, live, turn)
+      onTurnDeclined(taskId, turn)
       return
     }
     if (event.isError) {
@@ -1106,7 +1220,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return
     }
     recovered(taskId, turn)
-    const held = turn.pending.splice(0).join('\n\n').trim()
+    const held = turn.pending
+      .splice(0)
+      .map((part) => part.text)
+      .join('\n\n')
+      .trim()
     const reply = held === '' ? event.result.trim() : held
     if (reply !== '') {
       const turnEvents = listToolEvents(db, taskId).filter((toolEvent) => toolEvent.turn === turn.number)
@@ -1136,6 +1254,31 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return
     }
     setActivity(taskId, TaskActivity.Waiting)
+  }
+
+  /**
+   * The turn ended on a safety refusal with no fallback model to retry it on (see the module comment): not a crash,
+   * so the task stops on a `TaskError` of its own kind (`AgentErrorKind.SafetyRefusal`), for the chat's declined card
+   * and the Needs you reason.
+   */
+  const onTurnDeclined = (taskId: string, turn: Turn): void => {
+    const { refusal } = turn
+    if (refusal === null) return
+    taskLog(taskId).warn('turn declined by a safety check', { turn: turn.number, category: refusal.category })
+    flushPreamble(taskId, turn)
+    failRunning(taskId, turn, DECLINED_TOOL_NOTE)
+    emitToolEventAppended(emit, appendNarration(db, { taskId, turn: turn.number, text: DECLINED_TOOL_NOTE }))
+    const details = refusal.explanation ?? (refusal.content.trim() === '' ? DECLINED_TOOL_NOTE : refusal.content.trim())
+    const error: TaskError = {
+      kind: AgentErrorKind.SafetyRefusal,
+      source: TaskErrorSource.Refusal,
+      status: null,
+      code: refusal.category,
+      details,
+      retries: 0,
+      retryingMs: 0,
+    }
+    stopOnError(taskId, error)
   }
 
   /**
@@ -1244,7 +1387,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (turn === null) return
     endTurn(taskId, live, turn)
     failCompaction(turn)
-    turn.pending.push(message)
+    turn.pending.push({ text: message, sdkUuid: null })
     flushPreamble(taskId, turn)
     const error = withRetries(turn, { source: TaskErrorSource.Session, status: null, code: null, details: message })
     failRunning(taskId, turn, message, pauseReason(error) === null ? ToolCallState.Error : ToolCallState.Paused)
@@ -1497,6 +1640,16 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         // Whatever its hook said isn't carried over.
         live.compactSummary = null
         failCompaction(turn)
+        return
+      case AgentEventKind.MessagesEvicted:
+        evictSuperseded(taskId, turn, event.uuids)
+        return
+      case AgentEventKind.ModelRefusalFallback:
+        onModelRefusalFallback(taskId, live, turn, event)
+        return
+      case AgentEventKind.ModelRefusalNoFallback:
+        taskLog(taskId).warn('declined by a safety check, no fallback', { turn: turn.number, category: event.category })
+        turn.refusal = { category: event.category, explanation: event.explanation, content: event.content }
         return
       case AgentEventKind.TurnFinished: {
         const { isError, terminalReason, durationMs, totalCostUsd, usage } = event

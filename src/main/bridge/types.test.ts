@@ -439,6 +439,7 @@ describe('events', () => {
           break
         case EventType.TaskOpenRequested:
         case EventType.TaskDeleted:
+        case EventType.ToolEventRemoved:
           expectTypeOf(event.taskId).toEqualTypeOf<string>()
           break
         case EventType.QueueChanged:

@@ -10,7 +10,7 @@
  */
 import { z } from 'zod'
 import { UsageWindow } from '../../shared/account'
-import { CompactionTrigger, type EpochMs, type ToolInput } from '../../shared/domain'
+import { CompactionTrigger, RefusalScope, type EpochMs, type ToolInput } from '../../shared/domain'
 import type { Logger } from '../logging/logger'
 
 export enum AgentEventKind {
@@ -68,6 +68,18 @@ export enum AgentEventKind {
    * call's result, is when it finished (`docs/sdk-notes.md`, "Background subagents").
    */
   TaskFinished = 'task_finished',
+  /**
+   * A safety-refused request was retried on a fallback model, which answered (`system/model_refusal_fallback`, only
+   * `direction: 'retry'`, `docs/sdk-notes.md`).
+   */
+  ModelRefusalFallback = 'model_refusal_fallback',
+  /** A safety-refused request had no fallback model to retry it on (`system/model_refusal_no_fallback`). */
+  ModelRefusalNoFallback = 'model_refusal_no_fallback',
+  /**
+   * Wire uuids of previously-delivered messages an assistant message's `supersedes` names (a refusal-fallback retry):
+   * evict them from the chat and tool log on arrival.
+   */
+  MessagesEvicted = 'messages_evicted',
 }
 
 export interface SessionStartedEvent {
@@ -82,6 +94,11 @@ export interface TextEvent {
   readonly text: string
   /** The `Agent` tool call's id when a subagent wrote it; null at the top level. */
   readonly parentToolUseId: string | null
+  /**
+   * The assistant message's own uuid, which a later message's `supersedes` (or the end-of-turn refusal-fallback
+   * notice's `retracted_message_uuids`) may name to evict what came of this block; null when the SDK gave none.
+   */
+  readonly sdkUuid: string | null
 }
 
 export interface ToolCallStartedEvent {
@@ -91,6 +108,8 @@ export interface ToolCallStartedEvent {
   readonly input: ToolInput
   /** The `Agent` tool call's id when a subagent made the call; null at the top level. */
   readonly parentToolUseId: string | null
+  /** The assistant message's own uuid, for eviction (see `TextEvent.sdkUuid`); null when the SDK gave none. */
+  readonly sdkUuid: string | null
 }
 
 export interface ToolResultEvent {
@@ -277,6 +296,31 @@ export interface TaskFinishedEvent {
   readonly summary: string
 }
 
+export interface ModelRefusalFallbackEvent {
+  readonly kind: AgentEventKind.ModelRefusalFallback
+  readonly scope: RefusalScope
+  readonly originalModel: string
+  readonly fallbackModel: string
+  /** The refusal's category (`api_refusal_category`), an open string; null when the SDK gave none. */
+  readonly category: string | null
+  /** Wire uuids of the messages this fallback retracted, to evict; empty when the SDK gave none. */
+  readonly uuids: readonly string[]
+}
+
+export interface ModelRefusalNoFallbackEvent {
+  readonly kind: AgentEventKind.ModelRefusalNoFallback
+  /** The refusal's category (`api_refusal_category`), an open string; null when the SDK gave none. */
+  readonly category: string | null
+  /** The API's explanation of the refusal (`api_refusal_explanation`), unstable prose, display only; null for none. */
+  readonly explanation: string | null
+  readonly content: string
+}
+
+export interface MessagesEvictedEvent {
+  readonly kind: AgentEventKind.MessagesEvicted
+  readonly uuids: readonly string[]
+}
+
 /** Everything the runner reacts to. */
 export type AgentEvent =
   | SessionStartedEvent
@@ -296,6 +340,9 @@ export type AgentEvent =
   | SubagentBackgroundedEvent
   | SubagentProgressEvent
   | TaskFinishedEvent
+  | ModelRefusalFallbackEvent
+  | ModelRefusalNoFallbackEvent
+  | MessagesEvictedEvent
 
 /** Where parsing reports what it drops: the task's agent log (`../logging/logger`). */
 export type AgentLog = Pick<Logger, 'warn'>
@@ -404,6 +451,29 @@ const statusMessage = z.looseObject({
   compact_result: z.unknown().optional(),
 })
 
+/** An open string Glade doesn't parse further: the refusal's category, e.g. `cyber`, `bio`; null when the SDK gave none. */
+const refusalCategory = z.string().nullable().optional().catch(undefined)
+
+const modelRefusalFallbackMessage = z.looseObject({
+  type: z.literal('system'),
+  subtype: z.literal('model_refusal_fallback'),
+  direction: z.string().catch(''),
+  // Absent (older CLIs) reads as 'session'; anything but 'local' is treated as 'session' too.
+  scope: z.string().optional().catch(undefined),
+  original_model: z.string().catch(''),
+  fallback_model: z.string().catch(''),
+  api_refusal_category: refusalCategory,
+  retracted_message_uuids: z.array(z.string()).optional().catch(undefined),
+})
+
+const modelRefusalNoFallbackMessage = z.looseObject({
+  type: z.literal('system'),
+  subtype: z.literal('model_refusal_no_fallback'),
+  api_refusal_category: refusalCategory,
+  api_refusal_explanation: z.string().nullable().optional().catch(undefined),
+  content: z.string().catch(''),
+})
+
 const parentToolUseId = z.string().nullable().optional()
 
 // Content blocks are checked one at a time, so a block of a kind Glade doesn't use never spoils its neighbours.
@@ -435,6 +505,10 @@ const assistantMessage = z.looseObject({
   parent_tool_use_id: parentToolUseId,
   // Set on the message the SDK makes of an API error that ended the turn: its text is the error, not the model's.
   error: z.string().optional(),
+  // The frame's own uuid (one per normalized message; a streamed turn's blocks each arrive as their own frame), and the
+  // uuids of previously-delivered messages this one replaces (refusal-fallback supersede, `docs/sdk-notes.md`).
+  uuid: z.string().optional().catch(undefined),
+  supersedes: z.array(z.string()).optional().catch(undefined),
   // A message without usage (or with a malformed one) still has content worth showing.
   message: z.looseObject({ content: z.array(block), usage: usage.optional().catch(undefined) }),
 })
@@ -524,11 +598,19 @@ function fromAssistant(message: z.infer<typeof assistantMessage>, log: AgentLog)
   const parent = message.parent_tool_use_id ?? null
   // A subagent's failed request is the subagent's business: its `Agent` call reports it.
   if (message.error !== undefined) return parent === null ? fromApiError(message.error, message.message.content) : []
+  const sdkUuid = message.uuid ?? null
+  // Evict what the refused leg left before adding this message's own content (refusal-fallback supersede).
+  const evicted: AgentEvent[] =
+    message.supersedes === undefined || message.supersedes.length === 0
+      ? []
+      : [{ kind: AgentEventKind.MessagesEvicted, uuids: message.supersedes }]
   const blocks = message.message.content.flatMap((raw): AgentEvent[] => {
     switch (raw.type) {
       case 'text': {
         const text = textBlock.safeParse(raw)
-        if (text.success) return [{ kind: AgentEventKind.Text, text: text.data.text, parentToolUseId: parent }]
+        if (text.success) {
+          return [{ kind: AgentEventKind.Text, text: text.data.text, parentToolUseId: parent, sdkUuid }]
+        }
         log.warn('Dropped a malformed text block from the agent', { problem: text.error.message })
         return []
       }
@@ -536,7 +618,9 @@ function fromAssistant(message: z.infer<typeof assistantMessage>, log: AgentLog)
         const call = toolUseBlock.safeParse(raw)
         if (call.success) {
           const { id, name, input } = call.data
-          return [{ kind: AgentEventKind.ToolCallStarted, toolUseId: id, name, input, parentToolUseId: parent }]
+          return [
+            { kind: AgentEventKind.ToolCallStarted, toolUseId: id, name, input, parentToolUseId: parent, sdkUuid },
+          ]
         }
         log.warn('Dropped a malformed tool call from the agent', { problem: call.error.message })
         return []
@@ -545,7 +629,33 @@ function fromAssistant(message: z.infer<typeof assistantMessage>, log: AgentLog)
         return []
     }
   })
-  return [...contextUsed(parent, message.message.usage), ...blocks]
+  return [...evicted, ...contextUsed(parent, message.message.usage), ...blocks]
+}
+
+function fromModelRefusalFallback(message: z.infer<typeof modelRefusalFallbackMessage>): AgentEvent[] {
+  // "revert" and "sticky" are kept in the SDK's own enum for consumer compat and are no longer emitted.
+  if (message.direction !== 'retry') return []
+  return [
+    {
+      kind: AgentEventKind.ModelRefusalFallback,
+      scope: message.scope === 'local' ? RefusalScope.Local : RefusalScope.Session,
+      originalModel: message.original_model,
+      fallbackModel: message.fallback_model,
+      category: message.api_refusal_category ?? null,
+      uuids: message.retracted_message_uuids ?? [],
+    },
+  ]
+}
+
+function fromModelRefusalNoFallback(message: z.infer<typeof modelRefusalNoFallbackMessage>): AgentEvent[] {
+  return [
+    {
+      kind: AgentEventKind.ModelRefusalNoFallback,
+      category: message.api_refusal_category ?? null,
+      explanation: message.api_refusal_explanation ?? null,
+      content: message.content,
+    },
+  ]
 }
 
 /** A tool result's text: its string content, or its text blocks joined. */
@@ -713,6 +823,24 @@ export function createSdkMessageParser(log: AgentLog): (raw: unknown) => AgentEv
         }
         if (subtype === 'compact_boundary') {
           return parsed(compactBoundaryMessage, raw, log, 'system/compact_boundary', fromCompactBoundary)
+        }
+        if (subtype === 'model_refusal_fallback') {
+          return parsed(
+            modelRefusalFallbackMessage,
+            raw,
+            log,
+            'system/model_refusal_fallback',
+            fromModelRefusalFallback,
+          )
+        }
+        if (subtype === 'model_refusal_no_fallback') {
+          return parsed(
+            modelRefusalNoFallbackMessage,
+            raw,
+            log,
+            'system/model_refusal_no_fallback',
+            fromModelRefusalNoFallback,
+          )
         }
         return []
       case 'assistant':

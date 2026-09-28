@@ -104,6 +104,8 @@ function laterToolLog(): unknown[] {
           return { call: event.name, state: event.state, turn: event.turn }
         case ToolEventKind.Compaction:
           return { compaction: event.state, turn: event.turn }
+        case ToolEventKind.RefusalFallback:
+          return { refusalFallback: event.fallbackModel, turn: event.turn }
       }
     })
 }

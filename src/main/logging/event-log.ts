@@ -173,6 +173,11 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
         })
         return
       }
+      case ToolEventKind.RefusalFallback: {
+        const { originalModel, fallbackModel, category, scope } = event
+        withTask.info('refusal answered by fallback model', { originalModel, fallbackModel, category, scope })
+        return
+      }
     }
   }
 
@@ -234,6 +239,9 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
         return
       case EventType.ToolEventUpdated:
         toolEvent(event.toolEvent, false)
+        return
+      case EventType.ToolEventRemoved:
+        tools.info('tool log entry evicted', { taskId: event.taskId, toolEventId: event.toolEventId })
         return
       case EventType.QuestionOpened:
         questionSet('questions asked', event.questionSet)

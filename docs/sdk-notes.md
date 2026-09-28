@@ -553,6 +553,43 @@ receives `compact_summary`. See §5.
   task's log, rate-limited (`src/main/agent/stderr-log.ts`, `docs/logs.md`). `CLAUDE_AGENT_SDK_CLIENT_APP` names the
   host in the User-Agent: Glade sets `glade/<version>`.
 
+### Safety refusals (#364)
+
+- **[docs] `system/model_refusal_fallback`:** emitted when the primary model ends its stream with `stop_reason:
+  "refusal"` (Opus 5.5 and Sonnet 5's safety classifiers, cyber/bio/reasoning-extraction) and the request is retried
+  once on a fallback model, which answers. Carries `trigger: "refusal"`, `direction` (only `"retry"` is still
+  emitted; `"revert"` and `"sticky"` are kept in the enum for SDK-consumer compat), `scope` (`"session"`: the main
+  thread fell back and the session model is swapped from here on; `"local"`: only a subagent or side question
+  (`/btw`) fell back, the session model is unchanged; absent on an older CLI reads as `"session"`), `original_model`,
+  `fallback_model`, `api_refusal_category` (an open string, e.g. `cyber`, `bio`; null when neither lane carried one),
+  `api_refusal_explanation` (client-lane only, display only, never parse), `retracted_message_uuids` (the refused
+  leg's messages this fallback retracted — the complete audit record for the turn) and `refused_user_message_uuid`
+  (for edit-and-retry; Glade doesn't offer that yet). Not probed live: from `sdk.d.ts` only.
+  - **Superseding messages:** each of the retry's own `assistant` messages carries its own `supersedes: string[]`
+    (wire uuids of previously-delivered messages it replaces — one uuid per normalized SDK message, so a
+    multi-block turn's blocks each have their own), idempotent with the notice's `retracted_message_uuids`: evict on
+    either arrival, whichever comes first.
+  - **Decided:** parsed loosely (`src/main/agent/events.ts`): `AgentEventKind.ModelRefusalFallback` (only for
+    `direction: "retry"`) and `AgentEventKind.MessagesEvicted` (from an assistant message's `supersedes`). The
+    runner (`src/main/agent/runner.ts`) evicts the refused leg's narration and tool call rows the retry names (a
+    real `DELETE`, so a relaunch never brings them back — not yet-flushed preamble is dropped from memory, matched
+    by the SDK uuid its text block arrived on; a coalesced flush that merged several blocks is evicted whole if any
+    contributor is named, since Glade doesn't keep per-block granularity once flushed), logs a quiet notice row
+    (`ToolEventKind.RefusalFallback`, shown in the chat only, not the tool call panel: "Answered by
+    `<fallback_model>`: the request was declined by a safety check (`<category>`)."), and, with `scope: "session"`,
+    switches the task's own model to the fallback's (effort follows, as the model picker's own change does).
+- **[docs] `system/model_refusal_no_fallback`:** emitted when the refusal has no fallback to retry on: no fallback
+  model configured, or per-category routing declined the retry. Carries `original_model`, `api_refusal_category`,
+  `api_refusal_explanation`, `refused_user_message_uuid` and `content`. The turn still ends with a normal `result`.
+  Not probed live: from `sdk.d.ts` only.
+  - **Decided:** parsed as `AgentEventKind.ModelRefusalNoFallback`, kept on the turn until its `result` arrives, then
+    (overriding the usual error handling, whatever the result's own `is_error` and `terminal_reason` say) the task
+    stops on a `TaskError` of its own kind (`AgentErrorKind.SafetyRefusal`, `TaskErrorSource.Refusal`; `code` is the
+    category, `details` the explanation or `content`): the chat's declined card, in the error card's style, and the
+    Needs you reason "Declined by a safety check" — not "Stopped on an error", so it never reads as a crash. Retry
+    and Retry with another model both work as they do for any other error (edit-and-retry composer prefill isn't
+    built: out of scope for #364).
+
 ### Interrupt [verified]
 
 See §7 for timing.
@@ -1047,6 +1084,17 @@ a denied call and a foreground subagent's call. What that run showed is marked *
   same tool and input through once without asking, since Claude Code asks about it afresh (`src/main/agent/runner.ts`).
 - **`permissionPromptToolName`** (route prompts to an MCP tool) and **`permissionPrompts: 'none'`** (never ask) are
   the alternatives [docs]; neither fits a card that waits for the user.
+- **A subagent's call to one of Glade's own tools (`glade`, `glade-control`) is refused before `canUseTool` runs
+  [docs]**, not decided by it: `glade`'s tools are pre-approved in `allowedTools`, a server-wide rule Claude Code lets
+  through without asking at all, and `bypassPermissions` skips `canUseTool` for every tool, `glade-control`'s included,
+  so neither mode leaves a hook for `canUseTool` to catch a subagent's call in. Instead a `PreToolUse` hook with no
+  matcher (`subagentGladeToolGuard`, `src/main/agent/sdk-backend.ts`) reads `agent_id` (set only for a subagent's call,
+  `BaseHookInput.agent_id`) and `mcp_server` (`source: 'sdk'` and a name Glade registered, never trusting a configured
+  server of the same name) off every `PreToolUse` input, and denies with `hookSpecificOutput: { hookEventName:
+  'PreToolUse', permissionDecision: 'deny', permissionDecisionReason }` before the tool ever dispatches (#366). Not
+  probed against a live session: built from `sdk.d.ts` and tested against the real `glade` MCP server, simulating the
+  SDK's documented dispatch order, since the scripted test backend has no SDK hooks to exercise
+  (`src/main/agent/subagent-tool-guard.test.ts`).
 
 ## 10. Claude Code's todo tools [verified]
 

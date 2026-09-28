@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { MIGRATIONS } from '.'
-import { pastedBlocksMigration } from './0044-pasted-blocks'
+import { pastedBlocksMigration } from './0045-pasted-blocks'
 
 let db: Database
 
@@ -49,9 +49,9 @@ function messageSearchBody(): unknown {
   return db.prepare("SELECT body FROM search_documents WHERE message_id = 'm' AND field = 'message'").pluck().get()
 }
 
-it('is migration 44, after every earlier one', () => {
-  expect(pastedBlocksMigration.version).toBe(44)
-  expect(MIGRATIONS.indexOf(pastedBlocksMigration)).toBe(MIGRATIONS.filter((m) => m.version < 44).length)
+it('is migration 45, after every earlier one', () => {
+  expect(pastedBlocksMigration.version).toBe(45)
+  expect(MIGRATIONS.indexOf(pastedBlocksMigration)).toBe(MIGRATIONS.filter((m) => m.version < 45).length)
 })
 
 it('starts with no blocks, and keeps their text as it was', () => {

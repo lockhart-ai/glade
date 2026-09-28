@@ -268,6 +268,29 @@ describe("a task's logs", () => {
     expect(applyEvent(state, { type: EventType.ToolEventUpdated, toolEvent: done }).toolEvents).toBe(state.toolEvents)
   })
 
+  it('evicts a tool event a refusal-fallback retry superseded, and is a no-op for a task with no log yet', () => {
+    const loaded = withHistory(state, 't1', {
+      messages: [],
+      toolEvents: [divider, call],
+      queuedMessages: [],
+      questionSets: [],
+      permissionRequests: [],
+      openFiles: noOpenFiles('t1'),
+      todos: null,
+      artifacts: [],
+      artifactGroups: [],
+      handoff: null,
+      watchers: [],
+      commits: [],
+    })
+
+    expect(
+      applyEvent(loaded, { type: EventType.ToolEventRemoved, taskId: 't1', toolEventId: call.id }).toolEvents,
+    ).toEqual({ t1: [divider] })
+    const untouched = applyEvent(state, { type: EventType.ToolEventRemoved, taskId: 't9', toolEventId: 'gone' })
+    expect(untouched.toolEvents).toBe(state.toolEvents)
+  })
+
   it('loads a history, keeping entries that events brought after it was read', () => {
     const early = sampleMessage('m1', 't1')
     const late = sampleMessage('m2', 't1', 'And fix it.')

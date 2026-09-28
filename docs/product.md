@@ -62,7 +62,7 @@ There are no follow-up tasks. One task can refer to another through its folder o
   (`<pasted_content id="…">…</pasted_content id="…">`, from the Opus 5.5 prompting guide, which helps it resist prompt
   injection inside text you pasted), at its place among what you typed; the tags and the token never show in the UI.
   Kept everywhere a message is: queued, in the draft, across a relaunch, and the sidebar search matches text inside a
-  pasted block too. ![Pasted content](design/screens/33-pasted-content.png)
+  pasted block too. ![Pasted content](design/screens/34-pasted-content.png)
 - **Links** — a link in what the agent or you wrote opens in your browser (a `mailto:` link in your mail app), never in
   Glade: in replies and your messages, the question and permission cards, the tool log's notes and output, the goal
   and status, todos, watchers and queued messages. Markdown links and bare URLs and email addresses are links; URLs in
@@ -121,8 +121,9 @@ are left to the OS.
 
 **The menu bar.** Glade's icon in the macOS menu bar shows what's waiting on you in every workspace: a monochrome glyph
 that follows light and dark menu bars and never moves, with the count of tasks that need you beside it (blank when none
-do). Clicking it drops a popover under it: **Needs you** (the task, its workspace and why: asking, permission, error or
-a reply waiting), **Working** (its status line, todo progress with a thin bar, and how long its turn has run) and
+do). Clicking it drops a popover under it: **Needs you** (the task, its workspace and why: asking, permission, error,
+declined by a safety check, or a reply waiting), **Working** (its status line, todo progress with a thin bar, and how
+long its turn has run) and
 **Recent** (the last notifications Glade sent, with their age; kept in the database, so they survive a relaunch), each
 hidden while empty, or "Nothing in flight". It updates live while open; a row opens Glade on its task, switching
 workspace if needed, and its footer has **Open Glade** and **Quit**. It hides on Esc or when it loses focus

@@ -4,6 +4,22 @@ The app gives the agent a small set of tools so the model can drive the UI. Expo
 in-process MCP server (e.g. `createSdkMcpServer`). Names and schemas are a **draft** — confirm with Jared before
 freezing them.
 
+## Main agent only (#366)
+
+Jared only ever talks to a task's main agent, never its subagents, so both of Glade's own in-process MCP servers —
+`glade` (below) and `glade-control` ("Glade's control tools", below) — refuse a subagent's call to any of their tools,
+whatever the tool, present or future: the model gets a tool error, "Only the main agent can use Glade's tools. Report
+what you have to the agent that started you instead." Nothing shows in the UI: no question card for a refused `ask`,
+no status, title or objective change, nothing opened in the Files tab or added to the Artifacts tab, and the control
+API changes, reads or messages no task.
+
+Decided by a `PreToolUse` hook (`src/main/agent/sdk-backend.ts`'s `subagentGladeToolGuard`, `docs/sdk-notes.md` §9)
+that denies the call before it ever dispatches, keyed on the SDK's `agent_id` (set only for a subagent's call, never
+the main agent's) and `mcp_server.source: 'sdk'` (so only Glade's own in-process servers are covered, never a
+configured server whose author names it `glade` too). This can't be `canUseTool`: `glade`'s tools are pre-approved in
+`allowedTools`, so Claude Code never asks about them, and Allow all (`bypassPermissions`) skips `canUseTool` for every
+tool, `glade-control`'s included; a `PreToolUse` hook fires regardless of permission mode, and is asked first.
+
 ## What a user message contains
 
 A message's content (`src/main/agent/user-content.ts`'s `userContent`, called from the runner's `hand`): an image
@@ -177,9 +193,11 @@ While Settings › Control lets agents control Glade, each session also gets a s
 (`src/main/control/`), bound to its task: the tools other agents drive Glade with, listing, reading, creating, changing,
 messaging and deleting tasks, and importing Claude Code sessions ([`control-api.md`](control-api.md)). Unlike
 `glade`'s, they aren't `alwaysLoad` (they sit behind tool search), and in the ask mode the ones that change things wait
-on a permission card; the reads don't. A task can't stop, delete or message itself through them. While the HTTP
-endpoint listens, the session also gets `GLADE_CONTROL_URL` and `GLADE_CONTROL_TOKEN` in its environment, for scripts
-it runs.
+on a permission card; the reads don't. A task can't stop, delete or message itself through them. A subagent can't call
+any of them either ("Main agent only", above): without that guard it would inherit the whole server, reads included,
+the same way the main agent does, since neither `glade-control` nor the SDK's built-in subagent types give it a
+restricted tool set of its own. While the HTTP endpoint listens, the session also gets `GLADE_CONTROL_URL` and
+`GLADE_CONTROL_TOKEN` in its environment, for scripts it runs.
 
 ## Not tools — from SDK events
 

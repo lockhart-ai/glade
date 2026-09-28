@@ -5,8 +5,10 @@ import { expect, it, vi } from 'vitest'
 import { CompactionTrigger, Effort, PermissionMode } from '../../shared/domain'
 import { LogLevel } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
+import { CONTROL_SERVER_NAME } from '../../shared/control'
 import { PromptVerdict, type AgentSessionOptions, type SessionHooks } from './backend'
-import { BLOCKED_PROMPT_REASON, sdkHooks, sdkOptions } from './sdk-backend'
+import { GLADE_SERVER } from './glade-tools'
+import { BLOCKED_PROMPT_REASON, SUBAGENT_TOOL_REFUSAL, sdkHooks, sdkOptions } from './sdk-backend'
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: vi.fn() }))
 
@@ -57,10 +59,10 @@ function handlers(overrides: Partial<SessionHooks> = {}): SessionHooks {
   return { onPrompt: vi.fn(() => PromptVerdict.Allow), onTurnEnded: vi.fn(), onCompacted: vi.fn(), ...overrides }
 }
 
-it('gives the SDK the hooks only when the session has some to tell', () => {
-  expect(sdkOptions(OPTIONS, {})).not.toHaveProperty('hooks')
+it('always gives the SDK the subagent tool guard, and the rest only when the session has some to tell', () => {
+  expect(Object.keys(sdkOptions(OPTIONS, {}).hooks ?? {})).toEqual(['PreToolUse'])
   const options = sdkOptions({ ...OPTIONS, hooks: handlers() }, {})
-  expect(Object.keys(options.hooks ?? {})).toEqual(['UserPromptSubmit', 'Stop', 'PostCompact'])
+  expect(Object.keys(options.hooks ?? {})).toEqual(['PreToolUse', 'UserPromptSubmit', 'Stop', 'PostCompact'])
 })
 
 it('asks about each prompt, letting it through or turning it away with the reason', async () => {
@@ -180,17 +182,17 @@ function bashInput(command: string, overrides: Record<string, unknown> = {}): Ho
   } as unknown as HookInput
 }
 
-/** Calls the `PreToolUse` hook, checking it's only for `Bash`. */
+/** Calls the `PreToolUse` hook matched to `Bash`, alongside the subagent tool guard every session gets. */
 function callBash(hooks: ReturnType<typeof sdkHooks>, input: HookInput) {
-  const [matcher] = hooks.PreToolUse ?? []
-  expect(matcher?.matcher).toBe('Bash')
+  const matcher = (hooks.PreToolUse ?? []).find((entry) => entry.matcher === 'Bash')
   const [hook] = matcher?.hooks ?? []
-  if (hook === undefined) throw new Error('no PreToolUse hook')
+  if (hook === undefined) throw new Error('no PreToolUse hook for Bash')
   return hook(input, 'toolu_bash', { signal: new AbortController().signal })
 }
 
 it('asks about each Bash call before it runs, only when the session wants to know, and waits for the answer', async () => {
-  expect(Object.keys(sdkHooks(handlers()))).toEqual(['UserPromptSubmit', 'Stop', 'PostCompact'])
+  // The subagent tool guard is always there; without `onBashStarting` it's the only `PreToolUse` matcher.
+  expect(sdkHooks(handlers()).PreToolUse).toHaveLength(1)
   let finish = (): void => undefined
   const onBashStarting = vi.fn(
     () =>
@@ -199,7 +201,7 @@ it('asks about each Bash call before it runs, only when the session wants to kno
       }),
   )
   const hooks = sdkHooks(handlers({ onBashStarting }))
-  expect(Object.keys(hooks)).toEqual(['UserPromptSubmit', 'Stop', 'PostCompact', 'PreToolUse'])
+  expect(hooks.PreToolUse?.map((entry) => entry.matcher)).toEqual([undefined, 'Bash'])
 
   let answered = false
   const answer = callBash(hooks, bashInput('git commit -m "Fix"', { cwd: '/code/acme-api-docs', agent_id: 'a1' })).then(
@@ -241,4 +243,104 @@ it('lets a Bash call run anyway when its input can’t be read, telling nothing,
   } finally {
     vi.useRealTimers()
   }
+})
+
+/** A `PreToolUse` input for an MCP tool call, as the SDK gives it (`mcp_server` only for `mcp__*` tools). */
+function mcpInput(
+  toolName: string,
+  mcpServer: { name: string; source: string } | undefined,
+  overrides: Record<string, unknown> = {},
+): HookInput {
+  return {
+    ...BASE,
+    hook_event_name: 'PreToolUse',
+    tool_name: toolName,
+    tool_input: {},
+    tool_use_id: 'toolu_glade',
+    ...(mcpServer === undefined ? {} : { mcp_server: mcpServer }),
+    ...overrides,
+  } as unknown as HookInput
+}
+
+const DENIED = {
+  hookSpecificOutput: {
+    hookEventName: 'PreToolUse',
+    permissionDecision: 'deny',
+    permissionDecisionReason: SUBAGENT_TOOL_REFUSAL,
+  },
+}
+
+/** Calls the subagent tool guard: the `PreToolUse` matcher with no `matcher` pattern, every session's first. */
+function callGuard(hooks: ReturnType<typeof sdkHooks>, input: HookInput) {
+  const [guard] = hooks.PreToolUse ?? []
+  const [hook] = guard?.hooks ?? []
+  if (hook === undefined) throw new Error('no subagent tool guard')
+  return hook(input, 'toolu_glade', { signal: new AbortController().signal })
+}
+
+it("refuses a subagent's call to any glade or glade-control tool, whatever its name, before canUseTool could", async () => {
+  const log = createMemoryLog()
+  const hooks = sdkHooks(undefined, log.logger)
+
+  // The main agent's own calls (no agent_id) run, glade's and glade-control's, `add_artifact` included.
+  await expect(
+    callGuard(hooks, mcpInput(`mcp__${GLADE_SERVER}__set_status`, { name: GLADE_SERVER, source: 'sdk' })),
+  ).resolves.toEqual({})
+  await expect(
+    callGuard(hooks, mcpInput(`mcp__${CONTROL_SERVER_NAME}__list_tasks`, { name: CONTROL_SERVER_NAME, source: 'sdk' })),
+  ).resolves.toEqual({})
+
+  // A subagent's call to any glade tool is refused, `add_artifact` included: the whole server is off limits, not
+  // just the user-facing tools (#366).
+  await expect(
+    callGuard(
+      hooks,
+      mcpInput(`mcp__${GLADE_SERVER}__ask`, { name: GLADE_SERVER, source: 'sdk' }, { agent_id: 'sub-1' }),
+    ),
+  ).resolves.toEqual(DENIED)
+  await expect(
+    callGuard(
+      hooks,
+      mcpInput(`mcp__${GLADE_SERVER}__add_artifact`, { name: GLADE_SERVER, source: 'sdk' }, { agent_id: 'sub-1' }),
+    ),
+  ).resolves.toEqual(DENIED)
+  expect(log.withMessage("refused a subagent's call to one of Glade's own tools")).toMatchObject([
+    { fields: { toolName: `mcp__${GLADE_SERVER}__ask`, server: GLADE_SERVER, agentId: 'sub-1' } },
+    { fields: { toolName: `mcp__${GLADE_SERVER}__add_artifact`, server: GLADE_SERVER, agentId: 'sub-1' } },
+  ])
+
+  // A subagent's call to glade-control, the control API (P13-01), is refused too: it's reachable the same way,
+  // inherited from the main agent with no tool restriction of its own.
+  await expect(
+    callGuard(
+      hooks,
+      mcpInput(
+        `mcp__${CONTROL_SERVER_NAME}__create_task`,
+        { name: CONTROL_SERVER_NAME, source: 'sdk' },
+        { agent_id: 'sub-1' },
+      ),
+    ),
+  ).resolves.toEqual(DENIED)
+
+  // A subagent's other tools, MCP or not, are untouched.
+  await expect(
+    callGuard(hooks, mcpInput('Bash', undefined, { agent_id: 'sub-1', tool_input: { command: 'ls' } })),
+  ).resolves.toEqual({})
+  await expect(
+    callGuard(hooks, mcpInput('mcp__github__create_issue', { name: 'github', source: 'user' }, { agent_id: 'sub-1' })),
+  ).resolves.toEqual({})
+
+  // A configured server pretending to be named `glade` isn't trusted: only `source: 'sdk'` is, per the SDK's own
+  // guidance to key trust decisions on it, never on the name (`docs/sdk-notes.md` §9).
+  await expect(
+    callGuard(
+      hooks,
+      mcpInput(`mcp__${GLADE_SERVER}__ask`, { name: GLADE_SERVER, source: 'user' }, { agent_id: 'sub-1' }),
+    ),
+  ).resolves.toEqual({})
+
+  // Input of a shape the SDK isn't documented to give is let through, not decided either way.
+  await expect(callGuard(hooks, { ...BASE, hook_event_name: 'PreToolUse' } as unknown as HookInput)).resolves.toEqual(
+    {},
+  )
 })

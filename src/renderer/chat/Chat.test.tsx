@@ -9,6 +9,7 @@ import {
   PauseReason,
   PermissionRequestState,
   QuestionSetState,
+  RefusalScope,
   TaskErrorSource,
   TaskState,
   TaskActivity,
@@ -506,6 +507,29 @@ describe('Chat', () => {
       /^Compacted · 198k → 41k$/,
     )
     expect(conversation()).not.toHaveTextContent('/compact')
+  })
+
+  it('shows a quiet notice where a safety refusal was answered by a fallback model', async () => {
+    const notice = {
+      id: 'r1',
+      taskId: 't1',
+      turn: 1,
+      createdAt: REPLIED_AT + 60_000,
+      kind: ToolEventKind.RefusalFallback,
+      originalModel: 'claude-opus-5-5',
+      fallbackModel: 'claude-sonnet-5',
+      category: 'cyber',
+      scope: RefusalScope.Session,
+    } as const
+    await renderChat({ messages: [ASK, REPLY], toolEvents: [...TURN_ONE, notice] })
+
+    const items = [...conversation().querySelectorAll('article, [role="separator"]')].map((item) =>
+      item.getAttribute('aria-label'),
+    )
+    expect(items).toEqual(['You', 'Agent', 'Answered by a fallback model'])
+    expect(within(conversation()).getByRole('separator', { name: 'Answered by a fallback model' })).toHaveTextContent(
+      'Answered by claude-sonnet-5: the request was declined by a safety check (cyber).',
+    )
   })
 
   it('highlights the latest reply as a question while the agent waits on you', async () => {

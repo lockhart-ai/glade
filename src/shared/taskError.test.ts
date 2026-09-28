@@ -47,6 +47,10 @@ describe('errorHeadline and errorStatusLine', () => {
     [error({ source: TaskErrorSource.Session, kind: AgentErrorKind.Permanent }), 'the agent process stopped'],
     [error({ source: TaskErrorSource.Turn, kind: AgentErrorKind.Permanent }), 'the turn failed'],
     [
+      error({ source: TaskErrorSource.Refusal, kind: AgentErrorKind.SafetyRefusal, code: 'cyber', status: null }),
+      'declined by a safety check',
+    ],
+    [
       error({ source: TaskErrorSource.Startup, kind: AgentErrorKind.Permanent, code: 'cwd_unavailable' }),
       'Claude Code couldn’t start',
     ],
@@ -67,6 +71,14 @@ describe('errorOpening', () => {
     [error({ kind: AgentErrorKind.Offline }), { lead: 'Glade couldn’t reach the API.', label: null }],
     [error({ source: TaskErrorSource.Session }), { lead: 'The agent’s process stopped unexpectedly.', label: null }],
     [error({ source: TaskErrorSource.Turn }), { lead: 'The turn ended on an error.', label: null }],
+    [
+      error({ source: TaskErrorSource.Refusal, kind: AgentErrorKind.SafetyRefusal, code: 'cyber', status: null }),
+      { lead: 'The request was declined by a safety check: ', label: 'cyber' },
+    ],
+    [
+      error({ source: TaskErrorSource.Refusal, kind: AgentErrorKind.SafetyRefusal, code: null, status: null }),
+      { lead: 'The request was declined by a safety check.', label: null },
+    ],
     [
       error({ source: TaskErrorSource.Startup, status: null, code: 'cwd_unavailable' }),
       { lead: 'The workspace folder is missing, so Claude Code couldn’t start in it.', label: null },

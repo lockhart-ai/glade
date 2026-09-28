@@ -18,6 +18,7 @@ import {
   clockTime,
   compactedLabel,
   markedDoneLabel,
+  refusalFallbackLabel,
   REOPENED_LABEL,
   ReplyStyle,
   restartLabel,
@@ -368,6 +369,12 @@ export function Chat(): React.JSX.Element {
               return (
                 <ChatDivider key={entry.compaction.id} name="Compacted">
                   {compactedLabel(entry)}
+                </ChatDivider>
+              )
+            case ChatEntryKind.RefusalFallback:
+              return (
+                <ChatDivider key={entry.event.id} name="Answered by a fallback model">
+                  {refusalFallbackLabel(entry)}
                 </ChatDivider>
               )
             case ChatEntryKind.Reopened:

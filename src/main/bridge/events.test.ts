@@ -12,6 +12,7 @@ import {
   emitQueueChanged,
   emitTaskUpdated,
   emitToolEventAppended,
+  emitToolEventRemoved,
   emitToolEventUpdated,
 } from './events'
 
@@ -43,11 +44,13 @@ it("emits a task's appended message and its appended and updated tool events", (
   emitMessageAppended(emit, message)
   emitToolEventAppended(emit, toolEvent)
   emitToolEventUpdated(emit, toolEvent)
+  emitToolEventRemoved(emit, task.id, toolEvent.id)
 
   expect(emit.mock.calls).toEqual([
     [{ type: EventType.MessageAppended, message }],
     [{ type: EventType.ToolEventAppended, toolEvent }],
     [{ type: EventType.ToolEventUpdated, toolEvent }],
+    [{ type: EventType.ToolEventRemoved, taskId: task.id, toolEventId: toolEvent.id }],
   ])
 })
 

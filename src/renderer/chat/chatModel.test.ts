@@ -40,13 +40,14 @@ import {
 
 const task = sampleTask('t1', 'w1')
 
-/** Each entry's message id, or its divider's, question set's or permission request's id. */
+/** Each entry's message id, or its divider's, compaction's, refusal notice's, question set's or permission request's id. */
 function kinds(entries: readonly ChatEntry[]): unknown[] {
   return entries.map((entry) => {
     if ('message' in entry) return entry.message.id
     if ('questionSet' in entry) return entry.questionSet.id
     if ('request' in entry) return entry.request.id
-    return 'compaction' in entry ? entry.compaction.id : entry.divider.id
+    if ('compaction' in entry) return entry.compaction.id
+    return 'event' in entry ? entry.event.id : entry.divider.id
   })
 }
 

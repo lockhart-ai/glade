@@ -108,6 +108,8 @@ it('runs the session in the workspace root, allowing all, with the workspace and
     agentProgressSummaries: true,
     stderr: expect.any(Function) as unknown,
     perTaskStopAffordance: true,
+    // The subagent tool guard (#366): always there, whether or not the session tells the runner anything else.
+    hooks: { PreToolUse: [{ hooks: [expect.any(Function) as unknown] }] },
   })
 })
 
@@ -252,6 +254,7 @@ it('starts one streaming-input query per session, in the environment, and pushes
       ...sdkOptions(OPTIONS, { ...ENV, CLAUDE_AGENT_SDK_CLIENT_APP: 'glade/1.2.3' }),
       canUseTool: expect.any(Function) as unknown,
       stderr: expect.any(Function) as unknown,
+      hooks: { PreToolUse: [{ hooks: [expect.any(Function) as unknown] }] },
     },
   })
   const streamed: unknown[] = []
@@ -392,6 +395,7 @@ it("doesn't start the agent until the environment is known, then does what was a
       ...sdkOptions(OPTIONS, { ...ENV, CLAUDE_AGENT_SDK_CLIENT_APP: 'glade/1.2.3' }),
       canUseTool: expect.any(Function) as unknown,
       stderr: expect.any(Function) as unknown,
+      hooks: { PreToolUse: [{ hooks: [expect.any(Function) as unknown] }] },
     },
   })
   expect(await pushedMessages(2)).toEqual(['Hi', 'Fix it.'])

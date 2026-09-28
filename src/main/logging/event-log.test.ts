@@ -12,6 +12,7 @@ import {
   QuestionKind,
   QuestionReplyKind,
   QuestionSetState,
+  RefusalScope,
   TaskActivity,
   TaskErrorSource,
   TaskState,
@@ -406,6 +407,46 @@ describe('the tool log', () => {
         message: 'compaction finished',
         fields: expect.objectContaining({ preTokens: 180_000, postTokens: 40_000, windowTokens: 200_000 }) as unknown,
       }),
+    ])
+  })
+
+  it('logs a refusal-fallback notice, and an evicted tool event', () => {
+    logEvent({
+      type: EventType.ToolEventAppended,
+      toolEvent: {
+        id: 'event-3',
+        taskId: 'task-1',
+        turn: 2,
+        createdAt: 1,
+        kind: ToolEventKind.RefusalFallback,
+        originalModel: 'claude-opus-5-5',
+        fallbackModel: 'claude-sonnet-5',
+        category: 'cyber',
+        scope: RefusalScope.Session,
+      },
+    })
+    logEvent({ type: EventType.ToolEventRemoved, taskId: 'task-1', toolEventId: 'event-4' })
+
+    expect(logged()).toEqual([
+      {
+        level: LogLevel.Info,
+        scope: LogScope.Tools,
+        message: 'refusal answered by fallback model',
+        fields: {
+          taskId: 'task-1',
+          turn: 2,
+          originalModel: 'claude-opus-5-5',
+          fallbackModel: 'claude-sonnet-5',
+          category: 'cyber',
+          scope: RefusalScope.Session,
+        },
+      },
+      {
+        level: LogLevel.Info,
+        scope: LogScope.Tools,
+        message: 'tool log entry evicted',
+        fields: { taskId: 'task-1', toolEventId: 'event-4' },
+      },
     ])
   })
 

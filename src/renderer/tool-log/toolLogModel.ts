@@ -228,6 +228,9 @@ export function toolLogRows(events: readonly ToolEvent[]): ToolLogRow[] {
       case ToolEventKind.Compaction:
         rows.push({ kind: ToolEventKind.Compaction, compaction: event })
         break
+      // The refusal notice is the chat's own quiet row (`../chat/chatModel`); the tool log doesn't show it.
+      case ToolEventKind.RefusalFallback:
+        break
       case ToolEventKind.ToolCall: {
         const children: SubagentRow[] = []
         nest(event.parentToolUseId, {
@@ -256,6 +259,7 @@ export function isParentEvent(event: ToolEvent): boolean {
       return event.parentToolUseId === null
     case ToolEventKind.Divider:
     case ToolEventKind.Compaction:
+    case ToolEventKind.RefusalFallback:
       return true
   }
 }

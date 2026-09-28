@@ -1138,6 +1138,7 @@ export enum EventType {
   MessageAppended = 'message.appended',
   ToolEventAppended = 'toolEvent.appended',
   ToolEventUpdated = 'toolEvent.updated',
+  ToolEventRemoved = 'toolEvent.removed',
   TaskOpenRequested = 'task.openRequested',
   QueueChanged = 'queue.changed',
   QuestionOpened = 'question.opened',
@@ -1215,6 +1216,16 @@ export interface ToolEventAppendedEvent {
 export interface ToolEventUpdatedEvent {
   readonly type: EventType.ToolEventUpdated
   readonly toolEvent: ToolEvent
+}
+
+/**
+ * A tool log entry was evicted: a refusal-fallback retry superseded it (`docs/sdk-notes.md`), so it's gone from the
+ * chat and tool log, not merely updated.
+ */
+export interface ToolEventRemovedEvent {
+  readonly type: EventType.ToolEventRemoved
+  readonly taskId: string
+  readonly toolEventId: string
 }
 
 /**
@@ -1450,6 +1461,7 @@ export type GladeEvent =
   | MessageAppendedEvent
   | ToolEventAppendedEvent
   | ToolEventUpdatedEvent
+  | ToolEventRemovedEvent
   | TaskOpenRequestedEvent
   | QueueChangedEvent
   | QuestionOpenedEvent

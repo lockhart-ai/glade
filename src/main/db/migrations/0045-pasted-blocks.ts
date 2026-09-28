@@ -14,7 +14,7 @@ import type { Migration } from '../migrate'
  * inside a pasted block too, without a token or a tag ever reaching the index.
  */
 export const pastedBlocksMigration: Migration = {
-  version: 44,
+  version: 45,
   name: 'Add the text pasted into messages',
   up(db) {
     db.exec(`

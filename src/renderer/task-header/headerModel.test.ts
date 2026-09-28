@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { DividerKind, TaskActivity, TaskState, ToolEventKind, type ToolEvent } from '../../shared/domain'
+import {
+  AgentErrorKind,
+  DividerKind,
+  TaskActivity,
+  TaskErrorSource,
+  TaskState,
+  ToolEventKind,
+  type TaskError,
+  type ToolEvent,
+} from '../../shared/domain'
 import { sampleTask } from '../store/test-bridge'
 import {
   age,
@@ -98,7 +107,7 @@ describe('offersMarkDone and canMarkDone', () => {
 })
 
 describe('stateLabel', () => {
-  const active = { state: TaskState.Active, doneAt: null, updatedAt: STARTED }
+  const active = { state: TaskState.Active, doneAt: null, updatedAt: STARTED, error: null }
 
   it.each([
     [TaskActivity.Working, 'Active · working'],
@@ -109,8 +118,21 @@ describe('stateLabel', () => {
     expect(stateLabel({ ...active, activity })).toBe(expected)
   })
 
+  it('labels an active task a safety refusal with no fallback stopped apart from any other error', () => {
+    const error: TaskError = {
+      kind: AgentErrorKind.SafetyRefusal,
+      source: TaskErrorSource.Refusal,
+      status: null,
+      code: 'cyber',
+      details: 'Declined.',
+      retries: 0,
+      retryingMs: 0,
+    }
+    expect(stateLabel({ ...active, activity: TaskActivity.Error, error })).toBe('Active · declined by a safety check')
+  })
+
   it('labels a done task with the day it was done', () => {
-    const done = { state: TaskState.Done, activity: TaskActivity.Waiting, updatedAt: STARTED }
+    const done = { state: TaskState.Done, activity: TaskActivity.Waiting, updatedAt: STARTED, error: null }
     expect(stateLabel({ ...done, doneAt: DONE })).toBe('Done · Sep 23')
     expect(stateLabel({ ...done, doneAt: null })).toBe('Done · Sep 23')
   })
@@ -226,7 +248,7 @@ describe('a reopened task', () => {
   const task = { ...sampleTask('t1', 'w1', 'Fix it'), createdAt: STARTED }
 
   it('says it was reopened while the agent works on the reopening message, and its usual label otherwise', () => {
-    const active = { state: TaskState.Active, doneAt: null, updatedAt: STARTED }
+    const active = { state: TaskState.Active, doneAt: null, updatedAt: STARTED, error: null }
     expect(stateLabel({ ...active, activity: TaskActivity.Working }, reopened)).toBe('Active · reopened')
     expect(stateLabel({ ...active, activity: TaskActivity.Working }, { ...reopened, latestTurn: false })).toBe(
       'Active · working',
