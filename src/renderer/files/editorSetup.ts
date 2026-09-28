@@ -78,9 +78,9 @@ export const editorTheme = EditorView.theme(
     },
     // A thin caret, and a selection in the app's blue.
     '.cm-cursor, .cm-dropCursor': { borderLeft: '1.5px solid var(--color-text)', marginLeft: '-0.75px' },
-    '.cm-selectionBackground': { backgroundColor: 'rgba(91, 141, 239, 0.22)' },
+    '.cm-selectionBackground': { backgroundColor: 'rgba(91, 141, 239, 0.28)' },
     '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': {
-      backgroundColor: 'rgba(91, 141, 239, 0.32)',
+      backgroundColor: 'rgba(91, 141, 239, 0.45)',
     },
     '.cm-panels': { backgroundColor: 'transparent', color: 'var(--color-text)' },
     '.cm-panels.cm-panels-top': { borderBottom: 'none' },

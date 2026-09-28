@@ -73,6 +73,11 @@ test('editor: edit, save with ⌘S, and the agent changing the file', async ({ l
     'Requests without a key are counted per IP address. Keys are case-sensitive.',
   )
   await expect(files.unsaved('rate-limits.md')).toBeVisible()
+  // A long line scrolls the editor sideways, and nothing else: one scroll bar, as the viewer has.
+  await expect.poll(() => files.scroller.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
+  await expect
+    .poll(() => taskPanel(window).tabPanel.evaluate((element) => element.scrollWidth - element.clientWidth))
+    .toBe(0)
   await window.keyboard.press('Meta+z')
   await expect(files.unsaved('rate-limits.md')).toHaveCount(0)
   await window.keyboard.press('Meta+Shift+z')

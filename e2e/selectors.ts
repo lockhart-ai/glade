@@ -361,6 +361,8 @@ export function filesTab(page: Page) {
     line: (number: number) => source.locator(`[data-line="${String(number)}"]`),
     /** A workspace file's editor: the text you type into. */
     editor: panel.getByRole('textbox', { name: / contents$/ }),
+    /** What scrolls the editor's text, up and down and sideways. */
+    scroller: panel.locator('.cm-scroller'),
     /** A line of the editor, by its number from 1 (while every line shows: a short file). */
     editorLine: (number: number) => panel.locator('.cm-content .cm-line').nth(number - 1),
     /** The editor's line numbers, as they show. */
