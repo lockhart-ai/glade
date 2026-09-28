@@ -54,6 +54,7 @@ import {
   type SettingsUpdateRequest,
   type PluginsSetEnabledRequest,
   type PluginsPlaceViewRequest,
+  type PluginsReloadRequest,
   type WorkspacesUpdateRequest,
   type WorkspacesRevealRequest,
 } from '../../shared/bridge'
@@ -317,6 +318,8 @@ const pluginsPlaceViewRequest = z.strictObject({
   bounds: viewBounds.nullable(),
 }) satisfies z.ZodType<PluginsPlaceViewRequest>
 
+const pluginsReloadRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<PluginsReloadRequest>
+
 const clipboardWriteTextRequest = z.strictObject({ text: z.string() }) satisfies z.ZodType<ClipboardWriteTextRequest>
 
 // Which schemes open is main's to check, when it opens the link (`../links/links`), so a refused one is logged.
@@ -460,6 +463,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.PluginsSetEnabled]: pluginsSetEnabledRequest,
   [CommandName.PluginsOpenFolder]: emptyRequest,
   [CommandName.PluginsPlaceView]: pluginsPlaceViewRequest,
+  [CommandName.PluginsReload]: pluginsReloadRequest,
   [CommandName.TerminalList]: emptyRequest,
   [CommandName.TerminalCreate]: terminalCreateRequest,
   [CommandName.TerminalDuplicate]: terminalIdRequest,

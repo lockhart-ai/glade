@@ -14,6 +14,13 @@ A plugin is a folder in Glade's plugins folder, `~/Library/Application Support/g
 copying the folder there; removing is deleting it. Settings › Plugins lists what's there, turns each plugin on or off,
 and opens the folder. Glade reads the folder when it starts and when you open Settings › Plugins.
 
+**Reinstalling.** Copying a new build over a plugin that's running (shown beside the terminal) doesn't need a
+restart: the next time Glade reads the folder (opening Settings › Plugins), a plugin whose manifest version or entry
+file changed since is reloaded automatically, keeping its place in the bottom bar and its saved panel width. Each
+plugin's row also has a **Reload** button, beside its toggle, that reloads its view right away without reading the
+folder again — handy while you're iterating on a build and don't want to wait for a rescan. Reloading starts the
+handshake over: the page's `ready` posts a fresh `hello` and `snapshot`, as it does whenever the page loads.
+
 ```
 plugins/
   nekomata/

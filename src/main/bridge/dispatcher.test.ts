@@ -131,6 +131,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.PluginsSetEnabled]: () => ({ plugins: [] }),
     [CommandName.PluginsOpenFolder]: () => null,
     [CommandName.PluginsPlaceView]: () => ({ status: '' }),
+    [CommandName.PluginsReload]: () => null,
     [CommandName.ControlStatus]: () => ({ status: CONTROL_STATUS }),
     [CommandName.AccountStatus]: () => ({ status: { account: null, usage: [] } }),
     [CommandName.ControlRegenerateToken]: () => ({ status: CONTROL_STATUS }),

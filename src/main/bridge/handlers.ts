@@ -334,6 +334,10 @@ export function createHandlers(context: HandlerContext): Handlers {
       return null
     },
     [CommandName.PluginsPlaceView]: ({ id, bounds }) => pluginViews.place(id, bounds),
+    [CommandName.PluginsReload]: ({ id }) => {
+      plugins.reload(id)
+      return null
+    },
     [CommandName.TerminalList]: () => ({ tabs: terminals.list() }),
     [CommandName.TerminalCreate]: ({ workspaceId }) => ({
       tab: terminals.create(terminalWorkspace(db, workspaceId)),

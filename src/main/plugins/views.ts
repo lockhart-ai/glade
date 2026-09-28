@@ -71,6 +71,12 @@ export interface PluginViews {
   place(id: string, bounds: PluginViewBounds | null): { readonly status: string }
   /** The plugins changed: a view whose plugin is no longer on (or gone, or invalid) is destroyed. */
   update(plugins: readonly InstalledPlugin[]): void
+  /**
+   * Reloads the view for each id that's the one shown (at most one is): destroys its page and makes a fresh one,
+   * placed back at the same bounds if it was showing (kept hidden if it wasn't, until the next `place`). A no-op for
+   * an id that isn't shown, or once the plugin is off or gone.
+   */
+  reload(ids: readonly string[]): void
   /** Destroys the view, if there is one: the app is quitting. */
   close(): void
 }
@@ -86,6 +92,8 @@ interface Shown {
   status: string
   /** Whether messages are being dropped for coming too fast, so the log says so once, not per message. */
   flooding: boolean
+  /** Where it's placed now; null while it's hidden. What a reload places it back at, if it was showing. */
+  bounds: PluginViewBounds | null
 }
 
 export function createPluginViews({
@@ -173,7 +181,7 @@ export function createPluginViews({
       },
     })
     if (view === null) return null
-    current = { id: plugin.folder, view, seq: 0, unsubscribe: null, status: '', flooding: false }
+    current = { id: plugin.folder, view, seq: 0, unsubscribe: null, status: '', flooding: false, bounds: null }
     log.info('plugin view created', { id: plugin.folder })
     return current
   }
@@ -185,15 +193,31 @@ export function createPluginViews({
       if (shown !== null && shown.id !== id) destroy(shown, 'another plugin is shown')
       if (bounds === null) {
         shown?.view.hide()
+        if (shown !== null) shown.bounds = null
         return { status: shown?.status ?? '' }
       }
       shown ??= open(plugin)
+      if (shown !== null) shown.bounds = bounds
       shown?.view.place(bounds)
       return { status: shown?.status ?? '' }
     },
     update(next) {
       plugins = next
       if (shown !== null && enabled(shown.id) === undefined) destroy(shown, 'the plugin is off')
+    },
+    reload(ids) {
+      if (shown === null || !ids.includes(shown.id)) return
+      const plugin = enabled(shown.id)
+      const bounds = shown.bounds
+      destroy(shown, 'reloaded')
+      // `update` destroys the view the moment its plugin isn't enabled, so `shown` never outlives it going off:
+      // `plugin` is only ever undefined in theory. Hidden (no bounds), there's nothing to show yet: leave it
+      // destroyed for the next `place` to make afresh.
+      if (plugin === undefined || bounds === null) return
+      shown = open(plugin)
+      if (shown === null) return
+      shown.bounds = bounds
+      shown.view.place(bounds)
     },
     close() {
       if (shown !== null) destroy(shown, 'the app is quitting')
