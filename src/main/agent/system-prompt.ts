@@ -108,7 +108,9 @@ export function systemPromptAppend(
       'to it in preamble, then ask.',
     '',
     `When you make a deliverable the user asked for (a report, a document, a draft), call ${GladeTool.AddArtifact} ` +
-      'with its path and a short title, so it shows in the Artifacts tab and stays with the task after it is done.',
+      'with its path and a short title, so it shows in the Artifacts tab and stays with the task after it is done. ' +
+      `Keep that list current: if its file moves or it needs a new title, call ${GladeTool.UpdateArtifact}; if it's no ` +
+      `longer a deliverable, call ${GladeTool.RemoveArtifact}.`,
     '',
     WATCHERS_LINE,
   )

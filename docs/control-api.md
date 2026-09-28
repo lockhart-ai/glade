@@ -310,7 +310,9 @@ selected in the window.
   patch: { title?: string; objective?: string; status?: string; pinned?: boolean; unread?: boolean
            model?: string; effort?: Effort; permissionMode?: PermissionMode
            handoff?: string | null                          // a new handoff note; null clears it
-           artifacts?: { path: string; title?: string }[] } }   // more artifacts, by absolute path
+           artifacts?: { path: string; title?: string }[]   // more artifacts, by absolute path
+           updateArtifacts?: { path: string; title?: string; newPath?: string }[]   // rename or repoint (#385)
+           removeArtifacts?: string[] } }                   // take off, by absolute path; the files stay
 → { task: TaskDetail }
 ```
 
@@ -319,9 +321,22 @@ summary. A new `permissionMode` applies from the agent's next tool call, as the 
 as `create_task` checks it, and keeps the task's effort only if it supports it: otherwise the task takes the model's
 default. Done and active go
 through `mark_done` and `reopen_task`. A patch of only `unread` doesn't move the task in the sidebar, as marking it
-read or unread there doesn't, and nor does a patch of only `handoff` and `artifacts`, so a backfilled task keeps its
-date. A new handoff note reaches the agent from its next session (the next message after its current one ends, or a
-relaunch).
+read or unread there doesn't, and nor does a patch of only `handoff`, `artifacts`, `updateArtifacts` and
+`removeArtifacts`, so a backfilled task keeps its date. A new handoff note reaches the agent from its next session (the
+next message after its current one ends, or a relaunch).
+
+The three artifact fields are the control API's side of the agent's `add_artifact`, `update_artifact` and
+`remove_artifact` ([`model-surface.md`](model-surface.md)). They apply `removeArtifacts` first, then
+`updateArtifacts`, one after another, then `artifacts`, each against the list the ones before leave (so a removal
+frees its path for a change to take). `artifacts` adds, or renames one given again (its title the file name
+when left out), as before. Each of `updateArtifacts` names an artifact by its absolute `path` (its file needn't still be
+there) and gives a new `title`, a `newPath` (an absolute path to a file inside the workspace, checked as `artifacts`
+checks one, that isn't another of its artifacts), or both; it keeps its place in the Artifacts tab. `removeArtifacts`
+takes artifacts off by absolute path, leaving their files. Anything it can't do fails the whole call as
+`invalid_input`, naming the field, e.g. `patch.removeArtifacts.0: notes/draft.md isn't one of the task's artifacts`,
+`patch.updateArtifacts.0.newPath: … is already one of the task's artifacts` or `patch.updateArtifacts.0: changes
+nothing`, and nothing changes, the task's other fields included. The windows get one `artifacts.changed` with the
+task's whole list.
 
 ### `send_message`
 
@@ -406,8 +421,8 @@ and makes one task from it with `create_task`, giving it:
   without making duplicates.
 
 A backfilled task never starts its agent by itself: only a `message` given with an active one, or one sent to it
-later, does. `update_task` sets, replaces or clears (`null`) the handoff note and adds artifacts; `get_task` returns
-both. The window never changes the note.
+later, does. `update_task` sets, replaces or clears (`null`) the handoff note and adds, changes or removes artifacts;
+`get_task` returns both. The window never changes the note.
 
 **What the user sees:** a **Backfilled** card at the top of the task's chat ([`25-backfilled.html`](design/html/25-backfilled.html)), with the
 handoff note rendered as Markdown (raw HTML dropped, nothing loaded, links not followed) and the date it was added. It

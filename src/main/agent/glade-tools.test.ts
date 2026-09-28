@@ -125,6 +125,8 @@ describe('the server', () => {
       GladeTool.Ask,
       GladeTool.ShowFile,
       GladeTool.AddArtifact,
+      GladeTool.UpdateArtifact,
+      GladeTool.RemoveArtifact,
     ])
     for (const listed of tools) expect(listed._meta).toEqual({ 'anthropic/alwaysLoad': true })
     expect(tools.map((listed) => listed.inputSchema.required)).toEqual([
@@ -134,6 +136,8 @@ describe('the server', () => {
       ['questions'],
       ['path'],
       ['path', 'title'],
+      ['path'],
+      ['path'],
     ])
     await client.close()
   })
@@ -152,6 +156,8 @@ describe('the server', () => {
       GladeTool.Ask,
       GladeTool.ShowFile,
       GladeTool.AddArtifact,
+      GladeTool.UpdateArtifact,
+      GladeTool.RemoveArtifact,
     ])
     await client.close()
   })

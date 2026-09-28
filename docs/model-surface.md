@@ -143,6 +143,29 @@ thumbnail of an image (`files.thumbnail`) or its type (from the extension), newe
 (noted as it's declared, and again when a tool call writes it or, while the tab is open, the file changes on disk),
 under date headers.
 
+## Implemented: `update_artifact` and `remove_artifact` (#385, names unconfirmed)
+
+The agent keeps the list current with two more tools, each taking the artifact's `path` as it was added (absolute or
+relative to the workspace root; its file needn't still be there). Both broadcast `artifacts.changed` with the task's
+whole list, so the Artifacts tab (and an image viewer open on it) follows at once. A path that isn't one of the task's
+artifacts, or is outside the workspace, is a tool error (`<path> isn't one of this task's artifacts.`) and changes
+nothing.
+
+- **`mcp__glade__update_artifact`** takes `{ path: string, title?: string, newPath?: string }`, and needs at least one
+  of `title` and `newPath` (neither is a tool error). `newPath` is checked as `add_artifact` checks a path (a file
+  inside the workspace, symlinks included), and mustn't be another of the task's artifacts (a tool error: remove one
+  first). The artifact keeps its place and, without a `title`, its title; its new file's last change is noted, which
+  places it in the tab. The handler is `updateTaskArtifact` in `src/main/artifacts/artifacts.ts`. The reply says what
+  changed: `Renamed the artifact <path> to "<title>".`, `Moved the artifact "<title>" from <path> to <newPath>.`,
+  `Moved the artifact <path> to <newPath>, now called "<title>".`, or, for the same title and file,
+  `The artifact <path> is already called "<title>"; nothing changed.` (nothing is written or broadcast).
+- **`mcp__glade__remove_artifact`** takes `{ path: string }` and takes the artifact off the list, as the tab's Remove
+  from artifacts does, leaving the file alone (`forgetTaskArtifact`). The reply is
+  `Removed <path> ("<title>") from the artifacts. The file itself is untouched.`
+
+`add_artifact` still renames an artifact declared again, as before, so older habits keep working; `update_artifact`
+is the way to change one on purpose, and the only way to repoint it.
+
 | Tool | Input (draft) | Effect |
 |---|---|---|
 | `set_title` | `{ title: string }` | Names the task. Called once from the first message; the user can rename later. |
@@ -150,6 +173,8 @@ under date headers.
 | `set_status` | `{ status: string }` | Rewrites the status summary shown in the header and the task list. Becomes the outcome on Done. |
 | `ask` | `{ preamble?: string, questions: Question[] }` | Shows a rich question card in the chat, led by the agent's reply to your message, and blocks until answered. See below. |
 | `add_artifact` | `{ path: string, title: string }` | Declares a file as a deliverable of the task (Artifacts tab). |
+| `update_artifact` | `{ path: string, title?: string, newPath?: string }` | Renames an artifact and/or points it at another file, keeping its place. |
+| `remove_artifact` | `{ path: string }` | Takes a file off the task's artifacts; the file stays. |
 | `show_file` | `{ path: string, line?: number }` | Opens a file in the Files tab for the user. |
 
 `Question` (draft):
@@ -228,7 +253,7 @@ The user sees the task through its title, objective and status. Keep them curren
 
 When you need the user to decide something before you can go on, call ask instead of asking in your reply: it shows your questions on a card and waits for the answers. Ask everything you need at once, with choices or pills when the likely answers are known. When you ask in response to a message, first respond to it in preamble, then ask.
 
-When you make a deliverable the user asked for (a report, a document, a draft), call add_artifact with its path and a short title, so it shows in the Artifacts tab and stays with the task after it is done.
+When you make a deliverable the user asked for (a report, a document, a draft), call add_artifact with its path and a short title, so it shows in the Artifacts tab and stays with the task after it is done. Keep that list current: if its file moves or it needs a new title, call update_artifact; if it's no longer a deliverable, call remove_artifact.
 
 When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows in the task's Watchers tab.
 ```

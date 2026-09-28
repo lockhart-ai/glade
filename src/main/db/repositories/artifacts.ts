@@ -66,6 +66,40 @@ export function setArtifactFile(db: Database, { taskId, path, file }: ArtifactFi
   return statement.run().changes > 0
 }
 
+/** A change to one of a task's artifacts: the file it points to (`newPath`, relative to the root) and its title. */
+export interface ArtifactChange {
+  readonly taskId: string
+  /** Where it points now, relative to the task's workspace root. */
+  readonly path: string
+  /** Where it's to point, relative to the root: `path` itself to keep it. */
+  readonly newPath: string
+  readonly title: string
+}
+
+/** One of a task's artifacts, by its path; undefined when it isn't one. */
+export function getArtifact(db: Database, taskId: string, path: string): Artifact | undefined {
+  const raw: unknown = db.prepare(`SELECT ${COLUMNS} FROM artifacts WHERE task_id = ? AND path = ?`).get(taskId, path)
+  return raw === undefined ? undefined : parseArtifact(raw)
+}
+
+/**
+ * Points one of a task's artifacts at another file and gives it a title, keeping its place (when it was first
+ * declared). What was seen of its file stays until it's looked at again. Answers with the artifact as it now is, or
+ * undefined when `path` isn't one; `newPath` must not be another of the task's artifacts.
+ */
+export function changeArtifact(
+  db: Database,
+  { taskId, path, newPath, title }: ArtifactChange,
+  now: EpochMs = Date.now(),
+): Artifact | undefined {
+  const raw: unknown = db
+    .prepare(
+      `UPDATE artifacts SET path = ?, title = ?, updated_at = ? WHERE task_id = ? AND path = ? RETURNING ${COLUMNS}`,
+    )
+    .get(newPath, title, now, taskId, path)
+  return raw === undefined ? undefined : parseArtifact(raw)
+}
+
 /** Removes one of a task's artifacts (the file stays). Answers whether it was one. */
 export function removeArtifact(db: Database, taskId: string, path: string): boolean {
   return db.prepare('DELETE FROM artifacts WHERE task_id = ? AND path = ?').run(taskId, path).changes > 0

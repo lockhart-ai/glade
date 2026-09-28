@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 // Each library script, played through the real agent runner into a database: what the chat, tool log and task end up
@@ -242,6 +242,48 @@ describe('AGENT_SCRIPTS', () => {
         ['docs/releases/2.4-upgrade.md', 'Upgrade guide'],
       ])
       expect(reply()).toBe('The release notes and an upgrade guide are ready in Artifacts.')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('curates-artifacts: declares three screenshots, then repoints and renames one and takes another off', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'glade-curates-artifacts-'))
+    try {
+      mkdirSync(join(root, 'screens'), { recursive: true })
+      for (const name of ['landing.png', 'landing-dark.png', 'search-mobile.png', 'nav-tree.png']) {
+        writeFileSync(join(root, 'screens', name), 'png')
+      }
+      task = sampleTask(database.db, sampleWorkspace(database.db, root).id)
+      // Real timers: the artifact tools read the disk, which fake timers would race with the tool call's timeout.
+      vi.useRealTimers()
+      const agent = start('curates-artifacts')
+      agent.send(task.id, 'Screenshot the docs site.')
+      await backend.whenIdle()
+      expect(listArtifacts(database.db, task.id).map(({ path, title }) => [path, title])).toEqual([
+        ['screens/landing.png', 'Landing page'],
+        ['screens/search-mobile.png', 'Search results on mobile'],
+        ['screens/nav-tree.png', 'Old navigation'],
+      ])
+
+      agent.send(task.id, 'The landing page is retaken in the dark theme; drop the old navigation.')
+      await backend.whenIdle()
+
+      expect(
+        calls()
+          .map((call) => [call.name, call.state])
+          .slice(-3),
+      ).toEqual([
+        ['mcp__glade__update_artifact', ToolCallState.Done],
+        ['mcp__glade__remove_artifact', ToolCallState.Done],
+        ['mcp__glade__set_status', ToolCallState.Done],
+      ])
+      expect(listArtifacts(database.db, task.id).map(({ path, title }) => [path, title])).toEqual([
+        ['screens/landing-dark.png', 'Landing page, dark theme'],
+        ['screens/search-mobile.png', 'Search results on mobile'],
+      ])
+      expect(existsSync(join(root, 'screens', 'nav-tree.png'))).toBe(true)
+      expect(listMessages(database.db, task.id).at(-1)?.body).toMatch(/took the old navigation off the list/)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

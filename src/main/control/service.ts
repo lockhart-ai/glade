@@ -13,7 +13,14 @@ import { TaskState, type Effort, type PermissionMode, type Task } from '../../sh
 import type { AgentRunner } from '../agent/runner'
 import { emitTaskUpdated, type Emit } from '../bridge/events'
 import { CommandFailure } from '../bridge/errors'
-import { addArtifact, listArtifacts } from '../db/repositories/artifacts'
+import { lookAtArtifactFile } from '../artifacts/artifacts'
+import {
+  addArtifact,
+  changeArtifact,
+  listArtifacts,
+  removeArtifact,
+  setArtifactFile,
+} from '../db/repositories/artifacts'
 import { findTaskByExternalId, getHandoff, setExternalId, setHandoff } from '../db/repositories/backfills'
 import { lastTurn, listMessages } from '../db/repositories/messages'
 import { searchTaskIds } from '../db/repositories/search'
@@ -39,7 +46,16 @@ import {
 } from './claude-code/service'
 import type { SkippedCounts } from './claude-code/session'
 import { claudeProjectsDir } from './claude-code/transcripts'
-import { checkArtifacts, startedAt as startedAtOf, type ArtifactRegistration, type CheckedArtifact } from './backfill'
+import {
+  checkArtifactRemovals,
+  checkArtifacts,
+  checkArtifactUpdates,
+  planArtifactChanges,
+  startedAt as startedAtOf,
+  type ArtifactRegistration,
+  type ArtifactUpdateRequest,
+  type CheckedArtifact,
+} from './backfill'
 import { ControlError, ControlErrorCode } from './errors'
 import { createListings } from './listings'
 import {
@@ -131,10 +147,16 @@ export interface CreatedTask {
   readonly created: boolean
 }
 
-/** The changes `update_task` makes: the task's fields, its handoff note (null clears it) and artifacts to register. */
+/**
+ * The changes `update_task` makes: the task's fields, its handoff note (null clears it), and its artifacts: those to
+ * take off, then those to change, then those to register.
+ */
 export interface TaskUpdate extends TaskChange {
   readonly handoff?: string | null
   readonly artifacts?: readonly ArtifactRegistration[]
+  readonly updateArtifacts?: readonly ArtifactUpdateRequest[]
+  /** Artifacts to take off, by absolute path; their files stay. */
+  readonly removeArtifacts?: readonly string[]
 }
 
 /** What sending a message did with it, as the input bar decides. */
@@ -320,22 +342,36 @@ export function createControlService(context: ControlServiceContext): ControlSer
       return { task: detailOf(id), created }
     },
 
-    async updateTask(id, { handoff, artifacts = [], ...change }) {
+    async updateTask(id, { handoff, artifacts = [], updateArtifacts = [], removeArtifacts = [], ...change }) {
       requireOfferedModel(db, change.model, 'patch.model')
-      const checked = await checkArtifacts(
-        summaryOf(requireTask(db, id).workspaceId).rootPath,
-        artifacts,
-        'patch.artifacts',
+      const root = summaryOf(requireTask(db, id).workspaceId).rootPath
+      const checked = await checkArtifacts(root, artifacts, 'patch.artifacts')
+      const updates = await checkArtifactUpdates(root, updateArtifacts, 'patch.updateArtifacts')
+      const removals = checkArtifactRemovals(root, removeArtifacts, 'patch.removeArtifacts')
+      // What each repointed artifact's new file is now, which places it in the Artifacts tab.
+      const files = await Promise.all(
+        updates.map(async ({ path, newPath }) => (newPath === path ? null : await lookAtArtifactFile(root, newPath))),
       )
+      // Planned against the artifacts as they are once the files have been looked at, before anything changes.
+      const plan = planArtifactChanges(listArtifacts(db, id), removals, updates, {
+        removals: 'patch.removeArtifacts',
+        updates: 'patch.updateArtifacts',
+      })
       // A patch of only the handoff and artifacts leaves the task as it is, so it keeps its place in the sidebar.
       const changesTask = Object.keys(change).length > 0
       const task = changesTask ? changeTask(context, id, change) : requireTask(db, id)
       const at = now()
       db.transaction(() => {
         if (handoff !== undefined) setHandoff(db, id, handoff, at)
+        for (const path of plan.removals) removeArtifact(db, id, path)
+        for (const [index, { path, newPath, title }] of plan.changes.entries()) {
+          changeArtifact(db, { taskId: id, path, newPath, title }, at)
+          const file = files[index]
+          if (file != null) setArtifactFile(db, { taskId: id, path: newPath, file })
+        }
         registerArtifacts(id, checked, at)
       })()
-      announceBackfill(id, handoff !== undefined, checked.length > 0)
+      announceBackfill(id, handoff !== undefined, checked.length + plan.changes.length + plan.removals.length > 0)
       return detail(task)
     },
 

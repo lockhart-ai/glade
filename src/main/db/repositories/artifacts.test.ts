@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Artifact } from '../../../shared/domain'
-import { addArtifact, listArtifacts, removeArtifact, setArtifactFile } from './artifacts'
+import { addArtifact, changeArtifact, getArtifact, listArtifacts, removeArtifact, setArtifactFile } from './artifacts'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 
 let database: TestDatabase
@@ -45,6 +45,33 @@ describe('artifacts', () => {
 
     expect(renamed).toMatchObject({ taskId, path: 'a.md', title: 'A, final', addedAt: 10, updatedAt: 30 })
     expect(listArtifacts(database.db, taskId).map((artifact) => artifact.title)).toEqual(['A, final', 'B'])
+  })
+
+  it('are found by path, and changed in place: a new file, a new title, keeping their place and what was seen', () => {
+    const other = sampleTask(database.db, sampleWorkspace(database.db, '/code/other').id).id
+    addArtifact(database.db, { taskId, path: 'a.md', title: 'A' }, 10)
+    addArtifact(database.db, { taskId, path: 'b.md', title: 'B' }, 20)
+    addArtifact(database.db, { taskId: other, path: 'a.md', title: 'Other A' }, 20)
+    setArtifactFile(database.db, { taskId, path: 'a.md', file: { missing: true } })
+
+    expect(getArtifact(database.db, taskId, 'a.md')).toMatchObject({ title: 'A', missing: true })
+    expect(getArtifact(database.db, taskId, 'c.md')).toBeUndefined()
+
+    const moved = changeArtifact(database.db, { taskId, path: 'a.md', newPath: 'docs/a.md', title: 'A, moved' }, 30)
+
+    expect(moved).toEqual({
+      taskId,
+      path: 'docs/a.md',
+      title: 'A, moved',
+      addedAt: 10,
+      updatedAt: 30,
+      modifiedAt: null,
+      missing: true,
+    })
+    expect(listArtifacts(database.db, taskId).map(({ path }) => path)).toEqual(['docs/a.md', 'b.md'])
+    expect(getArtifact(database.db, taskId, 'a.md')).toBeUndefined()
+    expect(getArtifact(database.db, other, 'a.md')).toMatchObject({ title: 'Other A' })
+    expect(changeArtifact(database.db, { taskId, path: 'a.md', newPath: 'z.md', title: 'Z' })).toBeUndefined()
   })
 
   it('are removed one at a time, and only the task’s own', () => {
