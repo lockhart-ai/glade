@@ -215,7 +215,7 @@ describe('FilesTab', () => {
 
     fireEvent.click(within(openTabs()).getByRole('button', { name: /throttles\.py/, pressed: false }))
     await waitFor(() => {
-      expect(screen.getByText('api/throttles.py', { selector: 'span' })).toBeInTheDocument()
+      expect(screen.getByText('api/throttles.py', { selector: 'bdi' })).toBeInTheDocument()
     })
 
     fireEvent.click(within(openTabs()).getByRole('button', { name: 'Close throttles.py' }))
@@ -513,7 +513,9 @@ describe('a file as a commit left it', () => {
     // Only in git: read-only, never the editor.
     expect(screen.getByTestId('source')).toBeInTheDocument()
     expect(screen.queryByTestId('editor')).toBeNull()
-    expect(screen.getByText('docs/upgrading.md', { selector: 'span' })).toBeInTheDocument()
+    // The path, left to right inside a box that cuts it short from its start, with the whole of it as its tooltip.
+    expect(screen.getByText('docs/upgrading.md', { selector: 'bdi' })).toHaveAttribute('dir', 'ltr')
+    expect(screen.getByTitle('docs/upgrading.md')).toBeInTheDocument()
     expect(screen.getByText('As of abc1234 · read-only')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Open in editor' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'docs/upgrading.md contents' })).toBeInTheDocument()

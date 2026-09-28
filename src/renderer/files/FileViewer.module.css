@@ -6,11 +6,17 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  /* The header fits itself to the panel's width (the queries below). */
+  container: file-viewer / inline-size;
 }
 
+/*
+ * The header gives up room in order as the panel narrows: first how the agent last touched the file, then Open in
+ * editor's label (its icon, name and tooltip stay), then the start of the path, keeping the file's name.
+ */
 .header {
   flex-shrink: 0;
-  /* In a panel too narrow for its buttons, they're cut off rather than scrolling the panel sideways. */
+  /* Nothing is ever cut off the right edge, but should it come to that, the panel doesn't scroll sideways. */
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -19,19 +25,24 @@
   border-bottom: 1px solid var(--color-inner-border);
 }
 
+/* Cut short from its start (…/limits/rate-limits.md): the right-to-left box puts the ellipsis first, and the path inside
+   it stays left-to-right. */
 .path {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  direction: rtl;
+  text-align: left;
   font-family: var(--font-mono);
   font-size: var(--font-size-secondary);
   color: var(--color-text);
 }
 
-.touched {
-  /* Shrinks along with the path, where the buttons keep their size. */
-  flex-shrink: 1;
+/* "Edited by the agent · 11:22" shrinks long before the path does, and goes when there's no room for it to read. */
+.touched,
+.version {
+  flex-shrink: 1000;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -42,6 +53,23 @@
 
 .spacer {
   flex-grow: 1;
+}
+
+@container file-viewer (width < 560px) {
+  .openInEditor {
+    width: 30px;
+    padding: 0;
+  }
+
+  .openInEditorLabel {
+    display: none;
+  }
+}
+
+@container file-viewer (width < 480px) {
+  .touched {
+    display: none;
+  }
 }
 
 /* Source / Preview: the design's toggle is a size smaller than Settings' segmented controls. */

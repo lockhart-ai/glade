@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { CommandName } from '../src/shared/bridge'
 import { UiStateKey } from '../src/shared/domain'
+import { MIN_PANEL_WIDTH } from '../src/renderer/panels/panelSize'
 import { expect, test, type Glade } from './fixtures'
 import { chat, filesTab, firstRun, inputBar, taskList, taskPanel, toasts, unsavedDialog } from './selectors'
 import { chooseMenuItem } from './menu'
@@ -78,6 +79,21 @@ test('editor: edit, save with ⌘S, and the agent changing the file', async ({ l
   await expect
     .poll(() => taskPanel(window).tabPanel.evaluate((element) => element.scrollWidth - element.clientWidth))
     .toBe(0)
+  // At the panel's narrowest, the header keeps the file's name, Open in editor shrinks to its icon, and nothing is cut
+  // off its right edge.
+  await invoke(window, CommandName.UiStateSet, { key: UiStateKey.RightPanelWidth, value: String(MIN_PANEL_WIDTH) })
+  await expect(files.openInEditor.getByText('Open in editor')).toBeHidden()
+  await expect(files.openInEditor).toHaveAttribute('title', 'Open in editor (⌘⇧E)')
+  const header = files.openInEditor.locator('xpath=..')
+  await expect
+    .poll(async () => {
+      const [button, box] = await Promise.all([files.openInEditor.boundingBox(), header.boundingBox()])
+      return button !== null && box !== null && button.x + button.width <= box.x + box.width
+    })
+    .toBe(true)
+  await expect.poll(() => header.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0)
+  await expect(header.getByText('rate-limits.md', { exact: false })).toBeVisible()
+  await invoke(window, CommandName.UiStateSet, { key: UiStateKey.RightPanelWidth, value: '' })
   await window.keyboard.press('Meta+z')
   await expect(files.unsaved('rate-limits.md')).toHaveCount(0)
   await window.keyboard.press('Meta+Shift+z')

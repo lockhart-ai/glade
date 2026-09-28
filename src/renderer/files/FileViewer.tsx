@@ -243,10 +243,12 @@ export function FileViewer({
   return (
     <div className={styles.viewer}>
       <div className={styles.header}>
-        <span className={styles.path}>{shownPath}</span>
+        <span className={styles.path} title={shownPath}>
+          <bdi dir="ltr">{shownPath}</bdi>
+        </span>
         {touched !== undefined && <span className={styles.touched}>{touchLine(touched)}</span>}
         {fromCommit !== null && (
-          <span className={styles.touched}>
+          <span className={styles.version}>
             {fromCommit.hash === null ? 'As a commit left it' : `As of ${fromCommit.hash}`} · read-only
           </span>
         )}
@@ -261,9 +263,11 @@ export function FileViewer({
             icon={faArrowUpRightFromSquare}
             aria-keyshortcuts={openInEditorKeys.ariaKeyShortcuts}
             title={`Open in editor (${openInEditorKeys.label})`}
+            aria-label="Open in editor"
+            className={styles.openInEditor}
             onClick={() => void openInEditor(taskId, path)}
           >
-            Open in editor
+            <span className={styles.openInEditorLabel}>Open in editor</span>
           </Button>
         )}
       </div>
