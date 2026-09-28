@@ -10,8 +10,8 @@ const SIGHUP = 1
 
 /** A pseudo-terminal that outputs and exits when its test says, and records what it's asked to do. */
 export class FakePty implements Pty {
-  /** The foreground process's name: the shell's, until a test sets another. */
-  process: string
+  /** The foreground process's name: the shell's, until a test sets another, or null for a terminal that can't say. */
+  process: string | null
   size: TerminalSize
   /** What was typed into it, in order. */
   readonly written: string[] = []

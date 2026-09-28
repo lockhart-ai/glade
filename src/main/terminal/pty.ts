@@ -7,9 +7,11 @@
 export interface Pty {
   /**
    * The name of the process in the foreground of the terminal (node-pty's `process`): the shell's while it waits at its
-   * prompt, or the program's it's running.
+   * prompt, or the program's it's running. Null for the moment the terminal can't say: when the program in its
+   * foreground has just ended and the shell hasn't taken the terminal back yet, which happens again and again while the
+   * shell runs short programs in a loop.
    */
-  readonly process: string
+  readonly process: string | null
   /** Calls `listener` with everything the terminal outputs. */
   onData(listener: (data: string) => void): void
   /** Calls `listener` once the shell has exited, with how it exited. */

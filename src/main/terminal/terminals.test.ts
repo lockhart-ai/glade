@@ -237,6 +237,29 @@ describe('what’s running in a tab', () => {
     expect(emitted(EventType.TerminalTabsChanged)).toHaveLength(2)
   })
 
+  // #375: node-pty has no name for the foreground process for the moment after a program in it ends, before the shell
+  // takes the terminal back. A shell running short programs in a loop hits that moment again and again; the check threw
+  // on it, and Electron put up an error dialog that blocked main for good.
+  it('keeps what it showed while the terminal can’t say what’s in its foreground', () => {
+    const { id } = terminals.create(workspaceAt(root))
+    terminals.attach(id, SIZE)
+    shell().process = 'sleep'
+    vi.advanceTimersByTime(PROCESS_POLL_MS)
+    emit.mockClear()
+
+    // The sleep has just ended, and the shell hasn't taken the terminal back yet.
+    shell().process = null
+    expect(() => vi.advanceTimersByTime(PROCESS_POLL_MS * 3)).not.toThrow()
+    expect(terminals.list()[0]).toMatchObject({ process: 'sleep', running: true })
+    expect(emitted(EventType.TerminalTabsChanged)).toEqual([])
+
+    // Once it can say again, the tab follows it as before.
+    shell().process = 'zsh'
+    vi.advanceTimersByTime(PROCESS_POLL_MS)
+    expect(terminals.list()[0]).toMatchObject({ process: 'zsh', running: false })
+    expect(emitted(EventType.TerminalTabsChanged)).toHaveLength(1)
+  })
+
   it('stops checking once no shell runs', () => {
     const { id } = terminals.create(workspaceAt(root))
     const idle = terminals.create(workspaceAt(root))
