@@ -20,7 +20,7 @@ import type { Environment } from '../login-env'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
 import { permissionSuggestionSchema } from '../permissions/schema'
 import { AsyncQueue } from './async-queue'
-import { gladeOwnServers } from './glade-tools'
+import { gladeOwnServers, GLADE_SERVER } from './glade-tools'
 import {
   PromptVerdict,
   ToolPermissionBehavior,
@@ -250,17 +250,73 @@ const bashHookInput = z.looseObject({
  */
 export const BASH_HOOK_TIMEOUT_MS = 5_000
 
+/** What a subagent's call to one of Glade's own tools is refused with (#366). */
+export const SUBAGENT_TOOL_REFUSAL =
+  "Only the main agent can use Glade's tools. Report what you have to the agent that started you instead."
+
 /**
- * The SDK hooks that tell `hooks` what the session does (`docs/sdk-notes.md` §13 and §14): each prompt that's about to
- * start a turn (`UserPromptSubmit`), which it can turn away, the jobs the session has scheduled at the end of each turn
- * (`Stop`), the summary each compaction writes (`PostCompact`, §5), and each `Bash` call about to run (`PreToolUse`),
- * which waits for the host a while at most. A hook that fails lets the prompt or call through, and tells nothing.
+ * Glade's own in-process MCP servers, whose tools a subagent must never call: `glade` (`docs/model-surface.md`), and
+ * `glade-control` (P13-01), the control API that lists, reads, changes, messages and deletes Glade's tasks. Neither is
+ * given a restricted tool set of its own to hand to subagents, so without this guard a subagent inherits both, same as
+ * the main agent (`docs/sdk-notes.md`, "Subagents").
+ */
+function isGladeServer(name: string): boolean {
+  return name === GLADE_SERVER || name === CONTROL_SERVER_NAME
+}
+
+const preToolUseInput = z.looseObject({
+  tool_name: z.string(),
+  agent_id: z.string().optional(),
+  mcp_server: z.looseObject({ name: z.string(), source: z.string() }).optional(),
+})
+
+/**
+ * A `PreToolUse` hook (`docs/sdk-notes.md` §9) that refuses a subagent's call to any tool on one of Glade's own MCP
+ * servers, whatever the tool: the only reliable place to catch every one, present and future tools included (#366).
+ *
+ * `canUseTool` can't do this job. `glade`'s tools are in `allowedTools` (below), a server-wide rule Claude Code lets
+ * through before `canUseTool` is ever asked; and `bypassPermissions` (Allow all) never calls `canUseTool` at all, for
+ * any tool, `glade-control`'s included. A `PreToolUse` hook fires for every tool call regardless of permission mode,
+ * and is asked before `canUseTool` would be, so denying here means no permission card and no question card ever
+ * shows: the call fails outright, with a message the model can act on.
+ *
+ * Trusts `mcp_server.source`, not the tool's name or its server's name: only `'sdk'` means an in-process server the
+ * SDK host (Glade) registered, which nothing configured can impersonate; any other source is a server from
+ * configuration, which could call itself `glade` too (`docs/sdk-notes.md` §9).
+ */
+export function subagentGladeToolGuard(log: Logger = SILENT_LOGGER): HookCallback {
+  return (input) => {
+    const parsed = preToolUseInput.safeParse(input)
+    if (!parsed.success) return Promise.resolve({})
+    const { agent_id: agentId, mcp_server: mcpServer, tool_name: toolName } = parsed.data
+    if (agentId === undefined || mcpServer === undefined) return Promise.resolve({})
+    if (mcpServer.source !== 'sdk' || !isGladeServer(mcpServer.name)) return Promise.resolve({})
+    log.info("refused a subagent's call to one of Glade's own tools", { toolName, server: mcpServer.name, agentId })
+    return Promise.resolve({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: SUBAGENT_TOOL_REFUSAL,
+      },
+    })
+  }
+}
+
+/**
+ * The SDK hooks every session gets (`docs/sdk-notes.md` §9, §13 and §14): a subagent's call to one of Glade's own
+ * tools is always refused (`subagentGladeToolGuard`, above), whether or not the session tells the runner anything
+ * else. When it does (`hooks`), the rest follow: each prompt that's about to start a turn (`UserPromptSubmit`), which
+ * it can turn away, the jobs the session has scheduled at the end of each turn (`Stop`), the summary each compaction
+ * writes (`PostCompact`, §5), and each `Bash` call about to run (`PreToolUse`), which waits for the host a while at
+ * most. A hook that fails lets the prompt or call through, and tells nothing.
  */
 export function sdkHooks(
-  hooks: SessionHooks,
+  hooks: SessionHooks | undefined,
   log: Logger = SILENT_LOGGER,
   bashTimeoutMs: number = BASH_HOOK_TIMEOUT_MS,
 ): NonNullable<Options['hooks']> {
+  const preToolUse: NonNullable<Options['hooks']>['PreToolUse'] = [{ hooks: [subagentGladeToolGuard(log)] }]
+  if (hooks === undefined) return { PreToolUse: preToolUse }
   const onPrompt: HookCallback = (input) => {
     const parsed = promptHookInput.safeParse(input)
     if (!parsed.success) return Promise.resolve({})
@@ -318,11 +374,12 @@ export function sdkHooks(
     }
     return {}
   }
+  if (onBashStarting !== undefined) preToolUse.push({ matcher: 'Bash', hooks: [onBash] })
   return {
+    PreToolUse: preToolUse,
     UserPromptSubmit: [{ hooks: [onPrompt] }],
     Stop: [{ hooks: [onStop] }],
     PostCompact: [{ hooks: [onPostCompact] }],
-    ...(onBashStarting === undefined ? {} : { PreToolUse: [{ matcher: 'Bash', hooks: [onBash] }] }),
   }
 }
 
@@ -375,8 +432,10 @@ export function sdkOptions(
     // Glade stops each background subagent and watcher from its own tab (`stopTask`), so Stop on a turn ends only the
     // turn. Without this, the SDK fails closed and an interrupt kills every background subagent (docs/sdk-notes.md §7).
     perTaskStopAffordance: true,
-    // What the session's watchers do, which only its hooks tell (the Watchers tab, docs/sdk-notes.md §13).
-    ...(options.hooks === undefined ? {} : { hooks: sdkHooks(options.hooks, options.log ?? SILENT_LOGGER) }),
+    // Always given: a subagent's call to one of Glade's own tools is refused whether or not the session tells the
+    // runner anything else (#366). What the session's watchers do, when it does, is in here too (the Watchers tab,
+    // docs/sdk-notes.md §13).
+    hooks: sdkHooks(options.hooks, options.log ?? SILENT_LOGGER),
   }
 }
 

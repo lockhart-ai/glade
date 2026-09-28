@@ -1047,6 +1047,17 @@ a denied call and a foreground subagent's call. What that run showed is marked *
   same tool and input through once without asking, since Claude Code asks about it afresh (`src/main/agent/runner.ts`).
 - **`permissionPromptToolName`** (route prompts to an MCP tool) and **`permissionPrompts: 'none'`** (never ask) are
   the alternatives [docs]; neither fits a card that waits for the user.
+- **A subagent's call to one of Glade's own tools (`glade`, `glade-control`) is refused before `canUseTool` runs
+  [docs]**, not decided by it: `glade`'s tools are pre-approved in `allowedTools`, a server-wide rule Claude Code lets
+  through without asking at all, and `bypassPermissions` skips `canUseTool` for every tool, `glade-control`'s included,
+  so neither mode leaves a hook for `canUseTool` to catch a subagent's call in. Instead a `PreToolUse` hook with no
+  matcher (`subagentGladeToolGuard`, `src/main/agent/sdk-backend.ts`) reads `agent_id` (set only for a subagent's call,
+  `BaseHookInput.agent_id`) and `mcp_server` (`source: 'sdk'` and a name Glade registered, never trusting a configured
+  server of the same name) off every `PreToolUse` input, and denies with `hookSpecificOutput: { hookEventName:
+  'PreToolUse', permissionDecision: 'deny', permissionDecisionReason }` before the tool ever dispatches (#366). Not
+  probed against a live session: built from `sdk.d.ts` and tested against the real `glade` MCP server, simulating the
+  SDK's documented dispatch order, since the scripted test backend has no SDK hooks to exercise
+  (`src/main/agent/subagent-tool-guard.test.ts`).
 
 ## 10. Claude Code's todo tools [verified]
 

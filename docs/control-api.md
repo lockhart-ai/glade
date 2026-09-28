@@ -504,6 +504,9 @@ To port everything in, an agent pages through `list_claude_code_sessions { impor
 - **Loopback only**, bearer token, Host and Origin checks, body size limit (above).
 - **A task can't turn on itself:** through the in-process server, a task can't stop, delete or send a message to
   itself (`forbidden`). It can read and update itself.
+- **No subagent of a task can call it either**, any of its tools, reads included: Glade refuses the call before it
+  dispatches (`docs/model-surface.md`, "Main agent only", #366). Without that, a subagent would inherit the whole
+  in-process server, the same as the main agent, since it isn't given a restricted tool set of its own.
 - **Deletes need `confirm: true`.**
 - **Rate limits,** per caller (each task, and the HTTP endpoint as a whole, MCP and `/v1` together): 3,000 reads and
   1,200 changes a minute, in a sliding window, counted apart, so a script backfilling hundreds of tasks isn't held up.
