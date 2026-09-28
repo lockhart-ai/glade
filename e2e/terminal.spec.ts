@@ -6,7 +6,6 @@ import { basename, join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { CommandName } from '../src/shared/bridge'
 import { chooseFolder, expect, holdCommand, openWorkspace, test } from './fixtures'
-import { alive } from './diag'
 import { chooseMenuItem } from './menu'
 import { chat, contextMenu, inputBar, regions, removeWorkspaceDialog, taskList, taskPanel, terminal } from './selectors'
 
@@ -179,7 +178,6 @@ test('terminal: each workspace has its own tabs, and switching keeps the othersâ
   await openWorkspace(window)
   const term = terminal(window)
   const workspace = regions(window).workspace
-  await alive(glade, 'opened')
 
   // acme-api gets two tabs, and the first is picked again.
   await term.newTab.click()
@@ -190,7 +188,6 @@ test('terminal: each workspace has its own tabs, and switching keeps the othersâ
   await expect(line(window, 'acme-api $')).toHaveCount(1)
   await term.tabs.nth(0).click()
   await expect(line(window, 'api-first')).toHaveCount(1)
-  await alive(glade, 'api tabs')
 
   // acme-web starts with none of acme-api's tabs, and gets its own, in its own root.
   await chooseFolder(glade, web)
@@ -201,25 +198,20 @@ test('terminal: each workspace has its own tabs, and switching keeps the othersâ
   await term.newTab.click()
   await expect(term.tabs).toHaveText(['bash'])
   await expect(line(window, 'acme-web $')).toHaveCount(1)
-  await alive(glade, 'web tab')
   // It prints once a file appears, which the spec makes while acme-web is hidden, then makes a file of its own to say
   // it has. (A hidden screen needn't draw what it's sent, so the spec asks the shell rather than the screen.)
   const go = join(parent, 'go')
   const printed = join(parent, 'printed')
   await run(window, `while [ ! -e ${go} ]; do sleep 0.1; done; echo web-while-hidden; touch ${printed}`)
-  await alive(glade, 'web loop typed')
 
   // Back in acme-api: its two tabs, the first still picked, with its output.
   await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-api')
-  await alive(glade, 'api chosen')
   await expect(workspace).toContainText('acme-api')
   await expect(term.tabs).toHaveText(['bash', 'bash'])
   await expect(term.tabs.nth(0)).toHaveAttribute('aria-pressed', 'true')
   await expect(line(window, 'api-first')).toHaveCount(1)
-  await alive(glade, 'api shown')
   writeFileSync(go, '')
   await expect.poll(() => existsSync(printed)).toBe(true)
-  await alive(glade, 'printed')
 
   // acme-web's shell kept running: what it printed is there, and it still answers.
   await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-web')
