@@ -46,13 +46,23 @@ There are no follow-up tasks. One task can refer to another through its folder o
   the top of the chat, and the input bar floating over its bottom. The chat, a little narrower than both, scrolls under
   them and is cut off halfway under each, so it never shows past their outer edges. The input bar has model, effort
   and permissions pickers and a context
-  meter at the right. Each task keeps its unsent draft, text and pasted images, while you're on another task and
-  across a relaunch or a crash, until it's sent.
+  meter at the right. Each task keeps its unsent draft, text, pasted images and pasted text blocks, while you're on
+  another task and across a relaunch or a crash, until it's sent.
   A message's pasted images show as thumbnails above its text in the chat, and small in its row while it's queued.
   Clicking one (or ↵ or Space on it) opens the **image viewer** over the window: the image as large as fits, never
   scaled past its own size, on a dimmed backdrop. With several, ← and → step through the message's images, round from
   the last to the first, under a "2 of 3"; Esc, a click on the backdrop or × closes it, and the focus goes back to the
   thumbnail of the image it showed. ![Image viewer](design/screens/30-image-viewer.png)
+- **Pasted text** (#363) — pasting more than one line, or ~80 characters or more, into the input bar marks it as its
+  own block, kept apart from what you typed, rather than dumping it into the field: a short inline token stands for it
+  there, and a compact chip shows above the field ("Pasted text · 42 lines"), with a ✕ to remove it and a click to
+  expand or edit. A shorter, single-line paste (a path, a word, a URL) isn't worth the ceremony and is left as plain
+  typed text. In the chat, your message shows your own words with each pasted block collapsed to its line count,
+  expanding in place to the pasted text itself. The agent gets each block wrapped in tags with a matching random id
+  (`<pasted_content id="…">…</pasted_content id="…">`, from the Opus 5.5 prompting guide, which helps it resist prompt
+  injection inside text you pasted), at its place among what you typed; the tags and the token never show in the UI.
+  Kept everywhere a message is: queued, in the draft, across a relaunch, and the sidebar search matches text inside a
+  pasted block too. ![Pasted content](design/screens/33-pasted-content.png)
 - **Links** — a link in what the agent or you wrote opens in your browser (a `mailto:` link in your mail app), never in
   Glade: in replies and your messages, the question and permission cards, the tool log's notes and output, the goal
   and status, todos, watchers and queued messages. Markdown links and bare URLs and email addresses are links; URLs in

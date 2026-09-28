@@ -59,10 +59,11 @@ import {
 } from '../../shared/bridge'
 import { TaskFilter } from '../../shared/attention'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
-import { ArtifactDateGroup, Effort, PermissionMode, UiStateKey } from '../../shared/domain'
+import { ArtifactDateGroup, Effort, PermissionMode, UiStateKey, type PastedBlock } from '../../shared/domain'
 import { isWorkspaceRelativePath, parseCommitFileKey } from '../../shared/files'
 import { MAX_MENU_BAR_HEIGHT } from '../../shared/menuBar'
 import { hasImageSignature, ImageMediaType, MAX_IMAGE_BASE64_LENGTH, type ImageData } from '../../shared/images'
+import { MAX_PASTED_BLOCK_LENGTH, PASTE_ID_PATTERN } from '../../shared/pastedContent'
 import { MAX_TERMINAL_NAME, MAX_TERMINAL_SIZE, MAX_TERMINAL_WRITE } from '../../shared/terminal'
 import { SETTING_SCHEMAS } from '../db/repositories/settings'
 import { permissionDecisionSchema } from '../permissions/schema'
@@ -152,10 +153,20 @@ const image = z
     when: ({ issues }) => issues.length === 0,
   }) satisfies z.ZodType<ImageData>
 
-/** A message's text and images: its text can be blank only when it has images. */
-function withContent<T extends { readonly text: string; readonly images?: readonly ImageData[] | undefined }>(
-  schema: z.ZodType<T>,
-): z.ZodType<T> {
+/** A block of text pasted into a message (#363): its id is what its inline token is matched to it by position. */
+const pastedBlock = z.strictObject({
+  id: z.string().regex(PASTE_ID_PATTERN),
+  text: z.string().min(1).max(MAX_PASTED_BLOCK_LENGTH),
+}) satisfies z.ZodType<PastedBlock>
+
+/** A message's text, images and pasted blocks: its text can be blank only when it has images. */
+function withContent<
+  T extends {
+    readonly text: string
+    readonly images?: readonly ImageData[] | undefined
+    readonly pastedBlocks?: readonly PastedBlock[] | undefined
+  },
+>(schema: z.ZodType<T>): z.ZodType<T> {
   return schema.refine(({ text, images = [] }) => text.trim() !== '' || images.length > 0, {
     message: 'Expected a message that is not blank',
     path: ['text'],
@@ -163,7 +174,12 @@ function withContent<T extends { readonly text: string; readonly images?: readon
 }
 
 const tasksSendRequest = withContent(
-  z.strictObject({ id: z.string(), text: z.string(), images: z.array(image).readonly().optional() }),
+  z.strictObject({
+    id: z.string(),
+    text: z.string(),
+    images: z.array(image).readonly().optional(),
+    pastedBlocks: z.array(pastedBlock).readonly().optional(),
+  }),
 ) satisfies z.ZodType<TasksSendRequest>
 
 const tasksRetryRequest = z.strictObject({
@@ -182,7 +198,12 @@ const watchersStopRequest = z.strictObject({
 }) satisfies z.ZodType<WatchersStopRequest>
 
 const queueAddRequest = withContent(
-  z.strictObject({ taskId: z.string(), text: z.string(), images: z.array(image).readonly().optional() }),
+  z.strictObject({
+    taskId: z.string(),
+    text: z.string(),
+    images: z.array(image).readonly().optional(),
+    pastedBlocks: z.array(pastedBlock).readonly().optional(),
+  }),
 ) satisfies z.ZodType<QueueAddRequest>
 
 const queueEditRequest = z.strictObject({ id: z.string(), text: messageText }) satisfies z.ZodType<QueueEditRequest>
@@ -198,6 +219,7 @@ const draftsSetRequest = z.strictObject({
   taskId: z.string(),
   text: z.string(),
   images: z.array(image).readonly().optional(),
+  pastedBlocks: z.array(pastedBlock).readonly().optional(),
 }) satisfies z.ZodType<DraftsSetRequest>
 
 const questionsAnswerRequest = z.strictObject({

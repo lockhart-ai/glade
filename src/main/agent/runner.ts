@@ -206,6 +206,7 @@ import {
   QuestionSetState,
   type ApiRetry,
   type Message,
+  type PastedBlock,
   type PermissionDecision,
   type PermissionRequest,
   type QuestionAnswers,
@@ -218,6 +219,7 @@ import {
 } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
 import { permissionRuleString, taskPermissionRule } from '../../shared/permissions'
+import { agentText } from '../../shared/pastedContent'
 import { checkAnswers } from '../../shared/questions'
 import { apiRowArgument, apiRowResult } from '../../shared/taskError'
 import { CommandFailure } from '../bridge/errors'
@@ -365,10 +367,11 @@ export interface AgentRunnerOptions {
   readonly account?: AccountSink
 }
 
-/** A message you sent: its text, and the images pasted into it, in order. */
+/** A message you sent: its text, the images pasted into it, and the text pasted into it, kept apart. */
 interface UserMessage {
   readonly text: string
   readonly images: readonly ImageData[]
+  readonly pastedBlocks: readonly PastedBlock[]
 }
 
 export interface AgentRunner {
@@ -376,7 +379,7 @@ export interface AgentRunner {
    * Saves the user's message and starts a turn with it. A done task is reopened first (see the module comment). Throws
    * a `CommandFailure`: `not_found` for no such task, `busy` while a turn is running or the task is paused.
    */
-  send(taskId: string, text: string, images?: readonly ImageData[]): Message
+  send(taskId: string, text: string, images?: readonly ImageData[], pastedBlocks?: readonly PastedBlock[]): Message
   /**
    * Answers the task's open question set with the card's answers (see the module comment), once they're checked against
    * its questions. Answers with the set, answered. Throws a `CommandFailure`: `not_found` for no such set,
@@ -400,7 +403,12 @@ export interface AgentRunner {
    * When no turn is running, the queue is delivered at once, starting one, unless the task is paused: then it waits for
    * the task to resume. Throws a `CommandFailure` `not_found` for no such task.
    */
-  queue(taskId: string, text: string, images?: readonly ImageData[]): QueuedMessage
+  queue(
+    taskId: string,
+    text: string,
+    images?: readonly ImageData[],
+    pastedBlocks?: readonly PastedBlock[],
+  ): QueuedMessage
   /**
    * Stops the task's running turn, and resolves with the task once the turn has ended. Does nothing for a task whose
    * agent isn't working. Throws a `CommandFailure` `not_found` for no such task.
@@ -927,7 +935,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   /** Sends the session a message, after `block` when there's one: what the session was missing (`./session-context`). */
   const hand = (live: LiveSession, message: Message, uuid: string = message.id, block: string | null = null): void => {
     const images = imagesOf(db, { kind: ImageOwnerKind.Message, id: message.id })
-    give(live, withContext(block, message.body), uuid, images)
+    // Each pasted block wrapped in its tags, at its token's place among the typed text (#363, `shared/pastedContent.ts`).
+    const text = agentText(message.body, message.pastedBlocks)
+    give(live, withContext(block, text), uuid, images)
   }
 
   /**
@@ -1812,7 +1822,16 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         ...queued,
         ...(sent === null
           ? []
-          : [appendMessage(db, { taskId, role: MessageRole.User, body: sent.text, turn, images: sent.images })]),
+          : [
+              appendMessage(db, {
+                taskId,
+                role: MessageRole.User,
+                body: sent.text,
+                turn,
+                images: sent.images,
+                pastedBlocks: sent.pastedBlocks,
+              }),
+            ]),
       ]
       const reopened = reopening ? [appendDivider(db, { taskId, turn, dividerKind: DividerKind.Reopened })] : []
       const divider = appendDivider(db, { taskId, turn, dividerKind: DividerKind.Turn })
@@ -2005,16 +2024,16 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   const runner: AgentRunner = {
-    send(taskId, text, images = []) {
+    send(taskId, text, images = [], pastedBlocks = []) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
       // The agent waits on answers to its questions: the message answers them, rather than starting a turn.
       const open = getOpenQuestionSet(db, taskId)
       if (open !== undefined) {
-        if (images.length > 0) {
+        if (images.length > 0 || pastedBlocks.length > 0) {
           throw new CommandFailure(
             BridgeErrorCode.InvalidRequest,
-            'An answer to the agent’s questions can’t have images',
+            'An answer to the agent’s questions can’t have images or pasted text',
           )
         }
         return answerInWords(open, text)
@@ -2032,7 +2051,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The task is paused; queue the message instead')
       }
       // The message sent is the last of the turn's: any queued ones go before it.
-      const message = startTurn(task, sessions.get(taskId) ?? start(task), { text, images }).at(-1)
+      const message = startTurn(task, sessions.get(taskId) ?? start(task), { text, images, pastedBlocks }).at(-1)
       if (message === undefined) throw new Error(`The turn for task ${taskId} started without its message`)
       return message
     },
@@ -2076,10 +2095,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       live.session.configure(live.settings)
     },
 
-    queue(taskId, text, images = []) {
+    queue(taskId, text, images = [], pastedBlocks = []) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
-      const queued = addQueuedMessage(context, { taskId, body: text, images })
+      const queued = addQueuedMessage(context, { taskId, body: text, images, pastedBlocks })
       // A paused task delivers its queue once it resumes, and one waiting on requests the app quit on once you decide.
       if (isPaused(task) || waitsOnRestartRequests(taskId)) return queued
       const live = sessions.get(taskId)

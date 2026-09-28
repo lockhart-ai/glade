@@ -234,6 +234,7 @@ describe('the chat', () => {
         createdAt: 5_000,
         summary,
         images: [{ id: 'image-1', mediaType: ImageMediaType.Png }],
+        pastedBlocks: [],
       },
     })
 
@@ -270,7 +271,9 @@ describe('the chat', () => {
     logEvent({
       type: EventType.QueueChanged,
       taskId: 'task-1',
-      queuedMessages: [{ id: 'queued-1', taskId: 'task-1', body: 'Also the docs.', createdAt: 1, images: [] }],
+      queuedMessages: [
+        { id: 'queued-1', taskId: 'task-1', body: 'Also the docs.', createdAt: 1, images: [], pastedBlocks: [] },
+      ],
     })
 
     expect(logged()).toEqual([

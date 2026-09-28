@@ -23,6 +23,7 @@ import {
   type QuestionAnswers,
   type QuestionSet,
   type Message,
+  type PastedBlock,
   type QueuedMessage,
   UiStateKey,
   type Task,
@@ -35,6 +36,7 @@ import {
 import { registerBridge } from '../bridge'
 import { fakeIpcPair } from '../bridge/fake-ipc'
 import type { ImageData } from '../../shared/images'
+import { pasteToken, wrapPastedBlock } from '../../shared/pastedContent'
 import { GIF, JPEG, PNG, WEBP } from '../../shared/test-images'
 import { ImageOwnerKind, imagesOf } from '../db/repositories/images'
 import { listMessages } from '../db/repositories/messages'
@@ -3969,5 +3971,97 @@ describe('pasted images', () => {
     expect(getOpenQuestionSet(database.db, task.id)).toBeDefined()
     expect(chat()).toEqual([{ role: MessageRole.User, body: 'Draft the release notes for 2.4.', turn: 1 }])
     expect(database.db.prepare('SELECT COUNT(*) FROM images').pluck().get()).toBe(0)
+  })
+})
+
+describe('pasted text blocks', () => {
+  const trace: PastedBlock = { id: 'k3f9', text: 'Traceback (most recent call last)\nKeyError: user_id' }
+  const other: PastedBlock = { id: 'a1b2c3', text: 'first\nsecond' }
+
+  async function sendWith(text: string, pastedBlocks: readonly PastedBlock[]): Promise<Message> {
+    return (await glade.invoke(CommandName.TasksSend, { id: task.id, text, pastedBlocks })).message
+  }
+
+  async function queueWith(text: string, pastedBlocks: readonly PastedBlock[]): Promise<QueuedMessage> {
+    return (await glade.invoke(CommandName.QueueAdd, { taskId: task.id, text, pastedBlocks })).queuedMessage
+  }
+
+  /** What the session was sent: each message's text, tags and all. */
+  function sent(): string[] {
+    return backend.session.sent.map(({ text }) => text)
+  }
+
+  /** A turn waiting on a tool call's result, so what's sent meanwhile is queued. */
+  async function startCopy(): Promise<void> {
+    await send('Copy the existing uploads to S3.')
+    backend.session.emit(sdk.init(), sdk.toolUse('toolu_01', 'Bash', { command: 'python scripts/copy.py' }))
+    await settle()
+  }
+
+  it('hands the agent the pasted block wrapped in its tags, at its token’s place among the typed text', async () => {
+    const text = `Here's the error: ${pasteToken(trace.text)} any ideas?`
+    const message = await sendWith(text, [trace])
+
+    expect(message.pastedBlocks).toEqual([trace])
+    // The stored, user-visible body keeps the plain token: never the tags.
+    expect(listMessages(database.db, task.id)).toEqual([message])
+    expect(message.body).toBe(text)
+    expect(message.body).not.toContain('<pasted_content')
+    expect(sent()).toEqual([`Here's the error: ${wrapPastedBlock(trace)} any ideas?`])
+  })
+
+  it('wraps several blocks, each at its own token’s place, in order', async () => {
+    const text = `${pasteToken(trace.text)} then ${pasteToken(other.text)}`
+    await sendWith(text, [trace, other])
+
+    expect(sent()).toEqual([`${wrapPastedBlock(trace)} then ${wrapPastedBlock(other)}`])
+  })
+
+  it('sends a message that is only a pasted block, no typed text around it', async () => {
+    await sendWith(pasteToken(trace.text), [trace])
+    expect(sent()).toEqual([wrapPastedBlock(trace)])
+  })
+
+  it('delivers a queued pasted block with the rest of the queue, in the same wrapped form', async () => {
+    await startCopy()
+    const text = `See this: ${pasteToken(trace.text)}`
+    const queued = await queueWith(text, [trace])
+    expect(queued.pastedBlocks).toEqual([trace])
+
+    backend.session.emit(sdk.toolResult('toolu_01', 'copied'))
+    await settle()
+
+    expect(sent().slice(1)).toEqual([`See this: ${wrapPastedBlock(trace)}`])
+    expect(chat().at(-1)).toEqual({ role: MessageRole.User, body: text, turn: 1 })
+  })
+
+  it('keeps a queued block, and its token and text, across a relaunch', async () => {
+    await startCopy()
+    const text = `Then this: ${pasteToken(trace.text)}`
+    const queued = await queueWith(text, [trace])
+    relaunch()
+
+    expect(listQueuedMessages(database.db, task.id)).toEqual([queued])
+  })
+
+  it('refuses a pasted block with an answer to the agent’s questions, keeping the questions open', async () => {
+    await send('Draft the release notes for 2.4.')
+    backend.session.emit(sdk.init())
+    void backend.session
+      .callTool('toolu_ask', 'mcp__glade__ask', {
+        questions: [{ kind: QuestionKind.Text, prompt: 'Anything else?' }],
+      })
+      .catch(() => undefined)
+    await vi.waitFor(() => {
+      if (getOpenQuestionSet(database.db, task.id) === undefined) throw new Error('No question is open yet')
+    })
+
+    await expect(sendWith(pasteToken(trace.text), [trace])).rejects.toMatchObject({
+      code: BridgeErrorCode.InvalidRequest,
+    })
+
+    expect(getOpenQuestionSet(database.db, task.id)).toBeDefined()
+    expect(chat()).toEqual([{ role: MessageRole.User, body: 'Draft the release notes for 2.4.', turn: 1 }])
+    expect(database.db.prepare('SELECT COUNT(*) FROM pasted_blocks').pluck().get()).toBe(0)
   })
 })

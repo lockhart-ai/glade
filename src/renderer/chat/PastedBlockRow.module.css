@@ -1,0 +1,73 @@
+/*
+ * A pasted block in the chat (#363, docs/design/html/33-pasted-content.html): the same collapsed-line shape as the
+ * Backfilled card (HandoffCard.module.css), sized to sit under a user bubble.
+ */
+.row {
+  max-width: 520px;
+  align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-inner);
+  border: 1px solid var(--color-inner-border);
+  border-radius: var(--radius-nested);
+  overflow: hidden;
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 12px;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-muted);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.line:hover {
+  color: var(--color-text);
+}
+
+.line:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+  border-radius: var(--radius-nested);
+}
+
+.icon {
+  display: flex;
+  color: var(--color-faint);
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chevron {
+  margin-left: auto;
+  display: flex;
+  color: var(--color-faint);
+}
+
+.body {
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  padding: 10px 12px;
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-inner-border);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--color-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

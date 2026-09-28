@@ -88,8 +88,8 @@ export interface FakeMain {
   /** Every task's queued messages; none when left out. */
   readonly queuedMessages?: QueuedMessage[]
   /**
-   * Each task's stored input draft, by task id; none when left out. `drafts.set` changes them as main does: images left
-   * out are kept, and an empty draft is removed.
+   * Each task's stored input draft, by task id; none when left out. `drafts.set` changes them as main does: images and
+   * pasted blocks left out are kept, and an empty draft is removed.
    */
   readonly drafts?: Record<string, InputDraft>
   /** Every task's question sets; none when left out. `questions.answer` answers one, without checking the answers. */
@@ -437,10 +437,15 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       return image === undefined ? refuse(bridgeError(BridgeErrorCode.NotFound, `No image ${id}`)) : { image }
     },
     [CommandName.DraftsGet]: ({ taskId }) => ({ draft: drafts[taskId] ?? null }),
-    [CommandName.DraftsSet]: ({ taskId, text, images: given }) => {
-      const draft = { text, images: given ?? drafts[taskId]?.images ?? [] }
-      if (draft.text === '' && draft.images.length === 0) Reflect.deleteProperty(drafts, taskId)
-      else drafts[taskId] = draft
+    [CommandName.DraftsSet]: ({ taskId, text, images: given, pastedBlocks: givenBlocks }) => {
+      const draft = {
+        text,
+        images: given ?? drafts[taskId]?.images ?? [],
+        pastedBlocks: givenBlocks ?? drafts[taskId]?.pastedBlocks ?? [],
+      }
+      if (draft.text === '' && draft.images.length === 0 && draft.pastedBlocks.length === 0) {
+        Reflect.deleteProperty(drafts, taskId)
+      } else drafts[taskId] = draft
       return null
     },
     [CommandName.PermissionsAnswer]: ({ id, decision }) => {
@@ -884,11 +889,21 @@ export function sampleWatcher(id: string, taskId: string, overrides: Partial<Wat
 }
 
 export function sampleMessage(id: string, taskId: string, body = 'Add rate limiting to the public API.'): Message {
-  return { id, taskId, role: MessageRole.User, body, turn: 1, createdAt: 3_000, summary: null, images: [] }
+  return {
+    id,
+    taskId,
+    role: MessageRole.User,
+    body,
+    turn: 1,
+    createdAt: 3_000,
+    summary: null,
+    images: [],
+    pastedBlocks: [],
+  }
 }
 
 export function sampleQueuedMessage(id: string, taskId: string, body = 'Keep the original filenames.'): QueuedMessage {
-  return { id, taskId, body, createdAt: 4_000, images: [] }
+  return { id, taskId, body, createdAt: 4_000, images: [], pastedBlocks: [] }
 }
 
 /** An open question set: a choice and a text question. */

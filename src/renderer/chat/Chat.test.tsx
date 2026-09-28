@@ -24,6 +24,7 @@ import {
   type ToolEvent,
 } from '../../shared/domain'
 import { imageDataUrl, type ImageData } from '../../shared/images'
+import { pasteToken } from '../../shared/pastedContent'
 import { GIF, PNG } from '../../shared/test-images'
 import type { ModelChoice } from '../../shared/models'
 import { SDK_MODELS } from '../../shared/test-models'
@@ -56,6 +57,7 @@ const ASK: Message = {
   createdAt: ASKED_AT,
   summary: null,
   images: [],
+  pastedBlocks: [],
 }
 const REPLY: Message = {
   id: 'm2',
@@ -66,6 +68,7 @@ const REPLY: Message = {
   createdAt: REPLIED_AT,
   summary: null,
   images: [],
+  pastedBlocks: [],
 }
 
 const PREAMBLE = 'Looking at how the API views are set up.'
@@ -323,6 +326,71 @@ describe('Chat', () => {
     const you = screen.getByRole('article', { name: 'You' })
     expect(you).toHaveTextContent('Use **bold** and a <b>tag</b>')
     expect(you.querySelector('strong, b')).toBeNull()
+  })
+
+  describe('a pasted block', () => {
+    const trace = 'Traceback (most recent call last)\nKeyError: user_id'
+    const block = { id: 'k3f9', text: trace }
+
+    it('shows your words, and the pasted block collapsed to its line count, never its token or its tags', async () => {
+      const body = `Here's the error: ${pasteToken(trace)} any ideas?`
+      await renderChat({ messages: [{ ...ASK, body, pastedBlocks: [block] }] })
+
+      const you = screen.getByRole('article', { name: 'You' })
+      expect(you).toHaveTextContent("Here's the error:")
+      expect(you).toHaveTextContent('any ideas?')
+      expect(you.textContent).not.toContain('[Pasted text')
+      expect(you.textContent).not.toContain('<pasted_content')
+      expect(you.textContent).not.toContain('Traceback')
+      const row = within(you).getByRole('button', { name: 'Pasted text · 2 lines' })
+      expect(row).toHaveAttribute('aria-expanded', 'false')
+    })
+
+    it('expands the block in place to show its pasted text, and collapses it again', async () => {
+      await renderChat({ messages: [{ ...ASK, body: pasteToken(trace), pastedBlocks: [block] }] })
+      const you = screen.getByRole('article', { name: 'You' })
+
+      fireEvent.click(within(you).getByRole('button', { name: 'Pasted text · 2 lines' }))
+      expect(within(you).getByRole('button', { name: 'Pasted text · 2 lines' })).toHaveAttribute(
+        'aria-expanded',
+        'true',
+      )
+      expect(you).toHaveTextContent(trace.replace('\n', ' '))
+
+      fireEvent.click(within(you).getByRole('button', { name: 'Pasted text · 2 lines' }))
+      expect(within(you).getByRole('button', { name: 'Pasted text · 2 lines' })).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      )
+    })
+
+    it('keeps several blocks in their place among your words, each collapsed on its own', async () => {
+      const other = { id: 'a1b2c3', text: 'first\nsecond' }
+      const body = `${pasteToken(trace)} then ${pasteToken(other.text)}`
+      await renderChat({ messages: [{ ...ASK, body, pastedBlocks: [block, other] }] })
+
+      const you = screen.getByRole('article', { name: 'You' })
+      expect(
+        within(you)
+          .getAllByRole('button', { name: /^Pasted text/ })
+          .map((row) => row.textContent),
+      ).toEqual(['Pasted text · 2 lines', 'Pasted text · 2 lines'])
+      expect(you).toHaveTextContent('then')
+    })
+
+    it('starts a block expanded when the sidebar search’s match is inside it', async () => {
+      const fake = await renderChat({ messages: [{ ...ASK, body: pasteToken(trace), pastedBlocks: [block] }] })
+      act(() => {
+        fake.store.getState().setSearchText('KeyError')
+      })
+
+      const you = screen.getByRole('article', { name: 'You' })
+      expect(within(you).getByRole('button', { name: 'Pasted text · 2 lines' })).toHaveAttribute(
+        'aria-expanded',
+        'true',
+      )
+      expect(within(you).getByText('KeyError').tagName).toBe('MARK')
+    })
   })
 
   it('never shows the preamble or tool output in the chat', async () => {

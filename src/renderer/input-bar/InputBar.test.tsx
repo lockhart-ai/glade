@@ -287,6 +287,7 @@ describe('InputBar', () => {
                     createdAt: 1,
                     summary: null,
                     images: [],
+                    pastedBlocks: [],
                   },
                 })
               }

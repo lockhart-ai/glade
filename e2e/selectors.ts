@@ -425,6 +425,8 @@ export function chat(page: Page) {
     permissionCards: log.getByRole('form', { name: 'Permission request' }),
     /** The permission cards once allowed, denied or withdrawn: one line each. */
     closedPermissions: log.getByRole('region', { name: 'Permission request' }),
+    /** A pasted block in your message, collapsed to its line count: click it to expand it in place. */
+    pastedBlock: (label = /^Pasted text/) => log.getByRole('button', { name: label }),
   }
 }
 
@@ -538,6 +540,26 @@ export function inputBar(page: Page) {
     contextMeter: bar.getByTestId('context-meter-slot').getByRole('meter', { name: 'Context used' }),
     /** The button the context meter is, which opens its popover. */
     contextButton: bar.getByTestId('context-meter-slot').getByRole('button', { name: 'Context' }),
+    /** The pasted-text chips above the field, in order: each collapsed to its line count. */
+    pastedChips: bar.getByRole('list', { name: 'Pasted text' }).getByRole('button', { expanded: false }),
+    /** A pasted chip's row, by its position among them (1 for the first): its collapsed button, to click it. */
+    pastedChip: (position: number) =>
+      bar
+        .getByRole('list', { name: 'Pasted text' })
+        .getByRole('listitem')
+        .nth(position - 1)
+        .getByRole('button', { expanded: false }),
+    /** A pasted chip's remove button, by its position among them (1 for the first). */
+    removePastedChip: (position: number) =>
+      bar
+        .getByRole('list', { name: 'Pasted text' })
+        .getByRole('listitem')
+        .nth(position - 1)
+        .getByRole('button', { name: 'Remove pasted text' }),
+    /** The field editing a pasted chip's text, once it's expanded. */
+    pastedChipEditor: bar.getByRole('textbox', { name: 'Pasted text' }),
+    /** Save or Cancel for the pasted chip being edited. */
+    pastedChipButton: (name: 'Save pasted text' | 'Cancel editing pasted text') => bar.getByRole('button', { name }),
   }
 }
 

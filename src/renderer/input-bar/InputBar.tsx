@@ -17,11 +17,21 @@ import {
   TaskActivity,
   TaskState,
   type InputDraft,
+  type PastedBlock,
   type QueuedMessage,
   type Task,
 } from '../../shared/domain'
 import { WindowCommandId } from '../../shared/commands'
 import { EFFORT_NAMES, effortFallbackNotice, effortFor, effortsOf, findModel, modelName } from '../../shared/models'
+import {
+  insertPastedBlock,
+  isPasteWorthMarking,
+  reconcilePastedBlocks,
+  removePastedBlock,
+  tokenEndingAt,
+  tokenStartingAt,
+  updatePastedBlock,
+} from '../../shared/pastedContent'
 import { bindingHint, isCommandKey, useCommand, useKeymap } from '../commands/hooks'
 import { MESSAGE_FIELD_PROPS } from '../commands/registry'
 import { Icon, IconSize, Textarea, useToast } from '../components'
@@ -31,6 +41,7 @@ import { useGladeStore, useGladeStoreApi } from '../store/react'
 import { pastedFiles, readPastedFiles } from '../images/pasted'
 import { PAUSED_PLACEHOLDER } from '../pause/pauseModel'
 import { Attachments, type Attachment } from './Attachments'
+import { PastedChips } from './PastedChips'
 import { QueueList } from './QueueList'
 import { SettingPicker, type SettingOption } from './SettingPicker'
 import styles from './InputBar.module.css'
@@ -54,13 +65,17 @@ export const ASKING_PLACEHOLDER = 'Or reply in your own words…'
 export const DONE_PLACEHOLDER = 'Send a message to reopen this task…'
 export const ERROR_PLACEHOLDER = 'Reply, or press Retry…'
 export const QUEUE_PLACEHOLDER = 'Add a message. It will be queued until the agent finishes its current step.'
-/** Why images can't go while the agent's questions are open: a reply then answers them, and an answer is words. */
-export const ASKING_IMAGES_REFUSAL =
-  'Images can’t go with an answer to the agent’s questions. Answer in words, then send the images after.'
+/**
+ * Why images or pasted text can't go while the agent's questions are open: a reply then answers them, and an answer
+ * is words.
+ */
+export const ASKING_ATTACHMENTS_REFUSAL =
+  'Images and pasted text can’t go with an answer to the agent’s questions. Answer in words, then send them after.'
 
 /** A task's queue when it has none. */
 const NO_QUEUE: readonly QueuedMessage[] = []
 const NO_ATTACHMENTS: readonly Attachment[] = []
+const NO_PASTED_BLOCKS: readonly PastedBlock[] = []
 const NO_REFUSALS: readonly string[] = []
 
 /**
@@ -69,14 +84,18 @@ const NO_REFUSALS: readonly string[] = []
  */
 export const DRAFT_SAVE_DELAY_MS = 400
 
-/** The input bar's draft as it keeps it: the images as their attachments, whose array changes only when they do. */
+/**
+ * The input bar's draft as it keeps it: the images as their attachments, and the pasted blocks whose tokens sit
+ * inline in `text`; each array changes only when it does.
+ */
 interface BarDraft {
   readonly text: string
   readonly attachments: readonly Attachment[]
+  readonly pastedBlocks: readonly PastedBlock[]
 }
 
 function sameDraft(a: BarDraft, b: BarDraft): boolean {
-  return a.text === b.text && a.attachments === b.attachments
+  return a.text === b.text && a.attachments === b.attachments && a.pastedBlocks === b.pastedBlocks
 }
 
 function toImages(attachments: readonly Attachment[]): InputDraft['images'] {
@@ -207,6 +226,8 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   const [attachments, setAttachments] = useState<readonly Attachment[]>(
     () => kept?.images.map((image, index) => ({ key: index + 1, image })) ?? NO_ATTACHMENTS,
   )
+  const [pastedBlocks, setPastedBlocks] = useState<readonly PastedBlock[]>(() => kept?.pastedBlocks ?? NO_PASTED_BLOCKS)
+  const [expandedPasteId, setExpandedPasteId] = useState<string | null>(null)
   const [refusals, setRefusals] = useState(NO_REFUSALS)
   const attached = useRef(kept?.images.length ?? 0)
   const [sending, setSending] = useState(false)
@@ -244,11 +265,14 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
 
   // The draft as it now is, and as main last stored it (or had it, as the bar mounted): a change is stored a pause
   // after it's made, and at once when the bar goes (another task selected) or the window does (quitting).
-  const latest = useRef<BarDraft>({ text: draft, attachments })
-  const stored = useRef<BarDraft>({ text: draft, attachments })
+  const latest = useRef<BarDraft>({ text: draft, attachments, pastedBlocks })
+  const stored = useRef<BarDraft>({ text: draft, attachments, pastedBlocks })
   const pendingSave = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  /** Stores the draft in main if it changed since it last was: its text, and its images only when they changed. */
+  /**
+   * Stores the draft in main if it changed since it last was: its text, and its images or pasted blocks only when
+   * they changed.
+   */
   const saveNow = useCallback(() => {
     if (pendingSave.current !== null) clearTimeout(pendingSave.current)
     pendingSave.current = null
@@ -257,14 +281,15 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     if (sameDraft(current, last)) return
     stored.current = current
     const images = current.attachments === last.attachments ? {} : { images: toImages(current.attachments) }
-    void saveInputDraft({ taskId: task.id, text: current.text, ...images })
+    const pasted = current.pastedBlocks === last.pastedBlocks ? {} : { pastedBlocks: current.pastedBlocks }
+    void saveInputDraft({ taskId: task.id, text: current.text, ...images, ...pasted })
   }, [saveInputDraft, task.id])
 
   useEffect(() => {
-    latest.current = { text: draft, attachments }
+    latest.current = { text: draft, attachments, pastedBlocks }
     if (pendingSave.current !== null) clearTimeout(pendingSave.current)
     pendingSave.current = sameDraft(latest.current, stored.current) ? null : setTimeout(saveNow, DRAFT_SAVE_DELAY_MS)
-  }, [draft, attachments, saveNow])
+  }, [draft, attachments, pastedBlocks, saveNow])
 
   useEffect(() => {
     const flush = saveNow
@@ -272,8 +297,8 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     return () => {
       window.removeEventListener('beforeunload', flush)
       flush()
-      const { text, attachments: going } = latest.current
-      keepInputDraft(task.id, { text, images: toImages(going) })
+      const { text, attachments: going, pastedBlocks: goingBlocks } = latest.current
+      keepInputDraft(task.id, { text, images: toImages(going), pastedBlocks: goingBlocks })
     }
   }, [keepInputDraft, saveNow, task.id])
 
@@ -284,12 +309,25 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     let mounted = true
     void loadInputDraft(task.id).then((loaded) => {
       const current = latest.current
-      if (!mounted || loaded === null || current.text !== '' || current.attachments.length > 0) return
-      const restored: BarDraft = { text: loaded.text, attachments: toAttachments(loaded, attached) }
+      if (
+        !mounted ||
+        loaded === null ||
+        current.text !== '' ||
+        current.attachments.length > 0 ||
+        current.pastedBlocks.length > 0
+      ) {
+        return
+      }
+      const restored: BarDraft = {
+        text: loaded.text,
+        attachments: toAttachments(loaded, attached),
+        pastedBlocks: loaded.pastedBlocks,
+      }
       stored.current = restored
       latest.current = restored
       setDraft(restored.text)
       setAttachments(restored.attachments)
+      setPastedBlocks(restored.pastedBlocks)
     })
     return () => {
       mounted = false
@@ -306,29 +344,31 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     const text = draft.trim()
     const images = attachments.map(({ image }) => image)
     if (!canSend || (text === '' && images.length === 0)) return
-    if (task.asking && images.length > 0) {
-      setRefusals([ASKING_IMAGES_REFUSAL])
+    if (task.asking && (images.length > 0 || pastedBlocks.length > 0)) {
+      setRefusals([ASKING_ATTACHMENTS_REFUSAL])
       return
     }
     setSending(true)
     try {
       // A message to an agent waiting on answers to its questions answers them, so it's sent, whatever else holds the task.
-      if ((working || paused) && !task.asking) await queueMessage(task.id, text, images)
+      if ((working || paused) && !task.asking) await queueMessage(task.id, text, images, pastedBlocks)
       else {
         // The agent may have started working since the bar last heard: then the message waits in the queue.
-        await sendMessage(task.id, text, images).catch((error: unknown) => {
+        await sendMessage(task.id, text, images, pastedBlocks).catch((error: unknown) => {
           if (!isBusy(error)) throw error
-          return queueMessage(task.id, text, images)
+          return queueMessage(task.id, text, images, pastedBlocks)
         })
       }
       setDraft('')
       setAttachments(NO_ATTACHMENTS)
+      setPastedBlocks(NO_PASTED_BLOCKS)
+      setExpandedPasteId(null)
       setRefusals(NO_REFUSALS)
       // Sent, so the task has no draft now: stored at once, over any save of it on its way, and kept, should the bar
       // have gone (another task selected) while it was sending.
-      latest.current = { text: '', attachments: NO_ATTACHMENTS }
+      latest.current = { text: '', attachments: NO_ATTACHMENTS, pastedBlocks: NO_PASTED_BLOCKS }
       saveNow()
-      keepInputDraft(task.id, { text: '', images: [] })
+      keepInputDraft(task.id, { text: '', images: [], pastedBlocks: [] })
     } catch (error) {
       toast.show({ message: sendFailureMessage(error) })
     } finally {
@@ -336,9 +376,28 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     }
   }
 
-  // A paste of text is left to the field, which inserts it at the caret as plain text. One of files attaches the images
-  // among them, and says why it didn't attach the rest.
+  /**
+   * A big paste of text (more than one line, or ~80 characters or more) becomes a pasted block (#363): an inline
+   * token stands for it at the caret, and a chip shows above the field. A small paste, or one of files, is left as it
+   * always was: plain text at the caret, or images attached as thumbnails, saying why anything else wasn't.
+   */
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>): void => {
+    const text = event.clipboardData.getData('text/plain')
+    if (text !== '') {
+      if (!isPasteWorthMarking(text)) return
+      event.preventDefault()
+      const element = field.current
+      const start = element?.selectionStart ?? draft.length
+      const end = element?.selectionEnd ?? draft.length
+      const inserted = insertPastedBlock(draft, pastedBlocks, start, end, text)
+      setDraft(inserted.text)
+      setPastedBlocks(inserted.blocks)
+      queueMicrotask(() => {
+        element?.focus()
+        element?.setSelectionRange(inserted.caret, inserted.caret)
+      })
+      return
+    }
     const files = pastedFiles(event.clipboardData)
     if (files.length === 0) return
     event.preventDefault()
@@ -350,6 +409,27 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
       setAttachments((current) => [...current, ...added])
       setRefusals(refused)
     })
+  }
+
+  const removePastedBlockChip = (id: string): void => {
+    const removed = removePastedBlock(draft, pastedBlocks, id)
+    setDraft(removed.text)
+    setPastedBlocks(removed.blocks)
+    if (expandedPasteId === id) setExpandedPasteId(null)
+    setRefusals(NO_REFUSALS)
+    field.current?.focus()
+  }
+
+  const toggleExpandPastedBlock = (id: string): void => {
+    setExpandedPasteId((current) => (current === id ? null : id))
+  }
+
+  const savePastedBlock = (id: string, text: string): void => {
+    const updated = updatePastedBlock(draft, pastedBlocks, id, text)
+    setDraft(updated.text)
+    setPastedBlocks(updated.blocks)
+    setExpandedPasteId(null)
+    field.current?.focus()
   }
 
   const removeAttachment = (key: number): void => {
@@ -401,7 +481,26 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     if (notice !== null) toast.show({ message: notice })
   }
 
+  /**
+   * A pasted block's token is atomic: Backspace right after it, or Delete right before it, removes the whole token
+   * and its block in one keystroke, rather than nibbling at its brackets.
+   */
+  const onKeyDownToken = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if ((event.key !== 'Backspace' && event.key !== 'Delete') || event.nativeEvent.isComposing) return false
+    const element = event.currentTarget
+    if (element.selectionStart !== element.selectionEnd) return false
+    const span =
+      event.key === 'Backspace'
+        ? tokenEndingAt(draft, pastedBlocks, element.selectionStart)
+        : tokenStartingAt(draft, pastedBlocks, element.selectionStart)
+    if (span === null) return false
+    event.preventDefault()
+    removePastedBlockChip(span.block.id)
+    return true
+  }
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (onKeyDownToken(event)) return
     const last = queue.at(-1)
     if (draft === '' && last !== undefined && isCommandKey(WindowCommandId.EditLastQueued, keymap, event)) {
       event.preventDefault()
@@ -461,6 +560,13 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
           {contextMeter}
         </div>
       </div>
+      <PastedChips
+        blocks={pastedBlocks}
+        expandedId={expandedPasteId}
+        onToggleExpand={toggleExpandPastedBlock}
+        onRemove={removePastedBlockChip}
+        onSave={savePastedBlock}
+      />
       <Attachments attachments={attachments} refusals={refusals} onRemove={removeAttachment} />
       <div className={styles.compose}>
         <Textarea
@@ -471,7 +577,9 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
           className={styles.field}
           value={draft}
           onChange={(event) => {
-            setDraft(event.target.value)
+            const next = event.target.value
+            setPastedBlocks((current) => reconcilePastedBlocks(draft, next, current))
+            setDraft(next)
           }}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
