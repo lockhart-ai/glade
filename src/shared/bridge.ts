@@ -22,6 +22,7 @@ import type {
   InputDraft,
   Message,
   OpenFiles,
+  PastedBlock,
   PermissionDecision,
   PermissionMode,
   PermissionRequest,
@@ -341,13 +342,18 @@ export interface TaskResponse {
  */
 export interface TasksSendRequest {
   readonly id: string
-  /** Markdown. Blank only when there are images. */
+  /** Markdown. Blank only when there are images. An inline token stands for each of `pastedBlocks`, in order. */
   readonly text: string
   /**
    * The images pasted into the message, in order: each goes to the agent as an image content block, before the text.
    * None when left out.
    */
   readonly images?: readonly ImageData[]
+  /**
+   * The text pasted into the message, kept apart from what was typed: the agent gets each wrapped in its tags, at its
+   * token's place among the text. None when left out.
+   */
+  readonly pastedBlocks?: readonly PastedBlock[]
 }
 
 export interface TasksSendResponse {
@@ -515,10 +521,12 @@ export interface TasksHistoryResponse {
  */
 export interface QueueAddRequest {
   readonly taskId: string
-  /** Markdown. Blank only when there are images. */
+  /** Markdown. Blank only when there are images. An inline token stands for each of `pastedBlocks`, in order. */
   readonly text: string
   /** The images pasted into the message, in order, which wait in the queue with it. None when left out. */
   readonly images?: readonly ImageData[]
+  /** The text pasted into the message, kept apart from what was typed, which waits in the queue with it. */
+  readonly pastedBlocks?: readonly PastedBlock[]
 }
 
 /** Changes the text of a message still waiting in its queue. Broadcasts `queue.changed`. */
@@ -569,10 +577,12 @@ export interface DraftsGetResponse {
  */
 export interface DraftsSetRequest {
   readonly taskId: string
-  /** The message field's text, exactly as typed. */
+  /** The message field's text, exactly as typed, with an inline token standing for each of `pastedBlocks`. */
   readonly text: string
   /** Every image pasted into the draft, in order, in place of those it had. Left out, it keeps the ones it has. */
   readonly images?: readonly ImageData[]
+  /** Every pasted block in the draft, in order, in place of those it had. Left out, it keeps the ones it has. */
+  readonly pastedBlocks?: readonly PastedBlock[]
 }
 
 /**

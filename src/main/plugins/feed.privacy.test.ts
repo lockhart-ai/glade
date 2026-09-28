@@ -328,6 +328,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           createdAt: 4_000,
           summary: null,
           images: [{ id: secret('image'), mediaType: ImageMediaType.Png }],
+          pastedBlocks: [],
         },
       },
       {
@@ -341,6 +342,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           createdAt: 4_000,
           summary: { durationMs: 1, filesChanged: 1, linesAdded: 1, linesRemoved: 1 },
           images: [],
+          pastedBlocks: [],
         },
       },
     ],
@@ -348,7 +350,9 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
       {
         type: EventType.QueueChanged,
         taskId: created.id,
-        queuedMessages: [{ id: 'queued-1', taskId: created.id, body: secret('queued'), createdAt: 1, images: [] }],
+        queuedMessages: [
+          { id: 'queued-1', taskId: created.id, body: secret('queued'), createdAt: 1, images: [], pastedBlocks: [] },
+        ],
       },
     ],
     [EventType.QuestionOpened]: [{ type: EventType.QuestionOpened, questionSet }],

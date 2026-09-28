@@ -589,12 +589,22 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         if (selected) await get().selectTask(next)
       },
 
-      async sendMessage(taskId, text, images = []) {
-        await bridge.invoke(CommandName.TasksSend, { id: taskId, text, ...(images.length > 0 ? { images } : {}) })
+      async sendMessage(taskId, text, images = [], pastedBlocks = []) {
+        await bridge.invoke(CommandName.TasksSend, {
+          id: taskId,
+          text,
+          ...(images.length > 0 ? { images } : {}),
+          ...(pastedBlocks.length > 0 ? { pastedBlocks } : {}),
+        })
       },
 
-      async queueMessage(taskId, text, images = []) {
-        await bridge.invoke(CommandName.QueueAdd, { taskId, text, ...(images.length > 0 ? { images } : {}) })
+      async queueMessage(taskId, text, images = [], pastedBlocks = []) {
+        await bridge.invoke(CommandName.QueueAdd, {
+          taskId,
+          text,
+          ...(images.length > 0 ? { images } : {}),
+          ...(pastedBlocks.length > 0 ? { pastedBlocks } : {}),
+        })
       },
 
       loadImage(id) {
@@ -805,7 +815,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       keepInputDraft(taskId, draft) {
         set(({ inputDrafts }) => {
           const others = Object.fromEntries(Object.entries(inputDrafts).filter(([id]) => id !== taskId))
-          const empty = draft.text === '' && draft.images.length === 0
+          const empty = draft.text === '' && draft.images.length === 0 && draft.pastedBlocks.length === 0
           return { inputDrafts: empty ? others : { ...others, [taskId]: draft } }
         })
       },

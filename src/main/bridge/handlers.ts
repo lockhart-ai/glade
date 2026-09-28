@@ -180,7 +180,9 @@ export function createHandlers(context: HandlerContext): Handlers {
       deleteTask(context, id)
       return null
     },
-    [CommandName.TasksSend]: ({ id, text, images }) => ({ message: runner.send(id, text, images) }),
+    [CommandName.TasksSend]: ({ id, text, images, pastedBlocks }) => ({
+      message: runner.send(id, text, images, pastedBlocks),
+    }),
     [CommandName.TasksStop]: async ({ id }) => ({ task: await runner.stop(id) }),
     [CommandName.TasksRetry]: ({ id, model }) => ({ task: runner.retry(id, model) }),
     [CommandName.TasksCompact]: ({ id }) => ({ task: runner.compact(id) }),
@@ -218,7 +220,9 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.ChangesRepository]: async ({ taskId }) => ({
       repository: await workspaceInRepository(changes, taskId),
     }),
-    [CommandName.QueueAdd]: ({ taskId, text, images }) => ({ queuedMessage: runner.queue(taskId, text, images) }),
+    [CommandName.QueueAdd]: ({ taskId, text, images, pastedBlocks }) => ({
+      queuedMessage: runner.queue(taskId, text, images, pastedBlocks),
+    }),
     [CommandName.QueueEdit]: ({ id, text }) => ({ queuedMessage: editQueuedMessage(context, id, text) }),
     [CommandName.QueueRemove]: ({ id }) => {
       removeQueuedMessage(context, id)

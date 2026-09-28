@@ -20,6 +20,29 @@ configured server whose author names it `glade` too). This can't be `canUseTool`
 `allowedTools`, so Claude Code never asks about them, and Allow all (`bypassPermissions`) skips `canUseTool` for every
 tool, `glade-control`'s included; a `PreToolUse` hook fires regardless of permission mode, and is asked first.
 
+## What a user message contains
+
+A message's content (`src/main/agent/user-content.ts`'s `userContent`, called from the runner's `hand`): an image
+content block for each image pasted into it, in order, then its text — unless it's blank, which the API refuses as a
+text block, so an images-only message sends none.
+
+**Pasted text** (#363, `shared/pastedContent.ts`): a paste of more than one line, or ~80 characters or more, becomes
+its own block, kept apart from what was typed (below the API's threshold, it's left as plain typed text). What's
+stored and shown carries a short inline token standing for the block among the typed text (never the pasted text
+itself, and never the tags below); the text handed to the agent replaces each token, at its place among the rest of
+the text, with the block wrapped in tags carrying a short random id, shared by the opening and closing tag (from the
+Opus 5.5 prompting guide: a host that marks pasted text this way helps the model resist prompt injection inside it):
+
+```
+<pasted_content id="k3f9">
+…the pasted text…
+</pasted_content id="k3f9">
+```
+
+The id is generated fresh for each block, and is never shown in the UI: the input bar's chip and the chat's collapsed
+row both just say how many lines it is. Kept everywhere a message is (queued, drafted, across a relaunch, and
+`TaskDetail.messages` over the control API, which reads a message's stored text as-is, token included).
+
 ## Implemented (P1-09, names unconfirmed)
 
 `src/main/agent/glade-tools.ts` builds an in-process MCP server named `glade` for each task's session, so each handler

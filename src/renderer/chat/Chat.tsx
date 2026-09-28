@@ -42,11 +42,13 @@ import { useNow } from '../task-list/useNow'
 import { QuestionCard } from '../questions/QuestionCard'
 import { PermissionCard } from '../permissions/PermissionCard'
 import { subagentOrigin } from '../permissions/permissionCardModel'
+import { messageSegments } from '../../shared/pastedContent'
 import { ErrorCard } from './ErrorCard'
 import { HandoffCard } from './HandoffCard'
 import { Markdown } from './Markdown'
 import { ImageThumbnails } from '../images/ImageThumbnails'
 import { LinkedText } from '../links'
+import { PastedBlockRow } from './PastedBlockRow'
 import { useSearchHighlight } from '../search/Highlight'
 import { useRevealMatch } from '../search/useRevealMatch'
 import { useStickToBottom } from './useStickToBottom'
@@ -63,6 +65,10 @@ interface HighlightProps {
 }
 
 function UserMessage({ message, highlight }: UserEntry & HighlightProps): React.JSX.Element {
+  // Your own words, and each pasted block at its place among them, collapsed to its line count (#363): the tokens
+  // that mark their place never show, and the tags the agent gets never reach here at all. One bubble, not a bubble
+  // per typed run and a card per block: a pasted block is a subtle inset row inside it, where it was pasted.
+  const segments = messageSegments(message.body, message.pastedBlocks)
   return (
     <article aria-label="You" className={styles.user}>
       {message.images.length > 0 && (
@@ -72,7 +78,13 @@ function UserMessage({ message, highlight }: UserEntry & HighlightProps): React.
       )}
       {message.body !== '' && (
         <div className={styles.bubble}>
-          <LinkedText text={message.body} pattern={highlight} />
+          {segments.map((segment, index) =>
+            segment.kind === 'typed' ? (
+              <LinkedText key={index} text={segment.text} pattern={highlight} />
+            ) : (
+              <PastedBlockRow key={segment.block.id} block={segment.block} highlight={highlight} />
+            ),
+          )}
         </div>
       )}
       <span className={styles.meta}>you · {clockTime(message.createdAt)}</span>

@@ -1,0 +1,72 @@
+/*
+ * A pasted block inline inside the user bubble (#363, docs/design/html/34-pasted-content.html): a subtle inset, not a
+ * card of its own — translucent overlays over the bubble's own colour, so it reads the same on any bubble hue.
+ */
+.row {
+  margin: var(--space-xs) 0;
+  display: flex;
+  flex-direction: column;
+  background: rgb(255 255 255 / 8%);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 10px;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: var(--font-size-secondary-sm);
+  color: rgb(255 255 255 / 85%);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.line:hover {
+  background: rgb(255 255 255 / 8%);
+}
+
+.line:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
+.icon {
+  display: flex;
+  color: rgb(255 255 255 / 60%);
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chevron {
+  margin-left: auto;
+  display: flex;
+  color: rgb(255 255 255 / 60%);
+}
+
+/* The pasted text itself: a darker well inside the row, scrolling if it's long rather than growing the bubble forever. */
+.body {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 8px 10px;
+  background: rgb(0 0 0 / 20%);
+  border-top: 1px solid rgb(255 255 255 / 8%);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: rgb(255 255 255 / 85%);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

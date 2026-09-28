@@ -271,12 +271,23 @@ export interface TurnSummary {
   readonly linesRemoved: number
 }
 
+/**
+ * A block of text pasted into a message, kept apart from what was typed (#363, `docs/model-surface.md`). Its `id` is
+ * a short random value, never shown in the UI: it's matched to its inline token among `body` by position (see
+ * `shared/pastedContent.ts`), and is the agent's `<pasted_content id="…">` tag.
+ */
+export interface PastedBlock {
+  readonly id: string
+  /** The pasted text, verbatim; never contains the tags the agent gets it wrapped in. */
+  readonly text: string
+}
+
 /** One chat log entry: a user message, or the agent's final reply for a turn. Append-only. */
 export interface Message {
   readonly id: string
   readonly taskId: string
   readonly role: MessageRole
-  /** Markdown. */
+  /** Markdown, with an inline token standing for each of `pastedBlocks`, in order (`shared/pastedContent.ts`). */
   readonly body: string
   readonly turn: number
   readonly createdAt: EpochMs
@@ -284,6 +295,8 @@ export interface Message {
   readonly summary: TurnSummary | null
   /** The images pasted into your message, in the order they were attached; none for the agent's replies. */
   readonly images: readonly ImageRef[]
+  /** The text pasted into your message, kept apart from what was typed; none for the agent's replies. */
+  readonly pastedBlocks: readonly PastedBlock[]
 }
 
 /**
@@ -299,6 +312,8 @@ export interface QueuedMessage {
   readonly createdAt: EpochMs
   /** The images pasted into it, which go with it. */
   readonly images: readonly ImageRef[]
+  /** The text pasted into it, which goes with it. */
+  readonly pastedBlocks: readonly PastedBlock[]
 }
 
 /**
@@ -308,6 +323,7 @@ export interface QueuedMessage {
 export interface InputDraft {
   readonly text: string
   readonly images: readonly ImageData[]
+  readonly pastedBlocks: readonly PastedBlock[]
 }
 
 /** The variants of a tool log entry. */

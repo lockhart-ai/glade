@@ -38,13 +38,17 @@ describe('setInputDraft', () => {
     expect(setInputDraft(test.db, { taskId: task.id, text: 'Check the rate limits', images: [PNG, JPEG, GIF] })).toBe(
       true,
     )
-    expect(getInputDraft(test.db, task.id)).toEqual({ text: 'Check the rate limits', images: [PNG, JPEG, GIF] })
+    expect(getInputDraft(test.db, task.id)).toEqual({
+      text: 'Check the rate limits',
+      images: [PNG, JPEG, GIF],
+      pastedBlocks: [],
+    })
   })
 
   it('keeps text exactly as typed, whitespace and all', () => {
     const text = '  Line one\n\n\tline two  \n'
     setInputDraft(test.db, { taskId: task.id, text })
-    expect(getInputDraft(test.db, task.id)).toEqual({ text, images: [] })
+    expect(getInputDraft(test.db, task.id)).toEqual({ text, images: [], pastedBlocks: [] })
   })
 
   it('replaces the text each time, keeping the images when none are given', () => {
@@ -52,7 +56,7 @@ describe('setInputDraft', () => {
     setInputDraft(test.db, { taskId: task.id, text: 'Check the' }, 3_000)
     setInputDraft(test.db, { taskId: task.id, text: 'Check the rate limits' }, 4_000)
 
-    expect(getInputDraft(test.db, task.id)).toEqual({ text: 'Check the rate limits', images: [PNG] })
+    expect(getInputDraft(test.db, task.id)).toEqual({ text: 'Check the rate limits', images: [PNG], pastedBlocks: [] })
     expect(draftRows()).toBe(1)
     expect(test.db.prepare('SELECT updated_at FROM input_drafts').pluck().get()).toBe(4_000)
   })
@@ -63,18 +67,28 @@ describe('setInputDraft', () => {
 
     setInputDraft(test.db, { taskId: task.id, text: 'See these', images: [WEBP] })
 
-    expect(getInputDraft(test.db, task.id)).toEqual({ text: 'See these', images: [WEBP] })
+    expect(getInputDraft(test.db, task.id)).toEqual({ text: 'See these', images: [WEBP], pastedBlocks: [] })
     expect(draftImageRows()).toBe(1)
     expect(imageRefsOf(test.db, { kind: ImageOwnerKind.Draft, id: task.id })).not.toContainEqual(first)
   })
 
+  it('keeps a draft’s pasted blocks, and replaces them when they’re given, keeping none of the old ones', () => {
+    const first = { id: 'k3f9', text: 'the pasted stack trace' }
+    setInputDraft(test.db, { taskId: task.id, text: 'See this: ', pastedBlocks: [first] })
+    expect(getInputDraft(test.db, task.id)).toEqual({ text: 'See this: ', images: [], pastedBlocks: [first] })
+
+    const second = { id: 'a1b2c3', text: 'a different block' }
+    setInputDraft(test.db, { taskId: task.id, text: 'See this: ', pastedBlocks: [second] })
+    expect(getInputDraft(test.db, task.id)).toEqual({ text: 'See this: ', images: [], pastedBlocks: [second] })
+  })
+
   it('keeps a draft of images only', () => {
     setInputDraft(test.db, { taskId: task.id, text: '', images: [GIF] })
-    expect(getInputDraft(test.db, task.id)).toEqual({ text: '', images: [GIF] })
+    expect(getInputDraft(test.db, task.id)).toEqual({ text: '', images: [GIF], pastedBlocks: [] })
     // Its text going leaves the images.
     setInputDraft(test.db, { taskId: task.id, text: 'x' })
     setInputDraft(test.db, { taskId: task.id, text: '' })
-    expect(getInputDraft(test.db, task.id)).toEqual({ text: '', images: [GIF] })
+    expect(getInputDraft(test.db, task.id)).toEqual({ text: '', images: [GIF], pastedBlocks: [] })
   })
 
   it('stores nothing for an empty draft, and removes the one there was, images and all', () => {
@@ -119,7 +133,11 @@ describe('setInputDraft', () => {
     expect(getInputDraft(test.db, doomed?.id ?? '')).toBeUndefined()
     kept.forEach(({ id }, index) => {
       const at = index + 1
-      expect(getInputDraft(test.db, id)).toEqual({ text: `Draft ${String(at)}`, images: at % 2 === 0 ? [PNG] : [] })
+      expect(getInputDraft(test.db, id)).toEqual({
+        text: `Draft ${String(at)}`,
+        images: at % 2 === 0 ? [PNG] : [],
+        pastedBlocks: [],
+      })
     })
     expect(draftRows()).toBe(49)
     expect(draftImageRows()).toBe(24)

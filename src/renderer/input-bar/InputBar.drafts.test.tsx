@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CommandName, type DraftsGetResponse, type DraftsSetRequest } from '../../shared/bridge'
 import { UiStateKey, type InputDraft, type Task } from '../../shared/domain'
 import { imageDataUrl, type ImageData } from '../../shared/images'
+import { pasteToken } from '../../shared/pastedContent'
 import { GIF, PNG } from '../../shared/test-images'
 import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
@@ -108,6 +109,12 @@ function pasteImages(...images: ImageData[]): void {
   fireEvent.paste(field(), { clipboardData: { getData: () => '', files } })
 }
 
+function pasteText(text: string): void {
+  fireEvent.paste(field(), {
+    clipboardData: { getData: (format: string) => (format === 'text/plain' ? text : ''), files: [] },
+  })
+}
+
 async function select(store: GladeStore, taskId: string): Promise<void> {
   await act(() => store.getState().selectTask(taskId))
   await act(() => Promise.resolve())
@@ -139,7 +146,7 @@ describe('after a relaunch', () => {
     type('Half a thought')
     await pause()
     // A crash: the window goes without unloading, and without its bar closing as it would.
-    expect(main.drafts).toEqual({ t1: { text: 'Half a thought', images: [] } })
+    expect(main.drafts).toEqual({ t1: { text: 'Half a thought', images: [], pastedBlocks: [] } })
     cleanup()
 
     await launch(main)
@@ -147,7 +154,7 @@ describe('after a relaunch', () => {
   })
 
   it('gives back a draft’s images, in order, and stores nothing more for having restored it', async () => {
-    const main = newMain(2, { t1: { text: 'See these', images: [PNG, GIF] } })
+    const main = newMain(2, { t1: { text: 'See these', images: [PNG, GIF], pastedBlocks: [] } })
     const fake = await launch(main)
 
     expect(field()).toHaveValue('See these')
@@ -157,7 +164,7 @@ describe('after a relaunch', () => {
   })
 
   it('gives back a draft of images only', async () => {
-    await launch(newMain(2, { t1: { text: '', images: [GIF] } }))
+    await launch(newMain(2, { t1: { text: '', images: [GIF], pastedBlocks: [] } }))
     expect(field()).toHaveValue('')
     expect(thumbnails()).toEqual([imageDataUrl(GIF)])
   })
@@ -177,7 +184,7 @@ describe('after a relaunch', () => {
     const drafts = Object.fromEntries(
       Array.from({ length: 30 }, (_, index) => [
         `t${String(index + 1)}`,
-        { text: `Draft ${String(index + 1)}`, images: [] },
+        { text: `Draft ${String(index + 1)}`, images: [], pastedBlocks: [] },
       ]),
     )
     const main = newMain(30, drafts)
@@ -206,7 +213,7 @@ describe('after a relaunch', () => {
     })
     type('Something new')
     await act(async () => {
-      answer({ draft: { text: 'Something old', images: [PNG] } })
+      answer({ draft: { text: 'Something old', images: [PNG], pastedBlocks: [] } })
       await Promise.resolve()
     })
 
@@ -238,7 +245,7 @@ describe('storing the draft', () => {
 
     await pause()
     expect(saves(fake)).toEqual([{ taskId: 't1', text: words }])
-    expect(main.drafts).toEqual({ t1: { text: words, images: [] } })
+    expect(main.drafts).toEqual({ t1: { text: words, images: [], pastedBlocks: [] } })
     await pause()
     expect(saves(fake)).toHaveLength(1)
   })
@@ -297,7 +304,7 @@ describe('storing the draft', () => {
     const fake = await launch(main)
     type('Ship it')
     await pause()
-    expect(main.drafts).toEqual({ t1: { text: 'Ship it', images: [] } })
+    expect(main.drafts).toEqual({ t1: { text: 'Ship it', images: [], pastedBlocks: [] } })
 
     await act(async () => {
       fireEvent.keyDown(field(), { key: 'Enter' })
@@ -331,7 +338,7 @@ describe('storing the draft', () => {
     })
     // The save's pause ends while the message is on its way.
     await pause()
-    expect(main.drafts).toEqual({ t1: { text: 'Ship it', images: [] } })
+    expect(main.drafts).toEqual({ t1: { text: 'Ship it', images: [], pastedBlocks: [] } })
     await act(async () => {
       sent()
       await Promise.resolve()
@@ -358,7 +365,7 @@ describe('storing the draft', () => {
       await Promise.resolve()
     })
     await select(fake.store, 't2')
-    expect(main.drafts).toEqual({ t1: { text: 'Ship it', images: [] } })
+    expect(main.drafts).toEqual({ t1: { text: 'Ship it', images: [], pastedBlocks: [] } })
     await act(async () => {
       sent()
       await Promise.resolve()
@@ -382,13 +389,13 @@ describe('storing the draft', () => {
       expect(saves(fake)).toHaveLength(2)
     })
     expect(saves(fake)[1]).toEqual({ taskId: 't1', text: 'Why does it look like this?' })
-    expect(main.drafts).toEqual({ t1: { text: 'Why does it look like this?', images: [PNG, GIF] } })
+    expect(main.drafts).toEqual({ t1: { text: 'Why does it look like this?', images: [PNG, GIF], pastedBlocks: [] } })
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove image 1' }))
     await waitFor(() => {
       expect(saves(fake)).toHaveLength(3)
     })
-    expect(main.drafts).toEqual({ t1: { text: 'Why does it look like this?', images: [GIF] } })
+    expect(main.drafts).toEqual({ t1: { text: 'Why does it look like this?', images: [GIF], pastedBlocks: [] } })
     quit()
 
     await launch(main)
@@ -397,7 +404,7 @@ describe('storing the draft', () => {
   })
 
   it('numbers images pasted after a restored one on from it', async () => {
-    const main = newMain(2, { t1: { text: '', images: [PNG] } })
+    const main = newMain(2, { t1: { text: '', images: [PNG], pastedBlocks: [] } })
     const fake = await launch(main)
     pasteImages(GIF)
     await waitFor(() => {
@@ -408,6 +415,28 @@ describe('storing the draft', () => {
     })
   })
 
+  it('stores a pasted block with the draft, and gives it back with its token in the text', async () => {
+    const main = newMain()
+    const fake = await launch(main)
+    const text = 'Traceback (most recent call last)\nKeyError: user_id'
+    pasteText(text)
+    const token = pasteToken(text)
+    expect(field()).toHaveValue(token)
+
+    let block: InputDraft['pastedBlocks'][number] | undefined
+    await waitFor(() => {
+      const request = saves(fake).at(-1)
+      block = request?.pastedBlocks?.[0]
+      expect(request).toEqual({ taskId: 't1', text: token, pastedBlocks: [block] })
+    })
+    expect(main.drafts).toEqual({ t1: { text: token, images: [], pastedBlocks: [block] } })
+    quit()
+
+    await launch(main)
+    expect(field()).toHaveValue(token)
+    expect(screen.getByRole('button', { name: 'Pasted text · 2 lines' })).toBeInTheDocument()
+  })
+
   it('carries on when a save fails: the draft stays in the bar, and the next save carries it', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     let failing = true
@@ -415,7 +444,11 @@ describe('storing the draft', () => {
     const fake = await launch(main, {
       [CommandName.DraftsSet]: (change) => {
         if (failing) return refuse(bridgeError(BridgeErrorCode.Internal, 'database is locked'))
-        main.drafts[change.taskId] = { text: change.text, images: change.images ?? [] }
+        main.drafts[change.taskId] = {
+          text: change.text,
+          images: change.images ?? [],
+          pastedBlocks: change.pastedBlocks ?? [],
+        }
         return null
       },
     })
@@ -428,6 +461,6 @@ describe('storing the draft', () => {
     type('Keep this too')
     await pause()
     expect(saves(fake)).toHaveLength(2)
-    expect(main.drafts).toEqual({ t1: { text: 'Keep this too', images: [] } })
+    expect(main.drafts).toEqual({ t1: { text: 'Keep this too', images: [], pastedBlocks: [] } })
   })
 })

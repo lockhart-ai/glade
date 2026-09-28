@@ -38,6 +38,7 @@ describe('appendQueuedMessage', () => {
       body: 'Keep the original filenames in the bucket keys.',
       createdAt: 3_000,
       images: [],
+      pastedBlocks: [],
     })
     const second = queue('When the copy finishes, tell me how many files failed.')
     expect(listQueuedMessages(test.db, task.id)).toEqual([first, second])
@@ -127,6 +128,7 @@ describe('takeQueuedMessages', () => {
       createdAt: 9_000,
       summary: null,
       images: [],
+      pastedBlocks: [],
     })
     expect(delivered).toEqual([expected('One'), expected('Two')])
     expect(listMessages(test.db, task.id)).toEqual(delivered)
