@@ -11,6 +11,7 @@
  */
 import { needsYou, type AttentionFields } from './attention'
 import {
+  AgentErrorKind,
   TaskActivity,
   TaskState,
   UNTITLED_TASK_TITLE,
@@ -38,6 +39,8 @@ export enum NeedsYouReason {
   Permission = 'permission',
   /** An error stopped its agent. */
   Error = 'error',
+  /** A safety check declined its agent's request, with no fallback model to retry it on: not a crash. */
+  DeclinedBySafety = 'declined_by_safety',
   /** Its agent replied and its turn ended: it waits on your next message. */
   Reply = 'reply',
 }
@@ -47,21 +50,24 @@ export const NEEDS_YOU_REASON_LABELS: Readonly<Record<NeedsYouReason, string>> =
   [NeedsYouReason.Asking]: 'Asking a question',
   [NeedsYouReason.Permission]: 'Waiting for permission',
   [NeedsYouReason.Error]: 'Stopped on an error',
+  [NeedsYouReason.DeclinedBySafety]: 'Declined by a safety check',
   [NeedsYouReason.Reply]: 'Reply waiting',
 }
 
 /** What `needsYouReason` reads of a task. */
-export type NeedsYouFields = AttentionFields
+export type NeedsYouFields = AttentionFields & Pick<Task, 'error'>
 
 /**
  * Why a task needs you, or null when it doesn't (`needsYou`). Questions come first, then a permission card: both hold
- * the turn open whatever its activity says. Otherwise the turn has ended, on an error or with a reply.
+ * the turn open whatever its activity says. Otherwise the turn has ended, on an error (a safety refusal with no
+ * fallback reads apart from any other) or with a reply.
  */
 export function needsYouReason(task: NeedsYouFields): NeedsYouReason | null {
   if (!needsYou(task)) return null
   if (task.asking) return NeedsYouReason.Asking
   if (task.awaitingPermission) return NeedsYouReason.Permission
-  return task.activity === TaskActivity.Error ? NeedsYouReason.Error : NeedsYouReason.Reply
+  if (task.activity !== TaskActivity.Error) return NeedsYouReason.Reply
+  return task.error?.kind === AgentErrorKind.SafetyRefusal ? NeedsYouReason.DeclinedBySafety : NeedsYouReason.Error
 }
 
 /** Whether a task shows under Working: it's active and its agent's turn is under way, working or paused. */

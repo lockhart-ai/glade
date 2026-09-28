@@ -77,6 +77,13 @@ function withReplaced<T extends LogEntry>(logs: LogsByTask<T>, entry: T): LogsBy
   return { ...logs, [entry.taskId]: log.map((existing) => (existing.id === entry.id ? entry : existing)) }
 }
 
+/** Drops an entry from its task's tool log: a refusal-fallback retry superseded it. */
+function withoutToolEvent(logs: LogsByTask<ToolEvent>, taskId: string, id: string): LogsByTask<ToolEvent> {
+  const log = logs[taskId]
+  if (log === undefined) return logs
+  return { ...logs, [taskId]: log.filter((entry) => entry.id !== id) }
+}
+
 /** A task's loaded log, followed by any entries events brought that the load didn't have yet. */
 function merged<T extends LogEntry>(loaded: readonly T[], current: readonly T[] = []): readonly T[] {
   const ids = new Set(loaded.map(({ id }) => id))
@@ -240,6 +247,8 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       return { ...state, toolEvents: withAppended(state.toolEvents, event.toolEvent) }
     case EventType.ToolEventUpdated:
       return { ...state, toolEvents: withReplaced(state.toolEvents, event.toolEvent) }
+    case EventType.ToolEventRemoved:
+      return { ...state, toolEvents: withoutToolEvent(state.toolEvents, event.taskId, event.toolEventId) }
     case EventType.TaskOpenRequested:
       // Opening a task is an action, not a change of state: the store selects it (see `./store`).
       return state

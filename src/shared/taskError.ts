@@ -27,6 +27,8 @@ export function errorHeadline(error: TaskError | null): string {
       return 'usage limit reached'
     case AgentErrorKind.Transient:
     case AgentErrorKind.Permanent:
+    case AgentErrorKind.SafetyRefusal:
+      // A safety refusal is paired with `TaskErrorSource.Refusal`, which the source switch below words.
       break
   }
   switch (error.source) {
@@ -36,6 +38,8 @@ export function errorHeadline(error: TaskError | null): string {
       return 'Claude Code couldn’t start'
     case TaskErrorSource.Turn:
       return 'the turn failed'
+    case TaskErrorSource.Refusal:
+      return 'declined by a safety check'
     case TaskErrorSource.Api: {
       const name = codeName(error.code)
       if (name !== null) return `API ${name}`
@@ -75,6 +79,12 @@ export function errorOpening(error: TaskError | null): ErrorOpening {
     }
     case TaskErrorSource.Turn:
       return { lead: 'The turn ended on an error.', label: null }
+    case TaskErrorSource.Refusal: {
+      const category = codeName(error.code)
+      return category === null
+        ? { lead: 'The request was declined by a safety check.', label: null }
+        : { lead: 'The request was declined by a safety check: ', label: category }
+    }
     case TaskErrorSource.Api: {
       const label = apiErrorLabel(error)
       return label === null ? { lead: 'An API request failed.', label: null } : { lead: 'The API returned ', label }

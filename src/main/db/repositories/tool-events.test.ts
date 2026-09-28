@@ -2,14 +2,23 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { CompactionTrigger, DividerKind, ToolCallState, ToolEventKind, type Task } from '../../../shared/domain'
+import {
+  CompactionTrigger,
+  DividerKind,
+  RefusalScope,
+  ToolCallState,
+  ToolEventKind,
+  type Task,
+} from '../../../shared/domain'
 import { openAppDatabase } from '../database'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
 import {
   appendCompaction,
   appendDivider,
   appendNarration,
+  appendRefusalFallback,
   appendToolCall,
+  deleteToolEvent,
   failRunningCompactions,
   interruptPausedToolCalls,
   interruptRunningToolCall,
@@ -490,6 +499,61 @@ describe('compactions', () => {
     expect(failRunningCompactions(test.db, task.id)).toEqual([{ ...cut, state: ToolCallState.Error }])
     expect(listToolEvents(test.db, task.id)).toEqual([{ ...cut, state: ToolCallState.Error }, finished])
     expect(failRunningCompactions(test.db, task.id)).toEqual([])
+  })
+})
+
+describe('appendRefusalFallback and deleteToolEvent', () => {
+  it('round-trips a refusal-fallback notice, with an open, nullable category', () => {
+    const event = appendRefusalFallback(
+      test.db,
+      {
+        taskId: task.id,
+        turn: 2,
+        originalModel: 'claude-opus-5-5',
+        fallbackModel: 'claude-sonnet-5',
+        category: 'cyber',
+        scope: RefusalScope.Session,
+      },
+      3_000,
+    )
+    expect(event).toEqual({
+      kind: ToolEventKind.RefusalFallback,
+      id: UUID,
+      taskId: task.id,
+      turn: 2,
+      createdAt: 3_000,
+      originalModel: 'claude-opus-5-5',
+      fallbackModel: 'claude-sonnet-5',
+      category: 'cyber',
+      scope: RefusalScope.Session,
+    })
+    expect(listToolEvents(test.db, task.id)).toEqual([event])
+
+    const local = appendRefusalFallback(test.db, {
+      taskId: task.id,
+      turn: 2,
+      originalModel: 'claude-opus-5-5',
+      fallbackModel: 'claude-sonnet-5',
+      category: null,
+      scope: RefusalScope.Local,
+    })
+    expect(local).toMatchObject({ category: null, scope: RefusalScope.Local })
+  })
+
+  it('evicts a logged tool event, and is a no-op for one already gone or never logged', () => {
+    const narration = appendNarration(test.db, { taskId: task.id, turn: 1, text: 'Looking.' })
+    const other = sampleTask(test.db, sampleWorkspace(test.db, '/code/other-repo').id)
+    const elsewhere = appendNarration(test.db, { taskId: other.id, turn: 1, text: 'Elsewhere.' })
+
+    expect(deleteToolEvent(test.db, task.id, narration.id)).toBe(true)
+    expect(listToolEvents(test.db, task.id)).toEqual([])
+    // Idempotent: evicting it again is a no-op.
+    expect(deleteToolEvent(test.db, task.id, narration.id)).toBe(false)
+    // Never logged.
+    expect(deleteToolEvent(test.db, task.id, 'nope')).toBe(false)
+    // Another task's row isn't touched by this task's eviction.
+    expect(deleteToolEvent(test.db, task.id, elsewhere.id)).toBe(false)
+    expect(listToolEvents(test.db, other.id)).toEqual([elsewhere])
   })
 })
 

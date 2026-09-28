@@ -73,6 +73,14 @@ export function text(body: string, parent: string | null = null, messageId = 'ms
   return assistant([{ type: 'text', text: body }], parent, messageId)
 }
 
+/**
+ * An assistant text message that supersedes earlier ones (a refusal-fallback retry, #364): `uuid`s of the messages
+ * this one's own uuid (`${messageId}-uuid`) replaces, evicted on arrival.
+ */
+export function textSuperseding(body: string, uuids: readonly string[], messageId = 'msg_01'): unknown {
+  return { ...(assistant([{ type: 'text', text: body }], null, messageId) as object), supersedes: uuids }
+}
+
 export function toolUse(
   id: string,
   name: string,
@@ -197,6 +205,52 @@ export function apiRetry(attempt: number, maxRetries = 10, status: number | null
     error_status: status,
     error: code,
     uuid: `retry-${String(attempt)}`,
+    session_id: SESSION_ID,
+  }
+}
+
+/**
+ * A safety-refused request retried on a fallback model, which answered (`system/model_refusal_fallback`, #364):
+ * `retractedUuids` names the refused leg's messages the retry replaces, its complete audit record.
+ */
+export function modelRefusalFallback(
+  originalModel: string,
+  fallbackModel: string,
+  category: string | null,
+  retractedUuids: readonly string[] = [],
+  scope: 'session' | 'local' = 'session',
+): unknown {
+  return {
+    type: 'system',
+    subtype: 'model_refusal_fallback',
+    trigger: 'refusal',
+    direction: 'retry',
+    scope,
+    original_model: originalModel,
+    fallback_model: fallbackModel,
+    request_id: null,
+    api_refusal_category: category,
+    retracted_message_uuids: retractedUuids,
+    uuid: 'refusal-fallback-notice',
+    session_id: SESSION_ID,
+  }
+}
+
+/** A safety-refused request with no fallback model to retry it on (`system/model_refusal_no_fallback`, #364). */
+export function modelRefusalNoFallback(
+  originalModel: string,
+  category: string | null,
+  explanation: string | null = null,
+): unknown {
+  return {
+    type: 'system',
+    subtype: 'model_refusal_no_fallback',
+    original_model: originalModel,
+    request_id: null,
+    api_refusal_category: category,
+    api_refusal_explanation: explanation,
+    content: '',
+    uuid: 'refusal-no-fallback-notice',
     session_id: SESSION_ID,
   }
 }

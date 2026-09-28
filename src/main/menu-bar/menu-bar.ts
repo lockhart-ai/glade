@@ -137,6 +137,7 @@ function changesWhatsInFlight(event: GladeEvent): boolean {
     case EventType.MessageAppended:
     case EventType.ToolEventAppended:
     case EventType.ToolEventUpdated:
+    case EventType.ToolEventRemoved:
     case EventType.TaskOpenRequested:
     case EventType.QueueChanged:
     case EventType.OpenFilesChanged:

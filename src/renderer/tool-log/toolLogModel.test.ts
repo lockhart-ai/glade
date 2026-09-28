@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   CompactionTrigger,
   DividerKind,
+  RefusalScope,
   ToolCallState,
   ToolEventKind,
   type CompactionEvent,
   type DividerEvent,
   type NarrationEvent,
+  type RefusalFallbackEvent,
   type ToolCallEvent,
 } from '../../shared/domain'
 import { TaskIndicator } from '../../shared/taskIndicator'
@@ -54,6 +56,20 @@ function narration(id: string, turn: number, createdAt = AT): NarrationEvent {
 
 function divider(id: string, turn: number, dividerKind = DividerKind.Turn, createdAt = AT): DividerEvent {
   return { id, taskId: 't1', turn, createdAt, kind: ToolEventKind.Divider, dividerKind }
+}
+
+function refusalFallback(id: string, turn: number): RefusalFallbackEvent {
+  return {
+    id,
+    taskId: 't1',
+    turn,
+    createdAt: AT,
+    kind: ToolEventKind.RefusalFallback,
+    originalModel: 'claude-opus-5-5',
+    fallbackModel: 'claude-sonnet-5',
+    category: 'cyber',
+    scope: RefusalScope.Session,
+  }
 }
 
 describe('argumentSummary', () => {
@@ -236,6 +252,11 @@ describe('toolLogRows', () => {
     expect(rows[2]).toMatchObject({ name: 'Bash', children: [] })
     expect(rows[3]).toMatchObject({ kind: ToolEventKind.Narration, narration: { id: 'n3' } })
   })
+
+  it('leaves out a refusal-fallback notice: the chat shows it, not the tool log', () => {
+    const rows = toolLogRows([narration('n1', 1), refusalFallback('r1', 1)])
+    expect(rows).toEqual([{ kind: ToolEventKind.Narration, narration: narration('n1', 1) }])
+  })
 })
 
 describe('compactions', () => {
@@ -302,6 +323,7 @@ describe('the parent’s tool log', () => {
     expect(isParentEvent(narration('n1', 1))).toBe(true)
     expect(isParentEvent({ ...narration('n1', 1), parentToolUseId: 'use-agent' })).toBe(false)
     expect(isParentEvent(divider('d', 2))).toBe(true)
+    expect(isParentEvent(refusalFallback('r1', 1))).toBe(true)
   })
 
   it('keeps an Agent call as one row, with none of its subagent’s calls or notes under it or beside it', () => {

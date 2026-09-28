@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { UsageWindow } from '../../shared/account'
-import { CompactionTrigger } from '../../shared/domain'
+import { CompactionTrigger, RefusalScope } from '../../shared/domain'
 import { AgentEventKind, createSdkMessageParser, RateLimitStatus, TaskOutcome, type AgentEvent } from './events'
 import * as sdk from './test-sdk-messages'
 
@@ -27,7 +27,7 @@ describe('parsing SDK messages', () => {
   it("reads the agent's text and tool calls, at the top level and in a subagent", () => {
     expect(parse(sdk.text('Checking the tests.'))).toEqual([
       { kind: AgentEventKind.ContextUsed, tokens: sdk.CONTEXT_USED },
-      { kind: AgentEventKind.Text, text: 'Checking the tests.', parentToolUseId: null },
+      { kind: AgentEventKind.Text, text: 'Checking the tests.', parentToolUseId: null, sdkUuid: 'msg_01-uuid' },
     ])
     expect(parse(sdk.toolUse('toolu_03', 'Bash', { command: 'ls' }, 'toolu_02'))).toEqual([
       {
@@ -36,6 +36,7 @@ describe('parsing SDK messages', () => {
         name: 'Bash',
         input: { command: 'ls' },
         parentToolUseId: 'toolu_02',
+        sdkUuid: 'msg_01-uuid',
       },
     ])
   })
@@ -56,8 +57,12 @@ describe('parsing SDK messages', () => {
     const partUsage = { type: 'assistant', message: { content: [], usage: { input_tokens: 5, output_tokens: 'x' } } }
     const { parse: parseQuietly, warn } = parser()
 
-    expect(parseQuietly(noUsage)).toEqual([{ kind: AgentEventKind.Text, text: 'Hi.', parentToolUseId: null }])
-    expect(parseQuietly(badUsage)).toEqual([{ kind: AgentEventKind.Text, text: 'Hi.', parentToolUseId: null }])
+    expect(parseQuietly(noUsage)).toEqual([
+      { kind: AgentEventKind.Text, text: 'Hi.', parentToolUseId: null, sdkUuid: null },
+    ])
+    expect(parseQuietly(badUsage)).toEqual([
+      { kind: AgentEventKind.Text, text: 'Hi.', parentToolUseId: null, sdkUuid: null },
+    ])
     expect(parseQuietly(partUsage)).toEqual([{ kind: AgentEventKind.ContextUsed, tokens: 5 }])
     expect(warn).not.toHaveBeenCalled()
   })
@@ -74,13 +79,14 @@ describe('parsing SDK messages', () => {
       },
     }
     expect(parse(message)).toEqual([
-      { kind: AgentEventKind.Text, text: 'Let me look.', parentToolUseId: null },
+      { kind: AgentEventKind.Text, text: 'Let me look.', parentToolUseId: null, sdkUuid: null },
       {
         kind: AgentEventKind.ToolCallStarted,
         toolUseId: 'toolu_01',
         name: 'Read',
         input: { file_path: 'a.ts' },
         parentToolUseId: null,
+        sdkUuid: null,
       },
     ])
   })
@@ -232,6 +238,65 @@ describe('parsing SDK messages', () => {
     ])
     const connection = { ...(sdk.apiRetry(1) as object), error_status: null, error: 'unknown', retry_delay_ms: 'x' }
     expect(parse(connection)).toEqual([expect.objectContaining({ status: null, code: 'unknown', delayMs: 0 })])
+  })
+
+  it('reads a safety refusal answered by a fallback model, with the uuids it retracted', () => {
+    expect(parse(sdk.modelRefusalFallback('claude-opus-5-5', 'claude-sonnet-5', 'cyber', ['a', 'b']))).toEqual([
+      {
+        kind: AgentEventKind.ModelRefusalFallback,
+        scope: RefusalScope.Session,
+        originalModel: 'claude-opus-5-5',
+        fallbackModel: 'claude-sonnet-5',
+        category: 'cyber',
+        uuids: ['a', 'b'],
+      },
+    ])
+    // With no category, and no retracted uuids (nothing of the refused leg was ever delivered).
+    expect(parse(sdk.modelRefusalFallback('claude-opus-5-5', 'claude-sonnet-5', null))).toEqual([
+      expect.objectContaining({ category: null, uuids: [] }),
+    ])
+  })
+
+  it("reads a fallback's scope, defaulting an absent or unknown one to session", () => {
+    expect(parse(sdk.modelRefusalFallback('m1', 'm2', null, [], 'local'))).toEqual([
+      expect.objectContaining({ scope: RefusalScope.Local }),
+    ])
+    expect(parse({ ...(sdk.modelRefusalFallback('m1', 'm2', null) as object), scope: undefined })).toEqual([
+      expect.objectContaining({ scope: RefusalScope.Session }),
+    ])
+  })
+
+  it('drops a fallback notice whose direction is not a retry: only the retry case is still emitted', () => {
+    expect(parse({ ...(sdk.modelRefusalFallback('m1', 'm2', null) as object), direction: 'revert' })).toEqual([])
+    expect(parse({ ...(sdk.modelRefusalFallback('m1', 'm2', null) as object), direction: 'sticky' })).toEqual([])
+  })
+
+  it('reads a safety refusal with no fallback model, with an open, nullable category and explanation', () => {
+    expect(parse(sdk.modelRefusalNoFallback('claude-opus-5-5', 'bio', 'Too risky to help with.'))).toEqual([
+      {
+        kind: AgentEventKind.ModelRefusalNoFallback,
+        category: 'bio',
+        explanation: 'Too risky to help with.',
+        content: '',
+      },
+    ])
+    expect(parse(sdk.modelRefusalNoFallback('claude-opus-5-5', null))).toEqual([
+      expect.objectContaining({ category: null, explanation: null }),
+    ])
+  })
+
+  it("evicts a message's supersedes list on arrival, ahead of its own content, and drops an empty one", () => {
+    expect(parse(sdk.textSuperseding('Here you go.', ['uuid-1', 'uuid-2'], 'msg_retry'))).toEqual([
+      { kind: AgentEventKind.MessagesEvicted, uuids: ['uuid-1', 'uuid-2'] },
+      { kind: AgentEventKind.ContextUsed, tokens: sdk.CONTEXT_USED },
+      { kind: AgentEventKind.Text, text: 'Here you go.', parentToolUseId: null, sdkUuid: 'msg_retry-uuid' },
+    ])
+    // An empty (or absent) `supersedes` evicts nothing.
+    expect(
+      parse(sdk.textSuperseding('Here you go.', [], 'msg_retry')).some(
+        (event) => event.kind === AgentEventKind.MessagesEvicted,
+      ),
+    ).toBe(false)
   })
 
   it("reads where the usage limit stands, with its reset time in milliseconds when it's given", () => {
@@ -520,7 +585,9 @@ describe('parsing SDK messages', () => {
     const { parse: parseBad, warn } = parser()
     const message = { type: 'assistant', message: { content: [bad, { type: 'text', text: 'Still here.' }] } }
 
-    expect(parseBad(message)).toEqual([{ kind: AgentEventKind.Text, text: 'Still here.', parentToolUseId: null }])
+    expect(parseBad(message)).toEqual([
+      { kind: AgentEventKind.Text, text: 'Still here.', parentToolUseId: null, sdkUuid: null },
+    ])
     expect(warn.mock.calls[0]?.[0]).toContain(logged)
   })
 

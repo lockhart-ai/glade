@@ -73,7 +73,8 @@ export type MenuBarSection =
   | { readonly kind: MenuBarSectionKind.Recent; readonly rows: readonly RecentRow[] }
 
 function needsYouRow({ taskId, title, workspaceName, reason }: NeedsYouItem): NeedsYouRow {
-  const indicator = reason === NeedsYouReason.Error ? TaskIndicator.Error : TaskIndicator.Waiting
+  const isError = reason === NeedsYouReason.Error || reason === NeedsYouReason.DeclinedBySafety
+  const indicator = isError ? TaskIndicator.Error : TaskIndicator.Waiting
   return { taskId, title, workspaceName, reason: NEEDS_YOU_REASON_LABELS[reason], indicator }
 }
 

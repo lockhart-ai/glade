@@ -1070,6 +1070,121 @@ const connectionLost = (): ScriptStep[] => [
   result({ text: CONNECTION_ERROR, isError: true, terminalReason: 'api_error' }),
 ]
 
+/**
+ * A safety classifier refused the request and it was retried on a fallback model, which answered
+ * (`system/model_refusal_fallback`, #364): the refused leg's own text, if `refusedText` is given (nothing to evict
+ * otherwise), the fallback notice naming it in `retracted_message_uuids`, then the retry's own text, which
+ * `supersedes` it, becoming the turn's reply.
+ */
+const safetyRefusalFallback = (
+  originalModel: string,
+  fallbackModel: string,
+  category: string,
+  replyText: string,
+  refusedText?: string,
+  scope: 'session' | 'local' = 'session',
+): ScriptStep[] => {
+  const refusedUuid = 'refusal-leg'
+  return [
+    ...(refusedText === undefined
+      ? []
+      : [
+          emit({
+            type: 'assistant',
+            parent_tool_use_id: null,
+            uuid: refusedUuid,
+            message: { id: 'msg_refusal_leg', role: 'assistant', content: [{ type: 'text', text: refusedText }] },
+          }),
+        ]),
+    emit({
+      type: 'system',
+      subtype: 'model_refusal_fallback',
+      direction: 'retry',
+      scope,
+      original_model: originalModel,
+      fallback_model: fallbackModel,
+      api_refusal_category: category,
+      retracted_message_uuids: refusedText === undefined ? [] : [refusedUuid],
+      uuid: 'refusal-notice',
+    }),
+    emit({
+      type: 'assistant',
+      parent_tool_use_id: null,
+      uuid: 'refusal-retry',
+      ...(refusedText === undefined ? {} : { supersedes: [refusedUuid] }),
+      message: { id: 'msg_refusal_retry', role: 'assistant', content: [{ type: 'text', text: replyText }] },
+    }),
+  ]
+}
+
+/**
+ * A safety classifier refused the request with no fallback model to retry it on (`system/model_refusal_no_fallback`,
+ * #364): the turn ends declined, not crashed. Follow with a `result`, as the SDK still sends one.
+ */
+const safetyRefusalNoFallback = (category: string, explanation: string): EmitStep =>
+  emit({
+    type: 'system',
+    subtype: 'model_refusal_no_fallback',
+    original_model: 'claude-opus-5-5',
+    request_id: null,
+    api_refusal_category: category,
+    api_refusal_explanation: explanation,
+    content: '',
+    uuid: 'refusal-no-fallback',
+  })
+
+/**
+ * A request is refused by a safety check and retried on a fallback model, which answers: the chat shows the fallback's
+ * reply, with a quiet notice row, and the refused leg's own reply (nowhere in the log) is gone. `scope: 'session'`
+ * (the default) switches the task's own model to the fallback's.
+ */
+const safetyRefusalFallbackScript: AgentScript = {
+  name: 'safety-refusal-fallback',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Summarize last night’s outage',
+        'Summarize what happened in last night’s outage from the incident channel.',
+        'Summarizing the outage.',
+      ),
+      ...safetyRefusalFallback(
+        'claude-opus-5-5',
+        'claude-sonnet-5',
+        'cyber',
+        'Here’s a summary: a misconfigured firewall rule blocked internal traffic for 12 minutes.',
+        'Let me look at what the logs show for the affected window.',
+      ),
+      result(),
+    ],
+  ],
+}
+
+/**
+ * A request is refused by a safety check with no fallback model to retry it on: the turn ends declined, and the task
+ * shows as needing you for it, not as crashed.
+ */
+const safetyRefusalNoFallbackScript: AgentScript = {
+  name: 'safety-refusal-no-fallback',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Research a home lab network',
+        'Help set up a small home lab network for security research.',
+        'Looking into the request.',
+      ),
+      safetyRefusalNoFallback(
+        'cyber',
+        'The request involves setting up infrastructure that could be used to attack other systems.',
+      ),
+      result({ isError: true, terminalReason: 'refusal', text: '' }),
+    ],
+  ],
+}
+
 /** How soon the limit resets in `usage-limit`: soon enough for a spec to watch the tasks resume on their own. */
 const SHORT_RESET_MS = 6000
 
@@ -3146,6 +3261,8 @@ export const AGENT_SCRIPT_NAMES = [
   'failing-turn',
   'fails-to-start',
   'flaky-api',
+  'safety-refusal-fallback',
+  'safety-refusal-no-fallback',
   'copy-in-batches',
   'long-context',
   'compacts-early',
@@ -3201,6 +3318,8 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'failing-turn': failingTurn,
   'fails-to-start': failsToStart,
   'flaky-api': flakyApi,
+  'safety-refusal-fallback': safetyRefusalFallbackScript,
+  'safety-refusal-no-fallback': safetyRefusalNoFallbackScript,
   'copy-in-batches': copyInBatches,
   'long-context': longContext,
   'compacts-early': compactsEarly,

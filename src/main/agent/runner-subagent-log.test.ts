@@ -79,6 +79,7 @@ async function whose(): Promise<string[]> {
         return [`"${event.text}" <- ${event.parentToolUseId ?? 'task'}`]
       case ToolEventKind.Divider:
       case ToolEventKind.Compaction:
+      case ToolEventKind.RefusalFallback:
         return []
     }
   })
