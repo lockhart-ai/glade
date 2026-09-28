@@ -1,10 +1,12 @@
 import { faArrowUpRightFromSquare } from '@fortawesome/free-solid-svg-icons'
-import { useEffect, useMemo, useState } from 'react'
-import { FileContentKind, type FileContent } from '../../shared/domain'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { FileContentKind, type FileContent, type ImageFileContent } from '../../shared/domain'
 import { isBridgeError } from '../../shared/bridge'
 import { Markdown } from '../chat/Markdown'
 import { clockTime } from '../chat/chatModel'
 import { Button, ButtonSize, ButtonVariant, Segmented, type SegmentedOption } from '../components'
+import { ImageViewer } from '../images/ImageViewer'
+import { workspaceImageSource } from '../images/imageSources'
 import { useGladeStore, useGladeStoreApi } from '../store/react'
 import { WindowCommandId } from '../../shared/commands'
 import { useBinding } from '../commands/hooks'
@@ -15,6 +17,11 @@ import { SourceEditor } from './SourceEditor'
 import { BLOCK_LINES, SourceView, type HighlightedBlocks } from './SourceView'
 import type { OpenEditSession } from './unsaved'
 import styles from './FileViewer.module.css'
+
+/** The file's name, the last part of its path: what an image opened from the Files tab is called in the viewer. */
+function fileName(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1)
+}
 
 /** How a Markdown file shows: its source, or rendered. */
 export enum MarkdownMode {
@@ -92,6 +99,35 @@ function editorFor(text: string, language: Language | null, path: string): OpenE
   return (onEditState) => new FileSession({ text, language, label: `${path} contents` }, onEditState)
 }
 
+interface ImageFileViewProps {
+  readonly content: ImageFileContent
+  /** The file's name, for its alt text and the viewer's button label. */
+  readonly name: string
+  /** Called with the button clicked (or activated by ↵ or Space), for the focus to return to once the viewer closes. */
+  readonly onOpen: (trigger: HTMLElement) => void
+}
+
+/**
+ * An image file, fit to the panel but never scaled past its own size, on a checkerboard behind transparency. Clicking
+ * it (or ↵ or Space, focused) opens the image viewer over the window, for this one image.
+ */
+function ImageFileView({ content, name, onOpen }: ImageFileViewProps): React.JSX.Element {
+  return (
+    <div className={styles.imageBody}>
+      <button
+        type="button"
+        className={styles.imageButton}
+        aria-label={`View ${name} full size`}
+        onClick={(event) => {
+          onOpen(event.currentTarget)
+        }}
+      >
+        <img src={content.dataUrl} alt={name} className={styles.image} />
+      </button>
+    </div>
+  )
+}
+
 /**
  * A file of the task's workspace: its path, how the agent last touched it, and Open in editor over its source. A file
  * shown whole is edited in place (`SourceEditor`), looking just as the read-only source does; its edits stay while
@@ -121,6 +157,8 @@ export function FileViewer({
   const [loaded, setLoaded] = useState<Loaded>({ state: 'loading' })
   const [mode, setMode] = useState(MarkdownMode.Source)
   const [colored, setColored] = useState<Colored>({ lines: [], blocks: [] })
+  const [viewingImage, setViewingImage] = useState(false)
+  const imageButtonFocus = useRef<HTMLElement | null>(null)
   const version = touched?.file.eventId
   // A file as a commit left it is named by its path in the commit.
   const shownPath = fromCommit?.path ?? path
@@ -221,6 +259,17 @@ export function FileViewer({
               : `This file isn’t text (${formatSize(content.size)}), so it can’t be shown here.`}
           </Notice>
         )
+      case FileContentKind.Image:
+        return (
+          <ImageFileView
+            content={content}
+            name={fileName(shownPath)}
+            onOpen={(trigger) => {
+              imageButtonFocus.current = trigger
+              setViewingImage(true)
+            }}
+          />
+        )
       case FileContentKind.Text:
         return (
           <>
@@ -308,6 +357,16 @@ export function FileViewer({
       >
         {body()}
       </div>
+      {viewingImage && lastRead?.kind === FileContentKind.Image && (
+        <ImageViewer
+          images={[workspaceImageSource(taskId, path, fileName(shownPath))]}
+          index={0}
+          onClose={() => {
+            setViewingImage(false)
+          }}
+          returnFocus={imageButtonFocus}
+        />
+      )}
     </div>
   )
 }

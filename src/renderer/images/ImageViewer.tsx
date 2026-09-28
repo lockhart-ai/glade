@@ -1,3 +1,4 @@
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import {
   FloatingFocusManager,
   FloatingOverlay,
@@ -10,9 +11,9 @@ import {
 import { faImage } from '@fortawesome/free-regular-svg-icons'
 import { faChevronLeft, faChevronRight, faXmark } from '@fortawesome/free-solid-svg-icons'
 import { useCallback, useRef, type KeyboardEvent, type MouseEvent } from 'react'
-import type { ImageRef } from '../../shared/images'
 import { Button, ButtonVariant, Icon, IconSize, useOverlayRef } from '../components'
-import { IMAGE_LABEL, MISSING_IMAGE_LABEL, StoredImageStatus, useStoredImage } from './StoredImage'
+import { ImageSourceKind, imageSourceKey, type ImageViewerSource } from './imageSources'
+import { IMAGE_LABEL, MISSING_IMAGE_LABEL, StoredImageStatus, useStoredImage, useWorkspaceImage } from './StoredImage'
 import styles from './ImageViewer.module.css'
 
 /** What the viewer is called to a screen reader. */
@@ -28,23 +29,46 @@ export function steppedIndex(index: number, step: number, count: number): number
   return (((index + step) % count) + count) % count
 }
 
+/** One of the header's actions over the image showing, e.g. Open in Files or Reveal in Finder. */
+export interface ImageViewerAction {
+  readonly icon: IconDefinition
+  readonly label: string
+  readonly onClick: () => void
+}
+
+/** What shows over the image showing, for the source it's for. */
+export interface ImageViewerHeader {
+  readonly title: string
+  readonly actions: readonly ImageViewerAction[]
+}
+
 export interface ImageViewerProps {
-  /** The message's images, in order; the viewer shows one at a time. */
-  readonly images: readonly ImageRef[]
+  /** The images the viewer steps through, in order. */
+  readonly images: readonly ImageViewerSource[]
   /** The one showing. */
   readonly index: number
-  readonly onIndexChange: (index: number) => void
+  /** Called to step to another image; left out for a single image, which never steps. */
+  readonly onIndexChange?: (index: number) => void
   /** Called for Esc, a click on the backdrop, or the close button. */
   readonly onClose: () => void
-  /** Where the focus goes once it closes: the thumbnail of the image it was showing. */
+  /** Where the focus goes once it closes: the thumbnail, or row, of the image it was showing. */
   readonly returnFocus: React.RefObject<HTMLElement | null>
+  /**
+   * What the header over the image showing says and does, for its source; undefined for none. A message's pasted
+   * images have no header; a workspace image opened from the Artifacts tab has its artifact's title, Open in Files and
+   * Reveal in Finder.
+   */
+  readonly header?: (source: ImageViewerSource) => ImageViewerHeader | undefined
 }
 
 /**
- * A message's pasted images at full size, over the window (`docs/design/screens/30-image-viewer.png`): the one showing
- * as large as fits the window but never larger than it is, on the Settings modal's dimmed backdrop. With several, a
- * pager under it says which ("2 of 3") and steps between them, as ← and → do, going round at the ends. Esc, a click on
- * the backdrop or the close button closes it. It takes the focus while it's open and hands it back to `returnFocus`.
+ * A message's pasted images, or a task's workspace files (an artifact, or the file showing in the Files tab), at full
+ * size, over the window (`docs/design/screens/30-image-viewer.png`, `docs/design/screens/34-artifact-image.png`): the
+ * one showing as large as fits the window but never larger than it is, on the Settings modal's dimmed backdrop. With
+ * several, a pager under it says which ("2 of 3") and steps between them, as ← and → do, going round at the ends. A
+ * workspace image with a header shows its title top left and its actions top right, beside the close button. Esc, a
+ * click on the backdrop or the close button closes it. It takes the focus while it's open and hands it back to
+ * `returnFocus`.
  */
 export function ImageViewer({
   images,
@@ -52,6 +76,7 @@ export function ImageViewer({
   onIndexChange,
   onClose,
   returnFocus,
+  header,
 }: ImageViewerProps): React.JSX.Element {
   const closeRef = useRef<HTMLButtonElement>(null)
   const overlay = useOverlayRef()
@@ -74,7 +99,7 @@ export function ImageViewer({
   ])
   const multiple = images.length > 1
   const step = (by: number): void => {
-    onIndexChange(steppedIndex(index, by, images.length))
+    onIndexChange?.(steppedIndex(index, by, images.length))
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
@@ -90,6 +115,9 @@ export function ImageViewer({
     if (event.target === event.currentTarget) onClose()
   }
 
+  const shown = images[index]
+  const chrome = shown === undefined ? undefined : header?.(shown)
+
   return (
     <FloatingPortal>
       <FloatingOverlay ref={overlay} className={styles.backdrop} lockScroll>
@@ -100,10 +128,25 @@ export function ImageViewer({
             aria-label={VIEWER_LABEL}
             {...getFloatingProps({ onKeyDown, onClick: onBackdropClick })}
           >
-            {images.map((image, shown) => (
-              <ViewedImage key={image.id} image={image} hidden={shown !== index} />
+            {images.map((source, at) => (
+              <ViewedImage key={imageSourceKey(source)} source={source} hidden={at !== index} />
             ))}
+            {chrome !== undefined && (
+              <div className={styles.title} title={chrome.title} data-testid="image-viewer-title">
+                {chrome.title}
+              </div>
+            )}
             <div className={styles.close}>
+              {chrome?.actions.map((action) => (
+                <Button
+                  key={action.label}
+                  variant={ButtonVariant.Icon}
+                  icon={action.icon}
+                  aria-label={action.label}
+                  title={action.label}
+                  onClick={action.onClick}
+                />
+              ))}
               <Button
                 ref={closeRef}
                 variant={ButtonVariant.Icon}
@@ -146,25 +189,63 @@ export function ImageViewer({
 }
 
 interface ViewedImageProps {
-  readonly image: ImageRef
-  /** Whether another of the message's images is showing: each stays loaded, so stepping back to it is instant. */
+  readonly source: ImageViewerSource
+  /** Whether another of the images is showing: each stays loaded, so stepping back to it is instant. */
   readonly hidden: boolean
 }
 
 /** An image at its own size or as large as fits; in its place, a card that says it can't be loaded. */
-function ViewedImage({ image, hidden }: ViewedImageProps): React.JSX.Element | null {
-  const state = useStoredImage(image)
+function ViewedImage({ source, hidden }: ViewedImageProps): React.JSX.Element | null {
+  switch (source.kind) {
+    case ImageSourceKind.Pasted:
+      return <PastedViewedImage source={source} hidden={hidden} />
+    case ImageSourceKind.Workspace:
+      return <WorkspaceViewedImage source={source} hidden={hidden} />
+  }
+}
+
+/** In place of an image that can't be loaded: a card that says so. */
+function MissingImage({ hidden }: { readonly hidden: boolean }): React.JSX.Element {
+  return (
+    <div role="img" aria-label={MISSING_IMAGE_LABEL} className={styles.missing} hidden={hidden}>
+      <Icon icon={faImage} size={IconSize.Large} />
+      {MISSING_IMAGE_LABEL}
+    </div>
+  )
+}
+
+function PastedViewedImage({
+  source,
+  hidden,
+}: {
+  readonly source: Extract<ImageViewerSource, { kind: ImageSourceKind.Pasted }>
+  readonly hidden: boolean
+}): React.JSX.Element | null {
+  const state = useStoredImage(source.ref)
   switch (state.status) {
     case StoredImageStatus.Loading:
       return null
     case StoredImageStatus.Missing:
-      return (
-        <div role="img" aria-label={MISSING_IMAGE_LABEL} className={styles.missing} hidden={hidden}>
-          <Icon icon={faImage} size={IconSize.Large} />
-          {MISSING_IMAGE_LABEL}
-        </div>
-      )
+      return <MissingImage hidden={hidden} />
     case StoredImageStatus.Loaded:
       return <img src={state.url} alt={IMAGE_LABEL} className={styles.image} hidden={hidden} />
+  }
+}
+
+function WorkspaceViewedImage({
+  source,
+  hidden,
+}: {
+  readonly source: Extract<ImageViewerSource, { kind: ImageSourceKind.Workspace }>
+  readonly hidden: boolean
+}): React.JSX.Element | null {
+  const state = useWorkspaceImage(source.taskId, source.path)
+  switch (state.status) {
+    case StoredImageStatus.Loading:
+      return null
+    case StoredImageStatus.Missing:
+      return <MissingImage hidden={hidden} />
+    case StoredImageStatus.Loaded:
+      return <img src={state.url} alt={source.title} className={styles.image} hidden={hidden} />
   }
 }

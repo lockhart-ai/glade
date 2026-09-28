@@ -8,6 +8,7 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { extname, join } from 'node:path'
+import { WorkspaceImageMediaType } from '../../shared/domain'
 
 /** The folder under the app's data the thumbnails are kept in. */
 export const THUMBNAILS_FOLDER_NAME = 'thumbnails'
@@ -44,6 +45,21 @@ function extensionOf(path: string): string {
 /** Whether a file is an image a thumbnail is made of, by its name: PNG, JPEG, GIF, WebP or SVG. */
 export function isThumbnailImage(path: string): boolean {
   return extensionOf(path) in IMAGE_SIGNATURES
+}
+
+/** The media type of each extension a thumbnail is made of, for the Files tab and image viewer's full-size read. */
+const IMAGE_MEDIA_TYPES: Readonly<Record<string, WorkspaceImageMediaType>> = {
+  png: WorkspaceImageMediaType.Png,
+  jpg: WorkspaceImageMediaType.Jpeg,
+  jpeg: WorkspaceImageMediaType.Jpeg,
+  gif: WorkspaceImageMediaType.Gif,
+  webp: WorkspaceImageMediaType.Webp,
+  svg: WorkspaceImageMediaType.Svg,
+}
+
+/** The image media type a file's name says it is; undefined for one that isn't an image thumbnails are made of. */
+export function imageMediaTypeOf(path: string): WorkspaceImageMediaType | undefined {
+  return IMAGE_MEDIA_TYPES[extensionOf(path)]
 }
 
 /**

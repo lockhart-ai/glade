@@ -1,8 +1,9 @@
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { PNG } from '../src/shared/test-images'
 import { expect, openedInEditor, test } from './fixtures'
 import { chooseMenuItem } from './menu'
-import { chat, filesTab, firstRun, inputBar, taskList, taskPanel } from './selectors'
+import { chat, filesTab, firstRun, imageViewer, inputBar, taskList, taskPanel } from './selectors'
 
 /** Makes a workspace folder holding `files` (path → content), in a throwaway folder. */
 function workspace(tempFolder: () => string, files: Readonly<Record<string, string>>): string {
@@ -146,4 +147,41 @@ test('files: show_file opens the collapsed panel at the file and line; Markdown 
   await expect(files.editor).toHaveCount(0)
   await files.mode('Source').click()
   await expect(files.editorLine(8)).toContainText('/search')
+})
+
+test('files: an image shown with show_file renders as a picture, and opens the same viewer as an artifact (#372)', async ({
+  launch,
+  tempFolder,
+}) => {
+  const root = join(tempFolder(), 'acme-api')
+  mkdirSync(join(root, 'assets'), { recursive: true })
+  writeFileSync(join(root, 'assets', 'logo.png'), Buffer.from(PNG.data, 'base64'))
+  const glade = await launch({ agentScript: 'shows-an-image', chosenFolder: root })
+  const { window } = glade
+  await firstRun(window).openFolder.click()
+  await taskList(window).newTask.click()
+  await inputBar(window).field.fill('Show me the current logo.')
+  await inputBar(window).field.press('Enter')
+  await expect(chat(window).agentReplies).toHaveCount(1)
+
+  // The agent's show_file opened it, as a picture rather than the binary notice, with the header kept above it.
+  const files = filesTab(window)
+  await expect(taskPanel(window).tab(/^Files/)).toHaveAttribute('aria-selected', 'true')
+  await expect(files.tab('logo.png')).toHaveAttribute('aria-pressed', 'true')
+  await expect(files.image('logo.png')).toHaveAttribute('src', `data:image/png;base64,${PNG.data}`)
+  await expect(files.openInEditor).toBeVisible()
+
+  // Clicking it opens the same image viewer as an artifact's, but alone: no title, actions or pager.
+  const trigger = files.viewImage('logo.png')
+  await trigger.click()
+  const viewer = imageViewer(window)
+  await expect(viewer.viewer).toBeVisible()
+  await expect(viewer.shown('logo.png')).toHaveAttribute('src', `data:image/png;base64,${PNG.data}`)
+  await expect(viewer.pager).toHaveCount(0)
+  await expect(viewer.title).toHaveCount(0)
+  await expect(viewer.openInFiles).toHaveCount(0)
+
+  await window.keyboard.press('Escape')
+  await expect(viewer.viewer).toHaveCount(0)
+  await expect(trigger).toBeFocused()
 })

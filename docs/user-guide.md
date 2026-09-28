@@ -270,9 +270,12 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   closing the tab, switching task or quitting asks you to **Save**, **Discard** or **Cancel** first. If the agent
   changes a file you're editing, it simply reloads when you have no unsaved edits; with unsaved edits, a bar says it
   changed on disk, with **Reload** (take the agent's version, dropping yours) and **Keep mine** (your next save writes
-  over it). Markdown has a Preview. Files from a commit, binary files and files too large to show whole are read-only.
-  **Open in editor** (⌘⇧E) opens the file in the app macOS uses for it, and ⌘W, with the focus in the panel, closes the
-  tab. The agent can open a file here for you.
+  over it). Markdown has a Preview. Files from a commit and files too large to show whole are read-only. An image
+  (PNG, JPEG, GIF, WebP or SVG, up to 8 MB) shows as a picture instead, fit to the panel but never larger than its own
+  size, on a checkerboard behind any transparency; click it to see it full size, in the same viewer artifacts open (see
+  Artifacts, below). A larger, or any other kind of binary, file shows a notice instead of its contents. **Open in
+  editor** (⌘⇧E) opens the file in the app macOS uses for it, and ⌘W, with the focus in the panel, closes the tab. The
+  agent can open a file here for you.
 - **Todos:** the agent's own checklist, as it keeps it, with how many are done. The items come in three groups: what
   the agent is working on now, then what it hasn't started, then what's done (the most recently finished first, each
   with when it was finished, like `4m ago`; hover it for the exact time). A done item has a filled teal check and
@@ -285,9 +288,12 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   week**, **This month** and **Older**; each header shows its count and folds with a click. Today and Yesterday start
   open and the older groups folded, and each task remembers how you left them. An artifact that's edited moves back to
   the top, whether the agent (or one of its subagents) edited it or you did, in the terminal or an editor, while the
-  tab is open. Click a row to open the file in **Files**; hover it for **Open**, **Reveal in folder** and **More**
-  (the same menu as a right-click). The file the Files tab shows is outlined. A file that's gone stays at its last
-  known time, marked missing. Artifacts stay after the task is done.
+  tab is open. Click a row (or press ↵ or Space on it) to open the file: an image opens full size in the image viewer,
+  stepping ← → through the task's other image artifacts under a "2 of 7"; its title and two actions, **Open in Files**
+  and **Reveal in Finder**, show over it, and Esc, a click beside the image or × closes it. Any other artifact opens in
+  **Files** as before. Hover a row for **Open**, **Reveal in folder** and **More** (the same menu as a right-click).
+  The file the Files tab shows is outlined. A file that's gone stays at its last known time, marked missing. Artifacts
+  stay after the task is done.
 
   ![The Artifacts tab: screenshots with thumbnails and drafts under Today and Yesterday, older groups folded](images/guide/artifacts.png)
 - **Subagents:** one row per subagent, running ones first, with how long it's run and its tool calls. A running one

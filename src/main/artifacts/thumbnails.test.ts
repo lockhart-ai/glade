@@ -2,8 +2,10 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { WorkspaceImageMediaType } from '../../shared/domain'
 import {
   createThumbnails,
+  imageMediaTypeOf,
   isThumbnailImage,
   NO_THUMBNAILS,
   startsAsImage,
@@ -67,6 +69,23 @@ describe('isThumbnailImage', () => {
     for (const path of ['notes.md', 'report.pdf', 'icon.ico', 'Makefile', '.png', 'png', 'shots.png/readme.txt']) {
       expect(isThumbnailImage(path), path).toBe(false)
     }
+  })
+})
+
+describe('imageMediaTypeOf', () => {
+  it('is the media type of a PNG, JPEG, GIF, WebP or SVG, whatever the case of its extension', () => {
+    expect(imageMediaTypeOf('a.png')).toBe(WorkspaceImageMediaType.Png)
+    expect(imageMediaTypeOf('out/Shot.PNG')).toBe(WorkspaceImageMediaType.Png)
+    expect(imageMediaTypeOf('b.jpg')).toBe(WorkspaceImageMediaType.Jpeg)
+    expect(imageMediaTypeOf('c.jpeg')).toBe(WorkspaceImageMediaType.Jpeg)
+    expect(imageMediaTypeOf('d.gif')).toBe(WorkspaceImageMediaType.Gif)
+    expect(imageMediaTypeOf('e.webp')).toBe(WorkspaceImageMediaType.Webp)
+    expect(imageMediaTypeOf('f.svg')).toBe(WorkspaceImageMediaType.Svg)
+  })
+
+  it('is undefined for anything else', () => {
+    expect(imageMediaTypeOf('notes.md')).toBeUndefined()
+    expect(imageMediaTypeOf('Makefile')).toBeUndefined()
   })
 })
 

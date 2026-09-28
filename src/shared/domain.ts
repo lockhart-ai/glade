@@ -832,7 +832,10 @@ export interface OpenFiles {
 export enum FileContentKind {
   /** Text, shown as source. */
   Text = 'text',
-  /** Not text (it has a NUL byte): the viewer says so instead of showing it. */
+  /** An image the viewer shows as a picture, not text: PNG, JPEG, GIF, WebP or SVG (never inlined as markup). */
+  Image = 'image',
+  /** Not text and not an image (it has a NUL byte, or is an image file too large to show): the viewer says so instead
+   * of showing it. */
   Binary = 'binary',
   /** There's no file at that path (any more), e.g. the agent deleted it. */
   Missing = 'missing',
@@ -848,6 +851,25 @@ export interface TextFileContent {
   readonly size: number
 }
 
+/** The kinds of image the Files tab, and the image viewer opened from it or from an artifact, can show. */
+export enum WorkspaceImageMediaType {
+  Png = 'image/png',
+  Jpeg = 'image/jpeg',
+  Gif = 'image/gif',
+  Webp = 'image/webp',
+  /** Shown as a picture (an `<img>` of this data URL), never inlined as markup. */
+  Svg = 'image/svg+xml',
+}
+
+export interface ImageFileContent {
+  readonly kind: FileContentKind.Image
+  readonly mediaType: WorkspaceImageMediaType
+  /** The image's whole bytes, as a `data:` URL: never `file://`, and safe to put straight into an `<img>`. */
+  readonly dataUrl: string
+  /** The whole file's size, in bytes. */
+  readonly size: number
+}
+
 export interface BinaryFileContent {
   readonly kind: FileContentKind.Binary
   /** The file's size, in bytes. */
@@ -859,7 +881,7 @@ export interface MissingFileContent {
 }
 
 /** A file as the viewer shows it (`files.read`). */
-export type FileContent = TextFileContent | BinaryFileContent | MissingFileContent
+export type FileContent = TextFileContent | ImageFileContent | BinaryFileContent | MissingFileContent
 
 /**
  * A deliverable of a task: a file in its workspace the agent declared with `add_artifact`, shown in the Artifacts tab.

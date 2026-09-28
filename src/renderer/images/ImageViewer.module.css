@@ -73,6 +73,24 @@
   right: var(--space-xl);
 }
 
+/* An artifact's title, top left, level with the close chip (and any actions before it) on the right. */
+.title {
+  position: absolute;
+  top: var(--space-xl);
+  left: var(--space-xl);
+  max-width: 40vw;
+  padding: 3px var(--space-md);
+  background: var(--color-menu);
+  border: 1px solid var(--color-strong);
+  border-radius: var(--radius-menu);
+  box-shadow: var(--shadow-menu);
+  font-size: var(--font-size-secondary);
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .pager {
   bottom: var(--space-2xl);
   left: 50%;

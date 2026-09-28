@@ -13,6 +13,7 @@ import {
   FileThumbnailKind,
   type FileContent,
   type FileThumbnail,
+  type ImageFileContent,
   type OpenFiles,
 } from '../../shared/domain'
 import {
@@ -30,6 +31,7 @@ import { getWorkspace } from '../db/repositories/workspaces'
 import type { TaskServiceContext } from '../tasks/service'
 import {
   IMAGE_HEAD_BYTES,
+  imageMediaTypeOf,
   isThumbnailImage,
   MAX_THUMBNAIL_SOURCE_BYTES,
   startsAsImage,
@@ -57,6 +59,13 @@ export interface FilesContext extends TaskServiceContext {
 
 /** The most an artifact's Copy contents puts on the clipboard, in bytes. A larger file can't be copied. */
 export const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024
+
+/**
+ * The largest image the Files tab and the image viewer show whole, in bytes: read in full and sent to the renderer as
+ * a base64 `data:` URL, so it stays well under what an IPC message comfortably carries. A larger image (or an artifact
+ * whose thumbnail pipeline made one, `MAX_THUMBNAIL_SOURCE_BYTES`) shows the binary notice instead, with Open in editor.
+ */
+export const MAX_IMAGE_FILE_BYTES = 8 * 1024 * 1024
 
 /** Whether `path` is `root` or inside it. Both are absolute. */
 function isInside(root: string, path: string): boolean {
@@ -131,9 +140,31 @@ function firstLines(text: string): string | null {
 }
 
 /**
- * A file inside the workspace, as the viewer shows it: its text, cut to its first lines when it's larger than the
- * viewer shows (`MAX_FILE_BYTES`, `MAX_FILE_LINES`); binary when it has a NUL byte; missing when there's no file there.
- * Throws a `CommandFailure` (`outside_workspace`) for a path that leads outside the root.
+ * A file named as one of the kinds a thumbnail is made of (`isThumbnailImage`), read whole and checked against its
+ * kind's signature, as `data:` URL; null when it isn't really that kind of image (a mis-named file), so the caller
+ * falls back to reading it as text or binary.
+ */
+async function readImageFile(handle: FileHandle, path: string, size: number): Promise<ImageFileContent | null> {
+  const mediaType = imageMediaTypeOf(path)
+  if (mediaType === undefined) return null
+  const buffer = Buffer.alloc(size)
+  const { bytesRead } = await handle.read(buffer, 0, size, 0)
+  const bytes = buffer.subarray(0, bytesRead)
+  if (!startsAsImage(path, bytes.subarray(0, Math.min(bytesRead, IMAGE_HEAD_BYTES)))) return null
+  return {
+    kind: FileContentKind.Image,
+    mediaType,
+    dataUrl: `data:${mediaType};base64,${bytes.toString('base64')}`,
+    size,
+  }
+}
+
+/**
+ * A file inside the workspace, as the viewer shows it: an image (PNG, JPEG, GIF, WebP or SVG) up to `MAX_IMAGE_FILE_BYTES`
+ * shows whole, as a `data:` URL, never inlined as markup even for SVG; text, cut to its first lines when it's larger
+ * than the viewer shows (`MAX_FILE_BYTES`, `MAX_FILE_LINES`); binary when it has a NUL byte, or is a recognized image
+ * too large to show, with the notice's "Open in editor"; missing when there's no file there. Throws a `CommandFailure`
+ * (`outside_workspace`) for a path that leads outside the root.
  */
 export async function readWorkspaceFile(rootPath: string, path: string): Promise<FileContent> {
   const real = await resolveWorkspaceFile(rootPath, path)
@@ -144,6 +175,12 @@ export async function readWorkspaceFile(rootPath: string, path: string): Promise
     const info = await handle.stat()
     if (!info.isFile()) return { kind: FileContentKind.Missing }
     const { size } = info
+    if (isThumbnailImage(path)) {
+      // Too large to read whole and send as a data URL: the notice, not a truncated (invalid) image.
+      if (size > MAX_IMAGE_FILE_BYTES) return { kind: FileContentKind.Binary, size }
+      const image = await readImageFile(handle, path, size)
+      if (image !== null) return image
+    }
     const buffer = Buffer.alloc(Math.min(size, MAX_FILE_BYTES))
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
     return fileContentOf(buffer.subarray(0, bytesRead), size)

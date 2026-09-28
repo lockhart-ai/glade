@@ -95,6 +95,11 @@ export function fileTileKind(path: string): FileTileKind {
   return FileTileKind.Text
 }
 
+/** Whether an artifact's file is one the image viewer can open (PNG, JPEG, GIF, WebP or SVG), by its path. */
+export function isImageArtifact(artifact: Pick<Artifact, 'path'>): boolean {
+  return fileTileKind(artifact.path) === FileTileKind.Image
+}
+
 /**
  * How long ago an artifact was declared, as its row shows it: `8m` or `2h` today, the time (`15:02`) yesterday, and the
  * day (`Sep 21`) before that.

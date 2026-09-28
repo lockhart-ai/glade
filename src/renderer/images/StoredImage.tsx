@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { FileContentKind } from '../../shared/domain'
 import { imageDataUrl, type ImageRef } from '../../shared/images'
 import { useGladeStore } from '../store/react'
 
@@ -55,6 +56,35 @@ export function useStoredImage(image: ImageRef): StoredImageState {
   }, [image.id, loadImage])
 
   if (loaded?.id !== image.id) return LOADING
+  return loaded.url === null ? MISSING : { status: StoredImageStatus.Loaded, url: loaded.url }
+}
+
+/**
+ * A file in a task's workspace, read whole from main by path (`files.read`), as a data URL: never a `file://` one, and
+ * never SVG markup inlined (a `<data:image/svg+xml>` URL renders it as a picture, not markup). Missing for a file
+ * that's gone, isn't an image, or is one too large to show; main's read already tells those apart from a working image.
+ */
+export function useWorkspaceImage(taskId: string, path: string): StoredImageState {
+  const readFile = useGladeStore((state) => state.readFile)
+  const [loaded, setLoaded] = useState<Loaded | null>(null)
+  const key = `${taskId}:${path}`
+
+  useEffect(() => {
+    let current = true
+    readFile(taskId, path).then(
+      (content) => {
+        if (current) setLoaded({ id: key, url: content.kind === FileContentKind.Image ? content.dataUrl : null })
+      },
+      () => {
+        if (current) setLoaded({ id: key, url: null })
+      },
+    )
+    return () => {
+      current = false
+    }
+  }, [readFile, taskId, path, key])
+
+  if (loaded?.id !== key) return LOADING
   return loaded.url === null ? MISSING : { status: StoredImageStatus.Loaded, url: loaded.url }
 }
 

@@ -9,6 +9,7 @@ import {
   contextMenu,
   filesTab,
   firstRun,
+  imageViewer,
   inputBar,
   taskHeader,
   taskList,
@@ -263,10 +264,47 @@ test('artifacts: date groups that fold and stay folded, thumbnails of images, an
   await expect(artifacts.row('Old landing page')).toContainText('PNG · missing')
   await expect(artifacts.thumbnail('Search results on mobile')).toHaveAttribute('src', /^data:image\/png;base64,/)
 
-  // Clicking a row opens its file in the Files tab.
+  // Clicking an image artifact's row opens the image viewer instead (#372), stepping through every image artifact
+  // across every group, folded or not, in the tab's own newest-first order: Landing, Broken export (not really a
+  // picture, so "unavailable"), Docs logo, Launch poster, Search results, Old landing page (missing) — Changelog
+  // page draft, the one non-image artifact, doesn't count.
+  const viewer = imageViewer(window)
   await artifacts.open('Landing page, dark theme').click()
+  await expect(viewer.viewer).toBeVisible()
+  await expect(viewer.title).toHaveText('Landing page, dark theme')
+  await expect(viewer.pager).toHaveText('1 of 6')
+  await expect(viewer.shown('Landing page, dark theme')).toHaveAttribute('src', /^data:image\/png;base64,/)
+
+  await window.keyboard.press('ArrowRight')
+  await expect(viewer.pager).toHaveText('2 of 6')
+  await expect(viewer.title).toHaveText('Broken export')
+  await expect(viewer.missing).toBeVisible()
+
+  await window.keyboard.press('ArrowRight')
+  await expect(viewer.title).toHaveText('Docs logo')
+  await expect(viewer.shown('Docs logo')).toHaveAttribute('src', /^data:image\/svg\+xml;base64,/)
+
+  // Reveal in Finder reveals it, without closing the viewer; Open in Files closes it and shows the same file in Files.
+  await viewer.revealInFinder.click()
+  await expect
+    .poll(async () => (await desktop(glade)).revealed)
+    .toEqual([realpathSync(join(root, 'screens', 'logo.svg'))])
+  await expect(viewer.viewer).toBeVisible()
+
+  await viewer.openInFiles.click()
+  await expect(viewer.viewer).toHaveCount(0)
   await expect(taskPanel(window).tab(/^Files/)).toHaveAttribute('aria-selected', 'true')
-  await expect(filesTab(window).tab('landing-dark.png')).toHaveAttribute('aria-pressed', 'true')
+  await expect(filesTab(window).tab('logo.svg')).toHaveAttribute('aria-pressed', 'true')
+  await expect(filesTab(window).image('logo.svg')).toHaveAttribute('src', /^data:image\/svg\+xml;base64,/)
+
+  // Opened again (5 of 6, an image still on disk), Esc closes it and gives the focus back to the row it opened from.
+  await window.keyboard.press('Meta+Alt+Digit4')
+  const trigger = artifacts.open('Search results on mobile')
+  await trigger.click()
+  await expect(viewer.pager).toHaveText('5 of 6')
+  await window.keyboard.press('Escape')
+  await expect(viewer.viewer).toHaveCount(0)
+  await expect(trigger).toBeFocused()
 
   // The groups stay as they were left, after a relaunch too; the thumbnails come from where they were kept.
   await glade.close()
