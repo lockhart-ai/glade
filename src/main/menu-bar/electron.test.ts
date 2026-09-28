@@ -174,9 +174,19 @@ describe('the popover window', () => {
       webPreferences: PREFERENCES,
     })
     expect(window.options).not.toHaveProperty('paintWhenInitiallyHidden')
-    expect(window.setVisibleOnAllWorkspaces).toHaveBeenCalledWith(true, { visibleOnFullScreen: true })
     expect(load).toHaveBeenCalledWith(window)
     expect(track).toHaveBeenCalledWith(window, true)
+  })
+
+  it('joins every Space and shows over full-screen apps without turning Glade into an accessory app', () => {
+    // `skipTransformProcessType: true` stops Electron flipping the app's process type to a UIElement (accessory
+    // app) while making the window visible on all workspaces: without it, Glade drops out of ⌘Tab and the Dock
+    // for as long as the popover window exists (#365).
+    const { window } = make()
+    expect(window.setVisibleOnAllWorkspaces).toHaveBeenCalledWith(true, {
+      visibleOnFullScreen: true,
+      skipTransformProcessType: true,
+    })
   })
 
   it('opens no popups and never navigates away', () => {

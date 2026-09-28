@@ -74,6 +74,16 @@
   Cancel first. Files from a commit, binary files and files too large to show whole stay read-only.
 - **Overlays:** Floating UI (`@floating-ui/react`) positions menus and popovers and handles their focus, dismissal and
   list keyboard navigation; overlays render in a portal.
+- **Menu bar popover (#287/#319/#365):** the popover's window (`src/main/menu-bar/electron.ts`) is a `type: 'panel'`
+  `BrowserWindow`. On macOS, Electron's docs say `panel` "enables the window to float on top of full-screened apps by
+  adding the `NSWindowStyleMaskNonactivatingPanel` style mask... Also, the window will appear on all spaces
+  (desktops)" — that alone, not the app's process type, is what keeps it above full-screen apps and on every Space.
+  Its `setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })` call must also pass
+  `skipTransformProcessType: true`: without it, Electron flips the whole app's process type between
+  `ForegroundApplication` and `UIElementApplication` on every call (a workaround for *non*-panel windows, added in
+  [electron/electron#24956](https://github.com/electron/electron/pull/24956)), which drops Glade out of ⌘Tab and the
+  Dock (the same as `LSUIElement`) for as long as the popover window exists
+  ([electron/electron#26350](https://github.com/electron/electron/issues/26350) is the same regression upstream).
 - **Long lists:** the Done section loads from SQLite a page at a time (keyset pagination on the list's own order, over
   an index), and renders only the rows in view with TanStack Virtual (`@tanstack/react-virtual`); everything outside it
   is loaded whole. No archiving (L-02, #67).

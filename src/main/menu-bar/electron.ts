@@ -118,7 +118,12 @@ export function createElectronPopover({
       webPreferences,
     })
     track(window, true)
-    window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+    // `skipTransformProcessType` (#365): without it, Electron flips the whole app's process type to a UIElement
+    // (accessory) app on macOS on every call, which drops Glade out of ⌘Tab and the Dock for as long as the popover
+    // window exists (docs/decisions.md, "Menu bar popover"). It's safe to skip here: the `type: 'panel'` above
+    // already puts the window on every Space and above full-screen apps by itself (Electron's own
+    // `NSWindowStyleMaskNonactivatingPanel` behaviour for `panel`), so nothing depends on the process-type flip.
+    window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true })
     // Glade's own page only: no popups, no navigating away.
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     window.webContents.on('will-navigate', (event) => {
