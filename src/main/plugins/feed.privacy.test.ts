@@ -315,6 +315,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
       },
     ],
     [EventType.ToolEventUpdated]: calls.map((call) => ({ type: EventType.ToolEventUpdated as const, toolEvent: call })),
+    [EventType.ToolEventRemoved]: [{ type: EventType.ToolEventRemoved, taskId: created.id, toolEventId: 'evicted-1' }],
     [EventType.MessageAppended]: [
       {
         type: EventType.MessageAppended,

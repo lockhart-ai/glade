@@ -169,6 +169,12 @@ scroll: the chat passes under them.
 - An API error that Claude Code's own retries can't get past stops the task with a card saying what happened, with
   **Retry**, **Retry with another model** and **Show details**. So does Claude Code failing to start, with the reason it
   gave, such as a missing workspace folder.
+- Opus 5.5 and Sonnet 5 run safety classifiers on some requests (biology, cybersecurity, reasoning extraction). A
+  declined request that's retried on a fallback model gets a quiet notice in the chat ("Answered by `<model>`: the
+  request was declined by a safety check") in place of the declined attempt, and, if it switched the whole session,
+  the model picker shows the new model. One with no fallback to retry on stops the task with a card in the same style
+  as an error, but it isn't one: the task shows as needing you with "Declined by a safety check", not "Stopped on an
+  error", and nothing crashed.
 - The **usage meter** at the foot of the sidebar shows how close you are to your plan's **usage limits**: the limit
   closest to running out, how much of it is used and when it resets, e.g. "Session 38% · resets 15:40". It turns
   purple from 70%. Click it for every limit (the session, this week, each model's week and extra usage), the plan, and
@@ -235,7 +241,7 @@ many** shows beside it; once nothing's waiting, it's the mark alone.
 Click it for a list, in every workspace:
 
 - **Needs you:** each task waiting on you, its workspace, and why: asking a question, waiting for permission, stopped
-  on an error, or a reply waiting.
+  on an error, declined by a safety check, or a reply waiting.
 - **Working:** each task whose agent is working, its status, its todo progress (`3/7` and a thin bar) and how long its
   turn has run.
 - **Recent:** the last few notifications Glade sent, and how long ago. They're kept, so they're still there after a

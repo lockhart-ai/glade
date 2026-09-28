@@ -25,6 +25,7 @@ import {
   type NarrationEvent,
   type PermissionRequest,
   type QuestionSet,
+  type RefusalFallbackEvent,
   type Task,
   type ToolEvent,
   type TurnSummary,
@@ -51,6 +52,8 @@ export enum ChatEntryKind {
   Reopened = 'reopened',
   /** Where the context was compacted. */
   Compacted = 'compacted',
+  /** Where a request was refused by a safety check and answered by a fallback model. */
+  RefusalFallback = 'refusal_fallback',
   /** The questions the agent asked (`ask`): a question card. */
   Question = 'question',
   /** A tool call that waits, or waited, on your OK: a permission card. */
@@ -96,6 +99,12 @@ export interface CompactedEntry {
   readonly compaction: CompactionEvent
 }
 
+export interface RefusalFallbackEntry {
+  readonly kind: ChatEntryKind.RefusalFallback
+  /** The tool log's refusal notice. */
+  readonly event: RefusalFallbackEvent
+}
+
 export interface QuestionEntry {
   readonly kind: ChatEntryKind.Question
   readonly questionSet: QuestionSet
@@ -119,6 +128,7 @@ export type ChatEntry =
   | MarkedDoneEntry
   | ReopenedEntry
   | CompactedEntry
+  | RefusalFallbackEntry
   | QuestionEntry
   | PermissionEntry
 
@@ -126,7 +136,7 @@ export type ChatEntry =
 export type CardEntry = QuestionEntry | PermissionEntry
 
 /** The chat's entries that are dividers. */
-export type DividerEntry = RestartedEntry | MarkedDoneEntry | ReopenedEntry | CompactedEntry
+export type DividerEntry = RestartedEntry | MarkedDoneEntry | ReopenedEntry | CompactedEntry | RefusalFallbackEntry
 
 /**
  * The turn in progress or last run: the latest message's turn, or the latest turn divider's for a turn the agent started
@@ -205,6 +215,8 @@ function toolEventEntry(task: Task, event: ToolEvent, turn: number): DividerEntr
       return dividerEntry(task, event, turn)
     case ToolEventKind.Compaction:
       return compactionEntry(event)
+    case ToolEventKind.RefusalFallback:
+      return { kind: ChatEntryKind.RefusalFallback, event }
     case ToolEventKind.Narration:
     case ToolEventKind.ToolCall:
       return null
@@ -222,6 +234,11 @@ function dividerComesBefore(entry: DividerEntry, message: Message): boolean {
     const { compaction } = entry
     if (message.turn !== compaction.turn) return message.turn > compaction.turn
     return message.createdAt > compaction.createdAt
+  }
+  if (entry.kind === ChatEntryKind.RefusalFallback) {
+    const { event } = entry
+    if (message.turn !== event.turn) return message.turn > event.turn
+    return message.createdAt > event.createdAt
   }
   const { kind, divider } = entry
   if (kind === ChatEntryKind.MarkedDone) {
@@ -270,7 +287,16 @@ function cardComesBefore(card: CardEntry, message: Message): boolean {
 
 /** When a divider entry happened, for putting cards among the dividers. */
 function dividerTime(entry: DividerEntry): EpochMs {
-  return entry.kind === ChatEntryKind.Compacted ? entry.compaction.createdAt : entry.divider.createdAt
+  switch (entry.kind) {
+    case ChatEntryKind.Compacted:
+      return entry.compaction.createdAt
+    case ChatEntryKind.RefusalFallback:
+      return entry.event.createdAt
+    case ChatEntryKind.Restarted:
+    case ChatEntryKind.MarkedDone:
+    case ChatEntryKind.Reopened:
+      return entry.divider.createdAt
+  }
 }
 
 /**
@@ -351,6 +377,16 @@ export function compactedLabel({ compaction }: CompactedEntry): string {
       return `Compacted automatically at ${String(percent)}% · ${tokens}`
     }
   }
+}
+
+/**
+ * What a refusal notice says: "Answered by claude-sonnet-5: the request was declined by a safety check (cyber)."
+ * With no category, it drops the parenthetical.
+ */
+export function refusalFallbackLabel({ event }: RefusalFallbackEntry): string {
+  const { fallbackModel, category } = event
+  const declined = 'the request was declined by a safety check'
+  return `Answered by ${fallbackModel}: ${category === null ? declined : `${declined} (${category})`}.`
 }
 
 /** What the working line says while the context is being compacted. */

@@ -211,7 +211,9 @@ describe('ScriptedSession', () => {
     const played = play([[say('Looking.'), delay(1_500), say('Done.'), result()]])
     played.session.send('Fix it', 'user-1')
     await flush()
-    expect(played.events).toEqual([{ kind: AgentEventKind.Text, text: 'Looking.', parentToolUseId: null }])
+    expect(played.events).toEqual([
+      { kind: AgentEventKind.Text, text: 'Looking.', parentToolUseId: null, sdkUuid: expect.any(String) as string },
+    ])
 
     await vi.advanceTimersByTimeAsync(1_500)
     const last = played.raw.at(-1)
@@ -327,13 +329,14 @@ describe('ScriptedSession', () => {
 
     const prefix = 'toolu_id2_1_'
     expect(played.events).toEqual([
-      { kind: AgentEventKind.Text, text: 'Checking.', parentToolUseId: null },
+      { kind: AgentEventKind.Text, text: 'Checking.', parentToolUseId: null, sdkUuid: expect.any(String) as string },
       {
         kind: AgentEventKind.ToolCallStarted,
         toolUseId: `${prefix}read`,
         name: 'Read',
         input: { file_path: 'a.ts' },
         parentToolUseId: null,
+        sdkUuid: expect.any(String) as string,
       },
       {
         kind: AgentEventKind.ToolResult,
@@ -349,6 +352,7 @@ describe('ScriptedSession', () => {
         name: 'Agent',
         input: { description: 'Look' },
         parentToolUseId: null,
+        sdkUuid: expect.any(String) as string,
       },
       // A subagent the turn waits on starts as a task, and ends before its call's result.
       {
@@ -366,6 +370,7 @@ describe('ScriptedSession', () => {
         name: 'Grep',
         input: { pattern: 'x' },
         parentToolUseId: `${prefix}agent`,
+        sdkUuid: expect.any(String) as string,
       },
       {
         kind: AgentEventKind.ToolResult,
@@ -375,7 +380,12 @@ describe('ScriptedSession', () => {
         launched: false,
         details: { stdout: 'hit', stderr: '', interrupted: false },
       },
-      { kind: AgentEventKind.Text, text: 'Subagent text', parentToolUseId: `${prefix}agent` },
+      {
+        kind: AgentEventKind.Text,
+        text: 'Subagent text',
+        parentToolUseId: `${prefix}agent`,
+        sdkUuid: expect.any(String) as string,
+      },
       {
         kind: AgentEventKind.TaskFinished,
         sdkTaskId: 'aid21',
@@ -1344,7 +1354,9 @@ describe('ScriptedSession', () => {
     await flush()
 
     expect((await played.ended)?.message).toBe('The agent process exited with code 1')
-    expect(played.events).toEqual([{ kind: AgentEventKind.Text, text: 'Starting.', parentToolUseId: null }])
+    expect(played.events).toEqual([
+      { kind: AgentEventKind.Text, text: 'Starting.', parentToolUseId: null, sdkUuid: expect.any(String) as string },
+    ])
     expect(played.idles()).toBe(2)
   })
 
@@ -1357,7 +1369,9 @@ describe('ScriptedSession', () => {
     await vi.advanceTimersByTimeAsync(1_000)
 
     expect(await played.ended).toBeNull()
-    expect(played.events).toEqual([{ kind: AgentEventKind.Text, text: 'Starting.', parentToolUseId: null }])
+    expect(played.events).toEqual([
+      { kind: AgentEventKind.Text, text: 'Starting.', parentToolUseId: null, sdkUuid: expect.any(String) as string },
+    ])
     expect(played.idles()).toBe(2)
   })
 

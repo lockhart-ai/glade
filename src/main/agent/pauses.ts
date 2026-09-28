@@ -37,6 +37,8 @@ export function pauseReason(error: Pick<TaskError, 'kind'>): PauseReason | null 
       return PauseReason.Offline
     case AgentErrorKind.Transient:
     case AgentErrorKind.Permanent:
+    case AgentErrorKind.SafetyRefusal:
+      // A safety refusal stops the task on its own card (Retry tries again): nothing to wait out.
       return null
   }
 }

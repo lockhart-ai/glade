@@ -400,6 +400,8 @@ export function chat(page: Page) {
     reopened: log.getByRole('separator', { name: 'Reopened' }),
     /** Where the context was compacted: "Compacted · 198k → 41k". */
     compacted: log.getByRole('separator', { name: 'Compacted' }),
+    /** Where a safety refusal was answered by a fallback model: "Answered by claude-sonnet-5: …". */
+    refusalFallback: log.getByRole('separator', { name: 'Answered by a fallback model' }),
     /** The live line while the agent works. */
     working: log.getByRole('status'),
     /** A backfilled task's handoff note, at the top: the Backfilled card. */

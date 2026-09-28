@@ -11,6 +11,7 @@ import {
   Effort,
   MessageRole,
   PermissionMode,
+  RefusalScope,
   TaskActivity,
   TaskState,
   TodoState,
@@ -183,6 +184,13 @@ function toolLog(): unknown[] {
           postTokens: event.postTokens,
           turn: event.turn,
         }
+      case ToolEventKind.RefusalFallback:
+        return {
+          refusalFallback: event.fallbackModel,
+          category: event.category,
+          scope: event.scope,
+          turn: event.turn,
+        }
     }
   })
 }
@@ -200,6 +208,8 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.ToolEventAppended:
       case EventType.ToolEventUpdated:
         return [event.type, event.toolEvent.kind, 'state' in event.toolEvent ? event.toolEvent.state : null]
+      case EventType.ToolEventRemoved:
+        return [event.type, event.toolEventId]
       case EventType.TaskUpdated:
         return [event.type, event.task.activity, event.task.sessionId, event.task.contextUsedTokens]
       case EventType.QueueChanged:
@@ -951,6 +961,111 @@ describe('an error turn', () => {
 
     expect(toolLog()[1]).toEqual({ narration: 'The turn failed (unknown).', turn: 1 })
     expect(current().activity).toBe(TaskActivity.Error)
+  })
+})
+
+describe('safety refusals', () => {
+  it('evicts the refused leg the retry replaces, logs a quiet notice, and switches the task to the fallback model', async () => {
+    await send('Summarize last night’s outage.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.text('Let me check the logs.', null, 'msg_leg_text'),
+      sdk.toolUse('toolu_leg', 'Bash', { command: 'grep ERROR app.log' }, null, 'msg_leg_tool'),
+    )
+    await settle()
+    backend.session.emit(sdk.toolResult('toolu_leg', 'no relevant hits'))
+    await settle()
+    // The refused leg is on the log until the retry supersedes it.
+    expect(toolLog().slice(1)).toEqual([
+      { narration: 'Let me check the logs.', turn: 1 },
+      expect.objectContaining({ call: 'Bash', state: ToolCallState.Done }),
+    ])
+
+    const retracted = ['msg_leg_text-uuid', 'msg_leg_tool-uuid']
+    backend.session.emit(
+      sdk.modelRefusalFallback(sdk.MODEL, 'claude-sample-fallback', 'cyber', retracted),
+      sdk.textSuperseding(
+        'Here’s a summary: a misconfigured rule blocked traffic for 12 minutes.',
+        retracted,
+        'msg_retry',
+      ),
+      sdk.result('Here’s a summary: a misconfigured rule blocked traffic for 12 minutes.'),
+    )
+    await settle()
+
+    // The refused leg's narration and tool call are gone from the tool log; only the notice is left of it.
+    expect(toolLog().slice(1)).toEqual([
+      { refusalFallback: 'claude-sample-fallback', category: 'cyber', scope: RefusalScope.Session, turn: 1 },
+    ])
+    // The refused leg's reply never reached the chat: only the retry's does.
+    expect(chat()).toEqual([
+      { role: MessageRole.User, body: 'Summarize last night’s outage.', turn: 1 },
+      {
+        role: MessageRole.Agent,
+        body: 'Here’s a summary: a misconfigured rule blocked traffic for 12 minutes.',
+        turn: 1,
+      },
+    ])
+    // `scope: 'session'` (the default) switches the task's own model.
+    expect(current().model).toBe('claude-sample-fallback')
+  })
+
+  it("leaves the task's model alone with scope: 'local'", async () => {
+    await send('Hi')
+    backend.session.emit(
+      sdk.init(),
+      sdk.modelRefusalFallback(sdk.MODEL, 'claude-sample-fallback', null, [], 'local'),
+      sdk.result('Hello.'),
+    )
+    await settle()
+
+    expect(toolLog()[1]).toMatchObject({ refusalFallback: 'claude-sample-fallback', scope: RefusalScope.Local })
+    expect(current().model).toBe(sdk.MODEL)
+  })
+
+  it('ends the turn declined, not crashed, with no fallback model to retry on', async () => {
+    await send('Help me set up a home lab for security research.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.modelRefusalNoFallback(sdk.MODEL, 'cyber', 'The request could be used to attack other systems.'),
+      sdk.result('', { is_error: true, terminal_reason: 'refusal' }),
+    )
+    await settle()
+
+    expect(toolLog()[1]).toEqual({
+      narration: 'The agent stopped: the request was declined by a safety check.',
+      turn: 1,
+    })
+    expect(current()).toMatchObject({
+      activity: TaskActivity.Error,
+      error: {
+        kind: AgentErrorKind.SafetyRefusal,
+        source: TaskErrorSource.Refusal,
+        status: null,
+        code: 'cyber',
+        details: 'The request could be used to attack other systems.',
+        retries: 0,
+        retryingMs: 0,
+      },
+    })
+    // Not paused, and not a failed API row: the request was declined, nothing failed.
+    expect(toolLog()).not.toContainEqual(expect.objectContaining({ call: API_TOOL_NAME }))
+  })
+
+  it('declines with no explanation or category as a plain notice, and can still be retried', async () => {
+    await send('Hi')
+    backend.session.emit(sdk.init(), sdk.modelRefusalNoFallback(sdk.MODEL, null), sdk.result(''))
+    await settle()
+
+    expect(current().error).toMatchObject({
+      code: null,
+      details: 'The agent stopped: the request was declined by a safety check.',
+    })
+
+    backend.session.emit(sdk.init(), sdk.text('Sure, happy to help.'), sdk.result('Sure, happy to help.'))
+    await glade.invoke(CommandName.TasksRetry, { id: task.id })
+    await settle()
+    expect(current()).toMatchObject({ activity: TaskActivity.Waiting, error: null })
   })
 })
 
@@ -3246,6 +3361,8 @@ describe('several tasks at once', () => {
       case EventType.ToolEventAppended:
       case EventType.ToolEventUpdated:
         return event.toolEvent.taskId
+      case EventType.ToolEventRemoved:
+        return event.taskId
       case EventType.TaskUpdated:
         return event.task.id
       case EventType.TaskOpenRequested:
@@ -3295,6 +3412,8 @@ describe('several tasks at once', () => {
       case EventType.ToolEventAppended:
       case EventType.ToolEventUpdated:
         return [event.type, event.toolEvent.kind, 'state' in event.toolEvent ? event.toolEvent.state : null]
+      case EventType.ToolEventRemoved:
+        return [event.type]
       case EventType.TaskUpdated:
         return [event.type, event.task.activity]
       case EventType.QueueChanged:
@@ -3347,6 +3466,8 @@ describe('several tasks at once', () => {
           return [event.name, event.input, event.state, event.output, event.toolUseId, event.parentToolUseId]
         case ToolEventKind.Compaction:
           return [event.trigger, event.state, event.preTokens, event.postTokens]
+        case ToolEventKind.RefusalFallback:
+          return [event.fallbackModel, event.category, event.scope]
       }
     })
   }

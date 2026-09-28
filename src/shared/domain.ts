@@ -57,6 +57,11 @@ export enum AgentErrorKind {
   UsageLimit = 'usage_limit',
   /** The API couldn't be reached at all. */
   Offline = 'offline',
+  /**
+   * The request was declined by a safety classifier with no fallback model to retry it on (`system/model_refusal_no_fallback`,
+   * `docs/sdk-notes.md`). Not a crash: nothing failed, the model just wouldn't answer.
+   */
+  SafetyRefusal = 'safety_refusal',
 }
 
 /** Where the error that stopped a task's agent came from. */
@@ -72,6 +77,11 @@ export enum TaskErrorSource {
    * reason, e.g. `cwd_unavailable` (`./startupFailure`).
    */
   Startup = 'startup',
+  /**
+   * The request was declined by a safety classifier with no fallback model to retry it on: the error's `code` is the
+   * refusal's category (`api_refusal_category`), e.g. `cyber`; null when the SDK gave none.
+   */
+  Refusal = 'refusal',
 }
 
 /** What stopped a task's agent, for the chat's error card and the task list's status line. */
@@ -308,6 +318,22 @@ export enum ToolEventKind {
   Divider = 'divider',
   /** The session's context was compacted: its older turns replaced with a summary for the agent. */
   Compaction = 'compaction',
+  /**
+   * A request was refused by a safety classifier and retried on a fallback model, which answered
+   * (`system/model_refusal_fallback`, `docs/sdk-notes.md`): the tool log's (and chat's) quiet notice row.
+   */
+  RefusalFallback = 'refusal_fallback',
+}
+
+/**
+ * Whether a refusal-fallback swap changed the task's own model (`system/model_refusal_fallback.scope`,
+ * `docs/sdk-notes.md`).
+ */
+export enum RefusalScope {
+  /** The main thread fell back: the task's model is the fallback model from here on. */
+  Session = 'session',
+  /** Only a subagent or side question fell back; the task's own model is unchanged. */
+  Local = 'local',
 }
 
 export enum ToolCallState {
@@ -379,6 +405,20 @@ export interface DividerEvent extends ToolEventBase {
 }
 
 /**
+ * A safety refusal answered by a fallback model (`docs/sdk-notes.md`): "Answered by claude-sonnet-5: the request was
+ * declined by a safety check (cyber)." The refused leg's messages and tool events the retry replaced are evicted from
+ * the chat and tool log, not kept here.
+ */
+export interface RefusalFallbackEvent extends ToolEventBase {
+  readonly kind: ToolEventKind.RefusalFallback
+  readonly originalModel: string
+  readonly fallbackModel: string
+  /** The refusal's category (`api_refusal_category`), an open string; null when the SDK gave none. */
+  readonly category: string | null
+  readonly scope: RefusalScope
+}
+
+/**
  * The name of the failed tool call row the tool log shows for an API error that stopped the agent: "API · request 3 of
  * 3 · 529 overloaded · task paused" (`docs/design/html/16-error.html`). It isn't a real tool: the runner adds it.
  */
@@ -416,7 +456,7 @@ export interface CompactionEvent extends ToolEventBase {
  * One tool log entry. Append-only, except that a tool call's state and output are filled in when its result arrives,
  * and a compaction's state and token counts when it finishes.
  */
-export type ToolEvent = NarrationEvent | ToolCallEvent | DividerEvent | CompactionEvent
+export type ToolEvent = NarrationEvent | ToolCallEvent | DividerEvent | CompactionEvent | RefusalFallbackEvent
 
 /** Where an item on the agent's todo list stands (`docs/design/html/09-todos.html`). */
 export enum TodoState {

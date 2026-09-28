@@ -1,4 +1,5 @@
 import {
+  AgentErrorKind,
   DividerKind,
   TaskActivity,
   TaskState,
@@ -101,11 +102,12 @@ export function reopening(toolEvents: readonly ToolEvent[]): Reopening | null {
 
 /**
  * What the state dot says, as its tooltip and accessible name: `Active · working`, `Active · waiting on you`,
- * `Active · stopped by an error`, `Done · Sep 23`, `Active · reopened` while the agent works on the message that reopened
- * the task, and `Active · paused` while its turn is paused (docs/design/html/17-usage-limit.html).
+ * `Active · stopped by an error` (or `Active · declined by a safety check` for a safety refusal with no fallback to
+ * retry on: not a crash), `Done · Sep 23`, `Active · reopened` while the agent works on the message that reopened the
+ * task, and `Active · paused` while its turn is paused (docs/design/html/17-usage-limit.html).
  */
 export function stateLabel(
-  task: Pick<Task, 'state' | 'activity' | 'doneAt' | 'updatedAt'>,
+  task: Pick<Task, 'state' | 'activity' | 'doneAt' | 'updatedAt' | 'error'>,
   reopened: Reopening | null = null,
 ): string {
   switch (taskIndicator(task)) {
@@ -115,7 +117,9 @@ export function stateLabel(
     case TaskIndicator.Waiting:
       return 'Active · waiting on you'
     case TaskIndicator.Error:
-      return 'Active · stopped by an error'
+      return task.error?.kind === AgentErrorKind.SafetyRefusal
+        ? 'Active · declined by a safety check'
+        : 'Active · stopped by an error'
     case TaskIndicator.Done:
       return `Done · ${formatDay(task.doneAt ?? task.updatedAt)}`
   }

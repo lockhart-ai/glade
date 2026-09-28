@@ -34,6 +34,11 @@ export function emitToolEventUpdated(emit: Emit, toolEvent: ToolEvent): void {
   emit({ type: EventType.ToolEventUpdated, toolEvent })
 }
 
+/** Tells every window a tool log entry was evicted: a refusal-fallback retry superseded it. */
+export function emitToolEventRemoved(emit: Emit, taskId: string, toolEventId: string): void {
+  emit({ type: EventType.ToolEventRemoved, taskId, toolEventId })
+}
+
 /**
  * Tells every window a question set opened, was answered or was withdrawn, by its state: the event for each carries the
  * set as it now is.

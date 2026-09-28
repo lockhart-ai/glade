@@ -3,12 +3,14 @@ import type { Database } from 'better-sqlite3'
 import {
   CompactionTrigger,
   DividerKind,
+  RefusalScope,
   ToolCallState,
   ToolEventKind,
   type CompactionEvent,
   type DividerEvent,
   type EpochMs,
   type NarrationEvent,
+  type RefusalFallbackEvent,
   type ToolCallEvent,
   type ToolEvent,
   type ToolEventBase,
@@ -38,6 +40,14 @@ export interface NewToolCall extends NewToolEventBase {
 
 export interface NewDivider extends NewToolEventBase {
   readonly dividerKind: DividerKind
+}
+
+/** A refusal-fallback notice, as the runner logs it once the retry has answered (`docs/sdk-notes.md`). */
+export interface NewRefusalFallback extends NewToolEventBase {
+  readonly originalModel: string
+  readonly fallbackModel: string
+  readonly category: string | null
+  readonly scope: RefusalScope
 }
 
 /** A compaction as it starts (running, with no token counts yet) or as it's reported done. */
@@ -98,16 +108,21 @@ interface ToolEventParams {
   readonly windowTokens: number | null
   readonly progressSummary: string | null
   readonly compactSummary: string | null
+  readonly refusalOriginalModel: string | null
+  readonly refusalFallbackModel: string | null
+  readonly refusalCategory: string | null
+  readonly refusalScope: RefusalScope | null
 }
 
 const COLUMNS = `id, task_id, kind, turn, created_at, text, tool_name, tool_input, tool_output, finished_at, tool_state,
   tool_use_id, parent_tool_use_id, divider_kind, compact_trigger, pre_tokens, post_tokens, window_tokens,
-  progress_summary, compact_summary`
+  progress_summary, compact_summary, refusal_original_model, refusal_fallback_model, refusal_category, refusal_scope`
 
 const KINDS = Object.values(ToolEventKind)
 const TOOL_CALL_STATES = Object.values(ToolCallState)
 const DIVIDER_KINDS = Object.values(DividerKind)
 const COMPACTION_TRIGGERS = Object.values(CompactionTrigger)
+const REFUSAL_SCOPES = Object.values(RefusalScope)
 
 function toParams(event: ToolEvent): ToolEventParams {
   const base = {
@@ -131,6 +146,10 @@ function toParams(event: ToolEvent): ToolEventParams {
     windowTokens: null,
     progressSummary: null,
     compactSummary: null,
+    refusalOriginalModel: null,
+    refusalFallbackModel: null,
+    refusalCategory: null,
+    refusalScope: null,
   }
   switch (event.kind) {
     case ToolEventKind.Narration:
@@ -158,6 +177,14 @@ function toParams(event: ToolEvent): ToolEventParams {
         postTokens: event.postTokens,
         windowTokens: event.windowTokens,
         compactSummary: event.summary,
+      }
+    case ToolEventKind.RefusalFallback:
+      return {
+        ...base,
+        refusalOriginalModel: event.originalModel,
+        refusalFallbackModel: event.fallbackModel,
+        refusalCategory: event.category,
+        refusalScope: event.scope,
       }
   }
 }
@@ -199,6 +226,17 @@ function parseCompaction(row: Row): CompactionEvent {
   }
 }
 
+function parseRefusalFallback(row: Row): RefusalFallbackEvent {
+  return {
+    ...parseBase(row),
+    kind: ToolEventKind.RefusalFallback,
+    originalModel: row.text('refusal_original_model'),
+    fallbackModel: row.text('refusal_fallback_model'),
+    category: row.nullableText('refusal_category'),
+    scope: row.oneOf('refusal_scope', REFUSAL_SCOPES),
+  }
+}
+
 function parseToolEvent(raw: unknown): ToolEvent {
   const row = new Row('tool_events', raw)
   const kind = row.oneOf('kind', KINDS)
@@ -216,6 +254,8 @@ function parseToolEvent(raw: unknown): ToolEvent {
       return { ...parseBase(row), kind, dividerKind: row.oneOf('divider_kind', DIVIDER_KINDS) }
     case ToolEventKind.Compaction:
       return parseCompaction(row)
+    case ToolEventKind.RefusalFallback:
+      return parseRefusalFallback(row)
   }
 }
 
@@ -225,7 +265,8 @@ function append(db: Database, event: ToolEvent): void {
     `INSERT INTO tool_events (seq, ${COLUMNS})
     VALUES ((SELECT COALESCE(MAX(seq), 0) + 1 FROM tool_events WHERE task_id = @taskId), @id, @taskId, @kind, @turn,
       @createdAt, @text, @toolName, @toolInput, @toolOutput, @finishedAt, @toolState, @toolUseId, @parentToolUseId, @dividerKind,
-      @compactTrigger, @preTokens, @postTokens, @windowTokens, @progressSummary, @compactSummary)`,
+      @compactTrigger, @preTokens, @postTokens, @windowTokens, @progressSummary, @compactSummary, @refusalOriginalModel,
+      @refusalFallbackModel, @refusalCategory, @refusalScope)`,
   ).run(toParams(event))
 }
 
@@ -289,6 +330,27 @@ export function appendCompaction(db: Database, input: NewCompaction, now: EpochM
     postTokens: input.postTokens,
     windowTokens: input.windowTokens,
     summary: emptyAsNull(input.summary),
+  }
+  append(db, event)
+  return event
+}
+
+/** Appends a refusal-fallback notice to the end of its task's tool log. */
+export function appendRefusalFallback(
+  db: Database,
+  input: NewRefusalFallback,
+  now: EpochMs = Date.now(),
+): RefusalFallbackEvent {
+  const event: RefusalFallbackEvent = {
+    kind: ToolEventKind.RefusalFallback,
+    id: randomUUID(),
+    taskId: input.taskId,
+    turn: input.turn,
+    createdAt: now,
+    originalModel: input.originalModel,
+    fallbackModel: input.fallbackModel,
+    category: input.category,
+    scope: input.scope,
   }
   append(db, event)
   return event
@@ -477,4 +539,14 @@ export function setSubagentProgress(db: Database, progress: SubagentProgress): T
     )
     .get(progress)
   return row === undefined ? undefined : parseToolCall(new Row('tool_events', row))
+}
+
+/**
+ * Evicts one tool log entry a refusal-fallback retry superseded (`docs/sdk-notes.md`): the refused leg's narration or
+ * tool call, named by the SDK message uuid it arrived on. Returns whether it was still there to remove; a no-op for an
+ * id that's gone already, or was never logged (eviction is idempotent, per the SDK's own contract).
+ */
+export function deleteToolEvent(db: Database, taskId: string, id: string): boolean {
+  const result = db.prepare('DELETE FROM tool_events WHERE id = ? AND task_id = ?').run(id, taskId)
+  return result.changes > 0
 }
