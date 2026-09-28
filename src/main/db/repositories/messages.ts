@@ -1,8 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
-import { DividerKind, MessageRole, type EpochMs, type Message, type TurnSummary } from '../../../shared/domain'
+import {
+  DividerKind,
+  MessageRole,
+  type EpochMs,
+  type Message,
+  type PastedBlock,
+  type TurnSummary,
+} from '../../../shared/domain'
 import type { ImageData, ImageRef } from '../../../shared/images'
 import { addImages, ImageOwnerKind, imageRefsByOwner } from './images'
+import { addPastedBlocks, pastedBlocksByOwner, PastedBlockOwnerKind } from './pasted-blocks'
 import { Row } from './rows'
 
 export interface NewMessage {
@@ -14,6 +22,8 @@ export interface NewMessage {
   readonly summary?: TurnSummary | undefined
   /** The images pasted into your message, in order; none unless given. */
   readonly images?: readonly ImageData[] | undefined
+  /** The text pasted into your message, kept apart from what was typed; none unless given. */
+  readonly pastedBlocks?: readonly PastedBlock[] | undefined
 }
 
 const MESSAGE_ROLES = Object.values(MessageRole)
@@ -32,7 +42,11 @@ function parseSummary(row: Row): TurnSummary | null {
   }
 }
 
-function parseMessage(raw: unknown, images: ReadonlyMap<string, ImageRef[]>): Message {
+function parseMessage(
+  raw: unknown,
+  images: ReadonlyMap<string, ImageRef[]>,
+  pastedBlocks: ReadonlyMap<string, PastedBlock[]>,
+): Message {
   const row = new Row('messages', raw)
   const id = row.text('id')
   return {
@@ -44,12 +58,13 @@ function parseMessage(raw: unknown, images: ReadonlyMap<string, ImageRef[]>): Me
     createdAt: row.integer('created_at'),
     summary: parseSummary(row),
     images: images.get(id) ?? [],
+    pastedBlocks: pastedBlocks.get(id) ?? [],
   }
 }
 
-/** Appends a message to the end of its task's chat log, with its images. */
+/** Appends a message to the end of its task's chat log, with its images and pasted blocks. */
 export function appendMessage(db: Database, input: NewMessage, now: EpochMs = Date.now()): Message {
-  const { summary = null, images = [], ...fields } = input
+  const { summary = null, images = [], pastedBlocks = [], ...fields } = input
   const id = randomUUID()
   db.prepare(
     `INSERT INTO messages (${COLUMNS}, seq)
@@ -65,16 +80,22 @@ export function appendMessage(db: Database, input: NewMessage, now: EpochMs = Da
     linesRemoved: summary?.linesRemoved ?? null,
   })
   const refs = addImages(db, { taskId: fields.taskId, owner: { kind: ImageOwnerKind.Message, id }, images }, now)
-  return { id, ...fields, createdAt: now, summary, images: refs }
+  const blocks = addPastedBlocks(
+    db,
+    { taskId: fields.taskId, owner: { kind: PastedBlockOwnerKind.Message, id }, blocks: pastedBlocks },
+    now,
+  )
+  return { id, ...fields, createdAt: now, summary, images: refs, pastedBlocks: blocks }
 }
 
 /** A task's chat log, in the order it was appended. */
 export function listMessages(db: Database, taskId: string): Message[] {
   const images = imageRefsByOwner(db, taskId, ImageOwnerKind.Message)
+  const pastedBlocks = pastedBlocksByOwner(db, taskId, PastedBlockOwnerKind.Message)
   return db
     .prepare(`SELECT ${COLUMNS} FROM messages WHERE task_id = ? ORDER BY seq`)
     .all(taskId)
-    .map((row) => parseMessage(row, images))
+    .map((row) => parseMessage(row, images, pastedBlocks))
 }
 
 /**

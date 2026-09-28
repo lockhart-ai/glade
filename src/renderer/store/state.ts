@@ -33,6 +33,7 @@ import type {
   InputDraft,
   Message,
   OpenFiles,
+  PastedBlock,
   PermissionDecision,
   PermissionRequest,
   QuestionAnswers,
@@ -439,15 +440,25 @@ export interface GladeActions {
    */
   deleteTask: (taskId: string) => Promise<void>
   /**
-   * Sends the user's message, and the images pasted into it, to the task's agent. Resolves once main has saved it; the
-   * message and the turn arrive as events. Rejects with `busy` while the agent is working.
+   * Sends the user's message, and the images and pasted blocks in it, to the task's agent. Resolves once main has
+   * saved it; the message and the turn arrive as events. Rejects with `busy` while the agent is working.
    */
-  sendMessage: (taskId: string, text: string, images?: readonly ImageData[]) => Promise<void>
+  sendMessage: (
+    taskId: string,
+    text: string,
+    images?: readonly ImageData[],
+    pastedBlocks?: readonly PastedBlock[],
+  ) => Promise<void>
   /**
-   * Queues the user's message, and the images pasted into it, for the task's agent, which gets it after its current
-   * step. Resolves once main has saved it; the queue arrives as an event.
+   * Queues the user's message, and the images and pasted blocks in it, for the task's agent, which gets it after its
+   * current step. Resolves once main has saved it; the queue arrives as an event.
    */
-  queueMessage: (taskId: string, text: string, images?: readonly ImageData[]) => Promise<void>
+  queueMessage: (
+    taskId: string,
+    text: string,
+    images?: readonly ImageData[],
+    pastedBlocks?: readonly PastedBlock[],
+  ) => Promise<void>
   /**
    * A stored image's type and bytes, by id (`images.get`), to show it. Each image is fetched once and kept, since an
    * image never changes; one that failed to load is fetched again next time.

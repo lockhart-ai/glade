@@ -63,7 +63,14 @@ function rowsOf(db: Database, table: string, taskId: string): number {
 /** Gives a task a row in every table that belongs to one. */
 function fillTask(db: Database, task: Task): void {
   const taskId = task.id
-  appendMessage(db, { taskId, role: MessageRole.User, body: 'Add rate limiting', turn: 1, images: [PNG] })
+  appendMessage(db, {
+    taskId,
+    role: MessageRole.User,
+    body: 'Add rate limiting',
+    turn: 1,
+    images: [PNG],
+    pastedBlocks: [{ id: 'k3f9', text: 'the pasted stack trace' }],
+  })
   appendNarration(db, { taskId, turn: 1, text: 'Looking at the views.' })
   appendToolCall(db, {
     taskId,
@@ -149,6 +156,8 @@ const FILLED_TABLES = [
   // The notifications sent about it, for the menu bar popover's Recent section.
   'notifications',
   'open_files',
+  // The text pasted into its messages, sent and queued, and into its input draft.
+  'pasted_blocks',
   'permission_requests',
   'question_sets',
   'queued_messages',
