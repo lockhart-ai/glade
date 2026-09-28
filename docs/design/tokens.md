@@ -78,7 +78,9 @@ And the insets that keep things on shared lines:
   traffic lights, placed 16 in and 16 down: centred in it, 7 inside the card's top and left edges, as macOS draws them
   14px across) and nothing else: the sidebar's, or, while the sidebar is collapsed, the task card's chat column's (the
   header starts below it; the right panel doesn't move). The lights stay on the same pixels either way. The strip, and
-  the outer inset along the window's top, drag the window, and double-clicking them zooms. While the app-wide banner
+  the outer inset along the window's top, drag the window, and double-clicking them zooms (the task card's strip, and
+  its row with the sidebar's button, not while the sidebar or the right panel slides: a drag region that moves with
+  every frame stalls the slide on macOS). While the app-wide banner
   shows, it starts below the lights (the top inset is the strip's height taller), and the cards' strips fold away.
   Settings keeps as far clear of the window's top and bottom.
 - `space-inset` = 8: every panel's inset, from a card's edge to the cards, rows and fields inside it. The task card's

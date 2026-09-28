@@ -29,7 +29,6 @@
   display: var(--lights-strip-display, block);
   height: var(--title-bar-height);
   margin: calc(-1 * var(--space-inset));
-  -webkit-app-region: drag;
 }
 
 /* The row above the chat, with the sidebar collapsed and no task header. It drags the window everywhere but its buttons. */
@@ -37,10 +36,20 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
+}
+
+/*
+ * The strip and the title bar drag the window, but not while the sidebar or the right panel slides (TaskCard's
+ * panelsMoving): they move or resize with every frame then, and Electron sends macOS the window's drag regions again
+ * each time a region moves, which stalls the animation (#358). Any app-region at all (even none, which Chromium takes
+ * as no-drag) makes an element a region, so while they slide they have none.
+ */
+.lightsStrip:not(.sliding),
+.titleBar:not(.sliding) {
   -webkit-app-region: drag;
 }
 
-.titleBar > * {
+.titleBar:not(.sliding) > * {
   -webkit-app-region: no-drag;
 }
 
