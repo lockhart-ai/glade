@@ -1,6 +1,7 @@
-import { fireEvent, render as renderUnwrapped, screen, waitFor, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { act, fireEvent, render as renderUnwrapped, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName } from '../../shared/bridge'
+import { COPIED_FEEDBACK_MS } from '../components/CodeCopy/CodeCopy'
 import { refuse } from '../store/test-bridge'
 import { storeWrapper, type StoreWrapper } from '../store/test-wrapper'
 import { InlineMarkdown, Markdown } from './Markdown'
@@ -56,6 +57,146 @@ it('styles inline code and code blocks as code', () => {
   expect(screen.getByText('pytest -q').tagName).toBe('CODE')
   const block = root.querySelector('pre > code')
   expect(block).toHaveTextContent('assert limit == 60')
+})
+
+describe('click to copy (#352)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** Clicks and flushes the copy's promise, under fake timers (`vi.useFakeTimers` doesn't fake microtasks). */
+  async function click(element: HTMLElement, options?: Parameters<typeof fireEvent.click>[1]): Promise<void> {
+    await act(async () => {
+      fireEvent.click(element, options)
+      await Promise.resolve()
+    })
+  }
+
+  it('copies an inline code span’s exact text on a plain click, whitespace and all, with Copied for about a second', async () => {
+    const copied: string[] = []
+    const root = renderMarkdown('Use a  gap of `60  80` here.', storeWrapper({ copied }))
+    const span = within(root).getByRole('button')
+
+    expect(span.tagName).toBe('CODE')
+    expect(span.textContent).toBe('60  80')
+    expect(span).toHaveAttribute('role', 'button')
+    expect(span.tabIndex).toBe(0)
+
+    await click(span)
+
+    expect(copied).toEqual(['60  80'])
+    expect(within(span).getByRole('status')).toHaveTextContent('Copied')
+
+    act(() => {
+      vi.advanceTimersByTime(999)
+    })
+    expect(within(span).getByRole('status')).toBeInTheDocument()
+    act(() => {
+      vi.advanceTimersByTime(1)
+    })
+    expect(within(span).queryByRole('status')).toBeNull()
+  })
+
+  it('keeps a literal backtick inside a code span exact, from a double-backtick span', async () => {
+    const copied: string[] = []
+    const root = renderMarkdown('Run ``curl -H `token`:x`` now.', storeWrapper({ copied }))
+
+    await click(within(root).getByText('curl -H `token`:x'))
+
+    expect(copied).toEqual(['curl -H `token`:x'])
+  })
+
+  it('leaves a drag selection, or one already made, as ordinary selection instead of copying', async () => {
+    const copied: string[] = []
+    const root = renderMarkdown('Copy `the-id-60` please.', storeWrapper({ copied }))
+    const span = within(root).getByText('the-id-60')
+
+    const range = document.createRange()
+    range.selectNodeContents(span)
+    window.getSelection()?.removeAllRanges()
+    window.getSelection()?.addRange(range)
+
+    await click(span)
+    expect(copied).toEqual([])
+    expect(within(span).queryByRole('status')).toBeNull()
+
+    window.getSelection()?.removeAllRanges()
+    await click(span)
+    expect(copied).toEqual(['the-id-60'])
+  })
+
+  it('copies with Enter or Space, from the keyboard, but not another key', async () => {
+    const copied: string[] = []
+    const root = renderMarkdown('Use `limit-60` here.', storeWrapper({ copied }))
+    const span = within(root).getByText('limit-60')
+
+    fireEvent.keyDown(span, { key: 'a' })
+    expect(copied).toEqual([])
+
+    await act(async () => {
+      fireEvent.keyDown(span, { key: 'Enter' })
+      await Promise.resolve()
+    })
+    expect(copied).toEqual(['limit-60'])
+
+    act(() => {
+      vi.advanceTimersByTime(COPIED_FEEDBACK_MS)
+    })
+    await act(async () => {
+      fireEvent.keyDown(span, { key: ' ' })
+      await Promise.resolve()
+    })
+    expect(copied).toEqual(['limit-60', 'limit-60'])
+  })
+
+  it('copies a fenced code block whole from its corner icon, leaving its own span plain', async () => {
+    const copied: string[] = []
+    const root = renderMarkdown('```\ndef limit():\n    return 60\n```', storeWrapper({ copied }))
+
+    // The block's own code isn't a button of its own: the block copies as a whole, from its icon.
+    const code = root.querySelector('pre code')
+    expect(code).not.toHaveAttribute('role')
+    expect(code).not.toHaveAttribute('tabindex')
+
+    const button = screen.getByRole('button', { name: 'Copy code' })
+    await click(button)
+
+    // The block's rendered text ends with the newline before the closing fence: copying it exactly keeps it.
+    expect(copied).toEqual(['def limit():\n    return 60\n'])
+    expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument()
+  })
+
+  it('turns code copy off, for the Files viewer’s preview: no button, no icon', () => {
+    const { container } = render(
+      <Markdown source={'Run `pytest -q`.\n\n```\nlimit = 60\n```'} interactiveCode={false} />,
+    )
+    const plain = container.firstElementChild as HTMLElement
+
+    expect(within(plain).getByText('pytest -q').tagName).toBe('CODE')
+    expect(within(plain).getByText('pytest -q')).not.toHaveAttribute('role')
+    expect(plain.querySelector('pre code')).not.toHaveAttribute('role')
+    expect(plain.querySelectorAll('button')).toHaveLength(0)
+  })
+
+  it('copies an inline code span’s text in InlineMarkdown too, as a tool log note shows it', async () => {
+    const copied: string[] = []
+    const { container } = render(
+      <p>
+        <InlineMarkdown source="Uses `django-storages` for uploads." />
+      </p>,
+      storeWrapper({ copied }),
+    )
+    const span = within(container).getByText('django-storages')
+    expect(span).toHaveAttribute('role', 'button')
+
+    await click(span)
+
+    expect(copied).toEqual(['django-storages'])
+  })
 })
 
 describe('links', () => {

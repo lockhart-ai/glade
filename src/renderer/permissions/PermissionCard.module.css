@@ -71,6 +71,26 @@
   overflow-wrap: anywhere;
 }
 
+/* The input block's copy icon (#352): shown on hover, and on focus since it's the block's only focusable part. */
+.blockWrapper {
+  position: relative;
+}
+
+.blockCopy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease);
+}
+
+.blockWrapper:hover .blockCopy,
+.blockWrapper:focus-within .blockCopy {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .block {
   display: flex;
   flex-direction: column;

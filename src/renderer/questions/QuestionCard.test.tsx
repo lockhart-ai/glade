@@ -15,6 +15,7 @@ import { Chat } from '../chat/Chat'
 import { ToastProvider } from '../components'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore } from '../store/store'
+import { storeWrapper } from '../store/test-wrapper'
 import { highlightPattern } from '../../shared/search'
 import { APPEAR_WINDOW_MS, QuestionCard } from './QuestionCard'
 import styles from './QuestionCard.module.css'
@@ -517,6 +518,7 @@ describe('QuestionCard', () => {
           questionSet={questionSet([LAYOUT], { preamble: PREAMBLE, state: QuestionSetState.Withdrawn, closedAt: 6 })}
           highlight={highlightPattern('rate')}
         />,
+        { wrapper: storeWrapper().wrapper },
       )
 
       const marks = [...document.querySelectorAll('mark')].map((mark) => mark.textContent)
