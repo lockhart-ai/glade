@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { Card, ToastAnchor } from '../components'
+import { classNames } from '../components/classNames'
 import styles from './TaskCard.module.css'
 
 /** The header card's height, which the chat under it clips and pads its top by (see `TaskCard.module.css`). */
@@ -23,6 +24,12 @@ export interface TaskCardProps {
    * the traffic lights (#357), which sit there instead of the strip that used to hold them.
    */
   titleBar?: ReactNode
+  /**
+   * Whether a panel beside the chat column is sliding open or shut: the sidebar, or the right panel. While one does, the
+   * title bar, which resizes with every frame, doesn't drag the window; it does again once it lands. Electron sends
+   * macOS the window's drag regions again each time one moves, which stalls the animation (#358).
+   */
+  panelsMoving?: boolean
 }
 
 /** Where a floating layer's height is kept: the stage the chat is in, the layer, and the CSS variable. */
@@ -60,7 +67,14 @@ function useLayerHeight({ stage, layer, variable }: LayerHeight): void {
  * (#268, #270). Toasts stand above the input bar, centred on the chat column, so it must be used under a
  * `ToastProvider`.
  */
-export function TaskCard({ header, chat, inputBar, rightPanel, titleBar }: TaskCardProps): React.JSX.Element {
+export function TaskCard({
+  header,
+  chat,
+  inputBar,
+  rightPanel,
+  titleBar,
+  panelsMoving = false,
+}: TaskCardProps): React.JSX.Element {
   const stage = useRef<HTMLDivElement>(null)
   const headerLayer = useRef<HTMLDivElement>(null)
   const inputLayer = useRef<HTMLDivElement>(null)
@@ -71,7 +85,7 @@ export function TaskCard({ header, chat, inputBar, rightPanel, titleBar }: TaskC
     <Card role="main" aria-label="Task" className={styles.task}>
       <div className={styles.column}>
         {titleBar !== undefined && (
-          <div className={styles.titleBar} data-testid="task-title-bar">
+          <div className={classNames(styles.titleBar, panelsMoving && styles.sliding)} data-testid="task-title-bar">
             {titleBar}
           </div>
         )}

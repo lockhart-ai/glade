@@ -111,12 +111,16 @@ function FirstRunLayout(): React.JSX.Element {
  * rises to the window's outer inset (there's no strip above it any more, #357) and a button leads its first row to
  * show the sidebar again, or leads a row of its own with no task selected. The traffic lights move into that row too
  * (`useTrafficLightsSync`, in `Window`). The sidebar slides open and shut, and stays on screen while it slides shut.
+ * While it or the right panel slides, the task card's title bar doesn't drag the window (see `TaskCard`'s
+ * `panelsMoving`).
  */
 function Layout(): React.JSX.Element {
   const workspace = useGladeStore(selectSelectedWorkspace)
   const sidebar = usePanel(Panel.Sidebar)
   const sidebarPresence = usePresence(!sidebar.collapsed)
   const rightPanel = usePanel(Panel.RightPanel)
+  // Where the right panel's slide is: `TaskPanel` slides it by the same flag, for as long.
+  const rightPanelPhase = usePresence(!rightPanel.collapsed).phase
   const hasTask = useGladeStore((state) => selectSelectedTask(state) !== undefined)
   const searching = useGladeStore((state) => isSearching(state.searchText))
   // The menu bar answers the other shortcuts (see `MenuBar`).
@@ -144,6 +148,7 @@ function Layout(): React.JSX.Element {
       taskHasRightPanel={!rightPanel.collapsed}
       task={
         <TaskCard
+          panelsMoving={isMoving(sidebarPresence.phase) || isMoving(rightPanelPhase)}
           titleBar={sidebar.collapsed && !hasTask ? <PanelToggle panel={Panel.Sidebar} /> : undefined}
           header={<SelectedTaskHeader />}
           chat={<Chat />}

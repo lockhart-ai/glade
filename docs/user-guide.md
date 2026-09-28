@@ -156,6 +156,11 @@ scroll: the chat passes under them.
   link); an email address opens your mail app. URLs in code stay plain. When a link's text isn't its address, hover it
   to see where it goes. Right-click a link to open it or copy its address. Glade only opens web and mail links, and
   never inside its own window.
+- **Click code to copy it.** Click a code span (`like this`) to copy its exact text, with a small **Copied** shown for
+  a moment; dragging to select part of it, instead, works as ordinary text selection. It's focusable, and ↵ copies it
+  too. A fenced code block, and a permission card's command or change, get a copy icon in their corner, shown on hover
+  or focus, which copies the whole block. This works wherever Glade renders Markdown: replies, question cards and their
+  preamble, backfilled notes and the tool log's notes.
 - **The agent can come back by itself.** If it watches a command, schedules a check-back or runs something in the
   background, it can wake up later and carry on; that turn shows in the chat like any other.
 

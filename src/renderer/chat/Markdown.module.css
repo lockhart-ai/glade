@@ -73,7 +73,23 @@
   border-radius: 5px;
 }
 
+/* A code span clicks to copy (#352): a pointer cursor and a slightly brighter background on hover. */
+.codeSpan {
+  position: relative;
+  cursor: pointer;
+}
+
+.codeSpan:hover {
+  background: var(--color-inner-2);
+}
+
+.codeSpan:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 2px;
+}
+
 .markdown pre {
+  margin: 0;
   padding: 10px 12px;
   overflow-x: auto;
   background: var(--color-bg);
@@ -85,6 +101,26 @@
 
 .markdown pre code {
   font-size: 12.5px;
+}
+
+/* A fenced code block's copy icon (#352): shown on hover, and on focus since it's the block's only focusable part. */
+.codeBlock {
+  position: relative;
+}
+
+.codeBlockCopy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease);
+}
+
+.codeBlock:hover .codeBlockCopy,
+.codeBlock:focus-within .codeBlockCopy {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .markdown table {

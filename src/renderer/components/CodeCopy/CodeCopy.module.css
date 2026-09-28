@@ -1,0 +1,42 @@
+/* A code block's copy button (#352): its own anchor for the "Copied" tag, so callers only position and reveal it. */
+.wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.button {
+  width: 24px;
+  height: 24px;
+}
+
+/* The "Copied" tag: a small pill. Its anchor (a code span, or a block's copy button) must be `position: relative`. */
+.tag {
+  position: absolute;
+  z-index: 1;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-menu);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-shadow: var(--shadow-toast);
+  pointer-events: none;
+}
+
+/* Above a code block's copy button, which has room above it in the block's own gap from what's before it. */
+.above {
+  right: 0;
+  bottom: 100%;
+  margin-bottom: 4px;
+}
+
+/* Beside an inline code span instead, which can sit in a dense table row with no room above or below it. */
+.beside {
+  top: 50%;
+  left: 100%;
+  margin-left: 6px;
+  transform: translateY(-50%);
+}

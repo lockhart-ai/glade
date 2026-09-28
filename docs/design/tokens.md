@@ -84,6 +84,8 @@ And the insets that keep things on shared lines:
   the task list again with no task open. The header (or that row) starts at the window's outer inset like the right
   panel: there's no strip above it any more. `lights-clear-y` says how deep the lights currently reach (36 open, 50
   collapsed), so Settings and the relaunch notice, and the banner's own top offset, keep clear of whichever is live.
+  That row doesn't drag the window while the sidebar or the right panel slides, though (a drag region that moves with
+  every frame stalls the slide on macOS): it does again once the slide lands.
 - `space-inset` = 8: every panel's inset, from a card's edge to the cards, rows and fields inside it. The task card's
   header, chat column, input bar and right panel all sit 8 in from its edges; in the sidebar the workspace button,
   search field, filter chips, section headers and task rows share one left edge 8 in; the right panel's rows sit 8 in
