@@ -104,9 +104,13 @@ was withdrawn. A set opened in a task you aren't viewing marks it unread and sen
 does, with the first line of its preamble as the body, or with none, its first question.
 
 - **It blocks.** The handler saves an open question set (`QuestionSet`, table `question_sets`) and waits until it's
-  answered, however long that takes (`src/main/questions/questions.ts`). Meanwhile the task waits on you: its activity
-  is waiting, `task.asking` is true, and it counts under Needs you (`needsYou`). The windows hear `question.opened`,
-  then `question.answered` or `question.withdrawn`.
+  answered, however long that takes (`src/main/questions/questions.ts`). It has no timer of its own, but Claude Code
+  bounds every MCP tool call (100,000 s, about 28 hours, by default), so the `glade` server raises its bound to the
+  most Claude Code allows, 2^31 − 1 ms (about 24.8 days; `GLADE_TOOL_TIMEOUT_MS`, #381). A card still open after that
+  is withdrawn and the call ends with a timeout error; a relaunch in the meantime lifts the bound (below;
+  `docs/sdk-notes.md` §3). Meanwhile the task waits on you: its activity is waiting, `task.asking` is true, and it
+  counts under Needs you (`needsYou`). The windows hear `question.opened`, then `question.answered` or
+  `question.withdrawn`.
 - **Answering with the card:** `questions.answer { id, answers }`, with answers keyed by question index from 0. A
   choice takes an option id, pills a pill's text, text the text typed; `multiple` takes an array of at least one, each
   once. Every question needs an answer except an optional text one, which is dropped when empty
@@ -117,7 +121,8 @@ does, with the first line of its preamble as the body, or with none, its first q
   returns an error saying the questions were withdrawn.
 - **Relaunch:** a question the app quit on stays open, and its task waits on you; its `ask` call ends as an error. When
   you answer it, the task's session is resumed and the answer goes to the agent as a message (the runner's
-  `answeredAfterRestart`), carrying on the same turn.
+  `answeredAfterRestart`), carrying on the same turn. No call waits on it any more, so nothing times it out: it waits
+  however long you take.
 - Claude Code's own `AskUserQuestion` tool is disallowed, so questions always come through `ask`.
 
 ## Implemented: `show_file` (P5-02, names unconfirmed)

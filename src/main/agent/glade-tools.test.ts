@@ -25,11 +25,18 @@ import {
   createGladeMcpServer,
   createGladeToolHandlers,
   GLADE_SERVER,
+  GLADE_TOOL_TIMEOUT_MS,
   GladeTool,
   QUESTIONS_WITHDRAWN,
   type GladeToolContext,
 } from './glade-tools'
-import { createMcpToolCaller, type McpToolCaller } from './mcp-tool-caller'
+import {
+  createMcpToolCaller,
+  DEFAULT_TOOL_TIMEOUT_MS,
+  MAX_TOOL_TIMEOUT_MS,
+  toolTimeoutMs,
+  type McpToolCaller,
+} from './mcp-tool-caller'
 
 let database: TestDatabase
 let task: Task
@@ -136,6 +143,18 @@ describe('the server', () => {
       ['path', 'title'],
     ])
     await client.close()
+  })
+
+  it("raises Claude Code's tool-call timeout for its calls as far as it goes, so ask can wait for days (#381)", () => {
+    const server = createGladeMcpServer(context, task.id)
+
+    expect(GLADE_TOOL_TIMEOUT_MS).toBe(2 ** 31 - 1)
+    // The SDK hands the server's timeout to Claude Code, which bounds each call by it.
+    expect(server.timeout).toBe(GLADE_TOOL_TIMEOUT_MS)
+    expect(toolTimeoutMs(server)).toBe(MAX_TOOL_TIMEOUT_MS)
+    // Without it, Claude Code's default: the 100,000 s the first real question card timed out after.
+    expect(toolTimeoutMs({})).toBe(DEFAULT_TOOL_TIMEOUT_MS)
+    expect(toolTimeoutMs(server)).toBeGreaterThan(DEFAULT_TOOL_TIMEOUT_MS * 20)
   })
 
   it('leaves out set_title and set_status when Settings has titles or status summaries off', async () => {
@@ -296,6 +315,82 @@ describe('ask', () => {
 
     expect(outcome).toEqual({ content: [{ type: 'text', text: QUESTIONS_WITHDRAWN }], isError: true })
     expect(listQuestionSets(database.db, task.id).map(({ state }) => state)).toEqual([QuestionSetState.Withdrawn])
+  })
+
+  describe('waiting a long time (#381)', () => {
+    const HOUR_MS = 60 * 60 * 1000
+
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('has no timer of its own: the handler waits a year and still takes the answer', async () => {
+      const handlers = createGladeToolHandlers(context, task.id)
+      let returned = false
+      const outcome = handlers.ask({ questions: QUESTIONS }).then((result) => {
+        returned = true
+        return result
+      })
+      const open = getOpenQuestionSet(database.db, task.id)
+      if (open === undefined) throw new Error('No question is open')
+
+      expect(vi.getTimerCount()).toBe(0)
+      await vi.advanceTimersByTimeAsync(365 * 24 * HOUR_MS)
+      expect(returned).toBe(false)
+      expect(current().asking).toBe(true)
+
+      context.questions.answer(open.id, { kind: QuestionReplyKind.FreeText, text: 'Back from holiday: by type.' })
+
+      await expect(outcome).resolves.toEqual({
+        content: [{ type: 'text', text: '{"freeText":"Back from holiday: by type."}' }],
+      })
+    })
+
+    it("outlasts Claude Code's default call timeout, and waits as long as a call can", async () => {
+      const { outcome, open } = await ask({ questions: QUESTIONS })
+      let settled = false
+      void outcome.then(
+        () => (settled = true),
+        () => (settled = true),
+      )
+
+      // Past the 100,000 s (about 28 hours) the first real card timed out after, overnight and through the next day.
+      await vi.advanceTimersByTimeAsync(DEFAULT_TOOL_TIMEOUT_MS + HOUR_MS)
+      expect(settled).toBe(false)
+      expect(current().asking).toBe(true)
+      expect(getOpenQuestionSet(database.db, task.id)?.id).toBe(open.id)
+
+      // And on to just short of the longest bound Claude Code allows: about 24.8 days in all.
+      await vi.advanceTimersByTimeAsync(MAX_TOOL_TIMEOUT_MS - DEFAULT_TOOL_TIMEOUT_MS - HOUR_MS - 1000)
+      expect(settled).toBe(false)
+
+      const answers = { 0: 'by-area', 1: 'GitHub handles' }
+      context.questions.answer(open.id, { kind: QuestionReplyKind.Answers, answers })
+
+      await expect(outcome).resolves.toEqual({ output: '{"0":"by-area","1":"GitHub handles"}', isError: false })
+    })
+
+    it('times out, and withdraws its questions, on a server without the raised timeout, as ask did before', async () => {
+      const server = createGladeMcpServer(context, task.id)
+      const defaultCaller = createMcpToolCaller({ [GLADE_SERVER]: { ...server, timeout: undefined } })
+      const outcome = defaultCaller.call('mcp__glade__ask', { questions: QUESTIONS })
+      const failed = expect(outcome).rejects.toThrow(/timed out/i)
+      await vi.waitFor(() => {
+        if (getOpenQuestionSet(database.db, task.id) === undefined) throw new Error('No question is open yet')
+      })
+
+      await vi.advanceTimersByTimeAsync(DEFAULT_TOOL_TIMEOUT_MS)
+
+      await failed
+      await vi.waitFor(() => {
+        expect(listQuestionSets(database.db, task.id).map(({ state }) => state)).toEqual([QuestionSetState.Withdrawn])
+      })
+      await defaultCaller.close()
+    })
   })
 
   it('refuses questions that are not well formed, and opens nothing', async () => {

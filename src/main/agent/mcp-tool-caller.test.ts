@@ -1,7 +1,13 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { createMcpToolCaller, parseMcpToolName } from './mcp-tool-caller'
+import {
+  createMcpToolCaller,
+  DEFAULT_TOOL_TIMEOUT_MS,
+  MAX_TOOL_TIMEOUT_MS,
+  parseMcpToolName,
+  toolTimeoutMs,
+} from './mcp-tool-caller'
 
 function echoServer() {
   return createSdkMcpServer({
@@ -27,6 +33,19 @@ describe('parseMcpToolName', () => {
     expect(parseMcpToolName('mcp__my_server__do__it')).toEqual({ server: 'my_server', tool: 'do__it' })
     expect(parseMcpToolName('Bash')).toBeNull()
     expect(parseMcpToolName('mcp__glade')).toBeNull()
+  })
+})
+
+describe('toolTimeoutMs', () => {
+  it("bounds a call as Claude Code does: the server's own timeout, else the default, at most what a timer can wait", () => {
+    expect(toolTimeoutMs({})).toBe(DEFAULT_TOOL_TIMEOUT_MS)
+    expect(DEFAULT_TOOL_TIMEOUT_MS).toBe(100_000 * 1000)
+    expect(toolTimeoutMs({ timeout: 5000 })).toBe(5000)
+    expect(toolTimeoutMs({ timeout: 1000 })).toBe(1000)
+    // Under a second, Claude Code ignores it and falls back to the default.
+    expect(toolTimeoutMs({ timeout: 999 })).toBe(DEFAULT_TOOL_TIMEOUT_MS)
+    expect(toolTimeoutMs({ timeout: 2 ** 31 - 1 })).toBe(MAX_TOOL_TIMEOUT_MS)
+    expect(toolTimeoutMs({ timeout: 2 ** 40 })).toBe(MAX_TOOL_TIMEOUT_MS)
   })
 })
 

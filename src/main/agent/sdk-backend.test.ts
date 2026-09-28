@@ -21,6 +21,7 @@ import {
   type ToolPermissionAnswer,
   type ToolPermissionCall,
 } from './backend'
+import { GLADE_SERVER, GLADE_TOOL_TIMEOUT_MS } from './glade-tools'
 import { GIF, JPEG, PNG } from '../../shared/test-images'
 import {
   canUseToolFor,
@@ -132,6 +133,27 @@ it("keeps a glade-control server of the user's own config out, so the in-process
   expect(options.settings).toEqual({ deniedMcpServers: [{ serverName: 'glade-control' }] })
   expect(options.mcpServers).toEqual({ 'glade-control': inProcess })
   expect(options.settingSources).toEqual(['user', 'project', 'local'])
+})
+
+it("gives Claude Code the glade server's raised tool timeout, and no global one for the other servers (#381)", () => {
+  const glade = {
+    type: 'sdk',
+    name: GLADE_SERVER,
+    timeout: GLADE_TOOL_TIMEOUT_MS,
+    instance: {},
+  } as unknown as McpSdkServerConfigWithInstance
+  const control = { type: 'sdk', name: 'glade-control', instance: {} } as unknown as McpSdkServerConfigWithInstance
+
+  const options = sdkOptions({ ...OPTIONS, mcpServers: { [GLADE_SERVER]: glade, 'glade-control': control } }, ENV)
+
+  // The SDK sends each in-process server's timeout on to Claude Code, which bounds that server's calls by it.
+  expect(options.mcpServers?.[GLADE_SERVER]).toMatchObject({ type: 'sdk', timeout: 2 ** 31 - 1 })
+  expect(options.mcpServers?.['glade-control']).not.toHaveProperty('timeout')
+  // Not the env var, which would lift the bound for every server, the user's own included.
+  expect(options.env).not.toHaveProperty('MCP_TOOL_TIMEOUT')
+  expect(sdkOptions({ ...OPTIONS, env: {} }, { ...ENV, MCP_TOOL_TIMEOUT: '60000' }).env).toMatchObject({
+    MCP_TOOL_TIMEOUT: '60000',
+  })
 })
 
 it("adds the session's own variables to the login shell's environment, under the ones Glade always sets", () => {
