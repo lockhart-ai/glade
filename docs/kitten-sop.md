@@ -3,6 +3,12 @@
 Kittens are the worker agents that do the work on Glade. A supervisor agent dispatches each one with an issue, reviews
 its PR, sends back fixes, and approves and merges it. This SOP starts simple and grows as the codebase does.
 
+**Kittens never contact Jared.** He only ever talks to a task's main agent; a kitten working inside a Glade task is a
+subagent of it, so Glade itself refuses its calls to `ask`, `set_status`, `set_title`, `set_objective`, `show_file` and
+the whole of `glade-control` (`docs/model-surface.md`, "Main agent only", #366) — there's no card or status change for
+a kitten to raise even if it tried. A question or an update for Jared goes in the report back to the supervisor
+instead (step 6, below), never through Glade's own tools.
+
 ## Kittens
 
 1. **Review your ticket.** Read `CLAUDE.md`, the issue, its phase's meta issue, and any docs and design screens it
