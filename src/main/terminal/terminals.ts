@@ -207,12 +207,13 @@ export function createTerminals({
     save ??= setTimeout(saveNow, SAVE_DELAY_MS)
   }
 
-  // The running dot and a tab's default name follow its foreground process, which the terminal doesn't announce.
+  // The running dot and a tab's default name follow its foreground process, which the terminal doesn't announce. While
+  // the terminal can't say what that is (a program in it has just ended), the tab keeps what it showed.
   const checkProcesses = (): void => {
     let changed = false
     for (const tab of tabs) {
-      if (tab.pty === null) continue
-      const foreground = tab.pty.process
+      const foreground = tab.pty?.process ?? null
+      if (foreground === null) continue
       const running = isRunningProgram(foreground, idleName)
       const process = running ? processName(foreground) : idleName
       if (process === tab.process && running === tab.running) continue

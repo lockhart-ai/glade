@@ -24,7 +24,10 @@ export const spawnNodePty: SpawnPty = ({ file, args, cwd, size, env }) => {
   const pty = spawn(file, [...args], { name: 'xterm-256color', cwd, cols: size.cols, rows: size.rows, env: { ...env } })
   return {
     get process() {
-      return pty.process
+      // node-pty types it as a string, but it's undefined when it can't find the foreground process group's leader: the
+      // program there has just exited.
+      const name: unknown = Reflect.get(pty, 'process')
+      return typeof name === 'string' ? name : null
     },
     onData: (listener) => {
       pty.onData(listener)
