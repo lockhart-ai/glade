@@ -18,7 +18,7 @@ claude mcp add --transport http glade-control http://127.0.0.1:45233/mcp --heade
 
 ## Driving Glade
 
-- [Control API](https://github.com/lockhart-ai/glade/blob/main/docs/control-api.md): turning it on and connecting, the HTTP endpoint and its limits, every tool with its input and result, the error codes, scripting over `/v1`, backfilling past tasks and importing Claude Code sessions.
+- [Control API](https://github.com/lockhart-ai/glade/blob/main/docs/control-api.md): turning it on and connecting, the HTTP endpoint and its limits, every tool with its input and result, the error codes, how dates are read, which updates move a task in the sidebar, scripting over `/v1`, backfilling past tasks and importing Claude Code sessions.
 
 ## Using Glade
 

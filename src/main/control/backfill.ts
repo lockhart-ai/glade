@@ -1,9 +1,8 @@
 /**
  * What backfilling a past task through the control API checks (`docs/control-api.md`, "Backfilling past tasks"): the
- * files it registers as the task's artifacts, and the date it says the task started.
+ * files it registers as the task's artifacts. Its dates are read in `./dates`.
  */
 import { basename, isAbsolute } from 'node:path'
-import type { EpochMs } from '../../shared/domain'
 import { workspaceFilePath } from '../files/files'
 import { ControlError, ControlErrorCode } from './errors'
 
@@ -42,11 +41,4 @@ export async function checkArtifacts(
     checked.push({ path: relative, title: title ?? basename(path) })
   }
   return checked
-}
-
-/** When a backfilled task started, from its ISO 8601 date: `invalid_input` when that's after `now`. */
-export function startedAt(iso: string, now: EpochMs): EpochMs {
-  const at = Date.parse(iso)
-  if (at > now) throw new ControlError(ControlErrorCode.InvalidInput, `startedAt: ${iso} is in the future`)
-  return at
 }
