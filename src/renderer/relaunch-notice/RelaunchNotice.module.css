@@ -1,10 +1,10 @@
 /*
  * The relaunch notice, from docs/design/html/18-relaunch.html: over the window's top right corner, as far below the
- * window's top as the traffic lights' strip reaches, and a little more.
+ * window's top as the traffic lights currently reach, and a little more.
  */
 .notice {
   position: absolute;
-  top: calc(var(--space-outer) + var(--title-bar-height) + var(--space-xl));
+  top: calc(var(--lights-clear-y) + var(--space-xl));
   right: 24px;
   z-index: 5;
   box-sizing: border-box;

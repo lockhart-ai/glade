@@ -18,33 +18,28 @@
 }
 
 /*
- * The strip at the top of the chat column while the sidebar is collapsed, which holds the macOS traffic lights
- * (src/main/app.ts centres them in it, on the pixels the sidebar's strip has them) and nothing else. It drags the
- * window. It reaches out over the card's padding to the card's top and left edges (and over the gap to the right
- * panel), and the header (or the row below) starts right under it. It folds away while the app-wide banner shows, with
- * the lights above it instead (AppShell.module.css).
+ * The row above the chat, with the sidebar collapsed and no task header: just its Show task list toggle. It drags the
+ * window everywhere but the toggle, except while a panel slides (below).
+ *
+ * Its left edge reserves room for the traffic lights (#357), which sit there now instead of a strip: the header's
+ * nested card would add its own border and left padding (1px, --space-xl) before its first row starts, which this row
+ * doesn't have, so it adds that too, to line its toggle up with where the header's sits; then the lights' cluster width
+ * and a gap, as `.lightsClear` in ../task-header/SelectedTaskHeader.module.css does for the header's row
+ * (TRAFFIC_LIGHT_POSITION_COLLAPSED in src/main/app.ts).
  */
-.lightsStrip {
-  flex-shrink: 0;
-  display: var(--lights-strip-display, block);
-  height: var(--title-bar-height);
-  margin: calc(-1 * var(--space-inset));
-}
-
-/* The row above the chat, with the sidebar collapsed and no task header. It drags the window everywhere but its buttons. */
 .titleBar {
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  padding-left: calc(1px + var(--space-xl) + var(--lights-collapsed-width) + var(--space-md));
 }
 
 /*
- * The strip and the title bar drag the window, but not while the sidebar or the right panel slides (TaskCard's
- * panelsMoving): they move or resize with every frame then, and Electron sends macOS the window's drag regions again
- * each time a region moves, which stalls the animation (#358). Any app-region at all (even none, which Chromium takes
- * as no-drag) makes an element a region, so while they slide they have none.
+ * The title bar drags the window, but not while the sidebar or the right panel slides (TaskCard's `panelsMoving`): it
+ * resizes with every frame then, and Electron sends macOS the window's drag regions again each time one moves, which
+ * stalls the animation (#358). Any app-region at all (even none, which Chromium takes as no-drag) makes an element a
+ * region, so while it slides it has none.
  */
-.lightsStrip:not(.sliding),
 .titleBar:not(.sliding) {
   -webkit-app-region: drag;
 }

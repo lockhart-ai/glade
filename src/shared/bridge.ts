@@ -137,6 +137,7 @@ export enum CommandName {
   TerminalClose = 'terminal.close',
   MenuUpdate = 'menu.update',
   WindowClose = 'window.close',
+  WindowSetTrafficLights = 'window.setTrafficLights',
   AppQuit = 'app.quit',
   WindowSetUnsavedEdits = 'window.setUnsavedEdits',
   LogRendererError = 'log.rendererError',
@@ -939,6 +940,17 @@ export type MenuUpdateRequest = MenuState
 export type WindowCloseRequest = EmptyRequest
 
 /**
+ * Tells main whether the sidebar card is on screen, so it can put the native traffic lights where they belong: the
+ * sidebar's strip while it's shown, or the task header's first row while it's collapsed (#357). The window sends it
+ * whenever the sidebar's presence changes, timed to when it actually leaves or starts coming back
+ * (`useTrafficLightsSync`), and once more at mount to correct a stale position (e.g. first-run's sidebar, which is
+ * never collapsed, after leaving a workspace where it was). Main calls `BrowserWindow.setWindowButtonPosition`.
+ */
+export interface WindowSetTrafficLightsRequest {
+  readonly collapsed: boolean
+}
+
+/**
  * Tells main whether the Files tab has unsaved edits, each time that changes. While it has, closing the window or
  * quitting is called off, and main tells the window to ask about them first (`close.blocked`).
  */
@@ -1085,6 +1097,7 @@ export interface CommandMap {
   [CommandName.TerminalClose]: CommandSpec<TerminalIdRequest, null>
   [CommandName.MenuUpdate]: CommandSpec<MenuUpdateRequest, null>
   [CommandName.WindowClose]: CommandSpec<EmptyRequest, null>
+  [CommandName.WindowSetTrafficLights]: CommandSpec<WindowSetTrafficLightsRequest, null>
   /** Quits Glade, as ⌘Q does: after Save or Discard, when quitting was called off for unsaved edits (`close.blocked`). */
   [CommandName.AppQuit]: CommandSpec<EmptyRequest, null>
   [CommandName.WindowSetUnsavedEdits]: CommandSpec<WindowSetUnsavedEditsRequest, null>

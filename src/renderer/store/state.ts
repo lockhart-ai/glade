@@ -371,6 +371,11 @@ export interface GladeActions {
   removeWorkspace: (workspaceId: string) => Promise<void>
   /** Closes the window (`window.close`). */
   closeWindow: () => Promise<void>
+  /**
+   * Tells main whether the sidebar is on screen, so it moves the native traffic lights to match (`window.setTrafficLights`):
+   * the sidebar's strip while it's shown, the task header's first row while it's collapsed. See `useTrafficLightsSync`.
+   */
+  setTrafficLightsCollapsed: (collapsed: boolean) => Promise<void>
   /** Tells main what the menu bar shows (`menu.update`). */
   updateMenu: (state: MenuState) => Promise<void>
   /**

@@ -74,15 +74,18 @@ And the insets that keep things on shared lines:
 
 - `space-outer` = 8: the window's outer padding and the gaps between top-level cards.
 - `title-bar-height` = 28: there's no title bar row; the cards rise to the window's outer inset, as on the other sides.
-  The card in the window's top-left corner starts with a strip this tall that holds the macOS window controls (the
-  traffic lights, placed 16 in and 16 down: centred in it, 7 inside the card's top and left edges, as macOS draws them
-  14px across) and nothing else: the sidebar's, or, while the sidebar is collapsed, the task card's chat column's (the
-  header starts below it; the right panel doesn't move). The lights stay on the same pixels either way. The strip, and
-  the outer inset along the window's top, drag the window, and double-clicking them zooms (the task card's strip, and
-  its row with the sidebar's button, not while the sidebar or the right panel slides: a drag region that moves with
-  every frame stalls the slide on macOS). While the app-wide banner
-  shows, it starts below the lights (the top inset is the strip's height taller), and the cards' strips fold away.
-  Settings keeps as far clear of the window's top and bottom.
+  The sidebar card starts with a strip this tall that holds the macOS window controls (the traffic lights, placed 16
+  in and 16 down: centred in it, 7 inside the card's top and left edges, as macOS draws them 14px across) and nothing
+  else. The strip, and the outer inset along the window's top, drag the window, and double-clicking them zooms. While
+  the app-wide banner shows, it starts below the lights, and the sidebar's own strip folds away.
+  While the sidebar is collapsed, the lights move into the task header's first row instead (#357;
+  `lights-collapsed-width` = 60, the room the AppKit measures the lights' cluster takes; placed 34 in and 34 down,
+  left of the Show task list toggle, the dot and the title, which shift right to clear them), or the row that shows
+  the task list again with no task open. The header (or that row) starts at the window's outer inset like the right
+  panel: there's no strip above it any more. `lights-clear-y` says how deep the lights currently reach (36 open, 50
+  collapsed), so Settings and the relaunch notice, and the banner's own top offset, keep clear of whichever is live.
+  That row doesn't drag the window while the sidebar or the right panel slides, though (a drag region that moves with
+  every frame stalls the slide on macOS): it does again once the slide lands.
 - `space-inset` = 8: every panel's inset, from a card's edge to the cards, rows and fields inside it. The task card's
   header, chat column, input bar and right panel all sit 8 in from its edges; in the sidebar the workspace button,
   search field, filter chips, section headers and task rows share one left edge 8 in; the right panel's rows sit 8 in

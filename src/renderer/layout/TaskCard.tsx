@@ -20,19 +20,14 @@ export interface TaskCardProps {
   rightPanel: ReactNode
   /**
    * A row above the chat for when there's no header to hold the button that shows the sidebar: it drags the window, and
-   * holds what's given.
+   * holds what's given. While the sidebar is collapsed, it (and the header in its place) reserves room at its start for
+   * the traffic lights (#357), which sit there instead of the strip that used to hold them.
    */
   titleBar?: ReactNode
   /**
-   * Whether the chat column starts with the strip that holds the macOS traffic lights and drags the window: while the
-   * sidebar is collapsed, when this card is the one in the window's top-left corner. The right panel beside the column
-   * stays where it is.
-   */
-  lightsStrip?: boolean
-  /**
    * Whether a panel beside the chat column is sliding open or shut: the sidebar, or the right panel. While one does, the
-   * strip and the title bar, which move or resize with every frame, don't drag the window; they do again once it lands.
-   * Electron sends macOS the window's drag regions again each time one moves, which stalls the animation (#358).
+   * title bar, which resizes with every frame, doesn't drag the window; it does again once it lands. Electron sends
+   * macOS the window's drag regions again each time one moves, which stalls the animation (#358).
    */
   panelsMoving?: boolean
 }
@@ -78,7 +73,6 @@ export function TaskCard({
   inputBar,
   rightPanel,
   titleBar,
-  lightsStrip = false,
   panelsMoving = false,
 }: TaskCardProps): React.JSX.Element {
   const stage = useRef<HTMLDivElement>(null)
@@ -90,9 +84,6 @@ export function TaskCard({
   return (
     <Card role="main" aria-label="Task" className={styles.task}>
       <div className={styles.column}>
-        {lightsStrip && (
-          <div className={classNames(styles.lightsStrip, panelsMoving && styles.sliding)} data-testid="lights-strip" />
-        )}
         {titleBar !== undefined && (
           <div className={classNames(styles.titleBar, panelsMoving && styles.sliding)} data-testid="task-title-bar">
             {titleBar}

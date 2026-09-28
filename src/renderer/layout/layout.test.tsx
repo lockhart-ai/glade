@@ -102,7 +102,7 @@ describe('AppShell', () => {
     expect(screen.getByText('Banner').compareDocumentPosition(screen.getByText('Sidebar slot'))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     )
-    // In its own slot, which the stylesheet reads to fold the cards' strips for the traffic lights away while it shows.
+    // In its own slot, which the stylesheet reads to fold the sidebar's strip for the traffic lights away while it shows.
     const slot = screen.getByTestId('banner-slot')
     expect(slot).toHaveClass(moduleClass(appShellStyles, 'banner'))
     expect(slot).toHaveTextContent('Banner')
@@ -370,59 +370,12 @@ describe('TaskCard', () => {
     expect(within(main).getByTestId('input-bar')).toHaveTextContent('Input slot')
     expect(within(main).getByText('Panel slot')).toBeInTheDocument()
     expect(within(main).queryByTestId('task-title-bar')).toBeNull()
-    // The sidebar holds the traffic lights while it's open, so the task card has no strip for them.
-    expect(within(main).queryByTestId('lights-strip')).toBeNull()
   })
 
-  it('starts its chat column with the empty strip for the traffic lights while it is given one, the right panel beside', () => {
-    render(
-      <ToastProvider>
-        <TaskCard
-          lightsStrip
-          header={<p>Header slot</p>}
-          chat={null}
-          inputBar={null}
-          rightPanel={<aside>Panel slot</aside>}
-        />
-      </ToastProvider>,
-    )
-
-    const main = screen.getByRole('main', { name: 'Task' })
-    const strip = within(main).getByTestId('lights-strip')
-    expect(strip).toBeEmptyDOMElement()
-    expect(strip).toHaveClass(moduleClass(taskCardStyles, 'lightsStrip'))
-    // First in the column, above the header; the right panel isn't in the column, so it doesn't move down.
-    const column = strip.parentElement
-    expect(column).toHaveClass(moduleClass(taskCardStyles, 'column'))
-    expect(column?.firstElementChild).toBe(strip)
-    expect(strip.compareDocumentPosition(screen.getByText('Header slot'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
-    expect(column).not.toContainElement(screen.getByText('Panel slot'))
-  })
-
-  it('keeps the title row under the strip, with no task and the sidebar collapsed', () => {
-    render(
-      <ToastProvider>
-        <TaskCard
-          lightsStrip
-          titleBar={<button type="button">Show task list</button>}
-          header={null}
-          chat={null}
-          inputBar={null}
-          rightPanel={null}
-        />
-      </ToastProvider>,
-    )
-
-    const strip = screen.getByTestId('lights-strip')
-    expect(strip.nextElementSibling).toBe(screen.getByTestId('task-title-bar'))
-    expect(strip).not.toContainElement(screen.getByRole('button', { name: 'Show task list' }))
-  })
-
-  it('keeps the strip and the title row from dragging the window while a panel beside them slides (#358)', () => {
+  it('keeps the title row from dragging the window while a panel beside it slides (#358)', () => {
     const card = (panelsMoving: boolean): React.JSX.Element => (
       <ToastProvider>
         <TaskCard
-          lightsStrip
           panelsMoving={panelsMoving}
           titleBar={<button type="button">Show task list</button>}
           header={null}
@@ -434,11 +387,9 @@ describe('TaskCard', () => {
     )
     const { rerender } = render(card(true))
     const sliding = moduleClass(taskCardStyles, 'sliding')
-    expect(screen.getByTestId('lights-strip')).toHaveClass(moduleClass(taskCardStyles, 'lightsStrip'), sliding)
     expect(screen.getByTestId('task-title-bar')).toHaveClass(moduleClass(taskCardStyles, 'titleBar'), sliding)
 
     rerender(card(false))
-    expect(screen.getByTestId('lights-strip')).not.toHaveClass(sliding)
     expect(screen.getByTestId('task-title-bar')).not.toHaveClass(sliding)
   })
 

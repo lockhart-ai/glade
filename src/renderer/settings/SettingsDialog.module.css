@@ -12,8 +12,8 @@
   width: 980px;
   max-width: calc(100vw - 48px);
   height: 700px;
-  /* Centred, it keeps clear of the traffic lights, as far down as their strip reaches, and as far up from the bottom. */
-  max-height: calc(100vh - 2 * (var(--space-outer) + var(--title-bar-height)));
+  /* Centred, it keeps clear of the traffic lights, as far down as they currently reach, and as far up from the bottom. */
+  max-height: calc(100vh - 2 * var(--lights-clear-y));
   box-sizing: border-box;
   overflow: hidden;
   background: var(--color-inner);

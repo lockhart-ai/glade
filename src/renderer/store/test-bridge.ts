@@ -191,6 +191,8 @@ export interface FakeMain {
   readonly menuStates?: MenuState[]
   /** How many times `window.close` closed the window. */
   closedWindows?: number
+  /** Whether `window.setTrafficLights` last told main the sidebar was collapsed; undefined before it's ever called. */
+  trafficLightsCollapsed?: boolean
   /** How many times `app.quit` quit the app. */
   quits?: number
   /** What the window told main about its unsaved edits (`window.setUnsavedEdits`), oldest first. */
@@ -682,6 +684,10 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     },
     [CommandName.WindowClose]: () => {
       main.closedWindows = (main.closedWindows ?? 0) + 1
+      return null
+    },
+    [CommandName.WindowSetTrafficLights]: ({ collapsed }) => {
+      main.trafficLightsCollapsed = collapsed
       return null
     },
     [CommandName.AppQuit]: () => {

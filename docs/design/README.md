@@ -8,9 +8,11 @@ states under the window). Sample data is illustrative. Tokens are in
 The window has no title bar row (#320): the cards rise to its 8px outer inset, and the sidebar card starts with a 28px
 strip that holds the macOS traffic lights, centred in it as macOS draws them (14px circles, 23px apart, 7px inside the
 card's corner).
-With the sidebar collapsed (31), the task card's chat column holds the strip instead; while the app-wide banner shows
-(17), the banner starts below the lights and the strip folds away. The workspace switcher's box has a 12px corner,
-concentric with the card's.
+With the sidebar collapsed (31), there's no strip: the lights move into the task header's first row instead, left of
+the Show task list toggle, the state dot and the title, which shift right to clear them (or the row that shows the
+task list again, with no task open), and the header rises to the window's own outer inset like the right panel. While
+the app-wide banner shows (17), it starts below the lights (deeper while the sidebar's collapsed) and the sidebar's own
+strip folds away. The workspace switcher's box has a 12px corner, concentric with the card's.
 
 | Screen | What it shows | |
 |---|---|---|
@@ -52,7 +54,7 @@ concentric with the card's.
 | 24 · Changes, none yet | The Changes tab of a task that has made no commits yet. A workspace that isn't a git repository says "This workspace isn’t a git repository." in its place. | ![24 · Changes, none yet](screens/24-changes-empty.png) |
 | 29 · Menu bar | Glade's icon in the macOS menu bar (1440×900): a monochrome template glyph on dark and light bars that never moves: idle, with the count of tasks that need you, and highlighted while open; its popover under it, with Needs you (task, workspace and why), Working (status line, todo progress and bar, elapsed) and Recent (the last notifications, with their age), and Open Glade and Quit; and the popover with nothing in flight. | ![29 · Menu bar](screens/29-menu-bar.png) |
 | 30 · Image viewer | A chat thumbnail opened full size (1920×1400): the second of a message's three images, at its own size (as large as fits the window, never larger) on the Settings modal's dimmed backdrop, with × at the top right and the pager ("2 of 3", ← →, going round at the ends) under it. Under the window: the thumbnails' states (at rest, hover with a lighter border and a pointer cursor, keyboard focus), a queued message's thumbnail on hover, the viewer's single-image chrome (× only), and the card in place of an image that can't be loaded. The same viewer opens from the queue. The input bar's thumbnails don't open it. Built from 2 · Agent working and 21 · Settings; no original design. | ![30 · Image viewer](screens/30-image-viewer.png) |
-| 31 · Sidebar collapsed | The task list collapsed (⌘B): the task card takes the window's width, its chat column starts with the strip that holds the traffic lights (on the same pixels as in the sidebar's strip), the header starts below it with Show task list leading its first row and the Goal and Now rows moved over with the title; the right panel stays where it is (#320). | ![31 · Sidebar collapsed](screens/31-sidebar-collapsed.png) |
+| 31 · Sidebar collapsed | The task list collapsed (⌘B): the task card takes the window's width and its header rises to the window's own outer inset, no strip above it; the traffic lights sit in its first row instead, left of Show task list, the state dot and the title, which shift right to clear them, and the Goal and Now rows moved over with the title; the right panel stays where it is (#357). | ![31 · Sidebar collapsed](screens/31-sidebar-collapsed.png) |
 | 32 · Usage meter | The usage meter at the foot of the sidebar, under a divider, with the task list scrolling above it: one row with a ring in the context meter's colours, the limit closest to running out ("Session 38%") and when it resets. Clicked, a popover over it lists every limit Claude Code has told of (Session, This week, each model's week, extra usage while it's on), each with a bar, how much is used and when it resets, under the plan's name and above "From Claude Code · updated 2 min ago". Under the window, the row closed in each state: nothing read yet or nothing said of how much (an empty ring, "Usage · within limits"), normal (blue), from 70% (purple), and at the limit (the question card's highlight). Hidden for an API key or a cloud provider, which have no plan limits. From mockup 33b (#327). | ![32 · Usage meter](screens/32-usage-meter.png) |
 | Interaction map | Every screen, state and action as a graph. | ![Interaction map](screens/interaction-map.png) |
 | Decisions | The decisions board. | ![Decisions](screens/decisions.png) |

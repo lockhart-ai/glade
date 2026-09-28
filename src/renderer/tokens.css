@@ -111,12 +111,29 @@
    * Window layout. The panels are resizable, so their sizes are set from src/renderer/panels/panelSize.ts instead, whose
    * defaults are docs/design/html/task-workspace.html's.
    *
-   * There's no title bar row: the cards rise to the window's outer inset, and the card in the window's top-left corner
-   * (the sidebar, or the task card's chat column while the sidebar is collapsed) starts with a strip this tall that
-   * holds the macOS traffic lights (TRAFFIC_LIGHT_POSITION in src/main/app.ts centres them in it)
-   * and drags the window.
+   * There's no title bar row: the cards rise to the window's outer inset, and the sidebar starts with a strip this tall
+   * that holds the macOS traffic lights (TRAFFIC_LIGHT_POSITION in src/main/app.ts centres them in it) and drags the
+   * window. While the sidebar is collapsed, the lights move into the task header's first row instead (#357;
+   * TRAFFIC_LIGHT_POSITION_COLLAPSED), which has no strip of its own.
    */
   --title-bar-height: 28px;
+
+  /*
+   * The traffic lights' cluster width, once the sidebar is collapsed and they sit inline in a row (the header's first
+   * row, or the row above the chat with no task open) rather than a strip: measured from AppKit's own button frames on
+   * current macOS (three 14px circles, 23px apart, so 60px from the first button's left edge to the last button's
+   * right), so the row can reserve that much room, plus a gap, before its own content
+   * (TRAFFIC_LIGHT_POSITION_COLLAPSED in src/main/app.ts).
+   */
+  --lights-collapsed-width: 60px;
+
+  /*
+   * How far down the window the traffic lights can reach, so whatever needs to clear them (Settings, the relaunch
+   * notice, and the app-wide banner's own top offset) does: the open sidebar's strip goes to 36px; AppShell.module.css
+   * deepens this to 50px while the sidebar's collapsed, since the header row's cluster reaches further down
+   * (TRAFFIC_LIGHT_POSITION_COLLAPSED: 34px down, plus its 16px button on an older macOS, the deepest a light can be).
+   */
+  --lights-clear-y: calc(var(--space-outer) + var(--title-bar-height));
 }
 
 /* macOS "Reduce motion": no movement. Everything that animates takes these tokens, so it all lands at once. */

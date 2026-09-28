@@ -89,7 +89,7 @@ function Header({ task }: HeaderProps): React.JSX.Element {
 
   return (
     <>
-      <div className={styles.top}>
+      <div className={classNames(styles.top, sidebarCollapsed && styles.lightsClear)}>
         {sidebarCollapsed && <PanelToggle panel={Panel.Sidebar} />}
         <div className={styles.heading}>
           {/* The same dot, in the same colours, as the task's row in the sidebar. */}
@@ -147,8 +147,9 @@ function Header({ task }: HeaderProps): React.JSX.Element {
  * The selected task's header card. One line holds its state dot (the sidebar row's, named and titled by the state),
  * title and age, then its pin toggle and, while it's active, Mark done (disabled while the agent works). Below, lined up
  * with the title, are its goal and what it's doing now (its outcome once done). While the right panel is collapsed, a
- * button at the end of the top row shows it again; while the task list is collapsed, one at the start shows that. It
- * follows the store, so it changes as the agent sets its fields. Nothing shows while no task is selected.
+ * button at the end of the top row shows it again; while the task list is collapsed, one at the start shows that, and
+ * the traffic lights sit before it (#357). It follows the store, so it changes as the agent sets its fields. Nothing
+ * shows while no task is selected.
  */
 export function SelectedTaskHeader(): React.JSX.Element | null {
   const task = useGladeStore(selectSelectedTask)

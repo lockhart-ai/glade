@@ -18,6 +18,7 @@ import {
   type WebPreferences,
 } from 'electron'
 import { CloseKind, EventType, type GladeEvent } from '../shared/bridge'
+import { UiStateKey } from '../shared/domain'
 import { PLUGINS_FOLDER_NAME } from '../shared/plugins'
 import type { AgentBackend } from './agent/backend'
 import { createSdkBackend, type SdkBackendOptions } from './agent/sdk-backend'
@@ -35,6 +36,7 @@ import {
 } from './capture'
 import { openAppDatabase, type AppDatabase } from './db/database'
 import { firstUserMessageOfSession } from './db/repositories/messages'
+import { getUiState } from './db/repositories/ui-state'
 import { applySeed, readSeed } from './capture-seed'
 import { chooseFolder } from './dialogs'
 import {
@@ -95,6 +97,22 @@ const APP_NAME = 'Glade'
  * in the strip (16–30px, around its middle at 23px), 7px inside the card's top and left edges alike.
  */
 export const TRAFFIC_LIGHT_POSITION: Point = { x: 16, y: 16 }
+
+/**
+ * Where the lights sit instead while the sidebar is collapsed: in the task header's first row, left of the Show task
+ * list toggle, rather than a strip (#357). The header card starts at the window's 8px outer inset, like the right
+ * panel; its own border (1px) and padding (8px) put its content at 17px, and the nested header card inside adds
+ * another border (1px) and padding (16px left, 8px top), putting its first row at 34px across and 26px down. The row
+ * is 30px tall, as tall as its icon buttons, so 8px (half of 30, less half of the lights' 14px) centres a light on it:
+ * 34px down again. AppKit puts the close button's frame exactly here, and its circle fills the frame on current
+ * macOS, so `{ x: 34, y: 34 }` centres the lights on the row, level with the toggle beside them.
+ */
+export const TRAFFIC_LIGHT_POSITION_COLLAPSED: Point = { x: 34, y: 34 }
+
+/** Where the traffic lights sit for the sidebar's state (`TRAFFIC_LIGHT_POSITION` or `TRAFFIC_LIGHT_POSITION_COLLAPSED`). */
+export function trafficLightPositionFor(sidebarCollapsed: boolean): Point {
+  return sidebarCollapsed ? TRAFFIC_LIGHT_POSITION_COLLAPSED : TRAFFIC_LIGHT_POSITION
+}
 
 /** The smallest the window can be made. */
 const WINDOW_MIN_SIZE: MinimumSize = { width: 1100, height: 700 }
@@ -186,9 +204,14 @@ function loadPage(window: BrowserWindow, route: string): void {
 /**
  * Opens the main window: shown once it's ready, except in a test mode, where it's never shown (but still paints, so it
  * can be captured and recorded) and opens at the spec's route. In e2e mode it's the size of the recordings.
+ *
+ * Its traffic lights start where the sidebar was last left (`db`'s UI state), so a relaunch with it collapsed doesn't
+ * flash the lights in the open position first (#357); the window keeps them in step from there on
+ * (`window.setTrafficLights`, wired to `setTrafficLightsCollapsed` below).
  */
-function createWindow(testMode: TestMode, log: Logger): BrowserWindow {
+function createWindow(testMode: TestMode, db: AppDatabase['db'], log: Logger): BrowserWindow {
   log.info('window opening')
+  const sidebarCollapsed = getUiState(db, UiStateKey.SidebarCollapsed) === 'true'
   const window = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -197,7 +220,7 @@ function createWindow(testMode: TestMode, log: Logger): BrowserWindow {
     show: false,
     ...(testMode === null ? {} : { paintWhenInitiallyHidden: true }),
     titleBarStyle: 'hidden',
-    trafficLightPosition: TRAFFIC_LIGHT_POSITION,
+    trafficLightPosition: trafficLightPositionFor(sidebarCollapsed),
     backgroundColor: WINDOW_BACKGROUND,
     webPreferences: WINDOW_WEB_PREFERENCES,
   })
@@ -251,7 +274,7 @@ async function capture(spec: CaptureSpec, { database, bridge, agent, log }: Capt
     }
     await seedConversation(context, spec.conversation)
   }
-  const window = createWindow({ kind: TestModeKind.Capture, spec }, log)
+  const window = createWindow({ kind: TestModeKind.Capture, spec }, database.db, log)
   // A plugin's view is drawn over the page, so the capture of the page leaves it out: it's pasted in.
   const nativeViews = (): CaptureView[] =>
     window.contentView.children
@@ -474,7 +497,7 @@ function openTaskInWindow(taskId: string, { testMode, database, bridge, log }: O
   const [window] = mainWindows()
   if (window === undefined) {
     openTaskWithoutWindow({ db: database.db, emit: bridge.emit }, taskId)
-    createWindow(testMode, log)
+    createWindow(testMode, database.db, log)
     return
   }
   bringUp(window, testMode)
@@ -482,10 +505,10 @@ function openTaskInWindow(taskId: string, { testMode, database, bridge, log }: O
 }
 
 /** Brings Glade's window up (the menu bar popover's Open Glade), opening one when every window is closed. */
-function openGlade(testMode: TestMode, log: Logger): void {
+function openGlade(testMode: TestMode, db: AppDatabase['db'], log: Logger): void {
   const [window] = mainWindows()
   if (window === undefined) {
-    createWindow(testMode, log)
+    createWindow(testMode, db, log)
     return
   }
   bringUp(window, testMode)
@@ -677,7 +700,7 @@ export function startApp({
               openTaskInWindow(taskId, { testMode, database, bridge, log })
             },
             openGlade: () => {
-              openGlade(testMode, log)
+              openGlade(testMode, database.db, log)
             },
             quit: () => {
               app.quit()
@@ -734,6 +757,11 @@ export function startApp({
       },
       setUnsavedEdits: (unsaved) => {
         closeGuard.setUnsaved(unsaved)
+      },
+      // The window that sent the command is always one of Glade's own (whichever it is, they share one traffic light
+      // position): the plugin views' window, `mainWindows()[0]`, same as theirs.
+      setTrafficLightsCollapsed: (collapsed) => {
+        mainWindows()[0]?.setWindowButtonPosition(trafficLightPositionFor(collapsed))
       },
       ...(menuBar === null
         ? {}
@@ -802,10 +830,10 @@ export function startApp({
       database.db.close()
     })
 
-    createWindow(testMode, log)
+    createWindow(testMode, database.db, log)
 
     app.on('activate', () => {
-      if (mainWindows().length === 0) createWindow(testMode, log)
+      if (mainWindows().length === 0) createWindow(testMode, database.db, log)
     })
   })
 

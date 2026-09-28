@@ -44,6 +44,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.WorkspacesRemove]: () => null,
     [CommandName.MenuUpdate]: () => null,
     [CommandName.WindowClose]: () => null,
+    [CommandName.WindowSetTrafficLights]: () => null,
     [CommandName.AppQuit]: () => null,
     [CommandName.WindowSetUnsavedEdits]: () => null,
     [CommandName.LogRendererError]: () => null,

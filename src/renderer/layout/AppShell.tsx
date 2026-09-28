@@ -49,8 +49,8 @@ export interface AppShellProps {
   onBottomBarHeightChange: (height: number) => void
   /**
    * The app-wide banner across the top of the window (see `PauseBanner`), when there is one. It renders nothing while
-   * there's nothing to say, and then takes no room. While it shows, it starts below the traffic lights, and the cards'
-   * strips for them fold away.
+   * there's nothing to say, and then takes no room. While it shows, it starts below the traffic lights, and the
+   * sidebar's own strip for them folds away.
    */
   banner?: ReactNode
   /** What floats over the window, such as the relaunch notice; positioned by itself against the frame. */
@@ -84,8 +84,9 @@ function shellStyle(sidebarWidth: number, bottomBarHeight: number): CSSPropertie
 /**
  * The window frame: a flat background with the sidebar and task card side by side above the bottom bar, under the
  * app-wide banner when there is one. There's no title bar row: the cards start at the window's outer inset, which drags
- * the window across the top, and the card in the top-left corner holds the macOS traffic lights in a strip of its own
- * (see `Sidebar`, and `TaskCard`'s `lightsStrip`).
+ * the window across the top. The sidebar holds the macOS traffic lights in a strip of its own (see `Sidebar`); while
+ * it's collapsed (`.top.full`, below) they move into the task header's first row instead (#357, `useTrafficLightsSync`),
+ * and the task card alone fills the row.
  *
  * The sidebar and the bottom bar each have a drag handle on the edge facing the task card. Dragging one takes room from
  * the task card, or gives it back, down to the task card's minimum: the chat keeps its minimum width (and the right

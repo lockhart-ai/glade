@@ -24,13 +24,13 @@ const USAGE_LIMIT = resolve(__dirname, '../scripts/fixtures/usage-limit.json')
 /** The same workspace just after a crash, so the relaunch notice shows. */
 const RELAUNCH = resolve(__dirname, '../scripts/fixtures/relaunch.json')
 
-/** The strip at the top of the card in the window's top-left corner (`--title-bar-height`). */
+/** The strip at the top of the sidebar card (`--title-bar-height`), which holds the lights while it's shown. */
 const STRIP_HEIGHT = 28
 
 /**
- * The window's outer inset (`--space-outer`), a top-level card's border, and the lights' inset in the card: on current
- * macOS each light is a 14px circle filling its button, so 7px in from the card's top and left edges centres them in
- * the 28px strip.
+ * The window's outer inset (`--space-outer`), a top-level card's border, and the lights' inset in the sidebar's strip:
+ * on current macOS each light is a 14px circle filling its button, so 7px in from the strip's top and left edges
+ * centres them in it.
  */
 const OUTER = 8
 const BORDER = 1
@@ -44,6 +44,34 @@ const CARD_INSIDE = OUTER + BORDER
 
 /** The radius of a top-level card's inside corners: its 16px, less its border. */
 const CARD_CORNER = 16 - BORDER
+
+/** The task card's own padding before its content (the header card, or the title row) begins: `--space-inset`. */
+const TASK_PADDING = 8
+
+/** The header card's own border, and its padding before its first row begins (`--space-xl`, `--space-md`). */
+const HEADER_BORDER = 1
+const HEADER_PADDING_X = 16
+const HEADER_PADDING_TOP = 8
+
+/** The header's first row's height, set by its icon buttons (Button.module.css's `.icon`). */
+const ROW_HEIGHT = 30
+
+/**
+ * Where the lights sit once the sidebar is collapsed: in the task header's first row (or the row that shows the task
+ * list again, with no task open), rather than a strip (#357). Derived the same way as the open position: the task
+ * card's own inset, then the header card's own border and padding, then half the row less half a light, to centre one
+ * on it (TRAFFIC_LIGHT_POSITION_COLLAPSED in src/main/app.ts).
+ */
+const HEADER_LIGHTS = {
+  x: CARD_INSIDE + TASK_PADDING + HEADER_BORDER + HEADER_PADDING_X,
+  y: CARD_INSIDE + TASK_PADDING + HEADER_BORDER + HEADER_PADDING_TOP + (ROW_HEIGHT - LIGHT_SIZE) / 2,
+}
+
+/** The gap between the lights' cluster and whatever follows it (`--space-md`), once a row reserves room for them. */
+const LIGHTS_GAP = 8
+
+/** Where the Show task list toggle (or the header's own) starts once it's clear of the lights, in either row. */
+const TOGGLE_X = HEADER_LIGHTS.x + 60 + LIGHTS_GAP
 
 /**
  * The room the three traffic lights take from their position. On current macOS they're 14px circles, 23px apart, each
@@ -129,25 +157,24 @@ async function pointsWithNoDragUnder(window: Page, points: { x: number; y: numbe
   )
 }
 
-/** The one strip for the traffic lights on screen, and the card it's in. */
+/** The one strip for the traffic lights on screen (the sidebar's own), and the card it's in. */
 async function theStrip(window: Page): Promise<{ strip: Box; card: Box }> {
   const strip = regions(window).lightsStrip
   await expect(strip).toHaveCount(1)
   await expect(strip).toBeVisible()
-  const card = strip.locator('xpath=ancestor::*[@role="navigation" or @role="main"][1]')
+  const card = strip.locator('xpath=ancestor::*[@role="navigation"][1]')
   return { strip: await boxOf(strip), card: await boxOf(card) }
 }
 
 /**
- * The traffic lights sit in the strip at the top of the card in the window's top-left corner, 8px inside the card's top
- * and left edges; nothing covers them; the strip and the window's top edge drag the window; and everything else starts
- * clear of them.
+ * The traffic lights sit in the strip at the top of the sidebar card, 8px inside its top and left edges; nothing
+ * covers them; the strip and the window's top edge drag the window; and everything else starts clear of them. Unchanged
+ * from before #357.
  */
-async function expectLightsInTheStrip(glade: Glade, size: { width: number; height: number }): Promise<void> {
+async function expectLightsInSidebarStrip(glade: Glade, size: { width: number; height: number }): Promise<void> {
   const { window } = glade
   const area = regions(window)
   const lights = await trafficLights(glade)
-  // Always the same pixels, whichever card holds them.
   expect({ x: lights.x, y: lights.y }).toEqual({ x: CARD_INSIDE + LIGHTS_INSET, y: CARD_INSIDE + LIGHTS_INSET })
 
   const { strip, card } = await theStrip(window)
@@ -157,10 +184,7 @@ async function expectLightsInTheStrip(glade: Glade, size: { width: number; heigh
   // Centred in the strip, top to bottom, as far in from its left edge as from its top.
   expect(lights.y + LIGHT_SIZE / 2).toBe(strip.y + strip.height / 2)
   expect(lights.x - strip.x).toBe(lights.y - strip.y)
-  // Across the sidebar; across the chat column and the gap beside it in the task card, short of the right panel.
-  const panelShows = !(await area.sidebar.isVisible()) && (await area.taskPanel.isVisible())
-  const right = panelShows ? (await boxOf(area.taskPanel)).x : card.x + card.width - BORDER
-  expect(strip.x + strip.width).toBeCloseTo(right, 0)
+  expect(strip.x + strip.width).toBeCloseTo(card.x + card.width - BORDER, 0)
   expect(lights.y + lights.height).toBeLessThanOrEqual(strip.y + strip.height)
 
   // Nothing sits over the traffic lights, and the strip drags the window everywhere across it, as the window's top edge
@@ -173,23 +197,20 @@ async function expectLightsInTheStrip(glade: Glade, size: { width: number; heigh
   expect(edge).toEqual({ x: 0, y: 0, width: size.width, height: OUTER })
   expect(await pointsNotDragging(window, ['window-top-edge'], gridOver({ ...edge, height: OUTER - 1 }, 16))).toEqual([])
 
-  // Every panel but the strip's own card, the task list's controls and the resize handles keep clear of the lights,
-  // and the card's content starts below the strip.
+  // Every panel but the sidebar itself, the task list's controls and the resize handles keep clear of the lights, and
+  // the sidebar's content starts below the strip.
   const handles = resizeHandles(window)
-  const clear: Locator[] = [area.terminal, handles.bottomBar]
-  const below: Locator[] = []
-  if (await area.sidebar.isVisible()) {
-    // The task card, or before there's a workspace, the welcome in its place.
-    clear.push((await area.task.count()) > 0 ? area.task : area.welcome, handles.taskList)
-    // The workspace's box (the switcher, or before there's a workspace, the note in its place). The header around it
-    // keeps its top padding, which reaches up under the strip.
-    below.push(area.workspace.locator(':scope > :first-child'))
-    if (await panelToggles(window).collapseTaskList.isVisible()) below.push(panelToggles(window).collapseTaskList)
-  } else {
-    below.push(panelToggles(window).showTaskList)
-    if (await area.taskHeader.isVisible()) below.push(area.taskHeader)
-  }
+  const clear: Locator[] = [
+    area.terminal,
+    handles.bottomBar,
+    (await area.task.count()) > 0 ? area.task : area.welcome,
+    handles.taskList,
+  ]
   for (const locator of clear) expect(overlaps(await boxOf(locator), lights)).toBe(false)
+  // The workspace's box (the switcher, or before there's a workspace, the note in its place). The header around it
+  // keeps its top padding, which reaches up under the strip.
+  const below: Locator[] = [area.workspace.locator(':scope > :first-child')]
+  if (await panelToggles(window).collapseTaskList.isVisible()) below.push(panelToggles(window).collapseTaskList)
   for (const locator of below) {
     const box = await boxOf(locator)
     expect(overlaps(box, lights)).toBe(false)
@@ -197,52 +218,136 @@ async function expectLightsInTheStrip(glade: Glade, size: { width: number; heigh
   }
 }
 
-test('traffic lights: they sit in the sidebar’s strip, and in the chat column’s with the sidebar collapsed, on the same pixels', async ({
-  launch,
-}) => {
+/**
+ * With the sidebar collapsed and a task open, the lights sit in the header's first row: vertically centred on it,
+ * clear of the Show task list toggle, which starts after them with the header's usual padding, then the dot and the
+ * title. The header starts at the task card's own inset, like the right panel: no strip above it (#357).
+ */
+async function expectLightsInHeaderRow(glade: Glade): Promise<void> {
+  const { window } = glade
+  const area = regions(window)
+  const lights = await trafficLights(glade)
+  expect({ x: lights.x, y: lights.y }).toEqual(HEADER_LIGHTS)
+
+  const header = await boxOf(area.taskHeader)
+  const task = await boxOf(area.task)
+  expect(header.x).toBeCloseTo(task.x + BORDER + TASK_PADDING, 0)
+  expect(header.y).toBeCloseTo(task.y + BORDER + TASK_PADDING, 0)
+
+  const toggle = panelToggles(window).showTaskList
+  await expect(toggle).toBeVisible()
+  const toggleBox = await boxOf(toggle)
+  expect(toggleBox.x).toBeGreaterThanOrEqual(TOGGLE_X - SLACK)
+  // Centred with the lights themselves (14px circles), not the defensive box `trafficLights` reports for older macOS.
+  expect(toggleBox.y + toggleBox.height / 2).toBeCloseTo(lights.y + LIGHT_SIZE / 2, 0)
+  expect(overlaps(toggleBox, lights)).toBe(false)
+  expect(overlaps(await boxOf(area.taskHeader.getByRole('heading', { level: 1 })), lights)).toBe(false)
+
+  // Nothing else sits over them either.
+  const handles = resizeHandles(window)
+  const clear: Locator[] = [area.terminal, handles.bottomBar, area.chat, area.inputBar]
+  if (await area.taskPanel.isVisible()) clear.push(area.taskPanel)
+  for (const locator of clear) expect(overlaps(await boxOf(locator), lights)).toBe(false)
+}
+
+/**
+ * With the sidebar collapsed and no task open, the lights lead the row that shows the task list again: its button
+ * starts where the header's would, clear of them; the row still drags the window everywhere but the button.
+ */
+async function expectLightsInTitleRow(glade: Glade): Promise<void> {
+  const { window } = glade
+  const lights = await trafficLights(glade)
+  expect({ x: lights.x, y: lights.y }).toEqual(HEADER_LIGHTS)
+
+  const toggle = panelToggles(window).showTaskList
+  await expect(toggle).toBeVisible()
+  const toggleBox = await boxOf(toggle)
+  expect(toggleBox.x).toBeGreaterThanOrEqual(TOGGLE_X - SLACK)
+  expect(overlaps(toggleBox, lights)).toBe(false)
+  // The row is only as tall as its button (30px), so it doesn't quite reach the very bottom rim of the lights'
+  // defensive box the way the header's row does: check it drags across their vertical centre, where a light actually
+  // is (and where a pointer would land).
+  const dragPoints = Array.from({ length: 7 }, (_, i) => ({ x: lights.x + i * 10, y: lights.y + LIGHT_SIZE / 2 }))
+  expect(await pointsNotDragging(window, ['task-title-bar'], dragPoints)).toEqual([])
+}
+
+test('traffic lights: they sit in the sidebar’s strip while it’s shown, at both sizes', async ({ launch }) => {
   const glade = await launch({ seed: TASK_WORKSPACE })
   const { window } = glade
   await expect(taskList(window).rows('Active')).not.toHaveCount(0)
-  const toggles = panelToggles(window)
   const area = regions(window)
 
   for (const size of SIZES) {
     await test.step(`${String(size.width)}×${String(size.height)}`, async () => {
       await resize(glade, size.width, size.height)
       await expect(area.sidebar).toBeVisible()
-      await expectLightsInTheStrip(glade, size)
-      await expect(area.sidebar.getByTestId('lights-strip')).toBeVisible()
-      const panel = await boxOf(area.taskPanel)
+      await expectLightsInSidebarStrip(glade, size)
+    })
+  }
+})
 
-      // Collapsed from its button, the task card's chat column takes the strip over; its header starts under it, led
-      // by Show task list; the right panel stays where it was.
-      await toggles.collapseTaskList.click()
-      await expect(toggles.showTaskList).toBeVisible()
-      await expect(area.task.getByTestId('lights-strip')).toBeVisible()
-      await expectLightsInTheStrip(glade, size)
-      const header = await boxOf(area.taskHeader)
-      const { strip } = await theStrip(window)
-      expect(header.y).toBeCloseTo(strip.y + strip.height, 0)
-      expect(header.x).toBeCloseTo(strip.x + 8, 0)
-      expect((await boxOf(toggles.showTaskList)).y).toBeGreaterThan(header.y)
+test('traffic lights: collapsed with a task open, they sit in the header’s row, at both sizes, and toggle back the same from the View menu', async ({
+  launch,
+}) => {
+  const glade = await launch({ seed: TASK_WORKSPACE })
+  const { window } = glade
+  const area = regions(window)
+  const panel = await boxOf(area.taskPanel)
+
+  for (const size of SIZES) {
+    await test.step(`${String(size.width)}×${String(size.height)}`, async () => {
+      await resize(glade, size.width, size.height)
+      await panelToggles(window).collapseTaskList.click()
+      await expect(area.sidebar).toBeHidden()
+      await expect(area.lightsStrip).toHaveCount(0)
+      await expectLightsInHeaderRow(glade)
+      // Collapsing and expanding the task list doesn't move the right panel.
       expect((await boxOf(area.taskPanel)).y).toBeCloseTo(panel.y, 0)
-      expect(overlaps(await boxOf(area.taskPanel), strip)).toBe(false)
 
-      // And back from the View menu, which toggles it the same way.
-      await chooseMenuItem(glade, 'View', 'Toggle task list')
+      await panelToggles(window).showTaskList.click()
       await expect(area.sidebar).toBeVisible()
-      await expectLightsInTheStrip(glade, size)
-      expect((await boxOf(area.taskPanel)).y).toBeCloseTo(panel.y, 0)
+      await expectLightsInSidebarStrip(glade, size)
     })
   }
 
-  // The strip keeps its place across a relaunch with the task list collapsed.
+  await chooseMenuItem(glade, 'View', 'Toggle task list')
+  await expect(area.sidebar).toBeHidden()
+  await expectLightsInHeaderRow(glade)
+})
+
+test('traffic lights: collapsing moves them once the sidebar has finished leaving; expanding moves them from the start', async ({
+  launch,
+}) => {
+  const glade = await launch({ seed: TASK_WORKSPACE, motion: true })
+  const { window } = glade
+  const area = regions(window)
+  const toggles = panelToggles(window)
+  const sidebarLights = { x: CARD_INSIDE + LIGHTS_INSET, y: CARD_INSIDE + LIGHTS_INSET }
+
   await toggles.collapseTaskList.click()
+  // Still sliding shut: the sidebar (and its strip) are still on screen, so the lights haven't moved, or they'd cross
+  // the header's content mid-slide. `--motion-duration` (200ms) gates this deterministically: whatever `trafficLights`
+  // itself takes to answer, it can't have run yet.
+  expect(await trafficLights(glade)).toMatchObject(sidebarLights)
+  await expect(area.sidebar).toBeHidden()
+  expect(await trafficLights(glade)).toMatchObject(HEADER_LIGHTS)
+
+  await toggles.showTaskList.click()
+  // Sliding open: the lights move at once, to where the strip is growing in, before the sidebar is fully back.
+  expect(await trafficLights(glade)).toMatchObject(sidebarLights)
+  await expect(area.sidebar).toBeVisible()
+})
+
+test('traffic lights: relaunching with the task list collapsed starts them in the header’s row', async ({ launch }) => {
+  const glade = await launch({ seed: TASK_WORKSPACE })
+  const { window } = glade
+  await panelToggles(window).collapseTaskList.click()
+  await expect(panelToggles(window).showTaskList).toBeVisible()
   await glade.close()
+
   const relaunched = await launch()
   await expect(panelToggles(relaunched.window).showTaskList).toBeVisible()
-  await resize(relaunched, MIN_WINDOW.width, MIN_WINDOW.height)
-  await expectLightsInTheStrip(relaunched, MIN_WINDOW)
+  await expectLightsInHeaderRow(relaunched)
 })
 
 test('traffic lights: the workspace switcher sits under the strip, its box 3px inside the card with a concentric corner', async ({
@@ -277,7 +382,7 @@ test('traffic lights: the workspace switcher sits under the strip, its box 3px i
   await expect(panelToggles(window).showTaskList).toBeVisible()
 })
 
-test('traffic lights: with no task open and the task list collapsed, the strip leads the row with its show button', async ({
+test('traffic lights: first-run’s sidebar holds the strip; with no task and the task list collapsed, they lead the row with its show button', async ({
   launch,
   tempFolder,
 }) => {
@@ -285,33 +390,31 @@ test('traffic lights: with no task open and the task list collapsed, the strip l
   mkdirSync(root)
   const glade = await launch({ chosenFolder: root })
   const { window } = glade
-  // Before there's a workspace, the first-run sidebar holds the strip.
+  // Before there's a workspace, the first-run sidebar holds the strip, as it does with a workspace.
   await expect(firstRun(window).openFolder).toBeVisible()
   for (const size of SIZES) {
     await resize(glade, size.width, size.height)
-    await expectLightsInTheStrip(glade, size)
+    await expectLightsInSidebarStrip(glade, size)
     expect(overlaps(await boxOf(regions(window).welcome), await trafficLights(glade))).toBe(false)
   }
 
   await firstRun(window).openFolder.click()
   const toggles = panelToggles(window)
   await toggles.collapseTaskList.click()
-  // With no task, there's no header to hold it: it has a row of its own, under the strip.
+  // With no task, there's no header to hold them: they lead a row of their own, above the show button.
   const row = window.getByTestId('task-title-bar')
   const showTaskList = row.getByRole('button', { name: 'Show task list' })
   await expect(showTaskList).toBeVisible()
   for (const size of SIZES) {
     await resize(glade, size.width, size.height)
-    await expectLightsInTheStrip(glade, size)
-    const { strip } = await theStrip(window)
-    expect((await boxOf(row)).y).toBeCloseTo(strip.y + strip.height, 0)
+    await expectLightsInTitleRow(glade)
   }
   await showTaskList.click()
   await expect(regions(window).sidebar).toBeVisible()
-  await expectLightsInTheStrip(glade, MIN_WINDOW)
+  await expectLightsInSidebarStrip(glade, MIN_WINDOW)
 })
 
-test('traffic lights: Settings keeps clear of them, and the strip under it still drags the window', async ({
+test('traffic lights: Settings keeps clear of them in both states, deeper while the task list is collapsed', async ({
   launch,
 }) => {
   const glade = await launch({ seed: TASK_WORKSPACE })
@@ -320,24 +423,28 @@ test('traffic lights: Settings keeps clear of them, and the strip under it still
   await chooseMenuItem(glade, 'Glade', 'Settings…')
   const { dialog } = settings(window)
   await expect(dialog).toBeVisible()
-  for (const collapsed of [false, true]) {
-    for (const size of SIZES) {
-      await resize(glade, size.width, size.height)
-      const lights = await trafficLights(glade)
-      const box = await boxOf(dialog)
-      expect(overlaps(box, lights)).toBe(false)
-      expect(box.y).toBeGreaterThanOrEqual(OUTER + STRIP_HEIGHT - SLACK)
-      expect(await pointsWithNoDragUnder(window, gridOver(lights, 2))).toEqual([])
-    }
-    if (!collapsed) {
-      // Collapse the task list under Settings from the View menu, and check again with the task card's strip.
-      await chooseMenuItem(glade, 'View', 'Toggle task list')
-      await expect(regions(window).task.getByTestId('lights-strip')).toHaveCount(1)
-    }
+  for (const size of SIZES) {
+    await resize(glade, size.width, size.height)
+    const lights = await trafficLights(glade)
+    const box = await boxOf(dialog)
+    expect(overlaps(box, lights)).toBe(false)
+    expect(box.y).toBeGreaterThanOrEqual(OUTER + STRIP_HEIGHT - SLACK)
+    expect(await pointsWithNoDragUnder(window, gridOver(lights, 2))).toEqual([])
+  }
+
+  // Collapse the task list under Settings from the View menu: deeper now, the dialog keeps clear all the same.
+  await chooseMenuItem(glade, 'View', 'Toggle task list')
+  for (const size of SIZES) {
+    await resize(glade, size.width, size.height)
+    const lights = await trafficLights(glade)
+    expect({ x: lights.x, y: lights.y }).toEqual(HEADER_LIGHTS)
+    const box = await boxOf(dialog)
+    expect(overlaps(box, lights)).toBe(false)
+    expect(box.y).toBeGreaterThanOrEqual(HEADER_LIGHTS.y + TRAFFIC_LIGHTS_SIZE.height - SLACK)
   }
 })
 
-test('traffic lights: the app-wide banner starts below them, in the window’s draggable top edge, and the strips fold away', async ({
+test('traffic lights: the app-wide banner starts below them however deep they reach, and the sidebar’s strip folds away', async ({
   launch,
 }) => {
   const glade = await launch({ seed: USAGE_LIMIT })
@@ -346,31 +453,40 @@ test('traffic lights: the app-wide banner starts below them, in the window’s d
   await expect(banner).toBeVisible()
   const area = regions(window)
   for (const collapsed of [false, true]) {
+    const expectedPosition = collapsed
+      ? HEADER_LIGHTS
+      : { x: CARD_INSIDE + LIGHTS_INSET, y: CARD_INSIDE + LIGHTS_INSET }
+    const clearHeight = collapsed ? HEADER_LIGHTS.y + TRAFFIC_LIGHTS_SIZE.height : OUTER + STRIP_HEIGHT
     for (const size of SIZES) {
       await resize(glade, size.width, size.height)
       const lights = await trafficLights(glade)
-      expect({ x: lights.x, y: lights.y }).toEqual({ x: CARD_INSIDE + LIGHTS_INSET, y: CARD_INSIDE + LIGHTS_INSET })
-      // The top edge is as tall as the strip, and the outer inset above it; the banner, and the cards, start below it.
+      expect({ x: lights.x, y: lights.y }).toEqual(expectedPosition)
+      // The top edge is as deep as the lights currently reach; the banner, and the cards, start below it.
       const edge = await boxOf(area.topEdge)
-      expect(edge).toEqual({ x: 0, y: 0, width: size.width, height: OUTER + STRIP_HEIGHT })
-      expect(await pointsNotDragging(window, ['window-top-edge'], gridOver(lights, 2))).toEqual([])
+      expect(edge).toEqual({ x: 0, y: 0, width: size.width, height: clearHeight })
       const bannerBox = await boxOf(banner)
       expect(bannerBox.y).toBeCloseTo(edge.height, 0)
       expect(overlaps(bannerBox, lights)).toBe(false)
-      await expect(area.lightsStrip).toBeHidden()
-      expect((await boxOf(area.task)).y).toBeGreaterThan(bannerBox.y + bannerBox.height)
+      if (!collapsed) {
+        expect(await pointsNotDragging(window, ['window-top-edge'], gridOver(lights, 2))).toEqual([])
+        await expect(area.lightsStrip).toBeHidden()
+      }
+      const task = await boxOf(area.task)
+      expect(task.y).toBeGreaterThan(bannerBox.y + bannerBox.height)
+      // The header still starts right at the task card's own inset, whether the sidebar is collapsed or not: no strip
+      // above it (#357).
+      expect(task.y + BORDER + TASK_PADDING).toBeCloseTo((await boxOf(area.taskHeader)).y, 0)
     }
     if (!collapsed) {
       await panelToggles(window).collapseTaskList.click()
       await expect(panelToggles(window).showTaskList).toBeVisible()
-      // The header starts at the top of the task card, as it did with the sidebar open.
-      const task = await boxOf(area.task)
-      expect((await boxOf(area.taskHeader)).y).toBeCloseTo(task.y + BORDER + 8, 0)
     }
   }
 })
 
-test('traffic lights: the relaunch notice sits below the strip', async ({ launch }) => {
+test('traffic lights: the relaunch notice sits below them, deeper while the task list is collapsed', async ({
+  launch,
+}) => {
   const glade = await launch({ seed: RELAUNCH })
   const { window } = glade
   const { notice } = relaunchNotice(window)
@@ -381,4 +497,10 @@ test('traffic lights: the relaunch notice sits below the strip', async ({ launch
     expect(box.y).toBeCloseTo(OUTER + STRIP_HEIGHT + 16, 0)
     expect(overlaps(box, await trafficLights(glade))).toBe(false)
   }
+
+  await panelToggles(window).collapseTaskList.click()
+  await expect(panelToggles(window).showTaskList).toBeVisible()
+  const box = await boxOf(notice)
+  expect(box.y).toBeCloseTo(HEADER_LIGHTS.y + TRAFFIC_LIGHTS_SIZE.height + 16, 0)
+  expect(overlaps(box, await trafficLights(glade))).toBe(false)
 })

@@ -10,6 +10,16 @@
   gap: var(--space-md);
 }
 
+/*
+ * While the task list is collapsed, the traffic lights sit at this row's own start, left of the Show task list toggle
+ * (#357): reserves their cluster width and a gap, so the toggle (and the title after it) shifts right to clear them.
+ * TaskCard.module.css's `.titleBar` (the row with no task header to hold the toggle) does the same, adding its own
+ * offset from this row's, since it isn't nested a card deeper the way this row is.
+ */
+.top.lightsClear {
+  padding-left: calc(var(--lights-collapsed-width) + var(--space-md));
+}
+
 .heading {
   flex-grow: 1;
   min-width: 0;
@@ -58,9 +68,15 @@
   padding-left: calc(var(--header-dot-size) + var(--space-md));
 }
 
-/* While the task list is collapsed, its show button leads the top line, so the title (and the rows with it) move over. */
+/*
+ * While the task list is collapsed, the lights and the show button lead the top line (#357, `.top.lightsClear`), so
+ * the title (and the rows with it) move over by both their room.
+ */
 .fields.afterToggle {
-  padding-left: calc(var(--header-dot-size) + var(--space-md) + var(--header-toggle-size) + var(--space-md));
+  padding-left: calc(
+    var(--lights-collapsed-width) + var(--space-md) + var(--header-dot-size) + var(--space-md) +
+      var(--header-toggle-size) + var(--space-md)
+  );
 }
 
 .row {
