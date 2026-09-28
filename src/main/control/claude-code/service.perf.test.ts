@@ -7,15 +7,16 @@
 // into a table in one transaction, with a statement prepared for it). An idle Mac, a busy one and one held to its
 // efficiency cores differ several times over in milliseconds, but little in references, so a budget can be tight
 // enough that twice the work fails without a slow or busy machine failing. (On the Mac they were set on, the import's
-// budget of 14 references is about 3s, inside its 5s.)
+// budget of 15 references is about 3.3s, inside its 5s.)
 //
 // The store reference prepares a statement for each line because the import does: each repository call prepares its
 // own (about 27,000 of them for this transcript, 14 distinct), and preparing is about 40% of the import. Preparing
 // (SQLite's parser and code generator) slows down far more on a busy machine or its efficiency cores than running one
 // statement over and over does, so a reference that prepared once swung against the import: the import took 11
-// references on an idle Mac and 20 to 22 held to its efficiency cores under load, when twice the work is 22 (#375).
-// Against a reference that prepares for each line it takes 8 and 11 to 12, and twice the work 17. Opening the
-// reference's database, which runs every migration, isn't timed either: it's no part of writing a line.
+// references on an idle Mac and up to 22 held to its efficiency cores under load, when twice the work is 22 (#375).
+// Against a reference that prepares for each line it takes 8 idle and at most 13.4 held to its efficiency cores under
+// load, and twice the work 17. Opening the reference's database, which runs every migration, isn't timed either: it's
+// no part of writing a line.
 //
 // Each is timed a few times and the fastest counts: on a busy machine noise only ever adds time (a collection the last
 // step left behind, another process's cache misses, a disk others are writing to), so the fastest run is the one
@@ -48,8 +49,11 @@ const BUDGET = {
   read: 7,
   /** Listing it, which reads it too: about 4, and at most 4.9. */
   list: 7,
-  /** Importing it: about 8, and at most 12; twice the work takes about 17. */
-  import: 14,
+  /**
+   * Importing it: about 8, and at most 13.4. Twice the work takes about 17, so this one sits between the two rather
+   * than at 1.75 times idle.
+   */
+  import: 15,
   /**
    * Listing the second page of 300 sessions once the first has read them: about 0.15. It shows the page comes from
    * what the first read, which took about 2: reading them all again fails.
