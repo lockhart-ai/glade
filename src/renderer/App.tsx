@@ -5,7 +5,7 @@ import { ToastProvider } from './components'
 import { FirstRun } from './first-run/FirstRun'
 import { InputBar } from './input-bar'
 import { PauseBanner } from './pause/PauseBanner'
-import { AppShell, BottomBar, Sidebar, SidebarHeader, TaskCard } from './layout'
+import { AppShell, BottomBar, Sidebar, SidebarHeader, TaskCard, useTrafficLightsSync } from './layout'
 import { isMoving, MotionPhase, usePresence } from './motion'
 import { Panel, PanelToggle, usePanel, usePanelSize } from './panels'
 import styles from './App.module.css'
@@ -58,6 +58,7 @@ function Window({
   const sidebarWidth = usePanelSize(Panel.Sidebar)
   const bottomBarHeight = usePanelSize(Panel.BottomBar)
   useTerminalShortcuts()
+  useTrafficLightsSync(sidebar === undefined)
   return (
     <AppShell
       banner={banner}
@@ -106,10 +107,10 @@ function FirstRunLayout(): React.JSX.Element {
 }
 
 /**
- * The window layout: the sidebar, the task card and the bottom bar. While the sidebar is collapsed, the task card's
- * chat column starts with the strip for the traffic lights in its place, and a button under it shows the sidebar
- * again: at the start of the task header, or on a row of its own with no task selected.
- * The sidebar slides open and shut, and stays on screen while it slides shut.
+ * The window layout: the sidebar, the task card and the bottom bar. While the sidebar is collapsed, the task header
+ * rises to the window's outer inset (there's no strip above it any more, #357) and a button leads its first row to
+ * show the sidebar again, or leads a row of its own with no task selected. The traffic lights move into that row too
+ * (`useTrafficLightsSync`, in `Window`). The sidebar slides open and shut, and stays on screen while it slides shut.
  */
 function Layout(): React.JSX.Element {
   const workspace = useGladeStore(selectSelectedWorkspace)
@@ -143,7 +144,6 @@ function Layout(): React.JSX.Element {
       taskHasRightPanel={!rightPanel.collapsed}
       task={
         <TaskCard
-          lightsStrip={sidebar.collapsed}
           titleBar={sidebar.collapsed && !hasTask ? <PanelToggle panel={Panel.Sidebar} /> : undefined}
           header={<SelectedTaskHeader />}
           chat={<Chat />}

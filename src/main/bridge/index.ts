@@ -71,6 +71,8 @@ export interface BridgeOptions {
   readonly updateMenu?: (state: MenuState) => void
   /** Closes the focused window (`window.close`). Nothing by default. */
   readonly closeWindow?: () => void
+  /** Moves the native traffic lights for the sidebar's state (`window.setTrafficLights`). Nothing by default. */
+  readonly setTrafficLightsCollapsed?: (collapsed: boolean) => void
   /** What the terminal tabs run their shells with. */
   readonly terminal: TerminalOptions
   /** The plugins folder, `<userData>/plugins`: a test mode's is in its throwaway data folder. */
@@ -164,6 +166,7 @@ export function registerBridge({
   isTrustedSender = () => true,
   updateMenu,
   closeWindow,
+  setTrafficLightsCollapsed,
   controlLimits,
   menuBar,
   observe,
@@ -270,6 +273,7 @@ export function registerBridge({
       runner,
       updateMenu,
       closeWindow,
+      setTrafficLightsCollapsed,
       terminals,
       plugins,
       pluginViews,

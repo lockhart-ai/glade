@@ -343,6 +343,10 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.WindowClose, {})
       },
 
+      async setTrafficLightsCollapsed(collapsed) {
+        await bridge.invoke(CommandName.WindowSetTrafficLights, { collapsed })
+      },
+
       async updateMenu(state) {
         await bridge.invoke(CommandName.MenuUpdate, state)
       },

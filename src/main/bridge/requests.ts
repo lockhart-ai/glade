@@ -38,6 +38,7 @@ import {
   type TerminalRenameRequest,
   type TerminalSizeRequest,
   type TerminalWriteRequest,
+  type WindowSetTrafficLightsRequest,
   type TasksCreateRequest,
   type TasksRetryRequest,
   type TasksSendRequest,
@@ -259,6 +260,10 @@ const pluginsSetEnabledRequest = z.strictObject({
   enabled: z.boolean(),
 }) satisfies z.ZodType<PluginsSetEnabledRequest>
 
+const windowSetTrafficLightsRequest = z.strictObject({
+  collapsed: z.boolean(),
+}) satisfies z.ZodType<WindowSetTrafficLightsRequest>
+
 /** The largest a plugin view's side or offset can be, in CSS pixels: far bigger than any screen. */
 const MAX_VIEW_PIXELS = 100_000
 
@@ -429,6 +434,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.TerminalClose]: terminalIdRequest,
   [CommandName.MenuUpdate]: menuUpdateRequest,
   [CommandName.WindowClose]: emptyRequest,
+  [CommandName.WindowSetTrafficLights]: windowSetTrafficLightsRequest,
   [CommandName.LogRendererError]: logRendererErrorRequest,
   [CommandName.MenuBarGet]: emptyRequest,
   [CommandName.MenuBarOpenTask]: taskIdRequest,

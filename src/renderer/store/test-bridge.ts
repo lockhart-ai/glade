@@ -186,6 +186,8 @@ export interface FakeMain {
   readonly menuStates?: MenuState[]
   /** How many times `window.close` closed the window. */
   closedWindows?: number
+  /** Whether `window.setTrafficLights` last told main the sidebar was collapsed; undefined before it's ever called. */
+  trafficLightsCollapsed?: boolean
   /**
    * The stored images `images.get` answers with, by id; `tasks.send` and `queue.add` add each message's images here,
    * as `image-1`, `image-2`… None when left out.
@@ -668,6 +670,10 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     },
     [CommandName.WindowClose]: () => {
       main.closedWindows = (main.closedWindows ?? 0) + 1
+      return null
+    },
+    [CommandName.WindowSetTrafficLights]: ({ collapsed }) => {
+      main.trafficLightsCollapsed = collapsed
       return null
     },
     [CommandName.LogRendererError]: (error) => {

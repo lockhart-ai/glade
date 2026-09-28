@@ -82,6 +82,7 @@ const electron = vi.hoisted(() => {
     readonly loadURL = vi.fn(() => Promise.resolve())
     readonly loadFile = vi.fn(() => Promise.resolve())
     readonly setContentSize = vi.fn()
+    readonly setWindowButtonPosition = vi.fn()
     readonly isMinimized = vi.fn(() => false)
     readonly restore = vi.fn()
     readonly focus = vi.fn()
@@ -340,7 +341,8 @@ vi.mock('./logging/file-sink', async (importOriginal) => {
 })
 const { createFileLogSink } = await import('./logging/file-sink')
 
-const { startApp, WINDOW_WEB_PREFERENCES } = await import('./app')
+const { startApp, WINDOW_WEB_PREFERENCES, TRAFFIC_LIGHT_POSITION, TRAFFIC_LIGHT_POSITION_COLLAPSED } =
+  await import('./app')
 
 /** A line of the log file, as JSON. */
 interface LogLine {
@@ -489,10 +491,20 @@ describe('startApp', () => {
       minHeight: 700,
       show: false,
       titleBarStyle: 'hidden',
-      trafficLightPosition: { x: 16, y: 16 },
+      trafficLightPosition: TRAFFIC_LIGHT_POSITION,
       backgroundColor: '#0A0B0F',
       webPreferences: WINDOW_WEB_PREFERENCES,
     })
+  })
+
+  it('opens with the traffic lights in the collapsed position when the sidebar was last left collapsed (#357)', async () => {
+    const { db } = openAppDatabase(electron.app.userData)
+    setUiState(db, { key: UiStateKey.SidebarCollapsed, value: 'true' })
+    db.close()
+
+    await startAndWaitUntilReady()
+
+    expect(onlyWindow().options).toMatchObject({ trafficLightPosition: TRAFFIC_LIGHT_POSITION_COLLAPSED })
   })
 
   it('shows the window when it is ready to show', async () => {
@@ -718,6 +730,21 @@ describe('startApp', () => {
     await expect(handler?.(fromWindow(), CommandName.WindowClose, {})).resolves.toEqual({ ok: true, value: null })
 
     expect(onlyWindow().close).toHaveBeenCalledOnce()
+  })
+
+  it('moves the traffic lights when the window says the sidebar collapsed or came back (#357)', async () => {
+    await startAndWaitUntilReady()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    await expect(
+      handler?.(fromWindow(), CommandName.WindowSetTrafficLights, { collapsed: true }),
+    ).resolves.toEqual({ ok: true, value: null })
+    expect(onlyWindow().setWindowButtonPosition).toHaveBeenLastCalledWith(TRAFFIC_LIGHT_POSITION_COLLAPSED)
+
+    await expect(
+      handler?.(fromWindow(), CommandName.WindowSetTrafficLights, { collapsed: false }),
+    ).resolves.toEqual({ ok: true, value: null })
+    expect(onlyWindow().setWindowButtonPosition).toHaveBeenLastCalledWith(TRAFFIC_LIGHT_POSITION)
   })
 
   it('runs the agents on the backend it was started with, and closes their sessions when the app quits', async () => {

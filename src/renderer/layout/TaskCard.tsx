@@ -19,15 +19,10 @@ export interface TaskCardProps {
   rightPanel: ReactNode
   /**
    * A row above the chat for when there's no header to hold the button that shows the sidebar: it drags the window, and
-   * holds what's given.
+   * holds what's given. While the sidebar is collapsed, it (and the header in its place) reserves room at its start for
+   * the traffic lights (#357), which sit there instead of the strip that used to hold them.
    */
   titleBar?: ReactNode
-  /**
-   * Whether the chat column starts with the strip that holds the macOS traffic lights and drags the window: while the
-   * sidebar is collapsed, when this card is the one in the window's top-left corner. The right panel beside the column
-   * stays where it is.
-   */
-  lightsStrip?: boolean
 }
 
 /** Where a floating layer's height is kept: the stage the chat is in, the layer, and the CSS variable. */
@@ -65,14 +60,7 @@ function useLayerHeight({ stage, layer, variable }: LayerHeight): void {
  * (#268, #270). Toasts stand above the input bar, centred on the chat column, so it must be used under a
  * `ToastProvider`.
  */
-export function TaskCard({
-  header,
-  chat,
-  inputBar,
-  rightPanel,
-  titleBar,
-  lightsStrip = false,
-}: TaskCardProps): React.JSX.Element {
+export function TaskCard({ header, chat, inputBar, rightPanel, titleBar }: TaskCardProps): React.JSX.Element {
   const stage = useRef<HTMLDivElement>(null)
   const headerLayer = useRef<HTMLDivElement>(null)
   const inputLayer = useRef<HTMLDivElement>(null)
@@ -82,7 +70,6 @@ export function TaskCard({
   return (
     <Card role="main" aria-label="Task" className={styles.task}>
       <div className={styles.column}>
-        {lightsStrip && <div className={styles.lightsStrip} data-testid="lights-strip" />}
         {titleBar !== undefined && (
           <div className={styles.titleBar} data-testid="task-title-bar">
             {titleBar}

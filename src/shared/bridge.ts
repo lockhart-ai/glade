@@ -136,6 +136,7 @@ export enum CommandName {
   TerminalClose = 'terminal.close',
   MenuUpdate = 'menu.update',
   WindowClose = 'window.close',
+  WindowSetTrafficLights = 'window.setTrafficLights',
   LogRendererError = 'log.rendererError',
   MenuBarGet = 'menuBar.get',
   MenuBarOpenTask = 'menuBar.openTask',
@@ -922,6 +923,17 @@ export type MenuUpdateRequest = MenuState
  */
 export type WindowCloseRequest = EmptyRequest
 
+/**
+ * Tells main whether the sidebar card is on screen, so it can put the native traffic lights where they belong: the
+ * sidebar's strip while it's shown, or the task header's first row while it's collapsed (#357). The window sends it
+ * whenever the sidebar's presence changes, timed to when it actually leaves or starts coming back
+ * (`useTrafficLightsSync`), and once more at mount to correct a stale position (e.g. first-run's sidebar, which is
+ * never collapsed, after leaving a workspace where it was). Main calls `BrowserWindow.setWindowButtonPosition`.
+ */
+export interface WindowSetTrafficLightsRequest {
+  readonly collapsed: boolean
+}
+
 /** What's in flight across every workspace, for the menu bar popover (`docs/design/html/29-menu-bar.html`). */
 export interface MenuBarResponse {
   readonly snapshot: MenuBarSnapshot
@@ -1060,6 +1072,7 @@ export interface CommandMap {
   [CommandName.TerminalClose]: CommandSpec<TerminalIdRequest, null>
   [CommandName.MenuUpdate]: CommandSpec<MenuUpdateRequest, null>
   [CommandName.WindowClose]: CommandSpec<EmptyRequest, null>
+  [CommandName.WindowSetTrafficLights]: CommandSpec<WindowSetTrafficLightsRequest, null>
   /** Writes an error in the window to the main log. */
   [CommandName.LogRendererError]: CommandSpec<LogRendererErrorRequest, null>
   [CommandName.MenuBarGet]: CommandSpec<EmptyRequest, MenuBarResponse>

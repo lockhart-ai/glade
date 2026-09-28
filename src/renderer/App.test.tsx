@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../shared/bridge'
 import { appCommand, AppCommandId } from '../shared/commands'
@@ -14,14 +14,21 @@ import {
   sampleWorkspace,
   type FakeBridge,
   type FakeHandlers,
+  type FakeMain,
 } from './store/test-bridge'
 
 interface RenderedApp extends FakeBridge {
   readonly store: GladeStore
+  readonly main: FakeMain
 }
 
-async function renderApp(workspaces: Workspace[], overrides: Partial<FakeHandlers> = {}): Promise<RenderedApp> {
-  const fake = fakeBridge({ workspaces, tasks: [], uiState: [] }, overrides)
+async function renderApp(
+  workspaces: Workspace[],
+  overrides: Partial<FakeHandlers> = {},
+  main: Partial<FakeMain> = {},
+): Promise<RenderedApp> {
+  const fakeMain: FakeMain = { workspaces, tasks: [], uiState: [], ...main }
+  const fake = fakeBridge(fakeMain, overrides)
   const store = createGladeStore(fake.bridge)
   render(
     <GladeStoreProvider store={store}>
@@ -29,7 +36,7 @@ async function renderApp(workspaces: Workspace[], overrides: Partial<FakeHandler
     </GladeStoreProvider>,
   )
   await act(() => store.getState().hydrate())
-  return { ...fake, store }
+  return { ...fake, store, main: fakeMain }
 }
 
 it('shows a loading state until the store has loaded', () => {
@@ -130,27 +137,31 @@ it('says why when the store could not load', async () => {
 })
 
 it('collapses the task list from its header, and shows it again from the top of the task card', async () => {
-  const { store } = await renderApp([sampleWorkspace('w1')])
-  // The sidebar holds the strip for the traffic lights, and the task card has none.
-  const lightsStrips = (): HTMLElement[] => screen.queryAllByTestId('lights-strip')
-  expect(lightsStrips()).toHaveLength(1)
+  const { store, main } = await renderApp([sampleWorkspace('w1')])
+  // The sidebar holds the strip for the traffic lights while it's shown, and main was told it's open.
   expect(within(screen.getByRole('navigation', { name: 'Tasks' })).getByTestId('lights-strip')).toBeInTheDocument()
+  await waitFor(() => {
+    expect(main.trafficLightsCollapsed).toBe(false)
+  })
 
   fireEvent.click(screen.getByRole('button', { name: 'Collapse task list' }))
 
   expect(store.getState().uiState[UiStateKey.SidebarCollapsed]).toBe('true')
   expect(screen.queryByRole('navigation', { name: 'Tasks' })).toBeNull()
-  // Collapsed, the task card takes the strip over, above the row that holds Show task list.
+  // Collapsed, there's no strip in the task card: the lights move into its header row instead (#357).
   const task = screen.getByRole('main', { name: 'Task' })
-  expect(lightsStrips()).toHaveLength(1)
-  const strip = within(task).getByTestId('lights-strip')
+  expect(screen.queryAllByTestId('lights-strip')).toHaveLength(0)
   const titleBar = within(task).getByTestId('task-title-bar')
-  expect(strip.nextElementSibling).toBe(titleBar)
+  await waitFor(() => {
+    expect(main.trafficLightsCollapsed).toBe(true)
+  })
   fireEvent.click(within(titleBar).getByRole('button', { name: 'Show task list' }))
   expect(screen.getByRole('navigation', { name: 'Tasks' })).toBeInTheDocument()
   expect(screen.queryByTestId('task-title-bar')).toBeNull()
-  expect(within(task).queryByTestId('lights-strip')).toBeNull()
-  expect(lightsStrips()).toHaveLength(1)
+  expect(within(screen.getByRole('navigation', { name: 'Tasks' })).getByTestId('lights-strip')).toBeInTheDocument()
+  await waitFor(() => {
+    expect(main.trafficLightsCollapsed).toBe(false)
+  })
 })
 
 it('keeps each panel on screen, inert, while it slides shut, and the terminal showing until the bar is shut', async () => {

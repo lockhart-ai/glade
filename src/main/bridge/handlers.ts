@@ -90,6 +90,8 @@ export interface HandlerContext {
   readonly updateMenu?: (state: MenuState) => void
   /** Closes the focused window (`window.close`). Nothing by default. */
   readonly closeWindow?: () => void
+  /** Moves the native traffic lights for the sidebar's state (`window.setTrafficLights`). Nothing by default. */
+  readonly setTrafficLightsCollapsed?: (collapsed: boolean) => void
   /** Every workspace's terminal tabs and their shells. */
   readonly terminals: Terminals
   /** The plugins in the plugins folder. */
@@ -355,6 +357,10 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.WindowClose]: () => {
       context.closeWindow?.()
+      return null
+    },
+    [CommandName.WindowSetTrafficLights]: ({ collapsed }) => {
+      context.setTrafficLightsCollapsed?.(collapsed)
       return null
     },
     [CommandName.LogRendererError]: (error) => {

@@ -47,8 +47,8 @@
 
 /*
  * The window's top edge, above the cards: it drags the window, and double-clicking it zooms (or whatever the system's
- * title bar setting says), as a native title bar does. The strip at the top of the card in the top-left corner, which
- * holds the traffic lights, does too.
+ * title bar setting says), as a native title bar does. The sidebar's strip, which holds the traffic lights while it's
+ * shown, does too.
  */
 .topEdge {
   position: absolute;
@@ -64,11 +64,11 @@
 
 /*
  * While the banner shows, it's what's in the window's top-left corner: it starts below the traffic lights, which sit
- * in the draggable top edge above it (as tall as the strip they'd have in a card, and the outer inset above that), and
- * the cards' strips for them fold away (--lights-strip-display, read by Sidebar.module.css and TaskCard.module.css).
+ * in the draggable top edge above it (as deep as they currently reach, --lights-clear-y), and the sidebar's own strip
+ * for them folds away (--lights-strip-display, read by Sidebar.module.css).
  */
 .shell:has(> .banner:not(:empty)) {
-  --shell-top: calc(var(--space-outer) + var(--title-bar-height));
+  --shell-top: var(--lights-clear-y);
   --lights-strip-display: none;
 }
 
@@ -110,6 +110,16 @@
 /* The sidebar is collapsed: the task card takes the whole width. */
 .shell > .top.full {
   grid-template-columns: minmax(var(--task-min-width), 1fr);
+}
+
+/*
+ * While the sidebar's gone (collapsed: the task card alone fills the row, `.full` above), the traffic lights sit
+ * deeper, in the task header's first row instead of a strip (#357): whatever keeps clear of them needs more room.
+ * Set globally, on the document root, not just `.shell`: Settings and other dialogs float in their own portal, outside
+ * it, and still need to read this.
+ */
+:global(:root):has(.top.full) {
+  --lights-clear-y: 50px;
 }
 
 /* Holds the sidebar card and the handle in the gap to its right. */
