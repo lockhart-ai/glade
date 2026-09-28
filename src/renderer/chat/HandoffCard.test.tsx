@@ -1,9 +1,15 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render as renderUnwrapped, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type { TaskHandoff } from '../../shared/domain'
+import { storeWrapper } from '../store/test-wrapper'
 import { HandoffCard, handoffLine } from './HandoffCard'
 
 const ADDED_AT = new Date(2026, 8, 25, 9, 14).getTime()
+
+/** Renders under a store, which its Markdown's code spans copy through. */
+function render(ui: React.ReactElement) {
+  return renderUnwrapped(ui, { wrapper: storeWrapper().wrapper })
+}
 
 function handoff(body: string): TaskHandoff {
   return { taskId: 't1', body, addedAt: ADDED_AT }

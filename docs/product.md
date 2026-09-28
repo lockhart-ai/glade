@@ -59,6 +59,12 @@ There are no follow-up tasks. One task can refer to another through its folder o
   code aren't. A link underlines on hover, shows its address as a tooltip when its text says something else, takes the
   focus with Tab and opens with ↵; ⌘-click opens it too. Right-click it for Open link and Copy link. Only web and mail
   links open: any other kind shows as its text.
+- **Click code to copy** (#352) — a code span clicks to copy its exact text, with a small "Copied" tooltip for about a
+  second; dragging a selection in it, or a click that ends with one, is left as ordinary text selection instead. It's
+  focusable, and Enter copies it. A fenced code block, and a permission card's command or change, get a copy icon in
+  their corner, shown on hover and on focus, which copies the whole block the same way. It's everywhere Glade renders
+  Markdown code (replies, question cards and their preamble, backfilled notes, the tool log's notes and permission
+  cards), but not the Files viewer's preview or the terminal.
 - **Right panel** (inside the task card) — tabs: Tool calls, Files, Todos, Artifacts, Subagents, Watchers, Changes (the
   commits the task made; Glade watches git and never drives it). Resizable, collapsible. Files is a plain-text editor:
   a workspace file edits in place and saves with ⌘S, its tab showing a dot while it has unsaved edits, and closing it,

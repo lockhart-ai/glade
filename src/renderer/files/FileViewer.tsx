@@ -198,7 +198,7 @@ export function FileViewer({
   const body = (): React.ReactNode => {
     if (session !== undefined) {
       return preview ? (
-        <Markdown source={session.text()} className={styles.preview} />
+        <Markdown source={session.text()} className={styles.preview} interactiveCode={false} />
       ) : (
         <SourceEditor session={session} focusLine={focusLine} focusRequest={focusRequest} />
       )
@@ -231,7 +231,7 @@ export function FileViewer({
               </p>
             )}
             {preview ? (
-              <Markdown source={content.text} className={styles.preview} />
+              <Markdown source={content.text} className={styles.preview} interactiveCode={false} />
             ) : (
               <SourceView lines={lines} highlighted={highlighted} focusLine={focusLine} focusRequest={focusRequest} />
             )}

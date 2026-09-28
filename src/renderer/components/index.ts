@@ -1,5 +1,14 @@
 export { Button, ButtonSize, ButtonVariant, type ButtonProps } from './Button/Button'
 export { Card, CardLevel, type CardProps } from './Card/Card'
+export {
+  COPIED_FEEDBACK_MS,
+  CopiedTag,
+  CopyBlockButton,
+  useCopyFeedback,
+  type CopiedTagProps,
+  type CopyBlockButtonProps,
+  type CopyFeedback,
+} from './CodeCopy/CodeCopy'
 export { Collapse, type CollapseProps } from './Collapse/Collapse'
 export { Divider, type DividerProps } from './Divider/Divider'
 export { Dot, type DotProps } from './Dot/Dot'

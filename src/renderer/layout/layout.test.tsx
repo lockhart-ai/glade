@@ -418,6 +418,30 @@ describe('TaskCard', () => {
     expect(strip).not.toContainElement(screen.getByRole('button', { name: 'Show task list' }))
   })
 
+  it('keeps the strip and the title row from dragging the window while a panel beside them slides (#358)', () => {
+    const card = (panelsMoving: boolean): React.JSX.Element => (
+      <ToastProvider>
+        <TaskCard
+          lightsStrip
+          panelsMoving={panelsMoving}
+          titleBar={<button type="button">Show task list</button>}
+          header={null}
+          chat={null}
+          inputBar={null}
+          rightPanel={null}
+        />
+      </ToastProvider>
+    )
+    const { rerender } = render(card(true))
+    const sliding = moduleClass(taskCardStyles, 'sliding')
+    expect(screen.getByTestId('lights-strip')).toHaveClass(moduleClass(taskCardStyles, 'lightsStrip'), sliding)
+    expect(screen.getByTestId('task-title-bar')).toHaveClass(moduleClass(taskCardStyles, 'titleBar'), sliding)
+
+    rerender(card(false))
+    expect(screen.getByTestId('lights-strip')).not.toHaveClass(sliding)
+    expect(screen.getByTestId('task-title-bar')).not.toHaveClass(sliding)
+  })
+
   it('shows a title row above the header while it is given one', () => {
     render(
       <ToastProvider>
