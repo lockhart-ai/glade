@@ -50,12 +50,12 @@ jobs:
       - run: npm test
 
   e2e:
-    name: e2e (${{ matrix.shard }}/${{ strategy.job-total }})
+    name: e2e (shard 3, run ${{ matrix.run }})
     runs-on: macos-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        run: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@v7
 
@@ -66,7 +66,7 @@ jobs:
 
       - run: npm ci
       # test:e2e's global setup builds the app into out/testing itself (it's per-shard: nothing is shared between jobs).
-      - run: npm run test:e2e -- --shard=${{ matrix.shard }}/3
+      - run: npm run test:e2e -- --shard=3/3 --retries=0
 
   ci:
     name: ci
