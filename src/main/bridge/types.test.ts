@@ -109,6 +109,7 @@ const TASK_HANDLERS = {
   [CommandName.ChangesOpenFile]: () => ({ openFiles: {} as OpenFiles }),
   [CommandName.ChangesRepository]: () => ({ repository: true }),
   [CommandName.ClipboardWriteText]: () => null,
+  [CommandName.LinksOpen]: () => null,
   [CommandName.FilesThumbnail]: () => ({ thumbnail: { kind: FileThumbnailKind.Missing } }),
   [CommandName.FilesCopy]: () => null,
   [CommandName.FilesReveal]: () => null,
@@ -148,7 +149,7 @@ const TASK_HANDLERS = {
   [CommandName.PluginsOpenFolder]: () => null,
   [CommandName.PluginsPlaceView]: () => ({ status: '' }),
   [CommandName.ControlStatus]: () => ({ status: CONTROL_STATUS }),
-  [CommandName.AccountStatus]: () => ({ status: { account: null, usageWarning: null } }),
+  [CommandName.AccountStatus]: () => ({ status: { account: null, usage: [] } }),
   [CommandName.ControlRegenerateToken]: () => ({ status: CONTROL_STATUS }),
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
@@ -182,6 +183,7 @@ const TASK_SCHEMAS = {
   [CommandName.ChangesOpenFile]: REQUEST_SCHEMAS[CommandName.ChangesOpenFile],
   [CommandName.ChangesRepository]: REQUEST_SCHEMAS[CommandName.ChangesRepository],
   [CommandName.ClipboardWriteText]: REQUEST_SCHEMAS[CommandName.ClipboardWriteText],
+  [CommandName.LinksOpen]: REQUEST_SCHEMAS[CommandName.LinksOpen],
   [CommandName.FilesThumbnail]: REQUEST_SCHEMAS[CommandName.FilesThumbnail],
   [CommandName.FilesCopy]: REQUEST_SCHEMAS[CommandName.FilesCopy],
   [CommandName.FilesReveal]: REQUEST_SCHEMAS[CommandName.FilesReveal],

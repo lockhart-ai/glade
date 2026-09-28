@@ -79,6 +79,15 @@
   is loaded whole. No archiving (L-02, #67).
 - **Validation:** zod at every boundary (IPC requests, SDK events, tool inputs, JSON from disk); schemas are checked
   against the named interfaces.
+- **No remote content in the renderer; links open in the browser (#349).** The window only ever shows the app's own
+  page: it loads nothing remote (a Markdown image shows as its alt text), opens no new windows and never navigates.
+  Links in what the agent and you write are clickable everywhere text is shown (replies, your messages, cards, the tool
+  log, the header, todos, watchers, the queue): Markdown links and bare URLs and email addresses, found by GFM's
+  autolinking (remark-gfm in Markdown, the same micromark extension for plain text). Code spans and blocks stay plain.
+  Clicking one sends it to main (`links.open`), which opens only `http:`, `https:` and `mailto:` links, parsed with
+  `new URL`, in the default browser or mail app (`shell.openExternal`); anything else (`file:`, `javascript:`, `data:`,
+  custom schemes, text with whitespace or control characters hidden in it) is refused and logged. A link inside a
+  control (a row that opens something, an option card) stays plain text, since a link can't sit inside a button.
 - **Releases:** one minor release per phase (P1 is 0.1.0), built and published by `.github/workflows/release.yml` from
   a pushed tag (`releasing.md`). Apple silicon only. Builds are **ad-hoc signed** (no certificate, not notarised) so a
   download opens with right-click → Open instead of being reported as damaged. Developer ID signing and notarisation

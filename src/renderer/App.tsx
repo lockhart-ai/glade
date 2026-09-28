@@ -4,7 +4,7 @@ import { ContextMeter } from './context-meter'
 import { ToastProvider } from './components'
 import { FirstRun } from './first-run/FirstRun'
 import { InputBar } from './input-bar'
-import { AppBanner } from './pause/UsageNote'
+import { PauseBanner } from './pause/PauseBanner'
 import { AppShell, BottomBar, Sidebar, SidebarHeader, TaskCard } from './layout'
 import { isMoving, MotionPhase, usePresence } from './motion'
 import { Panel, PanelToggle, usePanel, usePanelSize } from './panels'
@@ -27,6 +27,7 @@ import { RelaunchNotice } from './relaunch-notice'
 import { Terminal, TerminalTabs, useTerminalShortcuts } from './terminal'
 import { PluginPanel } from './plugins'
 import { UnsavedChangesDialog } from './files'
+import { UsageMeter } from './usage-meter'
 
 interface WindowProps {
   /** The sidebar, or nothing while it's collapsed. */
@@ -125,11 +126,11 @@ function Layout(): React.JSX.Element {
   useRightPanelShortcuts()
   return (
     <Window
-      banner={<AppBanner />}
+      banner={<PauseBanner />}
       sidebarMotion={sidebarPresence.phase}
       sidebar={
         !sidebarPresence.mounted ? undefined : (
-          <Sidebar>
+          <Sidebar footer={<UsageMeter />}>
             <WorkspaceSwitcher collapseButton={<PanelToggle panel={Panel.Sidebar} />} />
             {workspace !== undefined && (
               <>

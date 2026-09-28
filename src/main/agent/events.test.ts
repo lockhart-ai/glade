@@ -298,7 +298,8 @@ describe('parsing SDK messages', () => {
       ['five_hour', UsageWindow.Session],
       ['seven_day_opus', UsageWindow.WeeklyOpus],
       ['seven_day_sonnet', UsageWindow.WeeklySonnet],
-      ['overage', UsageWindow.Other],
+      ['overage', UsageWindow.Overage],
+      ['seven_day_overage_included', UsageWindow.Other],
     ] as const) {
       const event = { type: 'rate_limit_event', rate_limit_info: { status: 'allowed', rateLimitType, utilization: 0 } }
       expect(parse(event)).toEqual([expect.objectContaining({ window, utilization: 0 })])

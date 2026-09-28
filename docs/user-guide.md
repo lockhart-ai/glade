@@ -151,6 +151,11 @@ scroll: the chat passes under them.
   question card; send them after. Once sent (or queued), click a thumbnail, or press ↵ or Space on it, to see the image
   full size; ← and → step through the message's other images, and Esc or a click beside the image closes it.
 - **Right-click a reply** to copy it (as text or Markdown), quote it in your reply, or show that turn's tool calls.
+- **Links open in your browser.** A link or a bare URL in a reply, your message, a card, the tool log, the header, a
+  todo or anywhere else Glade shows what the agent or you wrote is clickable (⌘-click works too, and ↵ on a focused
+  link); an email address opens your mail app. URLs in code stay plain. When a link's text isn't its address, hover it
+  to see where it goes. Right-click a link to open it or copy its address. Glade only opens web and mail links, and
+  never inside its own window.
 - **The agent can come back by itself.** If it watches a command, schedules a check-back or runs something in the
   background, it can wake up later and carry on; that turn shows in the chat like any other.
 
@@ -159,12 +164,14 @@ scroll: the chat passes under them.
 - An API error that Claude Code's own retries can't get past stops the task with a card saying what happened, with
   **Retry**, **Retry with another model** and **Show details**. So does Claude Code failing to start, with the reason it
   gave, such as a missing workspace folder.
-- Before you hit a **usage limit**, a quiet note takes the banner's spot across the top once Claude Code says you're
-  close (70% of a window or more), e.g. "You've used 85% of your session limit · resets 14:00". Tasks keep working; the
-  note goes when the window resets.
-- Hitting your **usage limit**, or losing the network, pauses the affected tasks behind one banner across the top, in
-  place of that note. They resume by themselves when the limit resets or the network is back; **Switch model** resumes
-  them now on another model. Messages you send meanwhile wait in the queue.
+- The **usage meter** at the foot of the sidebar shows how close you are to your plan's **usage limits**: the limit
+  closest to running out, how much of it is used and when it resets, e.g. "Session 38% · resets 15:40". It turns
+  purple from 70%. Click it for every limit (the session, this week, each model's week and extra usage), the plan, and
+  how long ago Claude Code said. It's hidden when you run on an API key or a cloud provider, which have no plan
+  limits.
+- Hitting your **usage limit**, or losing the network, pauses the affected tasks behind one banner across the top; the
+  meter says which limit ran out and when it resets. They resume by themselves when the limit resets or the network is
+  back; **Switch model** resumes them now on another model. Messages you send meanwhile wait in the queue.
 - If Glade quit mid-turn, a notice at the next launch says how many tasks resumed.
 
 ## The task header, done and reopening

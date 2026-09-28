@@ -11,6 +11,7 @@ import { createRateLimiter, type RateLimits } from '../control/rate-limit'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
 import { createAccountTracker, type AccountTracker } from '../account/account'
 import type { OpenPath, RevealPath, WriteClipboard } from '../files/files'
+import type { OpenExternal } from '../links/links'
 import type { Thumbnails } from '../artifacts/thumbnails'
 import { createArtifactWatcher, type ArtifactWatcher } from '../artifacts/artifact-watch'
 import type { MenuBarCommands } from '../menu-bar/menu-bar'
@@ -53,6 +54,11 @@ export interface BridgeOptions {
   readonly revealPath: RevealPath
   /** Puts text on the clipboard (Electron's `clipboard.writeText`): an artifact's Copy. */
   readonly writeClipboard: WriteClipboard
+  /**
+   * Opens a link in the browser (Electron's `shell.openExternal`): a link clicked in the window, which main has checked
+   * is a web or mail link. Nothing by default.
+   */
+  readonly openExternal?: OpenExternal
   /** Makes and keeps the artifacts' thumbnails (Electron's `nativeImage`, `../artifacts/thumbnails`). None by default. */
   readonly thumbnails?: Thumbnails
   /** What runs the tasks' agents: the Claude Agent SDK in the app, a scripted stand-in in tests. */
@@ -150,6 +156,7 @@ export function registerBridge({
   openPath,
   revealPath,
   writeClipboard,
+  openExternal,
   thumbnails,
   agentBackend,
   notifyReply,
@@ -263,6 +270,7 @@ export function registerBridge({
       openPath,
       revealPath,
       writeClipboard,
+      ...(openExternal === undefined ? {} : { openExternal }),
       ...(thumbnails === undefined ? {} : { thumbnails }),
       artifactWatch,
       runner,

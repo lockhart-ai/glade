@@ -1133,6 +1133,20 @@ describe('context menu actions', () => {
   })
 })
 
+describe('openLink', () => {
+  it('opens a link through main, which opens only web and mail links', async () => {
+    const data: FakeMain = { ...main(), opened: [] }
+    const { store } = await hydrated(data)
+
+    await store.getState().openLink('https://example.com/docs')
+    await expect(store.getState().openLink('javascript:alert(1)')).rejects.toMatchObject({
+      code: BridgeErrorCode.InvalidRequest,
+    })
+
+    expect(data.opened).toEqual(['https://example.com/docs'])
+  })
+})
+
 describe('artifact files', () => {
   it('shows, copies and reveals a file through main', async () => {
     const data: FakeMain = {

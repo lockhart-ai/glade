@@ -3,7 +3,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CloseKind, COMMAND_CHANNEL, CommandName, EVENT_CHANNEL, EventType, RendererErrorKind } from '../shared/bridge'
+import {
+  BridgeErrorCode,
+  CloseKind,
+  COMMAND_CHANNEL,
+  CommandName,
+  EVENT_CHANNEL,
+  EventType,
+  RendererErrorKind,
+} from '../shared/bridge'
 import { appCommand, AppCommandId, EMPTY_MENU_STATE } from '../shared/commands'
 import { MessageRole, TaskActivity, UiStateKey } from '../shared/domain'
 import { BUILT_IN_MODELS } from '../shared/models'
@@ -252,7 +260,11 @@ const electron = vi.hoisted(() => {
     },
     ipcMain: { handle: vi.fn<(channel: string, listener: Handler) => void>() },
     protocol: { registerSchemesAsPrivileged: vi.fn() },
-    shell: { openPath: vi.fn(() => Promise.resolve('')), showItemInFolder: vi.fn() },
+    shell: {
+      openPath: vi.fn(() => Promise.resolve('')),
+      showItemInFolder: vi.fn(),
+      openExternal: vi.fn(() => Promise.resolve()),
+    },
     clipboard: { writeText: vi.fn(() => Promise.resolve()) },
     // The menu bar: each built menu is its template, and the one set last is the menu bar.
     Menu: {
@@ -1130,6 +1142,25 @@ describe('startApp', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  it('opens a web or mail link in the browser, and refuses any other', async () => {
+    await startAndWaitUntilReady()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    await expect(handler?.(fromWindow(), CommandName.LinksOpen, { url: 'HTTPS://Example.com/docs' })).resolves.toEqual({
+      ok: true,
+      value: null,
+    })
+    await expect(handler?.(fromWindow(), CommandName.LinksOpen, { url: 'javascript:alert(1)' })).resolves.toMatchObject(
+      { ok: false, error: { code: BridgeErrorCode.InvalidRequest } },
+    )
+    await expect(handler?.(fromWindow(), CommandName.LinksOpen, { url: 'file:///etc/passwd' })).resolves.toMatchObject({
+      ok: false,
+      error: { code: BridgeErrorCode.InvalidRequest },
+    })
+
+    expect(electron.shell.openExternal).toHaveBeenCalledExactlyOnceWith('https://example.com/docs')
   })
 
   it('closes the database when the app quits', async () => {

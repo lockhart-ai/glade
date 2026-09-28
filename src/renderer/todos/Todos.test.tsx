@@ -285,6 +285,39 @@ describe('a todo’s context menu', () => {
       request: 1,
     })
   })
+
+  it('makes the URLs in a todo and its note links, with their own menu over the todo’s', async () => {
+    const opened: string[] = []
+    const copied: string[] = []
+    const list: TodoList = {
+      items: [
+        {
+          text: 'Follow the migration guide at https://example.com/docs/s3',
+          state: TodoState.Doing,
+          note: 'Asked in support@example.com',
+          completedAt: null,
+        },
+        { text: 'Check `https://example.com/api` still answers', state: TodoState.Todo, note: null, completedAt: null },
+      ],
+      updatedAt: NOW,
+    }
+    render(<Todos taskId="t1" list={list} now={NOW} />, storeWrapper({ opened, copied }))
+
+    const guide = within(item('Follow the migration guide')).getByRole('link', { name: 'https://example.com/docs/s3' })
+    expect(
+      within(item('Follow the migration guide')).getByRole('link', { name: 'support@example.com' }),
+    ).toHaveAttribute('href', 'mailto:support@example.com')
+    expect(within(item('Check')).queryByRole('link')).toBeNull()
+
+    fireEvent.click(guide)
+    fireEvent.contextMenu(guide)
+    await act(() => Promise.resolve())
+    expect(screen.getAllByRole('menuitem').map((menuItem) => menuItem.textContent)).toEqual(['Open link', 'Copy link'])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Copy link' }))
+    await act(() => Promise.resolve())
+    expect(opened).toEqual(['https://example.com/docs/s3'])
+    expect(copied).toEqual(['https://example.com/docs/s3'])
+  })
 })
 
 describe('askAboutTodo', () => {

@@ -5,6 +5,7 @@ import {
   FloatingPortal,
   offset,
   shift,
+  size,
   useDismiss,
   useFloating,
   useInteractions,
@@ -26,9 +27,18 @@ export interface PopoverProps {
   onClose: () => void
   /** Defaults to above the anchor, aligned to its end, like the context meter's popover. */
   placement?: Placement
+  /** Whether it's as wide as its anchor, like the usage meter's popover over its row; as wide as its content if not. */
+  matchAnchorWidth?: boolean
   className?: string
   children: ReactNode
 }
+
+/** Makes the popover as wide as its anchor, as the anchor's width changes. */
+const anchorWidth = size({
+  apply({ rects, elements }) {
+    elements.floating.style.width = `${String(rects.reference.width)}px`
+  },
+})
 
 /** Gap between the popover and its anchor. */
 const OFFSET = 8
@@ -46,6 +56,7 @@ export function Popover({
   open,
   onClose,
   placement = Placement.TopEnd,
+  matchAnchorWidth = false,
   className,
   children,
 }: PopoverProps): React.JSX.Element {
@@ -55,7 +66,12 @@ export function Popover({
       if (!next) onClose()
     },
     placement,
-    middleware: [offset(OFFSET), flip({ padding: EDGE_PADDING }), shift({ padding: EDGE_PADDING })],
+    middleware: [
+      offset(OFFSET),
+      flip({ padding: EDGE_PADDING }),
+      shift({ padding: EDGE_PADDING }),
+      matchAnchorWidth && anchorWidth,
+    ],
     whileElementsMounted: autoUpdate,
   })
 

@@ -9,6 +9,7 @@ import {
   type ArtifactsSetGroupOpenRequest,
   type ArtifactsWatchRequest,
   type ClipboardWriteTextRequest,
+  type LinksOpenRequest,
   type CommandRequest,
   type EmptyRequest,
   type FileRequest,
@@ -291,6 +292,9 @@ const pluginsPlaceViewRequest = z.strictObject({
 
 const clipboardWriteTextRequest = z.strictObject({ text: z.string() }) satisfies z.ZodType<ClipboardWriteTextRequest>
 
+// Which schemes open is main's to check, when it opens the link (`../links/links`), so a refused one is logged.
+const linksOpenRequest = z.strictObject({ url: z.string() }) satisfies z.ZodType<LinksOpenRequest>
+
 const uiStateGetRequest = z.strictObject({ key: z.enum(UiStateKey) }) satisfies z.ZodType<UiStateGetRequest>
 
 const uiStateSetRequest = z.strictObject({
@@ -407,6 +411,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.FilesClose]: openFileRequest,
   [CommandName.FilesOpenInEditor]: fileRequest,
   [CommandName.ClipboardWriteText]: clipboardWriteTextRequest,
+  [CommandName.LinksOpen]: linksOpenRequest,
   [CommandName.FilesThumbnail]: fileRequest,
   [CommandName.FilesCopy]: fileRequest,
   [CommandName.FilesReveal]: fileRequest,

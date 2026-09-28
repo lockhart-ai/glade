@@ -75,6 +75,17 @@ describe('REQUEST_SCHEMAS', () => {
     expect(REQUEST_SCHEMAS[CommandName.PluginsOpenFolder].parse({})).toEqual({})
     const toggle = { id: 'pomodoro', enabled: false }
     expect(REQUEST_SCHEMAS[CommandName.PluginsSetEnabled].parse(toggle)).toEqual(toggle)
+    const link = { url: 'https://example.com/docs' }
+    expect(REQUEST_SCHEMAS[CommandName.LinksOpen].parse(link)).toEqual(link)
+  })
+
+  it('takes a link to open as a string alone, leaving its scheme for main to check as it opens it', () => {
+    const schema = REQUEST_SCHEMAS[CommandName.LinksOpen]
+    expect(schema.safeParse({ url: 'javascript:alert(1)' }).success).toBe(true)
+    expect(schema.safeParse({}).success).toBe(false)
+    expect(schema.safeParse({ url: 42 }).success).toBe(false)
+    expect(schema.safeParse({ url: { href: 'https://example.com' } }).success).toBe(false)
+    expect(schema.safeParse({ url: 'https://example.com', target: '_blank' }).success).toBe(false)
   })
 
   it('refuses a Done page of no tasks, too many, an unknown filter or a malformed cursor', () => {

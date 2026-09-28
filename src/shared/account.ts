@@ -1,8 +1,8 @@
 /**
  * The account the tasks run on and bill to, and how close it is to its usage limits, as Claude Code reports them
  * (`docs/sdk-notes.md` §1 and "Errors and retries"). Settings › General shows the account
- * (`docs/design/html/21-settings.html`); a quiet note in the banner's spot says when a limit is close
- * (`docs/design/html/17-usage-limit.html`). Main reads both from the SDK and keeps them in SQLite; the window only shows
+ * (`docs/design/html/21-settings.html`); the usage meter at the foot of the sidebar shows how much of each limit is used
+ * (`docs/design/html/32-usage-meter.html`). Main reads both from the SDK and keeps them in SQLite; the window only shows
  * them.
  */
 import type { EpochMs } from './domain'
@@ -90,36 +90,97 @@ export function accountKind(account: Account): AccountKind {
   return AccountKind.NotSignedIn
 }
 
-/** The usage window a limit counts over (the SDK's `SDKRateLimitInfo.rateLimitType`). */
+/** The usage window a rate limit event names (the SDK's `SDKRateLimitInfo.rateLimitType`). */
 export enum UsageWindow {
   /** The five-hour window, which Claude Code calls the session limit. */
   Session = 'five_hour',
   Weekly = 'seven_day',
   WeeklyOpus = 'seven_day_opus',
   WeeklySonnet = 'seven_day_sonnet',
-  /** Any other: extra usage, or one this version doesn't know. */
+  /** Extra usage, billed past the plan's limits. */
+  Overage = 'overage',
+  /** Any other: one this version doesn't know (e.g. `seven_day_overage_included`). */
   Other = 'other',
 }
 
 /**
  * How much of a window Claude Code waits for before it warns: it shows its own warning only from here on, however early
- * the API starts saying `allowed_warning` (at 28% of a week, in one probe). Glade does the same.
+ * the API starts saying `allowed_warning` (at 28% of a week, in one probe). The usage meter turns purple from here too.
  */
 export const USAGE_WARNING_THRESHOLD = 0.7
 
-/** The account is close to a usage limit: requests still go through, but not for long at this rate. */
-export interface UsageWarning {
-  /** How much of the window is used, from 0 to 1; null when the SDK didn't say. */
+/** What a usage limit counts, as the sidebar's usage meter names it. */
+export enum UsageLimitKind {
+  /** The five-hour window: "Session". */
+  Session = 'session',
+  /** The seven-day window across every model: "This week". */
+  Weekly = 'weekly',
+  /** A seven-day window on one model's use: "This week · Opus". */
+  WeeklyModel = 'weekly_model',
+  /** Extra usage, billed past the plan's limits, while it's turned on. */
+  ExtraUsage = 'extra_usage',
+}
+
+/** A usage limit: the window it counts over, and for a per-model one, which model. */
+export type UsageLimit =
+  | { readonly kind: UsageLimitKind.Session | UsageLimitKind.Weekly | UsageLimitKind.ExtraUsage }
+  | { readonly kind: UsageLimitKind.WeeklyModel; readonly model: string }
+
+/** Where a limit stands, as the meter colours it. */
+export enum UsageLevel {
+  /** Within the limit: below `USAGE_WARNING_THRESHOLD`, or not saying how much. */
+  Within = 'within',
+  /** Close to the limit: at `USAGE_WARNING_THRESHOLD` or more, or Claude Code warned without saying how much. */
+  Warning = 'warning',
+  /** At the limit: requests are refused until it resets. */
+  Limited = 'limited',
+}
+
+/** The latest reading of one usage limit, from Claude Code's usage call or its rate limit events. */
+export interface UsageReading {
+  readonly limit: UsageLimit
+  /** How much of the limit is used, from 0 to 1; null when Claude Code didn't say. */
   readonly utilization: number | null
-  readonly window: UsageWindow
-  /** When the window resets, and the warning with it; null when the SDK didn't say. */
+  /** When the window resets, and the reading with it; null when Claude Code didn't say. */
   readonly resetsAt: EpochMs | null
+  readonly level: UsageLevel
+  /** When Glade read it. */
+  readonly readAt: EpochMs
+}
+
+/** The level a reading of `utilization` is at: at the limit from 100%, close to it from the threshold. */
+export function usageLevel(utilization: number | null): UsageLevel {
+  if (utilization === null) return UsageLevel.Within
+  if (utilization >= 1) return UsageLevel.Limited
+  return utilization >= USAGE_WARNING_THRESHOLD ? UsageLevel.Warning : UsageLevel.Within
+}
+
+/** A limit's key: there's one reading per key. */
+export function usageLimitKey(limit: UsageLimit): string {
+  return limit.kind === UsageLimitKind.WeeklyModel ? `${limit.kind}:${limit.model}` : limit.kind
+}
+
+/** Where each kind of limit comes in the meter's list: the session, the week, each model's week, then extra usage. */
+const KIND_ORDER: Readonly<Record<UsageLimitKind, number>> = {
+  [UsageLimitKind.Session]: 0,
+  [UsageLimitKind.Weekly]: 1,
+  [UsageLimitKind.WeeklyModel]: 2,
+  [UsageLimitKind.ExtraUsage]: 3,
+}
+
+/** Readings in the meter's order (`KIND_ORDER`), each model's week by the model's name. */
+export function sortUsageReadings(readings: readonly UsageReading[]): UsageReading[] {
+  return [...readings].sort(
+    (a, b) =>
+      KIND_ORDER[a.limit.kind] - KIND_ORDER[b.limit.kind] ||
+      usageLimitKey(a.limit).localeCompare(usageLimitKey(b.limit)),
+  )
 }
 
 /** The account and its usage, as the window shows them. */
 export interface AccountStatus {
   /** The account, as last read; null until a task's session has started. */
   readonly account: Account | null
-  /** The warning while a usage limit is close; null otherwise. */
-  readonly usageWarning: UsageWarning | null
+  /** The latest reading of each usage limit, in the meter's order (`sortUsageReadings`); none until one is read. */
+  readonly usage: readonly UsageReading[]
 }

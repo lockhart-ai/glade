@@ -6,6 +6,7 @@ import { useStickToBottom } from '../chat/useStickToBottom'
 import { classNames } from '../components/classNames'
 import { moduleClass } from '../components/moduleClass'
 import { Collapse, Dot } from '../components'
+import { LinkedText } from '../links'
 import {
   argumentSummary,
   callIndicator,
@@ -102,7 +103,11 @@ function Call({ row, rootPath, turnStart, compact = false }: CallProps): React.J
         </button>
         <Collapse open={expanded}>
           <pre className={styles.output} aria-label={`${name} output`}>
-            {call.output ?? (call.state === ToolCallState.Running ? 'No output yet.' : '')}
+            {call.output === null ? (
+              call.state === ToolCallState.Running && 'No output yet.'
+            ) : (
+              <LinkedText text={call.output} />
+            )}
           </pre>
         </Collapse>
       </div>
@@ -157,7 +162,7 @@ function Compaction({ compaction, turnStart }: CompactionRow & TurnStartProps): 
             </button>
             <Collapse open={expanded}>
               <pre className={styles.summary} aria-label={`${COMPACTION_NAME} summary`}>
-                {summary}
+                <LinkedText text={summary} />
               </pre>
             </Collapse>
           </>

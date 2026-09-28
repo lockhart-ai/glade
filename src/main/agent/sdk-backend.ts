@@ -495,6 +495,14 @@ export function createSdkBackend({
         async accountInfo() {
           return (await started).accountInfo()
         },
+        async usage() {
+          // Experimental (`docs/sdk-notes.md`, "Usage limits"): an SDK without it rejects, and the account keeps what
+          // the rate limit events said.
+          const session: Partial<Query> = await started
+          const answer = session.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?.({ skipBehaviors: true })
+          if (answer === undefined) throw new Error('This SDK has no usage call.')
+          return answer
+        },
         close() {
           log.info('agent process closing')
           then(() => {

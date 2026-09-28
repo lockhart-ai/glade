@@ -1,0 +1,16 @@
+/* A link, in the design's link colour: it opens in your browser. Underlined while the pointer is on it. */
+.link {
+  color: var(--color-blue-text);
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 1px;
+}

@@ -511,10 +511,23 @@ receives `compact_summary`. See §5.
     "seven_day": { "utilization": 0.28, "resetsAt": … } } }`. `utilization` is a fraction of the `rateLimitType`
     window; `unifiedWindows` isn't in the SDK's types.
   - `allowed_warning` can come early: 28% of a week, above. Claude Code shows its own warning ("You've used 85% of
-    your session limit · resets 2pm") only from 70% (`utilization` ≥ 0.7, or none given), so Glade does the same: the
-    quiet note in the banner's spot (#281, `docs/design/html/17-usage-limit.html`). It clears on `allowed`, a warning
-    below 70%, `rejected` (the pause banner takes over) or its `resetsAt`.
-  - Glade never reads `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET`.
+    your session limit · resets 2pm") only from 70% (`utilization` ≥ 0.7, or none given), so the usage meter turns
+    purple only from there too (#327, `docs/design/html/32-usage-meter.html`). An event names one window
+    (`rateLimitType`: `five_hour`, `seven_day`, `seven_day_opus`, `seven_day_sonnet`, `seven_day_overage_included`,
+    `overage`), arrives as each turn starts, and mostly carries `utilization` only once it warns.
+  - **Decision (#327, approved by Jared):** Glade reads the experimental
+    `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true })` (a `get_usage` control
+    request on the `Query`; it needs a running session) as each session starts and after each turn, for the sidebar's
+    usage meter. It answers `SDKControlGetUsageResponse`: `rate_limits_available` (false for an API key, a cloud
+    provider or a login without the profile scope), and `rate_limits` with `five_hour`, `seven_day`,
+    `seven_day_oauth_apps`, `seven_day_opus` and `seven_day_sonnet` (each `{ utilization: 0–100, resets_at: ISO 8601 }`
+    or null), `model_scoped` (per-model weekly windows the server names, `display_name`) and `extra_usage`
+    (`is_enabled`, `monthly_limit`, `used_credits`, `utilization`). `skipBehaviors` skips a scan of a week of local
+    transcripts, which the meter doesn't need. Because it's experimental, `src/main/account/account.ts` parses it
+    loosely at the boundary (a malformed window is left out; an answer of another shape, or with no window in it, is
+    ignored), and anything that goes wrong (the method missing, a rejection, an unexpected answer) falls back to the
+    rate limit events. Glade leaves out `seven_day_oauth_apps` and `seven_day_overage_included` (not shown by the
+    meter: unclear what they count), and shows extra usage only as a percentage, not in money. Not yet probed live.
   - `resetsAt` is **Unix epoch seconds** (the `anthropic-ratelimit-unified-reset` header; the bundled binary's schema
     says so). `status: "rejected"` means the limit is refusing requests until then. Only subscription logins get the
     event; an API key gets none.

@@ -1,6 +1,6 @@
 import { act, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { UsageWindow, type Account, type AccountStatus } from '../../shared/account'
+import { UsageLevel, UsageLimitKind, type Account, type AccountStatus } from '../../shared/account'
 import { EventType } from '../../shared/bridge'
 import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
@@ -25,7 +25,7 @@ const LOGIN: Account = {
   readAt: READ_AT,
 }
 
-const NOTHING: AccountStatus = { account: null, usageWarning: null }
+const NOTHING: AccountStatus = { account: null, usage: [] }
 
 interface Rendered extends FakeBridge {
   readonly store: GladeStore
@@ -66,7 +66,7 @@ afterEach(() => {
 
 describe('Settings › General', () => {
   it('shows the account a subscription login runs on: email, organization, plan and what it signed in with', async () => {
-    await renderGeneral({ account: LOGIN, usageWarning: null })
+    await renderGeneral({ account: LOGIN, usage: [] })
 
     const block = screen.getByRole('region', { name: 'Account' })
     expect(within(block).getByRole('heading', { level: 3 })).toHaveTextContent('Account')
@@ -93,7 +93,7 @@ describe('Settings › General', () => {
   it('says when Claude Code is not signed in, and how to sign in', async () => {
     await renderGeneral({
       account: { ...LOGIN, email: null, organization: null, subscriptionType: null, tokenSource: 'none' },
-      usageWarning: null,
+      usage: [],
     })
 
     expect(rows()).toEqual([['Account', 'Not signed in']])
@@ -110,7 +110,7 @@ describe('Settings › General', () => {
         tokenSource: 'claude.ai',
         apiKeySource: 'ANTHROPIC_API_KEY',
       },
-      usageWarning: null,
+      usage: [],
     })
 
     expect(rows()).toEqual([
@@ -124,7 +124,7 @@ describe('Settings › General', () => {
     const { emit } = await renderGeneral(NOTHING)
 
     act(() => {
-      emit({ type: EventType.AccountChanged, status: { account: LOGIN, usageWarning: null } })
+      emit({ type: EventType.AccountChanged, status: { account: LOGIN, usage: [] } })
     })
     expect(rows()[0]).toEqual(['Account', 'sam@acme.dev'])
 
@@ -134,7 +134,15 @@ describe('Settings › General', () => {
         type: EventType.AccountChanged,
         status: {
           account: { ...LOGIN, email: 'kim@acme.dev', readAt: yesterday },
-          usageWarning: { utilization: 0.9, window: UsageWindow.Session, resetsAt: null },
+          usage: [
+            {
+              limit: { kind: UsageLimitKind.Session },
+              utilization: 0.9,
+              resetsAt: null,
+              level: UsageLevel.Warning,
+              readAt: 1,
+            },
+          ],
         },
       })
     })
@@ -144,7 +152,7 @@ describe('Settings › General', () => {
 
   it('keeps a long email to one line, whole in its tooltip', async () => {
     const email = 'someone.with.a.very.long.address@a-subdomain.of.acme-robotics.example'
-    await renderGeneral({ account: { ...LOGIN, email }, usageWarning: null })
+    await renderGeneral({ account: { ...LOGIN, email }, usage: [] })
 
     expect(screen.getByTitle(email)).toHaveTextContent(email)
   })

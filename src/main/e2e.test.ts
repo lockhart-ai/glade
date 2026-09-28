@@ -191,15 +191,17 @@ describe('createE2eDesktop', () => {
     Reflect.deleteProperty(globalThis, E2E_DESKTOP_GLOBAL)
   })
 
-  it('records each file it reveals and each text it copies on the global object', async () => {
-    const { revealPath, writeClipboard } = createE2eDesktop()
+  it('records each file it reveals, each text it copies and each link it opens on the global object', async () => {
+    const { revealPath, writeClipboard, openExternal } = createE2eDesktop()
 
     revealPath('/code/acme-api/docs/notes.md')
     await writeClipboard('# Notes')
+    await openExternal('https://example.com/docs')
 
     expect(Reflect.get(globalThis, E2E_DESKTOP_GLOBAL) as E2eDesktop).toEqual({
       revealed: ['/code/acme-api/docs/notes.md'],
       copied: ['# Notes'],
+      opened: ['https://example.com/docs'],
     })
   })
 })

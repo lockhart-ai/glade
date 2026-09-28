@@ -43,26 +43,7 @@
   }
 }
 
-.track,
-.arc {
-  fill: none;
-  stroke-width: 2.4;
-}
-
-.track {
-  stroke: var(--color-strong);
-}
-
-.arc {
-  stroke: var(--color-blue-text);
-  stroke-linecap: round;
-}
-
-/* Near the auto-compact threshold, the ring turns purple (19-compaction.html). */
-.near .arc {
-  stroke: var(--color-purple);
-}
-
+/* The ring is MeterRing's; near the auto-compact threshold it turns purple (19-compaction.html), and so does the rest. */
 .percent {
   color: var(--color-text);
 }

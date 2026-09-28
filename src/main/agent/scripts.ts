@@ -229,6 +229,22 @@ export type ScriptedContextUsage =
   | { readonly isAutoCompactEnabled: false }
   | 'fails'
 
+/** One window of the usage call's answer (`ScriptedUsage`): how much of it is used, and how soon it resets. */
+export interface ScriptedUsageWindow {
+  /** The answer's key for it, e.g. `five_hour`, `seven_day`, `seven_day_opus`. */
+  readonly window: string
+  /** How much of it is used, from 0 to 100, as the call gives it. */
+  readonly percent: number
+  readonly resetInMs: number
+}
+
+/** What the session's usage call answers (`AgentSession.usage`): the plan's name and its windows. */
+export interface ScriptedUsage {
+  /** As the call names it, e.g. `max`. */
+  readonly subscriptionType: string
+  readonly windows: readonly ScriptedUsageWindow[]
+}
+
 export interface AskStep {
   readonly kind: ScriptStepKind.Ask
   readonly id: string
@@ -433,6 +449,11 @@ export interface AgentScript {
    * default threshold for the session model's window, as with no settings of the user's own.
    */
   readonly contextUsage?: ScriptedContextUsage
+  /**
+   * What the session's usage call answers (the SDK's experimental one). By default it rejects, as an SDK without the
+   * call would, so the usage meter reads the rate limit events alone.
+   */
+  readonly usage?: ScriptedUsage
 }
 
 /** A cron job a resumed session has from before (`AgentScript.restoredJobs`), as its `Stop` hook lists it. */
@@ -1167,6 +1188,35 @@ const usageWarningThenLimit: AgentScript = {
       ...usageLimitError(),
     ],
   ],
+}
+
+/**
+ * A short turn on a plan whose usage call answers: the session 38% used, the week 22% and Opus's week 9%. No rate limit
+ * event says anything, so the usage meter reads the call alone, from the first turn's end.
+ */
+const usageMeter: AgentScript = {
+  name: 'usage-meter',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Add rate limiting to public API',
+        'Add per-key rate limiting to the public API so one client can’t starve the others.',
+        'Throttle class written; applying it to the viewsets next.',
+      ),
+      say('The throttle class is written. Next I’ll apply it to the three public viewsets.'),
+      result(),
+    ],
+  ],
+  usage: {
+    subscriptionType: 'max',
+    windows: [
+      { window: 'five_hour', percent: 38, resetInMs: 3 * HOUR_RESET_MS },
+      { window: 'seven_day', percent: 22, resetInMs: 4 * 24 * HOUR_RESET_MS },
+      { window: 'seven_day_opus', percent: 9, resetInMs: 4 * 24 * HOUR_RESET_MS },
+    ],
+  },
 }
 
 /** A copy that loses the network; the task resumes once it's back, and the copy completes. */
@@ -3007,6 +3057,54 @@ const makesAnotherCommit: AgentScript = {
   ],
 }
 
+/** The reply `shares-links` ends on: a Markdown link, a bare URL, and a URL in code, which stays plain. */
+export const SHARES_LINKS_REPLY =
+  'The limits are in [the API docs](https://example.com/docs/limits), and the status page is ' +
+  'https://example.com/status. To check it yourself, run `curl https://example.com/api/health`.'
+
+/**
+ * A turn that puts links everywhere text shows (#349): in its goal and status, a working note, a todo, a command's
+ * output and its reply, each a made-up example.com address.
+ */
+const sharesLinks: AgentScript = {
+  name: 'shares-links',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      say('Checking what [the API docs](https://example.com/docs/limits) say about the rate limits.'),
+      ...describeTask(
+        'Find the API rate limits',
+        'Find the public API’s rate limits, as https://example.com/docs/limits documents them.',
+        'Checked https://example.com/status: all systems up.',
+      ),
+      ...tool(
+        'plan',
+        'TodoWrite',
+        {
+          todos: [
+            {
+              content: 'Read https://example.com/docs/limits',
+              status: 'completed',
+              activeForm: 'Reading https://example.com/docs/limits',
+            },
+            { content: 'Check the status page', status: 'in_progress', activeForm: 'Checking the status page' },
+          ],
+        },
+        'Todos have been modified successfully.',
+      ),
+      ...tool(
+        'health',
+        'Bash',
+        { command: 'curl -s https://example.com/api/health', description: 'Check the API answers' },
+        '{"status":"ok"}\nDocs: https://example.com/docs/health',
+      ),
+      say(SHARES_LINKS_REPLY),
+      result(),
+    ],
+  ],
+}
+
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
   'makes-commits',
@@ -3034,6 +3132,7 @@ export const AGENT_SCRIPT_NAMES = [
   'usage-warning',
   'usage-warning-resets',
   'usage-warning-then-limit',
+  'usage-meter',
   'offline',
   'keeps-todos',
   'writes-todos',
@@ -3055,6 +3154,7 @@ export const AGENT_SCRIPT_NAMES = [
   'ports-sessions',
   'backfills-tasks',
   'subagent-background-work',
+  'shares-links',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -3086,6 +3186,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'usage-warning': usageWarning,
   'usage-warning-resets': usageWarningResets,
   'usage-warning-then-limit': usageWarningThenLimit,
+  'usage-meter': usageMeter,
   offline,
   'keeps-todos': keepsTodos,
   'writes-todos': writesTodos,
@@ -3107,4 +3208,5 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'ports-sessions': portsSessions,
   'backfills-tasks': backfillsTasks,
   'subagent-background-work': subagentBackgroundWork,
+  'shares-links': sharesLinks,
 }

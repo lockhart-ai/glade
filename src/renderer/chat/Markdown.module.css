@@ -113,11 +113,6 @@
   margin-left: -18px;
 }
 
-/* A link isn't followed; it reads as a link in the design's link colour. */
-.link {
-  color: var(--color-blue-text);
-}
-
 /* An image is never loaded; its alt text stands in, muted. */
 .image {
   color: var(--color-muted);

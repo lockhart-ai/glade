@@ -104,6 +104,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.ChangesOpenFile]: () => ({ openFiles: {} as OpenFiles }),
     [CommandName.ChangesRepository]: () => ({ repository: true }),
     [CommandName.ClipboardWriteText]: () => null,
+    [CommandName.LinksOpen]: () => null,
     [CommandName.FilesThumbnail]: () => ({ thumbnail: { kind: FileThumbnailKind.Missing } }),
     [CommandName.FilesCopy]: () => null,
     [CommandName.FilesReveal]: () => null,
@@ -130,7 +131,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.PluginsOpenFolder]: () => null,
     [CommandName.PluginsPlaceView]: () => ({ status: '' }),
     [CommandName.ControlStatus]: () => ({ status: CONTROL_STATUS }),
-    [CommandName.AccountStatus]: () => ({ status: { account: null, usageWarning: null } }),
+    [CommandName.AccountStatus]: () => ({ status: { account: null, usage: [] } }),
     [CommandName.ControlRegenerateToken]: () => ({ status: CONTROL_STATUS }),
     [CommandName.WorkspacesUpdate]: () => {
       throw new Error('not in these tests')

@@ -866,6 +866,15 @@ describe('the queue', () => {
     expect(queueRegion()).toHaveTextContent('Queued · 2')
   })
 
+  it('makes the URLs in a queued message links, with the whole message on hover', async () => {
+    await renderBar({ queued: ['Also check https://example.com/status first.'] })
+
+    expect(queueRows()).toEqual(['1Also check https://example.com/status first.'])
+    const link = within(queueRegion()).getByRole('link')
+    expect(link).toHaveAttribute('href', 'https://example.com/status')
+    expect(link.parentElement).toHaveAttribute('title', 'Also check https://example.com/status first.')
+  })
+
   it('edits a message in place: ↵ saves it, and the message field gets the focus back', async () => {
     const fake = await renderBar({ queued: QUEUE })
 

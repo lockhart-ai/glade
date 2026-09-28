@@ -107,6 +107,23 @@ describe('WatchersTab', () => {
     )
   })
 
+  it('makes the URLs in a watcher’s last line or outcome links, keeping the whole line on hover', () => {
+    const line = 'deploy\tpass\thttps://example.com/runs/42'
+    render(
+      <WatchersTab
+        taskId="t1"
+        watchers={[sample('ci'), { ...sample('docs'), outcome: 'Failed: see https://example.com/runs/41.' }].map(
+          (watcher) => (watcher.id === 'ci' ? { ...watcher, lastOutput: line } : watcher),
+        )}
+      />,
+    )
+
+    const last = within(row('CI checks on PR #42')).getByRole('link')
+    expect(last).toHaveAttribute('href', 'https://example.com/runs/42')
+    expect(last.parentElement).toHaveAttribute('title', line)
+    expect(within(row('Build the docs site')).getByRole('link')).toHaveAttribute('href', 'https://example.com/runs/41')
+  })
+
   it('leaves out what a subagent started: that’s under the subagent (#291)', () => {
     const subagents = [
       sampleWatcher('sub', 't1', { label: 'A subagent’s e2e run', parentToolUseId: 'use-api' }),

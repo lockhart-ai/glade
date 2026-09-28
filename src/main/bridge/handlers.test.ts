@@ -611,6 +611,37 @@ describe('clipboard.writeText', () => {
   })
 })
 
+describe('links.open', () => {
+  it('opens a web or mail link in the browser, as the URL parser writes it out', async () => {
+    const openExternal = vi.fn<(url: string) => Promise<void>>(() => Promise.resolve())
+    const withBrowser = createHandlers({ ...handlerContext(), openExternal })
+
+    await expect(withBrowser[CommandName.LinksOpen]({ url: 'HTTPS://Example.com/docs' })).resolves.toBeNull()
+    await expect(withBrowser[CommandName.LinksOpen]({ url: 'mailto:support@example.com' })).resolves.toBeNull()
+
+    expect(openExternal.mock.calls).toEqual([['https://example.com/docs'], ['mailto:support@example.com']])
+  })
+
+  it.each(['javascript:alert(1)', 'JAVASCRIPT:alert(1)', 'file:///etc/passwd', 'data:text/html,hi', ' https://x.co'])(
+    'refuses %j, logging it in the ipc scope, and opens nothing',
+    async (url) => {
+      const openExternal = vi.fn<(url: string) => Promise<void>>(() => Promise.resolve())
+      const log = createMemoryLog()
+      const withBrowser = createHandlers({ ...handlerContext(), openExternal, log: log.logger })
+
+      await expect(withBrowser[CommandName.LinksOpen]({ url })).rejects.toMatchObject({
+        code: BridgeErrorCode.InvalidRequest,
+      })
+      expect(openExternal).not.toHaveBeenCalled()
+      expect(log.withMessage('refused to open a link').map(({ scope }) => scope)).toEqual([LogScope.Ipc])
+    },
+  )
+
+  it('opens nothing without a browser, as in a test', async () => {
+    await expect(handlers[CommandName.LinksOpen]({ url: 'https://example.com' })).resolves.toBeNull()
+  })
+})
+
 describe('dialog.chooseFolder', () => {
   it('answers with the chosen folder, or null when cancelled', async () => {
     await expect(handlers[CommandName.DialogChooseFolder]({})).resolves.toEqual({ path: root })

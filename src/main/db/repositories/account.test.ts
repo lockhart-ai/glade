@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { UsageWindow, type Account } from '../../../shared/account'
-import { getAccount, getUsageWarning, saveAccount, setUsageWarning } from './account'
+import { UsageLevel, UsageLimitKind, type Account, type UsageReading } from '../../../shared/account'
+import {
+  deleteResetUsageReadings,
+  getAccount,
+  listUsageReadings,
+  replaceUsageReadings,
+  saveAccount,
+  saveUsageReading,
+} from './account'
 import { openTestDatabase, type TestDatabase } from './test-database'
 
 let database: TestDatabase
@@ -45,18 +52,45 @@ describe('the account', () => {
   })
 })
 
-describe('the usage warning', () => {
-  it('has none until one is set, keeps the one set last, and clears', () => {
-    expect(getUsageWarning(database.db)).toBeNull()
+const SESSION: UsageReading = {
+  limit: { kind: UsageLimitKind.Session },
+  utilization: 0.38,
+  resetsAt: 100,
+  level: UsageLevel.Within,
+  readAt: 10,
+}
+const WEEK: UsageReading = { ...SESSION, limit: { kind: UsageLimitKind.Weekly }, utilization: 0.22, resetsAt: 900 }
+const OPUS: UsageReading = { ...WEEK, limit: { kind: UsageLimitKind.WeeklyModel, model: 'Opus' }, utilization: 0.09 }
+const SONNET: UsageReading = { ...OPUS, limit: { kind: UsageLimitKind.WeeklyModel, model: 'Sonnet' } }
+const EXTRA: UsageReading = { ...SESSION, limit: { kind: UsageLimitKind.ExtraUsage }, resetsAt: null }
 
-    setUsageWarning(database.db, { utilization: 0.85, window: UsageWindow.Session, resetsAt: 100 })
-    expect(getUsageWarning(database.db)).toEqual({ utilization: 0.85, window: UsageWindow.Session, resetsAt: 100 })
+describe('the usage readings', () => {
+  it('has none until one is saved, then one per limit, in the meter’s order', () => {
+    expect(listUsageReadings(database.db)).toEqual([])
 
-    setUsageWarning(database.db, { utilization: null, window: UsageWindow.Other, resetsAt: null })
-    expect(getUsageWarning(database.db)).toEqual({ utilization: null, window: UsageWindow.Other, resetsAt: null })
-    expect(database.db.prepare('SELECT COUNT(*) FROM usage_warning').pluck().get()).toBe(1)
+    for (const reading of [EXTRA, SONNET, WEEK, OPUS, SESSION]) saveUsageReading(database.db, reading)
+    expect(listUsageReadings(database.db)).toEqual([SESSION, WEEK, OPUS, SONNET, EXTRA])
 
-    setUsageWarning(database.db, null)
-    expect(getUsageWarning(database.db)).toBeNull()
+    // A newer reading of a limit replaces its last.
+    const closer = { ...SESSION, utilization: 0.85, level: UsageLevel.Warning, resetsAt: null, readAt: 20 }
+    saveUsageReading(database.db, closer)
+    expect(listUsageReadings(database.db)).toEqual([closer, WEEK, OPUS, SONNET, EXTRA])
+  })
+
+  it('replaces every reading at once', () => {
+    replaceUsageReadings(database.db, [SESSION, WEEK, OPUS])
+    replaceUsageReadings(database.db, [WEEK])
+    expect(listUsageReadings(database.db)).toEqual([WEEK])
+    replaceUsageReadings(database.db, [])
+    expect(listUsageReadings(database.db)).toEqual([])
+  })
+
+  it('drops the readings whose window has reset, never one with no reset time', () => {
+    replaceUsageReadings(database.db, [SESSION, WEEK, EXTRA])
+    expect(deleteResetUsageReadings(database.db, 99)).toBe(0)
+    expect(deleteResetUsageReadings(database.db, 100)).toBe(1)
+    expect(listUsageReadings(database.db)).toEqual([WEEK, EXTRA])
+    expect(deleteResetUsageReadings(database.db, Number.MAX_SAFE_INTEGER)).toBe(1)
+    expect(listUsageReadings(database.db)).toEqual([EXTRA])
   })
 })
