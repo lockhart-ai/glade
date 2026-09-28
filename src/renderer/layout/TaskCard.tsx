@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { Card, ToastAnchor } from '../components'
+import { classNames } from '../components/classNames'
 import styles from './TaskCard.module.css'
 
 /** The header card's height, which the chat under it clips and pads its top by (see `TaskCard.module.css`). */
@@ -28,6 +29,12 @@ export interface TaskCardProps {
    * stays where it is.
    */
   lightsStrip?: boolean
+  /**
+   * Whether a panel beside the chat column is sliding open or shut: the sidebar, or the right panel. While one does, the
+   * strip and the title bar, which move or resize with every frame, don't drag the window; they do again once it lands.
+   * Electron sends macOS the window's drag regions again each time one moves, which stalls the animation (#358).
+   */
+  panelsMoving?: boolean
 }
 
 /** Where a floating layer's height is kept: the stage the chat is in, the layer, and the CSS variable. */
@@ -72,6 +79,7 @@ export function TaskCard({
   rightPanel,
   titleBar,
   lightsStrip = false,
+  panelsMoving = false,
 }: TaskCardProps): React.JSX.Element {
   const stage = useRef<HTMLDivElement>(null)
   const headerLayer = useRef<HTMLDivElement>(null)
@@ -82,9 +90,11 @@ export function TaskCard({
   return (
     <Card role="main" aria-label="Task" className={styles.task}>
       <div className={styles.column}>
-        {lightsStrip && <div className={styles.lightsStrip} data-testid="lights-strip" />}
+        {lightsStrip && (
+          <div className={classNames(styles.lightsStrip, panelsMoving && styles.sliding)} data-testid="lights-strip" />
+        )}
         {titleBar !== undefined && (
-          <div className={styles.titleBar} data-testid="task-title-bar">
+          <div className={classNames(styles.titleBar, panelsMoving && styles.sliding)} data-testid="task-title-bar">
             {titleBar}
           </div>
         )}

@@ -4,6 +4,8 @@ import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../shared/
 import { appCommand, AppCommandId } from '../shared/commands'
 import { UiStateKey, type Workspace } from '../shared/domain'
 import { App } from './App'
+import { moduleClass } from './components/moduleClass'
+import taskCardStyles from './layout/TaskCard.module.css'
 import { MOTION_DURATION_PROPERTY } from './motion'
 import { GladeStoreProvider } from './store/react'
 import { createGladeStore, type GladeStore } from './store/store'
@@ -182,6 +184,54 @@ it('keeps each panel on screen, inert, while it slides shut, and the terminal sh
     expect(screen.queryByTestId('right-panel')).toBeNull()
     expect(screen.getByTestId('bottom-bar-slot')).not.toHaveAttribute('inert')
     expect(within(terminal).getByText(/^No terminal open/)).not.toBeVisible()
+  } finally {
+    vi.useRealTimers()
+    document.documentElement.style.removeProperty(MOTION_DURATION_PROPERTY)
+  }
+})
+
+it('keeps the task card’s strip and title row from dragging the window while the sidebar or the right panel slides', async () => {
+  // #358: they move or resize with every frame of either slide, and a drag region that moves stalls the animation.
+  document.documentElement.style.setProperty(MOTION_DURATION_PROPERTY, '200ms')
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    const { emit } = await renderApp([sampleWorkspace('w1')])
+    const toggle = (id: AppCommandId): void => {
+      act(() => {
+        emit({ type: EventType.MenuCommand, command: appCommand(id) })
+      })
+    }
+    const land = (): void => {
+      act(() => {
+        vi.advanceTimersByTime(200)
+      })
+    }
+    const sliding = moduleClass(taskCardStyles, 'sliding')
+    const strip = (): HTMLElement => screen.getByTestId('lights-strip')
+    const titleBar = (): HTMLElement => screen.getByTestId('task-title-bar')
+
+    // The sidebar slides shut: the strip and the row it hands over are there at once, but only drag once it's shut.
+    toggle(AppCommandId.ToggleSidebar)
+    expect(within(screen.getByRole('main', { name: 'Task' })).getByTestId('lights-strip')).toHaveClass(sliding)
+    expect(titleBar()).toHaveClass(sliding)
+    land()
+    expect(strip()).not.toHaveClass(sliding)
+    expect(titleBar()).not.toHaveClass(sliding)
+
+    // The right panel slides shut and open beside them, which resizes them.
+    for (let slide = 0; slide < 2; slide += 1) {
+      toggle(AppCommandId.ToggleRightPanel)
+      expect(strip()).toHaveClass(sliding)
+      expect(titleBar()).toHaveClass(sliding)
+      land()
+      expect(strip()).not.toHaveClass(sliding)
+      expect(titleBar()).not.toHaveClass(sliding)
+    }
+
+    // The bottom bar's slide moves neither.
+    toggle(AppCommandId.ToggleBottomBar)
+    expect(strip()).not.toHaveClass(sliding)
+    land()
   } finally {
     vi.useRealTimers()
     document.documentElement.style.removeProperty(MOTION_DURATION_PROPERTY)
