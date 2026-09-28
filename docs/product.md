@@ -56,7 +56,7 @@ There are no follow-up tasks. One task can refer to another through its folder o
   The same viewer opens an image artifact from the Artifacts tab, and the one file showing in the Files tab (#372): for
   an artifact, it also shows the artifact's title and two actions, Open in Files and Reveal in Finder, and steps
   through the task's image artifacts in the Artifacts tab's order; for a Files tab image, it shows that one file alone.
-  ![Artifact and file images](design/screens/36-artifact-image.png)
+  ![Artifact and file images](design/screens/35-artifact-image.png)
 - **Pasted text** (#363) — pasting more than one line, or ~80 characters or more, into the input bar marks it as its
   own block, kept apart from what you typed, rather than dumping it into the field: a short inline token stands for it
   there, and a compact chip shows above the field ("Pasted text · 42 lines"), with a ✕ to remove it and a click to

@@ -63,12 +63,12 @@ export interface ImageViewerProps {
 
 /**
  * A message's pasted images, or a task's workspace files (an artifact, or the file showing in the Files tab), at full
- * size, over the window (`docs/design/screens/30-image-viewer.png`, `docs/design/screens/34-artifact-image.png`): the
+ * size, over the window (`docs/design/screens/30-image-viewer.png`, `docs/design/screens/35-artifact-image.png`): the
  * one showing as large as fits the window but never larger than it is, on the Settings modal's dimmed backdrop. With
  * several, a pager under it says which ("2 of 3") and steps between them, as ← and → do, going round at the ends. A
- * workspace image with a header shows its title top left and its actions top right, beside the close button. Esc, a
- * click on the backdrop or the close button closes it. It takes the focus while it's open and hands it back to
- * `returnFocus`.
+ * workspace image with a header shows its title in the close chip, before its actions, all top right, so nothing sits
+ * under the macOS traffic lights (top left, in every state). Esc, a click on the backdrop or the close button closes
+ * it. It takes the focus while it's open and hands it back to `returnFocus`.
  */
 export function ImageViewer({
   images,
@@ -131,12 +131,12 @@ export function ImageViewer({
             {images.map((source, at) => (
               <ViewedImage key={imageSourceKey(source)} source={source} hidden={at !== index} />
             ))}
-            {chrome !== undefined && (
-              <div className={styles.title} title={chrome.title} data-testid="image-viewer-title">
-                {chrome.title}
-              </div>
-            )}
             <div className={styles.close}>
+              {chrome !== undefined && (
+                <span className={styles.chipTitle} title={chrome.title} data-testid="image-viewer-title">
+                  {chrome.title}
+                </span>
+              )}
               {chrome?.actions.map((action) => (
                 <Button
                   key={action.label}
