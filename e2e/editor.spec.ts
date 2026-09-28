@@ -3,7 +3,6 @@ import { dirname, join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { CommandName } from '../src/shared/bridge'
 import { UiStateKey } from '../src/shared/domain'
-import { MIN_PANEL_WIDTH } from '../src/renderer/panels/panelSize'
 import { expect, test, type Glade } from './fixtures'
 import { chat, filesTab, firstRun, inputBar, taskList, taskPanel, toasts, unsavedDialog } from './selectors'
 import { chooseMenuItem } from './menu'
@@ -36,6 +35,9 @@ The API responds with \`429 Too Many Requests\` and a
 `
 
 const DOC = 'docs/rate-limits.md'
+
+/** The right panel's narrowest, in px (`MIN_PANEL_WIDTH` in src/renderer/panels/panelSize.ts). */
+const NARROWEST_PANEL = 320
 
 /** Opens the workspace, and has a new task's agent show the doc (`show_file`): it opens in the Files tab's editor. */
 async function showTheDoc(glade: Glade): Promise<void> {
@@ -81,7 +83,7 @@ test('editor: edit, save with ⌘S, and the agent changing the file', async ({ l
     .toBe(0)
   // At the panel's narrowest, the header keeps the file's name, Open in editor shrinks to its icon, and nothing is cut
   // off its right edge.
-  await invoke(window, CommandName.UiStateSet, { key: UiStateKey.RightPanelWidth, value: String(MIN_PANEL_WIDTH) })
+  await invoke(window, CommandName.UiStateSet, { key: UiStateKey.RightPanelWidth, value: String(NARROWEST_PANEL) })
   await expect(files.openInEditor.getByText('Open in editor')).toBeHidden()
   await expect(files.openInEditor).toHaveAttribute('title', 'Open in editor (⌘⇧E)')
   const header = files.openInEditor.locator('xpath=..')
