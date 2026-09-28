@@ -89,6 +89,9 @@ function pluginsWithViews(): { plugins: Plugins; pluginViews: PluginViews } {
     onUpdate: (list) => {
       pluginViews.update(list)
     },
+    onReload: (ids) => {
+      pluginViews.reload(ids)
+    },
   })
   return { plugins, pluginViews }
 }
@@ -833,5 +836,43 @@ describe('plugins.placeView', () => {
       Promise.resolve().then(() => handlers[CommandName.PluginsPlaceView]({ id: 'pomodoro', bounds })),
     ).rejects.toMatchObject({ code: BridgeErrorCode.NotFound })
     expect(views.views).toHaveLength(1)
+  })
+})
+
+describe('plugins.reload', () => {
+  const bounds = { x: 700, y: 540, width: 680, height: 255 }
+
+  it("reloads a shown plugin's view once its rescan finds it changed on disk", async () => {
+    writePlugin(join(root, 'plugins'), 'pomodoro')
+    await handlers[CommandName.PluginsList]({})
+    await handlers[CommandName.PluginsPlaceView]({ id: 'pomodoro', bounds })
+    const first = views.last()
+
+    writeFileSync(join(root, 'plugins', 'pomodoro', 'index.html'), '<!doctype html><title>Pomodoro v2</title>')
+    await handlers[CommandName.PluginsList]({})
+
+    expect(first.destroyed).toBe(true)
+    expect(views.last()).toMatchObject({ bounds, destroyed: false })
+    expect(views.views).toHaveLength(2)
+  })
+
+  it('reloads a shown plugin by hand, without reading the folder again', async () => {
+    writePlugin(join(root, 'plugins'), 'pomodoro')
+    await handlers[CommandName.PluginsList]({})
+    await handlers[CommandName.PluginsPlaceView]({ id: 'pomodoro', bounds })
+    const first = views.last()
+
+    expect(await handlers[CommandName.PluginsReload]({ id: 'pomodoro' })).toBeNull()
+
+    expect(first.destroyed).toBe(true)
+    expect(views.last()).toMatchObject({ bounds, destroyed: false })
+    expect(views.views).toHaveLength(2)
+  })
+
+  it('refuses an id that is invalid, unknown, or not listed yet', () => {
+    expect(() => handlers[CommandName.PluginsReload]({ id: 'pomodoro' })).toThrow(
+      expect.objectContaining({ code: BridgeErrorCode.NotFound }),
+    )
+    expect(views.views).toEqual([])
   })
 })

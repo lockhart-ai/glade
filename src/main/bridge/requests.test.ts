@@ -75,6 +75,7 @@ describe('REQUEST_SCHEMAS', () => {
     expect(REQUEST_SCHEMAS[CommandName.PluginsOpenFolder].parse({})).toEqual({})
     const toggle = { id: 'pomodoro', enabled: false }
     expect(REQUEST_SCHEMAS[CommandName.PluginsSetEnabled].parse(toggle)).toEqual(toggle)
+    expect(REQUEST_SCHEMAS[CommandName.PluginsReload].parse({ id: 'pomodoro' })).toEqual({ id: 'pomodoro' })
     const link = { url: 'https://example.com/docs' }
     expect(REQUEST_SCHEMAS[CommandName.LinksOpen].parse(link)).toEqual(link)
   })

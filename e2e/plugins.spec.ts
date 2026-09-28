@@ -1,7 +1,9 @@
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { inPlugin, installFixture } from './fixture-plugin'
 import { expect, openedInEditor, pluginsFolder, test, type Glade } from './fixtures'
 import { chooseMenuItem } from './menu'
+import { pluginCard } from './plugin-view'
 import { settings } from './selectors'
 
 /** The sample plugins in scripts/fixtures/plugins: `valid` (Pomodoro, Tide Clock) and `invalid`. */
@@ -20,6 +22,14 @@ async function openPlugins(glade: Glade): Promise<ReturnType<typeof settings>> {
   await expect(modal.heading).toHaveText('Plugins')
   await expect(modal.plugins).toHaveAttribute('aria-busy', 'false')
   return modal
+}
+
+/** How many plugin pages are running, in any window or none: 0 while a reloaded view is being remade. */
+async function pluginPages({ app }: Glade): Promise<number> {
+  return app.evaluate(
+    ({ webContents }) =>
+      webContents.getAllWebContents().filter((page) => page.getURL().startsWith('glade-plugin:')).length,
+  )
 }
 
 test('a plugin in the plugins folder is listed with its name, version and icon, and stays off across a relaunch', async ({
@@ -99,4 +109,53 @@ test('Plugins lists invalid plugins with why, finds plugins added and removed wh
   // Open plugins folder opens it in Finder (recorded in its place: an e2e run never opens Finder).
   await modal.openPluginsFolder.click()
   await expect.poll(() => openedInEditor(glade)).toEqual([pluginsFolder(userData)])
+})
+
+test('reloads a running plugin whose files changed since Glade last read the folder, but not one that did not', async ({
+  launch,
+  userData,
+}) => {
+  installFixture(userData)
+  const glade = await launch()
+  const { status } = pluginCard(glade)
+  await expect(status).toHaveText(/said hello$/)
+  expect(await inPlugin(glade, 'window.received.length')).toBe(2)
+
+  // Rescanning (Settings › Plugins opening) with nothing changed on disk leaves the running page alone.
+  const unchanged = await openPlugins(glade)
+  await unchanged.close.click()
+  expect(await inPlugin(glade, 'window.received.length')).toBe(2)
+
+  // A new build copied in over it: its entry file changes on disk.
+  const entry = join(pluginsFolder(userData), 'fixture-plugin', 'index.html')
+  writeFileSync(entry, readFileSync(entry, 'utf8').replace('Messages from Glade', 'Messages from Glade v2'))
+  const changed = await openPlugins(glade)
+  await changed.close.click()
+
+  // The page reloaded on its own: a fresh window, freshly greeted, showing the new markup.
+  await expect.poll(() => pluginPages(glade)).toBe(1)
+  await expect.poll(() => inPlugin(glade, 'window.received.length')).toBe(2)
+  expect(await inPlugin(glade, 'document.querySelector("h1").textContent')).toBe('Messages from Glade v2')
+  await expect(status).toHaveText(/said hello$/)
+})
+
+test('the Reload button reloads the shown plugin at once, without reading the folder again', async ({
+  launch,
+  userData,
+}) => {
+  installFixture(userData)
+  const glade = await launch()
+  const { status } = pluginCard(glade)
+  await expect(status).toHaveText(/said hello$/)
+  // Past the first greeting, so a reload shows up as the count resetting, not merely growing.
+  await inPlugin(glade, "window.glade.post({ type: 'ready' })")
+  await expect.poll(() => inPlugin(glade, 'window.received.length')).toBe(4)
+
+  const modal = await openPlugins(glade)
+  await modal.reloadPlugin('Fixture').click()
+  await modal.close.click()
+
+  await expect.poll(() => pluginPages(glade)).toBe(1)
+  await expect.poll(() => inPlugin(glade, 'window.received.length')).toBe(2)
+  await expect(status).toHaveText(/said hello$/)
 })

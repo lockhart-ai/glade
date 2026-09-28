@@ -1,4 +1,4 @@
-import { faChevronDown, faPuzzlePiece, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
+import { faArrowsRotate, faChevronDown, faPuzzlePiece, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Effort, PermissionMode } from '../../shared/domain'
 import {
@@ -15,6 +15,7 @@ import type { Settings, SettingsPatch } from '../../shared/settings'
 import {
   Button,
   ButtonSize,
+  ButtonVariant,
   Icon,
   IconSize,
   Input,
@@ -310,10 +311,12 @@ export function AppearanceSection(): React.JSX.Element {
 interface PluginRowProps {
   plugin: InstalledPlugin
   onToggle: (id: string, enabled: boolean) => void
+  /** Reloads the plugin's view now, if it's the one shown (`plugins.reload`); a no-op otherwise. */
+  onReload: (id: string) => void
 }
 
-/** One plugin: its icon, name and version, and its toggle; or, for an invalid one, its folder and why. */
-function PluginRow({ plugin, onToggle }: PluginRowProps): React.JSX.Element {
+/** One plugin: its icon, name and version, Reload and its toggle; or, for an invalid one, its folder and why. */
+function PluginRow({ plugin, onToggle, onReload }: PluginRowProps): React.JSX.Element {
   switch (plugin.status) {
     case PluginStatus.Valid: {
       const { manifest } = plugin
@@ -330,6 +333,15 @@ function PluginRow({ plugin, onToggle }: PluginRowProps): React.JSX.Element {
             <span className={styles.rowName}>{manifest.name}</span>
             <span className={styles.pluginVersion}>{manifest.version}</span>
           </div>
+          <Button
+            variant={ButtonVariant.Icon}
+            icon={faArrowsRotate}
+            aria-label={`Reload ${manifest.name}`}
+            title={`Reload ${manifest.name}`}
+            onClick={() => {
+              onReload(plugin.folder)
+            }}
+          />
           <Toggle
             label={manifest.name}
             checked={plugin.enabled}
@@ -364,6 +376,7 @@ export function PluginsSection(): React.JSX.Element {
   const loadPlugins = useGladeStore((state) => state.loadPlugins)
   const setPluginEnabled = useGladeStore((state) => state.setPluginEnabled)
   const openPluginsFolder = useGladeStore((state) => state.openPluginsFolder)
+  const reloadPlugin = useGladeStore((state) => state.reloadPlugin)
   // Whether the folder has been read since this opened: until then, the list may be out of date.
   const [read, setRead] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -412,6 +425,7 @@ export function PluginsSection(): React.JSX.Element {
             key={plugin.folder}
             plugin={plugin}
             onToggle={(id, enabled) => void attempt(() => setPluginEnabled(id, enabled))}
+            onReload={(id) => void attempt(() => reloadPlugin(id))}
           />
         ))}
       </div>
