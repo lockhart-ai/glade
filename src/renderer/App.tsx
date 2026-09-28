@@ -26,6 +26,7 @@ import { TaskPanel } from './right-panel'
 import { RelaunchNotice } from './relaunch-notice'
 import { Terminal, TerminalTabs, useTerminalShortcuts } from './terminal'
 import { PluginPanel } from './plugins'
+import { UnsavedChangesDialog } from './files'
 import { UsageMeter } from './usage-meter'
 
 interface WindowProps {
@@ -184,6 +185,7 @@ export function App(): React.JSX.Element {
       return (
         <ToastProvider>
           <MenuBar />
+          <UnsavedChangesDialog />
           {hasWorkspace ? <Layout /> : <FirstRunLayout />}
         </ToastProvider>
       )

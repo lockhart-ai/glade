@@ -316,6 +316,9 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
       case EventType.MenuCommand:
         app.debug('menu command', { command: event.command })
         return
+      case EventType.CloseBlocked:
+        app.info('closing called off for unsaved edits', { kind: event.kind })
+        return
       case EventType.TerminalTabsChanged:
         terminal.debug('terminal tabs changed', { tabs: event.tabs.length })
         return

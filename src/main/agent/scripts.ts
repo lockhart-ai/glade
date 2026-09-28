@@ -1767,6 +1767,58 @@ const showsAFile: AgentScript = {
   ],
 }
 
+/** A later turn of `edits-a-shown-file`: the agent edits the doc it showed you (its `n`th edit). */
+function editsTheShownDoc(n: number): ScriptStep[] {
+  return [
+    ...turnStart(),
+    delay(BEAT_MS),
+    ...tool(
+      `edit-limits-${String(n)}`,
+      'Edit',
+      {
+        file_path: 'docs/rate-limits.md',
+        old_string: '| /search         | 60 per minute  |',
+        new_string: '| /search         | 30 per minute  |',
+      },
+      'The file docs/rate-limits.md has been updated.',
+    ),
+    say('Updated `docs/rate-limits.md`.'),
+    result(),
+  ]
+}
+
+/**
+ * A turn that shows you a doc with `show_file`, then, for each message after it, a turn that edits the doc: the Files
+ * tab's editor hears of each edit, and takes the doc from disk again. The doc must be in the workspace, and the scripted
+ * edits don't write it: a spec makes it, and changes it on disk before each later message.
+ */
+const editsAShownFile: AgentScript = {
+  name: 'edits-a-shown-file',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Document the rate limits',
+        'Write up the public API rate limits for clients.',
+        'Writing up the rate limits.',
+      ),
+      ...tool(
+        'read-limits',
+        'Read',
+        { file_path: 'docs/rate-limits.md' },
+        '# Rate limits\n\nEvery request to the public API counts against the key that made it.',
+      ),
+      gladeTool('show-limits', 'show_file', { path: 'docs/rate-limits.md', line: 8 }),
+      say('The limits are in `docs/rate-limits.md`.'),
+      result(),
+    ],
+    editsTheShownDoc(1),
+    editsTheShownDoc(2),
+    editsTheShownDoc(3),
+  ],
+}
+
 /**
  * A turn that writes release notes and an upgrade guide and declares both as artifacts with `add_artifact`. The files
  * must be in the workspace (a spec makes them: the scripted writes don't) for the Glade tool to declare them.
@@ -3103,6 +3155,7 @@ export const AGENT_SCRIPT_NAMES = [
   'asks-many-choices',
   'parallel-subagents',
   'shows-a-file',
+  'edits-a-shown-file',
   'declares-artifacts',
   'usage-limit',
   'usage-limit-hour',
@@ -3157,6 +3210,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'asks-many-choices': asksManyChoices,
   'parallel-subagents': parallelSubagents,
   'shows-a-file': showsAFile,
+  'edits-a-shown-file': editsAShownFile,
   'declares-artifacts': declaresArtifacts,
   'usage-limit': usageLimit,
   'usage-limit-hour': usageLimitHour,

@@ -45,6 +45,7 @@ import {
   openTaskFile,
   openTaskFileInEditor,
   readTaskFile,
+  writeTaskFile,
   revealTaskFile,
   type OpenPath,
   type RevealPath,
@@ -92,6 +93,10 @@ export interface HandlerContext {
   readonly closeWindow?: () => void
   /** Moves the native traffic lights for the sidebar's state (`window.setTrafficLights`). Nothing by default. */
   readonly setTrafficLightsCollapsed?: (collapsed: boolean) => void
+  /** Quits the app (`app.quit`). Nothing by default. */
+  readonly quit?: () => void
+  /** Hears whether the window has unsaved edits (`window.setUnsavedEdits`). Nothing by default. */
+  readonly setUnsavedEdits?: (unsaved: boolean) => void
   /** Every workspace's terminal tabs and their shells. */
   readonly terminals: Terminals
   /** The plugins in the plugins folder. */
@@ -245,6 +250,10 @@ export function createHandlers(context: HandlerContext): Handlers {
             : await readCommitFile(changes, taskId, commitFile),
       }
     },
+    [CommandName.FilesWrite]: async ({ taskId, path, text }) => {
+      await writeTaskFile(context, taskId, path, text)
+      return null
+    },
     [CommandName.FilesOpen]: ({ taskId, path }) => ({ openFiles: openTaskFile(context, taskId, path) }),
     [CommandName.FilesClose]: ({ taskId, path }) => ({ openFiles: closeTaskFile(context, taskId, path) }),
     [CommandName.FilesOpenInEditor]: async ({ taskId, path }) => {
@@ -361,6 +370,14 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.WindowSetTrafficLights]: ({ collapsed }) => {
       context.setTrafficLightsCollapsed?.(collapsed)
+      return null
+    },
+    [CommandName.AppQuit]: () => {
+      context.quit?.()
+      return null
+    },
+    [CommandName.WindowSetUnsavedEdits]: ({ unsaved }) => {
+      context.setUnsavedEdits?.(unsaved)
       return null
     },
     [CommandName.LogRendererError]: (error) => {

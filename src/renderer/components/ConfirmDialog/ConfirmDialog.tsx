@@ -12,6 +12,12 @@ import { Button, ButtonVariant } from '../Button/Button'
 import { useOverlayRef } from '../overlays'
 import styles from './ConfirmDialog.module.css'
 
+/** A dialog's third answer: its button's label, and what choosing it does. */
+export interface DialogAlternative {
+  readonly label: string
+  readonly onSelect: () => void
+}
+
 export interface ConfirmDialogProps {
   open: boolean
   /** The question, e.g. "Delete “Fix flaky login test”?". It names the dialog. */
@@ -22,6 +28,8 @@ export interface ConfirmDialogProps {
   confirmLabel: string
   /** Whether confirming destroys something: the confirm button is pink. */
   destructive?: boolean
+  /** A third answer, besides Cancel and confirming, on the left of the buttons (Discard, for unsaved edits). */
+  alternative?: DialogAlternative
   onConfirm: () => void
   /** Called for Cancel, Esc, or a click outside the dialog. */
   onCancel: () => void
@@ -39,6 +47,7 @@ export function ConfirmDialog({
   message,
   confirmLabel,
   destructive = false,
+  alternative,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps): React.JSX.Element {
@@ -83,6 +92,11 @@ export function ConfirmDialog({
               {message}
             </p>
             <div className={styles.actions}>
+              {alternative !== undefined && (
+                <Button variant={ButtonVariant.Ghost} className={styles.alternative} onClick={alternative.onSelect}>
+                  {alternative.label}
+                </Button>
+              )}
               <Button ref={cancelRef} variant={ButtonVariant.Ghost} onClick={onCancel}>
                 Cancel
               </Button>

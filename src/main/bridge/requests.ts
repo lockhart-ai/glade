@@ -13,6 +13,8 @@ import {
   type CommandRequest,
   type EmptyRequest,
   type FileRequest,
+  type FilesWriteRequest,
+  type WindowSetUnsavedEditsRequest,
   type DraftsGetRequest,
   type DraftsSetRequest,
   type ImagesGetRequest,
@@ -215,6 +217,19 @@ const fileRequest = z.strictObject({
     .refine(isWorkspaceRelativePath, 'Expected a normalized path relative to the workspace root, inside it'),
 }) satisfies z.ZodType<FileRequest>
 
+const windowSetUnsavedEditsRequest = z.strictObject({
+  unsaved: z.boolean(),
+}) satisfies z.ZodType<WindowSetUnsavedEditsRequest>
+
+/** A file of the workspace to save: never a commit's, which is only in git. */
+const filesWriteRequest = z.strictObject({
+  taskId: z.string(),
+  path: z
+    .string()
+    .refine(isWorkspaceRelativePath, 'Expected a normalized path relative to the workspace root, inside it'),
+  text: z.string(),
+}) satisfies z.ZodType<FilesWriteRequest>
+
 /** A file the Files tab can have open: one in the workspace, or one as a commit left it (its commit file key). */
 const openFileRequest = z.strictObject({
   taskId: z.string(),
@@ -396,6 +411,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.QuestionsAnswer]: questionsAnswerRequest,
   [CommandName.PermissionsAnswer]: permissionsAnswerRequest,
   [CommandName.FilesRead]: openFileRequest,
+  [CommandName.FilesWrite]: filesWriteRequest,
   [CommandName.FilesOpen]: openFileRequest,
   [CommandName.FilesClose]: openFileRequest,
   [CommandName.FilesOpenInEditor]: fileRequest,
@@ -435,6 +451,8 @@ export const REQUEST_SCHEMAS = {
   [CommandName.MenuUpdate]: menuUpdateRequest,
   [CommandName.WindowClose]: emptyRequest,
   [CommandName.WindowSetTrafficLights]: windowSetTrafficLightsRequest,
+  [CommandName.AppQuit]: emptyRequest,
+  [CommandName.WindowSetUnsavedEdits]: windowSetUnsavedEditsRequest,
   [CommandName.LogRendererError]: logRendererErrorRequest,
   [CommandName.MenuBarGet]: emptyRequest,
   [CommandName.MenuBarOpenTask]: taskIdRequest,

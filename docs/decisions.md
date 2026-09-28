@@ -63,6 +63,15 @@
   new shell under a dim "restored" divider, since processes don't survive a restart.
 - **Icons:** Font Awesome (free regular + solid SVG icons via the official React packages), bundled locally; regular
   style preferred to match the designs' thin strokes.
+- **File editor (#351):** the Files tab edits workspace files in place with CodeMirror 6 (the official `@codemirror/*`
+  packages), the mainstream embeddable editor: small, modular, accessible, and fast on large files. It's styled only
+  from Glade's tokens, with none of CodeMirror's default theme and only the extensions plain-text editing needs (line
+  numbers, undo history, the drawn caret and selection, find, the standard keys, Tab to indent), so at rest it looks
+  exactly as the read-only viewer did. Its syntax colours come from the same Shiki tokens the viewer uses, laid over the
+  text as marks, and are highlighted again from the edited chunk on, off the typing path. ⌘S saves through main
+  (`files.write`), scoped to the workspace as reading is. Unsaved edits live in the window, not SQLite: the file on
+  disk is the file, and closing a file's tab, switching task, closing the window or quitting asks Save / Discard /
+  Cancel first. Files from a commit, binary files and files too large to show whole stay read-only.
 - **Overlays:** Floating UI (`@floating-ui/react`) positions menus and popovers and handles their focus, dismissal and
   list keyboard navigation; overlays render in a portal.
 - **Long lists:** the Done section loads from SQLite a page at a time (keyset pagination on the list's own order, over

@@ -228,6 +228,7 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.WorkspaceUpdated:
       case EventType.WorkspaceRemoved:
       case EventType.MenuCommand:
+      case EventType.CloseBlocked:
       case EventType.TaskOpenRequested:
       case EventType.OpenFilesChanged:
       case EventType.FileShown:
@@ -3274,6 +3275,7 @@ describe('several tasks at once', () => {
       case EventType.TerminalCleared:
       case EventType.WorkspaceRemoved:
       case EventType.MenuCommand:
+      case EventType.CloseBlocked:
       case EventType.SettingsChanged:
       case EventType.ModelsChanged:
       case EventType.PluginsChanged:
@@ -3309,6 +3311,7 @@ describe('several tasks at once', () => {
       case EventType.WorkspaceUpdated:
       case EventType.WorkspaceRemoved:
       case EventType.MenuCommand:
+      case EventType.CloseBlocked:
       case EventType.TaskOpenRequested:
       case EventType.TaskDeleted:
       case EventType.OpenFilesChanged:

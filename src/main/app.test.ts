@@ -5,6 +5,7 @@ import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   BridgeErrorCode,
+  CloseKind,
   COMMAND_CHANNEL,
   CommandName,
   EVENT_CHANNEL,
@@ -747,6 +748,59 @@ describe('startApp', () => {
       value: null,
     })
     expect(onlyWindow().setWindowButtonPosition).toHaveBeenLastCalledWith(TRAFFIC_LIGHT_POSITION)
+  })
+
+  it('calls off closing the window, or quitting, while it has unsaved edits, telling it to ask first', async () => {
+    await startAndWaitUntilReady()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+    const window = onlyWindow()
+    appHandler('browser-window-created')({}, window)
+    const close = window.windowHandlers.get('close')
+    if (close === undefined) throw new Error('no close handler')
+    const attempt = (run: Handler): boolean => {
+      const event = { preventDefault: vi.fn() }
+      run(event)
+      return event.preventDefault.mock.calls.length > 0
+    }
+
+    // Nothing unsaved: both go ahead.
+    expect(attempt(appHandler('before-quit'))).toBe(false)
+    expect(attempt(close)).toBe(false)
+
+    await expect(handler?.(fromWindow(), CommandName.WindowSetUnsavedEdits, { unsaved: true })).resolves.toEqual({
+      ok: true,
+      value: null,
+    })
+    expect(attempt(appHandler('before-quit'))).toBe(true)
+    expect(attempt(close)).toBe(true)
+    expect(window.webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, {
+      type: EventType.CloseBlocked,
+      kind: CloseKind.Quit,
+    })
+    expect(window.webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, {
+      type: EventType.CloseBlocked,
+      kind: CloseKind.Window,
+    })
+
+    // Saved or discarded, the window quits again.
+    await handler?.(fromWindow(), CommandName.WindowSetUnsavedEdits, { unsaved: false })
+    await expect(handler?.(fromWindow(), CommandName.AppQuit, {})).resolves.toEqual({ ok: true, value: null })
+    expect(electron.app.quit).toHaveBeenCalledOnce()
+    expect(attempt(appHandler('before-quit'))).toBe(false)
+  })
+
+  it('leaves another window, such as the menu bar popover’s, to close as ever', async () => {
+    await startAndWaitUntilReady()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+    await handler?.(fromWindow(), CommandName.WindowSetUnsavedEdits, { unsaved: true })
+    const other = new electron.FakeWindow({})
+    electron.windows.splice(electron.windows.indexOf(other), 1)
+    appHandler('browser-window-created')({}, other)
+    const event = { preventDefault: vi.fn() }
+
+    other.windowHandlers.get('close')?.(event)
+
+    expect(event.preventDefault).not.toHaveBeenCalled()
   })
 
   it('runs the agents on the backend it was started with, and closes their sessions when the app quits', async () => {

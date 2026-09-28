@@ -315,6 +315,7 @@ export const COMMANDS: readonly CommandDefinition[] = [
     fixed: FixedReason.Window,
   }),
   command(WindowCommandId.OpenInEditor, Panels, 'Open file in editor', Window, 'Meta+Shift+E'),
+  command(WindowCommandId.SaveFile, Panels, 'Save file', Window, 'Meta+S'),
   command(WindowCommandId.FocusTerminal, Terminal, 'Focus terminal', Window, 'Ctrl+`'),
   command(WindowCommandId.NewTerminalTab, Terminal, 'New terminal tab', Window, 'Meta+T'),
   command(WindowCommandId.NextTerminalTab, Terminal, 'Next tab', KeyScope.Terminal, 'Ctrl+Tab'),
@@ -649,6 +650,7 @@ export const KEYMAP_LAYOUT: readonly KeymapGroup[] = [
       },
       row('Close file tab', AppCommandId.Close),
       row('Open file in editor', WindowCommandId.OpenInEditor),
+      row('Save file', WindowCommandId.SaveFile),
     ],
   },
   {

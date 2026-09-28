@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { EventType, type GladeEvent } from '../../shared/bridge'
+import { CloseKind, EventType, type GladeEvent } from '../../shared/bridge'
 import { appCommand, AppCommandId } from '../../shared/commands'
 import {
   AgentErrorKind,
@@ -655,6 +655,7 @@ describe('the rest of the app', () => {
       { type: EventType.SettingsChanged, settings: DEFAULT_SETTINGS },
       { type: EventType.UiStateChanged, entry: { key: UiStateKey.SelectedTaskId, value: 'task-1' } },
       { type: EventType.MenuCommand, command: appCommand(AppCommandId.NewTask) },
+      { type: EventType.CloseBlocked, kind: CloseKind.Quit },
       { type: EventType.TaskOpenRequested, taskId: 'task-1' },
       { type: EventType.TerminalTabsChanged, tabs: [] },
       { type: EventType.TerminalCleared, tabId: 'term-1' },
@@ -680,6 +681,7 @@ describe('the rest of the app', () => {
       'info app settings changed',
       'debug app ui state changed',
       'debug app menu command',
+      'info app closing called off for unsaved edits',
       'info app task open requested',
       'debug terminal terminal tabs changed',
       'debug terminal terminal cleared',

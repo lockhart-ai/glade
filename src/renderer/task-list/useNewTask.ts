@@ -5,7 +5,8 @@ import { useGladeStore } from '../store/react'
 
 /**
  * What + and ⌘N do: create a new task in the workspace, select it and ask the input bar to focus its message field. A
- * failure shows as a toast. Does nothing without a workspace. Must be used under a `ToastProvider`.
+ * failure shows as a toast. Does nothing without a workspace, or when you'd rather stay with the unsaved edits of the
+ * task you're on. Must be used under a `ToastProvider`.
  */
 export function useNewTask(workspaceId: string | null): () => Promise<void> {
   const createTask = useGladeStore((state) => state.createTask)
@@ -15,8 +16,7 @@ export function useNewTask(workspaceId: string | null): () => Promise<void> {
   return useCallback(async () => {
     if (workspaceId === null) return
     try {
-      await createTask(workspaceId)
-      focusInput()
+      if ((await createTask(workspaceId)) !== null) focusInput()
     } catch (error) {
       toast.show({ message: describeFailure(error) })
     }

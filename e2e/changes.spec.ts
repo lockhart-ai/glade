@@ -102,6 +102,9 @@ test('changes: the commits a task and its subagent made, newest first, each open
   await expect(taskPanel(window).panel.getByText(`As of ${guide} · read-only`)).toBeVisible()
   await expect(filesTab(window).contents).toContainText('Run the migrations before you start the server.')
   await expect(filesTab(window).openInEditor).toHaveCount(0)
+  // Only in git, it's read-only: the source, never the editor.
+  await expect(filesTab(window).source).toBeVisible()
+  await expect(filesTab(window).editor).toHaveCount(0)
 
   // Another task committing in the same repository has its own, and takes none of these.
   await newTask(window, MAKES_COMMITS.otherPrompt, MAKES_COMMITS.otherReply)

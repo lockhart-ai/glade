@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
@@ -183,11 +183,13 @@ describe('workspaces.remove', () => {
   })
 })
 
-describe('menu.update and window.close', () => {
-  it('rebuild the menu bar and close the window, through the app', async () => {
+describe('menu.update, window.close, app.quit and window.setUnsavedEdits', () => {
+  it('rebuild the menu bar, close the window, quit and hear of unsaved edits, through the app', async () => {
     const runner = createAgentRunner({ db: database.db, emit, backend: new FakeAgentBackend() })
     const updateMenu = vi.fn()
     const closeWindow = vi.fn()
+    const quit = vi.fn()
+    const setUnsavedEdits = vi.fn()
     const withApp = createHandlers({
       db: database.db,
       emit,
@@ -198,6 +200,8 @@ describe('menu.update and window.close', () => {
       runner,
       updateMenu,
       closeWindow,
+      quit,
+      setUnsavedEdits,
       terminals: createTerminals({ db: database.db, emit, ...fakeTerminalOptions() }),
       ...pluginsWithViews(),
       endpoint: endpointOf(),
@@ -206,14 +210,20 @@ describe('menu.update and window.close', () => {
 
     expect(await withApp[CommandName.MenuUpdate](EMPTY_MENU_STATE)).toBeNull()
     expect(await withApp[CommandName.WindowClose]({})).toBeNull()
+    expect(await withApp[CommandName.AppQuit]({})).toBeNull()
+    expect(await withApp[CommandName.WindowSetUnsavedEdits]({ unsaved: true })).toBeNull()
 
     expect(updateMenu).toHaveBeenCalledWith(EMPTY_MENU_STATE)
     expect(closeWindow).toHaveBeenCalledOnce()
+    expect(quit).toHaveBeenCalledOnce()
+    expect(setUnsavedEdits).toHaveBeenCalledExactlyOnceWith(true)
   })
 
   it('do nothing without an app', async () => {
     expect(await handlers[CommandName.MenuUpdate](EMPTY_MENU_STATE)).toBeNull()
     expect(await handlers[CommandName.WindowClose]({})).toBeNull()
+    expect(await handlers[CommandName.AppQuit]({})).toBeNull()
+    expect(await handlers[CommandName.WindowSetUnsavedEdits]({ unsaved: false })).toBeNull()
   })
 })
 
@@ -452,6 +462,18 @@ describe('the files commands', () => {
 
     await expect(handlers[CommandName.FilesRead]({ taskId, path: 'docs/rate-limits.md' })).resolves.toEqual({
       content: { kind: FileContentKind.Text, text: '# Rate limits\n', truncated: false, size: 14 },
+    })
+  })
+
+  it('save a file of the task’s workspace, and only inside it', async () => {
+    const taskId = taskInRoot()
+
+    await expect(
+      handlers[CommandName.FilesWrite]({ taskId, path: 'docs/rate-limits.md', text: '# Limits\n' }),
+    ).resolves.toBeNull()
+    expect(readFileSync(join(root, 'docs', 'rate-limits.md'), 'utf8')).toBe('# Limits\n')
+    await expect(handlers[CommandName.FilesWrite]({ taskId, path: '../escaped.md', text: 'x' })).rejects.toMatchObject({
+      code: BridgeErrorCode.OutsideWorkspace,
     })
   })
 

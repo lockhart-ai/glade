@@ -71,10 +71,11 @@ test('files: the list of changed and read files, open-file tabs, the viewer, Ope
   await expect(panel.tab(/^Files/)).toHaveText('Files 1')
   await expect(panel.tabPanel).toContainText(/src\/date\.tsEdited by the agent · \d\d:\d\d/)
 
-  // The source, with line numbers, coloured as the design colours code.
-  await expect(files.line(1)).toHaveText('1export function formatDate(d: Date) {')
-  await expect(files.line(3)).toHaveText('3}')
-  await expect(files.line(1).getByText('export')).toHaveCSS('color', 'rgb(143, 178, 245)')
+  // The source, in the editor, with line numbers, coloured as the design colours code.
+  await expect(files.editorLine(1)).toHaveText('export function formatDate(d: Date) {')
+  await expect(files.editorLine(3)).toHaveText('}')
+  await expect(files.lineNumbers).toHaveText(['1', '2', '3', ''])
+  await expect(files.editorLine(1).getByText('export')).toHaveCSS('color', 'rgb(143, 178, 245)')
 
   // A read file opens beside it, without a dot; the tabs switch.
   await files.list.click()
@@ -84,7 +85,7 @@ test('files: the list of changed and read files, open-file tabs, the viewer, Ope
   await expect(panel.tabPanel).toContainText('Read by the agent')
   await expect(panel.tab(/^Files/)).toHaveText('Files 2')
   await files.tab('date.ts').click()
-  await expect(files.line(2)).toContainText('toISOString')
+  await expect(files.editorLine(2)).toContainText('toISOString')
 
   // Open in editor opens the file showing, by its real path.
   await files.openInEditor.click()
@@ -96,10 +97,10 @@ test('files: the list of changed and read files, open-file tabs, the viewer, Ope
   const again = filesTab(relaunched.window)
   await expect(again.tab('date.ts')).toHaveAttribute('aria-pressed', 'true')
   await expect(again.tab('date.test.ts')).toBeVisible()
-  await expect(again.line(1)).toContainText('export function formatDate')
+  await expect(again.editorLine(1)).toContainText('export function formatDate')
 
   // File › Close (⌘W) with the focus in the panel closes the file showing, not the window; the next closes the other.
-  await again.contents.focus()
+  await again.editor.focus()
   await chooseMenuItem(relaunched, 'File', 'Close')
   await expect(again.tab('date.ts')).toHaveCount(0)
   await expect(again.tab('date.test.ts')).toHaveAttribute('aria-pressed', 'true')
@@ -132,17 +133,17 @@ test('files: show_file opens the collapsed panel at the file and line; Markdown 
   await expect(panel.tab(/^Files/)).toHaveAttribute('aria-selected', 'true')
   await expect(files.tab('rate-limits.md')).toHaveAttribute('aria-pressed', 'true')
   await expect(files.changedDot('rate-limits.md')).toBeVisible()
-  await expect(files.line(19)).toHaveText('19```')
-  await expect(files.line(8)).toHaveAttribute('data-focused', 'true')
-  await expect(files.line(8)).toBeInViewport()
-  await expect(files.line(1).getByText('# Rate limits')).toHaveCSS('color', 'rgb(143, 178, 245)')
+  await expect(files.editorLine(19)).toHaveText('```')
+  await expect(files.editorLine(8)).toHaveClass(/cm-glade-marked/)
+  await expect(files.editorLine(8)).toBeInViewport()
+  await expect(files.editorLine(1).getByText('# Rate limits')).toHaveCSS('color', 'rgb(143, 178, 245)')
 
   // Preview renders the Markdown; Source goes back to it.
   await expect(files.mode('Source')).toHaveAttribute('aria-checked', 'true')
   await files.mode('Preview').click()
   await expect(panel.tabPanel.getByRole('heading', { level: 1, name: 'Rate limits' })).toBeVisible()
   await expect(panel.tabPanel.getByRole('table')).toContainText('60 per minute')
-  await expect(files.source).toHaveCount(0)
+  await expect(files.editor).toHaveCount(0)
   await files.mode('Source').click()
-  await expect(files.line(8)).toContainText('/search')
+  await expect(files.editorLine(8)).toContainText('/search')
 })

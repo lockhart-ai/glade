@@ -2,6 +2,7 @@
 .files {
   flex-grow: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
@@ -104,6 +105,32 @@
 
 .close:hover {
   color: var(--color-text);
+}
+
+/*
+ * A file with unsaved edits: a dot where the cross is, until you point at the tab or tab to its close button. It takes
+ * the cross's 10px, so the tab keeps its width either way.
+ */
+.unsaved {
+  width: 8px;
+  height: 8px;
+  margin: 0 1px;
+  border-radius: 4px;
+  background: var(--color-text);
+}
+
+.tab[data-unsaved] .cross {
+  display: none;
+}
+
+.tab[data-unsaved]:hover .cross,
+.tab[data-unsaved] .close:focus-visible .cross {
+  display: block;
+}
+
+.tab[data-unsaved]:hover .unsaved,
+.tab[data-unsaved] .close:focus-visible .unsaved {
+  display: none;
 }
 
 .select:focus-visible,

@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
-import { CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
+import { CloseKind, CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
 import type { Command } from '../../shared/commands'
 import { PluginStatus } from '../../shared/plugins'
 import { UiStateKey, type OpenFiles, type Task, type UiStateEntry, type Workspace } from '../../shared/domain'
@@ -22,6 +22,15 @@ import { describeFailure, lastOpenedWorkspace, loadSnapshot } from './hydrate'
 import { doneListKey, isLoaded, withDoneCounts, withDonePage, withLoadedTasks } from './doneLists'
 import { applyEvent, withGroupFold, withHistory, withOpenedWorkspace } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState, type TerminalEvent } from './state'
+import {
+  UnsavedChoice,
+  UnsavedReason,
+  unsavedFiles,
+  withFileEdit,
+  withoutTask,
+  type OpenFileEdit,
+  type TaskFile,
+} from '../files/unsaved'
 
 export type GladeStore = StoreApi<GladeState>
 
@@ -124,7 +133,16 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         else openWhenLoaded = event.taskId
         return
       }
-      if (event.type === EventType.TaskDeleted) deletedTaskIds.add(event.taskId)
+      if (event.type === EventType.CloseBlocked) {
+        void onCloseBlocked(event.kind)
+        return
+      }
+      if (event.type === EventType.TaskDeleted) {
+        deletedTaskIds.add(event.taskId)
+        // A deleted task's files are no longer open anywhere: their editors go with it.
+        set(({ fileEdits }) => ({ fileEdits: withoutTask(fileEdits, event.taskId) }))
+        reportUnsaved()
+      }
       if (event.type === EventType.UiStateChanged && supersededByOwnWrite(event.entry)) return
       if (pending !== null) {
         pending.push(event)
@@ -200,6 +218,56 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       set((state) => applyEvent(state, { type: EventType.OpenFilesChanged, openFiles }))
     }
 
+    // What the action that asked about unsaved edits goes on with, while the prompt shows: whether to go ahead.
+    let answerPrompt: ((proceed: boolean) => void) | null = null
+
+    // Asks Save / Discard / Cancel about `files`' unsaved edits, and resolves with whether to go ahead: at once, and
+    // true, when there are none. One prompt at a time: another asked for while one shows is cancelled.
+    const confirmUnsaved = (reason: UnsavedReason, files: readonly TaskFile[]): Promise<boolean> => {
+      if (files.length === 0) return Promise.resolve(true)
+      if (answerPrompt !== null) return Promise.resolve(false)
+      return new Promise((resolve) => {
+        answerPrompt = resolve
+        set({ unsavedPrompt: { reason, files } })
+      })
+    }
+
+    // Whether main was last told there are unsaved edits: while there are, it calls off closing the window or quitting,
+    // for the window to ask about them first (`close.blocked`).
+    let reportedUnsaved = false
+    const reportUnsaved = (): void => {
+      const unsaved = unsavedFiles(get().fileEdits).length > 0
+      if (unsaved === reportedUnsaved) return
+      reportedUnsaved = unsaved
+      bridge.invoke(CommandName.WindowSetUnsavedEdits, { unsaved }).catch(() => {
+        // Told again with the next change.
+        reportedUnsaved = !unsaved
+      })
+    }
+
+    // Leaving the task you're viewing (for `next`, or a new task for undefined): asks about its unsaved edits first, and
+    // resolves with whether to go.
+    const confirmLeavingTask = (next?: string | null): Promise<boolean> => {
+      const leaving = get().selectedTaskId
+      if (leaving === null || leaving === next) return Promise.resolve(true)
+      return confirmUnsaved(UnsavedReason.SwitchTask, unsavedFiles(get().fileEdits, leaving))
+    }
+
+    const setFileEdit = (file: TaskFile, edit: OpenFileEdit | undefined): void => {
+      set(({ fileEdits }) => ({ fileEdits: withFileEdit(fileEdits, file, edit) }))
+      reportUnsaved()
+    }
+
+    const fileEdit = ({ taskId, path }: TaskFile): OpenFileEdit | undefined => get().fileEdits[taskId]?.[path]
+
+    // Main refused to close the window, or quit, for unsaved edits: asks about them, then closes or quits again.
+    const onCloseBlocked = async (kind: CloseKind): Promise<void> => {
+      const quitting = kind === CloseKind.Quit
+      const reason = quitting ? UnsavedReason.Quit : UnsavedReason.CloseWindow
+      if (!(await confirmUnsaved(reason, unsavedFiles(get().fileEdits)))) return
+      await bridge.invoke(quitting ? CommandName.AppQuit : CommandName.WindowClose, {})
+    }
+
     // Main broadcasts what opening changed as events; applying the answer too keeps the store right whichever arrives
     // first.
     // The task main restored as the workspace's selection has its logs loaded, as selecting it would.
@@ -242,6 +310,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       async openWorkspace(workspaceId) {
+        if (workspaceId !== get().selectedWorkspaceId && !(await confirmLeavingTask())) return
         await open(workspaceId)
       },
 
@@ -392,6 +461,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       async selectTask(taskId) {
+        if (!(await confirmLeavingTask(taskId))) return
         if (taskId !== null) await loadTasks([taskId])
         const { selectedWorkspaceId, tasks } = get()
         const task = taskId === null ? undefined : tasks[taskId]
@@ -447,6 +517,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       setUiState,
 
       async createTask(workspaceId) {
+        if (!(await confirmLeavingTask())) return null
         const { task } = await bridge.invoke(CommandName.TasksCreate, { workspaceId })
         // Main's task.updated event normally arrives first; make sure the task is here before selecting it.
         if (!(task.id in get().tasks)) set((state) => applyEvent(state, { type: EventType.TaskUpdated, task }))
@@ -578,12 +649,78 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       async closeFile(taskId, path) {
-        applyOpenFiles(await bridge.invoke(CommandName.FilesClose, { taskId, path }))
+        const file = { taskId, path }
+        const unsaved = fileEdit(file)?.unsaved === true ? [file] : []
+        if (!(await confirmUnsaved(UnsavedReason.CloseFile, unsaved))) return false
+        get().stopEditing(file)
+        applyOpenFiles(await bridge.invoke(CommandName.FilesClose, file))
+        return true
       },
 
       async readFile(taskId, path) {
         const { content } = await bridge.invoke(CommandName.FilesRead, { taskId, path })
         return content
+      },
+
+      startEditing(file, openSession) {
+        if (fileEdit(file) !== undefined) return
+        const session = openSession(({ unsaved, changedOnDisk }) => {
+          // Only while it's still the file's editor: one dropped meanwhile says nothing.
+          if (fileEdit(file)?.session === session) setFileEdit(file, { session, unsaved, changedOnDisk })
+        })
+        setFileEdit(file, { session, ...session.editState })
+      },
+
+      stopEditing(file) {
+        setFileEdit(file, undefined)
+      },
+
+      async saveFile(file) {
+        const edit = fileEdit(file)
+        if (edit?.unsaved !== true) return
+        // What's saved is the text as it was when saving started: typing meanwhile stays unsaved.
+        const text = edit.session.text()
+        await bridge.invoke(CommandName.FilesWrite, { ...file, text })
+        edit.session.markSaved(text)
+      },
+
+      reloadFile(file) {
+        const edit = fileEdit(file)
+        // Nothing on disk the editor can show (the file went): the tab shows that instead.
+        if (edit !== undefined && !edit.session.reload()) get().stopEditing(file)
+      },
+
+      keepMyEdits(file) {
+        fileEdit(file)?.session.keepMine()
+      },
+
+      async answerUnsavedPrompt(choice) {
+        const prompt = get().unsavedPrompt
+        const answer = answerPrompt
+        if (prompt === null || answer === null) return
+        const finish = (proceed: boolean): void => {
+          answerPrompt = null
+          set({ unsavedPrompt: null })
+          answer(proceed)
+        }
+        switch (choice) {
+          case UnsavedChoice.Cancel:
+            finish(false)
+            return
+          case UnsavedChoice.Discard:
+            for (const file of prompt.files) get().stopEditing(file)
+            finish(true)
+            return
+          case UnsavedChoice.Save:
+            try {
+              for (const file of prompt.files) await get().saveFile(file)
+            } catch (error) {
+              finish(false)
+              throw error
+            }
+            finish(true)
+            return
+        }
       },
 
       async openInEditor(taskId, path) {

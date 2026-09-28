@@ -1,9 +1,15 @@
 import {
   chmodSync,
+  existsSync,
+  linkSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   truncateSync,
   utimesSync,
@@ -14,7 +20,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
 import { FileContentKind, FileThumbnailKind } from '../../shared/domain'
-import { MAX_FILE_BYTES, MAX_FILE_LINES } from '../../shared/files'
+import { MAX_FILE_BYTES, MAX_FILE_LINES, MAX_SAVE_BYTES } from '../../shared/files'
 import { MAX_THUMBNAIL_SOURCE_BYTES, type Thumbnails } from '../artifacts/thumbnails'
 import { CommandFailure } from '../bridge/errors'
 import { getOpenFiles } from '../db/repositories/open-files'
@@ -30,7 +36,10 @@ import {
   readWorkspaceFile,
   resolveWorkspaceFile,
   revealTaskFile,
+  saveFailure,
   showTaskFile,
+  writeTaskFile,
+  writeWorkspaceFile,
   type FilesContext,
 } from './files'
 
@@ -419,5 +428,153 @@ describe('revealTaskFile', () => {
   it('refuses a file that isn’t there, revealing nothing', async () => {
     expect((await failure(revealTaskFile(context, taskId, 'gone.md'))).code).toBe(BridgeErrorCode.NotFound)
     expect(context.revealPath).not.toHaveBeenCalled()
+  })
+})
+
+describe('writeWorkspaceFile', () => {
+  /** What's in a file, inside the workspace or out. */
+  const read = (path: string): string => readFileSync(path, 'utf8')
+
+  it('writes a file over in place, keeping its permissions and any hard link to it', async () => {
+    write('docs/rate-limits.md', '# Rate limits\n\nOld text that is longer than the new.\n')
+    chmodSync(join(root, 'docs', 'rate-limits.md'), 0o640)
+    linkSync(join(root, 'docs', 'rate-limits.md'), join(root, 'linked.md'))
+
+    await writeWorkspaceFile(root, 'docs/rate-limits.md', '# Rate limits\n\nNew — ünïcode.\n')
+
+    expect(read(join(root, 'docs', 'rate-limits.md'))).toBe('# Rate limits\n\nNew — ünïcode.\n')
+    expect(read(join(root, 'linked.md'))).toBe('# Rate limits\n\nNew — ünïcode.\n')
+    expect(statSync(join(root, 'docs', 'rate-limits.md')).mode & 0o777).toBe(0o640)
+  })
+
+  it('writes through a symlink that stays inside the root, to the file it leads to', async () => {
+    write('docs/rate-limits.md', 'old')
+    symlinkSync(join(root, 'docs'), join(root, 'notes'))
+
+    await writeWorkspaceFile(root, 'notes/rate-limits.md', 'new')
+
+    expect(read(join(root, 'docs', 'rate-limits.md'))).toBe('new')
+    expect(lstatSync(join(root, 'notes')).isSymbolicLink()).toBe(true)
+  })
+
+  it('makes a file that went again, in its folder or at the root', async () => {
+    mkdirSync(join(root, 'docs'))
+
+    await writeWorkspaceFile(root, 'docs/new.md', '# New\n')
+    await writeWorkspaceFile(root, 'TOP.md', 'top')
+
+    expect(read(join(root, 'docs', 'new.md'))).toBe('# New\n')
+    expect(read(join(root, 'TOP.md'))).toBe('top')
+  })
+
+  it('refuses a file whose folder isn’t there, or is a file', async () => {
+    write('README.md', 'Hi')
+
+    for (const path of ['gone/new.md', 'README.md/child']) {
+      expect((await failure(writeWorkspaceFile(root, path, 'x'))).code, path).toBe(BridgeErrorCode.NotFound)
+    }
+    expect(existsSync(join(root, 'gone'))).toBe(false)
+    expect(read(join(root, 'README.md'))).toBe('Hi')
+  })
+
+  it('refuses `..` and absolute paths, writing nothing outside the root', async () => {
+    const paths = [
+      '../secrets/token.txt',
+      'docs/../../secrets/token.txt',
+      join(outside, 'token.txt'),
+      '../secrets/new.txt',
+      join(outside, 'new.txt'),
+    ]
+    for (const path of paths) {
+      expect((await failure(writeWorkspaceFile(root, path, 'pwned'))).code, path).toBe(BridgeErrorCode.OutsideWorkspace)
+    }
+    expect(read(join(outside, 'token.txt'))).toBe('hunter2')
+    expect(readdirSync(outside)).toEqual(['token.txt'])
+  })
+
+  it('refuses a symlink out of the root, to a file or through a folder, writing nothing outside', async () => {
+    symlinkSync(join(outside, 'token.txt'), join(root, 'token.txt'))
+    symlinkSync(outside, join(root, 'vendor'))
+
+    for (const path of ['token.txt', 'vendor/token.txt', 'vendor/new.txt']) {
+      expect((await failure(writeWorkspaceFile(root, path, 'pwned'))).code, path).toBe(BridgeErrorCode.OutsideWorkspace)
+    }
+    expect(read(join(outside, 'token.txt'))).toBe('hunter2')
+    expect(readdirSync(outside)).toEqual(['token.txt'])
+  })
+
+  it('refuses a symlink to nothing, never making the file it leads to', async () => {
+    symlinkSync(join(outside, 'planted.txt'), join(root, 'planted.txt'))
+
+    const refused = await failure(writeWorkspaceFile(root, 'planted.txt', 'pwned'))
+
+    expect(refused.code).toBe(BridgeErrorCode.InvalidRequest)
+    expect(refused.message).toBe('planted.txt is a link to nothing')
+    expect(existsSync(join(outside, 'planted.txt'))).toBe(false)
+  })
+
+  it('refuses a folder, and text too large to save', async () => {
+    mkdirSync(join(root, 'docs'))
+    write('big.txt', 'small')
+
+    const folderRefused = await failure(writeWorkspaceFile(root, 'docs', 'x'))
+    expect(folderRefused).toMatchObject({ code: BridgeErrorCode.InvalidRequest, message: "docs isn't a file" })
+    const tooLarge = await failure(writeWorkspaceFile(root, 'big.txt', 'é'.repeat(MAX_SAVE_BYTES / 2 + 1)))
+    expect(tooLarge).toMatchObject({ code: BridgeErrorCode.InvalidRequest, message: 'big.txt is too large to save' })
+    expect(read(join(root, 'big.txt'))).toBe('small')
+  })
+
+  it('says plainly when it may not write the file, or make it in its folder', async () => {
+    write('locked.md', 'locked')
+    chmodSync(join(root, 'locked.md'), 0o444)
+    mkdirSync(join(root, 'sealed'))
+    chmodSync(join(root, 'sealed'), 0o555)
+    mkdirSync(join(root, 'hidden'))
+    chmodSync(join(root, 'hidden'), 0o600)
+    try {
+      await expect(writeWorkspaceFile(root, 'locked.md', 'x')).rejects.toThrow(
+        "you don't have permission to write locked.md",
+      )
+      await expect(writeWorkspaceFile(root, 'sealed/new.md', 'x')).rejects.toThrow(
+        "you don't have permission to write sealed/new.md",
+      )
+      await expect(writeWorkspaceFile(root, 'hidden/new.md', 'x')).rejects.toThrow(
+        "you don't have permission to write hidden/new.md",
+      )
+      expect(read(join(root, 'locked.md'))).toBe('locked')
+    } finally {
+      chmodSync(join(root, 'sealed'), 0o755)
+      chmodSync(join(root, 'hidden'), 0o755)
+    }
+  })
+})
+
+describe('saveFailure', () => {
+  const errno = (code: string): Error => Object.assign(new Error(`${code}: /private/tmp/x`), { code })
+
+  it('says what went wrong with a save without the file’s whole path, and passes on anything else', () => {
+    expect(saveFailure('a.md', errno('ENOENT'))).toMatchObject({ code: BridgeErrorCode.NotFound })
+    for (const code of ['EEXIST', 'ELOOP', 'EISDIR']) {
+      expect(saveFailure('a.md', errno(code)), code).toMatchObject({
+        code: BridgeErrorCode.InvalidRequest,
+        message: "a.md isn't a file",
+      })
+    }
+    expect(saveFailure('a.md', errno('EPERM'))).toMatchObject({ message: "you don't have permission to write a.md" })
+    expect(saveFailure('a.md', errno('EROFS'))).toMatchObject({ message: 'a.md is on a read-only disk' })
+    const other = errno('ENOSPC')
+    expect(saveFailure('a.md', other)).toBe(other)
+    expect(saveFailure('a.md', 'not an error')).toBe('not an error')
+  })
+})
+
+describe('writeTaskFile', () => {
+  it('saves a file of the task’s workspace, and fails for a task that is gone', async () => {
+    write('README.md', '# Acme API\n')
+
+    await writeTaskFile(context, taskId, 'README.md', '# Acme API\n\nNow with docs.\n')
+
+    expect(readFileSync(join(root, 'README.md'), 'utf8')).toBe('# Acme API\n\nNow with docs.\n')
+    expect((await failure(writeTaskFile(context, 'gone', 'README.md', 'x'))).code).toBe(BridgeErrorCode.NotFound)
   })
 })

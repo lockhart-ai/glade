@@ -15,6 +15,12 @@ export const MAX_FILE_BYTES = 512 * 1024
 export const MAX_FILE_LINES = 5000
 
 /**
+ * The largest file the editor saves (`files.write`), in bytes of UTF-8. The editor only opens files it shows whole
+ * (`MAX_FILE_BYTES`), so this leaves plenty of room to add to one.
+ */
+export const MAX_SAVE_BYTES = 8 * 1024 * 1024
+
+/**
  * The tools that change the file they name, and the input field that names it: the Files tab's changed files, and the
  * artifacts whose files a finished call may have changed.
  */

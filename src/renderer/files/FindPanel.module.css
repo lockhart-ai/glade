@@ -1,0 +1,68 @@
+/* The editor's find bar (⌘F): a slim row over the file, like the viewer's notes, with a field and three icon buttons. */
+.find {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-xl);
+  border-bottom: 1px solid var(--color-inner-border);
+  font-family: var(--font-sans);
+}
+
+/* The search field's look (`Input`), a size smaller to sit in the slim row. */
+.field {
+  box-sizing: border-box;
+  width: 240px;
+  min-width: 0;
+  height: 26px;
+  margin-right: var(--space-xs);
+  padding: 0 var(--space-item);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button-sm);
+  outline: none;
+  font: inherit;
+  font-size: var(--font-size-secondary-sm);
+  color: var(--color-text);
+}
+
+.field:hover {
+  border-color: var(--color-inner-border);
+}
+
+.field:focus {
+  border-color: var(--color-strong);
+}
+
+.field::placeholder {
+  color: var(--color-faint);
+}
+
+.button {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--color-faint);
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--color-inner-2);
+  color: var(--color-text);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+}
+
+.button svg {
+  width: 12px;
+  height: 12px;
+}

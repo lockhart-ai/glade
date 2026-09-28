@@ -4,6 +4,7 @@ import {
   bridgeError,
   BridgeErrorCode,
   CommandName,
+  type FilesWriteRequest,
   type LogRendererErrorRequest,
   type PluginsPlaceViewRequest,
   EventType,
@@ -102,6 +103,10 @@ export interface FakeMain {
   readonly openFiles?: OpenFiles[]
   /** What `files.read` answers with, by path, for any task; missing when left out. */
   readonly files?: Readonly<Record<string, FileContent>>
+  /** What `files.write` saved, oldest first. */
+  readonly writtenFiles?: FilesWriteRequest[]
+  /** When set, `files.write` refuses every save with this message (`internal`), writing nothing. */
+  refuseWrites?: string
   /** The paths `files.openInEditor` opened, oldest first. */
   readonly openedInEditor?: string[]
   /** The subagents `subagents.stop` stopped, by their `Agent` calls' tool_use ids, oldest first. */
@@ -188,6 +193,10 @@ export interface FakeMain {
   closedWindows?: number
   /** Whether `window.setTrafficLights` last told main the sidebar was collapsed; undefined before it's ever called. */
   trafficLightsCollapsed?: boolean
+  /** How many times `app.quit` quit the app. */
+  quits?: number
+  /** What the window told main about its unsaved edits (`window.setUnsavedEdits`), oldest first. */
+  readonly unsavedEdits?: boolean[]
   /**
    * The stored images `images.get` answers with, by id; `tasks.send` and `queue.add` add each message's images here,
    * as `image-1`, `image-2`… None when left out.
@@ -476,6 +485,11 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       return { questionSet }
     },
     [CommandName.FilesRead]: ({ path }) => ({ content: main.files?.[path] ?? { kind: FileContentKind.Missing } }),
+    [CommandName.FilesWrite]: (request) => {
+      if (main.refuseWrites !== undefined) return refuse(bridgeError(BridgeErrorCode.Internal, main.refuseWrites))
+      main.writtenFiles?.push(request)
+      return null
+    },
     [CommandName.FilesOpen]: ({ taskId, path }) => changeOpenFiles(taskId, (open) => withOpenedFile(open, path)),
     [CommandName.FilesClose]: ({ taskId, path }) => changeOpenFiles(taskId, (open) => withClosedFile(open, path)),
     [CommandName.FilesOpenInEditor]: ({ path }) => {
@@ -674,6 +688,14 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     },
     [CommandName.WindowSetTrafficLights]: ({ collapsed }) => {
       main.trafficLightsCollapsed = collapsed
+      return null
+    },
+    [CommandName.AppQuit]: () => {
+      main.quits = (main.quits ?? 0) + 1
+      return null
+    },
+    [CommandName.WindowSetUnsavedEdits]: ({ unsaved }) => {
+      main.unsavedEdits?.push(unsaved)
       return null
     },
     [CommandName.LogRendererError]: (error) => {
