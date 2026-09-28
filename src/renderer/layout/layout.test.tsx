@@ -28,6 +28,7 @@ import {
 import appShellStyles from './AppShell.module.css'
 import bottomBarStyles from './BottomBar.module.css'
 import sidebarStyles from './Sidebar.module.css'
+import taskCardStyles from './TaskCard.module.css'
 
 /** The sizes and handlers every `AppShell` takes, for tests that aren't about them. */
 const SIZES = {
@@ -371,11 +372,10 @@ describe('TaskCard', () => {
     expect(within(main).queryByTestId('task-title-bar')).toBeNull()
   })
 
-  it('keeps the strip and the title row from dragging the window while a panel beside them slides (#358)', () => {
+  it('keeps the title row from dragging the window while a panel beside it slides (#358)', () => {
     const card = (panelsMoving: boolean): React.JSX.Element => (
       <ToastProvider>
         <TaskCard
-          lightsStrip
           panelsMoving={panelsMoving}
           titleBar={<button type="button">Show task list</button>}
           header={null}
@@ -387,11 +387,9 @@ describe('TaskCard', () => {
     )
     const { rerender } = render(card(true))
     const sliding = moduleClass(taskCardStyles, 'sliding')
-    expect(screen.getByTestId('lights-strip')).toHaveClass(moduleClass(taskCardStyles, 'lightsStrip'), sliding)
     expect(screen.getByTestId('task-title-bar')).toHaveClass(moduleClass(taskCardStyles, 'titleBar'), sliding)
 
     rerender(card(false))
-    expect(screen.getByTestId('lights-strip')).not.toHaveClass(sliding)
     expect(screen.getByTestId('task-title-bar')).not.toHaveClass(sliding)
   })
 

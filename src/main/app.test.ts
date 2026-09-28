@@ -736,14 +736,16 @@ describe('startApp', () => {
     await startAndWaitUntilReady()
     const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
 
-    await expect(
-      handler?.(fromWindow(), CommandName.WindowSetTrafficLights, { collapsed: true }),
-    ).resolves.toEqual({ ok: true, value: null })
+    await expect(handler?.(fromWindow(), CommandName.WindowSetTrafficLights, { collapsed: true })).resolves.toEqual({
+      ok: true,
+      value: null,
+    })
     expect(onlyWindow().setWindowButtonPosition).toHaveBeenLastCalledWith(TRAFFIC_LIGHT_POSITION_COLLAPSED)
 
-    await expect(
-      handler?.(fromWindow(), CommandName.WindowSetTrafficLights, { collapsed: false }),
-    ).resolves.toEqual({ ok: true, value: null })
+    await expect(handler?.(fromWindow(), CommandName.WindowSetTrafficLights, { collapsed: false })).resolves.toEqual({
+      ok: true,
+      value: null,
+    })
     expect(onlyWindow().setWindowButtonPosition).toHaveBeenLastCalledWith(TRAFFIC_LIGHT_POSITION)
   })
 

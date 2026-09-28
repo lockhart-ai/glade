@@ -201,8 +201,8 @@ it('keeps each panel on screen, inert, while it slides shut, and the terminal sh
   }
 })
 
-it('keeps the task card’s strip and title row from dragging the window while the sidebar or the right panel slides', async () => {
-  // #358: they move or resize with every frame of either slide, and a drag region that moves stalls the animation.
+it('keeps the task card’s title row from dragging the window while the sidebar or the right panel slides', async () => {
+  // #358: it resizes with every frame of either slide, and a drag region that moves stalls the animation.
   document.documentElement.style.setProperty(MOTION_DURATION_PROPERTY, '200ms')
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   try {
@@ -218,30 +218,25 @@ it('keeps the task card’s strip and title row from dragging the window while t
       })
     }
     const sliding = moduleClass(taskCardStyles, 'sliding')
-    const strip = (): HTMLElement => screen.getByTestId('lights-strip')
     const titleBar = (): HTMLElement => screen.getByTestId('task-title-bar')
 
-    // The sidebar slides shut: the strip and the row it hands over are there at once, but only drag once it's shut.
+    // The sidebar slides shut: the row it hands over is there at once, but only drags once it's shut.
     toggle(AppCommandId.ToggleSidebar)
-    expect(within(screen.getByRole('main', { name: 'Task' })).getByTestId('lights-strip')).toHaveClass(sliding)
     expect(titleBar()).toHaveClass(sliding)
     land()
-    expect(strip()).not.toHaveClass(sliding)
     expect(titleBar()).not.toHaveClass(sliding)
 
-    // The right panel slides shut and open beside them, which resizes them.
+    // The right panel slides shut and open beside it, which resizes it.
     for (let slide = 0; slide < 2; slide += 1) {
       toggle(AppCommandId.ToggleRightPanel)
-      expect(strip()).toHaveClass(sliding)
       expect(titleBar()).toHaveClass(sliding)
       land()
-      expect(strip()).not.toHaveClass(sliding)
       expect(titleBar()).not.toHaveClass(sliding)
     }
 
-    // The bottom bar's slide moves neither.
+    // The bottom bar's slide moves it not at all.
     toggle(AppCommandId.ToggleBottomBar)
-    expect(strip()).not.toHaveClass(sliding)
+    expect(titleBar()).not.toHaveClass(sliding)
     land()
   } finally {
     vi.useRealTimers()
