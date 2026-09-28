@@ -1,0 +1,25 @@
+/*
+ * Mirrors the message field exactly (font, padding, wrapping): see InputBar.module.css's `.bar .field`. Its own text
+ * is never shown (transparent): only each token's tinted background shows through the field's transparent one.
+ */
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: 0;
+  font: inherit;
+  font-size: var(--font-size-chat);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: transparent;
+  pointer-events: none;
+}
+
+.token {
+  background: var(--color-inner-2);
+  border-radius: 4px;
+  color: transparent;
+}

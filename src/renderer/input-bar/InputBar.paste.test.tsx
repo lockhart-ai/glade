@@ -176,6 +176,11 @@ describe('pasted text blocks', () => {
     expect(field()).toHaveValue(pasteToken(trace))
     expect(field().value).not.toContain('Traceback')
     expect(refusals()).toEqual([])
+
+    // The token is highlighted behind the field (styling only), and the highlight goes with the token when removed.
+    expect(screen.getByTestId('paste-highlight-overlay').querySelectorAll('mark')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Remove pasted text' }))
+    expect(screen.getByTestId('paste-highlight-overlay').querySelectorAll('mark')).toHaveLength(0)
   })
 
   it('marks a single line at the threshold as a pasted block too', async () => {

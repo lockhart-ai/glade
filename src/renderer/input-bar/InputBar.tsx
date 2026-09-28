@@ -41,6 +41,7 @@ import { useGladeStore, useGladeStoreApi } from '../store/react'
 import { pastedFiles, readPastedFiles } from '../images/pasted'
 import { PAUSED_PLACEHOLDER } from '../pause/pauseModel'
 import { Attachments, type Attachment } from './Attachments'
+import { PasteHighlightOverlay } from './PasteHighlightOverlay'
 import { PastedChips } from './PastedChips'
 import { QueueList } from './QueueList'
 import { SettingPicker, type SettingOption } from './SettingPicker'
@@ -216,6 +217,8 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   /** Stop's keys, for its tooltip (`Stop (⌘.)`); `useStopShortcut` handles the shortcut itself. */
   const stopKeys = bindingHint(WindowCommandId.StopAgent, keymap)
   const field = useRef<HTMLTextAreaElement>(null)
+  // The paste-highlight overlay behind the field (#363), kept in step with its scroll position.
+  const overlay = useRef<HTMLDivElement>(null)
   const keepInputDraft = useGladeStore((state) => state.keepInputDraft)
   const loadInputDraft = useGladeStore((state) => state.loadInputDraft)
   const saveInputDraft = useGladeStore((state) => state.saveInputDraft)
@@ -339,6 +342,30 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     answeredRef.current = focusRequest
     field.current?.focus()
   }, [focusRequest, answeredRef])
+
+  /** Keeps the paste-highlight overlay's scroll position in step with the field's (#363), which it sits behind. */
+  const syncOverlayScroll = useCallback(() => {
+    const element = field.current
+    if (element !== null && overlay.current !== null) overlay.current.scrollTop = element.scrollTop
+  }, [])
+
+  // The field's height (so its scroll range) can change with what you type, without a scroll event of its own: keep
+  // the overlay in step every time the text changes too, once the field has laid the new text out.
+  useEffect(() => {
+    syncOverlayScroll()
+  }, [draft, syncOverlayScroll])
+
+  // And when the bar itself is resized (the window, the sidebar or the right panel), which rewraps the text without
+  // the field scrolling on its own either.
+  useEffect(() => {
+    const element = field.current
+    if (element === null) return
+    const observer = new ResizeObserver(syncOverlayScroll)
+    observer.observe(element)
+    return () => {
+      observer.disconnect()
+    }
+  }, [syncOverlayScroll])
 
   const send = async (): Promise<void> => {
     const text = draft.trim()
@@ -569,21 +596,25 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
       />
       <Attachments attachments={attachments} refusals={refusals} onRemove={removeAttachment} />
       <div className={styles.compose}>
-        <Textarea
-          {...MESSAGE_FIELD_PROPS}
-          ref={field}
-          label="Message the agent"
-          placeholder={placeholder(task, started, working)}
-          className={styles.field}
-          value={draft}
-          onChange={(event) => {
-            const next = event.target.value
-            setPastedBlocks((current) => reconcilePastedBlocks(draft, next, current))
-            setDraft(next)
-          }}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-        />
+        <div className={styles.fieldWrap}>
+          <PasteHighlightOverlay ref={overlay} text={draft} />
+          <Textarea
+            {...MESSAGE_FIELD_PROPS}
+            ref={field}
+            label="Message the agent"
+            placeholder={placeholder(task, started, working)}
+            className={styles.field}
+            value={draft}
+            onChange={(event) => {
+              const next = event.target.value
+              setPastedBlocks((current) => reconcilePastedBlocks(draft, next, current))
+              setDraft(next)
+            }}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+            onScroll={syncOverlayScroll}
+          />
+        </div>
         {working && (
           <button
             type="button"

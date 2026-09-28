@@ -19,9 +19,10 @@ export interface PastedBlockRowProps {
 }
 
 /**
- * A block of text pasted into your message, in the chat (#363): collapsed to its line count, expanding in place to
- * the pasted text itself (never rendered as Markdown: it's shown verbatim, as a code block is). Starts collapsed,
- * unless the sidebar search's match is inside it.
+ * A block of text pasted into your message, inline in the chat bubble (#363), at the same place its token sat among
+ * the typed text: a subtle inset row collapsed to its line count, expanding in place to the pasted text itself (never
+ * rendered as Markdown: it's shown verbatim, as a code block is, and scrolls if it's long). Starts collapsed, unless
+ * the sidebar search's match is inside it.
  */
 export function PastedBlockRow({ block, highlight }: PastedBlockRowProps): React.JSX.Element {
   // A fresh copy to test: `highlight` is a shared, stateful global regex (its `lastIndex` moves as it's used
@@ -33,7 +34,7 @@ export function PastedBlockRow({ block, highlight }: PastedBlockRowProps): React
   const open = toggled ?? matchedInside
   const bodyId = useId()
   return (
-    <section aria-label={pastedBlockLabel(block)} className={styles.row}>
+    <div className={styles.row}>
       <button
         type="button"
         className={styles.line}
@@ -58,6 +59,6 @@ export function PastedBlockRow({ block, highlight }: PastedBlockRowProps): React
           </code>
         </pre>
       </Collapse>
-    </section>
+    </div>
   )
 }

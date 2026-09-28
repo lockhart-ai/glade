@@ -157,10 +157,19 @@
   padding: var(--space-md) var(--space-md) var(--space-md) var(--space-xl);
 }
 
-/* Two lines to start, growing with what you type up to a limit, then scrolling. */
-.bar .field {
+/* Wraps the field and its paste-highlight overlay (#363): sized by the field, which stays in normal flow so
+   field-sizing still grows it; the overlay stretches to match, absolutely positioned, behind it. */
+.fieldWrap {
+  position: relative;
   flex-grow: 1;
   min-width: 0;
+}
+
+/* Two lines to start, growing with what you type up to a limit, then scrolling. */
+.bar .field {
+  position: relative;
+  z-index: 1;
+  width: 100%;
   min-height: 2lh;
   max-height: 240px;
   field-sizing: content;

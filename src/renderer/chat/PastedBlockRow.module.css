@@ -1,15 +1,13 @@
 /*
- * A pasted block in the chat (#363, docs/design/html/33-pasted-content.html): the same collapsed-line shape as the
- * Backfilled card (HandoffCard.module.css), sized to sit under a user bubble.
+ * A pasted block inline inside the user bubble (#363, docs/design/html/33-pasted-content.html): a subtle inset, not a
+ * card of its own — translucent overlays over the bubble's own colour, so it reads the same on any bubble hue.
  */
 .row {
-  max-width: 520px;
-  align-self: flex-end;
+  margin: var(--space-xs) 0;
   display: flex;
   flex-direction: column;
-  background: var(--color-inner);
-  border: 1px solid var(--color-inner-border);
-  border-radius: var(--radius-nested);
+  background: rgb(255 255 255 / 8%);
+  border-radius: 8px;
   overflow: hidden;
 }
 
@@ -19,30 +17,30 @@
   gap: 8px;
   width: 100%;
   min-width: 0;
-  padding: 8px 12px;
+  padding: 6px 10px;
   background: transparent;
   border: 0;
   font: inherit;
   font-size: var(--font-size-secondary-sm);
-  color: var(--color-muted);
+  color: rgb(255 255 255 / 85%);
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
 }
 
 .line:hover {
-  color: var(--color-text);
+  background: rgb(255 255 255 / 8%);
 }
 
 .line:focus-visible {
   outline: 2px solid var(--color-blue-text);
   outline-offset: -2px;
-  border-radius: var(--radius-nested);
+  border-radius: 8px;
 }
 
 .icon {
   display: flex;
-  color: var(--color-faint);
+  color: rgb(255 255 255 / 60%);
 }
 
 .label {
@@ -54,20 +52,21 @@
 .chevron {
   margin-left: auto;
   display: flex;
-  color: var(--color-faint);
+  color: rgb(255 255 255 / 60%);
 }
 
+/* The pasted text itself: a darker well inside the row, scrolling if it's long rather than growing the bubble forever. */
 .body {
   margin: 0;
-  max-height: 360px;
+  max-height: 240px;
   overflow: auto;
-  padding: 10px 12px;
-  background: var(--color-bg);
-  border-top: 1px solid var(--color-inner-border);
+  padding: 8px 10px;
+  background: rgb(0 0 0 / 20%);
+  border-top: 1px solid rgb(255 255 255 / 8%);
   font-family: var(--font-mono);
   font-size: 12.5px;
   line-height: 1.55;
-  color: var(--color-muted);
+  color: rgb(255 255 255 / 85%);
   white-space: pre-wrap;
   word-break: break-word;
 }

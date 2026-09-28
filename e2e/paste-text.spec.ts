@@ -40,6 +40,10 @@ test('pasting: a big paste becomes a chip, never landing in the field, and the a
   await expect(bar.field).toHaveValue(/^Here's the error: \[Pasted text · 3 lines\]$/)
   await expect(bar.field).not.toHaveValue(/KeyError/)
 
+  // The token is highlighted behind the field, styling only (the field itself stays the one true copy of the text).
+  const highlight = glade.window.getByTestId('paste-highlight-overlay').locator('mark')
+  await expect(highlight).toHaveText('[Pasted text · 3 lines]')
+
   await bar.field.fill(`${await bar.field.inputValue()} any ideas?`)
   await bar.field.press('Enter')
 

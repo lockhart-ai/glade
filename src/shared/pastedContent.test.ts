@@ -7,6 +7,7 @@ import {
   messageSegments,
   PASTE_LENGTH_THRESHOLD,
   pasteToken,
+  pasteTokenRanges,
   pastedLineCount,
   randomPasteId,
   reconcilePastedBlocks,
@@ -204,6 +205,31 @@ describe('tokenEndingAt and tokenStartingAt', () => {
     const text = `x ${token} y`
     expect(tokenEndingAt(text, [], 2 + token.length)).toBeNull()
     expect(tokenStartingAt(text, [], 2)).toBeNull()
+  })
+})
+
+describe('pasteTokenRanges', () => {
+  it('is empty for text with no token', () => {
+    expect(pasteTokenRanges('hello there')).toEqual([])
+    expect(pasteTokenRanges('')).toEqual([])
+  })
+
+  it('is one range for one token, at its exact position', () => {
+    const token = pasteToken('a\nb')
+    const text = `before ${token} after`
+    const start = 'before '.length
+    expect(pasteTokenRanges(text)).toEqual([{ start, end: start + token.length }])
+    expect(text.slice(start, start + token.length)).toBe(token)
+  })
+
+  it('is a range per token, in order, for several', () => {
+    const a = pasteToken('a\nb')
+    const b = pasteToken('c\nd\ne')
+    const text = `${a} and ${b}`
+    const ranges = pasteTokenRanges(text)
+    expect(ranges).toHaveLength(2)
+    expect(text.slice(ranges[0]?.start, ranges[0]?.end)).toBe(a)
+    expect(text.slice(ranges[1]?.start, ranges[1]?.end)).toBe(b)
   })
 })
 

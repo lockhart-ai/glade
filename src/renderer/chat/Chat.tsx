@@ -65,7 +65,8 @@ interface HighlightProps {
 
 function UserMessage({ message, highlight }: UserEntry & HighlightProps): React.JSX.Element {
   // Your own words, and each pasted block at its place among them, collapsed to its line count (#363): the tokens
-  // that mark their place never show, and the tags the agent gets never reach here at all.
+  // that mark their place never show, and the tags the agent gets never reach here at all. One bubble, not a bubble
+  // per typed run and a card per block: a pasted block is a subtle inset row inside it, where it was pasted.
   const segments = messageSegments(message.body, message.pastedBlocks)
   return (
     <article aria-label="You" className={styles.user}>
@@ -74,16 +75,16 @@ function UserMessage({ message, highlight }: UserEntry & HighlightProps): React.
           <ImageThumbnails images={message.images} className={styles.image} />
         </div>
       )}
-      {segments.map((segment, index) =>
-        segment.kind === 'typed' ? (
-          segment.text !== '' && (
-            <div key={index} className={styles.bubble}>
-              <LinkedText text={segment.text} pattern={highlight} />
-            </div>
-          )
-        ) : (
-          <PastedBlockRow key={segment.block.id} block={segment.block} highlight={highlight} />
-        ),
+      {message.body !== '' && (
+        <div className={styles.bubble}>
+          {segments.map((segment, index) =>
+            segment.kind === 'typed' ? (
+              <LinkedText key={index} text={segment.text} pattern={highlight} />
+            ) : (
+              <PastedBlockRow key={segment.block.id} block={segment.block} highlight={highlight} />
+            ),
+          )}
+        </div>
       )}
       <span className={styles.meta}>you · {clockTime(message.createdAt)}</span>
     </article>

@@ -35,6 +35,20 @@ export function pasteToken(text: string): string {
  */
 export const PASTE_TOKEN_PATTERN = /\[Pasted text · \d+ lines?\]/g
 
+/** A span of text, as a character range: `text.slice(start, end)`. */
+export interface TextRange {
+  readonly start: number
+  readonly end: number
+}
+
+/** Every pasted-block token's character range in typed text, in order (for highlighting it in the input). */
+export function pasteTokenRanges(text: string): TextRange[] {
+  return [...text.matchAll(PASTE_TOKEN_PATTERN)].map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+  }))
+}
+
 /** A run of typed text, or a pasted block, in the order they make up a message. */
 export type MessageSegment =
   { readonly kind: 'typed'; readonly text: string } | { readonly kind: 'pasted'; readonly block: PastedBlock }
