@@ -719,6 +719,35 @@ describe('the image viewer', () => {
     expect(trigger).toHaveFocus()
   })
 
+  it('steps only through the image artifacts the list shows, not those in a folded date group (#378)', async () => {
+    // An older screenshot, declared too: its file last changed in August, so it sits under Older, folded as it starts.
+    const august = artifact('out/screens/landing-light.png', 'Landing page, light theme', local(2026, 8, 3, 9, 0))
+    const { store } = await renderTab({ artifacts: [...ARTIFACTS, august], files: IMAGE_FILES })
+    expect(screen.getByRole('button', { name: /^Older/ })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('listitem', { name: 'Landing page, light theme' })).not.toBeInTheDocument()
+
+    let viewer = await openViewer('Landing page, dark theme')
+    expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('1 of 2')
+    fireEvent.keyDown(viewer, { key: 'ArrowRight' })
+    expect(viewerTitle(viewer)).toBe('Search results on mobile')
+    expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('2 of 2')
+    // Round to the first, never to the folded one.
+    fireEvent.keyDown(viewer, { key: 'ArrowRight' })
+    expect(viewerTitle(viewer)).toBe('Landing page, dark theme')
+    fireEvent.keyDown(viewer, { key: 'Escape' })
+    await settleFloating()
+
+    // Opened, Older lists it, and the viewer steps to it as well, last, in the list's order.
+    await act(async () => {
+      await store.getState().setArtifactGroupOpen('t1', ArtifactDateGroup.Older, true)
+    })
+    viewer = await openViewer('Landing page, dark theme')
+    expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('1 of 3')
+    fireEvent.keyDown(viewer, { key: 'ArrowLeft' })
+    expect(viewerTitle(viewer)).toBe('Landing page, light theme')
+    expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('3 of 3')
+  })
+
   it('opens on a focused row’s ↵ (as a click on a button does) and with the Open action', async () => {
     await renderTab({ files: IMAGE_FILES })
 

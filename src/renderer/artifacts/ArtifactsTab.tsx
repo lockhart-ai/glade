@@ -85,8 +85,8 @@ interface ArtifactRowProps {
 /**
  * One artifact, in one 40px row: a thumbnail of an image (once main has made it), or its type's tile, then its title,
  * its type and how long ago its file changed. Hovered or focused, the age gives way to Open, Reveal in folder and More
- * (its context menu). Clicking an image artifact (or Open) opens the image viewer, stepping through the task's image
- * artifacts; any other artifact opens in the Files tab, as before. A file that's gone shows muted, as missing, and
+ * (its context menu). Clicking an image artifact (or Open) opens the image viewer, stepping through the image artifacts
+ * the list shows; any other artifact opens in the Files tab, as before. A file that's gone shows muted, as missing, and
  * can't be opened or revealed.
  */
 const ArtifactRow = memo(function ArtifactRow({
@@ -361,9 +361,16 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
   const groups = useMemo(() => groupArtifacts(artifacts, now), [artifacts, now])
   const { openBelow, targetProps } = menu
 
-  // The image viewer, over an image artifact: which of the task's image artifacts, in the tab's own (newest-first)
-  // order across every date group, whichever are folded; null while it's shut.
-  const imageArtifacts = useMemo(() => groups.flatMap(({ items }) => items).filter(isImageArtifact), [groups])
+  // The image viewer, over an image artifact: which of the image artifacts the list shows, in its own (newest-first)
+  // order; null while it's shut. Those in a folded date group aren't listed, so it never steps to them (#378).
+  const imageArtifacts = useMemo(
+    () =>
+      groups
+        .filter(({ group }) => isGroupOpen(group, folds))
+        .flatMap(({ items }) => items)
+        .filter(isImageArtifact),
+    [groups, folds],
+  )
   const [viewingPath, setViewingPath] = useState<string | null>(null)
   const viewerReturnFocus = useRef<HTMLElement | null>(null)
   const viewingIndex = viewingPath === null ? -1 : imageArtifacts.findIndex((artifact) => artifact.path === viewingPath)
