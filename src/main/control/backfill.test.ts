@@ -15,7 +15,7 @@ import { listArtifacts } from '../db/repositories/artifacts'
 import { getExternalId, getHandoff } from '../db/repositories/backfills'
 import { getTask, listTasks } from '../db/repositories/tasks'
 import { createWorkspace } from '../db/repositories/workspaces'
-import { checkArtifacts, startedAt } from './backfill'
+import { checkArtifacts } from './backfill'
 import { createControl } from './control'
 import { ControlErrorCode } from './errors'
 import { ControlToolName } from './names'
@@ -200,7 +200,8 @@ describe('create_task, backfilling a past task', () => {
     })
 
     expect(page.tasks.map(({ id }) => id)).toEqual([april.id, march.id, february.id])
-    expect(current(april.id).doneAt).toBe(Date.parse('2026-04-02'))
+    // A date alone is that day at local noon.
+    expect(current(april.id).doneAt).toBe(new Date(2026, 3, 2, 12).getTime())
     expect(current(february.id).doneAt).toBe(Date.parse('2026-02-20T16:30:00Z'))
   })
 
@@ -495,7 +496,7 @@ describe('a backfill of 200 tasks', () => {
   })
 })
 
-describe('checkArtifacts and startedAt', () => {
+describe('checkArtifacts', () => {
   it('refuses a relative path the schema let through, and names the field it was given', async () => {
     await expect(checkArtifacts(root, [{ path: 'a.md' }], 'files')).rejects.toThrow(
       "files.0.path: a.md isn't an absolute path",
@@ -508,11 +509,5 @@ describe('checkArtifacts and startedAt', () => {
     const file = note('locked/a.md')
     // A thrown value that isn't an Error still says what it was.
     await expect(checkArtifacts('\0', [{ path: file }], 'artifacts')).rejects.toThrow(/^artifacts\.0\.path: /)
-  })
-
-  it('reads an ISO date as UTC midnight and a date and time with its offset, and refuses a time to come', () => {
-    expect(startedAt('2026-03-12', Date.parse('2026-09-25'))).toBe(Date.UTC(2026, 2, 12))
-    expect(startedAt('2026-03-12T10:00:00+01:00', Date.parse('2026-09-25'))).toBe(Date.UTC(2026, 2, 12, 9))
-    expect(() => startedAt('2026-09-26', Date.parse('2026-09-25'))).toThrow('startedAt: 2026-09-26 is in the future')
   })
 })

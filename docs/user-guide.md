@@ -539,15 +539,15 @@ this up."*, and it knows where it was.
 
    > *"For each folder in notes/, read its files and create a done Glade task for it with create_task: a title, an
    > objective, a handoff note in Markdown (what it was, where it got to, decisions, next steps, where its files are),
-   > its notes files as artifacts (absolute paths), its start date as startedAt from the earliest date in the notes,
-   > state: done, and the folder's path as externalId."*
+   > its notes files as artifacts (absolute paths), its outcome as its status, its start date as startedAt from the
+   > earliest date in the notes and the latest as updatedAt, state: done, and the folder's path as externalId."*
 
    For many folders, have it write a script instead:
 
    > *"Write a Node script that goes through each folder in ~/code/api/notes, reads its notes, and creates a Glade task
    > for it through `$GLADE_CONTROL_URL/v1/tools/create_task` with a title, objective, status, a handoff note, its files
-   > as artifacts, its original start date, `state: done`, and the folder path as `externalId`. Back off on 429. Try it
-   > on two folders first, then run it on all of them."*
+   > as artifacts, its original start date as `startedAt` and last date as `updatedAt`, `state: done`, and the folder
+   > path as `externalId`. Back off on 429. Try it on two folders first, then run it on all of them."*
 
 4. Open one of the new tasks in the Done section, read its Backfilled card, and send it a message to pick it up.
 
@@ -558,8 +558,13 @@ Good to know:
 - A backfilled task never starts its agent by itself; it waits for your message.
 - The handoff note is Markdown, at most 32 KB. The agent can replace or clear it later with `update_task`; the window
   never edits it.
-- A start date in the future, or an artifact that isn't a file inside the workspace, is refused, naming the problem,
-  and nothing is created.
+- **Dates:** each task sits in the Done section at its `updatedAt` (its start date, if it has none). A date alone, like
+  `2026-03-12`, means that day where you are, so it never lands a day early; give a time with its offset
+  (`2026-03-12T09:00:00-04:00`) to mean a time of day. A date in the future, or an artifact that isn't a file inside
+  the workspace, is refused, naming the problem, and nothing is created.
+- **Fixing things later:** `update_task` can set a task's status with its true date (`status` with `updatedAt`),
+  put a date right (`updatedAt` alone), or change its `externalId` when its notes folder moves. A status set without
+  `updatedAt` dates the task now and moves it to the top.
 
 ### Scripting
 

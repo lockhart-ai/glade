@@ -84,6 +84,7 @@ function move(context: TaskServiceContext, id: string, transition: TaskTransitio
 export interface NewTaskFields {
   readonly title?: string
   readonly objective?: string
+  readonly status?: string
   readonly model?: string
   readonly effort?: Effort
   readonly permissionMode?: PermissionMode
@@ -124,6 +125,7 @@ export function insertNewTask(
       permissionMode: fields.permissionMode ?? defaultPermissionMode,
       ...(fields.title === undefined ? {} : { title: fields.title }),
       ...(fields.objective === undefined ? {} : { objective: fields.objective }),
+      ...(fields.status === undefined ? {} : { status: fields.status }),
     },
     now,
   )
@@ -166,6 +168,15 @@ export interface TaskChange extends TaskUserPatch {
   readonly status?: string
 }
 
+/**
+ * Dates a change gives rather than stamps (the control API's `update_task`, backfilling a task's true dates): each wins
+ * over the time of the change.
+ */
+export interface TaskDates {
+  readonly updatedAt?: EpochMs
+  readonly statusUpdatedAt?: EpochMs
+}
+
 /** What changing a task needs besides the database: the runner, to tell a live session its new permission mode. */
 export interface TaskChangeContext extends TaskServiceContext {
   readonly runner: Pick<AgentRunner, 'applyPermissionMode'>
@@ -174,13 +185,25 @@ export interface TaskChangeContext extends TaskServiceContext {
 /**
  * Changes a task (`tasks.update`, and the control API's `update_task`) in one write. A new permission mode reaches the
  * task's running session at once: it applies from the agent's next tool call, not its next turn. A new model keeps the
- * task's effort only if it supports it, as `updateTaskFromUser` does.
+ * task's effort only if it supports it, as `updateTaskFromUser` does. `dates` it gives win over the time of the change.
  */
-export function changeTask(context: TaskChangeContext, id: string, change: TaskChange): Task {
+export function changeTask(context: TaskChangeContext, id: string, change: TaskChange, dates: TaskDates = {}): Task {
   const { title, objective, status, pinned, unread, model, permissionMode } = change
+  const { updatedAt, statusUpdatedAt } = dates
   // A new model keeps the task's effort only if it supports it.
   const effort = effortWithModel(context.db, model, change.effort, requireTask(context.db, id).effort)
-  const task = write(context, id, { title, objective, status, pinned, unread, model, effort, permissionMode })
+  const task = write(context, id, {
+    title,
+    objective,
+    status,
+    pinned,
+    unread,
+    model,
+    effort,
+    permissionMode,
+    updatedAt,
+    statusUpdatedAt,
+  })
   if (permissionMode !== undefined) context.runner.applyPermissionMode(id)
   return task
 }

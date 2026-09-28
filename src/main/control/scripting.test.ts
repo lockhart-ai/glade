@@ -261,7 +261,7 @@ describe('backfilling over the plain JSON API', () => {
     const made = await call(ControlToolName.CreateTask, backfill)
     expect(made.status).toBe(200)
     expect(made.json.created).toBe(true)
-    expect(taskOf(made)).toMatchObject({ state: TaskState.Done, doneAt: Date.parse('2026-03-12') })
+    expect(taskOf(made)).toMatchObject({ state: TaskState.Done, doneAt: new Date(2026, 2, 12, 12).getTime() })
 
     const again = await call(ControlToolName.CreateTask, backfill)
     expect(again.status).toBe(200)

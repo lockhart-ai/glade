@@ -99,7 +99,23 @@ A call is checked in this order: the switch, the caller's rate limit, the input,
 checks (`not_found`, `invalid_transition`, `confirm_required`). A tool name the server doesn't have is a protocol error
 (MCP's invalid params), not a tool error.
 
-Times are epoch milliseconds. Ids are Glade's (UUIDs), except `sessionId`, which is the SDK's.
+Times Glade answers with are epoch milliseconds. Ids are Glade's (UUIDs), except `sessionId`, which is the SDK's.
+
+## Dates
+
+The dates the API takes (`create_task`'s `startedAt`, `updatedAt` and `statusUpdatedAt`, and `update_task`'s
+`updatedAt` and `statusUpdatedAt`) are ISO 8601 strings, all read the same way (`src/main/control/dates.ts`):
+
+| Given | Means |
+|---|---|
+| A date and time with its offset: `2026-09-25T09:00:00+01:00`, `2026-09-25T08:00:00Z`, `2026-09-25T08:00:00.250Z` | That instant, exactly, wherever Glade runs. |
+| A date alone: `2026-09-25` | That day where Glade runs: **noon, local time**, so it's that day whatever the time zone, never the day before or after. For today, before noon, it's now. |
+| A date and time without an offset (`2026-09-25T09:00:00`), anything else, or a number | Refused: `invalid_input`, e.g. `startedAt: must be an ISO 8601 date (2026-09-25) or a date and time with its offset (2026-09-25T09:00:00+01:00, or Z)`. |
+
+A date in the future is refused (`startedAt: 2026-09-26 is in the future`), as is one that isn't a day of its month
+(`2026-02-30`). So, where Glade runs in Toronto (UTC−4 in September), `"2026-09-25"` is `2026-09-25T16:00:00Z`, and in
+Tokyo it's `2026-09-25T03:00:00Z`: the Sep 25 the sidebar shows either way. To mean a time of day, give it with its
+offset.
 
 ## Scripting
 
@@ -165,21 +181,24 @@ async function call(tool, input) {
 const { workspaces } = await call('list_workspaces', {})
 const workspaceId = workspaces.find((workspace) => workspace.name === 'Acme API').id
 const root = '/Users/sample/code/api'
+// Dates alone mean that day, local time ("Dates").
 const folders = [
-  { folder: 'notes/rate-limits', title: 'Rate limit /search', started: '2026-03-12', handoff: '### Next\n\nAdd the Retry-After header.' },
-  { folder: 'notes/billing-webhooks', title: 'Migrate billing webhooks to v2', started: '2026-04-02', handoff: '### Next\n\nMap subscription.*.' },
+  { folder: 'notes/rate-limits', title: 'Rate limit /search', status: 'Shipped behind a flag.', started: '2026-03-12', updated: '2026-03-19', handoff: '### Next\n\nAdd the Retry-After header.' },
+  { folder: 'notes/billing-webhooks', title: 'Migrate billing webhooks to v2', status: 'Invoices on v2; subscriptions next.', started: '2026-04-02', updated: '2026-04-21', handoff: '### Next\n\nMap subscription.*.' },
 ]
 // A few at a time; a folder already backfilled returns its task with created: false.
 for (let at = 0; at < folders.length; at += 10) {
   const results = await Promise.all(
-    folders.slice(at, at + 10).map(({ folder, title, started, handoff }) =>
+    folders.slice(at, at + 10).map(({ folder, title, status, started, updated, handoff }) =>
       call('create_task', {
         workspaceId,
         externalId: folder,
         title,
+        status,
         handoff,
         artifacts: [{ path: `${root}/${folder}/notes.md`, title: 'Notes' }],
         startedAt: started,
+        updatedAt: updated,
         state: 'done',
       }),
     ),
@@ -216,7 +235,7 @@ interface TaskDetail extends TaskSummary {
   createdAt: number; sessionId: string | null
   handoff: { body: string; addedAt: number } | null        // its handoff note, from a backfill (P13-04)
   artifacts: { path: string; title: string; addedAt: number }[]   // the Artifacts tab, by absolute path
-  externalId: string | null                                // the externalId it was created with
+  externalId: string | null            // its externalId, as create_task gave it or update_task last changed it
   importedAt: number | null   // set on a task imported from Claude Code (added with the import tools, P13-02)
 }
 
@@ -286,11 +305,14 @@ first. A `fromTurn` past the last turn gives no turns.
 { workspaceId: string
   message?: string                      // the first message; sending it starts the agent
   title?: string; objective?: string    // set now, so the agent doesn't set them
+  status?: string                       // its one-line status, e.g. a past task's outcome
   model?: string; effort?: Effort; permissionMode?: PermissionMode    // Settings' defaults when left out
-  // Backfilling a past task (see "Backfilling past tasks"):
+  // Backfilling a past task (see "Backfilling past tasks"); dates as "Dates" says:
   handoff?: string                      // its handoff note, Markdown, at most 32 KB of UTF-8
   artifacts?: { path: string; title?: string }[]   // files of the workspace, by absolute path; title: the file name
-  startedAt?: string                    // ISO 8601: a date, or a date and time with its offset; now by default
+  startedAt?: string                    // when it started (createdAt); now by default
+  updatedAt?: string                    // when it was last updated: its place in the sidebar; see below
+  statusUpdatedAt?: string              // when its status was set; needs status; updatedAt by default
   state?: 'active' | 'done'             // default 'active'; 'done' takes no message
   externalId?: string }                 // your own id for it, e.g. the notes folder
 → { task: TaskDetail; created: boolean }
@@ -301,7 +323,36 @@ does. `model` is one the input bar's model picker offers, by the id the SDK take
 full id it stands for, such as `claude-sonnet-5`); any other is `invalid_input`, listing the ones offered. An `effort`
 the model doesn't support falls back to its default (High, where it has it), as the picker's does. The task isn't
 selected in the window.
-`created` is false only when a task already has the `externalId`: that task is returned as it is, and nothing changes.
+`created` is false only when a task already has the `externalId`: that task is returned as it is, and nothing changes
+(not its dates either).
+
+**Its dates.** A task has three: when it started (`createdAt`, the header's "started Mar 12"), when it was last updated
+(`updatedAt`, which orders the sidebar and gives each row its relative time) and when its status was set
+(`statusUpdatedAt`, the age next to the status in the header). Given explicitly, each is what you give; left out:
+
+| Field | Left out, it's |
+|---|---|
+| `startedAt` | now |
+| `updatedAt` | `statusUpdatedAt` if given, else `startedAt` |
+| `statusUpdatedAt` | `updatedAt`, when there's a `status`; none without one |
+
+They must come in that order, `startedAt` ≤ `statusUpdatedAt` ≤ `updatedAt`, none of them in the future, and
+`statusUpdatedAt` needs a `status`: otherwise the call is `invalid_input`, naming the field (`updatedAt: 2026-03-11 is
+before the task started (2026-03-12T09:00:00.000Z)`, `statusUpdatedAt: needs a status`). A task created done is done
+at its `updatedAt`, which is its `startedAt` unless you give one, so it sits in the Done section at that date.
+
+```json
+{ "workspaceId": "0b6f7c2e-5a41-4d3e-9c8a-1f2e3d4c5b6a",
+  "title": "Rate limit /search",
+  "status": "Shipped behind a flag; the Retry-After header is next.",
+  "startedAt": "2026-03-12",
+  "updatedAt": "2026-03-19T17:40:00-04:00",
+  "state": "done",
+  "externalId": "notes/rate-limits" }
+```
+
+→ started Mar 12 at local noon; last updated, status set and done at `2026-03-19T21:40:00Z`, where the Done section
+places it.
 
 ### `update_task`
 
@@ -310,18 +361,65 @@ selected in the window.
   patch: { title?: string; objective?: string; status?: string; pinned?: boolean; unread?: boolean
            model?: string; effort?: Effort; permissionMode?: PermissionMode
            handoff?: string | null                          // a new handoff note; null clears it
-           artifacts?: { path: string; title?: string }[] } }   // more artifacts, by absolute path
+           artifacts?: { path: string; title?: string }[]   // more artifacts, by absolute path
+           externalId?: string                              // a new externalId for it
+           updatedAt?: string                               // when it was last updated, given rather than now
+           statusUpdatedAt?: string } }                     // when its status was set, given rather than now
 → { task: TaskDetail }
 ```
 
 Texts are trimmed and mustn't be empty, and a patch must change at least one field. `status` is the one-line status
 summary. A new `permissionMode` applies from the agent's next tool call, as the picker's does. A new `model` is checked
 as `create_task` checks it, and keeps the task's effort only if it supports it: otherwise the task takes the model's
-default. Done and active go
-through `mark_done` and `reopen_task`. A patch of only `unread` doesn't move the task in the sidebar, as marking it
-read or unread there doesn't, and nor does a patch of only `handoff` and `artifacts`, so a backfilled task keeps its
-date. A new handoff note reaches the agent from its next session (the next message after its current one ends, or a
-relaunch).
+default. Done and active go through `mark_done` and `reopen_task`. A new handoff note reaches the agent from its next
+session (the next message after its current one ends, or a relaunch).
+
+**Its place in the sidebar.** The sidebar's sections (and `list_tasks`) put the most recently updated task first, so a
+patch that stamps the task's `updatedAt` with now moves it to the top of its section, with "now" as its relative time.
+What each field does, alone:
+
+| Field | The task's place |
+|---|---|
+| `title` | Moves to the top of its section |
+| `objective` | Moves to the top |
+| `status` | Moves to the top (and its status is dated now, if it's a new status) |
+| `pinned` | Moves to the top, and into Pinned (or out of it) |
+| `unread` | Keeps it, as marking a task read or unread in the window does |
+| `model` | Moves to the top |
+| `effort` | Moves to the top |
+| `permissionMode` | Moves to the top |
+| `handoff` | Keeps it, so a backfilled task keeps its date |
+| `artifacts` | Keeps it |
+| `externalId` | Keeps it |
+| `updatedAt` | Sets it: the task goes where that date puts it |
+| `statusUpdatedAt` | Keeps it: only the status's date changes |
+
+A patch with several fields moves the task if any of them does, and a field set to the value it already has still
+counts (a `title` patch with the same title moves the task). **Explicit dates win:** with `updatedAt`, the task is dated
+then whatever else the patch changes, and a new `status` given with it is dated then too (unless the patch gives
+`statusUpdatedAt`). Without it, a `status` is set now, and the task moves to the top, as it always did. `update_task`
+never changes when a task was done (`doneAt`), nor when it started.
+
+The dates are read as "Dates" says. Neither may be in the future or before the task started; `statusUpdatedAt` needs a
+task with a status (one it has, or the one the patch gives), and can't be after an `updatedAt` given with it. A refused
+patch changes nothing.
+
+`externalId` replaces the task's own id for itself (or gives it one, if it was created without); `create_task` finds it
+by the new id from then on, and the old one is free. An id another task has is refused, naming that task:
+`patch.externalId: another task (7d3c…) already has notes/done/rate-limits`.
+
+For example, a status that was set after a backfill, dated when it really was, so the task stays where it was:
+
+```json
+{ "id": "5e1a…", "patch": { "status": "Shipped behind a flag.", "updatedAt": "2026-03-19T17:40:00-04:00" } }
+```
+
+A notes folder that moved to `notes/done/`, and a date put right without touching anything else:
+
+```json
+{ "id": "5e1a…", "patch": { "externalId": "notes/done/rate-limits" } }
+{ "id": "5e1a…", "patch": { "updatedAt": "2026-03-19" } }
+```
 
 ### `send_message`
 
@@ -397,17 +495,24 @@ and makes one task from it with `create_task`, giving it:
   file inside the task's workspace (a relative path, a missing file, a folder or a file outside the workspace is
   refused as `invalid_input`, naming it, e.g. `artifacts.1.path: There's no file at …`), and the whole call with it:
   nothing is created.
-- when it **started** (`startedAt`): its created time, which orders it and dates it ("started Mar 12"). A time to come
-  is refused.
-- **done** (`state: 'done'`): done at `startedAt`, so it sits in the Done section at its date. A done task takes no
-  first message; sending it one later reopens it, as for any done task.
+- its **status** (`status`): the one-line status, e.g. its outcome, which a done task keeps.
+- when it **started** (`startedAt`): its created time, which dates it ("started Mar 12"). A date alone is that day,
+  local time ("Dates"); a time to come is refused.
+- when it was **last updated** (`updatedAt`), e.g. the last date in its notes: its place in the sidebar and its
+  relative time there, and the date its status is given. Left out, it's `startedAt`. Give the true date here, rather
+  than setting the status with `update_task` afterwards, which dates the task now unless that patch gives `updatedAt`
+  too.
+- **done** (`state: 'done'`): done at `updatedAt` (so `startedAt`, if it gives none), so it sits in the Done section at
+  its date. A done task takes no first message; sending it one later reopens it, as for any done task.
 - its **external id** (`externalId`), e.g. the notes folder's path: a second `create_task` with the same id returns the
   task it made, with `created: false`, and changes nothing, so a backfill can be run again, or resumed after it stopped,
   without making duplicates.
 
 A backfilled task never starts its agent by itself: only a `message` given with an active one, or one sent to it
 later, does. `update_task` sets, replaces or clears (`null`) the handoff note and adds artifacts; `get_task` returns
-both. The window never changes the note.
+both. It also sets the status and puts the dates right (`updatedAt`, `statusUpdatedAt`), and changes the external id,
+e.g. when a task's notes folder moves (`externalId`): see `update_task` for which of these keep the task's place in the
+sidebar. The window never changes the note.
 
 **What the user sees:** a **Backfilled** card at the top of the task's chat ([`25-backfilled.html`](design/html/25-backfilled.html)), with the
 handoff note rendered as Markdown (raw HTML dropped, nothing loaded, links not followed) and the date it was added. It
@@ -449,13 +554,16 @@ workspace (root `~/code/api`). The backfilling agent reads them, then calls:
       { "path": "/Users/sample/code/api/notes/billing-webhooks/notes.md", "title": "Migration notes" },
       { "path": "/Users/sample/code/api/notes/billing-webhooks/decisions.md", "title": "Decisions" }
     ],
+    "status": "invoice.* and customer.* on v2; subscription.* next.",
     "startedAt": "2026-03-12T09:00:00+01:00",
+    "updatedAt": "2026-04-21T18:30:00+02:00",
     "state": "done",
     "externalId": "notes/billing-webhooks" } }
 ```
 
-→ `{ "task": { "id": "…", "state": "done", "doneAt": 1773302400000, "handoff": { "body": "…", "addedAt": … },
-"artifacts": [ … ], "externalId": "notes/billing-webhooks", … }, "created": true }`
+→ `{ "task": { "id": "…", "state": "done", "createdAt": 1773302400000, "updatedAt": 1776789000000,
+"statusUpdatedAt": 1776789000000, "doneAt": 1776789000000, "handoff": { "body": "…", "addedAt": … }, "artifacts": [ … ],
+"externalId": "notes/billing-webhooks", … }, "created": true }`
 
 It repeats that for each folder (`list_workspaces` first, for the workspace's id). Run again, each call answers
 `"created": false` with the task already there. Later, the user opens the task, reads the card, and sends "Let's pick
