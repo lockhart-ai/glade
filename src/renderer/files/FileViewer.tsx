@@ -202,7 +202,7 @@ export function FileViewer({
               </p>
             )}
             {preview ? (
-              <Markdown source={loaded.content.text} className={styles.preview} />
+              <Markdown source={loaded.content.text} className={styles.preview} interactiveCode={false} />
             ) : (
               <SourceView lines={lines} highlighted={highlighted} focusLine={focusLine} focusRequest={focusRequest} />
             )}

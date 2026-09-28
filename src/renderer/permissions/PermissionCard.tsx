@@ -6,7 +6,7 @@ import {
   type PermissionDecision,
   type PermissionRequest,
 } from '../../shared/domain'
-import { Button, ButtonVariant, Icon, IconSize, Input, useToast } from '../components'
+import { Button, ButtonVariant, CopyBlockButton, Icon, IconSize, Input, useToast } from '../components'
 import { classNames } from '../components/classNames'
 import { LinkedText } from '../links'
 import { APPEAR_WINDOW_MS } from '../questions/QuestionCard'
@@ -59,17 +59,28 @@ const LINE_CLASS: Readonly<Record<InputLineKind, string | undefined>> = {
   [InputLineKind.Gap]: styles.gap,
 }
 
-/** A command, change, content or JSON, in a monospace block, line by line. */
+/** The block's exact text, real newlines between its lines (#352): what a copy of it gets, blank lines and all. */
+function blockText(lines: readonly InputLine[]): string {
+  return lines.map((line) => `${LINE_PREFIX[line.kind]}${line.text}`).join('\n')
+}
+
+/**
+ * A command, change, content or JSON, in a monospace block, line by line, with a copy icon in its corner (#352):
+ * shown on hover and on focus, it copies what's shown (the whole block, or its trimmed lines until Show all).
+ */
 function InputBlock({ lines, label }: { readonly lines: readonly InputLine[]; readonly label: string }) {
   return (
-    <pre aria-label={label} className={styles.block}>
-      {lines.map((line, index) => (
-        <span key={index} className={classNames(styles.line, LINE_CLASS[line.kind])}>
-          {LINE_PREFIX[line.kind]}
-          {line.text === '' ? ' ' : line.text}
-        </span>
-      ))}
-    </pre>
+    <div className={styles.blockWrapper}>
+      <pre aria-label={label} className={styles.block}>
+        {lines.map((line, index) => (
+          <span key={index} className={classNames(styles.line, LINE_CLASS[line.kind])}>
+            {LINE_PREFIX[line.kind]}
+            {line.text === '' ? ' ' : line.text}
+          </span>
+        ))}
+      </pre>
+      <CopyBlockButton getText={() => blockText(lines)} className={styles.blockCopy} />
+    </div>
   )
 }
 

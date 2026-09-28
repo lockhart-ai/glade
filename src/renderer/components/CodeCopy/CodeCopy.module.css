@@ -1,0 +1,34 @@
+/* A code block's copy button (#352): its own anchor for the "Copied" tag, so callers only position and reveal it. */
+.wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.button {
+  width: 24px;
+  height: 24px;
+}
+
+/* The "Copied" tag: a small pill, floating above whatever it's on. */
+.tag {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  z-index: 1;
+  margin-bottom: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-menu);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-shadow: var(--shadow-toast);
+  pointer-events: none;
+}
+
+.blockTag {
+  right: -2px;
+}

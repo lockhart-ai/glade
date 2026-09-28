@@ -508,7 +508,8 @@ describe('Chat', () => {
         toolEvents: [...TURN_ONE, toolCall('c5', 2)],
       })
 
-      const chips = screen.getAllByRole('button')
+      // `getAllByRole('button')` alone would also catch the reply's own code span (#352, `60`), so name the chips.
+      const chips = screen.getAllByRole('button', { name: /tool call/ })
       expect(chips.map((chip) => chip.textContent)).toEqual(['3 tool calls', '1 tool call'])
       fireEvent.click(screen.getByRole('button', { name: '1 tool call' }))
       expect(store.getState().toolLogFocus).toEqual({ taskId: 't1', turn: 2, request: 1 })
@@ -520,7 +521,10 @@ describe('Chat', () => {
     it('is left out for a turn without tool calls', async () => {
       await renderChat({ messages: [ASK, REPLY] })
 
-      expect(within(screen.getByRole('article', { name: 'Agent' })).queryByRole('button')).toBeNull()
+      // The reply's own code span (#352, `60`) is a button too; only the chip itself is left out.
+      expect(
+        within(screen.getByRole('article', { name: 'Agent' })).queryByRole('button', { name: /tool call/ }),
+      ).toBeNull()
     })
   })
 
@@ -543,7 +547,8 @@ describe('Chat', () => {
       await renderChat({ messages: [ASK, { ...REPLY, summary: quick }] })
 
       expect(screen.getByRole('note', { name: 'Turn summary' })).toHaveTextContent(/^Finished in 8s$/)
-      expect(screen.queryByRole('button')).toBeNull()
+      // The reply's own code span (#352, `60`) is a button too; only the chip itself is left out.
+      expect(screen.queryByRole('button', { name: /tool call/ })).toBeNull()
     })
 
     it('is left out for a reply without one, or with nothing to say', async () => {

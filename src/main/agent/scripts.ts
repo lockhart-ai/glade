@@ -3053,6 +3053,36 @@ const sharesLinks: AgentScript = {
   ],
 }
 
+/** The reply `shares-code` ends on: a table of DNS records in backticks, and a fenced code block (#352). */
+export const SHARES_CODE_REPLY =
+  'Here is the mail setup:\n\n' +
+  '| Record | Value |\n' +
+  '| --- | --- |\n' +
+  '| A | `203.0.113.7` |\n' +
+  '| MX | `mail.example.com` |\n\n' +
+  'Confirm it with:\n\n' +
+  '```\n' +
+  'dig +short mail.example.com\n' +
+  '```'
+
+/** A turn that ends on a reply with a table of code spans and a fenced code block, to copy (#352). */
+const sharesCode: AgentScript = {
+  name: 'shares-code',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Check the mail DNS records',
+        'Confirm the MX record for example.com.',
+        'Checked the DNS records.',
+      ),
+      say(SHARES_CODE_REPLY),
+      result(),
+    ],
+  ],
+}
+
 /** The names a spec can ask for. */
 export const AGENT_SCRIPT_NAMES = [
   'makes-commits',
@@ -3102,6 +3132,7 @@ export const AGENT_SCRIPT_NAMES = [
   'backfills-tasks',
   'subagent-background-work',
   'shares-links',
+  'shares-code',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -3155,4 +3186,5 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'backfills-tasks': backfillsTasks,
   'subagent-background-work': subagentBackgroundWork,
   'shares-links': sharesLinks,
+  'shares-code': sharesCode,
 }

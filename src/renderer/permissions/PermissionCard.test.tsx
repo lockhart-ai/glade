@@ -99,6 +99,7 @@ async function renderChat(
   requests: PermissionRequest[],
   toolEvents: ToolEvent[] = [],
   overrides: Partial<FakeHandlers> = {},
+  copied?: string[],
 ): Promise<Rendered> {
   const fake = fakeBridge(
     {
@@ -111,6 +112,7 @@ async function renderChat(
       messages: [sampleMessage('m1', 't1', 'Run the tests.')],
       toolEvents,
       permissionRequests: requests,
+      copied,
     },
     overrides,
   )
@@ -178,6 +180,26 @@ describe('the permission card', () => {
     expect(screen.getByText(/^agent · /)).toBeInTheDocument()
   })
 
+  it("copies the command's input block whole from its corner icon (#352)", async () => {
+    const copied: string[] = []
+    await renderChat(
+      [request('p1', { input: { command: 'npm test -- --coverage', description: 'Run with coverage' } })],
+      [],
+      {},
+      copied,
+    )
+
+    expect(within(card()).getByLabelText('Command')).toHaveTextContent('npm test -- --coverage')
+    const copyButton = within(card()).getByRole('button', { name: 'Copy code' })
+    await act(async () => {
+      fireEvent.click(copyButton)
+      await Promise.resolve()
+    })
+
+    expect(copied).toEqual(['npm test -- --coverage'])
+    expect(within(card()).getByRole('button', { name: 'Copied' })).toBeInTheDocument()
+  })
+
   it('makes the URLs in what a call is for links, but not those in its command', async () => {
     await renderChat([
       request('p1', {
@@ -204,6 +226,20 @@ describe('the permission card', () => {
     expect(change).toHaveTextContent('## Upgrading')
     expect(change).toHaveTextContent('- No changes are needed.')
     expect(change).toHaveTextContent('+ Search is limited to 10 requests a second.')
+  })
+
+  it("copies an Edit's change with its +/− prefixes and real newlines between lines (#352)", async () => {
+    const copied: string[] = []
+    await renderChat([EDIT], [], {}, copied)
+
+    expect(within(card()).getByLabelText('Change')).toBeInTheDocument()
+    const copyButton = within(card()).getByRole('button', { name: 'Copy code' })
+    await act(async () => {
+      fireEvent.click(copyButton)
+      await Promise.resolve()
+    })
+
+    expect(copied).toEqual(['## Upgrading\n\n- No changes are needed.\n+ Search is limited to 10 requests a second.'])
   })
 
   it("shows a Write's file and content, and any other tool's input as formatted JSON", async () => {
