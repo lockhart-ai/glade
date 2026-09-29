@@ -207,6 +207,32 @@ describe('Settings › Plugins', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  it('reloads a plugin by hand, without rereading the folder', async () => {
+    const { invoke } = await renderPlugins([POMODORO])
+    await read()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reload Pomodoro' }))
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(CommandName.PluginsReload, { id: 'pomodoro' })
+    })
+    expect(invoke.mock.calls.filter(([command]) => command === CommandName.PluginsList)).toHaveLength(1)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('shows why a reload failed, and gives an invalid plugin no Reload button', async () => {
+    await renderPlugins([POMODORO, BROKEN], {
+      [CommandName.PluginsReload]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No plugin pomodoro')),
+    })
+    await read()
+
+    const broken = within(list()).getByRole('listitem', { name: 'weather-strip' })
+    expect(within(broken).queryByRole('button')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Reload Pomodoro' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('No plugin pomodoro')
+  })
+
   it("shows why the folder couldn't be opened", async () => {
     await renderPlugins([], {
       [CommandName.PluginsOpenFolder]: () =>

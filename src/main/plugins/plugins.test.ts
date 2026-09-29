@@ -2,14 +2,14 @@ import { existsSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
-import { PluginStatus, type InstalledPlugin } from '../../shared/plugins'
+import { PluginStatus, type InstalledPlugin, type PluginManifest } from '../../shared/plugins'
 import { CommandFailure } from '../bridge/errors'
 import { getPluginStates } from '../db/repositories/plugins'
 import { openTestDatabase, type TestDatabase } from '../db/repositories/test-database'
 import { LogLevel, LogScope } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
-import { createPlugins, type Plugins, type PluginsContext } from './plugins'
-import { sampleManifest, tempPluginsParent, writePlugin } from './test-plugins'
+import { createPlugins, pluginSignature, type Plugins, type PluginsContext } from './plugins'
+import { SAMPLE_SVG, sampleManifest, tempPluginsParent, writePlugin } from './test-plugins'
 
 let parent: string
 let folder: string
@@ -87,6 +87,44 @@ describe('list', () => {
     expect(emit.mock.calls[0]?.[0]).toMatchObject({
       plugins: [{ manifest: { version: '0.5.0' } }],
     })
+  })
+
+  it("reloads a plugin whose files changed since it was last read, but not one that didn't", async () => {
+    const onReload = vi.fn()
+    const service = plugins({ onReload })
+    writePlugin(folder, 'pomodoro')
+    writePlugin(folder, 'abacus')
+    await service.list()
+
+    // Read again with nothing touched: neither is reloaded.
+    await service.list()
+    expect(onReload).not.toHaveBeenCalled()
+
+    // pomodoro's entry file is rewritten (a new build copied in); abacus is untouched.
+    writePlugin(folder, 'pomodoro', sampleManifest(), {
+      'index.html': '<!doctype html><title>Pomodoro v2</title>',
+      'icon.svg': SAMPLE_SVG,
+    })
+    await service.list()
+
+    expect(onReload).toHaveBeenCalledExactlyOnceWith(['pomodoro'])
+  })
+
+  it("doesn't reload a plugin found for the first time, or one whose folder came back the same as it left", async () => {
+    const onReload = vi.fn()
+    const service = plugins({ onReload })
+    writePlugin(folder, 'pomodoro')
+
+    await service.list()
+    expect(onReload).not.toHaveBeenCalled()
+
+    // Removed, then reinstalled identically: nothing to compare against from before it was gone, so no reload.
+    rmSync(join(folder, 'pomodoro'), { recursive: true })
+    await service.list()
+    writePlugin(folder, 'pomodoro')
+    await service.list()
+
+    expect(onReload).not.toHaveBeenCalled()
   })
 
   it('drops a plugin removed while Glade runs, keeping its state, and brings it back as it was', async () => {
@@ -211,6 +249,74 @@ describe('setEnabled', () => {
       ['plugin turned off', { id: 'pomodoro' }],
       ['plugin turned on', { id: 'pomodoro' }],
     ])
+  })
+})
+
+describe('pluginSignature', () => {
+  it('answers null, not a rejection, for a plugin whose entry file is gone since discovery resolved it', async () => {
+    writePlugin(folder, 'pomodoro')
+    const manifest: PluginManifest = {
+      id: 'pomodoro',
+      name: 'Pomodoro',
+      version: '1.0.0',
+      entry: 'index.html',
+      icon: null,
+    }
+    rmSync(join(folder, 'pomodoro', 'index.html'))
+
+    expect(
+      await pluginSignature(folder, { status: PluginStatus.Valid, folder: 'pomodoro', manifest, iconUrl: null }),
+    ).toBeNull()
+  })
+})
+
+describe('reload', () => {
+  it('reloads a plugin by hand, without reading the folder again', async () => {
+    const onReload = vi.fn()
+    const service = plugins({ onReload })
+    writePlugin(folder, 'pomodoro')
+    await service.list()
+
+    service.reload('pomodoro')
+
+    expect(onReload).toHaveBeenCalledExactlyOnceWith(['pomodoro'])
+  })
+
+  it('reloads even when nothing on disk changed: an explicit reload, not a rescan', async () => {
+    const onReload = vi.fn()
+    const service = plugins({ onReload })
+    writePlugin(folder, 'pomodoro')
+    await service.list()
+    await service.list()
+    onReload.mockClear()
+
+    service.reload('pomodoro')
+
+    expect(onReload).toHaveBeenCalledExactlyOnceWith(['pomodoro'])
+  })
+
+  it('logs it', async () => {
+    const memory = createMemoryLog()
+    writePlugin(folder, 'pomodoro')
+    const service = plugins({ log: memory.logger })
+    await service.list()
+
+    service.reload('pomodoro')
+
+    expect(memory.records.at(-1)).toMatchObject({ message: 'plugin reloaded', fields: { id: 'pomodoro' } })
+  })
+
+  it('refuses a plugin that is invalid, unknown, or not listed yet, without touching the views', () => {
+    const onReload = vi.fn()
+    const service = plugins({ onReload })
+    writePlugin(folder, 'broken', null)
+    expect(() => {
+      service.reload('pomodoro')
+    }).toThrow('No plugin pomodoro')
+    expect(() => {
+      service.reload('broken')
+    }).toThrow('No plugin broken')
+    expect(onReload).not.toHaveBeenCalled()
   })
 })
 

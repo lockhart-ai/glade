@@ -234,6 +234,87 @@ describe('update', () => {
   })
 })
 
+describe('reload', () => {
+  it('destroys the view and makes a fresh one, placed back where it was showing', () => {
+    views.place('nekomata', bounds)
+    const first = fakes.last()
+
+    views.reload(['nekomata'])
+
+    expect(first.destroyed).toBe(true)
+    expect(fakes.views).toHaveLength(2)
+    expect(fakes.last()).toMatchObject({ bounds, destroyed: false })
+    expect(log.records).toContainEqual(
+      expect.objectContaining({ message: 'plugin view destroyed', fields: { id: 'nekomata', reason: 'reloaded' } }),
+    )
+  })
+
+  it("starts the handshake over: the fresh page's ready gets a new hello and snapshot", () => {
+    views.place('nekomata', bounds)
+    fakes.last().post({ type: 'ready' })
+
+    views.reload(['nekomata'])
+    fakes.last().post({ type: 'ready' })
+
+    expect(fakes.last().sent).toEqual(GREETING)
+  })
+
+  it('destroys a hidden view without remaking it, leaving it to the next place', () => {
+    views.place('nekomata', bounds)
+    views.place('nekomata', null)
+    const first = fakes.last()
+
+    views.reload(['nekomata'])
+
+    expect(first.destroyed).toBe(true)
+    expect(fakes.views).toHaveLength(1)
+
+    views.place('nekomata', bounds)
+    expect(fakes.views).toHaveLength(2)
+    expect(fakes.last()).toMatchObject({ bounds, destroyed: false })
+  })
+
+  it("does nothing for a plugin that isn't shown", () => {
+    views.place('nekomata', bounds)
+
+    views.reload(['pomodoro'])
+    views.reload([])
+
+    expect(fakes.views).toHaveLength(1)
+    expect(fakes.last().destroyed).toBe(false)
+  })
+
+  it('does nothing without a view to reload', () => {
+    views.reload(['nekomata'])
+
+    expect(fakes.views).toEqual([])
+  })
+
+  it('does nothing once the plugin is off or gone: update already destroyed its view', () => {
+    views.place('nekomata', bounds)
+    views.update([invalid, valid('pomodoro')])
+    const first = fakes.last()
+
+    views.reload(['nekomata'])
+
+    expect(first.destroyed).toBe(true)
+    expect(fakes.views).toHaveLength(1)
+  })
+
+  it("makes nothing when the view can't be made again, but forgets the old one", () => {
+    views.place('nekomata', bounds)
+    fakes.refuseNext()
+
+    views.reload(['nekomata'])
+
+    expect(fakes.views).toHaveLength(1)
+    expect(fakes.last().destroyed).toBe(true)
+
+    views.place('nekomata', bounds)
+    expect(fakes.views).toHaveLength(2)
+  })
+})
+
 describe("the page's messages", () => {
   beforeEach(() => {
     views.place('nekomata', bounds)

@@ -25,7 +25,8 @@ import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from
 import { registerBridge } from '.'
 import { fakeIpcPair } from './fake-ipc'
 import { fakeTerminalOptions } from '../terminal/fake-pty'
-import { UNREAD_PLUGINS_FOLDER } from '../plugins/test-plugins'
+import { createFakePluginViews } from '../plugins/fake-view'
+import { UNREAD_PLUGINS_FOLDER, writePlugin } from '../plugins/test-plugins'
 
 let database: TestDatabase
 let glade: GladeBridge
@@ -278,6 +279,45 @@ describe('the Artifacts tab watching a task', () => {
       await expect(glade.invoke(CommandName.ArtifactsUnwatch, { taskId })).resolves.toBeNull()
     } finally {
       rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('a plugin reinstalled while Glade runs', () => {
+  it('reloads its view, shown or not, once a rescan finds it changed on disk', async () => {
+    const pluginsFolder = mkdtempSync(join(tmpdir(), 'glade-round-trip-plugins-'))
+    try {
+      writePlugin(pluginsFolder, 'pomodoro')
+      const views = createFakePluginViews()
+      const ipc = fakeIpcPair()
+      registerBridge({
+        ipc: ipc.main,
+        db: database.db,
+        targets: () => [ipc.window],
+        chooseFolder,
+        openPath: () => Promise.resolve(''),
+        revealPath: () => undefined,
+        writeClipboard: () => Promise.resolve(),
+        terminal: fakeTerminalOptions(),
+        pluginsFolder,
+        createPluginView: views.create,
+        agentBackend: new FakeAgentBackend(),
+      })
+      const window = createBridge(ipc.renderer)
+      const bounds = { x: 0, y: 0, width: 300, height: 200 }
+
+      await window.invoke(CommandName.PluginsList, {})
+      await window.invoke(CommandName.PluginsPlaceView, { id: 'pomodoro', bounds })
+      const first = views.last()
+
+      writeFileSync(join(pluginsFolder, 'pomodoro', 'index.html'), '<!doctype html><title>Pomodoro v2</title>')
+      await window.invoke(CommandName.PluginsList, {})
+
+      expect(first.destroyed).toBe(true)
+      expect(views.last()).toMatchObject({ bounds, destroyed: false })
+      expect(views.views).toHaveLength(2)
+    } finally {
+      rmSync(pluginsFolder, { recursive: true, force: true })
     }
   })
 })

@@ -7,8 +7,9 @@
  * handler runs, and turns a failed check, or a handler that throws, into a tool error for the model; nothing a call
  * sends can crash the app.
  *
- * `ask` blocks: its handler waits until you answer (`../questions/questions`), however long that takes. SDK tool calls
- * have no timeout by default (`docs/sdk-notes.md` §3).
+ * `ask` blocks: its handler waits until you answer (`../questions/questions`), however long that takes. Claude Code
+ * bounds every MCP tool call, about 28 hours by default, so the server raises its own bound as far as it goes
+ * (`GLADE_TOOL_TIMEOUT_MS`, `docs/sdk-notes.md` §3).
  */
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
@@ -34,6 +35,16 @@ export const ALL_UPKEEP: AgentUpkeep = { statusSummary: true, taskTitles: true }
 
 /** The server's name: the `glade` in `mcp__glade__set_title`. */
 export const GLADE_SERVER = 'glade'
+
+/**
+ * How long Claude Code lets a call to one of Glade's tools run before it fails it, in ms: 2^31 − 1, about 24.8 days,
+ * the longest it allows (it clamps a server's `timeout` to what a timer can wait). Without it, a call gets Claude
+ * Code's default of 100,000 s (about 28 hours), and an `ask` still waiting overnight and through the next day failed
+ * with `MCP server "glade" tool "ask" timed out after 100000s` (#381). The SDK sets timeouts per server, not per tool,
+ * so this covers every Glade tool; the others all return at once, so only `ask` ever waits on it. Other servers,
+ * `glade-control` and the user's own, keep Claude Code's default (`docs/sdk-notes.md` §3).
+ */
+export const GLADE_TOOL_TIMEOUT_MS = 2 ** 31 - 1
 
 /**
  * Which of a session's in-process MCP servers are Glade's own, whose tools never ask (`docs/decisions.md`, "Per-call
@@ -303,6 +314,7 @@ export function createGladeMcpServer(
   return createSdkMcpServer({
     name: GLADE_SERVER,
     alwaysLoad: true,
+    timeout: GLADE_TOOL_TIMEOUT_MS,
     tools: [
       ...(upkeep.taskTitles
         ? [

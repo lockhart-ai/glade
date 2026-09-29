@@ -9,7 +9,7 @@
  */
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, EventType } from '../../shared/bridge'
-import { TaskState, type Effort, type PermissionMode, type Task } from '../../shared/domain'
+import { TaskState, type Effort, type EpochMs, type PermissionMode, type Task } from '../../shared/domain'
 import type { AgentRunner } from '../agent/runner'
 import { emitTaskUpdated, type Emit } from '../bridge/events'
 import { CommandFailure } from '../bridge/errors'
@@ -37,6 +37,7 @@ import {
   reopenTask,
   requireTask,
   type TaskChange,
+  type TaskDates,
 } from '../tasks/service'
 import {
   createClaudeCodeSessions,
@@ -51,11 +52,11 @@ import {
   checkArtifacts,
   checkArtifactUpdates,
   planArtifactChanges,
-  startedAt as startedAtOf,
   type ArtifactRegistration,
   type ArtifactUpdateRequest,
   type CheckedArtifact,
 } from './backfill'
+import { instantOf } from './dates'
 import { ControlError, ControlErrorCode } from './errors'
 import { createListings } from './listings'
 import {
@@ -123,6 +124,8 @@ export interface NewTaskRequest {
   readonly message?: string
   readonly title?: string
   readonly objective?: string
+  /** Its one-line status. */
+  readonly status?: string
   readonly model?: string
   readonly effort?: Effort
   readonly permissionMode?: PermissionMode
@@ -130,11 +133,15 @@ export interface NewTaskRequest {
   readonly handoff?: string
   /** Files of its workspace to register as its artifacts, by absolute path. */
   readonly artifacts?: readonly ArtifactRegistration[]
-  /**
-   * When it started, as an ISO 8601 date: its created time, and its done time too when it's created done. Now by
-   * default.
-   */
+  /** When it started, as an ISO 8601 date (`./dates`): its created time. Now by default. */
   readonly startedAt?: string
+  /**
+   * When it was last updated, as an ISO 8601 date: its place in the sidebar, and its done time too when it's created
+   * done. `statusUpdatedAt`, else `startedAt`, by default.
+   */
+  readonly updatedAt?: string
+  /** When its status was set, as an ISO 8601 date; it needs a `status`. `updatedAt` by default. */
+  readonly statusUpdatedAt?: string
   /** Done creates it done, which takes no first message; active by default. */
   readonly state?: TaskState
   /** The caller's own id for it: creating a task with an id another already has answers with that task instead. */
@@ -148,8 +155,9 @@ export interface CreatedTask {
 }
 
 /**
- * The changes `update_task` makes: the task's fields, its handoff note (null clears it), and its artifacts: those to
- * take off, then those to change, then those to register.
+ * The changes `update_task` makes: the task's fields, its handoff note (null clears it), its artifacts (those to take
+ * off, then those to change, then those to register), the caller's own id for it, and its dates, as ISO 8601 dates
+ * (`./dates`), given rather than stamped.
  */
 export interface TaskUpdate extends TaskChange {
   readonly handoff?: string | null
@@ -157,6 +165,9 @@ export interface TaskUpdate extends TaskChange {
   readonly updateArtifacts?: readonly ArtifactUpdateRequest[]
   /** Artifacts to take off, by absolute path; their files stay. */
   readonly removeArtifacts?: readonly string[]
+  readonly externalId?: string
+  readonly updatedAt?: string
+  readonly statusUpdatedAt?: string
 }
 
 /** What sending a message did with it, as the input bar decides. */
@@ -308,7 +319,18 @@ export function createControlService(context: ControlServiceContext): ControlSer
     },
 
     async createTask(request) {
-      const { workspaceId, message, handoff, artifacts = [], state = TaskState.Active, externalId, ...fields } = request
+      const {
+        workspaceId,
+        message,
+        handoff,
+        artifacts = [],
+        state = TaskState.Active,
+        externalId,
+        startedAt,
+        updatedAt,
+        statusUpdatedAt,
+        ...fields
+      } = request
       requireOfferedModel(db, fields.model, 'model')
       if (state === TaskState.Done && message !== undefined) {
         throw new ControlError(
@@ -321,17 +343,21 @@ export function createControlService(context: ControlServiceContext): ControlSer
       const found = existing()
       if (found !== undefined) return { task: detailOf(found), created: false }
       const at = now()
-      const started = request.startedAt === undefined ? at : startedAtOf(request.startedAt, at)
+      const dates = creationDates({ startedAt, updatedAt, statusUpdatedAt, status: fields.status }, at)
       const checked = await checkArtifacts(summaryOf(workspaceId).rootPath, artifacts, 'artifacts')
       const write = db.transaction((): { readonly id: string; readonly created: boolean } => {
         // Another create with the same id may have finished while this one looked at the files.
         const raced = existing()
         if (raced !== undefined) return { id: raced, created: false }
-        const { id } = insertNewTask(db, workspaceId, fields, started)
+        const { id } = insertNewTask(db, workspaceId, fields, dates.started)
         if (externalId !== undefined) setExternalId(db, id, externalId)
         if (handoff !== undefined) setHandoff(db, id, handoff, at)
         registerArtifacts(id, checked, at)
-        if (state === TaskState.Done) updateTask(db, id, { state }, started)
+        // Created at its start; last updated (and done, when it's created done) at its updatedAt.
+        if (state === TaskState.Done || dates.updated !== dates.started) {
+          const patch = { updatedAt: dates.updated, statusUpdatedAt: dates.statusUpdated }
+          updateTask(db, id, state === TaskState.Done ? { ...patch, state } : patch, dates.updated)
+        }
         return { id, created: true }
       })
       const { id, created } = write()
@@ -342,7 +368,19 @@ export function createControlService(context: ControlServiceContext): ControlSer
       return { task: detailOf(id), created }
     },
 
-    async updateTask(id, { handoff, artifacts = [], updateArtifacts = [], removeArtifacts = [], ...change }) {
+    async updateTask(
+      id,
+      {
+        handoff,
+        artifacts = [],
+        updateArtifacts = [],
+        removeArtifacts = [],
+        externalId,
+        updatedAt,
+        statusUpdatedAt,
+        ...change
+      },
+    ) {
       requireOfferedModel(db, change.model, 'patch.model')
       const root = summaryOf(requireTask(db, id).workspaceId).rootPath
       const checked = await checkArtifacts(root, artifacts, 'patch.artifacts')
@@ -352,17 +390,24 @@ export function createControlService(context: ControlServiceContext): ControlSer
       const files = await Promise.all(
         updates.map(async ({ path, newPath }) => (newPath === path ? null : await lookAtArtifactFile(root, newPath))),
       )
-      // Planned against the artifacts as they are once the files have been looked at, before anything changes.
+      // Everything is checked before anything is written, with nothing awaited between, so a refused patch changes
+      // nothing and no other call can take the external id meanwhile. The artifact changes are planned against the
+      // artifacts as they are once the files have been looked at.
+      const current = requireTask(db, id)
+      const dates = updateDates({ current, change, updatedAt, statusUpdatedAt }, now())
+      if (externalId !== undefined) requireFreeExternalId(db, id, externalId)
       const plan = planArtifactChanges(listArtifacts(db, id), removals, updates, {
         removals: 'patch.removeArtifacts',
         updates: 'patch.updateArtifacts',
       })
-      // A patch of only the handoff and artifacts leaves the task as it is, so it keeps its place in the sidebar.
-      const changesTask = Object.keys(change).length > 0
-      const task = changesTask ? changeTask(context, id, change) : requireTask(db, id)
+      // Only the task's own fields and dates write the task, and `updateDates` says whether that moves it in the
+      // sidebar; the handoff, artifacts and external id alone leave it as it is.
+      const changesTask = Object.keys(change).length > 0 || updatedAt !== undefined || statusUpdatedAt !== undefined
+      const task = changesTask ? changeTask(context, id, change, dates) : current
       const at = now()
       db.transaction(() => {
         if (handoff !== undefined) setHandoff(db, id, handoff, at)
+        if (externalId !== undefined) setExternalId(db, id, externalId)
         for (const path of plan.removals) removeArtifact(db, id, path)
         for (const [index, { path, newPath, title }] of plan.changes.entries()) {
           changeArtifact(db, { taskId: id, path, newPath, title }, at)
@@ -435,5 +480,102 @@ export function requireOfferedModel(db: Database, model: string | undefined, fie
 export function requireConfirmed(confirm: boolean | undefined): void {
   if (confirm !== true) {
     throw new ControlError(ControlErrorCode.ConfirmRequired, 'Deleting a task needs confirm: true')
+  }
+}
+
+/** A new task's dates, as `create_task` gives them, before they're checked. */
+interface CreationDateInput {
+  readonly startedAt: string | undefined
+  readonly updatedAt: string | undefined
+  readonly statusUpdatedAt: string | undefined
+  readonly status: string | undefined
+}
+
+/** A new task's dates, checked: when it started, was last updated, and had its status set (when it has one). */
+interface CreationDates {
+  readonly started: EpochMs
+  readonly updated: EpochMs
+  readonly statusUpdated: EpochMs | undefined
+}
+
+/** An instant in ISO 8601, UTC, for an error message. */
+const isoOf = (at: EpochMs): string => new Date(at).toISOString()
+
+function refuse(message: string): ControlError {
+  return new ControlError(ControlErrorCode.InvalidInput, message)
+}
+
+/**
+ * A new task's dates, as of `now`: started `startedAt` (now by default), last updated `updatedAt` (else
+ * `statusUpdatedAt`, else when it started), its status set `statusUpdatedAt` (else when it was last updated). Each must
+ * be no later than now, and they must come in that order: started, status set, last updated. `invalid_input` names the
+ * field that doesn't.
+ */
+function creationDates(input: CreationDateInput, now: EpochMs): CreationDates {
+  const started = input.startedAt === undefined ? now : instantOf(input.startedAt, 'startedAt', now)
+  const statusSet =
+    input.statusUpdatedAt === undefined ? undefined : instantOf(input.statusUpdatedAt, 'statusUpdatedAt', now)
+  const updated = input.updatedAt === undefined ? (statusSet ?? started) : instantOf(input.updatedAt, 'updatedAt', now)
+  if (statusSet !== undefined) {
+    if (input.status === undefined) throw refuse('statusUpdatedAt: needs a status')
+    if (statusSet < started) {
+      throw refuse(`statusUpdatedAt: ${String(input.statusUpdatedAt)} is before the task started (${isoOf(started)})`)
+    }
+    if (statusSet > updated) {
+      throw refuse(`statusUpdatedAt: ${String(input.statusUpdatedAt)} is after updatedAt (${isoOf(updated)})`)
+    }
+  }
+  if (updated < started) {
+    throw refuse(`updatedAt: ${String(input.updatedAt)} is before the task started (${isoOf(started)})`)
+  }
+  return { started, updated, statusUpdated: input.status === undefined ? undefined : (statusSet ?? updated) }
+}
+
+/** A patch's dates, as `update_task` gives them, before they're checked, and the task they change. */
+interface UpdateDateInput {
+  readonly current: Task
+  readonly change: TaskChange
+  readonly updatedAt: string | undefined
+  readonly statusUpdatedAt: string | undefined
+}
+
+/**
+ * The dates a patch writes, as of `now`: the ones it gives, each no later than now and no earlier than the task
+ * started (a status date only for a task with a status, and no later than an `updatedAt` given with it). A new status
+ * given with an `updatedAt` is dated then. A patch that changes nothing that moves the task (only its unread flag or its
+ * status date) keeps its `updatedAt`; any other change stamps it now, unless the patch gives one.
+ */
+function updateDates(input: UpdateDateInput, now: EpochMs): TaskDates {
+  const { current, change } = input
+  const instant = (iso: string | undefined, field: string): EpochMs | undefined => {
+    if (iso === undefined) return undefined
+    const at = instantOf(iso, field, now)
+    if (at < current.createdAt)
+      throw refuse(`${field}: ${iso} is before the task started (${isoOf(current.createdAt)})`)
+    return at
+  }
+  const updated = instant(input.updatedAt, 'patch.updatedAt')
+  const statusSet = instant(input.statusUpdatedAt, 'patch.statusUpdatedAt')
+  if (statusSet !== undefined) {
+    if ((change.status ?? current.status) === '') throw refuse('patch.statusUpdatedAt: the task has no status')
+    if (updated !== undefined && statusSet > updated) {
+      throw refuse(
+        `patch.statusUpdatedAt: ${String(input.statusUpdatedAt)} is after patch.updatedAt (${isoOf(updated)})`,
+      )
+    }
+  }
+  const moves = Object.keys(change).some((field) => field !== 'unread')
+  const newStatus = change.status !== undefined && change.status !== current.status
+  return {
+    updatedAt: updated ?? (moves ? undefined : current.updatedAt),
+    statusUpdatedAt: statusSet ?? (newStatus ? updated : undefined),
+  }
+}
+
+/** Refuses an external id another task already has: `invalid_input`, naming that task. */
+function requireFreeExternalId(db: Database, id: string, externalId: string): void {
+  const holder = findTaskByExternalId(db, externalId)
+  if (holder !== undefined && holder !== id) {
+    throw refuse(`patch.externalId: another task (${holder}) already has ${externalId}`)
   }
 }

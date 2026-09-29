@@ -123,6 +123,7 @@ export enum CommandName {
   PluginsSetEnabled = 'plugins.setEnabled',
   PluginsOpenFolder = 'plugins.openFolder',
   PluginsPlaceView = 'plugins.placeView',
+  PluginsReload = 'plugins.reload',
   ControlStatus = 'control.status',
   ControlRegenerateToken = 'control.regenerateToken',
   AccountStatus = 'account.status',
@@ -810,7 +811,8 @@ export interface SearchQueryResponse {
  * The plugins in the plugins folder (`<userData>/plugins`, `docs/plugin-api.md`), which is read again for it, and
  * created if it's missing: each one's manifest and whether it's on, or why it's invalid, in order of folder name. A
  * plugin found for the first time is turned on. Broadcasts `plugins.changed` when the list differs from the last time
- * the folder was read. Settings › Plugins asks for it each time it opens.
+ * the folder was read. Settings › Plugins asks for it each time it opens. A plugin that's shown and whose manifest
+ * version or entry file changed on disk since the last read has its view reloaded, as `plugins.reload` does by hand.
  */
 export interface PluginsResponse {
   readonly plugins: readonly InstalledPlugin[]
@@ -869,6 +871,19 @@ export interface PluginsPlaceViewRequest {
 export interface PluginsPlaceViewResponse {
   /** The status the plugin last set for its header; `''` for none. */
   readonly status: string
+}
+
+/**
+ * Reloads a plugin's view now, if it's the one shown: destroys its page and makes a fresh one, keeping its place in
+ * the bottom bar and its saved panel width. Doesn't rescan the plugins folder, so its manifest data (name, version)
+ * isn't refreshed; a no-op if the plugin isn't the one shown. Fails with `not_found` for a plugin that isn't valid the
+ * last time the folder was read. Settings › Plugins offers it as Reload, beside each plugin's toggle
+ * (`docs/design/screens/21-settings-plugins.png`); a rescan (`plugins.list`) does the same on its own for a plugin
+ * whose files changed on disk since it was last read.
+ */
+export interface PluginsReloadRequest {
+  /** The plugin's id (its folder's name). */
+  readonly id: string
 }
 
 export interface TerminalListResponse {
@@ -1091,6 +1106,7 @@ export interface CommandMap {
   [CommandName.PluginsSetEnabled]: CommandSpec<PluginsSetEnabledRequest, PluginsResponse>
   [CommandName.PluginsOpenFolder]: CommandSpec<PluginsOpenFolderRequest, null>
   [CommandName.PluginsPlaceView]: CommandSpec<PluginsPlaceViewRequest, PluginsPlaceViewResponse>
+  [CommandName.PluginsReload]: CommandSpec<PluginsReloadRequest, null>
   [CommandName.TerminalList]: CommandSpec<EmptyRequest, TerminalListResponse>
   [CommandName.TerminalCreate]: CommandSpec<TerminalCreateRequest, TerminalTabResponse>
   /** Adds a tab after a terminal tab, with its name and folder, and a new shell. Broadcasts `terminal.tabsChanged`. */
