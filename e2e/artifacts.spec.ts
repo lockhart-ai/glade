@@ -273,23 +273,41 @@ test('artifacts: date groups that fold and stay folded, thumbnails of images, an
   await expect(artifacts.row('Old landing page')).toContainText('PNG · missing')
   await expect(artifacts.thumbnail('Search results on mobile')).toHaveAttribute('src', /^data:image\/png;base64,/)
 
-  // Clicking an image artifact's row opens the image viewer instead (#372), stepping through every image artifact
-  // across every group, folded or not, in the tab's own newest-first order: Landing, Broken export (not really a
-  // picture, so "unavailable"), Docs logo, Launch poster, Search results, Old landing page (missing) — Changelog
-  // page draft, the one non-image artifact, doesn't count.
+  // Clicking an image artifact's row opens the image viewer instead (#372), stepping through the image artifacts the
+  // list shows, in its own newest-first order (#378): with Yesterday folded, Landing, Broken export (not really a
+  // picture, so "unavailable"), Search results and Old landing page (missing). Changelog page draft, the one non-image
+  // artifact, doesn't count, and nor do Yesterday's Docs logo and Launch poster, which the list doesn't show.
   const viewer = imageViewer(window)
   await artifacts.open('Landing page, dark theme').click()
+  // The viewer takes the focus a moment after it opens: until then ←, → and Esc go to the row.
+  await expect(viewer.close).toBeFocused()
   await expect(viewer.viewer).toBeVisible()
   await expect(viewer.title).toHaveText('Landing page, dark theme')
-  await expect(viewer.pager).toHaveText('1 of 6')
+  await expect(viewer.pager).toHaveText('1 of 4')
   await expect(viewer.shown('Landing page, dark theme')).toHaveAttribute('src', /^data:image\/png;base64,/)
 
   await window.keyboard.press('ArrowRight')
-  await expect(viewer.pager).toHaveText('2 of 6')
+  await expect(viewer.pager).toHaveText('2 of 4')
   await expect(viewer.title).toHaveText('Broken export')
   await expect(viewer.missing).toBeVisible()
 
   await window.keyboard.press('ArrowRight')
+  await expect(viewer.pager).toHaveText('3 of 4')
+  await expect(viewer.title).toHaveText('Search results on mobile')
+  await window.keyboard.press('Escape')
+  await expect(viewer.viewer).toHaveCount(0)
+
+  // With Yesterday open again, its images are in the list, and the viewer steps to them too.
+  await artifacts.header('Yesterday').click()
+  await expect.poll(() => labels(artifacts.groupRows('Yesterday'))).toEqual(['Docs logo', 'Launch poster'])
+  await artifacts.open('Landing page, dark theme').click()
+  // The viewer takes the focus a moment after it opens: until then ←, → and Esc go to the row.
+  await expect(viewer.close).toBeFocused()
+  await expect(viewer.pager).toHaveText('1 of 6')
+  await window.keyboard.press('ArrowRight')
+  await expect(viewer.title).toHaveText('Broken export')
+  await window.keyboard.press('ArrowRight')
+  await expect(viewer.pager).toHaveText('3 of 6')
   await expect(viewer.title).toHaveText('Docs logo')
   await expect(viewer.shown('Docs logo')).toHaveAttribute('src', /^data:image\/svg\+xml;base64,/)
 
@@ -310,10 +328,14 @@ test('artifacts: date groups that fold and stay folded, thumbnails of images, an
   await window.keyboard.press('Meta+Alt+Digit4')
   const trigger = artifacts.open('Search results on mobile')
   await trigger.click()
+  // The viewer takes the focus a moment after it opens: until then ←, → and Esc go to the row.
+  await expect(viewer.close).toBeFocused()
   await expect(viewer.pager).toHaveText('5 of 6')
   await window.keyboard.press('Escape')
   await expect(viewer.viewer).toHaveCount(0)
   await expect(trigger).toBeFocused()
+  await artifacts.header('Yesterday').click()
+  await expect(artifacts.groupRows('Yesterday')).toHaveCount(0)
 
   // The groups stay as they were left, after a relaunch too; the thumbnails come from where they were kept.
   await glade.close()
@@ -375,4 +397,80 @@ test('artifacts: the agent repoints, renames and removes artifacts, and the tab 
   await expect
     .poll(() => labels(artifactsTab(relaunched.window).rows))
     .toEqual(['Landing page, dark theme', 'Search results on mobile'])
+})
+
+test('artifacts: the image viewer steps only through the image artifacts the list shows (#378)', async ({
+  launch,
+  tempFolder,
+}) => {
+  const folder = tempFolder()
+  const root = join(folder, 'acme-docs')
+  mkdirSync(join(root, 'screens'), { recursive: true })
+  copyFileSync(join(SCREENS, 'landing-dark.png'), join(root, 'screens', 'landing-dark.png'))
+  copyFileSync(join(SCREENS, 'search-mobile.png'), join(root, 'screens', 'search-mobile.png'))
+  // An older screenshot, declared too: its file is two months old, so it's listed under Older, which starts folded.
+  copyFileSync(join(SCREENS, 'landing-dark.png'), join(root, 'screens', 'landing-light.png'))
+  // More images in the same folder that were never declared.
+  write(root, 'screens/draft-1.png', solidPng(40, 30), 30)
+  write(root, 'screens/draft-2.png', solidPng(40, 30), 20)
+  write(root, 'screens/draft-3.png', solidPng(40, 30), 10)
+  const seed = join(folder, 'artifacts.json')
+  writeFileSync(
+    seed,
+    JSON.stringify({
+      workspace: { name: 'Acme API', rootPath: realpathSync(root) },
+      panelTab: 'artifacts',
+      tasks: [
+        {
+          title: 'Refresh the developer docs site',
+          objective: 'Refresh docs.acme.dev, sharing screenshots in Artifacts as you go.',
+          status: 'The landing page and search screenshots are in Artifacts.',
+          minutesAgo: 4,
+          selected: true,
+          messages: [
+            { role: 'user', body: 'Screenshot the new landing page and search.', turn: 1, minutesAgo: 20 },
+            { role: 'agent', body: 'Both are in Artifacts, under Today.', turn: 1, minutesAgo: 4 },
+          ],
+          artifacts: [
+            { path: 'screens/landing-light.png', title: 'Landing page, light theme', minutesAgo: 60 * DAY },
+            { path: 'screens/search-mobile.png', title: 'Search results on mobile', minutesAgo: 9 },
+            { path: 'screens/landing-dark.png', title: 'Landing page, dark theme', minutesAgo: 8 },
+          ],
+        },
+      ],
+    }),
+  )
+  const glade = await launch({ seed, env: MIDDAY })
+  const { window } = glade
+  const artifacts = artifactsTab(window)
+  await expect.poll(() => labels(artifacts.groups)).toEqual(['Today', 'Older'])
+  await expect(artifacts.header('Older')).toHaveAttribute('aria-expanded', 'false')
+  await expect.poll(() => labels(artifacts.rows)).toEqual(['Landing page, dark theme', 'Search results on mobile'])
+
+  // The viewer steps through the two images listed, round and round: never the folded one, nor the folder's others.
+  const viewer = imageViewer(window)
+  await artifacts.open('Landing page, dark theme').click()
+  // The viewer takes the focus a moment after it opens: until then ←, → and Esc go to the row.
+  await expect(viewer.close).toBeFocused()
+  await expect(viewer.title).toHaveText('Landing page, dark theme')
+  await expect(viewer.pager).toHaveText('1 of 2')
+  await window.keyboard.press('ArrowRight')
+  await expect(viewer.title).toHaveText('Search results on mobile')
+  await expect(viewer.pager).toHaveText('2 of 2')
+  await window.keyboard.press('ArrowRight')
+  await expect(viewer.title).toHaveText('Landing page, dark theme')
+  await expect(viewer.pager).toHaveText('1 of 2')
+  await window.keyboard.press('Escape')
+  await expect(viewer.viewer).toHaveCount(0)
+
+  // Opened, Older lists the older screenshot, and the viewer steps to it last, in the list's order.
+  await artifacts.header('Older').click()
+  await expect.poll(() => labels(artifacts.groupRows('Older'))).toEqual(['Landing page, light theme'])
+  await artifacts.open('Landing page, dark theme').click()
+  // The viewer takes the focus a moment after it opens: until then ←, → and Esc go to the row.
+  await expect(viewer.close).toBeFocused()
+  await expect(viewer.pager).toHaveText('1 of 3')
+  await window.keyboard.press('ArrowLeft')
+  await expect(viewer.title).toHaveText('Landing page, light theme')
+  await expect(viewer.pager).toHaveText('3 of 3')
 })

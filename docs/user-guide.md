@@ -296,8 +296,9 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   open and the older groups folded, and each task remembers how you left them. An artifact that's edited moves back to
   the top, whether the agent (or one of its subagents) edited it or you did, in the terminal or an editor, while the
   tab is open. Click a row (or press ↵ or Space on it) to open the file: an image opens full size in the image viewer,
-  stepping ← → through the task's other image artifacts under a "2 of 7"; its title and two actions, **Open in Files**
-  and **Reveal in Finder**, show over it, and Esc, a click beside the image or × closes it. Any other artifact opens in
+  stepping ← → through the other image artifacts the list shows under a "2 of 7" (open a folded group to include its
+  images); its title and two actions, **Open in Files** and **Reveal in Finder**, show over it, and Esc, a click beside
+  the image or × closes it. Any other artifact opens in
   **Files** as before. Hover a row for **Open**, **Reveal in folder** and **More** (the same menu as a right-click).
   The file the Files tab shows is outlined. A file that's gone stays at its last known time, marked missing. The agent
   keeps the list current too: it can rename an artifact, point it at its file where it moved, or take it off the list
