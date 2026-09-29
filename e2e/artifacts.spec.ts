@@ -270,6 +270,8 @@ test('artifacts: date groups that fold and stay folded, thumbnails of images, an
   // artifact, doesn't count, and nor do Yesterday's Docs logo and Launch poster, which the list doesn't show.
   const viewer = imageViewer(window)
   await artifacts.open('Landing page, dark theme').click()
+  // The viewer takes the focus a moment after it opens: until then ←, → and Esc go to the row.
+  await expect(viewer.close).toBeFocused()
   await expect(viewer.viewer).toBeVisible()
   await expect(viewer.title).toHaveText('Landing page, dark theme')
   await expect(viewer.pager).toHaveText('1 of 4')
@@ -290,6 +292,8 @@ test('artifacts: date groups that fold and stay folded, thumbnails of images, an
   await artifacts.header('Yesterday').click()
   await expect.poll(() => labels(artifacts.groupRows('Yesterday'))).toEqual(['Docs logo', 'Launch poster'])
   await artifacts.open('Landing page, dark theme').click()
+  // The viewer takes the focus a moment after it opens: until then ←, → and Esc go to the row.
+  await expect(viewer.close).toBeFocused()
   await expect(viewer.pager).toHaveText('1 of 6')
   await window.keyboard.press('ArrowRight')
   await expect(viewer.title).toHaveText('Broken export')
@@ -315,6 +319,8 @@ test('artifacts: date groups that fold and stay folded, thumbnails of images, an
   await window.keyboard.press('Meta+Alt+Digit4')
   const trigger = artifacts.open('Search results on mobile')
   await trigger.click()
+  // The viewer takes the focus a moment after it opens: until then ←, → and Esc go to the row.
+  await expect(viewer.close).toBeFocused()
   await expect(viewer.pager).toHaveText('5 of 6')
   await window.keyboard.press('Escape')
   await expect(viewer.viewer).toHaveCount(0)
@@ -384,6 +390,8 @@ test('artifacts: the image viewer steps only through the image artifacts the lis
   // The viewer steps through the two images listed, round and round: never the folded one, nor the folder's others.
   const viewer = imageViewer(window)
   await artifacts.open('Landing page, dark theme').click()
+  // The viewer takes the focus a moment after it opens: until then ←, → and Esc go to the row.
+  await expect(viewer.close).toBeFocused()
   await expect(viewer.title).toHaveText('Landing page, dark theme')
   await expect(viewer.pager).toHaveText('1 of 2')
   await window.keyboard.press('ArrowRight')
@@ -399,6 +407,8 @@ test('artifacts: the image viewer steps only through the image artifacts the lis
   await artifacts.header('Older').click()
   await expect.poll(() => labels(artifacts.groupRows('Older'))).toEqual(['Landing page, light theme'])
   await artifacts.open('Landing page, dark theme').click()
+  // The viewer takes the focus a moment after it opens: until then ←, → and Esc go to the row.
+  await expect(viewer.close).toBeFocused()
   await expect(viewer.pager).toHaveText('1 of 3')
   await window.keyboard.press('ArrowLeft')
   await expect(viewer.title).toHaveText('Landing page, light theme')
