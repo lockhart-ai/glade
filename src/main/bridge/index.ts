@@ -263,6 +263,9 @@ export function registerBridge({
     onUpdate: (list) => {
       pluginViews.update(list)
     },
+    onReload: (ids) => {
+      pluginViews.reload(ids)
+    },
     log: log.scoped(LogScope.Plugins),
   })
   const dispatch = createDispatcher(

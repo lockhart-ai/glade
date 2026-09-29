@@ -68,6 +68,10 @@ export interface TaskPatch {
   readonly retrying?: ApiRetry | null
   /** Why the turn is paused and when it resumes; null clears it. */
   readonly pause?: TaskPause | null
+  /** When it was last updated, given rather than stamped (a backfill's own date); `now`, or kept, if not. */
+  readonly updatedAt?: EpochMs
+  /** When its status was set, given rather than stamped; `now` if the status changes, and kept if it doesn't. */
+  readonly statusUpdatedAt?: EpochMs
 }
 
 const COLUMNS = `id, workspace_id, title, objective, status, status_updated_at, state, activity, pinned, unread, model,
@@ -376,7 +380,8 @@ function onlyUnread(patch: TaskPatch): boolean {
 
 /**
  * Changes a task's fields, stamps `updatedAt` (and `statusUpdatedAt` when the status changes), and returns it updated.
- * A patch of only `unread` leaves `updatedAt` alone (see `onlyUnread`). Throws if there's no such task.
+ * A patch of only `unread` leaves `updatedAt` alone (see `onlyUnread`), and a date the patch gives wins over the stamp.
+ * Throws if there's no such task.
  */
 export function updateTask(db: Database, id: string, patch: TaskPatch, now: EpochMs = Date.now()): Task {
   const current = getTask(db, id)
@@ -389,7 +394,7 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
     title: patch.title ?? current.title,
     objective: patch.objective ?? current.objective,
     status,
-    statusUpdatedAt: status === current.status ? current.statusUpdatedAt : now,
+    statusUpdatedAt: patch.statusUpdatedAt ?? (status === current.status ? current.statusUpdatedAt : now),
     state,
     activity: patch.activity ?? current.activity,
     pinned: patch.pinned ?? current.pinned,
@@ -397,7 +402,7 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
     model,
     effort: patch.effort ?? current.effort,
     permissionMode: patch.permissionMode ?? current.permissionMode,
-    updatedAt: onlyUnread(patch) ? current.updatedAt : now,
+    updatedAt: patch.updatedAt ?? (onlyUnread(patch) ? current.updatedAt : now),
     doneAt: doneAtAfter(current, state, now),
     sessionId: patch.sessionId === undefined ? current.sessionId : patch.sessionId,
     contextUsedTokens: patch.contextUsedTokens ?? current.contextUsedTokens,

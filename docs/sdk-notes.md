@@ -693,19 +693,49 @@ query({ prompt, options: { mcpServers: { glade } } });
 - **Without `alwaysLoad: true`, the tools are deferred behind tool search.** The model first called `ToolSearch`, got a
   `tool_reference` back, and only then called `mcp__glade__set_title`. With `alwaysLoad: true` it called the tool
   directly.
-- **Blocking works.** The `ask` handler awaited a promise for 1.5s, and the turn simply waited. Types say calls are
-  bounded only by `createSdkMcpServer({ timeout })` or the `MCP_TOOL_TIMEOUT` env var, and are "effectively unbounded
-  by default" [docs].
+- **Blocking works.** The `ask` handler awaited a promise for 1.5s, and the turn simply waited.
+- **But not forever: every call has a timeout, about 28 hours by default [verified, #381].** The types say calls are
+  bounded by `createSdkMcpServer({ timeout })` or the `MCP_TOOL_TIMEOUT` env var, and are "effectively unbounded by
+  default" [docs]. They aren't: a real `ask` left overnight and through the next day failed with
+  `MCP server "glade" tool "ask" timed out after 100000s`. From the bundled Claude Code binary (2.1.283), each MCP
+  call's bound is:
+  - the server's own `timeout` in ms, if it's at least 1000; else `MCP_TOOL_TIMEOUT`; else **100,000,000 ms**
+    (100,000 s, about 27.8 hours);
+  - clamped to at most **2,147,483,647 ms** (2^31 − 1, about 24.8 days), the longest a timer can wait. There's no
+    "never": a value under 1000, 0 included, falls back to the default.
+  - It's a hard wall-clock limit: progress notifications don't extend it. It races the call, and the MCP client's own
+    request timeout, set to the same value, cancels the call too, so the handler's signal aborts (from the binary, and
+    Glade's tests against the MCP SDK's client; not seen live).
+  - `timeout` is per server, not per tool. The SDK sends an in-process server's `timeout` to Claude Code in its
+    `initialize` request (`sdkMcpServerConfigs`); changing it for a server already registered is ignored until it's
+    removed and re-added.
+  - The separate idle timeout (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`, which aborts a call that sends nothing for 30
+    minutes on stdio) doesn't apply to `sdk` servers. Nor does MCP auto-backgrounding, which is off in a
+    non-interactive (SDK) session unless `CLAUDE_AUTO_BACKGROUND_TASKS` is set.
 - `tool()` accepts Zod 3 or Zod 4 shapes. We used zod 4.
 - Source: [Custom tools](https://code.claude.com/docs/en/agent-sdk/custom-tools), `sdk.d.ts` (`createSdkMcpServer`,
-  `tool`).
+  `tool`), and the strings of the bundled binary for the timeout.
 
 **Implications for Glade**
 
 - Always set `alwaysLoad: true`. Hide `ToolSearch` calls from the tool log, or show them quietly, since the user's own
   MCP tools may still be deferred.
-- `ask` is a plain awaiting handler. Keep the pending question in SQLite so it survives a crash. If the process dies
-  while blocked, resume and re-ask (see risks).
+- `ask` is a plain awaiting handler, with no timer of its own. Keep the pending question in SQLite so it survives a
+  crash.
+- **The `glade` server sets `timeout` to 2^31 − 1 ms** (`GLADE_TOOL_TIMEOUT_MS`, #381), the longest Claude Code
+  allows, so `ask` waits about 24.8 days before Claude Code fails it. Only that server: `glade-control` and the user's
+  own servers keep the default. Glade doesn't set `MCP_TOOL_TIMEOUT`, which would lift the bound for every server, the
+  user's own included (a user who sets it in their shell still gets it, and the `glade` server's own `timeout` still
+  wins). The trade-off is that it covers every `glade` tool, not just `ask`; the others all return at once, so a hung
+  one would only be a bug in Glade's own handler.
+- The scripted agents' tool caller (`src/main/agent/mcp-tool-caller.ts`, for the fake backend and e2e) bounds each
+  call the same way (`toolTimeoutMs`), so tests see the timeout a real session would.
+- **At the bound**, about 24.8 days in, Claude Code fails the call with a timeout error and cancels it: the handler's
+  signal aborts, the card is withdrawn, and the agent carries on its turn with the error.
+- **A relaunch lifts the bound.** If Glade quits while `ask` waits, the call ends (the session's process is gone), but
+  its question stays open in SQLite with no timer on it at all. Answering it resumes the session and hands the agent
+  the answer as a message (the runner's `answeredAfterRestart`, P4), so a question the app quit on waits however long
+  you take.
 - Tool handlers run in the main process, so they must never block the event loop synchronously.
 
 ## 4. Per-turn settings: model and effort [verified]
@@ -1429,7 +1459,10 @@ bundled binary. What did change:
 - **One CLI subprocess per live task.** Each `query()` spawns the ~220 MB native binary as a separate process. With many
   parallel tasks (P2), memory and startup cost need measuring. Idle tasks may need to `close()` and `resume` lazily.
 - **Blocking `ask` across a crash.** If Glade dies while `ask` is waiting, the resumed session has a `tool_use` with no
-  result. We haven't tested how the CLI repairs this; test it in P4.
+  result. Glade keeps the question open and hands the answer to the resumed session as a message (§3, P4).
+- **`ask`'s bound.** Claude Code bounds every MCP call, at most about 24.8 days (§3); Glade raises the `glade` server's
+  to that, but it can't be lifted entirely. Re-check the default and the clamp on each SDK bump: if a version lowers the
+  clamp, a long-waiting `ask` fails sooner.
 - **The SDK moves fast.** The union has about 40 message types, many with `@alpha` fields, and the auto-compact maths is
   internal. Pin the SDK version, parse defensively (ignore unknown types and fields), and re-check these notes on each
   upgrade.

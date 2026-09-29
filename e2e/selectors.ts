@@ -609,6 +609,8 @@ export function settings(page: Page) {
     /** A plugin's row in Plugins, by its name (an invalid one's by its folder). */
     plugin: (name: string) =>
       dialog.getByRole('list', { name: 'Plugins' }).getByRole('listitem', { name, exact: true }),
+    /** A plugin's Reload button in Plugins, by its name. */
+    reloadPlugin: (name: string) => dialog.getByRole('button', { name: `Reload ${name}`, exact: true }),
     openPluginsFolder: dialog.getByRole('button', { name: 'Open plugins folder' }),
     /** Control's endpoint URL, or "Not listening". */
     endpoint: dialog.getByLabel('Endpoint URL'),

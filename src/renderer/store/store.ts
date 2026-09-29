@@ -362,6 +362,10 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.PluginsOpenFolder, {})
       },
 
+      async reloadPlugin(id) {
+        await bridge.invoke(CommandName.PluginsReload, { id })
+      },
+
       async loadControlStatus() {
         const { status } = await bridge.invoke(CommandName.ControlStatus, {})
         set({ controlStatus: status })

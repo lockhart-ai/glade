@@ -332,6 +332,11 @@ export interface GladeActions {
   setPluginEnabled: (id: string, enabled: boolean) => Promise<void>
   /** Opens the plugins folder in Finder (Open plugins folder). */
   openPluginsFolder: () => Promise<void>
+  /**
+   * Reloads a plugin's view now, if it's the one shown (Settings › Plugins' Reload, `plugins.reload`); a no-op
+   * otherwise. Doesn't rescan the plugins folder.
+   */
+  reloadPlugin: (id: string) => Promise<void>
   /** Reads the control endpoint's status (`control.status`). */
   loadControlStatus: () => Promise<void>
   /** Replaces the control endpoint's token (Regenerate token, `control.regenerateToken`); the old one stops working. */

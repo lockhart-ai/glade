@@ -164,6 +164,8 @@ export interface FakeMain {
   openedPluginsFolder?: number
   /** Where `plugins.placeView` put each plugin's view, oldest first. */
   placedPluginViews?: PluginsPlaceViewRequest[]
+  /** The ids `plugins.reload` reloaded, oldest first; refuses one that isn't valid with `not_found`. */
+  reloadedPlugins?: string[]
   /** The status `plugins.placeView` answers with for each plugin, by id; `''` when left out. */
   pluginStatuses?: Record<string, string>
   /**
@@ -637,6 +639,12 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       }
       main.placedPluginViews = [...(main.placedPluginViews ?? []), request]
       return { status: main.pluginStatuses?.[request.id] ?? '' }
+    },
+    [CommandName.PluginsReload]: ({ id }) => {
+      const plugin = main.plugins?.find((candidate) => candidate.folder === id)
+      if (plugin?.status !== PluginStatus.Valid) return refuse(bridgeError(BridgeErrorCode.NotFound, `No plugin ${id}`))
+      main.reloadedPlugins = [...(main.reloadedPlugins ?? []), id]
+      return null
     },
     [CommandName.TerminalList]: () => ({ tabs: [...terminalTabs] }),
     [CommandName.TerminalCreate]: ({ workspaceId }) => {
