@@ -1989,6 +1989,45 @@ const declaresArtifacts: AgentScript = {
 }
 
 /**
+ * Two turns that keep a task's artifacts current (#385): the first declares three screenshots with `add_artifact`; the
+ * second, after the landing page screenshot is retaken under a new name, points its artifact at the new file with a new
+ * title (`update_artifact`) and takes the old navigation screenshot off the list (`remove_artifact`). The files must be
+ * in the workspace (a spec makes them) for the Glade tools to take them.
+ */
+const curatesArtifacts: AgentScript = {
+  name: 'curates-artifacts',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Screenshot the docs site',
+        'Screenshot the docs site’s landing page, search and navigation for the redesign review.',
+        'Taking the screenshots.',
+      ),
+      gladeTool('add-landing', 'add_artifact', { path: 'screens/landing.png', title: 'Landing page' }),
+      gladeTool('add-search', 'add_artifact', { path: 'screens/search-mobile.png', title: 'Search results on mobile' }),
+      gladeTool('add-nav', 'add_artifact', { path: 'screens/nav-tree.png', title: 'Old navigation' }),
+      say('Three screenshots are in Artifacts.'),
+      result(),
+    ],
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      gladeTool('update-landing', 'update_artifact', {
+        path: 'screens/landing.png',
+        newPath: 'screens/landing-dark.png',
+        title: 'Landing page, dark theme',
+      }),
+      gladeTool('remove-nav', 'remove_artifact', { path: 'screens/nav-tree.png' }),
+      gladeTool('status-curated', 'set_status', { status: 'The dark landing page and search screenshots are ready.' }),
+      say('I pointed the landing page at the dark-theme screenshot and took the old navigation off the list.'),
+      result(),
+    ],
+  ],
+}
+
+/**
  * A build started in the background: the turn that starts it ends at once, and when the build finishes the agent
  * starts a turn of its own (a `wake`) to read its output and report, with no message from you. It takes a while to
  * read the output, so a spec can see it working. A message sent after that gets a short reply.
@@ -3293,6 +3332,7 @@ export const AGENT_SCRIPT_NAMES = [
   'shows-an-image',
   'edits-a-shown-file',
   'declares-artifacts',
+  'curates-artifacts',
   'usage-limit',
   'usage-limit-hour',
   'usage-warning',
@@ -3351,6 +3391,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'shows-an-image': showsAnImage,
   'edits-a-shown-file': editsAShownFile,
   'declares-artifacts': declaresArtifacts,
+  'curates-artifacts': curatesArtifacts,
   'usage-limit': usageLimit,
   'usage-limit-hour': usageLimitHour,
   'usage-warning': usageWarning,

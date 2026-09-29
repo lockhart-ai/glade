@@ -300,8 +300,9 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   images); its title and two actions, **Open in Files** and **Reveal in Finder**, show over it, and Esc, a click beside
   the image or × closes it. Any other artifact opens in
   **Files** as before. Hover a row for **Open**, **Reveal in folder** and **More** (the same menu as a right-click).
-  The file the Files tab shows is outlined. A file that's gone stays at its last known time, marked missing. Artifacts
-  stay after the task is done.
+  The file the Files tab shows is outlined. A file that's gone stays at its last known time, marked missing. The agent
+  keeps the list current too: it can rename an artifact, point it at its file where it moved, or take it off the list
+  (the file stays), and the tab follows at once. Artifacts stay after the task is done.
 
   ![The Artifacts tab: screenshots with thumbnails and drafts under Today and Yesterday, older groups folded](images/guide/artifacts.png)
 - **Subagents:** one row per subagent, running ones first, with how long it's run and its tool calls. A running one

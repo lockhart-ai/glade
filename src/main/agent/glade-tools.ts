@@ -16,7 +16,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import type { Question } from '../../shared/domain'
 import type { Settings } from '../../shared/settings'
-import { addTaskArtifact } from '../artifacts/artifacts'
+import { addTaskArtifact, forgetTaskArtifact, updateTaskArtifact, type UpdatedArtifact } from '../artifacts/artifacts'
 import { getTask } from '../db/repositories/tasks'
 import { showTaskFile } from '../files/files'
 import { toolResultFor, type QuestionBroker } from '../questions/questions'
@@ -64,6 +64,8 @@ export enum GladeTool {
   Ask = 'ask',
   ShowFile = 'show_file',
   AddArtifact = 'add_artifact',
+  UpdateArtifact = 'update_artifact',
+  RemoveArtifact = 'remove_artifact',
 }
 
 export interface SetTitleInput {
@@ -91,6 +93,16 @@ export interface ShowFileInput {
 export interface AddArtifactInput {
   readonly path: string
   readonly title: string
+}
+
+export interface UpdateArtifactInput {
+  readonly path: string
+  readonly title?: string | undefined
+  readonly newPath?: string | undefined
+}
+
+export interface RemoveArtifactInput {
+  readonly path: string
 }
 
 /** Text the model sends: trimmed, and never empty. */
@@ -129,11 +141,44 @@ const addArtifactInput = z.object({
   title: text('title').describe('A short name for the deliverable, e.g. "Release notes 2.4".'),
 }) satisfies z.ZodType<AddArtifactInput>
 
+// The SDK checks only the fields' shape, so the handler refuses an update that gives neither a title nor a newPath.
+const updateArtifactInput = z.object({
+  path: text('path').describe("The artifact's path, as it was added: absolute, or relative to the workspace root."),
+  title: text('title').optional().describe('A new short name for it.'),
+  newPath: text('new path')
+    .optional()
+    .describe(
+      "The file it's to point to instead, e.g. after moving or renaming it: absolute, or relative to the root.",
+    ),
+}) satisfies z.ZodType<UpdateArtifactInput>
+
+const removeArtifactInput = z.object({
+  path: text('path').describe("The artifact's path, as it was added: absolute, or relative to the workspace root."),
+}) satisfies z.ZodType<RemoveArtifactInput>
+
 /** A tool's reply to the model: MCP's own result type. */
 export type GladeToolResult = CallToolResult
 
 function reply(message: string): GladeToolResult {
   return { content: [{ type: 'text', text: message }] }
+}
+
+/** What `update_artifact` tells the model when it gives neither a new title nor a new path. */
+export const UPDATE_CHANGES_NOTHING = 'Give a new title, a newPath, or both: an update with neither changes nothing.'
+
+/** What `update_artifact` tells the model it changed. */
+function updatedReply({ before, after }: UpdatedArtifact): string {
+  const moved = before.path !== after.path
+  const renamed = before.title !== after.title
+  if (moved && renamed) return `Moved the artifact ${before.path} to ${after.path}, now called "${after.title}".`
+  if (moved) return `Moved the artifact "${after.title}" from ${before.path} to ${after.path}.`
+  if (renamed) return `Renamed the artifact ${after.path} to "${after.title}".`
+  return `The artifact ${after.path} is already called "${after.title}"; nothing changed.`
+}
+
+/** A tool's error reply, from what its handler threw. */
+function failure(error: unknown): GladeToolResult {
+  return { ...reply((error as Error).message), isError: true }
 }
 
 /** What `ask` tells the model when its questions were withdrawn: the turn was stopped, or failed, while it waited. */
@@ -155,6 +200,10 @@ export interface GladeToolHandlers {
   showFile(input: ShowFileInput): Promise<GladeToolResult>
   /** Declares a file as a deliverable of the task; an error result when it isn't a file in the workspace. */
   addArtifact(input: AddArtifactInput): Promise<GladeToolResult>
+  /** Renames one of the task's artifacts and/or points it at another file; an error result when it can't. */
+  updateArtifact(input: UpdateArtifactInput): Promise<GladeToolResult>
+  /** Takes one of the task's artifacts off its list (the file stays); an error result when it isn't one. */
+  removeArtifact(input: RemoveArtifactInput): GladeToolResult
 }
 
 export function createGladeToolHandlers(context: GladeToolContext, taskId: string): GladeToolHandlers {
@@ -183,7 +232,7 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
         const shown = await showTaskFile(context, taskId, path, line ?? null)
         return reply(line === undefined ? `Showing ${shown}.` : `Showing ${shown} at line ${String(line)}.`)
       } catch (error) {
-        return { ...reply((error as Error).message), isError: true }
+        return failure(error)
       }
     },
     async addArtifact({ path, title }) {
@@ -195,7 +244,23 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
             : `Renamed the artifact ${artifact.path} to "${title}".`,
         )
       } catch (error) {
-        return { ...reply((error as Error).message), isError: true }
+        return failure(error)
+      }
+    },
+    async updateArtifact({ path, title, newPath }) {
+      if (title === undefined && newPath === undefined) return { ...reply(UPDATE_CHANGES_NOTHING), isError: true }
+      try {
+        return reply(updatedReply(await updateTaskArtifact(context, taskId, { path, title, newPath })))
+      } catch (error) {
+        return failure(error)
+      }
+    },
+    removeArtifact({ path }) {
+      try {
+        const removed = forgetTaskArtifact(context, taskId, path)
+        return reply(`Removed ${removed.path} ("${removed.title}") from the artifacts. The file itself is untouched.`)
+      } catch (error) {
+        return failure(error)
       }
     },
   }
@@ -225,6 +290,11 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
     "Add a file you made to the task's artifacts: its deliverables, which the user finds in the Artifacts tab and " +
     'which stay with the task after it is done. Use it for what the user asked for (a report, a document, a draft), ' +
     'not for every file you change. The file must exist in the workspace. Adding the same path again renames it.',
+  [GladeTool.UpdateArtifact]:
+    "Change one of the task's artifacts: give it a new title, or point it at another file of the workspace (newPath), " +
+    'e.g. after you moved or renamed its file, or both. It keeps its place in the Artifacts tab.',
+  [GladeTool.RemoveArtifact]:
+    "Take a file off the task's artifacts, e.g. one that's no longer a deliverable. The file itself is left alone.",
 }
 
 /** The signal an MCP tool call is cancelled by, from the handler's `extra` (MCP's `RequestHandlerExtra`). */
@@ -271,6 +341,12 @@ export function createGladeMcpServer(
       ),
       tool(GladeTool.AddArtifact, DESCRIPTIONS[GladeTool.AddArtifact], addArtifactInput.shape, (input) =>
         handlers.addArtifact(input),
+      ),
+      tool(GladeTool.UpdateArtifact, DESCRIPTIONS[GladeTool.UpdateArtifact], updateArtifactInput.shape, (input) =>
+        handlers.updateArtifact(input),
+      ),
+      tool(GladeTool.RemoveArtifact, DESCRIPTIONS[GladeTool.RemoveArtifact], removeArtifactInput.shape, (input) =>
+        Promise.resolve(handlers.removeArtifact(input)),
       ),
     ],
   })

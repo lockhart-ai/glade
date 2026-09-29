@@ -1,14 +1,18 @@
 /**
- * A task's artifacts: the files the agent declares as its deliverables with `add_artifact`, shown in the Artifacts tab.
- * They're kept in the database with the task, so a done task still has them, and so does a relaunch. So is when each
- * one's file last changed, which the tab lists them by (#307): looked at as each is declared, and again whenever it may
- * have changed (`./artifact-watch`). A file that's gone keeps its last known time, and shows as missing.
+ * A task's artifacts: the files the agent declares as its deliverables with `add_artifact` (and renames, repoints or
+ * takes off with `update_artifact` and `remove_artifact`), shown in the Artifacts tab. They're kept in the database
+ * with the task, so a done task still has them, and so does a relaunch. So is when each one's file last changed, which
+ * the tab lists them by (#307): looked at as each is declared, and again whenever it may have changed
+ * (`./artifact-watch`). A file that's gone keeps its last known time, and shows as missing.
  */
 import { stat } from 'node:fs/promises'
 import { BridgeErrorCode, EventType } from '../../shared/bridge'
 import type { Artifact } from '../../shared/domain'
+import { workspaceRelativePath } from '../../shared/files'
 import {
   addArtifact,
+  changeArtifact,
+  getArtifact,
   listArtifacts,
   removeArtifact,
   setArtifactFile,
@@ -78,6 +82,77 @@ export async function addTaskArtifact(
   const artifacts = listArtifacts(context.db, taskId)
   context.emit({ type: EventType.ArtifactsChanged, taskId, artifacts })
   return artifacts.find((artifact) => artifact.path === relativePath) ?? declared
+}
+
+/**
+ * One of a task's artifacts, by a path a tool gives: absolute, or relative to the workspace root. The file needn't be
+ * there any more. Throws an `Error`, for the tool to tell the model, when the path is outside the workspace or isn't one
+ * of the task's artifacts.
+ */
+function declaredArtifact(context: TaskServiceContext, taskId: string, path: string): Artifact {
+  const root = workspaceRoot(context, taskId)
+  const relativePath = workspaceRelativePath(path, root)
+  if (relativePath === null) throw new Error(`${path} is outside the workspace (${root}).`)
+  const artifact = getArtifact(context.db, taskId, relativePath)
+  if (artifact === undefined) throw new Error(`${relativePath} isn't one of this task's artifacts.`)
+  return artifact
+}
+
+/** What the agent's `update_artifact` changes: a new title, a new file, or both. */
+export interface ArtifactUpdate {
+  /** The artifact: absolute, or relative to the workspace root. */
+  readonly path: string
+  readonly title?: string | undefined
+  /** The file it's to point to instead: absolute, or relative to the workspace root. */
+  readonly newPath?: string | undefined
+}
+
+/** One of a task's artifacts, before and after a change. */
+export interface UpdatedArtifact {
+  readonly before: Artifact
+  readonly after: Artifact
+}
+
+/**
+ * The agent's `update_artifact`: renames one of the task's artifacts and/or points it at another file of the
+ * workspace (checked as `add_artifact` checks a path), keeping its place, notes when its new file last changed, and
+ * broadcasts `artifacts.changed`. A change to nothing (the same title and file) writes nothing and broadcasts nothing.
+ * Answers with the artifact before and after. Throws an `Error`, for the tool to tell the model, when `path` isn't one of
+ * its artifacts, `newPath` isn't a file inside the workspace, or `newPath` is another of its artifacts.
+ */
+export async function updateTaskArtifact(
+  context: TaskServiceContext,
+  taskId: string,
+  { path, title, newPath }: ArtifactUpdate,
+): Promise<UpdatedArtifact> {
+  const { db } = context
+  const found = declaredArtifact(context, taskId, path)
+  const target = newPath === undefined ? found.path : await toolFilePath(context, taskId, newPath)
+  const file = target === found.path ? null : await lookAtArtifactFile(workspaceRoot(context, taskId), target)
+  // Looked at again after the file checks, which wait: the artifact may have gone, or its new path been declared.
+  const before = declaredArtifact(context, taskId, found.path)
+  const taken = target === before.path ? undefined : getArtifact(db, taskId, target)
+  if (taken !== undefined) {
+    throw new Error(`${target} is already one of this task's artifacts ("${taken.title}"). Remove one of them first.`)
+  }
+  const nextTitle = title ?? before.title
+  if (target === before.path && nextTitle === before.title) return { before, after: before }
+  const changed = changeArtifact(db, { taskId, path: before.path, newPath: target, title: nextTitle }) ?? before
+  if (file !== null) setArtifactFile(db, { taskId, path: target, file })
+  const artifacts = listArtifacts(db, taskId)
+  context.emit({ type: EventType.ArtifactsChanged, taskId, artifacts })
+  return { before, after: artifacts.find((artifact) => artifact.path === target) ?? changed }
+}
+
+/**
+ * The agent's `remove_artifact`: takes one of the task's artifacts off its list, by a path absolute or relative to the
+ * workspace root, leaving the file itself alone, and broadcasts `artifacts.changed`. Answers with the artifact removed.
+ * Throws an `Error`, for the tool to tell the model, when the path isn't one of its artifacts.
+ */
+export function forgetTaskArtifact(context: TaskServiceContext, taskId: string, path: string): Artifact {
+  const artifact = declaredArtifact(context, taskId, path)
+  removeTaskArtifact(context, taskId, artifact.path)
+  return artifact
 }
 
 /**

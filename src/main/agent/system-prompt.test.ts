@@ -44,7 +44,9 @@ describe('systemPromptAppend', () => {
           'it in preamble, then ask.',
         '',
         'When you make a deliverable the user asked for (a report, a document, a draft), call add_artifact with its ' +
-          'path and a short title, so it shows in the Artifacts tab and stays with the task after it is done.',
+          'path and a short title, so it shows in the Artifacts tab and stays with the task after it is done. Keep ' +
+          "that list current: if its file moves or it needs a new title, call update_artifact; if it's no longer a " +
+          'deliverable, call remove_artifact.',
         '',
         'When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the ' +
           "Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows " +

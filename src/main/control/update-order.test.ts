@@ -45,6 +45,7 @@ beforeEach(async () => {
   root = realpathSync(mkdtempSync(join(tmpdir(), 'glade-update-order-')))
   mkdirSync(join(root, 'notes'))
   writeFileSync(join(root, 'notes', 'plan.md'), '# Plan\n')
+  writeFileSync(join(root, 'notes', 'draft.md'), '# Draft\n')
   app = startControlApp()
   workspace = createWorkspace(app.database.db, { name: 'Acme API', rootPath: root })
   client = await connect(app.bridge.control.server(HTTP))
@@ -70,6 +71,11 @@ const FIELDS: Readonly<Record<string, { readonly value: () => unknown; readonly 
   handoff: { value: () => '## Next\n\nShip it.', place: Place.Keeps },
   artifacts: { value: () => [{ path: join(root, 'notes', 'plan.md') }], place: Place.Keeps },
   externalId: { value: () => 'tasks/done/oldest', place: Place.Keeps },
+  updateArtifacts: {
+    value: () => [{ path: join(root, 'notes', 'draft.md'), title: 'First draft' }],
+    place: Place.Keeps,
+  },
+  removeArtifacts: { value: () => [join(root, 'notes', 'draft.md')], place: Place.Keeps },
   updatedAt: { value: () => BETWEEN, place: Place.Sets },
   statusUpdatedAt: { value: () => '2026-03-12T12:00:00Z', place: Place.Keeps },
 }
@@ -81,7 +87,10 @@ function patchFields(): string[] {
   return Object.keys(patch ?? {})
 }
 
-/** Makes three tasks in `state`, updated oldest to newest, the oldest with a status; answers with their ids. */
+/**
+ * Makes three tasks in `state`, updated oldest to newest, each with a status and a draft artifact; answers with their
+ * ids.
+ */
 async function threeTasks(state: TaskState): Promise<{ oldest: string; older: string; recent: string }> {
   const make = async (title: string, updatedAt: number): Promise<string> => {
     const reply = await client.call(ControlToolName.CreateTask, {
@@ -91,6 +100,7 @@ async function threeTasks(state: TaskState): Promise<{ oldest: string; older: st
       startedAt: '2026-03-01T12:00:00Z',
       state,
       externalId: `tasks/${title}`,
+      artifacts: [{ path: join(root, 'notes', 'draft.md') }],
     })
     const id: unknown = Reflect.get(reply.json.task ?? {}, 'id')
     if (typeof id !== 'string') throw new Error(reply.text)

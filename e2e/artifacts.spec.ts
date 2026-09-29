@@ -1,4 +1,13 @@
-import { copyFileSync, mkdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { crc32, deflateSync } from 'node:zlib'
 import type { Locator } from '@playwright/test'
@@ -337,6 +346,57 @@ test('artifacts: date groups that fold and stay folded, thumbnails of images, an
   await expect(again.header('Yesterday')).toHaveAttribute('aria-expanded', 'false')
   await expect(again.header('Older')).toHaveAttribute('aria-expanded', 'true')
   await expect(again.thumbnail('Landing page, dark theme')).toHaveAttribute('src', /^data:image\/png;base64,/)
+})
+
+test('artifacts: the agent repoints, renames and removes artifacts, and the tab follows at once (#385)', async ({
+  launch,
+  tempFolder,
+}) => {
+  const root = join(tempFolder(), 'acme-docs')
+  mkdirSync(join(root, 'screens'), { recursive: true })
+  const screenshot = (from: string, to: string, minutesAgo: number): void => {
+    write(root, `screens/${to}`, readFileSync(join(SCREENS, from)), minutesAgo)
+  }
+  screenshot('landing-light.png', 'landing.png', 30)
+  screenshot('search-mobile.png', 'search-mobile.png', 20)
+  screenshot('nav-tree.png', 'nav-tree.png', 10)
+  // Retaken in the dark theme, under a new name, after the first turn.
+  screenshot('landing-dark.png', 'landing-dark.png', 5)
+  const glade = await launch({ agentScript: 'curates-artifacts', chosenFolder: root, env: MIDDAY })
+  const { window } = glade
+  await firstRun(window).openFolder.click()
+  await taskList(window).newTask.click()
+  await inputBar(window).field.fill('Screenshot the landing page, search and navigation.')
+  await inputBar(window).field.press('Enter')
+  await expect(chat(window).agentReplies).toHaveCount(1)
+
+  const panel = taskPanel(window)
+  const artifacts = artifactsTab(window)
+  await window.keyboard.press('Meta+Alt+Digit4')
+  await expect(panel.tab(/^Artifacts/)).toHaveText('Artifacts 3')
+  await expect
+    .poll(() => labels(artifacts.rows))
+    .toEqual(['Old navigation', 'Search results on mobile', 'Landing page'])
+  await expect(artifacts.thumbnail('Landing page')).toHaveAttribute('src', /^data:image\/png;base64,/)
+
+  // The next turn points the landing page at the dark screenshot, renamed, and takes the navigation off the list: the
+  // tab shows both as the calls finish, the landing page moved up by its new file's time. The navigation's file stays.
+  await inputBar(window).field.fill('The landing page is retaken in the dark theme; drop the old navigation.')
+  await inputBar(window).field.press('Enter')
+  await expect(chat(window).agentReplies).toHaveCount(2)
+  await expect(panel.tab(/^Artifacts/)).toHaveText('Artifacts 2')
+  await expect.poll(() => labels(artifacts.rows)).toEqual(['Landing page, dark theme', 'Search results on mobile'])
+  await expect(artifacts.open('Landing page, dark theme')).toHaveAttribute('title', 'screens/landing-dark.png')
+  await expect(artifacts.thumbnail('Landing page, dark theme')).toHaveAttribute('src', /^data:image\/png;base64,/)
+  expect(existsSync(join(root, 'screens', 'nav-tree.png'))).toBe(true)
+
+  // And after a relaunch.
+  await glade.close()
+  const relaunched = await launch({ env: MIDDAY })
+  await relaunched.window.keyboard.press('Meta+Alt+Digit4')
+  await expect
+    .poll(() => labels(artifactsTab(relaunched.window).rows))
+    .toEqual(['Landing page, dark theme', 'Search results on mobile'])
 })
 
 test('artifacts: the image viewer steps only through the image artifacts the list shows (#378)', async ({

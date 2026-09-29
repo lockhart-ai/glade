@@ -179,6 +179,39 @@ const artifacts = z
   )
   .describe("Files of the task's workspace to show in its Artifacts tab, each by absolute path.")
 
+/** An absolute path. */
+function absolutePath(description: string) {
+  return z.string().refine(isAbsolute, 'must be an absolute path').describe(description)
+}
+
+/** An artifact's path, as it was registered: absolute, inside the workspace. */
+const artifactPath = absolutePath(
+  "The artifact's absolute path, as the task's artifacts list it. Its file needn't still be there.",
+)
+
+/** Changes to a task's artifacts: a new title, a new file, or both. */
+const updateArtifacts = z
+  .array(
+    z
+      .strictObject({
+        path: artifactPath,
+        title: text('A new title for it in the Artifacts tab.').optional(),
+        newPath: absolutePath(
+          "The file it's to point to instead, by absolute path, e.g. where its file moved. It must be a file inside " +
+            "the task's workspace, and not another of its artifacts.",
+        ).optional(),
+      })
+      .refine((update) => update.title !== undefined || update.newPath !== undefined, 'changes nothing'),
+  )
+  .min(1, 'is empty')
+  .describe("Artifacts to rename or point at another file, each keeping its place in the task's Artifacts tab.")
+
+/** Artifacts to take off a task's list. */
+const removeArtifacts = z
+  .array(artifactPath)
+  .min(1, 'is empty')
+  .describe("Artifacts to take off the task's Artifacts tab, by absolute path. Their files are left alone.")
+
 /** How the API reads a date, for the descriptions of the fields that take one. */
 const DATES =
   'An ISO 8601 date and time with its offset (2026-03-12T09:00:00+01:00, or Z), or a date alone (2026-03-12), which ' +
@@ -244,6 +277,8 @@ const updateTaskInput = z.strictObject({
       permissionMode: permissionMode.optional(),
       handoff: handoff.nullable().optional().describe('A new handoff note, Markdown (at most 32 KB); null clears it.'),
       artifacts: artifacts.min(1, 'is empty').optional(),
+      updateArtifacts: updateArtifacts.optional(),
+      removeArtifacts: removeArtifacts.optional(),
       externalId: text(
         "Your own id for the task, replacing the one it has (e.g. its notes folder's new path). Refused when another " +
           'task has it.',
@@ -372,10 +407,11 @@ export const TASK_TOOLS: readonly ControlTool[] = [
     name: ControlToolName.UpdateTask,
     description:
       'Change a task: its title, objective, one-line status, pin, unread flag, model, effort or permission mode, its ' +
-      'handoff note (null clears it), its externalId, or add artifacts. A new permission mode applies from the ' +
-      "agent's next tool call. Any change but unread, handoff, artifacts, externalId and statusUpdatedAt moves the " +
-      'task to the top of its sidebar section (updatedAt is now), unless the patch gives updatedAt, which wins. Use ' +
-      'mark_done and reopen_task for its state.',
+      'handoff note (null clears it), its externalId, or its artifacts: add them, rename or repoint them ' +
+      "(updateArtifacts) and take them off (removeArtifacts). A new permission mode applies from the agent's next " +
+      'tool call. Any change but unread, handoff, the artifacts, externalId and statusUpdatedAt moves the task to the ' +
+      'top of its sidebar section (updatedAt is now), unless the patch gives updatedAt, which wins. Use mark_done and ' +
+      'reopen_task for its state.',
     input: updateTaskInput,
     target: taskOf,
     run: async ({ id, patch }, { service }) => ({ task: await service.updateTask(id, patch) }),
