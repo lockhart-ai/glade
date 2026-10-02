@@ -1,6 +1,11 @@
 # See docs/kitten-sop.md ("Check it") for how these jobs mirror the local checks. Split into parallel jobs balanced
 # by measured time (#354): static checks, unit tests and e2e shards each land around the same wall-clock time, with a
 # final `ci` job that gates on all of them, since branch protection and the merge queue require a check named `ci`.
+#
+# `static` and `unit` run on `ubuntu-latest` (#418): neither needs macOS, and GitHub runs far fewer macOS runners at
+# once than Linux ones, so those jobs used to queue badly behind `check-design` and the e2e shards. `check-design` and
+# the e2e shards stay on `macos-latest`: pixel comparisons depend on macOS text rendering, and e2e drives the real
+# app's macOS behaviour.
 name: CI
 
 on:
@@ -19,7 +24,7 @@ permissions:
 jobs:
   static:
     name: static
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -33,11 +38,10 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - run: npm run build
-      - run: npm run check-design
 
   unit:
     name: unit
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -48,6 +52,24 @@ jobs:
 
       - run: npm ci
       - run: npm test
+
+  check-design:
+    name: check-design
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+      - run: npm run check-design
+      # The real ps/ioreg/docker samplers (#403) only behave like this on macOS; `unit` (ubuntu-latest) skips that
+      # block, so it still runs here, once, to keep it exercised (#418).
+      - name: unit (macOS-only, #418)
+        run: npx vitest run src/main/plugins/machine-samplers.integration.test.ts
 
   e2e:
     name: e2e (${{ matrix.shard }}/${{ strategy.job-total }})
@@ -71,12 +93,12 @@ jobs:
   ci:
     name: ci
     if: always()
-    needs: [static, unit, e2e]
+    needs: [static, unit, check-design, e2e]
     runs-on: ubuntu-latest
     steps:
       - name: Check all jobs succeeded
         run: |
-          for result in "${{ needs.static.result }}" "${{ needs.unit.result }}" "${{ needs.e2e.result }}"; do
+          for result in "${{ needs.static.result }}" "${{ needs.unit.result }}" "${{ needs.check-design.result }}" "${{ needs.e2e.result }}"; do
             if [ "$result" != "success" ]; then
               echo "::error::a required job did not succeed (got: $result)"
               exit 1

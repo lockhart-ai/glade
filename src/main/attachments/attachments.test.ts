@@ -388,7 +388,9 @@ describe('discardAttachedFile', () => {
     rmSync(inWorkspace(file.path))
     mkdirSync(inWorkspace(file.path))
     writeFileSync(join(inWorkspace(file.path), 'inside'), '')
-    await expect(discardAttachedFile(context, taskId, file.path)).rejects.toMatchObject({ code: 'EPERM' })
+    // Unlinking a non-empty directory fails with EPERM on macOS and EISDIR on Linux; either way it isn't ENOENT
+    // ("the file being gone"), which is the one failure discardAttachedFile swallows.
+    await expect(discardAttachedFile(context, taskId, file.path)).rejects.not.toMatchObject({ code: 'ENOENT' })
   })
 })
 

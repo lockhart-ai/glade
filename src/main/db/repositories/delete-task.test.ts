@@ -14,6 +14,7 @@ import {
 import { AttachedFileKind, type AttachedFile } from '../../../shared/attachedFiles'
 import { GIF, PNG } from '../../../shared/test-images'
 import { setArtifactGroupOpen } from './artifact-groups'
+import { setBrowseFolderExpanded } from './browse-folders'
 import { addArtifact, addLinkArtifact, setArtifactFilter } from './artifacts'
 import { setExternalId, setHandoff } from './backfills'
 import { setSessionContext } from './session-context'
@@ -100,6 +101,7 @@ function fillTask(db: Database, task: Task): void {
   addLinkArtifact(db, { taskId, url: 'https://github.com/acme/api/pull/412', title: '#412' })
   setArtifactFilter(db, taskId, ArtifactFilter.Links)
   setArtifactGroupOpen(db, { taskId, group: ArtifactDateGroup.Today, open: false })
+  setBrowseFolderExpanded(db, { taskId, path: 'api', expanded: true })
   setWorkspaceSelection(db, task.workspaceId, taskId)
   appendQuestionSet(db, {
     taskId,
@@ -167,6 +169,8 @@ const FILLED_TABLES = [
   'artifacts',
   // The files attached to its messages, sent and queued, and to its input draft.
   'attached_files',
+  // The folders open in its Browse tab.
+  'browse_folders',
   // The images pasted into its messages, sent and queued, and into its input draft.
   'images',
   // Its unsent input draft.

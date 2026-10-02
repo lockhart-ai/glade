@@ -49,6 +49,8 @@ import { createAccountTracker } from '../account/account'
 import { createRateLimiter } from '../control/rate-limit'
 import { createControl } from '../control/control'
 import { createHandlers, type HandlerContext, type Handlers } from './handlers'
+import { createWorkspaceGit } from '../files/browse'
+import { FolderEntryKind } from '../../shared/browse'
 import type { MenuBarCommands } from '../menu-bar/menu-bar'
 import { LogLevel, LogScope } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
@@ -552,6 +554,76 @@ describe('the files commands', () => {
 
     await expect(handlers[CommandName.FilesOpenInEditor]({ taskId, path: 'docs/rate-limits.md' })).resolves.toBeNull()
     expect(openPath).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/\/docs\/rate-limits\.md$/))
+  })
+})
+
+describe('the Browse tab’s commands', () => {
+  function browsing(): { taskId: string; browse: Handlers; folderWatch: { watch: Mock; close: Mock } } {
+    for (const path of ['api/tests', 'docs', '.glade']) mkdirSync(join(root, path), { recursive: true })
+    writeFileSync(join(root, 'api', 'throttles.py'), 'rate = 120\n')
+    writeFileSync(join(root, 'docs', 'rate-limits.md'), '# Rate limits\n')
+    writeFileSync(join(root, 'README.md'), '# Acme API\n')
+    const taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+    const folderWatch = { watch: vi.fn(() => Promise.resolve()), close: vi.fn() }
+    const browse = createHandlers({ ...handlerContext(), workspaceGit: createWorkspaceGit(TEST_GIT_RUN), folderWatch })
+    return { taskId, browse, folderWatch }
+  }
+
+  it('show the Browse tab, keeping the open files', async () => {
+    const { taskId, browse } = browsing()
+    await browse[CommandName.FilesOpen]({ taskId, path: 'README.md' })
+    emit.mockClear()
+
+    const openFiles = { taskId, paths: ['README.md'], activePath: null }
+    expect(browse[CommandName.FilesBrowse]({ taskId })).toEqual({ openFiles })
+    expect(emit).toHaveBeenCalledExactlyOnceWith({ type: EventType.OpenFilesChanged, openFiles })
+    expect(() => browse[CommandName.FilesBrowse]({ taskId: 'gone' })).toThrow(
+      expect.objectContaining({ code: BridgeErrorCode.NotFound }),
+    )
+  })
+
+  it('list a folder of the task’s workspace, and find its files', async () => {
+    const { taskId, browse } = browsing()
+
+    await expect(browse[CommandName.FilesListFolder]({ taskId, path: '' })).resolves.toEqual({
+      entries: [
+        { name: 'api', path: 'api', kind: FolderEntryKind.Folder },
+        { name: 'docs', path: 'docs', kind: FolderEntryKind.Folder },
+        { name: 'README.md', path: 'README.md', kind: FolderEntryKind.File },
+      ],
+    })
+    await expect(browse[CommandName.FilesListFolder]({ taskId, path: 'missing' })).resolves.toEqual({ entries: null })
+    await expect(browse[CommandName.FilesSearch]({ taskId, query: 'rate' })).resolves.toEqual({
+      paths: ['docs/rate-limits.md'],
+      more: 0,
+    })
+    await expect(browse[CommandName.FilesSearch]({ taskId: 'gone', query: 'rate' })).rejects.toMatchObject({
+      code: BridgeErrorCode.NotFound,
+    })
+  })
+
+  it('remember the folders open in the task’s Browse tab', () => {
+    const { taskId, browse } = browsing()
+
+    expect(browse[CommandName.FilesExpandedFolders]({ taskId })).toEqual({ paths: [] })
+    expect(browse[CommandName.FilesSetFolderExpanded]({ taskId, path: 'docs', expanded: true })).toBeNull()
+    expect(browse[CommandName.FilesSetFolderExpanded]({ taskId, path: 'api', expanded: true })).toBeNull()
+    expect(browse[CommandName.FilesSetFolderExpanded]({ taskId, path: 'docs', expanded: false })).toBeNull()
+    expect(browse[CommandName.FilesExpandedFolders]({ taskId })).toEqual({ paths: ['api'] })
+    expect(() => browse[CommandName.FilesExpandedFolders]({ taskId: 'gone' })).toThrow(
+      expect.objectContaining({ code: BridgeErrorCode.NotFound }),
+    )
+    expect(() => browse[CommandName.FilesSetFolderExpanded]({ taskId: 'gone', path: 'a', expanded: true })).toThrow(
+      expect.objectContaining({ code: BridgeErrorCode.NotFound }),
+    )
+  })
+
+  it('have the folder watcher watch the folders the tab shows, and do nothing without one', async () => {
+    const { taskId, browse, folderWatch } = browsing()
+
+    await expect(browse[CommandName.FilesWatchFolders]({ taskId, paths: ['', 'api'] })).resolves.toBeNull()
+    expect(folderWatch.watch).toHaveBeenCalledExactlyOnceWith(taskId, ['', 'api'])
+    await expect(handlers[CommandName.FilesWatchFolders]({ taskId, paths: [''] })).resolves.toBeNull()
   })
 })
 

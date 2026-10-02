@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 // Each library script, played through the real agent runner into a database: what the chat, tool log and task end up
@@ -44,6 +44,7 @@ import { createGladeMcpServer, GLADE_SERVER } from './glade-tools'
 import {
   AGENT_SCRIPT_NAMES,
   AGENT_SCRIPTS,
+  TIDIES_DOCS,
   ALLOWS_FOR_TASK,
   ASKS_PERMISSION,
   DELETE_LOCAL_COPIES_QUESTION,
@@ -212,6 +213,29 @@ describe('AGENT_SCRIPTS', () => {
       ])
       expect(getOpenFiles(database.db, task.id)).toMatchObject({ activePath: 'docs/rate-limits.md' })
       expect(reply()).toMatch(/Line 8 has the tighter \/search limit/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('tidies-docs: replies first, then moves the notes into docs on its second turn', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'glade-tidies-docs-'))
+    try {
+      writeFileSync(join(root, 'notes.txt'), 'Rate limits\n')
+      task = sampleTask(database.db, sampleWorkspace(database.db, root).id)
+      vi.useRealTimers()
+      const agent = start('tidies-docs')
+      agent.send(task.id, 'Tidy the docs.')
+      await backend.whenIdle()
+      expect(reply()).toBe(TIDIES_DOCS.firstReply)
+      expect(existsSync(join(root, 'notes.txt'))).toBe(true)
+
+      agent.send(task.id, 'Go ahead.')
+      await backend.whenIdle()
+
+      expect(listMessages(database.db, task.id).at(-1)?.body).toBe(TIDIES_DOCS.reply)
+      expect(readFileSync(join(root, 'docs', 'limits.md'), 'utf8')).toBe('# Rate limits\n')
+      expect(existsSync(join(root, 'notes.txt'))).toBe(false)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

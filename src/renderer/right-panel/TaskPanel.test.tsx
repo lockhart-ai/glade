@@ -948,7 +948,7 @@ describe('TaskPanel', () => {
       })
       fireEvent.click(screen.getByRole('button', { name: 'Close README.md' }))
       await waitFor(() => {
-        expect(screen.getByText('No file open.')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Browse files', pressed: true })).toBeInTheDocument()
       })
       screen.getByRole('tabpanel').focus()
       expect(requestClose()).toBe(false)

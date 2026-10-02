@@ -47,6 +47,7 @@ import {
   type PermissionRequestClosing,
 } from './db/repositories/permission-requests'
 import { setOpenFiles } from './db/repositories/open-files'
+import { setBrowseFolderExpanded } from './db/repositories/browse-folders'
 import { appendQueuedMessage } from './db/repositories/queued-messages'
 import { addTaskPermissionRule } from './db/repositories/task-permission-rules'
 import { createTask, updateTask } from './db/repositories/tasks'
@@ -210,6 +211,8 @@ export interface SeedTask {
   readonly resumedAfterCrash?: boolean | undefined
   /** The files open in its Files tab, relative to the workspace root, and the one showing; none unless given. */
   readonly openFiles?: SeedOpenFiles | undefined
+  /** The folders open in its Files tab's Browse tab, relative to the workspace root; none unless given. */
+  readonly browseFolders?: readonly string[] | undefined
   /** The files and links declared as its artifacts (the Artifacts tab), in the order they were declared. */
   readonly artifacts?: readonly SeedArtifact[] | undefined
   /** Which of them the Artifacts tab shows (#407); all of them unless given. */
@@ -295,8 +298,8 @@ export interface SeedHandoff {
 /** A task's open files (`OpenFiles`). */
 export interface SeedOpenFiles {
   readonly paths: readonly string[]
-  /** The one showing; the first unless given. */
-  readonly activePath?: string | undefined
+  /** The one showing, or null for the Browse tab; the first unless given. */
+  readonly activePath?: string | null | undefined
 }
 
 /** A sample pause (`TaskPause`), with its times relative to the capture. */
@@ -526,7 +529,10 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       error: seedErrorSchema.optional(),
       pause: seedPauseSchema.optional(),
       resumedAfterCrash: z.boolean().optional(),
-      openFiles: z.strictObject({ paths: z.array(z.string()), activePath: z.string().optional() }).optional(),
+      openFiles: z
+        .strictObject({ paths: z.array(z.string()), activePath: z.string().nullable().optional() })
+        .optional(),
+      browseFolders: z.array(z.string()).optional(),
       artifacts: z
         .array(
           z.union([
@@ -844,7 +850,14 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       for (const body of sample.queuedMessages ?? []) appendQueuedMessage(db, { taskId: task.id, body }, now)
       if (sample.openFiles !== undefined) {
         const { paths, activePath } = sample.openFiles
-        setOpenFiles(db, { taskId: task.id, paths, activePath: activePath ?? paths[0] ?? null })
+        setOpenFiles(db, {
+          taskId: task.id,
+          paths,
+          activePath: activePath === undefined ? (paths[0] ?? null) : activePath,
+        })
+      }
+      for (const path of sample.browseFolders ?? []) {
+        setBrowseFolderExpanded(db, { taskId: task.id, path, expanded: true })
       }
       for (const artifact of sample.artifacts ?? []) {
         const declaredAt = seedArtifactAt(artifact, now)

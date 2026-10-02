@@ -312,6 +312,7 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
       case EventType.WatchersChanged:
       case EventType.CommitsChanged:
       case EventType.FileShown:
+      case EventType.FolderChanged:
       case EventType.OpenFilesChanged:
       case EventType.TaskOpenRequested:
       case EventType.UiStateChanged:

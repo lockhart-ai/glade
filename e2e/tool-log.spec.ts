@@ -1,5 +1,5 @@
 import { expect, seedPath, test, timeZoneAtHour } from './fixtures'
-import { regions, taskPanel } from './selectors'
+import { filesTab, regions, taskPanel } from './selectors'
 
 test('tool log: rows, notes and dividers, without subagent calls; a row expands; the chat shows a turn; it survives a restart', async ({
   launch,
@@ -38,7 +38,7 @@ test('tool log: rows, notes and dividers, without subagent calls; a row expands;
 
   // The chat's tool-call chip brings back Tool calls, at that turn, from any other tab.
   await panel.tab('Files').click()
-  await expect(panel.tabPanel).toContainText('No file open.')
+  await expect(filesTab(glade.window).browse).toHaveAttribute('aria-pressed', 'true')
   await regions(glade.window).chat.getByRole('button', { name: '3 tool calls' }).click()
   await expect(panel.tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
   await expect(panel.log.locator('[data-turn-start="1"]')).toBeInViewport()

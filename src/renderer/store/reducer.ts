@@ -311,6 +311,9 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
       const { taskId, path, line } = event
       return { ...state, fileFocus: { taskId, path, line, request: (state.fileFocus?.request ?? 0) + 1 } }
     }
+    // The Browse tab hears it straight from the store (`onFolderChanged`): nothing in the state changes.
+    case EventType.FolderChanged:
+      return state
     case EventType.TodosChanged:
       return { ...state, todos: { ...state.todos, [event.taskId]: event.todos } }
     case EventType.ArtifactsChanged:
