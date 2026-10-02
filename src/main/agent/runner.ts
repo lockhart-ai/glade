@@ -79,9 +79,13 @@
  * - when the running turn's top-level tool calls all have their results, the queue goes to the session, which folds it
  *   into the running turn. Each message goes to the chat log as a user message of that turn, after the one that
  *   started it and before the turn's reply, which answers them all.
- * - when a turn ends with messages still queued, they start the next turn, together.
- * - a stopped or failed turn leaves the queue alone: it stays queued until you send again, and then goes first, before
- *   what you sent. So does a turn that ends on a done task.
+ * - when a turn ends with messages still queued, they start the next turn, together. A turn you stopped ends like any
+ *   other here (#441): Stop drops what the agent is doing, not what you said next.
+ * - a failed turn leaves the queue alone: it stays queued until you send again, and then goes first, before what you
+ *   sent. So does a turn that ends on a done task.
+ * - a task found waiting on you with messages queued and nothing left to deliver them (a turn stopped before #441,
+ *   say) is stuck: its queue starts a turn on launch (`resumeInterrupted`), and when Stop is pressed with no turn
+ *   running.
  * If the SDK answers a message handed to it mid-turn with a turn of its own (its result doesn't list the message), the
  * runner's turn carries on until a result does, saving each reply on the way.
  *
@@ -89,7 +93,8 @@
  * aborted result, and the session stays alive for the next message. A stopped turn isn't a failure: its activity goes
  * back to waiting on you. What it already saved stays. Its held-back text, including the partial text the SDK flushes
  * when it aborts, goes to the tool log as narration rather than the chat, since it isn't a finished reply; its
- * unfinished tool calls end as errors; and a narration notes that you stopped it.
+ * unfinished tool calls end as errors; and a narration notes that you stopped it. Messages still queued then start the
+ * next turn at once, as after any turn, so the task goes straight back to working.
  *
  * **Errors** (`docs/design/html/16-error.html`). Glade doesn't retry a failed API request itself: Claude Code already
  * retries the transient ones with backoff, and says so before each retry (`docs/sdk-notes.md`, "Errors and retries").
@@ -165,7 +170,7 @@
  * so the resumed session starts with it. An allowed call the agent makes again with the same tool and input (keys in
  * any order) goes ahead once without asking, until that turn ends; a denied one asks, if made again. Meanwhile a message
  * sent is queued, as it is while any request waits, and follows the decisions; Stop withdraws the requests, and the
- * decisions already made on the others never reach the agent. How far each request has got is saved with it
+ * decisions already made on the others never reach the agent, though a queue then starts a turn of its own. How far each request has got is saved with it
  * (`RestartDelivery`), so a relaunch in between loses nothing. A decision while the agent is busy with something else
  * (a compaction, say) is refused as busy.
  *
@@ -183,8 +188,9 @@
  *   waiting on you, with a note.
  * - a compaction the app quit in ends as an error, and isn't redone: the task goes back to waiting on you, unless
  *   messages are queued, which start the next turn as they would have after it.
- * - a task in error, waiting on you or done has no turn running, so it's left as it is, queue and all: an error keeps
- *   its card and Retry.
+ * - a task in error, paused or done has no turn running, so it's left as it is, queue and all: an error keeps its card
+ *   and Retry. So is one waiting on you, unless it's active with messages queued and neither a question nor a
+ *   permission request open: nothing else would ever send them, so they start its next turn (#441).
  *
  * **Images** pasted into a message are saved with it (`../db/repositories/images`), queued or sent, and go to the
  * session with its text, each time it's handed over: when it's sent or delivered from the queue, retried, or sent to a
@@ -262,7 +268,7 @@ import {
 } from '../db/repositories/permission-requests'
 import { getOpenQuestionSet, getQuestionSet, listOpenQuestionSets } from '../db/repositories/question-sets'
 import { listTaskPermissionRules } from '../db/repositories/task-permission-rules'
-import { listQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
+import { listQueuedMessages, listTasksWithQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
 import { getSettings } from '../db/repositories/settings'
 import { getTask, listPausedTasks, listWorkingTasks } from '../db/repositories/tasks'
 import { recordReportedWindow } from '../db/repositories/context-windows'
@@ -456,7 +462,8 @@ export interface AgentRunner {
     files?: readonly AttachedFile[],
   ): QueuedMessage
   /**
-   * Stops the task's running turn, and resolves with the task once the turn has ended. Does nothing for a task whose
+   * Stops the task's running turn, and resolves with the task once the turn has ended: working again, on its next turn,
+   * if messages were queued (see the module comment). Does nothing for a task whose
    * agent isn't working. Throws a `CommandFailure` `not_found` for no such task.
    */
   stop(taskId: string): Promise<Task>
@@ -487,7 +494,8 @@ export interface AgentRunner {
    */
   compact(taskId: string): Task
   /**
-   * Carries on the turns the app quit or crashed in, and arms the timers of the paused ones (see the module comment).
+   * Carries on the turns the app quit or crashed in, arms the timers of the paused ones, and sends the queues a stopped
+   * turn left behind (see the module comment).
    * Call it once, on launch. Answers with the ids of the tasks whose agents picked their work back up, in the order
    * they were created.
    */
@@ -1214,8 +1222,28 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     flushPreamble(taskId, turn)
     failRunning(taskId, turn, STOPPED_NOTE)
     emitToolEventAppended(emit, appendNarration(db, { taskId, turn: turn.number, text: STOPPED_NOTE }))
-    setActivity(taskId, TaskActivity.Waiting)
   }
+
+  /**
+   * Starts the active task's next turn with its queue, as the end of a turn does (see the module comment). Answers
+   * whether it did: false for an empty queue, or a task that's done or gone.
+   */
+  const startQueued = (taskId: string, live: LiveSession | undefined): boolean => {
+    const task = getTask(db, taskId)
+    if (task?.state !== TaskState.Active || listQueuedMessages(db, taskId).length === 0) return false
+    startTurn(task, live ?? start(task), null)
+    return true
+  }
+
+  /**
+   * Whether the task is stuck with its queue (#441): waiting on you, with no turn running and neither a question nor a
+   * permission request open, so nothing is left that would deliver it.
+   */
+  const holdsQueue = (taskId: string): boolean =>
+    getTask(db, taskId)?.activity === TaskActivity.Waiting &&
+    (sessions.get(taskId)?.turn ?? null) === null &&
+    getOpenQuestionSet(db, taskId) === undefined &&
+    !waitsOnRestartRequests(taskId)
 
   /** Ends the running compaction as an error, if the SDK never reported it or says it failed. */
   const failCompaction = (turn: Turn): void => {
@@ -1317,6 +1345,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (event.isError && (turn.stopping || isAborted(event.terminalReason))) {
       endTurn(taskId, live, turn)
       onTurnStopped(taskId, turn)
+      // You stopped the turn, not what you said next: the queue starts the next one, as after any turn (#441).
+      if (!startQueued(taskId, live)) setActivity(taskId, TaskActivity.Waiting)
       return
     }
     if (turn.refusal !== null) {
@@ -1358,12 +1388,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       if (turn.awaiting.size > 0) return
     }
     endTurn(taskId, live, turn)
-    const task = getTask(db, taskId)
-    if (task?.state === TaskState.Active && listQueuedMessages(db, taskId).length > 0) {
-      startTurn(task, live, null)
-      return
-    }
-    setActivity(taskId, TaskActivity.Waiting)
+    if (!startQueued(taskId, live)) setActivity(taskId, TaskActivity.Waiting)
   }
 
   /**
@@ -2492,7 +2517,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       dropAfterRestart(taskId)
       const live = sessions.get(taskId)
       const turn = live?.turn ?? null
-      if (live === undefined || turn === null) return getTask(db, taskId) ?? task
+      if (live === undefined || turn === null) {
+        // No turn to stop: messages queued behind the requests just withdrawn, or left by an earlier Stop, go now.
+        if (holdsQueue(taskId)) startQueued(taskId, live)
+        return getTask(db, taskId) ?? task
+      }
       taskLog(taskId).info('stop requested', { turn: turn.number })
       turn.stopping = true
       // An `ask` or a permission request waiting on you would hold the turn up: they're withdrawn first, so their calls
@@ -2632,6 +2661,15 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
           deliverAfterRestart(taskId)
         } catch (error) {
           taskLog(taskId).error('failed to send permission decisions after a restart', { error })
+        }
+      }
+      // A queue nothing will deliver (its turn was stopped, before #441 sent it): it starts the task's next turn.
+      for (const taskId of listTasksWithQueuedMessages(db)) {
+        if (!holdsQueue(taskId)) continue
+        try {
+          if (startQueued(taskId, undefined)) taskLog(taskId).info('queue left by a stopped turn sent on launch')
+        } catch (error) {
+          taskLog(taskId).error('failed to send the queue left by a stopped turn', { error })
         }
       }
       for (const task of listPausedTasks(db)) timers.arm(task.id, task.pause?.resumesAt ?? Date.now())

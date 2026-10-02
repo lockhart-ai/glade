@@ -69,3 +69,48 @@ test('messages sent while the agent works wait in the queue, editable, through a
     'All 3,900 files copied to S3, keeping their original filenames.',
   )
 })
+
+// #441: Stop used to leave the queue stuck, with nothing to send it.
+for (const how of ['the Stop button', 'the ⌘. shortcut'] as const) {
+  test(`${how} with messages queued stops the turn, then sends them as the next turn`, async ({
+    launch,
+    tempFolder,
+  }) => {
+    const root = join(tempFolder(), 'acme-api')
+    mkdirSync(root)
+    const { window } = await launch({ agentScript: 'long-running', chosenFolder: root })
+    await firstRun(window).openFolder.click()
+    await taskList(window).newTask.click()
+
+    const bar = inputBar(window)
+    await bar.field.fill('Run the e2e suite.')
+    await bar.field.press('Enter')
+    // The agent runs the suite until it's stopped.
+    await expect(taskPanel(window).call(/^Running\s*Bash/)).toBeVisible()
+
+    // Two messages queued while it works.
+    await bar.field.fill('Only run the unit tests.')
+    await bar.field.press('Enter')
+    await bar.field.fill('And tell me which ones fail.')
+    await bar.field.press('Enter')
+    await expect(bar.queuedRows).toHaveText(['1Only run the unit tests.', '2And tell me which ones fail.'])
+    const { userMessages, agentReplies } = chat(window)
+    await expect(userMessages).toHaveCount(1)
+
+    if (how === 'the Stop button') await bar.stop.click()
+    else await window.keyboard.press('Meta+.')
+
+    // The suite is stopped, and the queue goes to the agent at once, in order, with nothing more from you: it answers.
+    await expect(taskPanel(window).call(/^Failed\s*Bash/)).toBeVisible()
+    await expect(userMessages).toHaveText([
+      /Run the e2e suite\./,
+      /Only run the unit tests\./,
+      /And tell me which ones fail\./,
+    ])
+    await expect(agentReplies).toHaveText([/I stopped the suite and will only run the unit tests\./])
+    // That turn ended on its own: nothing is left queued, and Send is back.
+    await expect(bar.queued).toHaveCount(0)
+    await expect(bar.stop).toHaveCount(0)
+    await expect(bar.send).toBeVisible()
+  })
+}

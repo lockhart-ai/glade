@@ -128,12 +128,11 @@ test('pasting: a queued pasted block is delivered to the agent wrapped in tags',
   await bar.queue.click()
   await expect(bar.queuedRows).toHaveText([`1See this: [Pasted text · 3 lines]`])
 
+  // Stop ends the turn and sends the queue as the next one (#441).
   await bar.stop.click()
-  await expect(bar.stop).toHaveCount(0)
-  await bar.field.fill('Go on.')
-  await bar.field.press('Enter')
+  await expect(bar.queued).toHaveCount(0)
 
   await expect
-    .poll(async () => (await agentReceived(glade)).map(textSent).at(-2))
+    .poll(async () => (await agentReceived(glade)).map(textSent).at(-1))
     .toMatch(/^See this: <pasted_content id="[a-z0-9]+">\n/)
 })

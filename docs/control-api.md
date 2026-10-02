@@ -464,7 +464,8 @@ images. The text is trimmed and mustn't be empty.
 ### `stop_task`, `mark_done`, `reopen_task`
 
 `{ id }` → `{ task: TaskDetail }`. Stop is the Stop button: it interrupts the turn and withdraws an open question or
-permission request, and answers once the turn has ended; an idle task is left as it is. Mark done and reopen are the
+permission request, and answers once the turn has ended; an idle task is left as it is. If the task has messages
+queued, they're sent as its next turn as soon as the stopped one ends, so the task comes back working. Mark done and reopen are the
 header's actions: `invalid_transition` for a task already done, or already active.
 
 ### `delete_task`

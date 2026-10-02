@@ -36,7 +36,8 @@
 - **Permissions:** default Allow all. Each task can switch to "Ask before edits and commands" instead (P11, see
   below).
 - **Message queue:** messages sent while the agent works are queued and delivered after its current step. They can be
-  edited or removed. No "send now", no reordering.
+  edited or removed. No "send now", no reordering. Stop with messages queued stops the turn and then sends the queue
+  as the next turn, as when a turn ends on its own (#441); a task found stuck with a queue sends it at launch.
 - **Notifications:** native OS notifications for any agent message in a task you're not viewing, even while Glade is
   focused. Task name + start of the message. Sound off. Focus/DND handled by the OS.
 - **Needs you (#430):** a task needs you when it's blocked on you or has a reply you haven't read: asking a question,
