@@ -5,7 +5,6 @@ import {
   type Artifact,
   type ArtifactGroupFold,
   type TaskHandoff,
-  type EpochMs,
   type Message,
   type PermissionRequest,
   type QuestionSet,
@@ -90,8 +89,17 @@ function merged<T extends LogEntry>(loaded: readonly T[], current: readonly T[] 
   return [...loaded, ...current.filter(({ id }) => !ids.has(id))]
 }
 
-/** Records a task's chat log and tool log as loaded from main, keeping anything newer events already brought. */
-export function withHistory(state: GladeData, taskId: string, history: TasksHistoryResponse): GladeData {
+/**
+ * Records a task's chat log and tool log as loaded from main, keeping anything newer events already brought.
+ * `artifactsVersionAtLoad` is the task's `artifactsVersion` at the moment this load started (`loadHistory` in
+ * `./store`), so a load that started before an `artifacts.changed` landed, but answers after, never overwrites it.
+ */
+export function withHistory(
+  state: GladeData,
+  taskId: string,
+  history: TasksHistoryResponse,
+  artifactsVersionAtLoad = Number.POSITIVE_INFINITY,
+): GladeData {
   return {
     ...state,
     messages: { ...state.messages, [taskId]: merged<Message>(history.messages, state.messages[taskId]) },
@@ -108,8 +116,16 @@ export function withHistory(state: GladeData, taskId: string, history: TasksHist
     },
     // Like the queue, open files change in place: the loaded ones are as new as any event before them.
     openFiles: { ...state.openFiles, [taskId]: history.openFiles },
-    // Each change carries the whole list; the one declared in last is the newer.
-    artifacts: { ...state.artifacts, [taskId]: newerArtifacts(history.artifacts, state.artifacts[taskId]) },
+    // Each change carries the whole list; a load that started before one landed must not override it.
+    artifacts: {
+      ...state.artifacts,
+      [taskId]: newerArtifacts(
+        history.artifacts,
+        state.artifacts[taskId],
+        state.artifactsVersion[taskId] ?? 0,
+        artifactsVersionAtLoad,
+      ),
+    },
     // Only this window changes them, and it has by the time a load that follows its change answers.
     artifactGroups: { ...state.artifactGroups, [taskId]: history.artifactGroups },
     todos: { ...state.todos, [taskId]: newerTodos(history.todos, state.todos[taskId]) },
@@ -147,14 +163,18 @@ function newerTodos(loaded: TodoList | null, current: TodoList | null | undefine
   return loaded === null || current.updatedAt > loaded.updatedAt ? current : loaded
 }
 
-/** When a task's artifacts last changed: the latest time one was declared, or one's file was seen to change. */
-function lastChanged(artifacts: readonly Artifact[]): EpochMs {
-  return artifacts.reduce((latest, artifact) => Math.max(latest, artifact.updatedAt, artifact.modifiedAt ?? latest), 0)
-}
-
-/** The loaded artifacts, unless an event already brought newer ones. */
-function newerArtifacts(loaded: readonly Artifact[], current: readonly Artifact[] | undefined): readonly Artifact[] {
-  return current !== undefined && lastChanged(current) > lastChanged(loaded) ? current : loaded
+/**
+ * The loaded artifacts, unless an `artifacts.changed` event landed after the load started (`currentVersion` is newer
+ * than `versionAtLoad`), which the load's content can't be trusted to show: it may have read the list before that
+ * change, even though it answers after it.
+ */
+function newerArtifacts(
+  loaded: readonly Artifact[],
+  current: readonly Artifact[] | undefined,
+  currentVersion: number,
+  versionAtLoad: number,
+): readonly Artifact[] {
+  return current !== undefined && currentVersion > versionAtLoad ? current : loaded
 }
 
 /** A task's artifact date groups opened or folded, with one more: `fold` in place of what it replaces. */
@@ -197,6 +217,7 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     todos: without(state.todos, taskId),
     openFiles: without(state.openFiles, taskId),
     artifacts: without(state.artifacts, taskId),
+    artifactsVersion: without(state.artifactsVersion, taskId),
     artifactGroups: without(state.artifactGroups, taskId),
     watchers: without(state.watchers, taskId),
     commits: without(state.commits, taskId),
@@ -273,7 +294,14 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
     case EventType.TodosChanged:
       return { ...state, todos: { ...state.todos, [event.taskId]: event.todos } }
     case EventType.ArtifactsChanged:
-      return { ...state, artifacts: { ...state.artifacts, [event.taskId]: event.artifacts } }
+      return {
+        ...state,
+        artifacts: { ...state.artifacts, [event.taskId]: event.artifacts },
+        artifactsVersion: {
+          ...state.artifactsVersion,
+          [event.taskId]: (state.artifactsVersion[event.taskId] ?? 0) + 1,
+        },
+      }
     case EventType.HandoffChanged:
       return { ...state, handoffs: { ...state.handoffs, [event.taskId]: event.handoff } }
     case EventType.WatchersChanged:

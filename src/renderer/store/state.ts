@@ -181,6 +181,11 @@ export interface GladeData {
   /** Each task's artifacts (the Artifacts tab), by task id: loaded with its logs, then kept current by events. */
   readonly artifacts: Readonly<Record<string, readonly Artifact[]>>
   /**
+   * How many `artifacts.changed` events each task has had applied, by task id: bumped every time one lands, so a
+   * history load that started before one can tell, when it answers, that it's stale and must not overwrite it.
+   */
+  readonly artifactsVersion: Readonly<Record<string, number>>
+  /**
    * The Artifacts tab's date groups you opened or folded, by task id: loaded with its logs, then changed as you open
    * or fold one.
    */
@@ -653,6 +658,7 @@ export const INITIAL_DATA: GladeData = {
   permissionRequests: {},
   openFiles: {},
   artifacts: {},
+  artifactsVersion: {},
   artifactGroups: {},
   watchers: {},
   commits: {},

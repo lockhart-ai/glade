@@ -514,8 +514,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       async loadHistory(taskId) {
+        // Captured before the request goes out: if an `artifacts.changed` lands before this answers, the load is
+        // stale for artifacts and must not override it (see `newerArtifacts` in `./reducer`).
+        const artifactsVersionAtLoad = get().artifactsVersion[taskId] ?? 0
         const history = await bridge.invoke(CommandName.TasksHistory, { id: taskId })
-        set((state) => withHistory(state, taskId, history))
+        set((state) => withHistory(state, taskId, history, artifactsVersionAtLoad))
       },
 
       setUiState,
