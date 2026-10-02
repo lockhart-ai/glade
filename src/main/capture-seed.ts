@@ -12,6 +12,7 @@ import {
   AutoCompactKind,
   CompactionTrigger,
   DividerKind,
+  Effort,
   MessageRole,
   PauseReason,
   PermissionDestination,
@@ -49,6 +50,8 @@ import { setOpenFiles } from './db/repositories/open-files'
 import { appendQueuedMessage } from './db/repositories/queued-messages'
 import { addTaskPermissionRule } from './db/repositories/task-permission-rules'
 import { createTask, updateTask } from './db/repositories/tasks'
+import { setSdkModels } from './db/repositories/sdk-models'
+import type { ModelChoice } from '../shared/models'
 import {
   appendCompaction,
   appendDivider,
@@ -183,6 +186,8 @@ export interface SeedTask {
   readonly activity?: TaskActivity | undefined
   readonly pinned?: boolean | undefined
   readonly unread?: boolean | undefined
+  /** The model id it runs on, as the SDK takes it (e.g. `opus[1m]`); the default for new tasks unless given. */
+  readonly model?: string | undefined
   /** How much context the task's agent has used, in tokens; none unless given. */
   readonly contextUsedTokens?: number | undefined
   /** The task's context window, in tokens; its model's unless given. */
@@ -362,6 +367,8 @@ export interface CaptureSeed {
   readonly account?: SeedAccount | undefined
   /** The usage meter's readings; none unless given. */
   readonly usage?: readonly SeedUsageReading[] | undefined
+  /** The models the SDK offers, as a session reported them (`ModelChoice`); the built-in list unless given. */
+  readonly models?: readonly ModelChoice[] | undefined
 }
 
 /** Which panels a seed collapses. */
@@ -470,6 +477,17 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
   }),
   account: seedAccountSchema.optional(),
   usage: z.array(seedUsageReadingSchema).optional(),
+  models: z
+    .array(
+      z.strictObject({
+        id: z.string(),
+        resolvedModel: z.string().nullable(),
+        name: z.string(),
+        description: z.string(),
+        efforts: z.array(z.enum(Effort)).readonly(),
+      }),
+    )
+    .optional(),
   settings: z.strictObject(SETTING_SCHEMAS).partial().optional(),
   controlToken: storedToken.optional(),
   panelTab: z.string().optional(),
@@ -492,6 +510,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       activity: z.enum(TaskActivity).optional(),
       pinned: z.boolean().optional(),
       unread: z.boolean().optional(),
+      model: z.string().optional(),
       contextUsedTokens: z.int().nonnegative().optional(),
       contextWindowTokens: z.int().positive().optional(),
       autoCompact: z
@@ -723,6 +742,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
   db.transaction(() => {
     if (seed.settings !== undefined) updateSettings(db, seed.settings)
     if (seed.controlToken !== undefined) storeControlToken(db, seed.controlToken)
+    if (seed.models !== undefined) setSdkModels(db, seed.models)
     if (seed.account !== undefined) {
       const { readMinutesAgo, ...fields } = seed.account
       saveAccount(db, {
@@ -779,7 +799,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       const newTask = {
         ...(sample.id === undefined ? {} : { id: sample.id }),
         workspaceId: workspaceOf(sample),
-        model: DEFAULT_SETTINGS.defaultModel,
+        model: sample.model ?? DEFAULT_SETTINGS.defaultModel,
         effort: DEFAULT_SETTINGS.defaultEffort,
         permissionMode: sample.permissionMode ?? DEFAULT_SETTINGS.defaultPermissionMode,
       }

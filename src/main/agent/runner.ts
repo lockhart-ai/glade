@@ -260,6 +260,10 @@ import { listTaskPermissionRules } from '../db/repositories/task-permission-rule
 import { listQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
 import { getSettings } from '../db/repositories/settings'
 import { getTask, listPausedTasks, listWorkingTasks } from '../db/repositories/tasks'
+import { recordReportedWindow } from '../db/repositories/context-windows'
+import { offeredModels } from '../db/repositories/sdk-models'
+import { matchReportedWindow } from '../../shared/contextWindow'
+import { findModel } from '../../shared/models'
 import {
   appendCompaction,
   appendDivider,
@@ -1370,7 +1374,6 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     stopOnError(taskId, error)
   }
 
-  /** Keeps the context window the result reports for the session's model, if it reports one. */
   /**
    * Asks the SDK where it compacts the session automatically (`getContextUsage`, `docs/sdk-notes.md` §5), which follows
    * the user's own Claude Code settings, and keeps it on the task for the context meter. Only for the threshold: its
@@ -1400,11 +1403,47 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     )
   }
 
+  /**
+   * Keeps the context window the result reports for the session's model (`matchReportedWindow`: by the model its init
+   * named, the model Glade runs it on or the full id that stands for, else the only one reported), and remembers it for
+   * that model under each of those ids, so the next task or model change on it starts from the real size. The task
+   * takes it only while it's still on the model the session ran: one the picker changed meanwhile gets its own on its
+   * next turn.
+   */
   const recordContextWindow = (taskId: string, live: LiveSession, event: TurnFinishedEvent): void => {
-    const window = live.sdkModel === null ? undefined : event.contextWindows[live.sdkModel]
-    if (window !== undefined && getTask(db, taskId)?.contextWindowTokens !== window) {
-      updateTaskFromRunner(context, taskId, { contextWindowTokens: window })
+    const sessionModel = live.settings.model
+    const fullId = findModel(offeredModels(db), sessionModel)?.resolvedModel ?? null
+    const names = [live.sdkModel, sessionModel, fullId].filter((name) => name !== null)
+    const reported = matchReportedWindow(event.contextWindows, names)
+    if (reported === undefined) {
+      const models = Object.keys(event.contextWindows)
+      if (models.length > 0)
+        agentLog(taskId).warn("the result reports no window for the session's model", { names, models })
+      return
     }
+    recordReportedWindow(db, [reported.model, ...names], reported.window)
+    const task = getTask(db, taskId)
+    if (task?.model !== sessionModel || task.contextWindowTokens === reported.window) return
+    agentLog(taskId).info('context window reported', { model: reported.model, window: reported.window })
+    updateTaskFromRunner(context, taskId, { contextWindowTokens: reported.window })
+  }
+
+  /**
+   * Saves how much context the session's prompt fills. More than the task's window holds proves the window wrong: the
+   * task then shows the smallest window that holds it (`fitContextWindow`, applied as the task is saved), and the log
+   * says so.
+   */
+  const onContextUsed = (taskId: string, tokens: number): void => {
+    const task = getTask(db, taskId)
+    if (task === undefined || task.contextUsedTokens === tokens) return
+    if (tokens > task.contextWindowTokens) {
+      agentLog(taskId).warn('more context used than the window holds; trusting the larger size', {
+        used: tokens,
+        window: task.contextWindowTokens,
+        model: task.model,
+      })
+    }
+    updateTaskFromRunner(context, taskId, { contextUsedTokens: tokens })
   }
 
   /** The session is gone: fail its turn, if one was running, and forget it so the next message starts it again. */
@@ -1721,9 +1760,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         return
       case AgentEventKind.ContextUsed:
         recovered(taskId, turn)
-        if (getTask(db, taskId)?.contextUsedTokens !== event.tokens) {
-          updateTaskFromRunner(context, taskId, { contextUsedTokens: event.tokens })
-        }
+        onContextUsed(taskId, event.tokens)
         return
       case AgentEventKind.Compacting:
         taskLog(taskId).info('compacting', { turn: turn.number })

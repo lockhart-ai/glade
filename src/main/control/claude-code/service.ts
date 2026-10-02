@@ -15,7 +15,6 @@ import { statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Database } from 'better-sqlite3'
 import { EventType } from '../../../shared/bridge'
-import { contextWindowFor } from '../../../shared/contextWindow'
 import {
   DividerKind,
   MessageRole,
@@ -428,7 +427,7 @@ async function importSession(
       },
       transcript.startedAt,
     )
-    const windowTokens = contextWindowFor(model)
+    const windowTokens = created.contextWindowTokens
     for (const turn of transcript.turns) writeTurn(db, created.id, turn, windowTokens, transcript.startedAt)
     // The session's todo calls leave a list, as a Glade task's do: its row shows the progress.
     refreshTodos(db, created.id)

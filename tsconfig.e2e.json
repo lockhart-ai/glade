@@ -32,6 +32,7 @@
     "src/shared/images.ts",
     "src/shared/test-images.ts",
     "src/shared/models.ts",
+    "src/shared/contextWindow.ts",
     "src/shared/plugin-api.ts",
     "src/shared/plugin-api-schema.ts",
     "src/shared/plugins.ts",

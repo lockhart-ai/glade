@@ -22,7 +22,15 @@ import {
   type Task,
 } from '../../shared/domain'
 import { WindowCommandId } from '../../shared/commands'
-import { EFFORT_NAMES, effortFallbackNotice, effortFor, effortsOf, findModel, modelName } from '../../shared/models'
+import {
+  EFFORT_NAMES,
+  effortFallbackNotice,
+  effortFor,
+  effortsOf,
+  findModel,
+  modelLabel,
+  modelOptions,
+} from '../../shared/models'
 import {
   insertPastedBlock,
   isPasteWorthMarking,
@@ -495,9 +503,12 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     }
   }
 
-  // The task's model as the list has it (a task saved with a full id is on the alias that stands for it), and the
-  // effort levels it supports: none hides the effort picker.
+  // The task's model as the list has it (a task saved with a full id is on the alias that stands for it), what the
+  // button calls it (with "(1M)" when it runs at 1M), the options with it always among them, and the effort levels it
+  // supports: none hides the effort picker.
   const selectedModel = findModel(models, task.model)?.id ?? task.model
+  const modelShown = modelLabel(models, task.model, task.contextWindowTokens)
+  const modelChoices = modelOptions(models, task.model, modelShown)
   const efforts = effortsOf(models, task.model)
 
   /** Changes the model, and the effort with it when the new model doesn't support the task's, saying so. */
@@ -554,8 +565,8 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
       <div className={styles.settings}>
         <SettingPicker
           label="Model"
-          value={modelName(models, task.model)}
-          options={models}
+          value={modelShown}
+          options={modelChoices}
           selectedId={selectedModel}
           onChoose={(model) => {
             if (model !== selectedModel) void changeModel(model)

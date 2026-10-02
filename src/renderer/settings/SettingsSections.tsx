@@ -8,6 +8,7 @@ import {
   effortsOf,
   findModel,
   modelName,
+  modelOptions,
   type ModelChoice,
 } from '../../shared/models'
 import { PluginStatus, type InstalledPlugin } from '../../shared/plugins'
@@ -125,8 +126,8 @@ interface ModelPickerProps {
 /** The default model: a button naming it, which opens a menu of the models with it checked. */
 function ModelPicker({ models, value, onChoose }: ModelPickerProps): React.JSX.Element {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
-  const selected = findModel(models, value)?.id
-  const entries: MenuEntry[] = models.map((option) => ({
+  const selected = findModel(models, value)?.id ?? value
+  const entries: MenuEntry[] = modelOptions(models, value).map((option) => ({
     kind: MenuEntryKind.Item,
     label: option.name,
     checked: option.id === selected,

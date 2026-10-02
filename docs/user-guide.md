@@ -106,7 +106,10 @@ The **input bar** under the chat sets how this task runs:
 
 - **Model:** the models your Claude Code login offers, as Claude Code names them (e.g. Default (recommended), Opus,
   Sonnet, Haiku). Glade learns the list each time an agent starts and remembers it, so it's there offline and after a
-  relaunch; until the first agent has started, it offers Opus 5.5, Sonnet 5 and Haiku 4.5.
+  relaunch; until the first agent has started, it offers Opus 5.5, Sonnet 5 and Haiku 4.5. A model's 1M-context
+  variant, where your login offers one, is listed right after it. The task's own model is always in the list, checked,
+  even one your login no longer offers, and it's always named, never shown as a raw id: a task on `opus[1m]` reads
+  "Opus 5.5 (1M)". A task whose agent runs with a 1M context window says so the same way, with "(1M)" after the name.
 - **Effort:** how long the agent thinks before acting: Low, Medium, High, Extra high or Max, as far as the model
   supports them. Some models, like Haiku, take no effort, and the picker hides. Switch to a model that doesn't offer
   the task's effort and the effort moves to the model's default (High, where it has it), and a toast says so. A model

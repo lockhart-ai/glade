@@ -218,8 +218,9 @@ export interface Task {
    */
   readonly contextUsedTokens: number
   /**
-   * The model's context window, in tokens: what the SDK last reported for the task's model, or else what
-   * `contextWindowFor` (`./contextWindow`) gives for it.
+   * The model's context window, in tokens: what the SDK last reported for the task's session, or else the best guess
+   * for its model (`guessContextWindow` in `./models`). Never less than `contextUsedTokens`: more used than the
+   * window holds proves it wrong, and the larger size wins (`fitContextWindow` in `./contextWindow`).
    */
   readonly contextWindowTokens: number
   /**

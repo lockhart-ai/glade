@@ -43,7 +43,10 @@ import { ImageOwnerKind, imagesOf } from '../db/repositories/images'
 import { listMessages } from '../db/repositories/messages'
 import { getOpenQuestionSet, listQuestionSets } from '../db/repositories/question-sets'
 import { appendQueuedMessage, listQueuedMessages } from '../db/repositories/queued-messages'
-import { getTask, updateTask } from '../db/repositories/tasks'
+import { createTask, getTask, updateTask } from '../db/repositories/tasks'
+import { getReportedWindows } from '../db/repositories/context-windows'
+import { setSdkModels } from '../db/repositories/sdk-models'
+import { ALIAS_MODELS } from '../../shared/test-models'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { setUiState } from '../db/repositories/ui-state'
@@ -617,21 +620,125 @@ describe('the context usage', () => {
     expect(current()).toMatchObject({ contextUsedTokens: sdk.CONTEXT_USED, contextWindowTokens: 180_000 })
   })
 
-  it("keeps the window it has when the result doesn't report the session's model", async () => {
+  it("keeps the window it has when the result reports several models and none is the session's", async () => {
     await send('Hi')
-    backend.session.emit(
-      sdk.init(),
-      sdk.result('Hello.', { modelUsage: { 'claude-sample-other': { contextWindow: 1 } } }),
-    )
+    const modelUsage = { 'claude-sample-other': { contextWindow: 1 }, 'claude-sample-third': { contextWindow: 2 } }
+    backend.session.emit(sdk.init(), sdk.result('Hello.', { modelUsage }))
     await settle()
     expect(current().contextWindowTokens).toBe(200_000)
+    expect(getReportedWindows(database.db).size).toBe(0)
+    expect(log.withMessage("the result reports no window for the session's model")).toHaveLength(1)
   })
 
-  it("can't find a window before the session has said which model it runs on", async () => {
+  it('says nothing of a result that reports no model at all', async () => {
     await send('Hi')
-    backend.session.emit(sdk.result('Hello.', { modelUsage: { [sdk.MODEL]: { contextWindow: 1 } } }))
+    backend.session.emit(sdk.init(), sdk.result('Hello.', { modelUsage: {} }))
     await settle()
     expect(current().contextWindowTokens).toBe(200_000)
+    expect(log.withMessage("the result reports no window for the session's model")).toEqual([])
+  })
+
+  it("finds the window by the task's own model before the session has said which it runs on", async () => {
+    await send('Hi')
+    backend.session.emit(sdk.result('Hello.', { modelUsage: { [sdk.MODEL]: { contextWindow: 180_000 } } }))
+    await settle()
+    expect(current().contextWindowTokens).toBe(180_000)
+  })
+
+  // #416, the first screenshot: the task's model id has no `[1m]`, and nothing in the SDK's list says it runs at 1M.
+  // `modelUsage` is keyed by an id that's neither the task's (`opus`) nor one the list resolves it to, so the real
+  // window was never matched, and the meter read 905k / 200k.
+  describe('a 1M session on a model id without [1m]', () => {
+    const FULL_ID = 'claude-opus-5-5'
+    const usage = { modelUsage: { [FULL_ID]: { contextWindow: 1_000_000 } } }
+
+    beforeEach(() => {
+      updateTask(database.db, task.id, { model: 'opus' })
+    })
+
+    it('starts as a 200k guess, and takes the real 1M from the result, whatever id it is keyed by', async () => {
+      expect(current().contextWindowTokens).toBe(200_000)
+      await send('Hi')
+      backend.session.emit(sdk.init(), sdk.withContextUsed(sdk.text('Hello.'), 150_000), sdk.result('Hello.', usage))
+      await settle()
+
+      expect(current()).toMatchObject({ model: 'opus', contextUsedTokens: 150_000, contextWindowTokens: 1_000_000 })
+      // It's remembered for the model, under every id it went by.
+      expect(Object.fromEntries(getReportedWindows(database.db))).toEqual({
+        [FULL_ID]: 1_000_000,
+        [sdk.MODEL]: 1_000_000,
+        opus: 1_000_000,
+      })
+    })
+
+    it('matches it through the full id the SDK’s list gives the alias, among other models’ windows', async () => {
+      setSdkModels(database.db, ALIAS_MODELS)
+      await send('Hi')
+      const modelUsage = { 'claude-haiku-4-5-20251001': { contextWindow: 200_000 }, ...usage.modelUsage }
+      backend.session.emit(sdk.init(), sdk.text('Hello.'), sdk.result('Hello.', { modelUsage }))
+      await settle()
+
+      expect(current().contextWindowTokens).toBe(1_000_000)
+      expect(getReportedWindows(database.db).get('claude-haiku-4-5-20251001')).toBeUndefined()
+    })
+
+    it('never shows more used than the window: 905k of "200k" proves it 1M, before any result, and the log says', async () => {
+      await send('Hi')
+      backend.session.emit(sdk.init(), sdk.withContextUsed(sdk.text('Reading.'), 905_000))
+      await settle()
+
+      expect(current()).toMatchObject({ contextUsedTokens: 905_000, contextWindowTokens: 1_000_000 })
+      expect(log.withMessage('more context used than the window holds; trusting the larger size')).toEqual([
+        expect.objectContaining({ fields: { taskId: task.id, used: 905_000, window: 200_000, model: 'opus' } }),
+      ])
+    })
+
+    it('keeps the real window over a relaunch, with no session running', async () => {
+      await send('Hi')
+      backend.session.emit(sdk.init(), sdk.withContextUsed(sdk.text('Hello.'), 905_000), sdk.result('Hello.', usage))
+      await settle()
+
+      relaunch()
+
+      expect(backend.sessions).toHaveLength(0)
+      expect(current()).toMatchObject({ contextUsedTokens: 905_000, contextWindowTokens: 1_000_000 })
+      await expect(glade.invoke(CommandName.TasksList, { workspaceId: workspace.id })).resolves.toEqual({
+        tasks: [expect.objectContaining({ model: 'opus', contextUsedTokens: 905_000, contextWindowTokens: 1_000_000 })],
+      })
+    })
+
+    it('keeps it through a model change and back, and gives it to the next task on the model', async () => {
+      await send('Hi')
+      backend.session.emit(sdk.init(), sdk.text('Hello.'), sdk.result('Hello.', usage))
+      await settle()
+
+      // To a model nothing is known of: the guess, 200k.
+      await glade.invoke(CommandName.TasksUpdate, { id: task.id, patch: { model: 'claude-sample-2' } })
+      expect(current().contextWindowTokens).toBe(200_000)
+      // And back: what the SDK reported for it, not the 200k its id gives.
+      await glade.invoke(CommandName.TasksUpdate, { id: task.id, patch: { model: 'opus' } })
+      expect(current().contextWindowTokens).toBe(1_000_000)
+      // By the full id too.
+      await glade.invoke(CommandName.TasksUpdate, { id: task.id, patch: { model: FULL_ID } })
+      expect(current().contextWindowTokens).toBe(1_000_000)
+
+      const next = createTask(database.db, { workspaceId: workspace.id, model: 'opus', effort: Effort.High })
+      expect(next.contextWindowTokens).toBe(1_000_000)
+    })
+
+    it("doesn't give a task the window of the model it has since left", async () => {
+      await send('Hi')
+      backend.session.emit(sdk.init(), sdk.text('Hello.'))
+      await settle()
+      // The picker changes the model mid-turn: the turn's result is still the old model's.
+      await glade.invoke(CommandName.TasksUpdate, { id: task.id, patch: { model: 'claude-sample-2' } })
+      backend.session.emit(sdk.result('Hello.', usage))
+      await settle()
+
+      expect(current()).toMatchObject({ model: 'claude-sample-2', contextWindowTokens: 200_000 })
+      // It's remembered for the model that ran, all the same.
+      expect(getReportedWindows(database.db).get('opus')).toBe(1_000_000)
+    })
   })
 
   it('lists the task with it once its session is gone', async () => {
