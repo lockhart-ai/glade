@@ -130,10 +130,14 @@ function QueueEditor({ message, onSave, onCancel }: QueueEditorProps): React.JSX
   // Set once the edit is saved or cancelled, so the blur that follows doesn't save it again.
   const done = useRef(false)
 
+  // In a microtask, since Edit opens this from the queued message's context menu, which returns the focus to where
+  // it was (the task's input, #415) in one as it closes: the editor must take it after that.
   useEffect(() => {
-    const element = field.current
-    element?.focus()
-    element?.setSelectionRange(element.value.length, element.value.length)
+    queueMicrotask(() => {
+      const element = field.current
+      element?.focus()
+      element?.setSelectionRange(element.value.length, element.value.length)
+    })
   }, [])
 
   const save = (): void => {

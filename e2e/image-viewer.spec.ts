@@ -1,6 +1,6 @@
 // The image viewer (#324): a thumbnail in the chat or the queue opens its image full size over the window, fitted to
 // it but never scaled past its own size; ← and → step through the message's images, and Esc, the backdrop or × close
-// it, handing the focus back to the thumbnail.
+// it, putting the focus on the task's input (#415).
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from './fixtures'
@@ -86,10 +86,10 @@ test('image viewer: open a chat thumbnail full size, step through the message’
   await viewer.next.click()
   await expect(viewer.pager).toHaveText('3 of 3')
 
-  // Esc closes it, and the focus is on the thumbnail of the image it showed.
+  // Esc closes it, and the focus goes to the task's input (#415), not back to the thumbnail it opened from.
   await window.keyboard.press('Escape')
   await expect(viewer.viewer).toHaveCount(0)
-  await expect(thumbnails.nth(2)).toBeFocused()
+  await expect(bar.field).toBeFocused()
 
   // ↵ on a focused thumbnail opens it; a click on the backdrop, beside the image, closes it.
   await thumbnails.nth(1).focus()
@@ -99,7 +99,7 @@ test('image viewer: open a chat thumbnail full size, step through the message’
   await expect(viewer.viewer).toBeVisible()
   await viewer.viewer.click({ position: { x: 20, y: size.height / 2 } })
   await expect(viewer.viewer).toHaveCount(0)
-  await expect(thumbnails.nth(1)).toBeFocused()
+  await expect(bar.field).toBeFocused()
 
   // Space opens it too, and × closes it.
   await thumbnails.nth(0).focus()
@@ -107,7 +107,7 @@ test('image viewer: open a chat thumbnail full size, step through the message’
   await expect(viewer.pager).toHaveText('1 of 3')
   await viewer.close.click()
   await expect(viewer.viewer).toHaveCount(0)
-  await expect(thumbnails.nth(0)).toBeFocused()
+  await expect(bar.field).toBeFocused()
 })
 
 test('image viewer: a queued message’s thumbnail opens its image, alone, with no pager', async ({
@@ -142,6 +142,6 @@ test('image viewer: a queued message’s thumbnail opens its image, alone, with 
 
   await window.keyboard.press('Escape')
   await expect(viewer.viewer).toHaveCount(0)
-  await expect(thumbnail).toBeFocused()
+  await expect(bar.field).toBeFocused()
   await expect(bar.queuedRows).toHaveText(['1This is the test that fails.'])
 })

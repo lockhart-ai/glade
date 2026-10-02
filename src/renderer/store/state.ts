@@ -311,6 +311,12 @@ export interface GladeData {
   readonly fileEdits: FileEdits
   /** The Save / Discard / Cancel prompt showing, about unsaved edits; null when none is. */
   readonly unsavedPrompt: UnsavedPrompt | null
+  /**
+   * How many modals are open now (Settings, a confirm dialog, the image viewer; each registers itself with
+   * `useModalPresence`): above 0, the input bar holds off taking the focus on a task switch, and takes it once this
+   * falls back to 0 (#415). A one-off UI intent, like `inputFocusRequest`.
+   */
+  readonly openModalCount: number
 }
 
 /**
@@ -541,6 +547,10 @@ export interface GladeActions {
   focusTurn: (taskId: string, turn: number) => void
   /** Asks the input bar to focus its message field (see `inputFocusRequest`). */
   focusInput: () => void
+  /** Registers a modal as open, bumping `openModalCount` (see `useModalPresence`). */
+  modalOpened: () => void
+  /** Registers a modal as closed, dropping `openModalCount` back down (see `useModalPresence`). */
+  modalClosed: () => void
   /** Opens a file in a task's Files tab and shows it (`files.open`). */
   openFile: (taskId: string, path: string) => Promise<void>
   /**
@@ -741,6 +751,7 @@ export const INITIAL_DATA: GladeData = {
   terminalPaste: null,
   fileEdits: {},
   unsavedPrompt: null,
+  openModalCount: 0,
 }
 
 export function selectSelectedWorkspace(state: GladeData): Workspace | undefined {

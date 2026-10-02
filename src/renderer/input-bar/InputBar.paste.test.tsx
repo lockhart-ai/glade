@@ -572,8 +572,10 @@ describe('pasting images', () => {
     expect(within(viewer).getByRole('img', { name: IMAGE_LABEL })).toHaveAttribute('src', imageDataUrl(PNG))
     fireEvent.click(within(viewer).getByRole('button', { name: 'Close image' }))
     await settleFloating()
+    await act(() => Promise.resolve())
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(within(queue).getByRole('button', { name: 'View pasted image 1 of 2' })).toHaveFocus()
+    // Closing it puts the focus on the task's input (#415), not back on the thumbnail that opened it.
+    expect(field()).toHaveFocus()
     expect(within(queue).getAllByRole('listitem')).toHaveLength(1)
   })
 

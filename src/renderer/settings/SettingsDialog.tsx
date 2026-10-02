@@ -9,7 +9,7 @@ import {
 } from '@floating-ui/react'
 import { faXmark } from '@fortawesome/free-solid-svg-icons'
 import { useCallback, useId, useRef } from 'react'
-import { Button, ButtonVariant, useOverlayRef } from '../components'
+import { Button, ButtonVariant, useModalPresence, useOverlayRef } from '../components'
 import { selectSelectedWorkspace } from '../store/state'
 import { useGladeStore } from '../store/react'
 import { APP_SECTIONS, SECTION_TITLES, SettingsSection } from './sections'
@@ -61,6 +61,7 @@ export function SettingsDialog(): React.JSX.Element {
   const currentRef = useRef<HTMLButtonElement>(null)
   const overlay = useOverlayRef()
   const open = section !== null
+  useModalPresence(open)
   const { refs, context } = useFloating({
     open,
     onOpenChange: (next) => {

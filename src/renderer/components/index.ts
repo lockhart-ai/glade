@@ -49,3 +49,4 @@ export {
   type ToastProviderProps,
 } from './Toast/Toast'
 export { ConfirmDialog, type ConfirmDialogProps, type DialogAlternative } from './ConfirmDialog/ConfirmDialog'
+export { useModalPresence } from './useModalPresence'

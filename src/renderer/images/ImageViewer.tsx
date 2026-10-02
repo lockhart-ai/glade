@@ -11,7 +11,7 @@ import {
 import { faImage } from '@fortawesome/free-regular-svg-icons'
 import { faChevronLeft, faChevronRight, faXmark } from '@fortawesome/free-solid-svg-icons'
 import { useCallback, useRef, type KeyboardEvent, type MouseEvent } from 'react'
-import { Button, ButtonVariant, Icon, IconSize, useOverlayRef } from '../components'
+import { Button, ButtonVariant, Icon, IconSize, useModalPresence, useOverlayRef } from '../components'
 import { ImageSourceKind, imageSourceKey, type ImageViewerSource } from './imageSources'
 import { IMAGE_LABEL, MISSING_IMAGE_LABEL, StoredImageStatus, useStoredImage, useWorkspaceImage } from './StoredImage'
 import styles from './ImageViewer.module.css'
@@ -59,6 +59,12 @@ export interface ImageViewerProps {
    * Reveal in Finder.
    */
   readonly header?: (source: ImageViewerSource) => ImageViewerHeader | undefined
+  /**
+   * Whether closing it puts the focus on the task's input instead of `returnFocus` (#415): true for a message's
+   * pasted images, in the chat or queued. False (the default) for a workspace image, opened from the Artifacts tab or
+   * the Files tab, where closing keeps a keyboard user's place in the list or row it opened from instead.
+   */
+  readonly focusesTaskInput?: boolean
 }
 
 /**
@@ -69,7 +75,8 @@ export interface ImageViewerProps {
  * workspace image with a header shows its title in the close chip, before its actions, all top right, so nothing sits
  * under the macOS traffic lights (top left, in every state). Esc, a click on the backdrop or the close button closes
  * it. It takes the focus synchronously as it's shown, so a ← or → pressed right away still steps it (#393), and hands
- * the focus back to `returnFocus` once it closes.
+ * the focus back to `returnFocus` once it closes — or, for a message's pasted images, to the task's input instead
+ * (`focusesTaskInput`, #415).
  */
 export function ImageViewer({
   images,
@@ -78,9 +85,15 @@ export function ImageViewer({
   onClose,
   returnFocus,
   header,
+  focusesTaskInput = false,
 }: ImageViewerProps): React.JSX.Element {
   const closeRef = useRef<HTMLButtonElement>(null)
   const overlay = useOverlayRef()
+  // Open for as long as it's mounted (its parent unmounts it to close it): while it is, and only when it's the kind
+  // that takes the task's input over on close, the input bar holds off taking the focus itself, even though
+  // `returnFocus` lands it here first; the task's input takes it over once this unmounts (#415). A workspace image
+  // (an artifact, or a Files tab file) never registers here, so closing it always leaves the focus on `returnFocus`.
+  useModalPresence(focusesTaskInput)
   const { refs, context } = useFloating({
     open: true,
     onOpenChange: (next) => {

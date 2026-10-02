@@ -611,9 +611,7 @@ describe('TaskListToolbar', () => {
     })
     expect(fake.invoke).toHaveBeenCalledWith(CommandName.TasksCreate, { workspaceId: 'w1' })
     expect(row('New task')).toHaveAttribute('aria-current', 'true')
-    await vi.waitFor(() => {
-      expect(store.getState().inputFocusRequest).toBe(1)
-    })
+    // Its input bar takes the focus once it's selected, wherever it's mounted (`InputBar`, #415).
   })
 
   it('shows a toast when a task can’t be created', async () => {
@@ -861,7 +859,7 @@ describe('⌥↓ / ⌥↑ from the input bar', () => {
     await selectedWithFocus(store, 'a2')
   })
 
-  it('leaves the focus where it was when ⌥↓ is pressed outside the message field', async () => {
+  it('focuses the new task’s input bar even when ⌥↓ is pressed outside the message field (#415)', async () => {
     const { store } = await renderWithBar([{ key: UiStateKey.SelectedTaskId, value: 'a2' }])
     act(() => {
       field().blur()
@@ -869,9 +867,6 @@ describe('⌥↓ / ⌥↑ from the input bar', () => {
 
     pressAlt('ArrowDown')
 
-    await vi.waitFor(() => {
-      expect(store.getState().selectedTaskId).toBe('a1')
-    })
-    expect(document.body).toHaveFocus()
+    await selectedWithFocus(store, 'a1')
   })
 })

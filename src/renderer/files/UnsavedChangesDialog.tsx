@@ -1,5 +1,5 @@
 import { fileName } from '../../shared/files'
-import { ConfirmDialog, useToast } from '../components'
+import { ConfirmDialog, useModalPresence, useToast } from '../components'
 import { describeFailure } from '../store/hydrate'
 import { useGladeStore } from '../store/react'
 import { UnsavedChoice, UnsavedReason, type UnsavedPrompt } from './unsaved'
@@ -41,6 +41,7 @@ export function UnsavedChangesDialog(): React.JSX.Element | null {
   const prompt = useGladeStore((state) => state.unsavedPrompt)
   const answer = useGladeStore((state) => state.answerUnsavedPrompt)
   const toast = useToast()
+  useModalPresence(prompt !== null)
 
   if (prompt === null) return null
 
