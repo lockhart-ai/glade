@@ -7,6 +7,7 @@
  */
 import { z } from 'zod'
 import {
+  MAX_PLUGIN_MACHINE_HISTORY,
   MAX_PLUGIN_MESSAGE_BYTES,
   MAX_PLUGIN_TEXT,
   PLUGIN_API_VERSION,
@@ -20,7 +21,9 @@ import {
   PluginToolCallState,
   PluginWaitingOn,
   type GladeMessage,
+  type PluginContainer,
   type PluginEvent,
+  type PluginMachineReading,
   type PluginMessage,
   type PluginPermissionRequest,
   type PluginQuestion,
@@ -86,6 +89,25 @@ export const pluginPermissionRequestSchema = z.strictObject({
   openedAt: time,
 }) satisfies z.ZodType<PluginPermissionRequest>
 
+/** A count of cores, or a percentage: never negative. */
+const load = z.number().nonnegative()
+
+export const pluginContainerSchema = z.strictObject({
+  name: text,
+  cpu: load,
+  memory: z.number().int().nonnegative(),
+}) satisfies z.ZodType<PluginContainer>
+
+export const pluginMachineReadingSchema = z.strictObject({
+  t: time,
+  cpuCount: z.number().int().positive(),
+  total: load,
+  claude: load,
+  docker: load,
+  gpu: z.number().min(0).max(100).nullable(),
+  containers: z.array(pluginContainerSchema).readonly(),
+}) satisfies z.ZodType<PluginMachineReading>
+
 export const pluginEventSchema = z.discriminatedUnion('type', [
   z.strictObject({
     type: z.literal(PluginEventType.Hello),
@@ -97,6 +119,7 @@ export const pluginEventSchema = z.discriminatedUnion('type', [
     subagents: z.array(pluginSubagentSchema).readonly(),
     questions: z.array(pluginQuestionSchema).readonly(),
     permissions: z.array(pluginPermissionRequestSchema).readonly(),
+    machine: z.array(pluginMachineReadingSchema).max(MAX_PLUGIN_MACHINE_HISTORY).readonly().optional(),
   }),
   z.strictObject({ type: z.literal(PluginEventType.TaskCreated), task: pluginTaskSchema }),
   z.strictObject({ type: z.literal(PluginEventType.TaskUpdated), task: pluginTaskSchema }),
@@ -125,6 +148,7 @@ export const pluginEventSchema = z.discriminatedUnion('type', [
     requestId: id,
     outcome: z.enum(PluginPermissionOutcome),
   }),
+  z.strictObject({ type: z.literal(PluginEventType.MachineReading), reading: pluginMachineReadingSchema }),
 ]) satisfies z.ZodType<PluginEvent>
 
 export const gladeMessageSchema = z.strictObject({

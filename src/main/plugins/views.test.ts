@@ -21,9 +21,10 @@ function valid(folder: string, enabled = true): ValidPlugin {
   return {
     status: PluginStatus.Valid,
     folder,
-    manifest: { id: folder, name: folder, version: '1.0.0', entry: 'index.html', icon: null },
+    manifest: { id: folder, name: folder, version: '1.0.0', entry: 'index.html', icon: null, capabilities: [] },
     iconUrl: null,
     enabled,
+    granted: [],
   }
 }
 

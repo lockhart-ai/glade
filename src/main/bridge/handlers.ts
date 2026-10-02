@@ -329,6 +329,9 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.SearchQuery]: ({ workspaceId, text }) => ({ results: searchTasks(db, workspaceId, text) }),
     [CommandName.PluginsList]: async () => ({ plugins: await plugins.list() }),
     [CommandName.PluginsSetEnabled]: ({ id, enabled }) => ({ plugins: plugins.setEnabled(id, enabled) }),
+    [CommandName.PluginsSetCapability]: ({ id, capability, granted }) => ({
+      plugins: plugins.setCapability(id, capability, granted),
+    }),
     [CommandName.PluginsOpenFolder]: async () => {
       await plugins.openFolder()
       return null

@@ -330,6 +330,13 @@ function useRealLoginEnv(): void {
 /** launchd's PATH: what an app opened from Finder or the Dock starts with. */
 const LAUNCHD_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
 
+// The machine's samplers for plugins, watched: the app's read Docker in the login shell's environment.
+vi.mock('./plugins/machine-samplers', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./plugins/machine-samplers')>()
+  return { ...original, createMachineSamplers: vi.fn(original.createMachineSamplers) }
+})
+const { createMachineSamplers } = await import('./plugins/machine-samplers')
+
 // The log file, watched, and kept off the terminal: a test reads the file instead.
 vi.mock('./logging/file-sink', async (importOriginal) => {
   const original = await importOriginal<typeof import('./logging/file-sink')>()
@@ -1120,6 +1127,20 @@ describe('startApp', () => {
     })
 
     const env = await createAgentBackend.mock.calls[0]?.[0].env
+    expect(env?.PATH).toBe(`/opt/sample/bin:${LAUNCHD_PATH}`)
+  })
+
+  it("reads plugins' machine readings with the real samplers, Docker in the login shell's environment", async () => {
+    vi.stubEnv('PATH', LAUNCHD_PATH)
+    useRealLoginEnv()
+    vi.mocked(createMachineSamplers).mockClear()
+
+    startApp({ createAgentBackend: () => new FakeAgentBackend() })
+    await vi.waitFor(() => {
+      expect(createMachineSamplers).toHaveBeenCalledOnce()
+    })
+
+    const env = await vi.mocked(createMachineSamplers).mock.calls[0]?.[0].env()
     expect(env?.PATH).toBe(`/opt/sample/bin:${LAUNCHD_PATH}`)
   })
 

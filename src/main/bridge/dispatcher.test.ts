@@ -129,6 +129,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.TerminalClose]: () => null,
     [CommandName.PluginsList]: () => ({ plugins: [] }),
     [CommandName.PluginsSetEnabled]: () => ({ plugins: [] }),
+    [CommandName.PluginsSetCapability]: () => ({ plugins: [] }),
     [CommandName.PluginsOpenFolder]: () => null,
     [CommandName.PluginsPlaceView]: () => ({ status: '' }),
     [CommandName.PluginsReload]: () => null,

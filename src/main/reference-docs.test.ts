@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  MAX_PLUGIN_MACHINE_HISTORY,
   MAX_PLUGIN_STATUS,
   MAX_PLUGIN_TEXT,
   PLUGIN_API_VERSION,
@@ -19,7 +20,9 @@ import {
   PluginWaitingOn,
 } from '../shared/plugin-api'
 import {
+  pluginContainerSchema,
   pluginEventSchema,
+  pluginMachineReadingSchema,
   pluginPermissionRequestSchema,
   pluginQuestionSchema,
   pluginSubagentSchema,
@@ -36,6 +39,7 @@ import {
   ToolCallState,
 } from '../shared/domain'
 import { formatChord, RESERVED_CHORDS } from '../shared/keymap'
+import { PluginCapability } from '../shared/plugins'
 import { connectCommand, controlUrl, DEFAULT_CONTROL_PORT } from '../shared/control'
 import { APP_SECTIONS, SECTION_TITLES } from '../renderer/settings/sections'
 import { GladeTool } from './agent/glade-tools'
@@ -219,6 +223,8 @@ describe('docs/plugin-api.md', () => {
     ['PluginSubagent', pluginSubagentSchema],
     ['PluginQuestion', pluginQuestionSchema],
     ['PluginPermissionRequest', pluginPermissionRequestSchema],
+    ['PluginMachineReading', pluginMachineReadingSchema],
+    ['PluginContainer', pluginContainerSchema],
   ] as const)('declares every field of %s, and no others', (name, schema) => {
     const block = interfaceBlock(api, name)
     const declared = [...block.matchAll(/readonly (\w+)\??:/g)].map((match) => match[1])
@@ -250,6 +256,8 @@ describe('docs/plugin-api.md', () => {
       `a burst of ${String(PLUGIN_RATE_LIMIT.burst)}, then ${String(PLUGIN_RATE_LIMIT.perSecond)} a second`,
     )
     expect(api).toContain(`version **${String(PLUGIN_API_VERSION)}**`)
+    expect(api).toContain(`up to ${String(MAX_PLUGIN_MACHINE_HISTORY)}`)
+    for (const capability of Object.values(PluginCapability)) expect(api).toContain(`**\`${capability}\`:`)
   })
 })
 

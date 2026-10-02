@@ -66,7 +66,7 @@ import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import { controlUrl, type ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
-import { PluginStatus, type InstalledPlugin } from '../../shared/plugins'
+import { PluginStatus, withGrant, type InstalledPlugin } from '../../shared/plugins'
 import { highlightParts, highlightPattern, SearchField, type SearchResult } from '../../shared/search'
 import type { TerminalTab } from '../../shared/terminal'
 import { addDoneCounts, doneCountsOf, isInDoneSection, NO_DONE_TASKS, pageOfDone } from '../../shared/doneList'
@@ -157,7 +157,8 @@ export interface FakeMain {
   readonly revealedWorkspaces?: string[]
   /**
    * The plugins `plugins.list` answers with, in order; none when left out. `plugins.setEnabled` turns a valid one on or
-   * off, broadcasting them, and refuses any other with `not_found`.
+   * off, broadcasting them, and refuses any other with `not_found`; `plugins.setCapability` turns one of its
+   * capabilities on or off the same way.
    */
   plugins?: InstalledPlugin[]
   /** How many times `plugins.openFolder` opened the plugins folder. */
@@ -624,6 +625,19 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       }
       main.plugins = plugins.map((plugin) =>
         plugin.folder === id && plugin.status === PluginStatus.Valid ? { ...plugin, enabled } : plugin,
+      )
+      emit({ type: EventType.PluginsChanged, plugins: [...main.plugins] })
+      return { plugins: [...main.plugins] }
+    },
+    [CommandName.PluginsSetCapability]: ({ id, capability, granted }) => {
+      const plugins = main.plugins ?? []
+      const plugin = plugins.find((candidate) => candidate.folder === id)
+      if (plugin?.status !== PluginStatus.Valid) return refuse(bridgeError(BridgeErrorCode.NotFound, `No plugin ${id}`))
+      if (!plugin.manifest.capabilities.includes(capability)) {
+        return refuse(bridgeError(BridgeErrorCode.InvalidRequest, `${id} doesn't ask for ${capability}`))
+      }
+      main.plugins = plugins.map((candidate) =>
+        candidate === plugin ? withGrant(plugin, capability, granted) : candidate,
       )
       emit({ type: EventType.PluginsChanged, plugins: [...main.plugins] })
       return { plugins: [...main.plugins] }
