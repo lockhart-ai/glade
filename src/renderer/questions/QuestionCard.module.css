@@ -98,11 +98,6 @@
   color: var(--color-text);
 }
 
-.optional {
-  font-size: 12px;
-  color: var(--color-faint);
-}
-
 /*
  * The option cards share a row, as wide as it lets them be, but never narrower than 160px and never more than three to
  * a row: more than fit wrap onto the rows below (issue #269). Two share even the narrowest chat's row.
@@ -278,6 +273,12 @@
   max-width: 480px;
 }
 
+/* The "Anything else?" box: a note in your own words, as wide as the card, two lines to start (#397). */
+.anythingElse {
+  min-height: 64px;
+  font-size: var(--font-size-body);
+}
+
 .footer {
   display: flex;
   align-items: center;
@@ -317,4 +318,15 @@
   margin: 0 0 0 20px;
   font-size: var(--font-size-body);
   color: var(--color-purple);
+}
+
+/* A question you skipped: said so, quieter than an answer. */
+.skipped {
+  color: var(--color-faint);
+}
+
+/* The "Anything else?" note keeps the lines you typed. It has no number, so it starts under its prompt. */
+.note {
+  margin-left: 0;
+  white-space: pre-wrap;
 }

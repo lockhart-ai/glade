@@ -634,9 +634,10 @@ export interface DraftsSetRequest {
 }
 
 /**
- * Answers the open question set the agent asked (`ask`) with the card: an answer for each question, keyed by its index
- * from 0 (see `checkAnswers` in `./questions` for what each kind of question takes). The agent's turn carries on with
- * the answers as the tool's result, and the task is working again. Broadcasts `question.answered` and `task.updated`.
+ * Answers the open question set the agent asked (`ask`) with the card: an answer for any of its questions (every one is
+ * optional, so none at all is fine), keyed by its index from 0 (see `checkAnswers` in `./questions` for what each kind
+ * of question takes), and what you typed in the card's "Anything else?" box. The agent's turn carries on with the
+ * answers as the tool's result, and the task is working again. Broadcasts `question.answered` and `task.updated`.
  *
  * If the app quit while the question was open, the agent's call is gone: its session is resumed, and the answers go to
  * it as a message, with a resumed divider in the tool log (see the runner).
@@ -650,10 +651,12 @@ export interface QuestionsAnswerRequest {
   /** The question set's id. */
   readonly id: string
   readonly answers: QuestionAnswers
+  /** The card's "Anything else?" text. Trimmed; blank or left out, the reply has none. */
+  readonly anythingElse?: string
 }
 
 export interface QuestionSetResponse {
-  /** The question set as it now is: answered, with its answers tidied (text trimmed, empty optional text dropped). */
+  /** The question set as it now is: answered, with its answers tidied (text trimmed, the unanswered dropped). */
   readonly questionSet: QuestionSet
 }
 

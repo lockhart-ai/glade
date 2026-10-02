@@ -20,6 +20,11 @@ it('renders the app into the root element and loads its store from main', async 
 
   expect(await screen.findByRole('main', { name: 'Task' })).toBeInTheDocument()
   expect(invoke).toHaveBeenCalledWith(CommandName.WorkspacesList, {})
+  // It marks itself ready a moment later; the mark mustn't land in the next test, which waits for its own.
+  await waitFor(() => {
+    expect(document.documentElement).toHaveAttribute(READY_ATTRIBUTE)
+  })
+  document.documentElement.removeAttribute(READY_ATTRIBUTE)
 })
 
 it('marks the app ready once its store has loaded', async () => {

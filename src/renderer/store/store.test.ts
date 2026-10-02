@@ -14,6 +14,7 @@ import {
   ArtifactDateGroup,
   FileThumbnailKind,
   MessageRole,
+  QuestionReplyKind,
   QuestionSetState,
   TaskActivity,
   TaskState,
@@ -897,6 +898,25 @@ describe("a task's logs", () => {
     ])
     await expect(store.getState().answerQuestions('gone', {})).rejects.toMatchObject({
       code: BridgeErrorCode.NotFound,
+    })
+  })
+
+  it('sends the card\'s "Anything else?" text with its answers, and the answered set keeps it', async () => {
+    const data = { ...main(), questionSets: [sampleQuestionSet('s1', 't1')] }
+    const { store, invoke } = await hydrated(data)
+    await store.getState().loadHistory('t1')
+
+    await store.getState().answerQuestions('s1', {}, 'None of these: ask me tomorrow.')
+
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.QuestionsAnswer, {
+      id: 's1',
+      answers: {},
+      anythingElse: 'None of these: ask me tomorrow.',
+    })
+    expect(store.getState().questionSets.t1?.[0]?.reply).toEqual({
+      kind: QuestionReplyKind.Answers,
+      answers: {},
+      anythingElse: 'None of these: ask me tomorrow.',
     })
   })
 

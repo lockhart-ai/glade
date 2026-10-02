@@ -1,6 +1,7 @@
 /**
  * What the question card (`docs/design/html/03-rich-question.html`) works out from a question set and your answers so
- * far: what each question's answer is, how many are answered, whether they can be sent, and what an answered set says.
+ * far: what each question's answer is, how many are answered, what to send, and what an answered set says. Every
+ * question is optional (#397), and the card ends with an "Anything else?" box.
  */
 import {
   QuestionKind,
@@ -11,7 +12,7 @@ import {
   type QuestionAnswers,
   type QuestionSet,
 } from '../../shared/domain'
-import { checkAnswers } from '../../shared/questions'
+import { checkAnswers, tidyAnythingElse } from '../../shared/questions'
 
 /**
  * Your answers so far, keyed by question index from 0 like `QuestionAnswers`: a choice's option id or a pill's text (an
@@ -80,8 +81,9 @@ export function answeredLabel(questions: readonly Question[], draft: AnswerDraft
 }
 
 /**
- * The answers to send, once the draft answers every question that needs one (all but an optional text question); null
- * until then. Unanswered questions are left out, and `checkAnswers` tidies the rest, as main will.
+ * The answers to send: whichever questions the draft answers, any number of them, none included. Unanswered questions
+ * are left out, and `checkAnswers` tidies the rest, as main will. Null for a draft main would refuse (an option the
+ * question doesn't have), which the card itself never makes.
  */
 export function answersToSend(questions: readonly Question[], draft: AnswerDraft): QuestionAnswers | null {
   const answers: Record<string, QuestionAnswer> = {}
@@ -93,6 +95,18 @@ export function answersToSend(questions: readonly Question[], draft: AnswerDraft
   return check.ok ? check.answers : null
 }
 
+/** The prompt over the "Anything else?" box at the foot of every open card, which is also the box's name. */
+export const ANYTHING_ELSE_PROMPT = 'Anything else?'
+
+/** What the "Anything else?" box says while it's empty. */
+export const ANYTHING_ELSE_PLACEHOLDER = 'Add a note, or say why none of the options fit'
+
+/** What the card's send button says: Send answers, or with nothing answered or typed, Skip questions. */
+export function sendLabel(questions: readonly Question[], draft: AnswerDraft, anythingElse: string): string {
+  const nothing = answeredCount(questions, draft) === 0 && tidyAnythingElse(anythingElse) === undefined
+  return nothing ? 'Skip questions' : 'Send answers'
+}
+
 /** The card's title: "3 questions before I finish", "1 question before I finish". */
 export function cardTitle(questions: readonly Question[]): string {
   const count = questions.length
@@ -101,8 +115,10 @@ export function cardTitle(questions: readonly Question[]): string {
 
 /** What the card says once it's closed. */
 export enum ClosedAs {
-  /** Answered with the card: each question shows its answer. */
+  /** Answered with the card: each question shows its answer, or that it was skipped, and anything else you typed. */
   Answers = 'answers',
+  /** Sent with the card with nothing answered and nothing typed: every question shows it was skipped. */
+  Skipped = 'skipped',
   /** Answered in your own words: your message follows in the chat. */
   InWords = 'in_words',
   /** The turn ended without an answer. */
@@ -117,16 +133,24 @@ export function closedAs(set: Pick<QuestionSet, 'state' | 'reply'>): ClosedAs | 
     case QuestionSetState.Withdrawn:
       return ClosedAs.Withdrawn
     case QuestionSetState.Answered:
-      return set.reply?.kind === QuestionReplyKind.FreeText ? ClosedAs.InWords : ClosedAs.Answers
+      if (set.reply?.kind === QuestionReplyKind.FreeText) return ClosedAs.InWords
+      return set.reply !== null && Object.keys(set.reply.answers).length === 0 && set.reply.anythingElse === undefined
+        ? ClosedAs.Skipped
+        : ClosedAs.Answers
   }
 }
 
-/** What a closed card's title says: "3 questions · answered", "… · answered in your words", "… · withdrawn". */
+/**
+ * What a closed card's title says: "3 questions · answered", "… · skipped", "… · answered in your words",
+ * "… · withdrawn".
+ */
 export function closedTitle(questions: readonly Question[], closed: ClosedAs): string {
   const count = `${String(questions.length)} question${questions.length === 1 ? '' : 's'}`
   switch (closed) {
     case ClosedAs.Answers:
       return `${count} · answered`
+    case ClosedAs.Skipped:
+      return `${count} · skipped`
     case ClosedAs.InWords:
       return `${count} · answered in your words`
     case ClosedAs.Withdrawn:
@@ -134,12 +158,15 @@ export function closedTitle(questions: readonly Question[], closed: ClosedAs): s
   }
 }
 
-/** What a question left without an answer (an optional text one) says on a card answered with it. */
-export const NO_ANSWER = 'No answer'
+/** What a question you skipped says on a card sent with the card. */
+export const SKIPPED = 'Skipped'
 
-/** A question's answer as a card answered with it shows it: the options' labels or the pills, and the text typed. */
+/**
+ * A question's answer as a card sent with it shows it: the options' labels or the pills, the text typed, or that you
+ * skipped it.
+ */
 export function answerText(question: Question, answer: QuestionAnswer | undefined): string {
-  if (answer === undefined) return NO_ANSWER
+  if (answer === undefined) return SKIPPED
   const values = typeof answer === 'string' ? [answer] : answer
   if (question.kind !== QuestionKind.Choice) return values.join(', ')
   return values.map((id) => question.options.find((option) => option.id === id)?.label ?? id).join(', ')

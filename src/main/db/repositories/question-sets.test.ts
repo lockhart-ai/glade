@@ -115,6 +115,25 @@ describe('question sets', () => {
     expect(getQuestionSet(test.db, set.id)?.reply).toEqual(words)
   })
 
+  it('keeps a skipped card\'s "Anything else?" text, and reads a reply stored without one', () => {
+    const set = appendQuestionSet(test.db, { taskId: task.id, turn: 1, questions: QUESTIONS })
+    const other: QuestionReply = { kind: QuestionReplyKind.Answers, answers: {}, anythingElse: 'None of these fit.' }
+
+    closeQuestionSet(test.db, set.id, { state: QuestionSetState.Answered, reply: other })
+    expect(getQuestionSet(test.db, set.id)?.reply).toEqual(other)
+
+    // A reply stored before the box was there (#397) has no anythingElse, and still reads back.
+    test.db
+      .prepare('UPDATE question_sets SET reply = ? WHERE id = ?')
+      .run('{"kind":"answers","answers":{"0":"x"}}', set.id)
+    expect(getQuestionSet(test.db, set.id)?.reply).toEqual({ kind: QuestionReplyKind.Answers, answers: { 0: 'x' } })
+
+    test.db
+      .prepare('UPDATE question_sets SET reply = ? WHERE id = ?')
+      .run('{"kind":"answers","answers":{},"anythingElse":7}', set.id)
+    expect(() => getQuestionSet(test.db, set.id)).toThrow(/question_sets\.reply/)
+  })
+
   it("lists a task's sets in the order they were asked, and finds the open ones", () => {
     const other = sampleTask(test.db, task.workspaceId)
     const first = appendQuestionSet(test.db, { taskId: task.id, turn: 1, questions: QUESTIONS }, 5_000)

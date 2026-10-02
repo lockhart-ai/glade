@@ -486,7 +486,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       emit({ type: EventType.PermissionAnswered, permissionRequest })
       return { permissionRequest }
     },
-    [CommandName.QuestionsAnswer]: ({ id, answers }) => {
+    [CommandName.QuestionsAnswer]: ({ id, answers, anythingElse }) => {
       const sets = main.questionSets ?? []
       const index = sets.findIndex((set) => set.id === id)
       const current = sets[index]
@@ -494,7 +494,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       const questionSet: QuestionSet = {
         ...current,
         state: QuestionSetState.Answered,
-        reply: { kind: QuestionReplyKind.Answers, answers },
+        reply: { kind: QuestionReplyKind.Answers, answers, ...(anythingElse === undefined ? {} : { anythingElse }) },
         closedAt: 3_000,
       }
       sets[index] = questionSet
@@ -1012,7 +1012,7 @@ export function sampleQuestionSet(id: string, taskId: string): QuestionSet {
           { id: 'by-area', label: 'By area' },
         ],
       },
-      { kind: QuestionKind.Text, prompt: 'Anything else?', optional: true },
+      { kind: QuestionKind.Text, prompt: 'Anything to call out?' },
     ],
     state: QuestionSetState.Open,
     reply: null,

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType, type TerminalAttachResponse } from '../../shared/bridge'
 import { UiStateKey } from '../../shared/domain'
@@ -9,7 +9,7 @@ import { WindowCommandId } from '../../shared/commands'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { requestClose } from '../commands/closeRequest'
 import { Terminal } from './Terminal'
-import { screens, type FakeScreen } from './test-screen'
+import { screens, terminalFont, type FakeScreen } from './test-screen'
 
 vi.mock('./screen', () => import('./test-screen'))
 
@@ -18,6 +18,7 @@ let observed: (() => void)[] = []
 
 beforeEach(() => {
   screens.length = 0
+  terminalFont.loading = Promise.resolve()
   observed = []
   vi.stubGlobal(
     'ResizeObserver',
@@ -245,6 +246,46 @@ describe('Terminal', () => {
 
     expect([typed, newTab, focus]).toEqual([true, true, true])
     expect(store.getState().terminalTabs).toHaveLength(2)
+  })
+
+  // #412: a screen opened before its font had loaded measured the fallback's shorter cell, and its rows later outgrew
+  // the card.
+  it('opens no screen, and starts no shell, until the terminal’s font has loaded', async () => {
+    let loaded: () => void = () => undefined
+    terminalFont.loading = new Promise((resolve) => {
+      loaded = resolve
+    })
+    const { calls } = await renderTerminal()
+
+    expect(screen.queryAllByTestId('terminal-screen')).toEqual([])
+    expect(screens).toEqual([])
+    expect(calls).toEqual([])
+
+    await act(async () => {
+      loaded()
+      await Promise.resolve()
+    })
+
+    expect(screenElements().map((element) => element.dataset.active)).toEqual(['true', 'false'])
+    expect(screenOf(0).shown).toBe('$ echo hi\r\nhi\r\n$ ')
+    expect(calls).toEqual(['attach a 80x24', 'attach b 80x24'])
+  })
+
+  it('opens no screen once it’s gone, if the font loads after', async () => {
+    let loaded: () => void = () => undefined
+    terminalFont.loading = new Promise((resolve) => {
+      loaded = resolve
+    })
+    const { calls } = await renderTerminal()
+
+    cleanup()
+    await act(async () => {
+      loaded()
+      await Promise.resolve()
+    })
+
+    expect(screens).toEqual([])
+    expect(calls).toEqual([])
   })
 
   it('lets go of its screens when their tabs close', async () => {

@@ -1,6 +1,7 @@
 // The agent's `ask` tool, end to end with the scripted agent: its questions open on a card and the task needs you, and
 // they're answered with the card (by keyboard alone), through the bridge (`questions.answer`), or in words from the
-// input bar. Questions in a task you aren't viewing notify and mark it unread.
+// input bar. Every question is optional, and the card's "Anything else?" box goes with the answers. Questions in a task
+// you aren't viewing notify and mark it unread.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
@@ -38,9 +39,9 @@ async function askForReleaseNotes(glade: Glade): Promise<QuestionSet> {
   return open
 }
 
-/** Whether the keyboard focus is on the question card's Send answers button. */
+/** Whether the keyboard focus is on the question card's send button (Send answers, or Skip questions). */
 function onSend(window: Page): Promise<boolean> {
-  return window.evaluate(() => document.activeElement?.textContent === 'Send answers')
+  return window.evaluate(() => document.activeElement?.hasAttribute('data-send') === true)
 }
 
 function workspaceRoot(tempFolder: () => string): string {
@@ -104,9 +105,13 @@ test('ask: the card is answered by keyboard alone, then shows the answers, and t
   await expect(questionCard).toContainText('0 of 4 answered')
   await expect(inputBar(window).field).toBeFocused()
 
-  // Back from the input bar to the card: its last stop is Send answers, and before that, one stop per question.
+  // Back from the input bar to the card: its last stop is Send (Skip questions, with nothing answered yet), before
+  // that the "Anything else?" box, and before that, one stop per question.
   for (let step = 0; step < 12 && !(await onSend(window)); step += 1) await window.keyboard.press('Shift+Tab')
   expect(await onSend(window)).toBe(true)
+  await expect(questionCard.getByRole('button', { name: 'Skip questions' })).toBeFocused()
+  await window.keyboard.press('Shift+Tab')
+  await expect(questionCard.getByRole('textbox', { name: 'Anything else?' })).toBeFocused()
   for (let step = 0; step < 4; step += 1) await window.keyboard.press('Shift+Tab')
   const layout = questionCard.getByRole('radiogroup', { name: 'How should the notes be laid out?' })
   await expect(layout.getByRole('radio', { name: 'By type' })).toBeFocused()
@@ -151,6 +156,72 @@ test('ask: the card is answered by keyboard alone, then shows the answers, and t
       answers: { 0: 'by-type', 1: 'Internal changes', 2: 'GitHub handles', 3: 'Mention the new 429s on /search.' },
     },
   })
+})
+
+test('ask: a card sent with some questions skipped and a note in "Anything else?" keeps both, across a relaunch', async ({
+  launch,
+  tempFolder,
+}) => {
+  const glade = await launch({ agentScript: 'asks-a-question', chosenFolder: workspaceRoot(tempFolder) })
+  const { window } = glade
+  const open = await askForReleaseNotes(glade)
+  const { questionCard, closedQuestions, agentReplies } = chat(window)
+
+  // One question answered, the rest left; a note in the box, on two lines (↵ starts a new one), and ⌘↵ sends.
+  await questionCard.getByRole('radio', { name: 'Internal changes' }).click()
+  await expect(questionCard).toContainText('1 of 4 answered')
+  const box = questionCard.getByRole('textbox', { name: 'Anything else?' })
+  await box.click()
+  await window.keyboard.type('Neither layout: group them by customer impact.')
+  await window.keyboard.press('Enter')
+  await window.keyboard.type('And hold the email until 2.4.1.')
+  await expect(questionCard).toBeVisible()
+  await expect(box).toHaveValue('Neither layout: group them by customer impact.\nAnd hold the email until 2.4.1.')
+  await window.keyboard.press('Meta+Enter')
+
+  await expect(questionCard).toHaveCount(0)
+  await expect(closedQuestions).toContainText('4 questions · answered')
+  await expect(closedQuestions.getByRole('definition')).toHaveText([
+    'Skipped',
+    'Internal changes',
+    'Skipped',
+    'Skipped',
+    'Neither layout: group them by customer impact.\nAnd hold the email until 2.4.1.',
+  ])
+  await expect(agentReplies).toHaveCount(1)
+  const [answered] = await questionSets(window)
+  expect(answered).toMatchObject({ id: open.id, state: QuestionSetState.Answered })
+  // Exactly the question answered, and the note.
+  expect(answered?.reply).toEqual({
+    kind: 'answers',
+    answers: { 1: 'Internal changes' },
+    anythingElse: 'Neither layout: group them by customer impact.\nAnd hold the email until 2.4.1.',
+  })
+
+  // The answers and the note are kept with the set: a relaunch shows them as they were.
+  await glade.kill()
+  const relaunched = await launch({ agentScript: 'asks-a-question' })
+  const after = chat(relaunched.window).closedQuestions
+  await expect(after).toContainText('4 questions · answered')
+  await expect(after.getByRole('definition').last()).toHaveText(
+    'Neither layout: group them by customer impact.\nAnd hold the email until 2.4.1.',
+  )
+})
+
+test('ask: a card can be skipped outright, and the agent carries on', async ({ launch, tempFolder }) => {
+  const glade = await launch({ agentScript: 'asks-a-question', chosenFolder: workspaceRoot(tempFolder) })
+  const { window } = glade
+  await askForReleaseNotes(glade)
+  const { questionCard, closedQuestions, agentReplies } = chat(window)
+
+  await questionCard.getByRole('button', { name: 'Skip questions' }).click()
+
+  await expect(questionCard).toHaveCount(0)
+  await expect(closedQuestions).toContainText('4 questions · skipped')
+  await expect(closedQuestions.getByRole('definition')).toHaveText(['Skipped', 'Skipped', 'Skipped', 'Skipped'])
+  await expect(agentReplies).toHaveCount(1)
+  const [answered] = await questionSets(window)
+  expect(answered?.reply).toEqual({ kind: 'answers', answers: {} })
 })
 
 test("ask: questions in a task you aren't viewing notify with the agent's reply and mark it unread", async ({

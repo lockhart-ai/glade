@@ -658,8 +658,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         return loading
       },
 
-      async answerQuestions(id, answers) {
-        await bridge.invoke(CommandName.QuestionsAnswer, { id, answers })
+      async answerQuestions(id, answers, anythingElse) {
+        await bridge.invoke(
+          CommandName.QuestionsAnswer,
+          anythingElse === undefined ? { id, answers } : { id, answers, anythingElse },
+        )
       },
 
       async answerPermission(id, decision) {

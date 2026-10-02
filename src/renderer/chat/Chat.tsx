@@ -1,5 +1,5 @@
 import { faWrench } from '@fortawesome/free-solid-svg-icons'
-import { useMemo, useRef } from 'react'
+import { memo, useMemo, useRef } from 'react'
 import {
   PermissionRequestState,
   type Message,
@@ -25,6 +25,7 @@ import {
   summaryLine,
   isStoppedByError,
   quoted,
+  sameAgentEntry,
   toolCallLabel,
   workingLabel,
   workingNarration,
@@ -65,7 +66,11 @@ interface HighlightProps {
   readonly highlight: RegExp | null
 }
 
-function UserMessage({ message, highlight }: UserEntry & HighlightProps): React.JSX.Element {
+/**
+ * Each entry of the chat is memoised (#413): a long chat is hundreds of them, each with its Markdown, and the chat
+ * renders again whenever the task, its logs or the clock change, so only the entries whose own data changed render.
+ */
+const UserMessage = memo(function UserMessage({ message, highlight }: UserEntry & HighlightProps): React.JSX.Element {
   // Your own words, and each pasted block at its place among them, collapsed to its line count (#363): the tokens
   // that mark their place never show, and the tags the agent gets never reach here at all. One bubble, not a bubble
   // per typed run and a card per block: a pasted block is a subtle inset row inside it, where it was pasted.
@@ -92,7 +97,7 @@ function UserMessage({ message, highlight }: UserEntry & HighlightProps): React.
       <span className={styles.meta}>you · {clockTime(message.createdAt)}</span>
     </article>
   )
-}
+})
 
 /**
  * The card an agent's text sits on: every reply, and what the agent said before asking, is on one. The neutral card,
@@ -109,9 +114,20 @@ function replyCard(style: ReplyStyle): string {
 
 interface AgentReplyProps extends HighlightProps {
   readonly entry: AgentEntry
-  readonly onShowTurn: (turn: number) => void
-  /** Adds text to the message field (Quote in reply). */
-  readonly onQuote: (text: string) => void
+  /** Shows a turn of the reply's task in the tool log. */
+  readonly onShowTurn: (taskId: string, turn: number) => void
+  /** Adds text to the reply's task's message field (Quote in reply). */
+  readonly onQuote: (taskId: string, text: string) => void
+}
+
+/** Whether a reply would render the same: its entry, which is made anew each time the chat's are, by what it holds. */
+function sameAgentReply(a: AgentReplyProps, b: AgentReplyProps): boolean {
+  return (
+    sameAgentEntry(a.entry, b.entry) &&
+    a.highlight === b.highlight &&
+    a.onShowTurn === b.onShowTurn &&
+    a.onQuote === b.onQuote
+  )
 }
 
 interface TurnSummaryProps {
@@ -138,7 +154,12 @@ function TurnSummary({ line }: TurnSummaryProps): React.JSX.Element {
  * One of the agent's replies, with its turn's tool-call chip and summary. Right-click it, or ⇧F10 on it, for its menu:
  * copy it as text or Markdown, quote it in your reply, or show its turn in the tool log.
  */
-function AgentReply({ entry, onShowTurn, onQuote, highlight }: AgentReplyProps): React.JSX.Element {
+const AgentReply = memo(function AgentReply({
+  entry,
+  onShowTurn,
+  onQuote,
+  highlight,
+}: AgentReplyProps): React.JSX.Element {
   const { message, style, toolCalls } = entry
   const summary = message.summary === null ? null : summaryLine(message.summary)
   const menu = useContextMenu<AgentEntry>()
@@ -154,10 +175,10 @@ function AgentReply({ entry, onShowTurn, onQuote, highlight }: AgentReplyProps):
         copy(message.body)
       },
       quote: () => {
-        onQuote(quoted(message.body))
+        onQuote(message.taskId, quoted(message.body))
       },
       showToolCalls: () => {
-        onShowTurn(message.turn)
+        onShowTurn(message.taskId, message.turn)
       },
     })
   return (
@@ -176,7 +197,7 @@ function AgentReply({ entry, onShowTurn, onQuote, highlight }: AgentReplyProps):
               className={styles.chip}
               title="Show this turn in the tool log"
               onClick={() => {
-                onShowTurn(message.turn)
+                onShowTurn(message.taskId, message.turn)
               }}
             >
               <Icon icon={faWrench} size={IconSize.Small} />
@@ -190,10 +211,14 @@ function AgentReply({ entry, onShowTurn, onQuote, highlight }: AgentReplyProps):
       <ContextMenu label="Reply actions" state={menu} entries={entries} />
     </article>
   )
-}
+}, sameAgentReply)
 
 /** The agent's questions: what it said just before asking, if anything, then the question card. */
-function AgentQuestions({ questionSet, lead, highlight }: QuestionEntry & HighlightProps): React.JSX.Element {
+const AgentQuestions = memo(function AgentQuestions({
+  questionSet,
+  lead,
+  highlight,
+}: QuestionEntry & HighlightProps): React.JSX.Element {
   return (
     <div className={styles.agent}>
       {lead !== null && (
@@ -207,7 +232,7 @@ function AgentQuestions({ questionSet, lead, highlight }: QuestionEntry & Highli
       <span className={styles.meta}>agent · {clockTime(questionSet.createdAt)}</span>
     </div>
   )
-}
+})
 
 interface AgentPermissionProps extends PermissionEntry {
   readonly toolEvents: readonly ToolEvent[]
@@ -216,8 +241,26 @@ interface AgentPermissionProps extends PermissionEntry {
   readonly first: boolean
 }
 
+/**
+ * Whether a permission card would render the same. The tool log only names the subagent that asked, so a change to it
+ * matters only to a subagent's card.
+ */
+function samePermission(a: AgentPermissionProps, b: AgentPermissionProps): boolean {
+  return (
+    a.request === b.request &&
+    a.rootPath === b.rootPath &&
+    a.first === b.first &&
+    (a.toolEvents === b.toolEvents || a.request.agentId === null)
+  )
+}
+
 /** A tool call of the agent's (or a subagent's) waiting, or that waited, on your OK: the permission card. */
-function AgentPermission({ request, toolEvents, rootPath, first }: AgentPermissionProps): React.JSX.Element {
+const AgentPermission = memo(function AgentPermission({
+  request,
+  toolEvents,
+  rootPath,
+  first,
+}: AgentPermissionProps): React.JSX.Element {
   return (
     <div className={styles.agent}>
       <PermissionCard
@@ -231,7 +274,7 @@ function AgentPermission({ request, toolEvents, rootPath, first }: AgentPermissi
       )}
     </div>
   )
-}
+}, samePermission)
 
 interface ChatDividerProps {
   /** The divider's accessible name. */
@@ -240,23 +283,23 @@ interface ChatDividerProps {
 }
 
 /** A label between two rules, across the conversation. */
-function ChatDivider({ name, children }: ChatDividerProps): React.JSX.Element {
+const ChatDivider = memo(function ChatDivider({ name, children }: ChatDividerProps): React.JSX.Element {
   return (
     <div role="separator" aria-label={name} className={styles.divider}>
       {children}
     </div>
   )
-}
+})
 
 /** Where the app restarted and resumed a turn. */
-function RestartDivider(entry: RestartedEntry): React.JSX.Element {
+const RestartDivider = memo(function RestartDivider(entry: RestartedEntry): React.JSX.Element {
   return <ChatDivider name="Glade restarted">{restartLabel(entry)}</ChatDivider>
-}
+})
 
 /** Where the task was marked done, before the message that reopened it. */
-function MarkedDoneDivider(entry: MarkedDoneEntry): React.JSX.Element {
+const MarkedDoneDivider = memo(function MarkedDoneDivider(entry: MarkedDoneEntry): React.JSX.Element {
   return <ChatDivider name="Marked done">{markedDoneLabel(entry)}</ChatDivider>
-}
+})
 
 interface WorkingLineProps {
   /** What it says (`workingLabel`). */
@@ -403,12 +446,8 @@ export function Chat(): React.JSX.Element {
                   key={entry.message.id}
                   entry={entry}
                   highlight={highlight}
-                  onShowTurn={(turn) => {
-                    focusTurn(entry.message.taskId, turn)
-                  }}
-                  onQuote={(text) => {
-                    insertIntoInput(entry.message.taskId, text)
-                  }}
+                  onShowTurn={focusTurn}
+                  onQuote={insertIntoInput}
                 />
               )
           }
