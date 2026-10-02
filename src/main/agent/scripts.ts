@@ -126,6 +126,15 @@ export enum ScriptStepKind {
    * anywhere. For the Changes tab's scripts, whose agents make real commits (`docs/sdk-notes.md` §14).
    */
   Shell = 'shell',
+  /**
+   * The agent messages a subagent with `SendMessage`, as the SDK runs it (`docs/sdk-notes.md`, "Subagents woken
+   * again"): the call, then, for a subagent that has ended, its task starting again in the background under its old task
+   * id but this call's id, and at once the call's "resuming" result. The subagent then plays `steps` on its own, as a
+   * `Background` step's does, its messages under its own `Agent` call, its progress and end under this call. A subagent
+   * still running only gets the message, for its next tool round. It names a subagent by the `agentId` its `Background`
+   * step pinned, in this session or an earlier one (after a relaunch).
+   */
+  MessageSubagent = 'message_subagent',
 }
 
 export interface InitStep {
@@ -329,13 +338,9 @@ export interface TaskEndStep {
 /** How a background subagent ends when it plays all its steps (the SDK's `task_notification.status`). */
 export type BackgroundOutcome = 'completed' | 'failed'
 
-export interface BackgroundStep {
-  readonly kind: ScriptStepKind.Background
-  /** The `Agent` call's script id: the subagent's steps name it as their `parent`. */
-  readonly id: string
-  /** The `Agent` call's input (`description`, `prompt`, `subagent_type`); `run_in_background: true` is added. */
-  readonly input: ToolInput
-  /** What the subagent does: its text, tool calls and results (each with `parent: id`) and delays. */
+/** What a background subagent does in one run of it, and how that run ends. */
+export interface BackgroundRun {
+  /** What the subagent does: its text, tool calls and results (each with its `Agent` call's `parent`) and delays. */
   readonly steps: ScriptTurn
   /** `completed` by default. */
   readonly outcome?: BackgroundOutcome
@@ -345,6 +350,32 @@ export interface BackgroundStep {
   readonly turn?: ScriptTurn
   /** What the agent does in the turn it starts once the subagent is stopped; none by default. */
   readonly stoppedTurn?: ScriptTurn
+}
+
+export interface BackgroundStep extends BackgroundRun {
+  readonly kind: ScriptStepKind.Background
+  /** The `Agent` call's script id: the subagent's steps name it as their `parent`. */
+  readonly id: string
+  /** The `Agent` call's input (`description`, `prompt`, `subagent_type`); `run_in_background: true` is added. */
+  readonly input: ToolInput
+  /**
+   * The SDK's id for the subagent (its task id, `agentId`), pinned so a `MessageSubagent` step can wake it, in a later
+   * session too: its `Agent` call's id is then `toolu_<agentId>`, so pin one only in a turn that plays once. Made up,
+   * unique to the session, by default.
+   */
+  readonly agentId?: string
+}
+
+export interface MessageSubagentStep extends BackgroundRun {
+  readonly kind: ScriptStepKind.MessageSubagent
+  /** The `SendMessage` call's script id. */
+  readonly id: string
+  /** The script id of the subagent's `Background` step: the new run's steps name it as their `parent`. */
+  readonly subagent: string
+  /** The `agentId` that step pinned. */
+  readonly agentId: string
+  /** What the agent tells it. */
+  readonly message: string
 }
 
 export interface PermissionStep {
@@ -420,6 +451,7 @@ export type ScriptStep =
   | PermissionStep
   | ControlToolStep
   | ProgressStep
+  | MessageSubagentStep
 
 export type ScriptTurn = readonly ScriptStep[]
 
@@ -587,6 +619,14 @@ export const background = (
   steps: ScriptTurn,
   options: Omit<BackgroundStep, 'kind' | 'id' | 'input' | 'steps'>,
 ): BackgroundStep => ({ kind: ScriptStepKind.Background, id, input, steps, ...options })
+
+export const messageSubagent = (
+  id: string,
+  subagent: string,
+  agentId: string,
+  message: string,
+  run: BackgroundRun,
+): MessageSubagentStep => ({ kind: ScriptStepKind.MessageSubagent, id, subagent, agentId, message, ...run })
 
 export const progress = (id: string, summary: string): ProgressStep => ({ kind: ScriptStepKind.Progress, id, summary })
 
@@ -2753,6 +2793,115 @@ export const WATCHES_THINGS = {
   again: "Still on it: the watchers I left are in the Watchers tab, and I'll report when they wake me.",
 } as const
 
+/** What the `wakes-a-subagent` scripts' agent and subagent say (#395). */
+export const WAKES_A_SUBAGENT = {
+  prompt: 'Find why checkout got slower since 2.3, and fix it.',
+  title: 'Speed up checkout',
+  /** The subagent's SDK id, pinned so the agent can wake it after a relaunch too. */
+  agentId: 'a7c2e91f04b3d8a1',
+  subagent: 'Profile the checkout queries',
+  started: "I've started a subagent profiling the checkout queries. I'll report back once it's done.",
+  found: 'An N+1 in load_cart: checkout runs one query per cart item.',
+  ask: 'Ask it to fix the N+1.',
+  message: 'Batch the cart queries in load_cart into one, then time checkout again.',
+  asked: 'I asked the profiling subagent to batch the cart queries and time checkout again.',
+  /** What it says it's doing in its new run (its progress summary). */
+  summary: 'Batching the cart queries in load_cart',
+  fixed: 'Batched load_cart into one query: checkout p95 is down from 840 ms to 95 ms.',
+  reported: 'The subagent fixed it: load_cart runs one query now, and checkout p95 is 95 ms.',
+} as const
+
+/** The turn of the `wakes-a-subagent` scripts in which the agent messages its subagent, which wakes it to fix the N+1. */
+const wakeTheSubagent = (): ScriptTurn => [
+  ...turnStart(),
+  delay(BEAT_MS),
+  messageSubagent('fix', 'profile', WAKES_A_SUBAGENT.agentId, WAKES_A_SUBAGENT.message, {
+    steps: [
+      delay(BEAT_MS * 2),
+      say('Batching the cart queries in load_cart.', 'profile'),
+      progress('profile', WAKES_A_SUBAGENT.summary),
+      ...tool(
+        'fix-edit',
+        'Edit',
+        { file_path: 'api/checkout/queries.py' },
+        'Edited api/checkout/queries.py.',
+        'profile',
+      ),
+      toolUse(
+        'fix-time',
+        'Bash',
+        { command: 'python scripts/time_queries.py checkout', description: 'Time the checkout queries' },
+        'profile',
+      ),
+      // Long enough to see it running again.
+      delay(BEAT_MS * 40),
+      toolResult('fix-time', 'load_cart  1 query  9 ms\nload_prices  1 query  21 ms'),
+      delay(BEAT_MS),
+    ],
+    summary: WAKES_A_SUBAGENT.fixed,
+    turn: [...turnStart(), delay(BEAT_MS), say(WAKES_A_SUBAGENT.reported), result()],
+  }),
+  say(WAKES_A_SUBAGENT.asked),
+  result(),
+]
+
+/**
+ * A subagent woken again (#395): the agent starts one in the background that profiles the checkout queries and
+ * finishes after a few seconds; your next message has the agent message it with `SendMessage`, which wakes it to fix
+ * what it found: it runs again for a few seconds, then ends, and the agent reports it in a turn of its own.
+ */
+const wakesASubagent: AgentScript = {
+  name: 'wakes-a-subagent',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(WAKES_A_SUBAGENT.title, WAKES_A_SUBAGENT.prompt, 'A subagent is profiling the checkout queries.'),
+      background(
+        'profile',
+        {
+          description: WAKES_A_SUBAGENT.subagent,
+          prompt: 'Time each query the checkout endpoint runs against the staging copy, and find the slow ones.',
+          subagent_type: 'general-purpose',
+        },
+        [
+          delay(BEAT_MS * 2),
+          say('Timing the checkout queries against the staging copy.', 'profile'),
+          ...tool(
+            'profile-read',
+            'Read',
+            { file_path: 'api/checkout/queries.py' },
+            'def load_cart(cart_id):\n    …',
+            'profile',
+          ),
+          toolUse(
+            'profile-time',
+            'Bash',
+            { command: 'python scripts/time_queries.py checkout', description: 'Time the checkout queries' },
+            'profile',
+          ),
+          delay(BEAT_MS * 20),
+          toolResult('profile-time', 'load_cart  38 queries  812 ms\nload_prices  1 query  21 ms'),
+          delay(BEAT_MS),
+        ],
+        { agentId: WAKES_A_SUBAGENT.agentId, summary: WAKES_A_SUBAGENT.found },
+      ),
+      say(WAKES_A_SUBAGENT.started),
+      result(),
+    ],
+    wakeTheSubagent(),
+  ],
+}
+
+/**
+ * `wakes-a-subagent` after a relaunch: the first message to the resumed session has the agent wake the subagent the
+ * app quit on, which a launch had interrupted.
+ */
+const wakesAnInterruptedSubagent: AgentScript = {
+  name: 'wakes-an-interrupted-subagent',
+  turns: [wakeTheSubagent()],
+}
+
 /** What the `subagent-background-work` script's agent and subagent start, and say. */
 export const SUBAGENT_BACKGROUND_WORK = {
   prompt: 'PR #42 is red on the flaky checkout test. Get it green, and keep an eye on the staging deploy meanwhile.',
@@ -3362,6 +3511,8 @@ export const AGENT_SCRIPT_NAMES = [
   'subagent-background-work',
   'shares-links',
   'shares-code',
+  'wakes-a-subagent',
+  'wakes-an-interrupted-subagent',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -3421,4 +3572,6 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'subagent-background-work': subagentBackgroundWork,
   'shares-links': sharesLinks,
   'shares-code': sharesCode,
+  'wakes-a-subagent': wakesASubagent,
+  'wakes-an-interrupted-subagent': wakesAnInterruptedSubagent,
 }

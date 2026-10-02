@@ -1,6 +1,8 @@
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import type { TasksHistoryResponse } from '../../shared/bridge'
 import {
+  ToolCallState,
+  ToolEventKind,
   UiStateKey,
   type Artifact,
   type ArtifactGroupFold,
@@ -16,6 +18,7 @@ import {
   type Watcher,
   type Workspace,
 } from '../../shared/domain'
+import { isSubagentTool } from '../../shared/subagents'
 import { withCountedChange, withoutDoneLists } from './doneLists'
 import type { GladeData } from './state'
 
@@ -75,6 +78,20 @@ function withReplaced<T extends LogEntry>(logs: LogsByTask<T>, entry: T): LogsBy
   const log = logs[entry.taskId]
   if (log?.some(({ id }) => id === entry.id) !== true) return logs
   return { ...logs, [entry.taskId]: log.map((existing) => (existing.id === entry.id ? entry : existing)) }
+}
+
+/**
+ * Replaces an entry in its task's tool log. A subagent woken again (#395) in a log not loaded yet is added, as the
+ * running ones loaded on start are (`withRunningSubagents`), so the task list counts it.
+ */
+function withUpdatedToolEvent(logs: LogsByTask<ToolEvent>, entry: ToolEvent): LogsByTask<ToolEvent> {
+  const replaced = withReplaced(logs, entry)
+  const woken =
+    replaced === logs &&
+    entry.kind === ToolEventKind.ToolCall &&
+    entry.state === ToolCallState.Running &&
+    isSubagentTool(entry.name)
+  return woken ? withAppended(logs, entry) : replaced
 }
 
 /** Drops an entry from its task's tool log: a refusal-fallback retry superseded it. */
@@ -246,7 +263,7 @@ export function applyEvent(state: GladeData, event: GladeEvent): GladeData {
     case EventType.ToolEventAppended:
       return { ...state, toolEvents: withAppended(state.toolEvents, event.toolEvent) }
     case EventType.ToolEventUpdated:
-      return { ...state, toolEvents: withReplaced(state.toolEvents, event.toolEvent) }
+      return { ...state, toolEvents: withUpdatedToolEvent(state.toolEvents, event.toolEvent) }
     case EventType.ToolEventRemoved:
       return { ...state, toolEvents: withoutToolEvent(state.toolEvents, event.taskId, event.toolEventId) }
     case EventType.TaskOpenRequested:

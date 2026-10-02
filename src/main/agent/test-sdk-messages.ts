@@ -431,6 +431,42 @@ export function subagentProgress(toolUseId: string, sdkTaskId: string, summary?:
       }
 }
 
+/**
+ * What the SDK streams when the agent messages a subagent that has finished, which wakes it (`docs/sdk-notes.md`,
+ * "Subagents woken again"): the `SendMessage` call, the subagent's task starting again under its old task id but the
+ * `SendMessage` call's id (always in the background), and at once the call's "resuming" result. The run's messages then
+ * carry the subagent's own `Agent` call as their parent, and its progress and end come under the `SendMessage` call.
+ */
+export function subagentWoken(toolUseId: string, sdkTaskId: string, description: string, message: string): unknown[] {
+  const resuming = `Resuming agent ${sdkTaskId}`
+  return [
+    toolUse(toolUseId, 'SendMessage', { to: sdkTaskId, message, summary: 'Follow up' }),
+    {
+      type: 'system',
+      subtype: 'task_started',
+      task_id: sdkTaskId,
+      tool_use_id: toolUseId,
+      description,
+      subagent_type: 'general-purpose',
+      is_backgrounded: true,
+      spawn_depth: 1,
+      task_type: 'local_agent',
+      prompt: message,
+      session_id: SESSION_ID,
+    },
+    {
+      type: 'user',
+      parent_tool_use_id: null,
+      session_id: SESSION_ID,
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: toolUseId, content: [{ type: 'text', text: resuming }] }],
+      },
+      tool_use_result: { success: true, message: resuming, resumedAgentId: sdkTaskId },
+    },
+  ]
+}
+
 /** What the SDK streams when a background subagent ends: its status patch, then its notification. */
 export function subagentEnded(
   toolUseId: string,
