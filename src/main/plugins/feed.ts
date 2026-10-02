@@ -165,7 +165,6 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
     }
   }
 
-  /** Tells a subscriber of a subagent: started when it's new to them, updated when it differs from what they know. */
   /**
    * Tells a subscriber a subagent changed, when it differs from what they know. It's kept while it runs, for its latest
    * line, and forgotten once it ends.
@@ -187,22 +186,28 @@ export function createPluginFeed({ source, tasks: initial, log = SILENT_LOGGER }
     }
   }
 
-  /** An `Agent` call started or changed: its subagent, for each subscriber. */
+  /**
+   * An `Agent` call started or changed: its subagent, for each subscriber. A running one that's new to them starts:
+   * a new call, or one that had ended woken again (#395), as a new run under the same id.
+   */
   const subagentCall = (call: ToolCallEvent, appended: boolean): void => {
     for (const subscriber of subscribers) {
       const known = subscriber.subagents.get(call.toolUseId)
       const subagent = pluginSubagent(call, known?.latest ?? null)
-      if (!appended) subagentUpdated(subscriber, subagent)
-      else if (known === undefined) {
+      if (known === undefined && subagent.state === PluginSubagentState.Running) {
         subscriber.subagents.set(subagent.id, subagent)
         subscriber.sink({ type: PluginEventType.SubagentStarted, subagent })
-      }
+      } else if (!appended) subagentUpdated(subscriber, subagent)
     }
   }
 
   const toolCall = (call: ToolCallEvent, appended: boolean): void => {
-    // A call changes while it runs only when its subagent says what it's doing now, which plugins aren't told.
-    if (!appended && call.state === ToolCallState.Running) return
+    // A call changes while it runs only when its subagent says what it's doing now, which plugins aren't told, or when a
+    // subagent that had ended is woken again, which they are.
+    if (!appended && call.state === ToolCallState.Running) {
+      if (startsSubagent(call)) subagentCall(call, appended)
+      return
+    }
     const root = rootOf(call.taskId)
     if (appended && call.parentToolUseId !== null) {
       parents.set(call.toolUseId, call.parentToolUseId)
