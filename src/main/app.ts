@@ -634,7 +634,11 @@ export function startApp({
     // In development (and the test modes, which never run packaged) the log shows on the terminal too.
     sink: createLogSink({ dir: logsFolder(testMode), toConsole: !app.isPackaged }),
   })
-  const stopLoggingCrashes = logCrashes(process, log)
+  // A test mode never shows Electron's error dialog for an uncaught exception, which would block it: it exits (#439).
+  const fatal = (): void => {
+    app.exit(1)
+  }
+  const stopLoggingCrashes = logCrashes(process, log, testMode === null ? undefined : fatal)
   // Before the app is ready, as Electron requires: a plugin's page is served under its own scheme.
   registerPluginScheme(protocol)
   log.info('app starting', {

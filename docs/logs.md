@@ -13,6 +13,9 @@ what worked and what didn't. The logs stay on your Mac: nothing is sent anywhere
 - **Development** (`npm run dev`): the same file, and every line on the terminal too.
 - **Tests:** unit tests log to memory (`src/main/logging/memory-sink.ts`) or a temp folder. The e2e and screenshot runs
   write to `logs/main.log` in their throwaway data folder, never to yours.
+  An uncaught exception in main ends those runs' app at once, once it's logged, where a real run puts up Electron's
+  error dialog: a dialog would show on your screen and hold the run up for good (#439). The e2e `launch` fixture fails
+  a test whose app logged one, even on its way out.
 
 ## What a line looks like
 

@@ -5,7 +5,7 @@
  * The app never touches real data: each test gets a fresh data folder in the system temp folder, removed afterwards.
  * Its window is never shown; Playwright drives it (and records it, under `npm run record`) over the DevTools protocol.
  */
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { _electron as electron, expect, test as base, type ElectronApplication, type Page } from '@playwright/test'
@@ -140,6 +140,9 @@ export interface Glade {
  * it paints, and the last ones would otherwise be cut off. It only affects recordings, never what a test checks.
  */
 const RECORDING_HOLD_MS = 1000
+
+/** How main's log says an uncaught exception (`src/main/logging/crashes.ts`), as its line in the log file has it. */
+const UNCAUGHT_EXCEPTION_LOG = '"msg":"uncaught exception"'
 
 interface Fixtures {
   /**
@@ -281,6 +284,16 @@ export const test = base.extend<Fixtures>({
     })
 
     for (const glade of launched) await glade.close()
+    // An uncaught exception in main ends a test mode's app at once (`logCrashes`), where a real run's would put up
+    // Electron's error dialog. One on the way out, as the app quits, would otherwise pass unseen (#439).
+    const logFile = join(testModeLogsFolder(userData), LOG_FILE_NAME)
+    const uncaught = existsSync(logFile)
+      ? readFileSync(logFile, 'utf8')
+          .split('\n')
+          .filter((line) => line.includes(UNCAUGHT_EXCEPTION_LOG))
+      : []
+    if (uncaught.length > 0)
+      throw new Error(`The app's main process had an uncaught exception:\n${uncaught.join('\n')}`)
   },
 })
 
