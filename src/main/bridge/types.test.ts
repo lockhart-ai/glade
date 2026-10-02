@@ -37,6 +37,7 @@ import {
   type UiStateEntry,
   type Workspace,
 } from '../../shared/domain'
+import { AttachedFileKind } from '../../shared/attachedFiles'
 import { ImageMediaType } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import type { InstalledPlugin } from '../../shared/plugins'
@@ -57,7 +58,11 @@ const CONTROL_STATUS: ControlStatus = {
 }
 const noop = (...values: unknown[]): unknown[] => values
 /** A stand-in: these tests are about types, so what it answers doesn't matter. */
-const glade: GladeBridge = { invoke: () => Promise.resolve({} as never), subscribe: () => noop }
+const glade: GladeBridge = {
+  invoke: () => Promise.resolve({} as never),
+  subscribe: () => noop,
+  pathForFile: () => '',
+}
 const WORKSPACE: Workspace = { id: 'w', name: 'Acme API', rootPath: '/code/acme-api', createdAt: 1, lastOpenedAt: 1 }
 
 // The task commands' handlers and schemas, right, so each registry below differs from a valid one in one way only.
@@ -92,6 +97,10 @@ const TASK_HANDLERS = {
   [CommandName.QueueEdit]: () => ({ queuedMessage: {} as QueuedMessage }),
   [CommandName.QueueRemove]: () => null,
   [CommandName.ImagesGet]: () => ({ image: { mediaType: ImageMediaType.Png, data: '' } }),
+  [CommandName.AttachmentsAdd]: () => ({
+    file: { name: 'sales.csv', path: '.glade/attachments/t/sales.csv', size: 0, kind: AttachedFileKind.Text },
+  }),
+  [CommandName.AttachmentsDiscard]: () => null,
   [CommandName.DraftsGet]: () => ({ draft: null }),
   [CommandName.DraftsSet]: () => null,
   [CommandName.QuestionsAnswer]: () => ({ questionSet: {} as QuestionSet }),
@@ -168,6 +177,8 @@ const TASK_SCHEMAS = {
   [CommandName.QueueEdit]: REQUEST_SCHEMAS[CommandName.QueueEdit],
   [CommandName.QueueRemove]: REQUEST_SCHEMAS[CommandName.QueueRemove],
   [CommandName.ImagesGet]: REQUEST_SCHEMAS[CommandName.ImagesGet],
+  [CommandName.AttachmentsAdd]: REQUEST_SCHEMAS[CommandName.AttachmentsAdd],
+  [CommandName.AttachmentsDiscard]: REQUEST_SCHEMAS[CommandName.AttachmentsDiscard],
   [CommandName.DraftsGet]: REQUEST_SCHEMAS[CommandName.DraftsGet],
   [CommandName.DraftsSet]: REQUEST_SCHEMAS[CommandName.DraftsSet],
   [CommandName.QuestionsAnswer]: REQUEST_SCHEMAS[CommandName.QuestionsAnswer],

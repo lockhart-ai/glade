@@ -120,7 +120,8 @@ The **input bar** under the chat sets how this task runs:
   Compact now compacts.
 
 Each task keeps its own settings; new tasks start from the defaults in Settings › Agent. Each task also keeps its
-unsent draft, pasted images and pasted text blocks included, while you're on another task and across a relaunch.
+unsent draft, pasted images, pasted text blocks and attached files included, while you're on another task and
+across a relaunch.
 
 You can run as many tasks at once as you like. Switching tasks never interrupts one that's working.
 
@@ -157,6 +158,14 @@ scroll: the chat passes under them.
   plain text. Glade marks it this way so the agent knows to be wary of instructions hidden inside it. In the chat,
   your message shows your own words with the block collapsed to its line count; click it to see the pasted text in
   place. Pasted blocks can't go with an answer to a question card either.
+- **Attached files:** drop any file onto the input bar, or copy it in Finder and paste it (⌘V), to hand it to the
+  agent without pasting its contents: a CSV, a PDF, a log. Glade copies it into the workspace, at
+  `.glade/attachments/<task id>/`, and shows a chip with its icon, name, type and size; click the chip to see the copy
+  in Finder, or ✕ to take it off. The agent gets the copy's path at the end of your message and reads it with its own
+  tools. In the chat, click a sent file's chip to open it in the Files tab (or in Finder, for a file the Files tab
+  can't show). Folders and files over 200 MB can't be attached; a toast says why. Glade keeps the copies out of git
+  (in the repository's own `.git/info/exclude`, never your `.gitignore`), and deletes them when you delete the task.
+  Files can't go with an answer to a question card either.
 - **Right-click a reply** to copy it (as text or Markdown), quote it in your reply, or show that turn's tool calls.
 - **Links open in your browser.** A link or a bare URL in a reply, your message, a card, the tool log, the header, a
   todo or anywhere else Glade shows what the agent or you wrote is clickable (⌘-click works too, and ↵ on a focused
