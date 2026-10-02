@@ -43,6 +43,7 @@ import { usageReadingsMigration } from './0042-usage-readings'
 import { terminalWorkspacesMigration } from './0043-terminal-workspaces'
 import { refusalFallbackMigration } from './0044-refusal-fallback'
 import { pastedBlocksMigration } from './0045-pasted-blocks'
+import { attachedFilesMigration } from './0046-attached-files'
 import { subagentTaskIdsMigration } from './0047-subagent-task-ids'
 import { reportedContextWindowsMigration } from './0051-reported-context-windows'
 
@@ -92,6 +93,7 @@ export const MIGRATIONS: readonly Migration[] = [
   terminalWorkspacesMigration,
   refusalFallbackMigration,
   pastedBlocksMigration,
+  attachedFilesMigration,
   subagentTaskIdsMigration,
   reportedContextWindowsMigration,
 ]

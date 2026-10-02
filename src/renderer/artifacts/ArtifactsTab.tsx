@@ -359,6 +359,8 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
   }, [taskId, watchArtifacts, unwatchArtifacts])
 
   const groups = useMemo(() => groupArtifacts(artifacts, now), [artifacts, now])
+  // The newest group actually showing: it starts open too, whichever one it is (#399).
+  const topmostGroup = groups[0]?.group
   const { openBelow, targetProps } = menu
 
   // The image viewer, over an image artifact: which of the image artifacts the list shows, in its own (newest-first)
@@ -366,10 +368,10 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
   const imageArtifacts = useMemo(
     () =>
       groups
-        .filter(({ group }) => isGroupOpen(group, folds))
+        .filter(({ group }) => isGroupOpen(group, folds, topmostGroup))
         .flatMap(({ items }) => items)
         .filter(isImageArtifact),
-    [groups, folds],
+    [groups, folds, topmostGroup],
   )
   const [viewingPath, setViewingPath] = useState<string | null>(null)
   const viewerReturnFocus = useRef<HTMLElement | null>(null)
@@ -467,7 +469,7 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
           key={group}
           group={group}
           artifacts={items}
-          open={isGroupOpen(group, folds)}
+          open={isGroupOpen(group, folds, topmostGroup)}
           onToggle={toggle}
           scroller={scroller}
           row={row}
