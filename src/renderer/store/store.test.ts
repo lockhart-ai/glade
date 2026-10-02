@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { bridgeError, BridgeErrorCode, CommandName, EventType, type DraftsGetResponse } from '../../shared/bridge'
+import {
+  bridgeError,
+  BridgeErrorCode,
+  CommandName,
+  EventType,
+  type DraftsGetResponse,
+  type TasksHistoryResponse,
+} from '../../shared/bridge'
 import {
   DividerKind,
   Effort,
@@ -15,6 +22,7 @@ import {
   WatcherState,
   type UiStateEntry,
 } from '../../shared/domain'
+import { noOpenFiles } from '../../shared/files'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { GIF, JPEG, PNG } from '../../shared/test-images'
 import { SettingsSection } from '../settings/sections'
@@ -1176,6 +1184,55 @@ describe('artifact files', () => {
     await store.getState().revealFile('t1', 'README.md')
     expect(data.copied).toEqual(['README.md'])
     expect(data.revealed).toEqual(['README.md'])
+  })
+})
+
+describe("a task's artifacts", () => {
+  it("doesn't let a history load that started before an artifact was removed bring it back (#391)", async () => {
+    const declared = {
+      taskId: 't1',
+      path: 'docs/notes.md',
+      title: 'Notes',
+      addedAt: 1,
+      updatedAt: 1,
+      modifiedAt: 1,
+      missing: false,
+    }
+    const data: FakeMain = { ...main(), artifacts: [declared] }
+    let resolveHistory: ((response: TasksHistoryResponse) => void) | undefined
+    const fake = fakeBridge(data, {
+      [CommandName.TasksHistory]: () =>
+        new Promise<TasksHistoryResponse>((resolve) => {
+          resolveHistory = resolve
+        }),
+    })
+    const store = createGladeStore(fake.bridge)
+    await store.getState().hydrate()
+
+    // The load starts while the artifact is still declared...
+    const load = store.getState().loadHistory('t1')
+    // ...but the Artifacts tab's own Remove (or the agent's `remove_artifact`) lands its `artifacts.changed` first.
+    await store.getState().removeArtifact('t1', 'docs/notes.md')
+    expect(store.getState().artifacts.t1).toEqual([])
+
+    // The load answers last, with the stale list it read before the removal.
+    resolveHistory?.({
+      messages: [],
+      toolEvents: [],
+      queuedMessages: [],
+      questionSets: [],
+      permissionRequests: [],
+      openFiles: noOpenFiles('t1'),
+      todos: null,
+      artifacts: [declared],
+      artifactGroups: [],
+      handoff: null,
+      watchers: [],
+      commits: [],
+    })
+    await load
+
+    expect(store.getState().artifacts.t1).toEqual([])
   })
 })
 
