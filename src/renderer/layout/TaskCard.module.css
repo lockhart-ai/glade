@@ -79,12 +79,16 @@
   z-index: 1;
 }
 
-/* Cut off halfway under each card, and a little narrower than them, so its sides sit just inside theirs (#268). */
+/*
+ * Cut off halfway under each card, and a little narrower than them, so its sides sit just inside theirs (#268). It only
+ * clips: the chat's own scroller scrolls. As a scroll container of its own, it added and took away a scroll bar on
+ * every layout, which laid the whole conversation out again each time (#413).
+ */
 .chat {
   flex-grow: 1;
   min-height: 0;
   margin: calc(var(--task-header-height, 0px) / 2) var(--space-inset) calc(var(--input-bar-height, 0px) / 2);
-  overflow: auto;
+  overflow: clip;
   display: flex;
   flex-direction: column;
 }
