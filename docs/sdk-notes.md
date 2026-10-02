@@ -293,8 +293,8 @@ A task on "Opus 5.5" read **905k / 200k**: its session ran at 1M, and Glade divi
   or its `resolvedModel` ends in `[1m]` or the list's name or description says 1M, else 200k.
 - **Used > window is proof the window is wrong.** A task never shows more used than its window: the window becomes the
   smallest the SDK gives that holds what's used (200k, 1M), or the amount itself beyond those (`fitContextWindow`).
-  The same goes for a threshold from `getContextUsage()` above the window. A threshold that was for the wrong, smaller
-  window is dropped, so the meter uses the SDK's default for the right one until the SDK says again. The runner logs
+  Only what's used counts: a threshold from `getContextUsage()` above the window isn't proof, since it's asked for
+  after the turn and a model change can leave it stale. A threshold that was for the wrong, smaller window is dropped, so the meter uses the SDK's default for the right one until the SDK says again. The runner logs
   `more context used than the window holds; trusting the larger size`.
 - **The auto-compact percentage** is the threshold over that window, so it follows: 967k of 1M is 97%.
 

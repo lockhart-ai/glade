@@ -148,13 +148,14 @@ interface ContextSize {
 
 /**
  * The window to show for a task that has used `usedTokens` of a `windowTokens` window, which the SDK compacts at
- * `autoCompact`: the window, unless what's used, or the threshold, is more than it holds, which proves it wrong, and
- * the larger observed size wins (`fitContextWindow`). A threshold no bigger than the wrong window was for that window,
- * so it goes too: the meter falls back to the SDK's default for the right one until the SDK says again.
+ * `autoCompact`: the window, unless what's used is more than it holds, which proves it wrong, and the larger observed
+ * size wins (`fitContextWindow`). A threshold no bigger than the wrong window was for that window, so it goes too: the
+ * meter falls back to the SDK's default for the right one until the SDK says again. Only what's used counts as proof:
+ * a threshold is the SDK's answer to a question asked after the turn, which a model change can leave stale.
  */
 function fitContext(usedTokens: number, windowTokens: number, autoCompact: AutoCompact | null): ContextSize {
   const threshold = autoCompact?.kind === AutoCompactKind.On ? autoCompact.thresholdTokens : 0
-  const fitted = fitContextWindow(windowTokens, Math.max(usedTokens, threshold))
+  const fitted = fitContextWindow(windowTokens, usedTokens)
   const stale = fitted !== windowTokens && autoCompact?.kind === AutoCompactKind.On && threshold <= windowTokens
   return { contextWindowTokens: fitted, autoCompact: stale ? null : autoCompact }
 }

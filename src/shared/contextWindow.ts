@@ -77,8 +77,8 @@ export function matchReportedWindow(
 }
 
 /**
- * The window to show for `windowTokens` when `evidenceTokens` are known to fit in it (the context used, or where the
- * SDK said it compacts): the window itself when they fit, else the smallest window the SDK gives that holds them, else
+ * The window to show for `windowTokens` when `evidenceTokens` are known to fit in it (the context used): the window
+ * itself when they fit, else the smallest window the SDK gives that holds them, else
  * the evidence itself. More used than the window holds proves the window wrong, so the larger observed size wins.
  */
 export function fitContextWindow(windowTokens: number, evidenceTokens: number): number {

@@ -286,13 +286,13 @@ describe('updateTask', () => {
       })
     })
 
-    it('takes the threshold alone as proof, and drops one that was for the wrong window', () => {
+    it('takes only what is used as proof, and drops a threshold that was for the wrong window', () => {
       const task = createTask(test.db, { workspaceId: workspace.id, model: 'opus', effort: Effort.High })
-      // The SDK compacts at 967k: the window can't be 200k, whatever is used.
-      const proven = updateTask(test.db, task.id, {
+      // A threshold above the window proves nothing: it may be the answer for a model the task has since left.
+      const unproven = updateTask(test.db, task.id, {
         autoCompact: { kind: AutoCompactKind.On, thresholdTokens: 967_000 },
       })
-      expect(proven).toMatchObject({ contextWindowTokens: 1_000_000, autoCompact: { thresholdTokens: 967_000 } })
+      expect(unproven).toMatchObject({ contextWindowTokens: 200_000, autoCompact: { thresholdTokens: 967_000 } })
 
       // 167k was the 200k window's threshold: with 905k used, it goes, and the meter uses the default for 1M.
       const other = createTask(test.db, { workspaceId: workspace.id, model: 'opus', effort: Effort.High })
