@@ -432,10 +432,19 @@ export function chat(page: Page) {
     newTaskPrompt: log.getByRole('heading', { name: 'What should the agent do?' }),
     /** The live line while a turn runs: "Working · …", or "Retrying (2 of 3)…". */
     workingLine: log.getByRole('status'),
-    /** The pink card when an error stopped the agent, and its buttons. */
+    /** The pink card when an error stopped the agent (or a lost login: the logged-out card), and its buttons. */
     errorCard: log.getByRole('alert'),
-    errorButton: (name: 'Retry' | 'Retry with another model' | 'Show details' | 'Hide details') =>
-      log.getByRole('alert').getByRole('button', { name, exact: true }),
+    errorButton: (
+      name:
+        | 'Retry'
+        | 'Retry with another model'
+        | 'Show details'
+        | 'Hide details'
+        | 'Log in'
+        | 'Waiting for the browser…'
+        | 'Cancel'
+        | `Retry all ${number} tasks`,
+    ) => log.getByRole('alert').getByRole('button', { name, exact: true }),
     errorDetails: log.getByRole('alert').getByLabel('Error details'),
     /** The line that ends the chat while the task's turn is paused: "Paused · resumes at 11:42". */
     pausedLine: log.getByRole('status', { name: 'Paused' }),
@@ -651,6 +660,8 @@ export function settings(page: Page) {
     connectCommand: dialog.getByLabel('Connect command'),
     copyCommand: dialog.getByRole('button', { name: 'Copy', exact: true }),
     regenerateToken: dialog.getByRole('button', { name: 'Regenerate token' }),
+    /** General's Log in, under the account, while Claude Code isn't signed in or a lost login stops a task. */
+    logIn: dialog.getByRole('button', { name: 'Log in', exact: true }),
     /** Control's port field. */
     port: dialog.getByRole('textbox', { name: 'Port' }),
     /** General's account block: the account the tasks run on, as Claude Code reported it. */

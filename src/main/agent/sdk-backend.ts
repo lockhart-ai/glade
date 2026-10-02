@@ -76,14 +76,36 @@ export function claudeCodeExecutable(
   platform: string = process.platform,
   arch: string = process.arch,
 ): string | undefined {
-  let path: string
+  const path = platformBinary(resolve, platform, arch)
+  return path !== null && ASAR.test(path) ? unpacked(path) : undefined
+}
+
+/**
+ * Claude Code's native binary, at a path it can be run from (the unpacked copy, in the packaged app), for running it
+ * directly: its own login (`../account/login`, #409). Null with no platform package here.
+ */
+export function claudeCodeBinary(
+  resolve: ModuleResolver = createRequire(import.meta.url).resolve,
+  platform: string = process.platform,
+  arch: string = process.arch,
+): string | null {
+  const path = platformBinary(resolve, platform, arch)
+  return path === null ? null : unpacked(path)
+}
+
+/** The binary in the SDK's platform package, wherever it is; null with none here. */
+function platformBinary(resolve: ModuleResolver, platform: string, arch: string): string | null {
   try {
-    path = resolve(`@anthropic-ai/claude-agent-sdk-${platform}-${arch}/claude`)
+    return resolve(`@anthropic-ai/claude-agent-sdk-${platform}-${arch}/claude`)
   } catch {
     // No platform package here (or a variant, such as musl on Linux, that the SDK picks for itself).
-    return undefined
+    return null
   }
-  return ASAR.test(path) ? path.replace(ASAR, '$1app.asar.unpacked$2') : undefined
+}
+
+/** A path inside the packaged app's asar archive, moved to the unpacked copy of it; any other path as it is. */
+function unpacked(path: string): string {
+  return path.replace(ASAR, '$1app.asar.unpacked$2')
 }
 
 /**

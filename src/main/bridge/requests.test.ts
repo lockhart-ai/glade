@@ -45,6 +45,9 @@ describe('REQUEST_SCHEMAS', () => {
     expect(REQUEST_SCHEMAS[CommandName.TasksHistory].parse({ id: 't' })).toEqual({ id: 't' })
     const answer = { id: 's', answers: { 0: 'by-type', 1: ['Features', 'Fixes'], 2: '' } }
     expect(REQUEST_SCHEMAS[CommandName.QuestionsAnswer].parse(answer)).toEqual(answer)
+    // Every question skipped, with only the card's "Anything else?" text (#397).
+    const skipped = { id: 's', answers: {}, anythingElse: 'None of these fit.' }
+    expect(REQUEST_SCHEMAS[CommandName.QuestionsAnswer].parse(skipped)).toEqual(skipped)
     for (const decision of [
       { kind: PermissionDecisionKind.AllowOnce },
       { kind: PermissionDecisionKind.AllowForTask },
@@ -358,6 +361,12 @@ describe('REQUEST_SCHEMAS', () => {
       CommandName.QuestionsAnswer,
       { id: 's', answers: { 0: 1 } },
       'answers.0: Invalid input',
+    ],
+    [
+      '"Anything else?" text that isn’t text',
+      CommandName.QuestionsAnswer,
+      { id: 's', answers: {}, anythingElse: ['None of these fit.'] },
+      'anythingElse: Invalid input: expected string, received array',
     ],
     [
       'answers as a list',

@@ -33,6 +33,8 @@ import {
   type TaskError,
   type ToolEvent,
   type Workspace,
+  WatcherKind,
+  WatcherState,
 } from '../../shared/domain'
 import { registerBridge } from '../bridge'
 import { fakeIpcPair } from '../bridge/fake-ipc'
@@ -47,6 +49,7 @@ import { getTask, updateTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { setUiState } from '../db/repositories/ui-state'
+import { addWatcher } from '../db/repositories/watchers'
 import { FakeAgentBackend, settle, type FakeAgentSession } from './fake-backend'
 import { GLADE_SERVER } from './glade-tools'
 import { needsYou } from '../../shared/attention'
@@ -254,6 +257,7 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
       case EventType.AccountChanged:
+      case EventType.LoginChanged:
       case EventType.MenuBarChanged:
         return [event.type]
     }
@@ -1879,6 +1883,89 @@ describe('tasks.retry', () => {
     expect(toolLog().filter((entry) => (entry as { call?: string }).call === API_TOOL_NAME)).toHaveLength(2)
   })
 
+  /** Sends a message whose turn fails because Claude Code's login expired, as the bundled binary words it. */
+  async function loggedOutTurn(): Promise<void> {
+    await send('Find out why the login test is flaky.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.apiErrorMessage('authentication_failed', LOGIN_EXPIRED),
+      sdk.apiErrorResult(LOGIN_EXPIRED, null),
+    )
+    await settle()
+  }
+
+  const LOGIN_EXPIRED = 'Failed to authenticate: OAuth session expired and could not be refreshed'
+
+  it('stops a task whose login expired on a logged-out error, not a pause', async () => {
+    await loggedOutTurn()
+
+    expect(current()).toMatchObject({
+      activity: TaskActivity.Error,
+      pause: null,
+      error: {
+        kind: AgentErrorKind.LoggedOut,
+        source: TaskErrorSource.Api,
+        status: null,
+        code: 'authentication_failed',
+        details: LOGIN_EXPIRED,
+      },
+    })
+  })
+
+  it('starts Claude Code again, resumed, to retry a turn a lost login stopped, so it reads the new login', async () => {
+    await loggedOutTurn()
+    const first = backend.session
+
+    await retry()
+
+    expect(first.closed).toBe(true)
+    expect(backend.sessions).toHaveLength(2)
+    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
+    expect(backend.session.sent.map(({ text }) => text)).toEqual(['Find out why the login test is flaky.'])
+    expect(log.withMessage('session closed').at(-1)?.fields).toMatchObject({ reason: 'restarting for a new login' })
+
+    // What the closed session still says is ignored.
+    first.emit(sdk.result('Too late.'))
+    await settle()
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, error: null })
+  })
+
+  it('keeps the session, retrying in it, when a watcher it started is still live', async () => {
+    await loggedOutTurn()
+    addWatcher(database.db, {
+      taskId: task.id,
+      kind: WatcherKind.Monitor,
+      toolUseId: 'toolu_watch',
+      parentToolUseId: null,
+      sdkId: 'bash_1',
+      label: 'Watch the build',
+      detail: 'npm run build -- --watch',
+      cron: null,
+      schedule: null,
+      recurring: false,
+      state: WatcherState.Running,
+      nextDueAt: null,
+      expiresAt: null,
+    })
+
+    await retry()
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(backend.session.closed).toBe(false)
+    expect(backend.session.sent.map(({ text }) => text)).toHaveLength(2)
+    expect(log.withMessage('session kept for a new login: background work is running')).toHaveLength(1)
+  })
+
+  it('starts a session for the retry when a logged-out task has none live, as after a relaunch', async () => {
+    await loggedOutTurn()
+    relaunch()
+
+    await retry()
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
+  })
+
   it('starts the session again, resumed, when the error was the session failing', async () => {
     await send('Hi')
     backend.session.emit(sdk.init())
@@ -2687,8 +2774,9 @@ describe('questions', () => {
     return { open, returned }
   }
 
-  async function answer(id: string, answers: QuestionAnswers): Promise<QuestionSet> {
-    return (await glade.invoke(CommandName.QuestionsAnswer, { id, answers })).questionSet
+  async function answer(id: string, answers: QuestionAnswers, anythingElse?: string): Promise<QuestionSet> {
+    const request = anythingElse === undefined ? { id, answers } : { id, answers, anythingElse }
+    return (await glade.invoke(CommandName.QuestionsAnswer, request)).questionSet
   }
 
   /** The ask call's row in the tool log. */
@@ -2729,6 +2817,41 @@ describe('questions', () => {
       { role: MessageRole.Agent, body: 'The notes are drafted, grouped by type.', turn: 1 },
     ])
     expect(current().activity).toBe(TaskActivity.Waiting)
+    const history = await glade.invoke(CommandName.TasksHistory, { id: task.id })
+    expect(history.questionSets).toEqual([answered])
+  })
+
+  it('takes the card with every question skipped, and gives the agent an empty object', async () => {
+    const { open, returned } = await ask()
+
+    const answered = await answer(open.id, {}, '   ')
+    await returned
+    await settle()
+
+    // Blank "Anything else?" text is left out, as if nothing was typed.
+    expect(answered.reply).toEqual({ kind: QuestionReplyKind.Answers, answers: {} })
+    expect(askRow()).toMatchObject({ state: ToolCallState.Done, output: '{}' })
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, asking: false })
+  })
+
+  it('keeps what you typed in "Anything else?", trimmed, and gives it to the agent beside the answers', async () => {
+    const { open, returned } = await ask()
+
+    const answered = await answer(open.id, { 1: 'Leave it out' }, '\n  Neither layout: group them by customer.  \n')
+    await returned
+    await settle()
+
+    expect(answered.reply).toEqual({
+      kind: QuestionReplyKind.Answers,
+      answers: { 1: 'Leave it out' },
+      anythingElse: 'Neither layout: group them by customer.',
+    })
+    expect(askRow()).toMatchObject({
+      state: ToolCallState.Done,
+      output: '{"1":"Leave it out","anythingElse":"Neither layout: group them by customer."}',
+    })
+    // It's stored with the set, so it's there after a relaunch.
+    relaunch()
     const history = await glade.invoke(CommandName.TasksHistory, { id: task.id })
     expect(history.questionSets).toEqual([answered])
   })
@@ -2894,6 +3017,23 @@ describe('questions', () => {
         turn: 1,
       })
       expect(current().activity).toBe(TaskActivity.Waiting)
+    })
+
+    it('hands a partial answer and its "Anything else?" text to the resumed session', async () => {
+      const open = await askThenRelaunch()
+
+      await answer(open.id, { 0: 'by-area' }, 'Skip the Django question: it shipped in 2.3.')
+
+      expect(backend.session.sent.map(({ text }) => text)).toEqual([
+        answeredAfterRestart({
+          kind: QuestionReplyKind.Answers,
+          answers: { 0: 'by-area' },
+          anythingElse: 'Skip the Django question: it shipped in 2.3.',
+        }),
+      ])
+      expect(backend.session.sent[0]?.text).toContain(
+        '{"0":"by-area","anythingElse":"Skip the Django question: it shipped in 2.3."}',
+      )
     })
 
     it('hands an answer in words to the resumed session too, and keeps it in the chat', async () => {
@@ -3403,6 +3543,7 @@ describe('several tasks at once', () => {
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
       case EventType.AccountChanged:
+      case EventType.LoginChanged:
       case EventType.MenuBarChanged:
         return null
     }
@@ -3454,6 +3595,7 @@ describe('several tasks at once', () => {
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
       case EventType.AccountChanged:
+      case EventType.LoginChanged:
       case EventType.MenuBarChanged:
         return [event.type]
     }

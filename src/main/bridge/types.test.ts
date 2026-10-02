@@ -46,6 +46,7 @@ import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import type { Handlers } from './handlers'
 import { DEFAULT_CONTROL_PORT, type ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
+import { IDLE_LOGIN, type LoginStatus } from '../../shared/login'
 import { REQUEST_SCHEMAS, type RequestSchemas } from './requests'
 
 const CONTROL_STATUS: ControlStatus = {
@@ -78,6 +79,7 @@ const TASK_HANDLERS = {
   [CommandName.TasksSend]: () => ({ message: {} as Message }),
   [CommandName.TasksStop]: () => ({ task: {} as Task }),
   [CommandName.TasksRetry]: () => ({ task: {} as Task }),
+  [CommandName.TasksRetryLoggedOut]: () => ({ tasks: [] }),
   [CommandName.TasksCompact]: () => ({ task: {} as Task }),
   [CommandName.TasksHistory]: () => ({
     messages: [],
@@ -168,6 +170,9 @@ const TASK_HANDLERS = {
   [CommandName.PluginsReload]: () => null,
   [CommandName.ControlStatus]: () => ({ status: CONTROL_STATUS }),
   [CommandName.AccountStatus]: () => ({ status: { account: null, usage: [] } }),
+  [CommandName.LoginStatus]: () => ({ status: IDLE_LOGIN }),
+  [CommandName.LoginStart]: () => ({ status: IDLE_LOGIN }),
+  [CommandName.LoginCancel]: () => ({ status: IDLE_LOGIN }),
   [CommandName.ControlRegenerateToken]: () => ({ status: CONTROL_STATUS }),
 } satisfies Partial<Handlers>
 const TASK_SCHEMAS = {
@@ -539,6 +544,9 @@ describe('events', () => {
           break
         case EventType.AccountChanged:
           expectTypeOf(event.status).toEqualTypeOf<AccountStatus>()
+          break
+        case EventType.LoginChanged:
+          expectTypeOf(event.status).toEqualTypeOf<LoginStatus>()
           break
         case EventType.MenuBarChanged:
           expectTypeOf(event.snapshot).toEqualTypeOf<MenuBarSnapshot>()

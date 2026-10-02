@@ -52,8 +52,13 @@ export enum TaskActivity {
 export enum AgentErrorKind {
   /** Worth another try later: the API is overloaded or had a server error, or it rate limited the request. */
   Transient = 'transient',
-  /** Won't go away by trying again as is: e.g. a model that doesn't exist, or a failed sign-in. */
+  /** Won't go away by trying again as is: e.g. a model that doesn't exist, or an invalid external API key. */
   Permanent = 'permanent',
+  /**
+   * Claude Code's login expired, was revoked or isn't there: logging in again (Claude Code's own `claude auth login`,
+   * `docs/sdk-notes.md` §1) and retrying gets past it (#409).
+   */
+  LoggedOut = 'logged_out',
   /** The account's usage limit or credits ran out. */
   UsageLimit = 'usage_limit',
   /** The API couldn't be reached at all. */
@@ -619,7 +624,10 @@ export interface TextQuestion {
   readonly kind: QuestionKind.Text
   readonly prompt: string
   readonly placeholder?: string
-  /** Whether it can be left empty. */
+  /**
+   * Ignored: every question can be left unanswered now (#397). Still taken, and kept as asked, so calls and stored sets
+   * that have it still parse.
+   */
   readonly optional?: boolean
 }
 
@@ -633,8 +641,8 @@ export type Question = ChoiceQuestion | PillsQuestion | TextQuestion
 export type QuestionAnswer = string | readonly string[]
 
 /**
- * The answers to a question set, keyed by each question's index in it, from 0 (`"0"`, `"1"`, …). An optional text
- * question left empty has no key.
+ * The answers to a question set, keyed by each question's index in it, from 0 (`"0"`, `"1"`, …). Every question is
+ * optional: one left unanswered has no key.
  */
 export type QuestionAnswers = Readonly<Record<string, QuestionAnswer>>
 
@@ -650,7 +658,7 @@ export enum QuestionSetState {
 
 /** How you answered a question set. */
 export enum QuestionReplyKind {
-  /** With the card: an answer for each question. */
+  /** With the card: an answer for any of its questions, and anything else you typed. */
   Answers = 'answers',
   /** In your own words: a chat message sent while it was open. */
   FreeText = 'free_text',
@@ -658,7 +666,10 @@ export enum QuestionReplyKind {
 
 export interface AnswersReply {
   readonly kind: QuestionReplyKind.Answers
+  /** The questions you answered: any of them, or none. */
   readonly answers: QuestionAnswers
+  /** What you typed in the card's "Anything else?" box, trimmed; left out when you typed nothing. */
+  readonly anythingElse?: string
 }
 
 export interface FreeTextReply {

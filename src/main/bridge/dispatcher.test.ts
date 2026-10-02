@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
+import { IDLE_LOGIN } from '../../shared/login'
 import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
 import {
   FileContentKind,
@@ -67,6 +68,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.TasksSend]: () => ({ message: {} as Message }),
     [CommandName.TasksStop]: () => ({ task: {} as Task }),
     [CommandName.TasksRetry]: () => ({ task: {} as Task }),
+    [CommandName.TasksRetryLoggedOut]: () => ({ tasks: [] }),
     [CommandName.TasksCompact]: () => ({ task: {} as Task }),
     [CommandName.TasksHistory]: () => ({
       messages: [],
@@ -145,6 +147,9 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.PluginsReload]: () => null,
     [CommandName.ControlStatus]: () => ({ status: CONTROL_STATUS }),
     [CommandName.AccountStatus]: () => ({ status: { account: null, usage: [] } }),
+    [CommandName.LoginStatus]: () => ({ status: IDLE_LOGIN }),
+    [CommandName.LoginStart]: () => ({ status: IDLE_LOGIN }),
+    [CommandName.LoginCancel]: () => ({ status: IDLE_LOGIN }),
     [CommandName.ControlRegenerateToken]: () => ({ status: CONTROL_STATUS }),
     [CommandName.WorkspacesUpdate]: () => {
       throw new Error('not in these tests')

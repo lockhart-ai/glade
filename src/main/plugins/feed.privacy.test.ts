@@ -40,6 +40,7 @@ import {
 import { ImageMediaType } from '../../shared/images'
 import type { PluginEvent } from '../../shared/plugin-api'
 import { pluginEventSchema } from '../../shared/plugin-api-schema'
+import { LoginState } from '../../shared/login'
 import { PluginStatus } from '../../shared/plugins'
 import { BUILT_IN_MODELS } from '../../shared/models'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
@@ -563,6 +564,9 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
       },
     ],
     // Sent to the menu bar popover alone, never through the feed; had it been, a plugin would see nothing of it.
+    [EventType.LoginChanged]: [
+      { type: EventType.LoginChanged, status: { state: LoginState.Failed, message: secret('login_failure') } },
+    ],
     [EventType.MenuBarChanged]: [
       {
         type: EventType.MenuBarChanged,

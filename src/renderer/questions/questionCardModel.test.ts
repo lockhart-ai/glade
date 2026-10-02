@@ -10,11 +10,12 @@ import {
   closedAs,
   closedTitle,
   isAnswered,
-  NO_ANSWER,
   optionValues,
   pick,
   picked,
+  sendLabel,
   sketchLines,
+  SKIPPED,
   takesMany,
   typed,
 } from './questionCardModel'
@@ -93,9 +94,19 @@ describe('answered', () => {
 describe('answersToSend', () => {
   const questions = [LAYOUT, TAGS, NOTE]
 
-  it('is null until every question but an optional text one is answered', () => {
-    expect(answersToSend(questions, {})).toBeNull()
-    expect(answersToSend(questions, { 0: 'by-type', 1: [] })).toBeNull()
+  it('sends nothing at all: every question is optional', () => {
+    expect(answersToSend(questions, {})).toEqual({})
+    expect(answersToSend([LAYOUT, AREAS, CREDITS, TAGS, NOTE, REASON], {})).toEqual({})
+  })
+
+  it('sends only the questions answered, leaving out empty lists and blank text', () => {
+    expect(answersToSend(questions, { 0: 'by-type', 1: [] })).toEqual({ 0: 'by-type' })
+    expect(answersToSend(questions, { 1: ['b'], 2: '  ' })).toEqual({ 1: ['b'] })
+    expect(answersToSend(questions, { 2: 'Only this.' })).toEqual({ 2: 'Only this.' })
+  })
+
+  it('is null for a draft main would refuse, which the card never makes', () => {
+    expect(answersToSend(questions, { 0: 'by-date' })).toBeNull()
   })
 
   it('leaves out an optional text question left blank, and trims text', () => {
@@ -107,9 +118,24 @@ describe('answersToSend', () => {
     })
   })
 
-  it('needs text for a text question that is not optional', () => {
-    expect(answersToSend([REASON], {})).toBeNull()
+  it('lets a text question without `optional` be skipped too', () => {
+    expect(answersToSend([REASON], {})).toEqual({})
     expect(answersToSend([REASON], { 0: 'Because.' })).toEqual({ 0: 'Because.' })
+  })
+})
+
+describe('sendLabel', () => {
+  const questions = [LAYOUT, NOTE]
+
+  it('offers to skip the questions while nothing is answered or typed', () => {
+    expect(sendLabel(questions, {}, '')).toBe('Skip questions')
+    expect(sendLabel(questions, { 0: [] as readonly string[], 1: '  ' }, ' \n ')).toBe('Skip questions')
+  })
+
+  it('sends answers once anything is answered, or typed in "Anything else?"', () => {
+    expect(sendLabel(questions, { 0: 'by-type' }, '')).toBe('Send answers')
+    expect(sendLabel(questions, { 1: 'Thanks' }, '')).toBe('Send answers')
+    expect(sendLabel(questions, {}, 'None of these.')).toBe('Send answers')
   })
 })
 
@@ -121,6 +147,7 @@ describe('titles', () => {
 
   it('says how a closed card was closed', () => {
     expect(closedTitle([LAYOUT, CREDITS], ClosedAs.Answers)).toBe('2 questions · answered')
+    expect(closedTitle([LAYOUT, CREDITS], ClosedAs.Skipped)).toBe('2 questions · skipped')
     expect(closedTitle([LAYOUT], ClosedAs.InWords)).toBe('1 question · answered in your words')
     expect(closedTitle([LAYOUT, CREDITS], ClosedAs.Withdrawn)).toBe('2 questions · withdrawn')
   })
@@ -131,22 +158,32 @@ describe('closedAs', () => {
     expect(closedAs({ state: QuestionSetState.Open, reply: null })).toBeNull()
     expect(closedAs({ state: QuestionSetState.Withdrawn, reply: null })).toBe(ClosedAs.Withdrawn)
     expect(
-      closedAs({ state: QuestionSetState.Answered, reply: { kind: QuestionReplyKind.Answers, answers: {} } }),
+      closedAs({ state: QuestionSetState.Answered, reply: { kind: QuestionReplyKind.Answers, answers: { 0: 'x' } } }),
     ).toBe(ClosedAs.Answers)
     expect(closedAs({ state: QuestionSetState.Answered, reply: { kind: QuestionReplyKind.FreeText, text: 'x' } })).toBe(
       ClosedAs.InWords,
     )
   })
+
+  it('is skipped for a card sent with nothing answered and nothing else typed, and answered with either', () => {
+    const answered = (reply: { readonly answers: Record<string, string>; readonly anythingElse?: string }) =>
+      closedAs({ state: QuestionSetState.Answered, reply: { kind: QuestionReplyKind.Answers, ...reply } })
+
+    expect(answered({ answers: {} })).toBe(ClosedAs.Skipped)
+    expect(answered({ answers: {}, anythingElse: 'Ask me later.' })).toBe(ClosedAs.Answers)
+    expect(answered({ answers: { 1: 'Names' } })).toBe(ClosedAs.Answers)
+  })
 })
 
 describe('answerText', () => {
-  it("shows a choice's labels, the pills and the text, or that there is no answer", () => {
+  it("shows a choice's labels, the pills and the text, or that the question was skipped", () => {
     expect(answerText(LAYOUT, 'by-area')).toBe('By area')
     expect(answerText(AREAS, ['api', 'web'])).toBe('API, Web')
     expect(answerText(AREAS, ['gone'])).toBe('gone')
     expect(answerText(TAGS, ['a', 'c'])).toBe('a, c')
     expect(answerText(NOTE, 'Thanks')).toBe('Thanks')
-    expect(answerText(NOTE, undefined)).toBe(NO_ANSWER)
+    expect(answerText(NOTE, undefined)).toBe(SKIPPED)
+    expect(answerText(LAYOUT, undefined)).toBe('Skipped')
   })
 })
 

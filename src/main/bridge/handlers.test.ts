@@ -42,6 +42,7 @@ import { PluginCapability, PluginStatus } from '../../shared/plugins'
 import { createTerminals } from '../terminal/terminals'
 import { listTerminalTabs } from '../db/repositories/terminal-tabs'
 import { createControlEndpoint, type ControlEndpoint } from '../control/endpoint'
+import { createLoginService, UNAVAILABLE_LOGIN } from '../account/login'
 import { createAccountTracker } from '../account/account'
 import { createRateLimiter } from '../control/rate-limit'
 import { createControl } from '../control/control'
@@ -122,6 +123,7 @@ beforeEach(() => {
     ...pluginsWithViews(),
     endpoint: endpointOf(),
     account: createAccountTracker({ db: database.db, emit }),
+    login: createLoginService({ run: UNAVAILABLE_LOGIN, emit, retry: () => undefined }),
   }
   handlers = createHandlers(context)
 })
@@ -211,6 +213,7 @@ describe('menu.update, window.close, app.quit and window.setUnsavedEdits', () =>
       ...pluginsWithViews(),
       endpoint: endpointOf(),
       account: createAccountTracker({ db: database.db, emit }),
+      login: createLoginService({ run: UNAVAILABLE_LOGIN, emit, retry: () => undefined }),
     })
 
     expect(await withApp[CommandName.MenuUpdate](EMPTY_MENU_STATE)).toBeNull()
@@ -255,6 +258,7 @@ describe('the menu bar commands', () => {
       ...pluginsWithViews(),
       endpoint: endpointOf(),
       account: createAccountTracker({ db: database.db, emit }),
+      login: createLoginService({ run: UNAVAILABLE_LOGIN, emit, retry: () => undefined }),
       menuBar,
     })
     return { menuBar, calls, handlers: withApp }
@@ -828,6 +832,7 @@ describe('log.rendererError', () => {
       ...pluginsWithViews(),
       endpoint: endpointOf(),
       account: createAccountTracker({ db: database.db, emit }),
+      login: createLoginService({ run: UNAVAILABLE_LOGIN, emit, retry: () => undefined }),
       log: log.logger,
     })
     const error = {

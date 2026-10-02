@@ -201,6 +201,7 @@ import { BridgeErrorCode, type GladeEvent } from '../../shared/bridge'
 import {
   API_TOOL_NAME,
   AgentErrorKind,
+  LIVE_WATCHER_STATES,
   CompactionTrigger,
   DividerKind,
   MessageRole,
@@ -234,7 +235,7 @@ import { permissionRuleString, taskPermissionRule } from '../../shared/permissio
 import { agentText } from '../../shared/pastedContent'
 import { withAttachedFiles, type AttachedFile } from '../../shared/attachedFiles'
 import { attachedImagesOf } from '../attachments/attachments'
-import { checkAnswers } from '../../shared/questions'
+import { checkAnswers, tidyAnythingElse } from '../../shared/questions'
 import { isSubagentTool } from '../../shared/subagents'
 import { apiRowArgument, apiRowResult } from '../../shared/taskError'
 import { CommandFailure } from '../bridge/errors'
@@ -285,7 +286,7 @@ import {
   updateCompaction,
   updateToolCall,
 } from '../db/repositories/tool-events'
-import { getWatcher } from '../db/repositories/watchers'
+import { getWatcher, listWatchers } from '../db/repositories/watchers'
 import { getWorkspace } from '../db/repositories/workspaces'
 import { createWatcherTracker, StopAction } from '../watchers/watchers'
 import { createChangeTracker, type ChangeTracker } from '../changes/tracker'
@@ -389,6 +390,11 @@ export interface AgentRunnerOptions {
    * told by default.
    */
   readonly account?: AccountSink
+  /**
+   * Told when a task stops on a lost login (an `AgentErrorKind.LoggedOut` error, #409), so a login that finished before
+   * no longer reads as having fixed it (`../account/login`). Nothing by default.
+   */
+  readonly onLoggedOut?: (taskId: string) => void
 }
 
 /**
@@ -416,11 +422,12 @@ export interface AgentRunner {
   ): Message
   /**
    * Answers the task's open question set with the card's answers (see the module comment), once they're checked against
-   * its questions. Answers with the set, answered. Throws a `CommandFailure`: `not_found` for no such set,
-   * `invalid_transition` for one that isn't open, `invalid_request` for answers that don't fit, and `busy` for a set
-   * the app quit on while its task's agent is working on something else.
+   * its questions, and what you typed in its "Anything else?" box, trimmed (left out when blank). Answers with the set,
+   * answered. Throws a `CommandFailure`: `not_found` for no such set, `invalid_transition` for one that isn't open,
+   * `invalid_request` for answers that don't fit, and `busy` for a set the app quit on while its task's agent is
+   * working on something else.
    */
-  answer(id: string, answers: QuestionAnswers): QuestionSet
+  answer(id: string, answers: QuestionAnswers, anythingElse?: string): QuestionSet
   /**
    * Answers an open permission request (see the module comment): the call waiting on it runs, or is denied with your
    * note. Answers with the request, closed. Throws a `CommandFailure`: `not_found` for no such request, and
@@ -902,6 +909,32 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   /** Stops the task on an error: the chat shows its card, and the task list its "Error: …" line. */
   const stopOnError = (taskId: string, error: TaskError): void => {
     updateTaskFromRunner(context, taskId, { activity: TaskActivity.Error, error, retrying: null, pause: null })
+    if (error.kind === AgentErrorKind.LoggedOut) options.onLoggedOut?.(taskId)
+  }
+
+  /**
+   * Before a turn a lost login stopped is retried: closes the task's live session, so the retry starts Claude Code
+   * afresh, resuming the same conversation, and the new process reads the login you've just made. A running Claude
+   * Code mostly picks a new login up by itself, on its next 401 (`docs/sdk-notes.md` §1, "Logging in"), but not when
+   * it started with none at all. A session with background work going on (a background subagent, or a live watcher)
+   * is kept, so retrying never kills it: that retry relies on Claude Code picking the login up.
+   */
+  const restartForLogin = (taskId: string): void => {
+    const live = sessions.get(taskId)
+    if (live === undefined) return
+    const watching = listWatchers(db, taskId).some(({ state }) => LIVE_WATCHER_STATES.includes(state))
+    if (live.background.size > 0 || watching) {
+      agentLog(taskId).info('session kept for a new login: background work is running', {
+        subagents: live.background.size,
+        watching,
+      })
+      return
+    }
+    agentLog(taskId).info('session closed', { reason: 'restarting for a new login' })
+    sessions.delete(taskId)
+    live.closed = true
+    live.session.close()
+    changes.sessionEnded(taskId)
   }
 
   /**
@@ -2345,7 +2378,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return message
     },
 
-    answer(id, answers) {
+    answer(id, answers, anythingElse) {
       const set = getQuestionSet(db, id)
       if (set === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No question set ${id}`)
       if (set.state !== QuestionSetState.Open) {
@@ -2353,7 +2386,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       }
       const checked = checkAnswers(set.questions, answers)
       if (!checked.ok) throw new CommandFailure(BridgeErrorCode.InvalidRequest, checked.problems.join('; '))
-      return replyTo(answerable(set), set, { kind: QuestionReplyKind.Answers, answers: checked.answers })
+      const other = tidyAnythingElse(anythingElse)
+      return replyTo(answerable(set), set, {
+        kind: QuestionReplyKind.Answers,
+        answers: checked.answers,
+        ...(other === undefined ? {} : { anythingElse: other }),
+      })
     },
 
     answerPermission(id, decision) {
@@ -2458,6 +2496,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         throw new CommandFailure(BridgeErrorCode.InvalidTransition, "The agent isn't stopped by an error or paused")
       }
       const current = model === undefined ? task : updateTaskFromUser(context, taskId, { model })
+      if (task.error?.kind === AgentErrorKind.LoggedOut) restartForLogin(taskId)
       const live = sessions.get(taskId) ?? start(current)
       applySettings(current, live)
       startWorking(taskId)
