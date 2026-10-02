@@ -26,6 +26,9 @@ import {
   updateTask,
 } from './tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
+import { recordReportedWindow } from './context-windows'
+import { setSdkModels } from './sdk-models'
+import { ALIAS_MODELS } from '../../../shared/test-models'
 
 let test: TestDatabase
 let workspace: Workspace
@@ -275,6 +278,113 @@ describe('updateTask', () => {
     const extended = updateTask(test.db, task.id, { model: 'claude-sample-2[1m]' })
     expect(extended).toMatchObject({ contextUsedTokens: 76_000, contextWindowTokens: 1_000_000 })
     expect(getTask(test.db, task.id)).toEqual(extended)
+  })
+
+  // #416: the window the SDK reported is the task's own, in SQLite: a relaunch, or switching tasks, reads it back.
+  describe('a 1M window on a model id without [1m]', () => {
+    it('is read back as stored, not guessed again from the id', () => {
+      const task = createTask(test.db, { workspaceId: workspace.id, model: 'opus', effort: Effort.High })
+      expect(task.contextWindowTokens).toBe(200_000)
+      updateTask(test.db, task.id, { contextUsedTokens: 905_000, contextWindowTokens: 1_000_000 })
+
+      // A relaunch: the same file, opened again.
+      const stored = test.db.prepare('SELECT context_window_tokens FROM tasks WHERE id = ?').get(task.id)
+      expect(stored).toEqual({ context_window_tokens: 1_000_000 })
+      expect(getTask(test.db, task.id)).toMatchObject({ model: 'opus', contextWindowTokens: 1_000_000 })
+      expect(listTasks(test.db, workspace.id)[0]?.contextWindowTokens).toBe(1_000_000)
+      // Any other change leaves it be.
+      expect(updateTask(test.db, task.id, { status: 'Reading', effort: Effort.Low }).contextWindowTokens).toBe(
+        1_000_000,
+      )
+    })
+
+    it('never reads more used than the window: a stored 200k with 905k used is shown as 1M', () => {
+      const task = createTask(test.db, { workspaceId: workspace.id, model: 'opus', effort: Effort.High })
+      // As a database from before the fix has it, with the threshold the SDK gave for the real window.
+      test.db
+        .prepare(
+          'UPDATE tasks SET context_used_tokens = 905000, context_window_tokens = 200000, auto_compact = ? WHERE id = ?',
+        )
+        .run(JSON.stringify({ kind: AutoCompactKind.On, thresholdTokens: 967_000 }), task.id)
+
+      expect(getTask(test.db, task.id)).toMatchObject({
+        contextUsedTokens: 905_000,
+        contextWindowTokens: 1_000_000,
+        autoCompact: { kind: AutoCompactKind.On, thresholdTokens: 967_000 },
+      })
+      // The next write saves the corrected window.
+      updateTask(test.db, task.id, { unread: true })
+      expect(test.db.prepare('SELECT context_window_tokens FROM tasks WHERE id = ?').get(task.id)).toEqual({
+        context_window_tokens: 1_000_000,
+      })
+    })
+
+    it('takes only what is used as proof, and drops a threshold that was for the wrong window', () => {
+      const task = createTask(test.db, { workspaceId: workspace.id, model: 'opus', effort: Effort.High })
+      // A threshold above the window proves nothing: it may be the answer for a model the task has since left.
+      const unproven = updateTask(test.db, task.id, {
+        autoCompact: { kind: AutoCompactKind.On, thresholdTokens: 967_000 },
+      })
+      expect(unproven).toMatchObject({ contextWindowTokens: 200_000, autoCompact: { thresholdTokens: 967_000 } })
+
+      // 167k was the 200k window's threshold: with 905k used, it goes, and the meter uses the default for 1M.
+      const other = createTask(test.db, { workspaceId: workspace.id, model: 'opus', effort: Effort.High })
+      updateTask(test.db, other.id, { autoCompact: { kind: AutoCompactKind.On, thresholdTokens: 167_000 } })
+      const grown = updateTask(test.db, other.id, { contextUsedTokens: 905_000 })
+      expect(grown).toMatchObject({ contextWindowTokens: 1_000_000, autoCompact: null })
+
+      // Auto-compact switched off says nothing of the window, and stays off.
+      const off = createTask(test.db, { workspaceId: workspace.id, model: 'opus', effort: Effort.High })
+      updateTask(test.db, off.id, { autoCompact: { kind: AutoCompactKind.Off } })
+      expect(updateTask(test.db, off.id, { contextUsedTokens: 905_000 })).toMatchObject({
+        contextWindowTokens: 1_000_000,
+        autoCompact: { kind: AutoCompactKind.Off },
+      })
+      // More than any window the SDK gives: the amount itself.
+      expect(updateTask(test.db, off.id, { contextUsedTokens: 1_200_000 }).contextWindowTokens).toBe(1_200_000)
+    })
+
+    it('resets only when the model changes to one with a different window', () => {
+      setSdkModels(test.db, ALIAS_MODELS)
+      const task = createTask(test.db, { workspaceId: workspace.id, model: 'opus', effort: Effort.High })
+      const autoCompact = { kind: AutoCompactKind.On, thresholdTokens: 967_000 } as const
+      updateTask(test.db, task.id, { contextUsedTokens: 76_000, contextWindowTokens: 1_000_000, autoCompact })
+      recordReportedWindow(test.db, ['opus', 'claude-opus-5-5'], 1_000_000)
+
+      // The same model under another id: `default` and the full id both stand for it.
+      expect(updateTask(test.db, task.id, { model: 'default' })).toMatchObject({
+        contextWindowTokens: 1_000_000,
+        autoCompact,
+      })
+      expect(updateTask(test.db, task.id, { model: 'claude-opus-5-5' })).toMatchObject({
+        contextWindowTokens: 1_000_000,
+        autoCompact,
+      })
+      // Another model with the same window, by its suffix: the window and the threshold stay.
+      expect(updateTask(test.db, task.id, { model: 'sonnet[1m]' })).toMatchObject({
+        contextWindowTokens: 1_000_000,
+        autoCompact,
+      })
+      // A model with a smaller one: its guess, and the threshold unknown again.
+      expect(updateTask(test.db, task.id, { model: 'haiku' })).toMatchObject({
+        contextWindowTokens: 200_000,
+        autoCompact: null,
+      })
+      // Back: what the SDK reported for it, not what its id gives.
+      expect(updateTask(test.db, task.id, { model: 'opus' }).contextWindowTokens).toBe(1_000_000)
+      // A window given with the change wins over both.
+      expect(updateTask(test.db, task.id, { model: 'haiku', contextWindowTokens: 190_000 }).contextWindowTokens).toBe(
+        190_000,
+      )
+    })
+
+    it('guesses a task with no stored window from the list and the reports', () => {
+      const task = createTask(test.db, { workspaceId: workspace.id, model: 'opus', effort: Effort.High })
+      test.db.prepare('UPDATE tasks SET context_window_tokens = NULL WHERE id = ?').run(task.id)
+      expect(getTask(test.db, task.id)?.contextWindowTokens).toBe(200_000)
+      recordReportedWindow(test.db, ['opus'], 1_000_000)
+      expect(getTask(test.db, task.id)?.contextWindowTokens).toBe(1_000_000)
+    })
   })
 
   it('keeps where the SDK compacts automatically, until the model changes', () => {

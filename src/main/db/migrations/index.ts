@@ -47,6 +47,7 @@ import { attachedFilesMigration } from './0046-attached-files'
 import { subagentTaskIdsMigration } from './0047-subagent-task-ids'
 import { pluginGrantsMigration } from './0048-plugin-grants'
 import { browseFoldersMigration } from './0050-browse-folders'
+import { reportedContextWindowsMigration } from './0051-reported-context-windows'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -98,6 +99,7 @@ export const MIGRATIONS: readonly Migration[] = [
   subagentTaskIdsMigration,
   pluginGrantsMigration,
   browseFoldersMigration,
+  reportedContextWindowsMigration,
 ]
 
 /** The version a database is at once every migration has run: the last one's, which can skip versions still in flight. */

@@ -12,7 +12,7 @@ import {
 } from '../../shared/domain'
 import { WindowCommandId } from '../../shared/commands'
 import type { ModelChoice } from '../../shared/models'
-import { SDK_MODELS } from '../../shared/test-models'
+import { ALIAS_MODELS, SDK_MODELS } from '../../shared/test-models'
 import { ToastProvider } from '../components'
 import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
@@ -204,10 +204,10 @@ describe('InputBar', () => {
     expect(field()).toHaveAttribute('placeholder', REPLY_PLACEHOLDER)
   })
 
-  it('shows a model the picker doesn’t offer by its id', async () => {
+  it('names a model the picker doesn’t offer from its id, never the raw id', async () => {
     await renderBar({ task: { model: 'claude-sample-1' } })
 
-    expect(screen.getByRole('button', { name: 'Model: claude-sample-1' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Model: Sample 1' })).toBeInTheDocument()
   })
 
   describe('sending', () => {
@@ -657,17 +657,70 @@ describe('InputBar', () => {
       expect(screen.getByRole('button', { name: 'Effort: Max' })).toBeInTheDocument()
     })
 
-    it('shows a saved model the list doesn’t have by its id, none checked, with every effort level', async () => {
+    it('lists a saved model the list doesn’t have, named and checked, with every effort level', async () => {
       await renderBar({ task: { model: 'claude-retired-3', effort: Effort.Medium }, models: SDK_MODELS })
 
       expect(menuItems('Effort: Medium', 'Effort')).toEqual(['Low', 'Medium', 'High', 'Extra high', 'Max'])
-      fireEvent.click(screen.getByRole('button', { name: 'Model: claude-retired-3' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Model: Retired 3' }))
       await settleFloating()
       const menu = screen.getByRole('menu', { name: 'Model' })
-      expect(within(menu).queryByRole('menuitemradio', { checked: true })).toBeNull()
+      expect(within(menu).getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('Retired 3')
+      expect(within(menu).getAllByRole('menuitemradio').at(-1)).toHaveAccessibleName('Retired 3')
     })
 
-    it('takes the SDK’s list when a session reports it, and a model it stops offering shows by its id', async () => {
+    // #416, the second screenshot: the task runs on `opus[1m]`, which the SDK's list no longer has. The button showed
+    // the raw id, and the list didn't have the task's model at all.
+    it('shows a task on opus[1m] as "Opus 5.5 (1M)", listed right after Opus 5.5 and checked', async () => {
+      const fake = await renderBar({
+        task: { model: 'opus[1m]', contextUsedTokens: 867_000, contextWindowTokens: 1_000_000 },
+        models: ALIAS_MODELS,
+      })
+
+      expect(screen.getByRole('button', { name: 'Model: Opus 5.5 (1M)' })).toHaveTextContent('ModelOpus 5.5 (1M)')
+      expect(menuItems('Model: Opus 5.5 (1M)', 'Model')).toEqual([
+        'Default (recommended)',
+        'Opus 5.5',
+        'Opus 5.5 (1M)',
+        'Sonnet 5',
+        'Haiku 4.5',
+      ])
+      fireEvent.click(screen.getByRole('button', { name: 'Model: Opus 5.5 (1M)' }))
+      await settleFloating()
+      const menu = screen.getByRole('menu', { name: 'Model' })
+      expect(within(menu).getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('Opus 5.5 (1M)')
+
+      // Choosing the model it's already on changes nothing: it's kept, whatever the list says.
+      fireEvent.click(within(menu).getByRole('menuitemradio', { name: 'Opus 5.5 (1M)' }))
+      await settleFloating()
+      expect(updates(fake)).toEqual([])
+    })
+
+    // #416, the first screenshot: the task's model id has no `[1m]`, but its session runs at 1M.
+    it('adds "(1M)" to the name of a model that runs at 1M without saying so, and not to one that says so', async () => {
+      await renderBar({ task: { model: 'opus', contextWindowTokens: 1_000_000 }, models: ALIAS_MODELS })
+      expect(screen.getByRole('button', { name: 'Model: Opus 5.5 (1M)' })).toBeInTheDocument()
+      // The list still has the one Opus 5.5, and it's the task's.
+      expect(menuItems('Model: Opus 5.5 (1M)', 'Model')).toEqual([
+        'Default (recommended)',
+        'Opus 5.5',
+        'Sonnet 5',
+        'Haiku 4.5',
+      ])
+      fireEvent.click(screen.getByRole('button', { name: 'Model: Opus 5.5 (1M)' }))
+      await settleFloating()
+      const menu = screen.getByRole('menu', { name: 'Model' })
+      expect(within(menu).getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('Opus 5.5')
+      cleanup()
+
+      await renderBar({ task: { model: 'opus[1m]', contextWindowTokens: 1_000_000 }, models: SDK_MODELS })
+      expect(screen.getByRole('button', { name: 'Model: Opus (1M context)' })).toBeInTheDocument()
+      cleanup()
+
+      await renderBar({ task: { model: 'opus', contextWindowTokens: 200_000 }, models: ALIAS_MODELS })
+      expect(screen.getByRole('button', { name: 'Model: Opus 5.5' })).toBeInTheDocument()
+    })
+
+    it('takes the SDK’s list when a session reports it, and keeps a model it stops offering, last and named', async () => {
       const fake = await renderBar({ task: { model: 'lite', effort: Effort.Low }, models: SDK_MODELS })
       expect(screen.getByRole('button', { name: 'Model: Lite' })).toBeInTheDocument()
 
@@ -675,12 +728,13 @@ describe('InputBar', () => {
         fake.emit({ type: EventType.ModelsChanged, models: SDK_MODELS.filter(({ id }) => id !== 'lite') })
       })
 
-      expect(screen.getByRole('button', { name: 'Model: lite' })).toBeInTheDocument()
-      expect(menuItems('Model: lite', 'Model')).toEqual([
+      expect(screen.getByRole('button', { name: 'Model: Lite' })).toBeInTheDocument()
+      expect(menuItems('Model: Lite', 'Model')).toEqual([
         'Default (recommended)',
         'Opus (1M context)',
         'Sonnet',
         'Haiku',
+        'Lite',
       ])
     })
 
@@ -833,7 +887,7 @@ describe('InputBar', () => {
     await act(() => fake.store.getState().selectTask('t2'))
 
     expect(field()).toHaveValue('')
-    expect(screen.getByRole('button', { name: 'Model: claude-sample-1' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Model: Sample 1' })).toBeInTheDocument()
     type('For the second')
 
     await act(() => fake.store.getState().selectTask('t1'))

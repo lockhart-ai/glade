@@ -1,0 +1,113 @@
+{
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "models": [
+    {
+      "id": "default",
+      "resolvedModel": "claude-opus-5-5",
+      "name": "Default (recommended)",
+      "description": "Use the default model (currently Opus 5.5)",
+      "efforts": ["low", "medium", "high", "xhigh", "max"]
+    },
+    {
+      "id": "opus",
+      "resolvedModel": "claude-opus-5-5",
+      "name": "Opus 5.5",
+      "description": "Most capable for your hardest and longest-running tasks",
+      "efforts": ["low", "medium", "high", "xhigh", "max"]
+    },
+    {
+      "id": "fable",
+      "resolvedModel": "claude-fable-5-1",
+      "name": "Fable 5.1",
+      "description": "Fable 5.1",
+      "efforts": ["low", "medium", "high", "xhigh", "max"]
+    },
+    {
+      "id": "sonnet",
+      "resolvedModel": "claude-sonnet-5",
+      "name": "Sonnet 5",
+      "description": "Efficient for routine tasks",
+      "efforts": ["low", "medium", "high", "xhigh", "max"]
+    },
+    {
+      "id": "haiku",
+      "resolvedModel": "claude-haiku-4-5-20251001",
+      "name": "Haiku 4.5",
+      "description": "Fastest for quick answers",
+      "efforts": []
+    },
+    {
+      "id": "claude-opus-5",
+      "resolvedModel": "claude-opus-5",
+      "name": "Opus 5",
+      "description": "Previous Opus version",
+      "efforts": ["low", "medium", "high", "xhigh", "max"]
+    },
+    {
+      "id": "claude-sonnet-4-6",
+      "resolvedModel": "claude-sonnet-4-6",
+      "name": "Sonnet 4.6",
+      "description": "Previous Sonnet version",
+      "efforts": ["low", "medium", "high", "max"]
+    }
+  ],
+  "collapsed": {
+    "rightPanel": true
+  },
+  "tasks": [
+    {
+      "title": "Tidy the billing exports",
+      "status": "Done: three CSVs match the ledger",
+      "state": "done",
+      "minutesAgo": 300
+    },
+    {
+      "title": "Audit the request handlers",
+      "status": "Seven handlers skip validation",
+      "minutesAgo": 2,
+      "selected": true,
+      "model": "opus",
+      "contextUsedTokens": 905000,
+      "contextWindowTokens": 200000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Read every handler in src/routes and list the ones that skip input validation.",
+          "turn": 1,
+          "minutesAgo": 40
+        },
+        {
+          "role": "agent",
+          "body": "Seven handlers skip validation. The list, with file and line, is in notes/validation.md.",
+          "turn": 1,
+          "minutesAgo": 2
+        }
+      ]
+    },
+    {
+      "title": "Map the webhook retries",
+      "status": "Retries traced through the queue",
+      "minutesAgo": 9,
+      "model": "opus[1m]",
+      "contextUsedTokens": 867000,
+      "contextWindowTokens": 1000000,
+      "messages": [
+        {
+          "role": "user",
+          "body": "Read every handler in src/routes and list the ones that skip input validation.",
+          "turn": 1,
+          "minutesAgo": 40
+        },
+        {
+          "role": "agent",
+          "body": "Seven handlers skip validation. The list, with file and line, is in notes/validation.md.",
+          "turn": 1,
+          "minutesAgo": 2
+        }
+      ]
+    }
+  ]
+}

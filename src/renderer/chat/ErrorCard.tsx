@@ -1,7 +1,7 @@
 import { faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
 import { useState } from 'react'
 import { AgentErrorKind, type Task } from '../../shared/domain'
-import { findModel } from '../../shared/models'
+import { findModel, modelOptions } from '../../shared/models'
 import { errorOpening, NOTHING_LOST, retriesSentence } from '../../shared/taskError'
 import {
   Button,
@@ -57,8 +57,8 @@ function StoppedCard({ task }: ErrorCardProps): React.JSX.Element {
     })
   }
 
-  const current = findModel(offered, task.model)?.id
-  const models: MenuEntry[] = offered.map((option) => ({
+  const current = findModel(offered, task.model)?.id ?? task.model
+  const models: MenuEntry[] = modelOptions(offered, task.model).map((option) => ({
     kind: MenuEntryKind.Item,
     label: option.name,
     checked: option.id === current,

@@ -20,7 +20,10 @@ import {
   type TaskPause,
   type TodoSummary,
 } from '../../../shared/domain'
-import { contextWindowFor } from '../../../shared/contextWindow'
+import { fitContextWindow } from '../../../shared/contextWindow'
+import { sameModel } from '../../../shared/models'
+import { guessModelWindow } from './context-windows'
+import { offeredModels } from './sdk-models'
 import { TaskFilter } from '../../../shared/attention'
 import type { DoneCounts, DonePage, DonePageRequest } from '../../../shared/doneList'
 import { Row, RowError } from './rows'
@@ -55,11 +58,14 @@ export interface TaskPatch {
   readonly permissionMode?: PermissionMode
   readonly sessionId?: string | null
   readonly contextUsedTokens?: number
-  /** The window the SDK reported. Changing the model without one resets it to what the new model's id gives. */
+  /**
+   * The window the SDK reported. Changing the model without one keeps the window when the new model is the same one
+   * under another id, and otherwise takes the best guess at the new model's (`guessModelWindow`).
+   */
   readonly contextWindowTokens?: number
   /**
-   * Where the SDK compacts automatically, as it said. Changing the model without one clears it, since it depends on the
-   * model's window.
+   * Where the SDK compacts automatically, as it said. Changing the model without one clears it when the window changes
+   * with it, since it depends on the window.
    */
   readonly autoCompact?: AutoCompact
   /** What stopped the agent; null clears it. */
@@ -134,9 +140,36 @@ function jsonColumn<T>(row: Row, table: string, column: string, schema: z.ZodTyp
   return parsed.data
 }
 
-function parseTask(raw: unknown): Task {
+/** The context window a task shows, and where the SDK compacts in it. */
+interface ContextSize {
+  readonly contextWindowTokens: number
+  readonly autoCompact: AutoCompact | null
+}
+
+/**
+ * The window to show for a task that has used `usedTokens` of a `windowTokens` window, which the SDK compacts at
+ * `autoCompact`: the window, unless what's used is more than it holds, which proves it wrong, and the larger observed
+ * size wins (`fitContextWindow`). A threshold no bigger than the wrong window was for that window, so it goes too: the
+ * meter falls back to the SDK's default for the right one until the SDK says again. Only what's used counts as proof:
+ * a threshold is the SDK's answer to a question asked after the turn, which a model change can leave stale.
+ */
+function fitContext(usedTokens: number, windowTokens: number, autoCompact: AutoCompact | null): ContextSize {
+  const threshold = autoCompact?.kind === AutoCompactKind.On ? autoCompact.thresholdTokens : 0
+  const fitted = fitContextWindow(windowTokens, usedTokens)
+  const stale = fitted !== windowTokens && autoCompact?.kind === AutoCompactKind.On && threshold <= windowTokens
+  return { contextWindowTokens: fitted, autoCompact: stale ? null : autoCompact }
+}
+
+function parseTask(db: Database, raw: unknown): Task {
   const row = new Row('tasks', raw)
   const model = row.text('model')
+  const contextUsedTokens = row.integer('context_used_tokens')
+  const context = fitContext(
+    contextUsedTokens,
+    // Null until the SDK reports the window, e.g. for a task from before there was a context meter.
+    row.nullableInteger('context_window_tokens') ?? guessModelWindow(db, model),
+    jsonColumn(row, 'tasks', 'auto_compact', autoCompactSchema),
+  )
   return {
     id: row.text('id'),
     workspaceId: row.text('workspace_id'),
@@ -155,9 +188,8 @@ function parseTask(raw: unknown): Task {
     updatedAt: row.integer('updated_at'),
     doneAt: row.nullableInteger('done_at'),
     sessionId: row.nullableText('session_id'),
-    contextUsedTokens: row.integer('context_used_tokens'),
-    // Null until the SDK reports the window, e.g. for a task from before there was a context meter.
-    contextWindowTokens: row.nullableInteger('context_window_tokens') ?? contextWindowFor(model),
+    contextUsedTokens,
+    contextWindowTokens: context.contextWindowTokens,
     error: jsonColumn(row, 'tasks', 'error', taskErrorSchema),
     retrying: jsonColumn(row, 'tasks', 'retrying', apiRetrySchema),
     asking: row.flag('asking'),
@@ -165,7 +197,7 @@ function parseTask(raw: unknown): Task {
     pause: jsonColumn(row, 'tasks', 'pause', taskPauseSchema),
     importedAt: row.nullableInteger('imported_at'),
     todos: jsonColumn(row, 'tasks', 'todos', todoSummarySchema),
-    autoCompact: jsonColumn(row, 'tasks', 'auto_compact', autoCompactSchema),
+    autoCompact: context.autoCompact,
   }
 }
 
@@ -210,7 +242,7 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     doneAt: null,
     sessionId: null,
     contextUsedTokens: 0,
-    contextWindowTokens: contextWindowFor(input.model),
+    contextWindowTokens: guessModelWindow(db, input.model),
     error: null,
     retrying: null,
     asking: false,
@@ -230,7 +262,7 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
 
 export function getTask(db: Database, id: string): Task | undefined {
   const row: unknown = db.prepare(`SELECT ${SELECTED} FROM tasks WHERE id = ?`).get(id)
-  return row === undefined ? undefined : parseTask(row)
+  return row === undefined ? undefined : parseTask(db, row)
 }
 
 /** A workspace's tasks, most recently updated first. */
@@ -238,7 +270,7 @@ export function listTasks(db: Database, workspaceId: string): Task[] {
   return db
     .prepare(`SELECT ${SELECTED} FROM tasks WHERE workspace_id = ? ORDER BY updated_at DESC, id`)
     .all(workspaceId)
-    .map(parseTask)
+    .map((row) => parseTask(db, row))
 }
 
 /**
@@ -251,7 +283,7 @@ export function listActiveTasks(db: Database, workspaceId: string): Task[] {
       `SELECT ${SELECTED} FROM tasks WHERE workspace_id = ? AND (state = ? OR pinned = 1) ORDER BY updated_at DESC, id`,
     )
     .all(workspaceId, TaskState.Active)
-    .map(parseTask)
+    .map((row) => parseTask(db, row))
 }
 
 /** The Done section: a workspace's done tasks that aren't pinned (a pinned task shows under Pinned). */
@@ -329,7 +361,7 @@ export function listDoneTasks(db: Database, request: DonePageRequest): DonePage 
       ORDER BY updated_at DESC, id LIMIT @limit`,
     )
     .all({ workspaceId, limit: limit + 1, ...(after === null ? {} : { updatedAt: after.updatedAt, id: after.id }) })
-    .map(parseTask)
+    .map((row) => parseTask(db, row))
   return { tasks: rows.slice(0, limit), hasMore: rows.length > limit }
 }
 
@@ -339,7 +371,7 @@ export function getTasks(db: Database, ids: readonly string[]): Task[] {
   return db
     .prepare(`SELECT ${SELECTED} FROM tasks WHERE id IN (SELECT value FROM json_each(?))`)
     .all(JSON.stringify(ids))
-    .map(parseTask)
+    .map((row) => parseTask(db, row))
 }
 
 /** Every workspace's active tasks whose turn is paused, oldest first. On launch, their pauses are armed again. */
@@ -347,7 +379,7 @@ export function listPausedTasks(db: Database): Task[] {
   return db
     .prepare(`SELECT ${SELECTED} FROM tasks WHERE state = ? AND activity = ? ORDER BY created_at, id`)
     .all(TaskState.Active, TaskActivity.Paused)
-    .map(parseTask)
+    .map((row) => parseTask(db, row))
 }
 
 /** Every workspace's active tasks whose agent is working, oldest first. On launch, these are the turns the app died in. */
@@ -355,7 +387,7 @@ export function listWorkingTasks(db: Database): Task[] {
   return db
     .prepare(`SELECT ${SELECTED} FROM tasks WHERE state = ? AND activity = ? ORDER BY created_at, id`)
     .all(TaskState.Active, TaskActivity.Working)
-    .map(parseTask)
+    .map((row) => parseTask(db, row))
 }
 
 /**
@@ -369,7 +401,7 @@ export function listLoggedOutTasks(db: Database): Task[] {
         ORDER BY created_at, id`,
     )
     .all(TaskState.Active, TaskActivity.Error, AgentErrorKind.LoggedOut)
-    .map(parseTask)
+    .map((row) => parseTask(db, row))
 }
 
 function doneAtAfter(current: Task, state: TaskState, now: EpochMs): EpochMs | null {
@@ -393,6 +425,23 @@ function onlyUnread(patch: TaskPatch): boolean {
 }
 
 /**
+ * The window and auto-compact threshold a task has after `patch` moves it to model `model`: the ones it gives, else the
+ * task's own while the model stays the same one (by any id) or the new model's best guess (`guessModelWindow`) is the
+ * same size; else that guess, with the threshold unknown until the SDK says.
+ */
+function contextAfter(
+  db: Database,
+  current: Task,
+  model: string,
+  patch: TaskPatch,
+): [window: number, autoCompact: AutoCompact | null] {
+  const guess = model === current.model ? current.contextWindowTokens : guessModelWindow(db, model)
+  const kept = guess === current.contextWindowTokens || sameModel(offeredModels(db), model, current.model)
+  const window = patch.contextWindowTokens ?? (kept ? current.contextWindowTokens : guess)
+  return [window, patch.autoCompact ?? (kept ? current.autoCompact : null)]
+}
+
+/**
  * Changes a task's fields, stamps `updatedAt` (and `statusUpdatedAt` when the status changes), and returns it updated.
  * A patch of only `unread` leaves `updatedAt` alone (see `onlyUnread`), and a date the patch gives wins over the stamp.
  * Throws if there's no such task.
@@ -403,6 +452,8 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
   const state = patch.state ?? current.state
   const status = patch.status ?? current.status
   const model = patch.model ?? current.model
+  const contextUsedTokens = patch.contextUsedTokens ?? current.contextUsedTokens
+  const context = fitContext(contextUsedTokens, ...contextAfter(db, current, model, patch))
   const updated: Task = {
     ...current,
     title: patch.title ?? current.title,
@@ -419,10 +470,9 @@ export function updateTask(db: Database, id: string, patch: TaskPatch, now: Epoc
     updatedAt: patch.updatedAt ?? (onlyUnread(patch) ? current.updatedAt : now),
     doneAt: doneAtAfter(current, state, now),
     sessionId: patch.sessionId === undefined ? current.sessionId : patch.sessionId,
-    contextUsedTokens: patch.contextUsedTokens ?? current.contextUsedTokens,
-    contextWindowTokens:
-      patch.contextWindowTokens ?? (model === current.model ? current.contextWindowTokens : contextWindowFor(model)),
-    autoCompact: patch.autoCompact ?? (model === current.model ? current.autoCompact : null),
+    contextUsedTokens,
+    contextWindowTokens: context.contextWindowTokens,
+    autoCompact: context.autoCompact,
     error: patch.error === undefined ? current.error : patch.error,
     retrying: patch.retrying === undefined ? current.retrying : patch.retrying,
     pause: patch.pause === undefined ? current.pause : patch.pause,

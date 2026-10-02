@@ -265,6 +265,10 @@ import { listTaskPermissionRules } from '../db/repositories/task-permission-rule
 import { listQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
 import { getSettings } from '../db/repositories/settings'
 import { getTask, listPausedTasks, listWorkingTasks } from '../db/repositories/tasks'
+import { recordReportedWindow } from '../db/repositories/context-windows'
+import { offeredModels } from '../db/repositories/sdk-models'
+import { matchReportedWindow } from '../../shared/contextWindow'
+import { findModel } from '../../shared/models'
 import {
   appendCompaction,
   appendDivider,
@@ -562,6 +566,11 @@ interface LiveSession {
    * find its context window. Null until the first init.
    */
   sdkModel: string | null
+  /**
+   * Whether the session's model has changed since it started (the picker, a retry on another model, or a refusal's
+   * fallback): a lone `modelUsage` entry may then be the model before, so it's matched by name only.
+   */
+  modelChanged: boolean
   /** What the SDK last said about the account's usage limit; null until it says (it never does for an API key). */
   limit: UsageLimit | null
   /** Closed by the runner: whatever it still emits is ignored, and a turn cut short stays working, for the next launch to resume. */
@@ -1297,6 +1306,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       // it supports the task's own.
       const switched = updateTaskFromUser(context, taskId, { model: event.fallbackModel })
       live.settings = { ...live.settings, model: switched.model, effort: switched.effort }
+      // The init that named the session's model was the refused one's: the next init names the fallback.
+      live.sdkModel = null
+      live.modelChanged = true
     }
   }
 
@@ -1432,7 +1444,6 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     stopOnError(taskId, error)
   }
 
-  /** Keeps the context window the result reports for the session's model, if it reports one. */
   /**
    * Asks the SDK where it compacts the session automatically (`getContextUsage`, `docs/sdk-notes.md` §5), which follows
    * the user's own Claude Code settings, and keeps it on the task for the context meter. Only for the threshold: its
@@ -1462,11 +1473,48 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     )
   }
 
+  /**
+   * Keeps the context window the result reports for the session's model (`matchReportedWindow`: by the model its init
+   * named, the model Glade runs it on or the full id that stands for, else the only one reported, while the session
+   * has run on one model), and remembers it for
+   * that model under each of those ids, so the next task or model change on it starts from the real size. The task
+   * takes it only while it's still on the model the session ran: one the picker changed meanwhile gets its own on its
+   * next turn.
+   */
   const recordContextWindow = (taskId: string, live: LiveSession, event: TurnFinishedEvent): void => {
-    const window = live.sdkModel === null ? undefined : event.contextWindows[live.sdkModel]
-    if (window !== undefined && getTask(db, taskId)?.contextWindowTokens !== window) {
-      updateTaskFromRunner(context, taskId, { contextWindowTokens: window })
+    const sessionModel = live.settings.model
+    const fullId = findModel(offeredModels(db), sessionModel)?.resolvedModel ?? null
+    const names = [live.sdkModel, sessionModel, fullId].filter((name) => name !== null)
+    const reported = matchReportedWindow(event.contextWindows, names, !live.modelChanged)
+    if (reported === undefined) {
+      const models = Object.keys(event.contextWindows)
+      if (models.length > 0)
+        agentLog(taskId).warn("the result reports no window for the session's model", { names, models })
+      return
     }
+    recordReportedWindow(db, [reported.model, ...names], reported.window)
+    const task = getTask(db, taskId)
+    if (task?.model !== sessionModel || task.contextWindowTokens === reported.window) return
+    agentLog(taskId).info('context window reported', { model: reported.model, window: reported.window })
+    updateTaskFromRunner(context, taskId, { contextWindowTokens: reported.window })
+  }
+
+  /**
+   * Saves how much context the session's prompt fills. More than the task's window holds proves the window wrong: the
+   * task then shows the smallest window that holds it (`fitContextWindow`, applied as the task is saved), and the log
+   * says so.
+   */
+  const onContextUsed = (taskId: string, tokens: number): void => {
+    const task = getTask(db, taskId)
+    if (task === undefined || task.contextUsedTokens === tokens) return
+    if (tokens > task.contextWindowTokens) {
+      agentLog(taskId).warn('more context used than the window holds; trusting the larger size', {
+        used: tokens,
+        window: task.contextWindowTokens,
+        model: task.model,
+      })
+    }
+    updateTaskFromRunner(context, taskId, { contextUsedTokens: tokens })
   }
 
   /** The session is gone: fail its turn, if one was running, and forget it so the next message starts it again. */
@@ -1783,9 +1831,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         return
       case AgentEventKind.ContextUsed:
         recovered(taskId, turn)
-        if (getTask(db, taskId)?.contextUsedTokens !== event.tokens) {
-          updateTaskFromRunner(context, taskId, { contextUsedTokens: event.tokens })
-        }
+        onContextUsed(taskId, event.tokens)
         return
       case AgentEventKind.Compacting:
         taskLog(taskId).info('compacting', { turn: turn.number })
@@ -1977,6 +2023,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       control,
       requests: new Map(),
       sdkModel: null,
+      modelChanged: false,
       limit: null,
       closed: false,
       subagents: new Map(),
@@ -2104,6 +2151,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const { settings } = live
     if (settings.model !== model || settings.effort !== effort || settings.permissionMode !== permissionMode) {
       agentLog(task.id).info('session settings changed', { model, effort, permissionMode })
+      if (settings.model !== model) {
+        // The next turn's init names the new model.
+        live.sdkModel = null
+        live.modelChanged = true
+      }
       live.settings = { model, effort, permissionMode }
       live.session.configure(live.settings)
     }

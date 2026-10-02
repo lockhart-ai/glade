@@ -304,7 +304,7 @@ This message is emitted at the start of every turn, not only the first.
   `input_tokens + cache_read_input_tokens + cache_creation_input_tokens` from its `usage`. Those tokens are the prompt
   the model just saw. In our run this climbed 21.6k → 22.8k → 23.1k … and matched `compact_boundary.pre_tokens`.
 - **Window:** `modelUsage[model].contextWindow` (200000 for Haiku). The default model reports a 1M window
-  (`claude-opus-5-5[1m]`).
+  (`claude-opus-5-5[1m]`). See "The context window, and which `modelUsage` entry it is" below for how Glade finds it.
 - **Or ask:** `q.getContextUsage({ detail: "summary" })` returns
   `{ totalTokens, maxTokens, percentage, autoCompactThreshold, isAutoCompactEnabled, memoryFiles, … }`. Its estimate ran
   higher than the per-message sum (29.0k vs 23.1k), and **right after a compaction it was stale** (31.4k, while the next
@@ -312,6 +312,71 @@ This message is emitted at the start of every turn, not only the first.
   per-category breakdown.
 - After compaction, `compact_boundary.compact_metadata.post_tokens` is the new baseline until the next assistant message
   arrives.
+
+### The context window, and which `modelUsage` entry it is (#416) [from the SDK's types and binary, not probed]
+
+A task on "Opus 5.5" read **905k / 200k**: its session ran at 1M, and Glade divided by a 200k guess. Read from
+`sdk.d.ts` and the bundled CLI (0.3.283 / Claude Code 2.1.283), with no API call:
+
+- **The id doesn't say the window.** The CLI's model catalog gives each model a `context` entry. Some are 1M only as a
+  `[1m]` variant (`{ window: 200000, supports_1m_suffix: true }`), but the newer ones are **natively 1M with no
+  suffix**: `claude-opus-5-5` is `{ window: 1e6, native_1m: true, … }`. So "`[1m]` means 1M, anything else 200k" is
+  wrong for them. The suffix is matched whatever its case (`/\[1m\]/i`).
+- **`ModelInfo` (`supportedModels`) has no context field:** `value`, `resolvedModel`, `displayName`, `description`,
+  the effort fields, `supportsAdaptiveThinking`, `supportsFastMode`, `supportsAutoMode`. The only hints are a `[1m]` on
+  `value` or `resolvedModel`, and "1M" in the name or description ("Opus (1M context)", "Opus 5.5 with 1M context"),
+  which a row for a natively 1M model may not carry ("Opus 5.5 · Most capable …").
+- **`modelUsage` is keyed by the model string each API request was made with** (the CLI credits usage to the
+  request's own model, and works `contextWindow` out from that string and the session's betas). That is the *resolved*
+  model, not the alias Glade passed: a task on `opus`, `default` or `opus[1m]` gets a key like `claude-opus-5-5` or
+  `claude-opus-5-5[1m]`. It usually equals `system/init`'s `model`, but nothing in the types promises that, and each
+  entry's `canonicalModel` "may differ from the raw model string this entry is keyed by (provider-specific ids,
+  aliases)". It has **one entry per model the `query()` has used**: subagents on another model, and the model before
+  a `setModel`, add their own, and a resumed session carries on from the totals its transcript saved.
+- **`getContextUsage()` is not the model's window.** Its `maxTokens` and `rawMaxTokens` are both the window the SDK
+  *compacts in* (the CLI sets them to the same value), which `autoCompactWindow` /
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW` shrink (§5: 100000 on a 200k model). It does carry `model`. Glade keeps using it
+  for the threshold only.
+
+**What Glade does:**
+
+- **The source is `modelUsage[…].contextWindow` on each turn's `result`**, matched by `matchReportedWindow`
+  (`src/shared/contextWindow.ts`): the entry keyed by `init.model`, else by the task's model id, else by the full id
+  the model list gives that id (`resolvedModel`); else an entry that is one of those spelled another way (case, a date
+  after it); else **the only entry**, whatever its key, but only while the session has run on one model. After a
+  model change (the picker, Retry with another model, a refusal's fallback) a lone entry may be the model before, from
+  a turn that ended before the new model answered, so it's matched by name only; a mid-turn fallback also forgets
+  `init.model` until the next init. With no match (the entries are other models'), it keeps the window it has and logs
+  a warning with the names and the keys.
+- **It's stored with the task** (`tasks.context_window_tokens`), so a relaunch, or switching tasks, shows it with no
+  session running, and nothing overwrites it with a guess while the task stays on that model. A model change keeps it
+  when the new id is the same model (two rows with one `resolvedModel`) or guesses the same size, and otherwise takes
+  the new model's guess, clearing the auto-compact threshold with it.
+- **It's also remembered by model** (`reported_context_windows`, migration 51), under the `modelUsage` key,
+  `init.model`, the task's id and its full id. **The guess** for a task that hasn't had a report (a new task, a model
+  change) is `guessContextWindow` (`src/shared/models.ts`): the window last reported for that model, else 1M if the id
+  or its `resolvedModel` ends in `[1m]` or the list's name or description says 1M, else 200k.
+- **Used > window is proof the window is wrong.** A task never shows more used than its window: the window becomes the
+  smallest the SDK gives that holds what's used (200k, 1M), or the amount itself beyond those (`fitContextWindow`).
+  Only what's used counts: a threshold from `getContextUsage()` above the window isn't proof, since it's asked for
+  after the turn and a model change can leave it stale. A threshold that was for the wrong, smaller window is dropped, so the meter uses the SDK's default for the right one until the SDK says again. The runner logs
+  `more context used than the window holds; trusting the larger size`.
+- **The auto-compact percentage** is the threshold over that window, so it follows: 967k of 1M is 97%.
+
+**Names, and the 1M variants in the picker:**
+
+- `setModel` and the `model` option take aliases (`sonnet`, `opus`, `haiku`, `fable`, `best`, `opusplan`, and
+  `sonnet[1m]`, `opus[1m]`, `fable[1m]`), full ids, and a full id with `[1m]`. The CLI checks a `[1m]` id against the
+  catalog and the account, and refuses one it can't run ("… doesn't have a 1M context window", "Opus with 1M context
+  is not available for your account"). **Nothing in `supportedModels` says which models an account can run at 1M**,
+  so Glade offers only the 1M variants the SDK lists (a row whose `value` ends in `[1m]`), each right after its base
+  model's row, and doesn't make any up.
+- A task keeps whatever model it has (an old default, an import, one the list has since dropped): the picker always
+  lists it, checked, after its base model if it's a 1M variant, else last.
+- Every id gets a name, never the raw id (`modelName`): the list's `displayName`; for a 1M variant the list doesn't
+  have, its base model's name and "(1M)" (`opus[1m]` → "Opus 5.5 (1M)"); else the name a full id spells out
+  (`claude-opus-4-8` → "Opus 4.8"), or the newest of an alias's family in the list. Only an id that's none of those (a
+  custom model) shows as it is. The input bar adds "(1M)" for a task whose window is 1M when the name doesn't say so.
 
 ### Subagents (Task/Agent tool) [verified]
 
@@ -925,7 +990,8 @@ settings { autoCompactWindow: 40000 }    { autoCompactThreshold: 167000 }       
 - It answers before the first message (before `system/init`), and each call on the `summary` detail took no time.
   After `close()` it rejects: `Query closed before response received`.
 - The threshold is in tokens, against the window the SDK compacts in (`maxTokens`), which `autoCompactWindow` shrinks;
-  the model's own window (`modelUsage[model].contextWindow`, 200k) is unchanged. So the meter keeps its window and
+  the model's own window (`modelUsage[model].contextWindow`, 200k) is unchanged. `rawMaxTokens` is the same number as
+  `maxTokens`, not the model's window (#416). So the meter keeps its window and
   puts the threshold at `autoCompactThreshold / window`: 67k of 200k is 34%.
 - `totalTokens` is stale right after a compaction (23.6k just after `/compact` left 1.7k), so it's used for nothing.
 - `PostCompact` fired after `PreCompact` and before `status: null` / `compact_boundary`, with
@@ -939,8 +1005,8 @@ settings { autoCompactWindow: 40000 }    { autoCompactThreshold: 167000 }       
 
 - After each turn's `result`, the runner asks `getContextUsage({ detail: "summary" })` and keeps where the SDK
   compacts on the task (`auto_compact`: on at a threshold, or off). A rejected call, or an answer without the fields,
-  keeps the last known value; before the SDK has said (a new task, or a model change), the meter falls back to
-  `autoCompactThreshold()` in `shared/contextWindow.ts`, the SDK's default.
+  keeps the last known value; before the SDK has said (a new task, or a change to a model with another window), the
+  meter falls back to `autoCompactThreshold()` in `shared/contextWindow.ts`, the SDK's default.
 - The meter's marker, its note and its purple zone follow that threshold. With auto-compact off there's no marker, the
   note says so, and the ring never turns purple.
 - Glade registers `PostCompact` and keeps the summary block (the whole text less any `<analysis>`, if there's no
