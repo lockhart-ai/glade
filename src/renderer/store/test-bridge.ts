@@ -604,9 +604,15 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       const files = Object.values(main.tree ?? {})
         .flat()
         .filter((entry) => entry.kind === FolderEntryKind.File)
-        .map((entry) => entry.path)
-      const matches = rankMatches(files, normalizeQuery(query))
-      return { paths: matches.slice(0, MAX_SEARCH_RESULTS), more: Math.max(0, matches.length - MAX_SEARCH_RESULTS) }
+      const matches = rankMatches(
+        files.map((entry) => entry.path),
+        normalizeQuery(query),
+      )
+      const paths = matches.slice(0, MAX_SEARCH_RESULTS)
+      const sizes = Object.fromEntries(
+        files.flatMap(({ path, size }) => (size === undefined || !paths.includes(path) ? [] : [[path, size]])),
+      )
+      return { paths, more: Math.max(0, matches.length - MAX_SEARCH_RESULTS), sizes }
     },
     [CommandName.FilesExpandedFolders]: ({ taskId }) => ({ paths: [...(main.expandedFolders?.[taskId] ?? [])].sort() }),
     [CommandName.FilesSetFolderExpanded]: ({ taskId, path, expanded }) => {

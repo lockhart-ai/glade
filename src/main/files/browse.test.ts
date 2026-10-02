@@ -54,8 +54,49 @@ describe('listWorkspaceFolder', () => {
       { name: 'beta', path: 'alpha/beta', kind: FolderEntryKind.Folder },
     ])
     expect(await listWorkspaceFolder(root, 'alpha/beta', git)).toEqual([
-      { name: 'deep.md', path: 'alpha/beta/deep.md', kind: FolderEntryKind.File },
+      { name: 'deep.md', path: 'alpha/beta/deep.md', kind: FolderEntryKind.File, size: 19 },
     ])
+  })
+
+  it('gives each file its size in bytes, a symlink its target’s, and a folder none', async () => {
+    const root = join(repos.root, 'sized')
+    mkdirSync(join(root, 'api'), { recursive: true })
+    writeFileSync(join(root, 'empty.txt'), '')
+    writeFileSync(join(root, 'logo.png'), Buffer.alloc(1_400_000))
+    writeFileSync(join(root, 'naïve.md'), 'é\n')
+    symlinkSync(join(root, 'logo.png'), join(root, 'alias.png'))
+    symlinkSync(join(root, 'api'), join(root, 'linked'))
+
+    expect(await listWorkspaceFolder(root, '', git)).toEqual([
+      { name: 'api', path: 'api', kind: FolderEntryKind.Folder },
+      { name: 'linked', path: 'linked', kind: FolderEntryKind.Folder },
+      { name: 'alias.png', path: 'alias.png', kind: FolderEntryKind.File, size: 1_400_000 },
+      { name: 'empty.txt', path: 'empty.txt', kind: FolderEntryKind.File, size: 0 },
+      { name: 'logo.png', path: 'logo.png', kind: FolderEntryKind.File, size: 1_400_000 },
+      // Bytes, not characters.
+      { name: 'naïve.md', path: 'naïve.md', kind: FolderEntryKind.File, size: 3 },
+    ])
+  })
+
+  it('lists a file that goes between the listing and its stat without a size, and the rest as they are', async () => {
+    const root = join(repos.root, 'fleeting')
+    files(root, ['build.tmp', 'kept.txt', 'src/main.py'])
+    // Git is asked about the names once the folder has been read and before any file is looked at: the file goes then.
+    const vanishing: WorkspaceGit = {
+      ignored: async (dir, names) => {
+        unlinkSync(join(root, 'build.tmp'))
+        return git.ignored(dir, names)
+      },
+      files: (dir) => git.files(dir),
+    }
+
+    expect(await listWorkspaceFolder(root, '', vanishing)).toEqual([
+      { name: 'src', path: 'src', kind: FolderEntryKind.Folder },
+      { name: 'build.tmp', path: 'build.tmp', kind: FolderEntryKind.File },
+      { name: 'kept.txt', path: 'kept.txt', kind: FolderEntryKind.File, size: 9 },
+    ])
+    // Listed again, as the folder's watcher has it listed, it's gone.
+    expect(shown(await listWorkspaceFolder(root, '', git))).toEqual(['d src', 'f kept.txt'])
   })
 
   it('hides .git and .glade at any depth, outside a repository too, and nothing else there', async () => {
@@ -120,7 +161,7 @@ describe('listWorkspaceFolder', () => {
     expect(shown(await listWorkspaceFolder(root, '', git))).toEqual(['d docs', 'd manual', 'f alias.txt', 'f real.txt'])
     // A folder inside the root that a symlink leads to lists under the link's path.
     expect(await listWorkspaceFolder(root, 'manual', git)).toEqual([
-      { name: 'guide.md', path: 'manual/guide.md', kind: FolderEntryKind.File },
+      { name: 'guide.md', path: 'manual/guide.md', kind: FolderEntryKind.File, size: 14 },
     ])
     // Never through one that leads out.
     await expect(listWorkspaceFolder(root, 'secrets', git)).rejects.toMatchObject({
@@ -200,12 +241,22 @@ describe('searchWorkspaceFiles', () => {
         'throttle/README.md',
       ],
       more: 0,
+      // Each one's size in bytes.
+      sizes: {
+        'api/throttles.py': 2,
+        'docs/guides/throttle-scopes.md': 2,
+        'scripts/Throttle_report.sh': 27,
+        'api/migrations/0004_throttle_scopes.py': 2,
+        'api/tests/test_throttles.py': 2,
+        'throttle/README.md': 2,
+      },
     })
     expect(await searchWorkspaceFiles(root, 'api/tests/', git)).toEqual({
       paths: ['api/tests/test_throttles.py'],
       more: 0,
+      sizes: { 'api/tests/test_throttles.py': 2 },
     })
-    expect(await searchWorkspaceFiles(root, '   ', git)).toEqual({ paths: [], more: 0 })
+    expect(await searchWorkspaceFiles(root, '   ', git)).toEqual({ paths: [], more: 0, sizes: {} })
   })
 
   it('looks through every file outside a repository, without following a symlinked folder or leaving the root', async () => {
@@ -220,6 +271,8 @@ describe('searchWorkspaceFiles', () => {
     expect(await searchWorkspaceFiles(root, 'plan', git)).toEqual({
       paths: ['deep/er/still/plan.txt', 'notes/plan.md', 'plan-alias.md', 'plan-b.md'],
       more: 0,
+      // A symlink's size is its target's.
+      sizes: { 'deep/er/still/plan.txt': 23, 'notes/plan.md': 14, 'plan-alias.md': 10, 'plan-b.md': 10 },
     })
   })
 
@@ -250,7 +303,11 @@ describe('searchWorkspaceFiles', () => {
     files(root, ['open/plan.md', 'locked/plan.md'])
     chmodSync(join(root, 'locked'), 0o000)
     try {
-      expect(await searchWorkspaceFiles(root, 'plan', git)).toEqual({ paths: ['open/plan.md'], more: 0 })
+      expect(await searchWorkspaceFiles(root, 'plan', git)).toEqual({
+        paths: ['open/plan.md'],
+        more: 0,
+        sizes: { 'open/plan.md': 13 },
+      })
     } finally {
       chmodSync(join(root, 'locked'), 0o755)
     }

@@ -1,0 +1,68 @@
+/* The Browse tab's icons (#431), from docs/design/html/37-browse-files.html: a 15px box, tinted by the file's family. */
+.icon {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  color: var(--color-muted);
+}
+
+/* Every glyph fills the box, whatever size its own component would give it. */
+.icon svg {
+  width: 15px;
+  height: 15px;
+  font-size: 15px;
+}
+
+.icon.solid svg {
+  width: 13px;
+  height: 13px;
+  font-size: 13px;
+}
+
+.code {
+  color: var(--color-blue-text);
+}
+
+.image {
+  color: var(--color-teal);
+}
+
+.data {
+  color: var(--color-purple);
+}
+
+.config {
+  color: var(--color-faint);
+}
+
+.docs,
+.folder {
+  color: var(--color-muted);
+}
+
+.drawn {
+  flex-shrink: 0;
+}
+
+/* The folder's soft fill: its solid shape under the outline. */
+.icon .fill {
+  position: absolute;
+  inset: 0;
+  opacity: 0.16;
+}
+
+/* The dot on a dotfile's page. */
+.dot {
+  position: absolute;
+  left: 50%;
+  top: 62%;
+  width: 3px;
+  height: 3px;
+  margin: -1.5px 0 0 -1.5px;
+  border-radius: 50%;
+  background: currentColor;
+}

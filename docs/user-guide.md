@@ -305,10 +305,13 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   agent can open a file here for you.
 
   The folder icon before the tabs is **Browse**: the whole workspace as a tree, folders first. Click a folder to open
-  it, and a file to open it in a tab; the folders you leave open stay open for the task, even after a relaunch. What
+  it, and a file to open it in a tab; the folders you leave open stay open for the task, even after a relaunch. Each
+  file has an icon for its kind (blue for code, teal for images, purple for data, grey for config and prose) and its
+  size at the right; a blue dot after the name marks a file the agent changed. A name too long for the panel is cut in
+  the middle, so you can still see how it ends and its extension. What
   git ignores (and the `.git` and `.glade` folders) doesn't show, and files the agent makes or deletes appear and go
   as it works. Type in **Search files** at the top to find a file by name or path anywhere in the workspace; the first
-  200 matches show, best first, with how many more. With the keyboard: ↑↓ move, → and ← open and close a folder, ↩
+  200 matches show, best first, each with its icon, folder and size, and how many more there are. With the keyboard: ↑↓ move, → and ← open and close a folder, ↩
   opens, Esc clears the search, and ⌘F (with the focus in Files) jumps to the search.
 
   ![The Browse tab in Files: the workspace's tree, with three folders open (sample data)](images/guide/files-browse.png)
