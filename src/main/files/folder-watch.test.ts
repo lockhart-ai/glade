@@ -163,10 +163,15 @@ describe('createFolderWatcher', () => {
     const real = createFolderWatcher({ context: { db: database.db, emit: (event) => events.push(event) }, waitMs: 1 })
     try {
       await real.watch(taskId, ['docs'])
-      writeFileSync(join(root, 'docs', 'new.md'), '# New\n')
-      await vi.waitFor(() => {
-        expect(folderEvents()).toContainEqual({ taskId, path: 'docs' })
-      })
+      // A file made each try: FSEvents can take a moment to start reporting a folder just watched.
+      let made = 0
+      await vi.waitFor(
+        () => {
+          writeFileSync(join(root, 'docs', `new-${String(made++)}.md`), '# New\n')
+          expect(folderEvents()).toContainEqual({ taskId, path: 'docs' })
+        },
+        { timeout: 10_000, interval: 100 },
+      )
     } finally {
       real.close()
     }

@@ -292,11 +292,16 @@ describe('the Browse tab watching a task’s folders', () => {
       glade.subscribe((event) => events.push(event))
 
       await glade.invoke(CommandName.FilesWatchFolders, { taskId, paths: [''] })
-      writeFileSync(join(root, 'notes.md'), '# Notes\n')
 
-      await vi.waitFor(() => {
-        expect(events).toContainEqual({ type: EventType.FolderChanged, taskId, path: '' })
-      })
+      // A file made each try: FSEvents can take a moment to start reporting a folder just watched.
+      let made = 0
+      await vi.waitFor(
+        () => {
+          writeFileSync(join(root, `notes-${String(made++)}.md`), '# Notes\n')
+          expect(events).toContainEqual({ type: EventType.FolderChanged, taskId, path: '' })
+        },
+        { timeout: 10_000, interval: 100 },
+      )
       await expect(glade.invoke(CommandName.FilesWatchFolders, { taskId, paths: [] })).resolves.toBeNull()
     } finally {
       rmSync(root, { recursive: true, force: true })
