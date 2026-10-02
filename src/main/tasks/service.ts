@@ -15,6 +15,7 @@ import {
   type TaskPause,
 } from '../../shared/domain'
 import type { AgentRunner } from '../agent/runner'
+import { deleteTaskAttachments } from '../attachments/attachments'
 import { CommandFailure } from '../bridge/errors'
 import { emitTaskUpdated, emitToolEventUpdated, type Emit } from '../bridge/events'
 import {
@@ -28,6 +29,7 @@ import { interruptPausedToolCalls } from '../db/repositories/tool-events'
 import { getUiState, setUiState } from '../db/repositories/ui-state'
 import { getWorkspace } from '../db/repositories/workspaces'
 import { getSettings } from '../db/repositories/settings'
+import { SILENT_LOGGER, type Logger } from '../logging/logger'
 import { effortWithModel } from '../models/models'
 import { applyTransition, TaskTransition } from './taskLifecycle'
 
@@ -243,22 +245,27 @@ export function setTaskUnread(context: TaskServiceContext, id: string, unread: b
 /** What deleting a task needs besides the database: the runner, to close the task's agent session first. */
 export interface TaskDeletionContext extends TaskServiceContext {
   readonly runner: Pick<AgentRunner, 'discard'>
+  /** Where a failure to delete its attached files is noted. */
+  readonly log?: Logger | undefined
 }
 
 /**
  * Deletes a task (`tasks.delete`): closes its agent's live session, if it has one, then deletes its rows, which takes
- * its chat log, tool log, queue and question sets with it (`deleteTask` in the repository). Nothing on disk is touched.
- * The selected task is deselected. Tells every window with `task.deleted`.
+ * its chat log, tool log, queue and question sets with it (`deleteTask` in the repository), and the files attached to
+ * its messages (`.glade/attachments/<task id>/`, #396). Nothing else on disk is touched. The selected task is
+ * deselected. Tells every window with `task.deleted`.
  */
 export function deleteTask(context: TaskDeletionContext, id: string): void {
   const { db, emit, runner } = context
-  requireTask(db, id)
+  const task = requireTask(db, id)
+  const workspace = getWorkspace(db, task.workspaceId)
   runner.discard(id)
   const deselect = getUiState(db, UiStateKey.SelectedTaskId) === id
   db.transaction(() => {
     removeTask(db, id)
     if (deselect) setUiState(db, { key: UiStateKey.SelectedTaskId, value: '' })
   })()
+  if (workspace !== undefined) deleteTaskAttachments(workspace.rootPath, id, context.log ?? SILENT_LOGGER)
   if (deselect) emit({ type: EventType.UiStateChanged, entry: { key: UiStateKey.SelectedTaskId, value: '' } })
   emit({ type: EventType.TaskDeleted, taskId: id })
 }

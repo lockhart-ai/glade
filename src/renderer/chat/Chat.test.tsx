@@ -26,6 +26,7 @@ import {
 } from '../../shared/domain'
 import { imageDataUrl, type ImageData } from '../../shared/images'
 import { pasteToken } from '../../shared/pastedContent'
+import { AttachedFileKind } from '../../shared/attachedFiles'
 import { GIF, PNG } from '../../shared/test-images'
 import type { ModelChoice } from '../../shared/models'
 import { SDK_MODELS } from '../../shared/test-models'
@@ -59,6 +60,7 @@ const ASK: Message = {
   summary: null,
   images: [],
   pastedBlocks: [],
+  files: [],
 }
 const REPLY: Message = {
   id: 'm2',
@@ -70,6 +72,7 @@ const REPLY: Message = {
   summary: null,
   images: [],
   pastedBlocks: [],
+  files: [],
 }
 
 const PREAMBLE = 'Looking at how the API views are set up.'
@@ -327,6 +330,66 @@ describe('Chat', () => {
     const you = screen.getByRole('article', { name: 'You' })
     expect(you).toHaveTextContent('Use **bold** and a <b>tag</b>')
     expect(you.querySelector('strong, b')).toBeNull()
+  })
+
+  describe('attached files', () => {
+    const sales = {
+      name: 'sales.csv',
+      path: '.glade/attachments/t1/sales.csv',
+      size: 48 * 1024,
+      kind: AttachedFileKind.Text,
+    }
+    const policy = {
+      name: 'retention policy.pdf',
+      path: '.glade/attachments/t1/retention policy.pdf',
+      size: 1_258_291,
+      kind: AttachedFileKind.Binary,
+    }
+
+    it('shows a chip per file above your words, with its name, type and size, in order', async () => {
+      await renderChat({ messages: [{ ...ASK, body: 'Check these.', files: [sales, policy] }] })
+
+      const you = screen.getByRole('article', { name: 'You' })
+      const list = within(you).getByRole('list', { name: 'Attached files' })
+      expect(
+        within(list)
+          .getAllByRole('button')
+          .map((chip) => chip.getAttribute('aria-label')),
+      ).toEqual(['sales.csv, CSV · 48 KB', 'retention policy.pdf, PDF · 1.2 MB'])
+      expect(within(list).getByRole('button', { name: 'sales.csv, CSV · 48 KB' })).toHaveAttribute(
+        'title',
+        'Open in Files',
+      )
+      expect(within(list).getByRole('button', { name: 'retention policy.pdf, PDF · 1.2 MB' })).toHaveAttribute(
+        'title',
+        'Reveal in Finder',
+      )
+      expect(you).toHaveTextContent('Check these.')
+    })
+
+    it('shows a message of files alone with no bubble', async () => {
+      await renderChat({ messages: [{ ...ASK, body: '', files: [sales] }] })
+      const you = screen.getByRole('article', { name: 'You' })
+      expect(within(you).getByRole('button', { name: 'sales.csv, CSV · 48 KB' })).toBeInTheDocument()
+      expect(you.textContent).toBe(`sales.csvCSV · 48 KByou · ${clockTime(ASK.createdAt)}`)
+    })
+
+    it('opens a text file in the Files tab, and reveals one the Files tab can’t show in Finder', async () => {
+      const fake = await renderChat({ messages: [{ ...ASK, body: 'Check these.', files: [sales, policy] }] })
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'sales.csv, CSV · 48 KB' }))
+        await Promise.resolve()
+      })
+      expect(fake.invoke).toHaveBeenCalledWith(CommandName.FilesOpen, { taskId: 't1', path: sales.path })
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'retention policy.pdf, PDF · 1.2 MB' }))
+        await Promise.resolve()
+      })
+      expect(fake.invoke).toHaveBeenCalledWith(CommandName.FilesReveal, { taskId: 't1', path: policy.path })
+      expect(fake.invoke).not.toHaveBeenCalledWith(CommandName.FilesOpen, { taskId: 't1', path: policy.path })
+    })
   })
 
   describe('a pasted block', () => {

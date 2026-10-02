@@ -172,7 +172,27 @@ describe('the groups', () => {
       { group: Today, open: false },
       { group: Older, open: true },
     ]
-    expect(DATE_GROUPS.filter((group) => isGroupOpen(group, folds))).toEqual([Yesterday, Older])
-    expect(DATE_GROUPS.filter((group) => isGroupOpen(group, []))).toEqual([Today, Yesterday])
+    // Today is topmost here regardless: it changes nothing a fold already decides.
+    expect(DATE_GROUPS.filter((group) => isGroupOpen(group, folds, Today))).toEqual([Yesterday, Older])
+    expect(DATE_GROUPS.filter((group) => isGroupOpen(group, [], Today))).toEqual([Today, Yesterday])
+  })
+
+  it('also opens the topmost group showing, whatever it is, to begin with (#399)', () => {
+    // Only artifacts from last week: Last week, the newest group showing, opens though it normally wouldn't.
+    expect(isGroupOpen(LastWeek, [], LastWeek)).toBe(true)
+    // The groups under it keep their usual defaults: closed.
+    expect(isGroupOpen(ThisMonth, [], LastWeek)).toBe(false)
+    expect(isGroupOpen(Older, [], LastWeek)).toBe(false)
+    // Today and Yesterday still open on their own when they're not topmost.
+    expect(DATE_GROUPS.filter((group) => isGroupOpen(group, [], ThisWeek))).toEqual([Today, Yesterday, ThisWeek])
+  })
+
+  it('leaves your own open or closed choice for the topmost group alone', () => {
+    expect(isGroupOpen(LastWeek, [{ group: LastWeek, open: false }], LastWeek)).toBe(false)
+    expect(isGroupOpen(Older, [{ group: Older, open: true }], LastWeek)).toBe(true)
+  })
+
+  it('has no topmost group to open when none is given (an empty list)', () => {
+    expect(isGroupOpen(Older, [], undefined)).toBe(false)
   })
 })

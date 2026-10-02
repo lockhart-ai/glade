@@ -236,6 +236,7 @@ describe('the chat', () => {
         summary,
         images: [{ id: 'image-1', mediaType: ImageMediaType.Png }],
         pastedBlocks: [],
+        files: [],
       },
     })
 
@@ -273,7 +274,15 @@ describe('the chat', () => {
       type: EventType.QueueChanged,
       taskId: 'task-1',
       queuedMessages: [
-        { id: 'queued-1', taskId: 'task-1', body: 'Also the docs.', createdAt: 1, images: [], pastedBlocks: [] },
+        {
+          id: 'queued-1',
+          taskId: 'task-1',
+          body: 'Also the docs.',
+          createdAt: 1,
+          images: [],
+          pastedBlocks: [],
+          files: [],
+        },
       ],
     })
 

@@ -47,6 +47,7 @@ import { ErrorCard } from './ErrorCard'
 import { HandoffCard } from './HandoffCard'
 import { Markdown } from './Markdown'
 import { ImageThumbnails } from '../images/ImageThumbnails'
+import { MessageFiles } from '../attached-files/MessageFiles'
 import { LinkedText } from '../links'
 import { PastedBlockRow } from './PastedBlockRow'
 import { useSearchHighlight } from '../search/Highlight'
@@ -76,6 +77,7 @@ function UserMessage({ message, highlight }: UserEntry & HighlightProps): React.
           <ImageThumbnails images={message.images} className={styles.image} />
         </div>
       )}
+      <MessageFiles taskId={message.taskId} files={message.files} />
       {message.body !== '' && (
         <div className={styles.bubble}>
           {segments.map((segment, index) =>

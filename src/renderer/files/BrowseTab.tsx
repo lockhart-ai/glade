@@ -62,7 +62,7 @@ function indentOf(depth: number): number {
 }
 
 /**
- * The Files tab's Browse tab (`docs/design/html/36-browse-files.html`): the workspace's tree, folders first, loaded a
+ * The Files tab's Browse tab (`docs/design/html/37-browse-files.html`): the workspace's tree, folders first, loaded a
  * folder at a time as you open them, with the folders you leave open kept for the task; and a search that finds
  * files by name or path anywhere in the workspace. Clicking a file, or ↩ on it, opens it in a tab. The folders it
  * shows are watched, so what the agent makes or deletes shows at once.

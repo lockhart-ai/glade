@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CommandName, RendererErrorKind } from '../../shared/bridge'
 import { TaskFilter } from '../../shared/attention'
+import { AttachedFileKind } from '../../shared/attachedFiles'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
 import { MAX_SEARCH_QUERY, MAX_WATCHED_FOLDERS } from '../../shared/browse'
 import { Effort, PermissionDecisionKind, PermissionMode, UiStateKey } from '../../shared/domain'
@@ -564,5 +565,61 @@ describe('the Changes tab’s requests', () => {
     expect(REQUEST_SCHEMAS[CommandName.ChangesOpenFile].safeParse({ ...open, path: '../x' }).success).toBe(false)
     expect(REQUEST_SCHEMAS[CommandName.ChangesRepository].parse({ taskId: 't' })).toEqual({ taskId: 't' })
     expect(REQUEST_SCHEMAS[CommandName.ChangesRepository].safeParse({ id: 't' }).success).toBe(false)
+  })
+})
+
+describe('attached files (#396)', () => {
+  const SALES = { name: 'sales.csv', path: '.glade/attachments/t/sales.csv', size: 49_152, kind: AttachedFileKind.Text }
+  const POLICY = { name: 'policy.pdf', path: '.glade/attachments/t/policy.pdf', size: 0, kind: AttachedFileKind.Binary }
+
+  it('takes a file to attach by its absolute path, and one to discard by its copy’s path', () => {
+    const add = { taskId: 't', path: '/tmp/acme-api/exports/sales.csv' }
+    expect(REQUEST_SCHEMAS[CommandName.AttachmentsAdd].parse(add)).toEqual(add)
+    for (const path of ['exports/sales.csv', '', '~/sales.csv']) {
+      expect(REQUEST_SCHEMAS[CommandName.AttachmentsAdd].safeParse({ taskId: 't', path }).success, path).toBe(false)
+    }
+    expect(REQUEST_SCHEMAS[CommandName.AttachmentsAdd].safeParse({ taskId: 't' }).success).toBe(false)
+    const discard = { taskId: 't', path: SALES.path }
+    expect(REQUEST_SCHEMAS[CommandName.AttachmentsDiscard].parse(discard)).toEqual(discard)
+    expect(REQUEST_SCHEMAS[CommandName.AttachmentsDiscard].safeParse({ taskId: 't', path: '' }).success).toBe(false)
+  })
+
+  it('takes a message, queued message or draft with the task’s own files, in order, and a message of files alone', () => {
+    const send = { id: 't', text: 'Check these.', files: [SALES, POLICY] }
+    expect(REQUEST_SCHEMAS[CommandName.TasksSend].parse(send)).toEqual(send)
+    const filesOnly = { id: 't', text: '', files: [POLICY] }
+    expect(REQUEST_SCHEMAS[CommandName.TasksSend].parse(filesOnly)).toEqual(filesOnly)
+    const queued = { taskId: 't', text: ' ', files: [SALES] }
+    expect(REQUEST_SCHEMAS[CommandName.QueueAdd].parse(queued)).toEqual(queued)
+    const draft = { taskId: 't', text: '', files: [SALES] }
+    expect(REQUEST_SCHEMAS[CommandName.DraftsSet].parse(draft)).toEqual(draft)
+  })
+
+  it('refuses a blank message whose list of files is empty', () => {
+    expect(REQUEST_SCHEMAS[CommandName.TasksSend].safeParse({ id: 't', text: ' ', files: [] }).success).toBe(false)
+  })
+
+  it('refuses a file that isn’t the task’s own copy, or isn’t one at all', () => {
+    const elsewhere = [
+      { ...SALES, path: '.glade/attachments/other/sales.csv' },
+      { ...SALES, path: 'sales.csv' },
+      { ...SALES, path: '.glade/attachments/t/../../README.md', name: '..' },
+      { ...SALES, name: 'a/b', path: '.glade/attachments/t/a/b' },
+      { ...SALES, size: -1 },
+      { ...SALES, size: 1.5 },
+      { ...SALES, kind: 'folder' },
+      { ...SALES, extra: true },
+    ]
+    for (const file of elsewhere) {
+      expect(REQUEST_SCHEMAS[CommandName.TasksSend].safeParse({ id: 't', text: 'x', files: [file] }).success).toBe(
+        false,
+      )
+      expect(REQUEST_SCHEMAS[CommandName.QueueAdd].safeParse({ taskId: 't', text: 'x', files: [file] }).success).toBe(
+        false,
+      )
+      expect(REQUEST_SCHEMAS[CommandName.DraftsSet].safeParse({ taskId: 't', text: '', files: [file] }).success).toBe(
+        false,
+      )
+    }
   })
 })

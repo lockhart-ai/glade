@@ -73,7 +73,7 @@ export function absolutePath(rootPath: string, path: string): string {
 
 /**
  * The right panel's Files tab (`docs/design/html/08-open-file.html`): a row with the list of the files the agent
- * changed or read, the fixed Browse tab (`36-browse-files.html`) and a tab for each file open, with a blue dot on the
+ * changed or read, the fixed Browse tab (`37-browse-files.html`) and a tab for each file open, with a blue dot on the
  * ones it changed; under it, the file showing, or the workspace's tree while Browse shows (no file is showing). ⌘F,
  * with the focus in the tab while Browse shows, puts the focus in its search (the editor's own ⌘F finds in the file).
  * The open files are the task's, kept in main. Open file in editor (⌘⇧E) opens the file showing in your editor. When the agent shows a file
