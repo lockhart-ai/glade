@@ -1,6 +1,6 @@
 import { isAbsolute } from 'node:path'
 import { z } from 'zod'
-import type { PluginManifest } from '../../shared/plugins'
+import { isPluginCapability, type PluginCapability, type PluginManifest } from '../../shared/plugins'
 
 /** A plugin id: lowercase letters, digits and `-`, starting with a letter or digit, up to 64 characters. */
 export const PLUGIN_ID = /^[a-z0-9][a-z0-9-]{0,63}$/
@@ -30,6 +30,14 @@ function filePath(what: string, extensions: readonly string[]): z.ZodType<string
     .refine((path) => pattern.test(path), `Expected ${what}`)
 }
 
+/**
+ * The capabilities a manifest asks for: each one this Glade knows, once, in the order listed. One it doesn't know (a
+ * newer Glade's) is dropped rather than failing the plugin, as unknown fields are.
+ */
+export function knownCapabilities(listed: readonly string[]): PluginCapability[] {
+  return [...new Set(listed.filter(isPluginCapability))]
+}
+
 /** `manifest.json`, per `docs/plugin-api.md`. Unknown fields are ignored. */
 export const pluginManifestSchema = z
   .object({
@@ -42,8 +50,16 @@ export const pluginManifestSchema = z
     version: z.string().regex(SEMVER, 'Expected a semver version, like 1.2.0'),
     entry: filePath('an .html file', ['html']),
     icon: filePath('an .svg or .png file', ['svg', 'png']).optional(),
+    capabilities: z.array(z.string(), 'Expected a list of capability names, like ["machine"]').optional(),
   })
-  .transform(({ id, name, version, entry, icon }): PluginManifest => ({ id, name, version, entry, icon: icon ?? null }))
+  .transform(({ id, name, version, entry, icon, capabilities }): PluginManifest => ({
+    id,
+    name,
+    version,
+    entry,
+    icon: icon ?? null,
+    capabilities: knownCapabilities(capabilities ?? []),
+  }))
 
 /** What reading a manifest came to: the manifest, or why it isn't one. */
 export type ManifestParse =
