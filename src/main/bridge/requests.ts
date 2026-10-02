@@ -14,6 +14,12 @@ import {
   type EmptyRequest,
   type FileRequest,
   type FilesWriteRequest,
+  type FilesBrowseRequest,
+  type FilesExpandedFoldersRequest,
+  type FilesSearchRequest,
+  type FilesSetFolderExpandedRequest,
+  type FilesWatchFoldersRequest,
+  type FolderRequest,
   type WindowSetUnsavedEditsRequest,
   type DraftsGetRequest,
   type DraftsSetRequest,
@@ -62,6 +68,7 @@ import { TaskFilter } from '../../shared/attention'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
 import { ArtifactDateGroup, Effort, PermissionMode, UiStateKey, type PastedBlock } from '../../shared/domain'
 import { isWorkspaceRelativePath, parseCommitFileKey } from '../../shared/files'
+import { MAX_SEARCH_QUERY, MAX_WATCHED_FOLDERS } from '../../shared/browse'
 import { MAX_MENU_BAR_HEIGHT } from '../../shared/menuBar'
 import { hasImageSignature, ImageMediaType, MAX_IMAGE_BASE64_LENGTH, type ImageData } from '../../shared/images'
 import { MAX_PASTED_BLOCK_LENGTH, PASTE_ID_PATTERN } from '../../shared/pastedContent'
@@ -264,6 +271,37 @@ const openFileRequest = z.strictObject({
     ),
 }) satisfies z.ZodType<FileRequest>
 
+/** A folder of the workspace for the Browse tab: the root (`''`), or a path relative to it, inside it. */
+const folderPath = z
+  .string()
+  .refine((path) => path === '' || isWorkspaceRelativePath(path), 'Expected the root, or a normalized path inside it')
+
+const folderRequest = z.strictObject({ taskId: z.string(), path: folderPath }) satisfies z.ZodType<FolderRequest>
+
+const filesBrowseRequest = z.strictObject({ taskId: z.string() }) satisfies z.ZodType<FilesBrowseRequest>
+
+const filesSearchRequest = z.strictObject({
+  taskId: z.string(),
+  query: z.string().max(MAX_SEARCH_QUERY),
+}) satisfies z.ZodType<FilesSearchRequest>
+
+const filesExpandedFoldersRequest = z.strictObject({
+  taskId: z.string(),
+}) satisfies z.ZodType<FilesExpandedFoldersRequest>
+
+const filesSetFolderExpandedRequest = z.strictObject({
+  taskId: z.string(),
+  path: z
+    .string()
+    .refine(isWorkspaceRelativePath, 'Expected a normalized path relative to the workspace root, inside it'),
+  expanded: z.boolean(),
+}) satisfies z.ZodType<FilesSetFolderExpandedRequest>
+
+const filesWatchFoldersRequest = z.strictObject({
+  taskId: z.string(),
+  paths: z.array(folderPath).max(MAX_WATCHED_FOLDERS).readonly(),
+}) satisfies z.ZodType<FilesWatchFoldersRequest>
+
 const changesFilesRequest = z.strictObject({
   taskId: z.string(),
   id: z.string(),
@@ -445,6 +483,12 @@ export const REQUEST_SCHEMAS = {
   [CommandName.FilesThumbnail]: fileRequest,
   [CommandName.FilesCopy]: fileRequest,
   [CommandName.FilesReveal]: fileRequest,
+  [CommandName.FilesBrowse]: filesBrowseRequest,
+  [CommandName.FilesListFolder]: folderRequest,
+  [CommandName.FilesSearch]: filesSearchRequest,
+  [CommandName.FilesExpandedFolders]: filesExpandedFoldersRequest,
+  [CommandName.FilesSetFolderExpanded]: filesSetFolderExpandedRequest,
+  [CommandName.FilesWatchFolders]: filesWatchFoldersRequest,
   [CommandName.ArtifactsRemove]: artifactsRemoveRequest,
   [CommandName.ArtifactsSetGroupOpen]: artifactsSetGroupOpenRequest,
   [CommandName.ArtifactsWatch]: artifactsWatchRequest,

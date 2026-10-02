@@ -308,6 +308,7 @@ async function runCapture(spec: CaptureSpec, context: CaptureContext): Promise<v
   context.bridge.runner.close()
   context.bridge.account.close()
   context.bridge.artifactWatch.close()
+  context.bridge.folderWatch.close()
   await context.bridge.endpoint.close()
   context.bridge.terminals.shutdown()
   context.database.db.close()
@@ -822,6 +823,7 @@ export function startApp({
       void bridge.endpoint.close()
       bridge.pluginViews.close()
       bridge.artifactWatch.close()
+      bridge.folderWatch.close()
       menuBar?.close()
       // The shells end with the app; their tabs and recent output stay, for the next launch to show.
       if (database.db.open) bridge.terminals.shutdown()

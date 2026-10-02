@@ -17,6 +17,7 @@ import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../share
 import type { InstalledPlugin } from '../../shared/plugins'
 import type { ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
+import type { FileSearchResult, FolderEntry } from '../../shared/browse'
 import type { SettingsSection } from '../settings/sections'
 import type { FileEdits, OpenEditSession, TaskFile, UnsavedChoice, UnsavedPrompt } from '../files/unsaved'
 import type { Command, MenuState } from '../../shared/commands'
@@ -509,6 +510,23 @@ export interface GladeActions {
    * / Cancel first. Resolves with whether it closed: false when you cancelled, or saving failed (rejecting then).
    */
   closeFile: (taskId: string, path: string) => Promise<boolean>
+  /** Shows a task's Browse tab (`files.browse`): no file tab shows. */
+  showBrowse: (taskId: string) => Promise<void>
+  /**
+   * A folder of a task's workspace, as the Browse tab's tree shows it (`files.listFolder`; `''` for the root): null
+   * when there's no folder there. Not kept in the store: the tree holds it.
+   */
+  listFolder: (taskId: string, path: string) => Promise<readonly FolderEntry[] | null>
+  /** Finds a task's workspace files by name or path (`files.search`). Not kept in the store. */
+  searchFiles: (taskId: string, query: string) => Promise<FileSearchResult>
+  /** The folders open in a task's Browse tab, as it left them (`files.expandedFolders`). */
+  expandedFolders: (taskId: string) => Promise<readonly string[]>
+  /** Opens or closes a folder of a task's Browse tab, remembered for the task (`files.setFolderExpanded`). */
+  setFolderExpanded: (taskId: string, path: string, expanded: boolean) => Promise<void>
+  /** Watches the folders a task's Browse tab shows (`files.watchFolders`); none stops watching. */
+  watchFolders: (taskId: string, paths: readonly string[]) => Promise<void>
+  /** Calls `listener` with each folder of a watched task that changed (`files.folderChanged`), until unsubscribed. */
+  subscribeFolderChanges: (listener: (taskId: string, path: string) => void) => Unsubscribe
   /** Reads a file of a task's workspace for the viewer (`files.read`). Not kept in the store: the viewer holds it. */
   readFile: (taskId: string, path: string) => Promise<FileContent>
   /** Starts editing a workspace file of a task, from its text on disk; its editor is in `fileEdits` from then. */

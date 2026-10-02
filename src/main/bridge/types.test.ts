@@ -113,6 +113,12 @@ const TASK_HANDLERS = {
   [CommandName.FilesThumbnail]: () => ({ thumbnail: { kind: FileThumbnailKind.Missing } }),
   [CommandName.FilesCopy]: () => null,
   [CommandName.FilesReveal]: () => null,
+  [CommandName.FilesBrowse]: () => ({ openFiles: {} as OpenFiles }),
+  [CommandName.FilesListFolder]: () => ({ entries: null }),
+  [CommandName.FilesSearch]: () => ({ paths: [], more: 0 }),
+  [CommandName.FilesExpandedFolders]: () => ({ paths: [] }),
+  [CommandName.FilesSetFolderExpanded]: () => null,
+  [CommandName.FilesWatchFolders]: () => null,
   [CommandName.WorkspacesUpdate]: () => ({ workspace: WORKSPACE }),
   [CommandName.SettingsGet]: () => ({ settings: DEFAULT_SETTINGS }),
   [CommandName.ModelsList]: () => ({ models: BUILT_IN_MODELS }),
@@ -189,6 +195,12 @@ const TASK_SCHEMAS = {
   [CommandName.FilesThumbnail]: REQUEST_SCHEMAS[CommandName.FilesThumbnail],
   [CommandName.FilesCopy]: REQUEST_SCHEMAS[CommandName.FilesCopy],
   [CommandName.FilesReveal]: REQUEST_SCHEMAS[CommandName.FilesReveal],
+  [CommandName.FilesBrowse]: REQUEST_SCHEMAS[CommandName.FilesBrowse],
+  [CommandName.FilesListFolder]: REQUEST_SCHEMAS[CommandName.FilesListFolder],
+  [CommandName.FilesSearch]: REQUEST_SCHEMAS[CommandName.FilesSearch],
+  [CommandName.FilesExpandedFolders]: REQUEST_SCHEMAS[CommandName.FilesExpandedFolders],
+  [CommandName.FilesSetFolderExpanded]: REQUEST_SCHEMAS[CommandName.FilesSetFolderExpanded],
+  [CommandName.FilesWatchFolders]: REQUEST_SCHEMAS[CommandName.FilesWatchFolders],
   [CommandName.WorkspacesUpdate]: REQUEST_SCHEMAS[CommandName.WorkspacesUpdate],
   [CommandName.SettingsGet]: REQUEST_SCHEMAS[CommandName.SettingsGet],
   [CommandName.SettingsUpdate]: REQUEST_SCHEMAS[CommandName.SettingsUpdate],
@@ -461,6 +473,9 @@ describe('events', () => {
           break
         case EventType.FileShown:
           expectTypeOf(event.line).toEqualTypeOf<number | null>()
+          break
+        case EventType.FolderChanged:
+          expectTypeOf(event.path).toEqualTypeOf<string>()
           break
         case EventType.TodosChanged:
           expectTypeOf(event.todos).toEqualTypeOf<TodoList | null>()

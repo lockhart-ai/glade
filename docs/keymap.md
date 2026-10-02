@@ -42,6 +42,16 @@ current binding. The menu bar answers the keys of its items; the window listens 
 | | Select an answer in a question card | 1 – 9 |
 | | Previous / next image in the image viewer | ←→ |
 
+## The Files tab's Browse tab
+
+The tree and the search (#398, `design/screens/36-browse-files.png`) answer their own keys while they have the focus,
+as menus do; they're fixed. In the tree, ↑↓ move, → opens a folder (or goes into an open one), ← closes an open folder
+(or goes up to the folder a row is in), ↵ opens a file in a tab or opens or closes a folder, Home and End go to the
+first and last rows, and ↑ on the top row goes back to the search. In the search, ↓ goes into the tree, or with a
+search ↑↓ move through its results; ↵ opens the one picked, and Esc clears the search. Search tasks (⌘F, or whatever
+you bind it to), with the focus in the Files tab while Browse shows, puts the focus in Browse's search instead of the
+task search; in the editor, its own ⌘F finds in the file, and anywhere else ⌘F searches tasks as ever.
+
 ## Rebinding
 
 The keymap lives in `src/shared/keymap.ts` (the commands themselves are in `src/shared/commands.ts`): one command per

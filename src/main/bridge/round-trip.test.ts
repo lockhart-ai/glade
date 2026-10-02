@@ -283,6 +283,27 @@ describe('the Artifacts tab watching a task', () => {
   })
 })
 
+describe('the Browse tab watching a task’s folders', () => {
+  it('broadcasts a folder that changed on disk, until the tab lets it go', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'glade-round-trip-'))
+    try {
+      const taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+      const events: GladeEvent[] = []
+      glade.subscribe((event) => events.push(event))
+
+      await glade.invoke(CommandName.FilesWatchFolders, { taskId, paths: [''] })
+      writeFileSync(join(root, 'notes.md'), '# Notes\n')
+
+      await vi.waitFor(() => {
+        expect(events).toContainEqual({ type: EventType.FolderChanged, taskId, path: '' })
+      })
+      await expect(glade.invoke(CommandName.FilesWatchFolders, { taskId, paths: [] })).resolves.toBeNull()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('a plugin reinstalled while Glade runs', () => {
   it('reloads its view, shown or not, once a rescan finds it changed on disk', async () => {
     const pluginsFolder = mkdtempSync(join(tmpdir(), 'glade-round-trip-plugins-'))

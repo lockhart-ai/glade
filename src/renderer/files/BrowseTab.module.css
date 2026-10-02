@@ -1,0 +1,144 @@
+/* The Files tab's Browse tab, from docs/design/html/36-browse-files.html: the search field over the tree or results. */
+.browse {
+  flex-grow: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.search {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-inset);
+}
+
+/* The search field's own clear button would sit beside Esc, which already clears it. */
+.search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.list {
+  flex-grow: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--space-inset) var(--space-inset);
+}
+
+.heading {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 26px;
+  margin: 0 var(--space-inset);
+  padding: 0 var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+.row {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  height: 26px;
+  box-sizing: border-box;
+  padding-right: var(--space-md);
+  border-radius: 6px;
+  color: var(--color-text);
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+}
+
+.row:hover {
+  background: var(--color-raised);
+}
+
+.row.focused {
+  background: var(--color-inner-2);
+}
+
+/* The focus ring only for the keyboard, as on the file tabs. */
+.row:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: -2px;
+}
+
+.result {
+  gap: var(--space-md);
+  padding-left: var(--space-md);
+}
+
+.chevron {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  color: var(--color-faint);
+}
+
+.icon {
+  flex-shrink: 0;
+  display: flex;
+  color: var(--color-muted);
+}
+
+.folderIcon {
+  color: var(--color-faint);
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+/* A result's folder: given up first when the row is too narrow. */
+.folder {
+  flex-shrink: 1000;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+/* The blue dot on a file the agent changed, as on its tab. */
+.changed {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  margin-left: var(--space-2xs);
+  border-radius: 3px;
+  background: var(--color-blue);
+}
+
+.more {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  height: 26px;
+  margin: 0;
+  padding: 0 var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+.empty {
+  margin: 0;
+  padding: var(--space-md) var(--space-xl);
+  font-size: var(--font-size-secondary);
+  color: var(--color-faint);
+}

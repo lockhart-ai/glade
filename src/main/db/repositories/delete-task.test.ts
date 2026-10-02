@@ -12,6 +12,7 @@ import {
 } from '../../../shared/domain'
 import { GIF, PNG } from '../../../shared/test-images'
 import { setArtifactGroupOpen } from './artifact-groups'
+import { setBrowseFolderExpanded } from './browse-folders'
 import { addArtifact } from './artifacts'
 import { setExternalId, setHandoff } from './backfills'
 import { setSessionContext } from './session-context'
@@ -85,6 +86,7 @@ function fillTask(db: Database, task: Task): void {
   setOpenFiles(db, { taskId, paths: ['api/views.py'], activePath: 'api/views.py' })
   addArtifact(db, { taskId, path: 'docs/rate-limits.md', title: 'Rate limits' })
   setArtifactGroupOpen(db, { taskId, group: ArtifactDateGroup.Today, open: false })
+  setBrowseFolderExpanded(db, { taskId, path: 'api', expanded: true })
   setWorkspaceSelection(db, task.workspaceId, taskId)
   appendQuestionSet(db, {
     taskId,
@@ -148,6 +150,8 @@ const FILLED_TABLES = [
   // The Artifacts tab's date groups you opened or folded.
   'artifact_groups',
   'artifacts',
+  // The folders open in its Browse tab.
+  'browse_folders',
   // The images pasted into its messages, sent and queued, and into its input draft.
   'images',
   // Its unsent input draft.

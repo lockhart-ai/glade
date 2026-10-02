@@ -49,6 +49,7 @@ import type { InstalledPlugin } from './plugins'
 import type { ControlStatus } from './control'
 import type { AccountStatus } from './account'
 import type { MenuBarSnapshot } from './menuBar'
+import type { FileSearchResult, FolderEntry } from './browse'
 
 /** The name the bridge is exposed under on `window`. */
 export const BRIDGE_KEY = 'glade'
@@ -108,6 +109,12 @@ export enum CommandName {
   FilesThumbnail = 'files.thumbnail',
   FilesCopy = 'files.copy',
   FilesReveal = 'files.reveal',
+  FilesBrowse = 'files.browse',
+  FilesListFolder = 'files.listFolder',
+  FilesSearch = 'files.search',
+  FilesExpandedFolders = 'files.expandedFolders',
+  FilesSetFolderExpanded = 'files.setFolderExpanded',
+  FilesWatchFolders = 'files.watchFolders',
   ArtifactsRemove = 'artifacts.remove',
   ArtifactsSetGroupOpen = 'artifacts.setGroupOpen',
   ArtifactsWatch = 'artifacts.watch',
@@ -717,6 +724,77 @@ export type FilesCopyRequest = FileRequest
 export type FilesRevealRequest = FileRequest
 
 /**
+ * Shows the Files tab's Browse tab (#398): no file tab is showing. Answers with the task's open files as they now
+ * are, and broadcasts `openFiles.changed`. Fails with `not_found` when there's no such task.
+ */
+export interface FilesBrowseRequest {
+  readonly taskId: string
+}
+
+/**
+ * Names a folder of a task's workspace for the Browse tab: `''` for the root, or a path relative to it, normalized, as
+ * `FileRequest`'s. A folder that a symlink takes outside the root fails with `outside_workspace`; a task that isn't
+ * there with `not_found`.
+ */
+export interface FolderRequest {
+  readonly taskId: string
+  readonly path: string
+}
+
+/**
+ * Lists a folder of the workspace for the Browse tab's tree (`''`, the root, to begin with), a level at a time:
+ * folders first, then files, each sorted by name. `.git` and `.glade` are never listed, nor, in a git repository, what
+ * git ignores; a symlink is listed only when it leads to a file or folder inside the root.
+ */
+export type FilesListFolderRequest = FolderRequest
+
+export interface FilesListFolderResponse {
+  /** The folder's entries; null when there's no folder there (any more). */
+  readonly entries: readonly FolderEntry[] | null
+}
+
+/**
+ * Finds the workspace's files whose name or path holds `query` (without regard to case), wherever they are, hiding
+ * what the tree hides: the first `MAX_SEARCH_RESULTS` (in `./browse`), best first, and how many more. Fails with
+ * `not_found` when the workspace's folder isn't there.
+ */
+export interface FilesSearchRequest {
+  readonly taskId: string
+  /** At most `MAX_SEARCH_QUERY` characters. Blank finds nothing. */
+  readonly query: string
+}
+
+export type FilesSearchResponse = FileSearchResult
+
+/** The folders open in a task's Browse tab, as it left them. */
+export interface FilesExpandedFoldersRequest {
+  readonly taskId: string
+}
+
+export interface FilesExpandedFoldersResponse {
+  /** Relative to the workspace root, sorted. */
+  readonly paths: readonly string[]
+}
+
+/** Opens or closes a folder of a task's Browse tab, remembering it for the task. */
+export interface FilesSetFolderExpandedRequest {
+  readonly taskId: string
+  /** Relative to the workspace root (never the root, which is always open). */
+  readonly path: string
+  readonly expanded: boolean
+}
+
+/**
+ * Watches the folders the Browse tab shows (its root, `''`, and each folder open), and no others of the task's: a
+ * change in one broadcasts `files.folderChanged`. None (an empty list) stops watching the task. At most
+ * `MAX_WATCHED_FOLDERS` (in `./browse`).
+ */
+export interface FilesWatchFoldersRequest {
+  readonly taskId: string
+  readonly paths: readonly string[]
+}
+
+/**
  * Takes a file off a task's artifacts (Remove from artifacts); the file itself stays. Broadcasts `artifacts.changed`.
  * Fails with `not_found` when the file isn't one of the task's artifacts.
  */
@@ -1088,6 +1166,12 @@ export interface CommandMap {
   [CommandName.FilesThumbnail]: CommandSpec<FilesThumbnailRequest, FilesThumbnailResponse>
   [CommandName.FilesCopy]: CommandSpec<FilesCopyRequest, null>
   [CommandName.FilesReveal]: CommandSpec<FilesRevealRequest, null>
+  [CommandName.FilesBrowse]: CommandSpec<FilesBrowseRequest, OpenFilesResponse>
+  [CommandName.FilesListFolder]: CommandSpec<FilesListFolderRequest, FilesListFolderResponse>
+  [CommandName.FilesSearch]: CommandSpec<FilesSearchRequest, FilesSearchResponse>
+  [CommandName.FilesExpandedFolders]: CommandSpec<FilesExpandedFoldersRequest, FilesExpandedFoldersResponse>
+  [CommandName.FilesSetFolderExpanded]: CommandSpec<FilesSetFolderExpandedRequest, null>
+  [CommandName.FilesWatchFolders]: CommandSpec<FilesWatchFoldersRequest, null>
   [CommandName.ArtifactsRemove]: CommandSpec<ArtifactsRemoveRequest, null>
   [CommandName.ArtifactsSetGroupOpen]: CommandSpec<ArtifactsSetGroupOpenRequest, null>
   [CommandName.ArtifactsWatch]: CommandSpec<ArtifactsWatchRequest, null>
@@ -1165,6 +1249,7 @@ export enum EventType {
   PermissionWithdrawn = 'permission.withdrawn',
   OpenFilesChanged = 'openFiles.changed',
   FileShown = 'file.shown',
+  FolderChanged = 'files.folderChanged',
   TodosChanged = 'todos.changed',
   ArtifactsChanged = 'artifacts.changed',
   HandoffChanged = 'handoff.changed',
@@ -1312,6 +1397,17 @@ export interface OpenFilesChangedEvent {
  * The agent asked to show you a file (`show_file`): it's open in its task's Files tab, and the window shows it there,
  * at `line`, if that task is the one you're viewing. Sent after the `openFiles.changed` that opened it.
  */
+/**
+ * Something in a folder the Browse tab watches changed (`files.watchFolders`): a file or folder in it was made,
+ * removed or renamed (or changed). The window lists the folder again.
+ */
+export interface FolderChangedEvent {
+  readonly type: EventType.FolderChanged
+  readonly taskId: string
+  /** Relative to the workspace root; `''` for the root. */
+  readonly path: string
+}
+
 export interface FileShownEvent {
   readonly type: EventType.FileShown
   readonly taskId: string
@@ -1488,6 +1584,7 @@ export type GladeEvent =
   | PermissionWithdrawnEvent
   | OpenFilesChangedEvent
   | FileShownEvent
+  | FolderChangedEvent
   | TodosChangedEvent
   | ArtifactsChangedEvent
   | HandoffChangedEvent

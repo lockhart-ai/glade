@@ -14,6 +14,7 @@ import type { OpenPath, RevealPath, WriteClipboard } from '../files/files'
 import type { OpenExternal } from '../links/links'
 import type { Thumbnails } from '../artifacts/thumbnails'
 import { createArtifactWatcher, type ArtifactWatcher } from '../artifacts/artifact-watch'
+import { createFolderWatcher, type FolderWatcher } from '../files/folder-watch'
 import type { MenuBarCommands } from '../menu-bar/menu-bar'
 import type { NotifyReply } from '../notifications/notifications'
 import { getSettings } from '../db/repositories/settings'
@@ -139,6 +140,8 @@ export interface RegisteredBridge {
   readonly account: AccountTracker
   /** What watches the artifacts' files, which stops when the app quits. */
   readonly artifactWatch: ArtifactWatcher
+  /** What watches the folders the Browse tab shows, which stops when the app quits. */
+  readonly folderWatch: FolderWatcher
 }
 
 /** Every task, in every workspace: what the event log and the plugin feed know of them to begin with. */
@@ -191,6 +194,15 @@ export function registerBridge({
   // The artifacts' files, looked at again when a tool call or an edit from outside may have changed one. It hears
   // every event, and broadcasts its own changes (only ever later, once it has looked).
   const artifactWatch = createArtifactWatcher({
+    context: {
+      db,
+      emit: (event) => {
+        emit(event)
+      },
+    },
+  })
+  // The folders the Browse tab shows, watched while it shows them; it broadcasts their changes.
+  const folderWatch = createFolderWatcher({
     context: {
       db,
       emit: (event) => {
@@ -279,6 +291,7 @@ export function registerBridge({
       ...(openExternal === undefined ? {} : { openExternal }),
       ...(thumbnails === undefined ? {} : { thumbnails }),
       artifactWatch,
+      folderWatch,
       runner,
       updateMenu,
       closeWindow,
@@ -303,5 +316,5 @@ export function registerBridge({
     }
     return dispatch(command, request)
   })
-  return { runner, emit, terminals, plugins, pluginViews, control, endpoint, account, artifactWatch }
+  return { runner, emit, terminals, plugins, pluginViews, control, endpoint, account, artifactWatch, folderWatch }
 }

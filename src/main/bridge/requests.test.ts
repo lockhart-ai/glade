@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { CommandName, RendererErrorKind } from '../../shared/bridge'
 import { TaskFilter } from '../../shared/attention'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
+import { MAX_SEARCH_QUERY, MAX_WATCHED_FOLDERS } from '../../shared/browse'
 import { Effort, PermissionDecisionKind, PermissionMode, UiStateKey } from '../../shared/domain'
 import { MAX_IMAGE_BASE64_LENGTH, MAX_IMAGE_BYTES } from '../../shared/images'
 import { GIF, JPEG, PNG, WEBP } from '../../shared/test-images'
@@ -477,6 +478,52 @@ describe('files.write', () => {
     expect(schema.safeParse({ taskId: 't', path: 'a.md' }).success).toBe(false)
     expect(schema.safeParse({ taskId: 't', path: 'a.md', text: 1 }).success).toBe(false)
     expect(schema.safeParse({ taskId: 't', path: 'a.md', text: 'x', mode: 0o777 }).success).toBe(false)
+  })
+})
+
+describe('the Browse tab’s requests', () => {
+  it('take the root or a folder inside it, and never `..` or an absolute path', () => {
+    const schema = REQUEST_SCHEMAS[CommandName.FilesListFolder]
+    for (const path of ['', 'api', 'api/tests'])
+      expect(schema.parse({ taskId: 't', path })).toEqual({ taskId: 't', path })
+    for (const path of ['..', '../secrets', '/etc', 'api/../..', 'a//b', '/commit/c1/docs']) {
+      expect(schema.safeParse({ taskId: 't', path }).success, path).toBe(false)
+    }
+  })
+
+  it('take a search of at most 200 characters', () => {
+    const schema = REQUEST_SCHEMAS[CommandName.FilesSearch]
+    expect(schema.parse({ taskId: 't', query: '' })).toEqual({ taskId: 't', query: '' })
+    expect(schema.safeParse({ taskId: 't', query: 'x'.repeat(MAX_SEARCH_QUERY) }).success).toBe(true)
+    expect(schema.safeParse({ taskId: 't', query: 'x'.repeat(MAX_SEARCH_QUERY + 1) }).success).toBe(false)
+  })
+
+  it('open or close a folder inside the root, never the root itself', () => {
+    const schema = REQUEST_SCHEMAS[CommandName.FilesSetFolderExpanded]
+    expect(schema.parse({ taskId: 't', path: 'api', expanded: true })).toEqual({
+      taskId: 't',
+      path: 'api',
+      expanded: true,
+    })
+    expect(schema.safeParse({ taskId: 't', path: '', expanded: true }).success).toBe(false)
+    expect(schema.safeParse({ taskId: 't', path: '../x', expanded: false }).success).toBe(false)
+    expect(schema.safeParse({ taskId: 't', path: 'api' }).success).toBe(false)
+  })
+
+  it('watch at most 500 folders, the root among them', () => {
+    const schema = REQUEST_SCHEMAS[CommandName.FilesWatchFolders]
+    expect(schema.parse({ taskId: 't', paths: ['', 'api'] })).toEqual({ taskId: 't', paths: ['', 'api'] })
+    expect(schema.parse({ taskId: 't', paths: [] })).toEqual({ taskId: 't', paths: [] })
+    const many = Array.from({ length: MAX_WATCHED_FOLDERS + 1 }, (_, index) => `f${String(index)}`)
+    expect(schema.safeParse({ taskId: 't', paths: many }).success).toBe(false)
+    expect(schema.safeParse({ taskId: 't', paths: ['/etc'] }).success).toBe(false)
+  })
+
+  it('name only the task to browse or ask the open folders of', () => {
+    for (const command of [CommandName.FilesBrowse, CommandName.FilesExpandedFolders] as const) {
+      expect(REQUEST_SCHEMAS[command].parse({ taskId: 't' })).toEqual({ taskId: 't' })
+      expect(REQUEST_SCHEMAS[command].safeParse({ taskId: 't', path: 'a' }).success).toBe(false)
+    }
   })
 })
 

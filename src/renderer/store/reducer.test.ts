@@ -493,6 +493,10 @@ describe("a task's open files", () => {
     expect(first.fileFocus).toEqual({ taskId: 't1', path: 'docs/rate-limits.md', line: 8, request: 1 })
     expect(second.fileFocus?.request).toBe(2)
   })
+
+  it('keeps nothing of a folder changing on disk: the Browse tab hears it from the store itself', () => {
+    expect(applyEvent(state, { type: EventType.FolderChanged, taskId: 't1', path: 'docs' })).toBe(state)
+  })
 })
 
 describe("a task's artifacts", () => {

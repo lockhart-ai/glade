@@ -72,6 +72,7 @@ import type { TerminalTab } from '../../shared/terminal'
 import { addDoneCounts, doneCountsOf, isInDoneSection, NO_DONE_TASKS, pageOfDone } from '../../shared/doneList'
 import { EMPTY_MENU_BAR_SNAPSHOT, type MenuBarSnapshot } from '../../shared/menuBar'
 import { openableUrl } from '../../shared/links'
+import { FolderEntryKind, MAX_SEARCH_RESULTS, normalizeQuery, rankMatches, type FolderEntry } from '../../shared/browse'
 
 export type FakeHandlers = {
   readonly [C in CommandName]: (request: CommandRequest<C>) => CommandResponse<C> | Promise<CommandResponse<C>>
@@ -101,6 +102,17 @@ export interface FakeMain {
   readonly permissionRequests?: PermissionRequest[]
   /** Every task's open files; none when left out. `files.open` and `files.close` change them. */
   readonly openFiles?: OpenFiles[]
+  /**
+   * The workspace's tree, for any task: each folder's entries (`''` for the root), as `files.listFolder` answers;
+   * a folder left out isn't there. `files.search` looks through every file in it.
+   */
+  readonly tree?: Record<string, readonly FolderEntry[]>
+  /** Each task's open Browse folders, by task id: `files.setFolderExpanded` changes them. */
+  readonly expandedFolders?: Record<string, string[]>
+  /** The folders `files.watchFolders` was last asked to watch, by task id. */
+  readonly watchedFolders?: Record<string, readonly string[]>
+  /** The searches `files.search` was asked for, oldest first. */
+  readonly searches?: string[]
   /** What `files.read` answers with, by path, for any task; missing when left out. */
   readonly files?: Readonly<Record<string, FileContent>>
   /** What `files.write` saved, oldest first. */
@@ -547,6 +559,29 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     },
     [CommandName.FilesReveal]: ({ path }) => {
       main.revealed?.push(path)
+      return null
+    },
+    [CommandName.FilesBrowse]: ({ taskId }) => changeOpenFiles(taskId, (open) => ({ ...open, activePath: null })),
+    [CommandName.FilesListFolder]: ({ path }) => ({ entries: main.tree?.[path] ?? null }),
+    [CommandName.FilesSearch]: ({ query }) => {
+      main.searches?.push(query)
+      const files = Object.values(main.tree ?? {})
+        .flat()
+        .filter((entry) => entry.kind === FolderEntryKind.File)
+        .map((entry) => entry.path)
+      const matches = rankMatches(files, normalizeQuery(query))
+      return { paths: matches.slice(0, MAX_SEARCH_RESULTS), more: Math.max(0, matches.length - MAX_SEARCH_RESULTS) }
+    },
+    [CommandName.FilesExpandedFolders]: ({ taskId }) => ({ paths: [...(main.expandedFolders?.[taskId] ?? [])].sort() }),
+    [CommandName.FilesSetFolderExpanded]: ({ taskId, path, expanded }) => {
+      const folders = main.expandedFolders
+      if (folders === undefined) return null
+      const open = (folders[taskId] ?? []).filter((folder) => folder !== path)
+      folders[taskId] = expanded ? [...open, path] : open
+      return null
+    },
+    [CommandName.FilesWatchFolders]: ({ taskId, paths }) => {
+      if (main.watchedFolders !== undefined) main.watchedFolders[taskId] = paths
       return null
     },
     [CommandName.ArtifactsRemove]: ({ taskId, path }) => {

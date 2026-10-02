@@ -89,6 +89,17 @@ There are no follow-up tasks. One task can refer to another through its folder o
   the binary notice, fit to the panel but never scaled past its own size, on a checkerboard behind transparency;
   clicking it opens the image viewer, above. Too narrow for its tabs, the
   tab row scrolls sideways, with chevrons at the ends that have more tabs past them.
+  Before the open files' tabs sits the fixed **Browse** tab (a folder icon, #398), which shows when no file does: the
+  workspace's tree, folders first and then files, each by name, loaded a folder at a time as you open them, with the
+  agent's changed files marked by their blue dot. It hides `.git` and Glade's `.glade` always, and in a git repository
+  whatever git ignores there (asked of git itself), but never a file git tracks; a symlink shows only when it leads to
+  something inside the workspace. The folders you leave open are kept for the task, across a relaunch. Clicking a file,
+  or ↩ on it, opens it in a tab. A search at the top finds files by name or path anywhere in the workspace, as a flat
+  list with each one's folder and the match marked, best first (names that start with it, then names that hold it,
+  then paths), stopping at the first 200 with how many more; Esc clears it. ↑↓ move, → and ← open and close a folder,
+  and ⌘F, with the focus in the Files tab while Browse shows, goes to its search (the editor's ⌘F still finds in the
+  file). The folders it shows are watched, so what the agent (or anything else) makes or deletes shows at once.
+  ![Browse files](design/screens/36-browse-files.png)
 - **Bottom bar** (full width) — the workspace's terminal, with tabs, and a plugin panel (Nekomata). Resizable,
   collapsible. Each workspace has its own terminal tabs; switching workspace switches them, and the other
   workspaces' shells keep running. Removing a workspace ends its shells.

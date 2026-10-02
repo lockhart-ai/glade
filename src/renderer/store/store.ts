@@ -47,6 +47,9 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     // A task main asked to open while a snapshot loaded, opened once it has.
     let openWhenLoaded: string | null = null
 
+    // The Browse tabs, which hear their folders' changes straight from main's events, never through the store.
+    const folderListeners = new Set<(taskId: string, path: string) => void>()
+
     // Each terminal tab's terminals, which hear its output straight from main's events, never through the store.
     const terminalListeners = new Map<string, Set<(event: TerminalEvent) => void>>()
 
@@ -122,6 +125,10 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     const onEvent = (event: GladeEvent): void => {
       if (event.type === EventType.TerminalOutput || event.type === EventType.TerminalCleared) {
         for (const listener of terminalListeners.get(event.tabId) ?? []) listener(event)
+        return
+      }
+      if (event.type === EventType.FolderChanged) {
+        for (const listener of folderListeners) listener(event.taskId, event.path)
         return
       }
       if (event.type === EventType.MenuCommand) {
@@ -669,6 +676,39 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         get().stopEditing(file)
         applyOpenFiles(await bridge.invoke(CommandName.FilesClose, file))
         return true
+      },
+
+      async showBrowse(taskId) {
+        applyOpenFiles(await bridge.invoke(CommandName.FilesBrowse, { taskId }))
+      },
+
+      async listFolder(taskId, path) {
+        const { entries } = await bridge.invoke(CommandName.FilesListFolder, { taskId, path })
+        return entries
+      },
+
+      async searchFiles(taskId, query) {
+        return bridge.invoke(CommandName.FilesSearch, { taskId, query })
+      },
+
+      async expandedFolders(taskId) {
+        const { paths } = await bridge.invoke(CommandName.FilesExpandedFolders, { taskId })
+        return paths
+      },
+
+      async setFolderExpanded(taskId, path, expanded) {
+        await bridge.invoke(CommandName.FilesSetFolderExpanded, { taskId, path, expanded })
+      },
+
+      async watchFolders(taskId, paths) {
+        await bridge.invoke(CommandName.FilesWatchFolders, { taskId, paths })
+      },
+
+      subscribeFolderChanges(listener) {
+        folderListeners.add(listener)
+        return () => {
+          folderListeners.delete(listener)
+        }
       },
 
       async readFile(taskId, path) {

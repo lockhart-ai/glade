@@ -283,6 +283,9 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
       case EventType.FileShown:
         tools.info('file shown', { taskId: event.taskId, path: event.path, line: event.line })
         return
+      case EventType.FolderChanged:
+        tools.debug('folder changed', { taskId: event.taskId, path: event.path })
+        return
       case EventType.OpenFilesChanged: {
         const { taskId, paths, activePath } = event.openFiles
         tools.debug('open files changed', { taskId, open: paths.length, activePath })
