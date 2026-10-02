@@ -66,6 +66,10 @@ jobs:
 
       - run: npm ci
       - run: npm run check-design
+      # The real ps/ioreg/docker samplers (#403) only behave like this on macOS; `unit` (ubuntu-latest) skips that
+      # block, so it still runs here, once, to keep it exercised (#418).
+      - name: unit (macOS-only, #418)
+        run: npx vitest run src/main/plugins/machine-samplers.integration.test.ts
 
   e2e:
     name: e2e (${{ matrix.shard }}/${{ strategy.job-total }})
