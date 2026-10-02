@@ -46,3 +46,38 @@ export const HAIKU_MODEL: ModelChoice = {
 }
 
 export const SDK_MODELS: readonly ModelChoice[] = [DEFAULT_MODEL, OPUS_MODEL, SONNET_MODEL, LITE_MODEL, HAIKU_MODEL]
+
+/**
+ * A list as a login whose 1M models don't say so reports it (#416): bare aliases, with the version in the name, and no
+ * `[1m]` on any id or full id. Opus 5.5 runs at 1M all the same.
+ */
+export const ALIAS_MODELS: readonly ModelChoice[] = [
+  {
+    id: 'default',
+    resolvedModel: 'claude-opus-5-5',
+    name: 'Default (recommended)',
+    description: 'Use the default model (currently Opus 5.5)',
+    efforts: ALL_EFFORTS,
+  },
+  {
+    id: 'opus',
+    resolvedModel: 'claude-opus-5-5',
+    name: 'Opus 5.5',
+    description: 'Most capable for your hardest and longest-running tasks',
+    efforts: ALL_EFFORTS,
+  },
+  {
+    id: 'sonnet',
+    resolvedModel: 'claude-sonnet-5',
+    name: 'Sonnet 5',
+    description: 'Efficient for routine tasks',
+    efforts: ALL_EFFORTS,
+  },
+  {
+    id: 'haiku',
+    resolvedModel: 'claude-haiku-4-5-20251001',
+    name: 'Haiku 4.5',
+    description: 'Fastest for quick answers',
+    efforts: [],
+  },
+]

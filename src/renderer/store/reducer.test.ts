@@ -176,11 +176,12 @@ describe('a deleted task', () => {
           { taskId: 't1', path: 'README.md', title: 'Readme', addedAt: 1, updatedAt: 1, modifiedAt: 1, missing: false },
         ],
       },
+      artifactsVersion: { t1: 1 },
       artifactGroups: { t1: [{ group: ArtifactDateGroup.Today, open: false }] },
       handoffs: { t1: { taskId: 't1', body: '## Where it got to', addedAt: 1 } },
       watchers: { t1: [sampleWatcher('w1', 't1')] },
       commits: { t1: [sampleCommit('c1', 't1')] },
-      inputDrafts: { t1: { text: 'Half a thought', images: [], pastedBlocks: [] } },
+      inputDrafts: { t1: { text: 'Half a thought', images: [], pastedBlocks: [], files: [] } },
       toolLogFocus: { taskId: 't1', turn: 1, request: 1 },
       fileFocus: { taskId: 't1', path: 'README.md', line: null, request: 1 },
       renamingTaskId: 't1',
@@ -200,6 +201,7 @@ describe('a deleted task', () => {
       todos: {},
       openFiles: {},
       artifacts: {},
+      artifactsVersion: {},
       artifactGroups: {},
       handoffs: {},
       watchers: {},
@@ -493,6 +495,10 @@ describe("a task's open files", () => {
     expect(first.fileFocus).toEqual({ taskId: 't1', path: 'docs/rate-limits.md', line: 8, request: 1 })
     expect(second.fileFocus?.request).toBe(2)
   })
+
+  it('keeps nothing of a folder changing on disk: the Browse tab hears it from the store itself', () => {
+    expect(applyEvent(state, { type: EventType.FolderChanged, taskId: 't1', path: 'docs' })).toBe(state)
+  })
 })
 
 describe("a task's artifacts", () => {
@@ -520,17 +526,41 @@ describe("a task's artifacts", () => {
     commits: [],
   })
 
-  it('takes the whole list from each change, and from a history load unless a change brought a newer one', () => {
+  it('takes the whole list from each change, and from a history load that started at or after the last one', () => {
     const changed = applyEvent(state, {
       type: EventType.ArtifactsChanged,
       taskId: 't1',
       artifacts: [artifact('a.md', 5), artifact('b.md', 9)],
     })
     expect(changed.artifacts.t1?.map(({ path }) => path)).toEqual(['a.md', 'b.md'])
+    expect(changed.artifactsVersion.t1).toBe(1)
 
-    expect(withHistory(changed, 't1', history([artifact('a.md', 5)])).artifacts.t1).toHaveLength(2)
-    expect(withHistory(changed, 't1', history([artifact('a.md', 12)])).artifacts.t1).toEqual([artifact('a.md', 12)])
+    // Started before the change (version 0 of 1): the load is stale, so the change wins.
+    expect(withHistory(changed, 't1', history([artifact('a.md', 5)]), 0).artifacts.t1).toHaveLength(2)
+    // Started at the change's version: nothing has happened since it started, so the load wins.
+    expect(withHistory(changed, 't1', history([artifact('a.md', 12)]), 1).artifacts.t1).toEqual([artifact('a.md', 12)])
     expect(withHistory(state, 't1', history([])).artifacts).toEqual({ t1: [] })
+  })
+
+  it("doesn't let a history load that started before an artifact was removed bring it back (#391)", () => {
+    const declared = applyEvent(state, {
+      type: EventType.ArtifactsChanged,
+      taskId: 't1',
+      artifacts: [artifact('a.md', 5), artifact('b.md', 5)],
+    })
+    const versionBeforeRemoval = declared.artifactsVersion.t1 ?? 0
+
+    // The removal's own `artifacts.changed` lands first, dropping a.md. It doesn't bump b.md's own timestamp, so a
+    // fix that compares the lists' content, rather than sequencing them, can't tell the removal happened at all.
+    const removed = applyEvent(declared, {
+      type: EventType.ArtifactsChanged,
+      taskId: 't1',
+      artifacts: [artifact('b.md', 5)],
+    })
+
+    // Only then does the history load that started before the removal answer, with the stale, longer list.
+    const stale = history([artifact('a.md', 5), artifact('b.md', 5)])
+    expect(withHistory(removed, 't1', stale, versionBeforeRemoval).artifacts.t1).toEqual([artifact('b.md', 5)])
   })
 
   it('counts a file seen to change as a newer list, whenever it was declared', () => {
@@ -540,10 +570,10 @@ describe("a task's artifacts", () => {
       artifacts: [artifact('a.png', 5, 40)],
     })
 
-    expect(withHistory(changed, 't1', history([artifact('a.png', 5, 30)])).artifacts.t1).toEqual([
+    expect(withHistory(changed, 't1', history([artifact('a.png', 5, 30)]), 0).artifacts.t1).toEqual([
       artifact('a.png', 5, 40),
     ])
-    expect(withHistory(changed, 't1', history([artifact('a.png', 5, 50)])).artifacts.t1).toEqual([
+    expect(withHistory(changed, 't1', history([artifact('a.png', 5, 50)]), 1).artifacts.t1).toEqual([
       artifact('a.png', 5, 50),
     ])
   })

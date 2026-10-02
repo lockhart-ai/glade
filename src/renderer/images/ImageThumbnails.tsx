@@ -64,6 +64,7 @@ export function ImageThumbnails({ images, className }: ImageThumbnailsProps): Re
             view(null)
           }}
           returnFocus={returnFocus}
+          focusesTaskInput
         />
       )}
     </>

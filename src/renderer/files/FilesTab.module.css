@@ -75,6 +75,43 @@
   color: var(--color-text);
 }
 
+/* The fixed Browse tab, before the open files: a folder, with "Browse files" as its tooltip. */
+.browse {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-button-sm);
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.browse:hover {
+  color: var(--color-text);
+}
+
+.browse.active {
+  background: var(--color-inner-2);
+  border-color: var(--color-inner-border);
+  color: var(--color-text);
+}
+
+.browsePane {
+  flex-grow: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.browsePane[hidden] {
+  display: none;
+}
+
 .select,
 .close {
   display: flex;
@@ -135,6 +172,7 @@
 
 .select:focus-visible,
 .close:focus-visible,
+.browse:focus-visible,
 .list:focus-visible {
   outline: 2px solid var(--color-blue-text);
   outline-offset: -2px;

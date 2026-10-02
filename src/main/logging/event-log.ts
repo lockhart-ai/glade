@@ -20,6 +20,7 @@ import {
   type ToolEvent,
 } from '../../shared/domain'
 import { permissionRuleString } from '../../shared/permissions'
+import { answersResult } from '../../shared/questions'
 import { excerpt } from './format'
 import { LogScope, type LogFields, type Logger } from './logger'
 
@@ -72,7 +73,7 @@ function replyText(reply: QuestionReply | null): string {
   if (reply === null) return ''
   switch (reply.kind) {
     case QuestionReplyKind.Answers:
-      return jsonExcerpt(reply.answers)
+      return jsonExcerpt(answersResult(reply))
     case QuestionReplyKind.FreeText:
       return excerpt(reply.text)
   }
@@ -283,6 +284,9 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
       case EventType.FileShown:
         tools.info('file shown', { taskId: event.taskId, path: event.path, line: event.line })
         return
+      case EventType.FolderChanged:
+        tools.debug('folder changed', { taskId: event.taskId, path: event.path })
+        return
       case EventType.OpenFilesChanged: {
         const { taskId, paths, activePath } = event.openFiles
         tools.debug('open files changed', { taskId, open: paths.length, activePath })
@@ -307,6 +311,9 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
         return
       case EventType.AccountChanged:
         // The account logs its reads and warnings itself, and never the email or organization.
+        return
+      case EventType.LoginChanged:
+        // The login logs its start and end itself, and never what it prints (the sign-in page's one-time link).
         return
       case EventType.MenuBarChanged:
         // Sent to the menu bar popover alone, never through here: what's in it is logged as the tasks change.

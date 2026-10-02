@@ -31,10 +31,12 @@ import { listMessages } from './db/repositories/messages'
 import { listRecentNotifications } from './db/repositories/notifications'
 import { listPermissionRequests } from './db/repositories/permission-requests'
 import { getOpenFiles } from './db/repositories/open-files'
+import { listBrowseFolders } from './db/repositories/browse-folders'
 import { listQueuedMessages } from './db/repositories/queued-messages'
 import { listTaskPermissionRules } from './db/repositories/task-permission-rules'
 import { listToolEvents } from './db/repositories/tool-events'
 import { listTasks } from './db/repositories/tasks'
+import { getSdkModels } from './db/repositories/sdk-models'
 import { getUiState } from './db/repositories/ui-state'
 import { listWatchers } from './db/repositories/watchers'
 import { listWorkspaces } from './db/repositories/workspaces'
@@ -222,6 +224,24 @@ describe('readSeed', () => {
     ])
     expect(task?.permissionRequests?.filter((request) => request.forTask === true)).toHaveLength(1)
     expect(task?.permissionRequests?.find((request) => request.toolUseId === 'tests')?.suggestedRule).toBe('npm test *')
+  })
+
+  it('reads the e2e context window fixture: the SDK’s models, and tasks on models of their own (#416)', () => {
+    const seed = readSeed(join(import.meta.dirname, '..', '..', 'e2e', 'seeds', 'context-window.json'))
+    expect(seed.models?.map(({ id }) => id)).toContain('opus')
+    expect(seed.tasks.map(({ model }) => model)).toEqual([undefined, 'opus', 'opus[1m]'])
+
+    const db = openTestDatabase()
+    applySeed(db.db, seed)
+    expect(getSdkModels(db.db)).toEqual(seed.models)
+    const tasks = db.db.prepare('SELECT title, model, context_window_tokens AS size FROM tasks ORDER BY title').all()
+    // The 905k used of a "200k" window is proof of 1M.
+    expect(tasks).toEqual([
+      { title: 'Audit the request handlers', model: 'opus', size: 1_000_000 },
+      { title: 'Map the webhook retries', model: 'opus[1m]', size: 1_000_000 },
+      { title: 'Tidy the billing exports', model: DEFAULT_SETTINGS.defaultModel, size: 1_000_000 },
+    ])
+    db.close()
   })
 
   it('reads the e2e tool log fixture', () => {
@@ -593,7 +613,7 @@ describe('applySeed', () => {
     }
   })
 
-  it('opens a task’s files, showing the first unless told which, and sets the panel’s width', () => {
+  it('opens a task’s files, showing the first unless told which (or Browse), with its open folders, and sets the panel’s width', () => {
     const { db } = database
 
     applySeed(db, {
@@ -602,6 +622,7 @@ describe('applySeed', () => {
         { title: 'Shows one', minutesAgo: 0, openFiles: { paths: ['a.md', 'b.md'], activePath: 'b.md' } },
         { title: 'Shows the first', minutesAgo: 0, openFiles: { paths: ['a.md'] } },
         { title: 'Opens none', minutesAgo: 0, openFiles: { paths: [] } },
+        { title: 'Browses', minutesAgo: 0, openFiles: { paths: ['a.md'], activePath: null }, browseFolders: ['api'] },
       ],
       panelWidth: 780,
     })
@@ -611,6 +632,8 @@ describe('applySeed', () => {
     expect(getOpenFiles(db, byTitle['Shows one'] ?? '')).toMatchObject({ paths: ['a.md', 'b.md'], activePath: 'b.md' })
     expect(getOpenFiles(db, byTitle['Shows the first'] ?? '').activePath).toBe('a.md')
     expect(getOpenFiles(db, byTitle['Opens none'] ?? '').activePath).toBeNull()
+    expect(getOpenFiles(db, byTitle.Browses ?? '')).toMatchObject({ paths: ['a.md'], activePath: null })
+    expect(listBrowseFolders(db, byTitle.Browses ?? '')).toEqual(['api'])
     expect(getUiState(db, UiStateKey.RightPanelWidth)).toBe('780')
   })
 

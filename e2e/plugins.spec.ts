@@ -159,3 +159,70 @@ test('the Reload button reloads the shown plugin at once, without reading the fo
   await expect.poll(() => inPlugin(glade, 'window.received.length')).toBe(2)
   await expect(status).toHaveText(/said hello$/)
 })
+
+/** The kinds of event the fixture plugin's page has been sent since its last `hello`. */
+async function receivedTypes(glade: Glade): Promise<string[]> {
+  return inPlugin(glade, 'window.received.map((message) => message.event.type)')
+}
+
+test("a plugin that asks to see the Mac's load gets it only once its switch is on, and keeps it across a relaunch", async ({
+  launch,
+  userData,
+}) => {
+  installFixture(userData)
+  const manifest = join(pluginsFolder(userData), 'fixture-plugin', 'manifest.json')
+  writeFileSync(manifest, JSON.stringify({ ...JSON.parse(readFileSync(manifest, 'utf8')), capabilities: ['machine'] }))
+  const glade = await launch()
+  const { status } = pluginCard(glade)
+  await expect(status).toHaveText(/said hello$/)
+
+  // Off until it's turned on: nothing new reaches the page.
+  const modal = await openPlugins(glade)
+  await expect(modal.plugin('Fixture')).toContainText("Can see your Mac's CPU, GPU and Docker load")
+  await expect(modal.machineSwitch('Fixture')).not.toBeChecked()
+  expect(await inPlugin(glade, "'machine' in window.received[1].event")).toBe(false)
+
+  // On: the plugin starts over, with the readings in its snapshot and then one every 2 s (the test mode's fake Mac),
+  // once it's showing again: Settings covers it, and a covered plugin isn't showing, so nothing is sampled for it.
+  await modal.machineSwitch('Fixture').click()
+  await expect(modal.machineSwitch('Fixture')).toBeChecked()
+  await modal.close.click()
+  await expect.poll(() => pluginPages(glade)).toBe(1)
+  await expect(status).toHaveText(/said hello$/)
+  await expect.poll(() => receivedTypes(glade), { timeout: 10_000 }).toContain('machine.reading')
+  const [first] = await receivedTypes(glade)
+  expect(first).toBe('hello')
+  expect(await inPlugin(glade, 'Array.isArray(window.received[1].event.machine)')).toBe(true)
+  const reading = await inPlugin<Record<string, unknown>>(
+    glade,
+    "window.received.find((message) => message.event.type === 'machine.reading').event.reading",
+  )
+  expect(reading).toMatchObject({ cpuCount: 10, total: 7.3, claude: 4.6, docker: 1.4, gpu: 88 })
+  expect(reading.containers).toHaveLength(4)
+
+  // A relaunch keeps it on: the readings come without touching Settings.
+  await glade.close()
+  const relaunched = await launch()
+  await expect(pluginCard(relaunched).status).toHaveText(/said hello$/)
+  await expect.poll(() => receivedTypes(relaunched), { timeout: 10_000 }).toContain('machine.reading')
+
+  // Off again: the plugin starts over without them, and none follow.
+  const again = await openPlugins(relaunched)
+  await again.machineSwitch('Fixture').click()
+  await expect(again.machineSwitch('Fixture')).not.toBeChecked()
+  await again.close.click()
+  await expect.poll(() => pluginPages(relaunched)).toBe(1)
+  await expect(pluginCard(relaunched).status).toHaveText(/said hello$/)
+  await expect.poll(() => receivedTypes(relaunched)).toEqual(['hello', 'snapshot'])
+  expect(await inPlugin(relaunched, "'machine' in window.received[1].event")).toBe(false)
+})
+
+test("a plugin that doesn't ask to see the Mac's load has no switch for it", async ({ launch, userData }) => {
+  installFixture(userData)
+  const glade = await launch()
+  const modal = await openPlugins(glade)
+
+  await expect(modal.plugin('Fixture')).toBeVisible()
+  await expect(modal.plugin('Fixture')).not.toContainText("Can see your Mac's")
+  await expect(modal.plugin('Fixture').getByRole('switch')).toHaveCount(1)
+})

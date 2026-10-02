@@ -1,6 +1,10 @@
 /* The chat, from docs/design/html/task-workspace.html and 02-agent-working.html. */
 .scroller {
-  flex-grow: 1;
+  /*
+   * Sized by the space it has, not by its content (a zero flex basis): measuring a long conversation's content added
+   * and took away its scroll bar on every layout, and each time laid the whole conversation out again (#413).
+   */
+  flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
   /*

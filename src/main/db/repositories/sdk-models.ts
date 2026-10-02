@@ -3,7 +3,7 @@
 import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
 import { Effort } from '../../../shared/domain'
-import type { ModelChoice } from '../../../shared/models'
+import { BUILT_IN_MODELS, type ModelChoice } from '../../../shared/models'
 import { Row } from './rows'
 
 const efforts = z.array(z.enum(Effort)).readonly()
@@ -36,4 +36,10 @@ export function setSdkModels(db: Database, models: readonly ModelChoice[]): void
       insert.run(position, model.id, model.resolvedModel, model.name, model.description, JSON.stringify(model.efforts))
     })
   })()
+}
+
+/** The models the pickers offer: the SDK's, once a session has reported them, else the built-in ones. */
+export function offeredModels(db: Database): readonly ModelChoice[] {
+  const stored = getSdkModels(db)
+  return stored.length > 0 ? stored : BUILT_IN_MODELS
 }

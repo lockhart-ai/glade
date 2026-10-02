@@ -32,20 +32,23 @@ import { getTask, listTasks, updateTask } from '../db/repositories/tasks'
 import { setUiState } from '../db/repositories/ui-state'
 import { createFakeSpawner, fakeTerminalOptions, type FakeSpawner } from '../terminal/fake-pty'
 import { createPlugins } from '../plugins/plugins'
-import { writePlugin } from '../plugins/test-plugins'
+import { sampleManifest, writePlugin } from '../plugins/test-plugins'
 import { createFakePluginViews, type FakePluginViews } from '../plugins/fake-view'
 import { createPluginFeed } from '../plugins/feed'
 import { databaseFeedSource } from '../plugins/feed-source'
 import { createPluginViews, type PluginViews } from '../plugins/views'
 import type { Plugins } from '../plugins/plugins'
-import { PluginStatus } from '../../shared/plugins'
+import { PluginCapability, PluginStatus } from '../../shared/plugins'
 import { createTerminals } from '../terminal/terminals'
 import { listTerminalTabs } from '../db/repositories/terminal-tabs'
 import { createControlEndpoint, type ControlEndpoint } from '../control/endpoint'
+import { createLoginService, UNAVAILABLE_LOGIN } from '../account/login'
 import { createAccountTracker } from '../account/account'
 import { createRateLimiter } from '../control/rate-limit'
 import { createControl } from '../control/control'
 import { createHandlers, type HandlerContext, type Handlers } from './handlers'
+import { createWorkspaceGit } from '../files/browse'
+import { FolderEntryKind } from '../../shared/browse'
 import type { MenuBarCommands } from '../menu-bar/menu-bar'
 import { LogLevel, LogScope } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
@@ -120,6 +123,7 @@ beforeEach(() => {
     ...pluginsWithViews(),
     endpoint: endpointOf(),
     account: createAccountTracker({ db: database.db, emit }),
+    login: createLoginService({ run: UNAVAILABLE_LOGIN, emit, retry: () => undefined }),
   }
   handlers = createHandlers(context)
 })
@@ -209,6 +213,7 @@ describe('menu.update, window.close, app.quit and window.setUnsavedEdits', () =>
       ...pluginsWithViews(),
       endpoint: endpointOf(),
       account: createAccountTracker({ db: database.db, emit }),
+      login: createLoginService({ run: UNAVAILABLE_LOGIN, emit, retry: () => undefined }),
     })
 
     expect(await withApp[CommandName.MenuUpdate](EMPTY_MENU_STATE)).toBeNull()
@@ -253,6 +258,7 @@ describe('the menu bar commands', () => {
       ...pluginsWithViews(),
       endpoint: endpointOf(),
       account: createAccountTracker({ db: database.db, emit }),
+      login: createLoginService({ run: UNAVAILABLE_LOGIN, emit, retry: () => undefined }),
       menuBar,
     })
     return { menuBar, calls, handlers: withApp }
@@ -548,6 +554,76 @@ describe('the files commands', () => {
   })
 })
 
+describe('the Browse tab’s commands', () => {
+  function browsing(): { taskId: string; browse: Handlers; folderWatch: { watch: Mock; close: Mock } } {
+    for (const path of ['api/tests', 'docs', '.glade']) mkdirSync(join(root, path), { recursive: true })
+    writeFileSync(join(root, 'api', 'throttles.py'), 'rate = 120\n')
+    writeFileSync(join(root, 'docs', 'rate-limits.md'), '# Rate limits\n')
+    writeFileSync(join(root, 'README.md'), '# Acme API\n')
+    const taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+    const folderWatch = { watch: vi.fn(() => Promise.resolve()), close: vi.fn() }
+    const browse = createHandlers({ ...handlerContext(), workspaceGit: createWorkspaceGit(TEST_GIT_RUN), folderWatch })
+    return { taskId, browse, folderWatch }
+  }
+
+  it('show the Browse tab, keeping the open files', async () => {
+    const { taskId, browse } = browsing()
+    await browse[CommandName.FilesOpen]({ taskId, path: 'README.md' })
+    emit.mockClear()
+
+    const openFiles = { taskId, paths: ['README.md'], activePath: null }
+    expect(browse[CommandName.FilesBrowse]({ taskId })).toEqual({ openFiles })
+    expect(emit).toHaveBeenCalledExactlyOnceWith({ type: EventType.OpenFilesChanged, openFiles })
+    expect(() => browse[CommandName.FilesBrowse]({ taskId: 'gone' })).toThrow(
+      expect.objectContaining({ code: BridgeErrorCode.NotFound }),
+    )
+  })
+
+  it('list a folder of the task’s workspace, and find its files', async () => {
+    const { taskId, browse } = browsing()
+
+    await expect(browse[CommandName.FilesListFolder]({ taskId, path: '' })).resolves.toEqual({
+      entries: [
+        { name: 'api', path: 'api', kind: FolderEntryKind.Folder },
+        { name: 'docs', path: 'docs', kind: FolderEntryKind.Folder },
+        { name: 'README.md', path: 'README.md', kind: FolderEntryKind.File },
+      ],
+    })
+    await expect(browse[CommandName.FilesListFolder]({ taskId, path: 'missing' })).resolves.toEqual({ entries: null })
+    await expect(browse[CommandName.FilesSearch]({ taskId, query: 'rate' })).resolves.toEqual({
+      paths: ['docs/rate-limits.md'],
+      more: 0,
+    })
+    await expect(browse[CommandName.FilesSearch]({ taskId: 'gone', query: 'rate' })).rejects.toMatchObject({
+      code: BridgeErrorCode.NotFound,
+    })
+  })
+
+  it('remember the folders open in the task’s Browse tab', () => {
+    const { taskId, browse } = browsing()
+
+    expect(browse[CommandName.FilesExpandedFolders]({ taskId })).toEqual({ paths: [] })
+    expect(browse[CommandName.FilesSetFolderExpanded]({ taskId, path: 'docs', expanded: true })).toBeNull()
+    expect(browse[CommandName.FilesSetFolderExpanded]({ taskId, path: 'api', expanded: true })).toBeNull()
+    expect(browse[CommandName.FilesSetFolderExpanded]({ taskId, path: 'docs', expanded: false })).toBeNull()
+    expect(browse[CommandName.FilesExpandedFolders]({ taskId })).toEqual({ paths: ['api'] })
+    expect(() => browse[CommandName.FilesExpandedFolders]({ taskId: 'gone' })).toThrow(
+      expect.objectContaining({ code: BridgeErrorCode.NotFound }),
+    )
+    expect(() => browse[CommandName.FilesSetFolderExpanded]({ taskId: 'gone', path: 'a', expanded: true })).toThrow(
+      expect.objectContaining({ code: BridgeErrorCode.NotFound }),
+    )
+  })
+
+  it('have the folder watcher watch the folders the tab shows, and do nothing without one', async () => {
+    const { taskId, browse, folderWatch } = browsing()
+
+    await expect(browse[CommandName.FilesWatchFolders]({ taskId, paths: ['', 'api'] })).resolves.toBeNull()
+    expect(folderWatch.watch).toHaveBeenCalledExactlyOnceWith(taskId, ['', 'api'])
+    await expect(handlers[CommandName.FilesWatchFolders]({ taskId, paths: [''] })).resolves.toBeNull()
+  })
+})
+
 describe('artifacts.remove', () => {
   it('takes a file off the task’s artifacts, broadcasting what’s left, and refuses one that isn’t there', async () => {
     const taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
@@ -756,6 +832,7 @@ describe('log.rendererError', () => {
       ...pluginsWithViews(),
       endpoint: endpointOf(),
       account: createAccountTracker({ db: database.db, emit }),
+      login: createLoginService({ run: UNAVAILABLE_LOGIN, emit, retry: () => undefined }),
       log: log.logger,
     })
     const error = {
@@ -804,6 +881,28 @@ describe('plugins', () => {
 
     expect(await handlers[CommandName.PluginsOpenFolder]({})).toBeNull()
     expect(openPath).toHaveBeenCalledExactlyOnceWith(join(root, 'plugins'))
+  })
+
+  it("turns a plugin's capability on, broadcasting it, and refuses one it doesn't ask for", async () => {
+    writePlugin(join(root, 'plugins'), 'gauge', { ...sampleManifest('gauge'), capabilities: ['machine'] })
+    writePlugin(join(root, 'plugins'), 'pomodoro')
+    await handlers[CommandName.PluginsList]({})
+
+    const on = await handlers[CommandName.PluginsSetCapability]({
+      id: 'gauge',
+      capability: PluginCapability.Machine,
+      granted: true,
+    })
+    expect(on.plugins).toMatchObject([{ folder: 'gauge', granted: [PluginCapability.Machine] }, { granted: [] }])
+    expect(emit).toHaveBeenLastCalledWith({ type: EventType.PluginsChanged, plugins: on.plugins })
+
+    expect(() =>
+      handlers[CommandName.PluginsSetCapability]({
+        id: 'pomodoro',
+        capability: PluginCapability.Machine,
+        granted: true,
+      }),
+    ).toThrow(expect.objectContaining({ code: BridgeErrorCode.InvalidRequest }))
   })
 })
 

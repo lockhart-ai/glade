@@ -382,6 +382,17 @@ export function filesTab(page: Page) {
     image: (name: string) => panel.getByRole('img', { name }),
     /** The button over an image file's picture that opens it full size in the image viewer. */
     viewImage: (name: string) => panel.getByRole('button', { name: `View ${name} full size` }),
+    /** The fixed Browse tab before the open files' tabs; `pressed` while it shows (#398). */
+    browse: panel.getByRole('button', { name: 'Browse files' }),
+    /** The Browse tab's search field. */
+    search: panel.getByRole('combobox', { name: 'Search files' }),
+    /** The workspace's tree. */
+    tree: panel.getByRole('tree', { name: 'Workspace files' }),
+    /** A row of the tree, by its file or folder's name. */
+    treeRow: (name: string) =>
+      panel.getByRole('tree', { name: 'Workspace files' }).getByRole('treeitem', { name, exact: true }),
+    /** The search's matching files. */
+    results: panel.getByRole('listbox', { name: 'Matching files' }).getByRole('option'),
   }
 }
 
@@ -394,6 +405,11 @@ export function chat(page: Page) {
     /** The thumbnails of the images pasted into your messages, which open the image viewer: all of them, in order. */
     thumbnails: log.getByRole('article', { name: 'You' }).getByRole('button', { name: /^View pasted image/ }),
     agentReplies: log.getByRole('article', { name: 'Agent' }),
+    /** The chips of the files attached to your messages (#396): all of them, in order. */
+    fileChips: log
+      .getByRole('article', { name: 'You' })
+      .getByRole('list', { name: 'Attached files' })
+      .getByRole('button'),
     /** The summary under each finished turn's reply: "Finished in 24m 10s · 4 files +61 −3". */
     turnSummaries: log.getByRole('note', { name: 'Turn summary' }),
     /** Where Glade restarted and resumed a turn. */
@@ -416,10 +432,19 @@ export function chat(page: Page) {
     newTaskPrompt: log.getByRole('heading', { name: 'What should the agent do?' }),
     /** The live line while a turn runs: "Working · …", or "Retrying (2 of 3)…". */
     workingLine: log.getByRole('status'),
-    /** The pink card when an error stopped the agent, and its buttons. */
+    /** The pink card when an error stopped the agent (or a lost login: the logged-out card), and its buttons. */
     errorCard: log.getByRole('alert'),
-    errorButton: (name: 'Retry' | 'Retry with another model' | 'Show details' | 'Hide details') =>
-      log.getByRole('alert').getByRole('button', { name, exact: true }),
+    errorButton: (
+      name:
+        | 'Retry'
+        | 'Retry with another model'
+        | 'Show details'
+        | 'Hide details'
+        | 'Log in'
+        | 'Waiting for the browser…'
+        | 'Cancel'
+        | `Retry all ${number} tasks`,
+    ) => log.getByRole('alert').getByRole('button', { name, exact: true }),
     errorDetails: log.getByRole('alert').getByLabel('Error details'),
     /** The line that ends the chat while the task's turn is paused: "Paused · resumes at 11:42". */
     pausedLine: log.getByRole('status', { name: 'Paused' }),
@@ -526,6 +551,20 @@ export function inputBar(page: Page) {
     attachedImages: bar.getByRole('list', { name: 'Attached images' }).getByRole('img'),
     /** An attached image's remove button, by its number. */
     removeImage: (position: number) => bar.getByRole('button', { name: `Remove image ${String(position)}` }),
+    /** The chips of the files attached to the message being written (#396), in order: each its name, type and size. */
+    fileChips: bar.getByRole('list', { name: 'Attached files' }).getByTitle('Reveal in Finder'),
+    /** An attached file's chip, by its name, which reveals its copy in Finder. */
+    fileChip: (name: string) =>
+      bar.getByRole('list', { name: 'Attached files' }).getByTitle('Reveal in Finder').filter({ hasText: name }),
+    /** An attached file's remove button, by its name. */
+    removeFile: (name: string) => bar.getByRole('button', { name: `Remove ${name}`, exact: true }),
+    /** A queued message's attached file, by its number and the file's name: small in its row. */
+    queuedFile: (position: number, name: string) =>
+      bar
+        .getByRole('region', { name: 'Queued messages' })
+        .getByRole('listitem')
+        .nth(position - 1)
+        .getByTitle(name, { exact: true }),
     /** Why something pasted wasn't attached, one line each. */
     refusals: bar.getByRole('alert'),
     /** A queued message's thumbnails, which open the image viewer, by its number. */
@@ -611,6 +650,9 @@ export function settings(page: Page) {
       dialog.getByRole('list', { name: 'Plugins' }).getByRole('listitem', { name, exact: true }),
     /** A plugin's Reload button in Plugins, by its name. */
     reloadPlugin: (name: string) => dialog.getByRole('button', { name: `Reload ${name}`, exact: true }),
+    /** The switch under a plugin in Plugins that lets it see the Mac's load (its `machine` capability), by its name. */
+    machineSwitch: (name: string) =>
+      dialog.getByRole('switch', { name: `${name}: Can see your Mac's CPU, GPU and Docker load`, exact: true }),
     openPluginsFolder: dialog.getByRole('button', { name: 'Open plugins folder' }),
     /** Control's endpoint URL, or "Not listening". */
     endpoint: dialog.getByLabel('Endpoint URL'),
@@ -618,6 +660,8 @@ export function settings(page: Page) {
     connectCommand: dialog.getByLabel('Connect command'),
     copyCommand: dialog.getByRole('button', { name: 'Copy', exact: true }),
     regenerateToken: dialog.getByRole('button', { name: 'Regenerate token' }),
+    /** General's Log in, under the account, while Claude Code isn't signed in or a lost login stops a task. */
+    logIn: dialog.getByRole('button', { name: 'Log in', exact: true }),
     /** Control's port field. */
     port: dialog.getByRole('textbox', { name: 'Port' }),
     /** General's account block: the account the tasks run on, as Claude Code reported it. */

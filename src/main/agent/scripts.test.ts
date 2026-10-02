@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 // Each library script, played through the real agent runner into a database: what the chat, tool log and task end up
@@ -43,10 +43,12 @@ import { createGladeMcpServer, GLADE_SERVER } from './glade-tools'
 import {
   AGENT_SCRIPT_NAMES,
   AGENT_SCRIPTS,
+  TIDIES_DOCS,
   ALLOWS_FOR_TASK,
   ASKS_PERMISSION,
   DELETE_LOCAL_COPIES_QUESTION,
   FOLLOW_UPS,
+  LOGIN_EXPIRED_ERROR,
   MANY_CHOICES_QUESTIONS,
   PARALLEL_SUBAGENTS,
   PERMISSION_AT_QUIT,
@@ -209,6 +211,29 @@ describe('AGENT_SCRIPTS', () => {
       ])
       expect(getOpenFiles(database.db, task.id)).toMatchObject({ activePath: 'docs/rate-limits.md' })
       expect(reply()).toMatch(/Line 8 has the tighter \/search limit/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('tidies-docs: replies first, then moves the notes into docs on its second turn', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'glade-tidies-docs-'))
+    try {
+      writeFileSync(join(root, 'notes.txt'), 'Rate limits\n')
+      task = sampleTask(database.db, sampleWorkspace(database.db, root).id)
+      vi.useRealTimers()
+      const agent = start('tidies-docs')
+      agent.send(task.id, 'Tidy the docs.')
+      await backend.whenIdle()
+      expect(reply()).toBe(TIDIES_DOCS.firstReply)
+      expect(existsSync(join(root, 'notes.txt'))).toBe(true)
+
+      agent.send(task.id, 'Go ahead.')
+      await backend.whenIdle()
+
+      expect(listMessages(database.db, task.id).at(-1)?.body).toBe(TIDIES_DOCS.reply)
+      expect(readFileSync(join(root, 'docs', 'limits.md'), 'utf8')).toBe('# Rate limits\n')
+      expect(existsSync(join(root, 'notes.txt'))).toBe(false)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -683,6 +708,34 @@ describe('AGENT_SCRIPTS', () => {
     expect(reply()).toBe('The test passes 200 times in a row against Postgres, so the race is fixed.')
     expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, error: null, retrying: null })
     expect(listMessages(database.db, task.id).map((message) => message.turn)).toEqual([1, 1])
+  })
+
+  it('logged-out: stops logged out, not paused, then completes when retried in a session started again', async () => {
+    const agent = start('logged-out')
+    const starts = vi.spyOn(backend, 'start')
+    await send(agent, 'Move the uploads to S3.')
+    expect(getTask(database.db, task.id)).toMatchObject({
+      activity: TaskActivity.Error,
+      pause: null,
+      error: {
+        kind: AgentErrorKind.LoggedOut,
+        code: 'authentication_failed',
+        status: null,
+        details: LOGIN_EXPIRED_ERROR,
+      },
+    })
+    const sessionId = getTask(database.db, task.id)?.sessionId
+
+    agent.retry(task.id)
+    const idle = backend.whenIdle()
+    await vi.runAllTimersAsync()
+    await idle
+
+    // The retry started Claude Code again on the same conversation, which carried on from its second turn.
+    expect(starts).toHaveBeenCalledTimes(2)
+    expect(starts.mock.calls[1]?.[0]).toMatchObject({ resumeSessionId: sessionId })
+    expect(reply()).toBe('The copy finished: all 3,900 files are in the bucket.')
+    expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, error: null })
   })
 
   it('asks-a-question: asks its questions and waits, however long, then drafts the notes from the answers', async () => {

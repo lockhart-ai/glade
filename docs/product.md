@@ -46,17 +46,18 @@ There are no follow-up tasks. One task can refer to another through its folder o
   the top of the chat, and the input bar floating over its bottom. The chat, a little narrower than both, scrolls under
   them and is cut off halfway under each, so it never shows past their outer edges. The input bar has model, effort
   and permissions pickers and a context
-  meter at the right. Each task keeps its unsent draft, text, pasted images and pasted text blocks, while you're on
-  another task and across a relaunch or a crash, until it's sent.
+  meter at the right. Each task keeps its unsent draft, text, pasted images, pasted text blocks and attached files,
+  while you're on another task and across a relaunch or a crash, until it's sent.
   A message's pasted images show as thumbnails above its text in the chat, and small in its row while it's queued.
   Clicking one (or ↵ or Space on it) opens the **image viewer** over the window: the image as large as fits, never
   scaled past its own size, on a dimmed backdrop. With several, ← and → step through the message's images, round from
-  the last to the first, under a "2 of 3"; Esc, a click on the backdrop or × closes it, and the focus goes back to the
-  thumbnail of the image it showed. ![Image viewer](design/screens/30-image-viewer.png)
+  the last to the first, under a "2 of 3"; Esc, a click on the backdrop or × closes it, and the focus goes to the
+  task's input (#415). ![Image viewer](design/screens/30-image-viewer.png)
   The same viewer opens an image artifact from the Artifacts tab, and the one file showing in the Files tab (#372): for
   an artifact, it also shows the artifact's title and two actions, Open in Files and Reveal in Finder, and steps
   through the image artifacts the Artifacts tab lists, in its order (not those in a folded date group, #378); for a
-  Files tab image, it shows that one file alone.
+  Files tab image, it shows that one file alone. Opened either of those ways, closing it returns the focus to the row
+  or thumbnail that opened it, not to the task's input: a keyboard user stepping through a list keeps their place in it.
   ![Artifact and file images](design/screens/35-artifact-image.png)
 - **Pasted text** (#363) — pasting more than one line, or ~80 characters or more, into the input bar marks it as its
   own block, kept apart from what you typed, rather than dumping it into the field: a short inline token stands for it
@@ -68,6 +69,18 @@ There are no follow-up tasks. One task can refer to another through its folder o
   injection inside text you pasted), at its place among what you typed; the tags and the token never show in the UI.
   Kept everywhere a message is: queued, in the draft, across a relaunch, and the sidebar search matches text inside a
   pasted block too. ![Pasted content](design/screens/34-pasted-content.png)
+- **Attached files** (#396) — drop any file onto the input bar, or paste one copied in Finder (⌘V), and Glade copies
+  it, byte for byte, into the workspace at `.glade/attachments/<task id>/`, under its own name (`sales (2).csv` when
+  the name's taken). It shows as a chip beside the image thumbnails, with an icon by its type, its name, type and size,
+  and a ✕; clicking the chip reveals the copy in Finder. The agent gets a line with each file's path at the end of your
+  message, never the file's contents, so it reads the exact bytes with its own tools (an image the API takes goes as an
+  image too). In the chat, your message keeps the chips above its words; clicking one opens the file in the Files tab,
+  or reveals it in Finder when the Files tab can't show it (a PDF, say). A folder, or a file over 200 MB, is refused
+  with a toast, and a symlink is copied as the file it leads to. Glade keeps the folder out of git without touching a
+  file you commit: when the workspace is in a repository, it adds `/.glade/attachments/` to that repository's own
+  `.git/info/exclude`, which is never committed. Deleting the task deletes its attached files; a done task keeps them.
+  Attachments stay with the draft, the queue and a relaunch, as images do.
+  ![Attached files](design/screens/36-attached-files.png)
 - **Links** — a link in what the agent or you wrote opens in your browser (a `mailto:` link in your mail app), never in
   Glade: in replies and your messages, the question and permission cards, the tool log's notes and output, the goal
   and status, todos, watchers and queued messages. Markdown links and bare URLs and email addresses are links; URLs in
@@ -89,6 +102,17 @@ There are no follow-up tasks. One task can refer to another through its folder o
   the binary notice, fit to the panel but never scaled past its own size, on a checkerboard behind transparency;
   clicking it opens the image viewer, above. Too narrow for its tabs, the
   tab row scrolls sideways, with chevrons at the ends that have more tabs past them.
+  Before the open files' tabs sits the fixed **Browse** tab (a folder icon, #398), which shows when no file does: the
+  workspace's tree, folders first and then files, each by name, loaded a folder at a time as you open them, with the
+  agent's changed files marked by their blue dot. It hides `.git` and Glade's `.glade` always, and in a git repository
+  whatever git ignores there (asked of git itself), but never a file git tracks; a symlink shows only when it leads to
+  something inside the workspace. The folders you leave open are kept for the task, across a relaunch. Clicking a file,
+  or ↩ on it, opens it in a tab. A search at the top finds files by name or path anywhere in the workspace, as a flat
+  list with each one's folder and the match marked, best first (names that start with it, then names that hold it,
+  then paths), stopping at the first 200 with how many more; Esc clears it. ↑↓ move, → and ← open and close a folder,
+  and ⌘F, with the focus in the Files tab while Browse shows, goes to its search (the editor's ⌘F still finds in the
+  file). The folders it shows are watched, so what the agent (or anything else) makes or deletes shows at once.
+  ![Browse files](design/screens/37-browse-files.png)
 - **Bottom bar** (full width) — the workspace's terminal, with tabs, and a plugin panel (Nekomata). Resizable,
   collapsible. Each workspace has its own terminal tabs; switching workspace switches them, and the other
   workspaces' shells keep running. Removing a workspace ends its shells.
@@ -116,6 +140,17 @@ the rate limit events that come as each turn starts; when the call fails, the ev
 keeps the latest reading of each limit, so a relaunch shows them again, and drops each when its window resets. An API
 key or a cloud provider has no plan limits, so the meter is hidden for them.
 
+### Logged out
+
+When Claude Code's login expires, is revoked or isn't there (#409), the task stops on a card of its own in the error
+card's style, not a generic API error (`design/screens/38-logged-out.png`): "You're logged out of Claude", what happened,
+and that nothing is lost. **Log in** runs Claude Code's own login (`claude auth login`, from the binary Glade ships),
+which opens Anthropic's sign-in page in your browser; the card waits ("Waiting for the browser…", with **Cancel**), and
+once you're in, that task carries on by itself. Every other task the same lost login stopped shows the same card, now
+saying you're logged in again: each has **Retry**, and **Retry all N tasks** retries them together; none is retried
+without you asking. A login that fails says why, and Log in tries again. The task list's row reads "Error: logged out of
+Claude · log in?". Glade never sees the credential: Claude Code saves it, as it would in a terminal.
+
 ## Attention
 
 A task you aren't looking at can still need you. When its agent sends a **final reply**, **asks a question** (`ask`)
@@ -142,8 +177,9 @@ Settings (⌘,) opens on Agent. Changes save as you make them.
 
 - **General:** **Show Glade in the menu bar** (on by default): its icon, and the list under it (see Attention). Then
   the account the tasks run on and bill to, as Claude Code reports it when a task starts: the email (or "API key", a
-  cloud provider, or "Not signed in"), organization, plan, and what it's signed in with. Nothing to change: Claude Code
-  owns the login. How much of its usage limits is used shows in the usage meter at the foot of the sidebar (see
+  cloud provider, or "Not signed in"), organization, plan, and what it's signed in with. Claude Code owns the login;
+  while it isn't signed in, or a lost login stops a task, a **Log in** row runs its login, as the logged-out card's
+  does (see Logged out). How much of its usage limits is used shows in the usage meter at the foot of the sidebar (see
   Usage).
 - **Agent:** the defaults for new tasks (model, effort and permissions: Ask first or Allow all; **Allow edits** is shown
   but disabled, as it isn't a mode yet), and two switches for what the agent keeps current: **Status summary**
@@ -153,7 +189,9 @@ Settings (⌘,) opens on Agent. Changes save as you make them.
 - **Appearance:** nothing to set yet; Glade has one theme, dark.
 - **Keyboard:** every shortcut, rebindable (`keymap.md`).
 - **Plugins:** the plugins installed, each turned on or off, its own Reload button, and their folder (`plugin-api.md`).
-  Reading the folder again (opening this section) reloads a running plugin whose files changed on disk since.
+  Reading the folder again (opening this section) reloads a running plugin whose files changed on disk since. A
+  plugin that asks for a capability has a switch for it under its row, off until you turn it on: "Can see your Mac's
+  CPU, GPU and Docker load" (`machine`).
 - **Control:** whether other agents and scripts may drive Glade, and how to connect them (`control-api.md`).
 - **Workspace** (under its own heading, by the workspace's name): its name and root folder.
 

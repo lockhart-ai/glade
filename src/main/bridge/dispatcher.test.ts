@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
+import { IDLE_LOGIN } from '../../shared/login'
 import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
 import {
   FileContentKind,
@@ -67,6 +68,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.TasksSend]: () => ({ message: {} as Message }),
     [CommandName.TasksStop]: () => ({ task: {} as Task }),
     [CommandName.TasksRetry]: () => ({ task: {} as Task }),
+    [CommandName.TasksRetryLoggedOut]: () => ({ tasks: [] }),
     [CommandName.TasksCompact]: () => ({ task: {} as Task }),
     [CommandName.TasksHistory]: () => ({
       messages: [],
@@ -88,6 +90,10 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.ImagesGet]: () => {
       throw new Error('not in these tests')
     },
+    [CommandName.AttachmentsAdd]: () => {
+      throw new Error('not in these tests')
+    },
+    [CommandName.AttachmentsDiscard]: () => null,
     [CommandName.DraftsGet]: () => ({ draft: null }),
     [CommandName.DraftsSet]: () => null,
     [CommandName.QuestionsAnswer]: () => ({ questionSet: {} as QuestionSet }),
@@ -109,6 +115,12 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.FilesThumbnail]: () => ({ thumbnail: { kind: FileThumbnailKind.Missing } }),
     [CommandName.FilesCopy]: () => null,
     [CommandName.FilesReveal]: () => null,
+    [CommandName.FilesBrowse]: () => ({ openFiles: {} as OpenFiles }),
+    [CommandName.FilesListFolder]: () => ({ entries: null }),
+    [CommandName.FilesSearch]: () => ({ paths: [], more: 0 }),
+    [CommandName.FilesExpandedFolders]: () => ({ paths: [] }),
+    [CommandName.FilesSetFolderExpanded]: () => null,
+    [CommandName.FilesWatchFolders]: () => null,
     [CommandName.ArtifactsRemove]: () => null,
     [CommandName.ArtifactsSetGroupOpen]: () => null,
     [CommandName.ArtifactsWatch]: () => null,
@@ -129,11 +141,15 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.TerminalClose]: () => null,
     [CommandName.PluginsList]: () => ({ plugins: [] }),
     [CommandName.PluginsSetEnabled]: () => ({ plugins: [] }),
+    [CommandName.PluginsSetCapability]: () => ({ plugins: [] }),
     [CommandName.PluginsOpenFolder]: () => null,
     [CommandName.PluginsPlaceView]: () => ({ status: '' }),
     [CommandName.PluginsReload]: () => null,
     [CommandName.ControlStatus]: () => ({ status: CONTROL_STATUS }),
     [CommandName.AccountStatus]: () => ({ status: { account: null, usage: [] } }),
+    [CommandName.LoginStatus]: () => ({ status: IDLE_LOGIN }),
+    [CommandName.LoginStart]: () => ({ status: IDLE_LOGIN }),
+    [CommandName.LoginCancel]: () => ({ status: IDLE_LOGIN }),
     [CommandName.ControlRegenerateToken]: () => ({ status: CONTROL_STATUS }),
     [CommandName.WorkspacesUpdate]: () => {
       throw new Error('not in these tests')

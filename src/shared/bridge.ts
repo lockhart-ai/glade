@@ -39,16 +39,19 @@ import type {
   Workspace,
 } from './domain'
 import type { Command, MenuState } from './commands'
+import type { AttachedFile } from './attachedFiles'
 import type { ImageData } from './images'
 import type { ModelChoice } from './models'
 import type { Settings, SettingsPatch } from './settings'
 import type { SearchResult } from './search'
 import type { DoneCounts, DonePage, DonePageRequest } from './doneList'
 import type { TerminalTab } from './terminal'
-import type { InstalledPlugin } from './plugins'
+import type { InstalledPlugin, PluginCapability } from './plugins'
 import type { ControlStatus } from './control'
 import type { AccountStatus } from './account'
+import type { LoginStatus } from './login'
 import type { MenuBarSnapshot } from './menuBar'
+import type { FileSearchResult, FolderEntry } from './browse'
 
 /** The name the bridge is exposed under on `window`. */
 export const BRIDGE_KEY = 'glade'
@@ -81,6 +84,7 @@ export enum CommandName {
   TasksSend = 'tasks.send',
   TasksStop = 'tasks.stop',
   TasksRetry = 'tasks.retry',
+  TasksRetryLoggedOut = 'tasks.retryLoggedOut',
   TasksCompact = 'tasks.compact',
   SubagentsStop = 'subagents.stop',
   SubagentsListRunning = 'subagents.listRunning',
@@ -94,6 +98,8 @@ export enum CommandName {
   QueueEdit = 'queue.edit',
   QueueRemove = 'queue.remove',
   ImagesGet = 'images.get',
+  AttachmentsAdd = 'attachments.add',
+  AttachmentsDiscard = 'attachments.discard',
   DraftsGet = 'drafts.get',
   DraftsSet = 'drafts.set',
   QuestionsAnswer = 'questions.answer',
@@ -108,6 +114,12 @@ export enum CommandName {
   FilesThumbnail = 'files.thumbnail',
   FilesCopy = 'files.copy',
   FilesReveal = 'files.reveal',
+  FilesBrowse = 'files.browse',
+  FilesListFolder = 'files.listFolder',
+  FilesSearch = 'files.search',
+  FilesExpandedFolders = 'files.expandedFolders',
+  FilesSetFolderExpanded = 'files.setFolderExpanded',
+  FilesWatchFolders = 'files.watchFolders',
   ArtifactsRemove = 'artifacts.remove',
   ArtifactsSetGroupOpen = 'artifacts.setGroupOpen',
   ArtifactsWatch = 'artifacts.watch',
@@ -121,12 +133,16 @@ export enum CommandName {
   SearchQuery = 'search.query',
   PluginsList = 'plugins.list',
   PluginsSetEnabled = 'plugins.setEnabled',
+  PluginsSetCapability = 'plugins.setCapability',
   PluginsOpenFolder = 'plugins.openFolder',
   PluginsPlaceView = 'plugins.placeView',
   PluginsReload = 'plugins.reload',
   ControlStatus = 'control.status',
   ControlRegenerateToken = 'control.regenerateToken',
   AccountStatus = 'account.status',
+  LoginStatus = 'login.status',
+  LoginStart = 'login.start',
+  LoginCancel = 'login.cancel',
   TerminalList = 'terminal.list',
   TerminalCreate = 'terminal.create',
   TerminalDuplicate = 'terminal.duplicate',
@@ -343,7 +359,9 @@ export interface TaskResponse {
  */
 export interface TasksSendRequest {
   readonly id: string
-  /** Markdown. Blank only when there are images. An inline token stands for each of `pastedBlocks`, in order. */
+  /**
+   * Markdown. Blank only when there are images or files. An inline token stands for each of `pastedBlocks`, in order.
+   */
   readonly text: string
   /**
    * The images pasted into the message, in order: each goes to the agent as an image content block, before the text.
@@ -355,6 +373,11 @@ export interface TasksSendRequest {
    * token's place among the text. None when left out.
    */
   readonly pastedBlocks?: readonly PastedBlock[]
+  /**
+   * The files attached to the message, already copied into the task's workspace (`attachments.add`), in order: the
+   * agent gets a line with each one's path at the end of the text. None when left out.
+   */
+  readonly files?: readonly AttachedFile[]
 }
 
 export interface TasksSendResponse {
@@ -386,6 +409,15 @@ export interface TasksRetryRequest {
   readonly id: string
   /** The model to retry on, as the SDK names it; the task's own when left out. */
   readonly model?: string
+}
+
+/**
+ * Retries every task a lost login stopped (Retry all, on the logged-out card, #409): each one's turn runs again, as
+ * `tasks.retry` runs it. Answers with the tasks retried, working; none when there are none. A task that can't be
+ * retried (its agent is busy again) is left as it is.
+ */
+export interface TasksRetryLoggedOutResponse {
+  readonly tasks: readonly Task[]
 }
 
 /**
@@ -522,12 +554,16 @@ export interface TasksHistoryResponse {
  */
 export interface QueueAddRequest {
   readonly taskId: string
-  /** Markdown. Blank only when there are images. An inline token stands for each of `pastedBlocks`, in order. */
+  /**
+   * Markdown. Blank only when there are images or files. An inline token stands for each of `pastedBlocks`, in order.
+   */
   readonly text: string
   /** The images pasted into the message, in order, which wait in the queue with it. None when left out. */
   readonly images?: readonly ImageData[]
   /** The text pasted into the message, kept apart from what was typed, which waits in the queue with it. */
   readonly pastedBlocks?: readonly PastedBlock[]
+  /** The files attached to the message, already copied into the workspace, which wait in the queue with it. */
+  readonly files?: readonly AttachedFile[]
 }
 
 /** Changes the text of a message still waiting in its queue. Broadcasts `queue.changed`. */
@@ -560,6 +596,36 @@ export interface ImagesGetResponse {
 }
 
 /**
+ * Attaches a file dropped onto the input bar, or pasted from Finder, to the message being written (#396): copies it,
+ * byte for byte, into the task's folder of attached files in its workspace (`.glade/attachments/<task id>/`), under its
+ * own name made unique there (`sales (2).csv`), and keeps that folder out of the workspace's repository (in its
+ * `.git/info/exclude`). A symlink is copied as the file it leads to. Fails with `not_found` when there's no such task,
+ * and `invalid_request`, saying why in words fit for a toast, for a folder, a file over 200 MB
+ * (`MAX_ATTACHED_FILE_BYTES`), or a path with no file at it.
+ */
+export interface AttachmentsAddRequest {
+  readonly taskId: string
+  /** The file's absolute path, as Electron names a file dropped or pasted (the preload's `pathForFile`). */
+  readonly path: string
+}
+
+export interface AttachmentsAddResponse {
+  /** The copy, to attach to the message. */
+  readonly file: AttachedFile
+}
+
+/**
+ * Deletes the copy of a file taken off the message being written before it was ever sent (its chip's ✕). A file a
+ * message has, sent or queued, is kept. Fails with `not_found` when there's no such task, and `invalid_request` for a
+ * path that isn't one of the task's attached files.
+ */
+export interface AttachmentsDiscardRequest {
+  readonly taskId: string
+  /** The copy's path, relative to the workspace root (`AttachedFile.path`). */
+  readonly path: string
+}
+
+/**
  * A task's input draft: what's in its input bar and not sent yet (`InputDraft`), with its images' bytes. Answers with
  * null when it has none. Fails with `not_found` when there's no such task.
  */
@@ -573,8 +639,8 @@ export interface DraftsGetResponse {
 
 /**
  * Stores a task's input draft as it now is, replacing the one it had, so it's there again after a relaunch or a crash.
- * One with no text and no images is none: it's removed. Does nothing when there's no such task, as a deleted task's
- * input bar can save as it closes.
+ * One with no text, images, pasted blocks or files is none: it's removed. Does nothing when there's no such task, as a
+ * deleted task's input bar can save as it closes.
  */
 export interface DraftsSetRequest {
   readonly taskId: string
@@ -584,12 +650,15 @@ export interface DraftsSetRequest {
   readonly images?: readonly ImageData[]
   /** Every pasted block in the draft, in order, in place of those it had. Left out, it keeps the ones it has. */
   readonly pastedBlocks?: readonly PastedBlock[]
+  /** Every attached file in the draft, in order, in place of those it had. Left out, it keeps the ones it has. */
+  readonly files?: readonly AttachedFile[]
 }
 
 /**
- * Answers the open question set the agent asked (`ask`) with the card: an answer for each question, keyed by its index
- * from 0 (see `checkAnswers` in `./questions` for what each kind of question takes). The agent's turn carries on with
- * the answers as the tool's result, and the task is working again. Broadcasts `question.answered` and `task.updated`.
+ * Answers the open question set the agent asked (`ask`) with the card: an answer for any of its questions (every one is
+ * optional, so none at all is fine), keyed by its index from 0 (see `checkAnswers` in `./questions` for what each kind
+ * of question takes), and what you typed in the card's "Anything else?" box. The agent's turn carries on with the
+ * answers as the tool's result, and the task is working again. Broadcasts `question.answered` and `task.updated`.
  *
  * If the app quit while the question was open, the agent's call is gone: its session is resumed, and the answers go to
  * it as a message, with a resumed divider in the tool log (see the runner).
@@ -603,10 +672,12 @@ export interface QuestionsAnswerRequest {
   /** The question set's id. */
   readonly id: string
   readonly answers: QuestionAnswers
+  /** The card's "Anything else?" text. Trimmed; blank or left out, the reply has none. */
+  readonly anythingElse?: string
 }
 
 export interface QuestionSetResponse {
-  /** The question set as it now is: answered, with its answers tidied (text trimmed, empty optional text dropped). */
+  /** The question set as it now is: answered, with its answers tidied (text trimmed, the unanswered dropped). */
   readonly questionSet: QuestionSet
 }
 
@@ -715,6 +786,77 @@ export type FilesCopyRequest = FileRequest
  * no such file.
  */
 export type FilesRevealRequest = FileRequest
+
+/**
+ * Shows the Files tab's Browse tab (#398): no file tab is showing. Answers with the task's open files as they now
+ * are, and broadcasts `openFiles.changed`. Fails with `not_found` when there's no such task.
+ */
+export interface FilesBrowseRequest {
+  readonly taskId: string
+}
+
+/**
+ * Names a folder of a task's workspace for the Browse tab: `''` for the root, or a path relative to it, normalized, as
+ * `FileRequest`'s. A folder that a symlink takes outside the root fails with `outside_workspace`; a task that isn't
+ * there with `not_found`.
+ */
+export interface FolderRequest {
+  readonly taskId: string
+  readonly path: string
+}
+
+/**
+ * Lists a folder of the workspace for the Browse tab's tree (`''`, the root, to begin with), a level at a time:
+ * folders first, then files, each sorted by name. `.git` and `.glade` are never listed, nor, in a git repository, what
+ * git ignores; a symlink is listed only when it leads to a file or folder inside the root.
+ */
+export type FilesListFolderRequest = FolderRequest
+
+export interface FilesListFolderResponse {
+  /** The folder's entries; null when there's no folder there (any more). */
+  readonly entries: readonly FolderEntry[] | null
+}
+
+/**
+ * Finds the workspace's files whose name or path holds `query` (without regard to case), wherever they are, hiding
+ * what the tree hides: the first `MAX_SEARCH_RESULTS` (in `./browse`), best first, and how many more. Fails with
+ * `not_found` when the workspace's folder isn't there.
+ */
+export interface FilesSearchRequest {
+  readonly taskId: string
+  /** At most `MAX_SEARCH_QUERY` characters. Blank finds nothing. */
+  readonly query: string
+}
+
+export type FilesSearchResponse = FileSearchResult
+
+/** The folders open in a task's Browse tab, as it left them. */
+export interface FilesExpandedFoldersRequest {
+  readonly taskId: string
+}
+
+export interface FilesExpandedFoldersResponse {
+  /** Relative to the workspace root, sorted. */
+  readonly paths: readonly string[]
+}
+
+/** Opens or closes a folder of a task's Browse tab, remembering it for the task. */
+export interface FilesSetFolderExpandedRequest {
+  readonly taskId: string
+  /** Relative to the workspace root (never the root, which is always open). */
+  readonly path: string
+  readonly expanded: boolean
+}
+
+/**
+ * Watches the folders the Browse tab shows (its root, `''`, and each folder open), and no others of the task's: a
+ * change in one broadcasts `files.folderChanged`. None (an empty list) stops watching the task. At most
+ * `MAX_WATCHED_FOLDERS` (in `./browse`).
+ */
+export interface FilesWatchFoldersRequest {
+  readonly taskId: string
+  readonly paths: readonly string[]
+}
 
 /**
  * Takes a file off a task's artifacts (Remove from artifacts); the file itself stays. Broadcasts `artifacts.changed`.
@@ -830,6 +972,19 @@ export interface PluginsSetEnabledRequest {
 }
 
 /**
+ * Turns one of a plugin's capabilities on or off (the switch under it in Settings › Plugins); the state is saved, and
+ * every capability starts off. Answers with the plugins as they now are, broadcasts `plugins.changed`, and reloads the
+ * plugin if it's the one shown, so it starts over with what it may now see. Fails with `not_found` for a plugin that
+ * wasn't valid the last time the folder was read, and `invalid_request` for a capability its manifest doesn't ask for.
+ */
+export interface PluginsSetCapabilityRequest {
+  /** The plugin's id (its folder's name). */
+  readonly id: string
+  readonly capability: PluginCapability
+  readonly granted: boolean
+}
+
+/**
  * The control API's HTTP endpoint as Settings › Control shows it: whether the switch is on, the port chosen and the one
  * in use, the URL, the token and any error. `control.status` answers with it; `control.regenerateToken` replaces the
  * token (the old one is refused from the next request), answers with it and broadcasts `control.changed`.
@@ -844,6 +999,25 @@ export interface ControlStatusResponse {
  */
 export interface AccountStatusResponse {
   readonly status: AccountStatus
+}
+
+/**
+ * Where logging in to Claude stands (`./login`): `login.status` answers with it, and `login.start` and `login.cancel`
+ * with it as they leave it; `login.changed` broadcasts it as it changes.
+ */
+export interface LoginStatusResponse {
+  readonly status: LoginStatus
+}
+
+/**
+ * Runs Claude Code's own login (`claude auth login`, #409), which opens Anthropic's sign-in page in the browser, and
+ * answers at once, waiting. Once you've signed in, the task named, if it's still stopped logged out, is retried by
+ * itself; the others wait for their own Retry (or Retry all). Asked again while a login is running, it doesn't start
+ * another: it adds the task to the ones that retry when it's done.
+ */
+export interface LoginStartRequest {
+  /** The task whose Log in was clicked, to retry once you're logged in; null from Settings › General. */
+  readonly taskId: string | null
 }
 
 /** Opens the plugins folder in Finder (Open plugins folder), creating it if it's missing. */
@@ -1061,6 +1235,7 @@ export interface CommandMap {
   [CommandName.TasksSend]: CommandSpec<TasksSendRequest, TasksSendResponse>
   [CommandName.TasksStop]: CommandSpec<TasksStopRequest, TaskResponse>
   [CommandName.TasksRetry]: CommandSpec<TasksRetryRequest, TaskResponse>
+  [CommandName.TasksRetryLoggedOut]: CommandSpec<EmptyRequest, TasksRetryLoggedOutResponse>
   [CommandName.TasksCompact]: CommandSpec<TasksCompactRequest, TaskResponse>
   [CommandName.SubagentsStop]: CommandSpec<SubagentsStopRequest, null>
   [CommandName.SubagentsListRunning]: CommandSpec<EmptyRequest, SubagentsListRunningResponse>
@@ -1074,6 +1249,8 @@ export interface CommandMap {
   [CommandName.QueueEdit]: CommandSpec<QueueEditRequest, QueuedMessageResponse>
   [CommandName.QueueRemove]: CommandSpec<QueueRemoveRequest, null>
   [CommandName.ImagesGet]: CommandSpec<ImagesGetRequest, ImagesGetResponse>
+  [CommandName.AttachmentsAdd]: CommandSpec<AttachmentsAddRequest, AttachmentsAddResponse>
+  [CommandName.AttachmentsDiscard]: CommandSpec<AttachmentsDiscardRequest, null>
   [CommandName.DraftsGet]: CommandSpec<DraftsGetRequest, DraftsGetResponse>
   [CommandName.DraftsSet]: CommandSpec<DraftsSetRequest, null>
   [CommandName.QuestionsAnswer]: CommandSpec<QuestionsAnswerRequest, QuestionSetResponse>
@@ -1088,6 +1265,12 @@ export interface CommandMap {
   [CommandName.FilesThumbnail]: CommandSpec<FilesThumbnailRequest, FilesThumbnailResponse>
   [CommandName.FilesCopy]: CommandSpec<FilesCopyRequest, null>
   [CommandName.FilesReveal]: CommandSpec<FilesRevealRequest, null>
+  [CommandName.FilesBrowse]: CommandSpec<FilesBrowseRequest, OpenFilesResponse>
+  [CommandName.FilesListFolder]: CommandSpec<FilesListFolderRequest, FilesListFolderResponse>
+  [CommandName.FilesSearch]: CommandSpec<FilesSearchRequest, FilesSearchResponse>
+  [CommandName.FilesExpandedFolders]: CommandSpec<FilesExpandedFoldersRequest, FilesExpandedFoldersResponse>
+  [CommandName.FilesSetFolderExpanded]: CommandSpec<FilesSetFolderExpandedRequest, null>
+  [CommandName.FilesWatchFolders]: CommandSpec<FilesWatchFoldersRequest, null>
   [CommandName.ArtifactsRemove]: CommandSpec<ArtifactsRemoveRequest, null>
   [CommandName.ArtifactsSetGroupOpen]: CommandSpec<ArtifactsSetGroupOpenRequest, null>
   [CommandName.ArtifactsWatch]: CommandSpec<ArtifactsWatchRequest, null>
@@ -1103,7 +1286,11 @@ export interface CommandMap {
   [CommandName.ControlStatus]: CommandSpec<EmptyRequest, ControlStatusResponse>
   [CommandName.ControlRegenerateToken]: CommandSpec<EmptyRequest, ControlStatusResponse>
   [CommandName.AccountStatus]: CommandSpec<EmptyRequest, AccountStatusResponse>
+  [CommandName.LoginStatus]: CommandSpec<EmptyRequest, LoginStatusResponse>
+  [CommandName.LoginStart]: CommandSpec<LoginStartRequest, LoginStatusResponse>
+  [CommandName.LoginCancel]: CommandSpec<EmptyRequest, LoginStatusResponse>
   [CommandName.PluginsSetEnabled]: CommandSpec<PluginsSetEnabledRequest, PluginsResponse>
+  [CommandName.PluginsSetCapability]: CommandSpec<PluginsSetCapabilityRequest, PluginsResponse>
   [CommandName.PluginsOpenFolder]: CommandSpec<PluginsOpenFolderRequest, null>
   [CommandName.PluginsPlaceView]: CommandSpec<PluginsPlaceViewRequest, PluginsPlaceViewResponse>
   [CommandName.PluginsReload]: CommandSpec<PluginsReloadRequest, null>
@@ -1165,6 +1352,7 @@ export enum EventType {
   PermissionWithdrawn = 'permission.withdrawn',
   OpenFilesChanged = 'openFiles.changed',
   FileShown = 'file.shown',
+  FolderChanged = 'files.folderChanged',
   TodosChanged = 'todos.changed',
   ArtifactsChanged = 'artifacts.changed',
   HandoffChanged = 'handoff.changed',
@@ -1181,6 +1369,7 @@ export enum EventType {
   PluginStatusChanged = 'plugin.statusChanged',
   ControlChanged = 'control.changed',
   AccountChanged = 'account.changed',
+  LoginChanged = 'login.changed',
   MenuBarChanged = 'menuBar.changed',
 }
 
@@ -1312,6 +1501,17 @@ export interface OpenFilesChangedEvent {
  * The agent asked to show you a file (`show_file`): it's open in its task's Files tab, and the window shows it there,
  * at `line`, if that task is the one you're viewing. Sent after the `openFiles.changed` that opened it.
  */
+/**
+ * Something in a folder the Browse tab watches changed (`files.watchFolders`): a file or folder in it was made,
+ * removed or renamed (or changed). The window lists the folder again.
+ */
+export interface FolderChangedEvent {
+  readonly type: EventType.FolderChanged
+  readonly taskId: string
+  /** Relative to the workspace root; `''` for the root. */
+  readonly path: string
+}
+
 export interface FileShownEvent {
   readonly type: EventType.FileShown
   readonly taskId: string
@@ -1458,6 +1658,12 @@ export interface AccountChangedEvent {
   readonly status: AccountStatus
 }
 
+/** Logging in to Claude started, finished, failed or was cancelled, or a task stopped logged out again since. */
+export interface LoginChangedEvent {
+  readonly type: EventType.LoginChanged
+  readonly status: LoginStatus
+}
+
 /**
  * What's in flight changed: a task started or stopped working or needing you, or a notification was sent. Sent to the
  * menu bar popover only, while it's open or hidden, with the whole snapshot as it now is.
@@ -1488,6 +1694,7 @@ export type GladeEvent =
   | PermissionWithdrawnEvent
   | OpenFilesChangedEvent
   | FileShownEvent
+  | FolderChangedEvent
   | TodosChangedEvent
   | ArtifactsChangedEvent
   | HandoffChangedEvent
@@ -1503,6 +1710,7 @@ export type GladeEvent =
   | PluginStatusChangedEvent
   | ControlChangedEvent
   | AccountChangedEvent
+  | LoginChangedEvent
   | MenuBarChangedEvent
   | CloseBlockedEvent
 
@@ -1566,4 +1774,9 @@ export interface GladeBridge {
   invoke<C extends CommandName>(command: C, request: CommandRequest<C>): Promise<CommandResponse<C>>
   /** Calls `listener` with every event main broadcasts, until unsubscribed. */
   subscribe(listener: EventListener): Unsubscribe
+  /**
+   * The path on disk of a file dropped or pasted into the window (Electron's `webUtils.getPathForFile`), to attach it
+   * with `attachments.add`; `''` for one that isn't a file on disk, such as an image copied from an app.
+   */
+  pathForFile(file: File): string
 }

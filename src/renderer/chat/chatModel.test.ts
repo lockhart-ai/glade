@@ -51,7 +51,18 @@ function kinds(entries: readonly ChatEntry[]): unknown[] {
 }
 
 function message(id: string, role: MessageRole, turn: number): Message {
-  return { id, taskId: 't1', role, body: id, turn, createdAt: 1_000, summary: null, images: [], pastedBlocks: [] }
+  return {
+    id,
+    taskId: 't1',
+    role,
+    body: id,
+    turn,
+    createdAt: 1_000,
+    summary: null,
+    images: [],
+    pastedBlocks: [],
+    files: [],
+  }
 }
 
 function toolCall(id: string, turn: number, parentToolUseId: string | null = null): ToolEvent {

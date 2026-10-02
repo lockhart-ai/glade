@@ -40,6 +40,7 @@ import {
 import { ImageMediaType } from '../../shared/images'
 import type { PluginEvent } from '../../shared/plugin-api'
 import { pluginEventSchema } from '../../shared/plugin-api-schema'
+import { LoginState } from '../../shared/login'
 import { PluginStatus } from '../../shared/plugins'
 import { BUILT_IN_MODELS } from '../../shared/models'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
@@ -329,6 +330,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           summary: null,
           images: [{ id: secret('image'), mediaType: ImageMediaType.Png }],
           pastedBlocks: [],
+          files: [],
         },
       },
       {
@@ -343,6 +345,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
           summary: { durationMs: 1, filesChanged: 1, linesAdded: 1, linesRemoved: 1 },
           images: [],
           pastedBlocks: [],
+          files: [],
         },
       },
     ],
@@ -351,7 +354,15 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
         type: EventType.QueueChanged,
         taskId: created.id,
         queuedMessages: [
-          { id: 'queued-1', taskId: created.id, body: secret('queued'), createdAt: 1, images: [], pastedBlocks: [] },
+          {
+            id: 'queued-1',
+            taskId: created.id,
+            body: secret('queued'),
+            createdAt: 1,
+            images: [],
+            pastedBlocks: [],
+            files: [],
+          },
         ],
       },
     ],
@@ -406,6 +417,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
       },
     ],
     [EventType.FileShown]: [{ type: EventType.FileShown, taskId: created.id, path: secret('shown_file'), line: 3 }],
+    [EventType.FolderChanged]: [{ type: EventType.FolderChanged, taskId: created.id, path: secret('changed_folder') }],
     [EventType.TodosChanged]: [
       {
         type: EventType.TodosChanged,
@@ -552,6 +564,9 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
       },
     ],
     // Sent to the menu bar popover alone, never through the feed; had it been, a plugin would see nothing of it.
+    [EventType.LoginChanged]: [
+      { type: EventType.LoginChanged, status: { state: LoginState.Failed, message: secret('login_failure') } },
+    ],
     [EventType.MenuBarChanged]: [
       {
         type: EventType.MenuBarChanged,

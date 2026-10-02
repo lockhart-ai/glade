@@ -188,7 +188,9 @@
  *
  * **Images** pasted into a message are saved with it (`../db/repositories/images`), queued or sent, and go to the
  * session with its text, each time it's handed over: when it's sent or delivered from the queue, retried, or sent to a
- * new session on launch. A reply in words to the agent's questions can't carry images: its `ask` call takes text.
+ * new session on launch. So do the **files attached** to it (#396, `../attachments/attachments`): a line with each
+ * one's path at the end of its text, and each image among them as an image too, read from its copy as it's handed
+ * over. A reply in words to the agent's questions can't carry images or files: its `ask` call takes text.
  *
  * Every write is broadcast to the windows as it happens. Only the in-flight turn's bookkeeping (its held-back text and
  * running calls) is kept in memory.
@@ -199,6 +201,7 @@ import { BridgeErrorCode, type GladeEvent } from '../../shared/bridge'
 import {
   API_TOOL_NAME,
   AgentErrorKind,
+  LIVE_WATCHER_STATES,
   CompactionTrigger,
   DividerKind,
   MessageRole,
@@ -230,7 +233,9 @@ import {
 import type { ImageData } from '../../shared/images'
 import { permissionRuleString, taskPermissionRule } from '../../shared/permissions'
 import { agentText } from '../../shared/pastedContent'
-import { checkAnswers } from '../../shared/questions'
+import { withAttachedFiles, type AttachedFile } from '../../shared/attachedFiles'
+import { attachedImagesOf } from '../attachments/attachments'
+import { checkAnswers, tidyAnythingElse } from '../../shared/questions'
 import { isSubagentTool } from '../../shared/subagents'
 import { apiRowArgument, apiRowResult } from '../../shared/taskError'
 import { CommandFailure } from '../bridge/errors'
@@ -260,6 +265,10 @@ import { listTaskPermissionRules } from '../db/repositories/task-permission-rule
 import { listQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
 import { getSettings } from '../db/repositories/settings'
 import { getTask, listPausedTasks, listWorkingTasks } from '../db/repositories/tasks'
+import { recordReportedWindow } from '../db/repositories/context-windows'
+import { offeredModels } from '../db/repositories/sdk-models'
+import { matchReportedWindow } from '../../shared/contextWindow'
+import { findModel } from '../../shared/models'
 import {
   appendCompaction,
   appendDivider,
@@ -281,7 +290,7 @@ import {
   updateCompaction,
   updateToolCall,
 } from '../db/repositories/tool-events'
-import { getWatcher } from '../db/repositories/watchers'
+import { getWatcher, listWatchers } from '../db/repositories/watchers'
 import { getWorkspace } from '../db/repositories/workspaces'
 import { createWatcherTracker, StopAction } from '../watchers/watchers'
 import { createChangeTracker, type ChangeTracker } from '../changes/tracker'
@@ -385,13 +394,22 @@ export interface AgentRunnerOptions {
    * told by default.
    */
   readonly account?: AccountSink
+  /**
+   * Told when a task stops on a lost login (an `AgentErrorKind.LoggedOut` error, #409), so a login that finished before
+   * no longer reads as having fixed it (`../account/login`). Nothing by default.
+   */
+  readonly onLoggedOut?: (taskId: string) => void
 }
 
-/** A message you sent: its text, the images pasted into it, and the text pasted into it, kept apart. */
+/**
+ * A message you sent: its text, the images pasted into it, the text pasted into it, kept apart, and the files attached
+ * to it, already copied into the workspace.
+ */
 interface UserMessage {
   readonly text: string
   readonly images: readonly ImageData[]
   readonly pastedBlocks: readonly PastedBlock[]
+  readonly files: readonly AttachedFile[]
 }
 
 export interface AgentRunner {
@@ -399,14 +417,21 @@ export interface AgentRunner {
    * Saves the user's message and starts a turn with it. A done task is reopened first (see the module comment). Throws
    * a `CommandFailure`: `not_found` for no such task, `busy` while a turn is running or the task is paused.
    */
-  send(taskId: string, text: string, images?: readonly ImageData[], pastedBlocks?: readonly PastedBlock[]): Message
+  send(
+    taskId: string,
+    text: string,
+    images?: readonly ImageData[],
+    pastedBlocks?: readonly PastedBlock[],
+    files?: readonly AttachedFile[],
+  ): Message
   /**
    * Answers the task's open question set with the card's answers (see the module comment), once they're checked against
-   * its questions. Answers with the set, answered. Throws a `CommandFailure`: `not_found` for no such set,
-   * `invalid_transition` for one that isn't open, `invalid_request` for answers that don't fit, and `busy` for a set
-   * the app quit on while its task's agent is working on something else.
+   * its questions, and what you typed in its "Anything else?" box, trimmed (left out when blank). Answers with the set,
+   * answered. Throws a `CommandFailure`: `not_found` for no such set, `invalid_transition` for one that isn't open,
+   * `invalid_request` for answers that don't fit, and `busy` for a set the app quit on while its task's agent is
+   * working on something else.
    */
-  answer(id: string, answers: QuestionAnswers): QuestionSet
+  answer(id: string, answers: QuestionAnswers, anythingElse?: string): QuestionSet
   /**
    * Answers an open permission request (see the module comment): the call waiting on it runs, or is denied with your
    * note. Answers with the request, closed. Throws a `CommandFailure`: `not_found` for no such request, and
@@ -428,6 +453,7 @@ export interface AgentRunner {
     text: string,
     images?: readonly ImageData[],
     pastedBlocks?: readonly PastedBlock[],
+    files?: readonly AttachedFile[],
   ): QueuedMessage
   /**
    * Stops the task's running turn, and resolves with the task once the turn has ended. Does nothing for a task whose
@@ -540,6 +566,11 @@ interface LiveSession {
    * find its context window. Null until the first init.
    */
   sdkModel: string | null
+  /**
+   * Whether the session's model has changed since it started (the picker, a retry on another model, or a refusal's
+   * fallback): a lone `modelUsage` entry may then be the model before, so it's matched by name only.
+   */
+  modelChanged: boolean
   /** What the SDK last said about the account's usage limit; null until it says (it never does for an API key). */
   limit: UsageLimit | null
   /** Closed by the runner: whatever it still emits is ignored, and a turn cut short stays working, for the next launch to resume. */
@@ -887,6 +918,32 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   /** Stops the task on an error: the chat shows its card, and the task list its "Error: …" line. */
   const stopOnError = (taskId: string, error: TaskError): void => {
     updateTaskFromRunner(context, taskId, { activity: TaskActivity.Error, error, retrying: null, pause: null })
+    if (error.kind === AgentErrorKind.LoggedOut) options.onLoggedOut?.(taskId)
+  }
+
+  /**
+   * Before a turn a lost login stopped is retried: closes the task's live session, so the retry starts Claude Code
+   * afresh, resuming the same conversation, and the new process reads the login you've just made. A running Claude
+   * Code mostly picks a new login up by itself, on its next 401 (`docs/sdk-notes.md` §1, "Logging in"), but not when
+   * it started with none at all. A session with background work going on (a background subagent, or a live watcher)
+   * is kept, so retrying never kills it: that retry relies on Claude Code picking the login up.
+   */
+  const restartForLogin = (taskId: string): void => {
+    const live = sessions.get(taskId)
+    if (live === undefined) return
+    const watching = listWatchers(db, taskId).some(({ state }) => LIVE_WATCHER_STATES.includes(state))
+    if (live.background.size > 0 || watching) {
+      agentLog(taskId).info('session kept for a new login: background work is running', {
+        subagents: live.background.size,
+        watching,
+      })
+      return
+    }
+    agentLog(taskId).info('session closed', { reason: 'restarting for a new login' })
+    sessions.delete(taskId)
+    live.closed = true
+    live.session.close()
+    changes.sessionEnded(taskId)
   }
 
   /**
@@ -1038,12 +1095,26 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     return verdict
   }
 
-  /** Hands a user message to the session, with its images, stamped with its id (`uuid`) or a new one's. */
-  /** Sends the session a message, after `block` when there's one: what the session was missing (`./session-context`). */
+  /** The root of a task's workspace, as its session runs in it. */
+  const rootOf = (taskId: string): string => {
+    const task = getTask(db, taskId)
+    return (task === undefined ? undefined : getWorkspace(db, task.workspaceId))?.rootPath ?? ''
+  }
+
+  /**
+   * Hands a user message to the session, with its images, stamped with its id (`uuid`) or a new one's, after `block`
+   * when there's one: what the session was missing (`./session-context`).
+   */
   const hand = (live: LiveSession, message: Message, uuid: string = message.id, block: string | null = null): void => {
-    const images = imagesOf(db, { kind: ImageOwnerKind.Message, id: message.id })
-    // Each pasted block wrapped in its tags, at its token's place among the typed text (#363, `shared/pastedContent.ts`).
-    const text = agentText(message.body, message.pastedBlocks)
+    const root = message.files.length === 0 ? '' : rootOf(message.taskId)
+    // The images pasted into it, then those of its attached files the agent takes as images (#396).
+    const images = [
+      ...imagesOf(db, { kind: ImageOwnerKind.Message, id: message.id }),
+      ...attachedImagesOf(root, message.files),
+    ]
+    // Each pasted block wrapped in its tags, at its token's place among the typed text (#363, `shared/pastedContent.ts`),
+    // then a line with the path of each file attached to it (#396, `shared/attachedFiles.ts`).
+    const text = withAttachedFiles(agentText(message.body, message.pastedBlocks), message.files, root)
     give(live, withContext(block, text), uuid, images)
   }
 
@@ -1235,6 +1306,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       // it supports the task's own.
       const switched = updateTaskFromUser(context, taskId, { model: event.fallbackModel })
       live.settings = { ...live.settings, model: switched.model, effort: switched.effort }
+      // The init that named the session's model was the refused one's: the next init names the fallback.
+      live.sdkModel = null
+      live.modelChanged = true
     }
   }
 
@@ -1370,7 +1444,6 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     stopOnError(taskId, error)
   }
 
-  /** Keeps the context window the result reports for the session's model, if it reports one. */
   /**
    * Asks the SDK where it compacts the session automatically (`getContextUsage`, `docs/sdk-notes.md` §5), which follows
    * the user's own Claude Code settings, and keeps it on the task for the context meter. Only for the threshold: its
@@ -1400,11 +1473,48 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     )
   }
 
+  /**
+   * Keeps the context window the result reports for the session's model (`matchReportedWindow`: by the model its init
+   * named, the model Glade runs it on or the full id that stands for, else the only one reported, while the session
+   * has run on one model), and remembers it for
+   * that model under each of those ids, so the next task or model change on it starts from the real size. The task
+   * takes it only while it's still on the model the session ran: one the picker changed meanwhile gets its own on its
+   * next turn.
+   */
   const recordContextWindow = (taskId: string, live: LiveSession, event: TurnFinishedEvent): void => {
-    const window = live.sdkModel === null ? undefined : event.contextWindows[live.sdkModel]
-    if (window !== undefined && getTask(db, taskId)?.contextWindowTokens !== window) {
-      updateTaskFromRunner(context, taskId, { contextWindowTokens: window })
+    const sessionModel = live.settings.model
+    const fullId = findModel(offeredModels(db), sessionModel)?.resolvedModel ?? null
+    const names = [live.sdkModel, sessionModel, fullId].filter((name) => name !== null)
+    const reported = matchReportedWindow(event.contextWindows, names, !live.modelChanged)
+    if (reported === undefined) {
+      const models = Object.keys(event.contextWindows)
+      if (models.length > 0)
+        agentLog(taskId).warn("the result reports no window for the session's model", { names, models })
+      return
     }
+    recordReportedWindow(db, [reported.model, ...names], reported.window)
+    const task = getTask(db, taskId)
+    if (task?.model !== sessionModel || task.contextWindowTokens === reported.window) return
+    agentLog(taskId).info('context window reported', { model: reported.model, window: reported.window })
+    updateTaskFromRunner(context, taskId, { contextWindowTokens: reported.window })
+  }
+
+  /**
+   * Saves how much context the session's prompt fills. More than the task's window holds proves the window wrong: the
+   * task then shows the smallest window that holds it (`fitContextWindow`, applied as the task is saved), and the log
+   * says so.
+   */
+  const onContextUsed = (taskId: string, tokens: number): void => {
+    const task = getTask(db, taskId)
+    if (task === undefined || task.contextUsedTokens === tokens) return
+    if (tokens > task.contextWindowTokens) {
+      agentLog(taskId).warn('more context used than the window holds; trusting the larger size', {
+        used: tokens,
+        window: task.contextWindowTokens,
+        model: task.model,
+      })
+    }
+    updateTaskFromRunner(context, taskId, { contextUsedTokens: tokens })
   }
 
   /** The session is gone: fail its turn, if one was running, and forget it so the next message starts it again. */
@@ -1721,9 +1831,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         return
       case AgentEventKind.ContextUsed:
         recovered(taskId, turn)
-        if (getTask(db, taskId)?.contextUsedTokens !== event.tokens) {
-          updateTaskFromRunner(context, taskId, { contextUsedTokens: event.tokens })
-        }
+        onContextUsed(taskId, event.tokens)
         return
       case AgentEventKind.Compacting:
         taskLog(taskId).info('compacting', { turn: turn.number })
@@ -1915,6 +2023,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       control,
       requests: new Map(),
       sdkModel: null,
+      modelChanged: false,
       limit: null,
       closed: false,
       subagents: new Map(),
@@ -2042,6 +2151,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const { settings } = live
     if (settings.model !== model || settings.effort !== effort || settings.permissionMode !== permissionMode) {
       agentLog(task.id).info('session settings changed', { model, effort, permissionMode })
+      if (settings.model !== model) {
+        // The next turn's init names the new model.
+        live.sdkModel = null
+        live.modelChanged = true
+      }
       live.settings = { model, effort, permissionMode }
       live.session.configure(live.settings)
     }
@@ -2088,6 +2202,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
                 turn,
                 images: sent.images,
                 pastedBlocks: sent.pastedBlocks,
+                files: sent.files,
               }),
             ]),
       ]
@@ -2282,16 +2397,16 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   const runner: AgentRunner = {
-    send(taskId, text, images = [], pastedBlocks = []) {
+    send(taskId, text, images = [], pastedBlocks = [], files = []) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
       // The agent waits on answers to its questions: the message answers them, rather than starting a turn.
       const open = getOpenQuestionSet(db, taskId)
       if (open !== undefined) {
-        if (images.length > 0 || pastedBlocks.length > 0) {
+        if (images.length > 0 || pastedBlocks.length > 0 || files.length > 0) {
           throw new CommandFailure(
             BridgeErrorCode.InvalidRequest,
-            'An answer to the agent’s questions can’t have images or pasted text',
+            'An answer to the agent’s questions can’t have images, files or pasted text',
           )
         }
         return answerInWords(open, text)
@@ -2309,12 +2424,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The task is paused; queue the message instead')
       }
       // The message sent is the last of the turn's: any queued ones go before it.
-      const message = startTurn(task, sessions.get(taskId) ?? start(task), { text, images, pastedBlocks }).at(-1)
+      const sent = { text, images, pastedBlocks, files }
+      const message = startTurn(task, sessions.get(taskId) ?? start(task), sent).at(-1)
       if (message === undefined) throw new Error(`The turn for task ${taskId} started without its message`)
       return message
     },
 
-    answer(id, answers) {
+    answer(id, answers, anythingElse) {
       const set = getQuestionSet(db, id)
       if (set === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No question set ${id}`)
       if (set.state !== QuestionSetState.Open) {
@@ -2322,7 +2438,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       }
       const checked = checkAnswers(set.questions, answers)
       if (!checked.ok) throw new CommandFailure(BridgeErrorCode.InvalidRequest, checked.problems.join('; '))
-      return replyTo(answerable(set), set, { kind: QuestionReplyKind.Answers, answers: checked.answers })
+      const other = tidyAnythingElse(anythingElse)
+      return replyTo(answerable(set), set, {
+        kind: QuestionReplyKind.Answers,
+        answers: checked.answers,
+        ...(other === undefined ? {} : { anythingElse: other }),
+      })
     },
 
     answerPermission(id, decision) {
@@ -2353,10 +2474,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       live.session.configure(live.settings)
     },
 
-    queue(taskId, text, images = [], pastedBlocks = []) {
+    queue(taskId, text, images = [], pastedBlocks = [], files = []) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
-      const queued = addQueuedMessage(context, { taskId, body: text, images, pastedBlocks })
+      const queued = addQueuedMessage(context, { taskId, body: text, images, pastedBlocks, files })
       // A paused task delivers its queue once it resumes, and one waiting on requests the app quit on once you decide.
       if (isPaused(task) || waitsOnRestartRequests(taskId)) return queued
       const live = sessions.get(taskId)
@@ -2427,6 +2548,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         throw new CommandFailure(BridgeErrorCode.InvalidTransition, "The agent isn't stopped by an error or paused")
       }
       const current = model === undefined ? task : updateTaskFromUser(context, taskId, { model })
+      if (task.error?.kind === AgentErrorKind.LoggedOut) restartForLogin(taskId)
       const live = sessions.get(taskId) ?? start(current)
       applySettings(current, live)
       startWorking(taskId)

@@ -42,6 +42,16 @@ current binding. The menu bar answers the keys of its items; the window listens 
 | | Select an answer in a question card | 1 – 9 |
 | | Previous / next image in the image viewer | ←→ |
 
+## The Files tab's Browse tab
+
+The tree and the search (#398, `design/screens/37-browse-files.png`) answer their own keys while they have the focus,
+as menus do; they're fixed. In the tree, ↑↓ move, → opens a folder (or goes into an open one), ← closes an open folder
+(or goes up to the folder a row is in), ↵ opens a file in a tab or opens or closes a folder, Home and End go to the
+first and last rows, and ↑ on the top row goes back to the search. In the search, ↓ goes into the tree, or with a
+search ↑↓ move through its results; ↵ opens the one picked, and Esc clears the search. Search tasks (⌘F, or whatever
+you bind it to), with the focus in the Files tab while Browse shows, puts the focus in Browse's search instead of the
+task search; in the editor, its own ⌘F finds in the file, and anywhere else ⌘F searches tasks as ever.
+
 ## Rebinding
 
 The keymap lives in `src/shared/keymap.ts` (the commands themselves are in `src/shared/commands.ts`): one command per
@@ -53,10 +63,11 @@ rebinds a shortcut by recording the keys you press; Reset puts back its default.
 
 - **Where they apply:** the menu bar's and the window's shortcuts work wherever the focus is, typing in a text field
   included. Next / previous task (⌥↓ / ⌥↑) work anywhere but a text field, where they'd move the caret, with one
-  exception: in the input bar's message field they switch tasks too, and the focus goes on to the new task's input bar.
-  Other text fields (search, rename, Settings, a question's text answer, a Deny note, a queued message being edited)
-  keep them, and so does the terminal, which sends them to the shell. Each task's input bar keeps its draft while you're
-  on another task, and across a relaunch.
+  exception: the input bar's message field, where they switch tasks too. Other text fields (search, rename, Settings, a
+  question's text answer, a Deny note, a queued message being edited) keep them, and so does the terminal, which sends
+  them to the shell. Each task's input bar keeps its draft while you're on another task, and across a relaunch.
+  Selecting a task, by any of these routes or another (a click, a notification, search, a workspace switch, a dialog
+  closing), focuses its input bar once it's shown, unless a modal is open; closing the modal then focuses it (#415).
 - **Refused, with the reason under the row:** keys another command already has where both apply (the menu bar's and
   the window's shortcuts reach everywhere, Next / previous task's the message field too; the message field, menus,
   question cards and terminal each have their own keys); keys macOS or the app menu takes first (⌘Q, ⌘H, ⌘⌥H, ⌘M,

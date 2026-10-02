@@ -16,7 +16,9 @@ import {
   type GladeEvent,
 } from '../../shared/bridge'
 import type { MenuState } from '../../shared/commands'
+import { AttachedFileKind, attachmentsFolderOf, type AttachedFile } from '../../shared/attachedFiles'
 import {
+  AgentErrorKind,
   Effort,
   PermissionMode,
   FileContentKind,
@@ -66,12 +68,14 @@ import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import { controlUrl, type ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
-import { PluginStatus, type InstalledPlugin } from '../../shared/plugins'
+import { IDLE_LOGIN, LoginState, type LoginStatus } from '../../shared/login'
+import { PluginStatus, withGrant, type InstalledPlugin } from '../../shared/plugins'
 import { highlightParts, highlightPattern, SearchField, type SearchResult } from '../../shared/search'
 import type { TerminalTab } from '../../shared/terminal'
 import { addDoneCounts, doneCountsOf, isInDoneSection, NO_DONE_TASKS, pageOfDone } from '../../shared/doneList'
 import { EMPTY_MENU_BAR_SNAPSHOT, type MenuBarSnapshot } from '../../shared/menuBar'
 import { openableUrl } from '../../shared/links'
+import { FolderEntryKind, MAX_SEARCH_RESULTS, normalizeQuery, rankMatches, type FolderEntry } from '../../shared/browse'
 
 export type FakeHandlers = {
   readonly [C in CommandName]: (request: CommandRequest<C>) => CommandResponse<C> | Promise<CommandResponse<C>>
@@ -101,6 +105,17 @@ export interface FakeMain {
   readonly permissionRequests?: PermissionRequest[]
   /** Every task's open files; none when left out. `files.open` and `files.close` change them. */
   readonly openFiles?: OpenFiles[]
+  /**
+   * The workspace's tree, for any task: each folder's entries (`''` for the root), as `files.listFolder` answers;
+   * a folder left out isn't there. `files.search` looks through every file in it.
+   */
+  readonly tree?: Record<string, readonly FolderEntry[]>
+  /** Each task's open Browse folders, by task id: `files.setFolderExpanded` changes them. */
+  readonly expandedFolders?: Record<string, string[]>
+  /** The folders `files.watchFolders` was last asked to watch, by task id. */
+  readonly watchedFolders?: Record<string, readonly string[]>
+  /** The searches `files.search` was asked for, oldest first. */
+  readonly searches?: string[]
   /** What `files.read` answers with, by path, for any task; missing when left out. */
   readonly files?: Readonly<Record<string, FileContent>>
   /** What `files.write` saved, oldest first. */
@@ -151,13 +166,21 @@ export interface FakeMain {
   readonly models?: readonly ModelChoice[]
   /** What `account.status` answers with: no account read and no warning when left out. */
   readonly accountStatus?: AccountStatus
+  /**
+   * Where logging in stands, which `login.status` answers with; idle when left out. `login.start` sets it waiting (at
+   * 5,000, for the task it names alone) and `login.cancel` idle, each broadcasting it; neither runs anything.
+   */
+  login?: LoginStatus
+  /** The task each `login.start` named (null for none), oldest first. */
+  readonly loginStarts?: (string | null)[]
   /** The task last selected in each workspace, by workspace id, which `workspaces.open` selects; none when left out. */
   readonly workspaceSelections?: Readonly<Record<string, string>>
   /** The workspaces `workspaces.reveal` revealed, by id, oldest first. */
   readonly revealedWorkspaces?: string[]
   /**
    * The plugins `plugins.list` answers with, in order; none when left out. `plugins.setEnabled` turns a valid one on or
-   * off, broadcasting them, and refuses any other with `not_found`.
+   * off, broadcasting them, and refuses any other with `not_found`; `plugins.setCapability` turns one of its
+   * capabilities on or off the same way.
    */
   plugins?: InstalledPlugin[]
   /** How many times `plugins.openFolder` opened the plugins folder. */
@@ -289,6 +312,11 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     emit({ type: EventType.TaskUpdated, task })
     return { task }
   }
+  const loginChanged = (status: LoginStatus): { status: LoginStatus } => {
+    main.login = status
+    emit({ type: EventType.LoginChanged, status })
+    return { status }
+  }
   const terminalTabs = main.terminalTabs ?? []
   const terminalCalls = main.terminalCalls ?? []
   let terminals = 0
@@ -397,6 +425,11 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
         ...(model === undefined ? {} : { model }),
       }),
     [CommandName.TasksCompact]: ({ id }) => writeTask(id, { activity: TaskActivity.Working }),
+    [CommandName.TasksRetryLoggedOut]: () => ({
+      tasks: main.tasks
+        .filter((task) => task.activity === TaskActivity.Error && task.error?.kind === AgentErrorKind.LoggedOut)
+        .map((task) => writeTask(task.id, { activity: TaskActivity.Working, error: null }).task),
+    }),
     [CommandName.TasksHistory]: ({ id }) => ({
       messages: (main.messages ?? []).filter((message) => message.taskId === id),
       toolEvents: (main.toolEvents ?? []).filter((event) => event.taskId === id),
@@ -438,14 +471,22 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       const image = images[id]
       return image === undefined ? refuse(bridgeError(BridgeErrorCode.NotFound, `No image ${id}`)) : { image }
     },
+    [CommandName.AttachmentsAdd]: ({ taskId, path }) => ({ file: sampleAttachedFile(taskId, path) }),
+    [CommandName.AttachmentsDiscard]: () => null,
     [CommandName.DraftsGet]: ({ taskId }) => ({ draft: drafts[taskId] ?? null }),
-    [CommandName.DraftsSet]: ({ taskId, text, images: given, pastedBlocks: givenBlocks }) => {
+    [CommandName.DraftsSet]: ({ taskId, text, images: given, pastedBlocks: givenBlocks, files: givenFiles }) => {
       const draft = {
         text,
         images: given ?? drafts[taskId]?.images ?? [],
         pastedBlocks: givenBlocks ?? drafts[taskId]?.pastedBlocks ?? [],
+        files: givenFiles ?? drafts[taskId]?.files ?? [],
       }
-      if (draft.text === '' && draft.images.length === 0 && draft.pastedBlocks.length === 0) {
+      if (
+        draft.text === '' &&
+        draft.images.length === 0 &&
+        draft.pastedBlocks.length === 0 &&
+        draft.files.length === 0
+      ) {
         Reflect.deleteProperty(drafts, taskId)
       } else drafts[taskId] = draft
       return null
@@ -476,7 +517,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       emit({ type: EventType.PermissionAnswered, permissionRequest })
       return { permissionRequest }
     },
-    [CommandName.QuestionsAnswer]: ({ id, answers }) => {
+    [CommandName.QuestionsAnswer]: ({ id, answers, anythingElse }) => {
       const sets = main.questionSets ?? []
       const index = sets.findIndex((set) => set.id === id)
       const current = sets[index]
@@ -484,7 +525,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       const questionSet: QuestionSet = {
         ...current,
         state: QuestionSetState.Answered,
-        reply: { kind: QuestionReplyKind.Answers, answers },
+        reply: { kind: QuestionReplyKind.Answers, answers, ...(anythingElse === undefined ? {} : { anythingElse }) },
         closedAt: 3_000,
       }
       sets[index] = questionSet
@@ -549,6 +590,29 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       main.revealed?.push(path)
       return null
     },
+    [CommandName.FilesBrowse]: ({ taskId }) => changeOpenFiles(taskId, (open) => ({ ...open, activePath: null })),
+    [CommandName.FilesListFolder]: ({ path }) => ({ entries: main.tree?.[path] ?? null }),
+    [CommandName.FilesSearch]: ({ query }) => {
+      main.searches?.push(query)
+      const files = Object.values(main.tree ?? {})
+        .flat()
+        .filter((entry) => entry.kind === FolderEntryKind.File)
+        .map((entry) => entry.path)
+      const matches = rankMatches(files, normalizeQuery(query))
+      return { paths: matches.slice(0, MAX_SEARCH_RESULTS), more: Math.max(0, matches.length - MAX_SEARCH_RESULTS) }
+    },
+    [CommandName.FilesExpandedFolders]: ({ taskId }) => ({ paths: [...(main.expandedFolders?.[taskId] ?? [])].sort() }),
+    [CommandName.FilesSetFolderExpanded]: ({ taskId, path, expanded }) => {
+      const folders = main.expandedFolders
+      if (folders === undefined) return null
+      const open = (folders[taskId] ?? []).filter((folder) => folder !== path)
+      folders[taskId] = expanded ? [...open, path] : open
+      return null
+    },
+    [CommandName.FilesWatchFolders]: ({ taskId, paths }) => {
+      if (main.watchedFolders !== undefined) main.watchedFolders[taskId] = paths
+      return null
+    },
     [CommandName.ArtifactsRemove]: ({ taskId, path }) => {
       const index = artifacts.findIndex((artifact) => artifact.taskId === taskId && artifact.path === path)
       if (index === -1) return refuse(bridgeError(BridgeErrorCode.NotFound, `No artifact ${path}`))
@@ -609,6 +673,12 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     },
     [CommandName.ControlStatus]: () => ({ status: controlStatus() }),
     [CommandName.AccountStatus]: () => ({ status: main.accountStatus ?? { account: null, usage: [] } }),
+    [CommandName.LoginStatus]: () => ({ status: main.login ?? IDLE_LOGIN }),
+    [CommandName.LoginStart]: ({ taskId }) => {
+      main.loginStarts?.push(taskId)
+      return loginChanged({ state: LoginState.Waiting, since: 5_000, taskIds: taskId === null ? [] : [taskId] })
+    },
+    [CommandName.LoginCancel]: () => loginChanged(IDLE_LOGIN),
     [CommandName.ControlRegenerateToken]: () => {
       tokens += 1
       const status = controlStatus()
@@ -624,6 +694,19 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       }
       main.plugins = plugins.map((plugin) =>
         plugin.folder === id && plugin.status === PluginStatus.Valid ? { ...plugin, enabled } : plugin,
+      )
+      emit({ type: EventType.PluginsChanged, plugins: [...main.plugins] })
+      return { plugins: [...main.plugins] }
+    },
+    [CommandName.PluginsSetCapability]: ({ id, capability, granted }) => {
+      const plugins = main.plugins ?? []
+      const plugin = plugins.find((candidate) => candidate.folder === id)
+      if (plugin?.status !== PluginStatus.Valid) return refuse(bridgeError(BridgeErrorCode.NotFound, `No plugin ${id}`))
+      if (!plugin.manifest.capabilities.includes(capability)) {
+        return refuse(bridgeError(BridgeErrorCode.InvalidRequest, `${id} doesn't ask for ${capability}`))
+      }
+      main.plugins = plugins.map((candidate) =>
+        candidate === plugin ? withGrant(plugin, capability, granted) : candidate,
       )
       emit({ type: EventType.PluginsChanged, plugins: [...main.plugins] })
       return { plugins: [...main.plugins] }
@@ -770,6 +853,32 @@ function fakeSearch(main: FakeMain, workspaceId: string, text: string): SearchRe
   return results
 }
 
+/** The paths on disk of the files made with `fileOnDisk`, as the fake bridge's `pathForFile` answers. */
+const FILE_PATHS = new WeakMap<File, string>()
+
+/**
+ * A file as it's dropped or pasted from Finder: a `File` the fake bridge's `pathForFile` answers `path` for (a `File`
+ * made any other way, like an image copied from an app, has none).
+ */
+export function fileOnDisk(path: string, contents = 'a,b\n1,2\n', type = ''): File {
+  const file = new File([contents], path.slice(path.lastIndexOf('/') + 1), { type })
+  FILE_PATHS.set(file, path)
+  return file
+}
+
+/** The kind the fake `attachments.add` gives a file, by its extension: an image, text, or binary for the rest. */
+function sampleKind(name: string): AttachedFileKind {
+  if (/\.(png|jpe?g|gif|webp|svg)$/i.test(name)) return AttachedFileKind.Image
+  if (/\.(csv|txt|md|json|log|ts)$/i.test(name)) return AttachedFileKind.Text
+  return AttachedFileKind.Binary
+}
+
+/** A file attached to a task's message, as the fake `attachments.add` copies one: 48 KB, its kind by its extension. */
+export function sampleAttachedFile(taskId: string, path: string, size = 48 * 1024): AttachedFile {
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  return { name, path: `${attachmentsFolderOf(taskId)}/${name}`, size, kind: sampleKind(name) }
+}
+
 /** A bridge over `main`'s data. Pass `overrides` to change how single commands answer. */
 export function fakeBridge(main: FakeMain, overrides: Partial<FakeHandlers> = {}): FakeBridge {
   const listeners = new Set<EventListener>()
@@ -787,6 +896,7 @@ export function fakeBridge(main: FakeMain, overrides: Partial<FakeHandlers> = {}
           listeners.delete(listener)
         }
       },
+      pathForFile: (file) => FILE_PATHS.get(file) ?? '',
     },
     invoke,
     emit,
@@ -907,11 +1017,12 @@ export function sampleMessage(id: string, taskId: string, body = 'Add rate limit
     summary: null,
     images: [],
     pastedBlocks: [],
+    files: [],
   }
 }
 
 export function sampleQueuedMessage(id: string, taskId: string, body = 'Keep the original filenames.'): QueuedMessage {
-  return { id, taskId, body, createdAt: 4_000, images: [], pastedBlocks: [] }
+  return { id, taskId, body, createdAt: 4_000, images: [], pastedBlocks: [], files: [] }
 }
 
 /** An open question set: a choice and a text question. */
@@ -961,7 +1072,7 @@ export function sampleQuestionSet(id: string, taskId: string): QuestionSet {
           { id: 'by-area', label: 'By area' },
         ],
       },
-      { kind: QuestionKind.Text, prompt: 'Anything else?', optional: true },
+      { kind: QuestionKind.Text, prompt: 'Anything to call out?' },
     ],
     state: QuestionSetState.Open,
     reply: null,

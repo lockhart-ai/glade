@@ -1,7 +1,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { CloseKind, CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
 import type { Command } from '../../shared/commands'
-import { PluginStatus } from '../../shared/plugins'
+import { PluginStatus, withGrant } from '../../shared/plugins'
 import { UiStateKey, type OpenFiles, type Task, type UiStateEntry, type Workspace } from '../../shared/domain'
 import { DONE_PAGE_SIZE, inDoneList, isInDoneSection } from '../../shared/doneList'
 import { parseTaskFilter } from '../../shared/attention'
@@ -46,6 +46,9 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
 
     // A task main asked to open while a snapshot loaded, opened once it has.
     let openWhenLoaded: string | null = null
+
+    // The Browse tabs, which hear their folders' changes straight from main's events, never through the store.
+    const folderListeners = new Set<(taskId: string, path: string) => void>()
 
     // Each terminal tab's terminals, which hear its output straight from main's events, never through the store.
     const terminalListeners = new Map<string, Set<(event: TerminalEvent) => void>>()
@@ -122,6 +125,10 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     const onEvent = (event: GladeEvent): void => {
       if (event.type === EventType.TerminalOutput || event.type === EventType.TerminalCleared) {
         for (const listener of terminalListeners.get(event.tabId) ?? []) listener(event)
+        return
+      }
+      if (event.type === EventType.FolderChanged) {
+        for (const listener of folderListeners) listener(event.taskId, event.path)
         return
       }
       if (event.type === EventType.MenuCommand) {
@@ -358,6 +365,26 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         }
       },
 
+      // Shown at once, then as main saved it.
+      async setPluginCapability(id, capability, granted) {
+        set((state) => ({
+          plugins:
+            state.plugins?.map((plugin) =>
+              plugin.folder === id && plugin.status === PluginStatus.Valid
+                ? withGrant(plugin, capability, granted)
+                : plugin,
+            ) ?? null,
+        }))
+        try {
+          const { plugins } = await bridge.invoke(CommandName.PluginsSetCapability, { id, capability, granted })
+          set({ plugins })
+        } catch (error) {
+          // Its folder was removed, or it no longer asks for it: show the plugins as they are now, then say why.
+          await get().loadPlugins()
+          throw error
+        }
+      },
+
       async openPluginsFolder() {
         await bridge.invoke(CommandName.PluginsOpenFolder, {})
       },
@@ -514,8 +541,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       async loadHistory(taskId) {
+        // Captured before the request goes out: if an `artifacts.changed` lands before this answers, the load is
+        // stale for artifacts and must not override it (see `newerArtifacts` in `./reducer`).
+        const artifactsVersionAtLoad = get().artifactsVersion[taskId] ?? 0
         const history = await bridge.invoke(CommandName.TasksHistory, { id: taskId })
-        set((state) => withHistory(state, taskId, history))
+        set((state) => withHistory(state, taskId, history, artifactsVersionAtLoad))
       },
 
       setUiState,
@@ -593,22 +623,37 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         if (selected) await get().selectTask(next)
       },
 
-      async sendMessage(taskId, text, images = [], pastedBlocks = []) {
+      async sendMessage(taskId, text, images = [], pastedBlocks = [], files = []) {
         await bridge.invoke(CommandName.TasksSend, {
           id: taskId,
           text,
           ...(images.length > 0 ? { images } : {}),
           ...(pastedBlocks.length > 0 ? { pastedBlocks } : {}),
+          ...(files.length > 0 ? { files } : {}),
         })
       },
 
-      async queueMessage(taskId, text, images = [], pastedBlocks = []) {
+      async queueMessage(taskId, text, images = [], pastedBlocks = [], files = []) {
         await bridge.invoke(CommandName.QueueAdd, {
           taskId,
           text,
           ...(images.length > 0 ? { images } : {}),
           ...(pastedBlocks.length > 0 ? { pastedBlocks } : {}),
+          ...(files.length > 0 ? { files } : {}),
         })
+      },
+
+      pathForFile(file) {
+        return bridge.pathForFile(file)
+      },
+
+      async attachFile(taskId, path) {
+        const { file } = await bridge.invoke(CommandName.AttachmentsAdd, { taskId, path })
+        return file
+      },
+
+      async discardAttachedFile(taskId, path) {
+        await bridge.invoke(CommandName.AttachmentsDiscard, { taskId, path })
       },
 
       loadImage(id) {
@@ -620,8 +665,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         return loading
       },
 
-      async answerQuestions(id, answers) {
-        await bridge.invoke(CommandName.QuestionsAnswer, { id, answers })
+      async answerQuestions(id, answers, anythingElse) {
+        await bridge.invoke(
+          CommandName.QuestionsAnswer,
+          anythingElse === undefined ? { id, answers } : { id, answers, anythingElse },
+        )
       },
 
       async answerPermission(id, decision) {
@@ -644,6 +692,20 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         await bridge.invoke(CommandName.TasksRetry, model === undefined ? { id: taskId } : { id: taskId, model })
       },
 
+      async retryLoggedOut() {
+        await bridge.invoke(CommandName.TasksRetryLoggedOut, {})
+      },
+
+      async startLogin(taskId) {
+        const { status } = await bridge.invoke(CommandName.LoginStart, { taskId })
+        set({ login: status })
+      },
+
+      async cancelLogin() {
+        const { status } = await bridge.invoke(CommandName.LoginCancel, {})
+        set({ login: status })
+      },
+
       async compactTask(taskId) {
         await bridge.invoke(CommandName.TasksCompact, { id: taskId })
       },
@@ -655,6 +717,14 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
 
       focusInput() {
         set(({ inputFocusRequest }) => ({ inputFocusRequest: inputFocusRequest + 1 }))
+      },
+
+      modalOpened() {
+        set(({ openModalCount }) => ({ openModalCount: openModalCount + 1 }))
+      },
+
+      modalClosed() {
+        set(({ openModalCount }) => ({ openModalCount: Math.max(0, openModalCount - 1) }))
       },
 
       // Main broadcasts the change too; applying the answer as well keeps the tabs right whichever arrives first.
@@ -669,6 +739,39 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         get().stopEditing(file)
         applyOpenFiles(await bridge.invoke(CommandName.FilesClose, file))
         return true
+      },
+
+      async showBrowse(taskId) {
+        applyOpenFiles(await bridge.invoke(CommandName.FilesBrowse, { taskId }))
+      },
+
+      async listFolder(taskId, path) {
+        const { entries } = await bridge.invoke(CommandName.FilesListFolder, { taskId, path })
+        return entries
+      },
+
+      async searchFiles(taskId, query) {
+        return bridge.invoke(CommandName.FilesSearch, { taskId, query })
+      },
+
+      async expandedFolders(taskId) {
+        const { paths } = await bridge.invoke(CommandName.FilesExpandedFolders, { taskId })
+        return paths
+      },
+
+      async setFolderExpanded(taskId, path, expanded) {
+        await bridge.invoke(CommandName.FilesSetFolderExpanded, { taskId, path, expanded })
+      },
+
+      async watchFolders(taskId, paths) {
+        await bridge.invoke(CommandName.FilesWatchFolders, { taskId, paths })
+      },
+
+      subscribeFolderChanges(listener) {
+        folderListeners.add(listener)
+        return () => {
+          folderListeners.delete(listener)
+        }
       },
 
       async readFile(taskId, path) {
@@ -819,7 +922,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       keepInputDraft(taskId, draft) {
         set(({ inputDrafts }) => {
           const others = Object.fromEntries(Object.entries(inputDrafts).filter(([id]) => id !== taskId))
-          const empty = draft.text === '' && draft.images.length === 0 && draft.pastedBlocks.length === 0
+          const empty =
+            draft.text === '' &&
+            draft.images.length === 0 &&
+            draft.pastedBlocks.length === 0 &&
+            draft.files.length === 0
           return { inputDrafts: empty ? others : { ...others, [taskId]: draft } }
         })
       },

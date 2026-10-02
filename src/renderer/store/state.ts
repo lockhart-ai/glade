@@ -14,9 +14,11 @@ import type {
 } from '../../shared/bridge'
 import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../shared/settings'
-import type { InstalledPlugin } from '../../shared/plugins'
+import type { InstalledPlugin, PluginCapability } from '../../shared/plugins'
 import type { ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
+import type { FileSearchResult, FolderEntry } from '../../shared/browse'
+import { IDLE_LOGIN, type LoginStatus } from '../../shared/login'
 import type { SettingsSection } from '../settings/sections'
 import type { FileEdits, OpenEditSession, TaskFile, UnsavedChoice, UnsavedPrompt } from '../files/unsaved'
 import type { Command, MenuState } from '../../shared/commands'
@@ -47,6 +49,7 @@ import type {
   Workspace,
 } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
+import type { AttachedFile } from '../../shared/attachedFiles'
 import type { SearchResult } from '../../shared/search'
 import type { TaskFilter } from '../../shared/attention'
 import type { DoneCounts, TaskCursor } from '../../shared/doneList'
@@ -181,6 +184,11 @@ export interface GladeData {
   /** Each task's artifacts (the Artifacts tab), by task id: loaded with its logs, then kept current by events. */
   readonly artifacts: Readonly<Record<string, readonly Artifact[]>>
   /**
+   * How many `artifacts.changed` events each task has had applied, by task id: bumped every time one lands, so a
+   * history load that started before one can tell, when it answers, that it's stale and must not overwrite it.
+   */
+  readonly artifactsVersion: Readonly<Record<string, number>>
+  /**
    * The Artifacts tab's date groups you opened or folded, by task id: loaded with its logs, then changed as you open
    * or fold one.
    */
@@ -256,6 +264,11 @@ export interface GladeData {
    * answered at launch (`account.status`) or last broadcast them.
    */
   readonly accountStatus: AccountStatus
+  /**
+   * Where logging in to Claude stands (`../../shared/login`): the logged-out card and Settings › General show it, as
+   * main answered at launch (`login.status`) or last broadcast it.
+   */
+  readonly login: LoginStatus
   /** The latest request to add text to a task's message field; null until one is made. A one-off UI intent. */
   readonly inputInsertion: InputInsertion | null
   /**
@@ -298,6 +311,12 @@ export interface GladeData {
   readonly fileEdits: FileEdits
   /** The Save / Discard / Cancel prompt showing, about unsaved edits; null when none is. */
   readonly unsavedPrompt: UnsavedPrompt | null
+  /**
+   * How many modals are open now (Settings, a confirm dialog, the image viewer; each registers itself with
+   * `useModalPresence`): above 0, the input bar holds off taking the focus on a task switch, and takes it once this
+   * falls back to 0 (#415). A one-off UI intent, like `inputFocusRequest`.
+   */
+  readonly openModalCount: number
 }
 
 /**
@@ -330,6 +349,8 @@ export interface GladeActions {
   loadPlugins: () => Promise<void>
   /** Turns a plugin on or off (`plugins.setEnabled`); the change saves at once. */
   setPluginEnabled: (id: string, enabled: boolean) => Promise<void>
+  /** Turns one of a plugin's capabilities on or off (`plugins.setCapability`); the change saves at once. */
+  setPluginCapability: (id: string, capability: PluginCapability, granted: boolean) => Promise<void>
   /** Opens the plugins folder in Finder (Open plugins folder). */
   openPluginsFolder: () => Promise<void>
   /**
@@ -445,35 +466,50 @@ export interface GladeActions {
    */
   deleteTask: (taskId: string) => Promise<void>
   /**
-   * Sends the user's message, and the images and pasted blocks in it, to the task's agent. Resolves once main has
-   * saved it; the message and the turn arrive as events. Rejects with `busy` while the agent is working.
+   * Sends the user's message, and the images, pasted blocks and attached files in it, to the task's agent. Resolves
+   * once main has saved it; the message and the turn arrive as events. Rejects with `busy` while the agent is working.
    */
   sendMessage: (
     taskId: string,
     text: string,
     images?: readonly ImageData[],
     pastedBlocks?: readonly PastedBlock[],
+    files?: readonly AttachedFile[],
   ) => Promise<void>
   /**
-   * Queues the user's message, and the images and pasted blocks in it, for the task's agent, which gets it after its
-   * current step. Resolves once main has saved it; the queue arrives as an event.
+   * Queues the user's message, and the images, pasted blocks and attached files in it, for the task's agent, which
+   * gets it after its current step. Resolves once main has saved it; the queue arrives as an event.
    */
   queueMessage: (
     taskId: string,
     text: string,
     images?: readonly ImageData[],
     pastedBlocks?: readonly PastedBlock[],
+    files?: readonly AttachedFile[],
   ) => Promise<void>
+  /**
+   * The path on disk of a file dropped or pasted into the window, to attach it; `''` for one that isn't on disk (an
+   * image copied from an app), which is read in the window instead.
+   */
+  pathForFile: (file: File) => string
+  /**
+   * Copies the file at `path` into the task's workspace, to attach it to the message being written
+   * (`attachments.add`), and resolves with the copy. Rejects with the `BridgeError` saying why it can't be attached.
+   */
+  attachFile: (taskId: string, path: string) => Promise<AttachedFile>
+  /** Deletes the copy of a file taken off the message being written before it was sent (`attachments.discard`). */
+  discardAttachedFile: (taskId: string, path: string) => Promise<void>
   /**
    * A stored image's type and bytes, by id (`images.get`), to show it. Each image is fetched once and kept, since an
    * image never changes; one that failed to load is fetched again next time.
    */
   loadImage: (id: string) => Promise<ImageData>
   /**
-   * Answers an open question set with the card's answers, keyed by question index (`questions.answer`). Resolves once
-   * main has them; the answered set arrives as an event. Rejects with `invalid_request` for answers that don't fit.
+   * Answers an open question set with the card's answers, keyed by question index, and its "Anything else?" text, if
+   * any (`questions.answer`). Resolves once main has them; the answered set arrives as an event. Rejects with
+   * `invalid_request` for answers that don't fit.
    */
-  answerQuestions: (id: string, answers: QuestionAnswers) => Promise<void>
+  answerQuestions: (id: string, answers: QuestionAnswers, anythingElse?: string) => Promise<void>
   /**
    * Answers an open permission request: Allow once, or Deny with an optional note (`permissions.answer`). Resolves once
    * main has it; the answered request arrives as an event. Rejects with `invalid_transition` once it's closed.
@@ -490,6 +526,15 @@ export interface GladeActions {
   stopTask: (taskId: string) => Promise<void>
   /** Retries the turn an error stopped, on `model` if given (`tasks.retry`). */
   retryTask: (taskId: string, model?: string) => Promise<void>
+  /** Retries every task a lost login stopped (Retry all, `tasks.retryLoggedOut`). */
+  retryLoggedOut: () => Promise<void>
+  /**
+   * Starts Claude Code's own login (`login.start`), which opens the browser; `taskId`'s turn is retried once you're
+   * logged in. Resolves once it has started; how it goes arrives as events.
+   */
+  startLogin: (taskId: string | null) => Promise<void>
+  /** Stops the login running (`login.cancel`). */
+  cancelLogin: () => Promise<void>
   /**
    * Compacts the task's context now (Compact now, ⌘⇧K). Resolves once compaction has started; the task, working while
    * it compacts, and the Compact row arrive as events. Rejects with `busy` while the agent is working.
@@ -502,6 +547,10 @@ export interface GladeActions {
   focusTurn: (taskId: string, turn: number) => void
   /** Asks the input bar to focus its message field (see `inputFocusRequest`). */
   focusInput: () => void
+  /** Registers a modal as open, bumping `openModalCount` (see `useModalPresence`). */
+  modalOpened: () => void
+  /** Registers a modal as closed, dropping `openModalCount` back down (see `useModalPresence`). */
+  modalClosed: () => void
   /** Opens a file in a task's Files tab and shows it (`files.open`). */
   openFile: (taskId: string, path: string) => Promise<void>
   /**
@@ -509,6 +558,23 @@ export interface GladeActions {
    * / Cancel first. Resolves with whether it closed: false when you cancelled, or saving failed (rejecting then).
    */
   closeFile: (taskId: string, path: string) => Promise<boolean>
+  /** Shows a task's Browse tab (`files.browse`): no file tab shows. */
+  showBrowse: (taskId: string) => Promise<void>
+  /**
+   * A folder of a task's workspace, as the Browse tab's tree shows it (`files.listFolder`; `''` for the root): null
+   * when there's no folder there. Not kept in the store: the tree holds it.
+   */
+  listFolder: (taskId: string, path: string) => Promise<readonly FolderEntry[] | null>
+  /** Finds a task's workspace files by name or path (`files.search`). Not kept in the store. */
+  searchFiles: (taskId: string, query: string) => Promise<FileSearchResult>
+  /** The folders open in a task's Browse tab, as it left them (`files.expandedFolders`). */
+  expandedFolders: (taskId: string) => Promise<readonly string[]>
+  /** Opens or closes a folder of a task's Browse tab, remembered for the task (`files.setFolderExpanded`). */
+  setFolderExpanded: (taskId: string, path: string, expanded: boolean) => Promise<void>
+  /** Watches the folders a task's Browse tab shows (`files.watchFolders`); none stops watching. */
+  watchFolders: (taskId: string, paths: readonly string[]) => Promise<void>
+  /** Calls `listener` with each folder of a watched task that changed (`files.folderChanged`), until unsubscribed. */
+  subscribeFolderChanges: (listener: (taskId: string, path: string) => void) => Unsubscribe
   /** Reads a file of a task's workspace for the viewer (`files.read`). Not kept in the store: the viewer holds it. */
   readFile: (taskId: string, path: string) => Promise<FileContent>
   /** Starts editing a workspace file of a task, from its text on disk; its editor is in `fileEdits` from then. */
@@ -653,6 +719,7 @@ export const INITIAL_DATA: GladeData = {
   permissionRequests: {},
   openFiles: {},
   artifacts: {},
+  artifactsVersion: {},
   artifactGroups: {},
   watchers: {},
   commits: {},
@@ -672,6 +739,7 @@ export const INITIAL_DATA: GladeData = {
   pluginStatuses: {},
   controlStatus: null,
   accountStatus: { account: null, usage: [] },
+  login: IDLE_LOGIN,
   inputInsertion: null,
   inputDrafts: {},
   searchText: '',
@@ -683,6 +751,7 @@ export const INITIAL_DATA: GladeData = {
   terminalPaste: null,
   fileEdits: {},
   unsavedPrompt: null,
+  openModalCount: 0,
 }
 
 export function selectSelectedWorkspace(state: GladeData): Workspace | undefined {

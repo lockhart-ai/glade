@@ -1,6 +1,8 @@
 import { faArrowsRotate, faChevronDown, faPuzzlePiece, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Effort, PermissionMode } from '../../shared/domain'
+import { LoginState } from '../../shared/login'
+import { isStoppedLoggedOut } from '../../shared/taskError'
 import {
   EFFORT_NAMES,
   effortFallbackNotice,
@@ -8,9 +10,17 @@ import {
   effortsOf,
   findModel,
   modelName,
+  modelOptions,
   type ModelChoice,
 } from '../../shared/models'
-import { PluginStatus, type InstalledPlugin } from '../../shared/plugins'
+import {
+  isGranted,
+  PLUGIN_CAPABILITY_LABELS,
+  PluginStatus,
+  type InstalledPlugin,
+  type PluginCapability,
+  type ValidPlugin,
+} from '../../shared/plugins'
 import type { Settings, SettingsPatch } from '../../shared/settings'
 import {
   Button,
@@ -35,7 +45,7 @@ import { describeFailure } from '../store/hydrate'
 import { selectSelectedWorkspace } from '../store/state'
 import { useGladeStore } from '../store/react'
 import { useNow } from '../task-list/useNow'
-import { accountView } from './accountModel'
+import { accountView, loginRowDescription, offersLogin } from './accountModel'
 import styles from './SettingsDialog.module.css'
 
 export interface SettingRowProps {
@@ -125,8 +135,8 @@ interface ModelPickerProps {
 /** The default model: a button naming it, which opens a menu of the models with it checked. */
 function ModelPicker({ models, value, onChoose }: ModelPickerProps): React.JSX.Element {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
-  const selected = findModel(models, value)?.id
-  const entries: MenuEntry[] = models.map((option) => ({
+  const selected = findModel(models, value)?.id ?? value
+  const entries: MenuEntry[] = modelOptions(models, value).map((option) => ({
     kind: MenuEntryKind.Item,
     label: option.name,
     checked: option.id === selected,
@@ -163,13 +173,70 @@ function ModelPicker({ models, value, onChoose }: ModelPickerProps): React.JSX.E
 }
 
 /**
+ * Settings › General's Log in (#409), under the account while Claude Code isn't signed in or a lost login stops a
+ * task: the logged-out card's login, run for no task in particular, so it retries none. While it runs, Cancel stops
+ * it.
+ */
+function LoginRow(): React.JSX.Element {
+  const login = useGladeStore((state) => state.login)
+  const startLogin = useGladeStore((state) => state.startLogin)
+  const cancelLogin = useGladeStore((state) => state.cancelLogin)
+  const [error, setError] = useState<string | null>(null)
+
+  const attempt = (action: () => Promise<void>): void => {
+    setError(null)
+    action().catch((failure: unknown) => {
+      setError(describeFailure(failure))
+    })
+  }
+
+  return (
+    <>
+      <SettingRow name="Log in" description={loginRowDescription(login)}>
+        {login.state === LoginState.Waiting ? (
+          <span className={styles.buttons}>
+            <Button size={ButtonSize.Small} disabled>
+              Waiting for the browser…
+            </Button>
+            <Button
+              variant={ButtonVariant.Ghost}
+              size={ButtonSize.Small}
+              onClick={() => {
+                attempt(cancelLogin)
+              }}
+            >
+              Cancel
+            </Button>
+          </span>
+        ) : (
+          <Button
+            size={ButtonSize.Small}
+            onClick={() => {
+              attempt(() => startLogin(null))
+            }}
+          >
+            Log in
+          </Button>
+        )}
+      </SettingRow>
+      {error !== null && (
+        <p role="alert" className={styles.error}>
+          {error}
+        </p>
+      )}
+    </>
+  )
+}
+
+/**
  * Glade in the macOS menu bar (`docs/design/html/29-menu-bar.html`), then the account the tasks run on and bill to, as
- * Claude Code last reported it (`docs/design/html/21-settings.html`): nothing to change there, since Claude Code owns
- * the login.
+ * Claude Code last reported it (`docs/design/html/21-settings.html`). Claude Code owns the login; while it isn't signed
+ * in, or a lost login stops a task, Log in runs Claude Code's own (#409).
  */
 export function GeneralSection(): React.JSX.Element {
   const [settings, update] = useSettings()
   const account = useGladeStore((state) => state.accountStatus.account)
+  const loggedOut = useGladeStore((state) => Object.values(state.tasks).some(isStoppedLoggedOut))
   const now = useNow()
   const view = accountView(account, now)
   return (
@@ -199,6 +266,7 @@ export function GeneralSection(): React.JSX.Element {
             </span>
           </SettingRow>
         ))}
+        {offersLogin(account, loggedOut) && <LoginRow />}
         {view.readLine !== null && <p className={styles.note}>{view.readLine}</p>}
       </section>
     </>
@@ -311,44 +379,35 @@ export function AppearanceSection(): React.JSX.Element {
 interface PluginRowProps {
   plugin: InstalledPlugin
   onToggle: (id: string, enabled: boolean) => void
+  /** Turns one of the plugin's capabilities on or off (`plugins.setCapability`). */
+  onCapability: (id: string, capability: PluginCapability, granted: boolean) => void
   /** Reloads the plugin's view now, if it's the one shown (`plugins.reload`); a no-op otherwise. */
   onReload: (id: string) => void
 }
 
-/** One plugin: its icon, name and version, Reload and its toggle; or, for an invalid one, its folder and why. */
-function PluginRow({ plugin, onToggle, onReload }: PluginRowProps): React.JSX.Element {
+/**
+ * One plugin: its icon, name and version, Reload and its toggle, and under them a switch for each capability it asks
+ * for, off until you turn it on; or, for an invalid one, its folder and why.
+ */
+function PluginRow({ plugin, onToggle, onCapability, onReload }: PluginRowProps): React.JSX.Element {
   switch (plugin.status) {
     case PluginStatus.Valid: {
       const { manifest } = plugin
       return (
-        <div role="listitem" aria-label={manifest.name} className={classNames(styles.row, styles.pluginRow)}>
-          <span className={styles.pluginTile} aria-hidden="true">
-            {plugin.iconUrl === null ? (
-              <Icon icon={faPuzzlePiece} size={IconSize.Medium} />
-            ) : (
-              <img className={styles.pluginIcon} src={plugin.iconUrl} alt="" />
-            )}
-          </span>
-          <div className={styles.rowText}>
-            <span className={styles.rowName}>{manifest.name}</span>
-            <span className={styles.pluginVersion}>{manifest.version}</span>
-          </div>
-          <Button
-            variant={ButtonVariant.Icon}
-            icon={faArrowsRotate}
-            aria-label={`Reload ${manifest.name}`}
-            title={`Reload ${manifest.name}`}
-            onClick={() => {
-              onReload(plugin.folder)
-            }}
-          />
-          <Toggle
-            label={manifest.name}
-            checked={plugin.enabled}
-            onChange={(enabled) => {
-              onToggle(plugin.folder, enabled)
-            }}
-          />
+        <div role="listitem" aria-label={manifest.name} className={styles.pluginItem}>
+          <PluginSummary plugin={plugin} onToggle={onToggle} onReload={onReload} />
+          {manifest.capabilities.map((capability) => (
+            <div key={capability} className={styles.pluginCapability}>
+              <span className={styles.pluginCapabilityText}>{PLUGIN_CAPABILITY_LABELS[capability]}</span>
+              <Toggle
+                label={`${manifest.name}: ${PLUGIN_CAPABILITY_LABELS[capability]}`}
+                checked={isGranted(plugin, capability)}
+                onChange={(granted) => {
+                  onCapability(plugin.folder, capability, granted)
+                }}
+              />
+            </div>
+          ))}
         </div>
       )
     }
@@ -367,9 +426,52 @@ function PluginRow({ plugin, onToggle, onReload }: PluginRowProps): React.JSX.El
   }
 }
 
+interface PluginSummaryProps {
+  plugin: ValidPlugin
+  onToggle: (id: string, enabled: boolean) => void
+  onReload: (id: string) => void
+}
+
+/** A valid plugin's own row: its icon, name and version, Reload and its toggle. */
+function PluginSummary({ plugin, onToggle, onReload }: PluginSummaryProps): React.JSX.Element {
+  const { manifest } = plugin
+  return (
+    <div className={styles.pluginRow}>
+      <span className={styles.pluginTile} aria-hidden="true">
+        {plugin.iconUrl === null ? (
+          <Icon icon={faPuzzlePiece} size={IconSize.Medium} />
+        ) : (
+          <img className={styles.pluginIcon} src={plugin.iconUrl} alt="" />
+        )}
+      </span>
+      <div className={styles.rowText}>
+        <span className={styles.rowName}>{manifest.name}</span>
+        <span className={styles.pluginVersion}>{manifest.version}</span>
+      </div>
+      <Button
+        variant={ButtonVariant.Icon}
+        icon={faArrowsRotate}
+        aria-label={`Reload ${manifest.name}`}
+        title={`Reload ${manifest.name}`}
+        onClick={() => {
+          onReload(plugin.folder)
+        }}
+      />
+      <Toggle
+        label={manifest.name}
+        checked={plugin.enabled}
+        onChange={(enabled) => {
+          onToggle(plugin.folder, enabled)
+        }}
+      />
+    </div>
+  )
+}
+
 /**
  * The plugins in the plugins folder (`docs/design/screens/21-settings-plugins.png`), which is read again each time
- * this opens: a row per plugin with its toggle, an invalid one with why, and Open plugins folder.
+ * this opens: a row per plugin with its toggle (and a switch under it for each capability it asks for), an invalid
+ * one with why, and Open plugins folder.
  */
 export function PluginsSection(): React.JSX.Element {
   const plugins = useGladeStore((state) => state.plugins)
@@ -377,6 +479,7 @@ export function PluginsSection(): React.JSX.Element {
   const setPluginEnabled = useGladeStore((state) => state.setPluginEnabled)
   const openPluginsFolder = useGladeStore((state) => state.openPluginsFolder)
   const reloadPlugin = useGladeStore((state) => state.reloadPlugin)
+  const setPluginCapability = useGladeStore((state) => state.setPluginCapability)
   // Whether the folder has been read since this opened: until then, the list may be out of date.
   const [read, setRead] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -425,6 +528,7 @@ export function PluginsSection(): React.JSX.Element {
             key={plugin.folder}
             plugin={plugin}
             onToggle={(id, enabled) => void attempt(() => setPluginEnabled(id, enabled))}
+            onCapability={(id, capability, granted) => void attempt(() => setPluginCapability(id, capability, granted))}
             onReload={(id) => void attempt(() => reloadPlugin(id))}
           />
         ))}

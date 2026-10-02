@@ -180,7 +180,7 @@ describe('the bridge', () => {
     await glade.invoke(CommandName.DraftsSet, { taskId: task.id, text: 'Half a thought', images: [PNG] })
     await glade.invoke(CommandName.DraftsSet, { taskId: task.id, text: 'Half a thought, and more' })
     await expect(glade.invoke(CommandName.DraftsGet, { taskId: task.id })).resolves.toEqual({
-      draft: { text: 'Half a thought, and more', images: [PNG], pastedBlocks: [] },
+      draft: { text: 'Half a thought, and more', images: [PNG], pastedBlocks: [], files: [] },
     })
 
     await glade.invoke(CommandName.TasksDelete, { id: task.id })
@@ -277,6 +277,32 @@ describe('the Artifacts tab watching a task', () => {
         ])
       })
       await expect(glade.invoke(CommandName.ArtifactsUnwatch, { taskId })).resolves.toBeNull()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('the Browse tab watching a task’s folders', () => {
+  it('broadcasts a folder that changed on disk, until the tab lets it go', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'glade-round-trip-'))
+    try {
+      const taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+      const events: GladeEvent[] = []
+      glade.subscribe((event) => events.push(event))
+
+      await glade.invoke(CommandName.FilesWatchFolders, { taskId, paths: [''] })
+
+      // A file made each try: FSEvents can take a moment to start reporting a folder just watched.
+      let made = 0
+      await vi.waitFor(
+        () => {
+          writeFileSync(join(root, `notes-${String(made++)}.md`), '# Notes\n')
+          expect(events).toContainEqual({ type: EventType.FolderChanged, taskId, path: '' })
+        },
+        { timeout: 10_000, interval: 100 },
+      )
+      await expect(glade.invoke(CommandName.FilesWatchFolders, { taskId, paths: [] })).resolves.toBeNull()
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

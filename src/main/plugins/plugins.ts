@@ -3,10 +3,16 @@ import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, EventType } from '../../shared/bridge'
-import { PluginStatus, type InstalledPlugin } from '../../shared/plugins'
+import { PluginStatus, withGrant, type InstalledPlugin, type PluginCapability } from '../../shared/plugins'
 import { CommandFailure } from '../bridge/errors'
 import type { Emit } from '../bridge/events'
-import { getPluginStates, notePluginsFound, setPluginEnabled } from '../db/repositories/plugins'
+import {
+  getPluginGrants,
+  getPluginStates,
+  notePluginsFound,
+  setPluginEnabled,
+  setPluginGrant,
+} from '../db/repositories/plugins'
 import type { OpenPath } from '../files/files'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
 import { findPlugins, type FoundPlugin, type FoundValidPlugin } from './discovery'
@@ -23,7 +29,8 @@ export interface PluginsContext {
   readonly onUpdate?: (plugins: readonly InstalledPlugin[]) => void
   /**
    * A rescan (`list`) found a plugin that was already known, changed on disk since (its manifest version or its
-   * entry file's mtime and size): the plugin views, which reload it if it's the one shown.
+   * entry file's mtime and size), or one of a plugin's capabilities was turned on or off (`setCapability`): the plugin
+   * views, which reload it if it's the one shown.
    */
   readonly onReload?: (ids: readonly string[]) => void
   readonly log?: Logger
@@ -42,6 +49,13 @@ export interface Plugins {
    * `not_found` for a plugin the folder didn't have a valid one for the last time it was read.
    */
   setEnabled(id: string, enabled: boolean): InstalledPlugin[]
+  /**
+   * Turns one of a plugin's capabilities on or off, and answers with the list as it now is. Broadcasts
+   * `plugins.changed`, and reloads the plugin if it's the one shown (`onReload`), so its next snapshot has what it may
+   * now see and nothing it no longer may. Fails with `not_found` for a plugin the folder didn't have a valid one for
+   * the last time it was read, and `invalid_request` for a capability its manifest doesn't ask for.
+   */
+  setCapability(id: string, capability: PluginCapability, granted: boolean): InstalledPlugin[]
   /** Opens the plugins folder in Finder, creating it if it's missing. */
   openFolder(): Promise<void>
   /**
@@ -82,9 +96,17 @@ export function createPlugins({
 
   const withStates = (found: readonly FoundPlugin[]): InstalledPlugin[] => {
     const states = getPluginStates(db)
-    return found.map((plugin) =>
-      plugin.status === PluginStatus.Valid ? { ...plugin, enabled: states.get(plugin.folder) ?? true } : plugin,
-    )
+    const grants = getPluginGrants(db)
+    return found.map((plugin) => {
+      if (plugin.status !== PluginStatus.Valid) return plugin
+      const granted = grants.get(plugin.folder)
+      return {
+        ...plugin,
+        enabled: states.get(plugin.folder) ?? true,
+        // Only what its manifest asks for now: a capability it dropped stays saved, but off, until it asks again.
+        granted: plugin.manifest.capabilities.filter((capability) => granted?.has(capability) === true),
+      }
+    })
   }
 
   const update = (plugins: InstalledPlugin[]): void => {
@@ -151,6 +173,21 @@ export function createPlugins({
         candidate.folder === id && candidate.status === PluginStatus.Valid ? { ...candidate, enabled } : candidate,
       )
       update(plugins)
+      return plugins
+    },
+    setCapability(id, capability, granted) {
+      const plugin = last?.find((candidate) => candidate.folder === id)
+      if (plugin?.status !== PluginStatus.Valid) throw new CommandFailure(BridgeErrorCode.NotFound, `No plugin ${id}`)
+      if (!plugin.manifest.capabilities.includes(capability)) {
+        throw new CommandFailure(BridgeErrorCode.InvalidRequest, `${id} doesn't ask for ${capability}`)
+      }
+      const before = plugin.granted.includes(capability)
+      setPluginGrant(db, id, capability, granted)
+      log.info(granted ? 'plugin capability turned on' : 'plugin capability turned off', { id, capability })
+      const changed = withGrant(plugin, capability, granted)
+      const plugins = (last ?? []).map((candidate) => (candidate.folder === id ? changed : candidate))
+      update(plugins)
+      if (before !== granted) onReload?.([id])
       return plugins
     },
     async openFolder() {

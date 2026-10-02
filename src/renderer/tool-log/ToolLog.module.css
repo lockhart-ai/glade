@@ -2,7 +2,8 @@
    (a running call and its output), 16-error.html (a failed call), 17-usage-limit.html (a paused call) and
    18-relaunch.html (an interrupted call, and inline code in a note). */
 .scroller {
-  flex-grow: 1;
+  /* Sized by the panel, not by its content, so a long log isn't laid out again on every change (see Chat.module.css). */
+  flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
   display: flex;

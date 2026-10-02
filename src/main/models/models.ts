@@ -3,16 +3,15 @@
 import type { Database } from 'better-sqlite3'
 import { EventType } from '../../shared/bridge'
 import type { Effort } from '../../shared/domain'
-import { BUILT_IN_MODELS, effortFor, type ModelChoice } from '../../shared/models'
+import { effortFor, type ModelChoice } from '../../shared/models'
 import { parseSdkModels } from '../agent/sdk-models'
 import type { Emit } from '../bridge/events'
-import { getSdkModels, setSdkModels } from '../db/repositories/sdk-models'
+import { getSdkModels, offeredModels, setSdkModels } from '../db/repositories/sdk-models'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
 
 /** The models the pickers offer: the SDK's, once a session has reported them, else the built-in ones. */
 export function listModels(db: Database): readonly ModelChoice[] {
-  const stored = getSdkModels(db)
-  return stored.length > 0 ? stored : BUILT_IN_MODELS
+  return offeredModels(db)
 }
 
 /** What recording the SDK's models needs: where to keep them, and whom to tell. */

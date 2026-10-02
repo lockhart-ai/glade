@@ -251,6 +251,13 @@
   white-space: nowrap;
 }
 
+/* Settings › General's Log in, while it waits: the waiting button and Cancel side by side. */
+.buttons {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
 .error {
   margin: 12px 0 0;
   font-size: var(--font-size-secondary-sm);
@@ -264,7 +271,35 @@
 }
 
 .pluginRow {
+  display: flex;
+  align-items: center;
   gap: 16px;
+}
+
+/* A valid plugin: its own row, then a row per capability it asks for. */
+.pluginItem {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--color-inner-border);
+}
+
+/* A capability's switch, under the plugin's name (past its 36px tile and the 16px gap). */
+.pluginCapability {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-left: 52px;
+}
+
+.pluginCapabilityText {
+  flex-grow: 1;
+  min-width: 0;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.45;
+  color: var(--color-muted);
 }
 
 /* A plugin's icon, on a tile. */

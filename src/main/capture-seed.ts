@@ -12,6 +12,7 @@ import {
   AutoCompactKind,
   CompactionTrigger,
   DividerKind,
+  Effort,
   MessageRole,
   PauseReason,
   PermissionDestination,
@@ -46,9 +47,12 @@ import {
   type PermissionRequestClosing,
 } from './db/repositories/permission-requests'
 import { setOpenFiles } from './db/repositories/open-files'
+import { setBrowseFolderExpanded } from './db/repositories/browse-folders'
 import { appendQueuedMessage } from './db/repositories/queued-messages'
 import { addTaskPermissionRule } from './db/repositories/task-permission-rules'
 import { createTask, updateTask } from './db/repositories/tasks'
+import { setSdkModels } from './db/repositories/sdk-models'
+import type { ModelChoice } from '../shared/models'
 import {
   appendCompaction,
   appendDivider,
@@ -183,6 +187,8 @@ export interface SeedTask {
   readonly activity?: TaskActivity | undefined
   readonly pinned?: boolean | undefined
   readonly unread?: boolean | undefined
+  /** The model id it runs on, as the SDK takes it (e.g. `opus[1m]`); the default for new tasks unless given. */
+  readonly model?: string | undefined
   /** How much context the task's agent has used, in tokens; none unless given. */
   readonly contextUsedTokens?: number | undefined
   /** The task's context window, in tokens; its model's unless given. */
@@ -209,6 +215,8 @@ export interface SeedTask {
   readonly resumedAfterCrash?: boolean | undefined
   /** The files open in its Files tab, relative to the workspace root, and the one showing; none unless given. */
   readonly openFiles?: SeedOpenFiles | undefined
+  /** The folders open in its Files tab's Browse tab, relative to the workspace root; none unless given. */
+  readonly browseFolders?: readonly string[] | undefined
   /** The files the agent declared as its deliverables (the Artifacts tab), in the order it declared them. */
   readonly artifacts?: readonly SeedArtifact[] | undefined
   /** Its handoff note, from a backfill through the control API (the Backfilled card); none unless given. */
@@ -290,8 +298,8 @@ export interface SeedHandoff {
 /** A task's open files (`OpenFiles`). */
 export interface SeedOpenFiles {
   readonly paths: readonly string[]
-  /** The one showing; the first unless given. */
-  readonly activePath?: string | undefined
+  /** The one showing, or null for the Browse tab; the first unless given. */
+  readonly activePath?: string | null | undefined
 }
 
 /** A sample pause (`TaskPause`), with its times relative to the capture. */
@@ -362,6 +370,8 @@ export interface CaptureSeed {
   readonly account?: SeedAccount | undefined
   /** The usage meter's readings; none unless given. */
   readonly usage?: readonly SeedUsageReading[] | undefined
+  /** The models the SDK offers, as a session reported them (`ModelChoice`); the built-in list unless given. */
+  readonly models?: readonly ModelChoice[] | undefined
 }
 
 /** Which panels a seed collapses. */
@@ -470,6 +480,17 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
   }),
   account: seedAccountSchema.optional(),
   usage: z.array(seedUsageReadingSchema).optional(),
+  models: z
+    .array(
+      z.strictObject({
+        id: z.string(),
+        resolvedModel: z.string().nullable(),
+        name: z.string(),
+        description: z.string(),
+        efforts: z.array(z.enum(Effort)).readonly(),
+      }),
+    )
+    .optional(),
   settings: z.strictObject(SETTING_SCHEMAS).partial().optional(),
   controlToken: storedToken.optional(),
   panelTab: z.string().optional(),
@@ -492,6 +513,7 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       activity: z.enum(TaskActivity).optional(),
       pinned: z.boolean().optional(),
       unread: z.boolean().optional(),
+      model: z.string().optional(),
       contextUsedTokens: z.int().nonnegative().optional(),
       contextWindowTokens: z.int().positive().optional(),
       autoCompact: z
@@ -519,7 +541,10 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
       error: seedErrorSchema.optional(),
       pause: seedPauseSchema.optional(),
       resumedAfterCrash: z.boolean().optional(),
-      openFiles: z.strictObject({ paths: z.array(z.string()), activePath: z.string().optional() }).optional(),
+      openFiles: z
+        .strictObject({ paths: z.array(z.string()), activePath: z.string().nullable().optional() })
+        .optional(),
+      browseFolders: z.array(z.string()).optional(),
       artifacts: z
         .array(
           z.union([
@@ -723,6 +748,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
   db.transaction(() => {
     if (seed.settings !== undefined) updateSettings(db, seed.settings)
     if (seed.controlToken !== undefined) storeControlToken(db, seed.controlToken)
+    if (seed.models !== undefined) setSdkModels(db, seed.models)
     if (seed.account !== undefined) {
       const { readMinutesAgo, ...fields } = seed.account
       saveAccount(db, {
@@ -779,7 +805,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       const newTask = {
         ...(sample.id === undefined ? {} : { id: sample.id }),
         workspaceId: workspaceOf(sample),
-        model: DEFAULT_SETTINGS.defaultModel,
+        model: sample.model ?? DEFAULT_SETTINGS.defaultModel,
         effort: DEFAULT_SETTINGS.defaultEffort,
         permissionMode: sample.permissionMode ?? DEFAULT_SETTINGS.defaultPermissionMode,
       }
@@ -839,7 +865,14 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
       for (const body of sample.queuedMessages ?? []) appendQueuedMessage(db, { taskId: task.id, body }, now)
       if (sample.openFiles !== undefined) {
         const { paths, activePath } = sample.openFiles
-        setOpenFiles(db, { taskId: task.id, paths, activePath: activePath ?? paths[0] ?? null })
+        setOpenFiles(db, {
+          taskId: task.id,
+          paths,
+          activePath: activePath === undefined ? (paths[0] ?? null) : activePath,
+        })
+      }
+      for (const path of sample.browseFolders ?? []) {
+        setBrowseFolderExpanded(db, { taskId: task.id, path, expanded: true })
       }
       for (const artifact of sample.artifacts ?? []) {
         const { path, title } = artifact

@@ -55,12 +55,12 @@ test('files: the list of changed and read files, open-file tabs, the viewer, Ope
   await inputBar(window).field.press('Enter')
   await expect(chat(window).agentReplies).toHaveCount(1)
 
-  // ⌘⌥2 shows Files: no file open yet, and the list of the files the turn touched.
+  // ⌘⌥2 shows Files: no file open yet (the Browse tab shows), and the list of the files the turn touched.
   const panel = taskPanel(window)
   const files = filesTab(window)
   await window.keyboard.press('Meta+Alt+Digit2')
   await expect(panel.tab(/^Files/)).toHaveText('Files')
-  await expect(panel.tabPanel).toContainText('No file open.')
+  await expect(files.browse).toHaveAttribute('aria-pressed', 'true')
   await expect(files.list).toHaveText('2')
   await files.list.click()
   await expect(files.menu).toHaveText(/^Changedsrc\/date\.tsReadtest\/date\.test\.ts$/)
@@ -106,7 +106,7 @@ test('files: the list of changed and read files, open-file tabs, the viewer, Ope
   await expect(again.tab('date.ts')).toHaveCount(0)
   await expect(again.tab('date.test.ts')).toHaveAttribute('aria-pressed', 'true')
   await chooseMenuItem(relaunched, 'File', 'Close')
-  await expect(taskPanel(relaunched.window).tabPanel).toContainText('No file open.')
+  await expect(again.browse).toHaveAttribute('aria-pressed', 'true')
   await expect(taskPanel(relaunched.window).tab(/^Files/)).toHaveText('Files')
 })
 

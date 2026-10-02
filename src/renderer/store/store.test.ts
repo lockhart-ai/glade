@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { bridgeError, BridgeErrorCode, CommandName, EventType, type DraftsGetResponse } from '../../shared/bridge'
+import {
+  bridgeError,
+  BridgeErrorCode,
+  CommandName,
+  EventType,
+  type DraftsGetResponse,
+  type TasksHistoryResponse,
+} from '../../shared/bridge'
 import {
   DividerKind,
   Effort,
@@ -7,6 +14,7 @@ import {
   ArtifactDateGroup,
   FileThumbnailKind,
   MessageRole,
+  QuestionReplyKind,
   QuestionSetState,
   TaskActivity,
   TaskState,
@@ -15,6 +23,7 @@ import {
   WatcherState,
   type UiStateEntry,
 } from '../../shared/domain'
+import { noOpenFiles } from '../../shared/files'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { GIF, JPEG, PNG } from '../../shared/test-images'
 import { SettingsSection } from '../settings/sections'
@@ -892,6 +901,25 @@ describe("a task's logs", () => {
     })
   })
 
+  it('sends the card\'s "Anything else?" text with its answers, and the answered set keeps it', async () => {
+    const data = { ...main(), questionSets: [sampleQuestionSet('s1', 't1')] }
+    const { store, invoke } = await hydrated(data)
+    await store.getState().loadHistory('t1')
+
+    await store.getState().answerQuestions('s1', {}, 'None of these: ask me tomorrow.')
+
+    expect(invoke).toHaveBeenLastCalledWith(CommandName.QuestionsAnswer, {
+      id: 's1',
+      answers: {},
+      anythingElse: 'None of these: ask me tomorrow.',
+    })
+    expect(store.getState().questionSets.t1?.[0]?.reply).toEqual({
+      kind: QuestionReplyKind.Answers,
+      answers: {},
+      anythingElse: 'None of these: ask me tomorrow.',
+    })
+  })
+
   it("rejects with main's error when a queued message is gone", async () => {
     const { store } = await hydrated()
     await expect(store.getState().editQueuedMessage('gone', 'Hi')).rejects.toMatchObject({
@@ -1042,34 +1070,38 @@ describe('context menu actions', () => {
     const calls = invoke.mock.calls.length
     const keep = store.getState().keepInputDraft
 
-    keep('t1', { text: 'Half a thought', images: [], pastedBlocks: [] })
-    keep('t2', { text: '', images: [PNG], pastedBlocks: [] })
-    keep('t1', { text: 'A whole thought', images: [], pastedBlocks: [] })
+    keep('t1', { text: 'Half a thought', images: [], pastedBlocks: [], files: [] })
+    keep('t2', { text: '', images: [PNG], pastedBlocks: [], files: [] })
+    keep('t1', { text: 'A whole thought', images: [], pastedBlocks: [], files: [] })
     expect(store.getState().inputDrafts).toEqual({
-      t1: { text: 'A whole thought', images: [], pastedBlocks: [] },
-      t2: { text: '', images: [PNG], pastedBlocks: [] },
+      t1: { text: 'A whole thought', images: [], pastedBlocks: [], files: [] },
+      t2: { text: '', images: [PNG], pastedBlocks: [], files: [] },
     })
-    keep('t1', { text: '', images: [], pastedBlocks: [] })
-    expect(store.getState().inputDrafts).toEqual({ t2: { text: '', images: [PNG], pastedBlocks: [] } })
+    keep('t1', { text: '', images: [], pastedBlocks: [], files: [] })
+    expect(store.getState().inputDrafts).toEqual({ t2: { text: '', images: [PNG], pastedBlocks: [], files: [] } })
     expect(invoke.mock.calls).toHaveLength(calls)
   })
 
   it('loads a task’s stored draft from main, keeping it, when it has none kept', async () => {
-    const data = { ...main(), drafts: { t1: { text: 'From before the relaunch', images: [PNG], pastedBlocks: [] } } }
+    const data = {
+      ...main(),
+      drafts: { t1: { text: 'From before the relaunch', images: [PNG], pastedBlocks: [], files: [] } },
+    }
     const { store, invoke } = await hydrated(data)
 
     await expect(store.getState().loadInputDraft('t1')).resolves.toEqual({
       text: 'From before the relaunch',
       images: [PNG],
       pastedBlocks: [],
+      files: [],
     })
     expect(invoke).toHaveBeenCalledWith(CommandName.DraftsGet, { taskId: 't1' })
     expect(store.getState().inputDrafts).toEqual({
-      t1: { text: 'From before the relaunch', images: [PNG], pastedBlocks: [] },
+      t1: { text: 'From before the relaunch', images: [PNG], pastedBlocks: [], files: [] },
     })
     await expect(store.getState().loadInputDraft('t2')).resolves.toBeNull()
     expect(store.getState().inputDrafts).toEqual({
-      t1: { text: 'From before the relaunch', images: [PNG], pastedBlocks: [] },
+      t1: { text: 'From before the relaunch', images: [PNG], pastedBlocks: [], files: [] },
     })
   })
 
@@ -1085,16 +1117,17 @@ describe('context menu actions', () => {
     await store.getState().hydrate()
 
     const loading = store.getState().loadInputDraft('t1')
-    store.getState().keepInputDraft('t1', { text: 'Newer', images: [], pastedBlocks: [] })
-    answer({ draft: { text: 'Older', images: [], pastedBlocks: [] } })
-    await expect(loading).resolves.toEqual({ text: 'Older', images: [], pastedBlocks: [] })
-    expect(store.getState().inputDrafts).toEqual({ t1: { text: 'Newer', images: [], pastedBlocks: [] } })
+    store.getState().keepInputDraft('t1', { text: 'Newer', images: [], pastedBlocks: [], files: [] })
+    answer({ draft: { text: 'Older', images: [], pastedBlocks: [], files: [] } })
+    await expect(loading).resolves.toEqual({ text: 'Older', images: [], pastedBlocks: [], files: [] })
+    expect(store.getState().inputDrafts).toEqual({ t1: { text: 'Newer', images: [], pastedBlocks: [], files: [] } })
 
     const calls = fake.invoke.mock.calls.length
     await expect(store.getState().loadInputDraft('t1')).resolves.toEqual({
       text: 'Newer',
       images: [],
       pastedBlocks: [],
+      files: [],
     })
     expect(fake.invoke.mock.calls).toHaveLength(calls)
   })
@@ -1114,7 +1147,7 @@ describe('context menu actions', () => {
     const { store, invoke } = await hydrated({ ...main(), drafts })
     await store.getState().saveInputDraft({ taskId: 't1', text: 'Keep this', images: [GIF] })
     expect(invoke).toHaveBeenCalledWith(CommandName.DraftsSet, { taskId: 't1', text: 'Keep this', images: [GIF] })
-    expect(drafts).toEqual({ t1: { text: 'Keep this', images: [GIF], pastedBlocks: [] } })
+    expect(drafts).toEqual({ t1: { text: 'Keep this', images: [GIF], pastedBlocks: [], files: [] } })
 
     const failing = fakeBridge(main(), {
       [CommandName.DraftsSet]: () => refuse(bridgeError(BridgeErrorCode.Internal, 'database is locked')),
@@ -1176,6 +1209,55 @@ describe('artifact files', () => {
     await store.getState().revealFile('t1', 'README.md')
     expect(data.copied).toEqual(['README.md'])
     expect(data.revealed).toEqual(['README.md'])
+  })
+})
+
+describe("a task's artifacts", () => {
+  it("doesn't let a history load that started before an artifact was removed bring it back (#391)", async () => {
+    const declared = {
+      taskId: 't1',
+      path: 'docs/notes.md',
+      title: 'Notes',
+      addedAt: 1,
+      updatedAt: 1,
+      modifiedAt: 1,
+      missing: false,
+    }
+    const data: FakeMain = { ...main(), artifacts: [declared] }
+    let resolveHistory: ((response: TasksHistoryResponse) => void) | undefined
+    const fake = fakeBridge(data, {
+      [CommandName.TasksHistory]: () =>
+        new Promise<TasksHistoryResponse>((resolve) => {
+          resolveHistory = resolve
+        }),
+    })
+    const store = createGladeStore(fake.bridge)
+    await store.getState().hydrate()
+
+    // The load starts while the artifact is still declared...
+    const load = store.getState().loadHistory('t1')
+    // ...but the Artifacts tab's own Remove (or the agent's `remove_artifact`) lands its `artifacts.changed` first.
+    await store.getState().removeArtifact('t1', 'docs/notes.md')
+    expect(store.getState().artifacts.t1).toEqual([])
+
+    // The load answers last, with the stale list it read before the removal.
+    resolveHistory?.({
+      messages: [],
+      toolEvents: [],
+      queuedMessages: [],
+      questionSets: [],
+      permissionRequests: [],
+      openFiles: noOpenFiles('t1'),
+      todos: null,
+      artifacts: [declared],
+      artifactGroups: [],
+      handoff: null,
+      watchers: [],
+      commits: [],
+    })
+    await load
+
+    expect(store.getState().artifacts.t1).toEqual([])
   })
 })
 

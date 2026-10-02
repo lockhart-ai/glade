@@ -39,6 +39,7 @@ import { editQueuedMessage, removeQueuedMessage } from '../tasks/queue'
 import { noteUiStateSet } from '../tasks/attention'
 import { changeTask, createTask, deleteTask, markTaskDone, reopenTask, requireTask } from '../tasks/service'
 import {
+  browseTaskFiles,
   closeTaskFile,
   copyTaskFile,
   thumbnailOfTaskFile,
@@ -46,6 +47,7 @@ import {
   openTaskFileInEditor,
   readTaskFile,
   writeTaskFile,
+  workspaceRoot,
   revealTaskFile,
   type OpenPath,
   type RevealPath,
@@ -53,8 +55,12 @@ import {
 } from '../files/files'
 import { todoListFor } from '../todos/todos'
 import { removeTaskArtifact } from '../artifacts/artifacts'
+import { attachFile, discardAttachedFile } from '../attachments/attachments'
 import { NO_THUMBNAILS, type Thumbnails } from '../artifacts/thumbnails'
 import type { ArtifactWatcher } from '../artifacts/artifact-watch'
+import { createWorkspaceGit, listWorkspaceFolder, searchWorkspaceFiles, type WorkspaceGit } from '../files/browse'
+import type { FolderWatcher } from '../files/folder-watch'
+import { listBrowseFolders, setBrowseFolderExpanded } from '../db/repositories/browse-folders'
 import { parseCommitFileKey } from '../../shared/files'
 import { openLink, type OpenExternal } from '../links/links'
 import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
@@ -62,6 +68,7 @@ import { CommandFailure } from './errors'
 import type { Emit } from './events'
 import type { ControlEndpoint } from '../control/endpoint'
 import type { AccountTracker } from '../account/account'
+import { retryLoggedOutTasks, type LoginService } from '../account/login'
 import type { MenuBarCommands } from '../menu-bar/menu-bar'
 import { readMenuBarSnapshot } from '../menu-bar/snapshot'
 
@@ -107,6 +114,8 @@ export interface HandlerContext {
   readonly endpoint: ControlEndpoint
   /** The account the tasks run on and its usage warning. */
   readonly account: AccountTracker
+  /** Logging in to Claude (`login.*`). */
+  readonly login: LoginService
   /** What the menu bar popover's page asks of main (`menuBar.*`). Nothing by default: no popover, nothing to do. */
   readonly menuBar?: MenuBarCommands
   /** Where errors in the window are logged (`log.rendererError`). Nothing by default. */
@@ -117,6 +126,10 @@ export interface HandlerContext {
   readonly thumbnails?: Thumbnails
   /** Watches the files of the artifacts the Artifacts tab shows (`artifacts.watch`). None by default: nothing is. */
   readonly artifactWatch?: ArtifactWatcher
+  /** Asks git what the Browse tab hides, and lists a repository's files for its search. The `git` on the PATH by default. */
+  readonly workspaceGit?: WorkspaceGit
+  /** Watches the folders the Browse tab shows (`files.watchFolders`). None by default: nothing is. */
+  readonly folderWatch?: FolderWatcher
 }
 
 /** The workspace a new terminal tab belongs to and starts in, or null for none. */
@@ -128,10 +141,13 @@ function terminalWorkspace(db: Database, workspaceId: string | null): Workspace 
 }
 
 export function createHandlers(context: HandlerContext): Handlers {
-  const { db, emit, chooseFolder, runner, writeClipboard, terminals, plugins, pluginViews, endpoint, account } = context
+  const { db, emit, chooseFolder, runner, writeClipboard, terminals, plugins, pluginViews, endpoint, account, login } =
+    context
   const renderer = (context.log ?? SILENT_LOGGER).scoped(LogScope.Renderer)
   const ipcLog = (context.log ?? SILENT_LOGGER).scoped(LogScope.Ipc)
   const changes = { db, emit, git: context.git ?? createGit() }
+  const attachmentsLog = (context.log ?? SILENT_LOGGER).scoped(LogScope.Chat)
+  const workspaceGit = context.workspaceGit ?? createWorkspaceGit()
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
     [CommandName.WorkspacesCreate]: ({ rootPath }) => {
@@ -180,11 +196,12 @@ export function createHandlers(context: HandlerContext): Handlers {
       deleteTask(context, id)
       return null
     },
-    [CommandName.TasksSend]: ({ id, text, images, pastedBlocks }) => ({
-      message: runner.send(id, text, images, pastedBlocks),
+    [CommandName.TasksSend]: ({ id, text, images, pastedBlocks, files }) => ({
+      message: runner.send(id, text, images, pastedBlocks, files),
     }),
     [CommandName.TasksStop]: async ({ id }) => ({ task: await runner.stop(id) }),
     [CommandName.TasksRetry]: ({ id, model }) => ({ task: runner.retry(id, model) }),
+    [CommandName.TasksRetryLoggedOut]: () => ({ tasks: retryLoggedOutTasks({ db, runner, log: ipcLog }) }),
     [CommandName.TasksCompact]: ({ id }) => ({ task: runner.compact(id) }),
     [CommandName.SubagentsStop]: async ({ taskId, toolUseId }) => {
       await runner.stopSubagent(taskId, toolUseId)
@@ -220,8 +237,8 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.ChangesRepository]: async ({ taskId }) => ({
       repository: await workspaceInRepository(changes, taskId),
     }),
-    [CommandName.QueueAdd]: ({ taskId, text, images, pastedBlocks }) => ({
-      queuedMessage: runner.queue(taskId, text, images, pastedBlocks),
+    [CommandName.QueueAdd]: ({ taskId, text, images, pastedBlocks, files }) => ({
+      queuedMessage: runner.queue(taskId, text, images, pastedBlocks, files),
     }),
     [CommandName.QueueEdit]: ({ id, text }) => ({ queuedMessage: editQueuedMessage(context, id, text) }),
     [CommandName.QueueRemove]: ({ id }) => {
@@ -233,6 +250,13 @@ export function createHandlers(context: HandlerContext): Handlers {
       if (image === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No image ${id}`)
       return { image }
     },
+    [CommandName.AttachmentsAdd]: async ({ taskId, path }) => ({
+      file: await attachFile({ db, emit, git: changes.git, log: attachmentsLog }, taskId, path),
+    }),
+    [CommandName.AttachmentsDiscard]: async ({ taskId, path }) => {
+      await discardAttachedFile(context, taskId, path)
+      return null
+    },
     [CommandName.DraftsGet]: ({ taskId }) => {
       requireTask(db, taskId)
       return { draft: getInputDraft(db, taskId) ?? null }
@@ -241,7 +265,9 @@ export function createHandlers(context: HandlerContext): Handlers {
       setInputDraft(db, change)
       return null
     },
-    [CommandName.QuestionsAnswer]: ({ id, answers }) => ({ questionSet: runner.answer(id, answers) }),
+    [CommandName.QuestionsAnswer]: ({ id, answers, anythingElse }) => ({
+      questionSet: runner.answer(id, answers, anythingElse),
+    }),
     [CommandName.PermissionsAnswer]: ({ id, decision }) => ({
       permissionRequest: runner.answerPermission(id, decision),
     }),
@@ -273,6 +299,25 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.FilesReveal]: async ({ taskId, path }) => {
       await revealTaskFile(context, taskId, path)
+      return null
+    },
+    [CommandName.FilesBrowse]: ({ taskId }) => ({ openFiles: browseTaskFiles(context, taskId) }),
+    [CommandName.FilesListFolder]: async ({ taskId, path }) => ({
+      entries: await listWorkspaceFolder(workspaceRoot(context, taskId), path, workspaceGit),
+    }),
+    [CommandName.FilesSearch]: async ({ taskId, query }) =>
+      searchWorkspaceFiles(workspaceRoot(context, taskId), query, workspaceGit),
+    [CommandName.FilesExpandedFolders]: ({ taskId }) => {
+      requireTask(db, taskId)
+      return { paths: listBrowseFolders(db, taskId) }
+    },
+    [CommandName.FilesSetFolderExpanded]: (change) => {
+      requireTask(db, change.taskId)
+      setBrowseFolderExpanded(db, change)
+      return null
+    },
+    [CommandName.FilesWatchFolders]: async ({ taskId, paths }) => {
+      await context.folderWatch?.watch(taskId, paths)
       return null
     },
     [CommandName.ArtifactsRemove]: ({ taskId, path }) => {
@@ -325,10 +370,16 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.ControlStatus]: () => ({ status: endpoint.status() }),
     [CommandName.AccountStatus]: () => ({ status: account.status() }),
+    [CommandName.LoginStatus]: () => ({ status: login.status() }),
+    [CommandName.LoginStart]: ({ taskId }) => ({ status: login.start(taskId) }),
+    [CommandName.LoginCancel]: () => ({ status: login.cancel() }),
     [CommandName.ControlRegenerateToken]: () => ({ status: endpoint.regenerateToken() }),
     [CommandName.SearchQuery]: ({ workspaceId, text }) => ({ results: searchTasks(db, workspaceId, text) }),
     [CommandName.PluginsList]: async () => ({ plugins: await plugins.list() }),
     [CommandName.PluginsSetEnabled]: ({ id, enabled }) => ({ plugins: plugins.setEnabled(id, enabled) }),
+    [CommandName.PluginsSetCapability]: ({ id, capability, granted }) => ({
+      plugins: plugins.setCapability(id, capability, granted),
+    }),
     [CommandName.PluginsOpenFolder]: async () => {
       await plugins.openFolder()
       return null

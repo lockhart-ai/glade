@@ -4,6 +4,7 @@
  */
 import { accountKind, AccountKind, ApiKeySource, ApiProvider, type Account } from '../../shared/account'
 import type { EpochMs } from '../../shared/domain'
+import { LoginState, type LoginStatus } from '../../shared/login'
 import { clockTime } from '../chat/chatModel'
 import { formatDay } from '../task-header/headerModel'
 
@@ -32,7 +33,29 @@ export const NOT_READ_INTRO =
 
 /** What it says when Claude Code has no credential. */
 export const NOT_SIGNED_IN_INTRO =
-  'Claude Code isn’t signed in, so tasks can’t run. Run claude in a terminal and sign in with /login, or set ANTHROPIC_API_KEY.'
+  'Claude Code isn’t signed in, so tasks can’t run. Log in with your Claude account below, or set ANTHROPIC_API_KEY.'
+
+/**
+ * Whether the block offers Log in (#409): while Claude Code isn't signed in, or a lost login stops a task (Claude Code
+ * can still report the account of a login that expired).
+ */
+export function offersLogin(account: Account | null, loggedOut: boolean): boolean {
+  return loggedOut || (account !== null && accountKind(account) === AccountKind.NotSignedIn)
+}
+
+/** What the Log in row says under its name, for where logging in stands. */
+export function loginRowDescription(login: LoginStatus): string {
+  switch (login.state) {
+    case LoginState.Idle:
+      return 'Opens Claude Code’s sign-in page in your browser.'
+    case LoginState.Waiting:
+      return 'Finish logging in in your browser.'
+    case LoginState.LoggedIn:
+      return 'You’re logged in. Each task picks it up when it next starts or is retried.'
+    case LoginState.Failed:
+      return `Logging in didn’t finish: ${login.message}`
+  }
+}
 
 /** Where Claude Code found an API key, in words. A source this version doesn't know shows as Claude Code names it. */
 export function apiKeySourceLabel(source: string): string {

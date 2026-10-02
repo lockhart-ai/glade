@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -23,10 +24,12 @@ import {
   E2E_AGENT_ENVS_GLOBAL,
   E2E_CHOSEN_FOLDER_ENV,
   E2E_ENV,
+  E2E_LOGIN_GLOBAL,
   E2E_MENU_BAR_GLOBAL,
   E2E_NOTIFIER_GLOBAL,
   E2E_WINDOW_SIZE,
   type E2eAgentEnvs,
+  type E2eLogin,
   type E2eMenuBar,
   type E2eSpec,
 } from './e2e'
@@ -40,6 +43,7 @@ import { sampleTask, sampleWorkspace } from './db/repositories/test-database'
 import { CHOOSE_FOLDER_OPTIONS } from './dialogs'
 import type { RecordingNotifier } from './notifications/recording-notifier'
 import type { SdkBackendOptions } from './agent/sdk-backend'
+import type { LoginChild, SpawnLogin } from './account/login'
 import type { LoginEnvOptions } from './login-env'
 import { markRunning } from './relaunch'
 import type { FileLogSinkOptions } from './logging/file-sink'
@@ -329,6 +333,13 @@ function useRealLoginEnv(): void {
 
 /** launchd's PATH: what an app opened from Finder or the Dock starts with. */
 const LAUNCHD_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
+
+// The machine's samplers for plugins, watched: the app's read Docker in the login shell's environment.
+vi.mock('./plugins/machine-samplers', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./plugins/machine-samplers')>()
+  return { ...original, createMachineSamplers: vi.fn(original.createMachineSamplers) }
+})
+const { createMachineSamplers } = await import('./plugins/machine-samplers')
 
 // The log file, watched, and kept off the terminal: a test reads the file instead.
 vi.mock('./logging/file-sink', async (importOriginal) => {
@@ -841,6 +852,28 @@ describe('startApp', () => {
     expect(spawner.spawned[0]?.killed).toBe(true)
   })
 
+  it('runs Claude Code’s own login from the bundled binary, in your home folder, and stops it when the app quits', async () => {
+    const kill = vi.fn(() => true)
+    const child: LoginChild = Object.assign(new EventEmitter(), { stdout: null, stderr: null, kill })
+    const spawnLogin = vi.fn<SpawnLogin>(() => child)
+    startApp({ spawnLogin })
+    await Promise.resolve()
+    await Promise.resolve()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    await handler?.(fromWindow(), CommandName.LoginStart, { taskId: null })
+    await vi.waitFor(() => {
+      expect(spawnLogin).toHaveBeenCalledOnce()
+    })
+
+    const [command, args, options] = spawnLogin.mock.calls[0] ?? []
+    expect(command).toMatch(/claude-agent-sdk-[a-z0-9]+-[a-z0-9]+\/claude$/)
+    expect(args).toEqual(['auth', 'login'])
+    expect(options).toMatchObject({ cwd: '/Users/sample', stdio: 'pipe' })
+    appHandler('will-quit')()
+    expect(kill).toHaveBeenCalledWith('SIGTERM')
+  })
+
   it('resumes the turns it last quit in before opening the window', async () => {
     const { db } = openAppDatabase(electron.app.userData)
     const task = sampleTask(db, sampleWorkspace(db).id)
@@ -1120,6 +1153,20 @@ describe('startApp', () => {
     })
 
     const env = await createAgentBackend.mock.calls[0]?.[0].env
+    expect(env?.PATH).toBe(`/opt/sample/bin:${LAUNCHD_PATH}`)
+  })
+
+  it("reads plugins' machine readings with the real samplers, Docker in the login shell's environment", async () => {
+    vi.stubEnv('PATH', LAUNCHD_PATH)
+    useRealLoginEnv()
+    vi.mocked(createMachineSamplers).mockClear()
+
+    startApp({ createAgentBackend: () => new FakeAgentBackend() })
+    await vi.waitFor(() => {
+      expect(createMachineSamplers).toHaveBeenCalledOnce()
+    })
+
+    const env = await vi.mocked(createMachineSamplers).mock.calls[0]?.[0].env()
     expect(env?.PATH).toBe(`/opt/sample/bin:${LAUNCHD_PATH}`)
   })
 
@@ -1650,6 +1697,22 @@ describe('startApp in e2e mode', () => {
     // Otherwise it's the normal app, which the test quits.
     expect(electron.app.exit).not.toHaveBeenCalled()
     expect(electron.appHandlers.has('will-quit')).toBe(true)
+  })
+
+  it('logs in with a stand-in the spec ends, never Claude Code’s own login', async () => {
+    askForE2e()
+    const spawnLogin = vi.fn<SpawnLogin>()
+    startApp({ spawnLogin })
+    await Promise.resolve()
+    await Promise.resolve()
+    const [, handler] = electron.ipcMain.handle.mock.calls[0] ?? []
+
+    await handler?.(fromWindow(), CommandName.LoginStart, { taskId: null })
+
+    const login = Reflect.get(globalThis, E2E_LOGIN_GLOBAL) as E2eLogin
+    expect(login).toMatchObject({ runs: 1, waiting: true })
+    expect(spawnLogin).not.toHaveBeenCalled()
+    Reflect.deleteProperty(globalThis, E2E_LOGIN_GLOBAL)
   })
 
   it('runs the terminal tabs’ shells as a plain bash, from its throwaway data folder', async () => {

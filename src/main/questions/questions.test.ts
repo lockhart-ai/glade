@@ -75,6 +75,16 @@ describe('toolResultFor', () => {
       '{"freeText":"By type, \\"please\\"."}',
     )
   })
+
+  it('gives "Anything else?" text under anythingElse, after the answers, and nothing for none answered', () => {
+    expect(
+      toolResultFor({ kind: QuestionReplyKind.Answers, answers: { 1: 'Full names' }, anythingElse: 'Thank Sam too.' }),
+    ).toBe('{"1":"Full names","anythingElse":"Thank Sam too."}')
+    expect(toolResultFor({ kind: QuestionReplyKind.Answers, answers: {}, anythingElse: 'None fit.' })).toBe(
+      '{"anythingElse":"None fit."}',
+    )
+    expect(toolResultFor({ kind: QuestionReplyKind.Answers, answers: {} })).toBe('{}')
+  })
 })
 
 describe('notificationText', () => {

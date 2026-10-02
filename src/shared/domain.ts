@@ -6,6 +6,7 @@
  * - **Turns** count a task's user turns from 1: the task's first message starts turn 1, and every message the agent is
  *   given after that starts the next one. Chat messages and tool events carry the turn they belong to.
  */
+import type { AttachedFile } from './attachedFiles'
 import type { ImageData, ImageRef } from './images'
 
 /** Epoch milliseconds (UTC). */
@@ -51,8 +52,13 @@ export enum TaskActivity {
 export enum AgentErrorKind {
   /** Worth another try later: the API is overloaded or had a server error, or it rate limited the request. */
   Transient = 'transient',
-  /** Won't go away by trying again as is: e.g. a model that doesn't exist, or a failed sign-in. */
+  /** Won't go away by trying again as is: e.g. a model that doesn't exist, or an invalid external API key. */
   Permanent = 'permanent',
+  /**
+   * Claude Code's login expired, was revoked or isn't there: logging in again (Claude Code's own `claude auth login`,
+   * `docs/sdk-notes.md` §1) and retrying gets past it (#409).
+   */
+  LoggedOut = 'logged_out',
   /** The account's usage limit or credits ran out. */
   UsageLimit = 'usage_limit',
   /** The API couldn't be reached at all. */
@@ -218,8 +224,9 @@ export interface Task {
    */
   readonly contextUsedTokens: number
   /**
-   * The model's context window, in tokens: what the SDK last reported for the task's model, or else what
-   * `contextWindowFor` (`./contextWindow`) gives for it.
+   * The model's context window, in tokens: what the SDK last reported for the task's session, or else the best guess
+   * for its model (`guessContextWindow` in `./models`). Never less than `contextUsedTokens`: more used than the
+   * window holds proves it wrong, and the larger size wins (`fitContextWindow` in `./contextWindow`).
    */
   readonly contextWindowTokens: number
   /**
@@ -297,6 +304,8 @@ export interface Message {
   readonly images: readonly ImageRef[]
   /** The text pasted into your message, kept apart from what was typed; none for the agent's replies. */
   readonly pastedBlocks: readonly PastedBlock[]
+  /** The files attached to your message, copied into the workspace, in order (#396); none for the agent's replies. */
+  readonly files: readonly AttachedFile[]
 }
 
 /**
@@ -307,13 +316,15 @@ export interface Message {
 export interface QueuedMessage {
   readonly id: string
   readonly taskId: string
-  /** Markdown. Empty for a message that's only images. */
+  /** Markdown. Empty for a message that's only images or files. */
   readonly body: string
   readonly createdAt: EpochMs
   /** The images pasted into it, which go with it. */
   readonly images: readonly ImageRef[]
   /** The text pasted into it, which goes with it. */
   readonly pastedBlocks: readonly PastedBlock[]
+  /** The files attached to it, which go with it. */
+  readonly files: readonly AttachedFile[]
 }
 
 /**
@@ -324,6 +335,8 @@ export interface InputDraft {
   readonly text: string
   readonly images: readonly ImageData[]
   readonly pastedBlocks: readonly PastedBlock[]
+  /** The files attached to it, already copied into the workspace (#396). */
+  readonly files: readonly AttachedFile[]
 }
 
 /** The variants of a tool log entry. */
@@ -612,7 +625,10 @@ export interface TextQuestion {
   readonly kind: QuestionKind.Text
   readonly prompt: string
   readonly placeholder?: string
-  /** Whether it can be left empty. */
+  /**
+   * Ignored: every question can be left unanswered now (#397). Still taken, and kept as asked, so calls and stored sets
+   * that have it still parse.
+   */
   readonly optional?: boolean
 }
 
@@ -626,8 +642,8 @@ export type Question = ChoiceQuestion | PillsQuestion | TextQuestion
 export type QuestionAnswer = string | readonly string[]
 
 /**
- * The answers to a question set, keyed by each question's index in it, from 0 (`"0"`, `"1"`, …). An optional text
- * question left empty has no key.
+ * The answers to a question set, keyed by each question's index in it, from 0 (`"0"`, `"1"`, …). Every question is
+ * optional: one left unanswered has no key.
  */
 export type QuestionAnswers = Readonly<Record<string, QuestionAnswer>>
 
@@ -643,7 +659,7 @@ export enum QuestionSetState {
 
 /** How you answered a question set. */
 export enum QuestionReplyKind {
-  /** With the card: an answer for each question. */
+  /** With the card: an answer for any of its questions, and anything else you typed. */
   Answers = 'answers',
   /** In your own words: a chat message sent while it was open. */
   FreeText = 'free_text',
@@ -651,7 +667,10 @@ export enum QuestionReplyKind {
 
 export interface AnswersReply {
   readonly kind: QuestionReplyKind.Answers
+  /** The questions you answered: any of them, or none. */
   readonly answers: QuestionAnswers
+  /** What you typed in the card's "Anything else?" box, trimmed; left out when you typed nothing. */
+  readonly anythingElse?: string
 }
 
 export interface FreeTextReply {

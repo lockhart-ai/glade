@@ -33,6 +33,8 @@ import {
   type TaskError,
   type ToolEvent,
   type Workspace,
+  WatcherKind,
+  WatcherState,
 } from '../../shared/domain'
 import { registerBridge } from '../bridge'
 import { fakeIpcPair } from '../bridge/fake-ipc'
@@ -43,10 +45,14 @@ import { ImageOwnerKind, imagesOf } from '../db/repositories/images'
 import { listMessages } from '../db/repositories/messages'
 import { getOpenQuestionSet, listQuestionSets } from '../db/repositories/question-sets'
 import { appendQueuedMessage, listQueuedMessages } from '../db/repositories/queued-messages'
-import { getTask, updateTask } from '../db/repositories/tasks'
+import { createTask, getTask, updateTask } from '../db/repositories/tasks'
+import { getReportedWindows } from '../db/repositories/context-windows'
+import { setSdkModels } from '../db/repositories/sdk-models'
+import { ALIAS_MODELS } from '../../shared/test-models'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { listToolEvents } from '../db/repositories/tool-events'
 import { setUiState } from '../db/repositories/ui-state'
+import { addWatcher } from '../db/repositories/watchers'
 import { FakeAgentBackend, settle, type FakeAgentSession } from './fake-backend'
 import { GLADE_SERVER } from './glade-tools'
 import { needsYou } from '../../shared/attention'
@@ -244,6 +250,7 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.TaskOpenRequested:
       case EventType.OpenFilesChanged:
       case EventType.FileShown:
+      case EventType.FolderChanged:
       case EventType.TerminalTabsChanged:
       case EventType.TerminalOutput:
       case EventType.TerminalCleared:
@@ -253,6 +260,7 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
       case EventType.AccountChanged:
+      case EventType.LoginChanged:
       case EventType.MenuBarChanged:
         return [event.type]
     }
@@ -617,21 +625,152 @@ describe('the context usage', () => {
     expect(current()).toMatchObject({ contextUsedTokens: sdk.CONTEXT_USED, contextWindowTokens: 180_000 })
   })
 
-  it("keeps the window it has when the result doesn't report the session's model", async () => {
+  it("keeps the window it has when the result reports several models and none is the session's", async () => {
     await send('Hi')
-    backend.session.emit(
-      sdk.init(),
-      sdk.result('Hello.', { modelUsage: { 'claude-sample-other': { contextWindow: 1 } } }),
-    )
+    const modelUsage = { 'claude-sample-other': { contextWindow: 1 }, 'claude-sample-third': { contextWindow: 2 } }
+    backend.session.emit(sdk.init(), sdk.result('Hello.', { modelUsage }))
     await settle()
     expect(current().contextWindowTokens).toBe(200_000)
+    expect(getReportedWindows(database.db).size).toBe(0)
+    expect(log.withMessage("the result reports no window for the session's model")).toHaveLength(1)
   })
 
-  it("can't find a window before the session has said which model it runs on", async () => {
+  it('says nothing of a result that reports no model at all', async () => {
     await send('Hi')
-    backend.session.emit(sdk.result('Hello.', { modelUsage: { [sdk.MODEL]: { contextWindow: 1 } } }))
+    backend.session.emit(sdk.init(), sdk.result('Hello.', { modelUsage: {} }))
     await settle()
     expect(current().contextWindowTokens).toBe(200_000)
+    expect(log.withMessage("the result reports no window for the session's model")).toEqual([])
+  })
+
+  it("finds the window by the task's own model before the session has said which it runs on", async () => {
+    await send('Hi')
+    backend.session.emit(sdk.result('Hello.', { modelUsage: { [sdk.MODEL]: { contextWindow: 180_000 } } }))
+    await settle()
+    expect(current().contextWindowTokens).toBe(180_000)
+  })
+
+  // #416, the first screenshot: the task's model id has no `[1m]`, and nothing in the SDK's list says it runs at 1M.
+  // `modelUsage` is keyed by an id that's neither the task's (`opus`) nor one the list resolves it to, so the real
+  // window was never matched, and the meter read 905k / 200k.
+  describe('a 1M session on a model id without [1m]', () => {
+    const FULL_ID = 'claude-opus-5-5'
+    const usage = { modelUsage: { [FULL_ID]: { contextWindow: 1_000_000 } } }
+
+    beforeEach(() => {
+      updateTask(database.db, task.id, { model: 'opus' })
+    })
+
+    it('starts as a 200k guess, and takes the real 1M from the result, whatever id it is keyed by', async () => {
+      expect(current().contextWindowTokens).toBe(200_000)
+      await send('Hi')
+      backend.session.emit(sdk.init(), sdk.withContextUsed(sdk.text('Hello.'), 150_000), sdk.result('Hello.', usage))
+      await settle()
+
+      expect(current()).toMatchObject({ model: 'opus', contextUsedTokens: 150_000, contextWindowTokens: 1_000_000 })
+      // It's remembered for the model, under every id it went by.
+      expect(Object.fromEntries(getReportedWindows(database.db))).toEqual({
+        [FULL_ID]: 1_000_000,
+        [sdk.MODEL]: 1_000_000,
+        opus: 1_000_000,
+      })
+    })
+
+    it('matches it through the full id the SDK’s list gives the alias, among other models’ windows', async () => {
+      setSdkModels(database.db, ALIAS_MODELS)
+      await send('Hi')
+      const modelUsage = { 'claude-haiku-4-5-20251001': { contextWindow: 200_000 }, ...usage.modelUsage }
+      backend.session.emit(sdk.init(), sdk.text('Hello.'), sdk.result('Hello.', { modelUsage }))
+      await settle()
+
+      expect(current().contextWindowTokens).toBe(1_000_000)
+      expect(getReportedWindows(database.db).get('claude-haiku-4-5-20251001')).toBeUndefined()
+    })
+
+    it('never shows more used than the window: 905k of "200k" proves it 1M, before any result, and the log says', async () => {
+      await send('Hi')
+      backend.session.emit(sdk.init(), sdk.withContextUsed(sdk.text('Reading.'), 905_000))
+      await settle()
+
+      expect(current()).toMatchObject({ contextUsedTokens: 905_000, contextWindowTokens: 1_000_000 })
+      expect(log.withMessage('more context used than the window holds; trusting the larger size')).toEqual([
+        expect.objectContaining({ fields: { taskId: task.id, used: 905_000, window: 200_000, model: 'opus' } }),
+      ])
+    })
+
+    it('keeps the real window over a relaunch, with no session running', async () => {
+      await send('Hi')
+      backend.session.emit(sdk.init(), sdk.withContextUsed(sdk.text('Hello.'), 905_000), sdk.result('Hello.', usage))
+      await settle()
+
+      relaunch()
+
+      expect(backend.sessions).toHaveLength(0)
+      expect(current()).toMatchObject({ contextUsedTokens: 905_000, contextWindowTokens: 1_000_000 })
+      await expect(glade.invoke(CommandName.TasksList, { workspaceId: workspace.id })).resolves.toEqual({
+        tasks: [expect.objectContaining({ model: 'opus', contextUsedTokens: 905_000, contextWindowTokens: 1_000_000 })],
+      })
+    })
+
+    it('keeps it through a model change and back, and gives it to the next task on the model', async () => {
+      await send('Hi')
+      backend.session.emit(sdk.init(), sdk.text('Hello.'), sdk.result('Hello.', usage))
+      await settle()
+
+      // To a model nothing is known of: the guess, 200k.
+      await glade.invoke(CommandName.TasksUpdate, { id: task.id, patch: { model: 'claude-sample-2' } })
+      expect(current().contextWindowTokens).toBe(200_000)
+      // And back: what the SDK reported for it, not the 200k its id gives.
+      await glade.invoke(CommandName.TasksUpdate, { id: task.id, patch: { model: 'opus' } })
+      expect(current().contextWindowTokens).toBe(1_000_000)
+      // By the full id too.
+      await glade.invoke(CommandName.TasksUpdate, { id: task.id, patch: { model: FULL_ID } })
+      expect(current().contextWindowTokens).toBe(1_000_000)
+
+      const next = createTask(database.db, { workspaceId: workspace.id, model: 'opus', effort: Effort.High })
+      expect(next.contextWindowTokens).toBe(1_000_000)
+    })
+
+    it("doesn't take a lone entry for the new model's once the session has changed model", async () => {
+      await send('Hi')
+      backend.session.emit(sdk.init(), sdk.text('Hello.'), sdk.result('Hello.', usage))
+      await settle()
+      expect(current().contextWindowTokens).toBe(1_000_000)
+
+      // The picker moves the task to a 200k model. Its next turn ends before that model has answered, so the result
+      // still reports the one model, the old one: it isn't the new model's window.
+      await glade.invoke(CommandName.TasksUpdate, { id: task.id, patch: { model: 'claude-sample-2' } })
+      expect(current().contextWindowTokens).toBe(200_000)
+      await send('Again')
+      backend.session.emit(sdk.result('Hello again.', usage))
+      await settle()
+
+      expect(current()).toMatchObject({ model: 'claude-sample-2', contextWindowTokens: 200_000 })
+      expect(getReportedWindows(database.db).get('claude-sample-2')).toBeUndefined()
+      expect(log.withMessage("the result reports no window for the session's model")).toHaveLength(1)
+
+      // Once the new model has run, the result names it, and its window is taken by name.
+      await send('Once more')
+      const both = { ...usage.modelUsage, 'claude-sample-2': { contextWindow: 180_000 } }
+      backend.session.emit(sdk.text('Hello.', null, 'msg_03'), sdk.result('Hello once more.', { modelUsage: both }))
+      await settle()
+      expect(current().contextWindowTokens).toBe(180_000)
+      expect(getReportedWindows(database.db).get('opus')).toBe(1_000_000)
+    })
+
+    it("doesn't give a task the window of the model it has since left", async () => {
+      await send('Hi')
+      backend.session.emit(sdk.init(), sdk.text('Hello.'))
+      await settle()
+      // The picker changes the model mid-turn: the turn's result is still the old model's.
+      await glade.invoke(CommandName.TasksUpdate, { id: task.id, patch: { model: 'claude-sample-2' } })
+      backend.session.emit(sdk.result('Hello.', usage))
+      await settle()
+
+      expect(current()).toMatchObject({ model: 'claude-sample-2', contextWindowTokens: 200_000 })
+      // It's remembered for the model that ran, all the same.
+      expect(getReportedWindows(database.db).get('opus')).toBe(1_000_000)
+    })
   })
 
   it('lists the task with it once its session is gone', async () => {
@@ -1878,6 +2017,89 @@ describe('tasks.retry', () => {
     expect(toolLog().filter((entry) => (entry as { call?: string }).call === API_TOOL_NAME)).toHaveLength(2)
   })
 
+  /** Sends a message whose turn fails because Claude Code's login expired, as the bundled binary words it. */
+  async function loggedOutTurn(): Promise<void> {
+    await send('Find out why the login test is flaky.')
+    backend.session.emit(
+      sdk.init(),
+      sdk.apiErrorMessage('authentication_failed', LOGIN_EXPIRED),
+      sdk.apiErrorResult(LOGIN_EXPIRED, null),
+    )
+    await settle()
+  }
+
+  const LOGIN_EXPIRED = 'Failed to authenticate: OAuth session expired and could not be refreshed'
+
+  it('stops a task whose login expired on a logged-out error, not a pause', async () => {
+    await loggedOutTurn()
+
+    expect(current()).toMatchObject({
+      activity: TaskActivity.Error,
+      pause: null,
+      error: {
+        kind: AgentErrorKind.LoggedOut,
+        source: TaskErrorSource.Api,
+        status: null,
+        code: 'authentication_failed',
+        details: LOGIN_EXPIRED,
+      },
+    })
+  })
+
+  it('starts Claude Code again, resumed, to retry a turn a lost login stopped, so it reads the new login', async () => {
+    await loggedOutTurn()
+    const first = backend.session
+
+    await retry()
+
+    expect(first.closed).toBe(true)
+    expect(backend.sessions).toHaveLength(2)
+    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
+    expect(backend.session.sent.map(({ text }) => text)).toEqual(['Find out why the login test is flaky.'])
+    expect(log.withMessage('session closed').at(-1)?.fields).toMatchObject({ reason: 'restarting for a new login' })
+
+    // What the closed session still says is ignored.
+    first.emit(sdk.result('Too late.'))
+    await settle()
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, error: null })
+  })
+
+  it('keeps the session, retrying in it, when a watcher it started is still live', async () => {
+    await loggedOutTurn()
+    addWatcher(database.db, {
+      taskId: task.id,
+      kind: WatcherKind.Monitor,
+      toolUseId: 'toolu_watch',
+      parentToolUseId: null,
+      sdkId: 'bash_1',
+      label: 'Watch the build',
+      detail: 'npm run build -- --watch',
+      cron: null,
+      schedule: null,
+      recurring: false,
+      state: WatcherState.Running,
+      nextDueAt: null,
+      expiresAt: null,
+    })
+
+    await retry()
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(backend.session.closed).toBe(false)
+    expect(backend.session.sent.map(({ text }) => text)).toHaveLength(2)
+    expect(log.withMessage('session kept for a new login: background work is running')).toHaveLength(1)
+  })
+
+  it('starts a session for the retry when a logged-out task has none live, as after a relaunch', async () => {
+    await loggedOutTurn()
+    relaunch()
+
+    await retry()
+
+    expect(backend.sessions).toHaveLength(1)
+    expect(backend.session.options.resumeSessionId).toBe(sdk.SESSION_ID)
+  })
+
   it('starts the session again, resumed, when the error was the session failing', async () => {
     await send('Hi')
     backend.session.emit(sdk.init())
@@ -2686,8 +2908,9 @@ describe('questions', () => {
     return { open, returned }
   }
 
-  async function answer(id: string, answers: QuestionAnswers): Promise<QuestionSet> {
-    return (await glade.invoke(CommandName.QuestionsAnswer, { id, answers })).questionSet
+  async function answer(id: string, answers: QuestionAnswers, anythingElse?: string): Promise<QuestionSet> {
+    const request = anythingElse === undefined ? { id, answers } : { id, answers, anythingElse }
+    return (await glade.invoke(CommandName.QuestionsAnswer, request)).questionSet
   }
 
   /** The ask call's row in the tool log. */
@@ -2728,6 +2951,41 @@ describe('questions', () => {
       { role: MessageRole.Agent, body: 'The notes are drafted, grouped by type.', turn: 1 },
     ])
     expect(current().activity).toBe(TaskActivity.Waiting)
+    const history = await glade.invoke(CommandName.TasksHistory, { id: task.id })
+    expect(history.questionSets).toEqual([answered])
+  })
+
+  it('takes the card with every question skipped, and gives the agent an empty object', async () => {
+    const { open, returned } = await ask()
+
+    const answered = await answer(open.id, {}, '   ')
+    await returned
+    await settle()
+
+    // Blank "Anything else?" text is left out, as if nothing was typed.
+    expect(answered.reply).toEqual({ kind: QuestionReplyKind.Answers, answers: {} })
+    expect(askRow()).toMatchObject({ state: ToolCallState.Done, output: '{}' })
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, asking: false })
+  })
+
+  it('keeps what you typed in "Anything else?", trimmed, and gives it to the agent beside the answers', async () => {
+    const { open, returned } = await ask()
+
+    const answered = await answer(open.id, { 1: 'Leave it out' }, '\n  Neither layout: group them by customer.  \n')
+    await returned
+    await settle()
+
+    expect(answered.reply).toEqual({
+      kind: QuestionReplyKind.Answers,
+      answers: { 1: 'Leave it out' },
+      anythingElse: 'Neither layout: group them by customer.',
+    })
+    expect(askRow()).toMatchObject({
+      state: ToolCallState.Done,
+      output: '{"1":"Leave it out","anythingElse":"Neither layout: group them by customer."}',
+    })
+    // It's stored with the set, so it's there after a relaunch.
+    relaunch()
     const history = await glade.invoke(CommandName.TasksHistory, { id: task.id })
     expect(history.questionSets).toEqual([answered])
   })
@@ -2893,6 +3151,23 @@ describe('questions', () => {
         turn: 1,
       })
       expect(current().activity).toBe(TaskActivity.Waiting)
+    })
+
+    it('hands a partial answer and its "Anything else?" text to the resumed session', async () => {
+      const open = await askThenRelaunch()
+
+      await answer(open.id, { 0: 'by-area' }, 'Skip the Django question: it shipped in 2.3.')
+
+      expect(backend.session.sent.map(({ text }) => text)).toEqual([
+        answeredAfterRestart({
+          kind: QuestionReplyKind.Answers,
+          answers: { 0: 'by-area' },
+          anythingElse: 'Skip the Django question: it shipped in 2.3.',
+        }),
+      ])
+      expect(backend.session.sent[0]?.text).toContain(
+        '{"0":"by-area","anythingElse":"Skip the Django question: it shipped in 2.3."}',
+      )
     })
 
     it('hands an answer in words to the resumed session too, and keeps it in the chat', async () => {
@@ -3371,6 +3646,7 @@ describe('several tasks at once', () => {
       case EventType.TaskDeleted:
       case EventType.QueueChanged:
       case EventType.FileShown:
+      case EventType.FolderChanged:
       case EventType.TodosChanged:
       case EventType.ArtifactsChanged:
       case EventType.HandoffChanged:
@@ -3401,6 +3677,7 @@ describe('several tasks at once', () => {
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
       case EventType.AccountChanged:
+      case EventType.LoginChanged:
       case EventType.MenuBarChanged:
         return null
     }
@@ -3437,6 +3714,7 @@ describe('several tasks at once', () => {
       case EventType.TaskDeleted:
       case EventType.OpenFilesChanged:
       case EventType.FileShown:
+      case EventType.FolderChanged:
       case EventType.TodosChanged:
       case EventType.ArtifactsChanged:
       case EventType.HandoffChanged:
@@ -3451,6 +3729,7 @@ describe('several tasks at once', () => {
       case EventType.PluginStatusChanged:
       case EventType.ControlChanged:
       case EventType.AccountChanged:
+      case EventType.LoginChanged:
       case EventType.MenuBarChanged:
         return [event.type]
     }

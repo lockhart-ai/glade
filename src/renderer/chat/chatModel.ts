@@ -285,7 +285,14 @@ function dividerTime(entry: DividerEntry): EpochMs {
 }
 
 /**
- * The chat's entries for a task: each message in order, with each agent reply's style and tool-call count, and its
+ * Whether two agent entries show the same: the same message and tool-call count. `chatEntries` makes each entry anew, so a reply that hasn't changed is told by what it holds (#413).
+ */
+export function sameAgentEntry(a: AgentEntry, b: AgentEntry): boolean {
+  return a.message === b.message && a.toolCalls === b.toolCalls
+}
+
+/**
+ * The chat's entries for a task: each message in order, with each agent reply's tool-call count, and its
  * dividers in log order: a restart divider for each resumed turn and a reopened divider for each reopening message,
  * each after its turn's message and before its reply, and a marked done divider before each reopening message. Each
  * question set and permission request shows as a card where it was made: after the messages before it, and before the

@@ -12,7 +12,7 @@ import {
 } from '../../shared/domain'
 import { WindowCommandId } from '../../shared/commands'
 import type { ModelChoice } from '../../shared/models'
-import { SDK_MODELS } from '../../shared/test-models'
+import { ALIAS_MODELS, SDK_MODELS } from '../../shared/test-models'
 import { ToastProvider } from '../components'
 import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
@@ -204,10 +204,10 @@ describe('InputBar', () => {
     expect(field()).toHaveAttribute('placeholder', REPLY_PLACEHOLDER)
   })
 
-  it('shows a model the picker doesn’t offer by its id', async () => {
+  it('names a model the picker doesn’t offer from its id, never the raw id', async () => {
     await renderBar({ task: { model: 'claude-sample-1' } })
 
-    expect(screen.getByRole('button', { name: 'Model: claude-sample-1' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Model: Sample 1' })).toBeInTheDocument()
   })
 
   describe('sending', () => {
@@ -288,6 +288,7 @@ describe('InputBar', () => {
                     summary: null,
                     images: [],
                     pastedBlocks: [],
+                    files: [],
                   },
                 })
               }
@@ -656,17 +657,70 @@ describe('InputBar', () => {
       expect(screen.getByRole('button', { name: 'Effort: Max' })).toBeInTheDocument()
     })
 
-    it('shows a saved model the list doesn’t have by its id, none checked, with every effort level', async () => {
+    it('lists a saved model the list doesn’t have, named and checked, with every effort level', async () => {
       await renderBar({ task: { model: 'claude-retired-3', effort: Effort.Medium }, models: SDK_MODELS })
 
       expect(menuItems('Effort: Medium', 'Effort')).toEqual(['Low', 'Medium', 'High', 'Extra high', 'Max'])
-      fireEvent.click(screen.getByRole('button', { name: 'Model: claude-retired-3' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Model: Retired 3' }))
       await settleFloating()
       const menu = screen.getByRole('menu', { name: 'Model' })
-      expect(within(menu).queryByRole('menuitemradio', { checked: true })).toBeNull()
+      expect(within(menu).getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('Retired 3')
+      expect(within(menu).getAllByRole('menuitemradio').at(-1)).toHaveAccessibleName('Retired 3')
     })
 
-    it('takes the SDK’s list when a session reports it, and a model it stops offering shows by its id', async () => {
+    // #416, the second screenshot: the task runs on `opus[1m]`, which the SDK's list no longer has. The button showed
+    // the raw id, and the list didn't have the task's model at all.
+    it('shows a task on opus[1m] as "Opus 5.5 (1M)", listed right after Opus 5.5 and checked', async () => {
+      const fake = await renderBar({
+        task: { model: 'opus[1m]', contextUsedTokens: 867_000, contextWindowTokens: 1_000_000 },
+        models: ALIAS_MODELS,
+      })
+
+      expect(screen.getByRole('button', { name: 'Model: Opus 5.5 (1M)' })).toHaveTextContent('ModelOpus 5.5 (1M)')
+      expect(menuItems('Model: Opus 5.5 (1M)', 'Model')).toEqual([
+        'Default (recommended)',
+        'Opus 5.5',
+        'Opus 5.5 (1M)',
+        'Sonnet 5',
+        'Haiku 4.5',
+      ])
+      fireEvent.click(screen.getByRole('button', { name: 'Model: Opus 5.5 (1M)' }))
+      await settleFloating()
+      const menu = screen.getByRole('menu', { name: 'Model' })
+      expect(within(menu).getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('Opus 5.5 (1M)')
+
+      // Choosing the model it's already on changes nothing: it's kept, whatever the list says.
+      fireEvent.click(within(menu).getByRole('menuitemradio', { name: 'Opus 5.5 (1M)' }))
+      await settleFloating()
+      expect(updates(fake)).toEqual([])
+    })
+
+    // #416, the first screenshot: the task's model id has no `[1m]`, but its session runs at 1M.
+    it('adds "(1M)" to the name of a model that runs at 1M without saying so, and not to one that says so', async () => {
+      await renderBar({ task: { model: 'opus', contextWindowTokens: 1_000_000 }, models: ALIAS_MODELS })
+      expect(screen.getByRole('button', { name: 'Model: Opus 5.5 (1M)' })).toBeInTheDocument()
+      // The list still has the one Opus 5.5, and it's the task's.
+      expect(menuItems('Model: Opus 5.5 (1M)', 'Model')).toEqual([
+        'Default (recommended)',
+        'Opus 5.5',
+        'Sonnet 5',
+        'Haiku 4.5',
+      ])
+      fireEvent.click(screen.getByRole('button', { name: 'Model: Opus 5.5 (1M)' }))
+      await settleFloating()
+      const menu = screen.getByRole('menu', { name: 'Model' })
+      expect(within(menu).getByRole('menuitemradio', { checked: true })).toHaveAccessibleName('Opus 5.5')
+      cleanup()
+
+      await renderBar({ task: { model: 'opus[1m]', contextWindowTokens: 1_000_000 }, models: SDK_MODELS })
+      expect(screen.getByRole('button', { name: 'Model: Opus (1M context)' })).toBeInTheDocument()
+      cleanup()
+
+      await renderBar({ task: { model: 'opus', contextWindowTokens: 200_000 }, models: ALIAS_MODELS })
+      expect(screen.getByRole('button', { name: 'Model: Opus 5.5' })).toBeInTheDocument()
+    })
+
+    it('takes the SDK’s list when a session reports it, and keeps a model it stops offering, last and named', async () => {
       const fake = await renderBar({ task: { model: 'lite', effort: Effort.Low }, models: SDK_MODELS })
       expect(screen.getByRole('button', { name: 'Model: Lite' })).toBeInTheDocument()
 
@@ -674,12 +728,13 @@ describe('InputBar', () => {
         fake.emit({ type: EventType.ModelsChanged, models: SDK_MODELS.filter(({ id }) => id !== 'lite') })
       })
 
-      expect(screen.getByRole('button', { name: 'Model: lite' })).toBeInTheDocument()
-      expect(menuItems('Model: lite', 'Model')).toEqual([
+      expect(screen.getByRole('button', { name: 'Model: Lite' })).toBeInTheDocument()
+      expect(menuItems('Model: Lite', 'Model')).toEqual([
         'Default (recommended)',
         'Opus (1M context)',
         'Sonnet',
         'Haiku',
+        'Lite',
       ])
     })
 
@@ -726,33 +781,76 @@ describe('InputBar', () => {
 
   it('focuses the message field on ⌘L, and not on other keys', async () => {
     await renderBar()
+    act(() => {
+      field().blur()
+    })
 
     fireEvent.keyDown(window, { key: 'l', metaKey: true, shiftKey: true })
     fireEvent.keyDown(window, { key: 'k', metaKey: true })
     expect(field()).not.toHaveFocus()
 
     expect(fireEvent.keyDown(window, { key: 'l', metaKey: true })).toBe(false)
+    await act(() => Promise.resolve())
     expect(field()).toHaveFocus()
   })
 
-  it('focuses the field when asked, once per request, even when the request comes as a new task’s bar mounts', async () => {
+  it('focuses the field when asked, once per request', async () => {
     const fake = await renderBar()
+    act(() => {
+      field().blur()
+    })
     expect(field()).not.toHaveFocus()
 
-    act(() => {
+    await act(async () => {
       fake.store.getState().focusInput()
+      await Promise.resolve()
     })
+    expect(field()).toHaveFocus()
+  })
+
+  it('focuses the field once a task is selected, by any route, including the one restored as the bar mounts (#415)', async () => {
+    const fake = await renderBar()
+    // The bar starts on the task hydration restored (t1), and takes the focus for it at once.
     expect(field()).toHaveFocus()
     act(() => {
       field().blur()
     })
 
-    // Selecting a task alone doesn't take the focus; selecting it and asking in one go (as + and ⌘N do) does.
     await act(() => fake.store.getState().selectTask('t2'))
+    expect(field()).toHaveFocus()
+  })
+
+  it('does not refocus for reselecting the task already shown', async () => {
+    const fake = await renderBar()
+    act(() => {
+      field().blur()
+    })
+
+    await act(() => fake.store.getState().selectTask('t1'))
     expect(field()).not.toHaveFocus()
+  })
+
+  it('holds off focusing while any modal is open, and focuses once the last one closes (#415)', async () => {
+    const fake = await renderBar()
+    act(() => {
+      field().blur()
+      fake.store.getState().modalOpened()
+      fake.store.getState().modalOpened()
+    })
+
+    await act(() => fake.store.getState().selectTask('t2'))
+    await act(() => Promise.resolve())
+    expect(field()).not.toHaveFocus()
+
+    act(() => {
+      fake.store.getState().modalClosed()
+    })
+    await act(() => Promise.resolve())
+    expect(field()).not.toHaveFocus()
+
     await act(async () => {
-      await fake.store.getState().selectTask('t1')
-      fake.store.getState().focusInput()
+      fake.store.getState().modalClosed()
+      await Promise.resolve()
     })
     expect(field()).toHaveFocus()
   })
@@ -769,7 +867,8 @@ describe('InputBar', () => {
     expect(field()).toHaveFocus()
     expect(field().selectionStart).toBe(field().value.length)
 
-    // Text for another task is left for it, and a bar that mounts after a request doesn't take it again.
+    // Text for another task is left for it, and a bar that mounts after a request doesn't take it again; selecting
+    // that task still focuses its field, as any task switch does (#415).
     act(() => {
       field().blur()
       fake.store.getState().insertIntoInput('t2', 'About the todo')
@@ -778,7 +877,7 @@ describe('InputBar', () => {
     await act(() => fake.store.getState().selectTask('t2'))
     await act(() => Promise.resolve())
     expect(field()).toHaveValue('')
-    expect(field()).not.toHaveFocus()
+    expect(field()).toHaveFocus()
   })
 
   it('keeps each task’s own draft, and gives it back when the task comes back', async () => {
@@ -788,7 +887,7 @@ describe('InputBar', () => {
     await act(() => fake.store.getState().selectTask('t2'))
 
     expect(field()).toHaveValue('')
-    expect(screen.getByRole('button', { name: 'Model: claude-sample-1' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Model: Sample 1' })).toBeInTheDocument()
     type('For the second')
 
     await act(() => fake.store.getState().selectTask('t1'))

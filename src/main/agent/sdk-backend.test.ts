@@ -25,6 +25,7 @@ import { GLADE_SERVER, GLADE_TOOL_TIMEOUT_MS } from './glade-tools'
 import { GIF, JPEG, PNG } from '../../shared/test-images'
 import {
   canUseToolFor,
+  claudeCodeBinary,
   claudeCodeExecutable,
   createSdkBackend,
   NO_ONE_TO_ASK,
@@ -190,6 +191,24 @@ it("leaves the binary to the SDK when it isn't packaged, or there's no platform 
       throw new Error('Cannot find module')
     }),
   ).toBe(undefined)
+})
+
+it('finds the binary to run Claude Code’s own login with: the unpacked one when packaged, as it is otherwise', () => {
+  expect(claudeCodeBinary(() => `${PACKAGED}/claude-agent-sdk-darwin-arm64/claude`, 'darwin', 'arm64')).toBe(
+    '/Applications/Glade.app/Contents/Resources/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude',
+  )
+  expect(claudeCodeBinary(() => '/code/glade/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude')).toBe(
+    '/code/glade/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude',
+  )
+  expect(
+    claudeCodeBinary(() => {
+      throw new Error('Cannot find module')
+    }),
+  ).toBeNull()
+})
+
+it('finds the binary of the platform the app runs on by default', () => {
+  expect(claudeCodeBinary()).toMatch(/claude-agent-sdk-[a-z0-9]+-[a-z0-9]+\/claude$/)
 })
 
 it('passes the unpacked binary to the SDK in the packaged app', () => {

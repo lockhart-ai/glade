@@ -1,7 +1,7 @@
 import { faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
 import { useState } from 'react'
-import type { Task } from '../../shared/domain'
-import { findModel } from '../../shared/models'
+import { AgentErrorKind, type Task } from '../../shared/domain'
+import { findModel, modelOptions } from '../../shared/models'
 import { errorOpening, NOTHING_LOST, retriesSentence } from '../../shared/taskError'
 import {
   Button,
@@ -16,18 +16,24 @@ import {
   useToast,
   type MenuEntry,
 } from '../components'
-import { describeFailure } from '../store/hydrate'
 import { useGladeStore } from '../store/react'
+import { retryFailureMessage } from './cardFailures'
 import styles from './ErrorCard.module.css'
+import { LoggedOutCard } from './LoggedOutCard'
 
 export interface ErrorCardProps {
   /** The task an error stopped. */
   readonly task: Task
 }
 
-/** What the toast says when a retry couldn't start. */
-export function retryFailureMessage(error: unknown): string {
-  return `Couldn’t retry: ${describeFailure(error)}`
+/**
+ * The card at the end of the chat when an error stopped the agent: the logged-out card when Claude Code's login is
+ * gone (`./LoggedOutCard`), and the error card for any other error.
+ */
+export function ErrorCard({ task }: ErrorCardProps): React.JSX.Element {
+  const { error } = task
+  if (error?.kind === AgentErrorKind.LoggedOut) return <LoggedOutCard task={task} error={error} />
+  return <StoppedCard task={task} />
 }
 
 /**
@@ -35,7 +41,7 @@ export function retryFailureMessage(error: unknown): string {
  * happened, that nothing is lost, and the ways on. Retry runs the turn again; Retry with another model picks a model
  * first; Show details shows the raw error.
  */
-export function ErrorCard({ task }: ErrorCardProps): React.JSX.Element {
+function StoppedCard({ task }: ErrorCardProps): React.JSX.Element {
   const retryTask = useGladeStore((state) => state.retryTask)
   const toast = useToast()
   const offered = useGladeStore((state) => state.models)
@@ -51,8 +57,8 @@ export function ErrorCard({ task }: ErrorCardProps): React.JSX.Element {
     })
   }
 
-  const current = findModel(offered, task.model)?.id
-  const models: MenuEntry[] = offered.map((option) => ({
+  const current = findModel(offered, task.model)?.id ?? task.model
+  const models: MenuEntry[] = modelOptions(offered, task.model).map((option) => ({
     kind: MenuEntryKind.Item,
     label: option.name,
     checked: option.id === current,

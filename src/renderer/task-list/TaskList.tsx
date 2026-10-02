@@ -6,7 +6,6 @@ import { UiStateKey, type Task } from '../../shared/domain'
 import { doneTotal, inDoneList } from '../../shared/doneList'
 import { WindowCommandId } from '../../shared/commands'
 import { useCommands } from '../commands/hooks'
-import { isMessageField } from '../commands/registry'
 import { Collapse, Icon, IconSize, useToast } from '../components'
 import { ContextMenu, useContextMenu } from '../context-menus'
 import { doneCountsFor, doneListKey, isLoaded } from '../store/doneLists'
@@ -76,7 +75,6 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
   const uiState = useGladeStore((state) => state.uiState)
   const selectedTaskId = useGladeStore((state) => state.selectedTaskId)
   const selectTask = useGladeStore((state) => state.selectTask)
-  const focusInput = useGladeStore((state) => state.focusInput)
   const loadDonePage = useGladeStore((state) => state.loadDonePage)
   const loadDoneThrough = useGladeStore((state) => state.loadDoneThrough)
   const doneCounts = useGladeStore((state) => doneCountsFor(state, workspaceId))
@@ -126,9 +124,9 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
   }, [list, selectedTaskId])
 
   // ⌥↓ past the last loaded done task loads the next page first, and ⌥↑ with nothing selected goes to the very last.
-  // Pressed in the message field, the focus goes on to the next task's.
+  // Selecting the next or previous task focuses its input bar (`InputBar`, #415), wherever the key was pressed,
+  // including the message field itself.
   const step = async (direction: Step): Promise<void> => {
-    const typing = isMessageField(document.activeElement)
     const state = store.getState()
     const shown = parseTaskFilter(state.uiState[UiStateKey.TaskFilter])
     const order = listedTaskIds(state, workspaceId)
@@ -144,7 +142,6 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
     const next = stepSelection(listedTaskIds(after, workspaceId), after.selectedTaskId, direction)
     if (next === null || next === after.selectedTaskId) return
     await selectTask(next)
-    if (typing) focusInput()
   }
   useCommands({
     [WindowCommandId.NextTask]: () => {

@@ -236,6 +236,7 @@ describe('the chat', () => {
         summary,
         images: [{ id: 'image-1', mediaType: ImageMediaType.Png }],
         pastedBlocks: [],
+        files: [],
       },
     })
 
@@ -273,7 +274,15 @@ describe('the chat', () => {
       type: EventType.QueueChanged,
       taskId: 'task-1',
       queuedMessages: [
-        { id: 'queued-1', taskId: 'task-1', body: 'Also the docs.', createdAt: 1, images: [], pastedBlocks: [] },
+        {
+          id: 'queued-1',
+          taskId: 'task-1',
+          body: 'Also the docs.',
+          createdAt: 1,
+          images: [],
+          pastedBlocks: [],
+          files: [],
+        },
       ],
     })
 
@@ -461,6 +470,7 @@ describe('the tool log', () => {
     })
     logEvent({ type: EventType.HandoffChanged, taskId: 'task-1', handoff: null })
     logEvent({ type: EventType.FileShown, taskId: 'task-1', path: 'src/date.ts', line: 12 })
+    logEvent({ type: EventType.FolderChanged, taskId: 'task-1', path: 'src' })
     logEvent({
       type: EventType.OpenFilesChanged,
       openFiles: { taskId: 'task-1', paths: ['src/date.ts'], activePath: 'src/date.ts' },
@@ -476,6 +486,11 @@ describe('the tool log', () => {
       expect.objectContaining({
         message: 'file shown',
         fields: { taskId: 'task-1', path: 'src/date.ts', line: 12 },
+      }),
+      expect.objectContaining({
+        level: LogLevel.Debug,
+        message: 'folder changed',
+        fields: { taskId: 'task-1', path: 'src' },
       }),
       expect.objectContaining({
         level: LogLevel.Debug,
@@ -555,6 +570,13 @@ describe('questions', () => {
     })
     logEvent({
       type: EventType.QuestionAnswered,
+      questionSet: {
+        ...answered,
+        reply: { kind: QuestionReplyKind.Answers, answers: {}, anythingElse: 'Ask me after lunch.' },
+      },
+    })
+    logEvent({
+      type: EventType.QuestionAnswered,
       questionSet: { ...answered, reply: { kind: QuestionReplyKind.FreeText, text: 'Use main.' } },
     })
     logEvent({
@@ -565,6 +587,8 @@ describe('questions', () => {
     expect(logged().map(({ message, fields }) => [message, fields.reply ?? fields.state])).toEqual([
       ['questions answered', QuestionSetState.Answered],
       ['question reply', '{"0":"main"}'],
+      ['questions answered', QuestionSetState.Answered],
+      ['question reply', '{"anythingElse":"Ask me after lunch."}'],
       ['questions answered', QuestionSetState.Answered],
       ['question reply', 'Use main.'],
       ['questions withdrawn', QuestionSetState.Withdrawn],

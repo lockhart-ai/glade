@@ -26,8 +26,16 @@ export interface GitOutput {
   readonly truncated: boolean
 }
 
-/** Runs `git` with `args` in `cwd`, reading at most `maxBytes` of its output. Never throws. */
-export type GitRun = (args: readonly string[], cwd: string | null, maxBytes: number) => Promise<GitOutput>
+/**
+ * Runs `git` with `args` in `cwd`, reading at most `maxBytes` of its output, with `input` (when given) on its standard
+ * input. Never throws.
+ */
+export type GitRun = (
+  args: readonly string[],
+  cwd: string | null,
+  maxBytes: number,
+  input?: string,
+) => Promise<GitOutput>
 
 /** Where a folder's repository is. Every path is absolute and real. */
 export interface RepoLocation {
@@ -122,9 +130,9 @@ const HASH = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/
 /** Runs git with `execFile`, in the environment given, with optional locks off and no prompts. */
 export function execGit(env: NodeJS.ProcessEnv = process.env): GitRun {
   const gitEnv = { ...env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' }
-  return (args, cwd, maxBytes) =>
+  return (args, cwd, maxBytes, input) =>
     new Promise((resolve) => {
-      execFile(
+      const child = execFile(
         'git',
         [...BASE_ARGS, ...args],
         {
@@ -139,6 +147,9 @@ export function execGit(env: NodeJS.ProcessEnv = process.env): GitRun {
           resolve({ ok: error === null, stdout, truncated })
         },
       )
+      // A git that has already failed (and closed its input) mustn't fail the write: its exit says why.
+      child.stdin?.on('error', () => undefined)
+      if (input !== undefined) child.stdin?.end(input)
     })
 }
 

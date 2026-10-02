@@ -1,6 +1,7 @@
 /* The Subagents tab, from docs/design/html/11-subagents.html. */
 .scroller {
-  flex-grow: 1;
+  /* Sized by the panel, not by its content, so a long list isn't laid out again on every change (see Chat.module.css). */
+  flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
   padding: var(--space-lg) var(--space-inset);

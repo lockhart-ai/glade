@@ -11,8 +11,9 @@ which imports nothing, and their zod schemas in `src/shared/plugin-api-schema.ts
 ## Installing
 
 A plugin is a folder in Glade's plugins folder, `~/Library/Application Support/glade/plugins/<id>/`. Installing is
-copying the folder there; removing is deleting it. Settings › Plugins lists what's there, turns each plugin on or off,
-and opens the folder. Glade reads the folder when it starts and when you open Settings › Plugins.
+copying the folder there; removing is deleting it. Settings › Plugins lists what's there, turns each plugin on or off
+(and each capability it asks for, below), and opens the folder. Glade reads the folder when it starts and when you
+open Settings › Plugins.
 
 **Reinstalling.** Copying a new build over a plugin that's running (shown beside the terminal) doesn't need a
 restart: the next time Glade reads the folder (opening Settings › Plugins), a plugin whose manifest version or entry
@@ -41,12 +42,42 @@ reason and never loads.
 | `version` | string | The plugin's own version, shown in Settings. Semver (`1.2.0`). |
 | `entry` | string | The page to load: a path to an `.html` file inside the folder (no `..`, not absolute). |
 | `icon` | string, optional | A path to an `.svg` or `.png` inside the folder, shown in the panel header and Settings. |
+| `capabilities` | string[], optional | What the plugin asks to see beyond the task and agent events: `"machine"` (see "Capabilities"). Each is off until you turn it on. One this Glade doesn't know is ignored. |
 
 Unknown fields are ignored.
 
 ```json
-{ "id": "nekomata", "name": "Nekomata", "version": "1.0.0", "entry": "index.html", "icon": "icon.svg" }
+{ "id": "nekomata", "name": "Nekomata", "version": "1.0.0", "entry": "index.html", "icon": "icon.svg", "capabilities": ["machine"] }
 ```
+
+## Capabilities
+
+Every plugin gets the task and agent events below. A capability is something more that a plugin asks for in its
+manifest's `capabilities`, and that you turn on, per plugin, in Settings › Plugins: a switch under the plugin's row,
+**off until you turn it on**, whose state is saved in SQLite. Turning one on or off reloads the plugin if it's showing,
+so its next `snapshot` has what it may now see, and nothing it no longer may. A capability the manifest doesn't ask
+for can't be turned on, and one it stops asking for is off until it asks again.
+
+There's one so far:
+
+**`machine`: "Can see your Mac's CPU, GPU and Docker load."** A plugin with it on gets a `machine.reading` event about
+every 2 s while it's showing beside the terminal, and the latest readings (up to the last 60) in its `snapshot`'s
+`machine`. Glade samples only while such a plugin is on, showing (not hidden by a collapsed bottom bar) and has said
+`ready`, and stops the moment none is. A plugin with it off, or that doesn't ask for it, gets nothing new: no
+`machine` in its snapshot and no readings.
+
+- **CPU:** `ps -Ao pid,ppid,pcpu,args`, in main. `total` is every process's `%CPU`, in cores; `claude` is Claude
+  Code's share: every process whose command's first word is `claude` (a path or not) and everything under it, each
+  counted once — Glade's own tasks and Claude Code in your terminals alike. `cpuCount` is the Mac's logical cores.
+- **GPU:** the busiest GPU's `"Device Utilization %"` from `ioreg -r -d 1 -w0 -c IOAccelerator`, which needs no
+  elevated rights; null when there's none to read.
+- **Docker:** `docker stats --no-stream`, with a timeout, run in your login shell's environment so its PATH finds
+  `docker`: each running container's name, CPU and the memory it uses, busiest first; `docker` is their CPU summed, in
+  cores. With Docker not installed or not running there are no containers. Glade never starts Docker.
+
+**The privacy line.** A reading holds the coarse numbers above and the containers' names, nothing more: never a
+process's name, command, arguments, path or user, nor a container's id, image, command, ports or status. Commands are
+read in main only to tell which processes are Claude's, and never leave it.
 
 ## The sandbox
 
@@ -111,7 +142,7 @@ Events cover the tasks in every workspace, not only the one the window shows.
 | `type` | Fields | When |
 |---|---|---|
 | `hello` | `app: { name: 'Glade', version: string }` | First, after each `ready`. |
-| `snapshot` | `tasks: PluginTask[]`, `subagents: PluginSubagent[]`, `questions: PluginQuestion[]`, `permissions: PluginPermissionRequest[]` | After `hello`: every active task in every workspace (not done ones, pinned or not), their running subagents, and their open questions and permission requests. |
+| `snapshot` | `tasks: PluginTask[]`, `subagents: PluginSubagent[]`, `questions: PluginQuestion[]`, `permissions: PluginPermissionRequest[]`, and only with the `machine` capability on, `machine?: PluginMachineReading[]` | After `hello`: every active task in every workspace (not done ones, pinned or not), their running subagents, and their open questions and permission requests; and the latest machine readings, oldest first, up to 60 (empty before the first). |
 | `task.created` | `task: PluginTask` | A task is created. |
 | `task.updated` | `task: PluginTask` | Anything in `PluginTask` changes: title, status, state (active ⇄ done), activity, needs you, what it waits on, its workspace's name. `updatedAt` alone changing doesn't send one. A done task isn't in the snapshot, so one reopened (or a follow-up running in it) can arrive as a `task.updated` for a task the plugin doesn't know: treat it as new. |
 | `task.deleted` | `taskId: string` | A task is deleted. |
@@ -123,6 +154,7 @@ Events cover the tasks in every workspace, not only the one the window shows.
 | `question.closed` | `taskId: string`, `questionSetId: string`, `outcome: 'answered' \| 'withdrawn'` | The questions are answered or withdrawn. |
 | `permission.opened` | `request: PluginPermissionRequest` | A tool call waits on a permission card (P11). |
 | `permission.closed` | `taskId: string`, `requestId: string`, `outcome: 'allowed' \| 'denied' \| 'withdrawn'` | The card is answered or withdrawn. |
+| `machine.reading` | `reading: PluginMachineReading` | Only with the `machine` capability on: about every 2 s while the plugin is showing ("Capabilities"). |
 
 ```ts
 interface PluginTask {
@@ -201,11 +233,44 @@ interface PluginPermissionRequest {
   readonly summary: string
   readonly openedAt: number
 }
+
+/** The Mac's load at one moment: only with the `machine` capability on. Cores to two decimal places. */
+interface PluginMachineReading {
+  /** When it was read, in epoch milliseconds. */
+  readonly t: number
+  /** The Mac's logical CPU cores. */
+  readonly cpuCount: number
+  /** Cores in use by every process. */
+  readonly total: number
+  /** Cores in use by Claude Code (every `claude` process) and its children. */
+  readonly claude: number
+  /** Cores in use by Docker's containers: their `cpu` summed, over 100. */
+  readonly docker: number
+  /** The GPU's utilisation, in percent; null when it can't be read. */
+  readonly gpu: number | null
+  /** The running containers, busiest first; empty when Docker isn't installed or isn't running. */
+  readonly containers: readonly PluginContainer[]
+}
+
+interface PluginContainer {
+  /** Its name (`acme-api-db-1`): not its id, image or command. Cut to 200 characters. */
+  readonly name: string
+  /** Its CPU, in percent of one core, as `docker stats` gives it: 100 is one whole core. */
+  readonly cpu: number
+  /** The memory it uses, in bytes. */
+  readonly memory: number
+}
 ```
+
+A reading mirrors Nekomata's standalone dashboard (`fleet_dashboard.py`): `{ t, claude, docker, total }` is one of its
+`history` entries (with `t` in milliseconds here), and `cpuCount`, `gpu` and `containers` are its `cpu_count`, `gpu`
+and `docker`.
 
 **Not sent:** chat messages and final replies, the queue, file contents, tool inputs beyond the summary above and all
 tool results (a subagent's outcome included), a running subagent's progress summary, question options and answers,
-permission prompts and deny notes, todos, artifacts, the terminal, settings, and anything about the machine. A plugin sees what the task list, tool log and Subagents tab summarise, and no more.
+permission prompts and deny notes, todos, artifacts, the terminal, settings, and anything about the machine beyond
+the `machine` capability's coarse readings, and those only with it on. A plugin sees what the task list, tool log and
+Subagents tab summarise, and no more.
 
 ## Messages (plugin to Glade)
 
@@ -233,7 +298,9 @@ its scene and swaps its data source: instead of fetching `/data` from its Python
 transcripts, its `web/glade.js` builds the same session list from these events. A task is a cat, a subagent a kitten,
 `waitingOn` (or an open question or permission card) raises a paw, `agent.toolCall` and `agent.note` fill the speech
 bubbles, and a task leaving the snapshot (done or deleted) is carried out. It posts its count as the header status
-("5 cats · 4 kittens"). The room's CPU, GPU and Docker readings have no source in Glade and stay empty.
+("5 cats · 4 kittens"). It asks for the `machine` capability: with it on, the readings drive the room as the
+dashboard's do (the window's sun follows `total` over `cpuCount`, the pastry case holds a cake per container, steaming
+while it's busy, and the espresso machine follows the GPU); with it off, the room stays quiet.
 
 To install it, build the plugin folder in a clone of the nekomata repo and copy it into the plugins folder:
 

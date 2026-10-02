@@ -106,7 +106,10 @@ The **input bar** under the chat sets how this task runs:
 
 - **Model:** the models your Claude Code login offers, as Claude Code names them (e.g. Default (recommended), Opus,
   Sonnet, Haiku). Glade learns the list each time an agent starts and remembers it, so it's there offline and after a
-  relaunch; until the first agent has started, it offers Opus 5.5, Sonnet 5 and Haiku 4.5.
+  relaunch; until the first agent has started, it offers Opus 5.5, Sonnet 5 and Haiku 4.5. A model's 1M-context
+  variant, where your login offers one, is listed right after it. The task's own model is always in the list, checked,
+  even one your login no longer offers, and it's always named, never shown as a raw id: a task on `opus[1m]` reads
+  "Opus 5.5 (1M)". A task whose agent runs with a 1M context window says so the same way, with "(1M)" after the name.
 - **Effort:** how long the agent thinks before acting: Low, Medium, High, Extra high or Max, as far as the model
   supports them. Some models, like Haiku, take no effort, and the picker hides. Switch to a model that doesn't offer
   the task's effort and the effort moves to the model's default (High, where it has it), and a toast says so. A model
@@ -120,7 +123,8 @@ The **input bar** under the chat sets how this task runs:
   Compact now compacts.
 
 Each task keeps its own settings; new tasks start from the defaults in Settings › Agent. Each task also keeps its
-unsent draft, pasted images and pasted text blocks included, while you're on another task and across a relaunch.
+unsent draft, pasted images, pasted text blocks and attached files included, while you're on another task and
+across a relaunch.
 
 You can run as many tasks at once as you like. Switching tasks never interrupts one that's working.
 
@@ -144,9 +148,12 @@ scroll: the chat passes under them.
   days; one Glade quits on waits for good, and your answer resumes the task). When it asks in reply to your message,
   the card opens with its answer to what you said, above the questions; that reply stays on the card once you've
   answered, and its first line is what a notification for the card says. Options and pills that don't fit on one row wrap
-  onto more rows, up to three options to a row. Click through the card, or use the keyboard (the digits 1 – 9 pick an
-  option, ← → move between options, ↵ sends). Or just type a reply in the input bar: it answers the questions in your
-  own words.
+  onto more rows, up to three options to a row. Every question is optional: answer the ones you want and leave the
+  rest, and use the **Anything else?** box at the foot of the card to say more, or why none of the options fit. Send
+  answers sends whatever you've given (with nothing at all it reads Skip questions); the answered card shows each answer,
+  "Skipped" for the questions you left, and your note. Click through the card, or use the keyboard (the digits 1 – 9
+  pick an option, ← → move between options, ↵ sends, and ⌘↵ in the Anything else box, where ↵ starts a new line). Or
+  just type a reply in the input bar: it answers the questions in your own words.
 - **Pasted images:** paste a screenshot or image (PNG, JPEG, GIF or WebP, up to 3.75 MB each) into the input bar. It
   shows as a thumbnail you can remove, and goes to the agent with your message. Images can't go with an answer to a
   question card; send them after. Once sent (or queued), click a thumbnail, or press ↵ or Space on it, to see the image
@@ -157,6 +164,14 @@ scroll: the chat passes under them.
   plain text. Glade marks it this way so the agent knows to be wary of instructions hidden inside it. In the chat,
   your message shows your own words with the block collapsed to its line count; click it to see the pasted text in
   place. Pasted blocks can't go with an answer to a question card either.
+- **Attached files:** drop any file onto the input bar, or copy it in Finder and paste it (⌘V), to hand it to the
+  agent without pasting its contents: a CSV, a PDF, a log. Glade copies it into the workspace, at
+  `.glade/attachments/<task id>/`, and shows a chip with its icon, name, type and size; click the chip to see the copy
+  in Finder, or ✕ to take it off. The agent gets the copy's path at the end of your message and reads it with its own
+  tools. In the chat, click a sent file's chip to open it in the Files tab (or in Finder, for a file the Files tab
+  can't show). Folders and files over 200 MB can't be attached; a toast says why. Glade keeps the copies out of git
+  (in the repository's own `.git/info/exclude`, never your `.gitignore`), and deletes them when you delete the task.
+  Files can't go with an answer to a question card either.
 - **Right-click a reply** to copy it (as text or Markdown), quote it in your reply, or show that turn's tool calls.
 - **Links open in your browser.** A link or a bare URL in a reply, your message, a card, the tool log, the header, a
   todo or anywhere else Glade shows what the agent or you wrote is clickable (⌘-click works too, and ↵ on a focused
@@ -176,6 +191,10 @@ scroll: the chat passes under them.
 - An API error that Claude Code's own retries can't get past stops the task with a card saying what happened, with
   **Retry**, **Retry with another model** and **Show details**. So does Claude Code failing to start, with the reason it
   gave, such as a missing workspace folder.
+- If Claude Code's login has expired (or you're not logged in at all), the task stops on a **You're logged out of
+  Claude** card instead. **Log in** opens Claude's sign-in page in your browser, through Claude Code's own login; sign
+  in there, and the task carries on by itself. Other tasks stopped the same way show the same card: **Retry** each, or
+  **Retry all** at once. **Cancel** stops a login you started by mistake.
 - Opus 5.5 and Sonnet 5 run safety classifiers on some requests (biology, cybersecurity, reasoning extraction). A
   declined request that's retried on a fallback model gets a quiet notice in the chat ("Answered by `<model>`: the
   request was declined by a safety check") in place of the declined attempt, and, if it switched the whole session,
@@ -283,6 +302,15 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   Artifacts, below). A larger, or any other kind of binary, file shows a notice instead of its contents. **Open in
   editor** (⌘⇧E) opens the file in the app macOS uses for it, and ⌘W, with the focus in the panel, closes the tab. The
   agent can open a file here for you.
+
+  The folder icon before the tabs is **Browse**: the whole workspace as a tree, folders first. Click a folder to open
+  it, and a file to open it in a tab; the folders you leave open stay open for the task, even after a relaunch. What
+  git ignores (and the `.git` and `.glade` folders) doesn't show, and files the agent makes or deletes appear and go
+  as it works. Type in **Search files** at the top to find a file by name or path anywhere in the workspace; the first
+  200 matches show, best first, with how many more. With the keyboard: ↑↓ move, → and ← open and close a folder, ↩
+  opens, Esc clears the search, and ⌘F (with the focus in Files) jumps to the search.
+
+  ![The Browse tab in Files: the workspace's tree, with three folders open (sample data)](images/guide/files-browse.png)
 - **Todos:** the agent's own checklist, as it keeps it, with how many are done. The items come in three groups: what
   the agent is working on now, then what it hasn't started, then what's done (the most recently finished first, each
   with when it was finished, like `4m ago`; hover it for the exact time). A done item has a filled teal check and
@@ -293,7 +321,8 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   JPEG, GIF, WebP or SVG), or a tile with the file's type, then its title, its type and when the file last changed.
   They're listed newest first, by when each file last changed, under **Today**, **Yesterday**, **This week**, **Last
   week**, **This month** and **Older**; each header shows its count and folds with a click. Today and Yesterday start
-  open and the older groups folded, and each task remembers how you left them. An artifact that's edited moves back to
+  open, and so does the topmost group showing (last week's, say, for a task with nothing newer); the rest start
+  folded, and each task remembers how you left them. An artifact that's edited moves back to
   the top, whether the agent (or one of its subagents) edited it or you did, in the terminal or an editor, while the
   tab is open. Click a row (or press ↵ or Space on it) to open the file: an image opens full size in the image viewer,
   stepping ← → through the other image artifacts the list shows under a "2 of 7" (open a folded group to include its
@@ -399,18 +428,20 @@ A card left open when Glade quits is still there after the relaunch; answering i
 | Notifications | **Notifications** on or off, and **Sound**. |
 | Appearance | Nothing yet: Glade has one theme, dark. |
 | Keyboard | Every shortcut, and a way to change it (below). |
-| Plugins | The installed plugins, a switch for each, and **Open plugins folder** (see [Plugins](#plugins)). |
+| Plugins | The installed plugins, a switch for each (and for what each asks to see, such as your Mac's load), and **Open plugins folder** (see [Plugins](#plugins)). |
 | Control | **Let agents control Glade** (see [below](#let-agents-control-glade)). |
 | *(your workspace)* | Its **Name** and **Root folder**. |
 
 ### Your account
 
-Glade runs on Claude Code's own login and never asks for one. Settings › General shows what Claude Code says it's
+Glade runs on Claude Code's own login and never holds your password or token. Settings › General shows what Claude Code says it's
 using, read each time a task starts: the **account** (your email, or "API key"), its **organization**, the **plan**
 whose usage limits every task shares (or "Pay as you go" for an API key), and what it's **signed in with** (Claude
-Code's login, the `ANTHROPIC_API_KEY` variable, an `apiKeyHelper` script, …). If it says **Not signed in**, run
-`claude` in a terminal and sign in with `/login`, then start a task. To use another account, sign in again in Claude
-Code; the next task that starts picks it up.
+Code's login, the `ANTHROPIC_API_KEY` variable, an `apiKeyHelper` script, …). If it says **Not signed in**, or a task
+stopped because your login expired, press **Log in** there: it runs Claude Code's own login, which opens the sign-in
+page in your browser. Glade never sees your password or token; Claude Code keeps the login, as it does in a terminal.
+To use another account, sign in again in Claude Code (`claude auth login` in a terminal); the next task that starts
+picks it up.
 
 ![Settings › General, showing the account (sample data)](images/guide/settings-general.png)
 
@@ -446,6 +477,12 @@ own sandbox: no access to your files, no network beyond your own Mac, and it see
 states, one-line tool-call summaries, subagents, questions and permission requests), never your chat, tool output or
 files.
 
+**Your Mac's load.** A plugin can ask to see how busy your Mac is. If it does, Settings › Plugins shows **Can see your
+Mac's CPU, GPU and Docker load** under it, with its own switch, off until you turn it on. With it on, the plugin gets
+the CPU cores in use (all of them, and Claude Code's share), the GPU's utilisation, and each running Docker container's
+name, CPU and memory, about every 2 seconds while it's showing. It never sees which programs are running, their
+commands or their files, and Glade never starts Docker to read it. Turning the switch on or off restarts the plugin.
+
 **Installing** one is copying its folder into Glade's plugins folder: Settings › Plugins › **Open plugins folder**
 (`~/Library/Application Support/glade/plugins/`). Glade looks for plugins at launch and each time you open Settings ›
 Plugins, which lists them with a switch each; a broken one is listed with the reason. Delete the folder to remove it.
@@ -462,7 +499,9 @@ git checkout glade-plugin   # the Glade build, until it's merged into main
 cp -R dist/glade/nekomata ~/Library/Application\ Support/glade/plugins/
 ```
 
-Then open Settings › Plugins: Nekomata is listed, switched on, and appears beside the terminal.
+Then open Settings › Plugins: Nekomata is listed, switched on, and appears beside the terminal. Turn on **Can see your
+Mac's CPU, GPU and Docker load** under it to light up its room: the sun in the window follows your CPU, the pastry case
+fills with a cake per Docker container, and the espresso machine brews with the GPU.
 
 Writing your own? [The plugin API](plugin-api.md) has the manifest, the sandbox and every event.
 
@@ -619,6 +658,9 @@ When Claude Code can't start at all, the error card says why when Claude Code do
 there's no shell to run commands with, your organization's settings or gateway refused it, and so on. **Show details**
 shows what it printed. Fix that (for a missing folder, put it back or open the right one as a workspace), then
 **Retry**.
+
+If the card says **You're logged out of Claude**, press **Log in** (see above). If logging in from Glade doesn't finish
+(the card says why), run `claude auth login` in a terminal instead, then press **Retry**.
 
 Otherwise, check that Claude Code works on its own: run `claude` in a terminal and make sure you're logged in. Settings ›
 General shows the account the last task started on, or **Not signed in**. Then look in the log for the `agent` and
