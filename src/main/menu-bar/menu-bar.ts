@@ -59,9 +59,14 @@ export interface MenuBarPopover {
   destroy(): void
 }
 
-/** What the popover does when it hides itself: it lost the focus, or you pressed Esc. */
+/** What the popover tells of itself: that it hid (it lost the focus, or you pressed Esc), or that its window is gone. */
 export interface PopoverHandlers {
   readonly onHidden: () => void
+  /**
+   * Its window closed without `destroy` being asked for: the app is quitting, which closes every window before the
+   * menu bar is closed, or the window was closed some other way. Nothing may be asked of the popover after this.
+   */
+  readonly onClosed: () => void
 }
 
 /** Makes the popover, hidden, the first time the icon is clicked. */
@@ -206,15 +211,30 @@ export function createMenuBar({
     popover?.hide()
   }
 
-  const show = (): void => {
-    if (tray === null) return
-    popover ??= createPopover({
+  /**
+   * Makes the popover's window. When the window closes behind the menu bar's back (#439), the menu bar lets go of it,
+   * so a change on its way (`changed`) is never sent to a window that's gone, and the next click makes a new one.
+   */
+  const makePopover = (): MenuBarPopover => {
+    const made = createPopover({
       onHidden: () => {
         if (!open) return
         open = false
         hiddenAt = now()
       },
+      onClosed: () => {
+        // A window the menu bar already replaced (the setting went off and on again) changes nothing.
+        if (popover !== made) return
+        popover = null
+        open = false
+      },
     })
+    return made
+  }
+
+  const show = (): void => {
+    if (tray === null) return
+    popover ??= makePopover()
     open = true
     // Its page may have missed changes while it was hidden: it gets what's in flight now, as it shows.
     refresh()

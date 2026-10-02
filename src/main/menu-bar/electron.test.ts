@@ -142,6 +142,7 @@ describe('the popover window', () => {
     const load = vi.fn()
     const track = vi.fn()
     const onHidden = vi.fn()
+    const onClosed = vi.fn()
     const popover = createElectronPopover({
       BrowserWindow: FakeWindow as unknown as WindowClass,
       webPreferences: PREFERENCES,
@@ -150,10 +151,10 @@ describe('the popover window', () => {
       hidden: false,
       track,
       ...overrides,
-    })({ onHidden })
+    })({ onHidden, onClosed })
     const [window] = FakeWindow.made
     if (window === undefined) throw new Error('no window')
-    return { popover, window, load, track, onHidden }
+    return { popover, window, load, track, onHidden, onClosed }
   }
 
   it("is a small frameless panel, hidden, with every window's security settings, loading Glade's page", () => {
@@ -285,10 +286,68 @@ describe('the popover window', () => {
   })
 
   it('is untracked and destroyed for good', () => {
-    const { popover, window, track } = make()
+    const { popover, window, track, onClosed } = make()
+    window.destroy.mockImplementation(() => window.listeners.get('closed')?.())
     popover.destroy()
     expect(track).toHaveBeenLastCalledWith(window, false)
     expect(window.destroy).toHaveBeenCalledOnce()
+    // Destroying it was asked for, so it isn't news, and asking again does nothing.
+    expect(onClosed).not.toHaveBeenCalled()
+    popover.destroy()
+    expect(window.destroy).toHaveBeenCalledOnce()
+    expect(track).toHaveBeenCalledTimes(2)
+  })
+
+  // #439: quitting closes the window before the menu bar is closed. Electron throws "Object has been destroyed" for
+  // anything asked of a closed window; from the menu bar's timer that was an uncaught exception, whose dialog blocked
+  // the quit.
+  describe('once its window has closed by itself', () => {
+    /** A window that has closed, and throws for anything asked of it, as Electron's does. */
+    function closedWindow() {
+      const made = make()
+      const { window } = made
+      const gone = (): never => {
+        throw new TypeError('Object has been destroyed')
+      }
+      made.popover.show(ANCHOR)
+      window.setBounds.mockClear()
+      for (const method of [window.setBounds, window.show, window.focus, window.hide, window.destroy]) {
+        method.mockImplementation(gone)
+      }
+      window.webContents.send.mockImplementation(gone)
+      window.listeners.get('closed')?.()
+      return made
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('says so, once, is untracked, and stops waiting to show', () => {
+      const { window, track, onClosed } = closedWindow()
+      expect(onClosed).toHaveBeenCalledOnce()
+      expect(track).toHaveBeenLastCalledWith(window, false)
+      vi.advanceTimersByTime(FIRST_FIT_TIMEOUT_MS)
+      expect(window.show).not.toHaveBeenCalled()
+      window.listeners.get('closed')?.()
+      expect(onClosed).toHaveBeenCalledOnce()
+    })
+
+    it('asks nothing more of the window, whatever is asked of it', () => {
+      const { popover, window } = closedWindow()
+      popover.send({ type: EventType.MenuBarChanged, snapshot: EMPTY_MENU_BAR_SNAPSHOT })
+      popover.show(ANCHOR)
+      popover.fit(300)
+      popover.hide()
+      popover.destroy()
+      expect(window.webContents.send).not.toHaveBeenCalled()
+      expect(window.setBounds).not.toHaveBeenCalled()
+      expect(window.hide).not.toHaveBeenCalled()
+      expect(window.destroy).not.toHaveBeenCalled()
+    })
   })
 
   it('never shows in a test mode, but still paints and is placed', () => {

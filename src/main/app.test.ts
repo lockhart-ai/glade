@@ -446,10 +446,12 @@ const originalPlatform = process.platform
 
 /** The crash listeners on `process` before each test, so the ones a test's app adds can go afterwards. */
 let exceptionListeners: NodeJS.UncaughtExceptionListener[]
+let fatalListeners: NodeJS.UncaughtExceptionListener[]
 let rejectionListeners: NodeJS.UnhandledRejectionListener[]
 
 beforeEach(() => {
   exceptionListeners = process.listeners('uncaughtExceptionMonitor')
+  fatalListeners = process.listeners('uncaughtException')
   rejectionListeners = process.listeners('unhandledRejection')
   vi.clearAllMocks()
   electron.appHandlers.clear()
@@ -476,6 +478,9 @@ afterEach(() => {
   // The app watches for crashes until it quits; one that never got that far leaves its listeners behind.
   for (const listener of process.listeners('uncaughtExceptionMonitor')) {
     if (!exceptionListeners.includes(listener)) process.off('uncaughtExceptionMonitor', listener)
+  }
+  for (const listener of process.listeners('uncaughtException')) {
+    if (!fatalListeners.includes(listener)) process.off('uncaughtException', listener)
   }
   for (const listener of process.listeners('unhandledRejection')) {
     if (!rejectionListeners.includes(listener)) process.off('unhandledRejection', listener)
@@ -1435,6 +1440,33 @@ describe('startApp logging', () => {
       level: 'debug',
       text: 'It was a **race**.',
     })
+  })
+
+  it('leaves an uncaught exception in main to Electron, whose dialog says what happened', async () => {
+    const handling = process.listenerCount('uncaughtException')
+    await startAndWaitUntilReady()
+
+    expect(process.listenerCount('uncaughtException')).toBe(handling)
+  })
+
+  // #439: Electron's dialog for an uncaught exception is modal, so a test mode's app hung on screen behind it.
+  it('exits on an uncaught exception in a test mode, once it is logged, rather than showing a dialog', async () => {
+    vi.stubEnv(E2E_ENV, JSON.stringify({ userData: electron.app.userData, route: '' }))
+    const handling = process.listeners('uncaughtException')
+    await startAndWaitUntilReady()
+    const added = process.listeners('uncaughtException').filter((listener) => !handling.includes(listener))
+    expect(added).toHaveLength(1)
+
+    // The app's own listeners, called as Node would: emitting the events would reach Vitest's too.
+    process.listeners('uncaughtExceptionMonitor').at(-1)?.(new Error('main blew up'), 'uncaughtException')
+    added[0]?.(new Error('main blew up'), 'uncaughtException')
+
+    expect(logged('uncaught exception', testModeLogs())).toHaveLength(1)
+    expect(electron.app.exit).toHaveBeenCalledExactlyOnceWith(1)
+    expect(electron.dialog.showErrorBox).not.toHaveBeenCalled()
+
+    appHandler('will-quit')()
+    expect(process.listeners('uncaughtException')).toEqual(handling)
   })
 
   it("logs a test mode to its own throwaway folder, never Electron's", async () => {
