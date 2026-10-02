@@ -474,3 +474,90 @@ test('artifacts: the image viewer steps only through the image artifacts the lis
   await expect(viewer.title).toHaveText('Landing page, light theme')
   await expect(viewer.pager).toHaveText('3 of 3')
 })
+
+test('artifacts: links the agent adds and you add by hand, opened in the browser, and the Files · Links filter (#407)', async ({
+  launch,
+  tempFolder,
+}) => {
+  const root = join(tempFolder(), 'acme-api')
+  write(root, 'docs/releases/2.4.md', NOTES, 10)
+  const glade = await launch({ agentScript: 'tracks-links', chosenFolder: root, env: MIDDAY })
+  const { window } = glade
+  const page = window.url()
+  await firstRun(window).openFolder.click()
+  await taskList(window).newTask.click()
+  await inputBar(window).field.fill('Open a PR for the docs navigation.')
+  await inputBar(window).field.press('Enter')
+  const reply = chat(window).agentReplies.first()
+  await expect(reply).toContainText('PR #412 is open')
+
+  // The PR and the ticket the agent added, with the file, each saying what it is; the filter, as there are both kinds.
+  const panel = taskPanel(window)
+  const artifacts = artifactsTab(window)
+  await window.keyboard.press('Meta+Alt+Digit4')
+  await expect(panel.tab(/^Artifacts/)).toHaveText('Artifacts 3')
+  await expect(artifacts.row('Docs site navigation refresh')).toHaveText(
+    /^Docs site navigation refresh#412 · acme\/api/,
+  )
+  await expect(artifacts.row('Developer docs refresh')).toHaveText(/^Developer docs refreshAPI-123/)
+  await expect(artifacts.open('Docs site navigation refresh')).toHaveAttribute(
+    'title',
+    'https://github.com/acme/api/pull/412',
+  )
+  await expect(artifacts.chip('All')).toHaveAttribute('aria-pressed', 'true')
+  await expect(artifacts.chip('Files')).toHaveText(/^Files\s*1$/)
+  await expect(artifacts.chip('Links')).toHaveText(/^Links\s*2$/)
+
+  // Add to artifacts, on a bare issue link and a named page in the reply: called #398, and what the link says.
+  const linkMenu = contextMenu(window, 'Link actions')
+  await reply.getByRole('link', { name: 'https://github.com/acme/api/issues/398' }).click({ button: 'right' })
+  await expect(linkMenu.items).toHaveText(['Open link', 'Copy link', 'Add to artifacts'])
+  await linkMenu.item('Add to artifacts').click()
+  await reply.getByRole('link', { name: 'the code sample style guide' }).click({ button: 'right' })
+  await linkMenu.item('Add to artifacts').click()
+  await expect(panel.tab(/^Artifacts/)).toHaveText('Artifacts 5')
+  await expect(artifacts.row('#398')).toHaveText(/^#398#398 · acme\/api/)
+  await expect(artifacts.row('the code sample style guide')).toHaveText(/^the code sample style guideexample\.com/)
+  // Once it's an artifact, the link's menu no longer offers to add it.
+  await reply.getByRole('link', { name: 'the code sample style guide' }).click({ button: 'right' })
+  await expect(linkMenu.items).toHaveText(['Open link', 'Copy link'])
+  await window.keyboard.press('Escape')
+
+  // Links only: the file goes, and the group's count follows.
+  await artifacts.chip('Links').click()
+  await expect(artifacts.chip('Links')).toHaveAttribute('aria-pressed', 'true')
+  await expect(artifacts.rows).toHaveCount(4)
+  await expect(artifacts.row('Release notes 2.4')).toHaveCount(0)
+  await expect(artifacts.header('Today')).toHaveText(/^Today\s*4$/)
+
+  // A click opens a link in the browser, through main; the window stays where it is, and nothing opens in Files.
+  await artifacts.open('Docs site navigation refresh').click()
+  await artifacts.row('Developer docs refresh').hover()
+  await artifacts.action('Developer docs refresh', 'Open link').click()
+  await expect
+    .poll(async () => (await desktop(glade)).opened)
+    .toEqual(['https://github.com/acme/api/pull/412', 'https://acme.atlassian.net/browse/API-123'])
+  expect(window.url()).toBe(page)
+  expect(glade.app.windows()).toHaveLength(1)
+  await expect(panel.tab(/^Artifacts/)).toHaveAttribute('aria-selected', 'true')
+  await artifacts.action('Developer docs refresh', 'Copy link').click()
+  await expect.poll(async () => (await desktop(glade)).copied).toEqual(['https://acme.atlassian.net/browse/API-123'])
+
+  // Its menu: Open link, Copy link, and Remove from artifacts, which takes it off.
+  await artifacts.row('#398').click({ button: 'right' })
+  const menu = contextMenu(window, 'Artifact actions')
+  await expect(menu.items).toHaveText([/^Open link/, 'Copy link', 'Remove from artifacts'])
+  await menu.item('Remove from artifacts').click()
+  await expect(artifacts.row('#398')).toHaveCount(0)
+  await expect(artifacts.chip('Links')).toHaveText(/^Links\s*3$/)
+
+  // The filter, and the links, are as they were left after a relaunch.
+  await glade.close()
+  const relaunched = await launch({ env: MIDDAY })
+  await relaunched.window.keyboard.press('Meta+Alt+Digit4')
+  const again = artifactsTab(relaunched.window)
+  await expect(again.chip('Links')).toHaveAttribute('aria-pressed', 'true')
+  await expect(again.rows).toHaveCount(3)
+  await again.chip('Files').click()
+  await expect.poll(() => labels(again.rows)).toEqual(['Release notes 2.4'])
+})

@@ -6,10 +6,11 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import {
-  CompactionTrigger,
   AgentErrorKind,
-  DividerKind,
   API_TOOL_NAME,
+  ArtifactKind,
+  CompactionTrigger,
+  DividerKind,
   MessageRole,
   PauseReason,
   PermissionDecisionKind,
@@ -26,7 +27,7 @@ import {
   type ToolEvent,
 } from '../../shared/domain'
 import { autoCompactThreshold } from '../../shared/contextWindow'
-import { listFileArtifacts } from '../db/repositories/artifacts'
+import { listArtifacts, listFileArtifacts } from '../db/repositories/artifacts'
 import { listMessages } from '../db/repositories/messages'
 import { getOpenQuestionSet } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
@@ -54,6 +55,7 @@ import {
   RELEASE_NOTES_QUESTIONS,
   S3_PLAN,
   SUBAGENT_CALLS_REPLY,
+  TRACKS_LINKS_REPLY,
   type AgentScriptName,
 } from './scripts'
 import { OFFLINE_FIRST_CHECK_MS, USAGE_LIMIT_FALLBACK_MS } from './pauses'
@@ -242,6 +244,34 @@ describe('AGENT_SCRIPTS', () => {
         ['docs/releases/2.4-upgrade.md', 'Upgrade guide'],
       ])
       expect(reply()).toBe('The release notes and an upgrade guide are ready in Artifacts.')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('tracks-links: declares the release notes, then a ticket and the PR it opened as link artifacts (#407)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'glade-tracks-links-'))
+    try {
+      mkdirSync(join(root, 'docs', 'releases'), { recursive: true })
+      writeFileSync(join(root, 'docs', 'releases', '2.4.md'), '# Release notes 2.4\n')
+      task = sampleTask(database.db, sampleWorkspace(database.db, root).id)
+      // Real timers: `add_artifact` reads the disk, which fake timers would race with the tool call's timeout.
+      vi.useRealTimers()
+      const agent = start('tracks-links')
+      agent.send(task.id, 'Open a PR for the docs navigation.')
+      await backend.whenIdle()
+
+      expect(calls().every((call) => call.state === ToolCallState.Done)).toBe(true)
+      expect(
+        listArtifacts(database.db, task.id).map((artifact) =>
+          artifact.kind === ArtifactKind.Link ? [artifact.url, artifact.title] : [artifact.path, artifact.title],
+        ),
+      ).toEqual([
+        ['docs/releases/2.4.md', 'Release notes 2.4'],
+        ['https://acme.atlassian.net/browse/API-123', 'Developer docs refresh'],
+        ['https://github.com/acme/api/pull/412', 'Docs site navigation refresh'],
+      ])
+      expect(reply()).toBe(TRACKS_LINKS_REPLY)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
