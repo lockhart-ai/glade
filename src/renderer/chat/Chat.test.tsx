@@ -532,16 +532,29 @@ describe('Chat', () => {
     )
   })
 
-  it('highlights the latest reply as a question while the agent waits on you', async () => {
+  it('keeps every agent reply on the purple card, even once a newer one arrives (#410)', async () => {
     const { emit } = await renderChat({ messages: [ASK, REPLY] })
-    const reply = (): Element | null => screen.getByRole('article', { name: 'Agent' }).firstElementChild
+    // The same DOM node throughout: React keys each reply's article by its message id, so it isn't recreated below.
+    const firstReply = screen.getByRole('article', { name: 'Agent' }).firstElementChild
 
-    expect(reply()?.className).toMatch(/question/)
+    expect(firstReply?.className).toMatch(/question/)
 
     act(() => {
-      emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), activity: TaskActivity.Working } })
+      emit({ type: EventType.MessageAppended, message: { ...ASK, id: 'm3', turn: 2, body: 'Use 60 for /search.' } })
+      emit({
+        type: EventType.MessageAppended,
+        message: { ...REPLY, id: 'm4', turn: 2, body: 'Done.', createdAt: REPLIED_AT + 60_000 },
+      })
+      emit({ type: EventType.TaskUpdated, task: { ...sampleTask('t1', 'w1'), activity: TaskActivity.Waiting } })
     })
-    expect(reply()?.className).not.toMatch(/question/)
+
+    const replies = screen.getAllByRole('article', { name: 'Agent' })
+    expect(replies).toHaveLength(2)
+    for (const reply of replies) {
+      expect(reply.firstElementChild?.className).toMatch(/question/)
+    }
+    // The first reply never lost its card: this is the same element checked above, still purple.
+    expect(firstReply?.className).toMatch(/question/)
   })
 
   describe('the working line', () => {
@@ -976,9 +989,11 @@ describe('links in the chat', () => {
 /**
  * #248: some replies showed as bare text. Only the latest reply while the agent waited on you had a card (the purple
  * question card); every other reply, and what the agent said before asking, had none. Every shape of turn the chat
- * knows must put each piece of the agent's text on a card.
+ * knows must put each piece of the agent's text on a card. #410: every reply's card is purple, always, whatever the
+ * turn's shape and however many newer messages arrive after it; only what the agent said before asking (with no
+ * preamble) keeps the neutral card.
  */
-describe('every agent reply is on a card', () => {
+describe('every agent reply is on the purple card', () => {
   const at = (hour: number, minute = 0): number => new Date(2026, 8, 23, hour, minute).getTime()
   const user = (id: string, turn: number, createdAt: number): Message => ({ ...ASK, id, turn, createdAt })
   const agent = (id: string, turn: number, createdAt: number, body = `Reply ${id}.`): Message => ({
@@ -1005,22 +1020,21 @@ describe('every agent reply is on a card', () => {
       .filter((body): body is Element => body !== null)
   }
 
-  /** Checks every reply is on a card: the purple one for `question` (the latest while waiting), the neutral otherwise. */
-  function expectAllCarded(count: number, question: number | null = null): void {
+  /** Checks every reply is on the purple card, whatever its place in the conversation (#410). */
+  function expectAllCarded(count: number): void {
     const bodies = replyBodies()
     expect(bodies).toHaveLength(count)
-    bodies.forEach((body, index) => {
+    bodies.forEach((body) => {
       expect(body.className).toMatch(/card/)
-      if (index === question) expect(body.className).toMatch(/question/)
-      else expect(body.className).not.toMatch(/question/)
+      expect(body.className).toMatch(/question/)
     })
   }
 
-  it('an earlier reply, not only the latest one while the agent waits on you', async () => {
+  it('an earlier reply, not only the latest one', async () => {
     await renderChat({
       messages: [user('u1', 1, at(9)), agent('a1', 1, at(10)), user('u2', 2, at(11)), agent('a2', 2, at(12))],
     })
-    expectAllCarded(2, 1)
+    expectAllCarded(2)
   })
 
   it.each<[string, Partial<Task>]>([
@@ -1044,7 +1058,7 @@ describe('every agent reply is on a card', () => {
       messages: [user('u1', 1, at(9)), agent('a1', 1, at(10)), agent('a2', 2, at(11))],
       toolEvents: [divider('d1', DividerKind.Turn, 2, at(10, 30)), toolCall('c1', 2)],
     })
-    expectAllCarded(2, 1)
+    expectAllCarded(2)
   })
 
   it('a reply in a turn resumed after Glade restarted', async () => {
@@ -1081,7 +1095,7 @@ describe('every agent reply is on a card', () => {
       ],
     })
     expect(within(conversation()).getByRole('separator', { name: 'Compacted' })).toBeInTheDocument()
-    expectAllCarded(2, 1)
+    expectAllCarded(2)
   })
 
   it("a backfilled or imported task's replies, below its handoff note", async () => {
@@ -1090,7 +1104,7 @@ describe('every agent reply is on a card', () => {
       messages: [agent('a1', 1, at(9)), user('u1', 2, at(10)), agent('a2', 2, at(11))],
       handoff: { taskId: 't1', body: 'The v2 handlers are live.', addedAt: at(8) },
     })
-    expectAllCarded(2, 1)
+    expectAllCarded(2)
   })
 
   it('replies split around a question card and a permission card, and an empty reply', async () => {
@@ -1132,7 +1146,7 @@ describe('every agent reply is on a card', () => {
     ]
     const toolEvents = [divider('d1', DividerKind.Turn, 2, at(10, 30)), divider('r1', DividerKind.Resumed, 3, at(13))]
     const { bridge } = await renderChat({ messages, toolEvents })
-    expectAllCarded(3, 2)
+    expectAllCarded(3)
     cleanup()
 
     // The app starts over from what main saved: a new store, hydrated from the same data.
@@ -1145,6 +1159,6 @@ describe('every agent reply is on a card', () => {
       </GladeStoreProvider>,
     )
     await act(() => store.getState().hydrate())
-    expectAllCarded(3, 2)
+    expectAllCarded(3)
   })
 })
