@@ -107,9 +107,9 @@ the next.
    starts the agent. It names the task and sets its goal, and the header's **Now** line keeps its status current.
 3. **Work alongside it.** Keep typing while it works: your messages queue and reach the agent after its current step.
    Watch its tool calls, files and todos in the right panel, and press ⌘. to stop it.
-4. **Answer when it needs you.** A task that asks a question or waits for permission gets a purple dot and counts under
-   **Needs you**. If you're looking at another task, you get a macOS notification you can reply to directly, and
-   Glade's icon in the menu bar counts it.
+4. **Answer when it needs you.** A task that asks a question or waits for permission gets a purple dot. If you're
+   looking at another task, you get a macOS notification you can reply to directly, and Glade's icon in the menu bar
+   counts it under **Needs you**.
 5. **Mark it done.** ⌘⇧D (or the check in the header) marks the task done, and its latest status becomes the outcome.
    Undo if you didn't mean it. A done task stays open to chat: send it a message and it reopens.
 

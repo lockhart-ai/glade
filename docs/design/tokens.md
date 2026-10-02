@@ -88,7 +88,7 @@ And the insets that keep things on shared lines:
   every frame stalls the slide on macOS): it does again once the slide lands.
 - `space-inset` = 8: every panel's inset, from a card's edge to the cards, rows and fields inside it. The task card's
   header, chat column, input bar and right panel all sit 8 in from its edges; in the sidebar the workspace button,
-  search field, filter chips, section headers and task rows share one left edge 8 in; the right panel's rows sit 8 in
+  search field, section headers and task rows share one left edge 8 in; the right panel's rows sit 8 in
   from it.
 - `space-item` = 8: the inner padding of those rows, fields and buttons (inside their 1px border), so their content
   (dots, icons, chevrons, labels) shares a second line, 17px in from the panel's edge.
