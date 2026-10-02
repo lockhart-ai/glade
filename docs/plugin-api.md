@@ -148,7 +148,7 @@ Events cover the tasks in every workspace, not only the one the window shows.
 | `task.deleted` | `taskId: string` | A task is deleted. |
 | `agent.toolCall` | `call: PluginToolCall` | A tool call starts, and again when it ends. Parallel calls each get their own. |
 | `agent.note` | `taskId: string`, `subagentId: string \| null`, `text: string`, `at: number` | The agent's (or a subagent's) working notes between tool calls (the tool log's preamble), trimmed. Blank ones aren't sent. |
-| `subagent.started` | `subagent: PluginSubagent` | A subagent starts: its `Agent` call starts. Subagents started inside a subagent too. |
+| `subagent.started` | `subagent: PluginSubagent` | A subagent starts: its `Agent` call starts. Subagents started inside a subagent too. A subagent that had ended and is woken again (the agent messages it, or the SDK starts it again) starts again too, under the same `id`, its `endedAt` null until its new run ends. |
 | `subagent.updated` | `subagent: PluginSubagent` | Its state or latest line changes. A background subagent runs on after its call returns, and ends when it finishes. |
 | `question.opened` | `question: PluginQuestion` | The agent asks (`ask`). |
 | `question.closed` | `taskId: string`, `questionSetId: string`, `outcome: 'answered' \| 'withdrawn'` | The questions are answered or withdrawn. |

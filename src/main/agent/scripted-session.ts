@@ -32,6 +32,9 @@
  * - A `Background` step starts a subagent in the background (see `ScriptStepKind.Background`): its `Agent` call returns
  *   at once, and the subagent plays its steps alongside the session's turns, until it ends and notifies the agent, which
  *   may then start a turn of its own. `stopTask` stops it by its task id; closing the session stops it without a word.
+ * - A `MessageSubagent` step messages one with `SendMessage` (see `ScriptStepKind.MessageSubagent`): one that has
+ *   ended starts again, in the background, and plays a new run as a `Background` step's subagent does, its task
+ *   reported under the `SendMessage` call, as the SDK reports a woken subagent's (`docs/sdk-notes.md`).
  * - A `Permission` step asks the runner about its call (`onToolPermission`) in the ask mode, as Claude Code asks
  *   `canUseTool`, and plays the call's result once it's allowed, or its denial as an error result. In Allow all, or
  *   after `configure` switches to it, it runs without asking. So does a call a rule covers (`scriptedRuleCovers`): one
@@ -79,9 +82,11 @@ import {
   ScriptStepKind,
   type AgentScript,
   type AskStep,
+  type BackgroundRun,
   type BackgroundStep,
   type CompactStep,
   type ControlToolStep,
+  type MessageSubagentStep,
   type PermissionStep,
   type ProgressStep,
   type ScriptStep,
@@ -227,6 +232,11 @@ const SUBAGENT_TOOLS: ReadonlySet<string> = new Set(['Agent', 'Task'])
 /** How many tokens a background subagent says it has used, per tool call it has made. Made up. */
 const SUBAGENT_TOKENS_PER_CALL = 1_150
 
+/** The `Agent` call id of a subagent whose SDK id a script pinned (`BackgroundStep.agentId`), in any session. */
+function pinnedCallId(agentId: string): string {
+  return `toolu_${agentId}`
+}
+
 /** The session failed or was closed: stop playing anything. */
 class Stopped extends Error {}
 
@@ -366,8 +376,13 @@ function newTurnState(key: string, uuid: string | null, notified = uuid === null
 interface BackgroundTask {
   /** The SDK's id for its task. */
   readonly taskId: string
-  /** Its `Agent` call's SDK id. */
+  /** Its `Agent` call's SDK id: its messages' parent. */
   readonly agentId: string
+  /**
+   * The call its task's progress and end name: its `Agent` call, or the `SendMessage` call that woke it again
+   * (`docs/sdk-notes.md`, "Subagents woken again").
+   */
+  readonly reportedAs: string
   readonly description: string
 }
 
@@ -386,6 +401,12 @@ export class ScriptedSession implements AgentSession {
   private readonly foreground = new Map<string, string>()
   /** The SDK task id of every subagent the session has started, by its `Agent` call's SDK id, ended or not. */
   private readonly subagentTasks = new Map<string, string>()
+  /** The call the SDK reports a woken subagent's task under (`SendMessage`), by its `Agent` call's SDK id. */
+  private readonly reportedAs = new Map<string, string>()
+  /** What each subagent the session started was called (its call's description), by its SDK task id. */
+  private readonly descriptions = new Map<string, string>()
+  /** The SDK ids a step pinned (`BackgroundStep.agentId`), by the script id that names them, in every turn. */
+  private readonly pinned = new Map<string, string>()
   /** The background subagents playing, by their SDK task id: each plays as a turn of its own, to interrupt. */
   private readonly running = new Map<string, TurnState>()
   /** The background tasks `Monitor` and `Bash` calls started, by the SDK id of the call. */
@@ -675,6 +696,9 @@ export class ScriptedSession implements AgentSession {
       case ScriptStepKind.Background:
         this.background(turn, step, uuid)
         return
+      case ScriptStepKind.MessageSubagent:
+        this.messageSubagent(turn, step, uuid)
+        return
       case ScriptStepKind.Permission:
         await this.permission(turn, step, uuid)
         return
@@ -854,12 +878,14 @@ export class ScriptedSession implements AgentSession {
    */
   private background(turn: TurnState, step: BackgroundStep, uuid: string | null): void {
     this.backgrounds += 1
-    const taskId = `a${this.idPrefix}${String(this.backgrounds)}`
+    const taskId = step.agentId ?? `a${this.idPrefix}${String(this.backgrounds)}`
     const input: ToolInput = { ...step.input, run_in_background: true }
+    if (step.agentId !== undefined) this.pinned.set(step.id, pinnedCallId(step.agentId))
     const agentId = this.sdkToolId(turn, step.id)
     this.subagentTasks.set(agentId, taskId)
     this.assistant(turn, { type: 'tool_use', id: agentId, name: 'Agent', input }, null, uuid)
     const description = typeof input.description === 'string' ? input.description : ''
+    this.descriptions.set(taskId, description)
     this.push({
       type: 'system',
       subtype: 'task_started',
@@ -888,11 +914,74 @@ export class ScriptedSession implements AgentSession {
     // Its messages are its own: numbered apart from the turn's, which carries on meanwhile.
     subagent.messageId = 100
     this.running.set(taskId, subagent)
-    void this.playBackground(subagent, step, { taskId, agentId, description })
+    void this.playBackground(subagent, step, { taskId, agentId, reportedAs: agentId, description })
+  }
+
+  /**
+   * Messages a subagent (see `ScriptStepKind.MessageSubagent`): the `SendMessage` call, then, for one that has ended,
+   * its task starting again and the call's "resuming" result, and the subagent plays its new run on its own, as
+   * `background` does. One still running only gets the message.
+   */
+  private messageSubagent(turn: TurnState, step: MessageSubagentStep, uuid: string | null): void {
+    const { agentId: taskId, message } = step
+    const callId = this.sdkToolId(turn, step.id)
+    this.assistant(
+      turn,
+      { type: 'tool_use', id: callId, name: 'SendMessage', input: { to: taskId, message, summary: message } },
+      null,
+      uuid,
+    )
+    if (this.running.has(taskId)) {
+      this.toolResultMessage(callId, `Message queued for delivery to ${taskId} at its next tool round.`, {
+        success: true,
+      })
+      return
+    }
+    this.pinned.set(step.subagent, pinnedCallId(taskId))
+    const agentId = this.sdkToolId(turn, step.subagent)
+    this.subagentTasks.set(agentId, taskId)
+    this.reportedAs.set(agentId, callId)
+    // The SDK keeps what it was called; a session that didn't start it (after a relaunch) never knew.
+    const description = this.descriptions.get(taskId) ?? ''
+    this.push({
+      type: 'system',
+      subtype: 'task_started',
+      task_id: taskId,
+      tool_use_id: callId,
+      description,
+      subagent_type: 'general-purpose',
+      // A woken subagent always runs in the background.
+      is_backgrounded: true,
+      spawn_depth: 1,
+      task_type: 'local_agent',
+      prompt: message,
+      uuid: randomUUID(),
+    })
+    const resuming = `Resuming agent ${taskId}`
+    this.toolResultMessage(callId, resuming, { success: true, message: resuming, resumedAgentId: taskId })
+    turn.afterResult = true
+    this.options.onWake?.()
+    const subagent = newTurnState(turn.key, null)
+    subagent.messageId = 100
+    this.running.set(taskId, subagent)
+    void this.playBackground(subagent, step, { taskId, agentId, reportedAs: callId, description })
+  }
+
+  /** A top-level call's result, with what the SDK says of it beside its text (`tool_use_result`). */
+  private toolResultMessage(toolUseId: string, text: string, details: Record<string, unknown>): void {
+    this.push({
+      type: 'user',
+      parent_tool_use_id: null,
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: toolUseId, content: [{ type: 'text', text }] }],
+      },
+      tool_use_result: details,
+    })
   }
 
   /** Plays a background subagent's steps, then ends it (see `background`). */
-  private async playBackground(subagent: TurnState, step: BackgroundStep, task: BackgroundTask): Promise<void> {
+  private async playBackground(subagent: TurnState, step: BackgroundRun, task: BackgroundTask): Promise<void> {
     let toolUses = 0
     // A function, so the check isn't narrowed away: Stop subagent can land during any await.
     const wasStopped = (): boolean => subagent.isInterrupted
@@ -906,7 +995,7 @@ export class ScriptedSession implements AgentSession {
           type: 'system',
           subtype: 'task_progress',
           task_id: task.taskId,
-          tool_use_id: task.agentId,
+          tool_use_id: task.reportedAs,
           description: task.description,
           usage: {
             total_tokens: SUBAGENT_TOKENS_PER_CALL * toolUses,
@@ -959,7 +1048,7 @@ export class ScriptedSession implements AgentSession {
       type: 'system',
       subtype: 'task_notification',
       task_id: task.taskId,
-      tool_use_id: task.agentId,
+      tool_use_id: task.reportedAs,
       status,
       output_file: `tasks/${task.taskId}.output`,
       // A stopped subagent's notification only names it.
@@ -1205,7 +1294,7 @@ export class ScriptedSession implements AgentSession {
   }
 
   private sdkToolId(turn: TurnState, id: string): string {
-    return `toolu_${this.idPrefix}_${turn.key}_${id}`
+    return this.pinned.get(id) ?? `toolu_${this.idPrefix}_${turn.key}_${id}`
   }
 
   private toolUse(
@@ -1364,7 +1453,7 @@ export class ScriptedSession implements AgentSession {
       type: 'system',
       subtype: 'task_progress',
       task_id: taskId,
-      tool_use_id: agentId,
+      tool_use_id: this.reportedAs.get(agentId) ?? agentId,
       description: step.summary,
       subagent_type: 'general-purpose',
       usage: { total_tokens: SUBAGENT_TOKENS_PER_CALL, tool_uses: 1, duration_ms: Date.now() - turn.startedAt },

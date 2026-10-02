@@ -550,3 +550,58 @@ export function deleteToolEvent(db: Database, taskId: string, id: string): boole
   const result = db.prepare('DELETE FROM tool_events WHERE id = ? AND task_id = ?').run(id, taskId)
   return result.changes > 0
 }
+
+/** A subagent's SDK task id, for its `Agent` call. */
+export interface SubagentTaskId {
+  readonly taskId: string
+  /** The `Agent` (or `Task`) call that started the subagent. */
+  readonly toolUseId: string
+  /** The SDK's id for the subagent's task (`task_started.task_id`, its `agentId`). */
+  readonly sdkTaskId: string
+}
+
+/**
+ * Records the SDK's task id of the subagent an `Agent` (or `Task`) call started, so it can be found again when it's
+ * woken (`findSubagentCall`). Answers whether the task has such a call; any other call is left alone.
+ */
+export function setSubagentTaskId(db: Database, subagent: SubagentTaskId): boolean {
+  const result = db
+    .prepare(
+      `UPDATE tool_events SET sdk_task_id = @sdkTaskId
+      WHERE task_id = @taskId AND tool_use_id = @toolUseId AND kind = 'tool_call' AND tool_name IN ('Agent', 'Task')`,
+    )
+    .run(subagent)
+  return result.changes > 0
+}
+
+/**
+ * The `Agent` (or `Task`) call of a task whose subagent has the SDK task id, or undefined when it has none (a subagent
+ * started before Glade recorded the ids, or another task's). The latest, should two ever share one.
+ */
+export function findSubagentCall(db: Database, taskId: string, sdkTaskId: string): ToolCallEvent | undefined {
+  const raw: unknown = db
+    .prepare(
+      `SELECT ${COLUMNS} FROM tool_events
+      WHERE task_id = ? AND sdk_task_id = ? AND kind = 'tool_call' AND tool_name IN ('Agent', 'Task')
+      ORDER BY seq DESC LIMIT 1`,
+    )
+    .get(taskId, sdkTaskId)
+  return raw === undefined ? undefined : parseToolCall(new Row('tool_events', raw))
+}
+
+/**
+ * Sets a subagent that had finished running again, for a new run in the same row (#395): its `Agent` (or `Task`) call
+ * goes back to running, with no outcome, end time or progress summary yet, and keeps its log. Returns the call updated,
+ * or undefined when the task has no such call, or it's running already.
+ */
+export function reopenSubagentCall(db: Database, taskId: string, toolUseId: string): ToolCallEvent | undefined {
+  const row: unknown = db
+    .prepare(
+      `UPDATE tool_events SET tool_state = 'running', tool_output = NULL, finished_at = NULL, progress_summary = NULL
+      WHERE task_id = ? AND tool_use_id = ? AND kind = 'tool_call' AND tool_name IN ('Agent', 'Task')
+        AND tool_state != 'running'
+      RETURNING ${COLUMNS}`,
+    )
+    .get(taskId, toolUseId)
+  return row === undefined ? undefined : parseToolCall(new Row('tool_events', row))
+}
