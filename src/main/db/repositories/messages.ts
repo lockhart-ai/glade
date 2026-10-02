@@ -8,7 +8,9 @@ import {
   type PastedBlock,
   type TurnSummary,
 } from '../../../shared/domain'
+import type { AttachedFile } from '../../../shared/attachedFiles'
 import type { ImageData, ImageRef } from '../../../shared/images'
+import { addAttachedFiles, attachedFilesByOwner, AttachedFileOwnerKind } from './attached-files'
 import { addImages, ImageOwnerKind, imageRefsByOwner } from './images'
 import { addPastedBlocks, pastedBlocksByOwner, PastedBlockOwnerKind } from './pasted-blocks'
 import { Row } from './rows'
@@ -24,6 +26,8 @@ export interface NewMessage {
   readonly images?: readonly ImageData[] | undefined
   /** The text pasted into your message, kept apart from what was typed; none unless given. */
   readonly pastedBlocks?: readonly PastedBlock[] | undefined
+  /** The files attached to your message, already copied into the workspace, in order; none unless given. */
+  readonly files?: readonly AttachedFile[] | undefined
 }
 
 const MESSAGE_ROLES = Object.values(MessageRole)
@@ -46,6 +50,7 @@ function parseMessage(
   raw: unknown,
   images: ReadonlyMap<string, ImageRef[]>,
   pastedBlocks: ReadonlyMap<string, PastedBlock[]>,
+  files: ReadonlyMap<string, AttachedFile[]>,
 ): Message {
   const row = new Row('messages', raw)
   const id = row.text('id')
@@ -59,12 +64,13 @@ function parseMessage(
     summary: parseSummary(row),
     images: images.get(id) ?? [],
     pastedBlocks: pastedBlocks.get(id) ?? [],
+    files: files.get(id) ?? [],
   }
 }
 
-/** Appends a message to the end of its task's chat log, with its images and pasted blocks. */
+/** Appends a message to the end of its task's chat log, with its images, pasted blocks and attached files. */
 export function appendMessage(db: Database, input: NewMessage, now: EpochMs = Date.now()): Message {
-  const { summary = null, images = [], pastedBlocks = [], ...fields } = input
+  const { summary = null, images = [], pastedBlocks = [], files = [], ...fields } = input
   const id = randomUUID()
   db.prepare(
     `INSERT INTO messages (${COLUMNS}, seq)
@@ -85,17 +91,23 @@ export function appendMessage(db: Database, input: NewMessage, now: EpochMs = Da
     { taskId: fields.taskId, owner: { kind: PastedBlockOwnerKind.Message, id }, blocks: pastedBlocks },
     now,
   )
-  return { id, ...fields, createdAt: now, summary, images: refs, pastedBlocks: blocks }
+  const attached = addAttachedFiles(
+    db,
+    { taskId: fields.taskId, owner: { kind: AttachedFileOwnerKind.Message, id }, files },
+    now,
+  )
+  return { id, ...fields, createdAt: now, summary, images: refs, pastedBlocks: blocks, files: attached }
 }
 
 /** A task's chat log, in the order it was appended. */
 export function listMessages(db: Database, taskId: string): Message[] {
   const images = imageRefsByOwner(db, taskId, ImageOwnerKind.Message)
   const pastedBlocks = pastedBlocksByOwner(db, taskId, PastedBlockOwnerKind.Message)
+  const files = attachedFilesByOwner(db, taskId, AttachedFileOwnerKind.Message)
   return db
     .prepare(`SELECT ${COLUMNS} FROM messages WHERE task_id = ? ORDER BY seq`)
     .all(taskId)
-    .map((row) => parseMessage(row, images, pastedBlocks))
+    .map((row) => parseMessage(row, images, pastedBlocks, files))
 }
 
 /**

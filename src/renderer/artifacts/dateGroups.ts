@@ -53,14 +53,22 @@ export function dateGroupOf(at: EpochMs, now: EpochMs): ArtifactDateGroup {
   return ArtifactDateGroup.Older
 }
 
-/** Whether a group starts open: Today and Yesterday do, the older ones start folded. */
+/** Whether a group starts open on its own: Today and Yesterday do, the older ones start folded. */
 export function opensByDefault(group: ArtifactDateGroup): boolean {
   return group === ArtifactDateGroup.Today || group === ArtifactDateGroup.Yesterday
 }
 
-/** Whether a group shows open: as you last left it, or as it starts. */
-export function isGroupOpen(group: ArtifactDateGroup, folds: readonly ArtifactGroupFold[]): boolean {
-  return folds.find((fold) => fold.group === group)?.open ?? opensByDefault(group)
+/**
+ * Whether a group shows open: as you last left it, or as it starts. Today and Yesterday start open when they hold
+ * anything, and so does `topmost`, the newest group actually showing (e.g. a task whose newest artifacts are from
+ * last week starts with Last week open, not every group folded) (#399).
+ */
+export function isGroupOpen(
+  group: ArtifactDateGroup,
+  folds: readonly ArtifactGroupFold[],
+  topmost: ArtifactDateGroup | undefined,
+): boolean {
+  return folds.find((fold) => fold.group === group)?.open ?? (opensByDefault(group) || group === topmost)
 }
 
 /** Items in their date groups: only the groups that hold any, newest group first, each keeping the items' order. */
