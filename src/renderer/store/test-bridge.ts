@@ -16,6 +16,7 @@ import {
   type GladeEvent,
 } from '../../shared/bridge'
 import type { MenuState } from '../../shared/commands'
+import { AttachedFileKind, attachmentsFolderOf, type AttachedFile } from '../../shared/attachedFiles'
 import {
   Effort,
   PermissionMode,
@@ -66,7 +67,7 @@ import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import { controlUrl, type ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
-import { PluginStatus, type InstalledPlugin } from '../../shared/plugins'
+import { PluginStatus, withGrant, type InstalledPlugin } from '../../shared/plugins'
 import { highlightParts, highlightPattern, SearchField, type SearchResult } from '../../shared/search'
 import type { TerminalTab } from '../../shared/terminal'
 import { addDoneCounts, doneCountsOf, isInDoneSection, NO_DONE_TASKS, pageOfDone } from '../../shared/doneList'
@@ -157,7 +158,8 @@ export interface FakeMain {
   readonly revealedWorkspaces?: string[]
   /**
    * The plugins `plugins.list` answers with, in order; none when left out. `plugins.setEnabled` turns a valid one on or
-   * off, broadcasting them, and refuses any other with `not_found`.
+   * off, broadcasting them, and refuses any other with `not_found`; `plugins.setCapability` turns one of its
+   * capabilities on or off the same way.
    */
   plugins?: InstalledPlugin[]
   /** How many times `plugins.openFolder` opened the plugins folder. */
@@ -438,14 +440,22 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       const image = images[id]
       return image === undefined ? refuse(bridgeError(BridgeErrorCode.NotFound, `No image ${id}`)) : { image }
     },
+    [CommandName.AttachmentsAdd]: ({ taskId, path }) => ({ file: sampleAttachedFile(taskId, path) }),
+    [CommandName.AttachmentsDiscard]: () => null,
     [CommandName.DraftsGet]: ({ taskId }) => ({ draft: drafts[taskId] ?? null }),
-    [CommandName.DraftsSet]: ({ taskId, text, images: given, pastedBlocks: givenBlocks }) => {
+    [CommandName.DraftsSet]: ({ taskId, text, images: given, pastedBlocks: givenBlocks, files: givenFiles }) => {
       const draft = {
         text,
         images: given ?? drafts[taskId]?.images ?? [],
         pastedBlocks: givenBlocks ?? drafts[taskId]?.pastedBlocks ?? [],
+        files: givenFiles ?? drafts[taskId]?.files ?? [],
       }
-      if (draft.text === '' && draft.images.length === 0 && draft.pastedBlocks.length === 0) {
+      if (
+        draft.text === '' &&
+        draft.images.length === 0 &&
+        draft.pastedBlocks.length === 0 &&
+        draft.files.length === 0
+      ) {
         Reflect.deleteProperty(drafts, taskId)
       } else drafts[taskId] = draft
       return null
@@ -628,6 +638,19 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       emit({ type: EventType.PluginsChanged, plugins: [...main.plugins] })
       return { plugins: [...main.plugins] }
     },
+    [CommandName.PluginsSetCapability]: ({ id, capability, granted }) => {
+      const plugins = main.plugins ?? []
+      const plugin = plugins.find((candidate) => candidate.folder === id)
+      if (plugin?.status !== PluginStatus.Valid) return refuse(bridgeError(BridgeErrorCode.NotFound, `No plugin ${id}`))
+      if (!plugin.manifest.capabilities.includes(capability)) {
+        return refuse(bridgeError(BridgeErrorCode.InvalidRequest, `${id} doesn't ask for ${capability}`))
+      }
+      main.plugins = plugins.map((candidate) =>
+        candidate === plugin ? withGrant(plugin, capability, granted) : candidate,
+      )
+      emit({ type: EventType.PluginsChanged, plugins: [...main.plugins] })
+      return { plugins: [...main.plugins] }
+    },
     [CommandName.PluginsOpenFolder]: () => {
       main.openedPluginsFolder = (main.openedPluginsFolder ?? 0) + 1
       return null
@@ -770,6 +793,32 @@ function fakeSearch(main: FakeMain, workspaceId: string, text: string): SearchRe
   return results
 }
 
+/** The paths on disk of the files made with `fileOnDisk`, as the fake bridge's `pathForFile` answers. */
+const FILE_PATHS = new WeakMap<File, string>()
+
+/**
+ * A file as it's dropped or pasted from Finder: a `File` the fake bridge's `pathForFile` answers `path` for (a `File`
+ * made any other way, like an image copied from an app, has none).
+ */
+export function fileOnDisk(path: string, contents = 'a,b\n1,2\n', type = ''): File {
+  const file = new File([contents], path.slice(path.lastIndexOf('/') + 1), { type })
+  FILE_PATHS.set(file, path)
+  return file
+}
+
+/** The kind the fake `attachments.add` gives a file, by its extension: an image, text, or binary for the rest. */
+function sampleKind(name: string): AttachedFileKind {
+  if (/\.(png|jpe?g|gif|webp|svg)$/i.test(name)) return AttachedFileKind.Image
+  if (/\.(csv|txt|md|json|log|ts)$/i.test(name)) return AttachedFileKind.Text
+  return AttachedFileKind.Binary
+}
+
+/** A file attached to a task's message, as the fake `attachments.add` copies one: 48 KB, its kind by its extension. */
+export function sampleAttachedFile(taskId: string, path: string, size = 48 * 1024): AttachedFile {
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  return { name, path: `${attachmentsFolderOf(taskId)}/${name}`, size, kind: sampleKind(name) }
+}
+
 /** A bridge over `main`'s data. Pass `overrides` to change how single commands answer. */
 export function fakeBridge(main: FakeMain, overrides: Partial<FakeHandlers> = {}): FakeBridge {
   const listeners = new Set<EventListener>()
@@ -787,6 +836,7 @@ export function fakeBridge(main: FakeMain, overrides: Partial<FakeHandlers> = {}
           listeners.delete(listener)
         }
       },
+      pathForFile: (file) => FILE_PATHS.get(file) ?? '',
     },
     invoke,
     emit,
@@ -907,11 +957,12 @@ export function sampleMessage(id: string, taskId: string, body = 'Add rate limit
     summary: null,
     images: [],
     pastedBlocks: [],
+    files: [],
   }
 }
 
 export function sampleQueuedMessage(id: string, taskId: string, body = 'Keep the original filenames.'): QueuedMessage {
-  return { id, taskId, body, createdAt: 4_000, images: [], pastedBlocks: [] }
+  return { id, taskId, body, createdAt: 4_000, images: [], pastedBlocks: [], files: [] }
 }
 
 /** An open question set: a choice and a text question. */

@@ -14,7 +14,7 @@ import type {
 } from '../../shared/bridge'
 import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../shared/settings'
-import type { InstalledPlugin } from '../../shared/plugins'
+import type { InstalledPlugin, PluginCapability } from '../../shared/plugins'
 import type { ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
 import type { SettingsSection } from '../settings/sections'
@@ -47,6 +47,7 @@ import type {
   Workspace,
 } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
+import type { AttachedFile } from '../../shared/attachedFiles'
 import type { SearchResult } from '../../shared/search'
 import type { TaskFilter } from '../../shared/attention'
 import type { DoneCounts, TaskCursor } from '../../shared/doneList'
@@ -335,6 +336,8 @@ export interface GladeActions {
   loadPlugins: () => Promise<void>
   /** Turns a plugin on or off (`plugins.setEnabled`); the change saves at once. */
   setPluginEnabled: (id: string, enabled: boolean) => Promise<void>
+  /** Turns one of a plugin's capabilities on or off (`plugins.setCapability`); the change saves at once. */
+  setPluginCapability: (id: string, capability: PluginCapability, granted: boolean) => Promise<void>
   /** Opens the plugins folder in Finder (Open plugins folder). */
   openPluginsFolder: () => Promise<void>
   /**
@@ -450,25 +453,39 @@ export interface GladeActions {
    */
   deleteTask: (taskId: string) => Promise<void>
   /**
-   * Sends the user's message, and the images and pasted blocks in it, to the task's agent. Resolves once main has
-   * saved it; the message and the turn arrive as events. Rejects with `busy` while the agent is working.
+   * Sends the user's message, and the images, pasted blocks and attached files in it, to the task's agent. Resolves
+   * once main has saved it; the message and the turn arrive as events. Rejects with `busy` while the agent is working.
    */
   sendMessage: (
     taskId: string,
     text: string,
     images?: readonly ImageData[],
     pastedBlocks?: readonly PastedBlock[],
+    files?: readonly AttachedFile[],
   ) => Promise<void>
   /**
-   * Queues the user's message, and the images and pasted blocks in it, for the task's agent, which gets it after its
-   * current step. Resolves once main has saved it; the queue arrives as an event.
+   * Queues the user's message, and the images, pasted blocks and attached files in it, for the task's agent, which
+   * gets it after its current step. Resolves once main has saved it; the queue arrives as an event.
    */
   queueMessage: (
     taskId: string,
     text: string,
     images?: readonly ImageData[],
     pastedBlocks?: readonly PastedBlock[],
+    files?: readonly AttachedFile[],
   ) => Promise<void>
+  /**
+   * The path on disk of a file dropped or pasted into the window, to attach it; `''` for one that isn't on disk (an
+   * image copied from an app), which is read in the window instead.
+   */
+  pathForFile: (file: File) => string
+  /**
+   * Copies the file at `path` into the task's workspace, to attach it to the message being written
+   * (`attachments.add`), and resolves with the copy. Rejects with the `BridgeError` saying why it can't be attached.
+   */
+  attachFile: (taskId: string, path: string) => Promise<AttachedFile>
+  /** Deletes the copy of a file taken off the message being written before it was sent (`attachments.discard`). */
+  discardAttachedFile: (taskId: string, path: string) => Promise<void>
   /**
    * A stored image's type and bytes, by id (`images.get`), to show it. Each image is fetched once and kept, since an
    * image never changes; one that failed to load is fetched again next time.

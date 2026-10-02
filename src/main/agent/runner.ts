@@ -188,7 +188,9 @@
  *
  * **Images** pasted into a message are saved with it (`../db/repositories/images`), queued or sent, and go to the
  * session with its text, each time it's handed over: when it's sent or delivered from the queue, retried, or sent to a
- * new session on launch. A reply in words to the agent's questions can't carry images: its `ask` call takes text.
+ * new session on launch. So do the **files attached** to it (#396, `../attachments/attachments`): a line with each
+ * one's path at the end of its text, and each image among them as an image too, read from its copy as it's handed
+ * over. A reply in words to the agent's questions can't carry images or files: its `ask` call takes text.
  *
  * Every write is broadcast to the windows as it happens. Only the in-flight turn's bookkeeping (its held-back text and
  * running calls) is kept in memory.
@@ -230,6 +232,8 @@ import {
 import type { ImageData } from '../../shared/images'
 import { permissionRuleString, taskPermissionRule } from '../../shared/permissions'
 import { agentText } from '../../shared/pastedContent'
+import { withAttachedFiles, type AttachedFile } from '../../shared/attachedFiles'
+import { attachedImagesOf } from '../attachments/attachments'
 import { checkAnswers } from '../../shared/questions'
 import { isSubagentTool } from '../../shared/subagents'
 import { apiRowArgument, apiRowResult } from '../../shared/taskError'
@@ -387,11 +391,15 @@ export interface AgentRunnerOptions {
   readonly account?: AccountSink
 }
 
-/** A message you sent: its text, the images pasted into it, and the text pasted into it, kept apart. */
+/**
+ * A message you sent: its text, the images pasted into it, the text pasted into it, kept apart, and the files attached
+ * to it, already copied into the workspace.
+ */
 interface UserMessage {
   readonly text: string
   readonly images: readonly ImageData[]
   readonly pastedBlocks: readonly PastedBlock[]
+  readonly files: readonly AttachedFile[]
 }
 
 export interface AgentRunner {
@@ -399,7 +407,13 @@ export interface AgentRunner {
    * Saves the user's message and starts a turn with it. A done task is reopened first (see the module comment). Throws
    * a `CommandFailure`: `not_found` for no such task, `busy` while a turn is running or the task is paused.
    */
-  send(taskId: string, text: string, images?: readonly ImageData[], pastedBlocks?: readonly PastedBlock[]): Message
+  send(
+    taskId: string,
+    text: string,
+    images?: readonly ImageData[],
+    pastedBlocks?: readonly PastedBlock[],
+    files?: readonly AttachedFile[],
+  ): Message
   /**
    * Answers the task's open question set with the card's answers (see the module comment), once they're checked against
    * its questions. Answers with the set, answered. Throws a `CommandFailure`: `not_found` for no such set,
@@ -428,6 +442,7 @@ export interface AgentRunner {
     text: string,
     images?: readonly ImageData[],
     pastedBlocks?: readonly PastedBlock[],
+    files?: readonly AttachedFile[],
   ): QueuedMessage
   /**
    * Stops the task's running turn, and resolves with the task once the turn has ended. Does nothing for a task whose
@@ -1038,12 +1053,26 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     return verdict
   }
 
-  /** Hands a user message to the session, with its images, stamped with its id (`uuid`) or a new one's. */
-  /** Sends the session a message, after `block` when there's one: what the session was missing (`./session-context`). */
+  /** The root of a task's workspace, as its session runs in it. */
+  const rootOf = (taskId: string): string => {
+    const task = getTask(db, taskId)
+    return (task === undefined ? undefined : getWorkspace(db, task.workspaceId))?.rootPath ?? ''
+  }
+
+  /**
+   * Hands a user message to the session, with its images, stamped with its id (`uuid`) or a new one's, after `block`
+   * when there's one: what the session was missing (`./session-context`).
+   */
   const hand = (live: LiveSession, message: Message, uuid: string = message.id, block: string | null = null): void => {
-    const images = imagesOf(db, { kind: ImageOwnerKind.Message, id: message.id })
-    // Each pasted block wrapped in its tags, at its token's place among the typed text (#363, `shared/pastedContent.ts`).
-    const text = agentText(message.body, message.pastedBlocks)
+    const root = message.files.length === 0 ? '' : rootOf(message.taskId)
+    // The images pasted into it, then those of its attached files the agent takes as images (#396).
+    const images = [
+      ...imagesOf(db, { kind: ImageOwnerKind.Message, id: message.id }),
+      ...attachedImagesOf(root, message.files),
+    ]
+    // Each pasted block wrapped in its tags, at its token's place among the typed text (#363, `shared/pastedContent.ts`),
+    // then a line with the path of each file attached to it (#396, `shared/attachedFiles.ts`).
+    const text = withAttachedFiles(agentText(message.body, message.pastedBlocks), message.files, root)
     give(live, withContext(block, text), uuid, images)
   }
 
@@ -2088,6 +2117,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
                 turn,
                 images: sent.images,
                 pastedBlocks: sent.pastedBlocks,
+                files: sent.files,
               }),
             ]),
       ]
@@ -2282,16 +2312,16 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   const runner: AgentRunner = {
-    send(taskId, text, images = [], pastedBlocks = []) {
+    send(taskId, text, images = [], pastedBlocks = [], files = []) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
       // The agent waits on answers to its questions: the message answers them, rather than starting a turn.
       const open = getOpenQuestionSet(db, taskId)
       if (open !== undefined) {
-        if (images.length > 0 || pastedBlocks.length > 0) {
+        if (images.length > 0 || pastedBlocks.length > 0 || files.length > 0) {
           throw new CommandFailure(
             BridgeErrorCode.InvalidRequest,
-            'An answer to the agent’s questions can’t have images or pasted text',
+            'An answer to the agent’s questions can’t have images, files or pasted text',
           )
         }
         return answerInWords(open, text)
@@ -2309,7 +2339,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         throw new CommandFailure(BridgeErrorCode.Busy, 'The task is paused; queue the message instead')
       }
       // The message sent is the last of the turn's: any queued ones go before it.
-      const message = startTurn(task, sessions.get(taskId) ?? start(task), { text, images, pastedBlocks }).at(-1)
+      const sent = { text, images, pastedBlocks, files }
+      const message = startTurn(task, sessions.get(taskId) ?? start(task), sent).at(-1)
       if (message === undefined) throw new Error(`The turn for task ${taskId} started without its message`)
       return message
     },
@@ -2353,10 +2384,10 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       live.session.configure(live.settings)
     },
 
-    queue(taskId, text, images = [], pastedBlocks = []) {
+    queue(taskId, text, images = [], pastedBlocks = [], files = []) {
       const task = getTask(db, taskId)
       if (task === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No task ${taskId}`)
-      const queued = addQueuedMessage(context, { taskId, body: text, images, pastedBlocks })
+      const queued = addQueuedMessage(context, { taskId, body: text, images, pastedBlocks, files })
       // A paused task delivers its queue once it resumes, and one waiting on requests the app quit on once you decide.
       if (isPaused(task) || waitsOnRestartRequests(taskId)) return queued
       const live = sessions.get(taskId)

@@ -136,9 +136,17 @@ function nekomata(): ValidPlugin {
   return {
     status: PluginStatus.Valid,
     folder: 'nekomata',
-    manifest: { id: 'nekomata', name: 'Nekomata', version: '1.0.0', entry: 'app/index.html', icon: null },
+    manifest: {
+      id: 'nekomata',
+      name: 'Nekomata',
+      version: '1.0.0',
+      entry: 'app/index.html',
+      icon: null,
+      capabilities: [],
+    },
     iconUrl: null,
     enabled: true,
+    granted: [],
   }
 }
 

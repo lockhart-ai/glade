@@ -46,7 +46,12 @@ export enum PluginEventType {
   QuestionClosed = 'question.closed',
   PermissionOpened = 'permission.opened',
   PermissionClosed = 'permission.closed',
+  /** Only to a plugin with the `machine` capability on. */
+  MachineReading = 'machine.reading',
 }
+
+/** How many readings a snapshot's `machine` holds at most: the latest, about two minutes of them. */
+export const MAX_PLUGIN_MACHINE_HISTORY = 60
 
 /** A task is active or done. */
 export enum PluginTaskState {
@@ -175,6 +180,37 @@ export interface PluginPermissionRequest {
   readonly openedAt: number
 }
 
+/** A running Docker container's load, as `docker stats` reports it. */
+export interface PluginContainer {
+  /** Its name (`acme-api-db-1`), not its id, image or command. */
+  readonly name: string
+  /** Its CPU, in percent of one core: 100 is one whole core, so a busy container can pass 100. */
+  readonly cpu: number
+  /** The memory it uses, in bytes. */
+  readonly memory: number
+}
+
+/**
+ * The Mac's load at one moment, for a plugin with the `machine` capability on. Coarse numbers only: never a process's
+ * name, command or path. Cores are in cores (`2.5` is two and a half cores busy), to two decimal places.
+ */
+export interface PluginMachineReading {
+  /** When it was read, in epoch milliseconds. */
+  readonly t: number
+  /** The Mac's logical CPU cores. */
+  readonly cpuCount: number
+  /** Cores in use by every process. */
+  readonly total: number
+  /** Cores in use by Claude Code (every `claude` process, Glade's tasks' and your terminals' alike) and its children. */
+  readonly claude: number
+  /** Cores in use by Docker's containers: the sum of their `cpu`, over 100. */
+  readonly docker: number
+  /** The GPU's utilisation, in percent; null when it can't be read. */
+  readonly gpu: number | null
+  /** The running containers, busiest first; empty when Docker isn't installed or isn't running. */
+  readonly containers: readonly PluginContainer[]
+}
+
 /** Glade's name and version, in `hello`. */
 export interface PluginAppInfo {
   readonly name: 'Glade'
@@ -194,6 +230,11 @@ export interface PluginSnapshotEvent {
   readonly subagents: readonly PluginSubagent[]
   readonly questions: readonly PluginQuestion[]
   readonly permissions: readonly PluginPermissionRequest[]
+  /**
+   * Only for a plugin with the `machine` capability on (absent otherwise): the latest readings, oldest first, up to
+   * `MAX_PLUGIN_MACHINE_HISTORY`. Empty until the first one is taken.
+   */
+  readonly machine?: readonly PluginMachineReading[]
 }
 
 export interface PluginTaskCreatedEvent {
@@ -260,6 +301,12 @@ export interface PluginPermissionClosedEvent {
   readonly outcome: PluginPermissionOutcome
 }
 
+/** The Mac's load, about every 2 s while the plugin is showing: only to a plugin with the `machine` capability on. */
+export interface PluginMachineReadingEvent {
+  readonly type: PluginEventType.MachineReading
+  readonly reading: PluginMachineReading
+}
+
 /** What Glade tells a plugin, discriminated by `type`. */
 export type PluginEvent =
   | PluginHelloEvent
@@ -275,9 +322,13 @@ export type PluginEvent =
   | PluginQuestionClosedEvent
   | PluginPermissionOpenedEvent
   | PluginPermissionClosedEvent
+  | PluginMachineReadingEvent
 
-/** The events that follow the snapshot, as things change: every event but `hello` and `snapshot`. */
-export type PluginChangeEvent = Exclude<PluginEvent, PluginHelloEvent | PluginSnapshotEvent>
+/**
+ * The task and agent events that follow the snapshot, as things change: every event but `hello`, `snapshot` and the
+ * machine's readings, which come from Glade itself rather than the tasks.
+ */
+export type PluginChangeEvent = Exclude<PluginEvent, PluginHelloEvent | PluginSnapshotEvent | PluginMachineReadingEvent>
 
 /** The envelope every message from Glade to a plugin comes in. */
 export interface GladeMessage {

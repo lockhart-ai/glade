@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { PluginStatus, type InstalledPlugin, type ValidPlugin } from '../../shared/plugins'
+import { PluginCapability, PluginStatus, type InstalledPlugin, type ValidPlugin } from '../../shared/plugins'
 import { ToastProvider } from '../components'
 import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
@@ -16,9 +16,10 @@ function validPlugin(id: string, name: string, overrides: Partial<ValidPlugin> =
   return {
     status: PluginStatus.Valid,
     folder: id,
-    manifest: { id, name, version: '1.0.0', entry: 'index.html', icon: 'icon.svg' },
+    manifest: { id, name, version: '1.0.0', entry: 'index.html', icon: 'icon.svg', capabilities: [] },
     iconUrl: ICON,
     enabled: true,
+    granted: [],
     ...overrides,
   }
 }
@@ -274,5 +275,74 @@ describe('Settings › Plugins', () => {
     })
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
+
+describe('Settings › Plugins: capabilities', () => {
+  const LABEL = "Can see your Mac's CPU, GPU and Docker load"
+  const GAUGE = validPlugin('gauge', 'Load Gauge', {
+    manifest: { ...validPlugin('gauge', 'Load Gauge').manifest, capabilities: [PluginCapability.Machine] },
+  })
+
+  it('shows a switch for each capability a plugin asks for, off until turned on, and none when it asks for none', async () => {
+    await renderPlugins([GAUGE, POMODORO])
+    await read()
+
+    const gauge = within(list()).getByRole('listitem', { name: 'Load Gauge' })
+    expect(gauge).toHaveTextContent(LABEL)
+    expect(within(gauge).getByRole('switch', { name: `Load Gauge: ${LABEL}` })).not.toBeChecked()
+    expect(within(gauge).getByRole('switch', { name: 'Load Gauge' })).toBeChecked()
+    const pomodoro = within(list()).getByRole('listitem', { name: 'Pomodoro' })
+    expect(pomodoro).not.toHaveTextContent(LABEL)
+    expect(within(pomodoro).getAllByRole('switch')).toHaveLength(1)
+  })
+
+  it('turns the capability on and off, saving each change at once, whether the plugin is on or off', async () => {
+    const off = { ...GAUGE, enabled: false }
+    const { invoke, main } = await renderPlugins([off])
+    await read()
+    const toggle = within(list()).getByRole('switch', { name: `Load Gauge: ${LABEL}` })
+
+    fireEvent.click(toggle)
+    expect(toggle).toBeChecked()
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(CommandName.PluginsSetCapability, {
+        id: 'gauge',
+        capability: PluginCapability.Machine,
+        granted: true,
+      })
+    })
+    expect(main.plugins).toEqual([{ ...off, granted: [PluginCapability.Machine] }])
+    expect(within(list()).getByRole('switch', { name: 'Load Gauge' })).not.toBeChecked()
+
+    fireEvent.click(toggle)
+    await waitFor(() => {
+      expect(toggle).not.toBeChecked()
+    })
+    expect(main.plugins).toEqual([off])
+  })
+
+  it('shows why the switch failed, and the plugins as they are now', async () => {
+    const { main } = await renderPlugins([GAUGE])
+    await read()
+    // Reinstalled since Settings › Plugins read it, without asking for the machine's readings any more.
+    main.plugins = [{ ...GAUGE, manifest: { ...GAUGE.manifest, capabilities: [] } }]
+
+    fireEvent.click(within(list()).getByRole('switch', { name: `Load Gauge: ${LABEL}` }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("gauge doesn't ask for machine")
+    await waitFor(() => {
+      expect(within(list()).queryByText(LABEL)).not.toBeInTheDocument()
+    })
+  })
+
+  it('refuses a plugin that has gone since the list was read', async () => {
+    const { main } = await renderPlugins([GAUGE])
+    await read()
+    main.plugins = []
+
+    fireEvent.click(within(list()).getByRole('switch', { name: `Load Gauge: ${LABEL}` }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('No plugin gauge')
   })
 })

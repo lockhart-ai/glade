@@ -17,10 +17,20 @@ export interface RendererIpc {
 export type IpcListener = (event: unknown, ...args: unknown[]) => void
 
 /**
- * Builds `window.glade` on top of `ipcRenderer`. Commands go out on one channel and events come in on another; the
- * renderer never sees the IPC event object, only the typed payloads.
+ * The path on disk of a file dropped or pasted into the window: Electron's `webUtils.getPathForFile`, `''` for one that
+ * isn't a file on disk. Only the preload can ask; the page gets the path as text, never the file system.
  */
-export function createBridge(ipc: RendererIpc): GladeBridge {
+export type PathForFile = (file: File) => string
+
+/** Tests that never drop or paste a file stand this in: no file is on disk. */
+export const NO_FILE_PATHS: PathForFile = () => ''
+
+/**
+ * Builds `window.glade` on top of `ipcRenderer`. Commands go out on one channel and events come in on another; the
+ * renderer never sees the IPC event object, only the typed payloads. `pathForFile` names a dropped or pasted file's path
+ * on disk (`webUtils.getPathForFile` in the window).
+ */
+export function createBridge(ipc: RendererIpc, pathForFile: PathForFile = NO_FILE_PATHS): GladeBridge {
   return {
     async invoke(command, request) {
       // Main answers every command on this channel with a `BridgeResult` for that command's response.
@@ -40,6 +50,10 @@ export function createBridge(ipc: RendererIpc): GladeBridge {
       return () => {
         ipc.removeListener(EVENT_CHANNEL, onEvent)
       }
+    },
+
+    pathForFile(file) {
+      return pathForFile(file)
     },
   }
 }

@@ -37,6 +37,7 @@ describe('appendMessage', () => {
       summary: null,
       images: [],
       pastedBlocks: [],
+      files: [],
     })
     expect(listMessages(test.db, task.id)).toEqual([message])
   })

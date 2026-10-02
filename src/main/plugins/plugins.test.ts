@@ -2,9 +2,9 @@ import { existsSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
-import { PluginStatus, type InstalledPlugin, type PluginManifest } from '../../shared/plugins'
+import { PluginCapability, PluginStatus, type InstalledPlugin, type PluginManifest } from '../../shared/plugins'
 import { CommandFailure } from '../bridge/errors'
-import { getPluginStates } from '../db/repositories/plugins'
+import { getPluginGrants, getPluginStates } from '../db/repositories/plugins'
 import { openTestDatabase, type TestDatabase } from '../db/repositories/test-database'
 import { LogLevel, LogScope } from '../logging/logger'
 import { createMemoryLog } from '../logging/memory-sink'
@@ -252,6 +252,126 @@ describe('setEnabled', () => {
   })
 })
 
+describe('setCapability', () => {
+  /** A plugin that asks for the machine's readings. */
+  function writeGauge(capabilities: unknown = ['machine']): void {
+    writePlugin(folder, 'gauge', { ...sampleManifest('gauge'), name: 'Load Gauge', capabilities })
+  }
+
+  /** What each valid plugin has been granted, by folder. */
+  function grants(list: readonly InstalledPlugin[]): [string, readonly PluginCapability[]][] {
+    return list.flatMap((plugin) => (plugin.status === PluginStatus.Valid ? [[plugin.folder, plugin.granted]] : []))
+  }
+
+  it('lists a capability a plugin asks for as off, until it is turned on', async () => {
+    writeGauge()
+    writePlugin(folder, 'pomodoro')
+
+    const listed = await plugins().list()
+
+    expect(listed).toMatchObject([
+      { folder: 'gauge', manifest: { capabilities: [PluginCapability.Machine] }, granted: [] },
+      { folder: 'pomodoro', manifest: { capabilities: [] }, granted: [] },
+    ])
+  })
+
+  it('turns it on and off, saving it, broadcasting the list and reloading the plugin each time it changes', async () => {
+    const onReload = vi.fn()
+    const service = plugins({ onReload })
+    writeGauge()
+    await service.list()
+
+    const on = service.setCapability('gauge', PluginCapability.Machine, true)
+    expect(grants(on)).toEqual([['gauge', [PluginCapability.Machine]]])
+    expect(emit).toHaveBeenLastCalledWith({ type: EventType.PluginsChanged, plugins: on })
+    expect(getPluginGrants(database.db).get('gauge')).toEqual(new Set([PluginCapability.Machine]))
+    expect(onReload).toHaveBeenLastCalledWith(['gauge'])
+
+    const off = service.setCapability('gauge', PluginCapability.Machine, false)
+    expect(grants(off)).toEqual([['gauge', []]])
+    expect(getPluginGrants(database.db).has('gauge')).toBe(false)
+    expect(onReload).toHaveBeenCalledTimes(2)
+  })
+
+  it("doesn't reload the plugin when the switch is set to what it already was", async () => {
+    const onReload = vi.fn()
+    const service = plugins({ onReload })
+    writeGauge()
+    await service.list()
+
+    service.setCapability('gauge', PluginCapability.Machine, false)
+    service.setCapability('gauge', PluginCapability.Machine, true)
+    service.setCapability('gauge', PluginCapability.Machine, true)
+
+    expect(onReload).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps it across a relaunch, and whether the plugin is on or off', async () => {
+    writeGauge()
+    const first = plugins()
+    await first.list()
+    first.setCapability('gauge', PluginCapability.Machine, true)
+    first.setEnabled('gauge', false)
+
+    expect(grants(await plugins().list())).toEqual([['gauge', [PluginCapability.Machine]]])
+  })
+
+  it('keeps a grant off while the manifest stops asking for it, and back on once it asks again', async () => {
+    const service = plugins()
+    writeGauge()
+    await service.list()
+    service.setCapability('gauge', PluginCapability.Machine, true)
+
+    writeGauge([])
+    expect(grants(await service.list())).toEqual([['gauge', []]])
+
+    writeGauge(['machine'])
+    expect(grants(await service.list())).toEqual([['gauge', [PluginCapability.Machine]]])
+  })
+
+  it("refuses a capability the plugin doesn't ask for, saving nothing and reloading nothing", async () => {
+    const onReload = vi.fn()
+    const service = plugins({ onReload })
+    writePlugin(folder, 'pomodoro')
+    await service.list()
+
+    expect(() => service.setCapability('pomodoro', PluginCapability.Machine, true)).toThrow(
+      expect.objectContaining({ code: BridgeErrorCode.InvalidRequest }),
+    )
+    expect(getPluginGrants(database.db).size).toBe(0)
+    expect(onReload).not.toHaveBeenCalled()
+  })
+
+  it('refuses a plugin that is invalid, unknown, or not listed yet', async () => {
+    const service = plugins()
+    writeGauge()
+    writePlugin(folder, 'broken', null)
+    expect(() => service.setCapability('gauge', PluginCapability.Machine, true)).toThrow('No plugin gauge')
+    await service.list()
+
+    for (const id of ['broken', 'nothing']) {
+      expect(() => service.setCapability(id, PluginCapability.Machine, true)).toThrow(
+        expect.objectContaining({ code: BridgeErrorCode.NotFound }),
+      )
+    }
+  })
+
+  it('logs each change', async () => {
+    const memory = createMemoryLog()
+    writeGauge()
+    const service = plugins({ log: memory.logger })
+    await service.list()
+
+    service.setCapability('gauge', PluginCapability.Machine, true)
+    service.setCapability('gauge', PluginCapability.Machine, false)
+
+    expect(memory.records.slice(-2).map(({ message, fields }) => [message, fields])).toEqual([
+      ['plugin capability turned on', { id: 'gauge', capability: 'machine' }],
+      ['plugin capability turned off', { id: 'gauge', capability: 'machine' }],
+    ])
+  })
+})
+
 describe('pluginSignature', () => {
   it('answers null, not a rejection, for a plugin whose entry file is gone since discovery resolved it', async () => {
     writePlugin(folder, 'pomodoro')
@@ -261,6 +381,7 @@ describe('pluginSignature', () => {
       version: '1.0.0',
       entry: 'index.html',
       icon: null,
+      capabilities: [],
     }
     rmSync(join(folder, 'pomodoro', 'index.html'))
 
