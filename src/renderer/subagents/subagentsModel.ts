@@ -11,6 +11,7 @@ import { ToolCallState, ToolEventKind, type EpochMs, type ToolCallEvent, type To
 import {
   argumentSummary,
   resultSummary,
+  sameSubagentRows,
   toolLogRows,
   type CallRow,
   type SubagentRow,
@@ -193,6 +194,14 @@ export function runningSubagentCounts(
 /** What a task row's subagent count says in its tooltip and to a screen reader: "3 subagents running". */
 export function subagentsRunningLabel(count: number): string {
   return `${String(count)} subagent${count === 1 ? '' : 's'} running`
+}
+
+/**
+ * Whether two subagents show the same: a subagent is worked out from its call and its log (and the workspace root), so
+ * it's the same when they are. `deriveSubagents` makes each one anew, so one that hasn't changed is told by them (#413).
+ */
+export function sameSubagent(a: Subagent, b: Subagent): boolean {
+  return a.call === b.call && sameSubagentRows(a.log, b.log)
 }
 
 /**

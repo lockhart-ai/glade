@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { ToolCallState, ToolEventKind, type ToolEvent } from '../../shared/domain'
 import { clockTime } from '../chat/chatModel'
 import { InlineMarkdown } from '../chat/Markdown'
@@ -16,6 +16,7 @@ import {
   compactionResult,
   resultSummary,
   parentLogRows,
+  sameSubagentRow,
   type CallRow,
   type CompactionRow,
   type DividerRow,
@@ -66,10 +67,21 @@ interface CallProps extends TurnStartProps, DensityProps {
 }
 
 /**
+ * Whether a call's row would render the same: its row, which is made anew each time the log's are, by what it holds.
+ * The log's rows are memoised (#413): a long log is a thousand or more of them, and the log renders again with every
+ * event, so only the rows whose own data changed render.
+ */
+function sameCall(a: CallProps, b: CallProps): boolean {
+  return (
+    sameSubagentRow(a.row, b.row) && a.rootPath === b.rootPath && a.turnStart === b.turnStart && a.compact === b.compact
+  )
+}
+
+/**
  * One tool call: its name, argument, time and short result. Click it to see its full output; right-click it, or ⇧F10 on
  * it, for its context menu.
  */
-function Call({ row, rootPath, turnStart, compact = false }: CallProps): React.JSX.Element {
+const Call = memo(function Call({ row, rootPath, turnStart, compact = false }: CallProps): React.JSX.Element {
   const { call, name, children } = row
   const [expanded, setExpanded] = useState(false)
   const menuTarget = useToolCallMenuTarget(call)
@@ -118,13 +130,16 @@ function Call({ row, rootPath, turnStart, compact = false }: CallProps): React.J
       )}
     </div>
   )
-}
+}, sameCall)
 
 /**
  * A compaction of the context, laid out like a tool call: "Compact  198k → 41k tokens". Once it has the summary it
  * wrote, click it to see what the agent carried over, as a call opens its output.
  */
-function Compaction({ compaction, turnStart }: CompactionRow & TurnStartProps): React.JSX.Element {
+const Compaction = memo(function Compaction({
+  compaction,
+  turnStart,
+}: CompactionRow & TurnStartProps): React.JSX.Element {
   const { state, summary } = compaction
   const [expanded, setExpanded] = useState(false)
   const line = (
@@ -170,10 +185,10 @@ function Compaction({ compaction, turnStart }: CompactionRow & TurnStartProps): 
       </div>
     </div>
   )
-}
+})
 
 /** One of the agent's working notes between tool calls, with its inline code and emphasis. */
-function Narration({
+const Narration = memo(function Narration({
   narration,
   turnStart,
   compact = false,
@@ -184,10 +199,10 @@ function Narration({
       <span className={styles.narrationTime}>{clockTime(narration.createdAt)}</span>
     </p>
   )
-}
+})
 
 /** A rule across the log with its label: "turn 2 · 11:20", "reopened · 09:14". */
-function Divider({ label, turnStart }: DividerRow & TurnStartProps): React.JSX.Element {
+const Divider = memo(function Divider({ label, turnStart }: DividerRow & TurnStartProps): React.JSX.Element {
   return (
     <div role="separator" aria-label={label} className={styles.divider} {...{ [TURN_START]: turnStart }}>
       <span className={styles.rule} />
@@ -195,7 +210,7 @@ function Divider({ label, turnStart }: DividerRow & TurnStartProps): React.JSX.E
       <span className={styles.rule} />
     </div>
   )
-}
+})
 
 export interface SubagentRowsProps extends DensityProps {
   readonly rows: readonly SubagentRow[]
