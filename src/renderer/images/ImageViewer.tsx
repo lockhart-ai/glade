@@ -11,7 +11,7 @@ import {
 import { faImage } from '@fortawesome/free-regular-svg-icons'
 import { faChevronLeft, faChevronRight, faXmark } from '@fortawesome/free-solid-svg-icons'
 import { useCallback, useRef, type KeyboardEvent, type MouseEvent } from 'react'
-import { Button, ButtonVariant, Icon, IconSize, useOverlayRef } from '../components'
+import { Button, ButtonVariant, Icon, IconSize, useModalPresence, useOverlayRef } from '../components'
 import { ImageSourceKind, imageSourceKey, type ImageViewerSource } from './imageSources'
 import { IMAGE_LABEL, MISSING_IMAGE_LABEL, StoredImageStatus, useStoredImage, useWorkspaceImage } from './StoredImage'
 import styles from './ImageViewer.module.css'
@@ -80,6 +80,10 @@ export function ImageViewer({
 }: ImageViewerProps): React.JSX.Element {
   const closeRef = useRef<HTMLButtonElement>(null)
   const overlay = useOverlayRef()
+  // Open for as long as it's mounted (its parent unmounts it to close it): while it is, the input bar holds off
+  // taking the focus, even though `returnFocus` lands it here first; the task's input takes it over once this unmounts
+  // (#415).
+  useModalPresence(true)
   const { refs, context } = useFloating({
     open: true,
     onOpenChange: (next) => {

@@ -26,9 +26,13 @@ function RenameField({ tab, onRename, onCancel }: RenameFieldProps): React.JSX.E
   const input = useRef<HTMLInputElement>(null)
   const finished = useRef(false)
 
+  // In a microtask, since Rename opens this from the tab's context menu, which returns the focus to where it was
+  // (the task's input, #415) in one as it closes: the field must take it after that.
   useEffect(() => {
-    input.current?.focus()
-    input.current?.select()
+    queueMicrotask(() => {
+      input.current?.focus()
+      input.current?.select()
+    })
   }, [])
 
   const save = async (name: string): Promise<void> => {

@@ -1,4 +1,4 @@
-import { ConfirmDialog, useToast } from '../components'
+import { ConfirmDialog, useModalPresence, useToast } from '../components'
 import { describeFailure } from '../store/hydrate'
 import { useGladeStore } from '../store/react'
 import { UNTITLED } from './TaskRow'
@@ -21,6 +21,7 @@ export function DeleteTaskDialog(): React.JSX.Element | null {
   const cancelDelete = useGladeStore((state) => state.cancelDelete)
   const deleteTask = useGladeStore((state) => state.deleteTask)
   const toast = useToast()
+  useModalPresence(task !== undefined)
   if (task === undefined) return null
 
   const confirm = async (): Promise<void> => {

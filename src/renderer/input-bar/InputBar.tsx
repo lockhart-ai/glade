@@ -162,17 +162,31 @@ export interface InputBarProps {
   readonly contextMeter?: ReactNode
 }
 
-/** The selected task's input bar, or nothing when no task is selected. */
+/**
+ * The selected task's input bar, or nothing when no task is selected. Every switch to a task (another selected by any
+ * route, a new one, the one restored at launch, or the one under a dialog that's just closed) puts the focus on its
+ * message field, once no modal holds it instead (#415): a single effect here, watching the selection and
+ * `openModalCount`, rather than each route asking for it itself.
+ */
 export function InputBar({ contextMeter }: InputBarProps): React.JSX.Element | null {
   const task = useGladeStore(selectSelectedTask)
+  const selectedTaskId = useGladeStore((state) => state.selectedTaskId)
+  const modalOpen = useGladeStore((state) => state.openModalCount > 0)
   const focusInput = useGladeStore((state) => state.focusInput)
   const focusRequest = useGladeStore((state) => state.inputFocusRequest)
   // The last focus request the field has answered. It lives here, not in the task's bar, so a request made as a new
   // task's bar mounts (+ and ⌘N select the task, then ask) is still answered once.
   const answeredRef = useRef(focusRequest)
 
-  // Focus input (⌘L) asks for the focus the same way + and ⌘N do.
+  // Focus input (⌘L) asks for the focus the same way a task becoming selected does.
   useCommand(WindowCommandId.FocusInput, focusInput)
+
+  // The task becoming selected (whichever way), or the last open modal closing onto it, focuses its field; while one
+  // is still open, this holds off; closing it (`modalOpen` going false) runs it again.
+  useEffect(() => {
+    if (selectedTaskId === null || modalOpen) return
+    focusInput()
+  }, [selectedTaskId, modalOpen, focusInput])
 
   if (task === undefined) return null
   // Each task's own draft: the bar keeps it as it goes, and a task selected again gets it back.

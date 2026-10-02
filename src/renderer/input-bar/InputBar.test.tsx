@@ -726,6 +726,9 @@ describe('InputBar', () => {
 
   it('focuses the message field on ⌘L, and not on other keys', async () => {
     await renderBar()
+    act(() => {
+      field().blur()
+    })
 
     fireEvent.keyDown(window, { key: 'l', metaKey: true, shiftKey: true })
     fireEvent.keyDown(window, { key: 'k', metaKey: true })
@@ -735,24 +738,59 @@ describe('InputBar', () => {
     expect(field()).toHaveFocus()
   })
 
-  it('focuses the field when asked, once per request, even when the request comes as a new task’s bar mounts', async () => {
+  it('focuses the field when asked, once per request', async () => {
     const fake = await renderBar()
+    act(() => {
+      field().blur()
+    })
     expect(field()).not.toHaveFocus()
 
     act(() => {
       fake.store.getState().focusInput()
     })
     expect(field()).toHaveFocus()
+  })
+
+  it('focuses the field once a task is selected, by any route, including the one restored as the bar mounts (#415)', async () => {
+    const fake = await renderBar()
+    // The bar starts on the task hydration restored (t1), and takes the focus for it at once.
+    expect(field()).toHaveFocus()
     act(() => {
       field().blur()
     })
 
-    // Selecting a task alone doesn't take the focus; selecting it and asking in one go (as + and ⌘N do) does.
+    await act(() => fake.store.getState().selectTask('t2'))
+    expect(field()).toHaveFocus()
+  })
+
+  it('does not refocus for reselecting the task already shown', async () => {
+    const fake = await renderBar()
+    act(() => {
+      field().blur()
+    })
+
+    await act(() => fake.store.getState().selectTask('t1'))
+    expect(field()).not.toHaveFocus()
+  })
+
+  it('holds off focusing while any modal is open, and focuses once the last one closes (#415)', async () => {
+    const fake = await renderBar()
+    act(() => {
+      field().blur()
+      fake.store.getState().modalOpened()
+      fake.store.getState().modalOpened()
+    })
+
     await act(() => fake.store.getState().selectTask('t2'))
     expect(field()).not.toHaveFocus()
-    await act(async () => {
-      await fake.store.getState().selectTask('t1')
-      fake.store.getState().focusInput()
+
+    act(() => {
+      fake.store.getState().modalClosed()
+    })
+    expect(field()).not.toHaveFocus()
+
+    act(() => {
+      fake.store.getState().modalClosed()
     })
     expect(field()).toHaveFocus()
   })
@@ -769,7 +807,8 @@ describe('InputBar', () => {
     expect(field()).toHaveFocus()
     expect(field().selectionStart).toBe(field().value.length)
 
-    // Text for another task is left for it, and a bar that mounts after a request doesn't take it again.
+    // Text for another task is left for it, and a bar that mounts after a request doesn't take it again; selecting
+    // that task still focuses its field, as any task switch does (#415).
     act(() => {
       field().blur()
       fake.store.getState().insertIntoInput('t2', 'About the todo')
@@ -778,7 +817,7 @@ describe('InputBar', () => {
     await act(() => fake.store.getState().selectTask('t2'))
     await act(() => Promise.resolve())
     expect(field()).toHaveValue('')
-    expect(field()).not.toHaveFocus()
+    expect(field()).toHaveFocus()
   })
 
   it('keeps each task’s own draft, and gives it back when the task comes back', async () => {

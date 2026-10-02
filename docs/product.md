@@ -51,8 +51,8 @@ There are no follow-up tasks. One task can refer to another through its folder o
   A message's pasted images show as thumbnails above its text in the chat, and small in its row while it's queued.
   Clicking one (or ↵ or Space on it) opens the **image viewer** over the window: the image as large as fits, never
   scaled past its own size, on a dimmed backdrop. With several, ← and → step through the message's images, round from
-  the last to the first, under a "2 of 3"; Esc, a click on the backdrop or × closes it, and the focus goes back to the
-  thumbnail of the image it showed. ![Image viewer](design/screens/30-image-viewer.png)
+  the last to the first, under a "2 of 3"; Esc, a click on the backdrop or × closes it, and the focus goes to the
+  task's input (#415). ![Image viewer](design/screens/30-image-viewer.png)
   The same viewer opens an image artifact from the Artifacts tab, and the one file showing in the Files tab (#372): for
   an artifact, it also shows the artifact's title and two actions, Open in Files and Reveal in Finder, and steps
   through the image artifacts the Artifacts tab lists, in its order (not those in a folded date group, #378); for a

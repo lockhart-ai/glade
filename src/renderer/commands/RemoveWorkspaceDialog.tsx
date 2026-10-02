@@ -1,4 +1,4 @@
-import { ConfirmDialog, useToast } from '../components'
+import { ConfirmDialog, useModalPresence, useToast } from '../components'
 import { describeFailure } from '../store/hydrate'
 import { doneCountsFor } from '../store/doneLists'
 import { isInDoneSection } from '../../shared/doneList'
@@ -34,6 +34,7 @@ export function RemoveWorkspaceDialog(): React.JSX.Element | null {
   const cancel = useGladeStore((state) => state.cancelRemoveWorkspace)
   const removeWorkspace = useGladeStore((state) => state.removeWorkspace)
   const toast = useToast()
+  useModalPresence(workspace !== undefined)
   if (workspace === undefined) return null
 
   const confirm = async (): Promise<void> => {

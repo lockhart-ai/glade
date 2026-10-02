@@ -71,10 +71,11 @@ function field(): HTMLInputElement {
   return screen.getByRole<HTMLInputElement>('textbox', { name: 'Task title' })
 }
 
-/** Chooses Rename… for the selected task. */
-function chooseRename(): void {
-  act(() => {
+/** Chooses Rename… for the selected task, and lets the field's focus (a microtask, #415) settle. */
+async function chooseRename(): Promise<void> {
+  await act(async () => {
     renameSelected()
+    await Promise.resolve()
   })
 }
 
@@ -83,7 +84,7 @@ describe('Rename… and the inline rename', () => {
     await renderRename()
     screen.getByRole('textbox', { name: 'Message' }).focus()
 
-    chooseRename()
+    await chooseRename()
 
     const input = field()
     expect(input).toHaveValue('Fix flaky login test')
@@ -94,7 +95,7 @@ describe('Rename… and the inline rename', () => {
 
   it('saves the new title, trimmed, on ↵, and the row shows it', async () => {
     const { invoke, store } = await renderRename()
-    chooseRename()
+    await chooseRename()
 
     fireEvent.change(field(), { target: { value: '  Fix the login race  ' } })
     fireEvent.keyDown(field(), { key: 'Enter' })
@@ -110,7 +111,7 @@ describe('Rename… and the inline rename', () => {
 
   it('cancels on Esc, keeping the title', async () => {
     const { invoke } = await renderRename()
-    chooseRename()
+    await chooseRename()
 
     fireEvent.change(field(), { target: { value: 'Something else' } })
     fireEvent.keyDown(field(), { key: 'Escape' })
@@ -122,7 +123,7 @@ describe('Rename… and the inline rename', () => {
 
   it('refuses a blank title on ↵, keeping the field, until you type one', async () => {
     const { invoke } = await renderRename()
-    chooseRename()
+    await chooseRename()
 
     fireEvent.change(field(), { target: { value: '   ' } })
     fireEvent.keyDown(field(), { key: 'Enter' })
@@ -141,13 +142,13 @@ describe('Rename… and the inline rename', () => {
 
   it('saves when the field loses the focus, and cancels then when it is blank', async () => {
     const { invoke } = await renderRename()
-    chooseRename()
+    await chooseRename()
     fireEvent.change(field(), { target: { value: 'Fix the login race' } })
     fireEvent.blur(field())
     await act(() => Promise.resolve())
     expect(titleCalls(invoke)).toEqual([{ id: 't1', patch: { title: 'Fix the login race' } }])
 
-    chooseRename()
+    await chooseRename()
     fireEvent.change(field(), { target: { value: '' } })
     fireEvent.blur(field())
 
@@ -157,7 +158,7 @@ describe('Rename… and the inline rename', () => {
 
   it('ignores other keys in the field', async () => {
     await renderRename()
-    chooseRename()
+    await chooseRename()
 
     fireEvent.keyDown(field(), { key: 'a' })
 
@@ -168,7 +169,7 @@ describe('Rename… and the inline rename', () => {
     await renderRename('t1', [], {
       [CommandName.TasksUpdate]: () => refuse(bridgeError(BridgeErrorCode.NotFound, 'No task t1')),
     })
-    chooseRename()
+    await chooseRename()
 
     fireEvent.change(field(), { target: { value: 'Fix the login race' } })
     fireEvent.keyDown(field(), { key: 'Enter' })
@@ -180,7 +181,7 @@ describe('Rename… and the inline rename', () => {
   it("opens the selected task's collapsed section to show its field", async () => {
     const { store } = await renderRename('t3')
 
-    chooseRename()
+    await chooseRename()
     await act(() => Promise.resolve())
 
     expect(store.getState().uiState[UiStateKey.DoneSectionCollapsed]).toBe('false')
