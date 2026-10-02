@@ -53,6 +53,7 @@ import {
 } from '../files/files'
 import { todoListFor } from '../todos/todos'
 import { removeTaskArtifact } from '../artifacts/artifacts'
+import { attachFile, discardAttachedFile } from '../attachments/attachments'
 import { NO_THUMBNAILS, type Thumbnails } from '../artifacts/thumbnails'
 import type { ArtifactWatcher } from '../artifacts/artifact-watch'
 import { parseCommitFileKey } from '../../shared/files'
@@ -136,6 +137,7 @@ export function createHandlers(context: HandlerContext): Handlers {
   const renderer = (context.log ?? SILENT_LOGGER).scoped(LogScope.Renderer)
   const ipcLog = (context.log ?? SILENT_LOGGER).scoped(LogScope.Ipc)
   const changes = { db, emit, git: context.git ?? createGit() }
+  const attachmentsLog = (context.log ?? SILENT_LOGGER).scoped(LogScope.Chat)
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
     [CommandName.WorkspacesCreate]: ({ rootPath }) => {
@@ -184,8 +186,8 @@ export function createHandlers(context: HandlerContext): Handlers {
       deleteTask(context, id)
       return null
     },
-    [CommandName.TasksSend]: ({ id, text, images, pastedBlocks }) => ({
-      message: runner.send(id, text, images, pastedBlocks),
+    [CommandName.TasksSend]: ({ id, text, images, pastedBlocks, files }) => ({
+      message: runner.send(id, text, images, pastedBlocks, files),
     }),
     [CommandName.TasksStop]: async ({ id }) => ({ task: await runner.stop(id) }),
     [CommandName.TasksRetry]: ({ id, model }) => ({ task: runner.retry(id, model) }),
@@ -225,8 +227,8 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.ChangesRepository]: async ({ taskId }) => ({
       repository: await workspaceInRepository(changes, taskId),
     }),
-    [CommandName.QueueAdd]: ({ taskId, text, images, pastedBlocks }) => ({
-      queuedMessage: runner.queue(taskId, text, images, pastedBlocks),
+    [CommandName.QueueAdd]: ({ taskId, text, images, pastedBlocks, files }) => ({
+      queuedMessage: runner.queue(taskId, text, images, pastedBlocks, files),
     }),
     [CommandName.QueueEdit]: ({ id, text }) => ({ queuedMessage: editQueuedMessage(context, id, text) }),
     [CommandName.QueueRemove]: ({ id }) => {
@@ -237,6 +239,13 @@ export function createHandlers(context: HandlerContext): Handlers {
       const image = getImage(db, id)
       if (image === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No image ${id}`)
       return { image }
+    },
+    [CommandName.AttachmentsAdd]: async ({ taskId, path }) => ({
+      file: await attachFile({ db, emit, git: changes.git, log: attachmentsLog }, taskId, path),
+    }),
+    [CommandName.AttachmentsDiscard]: async ({ taskId, path }) => {
+      await discardAttachedFile(context, taskId, path)
+      return null
     },
     [CommandName.DraftsGet]: ({ taskId }) => {
       requireTask(db, taskId)

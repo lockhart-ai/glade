@@ -37,7 +37,7 @@ export function loginSentence(login: LoginStatus, taskId: string): string {
 }
 
 /**
- * The card at the end of the chat when a lost login stopped the agent (#409, `docs/design/html/36-logged-out.html`),
+ * The card at the end of the chat when a lost login stopped the agent (#409, `docs/design/html/38-logged-out.html`),
  * in the error card's style: what happened, where logging in stands, that nothing is lost, and the ways on. Log in
  * runs Claude Code's own login, which opens the browser, and retries this task once you're in; while it runs, Cancel
  * stops it. Retry runs the turn again (once you've logged in some other way, say), and Retry all every task a lost

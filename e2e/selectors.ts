@@ -394,6 +394,11 @@ export function chat(page: Page) {
     /** The thumbnails of the images pasted into your messages, which open the image viewer: all of them, in order. */
     thumbnails: log.getByRole('article', { name: 'You' }).getByRole('button', { name: /^View pasted image/ }),
     agentReplies: log.getByRole('article', { name: 'Agent' }),
+    /** The chips of the files attached to your messages (#396): all of them, in order. */
+    fileChips: log
+      .getByRole('article', { name: 'You' })
+      .getByRole('list', { name: 'Attached files' })
+      .getByRole('button'),
     /** The summary under each finished turn's reply: "Finished in 24m 10s · 4 files +61 −3". */
     turnSummaries: log.getByRole('note', { name: 'Turn summary' }),
     /** Where Glade restarted and resumed a turn. */
@@ -535,6 +540,20 @@ export function inputBar(page: Page) {
     attachedImages: bar.getByRole('list', { name: 'Attached images' }).getByRole('img'),
     /** An attached image's remove button, by its number. */
     removeImage: (position: number) => bar.getByRole('button', { name: `Remove image ${String(position)}` }),
+    /** The chips of the files attached to the message being written (#396), in order: each its name, type and size. */
+    fileChips: bar.getByRole('list', { name: 'Attached files' }).getByTitle('Reveal in Finder'),
+    /** An attached file's chip, by its name, which reveals its copy in Finder. */
+    fileChip: (name: string) =>
+      bar.getByRole('list', { name: 'Attached files' }).getByTitle('Reveal in Finder').filter({ hasText: name }),
+    /** An attached file's remove button, by its name. */
+    removeFile: (name: string) => bar.getByRole('button', { name: `Remove ${name}`, exact: true }),
+    /** A queued message's attached file, by its number and the file's name: small in its row. */
+    queuedFile: (position: number, name: string) =>
+      bar
+        .getByRole('region', { name: 'Queued messages' })
+        .getByRole('listitem')
+        .nth(position - 1)
+        .getByTitle(name, { exact: true }),
     /** Why something pasted wasn't attached, one line each. */
     refusals: bar.getByRole('alert'),
     /** A queued message's thumbnails, which open the image viewer, by its number. */

@@ -120,7 +120,8 @@ The **input bar** under the chat sets how this task runs:
   Compact now compacts.
 
 Each task keeps its own settings; new tasks start from the defaults in Settings › Agent. Each task also keeps its
-unsent draft, pasted images and pasted text blocks included, while you're on another task and across a relaunch.
+unsent draft, pasted images, pasted text blocks and attached files included, while you're on another task and
+across a relaunch.
 
 You can run as many tasks at once as you like. Switching tasks never interrupts one that's working.
 
@@ -157,6 +158,14 @@ scroll: the chat passes under them.
   plain text. Glade marks it this way so the agent knows to be wary of instructions hidden inside it. In the chat,
   your message shows your own words with the block collapsed to its line count; click it to see the pasted text in
   place. Pasted blocks can't go with an answer to a question card either.
+- **Attached files:** drop any file onto the input bar, or copy it in Finder and paste it (⌘V), to hand it to the
+  agent without pasting its contents: a CSV, a PDF, a log. Glade copies it into the workspace, at
+  `.glade/attachments/<task id>/`, and shows a chip with its icon, name, type and size; click the chip to see the copy
+  in Finder, or ✕ to take it off. The agent gets the copy's path at the end of your message and reads it with its own
+  tools. In the chat, click a sent file's chip to open it in the Files tab (or in Finder, for a file the Files tab
+  can't show). Folders and files over 200 MB can't be attached; a toast says why. Glade keeps the copies out of git
+  (in the repository's own `.git/info/exclude`, never your `.gitignore`), and deletes them when you delete the task.
+  Files can't go with an answer to a question card either.
 - **Right-click a reply** to copy it (as text or Markdown), quote it in your reply, or show that turn's tool calls.
 - **Links open in your browser.** A link or a bare URL in a reply, your message, a card, the tool log, the header, a
   todo or anywhere else Glade shows what the agent or you wrote is clickable (⌘-click works too, and ↵ on a focused
@@ -297,7 +306,8 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   JPEG, GIF, WebP or SVG), or a tile with the file's type, then its title, its type and when the file last changed.
   They're listed newest first, by when each file last changed, under **Today**, **Yesterday**, **This week**, **Last
   week**, **This month** and **Older**; each header shows its count and folds with a click. Today and Yesterday start
-  open and the older groups folded, and each task remembers how you left them. An artifact that's edited moves back to
+  open, and so does the topmost group showing (last week's, say, for a task with nothing newer); the rest start
+  folded, and each task remembers how you left them. An artifact that's edited moves back to
   the top, whether the agent (or one of its subagents) edited it or you did, in the terminal or an editor, while the
   tab is open. Click a row (or press ↵ or Space on it) to open the file: an image opens full size in the image viewer,
   stepping ← → through the other image artifacts the list shows under a "2 of 7" (open a folded group to include its
@@ -315,8 +325,9 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   Click one to open its log; right-click a running one to stop it. A subagent's own tool calls live here, not in Tool
   calls, and so does what it left running in the background: an eye with a count on its row while any of it is live,
   and its rows, each with **Stop**, under its log. That work runs on after the subagent finishes, until it ends;
-  stopping the subagent ends it too ("Ended with its subagent."). The task's row in the sidebar counts the running
-  subagents on its third line.
+  stopping the subagent ends it too ("Ended with its subagent."). A subagent that's done, failed or interrupted (by
+  quitting Glade, say) runs again when the agent sends it a message: its row goes back to running, keeping its log,
+  until that run ends. The task's row in the sidebar counts the running subagents on its third line.
 - **Watchers:** what the task's own agent left running or scheduled to wake itself later: a watch on a command's output
   (a PR's CI, a deploy's log, whatever script it wrote), a command in the background, a check-back at a set time, or a
   recurring job. A command the agent waits on isn't one, however long it runs; it's a tool call. Nor is what a subagent

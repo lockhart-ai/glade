@@ -71,7 +71,7 @@ export function isStoppedLoggedOut(task: Task | undefined): boolean {
   )
 }
 
-/** The title of the card a lost login stopped a task with (`docs/design/html/36-logged-out.html`). */
+/** The title of the card a lost login stopped a task with (`docs/design/html/38-logged-out.html`). */
 export const LOGGED_OUT_TITLE = 'You’re logged out of Claude'
 
 /**

@@ -474,6 +474,54 @@ the start.
   `Agent` call (`run_in_background: false`). That turn really does wait for its subagent. Background subagents never
   kept a turn open.
 
+### Subagents woken again [from the SDK's types and binary, not probed]
+
+Read from SDK 0.3.283's `sdk.d.ts` and the Claude Code 2.1.283 binary it bundles (#395), after a kitten that a
+supervisor messaged with `SendMessage`, hours after it had finished or been interrupted by a Glade restart, showed as
+done or interrupted while it ran. No new message type marks it; the SDK starts the subagent's task again:
+
+```
+assistant  tool_use SendMessage { to: "a7c2…", message: "Now fix it.", summary: "…" }       ← the agent's own call
+system/task_started  { task_id: "a7c2…", tool_use_id: <the SendMessage call>, task_type: "local_agent",
+                       is_backgrounded: true, description: <its description>, prompt: "Now fix it." }
+user  tool_result for the SendMessage call: "Resuming agent a7c2…"
+      tool_use_result: { success: true, message: "Resuming agent a7c2…", resumedAgentId: "a7c2…" }
+assistant  { parent_tool_use_id: <its original Agent call> } …                  ← its new run, as any background subagent's
+system/task_progress      { task_id: "a7c2…", tool_use_id: <the SendMessage call>, … }
+system/task_updated       { task_id: "a7c2…", patch: { status: "completed", … } }
+system/task_notification  { task_id: "a7c2…", tool_use_id: <the SendMessage call>, status: "completed", summary: … }
+```
+
+- **`task_id` is the subagent's old id** (its `agentId`, the one its first `task_started` and its `Agent` call's
+  `tool_use_result.agentId` named). `SendMessage` to a subagent that has stopped calls `resumeAgentForReply`, which
+  registers the task again under that id (`isBackgrounded: true`: "A resumed subagent is always registered in the
+  background", in `sdk.d.ts`), and registering a task emits `task_started`.
+- **Its `tool_use_id` is the waking call's**, not the `Agent` call's: the new task takes the `toolUseId` of the
+  `SendMessage` call that runs it (`toolUseContext.toolUseId`), and `task_progress` and `task_notification` carry the
+  task's `toolUseId`. So the run's progress and end name the `SendMessage` call.
+- **Its messages still carry its `Agent` call** as `parent_tool_use_id`: the run takes the id from the subagent's saved
+  metadata, written when it was first spawned.
+- **The SDK starting it again itself** (after work it left running ends, "Background work inside a subagent" below)
+  sends the same `task_started`, under the `Agent` call's own id, as no call woke it.
+- **A subagent still running** isn't woken: `SendMessage` queues the message for its next tool round ("Message queued
+  for delivery to … at its next tool round."), and no `task_started` comes.
+- **It survives a relaunch**: the subagent's transcript and metadata are on disk, so a resumed session's `SendMessage`
+  wakes it the same way. A subagent stopped by the user isn't woken.
+
+**Implications for Glade (#395)**
+
+- An `Agent` call keeps its subagent's SDK task id in SQLite (`tool_events.sdk_task_id`, migration 47) from its first
+  `task_started`. A later `task_started` (`local_agent`) under that id, or under its own `Agent` call once it has
+  ended, wakes it: its row goes back to running, with no outcome, end time or summary, and keeps its log, and it's
+  followed as a background subagent from then on, its calls and notes logged with its `Agent` call's turn. Its
+  progress summaries and its end, under the waking call, go to its `Agent` call's row: done or failed, as for any
+  background subagent. Stop subagent stops it by the same task id. If the app quits while it runs, the next launch
+  interrupts it, as any background subagent; the agent can wake it again after that.
+- A subagent started before Glade kept the ids (migration 47) is known by its new run's first message instead: the
+  `Agent` call that message names, if it has ended, is the one a pending `SendMessage` woke.
+- The Subagents tab, the task list's count, and the plugin feed all read the `Agent` call's row, so they follow: a
+  plugin is sent `subagent.started` again for it, and a task whose log isn't loaded yet gets the row, to count it.
+
 ### Background work inside a subagent [verified]
 
 Probed on SDK 0.3.281 with Haiku (#291), in a throwaway folder: the agent ran `sleep 3` in the foreground, then started

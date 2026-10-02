@@ -48,6 +48,7 @@ import type {
   Workspace,
 } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
+import type { AttachedFile } from '../../shared/attachedFiles'
 import type { SearchResult } from '../../shared/search'
 import type { TaskFilter } from '../../shared/attention'
 import type { DoneCounts, TaskCursor } from '../../shared/doneList'
@@ -181,6 +182,11 @@ export interface GladeData {
   readonly openFiles: Readonly<Record<string, OpenFiles>>
   /** Each task's artifacts (the Artifacts tab), by task id: loaded with its logs, then kept current by events. */
   readonly artifacts: Readonly<Record<string, readonly Artifact[]>>
+  /**
+   * How many `artifacts.changed` events each task has had applied, by task id: bumped every time one lands, so a
+   * history load that started before one can tell, when it answers, that it's stale and must not overwrite it.
+   */
+  readonly artifactsVersion: Readonly<Record<string, number>>
   /**
    * The Artifacts tab's date groups you opened or folded, by task id: loaded with its logs, then changed as you open
    * or fold one.
@@ -451,25 +457,39 @@ export interface GladeActions {
    */
   deleteTask: (taskId: string) => Promise<void>
   /**
-   * Sends the user's message, and the images and pasted blocks in it, to the task's agent. Resolves once main has
-   * saved it; the message and the turn arrive as events. Rejects with `busy` while the agent is working.
+   * Sends the user's message, and the images, pasted blocks and attached files in it, to the task's agent. Resolves
+   * once main has saved it; the message and the turn arrive as events. Rejects with `busy` while the agent is working.
    */
   sendMessage: (
     taskId: string,
     text: string,
     images?: readonly ImageData[],
     pastedBlocks?: readonly PastedBlock[],
+    files?: readonly AttachedFile[],
   ) => Promise<void>
   /**
-   * Queues the user's message, and the images and pasted blocks in it, for the task's agent, which gets it after its
-   * current step. Resolves once main has saved it; the queue arrives as an event.
+   * Queues the user's message, and the images, pasted blocks and attached files in it, for the task's agent, which
+   * gets it after its current step. Resolves once main has saved it; the queue arrives as an event.
    */
   queueMessage: (
     taskId: string,
     text: string,
     images?: readonly ImageData[],
     pastedBlocks?: readonly PastedBlock[],
+    files?: readonly AttachedFile[],
   ) => Promise<void>
+  /**
+   * The path on disk of a file dropped or pasted into the window, to attach it; `''` for one that isn't on disk (an
+   * image copied from an app), which is read in the window instead.
+   */
+  pathForFile: (file: File) => string
+  /**
+   * Copies the file at `path` into the task's workspace, to attach it to the message being written
+   * (`attachments.add`), and resolves with the copy. Rejects with the `BridgeError` saying why it can't be attached.
+   */
+  attachFile: (taskId: string, path: string) => Promise<AttachedFile>
+  /** Deletes the copy of a file taken off the message being written before it was sent (`attachments.discard`). */
+  discardAttachedFile: (taskId: string, path: string) => Promise<void>
   /**
    * A stored image's type and bytes, by id (`images.get`), to show it. Each image is fetched once and kept, since an
    * image never changes; one that failed to load is fetched again next time.
@@ -668,6 +688,7 @@ export const INITIAL_DATA: GladeData = {
   permissionRequests: {},
   openFiles: {},
   artifacts: {},
+  artifactsVersion: {},
   artifactGroups: {},
   watchers: {},
   commits: {},

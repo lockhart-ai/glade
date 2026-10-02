@@ -6,6 +6,7 @@
  * - **Turns** count a task's user turns from 1: the task's first message starts turn 1, and every message the agent is
  *   given after that starts the next one. Chat messages and tool events carry the turn they belong to.
  */
+import type { AttachedFile } from './attachedFiles'
 import type { ImageData, ImageRef } from './images'
 
 /** Epoch milliseconds (UTC). */
@@ -302,6 +303,8 @@ export interface Message {
   readonly images: readonly ImageRef[]
   /** The text pasted into your message, kept apart from what was typed; none for the agent's replies. */
   readonly pastedBlocks: readonly PastedBlock[]
+  /** The files attached to your message, copied into the workspace, in order (#396); none for the agent's replies. */
+  readonly files: readonly AttachedFile[]
 }
 
 /**
@@ -312,13 +315,15 @@ export interface Message {
 export interface QueuedMessage {
   readonly id: string
   readonly taskId: string
-  /** Markdown. Empty for a message that's only images. */
+  /** Markdown. Empty for a message that's only images or files. */
   readonly body: string
   readonly createdAt: EpochMs
   /** The images pasted into it, which go with it. */
   readonly images: readonly ImageRef[]
   /** The text pasted into it, which goes with it. */
   readonly pastedBlocks: readonly PastedBlock[]
+  /** The files attached to it, which go with it. */
+  readonly files: readonly AttachedFile[]
 }
 
 /**
@@ -329,6 +334,8 @@ export interface InputDraft {
   readonly text: string
   readonly images: readonly ImageData[]
   readonly pastedBlocks: readonly PastedBlock[]
+  /** The files attached to it, already copied into the workspace (#396). */
+  readonly files: readonly AttachedFile[]
 }
 
 /** The variants of a tool log entry. */
