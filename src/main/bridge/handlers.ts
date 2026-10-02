@@ -39,6 +39,7 @@ import { editQueuedMessage, removeQueuedMessage } from '../tasks/queue'
 import { noteUiStateSet } from '../tasks/attention'
 import { changeTask, createTask, deleteTask, markTaskDone, reopenTask, requireTask } from '../tasks/service'
 import {
+  browseTaskFiles,
   closeTaskFile,
   copyTaskFile,
   thumbnailOfTaskFile,
@@ -46,6 +47,7 @@ import {
   openTaskFileInEditor,
   readTaskFile,
   writeTaskFile,
+  workspaceRoot,
   revealTaskFile,
   type OpenPath,
   type RevealPath,
@@ -56,6 +58,9 @@ import { removeTaskArtifact } from '../artifacts/artifacts'
 import { attachFile, discardAttachedFile } from '../attachments/attachments'
 import { NO_THUMBNAILS, type Thumbnails } from '../artifacts/thumbnails'
 import type { ArtifactWatcher } from '../artifacts/artifact-watch'
+import { createWorkspaceGit, listWorkspaceFolder, searchWorkspaceFiles, type WorkspaceGit } from '../files/browse'
+import type { FolderWatcher } from '../files/folder-watch'
+import { listBrowseFolders, setBrowseFolderExpanded } from '../db/repositories/browse-folders'
 import { parseCommitFileKey } from '../../shared/files'
 import { openLink, type OpenExternal } from '../links/links'
 import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
@@ -121,6 +126,10 @@ export interface HandlerContext {
   readonly thumbnails?: Thumbnails
   /** Watches the files of the artifacts the Artifacts tab shows (`artifacts.watch`). None by default: nothing is. */
   readonly artifactWatch?: ArtifactWatcher
+  /** Asks git what the Browse tab hides, and lists a repository's files for its search. The `git` on the PATH by default. */
+  readonly workspaceGit?: WorkspaceGit
+  /** Watches the folders the Browse tab shows (`files.watchFolders`). None by default: nothing is. */
+  readonly folderWatch?: FolderWatcher
 }
 
 /** The workspace a new terminal tab belongs to and starts in, or null for none. */
@@ -138,6 +147,7 @@ export function createHandlers(context: HandlerContext): Handlers {
   const ipcLog = (context.log ?? SILENT_LOGGER).scoped(LogScope.Ipc)
   const changes = { db, emit, git: context.git ?? createGit() }
   const attachmentsLog = (context.log ?? SILENT_LOGGER).scoped(LogScope.Chat)
+  const workspaceGit = context.workspaceGit ?? createWorkspaceGit()
   return {
     [CommandName.WorkspacesList]: () => ({ workspaces: listWorkspaces(db) }),
     [CommandName.WorkspacesCreate]: ({ rootPath }) => {
@@ -289,6 +299,25 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.FilesReveal]: async ({ taskId, path }) => {
       await revealTaskFile(context, taskId, path)
+      return null
+    },
+    [CommandName.FilesBrowse]: ({ taskId }) => ({ openFiles: browseTaskFiles(context, taskId) }),
+    [CommandName.FilesListFolder]: async ({ taskId, path }) => ({
+      entries: await listWorkspaceFolder(workspaceRoot(context, taskId), path, workspaceGit),
+    }),
+    [CommandName.FilesSearch]: async ({ taskId, query }) =>
+      searchWorkspaceFiles(workspaceRoot(context, taskId), query, workspaceGit),
+    [CommandName.FilesExpandedFolders]: ({ taskId }) => {
+      requireTask(db, taskId)
+      return { paths: listBrowseFolders(db, taskId) }
+    },
+    [CommandName.FilesSetFolderExpanded]: (change) => {
+      requireTask(db, change.taskId)
+      setBrowseFolderExpanded(db, change)
+      return null
+    },
+    [CommandName.FilesWatchFolders]: async ({ taskId, paths }) => {
+      await context.folderWatch?.watch(taskId, paths)
       return null
     },
     [CommandName.ArtifactsRemove]: ({ taskId, path }) => {

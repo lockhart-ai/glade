@@ -31,6 +31,7 @@ import { listMessages } from './db/repositories/messages'
 import { listRecentNotifications } from './db/repositories/notifications'
 import { listPermissionRequests } from './db/repositories/permission-requests'
 import { getOpenFiles } from './db/repositories/open-files'
+import { listBrowseFolders } from './db/repositories/browse-folders'
 import { listQueuedMessages } from './db/repositories/queued-messages'
 import { listTaskPermissionRules } from './db/repositories/task-permission-rules'
 import { listToolEvents } from './db/repositories/tool-events'
@@ -593,7 +594,7 @@ describe('applySeed', () => {
     }
   })
 
-  it('opens a task’s files, showing the first unless told which, and sets the panel’s width', () => {
+  it('opens a task’s files, showing the first unless told which (or Browse), with its open folders, and sets the panel’s width', () => {
     const { db } = database
 
     applySeed(db, {
@@ -602,6 +603,7 @@ describe('applySeed', () => {
         { title: 'Shows one', minutesAgo: 0, openFiles: { paths: ['a.md', 'b.md'], activePath: 'b.md' } },
         { title: 'Shows the first', minutesAgo: 0, openFiles: { paths: ['a.md'] } },
         { title: 'Opens none', minutesAgo: 0, openFiles: { paths: [] } },
+        { title: 'Browses', minutesAgo: 0, openFiles: { paths: ['a.md'], activePath: null }, browseFolders: ['api'] },
       ],
       panelWidth: 780,
     })
@@ -611,6 +613,8 @@ describe('applySeed', () => {
     expect(getOpenFiles(db, byTitle['Shows one'] ?? '')).toMatchObject({ paths: ['a.md', 'b.md'], activePath: 'b.md' })
     expect(getOpenFiles(db, byTitle['Shows the first'] ?? '').activePath).toBe('a.md')
     expect(getOpenFiles(db, byTitle['Opens none'] ?? '').activePath).toBeNull()
+    expect(getOpenFiles(db, byTitle.Browses ?? '')).toMatchObject({ paths: ['a.md'], activePath: null })
+    expect(listBrowseFolders(db, byTitle.Browses ?? '')).toEqual(['api'])
     expect(getUiState(db, UiStateKey.RightPanelWidth)).toBe('780')
   })
 

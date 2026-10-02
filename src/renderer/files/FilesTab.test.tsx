@@ -175,17 +175,18 @@ beforeEach(() => {
 })
 
 describe('FilesTab', () => {
-  it('says there are no files yet until the agent touches one', async () => {
+  it('shows the Browse tab, with nothing in its list of files, until the agent touches one', async () => {
     await renderTab({ toolEvents: [] })
 
-    expect(screen.getByText('No files yet.')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'All files in this task' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Browse files', pressed: true })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'All files in this task' })).toBeDisabled()
+    expect(screen.getByRole('combobox', { name: 'Search files' })).toBeInTheDocument()
   })
 
   it('lists the files the agent changed and read, and opens one chosen from the list', async () => {
     const { invoke } = await renderTab()
 
-    expect(screen.getByText('No file open.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Browse files', pressed: true })).toBeInTheDocument()
     const list = screen.getByRole('button', { name: 'All files in this task' })
     expect(list).toHaveTextContent('3')
     fireEvent.click(list)
