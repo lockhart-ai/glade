@@ -88,6 +88,10 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.ImagesGet]: () => {
       throw new Error('not in these tests')
     },
+    [CommandName.AttachmentsAdd]: () => {
+      throw new Error('not in these tests')
+    },
+    [CommandName.AttachmentsDiscard]: () => null,
     [CommandName.DraftsGet]: () => ({ draft: null }),
     [CommandName.DraftsSet]: () => null,
     [CommandName.QuestionsAnswer]: () => ({ questionSet: {} as QuestionSet }),
