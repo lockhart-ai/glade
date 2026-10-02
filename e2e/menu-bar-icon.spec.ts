@@ -23,7 +23,7 @@ test("Glade's icon in the menu bar counts what needs you, and its popover opens 
   const needsYou = popover.row('Needs you', NEEDS_YOU)
   await expect(popover.rows('Needs you')).toHaveCount(1)
   await expect(needsYou).toContainText('Billing')
-  await expect(needsYou).toContainText('Reply waiting')
+  await expect(needsYou).toContainText('Unread reply')
   const working = popover.row('Working', WORKING)
   await expect(popover.rows('Working')).toHaveCount(1)
   await expect(working).toContainText('Running the timezone tests')
@@ -42,8 +42,13 @@ test("Glade's icon in the menu bar counts what needs you, and its popover opens 
   await expect(taskList(window).taskRow(NEEDS_YOU)).toHaveAttribute('aria-current', 'true')
   await expect.poll(() => menuBarIcon(glade)).toMatchObject({ open: false })
 
-  // It stays up to date: marking the task done takes it out of Needs you, and the count goes, though an agent works.
+  // It stays up to date. Opening the task read its reply, so it no longer needs you and the count goes (#430).
+  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ title: '' })
+  // Marked unread, it needs you again; marking it done then takes it out of Needs you, though an agent works.
+  await chooseMenuItem(glade, 'Task', 'Mark as unread')
+  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ title: '1' })
   await clickMenuBarIcon(glade)
+  await expect(popover.rows('Needs you')).toHaveCount(1)
   await taskHeader(window).markDone.click()
   await expect(popover.section('Needs you')).toHaveCount(0)
   await expect(popover.rows('Working')).toHaveCount(1)

@@ -248,6 +248,14 @@ export interface Task {
    * permission requests, so it's always right, across restarts too.
    */
   readonly awaitingPermission: boolean
+  /**
+   * Whether work the agent started is still running: a subagent (a running `Agent` call, which during the agent's own
+   * turn includes the ones it waits on) or a watcher whose process runs (a `Monitor` watch or a background command;
+   * `WatcherState.Running`, so not a wakeup or cron job that's only scheduled). While it does, a task whose own turn
+   * has ended counts as working (`./attention`). Derived from the tool log and the watchers, so it's always right,
+   * across restarts too; main sends the task again when it changes (`src/main/tasks/background-work.ts`).
+   */
+  readonly backgroundWork: boolean
   /** Why the agent's turn is paused and when it resumes, while its activity is paused; null otherwise. */
   readonly pause: TaskPause | null
   /** When the task was imported from a Claude Code session; null for a task made in Glade. */

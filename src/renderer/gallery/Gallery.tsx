@@ -164,6 +164,7 @@ function ButtonSection(): React.JSX.Element {
 const INDICATORS: readonly { indicator: TaskIndicator; label: string }[] = [
   { indicator: TaskIndicator.Working, label: 'Active · working' },
   { indicator: TaskIndicator.Waiting, label: 'Active · waiting on you' },
+  { indicator: TaskIndicator.Idle, label: 'Active · idle' },
   { indicator: TaskIndicator.Done, label: 'Done' },
   { indicator: TaskIndicator.Error, label: 'Active · error' },
 ]

@@ -49,8 +49,9 @@ export interface TaskSummary {
   readonly title: string
   readonly status: string
   readonly state: TaskState
-  /** What its agent is doing: the status dot, with `needsYou`. */
+  /** What its agent's own turn is doing. */
   readonly activity: TaskActivity
+  /** Whether it's blocked on you or has a reply you haven't read (`needsYou` in `src/shared/attention.ts`). */
   readonly needsYou: boolean
   readonly pinned: boolean
   readonly unread: boolean

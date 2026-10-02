@@ -78,6 +78,7 @@ it('keeps every task and what references it, and lets a task pause', () => {
     asking: false,
     permissionMode: PermissionMode.AllowAll,
     awaitingPermission: false,
+    backgroundWork: false,
   })
   expect(listMessages(db, 't')).toHaveLength(1)
   expect(listToolEvents(db, 't')).toHaveLength(1)

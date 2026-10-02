@@ -52,17 +52,18 @@ test('clicking a row, ↩ on a focused one, ⌥↓ outside the field, ⌘⌥↓ 
   const list = taskList(window)
   const bar = inputBar(window)
 
-  // Two tasks that have both run and had their reply, so both need you; a third, blank one, selected last. Each
+  // Two tasks that have both run and had their reply, read as it arrived, so both are idle; a third, blank one,
+  // selected last. Each
   // waits for its own reply (not just its title, which an early tool call sets) before the next starts, so the list
   // settles in a stable order: oldest (A) first, then B, then the blank one, newest.
   await list.newTask.click()
   await bar.field.fill(FIX_DATE)
   await bar.field.press('Enter')
-  await expect(list.dot(list.taskRow(A_TITLE))).toHaveAttribute('data-state', 'waiting')
+  await expect(list.dot(list.taskRow(A_TITLE))).toHaveAttribute('data-state', 'idle')
   await list.newTask.click()
   await bar.field.fill(ASK_RETRIES)
   await bar.field.press('Enter')
-  await expect(list.dot(list.taskRow(B_TITLE))).toHaveAttribute('data-state', 'waiting')
+  await expect(list.dot(list.taskRow(B_TITLE))).toHaveAttribute('data-state', 'idle')
   await list.newTask.click()
   await expect(list.rows('Active')).toHaveCount(3)
 
@@ -86,12 +87,15 @@ test('clicking a row, ↩ on a focused one, ⌥↓ outside the field, ⌘⌥↓ 
   await expect(list.taskRow(A_TITLE)).toHaveAttribute('aria-current', 'true')
   await expect(bar.field).toBeFocused()
 
-  // ⌘⌥↓ (next task that needs you) steps from the blank task to one of the two that do, focusing its input.
+  // ⌘⌥↓ (next task that needs you) steps from the blank task to the one that does, focusing its input: A, marked
+  // unread (a reply you've read doesn't need you, #430).
+  await chooseMenuItem(glade, 'Task', 'Mark as unread')
+  await expect(list.dot(list.taskRow(A_TITLE))).toHaveAttribute('data-state', 'waiting')
   await list.taskRow('New task').click()
   await bar.field.blur()
   await window.keyboard.press('Meta+Alt+ArrowDown')
   await expect(bar.field).toBeFocused()
-  await expect(list.taskRow('New task')).not.toHaveAttribute('aria-current', 'true')
+  await expect(list.taskRow(A_TITLE)).toHaveAttribute('aria-current', 'true')
 
   // File › New task (⌘N, a menu bar key a spec can't press, so this chooses the item) and + both focus the new
   // task's input.
@@ -135,8 +139,9 @@ test('opening a task from a notification, the menu bar popover, search results, 
   await expect(list.taskRow(A_TITLE)).toHaveAttribute('aria-current', 'true')
   await expect(bar.field).toBeFocused()
 
-  // B: ask it something too, so both need you, each in the menu bar popover (A under Working while its own turn
-  // runs would also do, but by now both have answered).
+  // Opening A read its reply, so it no longer needs you (#430); marked unread, it does again, and is in the menu bar
+  // popover. B: ask it something too.
+  await chooseMenuItem(glade, 'Task', 'Mark as unread')
   await list.taskRow('New task').click()
   await bar.field.fill(ASK_RETRIES)
   await bar.field.press('Enter')

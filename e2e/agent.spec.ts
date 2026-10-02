@@ -30,12 +30,12 @@ test('new task, first message, scripted reply', async ({ launch, tempFolder }) =
   await expect(row).toContainText('Fix the flaky date test')
   await expect(row).toContainText('Fixed the timezone bug; the tests pass.')
 
-  // So does the task header, with the objective, and the agent waiting on you once the turn ends.
+  // So does the task header, with the objective, and idle once the turn ends: you're looking at its reply (#430).
   const header = taskHeader(window)
   await expect(header.title).toHaveText('Fix the flaky date test')
   await expect(header.field('Goal')).toHaveText('Make the date formatting test pass in every timezone.')
   await expect(header.field('Now')).toContainText('Fixed the timezone bug; the tests pass.')
-  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
+  await expect(header.stateDot).toHaveAccessibleName('Active · idle')
 
   // The tool log shows every call the agent made, all done; the subagent's are in the Subagents tab, not here.
   const panel = taskPanel(window)
@@ -79,8 +79,8 @@ test('stop a running turn with ⌘., then carry on in the same session', async (
 
   await window.keyboard.press('Meta+.')
 
-  // Back to waiting on you: the running command ended as an error that says you stopped it, and so does the tool log.
-  await expect(stateDot).toHaveAccessibleName('Active · waiting on you')
+  // Its turn is over, with nothing new for you: the running command ended as an error that says you stopped it, and so does the tool log.
+  await expect(stateDot).toHaveAccessibleName('Active · idle')
   await expect(panel.call(/^Failed\s*Bash/)).toBeVisible()
   await expect(panel.call(/^Failed\s*Bash/)).toHaveAccessibleName(/You stopped the agent\.$/)
   await expect(panel.call(/^Running/)).toHaveCount(0)
@@ -94,6 +94,6 @@ test('stop a running turn with ⌘., then carry on in the same session', async (
   await expect(userMessages).toHaveCount(2)
   await expect(agentReplies).toHaveCount(1)
   await expect(agentReplies.first()).toContainText('I stopped the suite and will only run the unit tests.')
-  await expect(stateDot).toHaveAccessibleName('Active · waiting on you')
+  await expect(stateDot).toHaveAccessibleName('Active · idle')
   expect(await sessionId()).toBe(session)
 })

@@ -12,6 +12,7 @@ import {
   TaskErrorSource,
   QuestionSetState,
   TaskState,
+  WatcherState,
   type ApiRetry,
   type AutoCompact,
   type EpochMs,
@@ -22,6 +23,7 @@ import {
 } from '../../../shared/domain'
 import { fitContextWindow } from '../../../shared/contextWindow'
 import { sameModel } from '../../../shared/models'
+import { SUBAGENT_TOOL_NAMES } from '../../../shared/subagents'
 import { guessModelWindow } from './context-windows'
 import { offeredModels } from './sdk-models'
 import type { DoneCounts, DonePage, DonePageRequest } from '../../../shared/doneList'
@@ -83,11 +85,22 @@ const COLUMNS = `id, workspace_id, title, objective, status, status_updated_at, 
   effort, permission_mode, created_at, updated_at, done_at, session_id, context_used_tokens, context_window_tokens, error,
   retrying, pause, imported_at, todos, auto_compact`
 
-/** What a task is read with: its columns, and whether it has an open question set or permission request. */
+/** The tools that start a subagent, as SQL string literals. */
+const SUBAGENT_NAMES = SUBAGENT_TOOL_NAMES.map((name) => `'${name}'`).join(', ')
+
+/**
+ * What a task is read with: its columns, whether it has an open question set or permission request, and whether it
+ * has background work running: a subagent's call (the literals match the `tool_events_running` index) or a watcher's
+ * process.
+ */
 const SELECTED = `${COLUMNS}, EXISTS (SELECT 1 FROM question_sets WHERE question_sets.task_id = tasks.id
   AND question_sets.state = '${QuestionSetState.Open}') AS asking,
   EXISTS (SELECT 1 FROM permission_requests WHERE permission_requests.task_id = tasks.id
-  AND permission_requests.state = '${PermissionRequestState.Open}') AS awaiting_permission`
+  AND permission_requests.state = '${PermissionRequestState.Open}') AS awaiting_permission,
+  (EXISTS (SELECT 1 FROM tool_events WHERE tool_events.task_id = tasks.id AND tool_events.kind = 'tool_call'
+  AND tool_events.tool_state = 'running' AND tool_events.tool_name IN (${SUBAGENT_NAMES}))
+  OR EXISTS (SELECT 1 FROM watchers WHERE watchers.task_id = tasks.id
+  AND watchers.state = '${WatcherState.Running}')) AS background_work`
 
 const TASK_STATES = Object.values(TaskState)
 const TASK_ACTIVITIES = Object.values(TaskActivity)
@@ -193,6 +206,7 @@ function parseTask(db: Database, raw: unknown): Task {
     retrying: jsonColumn(row, 'tasks', 'retrying', apiRetrySchema),
     asking: row.flag('asking'),
     awaitingPermission: row.flag('awaiting_permission'),
+    backgroundWork: row.flag('background_work'),
     pause: jsonColumn(row, 'tasks', 'pause', taskPauseSchema),
     importedAt: row.nullableInteger('imported_at'),
     todos: jsonColumn(row, 'tasks', 'todos', todoSummarySchema),
@@ -201,14 +215,15 @@ function parseTask(db: Database, raw: unknown): Task {
 }
 
 /**
- * The named parameters for a task's columns (and `asking` and `awaitingPermission`, which no statement uses: they're
- * derived from the question sets and permission requests).
+ * The named parameters for a task's columns (and `asking`, `awaitingPermission` and `backgroundWork`, which no
+ * statement uses: they're derived from the question sets, permission requests, tool log and watchers).
  */
 function toParams(task: Task): Record<string, string | number | null> {
   return {
     ...task,
     asking: task.asking ? 1 : 0,
     awaitingPermission: task.awaitingPermission ? 1 : 0,
+    backgroundWork: task.backgroundWork ? 1 : 0,
     pinned: task.pinned ? 1 : 0,
     unread: task.unread ? 1 : 0,
     error: task.error === null ? null : JSON.stringify(task.error),
@@ -246,6 +261,7 @@ export function createTask(db: Database, input: NewTask, now: EpochMs = Date.now
     retrying: null,
     asking: false,
     awaitingPermission: false,
+    backgroundWork: false,
     pause: null,
     importedAt: input.importedAt ?? null,
     todos: null,

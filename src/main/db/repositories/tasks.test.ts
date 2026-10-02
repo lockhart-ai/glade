@@ -8,6 +8,9 @@ import {
   TaskActivity,
   TaskErrorSource,
   TaskState,
+  ToolCallState,
+  WatcherKind,
+  WatcherState,
   type TaskError,
   type TaskPause,
   type Workspace,
@@ -25,6 +28,8 @@ import {
   updateTask,
 } from './tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from './test-database'
+import { appendToolCall, updateToolCall } from './tool-events'
+import { addWatcher, updateWatcher, type NewWatcher } from './watchers'
 import { recordReportedWindow } from './context-windows'
 import { setSdkModels } from './sdk-models'
 import { ALIAS_MODELS } from '../../../shared/test-models'
@@ -73,6 +78,7 @@ describe('createTask', () => {
       retrying: null,
       asking: false,
       awaitingPermission: false,
+      backgroundWork: false,
       pause: null,
       importedAt: null,
       todos: null,
@@ -132,6 +138,84 @@ describe('getTask', () => {
     test.db.prepare("UPDATE tasks SET state = 'paused' WHERE id = ?").run(task.id)
 
     expect(() => getTask(test.db, task.id)).toThrow('tasks.state: expected one of active, done, got "paused"')
+  })
+})
+
+describe('a task’s background work', () => {
+  const reads = (id: string): boolean | undefined => getTask(test.db, id)?.backgroundWork
+
+  function call(taskId: string, toolUseId: string, name: string): void {
+    appendToolCall(test.db, { taskId, turn: 1, toolUseId, name, input: {}, parentToolUseId: null })
+  }
+
+  function watcher(taskId: string, toolUseId: string, state: WatcherState): NewWatcher {
+    return {
+      taskId,
+      kind: WatcherKind.Command,
+      toolUseId,
+      parentToolUseId: null,
+      sdkId: null,
+      label: 'Run the e2e suite',
+      detail: 'npm run test:e2e',
+      cron: null,
+      schedule: null,
+      recurring: false,
+      state,
+      nextDueAt: null,
+      expiresAt: null,
+    }
+  }
+
+  it('is a subagent’s call still running, under either of its tool names, until every one has ended', () => {
+    const task = sampleTask(test.db, workspace.id)
+    expect(reads(task.id)).toBe(false)
+
+    call(task.id, 'toolu_a', 'Agent')
+    call(task.id, 'toolu_b', 'Task')
+    expect(reads(task.id)).toBe(true)
+
+    updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_a', state: ToolCallState.Done, output: 'Done.' })
+    expect(reads(task.id)).toBe(true)
+    updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_b', state: ToolCallState.Interrupted, output: null })
+    expect(reads(task.id)).toBe(false)
+  })
+
+  it('is no other tool call, running or not, nor a subagent’s paused call', () => {
+    const task = sampleTask(test.db, workspace.id)
+    call(task.id, 'toolu_bash', 'Bash')
+    call(task.id, 'toolu_a', 'Agent')
+    updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_a', state: ToolCallState.Paused, output: null })
+
+    expect(reads(task.id)).toBe(false)
+  })
+
+  it('is a watcher whose process runs, and none that is only scheduled, suspended or has ended', () => {
+    const task = sampleTask(test.db, workspace.id)
+    for (const state of Object.values(WatcherState)) {
+      if (state !== WatcherState.Running) addWatcher(test.db, watcher(task.id, `toolu_${state}`, state))
+    }
+    expect(reads(task.id)).toBe(false)
+
+    const running = addWatcher(test.db, watcher(task.id, 'toolu_running', WatcherState.Running))
+    expect(reads(task.id)).toBe(true)
+
+    updateWatcher(test.db, running.id, { state: WatcherState.Finished, endedAt: 9_000 })
+    expect(reads(task.id)).toBe(false)
+  })
+
+  it('is each task’s own, however the task is read, and never written', () => {
+    const busy = sampleTask(test.db, workspace.id, 2_000)
+    const quiet = sampleTask(test.db, workspace.id, 3_000)
+    call(busy.id, 'toolu_a', 'Agent')
+
+    expect(listTasks(test.db, workspace.id).map(({ id, backgroundWork }) => [id, backgroundWork])).toEqual([
+      [quiet.id, false],
+      [busy.id, true],
+    ])
+    // A write answers with the task as it reads, and changes nothing about its background work.
+    expect(updateTask(test.db, busy.id, { status: 'Profiling' }).backgroundWork).toBe(true)
+    expect(updateTask(test.db, quiet.id, { status: 'Idle' }).backgroundWork).toBe(false)
+    expect(reads(busy.id)).toBe(true)
   })
 })
 

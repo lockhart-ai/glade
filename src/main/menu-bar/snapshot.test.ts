@@ -61,7 +61,9 @@ it('reads every workspace’s tasks that need you, with why, from their question
     suppressAlwaysAllowRule: false,
   })
   const failed = ranTask(billing.id, 'Bump the SDK', { activity: TaskActivity.Error }, 5_000)
-  const replied = ranTask(acme.id, 'Clean up the fixtures', {}, 2_000)
+  const replied = ranTask(acme.id, 'Clean up the fixtures', { unread: true }, 2_000)
+  // A reply you've read doesn't need you.
+  ranTask(acme.id, 'Rename the helpers', {}, 1_800)
 
   const snapshot = readMenuBarSnapshot(test.db)
   expect(snapshot.needsYou.map(({ taskId, workspaceName, reason }) => [taskId, workspaceName, reason])).toEqual([

@@ -18,8 +18,19 @@ import { createWorkspace, getWorkspace } from '../../main/db/repositories/worksp
 import { STARTER_CLAUDE_MD } from '../../main/workspaces/starter-claude-md'
 import { createBridge } from '../../preload/bridge'
 import { bridgeError, BridgeErrorCode, CommandName, type GladeBridge } from '../../shared/bridge'
-import { needsYou } from '../../shared/attention'
-import { DividerKind, TaskState, ToolCallState, UiStateKey, type Task, type Workspace } from '../../shared/domain'
+import { needsYou, TaskAttention, taskAttention } from '../../shared/attention'
+import {
+  DividerKind,
+  QuestionKind,
+  TaskActivity,
+  TaskState,
+  ToolCallState,
+  UiStateKey,
+  type Task,
+  type Workspace,
+} from '../../shared/domain'
+import { appendPermissionRequest } from '../../main/db/repositories/permission-requests'
+import { appendQuestionSet } from '../../main/db/repositories/question-sets'
 import {
   appendDivider,
   appendNarration,
@@ -27,7 +38,7 @@ import {
   listToolEvents,
   updateToolCall,
 } from '../../main/db/repositories/tool-events'
-import { listedTaskIds } from '../task-list/sections'
+import { listedTaskIds, listSections, nextNeedingYou } from '../task-list/sections'
 import { HydrationStatus } from './state'
 import { createGladeStore, type GladeStore } from './store'
 import { fakeTerminalOptions } from '../../main/terminal/fake-pty'
@@ -48,8 +59,12 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-/** Starts the app: opens the database in `dir`, wires main's bridge to it and hydrates a fresh store. */
-async function launch(): Promise<{
+/**
+ * Starts the app: opens the database in `dir`, wires main's bridge to it and hydrates a fresh store. `resume` carries on
+ * what the app last quit in first, as the app does at launch (`resumeInterrupted`): the sessions it quit in are gone,
+ * and their background subagents and watchers with them.
+ */
+async function launch({ resume = false }: { resume?: boolean } = {}): Promise<{
   database: AppDatabase
   glade: GladeBridge
   store: GladeStore
@@ -59,7 +74,7 @@ async function launch(): Promise<{
   open.push(database)
   const ipc = fakeIpcPair()
   const backend = new FakeAgentBackend()
-  registerBridge({
+  const { runner } = registerBridge({
     ipc: ipc.main,
     db: database.db,
     targets: () => [ipc.window],
@@ -71,6 +86,7 @@ async function launch(): Promise<{
     pluginsFolder: UNREAD_PLUGINS_FOLDER,
     agentBackend: backend,
   })
+  if (resume) runner.resumeInterrupted()
   const glade = createBridge(ipc.renderer)
   const store = createGladeStore(glade)
   await store.getState().hydrate()
@@ -278,8 +294,186 @@ it('keeps unread tasks and the Needs you tasks across a restart', async () => {
   await third.store.getState().selectTask(asked.id)
   expect(third.store.getState().tasks[asked.id]?.unread).toBe(false)
   quit(third.database)
+  // Read, with nothing running, it no longer needs you (#430), after a relaunch too.
+  expect(attention(third.store)).toEqual({ unread: [], needsYou: [] })
+  quit(third.database)
   const fourth = await launch()
-  expect(attention(fourth.store)).toEqual({ ...expected, unread: [] })
+  expect(attention(fourth.store)).toEqual({ unread: [], needsYou: [] })
+
+  // Mark as unread makes it need you again, and that's kept.
+  await fourth.store.getState().markUnread(asked.id)
+  expect(attention(fourth.store)).toEqual(expected)
+  quit(fourth.database)
+  const fifth = await launch()
+  expect(attention(fifth.store)).toEqual(expected)
+})
+
+it('reads where each task stands with you the same after a relaunch: reply, question, permission and error (#430)', async () => {
+  const first = await launch()
+  const { db } = first.database
+  const workspace = createWorkspace(db, { name: 'Acme API', rootPath: '/code/acme-api' }, 1_000)
+  const ran = (patch: Parameters<typeof updateTask>[2] = {}): string => {
+    const task = sampleTask(db, workspace.id)
+    updateTask(db, task.id, { sessionId: `session-${task.id}`, ...patch })
+    return task.id
+  }
+  const read = ran()
+  const unread = ran({ unread: true })
+  const asking = ran()
+  appendQuestionSet(db, {
+    taskId: asking,
+    turn: 1,
+    questions: [{ kind: QuestionKind.Pills, prompt: 'Which limit?', options: ['60', '120'] }],
+  })
+  const permission = ran()
+  appendPermissionRequest(db, {
+    taskId: permission,
+    turn: 1,
+    toolUseId: 'bash-1',
+    agentId: null,
+    toolName: 'Bash',
+    input: { command: 'npm test' },
+    title: null,
+    displayName: 'Bash',
+    description: null,
+    suggestions: [],
+    defaultToNo: false,
+    suppressAlwaysAllowRule: false,
+  })
+  const failed = ran({ activity: TaskActivity.Error })
+  const fresh = sampleTask(db, workspace.id).id
+  quit(first.database)
+
+  const standing = (store: GladeStore): Record<string, TaskAttention | undefined> => {
+    const { tasks } = store.getState()
+    const of = (id: string): TaskAttention | undefined => {
+      const task = tasks[id]
+      return task === undefined ? undefined : taskAttention(task)
+    }
+    return {
+      read: of(read),
+      unread: of(unread),
+      asking: of(asking),
+      permission: of(permission),
+      failed: of(failed),
+      fresh: of(fresh),
+    }
+  }
+  const expected = {
+    read: TaskAttention.Idle,
+    unread: TaskAttention.NeedsYou,
+    asking: TaskAttention.NeedsYou,
+    permission: TaskAttention.NeedsYou,
+    failed: TaskAttention.NeedsYou,
+    fresh: TaskAttention.Idle,
+  }
+
+  const second = await launch({ resume: true })
+  expect(standing(second.store)).toEqual(expected)
+  quit(second.database)
+  const third = await launch({ resume: true })
+  expect(standing(third.store)).toEqual(expected)
+})
+
+it('counts a task as working while its background subagent runs, and by its reply once that ends or the app relaunches (#430)', async () => {
+  const first = await launch()
+  const workspace = createWorkspace(first.database.db, { name: 'Acme API', rootPath: '/code/acme-api' }, 1_000)
+  const viewed = sampleTask(first.database.db, workspace.id)
+  const away = sampleTask(first.database.db, workspace.id)
+  const other = sampleTask(first.database.db, workspace.id)
+  quit(first.database)
+
+  const second = await launch()
+  const { getState } = second.store
+  const standing = (store: GladeStore, id: string): unknown => {
+    const task = store.getState().tasks[id]
+    return task === undefined ? undefined : [taskAttention(task), task.unread, task.backgroundWork]
+  }
+  /** The agent starts a subagent in the background, replies, and ends its turn. */
+  const startInBackground = async (id: string, toolUseId: string, sdkTaskId: string): Promise<void> => {
+    await getState().selectTask(id)
+    await getState().sendMessage(id, 'Find why checkout is slow.')
+    second.backend.sessions
+      .at(-1)
+      ?.emit(
+        sdk.init(),
+        ...sdk.backgroundLaunch(toolUseId, sdkTaskId, 'Profile the checkout queries'),
+        sdk.text('I started it in the background.', null, `msg_${toolUseId}`),
+        sdk.result('I started it in the background.'),
+      )
+    await settle()
+  }
+
+  // One reply you see arrive; the other lands while you're in another task.
+  await startInBackground(viewed.id, 'toolu_v', 'av1')
+  await getState().selectTask(away.id)
+  await getState().sendMessage(away.id, 'Find why checkout is slow.')
+  await getState().selectTask(other.id)
+  second.backend.sessions.at(-1)?.emit(
+    // Each task's session has its own id.
+    sdk.init('7c1d2e3f-0000-4000-8000-00000000a4a7'),
+    ...sdk.backgroundLaunch('toolu_w', 'aw1', 'Profile the checkout queries'),
+    sdk.text('I started it in the background.', null, 'msg_w'),
+    sdk.result('I started it in the background.'),
+  )
+  await settle()
+
+  // Both are working, whether the reply was read: neither needs you while its subagent runs.
+  expect(standing(second.store, viewed.id)).toEqual([TaskAttention.Working, false, true])
+  expect(standing(second.store, away.id)).toEqual([TaskAttention.Working, true, true])
+  expect(Object.values(getState().tasks).filter(needsYou)).toEqual([])
+
+  // The app quits with both still running: they died with their sessions, so after the relaunch the read reply is
+  // idle and the unread one needs you.
+  quit(second.database)
+  const third = await launch({ resume: true })
+  expect(standing(third.store, viewed.id)).toEqual([TaskAttention.Idle, false, false])
+  expect(standing(third.store, away.id)).toEqual([TaskAttention.NeedsYou, true, false])
+  expect(
+    Object.values(third.store.getState().tasks)
+      .filter(needsYou)
+      .map(({ id }) => id),
+  ).toEqual([away.id])
+  expect(listToolEvents(third.database.db, away.id)).toEqual([
+    expect.objectContaining({ kind: 'divider' }),
+    expect.objectContaining({ name: 'Agent', state: ToolCallState.Interrupted }),
+  ])
+})
+
+it('tells the window when a background subagent ends, so the task stops counting as working (#430)', async () => {
+  const first = await launch()
+  const workspace = createWorkspace(first.database.db, { name: 'Acme API', rootPath: '/code/acme-api' }, 1_000)
+  const task = sampleTask(first.database.db, workspace.id)
+  const other = sampleTask(first.database.db, workspace.id)
+  const { getState } = first.store
+  await getState().openWorkspace(workspace.id)
+  await getState().selectTask(task.id)
+  await getState().sendMessage(task.id, 'Find why checkout is slow.')
+  await getState().selectTask(other.id)
+  first.backend.session.emit(
+    sdk.init(),
+    ...sdk.backgroundLaunch('toolu_q', 'aq1', 'Profile the checkout queries'),
+    sdk.text('I started it in the background.', null, 'msg_q'),
+    sdk.result('I started it in the background.'),
+  )
+  await settle()
+  const attention = (): TaskAttention | undefined => {
+    const current = getState().tasks[task.id]
+    return current === undefined ? undefined : taskAttention(current)
+  }
+  expect(attention()).toBe(TaskAttention.Working)
+  // Next task that needs you has nowhere to go.
+  expect(nextNeedingYou(listSections(getState(), workspace.id), other.id)).toBeNull()
+
+  // The subagent ends without waking the agent's turn: nothing writes the task, yet the window hears it needs you.
+  first.backend.session.emit(...sdk.subagentEnded('toolu_q', 'aq1', 'completed', 'An N+1 in load_cart.'))
+  await settle()
+  expect(attention()).toBe(TaskAttention.NeedsYou)
+  expect(nextNeedingYou(listSections(getState(), workspace.id), other.id)).toBe(task.id)
+
+  // Opening it reads it.
+  await getState().selectTask(task.id)
+  expect(attention()).toBe(TaskAttention.Idle)
 })
 
 // The sidebar's All · Needs you · Unread chips are gone (#411). A database from before still has the filter they
