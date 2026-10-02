@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName } from '../../shared/bridge'
 import { ToolCallState, ToolEventKind, UiStateKey, type ToolCallEvent } from '../../shared/domain'
+import { activePanelTab, PanelTab } from '../right-panel/panelModel'
 import { refuse } from '../store/test-bridge'
 import { storeWrapper } from '../store/test-wrapper'
 import { toolCallMenuTarget } from './ToolCallMenu'
@@ -86,7 +87,7 @@ describe('a tool call’s context menu', () => {
     await choose(/^Done\s*Read/, 'Open file')
 
     expect(store.getState().openFiles.t1?.activePath).toBe('src/date.ts')
-    expect(store.getState().uiState[UiStateKey.RightPanelTab]).toBe('files')
+    expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Files)
   })
 
   it('puts a Bash call’s command at the terminal’s prompt, in a new tab when there is none, without running it', async () => {

@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { UiStateKey, type TaskCommit, type ToolEvent, type Watcher } from '../../shared/domain'
+import type { TaskCommit, ToolEvent, Watcher } from '../../shared/domain'
 import { ArtifactsTab } from '../artifacts'
 import { ChangesTab } from '../changes'
 import { TabPanel, Tabs, type TabItem } from '../components'
@@ -15,7 +15,7 @@ import { Todos } from '../todos'
 import { ToolLog, type TurnFocus } from '../tool-log'
 import { WatchersTab } from '../watchers'
 import { NOW_REFRESH_MS, useNow } from '../task-list/useNow'
-import { formatCount, PanelTab, parsePanelTab } from './panelModel'
+import { activePanelTab, formatCount, PanelTab, panelTabEntry } from './panelModel'
 import { PANEL_TAB_DEFINITIONS } from './panelTabs'
 import styles from './TaskPanel.module.css'
 
@@ -27,14 +27,16 @@ const NO_COMMITS: readonly TaskCommit[] = []
 
 /**
  * The right panel of the task card: the tab bar (Tool calls, Files, Todos, Artifacts, Subagents, Watchers, Changes,
- * each with its count) and the selected tab. The selected tab, the width and whether the panel is collapsed are kept in UI state, for the
- * whole window; collapsed, the panel shows nothing. It slides open and shut.
+ * each with its count) and the selected tab. The selected tab is kept in UI state per workspace (#432): switching
+ * workspace shows that workspace's tab, and a relaunch keeps every workspace's. The width and whether the panel is
+ * collapsed are kept in UI state for the whole window; collapsed, the panel shows nothing. It slides open and shut.
  * When the chat asks to show a turn of the selected task (its tool-call chip), the store opens Tool calls and the log
  * scrolls to that turn; when the agent shows a file (`show_file`), the store opens Files and the viewer marks its line.
  */
 export function TaskPanel(): React.JSX.Element | null {
   const task = useGladeStore(selectSelectedTask)
-  const rootPath = useGladeStore((state) => selectSelectedWorkspace(state)?.rootPath)
+  const workspace = useGladeStore(selectSelectedWorkspace)
+  const rootPath = workspace?.rootPath
   const events =
     useGladeStore((state) => (task === undefined ? undefined : state.toolEvents[task.id])) ?? NO_TOOL_EVENTS
   const todos = useGladeStore((state) => (task === undefined ? undefined : state.todos[task.id]))
@@ -45,7 +47,8 @@ export function TaskPanel(): React.JSX.Element | null {
       PANEL_TAB_DEFINITIONS.map(({ count }) => (task === undefined ? undefined : formatCount(count(state, task.id)))),
     ),
   )
-  const tab = useGladeStore((state) => parsePanelTab(state.uiState[UiStateKey.RightPanelTab]))
+  const uiState = useGladeStore((state) => state.uiState)
+  const tab = workspace === undefined ? PanelTab.ToolCalls : activePanelTab(uiState, workspace.id)
   // Only the Todos and Artifacts tabs show relative times ("updated 4m ago", "12m ago").
   const now = useNow(tab === PanelTab.Todos || tab === PanelTab.Artifacts ? NOW_REFRESH_MS : null)
   const { size: width, setSize: keepWidth } = usePanelSize(Panel.RightPanel)
@@ -84,7 +87,7 @@ export function TaskPanel(): React.JSX.Element | null {
   }, [])
 
   const selectTab = (next: PanelTab): void => {
-    if (next !== tab) void setUiState({ key: UiStateKey.RightPanelTab, value: next })
+    if (next !== tab && workspace !== undefined) void setUiState(panelTabEntry(uiState, workspace.id, next))
   }
 
   // Close (⌘W) closes the file showing in Files while the focus is in the panel; anywhere else it closes the window, as

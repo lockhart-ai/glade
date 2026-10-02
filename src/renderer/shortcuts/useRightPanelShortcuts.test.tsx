@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { UiStateKey, type UiStateEntry } from '../../shared/domain'
+import { activePanelTab } from '../right-panel/panelModel'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore } from '../store/store'
 import { fakeBridge, sampleTask, sampleWorkspace } from '../store/test-bridge'
@@ -29,7 +30,7 @@ async function renderShortcuts(uiState: UiStateEntry[] = []) {
     </GladeStoreProvider>,
   )
   const panel = () => ({
-    tab: store.getState().uiState[UiStateKey.RightPanelTab],
+    tab: activePanelTab(store.getState().uiState, 'w1'),
     collapsed: store.getState().uiState[UiStateKey.RightPanelCollapsed],
   })
   return { ...fake, store, view, panel }
@@ -87,11 +88,22 @@ describe('useRightPanelShortcuts', () => {
   })
 
   it('stops listening once unmounted', async () => {
-    const { panel, view } = await renderShortcuts()
+    const { store, view } = await renderShortcuts()
     view.unmount()
 
     press('Digit2', '™')
 
-    expect(panel().tab).toBeUndefined()
+    expect(store.getState().uiState[UiStateKey.RightPanelTabs]).toBeUndefined()
+  })
+
+  it('does nothing with no workspace shown', async () => {
+    const { invoke, store, panel } = await renderShortcuts([{ key: UiStateKey.ActiveWorkspaceId, value: '' }])
+    expect(store.getState().selectedWorkspaceId).toBeNull()
+    invoke.mockClear()
+
+    press('Digit2', '™')
+
+    expect(invoke).not.toHaveBeenCalled()
+    expect(panel().tab).toBe('tool-calls')
   })
 })

@@ -558,8 +558,16 @@ export enum UiStateKey {
    * JSON. Unset or empty means no notice.
    */
   RelaunchNotice = 'relaunch_notice',
-  /** The right panel's selected tab: a `PanelTab` (`src/renderer/right-panel`). Unset means Tool calls. */
+  /**
+   * The right panel's tab, before each workspace had its own (#432): a `PanelTab` (`src/renderer/right-panel`). Read
+   * as the starting value for a workspace with no entry of its own in `RightPanelTabs`; no longer written.
+   */
   RightPanelTab = 'right_panel_tab',
+  /**
+   * The right panel's selected tab in each workspace (#432): JSON, from a workspace's id to a `PanelTab`
+   * (`src/renderer/right-panel`). A workspace with no entry starts from `RightPanelTab`, or Tool calls with neither.
+   */
+  RightPanelTabs = 'right_panel_tabs',
   /** The right panel's width in CSS pixels, as you last dragged it. Unset means the design's default. */
   RightPanelWidth = 'right_panel_width',
   /** Whether the right panel is collapsed: `'true'` or `'false'`. Unset means open. */

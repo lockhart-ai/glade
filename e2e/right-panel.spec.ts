@@ -1,7 +1,9 @@
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Locator } from '@playwright/test'
-import { expect, seedPath, test } from './fixtures'
+import { chooseFolder, expect, seedPath, test } from './fixtures'
 import { chooseMenuItem } from './menu'
-import { filesTab, regions, taskHeader, taskPanel } from './selectors'
+import { filesTab, firstRun, regions, taskHeader, taskList, taskPanel } from './selectors'
 
 /** A laid-out element's width, in CSS pixels. */
 async function widthOf(locator: Locator): Promise<number> {
@@ -76,4 +78,53 @@ test('right panel: ⌘⌥2 picks a tab; dragging the handle resizes it, kept on 
   await expect(taskPanel(third.window).panel).toBeHidden()
   await taskHeader(third.window).showSidePanel.click()
   await expect(taskPanel(third.window).tab('Files')).toHaveAttribute('aria-selected', 'true')
+})
+
+test('right panel: each workspace keeps its own tab, switching back and forth and across a relaunch (#432)', async ({
+  launch,
+  tempFolder,
+}) => {
+  const parent = tempFolder()
+  const rootA = join(parent, 'acme-api')
+  const rootB = join(parent, 'acme-web')
+  mkdirSync(rootA)
+  mkdirSync(rootB)
+  const glade = await launch({ chosenFolder: rootA })
+  const { window } = glade
+  const list = taskList(window)
+  const panel = taskPanel(window)
+  const workspace = regions(window).workspace
+  await firstRun(window).openFolder.click()
+  await expect(workspace).toContainText('acme-api')
+
+  // A's task starts at Tool calls, the default; pick Todos there.
+  await list.newTask.click()
+  await expect(panel.tab('Tool calls')).toHaveAttribute('aria-selected', 'true')
+  await window.keyboard.press('Meta+Alt+Digit3')
+  await expect(panel.tab('Todos')).toHaveAttribute('aria-selected', 'true')
+
+  // A new workspace B, with its own task, starts at Tool calls too: A's choice doesn't leak into it. Pick Files there.
+  await chooseFolder(glade, rootB)
+  await chooseMenuItem(glade, 'Workspace', 'New workspace…')
+  await expect(workspace).toContainText('acme-web')
+  await list.newTask.click()
+  await expect(panel.tab('Tool calls')).toHaveAttribute('aria-selected', 'true')
+  await window.keyboard.press('Meta+Alt+Digit2')
+  await expect(panel.tab('Files')).toHaveAttribute('aria-selected', 'true')
+
+  // Switching back to A still shows Todos, and back to B still shows Files: each kept its own.
+  await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-api')
+  await expect(workspace).toContainText('acme-api')
+  await expect(panel.tab('Todos')).toHaveAttribute('aria-selected', 'true')
+  await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-web')
+  await expect(workspace).toContainText('acme-web')
+  await expect(panel.tab('Files')).toHaveAttribute('aria-selected', 'true')
+
+  // A relaunch (showing B, last shown) keeps both.
+  await glade.close()
+  const relaunched = await launch()
+  const again = taskPanel(relaunched.window)
+  await expect(again.tab('Files')).toHaveAttribute('aria-selected', 'true')
+  await chooseMenuItem(relaunched, 'Workspace', 'Switch workspace', 'acme-api')
+  await expect(again.tab('Todos')).toHaveAttribute('aria-selected', 'true')
 })

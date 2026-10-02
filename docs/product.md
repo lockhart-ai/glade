@@ -94,7 +94,9 @@ There are no follow-up tasks. One task can refer to another through its folder o
   Markdown code (replies, question cards and their preamble, backfilled notes, the tool log's notes and permission
   cards), but not the Files viewer's preview or the terminal.
 - **Right panel** (inside the task card) — tabs: Tool calls, Files, Todos, Artifacts, Subagents, Watchers, Changes (the
-  commits the task made; Glade watches git and never drives it). Resizable, collapsible. Artifacts holds the task's
+  commits the task made; Glade watches git and never drives it). Resizable, collapsible. The selected tab is
+  remembered per workspace (#432): switching workspace shows that workspace's own tab, across a relaunch; a workspace
+  that's never chosen one starts from Tool calls. Artifacts holds the task's
   deliverable files and, as links (#407), the remote things it depends on: the PRs the agent opens or works on and the
   issues and tickets the task is about, added by the agent (`add_artifact`'s `url`) or by you (Add to artifacts on any
   web link). A link shows what it is from its address alone (a PR or issue's `#412 · owner/repo`, a Jira ticket's
