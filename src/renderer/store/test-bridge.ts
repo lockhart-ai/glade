@@ -16,7 +16,11 @@ import {
   type GladeEvent,
 } from '../../shared/bridge'
 import type { MenuState } from '../../shared/commands'
+import { checkArtifactUrl, defaultLinkTitle } from '../../shared/artifactLinks'
+import { artifactKey } from '../../shared/artifacts'
 import {
+  ArtifactFilter,
+  ArtifactKind,
   Effort,
   PermissionMode,
   FileContentKind,
@@ -136,6 +140,8 @@ export interface FakeMain {
   readonly thumbnails?: Readonly<Record<string, FileThumbnail>>
   /** Each task's artifact date groups opened or folded, by task id; `artifacts.setGroupOpen` changes the fake's own. */
   readonly artifactGroups?: Record<string, ArtifactGroupFold[]>
+  /** Each task's Artifacts tab filter, by task id; All when left out. `artifacts.setFilter` changes the fake's own. */
+  readonly artifactFilters?: Record<string, ArtifactFilter>
   /** The tasks `artifacts.watch` and `artifacts.unwatch` were asked about, in order: `watch t1`, `unwatch t1`. */
   readonly watchedArtifacts?: string[]
   /** What was put on the clipboard, oldest first: the path of each file `files.copy` copied, and the text of each
@@ -407,6 +413,7 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       todos: main.todos?.[id] ?? null,
       artifacts: artifacts.filter((artifact) => artifact.taskId === id),
       artifactGroups: main.artifactGroups?.[id] ?? [],
+      artifactFilter: main.artifactFilters?.[id] ?? ArtifactFilter.All,
       handoff: main.handoffs?.[id] ?? null,
       watchers: (main.watchers ?? []).filter((watcher) => watcher.taskId === id),
       commits: (main.commits ?? []).filter((commit) => commit.taskId === id),
@@ -549,15 +556,36 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       main.revealed?.push(path)
       return null
     },
-    [CommandName.ArtifactsRemove]: ({ taskId, path }) => {
-      const index = artifacts.findIndex((artifact) => artifact.taskId === taskId && artifact.path === path)
-      if (index === -1) return refuse(bridgeError(BridgeErrorCode.NotFound, `No artifact ${path}`))
+    [CommandName.ArtifactsRemove]: ({ taskId, ref }) => {
+      const key = artifactKey(ref)
+      const index = artifacts.findIndex((artifact) => artifact.taskId === taskId && artifactKey(artifact) === key)
+      if (index === -1) return refuse(bridgeError(BridgeErrorCode.NotFound, `No artifact ${key}`))
       artifacts.splice(index, 1)
       emit({
         type: EventType.ArtifactsChanged,
         taskId,
         artifacts: artifacts.filter((artifact) => artifact.taskId === taskId),
       })
+      return null
+    },
+    // As main does: a link that's already one of the task's artifacts stays as it is.
+    [CommandName.ArtifactsAddLink]: ({ taskId, url, text }) => {
+      const check = checkArtifactUrl(url)
+      if (!check.ok) return refuse(bridgeError(BridgeErrorCode.InvalidRequest, `That link ${check.reason}`))
+      const key = artifactKey({ kind: ArtifactKind.Link, url: check.url })
+      if (artifacts.some((artifact) => artifact.taskId === taskId && artifactKey(artifact) === key)) return null
+      const at = Date.now()
+      const title = defaultLinkTitle(check.url, text)
+      artifacts.push({ kind: ArtifactKind.Link, taskId, url: check.url, title, addedAt: at, updatedAt: at })
+      emit({
+        type: EventType.ArtifactsChanged,
+        taskId,
+        artifacts: artifacts.filter((artifact) => artifact.taskId === taskId),
+      })
+      return null
+    },
+    [CommandName.ArtifactsSetFilter]: ({ taskId, filter }) => {
+      if (main.artifactFilters !== undefined) main.artifactFilters[taskId] = filter
       return null
     },
     [CommandName.ArtifactsSetGroupOpen]: ({ taskId, group, open }) => {

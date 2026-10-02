@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandName, EventType } from '../../shared/bridge'
 import {
+  ArtifactKind,
   CompactionTrigger,
   DividerKind,
   FileContentKind,
@@ -13,6 +14,7 @@ import {
   WatcherState,
   type Artifact,
   type DividerEvent,
+  type FileArtifact,
   type NarrationEvent,
   type OpenFiles,
   type TodoList,
@@ -810,7 +812,8 @@ describe('TaskPanel', () => {
   })
 
   describe('Artifacts', () => {
-    const artifact = (path: string, title: string): Artifact => ({
+    const artifact = (path: string, title: string): FileArtifact => ({
+      kind: ArtifactKind.File,
       taskId: 't1',
       path,
       title,

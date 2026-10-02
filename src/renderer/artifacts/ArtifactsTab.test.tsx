@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import {
   ArtifactDateGroup,
+  ArtifactKind,
   FileContentKind,
   FileThumbnailKind,
   UiStateKey,
@@ -10,6 +11,7 @@ import {
   type Artifact,
   type ArtifactGroupFold,
   type EpochMs,
+  type FileArtifact,
   type FileContent,
   type FileThumbnail,
   type OpenFiles,
@@ -45,8 +47,17 @@ function artifact(
   title: string,
   modifiedAt: EpochMs | null,
   declaredAt: EpochMs = NOW - MINUTE,
-): Artifact {
-  return { taskId: 't1', path, title, addedAt: declaredAt, updatedAt: declaredAt, modifiedAt, missing: false }
+): FileArtifact {
+  return {
+    kind: ArtifactKind.File,
+    taskId: 't1',
+    path,
+    title,
+    addedAt: declaredAt,
+    updatedAt: declaredAt,
+    modifiedAt,
+    missing: false,
+  }
 }
 
 const LANDING = artifact('out/screens/landing-dark.png', 'Landing page, dark theme', NOW - 8 * MINUTE)

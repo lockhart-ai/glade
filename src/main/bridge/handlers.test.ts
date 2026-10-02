@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { TaskFilter } from '../../shared/attention'
 import {
   ArtifactDateGroup,
+  ArtifactKind,
   CommitFileStatus,
   Effort,
   FileContentKind,
@@ -516,6 +517,7 @@ describe('the files commands', () => {
     const history = await handlers[CommandName.TasksHistory]({ id: taskId })
     expect(history.artifacts).toEqual([
       {
+        kind: ArtifactKind.File,
         taskId,
         path: 'docs/rate-limits.md',
         title: 'Rate limits',
@@ -554,13 +556,15 @@ describe('artifacts.remove', () => {
     addArtifact(database.db, { taskId, path: 'docs/notes.md', title: 'Notes' }, 5)
     const email = addArtifact(database.db, { taskId, path: 'out/email.txt', title: 'Email' }, 6)
 
-    expect(handlers[CommandName.ArtifactsRemove]({ taskId, path: 'docs/notes.md' })).toBeNull()
+    expect(
+      handlers[CommandName.ArtifactsRemove]({ taskId, ref: { kind: ArtifactKind.File, path: 'docs/notes.md' } }),
+    ).toBeNull()
 
     expect(emit).toHaveBeenCalledExactlyOnceWith({ type: EventType.ArtifactsChanged, taskId, artifacts: [email] })
     expect((await handlers[CommandName.TasksHistory]({ id: taskId })).artifacts).toEqual([email])
-    expect(() => handlers[CommandName.ArtifactsRemove]({ taskId, path: 'docs/notes.md' })).toThrow(
-      expect.objectContaining({ code: BridgeErrorCode.NotFound }),
-    )
+    expect(() =>
+      handlers[CommandName.ArtifactsRemove]({ taskId, ref: { kind: ArtifactKind.File, path: 'docs/notes.md' } }),
+    ).toThrow(expect.objectContaining({ code: BridgeErrorCode.NotFound }))
   })
 })
 

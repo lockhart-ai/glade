@@ -26,7 +26,7 @@ import {
   type ToolEvent,
 } from '../../shared/domain'
 import { autoCompactThreshold } from '../../shared/contextWindow'
-import { listArtifacts } from '../db/repositories/artifacts'
+import { listFileArtifacts } from '../db/repositories/artifacts'
 import { listMessages } from '../db/repositories/messages'
 import { getOpenQuestionSet } from '../db/repositories/question-sets'
 import { listQueuedMessages } from '../db/repositories/queued-messages'
@@ -237,7 +237,7 @@ describe('AGENT_SCRIPTS', () => {
         ['mcp__glade__add_artifact', ToolCallState.Done],
         ['mcp__glade__set_status', ToolCallState.Done],
       ])
-      expect(listArtifacts(database.db, task.id).map(({ path, title }) => [path, title])).toEqual([
+      expect(listFileArtifacts(database.db, task.id).map(({ path, title }) => [path, title])).toEqual([
         ['docs/releases/2.4.md', 'Release notes 2.4'],
         ['docs/releases/2.4-upgrade.md', 'Upgrade guide'],
       ])
@@ -260,7 +260,7 @@ describe('AGENT_SCRIPTS', () => {
       const agent = start('curates-artifacts')
       agent.send(task.id, 'Screenshot the docs site.')
       await backend.whenIdle()
-      expect(listArtifacts(database.db, task.id).map(({ path, title }) => [path, title])).toEqual([
+      expect(listFileArtifacts(database.db, task.id).map(({ path, title }) => [path, title])).toEqual([
         ['screens/landing.png', 'Landing page'],
         ['screens/search-mobile.png', 'Search results on mobile'],
         ['screens/nav-tree.png', 'Old navigation'],
@@ -278,7 +278,7 @@ describe('AGENT_SCRIPTS', () => {
         ['mcp__glade__remove_artifact', ToolCallState.Done],
         ['mcp__glade__set_status', ToolCallState.Done],
       ])
-      expect(listArtifacts(database.db, task.id).map(({ path, title }) => [path, title])).toEqual([
+      expect(listFileArtifacts(database.db, task.id).map(({ path, title }) => [path, title])).toEqual([
         ['screens/landing-dark.png', 'Landing page, dark theme'],
         ['screens/search-mobile.png', 'Search results on mobile'],
       ])

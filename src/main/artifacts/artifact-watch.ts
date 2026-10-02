@@ -16,7 +16,7 @@ import { basename, dirname, join } from 'node:path'
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import { ToolCallState, ToolEventKind, type ToolCallEvent } from '../../shared/domain'
 import { CHANGING_TOOLS, workspaceRelativePath } from '../../shared/files'
-import { listArtifacts } from '../db/repositories/artifacts'
+import { listFileArtifacts } from '../db/repositories/artifacts'
 import { workspaceFilesRoot, workspaceRoot } from '../files/files'
 import type { TaskServiceContext } from '../tasks/service'
 import { refreshTaskArtifacts } from './artifacts'
@@ -134,7 +134,7 @@ export function createArtifactWatcher({
     const byFolder = new Map<string, string[]>()
     const root = rootOf(taskId)
     if (root === null) return byFolder
-    for (const { path } of listArtifacts(context.db, taskId)) {
+    for (const { path } of listFileArtifacts(context.db, taskId)) {
       const folder = dirname(join(workspaceFilesRoot(root), path))
       byFolder.set(folder, [...(byFolder.get(folder) ?? []), path])
     }
@@ -209,7 +209,7 @@ export function createArtifactWatcher({
       if (call.kind !== ToolEventKind.ToolCall || call.state === ToolCallState.Running) return
       const root = rootOf(call.taskId)
       if (root === null) return
-      const paths = listArtifacts(context.db, call.taskId).map(({ path }) => path)
+      const paths = listFileArtifacts(context.db, call.taskId).map(({ path }) => path)
       changed(call.taskId, writtenBy(call, root, paths))
     },
 

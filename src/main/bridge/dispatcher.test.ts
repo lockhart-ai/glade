@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import { EMPTY_MENU_BAR_SNAPSHOT } from '../../shared/menuBar'
 import {
+  ArtifactFilter,
   FileContentKind,
   FileThumbnailKind,
   UiStateKey,
@@ -78,6 +79,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
       todos: null,
       artifacts: [],
       artifactGroups: [],
+      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
@@ -110,6 +112,8 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.FilesCopy]: () => null,
     [CommandName.FilesReveal]: () => null,
     [CommandName.ArtifactsRemove]: () => null,
+    [CommandName.ArtifactsAddLink]: () => null,
+    [CommandName.ArtifactsSetFilter]: () => null,
     [CommandName.ArtifactsSetGroupOpen]: () => null,
     [CommandName.ArtifactsWatch]: () => null,
     [CommandName.ArtifactsUnwatch]: () => null,

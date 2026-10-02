@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { fileArtifacts } from '../../shared/artifacts'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -6,6 +7,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import {
+  ArtifactKind,
   QuestionKind,
   QuestionReplyKind,
   QuestionSetState,
@@ -14,7 +16,7 @@ import {
   type QuestionSet,
   type Task,
 } from '../../shared/domain'
-import { listArtifacts } from '../db/repositories/artifacts'
+import { listFileArtifacts } from '../db/repositories/artifacts'
 import { getOpenFiles } from '../db/repositories/open-files'
 import { getOpenQuestionSet, listQuestionSets } from '../db/repositories/question-sets'
 import { getTask } from '../db/repositories/tasks'
@@ -142,9 +144,10 @@ describe('the server', () => {
       ['status'],
       ['questions'],
       ['path'],
-      ['path', 'title'],
-      ['path'],
-      ['path'],
+      // A file's path or a link's url: the handler checks it's one of them (#407).
+      ['title'],
+      undefined,
+      undefined,
     ])
     await client.close()
   })
@@ -601,7 +604,7 @@ describe('add_artifact', () => {
   const changes = (): (readonly string[])[] =>
     events.flatMap((event) =>
       event.type === EventType.ArtifactsChanged && event.taskId === taskId
-        ? [event.artifacts.map(({ path, title }) => `${path}: ${title}`)]
+        ? [fileArtifacts(event.artifacts).map(({ path, title }) => `${path}: ${title}`)]
         : [],
     )
 
@@ -617,7 +620,7 @@ describe('add_artifact', () => {
       title: 'Upgrade guide',
     })
 
-    expect(listArtifacts(database.db, taskId).map(({ path, title }) => [path, title])).toEqual([
+    expect(listFileArtifacts(database.db, taskId).map(({ path, title }) => [path, title])).toEqual([
       ['docs/releases/2.4.md', 'Release notes 2.4'],
       ['docs/releases/2.4-upgrade.md', 'Upgrade guide'],
     ])
@@ -636,8 +639,9 @@ describe('add_artifact', () => {
       adding.call('mcp__glade__add_artifact', { path: './docs/releases/2.4.md', title: 'Release notes 2.4' }),
     ).resolves.toEqual({ output: 'Renamed the artifact docs/releases/2.4.md to "Release notes 2.4".', isError: false })
 
-    expect(listArtifacts(database.db, taskId)).toEqual([
+    expect(listFileArtifacts(database.db, taskId)).toEqual([
       {
+        kind: ArtifactKind.File,
         taskId,
         path: 'docs/releases/2.4.md',
         title: 'Release notes 2.4',
@@ -670,7 +674,7 @@ describe('add_artifact', () => {
       expect((await adding.call('mcp__glade__add_artifact', input)).isError).toBe(true)
     }
 
-    expect(listArtifacts(database.db, taskId)).toEqual([])
+    expect(listFileArtifacts(database.db, taskId)).toEqual([])
     expect(changes()).toEqual([])
   })
 })

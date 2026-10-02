@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
-import { addArtifact, listArtifacts } from '../db/repositories/artifacts'
+import { addArtifact, listFileArtifacts } from '../db/repositories/artifacts'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import type { TaskServiceContext } from '../tasks/service'
 import { addTaskArtifact, lookAtArtifactFile, refreshTaskArtifacts } from './artifacts'
@@ -101,7 +101,7 @@ describe('refreshTaskArtifacts', () => {
 
     await expect(refreshTaskArtifacts(context, taskId)).resolves.toBe(true)
 
-    const artifacts = listArtifacts(database.db, taskId)
+    const artifacts = listFileArtifacts(database.db, taskId)
     expect(artifacts.map(({ path, modifiedAt }) => [path, modifiedAt])).toEqual([
       ['out/landing.png', EARLIER.getTime()],
       ['docs/changelog.md', LATER.getTime()],
@@ -120,12 +120,12 @@ describe('refreshTaskArtifacts', () => {
     unlinkSync(join(root, 'out', 'landing.png'))
 
     await expect(refreshTaskArtifacts(context, taskId)).resolves.toBe(true)
-    expect(listArtifacts(database.db, taskId)[0]).toMatchObject({ modifiedAt: EARLIER.getTime(), missing: true })
+    expect(listFileArtifacts(database.db, taskId)[0]).toMatchObject({ modifiedAt: EARLIER.getTime(), missing: true })
     await expect(refreshTaskArtifacts(context, taskId)).resolves.toBe(false)
 
     write('out/landing.png', 'png again', LATER)
     await expect(refreshTaskArtifacts(context, taskId)).resolves.toBe(true)
-    expect(listArtifacts(database.db, taskId)[0]).toMatchObject({ modifiedAt: LATER.getTime(), missing: false })
+    expect(listFileArtifacts(database.db, taskId)[0]).toMatchObject({ modifiedAt: LATER.getTime(), missing: false })
   })
 
   it('does nothing for a task that’s gone', async () => {
@@ -138,7 +138,7 @@ describe('refreshTaskArtifacts', () => {
     write('notes.md', 'notes', LATER)
 
     await expect(refreshTaskArtifacts(context, taskId, ['notes.md'])).resolves.toBe(true)
-    expect(listArtifacts(database.db, taskId).find(({ path }) => path === 'notes.md')).toMatchObject({
+    expect(listFileArtifacts(database.db, taskId).find(({ path }) => path === 'notes.md')).toMatchObject({
       modifiedAt: LATER.getTime(),
     })
   })

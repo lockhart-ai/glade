@@ -12,7 +12,9 @@
 import type {
   Artifact,
   ArtifactDateGroup,
+  ArtifactFilter,
   ArtifactGroupFold,
+  ArtifactRef,
   CommitFiles,
   TaskCommit,
   TaskHandoff,
@@ -109,6 +111,8 @@ export enum CommandName {
   FilesCopy = 'files.copy',
   FilesReveal = 'files.reveal',
   ArtifactsRemove = 'artifacts.remove',
+  ArtifactsAddLink = 'artifacts.addLink',
+  ArtifactsSetFilter = 'artifacts.setFilter',
   ArtifactsSetGroupOpen = 'artifacts.setGroupOpen',
   ArtifactsWatch = 'artifacts.watch',
   ArtifactsUnwatch = 'artifacts.unwatch',
@@ -501,10 +505,12 @@ export interface TasksHistoryResponse {
   readonly openFiles: OpenFiles
   /** The agent's todo list (the Todos tab), as its tool log leaves it; null when it has kept none. */
   readonly todos: TodoList | null
-  /** The files the agent declared as its deliverables (the Artifacts tab), in the order it first declared them. */
+  /** The files and links declared as its artifacts (the Artifacts tab), in the order they were first declared. */
   readonly artifacts: readonly Artifact[]
   /** The Artifacts tab's date groups you opened or folded, as you left them. */
   readonly artifactGroups: readonly ArtifactGroupFold[]
+  /** Which of its artifacts the Artifacts tab shows, as you last chose (#407): all of them until you choose. */
+  readonly artifactFilter: ArtifactFilter
   /** Its handoff note, from a backfill through the control API (the Backfilled card); null when it has none. */
   readonly handoff: TaskHandoff | null
   /** What its agent left running or scheduled (the Watchers tab), live or ended, in the order they started. */
@@ -717,13 +723,35 @@ export type FilesCopyRequest = FileRequest
 export type FilesRevealRequest = FileRequest
 
 /**
- * Takes a file off a task's artifacts (Remove from artifacts); the file itself stays. Broadcasts `artifacts.changed`.
- * Fails with `not_found` when the file isn't one of the task's artifacts.
+ * Takes a file or a link off a task's artifacts (Remove from artifacts); a file itself stays. Broadcasts
+ * `artifacts.changed`. Fails with `not_found` when it isn't one of the task's artifacts.
  */
 export interface ArtifactsRemoveRequest {
   readonly taskId: string
-  /** Relative to the task's workspace root, as the artifact has it. */
-  readonly path: string
+  /** A file by its path relative to the task's workspace root, or a link by its URL, as the artifact has it. */
+  readonly ref: ArtifactRef
+}
+
+/**
+ * Adds a link to a task's artifacts (Add to artifacts, on a link, #407), called what the link says, or `#412` or
+ * `API-123` for a bare PR, issue or ticket link. A link that's already one of them stays as it is. Broadcasts
+ * `artifacts.changed`. Fails with `invalid_request` for anything but a whole `http:` or `https:` URL, and `not_found`
+ * when there's no such task.
+ */
+export interface ArtifactsAddLinkRequest {
+  readonly taskId: string
+  readonly url: string
+  /** What the link says: its address, or nothing, when it says nothing else. */
+  readonly text: string
+}
+
+/**
+ * Shows all of a task's artifacts in its Artifacts tab, or only its files or its links (#407), and remembers it for the
+ * task. Fails with `not_found` when there's no such task.
+ */
+export interface ArtifactsSetFilterRequest {
+  readonly taskId: string
+  readonly filter: ArtifactFilter
 }
 
 /**
@@ -1089,6 +1117,8 @@ export interface CommandMap {
   [CommandName.FilesCopy]: CommandSpec<FilesCopyRequest, null>
   [CommandName.FilesReveal]: CommandSpec<FilesRevealRequest, null>
   [CommandName.ArtifactsRemove]: CommandSpec<ArtifactsRemoveRequest, null>
+  [CommandName.ArtifactsAddLink]: CommandSpec<ArtifactsAddLinkRequest, null>
+  [CommandName.ArtifactsSetFilter]: CommandSpec<ArtifactsSetFilterRequest, null>
   [CommandName.ArtifactsSetGroupOpen]: CommandSpec<ArtifactsSetGroupOpenRequest, null>
   [CommandName.ArtifactsWatch]: CommandSpec<ArtifactsWatchRequest, null>
   [CommandName.ArtifactsUnwatch]: CommandSpec<ArtifactsWatchRequest, null>
@@ -1328,7 +1358,7 @@ export interface TodosChangedEvent {
   readonly todos: TodoList | null
 }
 
-/** The agent declared an artifact, or declared one again with a new title. Carries the task's artifacts as they now are. */
+/** A task's artifacts changed: one was declared, changed or taken off. Carries the task's artifacts as they now are. */
 export interface ArtifactsChangedEvent {
   readonly type: EventType.ArtifactsChanged
   readonly taskId: string

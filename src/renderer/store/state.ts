@@ -23,7 +23,9 @@ import type { Command, MenuState } from '../../shared/commands'
 import type {
   Artifact,
   ArtifactDateGroup,
+  ArtifactFilter,
   ArtifactGroupFold,
+  ArtifactRef,
   CommitFiles,
   Watcher,
   TaskCommit,
@@ -185,6 +187,11 @@ export interface GladeData {
    * or fold one.
    */
   readonly artifactGroups: Readonly<Record<string, readonly ArtifactGroupFold[]>>
+  /**
+   * Which of each task's artifacts its Artifacts tab shows (#407), by task id: loaded with its logs, then changed as
+   * you choose.
+   */
+  readonly artifactFilters: Readonly<Record<string, ArtifactFilter>>
   /**
    * Each task's watchers (the Watchers tab), by task id: every task's live ones loaded on start, for the task list's
    * marks; all of a task's loaded with its logs; then kept current by events.
@@ -542,8 +549,12 @@ export interface GladeActions {
    * panel opens at Files too, even when it was collapsed or on another tab.
    */
   showFile: (taskId: string, path: string) => Promise<void>
-  /** Takes a file off a task's artifacts (`artifacts.remove`); the file stays. */
-  removeArtifact: (taskId: string, path: string) => Promise<void>
+  /** Takes a file or a link off a task's artifacts (`artifacts.remove`); a file stays. */
+  removeArtifact: (taskId: string, ref: ArtifactRef) => Promise<void>
+  /** Adds a link to a task's artifacts, called what it says (`artifacts.addLink`, #407); one already there stays. */
+  addLinkArtifact: (taskId: string, url: string, text: string) => Promise<void>
+  /** Shows all of a task's artifacts, or only its files or links, at once, and remembers it (`artifacts.setFilter`). */
+  setArtifactFilter: (taskId: string, filter: ArtifactFilter) => Promise<void>
   /** Opens or folds one of a task's artifact date groups, at once, and remembers it (`artifacts.setGroupOpen`). */
   setArtifactGroupOpen: (taskId: string, group: ArtifactDateGroup, open: boolean) => Promise<void>
   /**
@@ -654,6 +665,7 @@ export const INITIAL_DATA: GladeData = {
   openFiles: {},
   artifacts: {},
   artifactGroups: {},
+  artifactFilters: {},
   watchers: {},
   commits: {},
   handoffs: {},

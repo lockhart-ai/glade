@@ -1,36 +1,38 @@
 // The agent runner end to end: a scripted agent session behind the real bridge (the preload's `window.glade` over a
 // fake IPC pair), saving to a database in a temporary folder.
+import { fileArtifacts } from '../../shared/artifacts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createBridge } from '../../preload/bridge'
 import { BridgeErrorCode, CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
 import {
   AgentErrorKind,
   API_TOOL_NAME,
+  ArtifactFilter,
   CompactionTrigger,
   DividerKind,
   Effort,
   MessageRole,
   PermissionMode,
+  QuestionKind,
+  QuestionReplyKind,
+  QuestionSetState,
   RefusalScope,
   TaskActivity,
+  TaskErrorSource,
   TaskState,
   TodoState,
   ToolCallState,
   ToolEventKind,
-  QuestionKind,
-  QuestionReplyKind,
-  QuestionSetState,
+  UiStateKey,
+  type Message,
+  type PastedBlock,
   type Question,
   type QuestionAnswers,
   type QuestionSet,
-  type Message,
-  type PastedBlock,
   type QueuedMessage,
-  UiStateKey,
   type Task,
-  type TaskHandoff,
-  TaskErrorSource,
   type TaskError,
+  type TaskHandoff,
   type ToolEvent,
   type Workspace,
 } from '../../shared/domain'
@@ -68,6 +70,7 @@ import {
   HANDOFF_HEADING,
   handoffSection,
   INSTRUCTION_UPDATES,
+  LINK_ARTIFACTS_LINE,
   systemPromptAppend,
 } from './system-prompt'
 import { updateSettings } from '../db/repositories/settings'
@@ -219,7 +222,7 @@ function drainEvents(): (readonly unknown[])[] {
       case EventType.TodosChanged:
         return [event.type, event.todos?.items.map(({ text, state }) => [text, state]) ?? null]
       case EventType.ArtifactsChanged:
-        return [event.type, event.artifacts.map(({ path }) => path)]
+        return [event.type, fileArtifacts(event.artifacts).map(({ path }) => path)]
       case EventType.HandoffChanged:
         return [event.type, event.handoff?.body ?? null]
       case EventType.WatchersChanged:
@@ -419,6 +422,7 @@ describe('a turn', () => {
       todos: null,
       artifacts: [],
       artifactGroups: [],
+      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
@@ -2956,7 +2960,7 @@ describe("a task's handoff note", () => {
     expect(sentTexts()).toEqual(["Let's pick this up.", 'Carry on.'])
     expect(getSessionContext(database.db, task.id)).toEqual({
       instructions: true,
-      instructionUpdates: 1,
+      instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: 1_000,
     })
   })
@@ -3025,7 +3029,7 @@ describe("a task's handoff note", () => {
     ])
     expect(getSessionContext(database.db, task.id)).toEqual({
       instructions: true,
-      instructionUpdates: 1,
+      instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: 2_000,
     })
   })
@@ -3097,7 +3101,7 @@ describe("a task's handoff note", () => {
 })
 
 describe('instructions added to the prompt since a session started', () => {
-  const UPDATE = `[Glade: new instructions for this session]\n${FINAL_REPLY_LINE}\n[end]`
+  const UPDATE = `[Glade: new instructions for this session]\n${INSTRUCTION_UPDATES.join('\n\n')}\n[end]`
 
   /** What the session was sent, in order. */
   function sentTexts(): string[] {
@@ -3122,12 +3126,12 @@ describe('instructions added to the prompt since a session started', () => {
     await reply()
     await send('And the logout test?')
 
-    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE])
-    expect(backend.session.options.systemPromptAppend).toContain(FINAL_REPLY_LINE)
+    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE])
+    for (const update of INSTRUCTION_UPDATES) expect(backend.session.options.systemPromptAppend).toContain(update)
     expect(sentTexts()).toEqual(['Why is the login test flaky?', 'And the logout test?'])
     expect(getSessionContext(database.db, task.id)).toEqual({
       instructions: true,
-      instructionUpdates: 1,
+      instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: null,
     })
   })
@@ -3155,7 +3159,7 @@ describe('instructions added to the prompt since a session started', () => {
       ])
       expect(getSessionContext(database.db, task.id)).toEqual({
         instructions: true,
-        instructionUpdates: 1,
+        instructionUpdates: INSTRUCTION_UPDATES.length,
         handoffAt: null,
       })
     },
@@ -3188,7 +3192,7 @@ describe('instructions added to the prompt since a session started', () => {
     runner.resumeInterrupted()
 
     expect(sentTexts()).toEqual([RESUME_PROMPT])
-    expect(getSessionContext(database.db, task.id)?.instructionUpdates).toBe(1)
+    expect(getSessionContext(database.db, task.id)?.instructionUpdates).toBe(INSTRUCTION_UPDATES.length)
   })
 
   it('go in one message with a new handoff note, the instructions first', async () => {
@@ -3206,7 +3210,7 @@ describe('instructions added to the prompt since a session started', () => {
     ])
     expect(getSessionContext(database.db, task.id)).toEqual({
       instructions: true,
-      instructionUpdates: 1,
+      instructionUpdates: INSTRUCTION_UPDATES.length,
       handoffAt: 5_000,
     })
   })

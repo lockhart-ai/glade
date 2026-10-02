@@ -8,10 +8,11 @@ import {
   ToolEventKind,
   type Artifact,
   type EpochMs,
+  type FileArtifact,
   type ToolCallEvent,
   type ToolInput,
 } from '../../shared/domain'
-import { addArtifact, listArtifacts } from '../db/repositories/artifacts'
+import { addArtifact, listFileArtifacts } from '../db/repositories/artifacts'
 import { deleteTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import {
@@ -22,6 +23,7 @@ import {
   type WatchFolder,
 } from './artifact-watch'
 import { addTaskArtifact } from './artifacts'
+import { fileArtifacts } from '../../shared/artifacts'
 
 /** A short wait, so the tests don't sit through the real one. */
 const WAIT_MS = 30
@@ -87,12 +89,14 @@ function orders(): string[][] {
 }
 
 function newestFirst(artifacts: readonly Artifact[]): string[] {
-  const time = (artifact: Artifact): EpochMs => artifact.modifiedAt ?? artifact.updatedAt
-  return [...artifacts].sort((a, b) => time(b) - time(a)).map(({ path }) => path)
+  const time = (artifact: FileArtifact): EpochMs => artifact.modifiedAt ?? artifact.updatedAt
+  return fileArtifacts(artifacts)
+    .sort((a, b) => time(b) - time(a))
+    .map(({ path }) => path)
 }
 
 function modifiedAt(path: string): EpochMs | null | undefined {
-  return listArtifacts(database.db, taskId).find((artifact) => artifact.path === path)?.modifiedAt
+  return listFileArtifacts(database.db, taskId).find((artifact) => artifact.path === path)?.modifiedAt
 }
 
 let toolCalls = 0
@@ -333,7 +337,9 @@ describe('watching while the tab shows the task', () => {
     changeIn('out/screens', 'search.png')
 
     await vi.waitFor(() => {
-      expect(listArtifacts(database.db, taskId).find(({ path }) => path === 'out/screens/search.png')).toMatchObject({
+      expect(
+        listFileArtifacts(database.db, taskId).find(({ path }) => path === 'out/screens/search.png'),
+      ).toMatchObject({
         missing: true,
         modifiedAt: at(1).getTime(),
       })
@@ -357,10 +363,10 @@ describe('watching while the tab shows the task', () => {
     artifacts.observe({
       type: EventType.ArtifactsChanged,
       taskId,
-      artifacts: listArtifacts(database.db, taskId),
+      artifacts: listFileArtifacts(database.db, taskId),
     })
     database.db.prepare("DELETE FROM artifacts WHERE path LIKE 'docs/%'").run()
-    artifacts.observe({ type: EventType.ArtifactsChanged, taskId, artifacts: listArtifacts(database.db, taskId) })
+    artifacts.observe({ type: EventType.ArtifactsChanged, taskId, artifacts: listFileArtifacts(database.db, taskId) })
     expect(closed).toEqual([join(root, 'docs/site')])
     expect([...watching.keys()].sort()).toEqual([join(root, 'out/screens'), join(root, 'site')])
   })
@@ -372,7 +378,7 @@ describe('watching while the tab shows the task', () => {
 
     expect(watching.has(join(root, 'gone'))).toBe(false)
     await vi.waitFor(() => {
-      expect(listArtifacts(database.db, taskId).find(({ path }) => path === 'gone/notes.md')?.missing).toBe(true)
+      expect(listFileArtifacts(database.db, taskId).find(({ path }) => path === 'gone/notes.md')?.missing).toBe(true)
     })
   })
 
@@ -395,7 +401,7 @@ describe('watching while the tab shows the task', () => {
     artifacts.watch(taskId)
     artifacts.unwatch(taskId)
 
-    artifacts.observe({ type: EventType.ArtifactsChanged, taskId, artifacts: listArtifacts(database.db, taskId) })
+    artifacts.observe({ type: EventType.ArtifactsChanged, taskId, artifacts: listFileArtifacts(database.db, taskId) })
 
     expect(watching.size).toBe(0)
   })

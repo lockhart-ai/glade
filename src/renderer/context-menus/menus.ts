@@ -227,6 +227,25 @@ export function artifactMenu(actions: ArtifactMenuActions, hints: ShortcutHints)
   )
 }
 
+/** What a link artifact's menu can do (#407). */
+export interface LinkArtifactMenuActions {
+  readonly open: MenuAction
+  readonly copy: MenuAction
+  readonly remove: MenuAction
+}
+
+/**
+ * A link artifact's menu, in the Artifacts tab (#407): open it in the browser, as clicking it does, copy its address, or
+ * take it off the artifacts. `hints` are the shortcuts' current keys.
+ */
+export function linkArtifactMenu(actions: LinkArtifactMenuActions, hints: ShortcutHints): MenuEntry[] {
+  return groups(
+    [item('Open link', actions.open, ShortcutAction.Open, hints)],
+    [item('Copy link', actions.copy)],
+    [destructive('Remove from artifacts', actions.remove)],
+  )
+}
+
 /** What a subagent's menu can do. */
 export interface SubagentMenuActions {
   readonly toggleLog: MenuAction
@@ -298,9 +317,21 @@ export function todoMenu(actions: TodoMenuActions): MenuEntry[] {
 export interface LinkMenuActions {
   readonly open: MenuAction
   readonly copy: MenuAction
+  /**
+   * Adds it to the task's artifacts (#407); null where it can't be one: with no task open, for a link that isn't a web
+   * page (`mailto:`), or one that's already one of the task's artifacts.
+   */
+  readonly addToArtifacts?: MenuAction | null
 }
 
-/** A link's menu, wherever it's shown: open it in the browser, as clicking it does, or copy its address. */
+/**
+ * A link's menu, wherever it's shown: open it in the browser, as clicking it does, copy its address, or add it to the
+ * task's artifacts (#407).
+ */
 export function linkMenu(actions: LinkMenuActions): MenuEntry[] {
-  return groups([item('Open link', actions.open)], [item('Copy link', actions.copy)])
+  return groups(
+    [item('Open link', actions.open)],
+    [item('Copy link', actions.copy)],
+    optional('Add to artifacts', actions.addToArtifacts ?? null),
+  )
 }

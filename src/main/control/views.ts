@@ -6,7 +6,9 @@ import { join } from 'node:path'
 import type { Database } from 'better-sqlite3'
 import { needsYou } from '../../shared/attention'
 import {
+  ArtifactKind,
   ToolEventKind,
+  type Artifact,
   type AgentErrorKind,
   type Effort,
   type MessageRole,
@@ -74,11 +76,33 @@ export interface TaskDetailHandoff {
   readonly addedAt: EpochMs
 }
 
-/** One of a task's artifacts: its file's absolute path, its title, and when it was first declared or registered. */
-export interface TaskDetailArtifact {
-  readonly path: string
-  readonly title: string
-  readonly addedAt: EpochMs
+/**
+ * One of a task's artifacts: a file, by its absolute path, or a link, by its URL (#407); its title, and when it was
+ * first declared or registered.
+ */
+export type TaskDetailArtifact =
+  | {
+      readonly kind: ArtifactKind.File
+      readonly path: string
+      readonly title: string
+      readonly addedAt: EpochMs
+    }
+  | {
+      readonly kind: ArtifactKind.Link
+      readonly url: string
+      readonly title: string
+      readonly addedAt: EpochMs
+    }
+
+/** One of a task's artifacts, as `get_task` gives it: a file by its absolute path, under the workspace at `root`. */
+function detailArtifact(artifact: Artifact, root: string): TaskDetailArtifact {
+  const { title, addedAt } = artifact
+  switch (artifact.kind) {
+    case ArtifactKind.File:
+      return { kind: ArtifactKind.File, path: join(root, artifact.path), title, addedAt }
+    case ArtifactKind.Link:
+      return { kind: ArtifactKind.Link, url: artifact.url, title, addedAt }
+  }
 }
 
 /** A task as its header card and its sidebar row show it. */
@@ -192,11 +216,7 @@ export function taskDetail(db: Database, task: Task, workspace: WorkspaceSummary
     sessionId: task.sessionId,
     importedAt: task.importedAt,
     handoff: handoffOf(db, task.id),
-    artifacts: listArtifacts(db, task.id).map(({ path, title, addedAt }) => ({
-      path: join(workspace.rootPath, path),
-      title,
-      addedAt,
-    })),
+    artifacts: listArtifacts(db, task.id).map((artifact) => detailArtifact(artifact, workspace.rootPath)),
     externalId: getExternalId(db, task.id),
   }
 }

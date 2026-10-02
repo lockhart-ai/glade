@@ -9,17 +9,20 @@
  */
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, EventType } from '../../shared/bridge'
-import { TaskState, type Effort, type EpochMs, type PermissionMode, type Task } from '../../shared/domain'
+import { ArtifactKind, TaskState, type Effort, type EpochMs, type PermissionMode, type Task } from '../../shared/domain'
 import type { AgentRunner } from '../agent/runner'
 import { emitTaskUpdated, type Emit } from '../bridge/events'
 import { CommandFailure } from '../bridge/errors'
 import { lookAtArtifactFile } from '../artifacts/artifacts'
 import {
   addArtifact,
+  addLinkArtifact,
   changeArtifact,
+  changeLinkArtifact,
   listArtifacts,
   removeArtifact,
   setArtifactFile,
+  type ArtifactFileState,
 } from '../db/repositories/artifacts'
 import { findTaskByExternalId, getHandoff, setExternalId, setHandoff } from '../db/repositories/backfills'
 import { lastTurn, listMessages } from '../db/repositories/messages'
@@ -55,6 +58,7 @@ import {
   type ArtifactRegistration,
   type ArtifactUpdateRequest,
   type CheckedArtifact,
+  type PlannedArtifactChange,
 } from './backfill'
 import { instantOf } from './dates'
 import { ControlError, ControlErrorCode } from './errors'
@@ -256,7 +260,27 @@ export function createControlService(context: ControlServiceContext): ControlSer
   const detailOf = (id: string): TaskDetail => detail(requireTask(db, id))
 
   const registerArtifacts = (taskId: string, checked: readonly CheckedArtifact[], at: number): void => {
-    for (const { path, title } of checked) addArtifact(db, { taskId, path, title }, at)
+    for (const artifact of checked) {
+      switch (artifact.kind) {
+        case ArtifactKind.File:
+          addArtifact(db, { taskId, path: artifact.path, title: artifact.title }, at)
+          break
+        case ArtifactKind.Link:
+          addLinkArtifact(db, { taskId, url: artifact.url, title: artifact.title }, at)
+          break
+      }
+    }
+  }
+
+  /** Makes one planned change to one of a task's artifacts, noting what its new file is now when it has one. */
+  const changeOne = (taskId: string, change: PlannedArtifactChange, file: ArtifactFileState | null, at: number) => {
+    const { ref, newRef, title } = change
+    if (ref.kind === ArtifactKind.Link && newRef.kind === ArtifactKind.Link) {
+      changeLinkArtifact(db, { taskId, url: ref.url, newUrl: newRef.url, title }, at)
+    } else if (ref.kind === ArtifactKind.File && newRef.kind === ArtifactKind.File) {
+      changeArtifact(db, { taskId, path: ref.path, newPath: newRef.path, title }, at)
+      if (file !== null) setArtifactFile(db, { taskId, path: newRef.path, file })
+    }
   }
 
   /** Tells every window a task's handoff note, or its artifacts, changed. */
@@ -386,9 +410,13 @@ export function createControlService(context: ControlServiceContext): ControlSer
       const checked = await checkArtifacts(root, artifacts, 'patch.artifacts')
       const updates = await checkArtifactUpdates(root, updateArtifacts, 'patch.updateArtifacts')
       const removals = checkArtifactRemovals(root, removeArtifacts, 'patch.removeArtifacts')
-      // What each repointed artifact's new file is now, which places it in the Artifacts tab.
+      // What each repointed artifact's new file is now, which places it in the Artifacts tab. A link has none.
       const files = await Promise.all(
-        updates.map(async ({ path, newPath }) => (newPath === path ? null : await lookAtArtifactFile(root, newPath))),
+        updates.map(async ({ ref, newRef }) =>
+          ref.kind === ArtifactKind.File && newRef.kind === ArtifactKind.File && newRef.path !== ref.path
+            ? await lookAtArtifactFile(root, newRef.path)
+            : null,
+        ),
       )
       // Everything is checked before anything is written, with nothing awaited between, so a refused patch changes
       // nothing and no other call can take the external id meanwhile. The artifact changes are planned against the
@@ -408,12 +436,8 @@ export function createControlService(context: ControlServiceContext): ControlSer
       db.transaction(() => {
         if (handoff !== undefined) setHandoff(db, id, handoff, at)
         if (externalId !== undefined) setExternalId(db, id, externalId)
-        for (const path of plan.removals) removeArtifact(db, id, path)
-        for (const [index, { path, newPath, title }] of plan.changes.entries()) {
-          changeArtifact(db, { taskId: id, path, newPath, title }, at)
-          const file = files[index]
-          if (file != null) setArtifactFile(db, { taskId: id, path: newPath, file })
-        }
+        for (const ref of plan.removals) removeArtifact(db, id, ref)
+        for (const [index, change] of plan.changes.entries()) changeOne(id, change, files[index] ?? null, at)
         registerArtifacts(id, checked, at)
       })()
       announceBackfill(id, handoff !== undefined, checked.length + plan.changes.length + plan.removals.length > 0)

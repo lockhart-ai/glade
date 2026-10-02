@@ -25,7 +25,7 @@ import {
   type EpochMs,
 } from '../shared/domain'
 import { applySeed, readSeed, seedArtifactAt, type CaptureSeed } from './capture-seed'
-import { listArtifacts } from './db/repositories/artifacts'
+import { listFileArtifacts } from './db/repositories/artifacts'
 import { getHandoff } from './db/repositories/backfills'
 import { listMessages } from './db/repositories/messages'
 import { listRecentNotifications } from './db/repositories/notifications'
@@ -171,8 +171,8 @@ describe('readSeed', () => {
         rootPath: '/Users/sample/code/api',
         files: join(FIXTURES, 'backfilled-workspace'),
       })
-      for (const { path } of selected?.artifacts ?? []) {
-        expect(existsSync(join(seed.workspace.files ?? '', path))).toBe(true)
+      for (const artifact of selected?.artifacts ?? []) {
+        if ('path' in artifact) expect(existsSync(join(seed.workspace.files ?? '', artifact.path))).toBe(true)
       }
     }
     const done = readSeed(join(FIXTURES, 'backfilled.json')).tasks.find((task) => task.selected)
@@ -187,9 +187,18 @@ describe('readSeed', () => {
     const files = join(FIXTURES, 'artifacts-workspace')
     expect(seed.workspace.files).toBe(files)
     const artifacts = seed.tasks.find((task) => task.selected)?.artifacts ?? []
-    expect(artifacts).toHaveLength(16)
-    expect(artifacts.at(-1)?.title).toBe('Landing page, dark theme')
-    for (const { path } of artifacts) {
+    expect(artifacts).toHaveLength(20)
+    expect(artifacts.at(-1)?.title).toBe('Docs site navigation refresh')
+    // Its links (#407): a PR, an issue, a ticket and another page, at made-up addresses.
+    expect(artifacts.flatMap((artifact) => ('url' in artifact ? [artifact.url] : []))).toEqual([
+      'https://example.com/style/code-samples',
+      'https://acme.atlassian.net/browse/API-123',
+      'https://github.com/acme/api/issues/398',
+      'https://github.com/acme/api/pull/412',
+    ])
+    for (const artifact of artifacts) {
+      if (!('path' in artifact)) continue
+      const { path } = artifact
       expect(existsSync(join(files, path)), path).toBe(true)
       // Sample images, kept small (CLAUDE.md, "Binaries").
       if (path.endsWith('.png')) expect(statSync(join(files, path)).size).toBeLessThan(16 * 1024)
@@ -511,7 +520,7 @@ describe('applySeed', () => {
       expect(workspace).not.toHaveProperty('files')
       expect(workspaceFilesRoot(rootPath)).toBe(files)
       const taskId = listTasks(db, workspace?.id ?? '')[0]?.id ?? ''
-      expect(listArtifacts(db, taskId)[0]).toMatchObject({ modifiedAt: now - 12 * 60_000, missing: false })
+      expect(listFileArtifacts(db, taskId)[0]).toMatchObject({ modifiedAt: now - 12 * 60_000, missing: false })
       expect(statSync(join(files, 'docs', 'notes.md')).mtimeMs).toBe(now - 12 * 60_000)
       await expect(readTaskFile({ db, emit: () => undefined }, taskId, 'docs/notes.md')).resolves.toMatchObject({
         text: '# Notes\n',
@@ -550,7 +559,7 @@ describe('applySeed', () => {
 
       const taskId = listTasks(db, listWorkspaces(db)[0]?.id ?? '')[0]?.id ?? ''
       expect(
-        listArtifacts(db, taskId).map(({ path, title, addedAt, modifiedAt, missing }) => [
+        listFileArtifacts(db, taskId).map(({ path, title, addedAt, modifiedAt, missing }) => [
           path,
           title,
           addedAt,

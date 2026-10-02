@@ -1,6 +1,7 @@
 import { EventType, type GladeEvent } from '../../shared/bridge'
 import type { TasksHistoryResponse } from '../../shared/bridge'
 import {
+  ArtifactKind,
   UiStateKey,
   type Artifact,
   type ArtifactGroupFold,
@@ -112,6 +113,8 @@ export function withHistory(state: GladeData, taskId: string, history: TasksHist
     artifacts: { ...state.artifacts, [taskId]: newerArtifacts(history.artifacts, state.artifacts[taskId]) },
     // Only this window changes them, and it has by the time a load that follows its change answers.
     artifactGroups: { ...state.artifactGroups, [taskId]: history.artifactGroups },
+    // The same: only this window chooses it.
+    artifactFilters: { ...state.artifactFilters, [taskId]: history.artifactFilter },
     todos: { ...state.todos, [taskId]: newerTodos(history.todos, state.todos[taskId]) },
     handoffs: { ...state.handoffs, [taskId]: newerHandoff(history.handoff, state.handoffs[taskId]) },
     // Like the queue, watchers change in place: the loaded ones are as new as any event before them.
@@ -149,7 +152,11 @@ function newerTodos(loaded: TodoList | null, current: TodoList | null | undefine
 
 /** When a task's artifacts last changed: the latest time one was declared, or one's file was seen to change. */
 function lastChanged(artifacts: readonly Artifact[]): EpochMs {
-  return artifacts.reduce((latest, artifact) => Math.max(latest, artifact.updatedAt, artifact.modifiedAt ?? latest), 0)
+  return artifacts.reduce(
+    (latest, artifact) =>
+      Math.max(latest, artifact.updatedAt, artifact.kind === ArtifactKind.File ? (artifact.modifiedAt ?? latest) : latest),
+    0,
+  )
 }
 
 /** The loaded artifacts, unless an event already brought newer ones. */
@@ -198,6 +205,7 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     openFiles: without(state.openFiles, taskId),
     artifacts: without(state.artifacts, taskId),
     artifactGroups: without(state.artifactGroups, taskId),
+    artifactFilters: without(state.artifactFilters, taskId),
     watchers: without(state.watchers, taskId),
     commits: without(state.commits, taskId),
     handoffs: without(state.handoffs, taskId),

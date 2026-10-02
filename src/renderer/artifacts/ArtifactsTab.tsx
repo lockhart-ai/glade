@@ -1,21 +1,43 @@
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
-import { faFileCode, faFileImage, faFileLines, faFolder } from '@fortawesome/free-regular-svg-icons'
-import { faArrowUpRightFromSquare, faChevronDown, faChevronRight, faEllipsis } from '@fortawesome/free-solid-svg-icons'
+import {
+  faCircleDot,
+  faCopy,
+  faFileCode,
+  faFileImage,
+  faFileLines,
+  faFolder,
+} from '@fortawesome/free-regular-svg-icons'
+import {
+  faArrowUpRightFromSquare,
+  faChevronDown,
+  faChevronRight,
+  faCodePullRequest,
+  faEllipsis,
+  faLink,
+  faTicket,
+} from '@fortawesome/free-solid-svg-icons'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { LinkKind, recogniseLink } from '../../shared/artifactLinks'
+import { artifactKey, artifactRef } from '../../shared/artifacts'
 import {
+  ArtifactFilter,
+  ArtifactKind,
   FileThumbnailKind,
   type Artifact,
   type ArtifactDateGroup,
   type ArtifactGroupFold,
   type EpochMs,
+  type FileArtifact,
   type FileThumbnail,
+  type LinkArtifact,
 } from '../../shared/domain'
 import { Button, ButtonVariant, Collapse, Icon, IconSize } from '../components'
 import { classNames } from '../components/classNames'
 import {
   artifactMenu,
   ContextMenu,
+  linkArtifactMenu,
   useContextMenu,
   useMenuCommands,
   type ContextMenuTargetProps,
@@ -27,12 +49,16 @@ import { useGladeStore } from '../store/react'
 import { formatFullDate } from '../task-header/headerModel'
 import {
   artifactTime,
+  artifactTypeName,
+  countArtifacts,
   fileTileKind,
   FileTileKind,
-  fileTypeName,
+  filterArtifacts,
   formatArtifactAge,
   groupArtifacts,
   isImageArtifact,
+  shownFilter,
+  type ArtifactCounts,
 } from './artifactsModel'
 import { dateGroupTitle, isGroupOpen } from './dateGroups'
 import styles from './ArtifactsTab.module.css'
@@ -41,6 +67,12 @@ import styles from './ArtifactsTab.module.css'
 export const NO_ARTIFACTS = 'No artifacts yet.'
 
 const NO_ARTIFACT_LIST: readonly Artifact[] = []
+/** What the filter's chips say, in order (#407). */
+const FILTER_CHIPS: readonly { readonly filter: ArtifactFilter; readonly label: string }[] = [
+  { filter: ArtifactFilter.All, label: 'All' },
+  { filter: ArtifactFilter.Files, label: 'Files' },
+  { filter: ArtifactFilter.Links, label: 'Links' },
+]
 const NO_FOLDS: readonly ArtifactGroupFold[] = []
 
 /** A row's height, as the design has it (`.row` in ArtifactsTab.module.css). */
@@ -68,18 +100,33 @@ function tileIcon(path: string): IconDefinition {
   }
 }
 
+/** The icon on a link's tile, by what it is: a pull request, an issue, a ticket, or any other page. */
+function linkIcon(url: string): IconDefinition {
+  const link = recogniseLink(url)
+  switch (link.kind) {
+    case LinkKind.PullRequest:
+      return faCodePullRequest
+    case LinkKind.Issue:
+      return faCircleDot
+    case LinkKind.Ticket:
+      return faTicket
+    case LinkKind.Web:
+      return faLink
+  }
+}
+
 interface ArtifactRowProps {
-  readonly artifact: Artifact
+  readonly artifact: FileArtifact
   readonly now: EpochMs
   /** Whether it's the file the Files tab shows: the row is outlined. */
   readonly selected: boolean
   /** What opens its context menu: a right-click, or ⇧F10 while it (or one of its buttons) has the focus. */
   readonly menuTarget: ContextMenuTargetProps
-  /** Opens its context menu below its More button. */
-  readonly onMore: (path: string, button: HTMLElement) => void
+  /** Opens its context menu below its More button, by its key (`artifactKey`). */
+  readonly onMore: (key: string, button: HTMLElement) => void
   /** Opens the image viewer on an image artifact, from the button clicked (or activated by ↵ or Space), for the focus
    * to return to once it closes. */
-  readonly onOpenImage: (artifact: Artifact, trigger: HTMLElement) => void
+  readonly onOpenImage: (artifact: FileArtifact, trigger: HTMLElement) => void
 }
 
 /**
@@ -172,7 +219,9 @@ const ArtifactRow = memo(function ArtifactRow({
         )}
         <span className={styles.text}>
           <span className={styles.title}>{title}</span>
-          <span className={styles.type}>{missing ? `${fileTypeName(path)} · missing` : fileTypeName(path)}</span>
+          <span className={styles.type}>
+            {missing ? `${artifactTypeName(artifact)} · missing` : artifactTypeName(artifact)}
+          </span>
         </span>
         <span className={styles.age} title={formatFullDate(time)}>
           {formatArtifactAge(time, now)}
@@ -205,13 +254,134 @@ const ArtifactRow = memo(function ArtifactRow({
           aria-haspopup="menu"
           title="More"
           onClick={(event) => {
-            onMore(path, event.currentTarget)
+            onMore(artifactKey(artifact), event.currentTarget)
           }}
         />
       </span>
     </div>
   )
 })
+
+interface LinkArtifactRowProps {
+  readonly artifact: LinkArtifact
+  readonly now: EpochMs
+  readonly menuTarget: ContextMenuTargetProps
+  /** Opens its context menu below its More button, by its key (`artifactKey`). */
+  readonly onMore: (key: string, button: HTMLElement) => void
+}
+
+/**
+ * One link artifact (#407), in a row like a file's: its kind's icon (a pull request, an issue, a ticket, a link), its
+ * title, what it is (`#412 · acme/api`, `API-123`, `example.com`) and how long ago it was declared. Clicking it opens it
+ * in the browser, through main, as any link does; it never opens in Glade. Hovered or focused, the age gives way to
+ * Open link, Copy link and More (its context menu).
+ */
+const LinkArtifactRow = memo(function LinkArtifactRow({
+  artifact,
+  now,
+  menuTarget,
+  onMore,
+}: LinkArtifactRowProps): React.JSX.Element {
+  const { url, title } = artifact
+  const openLink = useGladeStore((state) => state.openLink)
+  const { run, copy } = useMenuCommands()
+  const time = artifactTime(artifact)
+  const open = (): void => {
+    run(() => openLink(url))
+  }
+  return (
+    <div className={styles.row} aria-label={title} role="listitem" {...menuTarget}>
+      <button type="button" className={styles.open} title={url} onClick={open}>
+        <span className={classNames(styles.tile, styles.blank)}>
+          <Icon icon={linkIcon(url)} size={IconSize.Medium} />
+        </span>
+        <span className={styles.text}>
+          <span className={styles.title}>{title}</span>
+          <span className={styles.type}>{artifactTypeName(artifact)}</span>
+        </span>
+        <span className={styles.age} title={formatFullDate(time)}>
+          {formatArtifactAge(time, now)}
+        </span>
+      </button>
+      <span className={styles.actions}>
+        <Button
+          variant={ButtonVariant.Icon}
+          className={styles.action}
+          icon={faArrowUpRightFromSquare}
+          aria-label="Open link"
+          title="Open link"
+          onClick={open}
+        />
+        <Button
+          variant={ButtonVariant.Icon}
+          className={styles.action}
+          icon={faCopy}
+          aria-label="Copy link"
+          title="Copy link"
+          onClick={() => {
+            copy(url)
+          }}
+        />
+        <Button
+          variant={ButtonVariant.Icon}
+          className={styles.action}
+          icon={faEllipsis}
+          aria-label="More"
+          aria-haspopup="menu"
+          title="More"
+          onClick={(event) => {
+            onMore(artifactKey(artifact), event.currentTarget)
+          }}
+        />
+      </span>
+    </div>
+  )
+})
+
+interface FilterChipsProps {
+  readonly counts: ArtifactCounts
+  readonly chosen: ArtifactFilter
+  readonly onChoose: (filter: ArtifactFilter) => void
+}
+
+/**
+ * The All · Files · Links filter (#407), as the task list's filter chips have theirs: one pressed, Files and Links
+ * with their counts. It only shows while the task has both files and links.
+ */
+function FilterChips({ counts, chosen, onChoose }: FilterChipsProps): React.JSX.Element {
+  const count = (filter: ArtifactFilter): number | null => {
+    switch (filter) {
+      case ArtifactFilter.All:
+        return null
+      case ArtifactFilter.Files:
+        return counts.files
+      case ArtifactFilter.Links:
+        return counts.links
+    }
+  }
+  return (
+    <div className={styles.chips} role="group" aria-label="Show">
+      {FILTER_CHIPS.map(({ filter, label }) => {
+        const on = filter === chosen
+        const n = count(filter)
+        return (
+          <button
+            key={filter}
+            type="button"
+            aria-pressed={on}
+            className={classNames(styles.chip, on && styles.chipOn)}
+            onClick={() => {
+              onChoose(filter)
+            }}
+          >
+            {label}
+            {n !== null && <span className={styles.count}>{n}</span>}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
 interface GroupRowsProps {
   readonly listId: string
@@ -251,7 +421,10 @@ function GroupRows({ listId, artifacts, scroller, row }: GroupRowsProps): React.
     count: artifacts.length,
     getScrollElement: () => scroller,
     estimateSize: () => ROW_HEIGHT,
-    getItemKey: (index) => artifacts[index]?.path ?? index,
+    getItemKey: (index) => {
+      const artifact = artifacts[index]
+      return artifact === undefined ? index : artifactKey(artifact)
+    },
     gap: ROW_GAP,
     overscan: OVERSCAN,
     scrollMargin,
@@ -328,10 +501,15 @@ export interface ArtifactsTabProps {
  * compact row (`ArtifactRow`). They stay after the task is done. While the tab shows, main watches their files, so an
  * edit from anywhere moves one to the top. A row's context menu, from a right-click or its More button, has Open in
  * editor, Copy contents, Copy path and Remove from artifacts, which leaves the file.
+ *
+ * Links are artifacts too (#407): the PRs, issues and tickets the task is about, each a row of its own
+ * (`LinkArtifactRow`) dated by when it was declared, which opens in the browser. While the task has both files and
+ * links, the All · Files · Links filter above the groups shows only one kind, remembered for the task.
  */
 export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Element {
   const artifacts = useGladeStore((state) => state.artifacts[taskId]) ?? NO_ARTIFACT_LIST
   const folds = useGladeStore((state) => state.artifactGroups[taskId]) ?? NO_FOLDS
+  const chosen = useGladeStore((state) => state.artifactFilters[taskId]) ?? ArtifactFilter.All
   const selectedPath = useGladeStore((state) => state.openFiles[taskId]?.activePath ?? null)
   const rootPath = useGladeStore(
     (state) => state.workspaces.find((workspace) => workspace.id === state.tasks[taskId]?.workspaceId)?.rootPath,
@@ -342,6 +520,8 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
   const revealFile = useGladeStore((state) => state.revealFile)
   const removeArtifact = useGladeStore((state) => state.removeArtifact)
   const setArtifactGroupOpen = useGladeStore((state) => state.setArtifactGroupOpen)
+  const setArtifactFilter = useGladeStore((state) => state.setArtifactFilter)
+  const openLink = useGladeStore((state) => state.openLink)
   const watchArtifacts = useGladeStore((state) => state.watchArtifacts)
   const unwatchArtifacts = useGladeStore((state) => state.unwatchArtifacts)
   const menu = useContextMenu<string>()
@@ -358,7 +538,9 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
     }
   }, [taskId, watchArtifacts, unwatchArtifacts])
 
-  const groups = useMemo(() => groupArtifacts(artifacts, now), [artifacts, now])
+  const counts = useMemo(() => countArtifacts(artifacts), [artifacts])
+  const filter = shownFilter(counts, chosen)
+  const groups = useMemo(() => groupArtifacts(filterArtifacts(artifacts, filter), now), [artifacts, filter, now])
   const { openBelow, targetProps } = menu
 
   // The image viewer, over an image artifact: which of the image artifacts the list shows, in its own (newest-first)
@@ -377,7 +559,7 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
   // The artifact it showed is no longer one of the task's images (removed, or its file changed kind): it closes.
   if (viewingPath !== null && viewingIndex === -1) setViewingPath(null)
 
-  const onOpenImage = useCallback((artifact: Artifact, trigger: HTMLElement) => {
+  const onOpenImage = useCallback((artifact: FileArtifact, trigger: HTMLElement) => {
     viewerReturnFocus.current = trigger
     setViewingPath(artifact.path)
   }, [])
@@ -413,17 +595,38 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
   )
 
   const row = useCallback(
-    (artifact: Artifact) => (
-      <ArtifactRow
-        artifact={artifact}
-        now={now}
-        selected={artifact.path === selectedPath}
-        menuTarget={targetProps(artifact.path)}
-        onMore={openBelow}
-        onOpenImage={onOpenImage}
-      />
-    ),
+    (artifact: Artifact) => {
+      switch (artifact.kind) {
+        case ArtifactKind.File:
+          return (
+            <ArtifactRow
+              artifact={artifact}
+              now={now}
+              selected={artifact.path === selectedPath}
+              menuTarget={targetProps(artifactKey(artifact))}
+              onMore={openBelow}
+              onOpenImage={onOpenImage}
+            />
+          )
+        case ArtifactKind.Link:
+          return (
+            <LinkArtifactRow
+              artifact={artifact}
+              now={now}
+              menuTarget={targetProps(artifactKey(artifact))}
+              onMore={openBelow}
+            />
+          )
+      }
+    },
     [now, selectedPath, targetProps, openBelow, onOpenImage],
+  )
+  const choose = useCallback(
+    (next: ArtifactFilter) => {
+      // The choice shows at once; one that isn't remembered is only forgotten on the next launch.
+      setArtifactFilter(taskId, next).catch(() => undefined)
+    },
+    [setArtifactFilter, taskId],
   )
   const toggle = useCallback(
     (group: ArtifactDateGroup, open: boolean) => {
@@ -435,8 +638,30 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
 
   if (artifacts.length === 0) return <p className={styles.empty}>{NO_ARTIFACTS}</p>
 
-  const entries = (path: string) =>
-    artifactMenu(
+  const entries = (key: string) => {
+    const artifact = artifacts.find((each) => artifactKey(each) === key)
+    // The artifact went while its menu was open: there's nothing left to act on.
+    if (artifact === undefined) return []
+    const remove = (): void => {
+      run(() => removeArtifact(taskId, artifactRef(artifact)))
+    }
+    if (artifact.kind === ArtifactKind.Link) {
+      const { url } = artifact
+      return linkArtifactMenu(
+        {
+          open: () => {
+            run(() => openLink(url))
+          },
+          copy: () => {
+            copy(url)
+          },
+          remove,
+        },
+        hints,
+      )
+    }
+    const { path } = artifact
+    return artifactMenu(
       {
         open: () => {
           run(() => showFile(taskId, path))
@@ -453,15 +678,15 @@ export function ArtifactsTab({ taskId, now }: ArtifactsTabProps): React.JSX.Elem
         reveal: () => {
           run(() => revealFile(taskId, path))
         },
-        remove: () => {
-          run(() => removeArtifact(taskId, path))
-        },
+        remove,
       },
       hints,
     )
+  }
 
   return (
     <div ref={setScroller} className={styles.artifacts} role="group" aria-label="Artifacts">
+      {counts.files > 0 && counts.links > 0 && <FilterChips counts={counts} chosen={filter} onChoose={choose} />}
       {groups.map(({ group, items }) => (
         <DateGroup
           key={group}

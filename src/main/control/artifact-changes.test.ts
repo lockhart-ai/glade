@@ -15,8 +15,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { EventType } from '../../shared/bridge'
-import type { Task, Workspace } from '../../shared/domain'
-import { listArtifacts } from '../db/repositories/artifacts'
+import { ArtifactKind, type Task, type Workspace } from '../../shared/domain'
+import { listFileArtifacts } from '../db/repositories/artifacts'
 import { getTask } from '../db/repositories/tasks'
 import { createWorkspace } from '../db/repositories/workspaces'
 import { checkArtifactUpdates } from './backfill'
@@ -90,7 +90,7 @@ function taskOf(reply: ToolReply): Readonly<Record<string, unknown>> & { readonl
 
 /** The task's artifacts, as `[path relative to the root, title]`, in their order. */
 function listed(): string[][] {
-  return listArtifacts(app.database.db, id).map(({ path, title }) => [path, title])
+  return listFileArtifacts(app.database.db, id).map(({ path, title }) => [path, title])
 }
 
 function patch(changes: Readonly<Record<string, unknown>>): Promise<ToolReply> {
@@ -115,18 +115,24 @@ describe('update_task: updateArtifacts and removeArtifacts', () => {
 
     expect(reply.isError).toBe(false)
     expect(taskOf(reply).artifacts).toEqual([
-      { path: join(root, 'notes', 'plan.md'), title: 'Plan, final', addedAt: expect.any(Number) as unknown },
       {
+        kind: ArtifactKind.File,
+        path: join(root, 'notes', 'plan.md'),
+        title: 'Plan, final',
+        addedAt: expect.any(Number) as unknown,
+      },
+      {
+        kind: ArtifactKind.File,
         path: join(root, 'screens', 'landing-dark.png'),
         title: 'Landing page',
         addedAt: expect.any(Number) as unknown,
       },
     ])
-    expect(listArtifacts(app.database.db, id)[1]).toMatchObject({ modifiedAt: moved.getTime(), missing: false })
+    expect(listFileArtifacts(app.database.db, id)[1]).toMatchObject({ modifiedAt: moved.getTime(), missing: false })
     // The draft's file stays.
     expect(realpathSync(join(root, 'notes', 'draft.md'))).toBe(join(root, 'notes', 'draft.md'))
     expect(app.events.slice(events)).toEqual([
-      { type: EventType.ArtifactsChanged, taskId: id, artifacts: listArtifacts(app.database.db, id) },
+      { type: EventType.ArtifactsChanged, taskId: id, artifacts: listFileArtifacts(app.database.db, id) },
     ])
     // Only artifacts changed: the task keeps its place in the sidebar.
     expect(current()).toEqual(before)
@@ -219,7 +225,7 @@ describe('update_task: updateArtifacts and removeArtifacts', () => {
       [{ updateArtifacts: [{ path: plan }] }, 'patch.updateArtifacts.0: changes nothing'],
       [{ updateArtifacts: [] }, 'patch.updateArtifacts: is empty'],
       [{ removeArtifacts: [] }, 'patch.removeArtifacts: is empty'],
-      [{ removeArtifacts: ['notes/plan.md'] }, 'patch.removeArtifacts.0: must be an absolute path'],
+      [{ removeArtifacts: ['notes/plan.md'] }, 'patch.removeArtifacts.0: must be an absolute path or a url'],
       [
         { updateArtifacts: [{ path: plan, newPath: 'notes/plan-v2.md' }] },
         'patch.updateArtifacts.0.newPath: must be an absolute path',

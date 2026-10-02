@@ -899,20 +899,31 @@ export interface MissingFileContent {
 /** A file as the viewer shows it (`files.read`). */
 export type FileContent = TextFileContent | ImageFileContent | BinaryFileContent | MissingFileContent
 
+/** What an artifact is (#407): a file of the task's workspace, or a link to a web page (a PR, an issue, a ticket). */
+export enum ArtifactKind {
+  File = 'file',
+  Link = 'link',
+}
+
+/** What every artifact has, whatever its kind. */
+interface ArtifactBase {
+  readonly taskId: string
+  /** What it's called (`Release notes 2.4`, `Docs site navigation refresh`); declaring it again renames it. */
+  readonly title: string
+  /** When it was first declared. */
+  readonly addedAt: EpochMs
+  /** When it was last declared or changed. */
+  readonly updatedAt: EpochMs
+}
+
 /**
  * A deliverable of a task: a file in its workspace the agent declared with `add_artifact`, shown in the Artifacts tab.
  * It stays with the task, done or not.
  */
-export interface Artifact {
-  readonly taskId: string
+export interface FileArtifact extends ArtifactBase {
+  readonly kind: ArtifactKind.File
   /** Relative to the task's workspace root, with `/` between its parts (`docs/releases/2.4.md`). */
   readonly path: string
-  /** What the agent called it (`Release notes 2.4`); declaring the same path again renames it. */
-  readonly title: string
-  /** When the agent first declared it. */
-  readonly addedAt: EpochMs
-  /** When the agent last declared it. */
-  readonly updatedAt: EpochMs
   /**
    * When its file last changed, as Glade last saw it (its mtime); null until Glade has looked. A file that's gone keeps
    * its last known time. The Artifacts tab lists artifacts newest first by this (by `updatedAt` until it's known),
@@ -921,6 +932,34 @@ export interface Artifact {
   readonly modifiedAt: EpochMs | null
   /** Whether its file was gone when Glade last looked. */
   readonly missing: boolean
+}
+
+/**
+ * A remote thing a task depends on (#407): a GitHub PR or issue, a Jira ticket, any web page, declared with
+ * `add_artifact`'s `url` or Add to artifacts on a link. It opens in the browser. The tab dates it by `updatedAt`.
+ */
+export interface LinkArtifact extends ArtifactBase {
+  readonly kind: ArtifactKind.Link
+  /** Its address, normalised (`checkArtifactUrl` in `./artifactLinks`): what it's keyed and opened by. */
+  readonly url: string
+}
+
+/** One of a task's artifacts: a file of its workspace, or a link. */
+export type Artifact = FileArtifact | LinkArtifact
+
+/** Which artifact: a file by its path (relative to the workspace root), or a link by its normalised URL. */
+export type ArtifactRef =
+  | { readonly kind: ArtifactKind.File; readonly path: string }
+  | { readonly kind: ArtifactKind.Link; readonly url: string }
+
+/**
+ * Which of a task's artifacts its Artifacts tab shows (#407): all of them, only its files, or only its links. The
+ * filter only shows while the task has both, and is remembered for the task.
+ */
+export enum ArtifactFilter {
+  All = 'all',
+  Files = 'files',
+  Links = 'links',
 }
 
 /**

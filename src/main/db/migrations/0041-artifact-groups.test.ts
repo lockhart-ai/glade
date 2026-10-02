@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { ArtifactDateGroup } from '../../../shared/domain'
+import { ArtifactDateGroup, ArtifactKind } from '../../../shared/domain'
 import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { listArtifactGroups, setArtifactGroupOpen } from '../repositories/artifact-groups'
@@ -29,7 +29,16 @@ it('leaves existing artifacts unlooked at, starts each task’s groups as they s
 
   // Its artifacts haven't been looked at since: no time yet, and not missing.
   expect(listArtifacts(db, 't')).toEqual([
-    { taskId: 't', path: 'docs/notes.md', title: 'Notes', addedAt: 5, updatedAt: 6, modifiedAt: null, missing: false },
+    {
+      kind: ArtifactKind.File,
+      taskId: 't',
+      path: 'docs/notes.md',
+      title: 'Notes',
+      addedAt: 5,
+      updatedAt: 6,
+      modifiedAt: null,
+      missing: false,
+    },
   ])
   expect(() => db.prepare("UPDATE artifacts SET missing = 2 WHERE task_id = 't'").run()).toThrow(/CHECK/)
   expect(listArtifactGroups(db, 't')).toEqual([])

@@ -2,12 +2,13 @@
  * The Glade tools that keep a task's artifacts current once declared (#385): `update_artifact` renames one or points it
  * at another file, `remove_artifact` takes one off the list. `add_artifact` has its own tests in `glade-tools.test.ts`.
  */
+import { fileArtifacts } from '../../shared/artifacts'
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
-import { addArtifact, listArtifacts } from '../db/repositories/artifacts'
+import { addArtifact, listFileArtifacts } from '../db/repositories/artifacts'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { createQuestionBroker } from '../questions/questions'
 import {
@@ -18,6 +19,7 @@ import {
   type GladeToolContext,
 } from './glade-tools'
 import { createMcpToolCaller, type McpToolCaller, type McpToolOutcome } from './mcp-tool-caller'
+import { ArtifactKind } from '../../shared/domain'
 
 let database: TestDatabase
 let events: GladeEvent[]
@@ -61,14 +63,14 @@ afterEach(async () => {
 
 /** The task's artifacts, as `[path, title]`, in their order. */
 function listed(): string[][] {
-  return listArtifacts(database.db, taskId).map(({ path, title }) => [path, title])
+  return listFileArtifacts(database.db, taskId).map(({ path, title }) => [path, title])
 }
 
 /** Each `artifacts.changed` for the task, as its list of `path: title`. */
 function changes(): (readonly string[])[] {
   return events.flatMap((event) =>
     event.type === EventType.ArtifactsChanged && event.taskId === taskId
-      ? [event.artifacts.map(({ path, title }) => `${path}: ${title}`)]
+      ? [fileArtifacts(event.artifacts).map(({ path, title }) => `${path}: ${title}`)]
       : [],
   )
 }
@@ -95,7 +97,11 @@ describe('update_artifact', () => {
       ['docs/releases/2.4.md', 'Release notes 2.4'],
       ['out/screens/landing.png', 'Landing page, dark'],
     ])
-    expect(listArtifacts(database.db, taskId)[0]).toMatchObject({ addedAt: 1_000, updatedAt: 2_000, missing: false })
+    expect(listFileArtifacts(database.db, taskId)[0]).toMatchObject({
+      addedAt: 1_000,
+      updatedAt: 2_000,
+      missing: false,
+    })
     expect(changes()).toEqual([
       ['docs/releases/2.4.md: Release notes 2.4', 'out/screens/landing.png: Landing page'],
       ['docs/releases/2.4.md: Release notes 2.4', 'out/screens/landing.png: Landing page, dark'],
@@ -112,7 +118,8 @@ describe('update_artifact', () => {
       isError: false,
     })
 
-    expect(listArtifacts(database.db, taskId)[0]).toEqual({
+    expect(listFileArtifacts(database.db, taskId)[0]).toEqual({
+      kind: ArtifactKind.File,
       taskId,
       path: 'docs/releases/notes-2.4.md',
       title: 'Release notes',
@@ -134,7 +141,7 @@ describe('update_artifact', () => {
       output: 'Moved the artifact out/screens/landing.png to out/screens/landing-v2.png, now called "Landing page v2".',
       isError: false,
     })
-    expect(listArtifacts(database.db, taskId)[1]).toMatchObject({
+    expect(listFileArtifacts(database.db, taskId)[1]).toMatchObject({
       path: 'out/screens/landing-v2.png',
       title: 'Landing page v2',
       addedAt: 1_100,
@@ -155,7 +162,7 @@ describe('update_artifact', () => {
       output: 'The artifact docs/releases/2.4.md is already called "Notes"; nothing changed.',
       isError: false,
     })
-    expect(listArtifacts(database.db, taskId)[0]).toMatchObject({ title: 'Notes', updatedAt: 2_000 })
+    expect(listFileArtifacts(database.db, taskId)[0]).toMatchObject({ title: 'Notes', updatedAt: 2_000 })
     expect(events).toEqual([])
   })
 

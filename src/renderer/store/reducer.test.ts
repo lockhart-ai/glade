@@ -3,6 +3,8 @@ import { EventType } from '../../shared/bridge'
 import { appCommand, AppCommandId } from '../../shared/commands'
 import {
   ArtifactDateGroup,
+  ArtifactFilter,
+  ArtifactKind,
   DividerKind,
   PermissionRequestState,
   QuestionReplyKind,
@@ -11,13 +13,13 @@ import {
   ToolCallState,
   ToolEventKind,
   UiStateKey,
+  WatcherState,
   type Artifact,
-  type TaskHandoff,
   type TaskCommit,
+  type TaskHandoff,
   type TodoList,
   type ToolCallEvent,
   type ToolEvent,
-  WatcherState,
   type Watcher,
 } from '../../shared/domain'
 import { noOpenFiles } from '../../shared/files'
@@ -173,10 +175,20 @@ describe('a deleted task', () => {
       openFiles: { t1: { taskId: 't1', paths: ['README.md'], activePath: 'README.md' } },
       artifacts: {
         t1: [
-          { taskId: 't1', path: 'README.md', title: 'Readme', addedAt: 1, updatedAt: 1, modifiedAt: 1, missing: false },
+          {
+            kind: ArtifactKind.File,
+            taskId: 't1',
+            path: 'README.md',
+            title: 'Readme',
+            addedAt: 1,
+            updatedAt: 1,
+            modifiedAt: 1,
+            missing: false,
+          },
         ],
       },
       artifactGroups: { t1: [{ group: ArtifactDateGroup.Today, open: false }] },
+      artifactFilters: { t1: ArtifactFilter.Links },
       handoffs: { t1: { taskId: 't1', body: '## Where it got to', addedAt: 1 } },
       watchers: { t1: [sampleWatcher('w1', 't1')] },
       commits: { t1: [sampleCommit('c1', 't1')] },
@@ -201,6 +213,7 @@ describe('a deleted task', () => {
       openFiles: {},
       artifacts: {},
       artifactGroups: {},
+      artifactFilters: {},
       handoffs: {},
       watchers: {},
       commits: {},
@@ -257,6 +270,7 @@ describe("a task's logs", () => {
       todos: null,
       artifacts: [],
       artifactGroups: [],
+      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
@@ -279,6 +293,7 @@ describe("a task's logs", () => {
       todos: null,
       artifacts: [],
       artifactGroups: [],
+      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
@@ -311,6 +326,7 @@ describe("a task's logs", () => {
       todos: null,
       artifacts: [],
       artifactGroups: [],
+      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
@@ -329,6 +345,7 @@ describe("a task's logs", () => {
         todos: null,
         artifacts: [],
         artifactGroups: [],
+        artifactFilter: ArtifactFilter.All,
         handoff: null,
         watchers: [],
         commits: [],
@@ -358,6 +375,7 @@ describe("a task's queue", () => {
       todos: null,
       artifacts: [],
       artifactGroups: [],
+      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
@@ -400,6 +418,7 @@ describe("a task's questions", () => {
       todos: null,
       artifacts: [],
       artifactGroups: [],
+      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
@@ -446,6 +465,7 @@ describe("a task's permission requests", () => {
       todos: null,
       artifacts: [],
       artifactGroups: [],
+      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
@@ -475,6 +495,7 @@ describe("a task's open files", () => {
       todos: null,
       artifacts: [],
       artifactGroups: [],
+      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
@@ -497,6 +518,7 @@ describe("a task's open files", () => {
 
 describe("a task's artifacts", () => {
   const artifact = (path: string, updatedAt: number, modifiedAt: number | null = null): Artifact => ({
+    kind: ArtifactKind.File,
     taskId: 't1',
     path,
     title: path,
@@ -515,6 +537,7 @@ describe("a task's artifacts", () => {
     todos: null,
     artifacts,
     artifactGroups: [],
+    artifactFilter: ArtifactFilter.All,
     handoff: null,
     watchers: [],
     commits: [],
@@ -526,7 +549,7 @@ describe("a task's artifacts", () => {
       taskId: 't1',
       artifacts: [artifact('a.md', 5), artifact('b.md', 9)],
     })
-    expect(changed.artifacts.t1?.map(({ path }) => path)).toEqual(['a.md', 'b.md'])
+    expect(changed.artifacts.t1?.map(({ title }) => title)).toEqual(['a.md', 'b.md'])
 
     expect(withHistory(changed, 't1', history([artifact('a.md', 5)])).artifacts.t1).toHaveLength(2)
     expect(withHistory(changed, 't1', history([artifact('a.md', 12)])).artifacts.t1).toEqual([artifact('a.md', 12)])
@@ -546,6 +569,38 @@ describe("a task's artifacts", () => {
     expect(withHistory(changed, 't1', history([artifact('a.png', 5, 50)])).artifacts.t1).toEqual([
       artifact('a.png', 5, 50),
     ])
+  })
+
+  it('counts a link declared or changed later as a newer list: a link has no file to see change (#407)', () => {
+    const link = (updatedAt: number): Artifact => ({
+      kind: ArtifactKind.Link,
+      taskId: 't1',
+      url: 'https://github.com/acme/api/pull/412',
+      title: '#412',
+      addedAt: 1,
+      updatedAt,
+    })
+    const changed = applyEvent(state, {
+      type: EventType.ArtifactsChanged,
+      taskId: 't1',
+      artifacts: [artifact('a.png', 5, 40), link(60)],
+    })
+
+    expect(withHistory(changed, 't1', history([artifact('a.png', 5, 40)])).artifacts.t1).toEqual([
+      artifact('a.png', 5, 40),
+      link(60),
+    ])
+    expect(withHistory(changed, 't1', history([artifact('a.png', 5, 40), link(70)])).artifacts.t1).toEqual([
+      artifact('a.png', 5, 40),
+      link(70),
+    ])
+  })
+
+  it('takes the filter from the history, and forgets it with the task (#407)', () => {
+    const loaded = withHistory(state, 't1', { ...history([]), artifactFilter: ArtifactFilter.Links })
+
+    expect(loaded.artifactFilters).toEqual({ t1: ArtifactFilter.Links })
+    expect(applyEvent(loaded, { type: EventType.TaskDeleted, taskId: 't1' }).artifactFilters).toEqual({})
   })
 
   it('takes the date groups opened or folded from the history, and changes one in place', () => {
@@ -571,6 +626,7 @@ describe("a task's watchers", () => {
     todos: null,
     artifacts: [],
     artifactGroups: [],
+    artifactFilter: ArtifactFilter.All,
     handoff: null,
     watchers,
     commits: [],
@@ -635,6 +691,7 @@ describe("every task's running subagents", () => {
       todos: null,
       artifacts: [],
       artifactGroups: [],
+      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],
@@ -654,6 +711,7 @@ describe("a task's commits", () => {
     todos: null,
     artifacts: [],
     artifactGroups: [],
+    artifactFilter: ArtifactFilter.All,
     handoff: null,
     watchers: [],
     commits,
@@ -686,6 +744,7 @@ describe("a task's handoff note", () => {
     todos: null,
     artifacts: [],
     artifactGroups: [],
+    artifactFilter: ArtifactFilter.All,
     handoff,
     watchers: [],
     commits: [],
@@ -725,6 +784,7 @@ describe("a task's todo list", () => {
     todos,
     artifacts: [],
     artifactGroups: [],
+    artifactFilter: ArtifactFilter.All,
     handoff: null,
     watchers: [],
     commits: [],

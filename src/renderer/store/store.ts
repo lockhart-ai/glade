@@ -759,8 +759,18 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         showPanelTab(taskId, PanelTab.Files)
       },
 
-      async removeArtifact(taskId, path) {
-        await bridge.invoke(CommandName.ArtifactsRemove, { taskId, path })
+      async removeArtifact(taskId, ref) {
+        await bridge.invoke(CommandName.ArtifactsRemove, { taskId, ref })
+      },
+
+      async addLinkArtifact(taskId, url, text) {
+        await bridge.invoke(CommandName.ArtifactsAddLink, { taskId, url, text })
+      },
+
+      // The tab shows the choice at once; main remembers it for the task.
+      async setArtifactFilter(taskId, filter) {
+        set(({ artifactFilters }) => ({ artifactFilters: { ...artifactFilters, [taskId]: filter } }))
+        await bridge.invoke(CommandName.ArtifactsSetFilter, { taskId, filter })
       },
 
       // The group opens or folds at once; main remembers it for the task.

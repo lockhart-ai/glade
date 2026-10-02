@@ -14,9 +14,17 @@
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
-import type { Question } from '../../shared/domain'
+import { ArtifactKind, type Artifact, type ArtifactRef, type Question } from '../../shared/domain'
 import type { Settings } from '../../shared/settings'
-import { addTaskArtifact, forgetTaskArtifact, updateTaskArtifact, type UpdatedArtifact } from '../artifacts/artifacts'
+import {
+  addTaskArtifact,
+  addTaskLinkArtifact,
+  forgetTaskArtifact,
+  forgetTaskLinkArtifact,
+  updateTaskArtifact,
+  updateTaskLinkArtifact,
+  type UpdatedArtifact,
+} from '../artifacts/artifacts'
 import { getTask } from '../db/repositories/tasks'
 import { showTaskFile } from '../files/files'
 import { toolResultFor, type QuestionBroker } from '../questions/questions'
@@ -90,20 +98,25 @@ export interface ShowFileInput {
   readonly line?: number | undefined
 }
 
-export interface AddArtifactInput {
-  readonly path: string
+/** An artifact as the tools name it: a file by its `path`, or a link by its `url` (#407); exactly one of them. */
+export interface ArtifactTarget {
+  readonly path?: string | undefined
+  readonly url?: string | undefined
+}
+
+export interface AddArtifactInput extends ArtifactTarget {
   readonly title: string
 }
 
-export interface UpdateArtifactInput {
-  readonly path: string
+export interface UpdateArtifactInput extends ArtifactTarget {
   readonly title?: string | undefined
+  /** A file artifact's new file. */
   readonly newPath?: string | undefined
+  /** A link artifact's new page. */
+  readonly newUrl?: string | undefined
 }
 
-export interface RemoveArtifactInput {
-  readonly path: string
-}
+export type RemoveArtifactInput = ArtifactTarget
 
 /** Text the model sends: trimmed, and never empty. */
 function text(what: string) {
@@ -136,24 +149,35 @@ const showFileInput = z.object({
   line: z.int().positive().optional().describe('A line to scroll to and mark, from 1.'),
 }) satisfies z.ZodType<ShowFileInput>
 
+// The SDK checks only the fields' shape, so the handlers refuse a call that gives both a path and a url, or neither.
 const addArtifactInput = z.object({
-  path: text('path').describe("The file's path: absolute, or relative to the workspace root."),
+  path: text('path').optional().describe("A file's path: absolute, or relative to the workspace root."),
+  url: text('url')
+    .optional()
+    .describe('A link instead of a file: the http or https address of a PR, an issue, a ticket or another page.'),
   title: text('title').describe('A short name for the deliverable, e.g. "Release notes 2.4".'),
 }) satisfies z.ZodType<AddArtifactInput>
 
-// The SDK checks only the fields' shape, so the handler refuses an update that gives neither a title nor a newPath.
+// The handler also refuses an update that gives neither a title nor a new path or url.
 const updateArtifactInput = z.object({
-  path: text('path').describe("The artifact's path, as it was added: absolute, or relative to the workspace root."),
+  path: text('path')
+    .optional()
+    .describe("A file artifact's path, as it was added: absolute, or relative to the workspace root."),
+  url: text('url').optional().describe("A link artifact's url, as it was added."),
   title: text('title').optional().describe('A new short name for it.'),
   newPath: text('new path')
     .optional()
     .describe(
       "The file it's to point to instead, e.g. after moving or renaming it: absolute, or relative to the root.",
     ),
+  newUrl: text('new url').optional().describe("For a link artifact, the page it's to point to instead."),
 }) satisfies z.ZodType<UpdateArtifactInput>
 
 const removeArtifactInput = z.object({
-  path: text('path').describe("The artifact's path, as it was added: absolute, or relative to the workspace root."),
+  path: text('path')
+    .optional()
+    .describe("A file artifact's path, as it was added: absolute, or relative to the workspace root."),
+  url: text('url').optional().describe("A link artifact's url, as it was added."),
 }) satisfies z.ZodType<RemoveArtifactInput>
 
 /** A tool's reply to the model: MCP's own result type. */
@@ -164,16 +188,50 @@ function reply(message: string): GladeToolResult {
 }
 
 /** What `update_artifact` tells the model when it gives neither a new title nor a new path. */
-export const UPDATE_CHANGES_NOTHING = 'Give a new title, a newPath, or both: an update with neither changes nothing.'
+export const UPDATE_CHANGES_NOTHING =
+  'Give a new title, a newPath (for a file) or a newUrl (for a link), or both: an update with neither changes nothing.'
+
+/** What the artifact tools tell the model when it names a file and a link at once, or neither (#407). */
+export const PATH_OR_URL = "Give the artifact's path (a file) or its url (a link): one of them, not both."
+
+/** What `update_artifact` tells the model when it gives a file a new url, or a link a new path. */
+export const NEW_TARGET_OF_ANOTHER_KIND =
+  "A file artifact takes a newPath, and a link artifact a newUrl: one can't turn into the other. Remove it and add " +
+  'the other instead.'
+
+/** The artifact a tool call names: a file by its path, or a link by its url; null when it names both or neither. */
+function namedArtifact({ path, url }: ArtifactTarget): ArtifactRef | null {
+  if (path !== undefined && url === undefined) return { kind: ArtifactKind.File, path }
+  if (url !== undefined && path === undefined) return { kind: ArtifactKind.Link, url }
+  return null
+}
+
+/** How a reply names an artifact: a file by its path, a link by its URL. */
+function nameOf(artifact: Artifact): string {
+  switch (artifact.kind) {
+    case ArtifactKind.File:
+      return artifact.path
+    case ArtifactKind.Link:
+      return artifact.url
+  }
+}
 
 /** What `update_artifact` tells the model it changed. */
 function updatedReply({ before, after }: UpdatedArtifact): string {
-  const moved = before.path !== after.path
+  const [was, now] = [nameOf(before), nameOf(after)]
+  const moved = was !== now
   const renamed = before.title !== after.title
-  if (moved && renamed) return `Moved the artifact ${before.path} to ${after.path}, now called "${after.title}".`
-  if (moved) return `Moved the artifact "${after.title}" from ${before.path} to ${after.path}.`
-  if (renamed) return `Renamed the artifact ${after.path} to "${after.title}".`
-  return `The artifact ${after.path} is already called "${after.title}"; nothing changed.`
+  if (moved && renamed) return `Moved the artifact ${was} to ${now}, now called "${after.title}".`
+  if (moved) return `Moved the artifact "${after.title}" from ${was} to ${now}.`
+  if (renamed) return `Renamed the artifact ${now} to "${after.title}".`
+  return `The artifact ${now} is already called "${after.title}"; nothing changed.`
+}
+
+/** What `add_artifact` tells the model it did: added the artifact, or renamed one declared before. */
+function addedReply(artifact: Artifact): string {
+  return artifact.addedAt === artifact.updatedAt
+    ? `Added ${nameOf(artifact)} to the artifacts as "${artifact.title}".`
+    : `Renamed the artifact ${nameOf(artifact)} to "${artifact.title}".`
 }
 
 /** A tool's error reply, from what its handler threw. */
@@ -235,30 +293,57 @@ export function createGladeToolHandlers(context: GladeToolContext, taskId: strin
         return failure(error)
       }
     },
-    async addArtifact({ path, title }) {
+    async addArtifact(input) {
+      const named = namedArtifact(input)
+      if (named === null) return { ...reply(PATH_OR_URL), isError: true }
       try {
-        const artifact = await addTaskArtifact(context, taskId, path, title)
-        return reply(
-          artifact.addedAt === artifact.updatedAt
-            ? `Added ${artifact.path} to the artifacts as "${title}".`
-            : `Renamed the artifact ${artifact.path} to "${title}".`,
-        )
+        switch (named.kind) {
+          case ArtifactKind.File:
+            return reply(addedReply(await addTaskArtifact(context, taskId, named.path, input.title)))
+          case ArtifactKind.Link:
+            return reply(addedReply(addTaskLinkArtifact(context, taskId, named.url, input.title)))
+        }
       } catch (error) {
         return failure(error)
       }
     },
-    async updateArtifact({ path, title, newPath }) {
-      if (title === undefined && newPath === undefined) return { ...reply(UPDATE_CHANGES_NOTHING), isError: true }
+    async updateArtifact(input) {
+      const { title, newPath, newUrl } = input
+      const named = namedArtifact(input)
+      if (named === null) return { ...reply(PATH_OR_URL), isError: true }
+      if (title === undefined && newPath === undefined && newUrl === undefined) {
+        return { ...reply(UPDATE_CHANGES_NOTHING), isError: true }
+      }
+      if (named.kind === ArtifactKind.File ? newUrl !== undefined : newPath !== undefined) {
+        return { ...reply(NEW_TARGET_OF_ANOTHER_KIND), isError: true }
+      }
       try {
-        return reply(updatedReply(await updateTaskArtifact(context, taskId, { path, title, newPath })))
+        switch (named.kind) {
+          case ArtifactKind.File:
+            return reply(updatedReply(await updateTaskArtifact(context, taskId, { path: named.path, title, newPath })))
+          case ArtifactKind.Link:
+            return reply(updatedReply(updateTaskLinkArtifact(context, taskId, { url: named.url, title, newUrl })))
+        }
       } catch (error) {
         return failure(error)
       }
     },
-    removeArtifact({ path }) {
+    removeArtifact(input) {
+      const named = namedArtifact(input)
+      if (named === null) return { ...reply(PATH_OR_URL), isError: true }
       try {
-        const removed = forgetTaskArtifact(context, taskId, path)
-        return reply(`Removed ${removed.path} ("${removed.title}") from the artifacts. The file itself is untouched.`)
+        switch (named.kind) {
+          case ArtifactKind.File: {
+            const removed = forgetTaskArtifact(context, taskId, named.path)
+            return reply(
+              `Removed ${removed.path} ("${removed.title}") from the artifacts. The file itself is untouched.`,
+            )
+          }
+          case ArtifactKind.Link: {
+            const removed = forgetTaskLinkArtifact(context, taskId, named.url)
+            return reply(`Removed ${removed.url} ("${removed.title}") from the artifacts.`)
+          }
+        }
       } catch (error) {
         return failure(error)
       }
@@ -289,12 +374,16 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
   [GladeTool.AddArtifact]:
     "Add a file you made to the task's artifacts: its deliverables, which the user finds in the Artifacts tab and " +
     'which stay with the task after it is done. Use it for what the user asked for (a report, a document, a draft), ' +
-    'not for every file you change. The file must exist in the workspace. Adding the same path again renames it.',
+    'not for every file you change. The file must exist in the workspace. Or give a url instead of a path to add a ' +
+    'link: a PR you open or work on, or the issue or ticket the task is about (http or https only). Adding the same ' +
+    'path or url again renames it.',
   [GladeTool.UpdateArtifact]:
-    "Change one of the task's artifacts: give it a new title, or point it at another file of the workspace (newPath), " +
-    'e.g. after you moved or renamed its file, or both. It keeps its place in the Artifacts tab.',
+    "Change one of the task's artifacts, named by its path (a file) or its url (a link): give it a new title, point a " +
+    'file at another file of the workspace (newPath), e.g. after you moved or renamed it, or a link at another page ' +
+    '(newUrl), or both. It keeps its place in the Artifacts tab.',
   [GladeTool.RemoveArtifact]:
-    "Take a file off the task's artifacts, e.g. one that's no longer a deliverable. The file itself is left alone.",
+    "Take a file (by its path) or a link (by its url) off the task's artifacts, e.g. one that's no longer a " +
+    'deliverable. A file itself is left alone.',
 }
 
 /** The signal an MCP tool call is cancelled by, from the handler's `extra` (MCP's `RequestHandlerExtra`). */
