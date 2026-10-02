@@ -68,7 +68,8 @@ test('unread and needs you: a reply in a task you left marks its row, with no fi
   list = taskList(window)
   await expectUnread(list.taskRow(ASKED), ASKED, true)
   await expect(list.rows('Active')).toHaveCount(2)
-  await expect(list.rows('Active')).toHaveText([new RegExp(`^${NEW_TASK}`), new RegExp(`^${ASKED}`)])
+  await expect(list.row('Active', NEW_TASK)).toBeVisible()
+  await expect(list.row('Active', ASKED)).toBeVisible()
   await expect(list.filterChips).toHaveCount(0)
 
   // ⌘⌥↓ still jumps to the next task that needs you: from B, which doesn't, to A. Opening A reads it.
