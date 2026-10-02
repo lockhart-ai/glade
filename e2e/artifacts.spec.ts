@@ -324,7 +324,7 @@ test('artifacts: date groups that fold and stay folded, thumbnails of images, an
   await expect(filesTab(window).tab('logo.svg')).toHaveAttribute('aria-pressed', 'true')
   await expect(filesTab(window).image('logo.svg')).toHaveAttribute('src', /^data:image\/svg\+xml;base64,/)
 
-  // Opened again (5 of 6, an image still on disk), Esc closes it and puts the focus on the task's input (#415).
+  // Opened again (5 of 6, an image still on disk), Esc closes it and gives the focus back to the row it opened from.
   await window.keyboard.press('Meta+Alt+Digit4')
   const trigger = artifacts.open('Search results on mobile')
   await trigger.click()
@@ -333,7 +333,7 @@ test('artifacts: date groups that fold and stay folded, thumbnails of images, an
   await expect(viewer.pager).toHaveText('5 of 6')
   await window.keyboard.press('Escape')
   await expect(viewer.viewer).toHaveCount(0)
-  await expect(inputBar(window).field).toBeFocused()
+  await expect(trigger).toBeFocused()
   await artifacts.header('Yesterday').click()
   await expect(artifacts.groupRows('Yesterday')).toHaveCount(0)
 

@@ -56,7 +56,8 @@ There are no follow-up tasks. One task can refer to another through its folder o
   The same viewer opens an image artifact from the Artifacts tab, and the one file showing in the Files tab (#372): for
   an artifact, it also shows the artifact's title and two actions, Open in Files and Reveal in Finder, and steps
   through the image artifacts the Artifacts tab lists, in its order (not those in a folded date group, #378); for a
-  Files tab image, it shows that one file alone.
+  Files tab image, it shows that one file alone. Opened either of those ways, closing it returns the focus to the row
+  or thumbnail that opened it, not to the task's input: a keyboard user stepping through a list keeps their place in it.
   ![Artifact and file images](design/screens/35-artifact-image.png)
 - **Pasted text** (#363) — pasting more than one line, or ~80 characters or more, into the input bar marks it as its
   own block, kept apart from what you typed, rather than dumping it into the field: a short inline token stands for it

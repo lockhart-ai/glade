@@ -183,6 +183,5 @@ test('files: an image shown with show_file renders as a picture, and opens the s
 
   await window.keyboard.press('Escape')
   await expect(viewer.viewer).toHaveCount(0)
-  // Closing it puts the focus on the task's input (#415), not back on the thumbnail that opened it.
-  await expect(inputBar(window).field).toBeFocused()
+  await expect(trigger).toBeFocused()
 })

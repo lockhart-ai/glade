@@ -2,8 +2,9 @@
 // Each route the issue lists gets its own check here, rather than trusting the specs that happen to cover a route
 // already (most didn't check the focus at all; task-switching.spec.ts only covered ⌥↓ / ⌥↑ from the input bar, which
 // was the one route that already worked).
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { PNG } from '../src/shared/test-images'
 import {
   chooseFolder,
   clickMenuBarIcon,
@@ -16,6 +17,7 @@ import {
 import { chooseMenuItem } from './menu'
 import { paste, screenshot } from './paste'
 import {
+  artifactsTab,
   chat,
   deleteTaskDialog,
   firstRun,
@@ -259,4 +261,45 @@ test('closing Settings, a confirm dialog or the image viewer back onto a task fo
   await expect(list.search).toBeFocused()
   await list.search.press('Escape')
   await expect(bar.field).not.toBeFocused()
+})
+
+test('closing the image viewer opened from the Artifacts tab keeps the focus on its row, not the task’s input', async ({
+  launch,
+  tempFolder,
+}) => {
+  const folder = tempFolder()
+  const root = join(folder, 'acme-api')
+  mkdirSync(join(root, 'screens'), { recursive: true })
+  writeFileSync(join(root, 'screens', 'landing.png'), Buffer.from(PNG.data, 'base64'))
+  const seed = join(folder, 'artifacts.json')
+  writeFileSync(
+    seed,
+    JSON.stringify({
+      workspace: { name: 'Acme API', rootPath: realpathSync(root) },
+      panelTab: 'artifacts',
+      tasks: [
+        {
+          title: 'Refresh the landing page',
+          objective: 'Update the landing page screenshot.',
+          status: 'The screenshot is in Artifacts.',
+          minutesAgo: 4,
+          selected: true,
+          artifacts: [{ path: 'screens/landing.png', title: 'Landing page', minutesAgo: 4 }],
+        },
+      ],
+    }),
+  )
+  const { window } = await launch({ seed })
+  const artifacts = artifactsTab(window)
+  const viewer = imageViewer(window)
+  const trigger = artifacts.open('Landing page')
+
+  await trigger.click()
+  await expect(viewer.viewer).toBeVisible()
+  await window.keyboard.press('Escape')
+  await expect(viewer.viewer).toHaveCount(0)
+  // Unlike a chat image's viewer, this one isn't a "modal" the input bar's focus effect answers (#415): closing it
+  // keeps a keyboard user's place in the Artifacts list instead of jumping to the task's input.
+  await expect(trigger).toBeFocused()
+  await expect(inputBar(window).field).not.toBeFocused()
 })
