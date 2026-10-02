@@ -2,6 +2,7 @@ import type { Database } from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   ArtifactDateGroup,
+  ArtifactFilter,
   DividerKind,
   MessageRole,
   QuestionKind,
@@ -14,7 +15,7 @@ import { AttachedFileKind, type AttachedFile } from '../../../shared/attachedFil
 import { GIF, PNG } from '../../../shared/test-images'
 import { setArtifactGroupOpen } from './artifact-groups'
 import { setBrowseFolderExpanded } from './browse-folders'
-import { addArtifact } from './artifacts'
+import { addArtifact, addLinkArtifact, setArtifactFilter } from './artifacts'
 import { setExternalId, setHandoff } from './backfills'
 import { setSessionContext } from './session-context'
 import { setInputDraft } from './input-drafts'
@@ -97,6 +98,8 @@ function fillTask(db: Database, task: Task): void {
   })
   setOpenFiles(db, { taskId, paths: ['api/views.py'], activePath: 'api/views.py' })
   addArtifact(db, { taskId, path: 'docs/rate-limits.md', title: 'Rate limits' })
+  addLinkArtifact(db, { taskId, url: 'https://github.com/acme/api/pull/412', title: '#412' })
+  setArtifactFilter(db, taskId, ArtifactFilter.Links)
   setArtifactGroupOpen(db, { taskId, group: ArtifactDateGroup.Today, open: false })
   setBrowseFolderExpanded(db, { taskId, path: 'api', expanded: true })
   setWorkspaceSelection(db, task.workspaceId, taskId)
@@ -159,6 +162,8 @@ function fillTask(db: Database, task: Task): void {
 
 /** The tables `fillTask` writes to. A new table that belongs to a task fails the test below until it's added here. */
 const FILLED_TABLES = [
+  // The Artifacts tab's filter, as you last chose it (#407).
+  'artifact_filters',
   // The Artifacts tab's date groups you opened or folded.
   'artifact_groups',
   'artifacts',

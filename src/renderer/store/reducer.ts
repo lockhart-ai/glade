@@ -145,6 +145,8 @@ export function withHistory(
     },
     // Only this window changes them, and it has by the time a load that follows its change answers.
     artifactGroups: { ...state.artifactGroups, [taskId]: history.artifactGroups },
+    // The same: only this window chooses it.
+    artifactFilters: { ...state.artifactFilters, [taskId]: history.artifactFilter },
     todos: { ...state.todos, [taskId]: newerTodos(history.todos, state.todos[taskId]) },
     handoffs: { ...state.handoffs, [taskId]: newerHandoff(history.handoff, state.handoffs[taskId]) },
     // Like the queue, watchers change in place: the loaded ones are as new as any event before them.
@@ -236,6 +238,7 @@ export function withoutTask(state: GladeData, taskId: string): GladeData {
     artifacts: without(state.artifacts, taskId),
     artifactsVersion: without(state.artifactsVersion, taskId),
     artifactGroups: without(state.artifactGroups, taskId),
+    artifactFilters: without(state.artifactFilters, taskId),
     watchers: without(state.watchers, taskId),
     commits: without(state.commits, taskId),
     handoffs: without(state.handoffs, taskId),

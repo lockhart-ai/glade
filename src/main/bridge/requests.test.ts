@@ -4,7 +4,14 @@ import { TaskFilter } from '../../shared/attention'
 import { AttachedFileKind } from '../../shared/attachedFiles'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
 import { MAX_SEARCH_QUERY, MAX_WATCHED_FOLDERS } from '../../shared/browse'
-import { Effort, PermissionDecisionKind, PermissionMode, UiStateKey } from '../../shared/domain'
+import {
+  ArtifactFilter,
+  ArtifactKind,
+  Effort,
+  PermissionDecisionKind,
+  PermissionMode,
+  UiStateKey,
+} from '../../shared/domain'
 import { MAX_IMAGE_BASE64_LENGTH, MAX_IMAGE_BYTES } from '../../shared/images'
 import { GIF, JPEG, PNG, WEBP } from '../../shared/test-images'
 import { describeIssues, REQUEST_SCHEMAS } from './requests'
@@ -94,6 +101,31 @@ describe('REQUEST_SCHEMAS', () => {
     expect(schema.safeParse({ url: 42 }).success).toBe(false)
     expect(schema.safeParse({ url: { href: 'https://example.com' } }).success).toBe(false)
     expect(schema.safeParse({ url: 'https://example.com', target: '_blank' }).success).toBe(false)
+  })
+
+  it('parses the link artifacts’ requests (#407): a file or a link to take off, a link to add, a filter', () => {
+    const remove = REQUEST_SCHEMAS[CommandName.ArtifactsRemove]
+    const file = { taskId: 't', ref: { kind: ArtifactKind.File, path: 'docs/notes.md' } }
+    const link = { taskId: 't', ref: { kind: ArtifactKind.Link, url: 'https://github.com/acme/api/pull/412' } }
+    expect(remove.parse(file)).toEqual(file)
+    expect(remove.parse(link)).toEqual(link)
+    expect(remove.safeParse({ taskId: 't', path: 'docs/notes.md' }).success).toBe(false)
+    expect(remove.safeParse({ taskId: 't', ref: { kind: ArtifactKind.Link, path: 'docs/notes.md' } }).success).toBe(
+      false,
+    )
+    expect(remove.safeParse({ taskId: 't', ref: { kind: 'page', url: 'https://example.com' } }).success).toBe(false)
+
+    const add = REQUEST_SCHEMAS[CommandName.ArtifactsAddLink]
+    const request = { taskId: 't', url: 'https://github.com/acme/api/pull/412', text: '#412' }
+    // Its scheme is main's to check, as it adds it.
+    expect(add.parse(request)).toEqual(request)
+    expect(add.safeParse({ taskId: 't', url: 'https://example.com' }).success).toBe(false)
+
+    const filter = REQUEST_SCHEMAS[CommandName.ArtifactsSetFilter]
+    for (const chosen of Object.values(ArtifactFilter)) {
+      expect(filter.parse({ taskId: 't', filter: chosen })).toEqual({ taskId: 't', filter: chosen })
+    }
+    expect(filter.safeParse({ taskId: 't', filter: 'images' }).success).toBe(false)
   })
 
   it('refuses a Done page of no tasks, too many, an unknown filter or a malformed cursor', () => {

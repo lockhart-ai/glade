@@ -9,6 +9,7 @@ import type { Database } from 'better-sqlite3'
 import { z } from 'zod'
 import {
   AgentErrorKind,
+  ArtifactFilter,
   AutoCompactKind,
   CompactionTrigger,
   DividerKind,
@@ -37,7 +38,7 @@ import {
 } from '../shared/domain'
 import { taskPermissionRule } from '../shared/permissions'
 import { serializeRelaunchNotice } from '../shared/relaunchNotice'
-import { addArtifact, setArtifactFile } from './db/repositories/artifacts'
+import { addArtifact, addLinkArtifact, setArtifactFile, setArtifactFilter } from './db/repositories/artifacts'
 import { standInForWorkspaceRoot, workspaceFilesRoot } from './files/files'
 import { setHandoff } from './db/repositories/backfills'
 import { appendMessage } from './db/repositories/messages'
@@ -217,8 +218,10 @@ export interface SeedTask {
   readonly openFiles?: SeedOpenFiles | undefined
   /** The folders open in its Files tab's Browse tab, relative to the workspace root; none unless given. */
   readonly browseFolders?: readonly string[] | undefined
-  /** The files the agent declared as its deliverables (the Artifacts tab), in the order it declared them. */
+  /** The files and links declared as its artifacts (the Artifacts tab), in the order they were declared. */
   readonly artifacts?: readonly SeedArtifact[] | undefined
+  /** Which of them the Artifacts tab shows (#407); all of them unless given. */
+  readonly artifactFilter?: ArtifactFilter | undefined
   /** Its handoff note, from a backfill through the control API (the Backfilled card); none unless given. */
   readonly handoff?: SeedHandoff | undefined
   /** What its agent may do without asking; Allow all unless given. */
@@ -259,20 +262,22 @@ export interface SeedWatcher {
 }
 
 /**
- * A sample artifact (`Artifact`), relative to the workspace root. Declared `minutesAgo`, or at a time of day (`HH:MM`,
- * local) `daysAgo` days before the capture's, so it lands in the date group it's meant for whatever the time the
- * capture runs; its file, when the workspace has one there, is marked as last changed then too.
+ * A sample artifact (`Artifact`): a file, relative to the workspace root, or a link by its `url` (#407). Declared
+ * `minutesAgo`, or at a time of day (`HH:MM`, local) `daysAgo` days before the capture's, so it lands in the date group
+ * it's meant for whatever the time the capture runs; a file, when the workspace has one there, is marked as last
+ * changed then too.
  */
-export type SeedArtifact = SeedArtifactMinutesAgo | SeedArtifactDaysAgo
+export type SeedArtifact = SeedArtifactTarget & (SeedArtifactMinutesAgo | SeedArtifactDaysAgo)
+
+/** Which artifact a sample is: a file of the workspace, or a link. */
+export type SeedArtifactTarget = { readonly path: string } | { readonly url: string }
 
 export interface SeedArtifactMinutesAgo {
-  readonly path: string
   readonly title: string
   readonly minutesAgo: number
 }
 
 export interface SeedArtifactDaysAgo {
-  readonly path: string
   readonly title: string
   readonly daysAgo: number
   /** The time of day, `HH:MM`, 24-hour, in the local time zone. */
@@ -384,6 +389,8 @@ export interface SeedCollapsed {
 const turn = z.int().positive()
 const minutesAgo = z.number().nonnegative()
 const count = z.int().nonnegative()
+/** A time of day, `HH:MM`, 24-hour. */
+const timeOfDay = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
 
 const seedSummarySchema = z.strictObject({
   durationMs: count.nullable(),
@@ -549,15 +556,13 @@ const seedSchema: z.ZodType<CaptureSeed> = z.strictObject({
         .array(
           z.union([
             z.strictObject({ path: z.string(), title: z.string(), minutesAgo }),
-            z.strictObject({
-              path: z.string(),
-              title: z.string(),
-              daysAgo: count,
-              time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
-            }),
+            z.strictObject({ url: z.url(), title: z.string(), minutesAgo }),
+            z.strictObject({ path: z.string(), title: z.string(), daysAgo: count, time: timeOfDay }),
+            z.strictObject({ url: z.url(), title: z.string(), daysAgo: count, time: timeOfDay }),
           ]),
         )
         .optional(),
+      artifactFilter: z.enum(ArtifactFilter).optional(),
       handoff: z.strictObject({ body: z.string().min(1), minutesAgo }).optional(),
       permissionMode: z.enum(PermissionMode).optional(),
       workspace: z.strictObject({ name: z.string(), rootPath: z.string() }).optional(),
@@ -875,8 +880,12 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
         setBrowseFolderExpanded(db, { taskId: task.id, path, expanded: true })
       }
       for (const artifact of sample.artifacts ?? []) {
-        const { path, title } = artifact
         const declaredAt = seedArtifactAt(artifact, now)
+        if ('url' in artifact) {
+          addLinkArtifact(db, { taskId: task.id, url: artifact.url, title: artifact.title }, declaredAt)
+          continue
+        }
+        const { path, title } = artifact
         addArtifact(db, { taskId: task.id, path, title }, declaredAt)
         const file = join(workspaceFilesRoot(seed.workspace.rootPath), path)
         const there = existsSync(file)
@@ -888,6 +897,7 @@ export function applySeed(db: Database, seed: CaptureSeed, now: EpochMs = Date.n
           file: there ? { missing: false, modifiedAt: declaredAt } : { missing: true },
         })
       }
+      if (sample.artifactFilter !== undefined) setArtifactFilter(db, task.id, sample.artifactFilter)
       if (sample.handoff !== undefined) setHandoff(db, task.id, sample.handoff.body, ago(sample.handoff.minutesAgo))
       for (const request of sample.permissionRequests ?? []) {
         seedPermissionRequest(db, task.id, request, ago(request.minutesAgo))

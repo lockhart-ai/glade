@@ -11,7 +11,7 @@ import { TaskFilter } from '../../shared/attention'
 import { MAX_HANDOFF_BYTES, TaskActivity, TaskState, type Task, type Workspace } from '../../shared/domain'
 import { settle } from '../agent/fake-backend'
 import { HANDOFF_HEADING, handoffSection } from '../agent/system-prompt'
-import { listArtifacts } from '../db/repositories/artifacts'
+import { listFileArtifacts } from '../db/repositories/artifacts'
 import { getExternalId, getHandoff } from '../db/repositories/backfills'
 import { getTask, listTasks } from '../db/repositories/tasks'
 import { createWorkspace } from '../db/repositories/workspaces'
@@ -134,7 +134,7 @@ describe('create_task, backfilling a past task', () => {
       addedAt: expect.any(Number) as unknown,
     })
     expect(getHandoff(app.database.db, id)?.addedAt).toBeGreaterThan(MARCH_12_MS)
-    expect(listArtifacts(app.database.db, id).map(({ path, title }) => [path, title])).toEqual([
+    expect(listFileArtifacts(app.database.db, id).map(({ path, title }) => [path, title])).toEqual([
       ['notes/billing/notes.md', 'Migration notes'],
       ['notes/billing/decisions.md', 'decisions.md'],
     ])
@@ -417,7 +417,7 @@ describe('update_task on a backfilled task', () => {
     expect(app.events.at(-1)).toEqual({
       type: EventType.ArtifactsChanged,
       taskId: id,
-      artifacts: listArtifacts(app.database.db, id),
+      artifacts: listFileArtifacts(app.database.db, id),
     })
 
     const before = current(id)

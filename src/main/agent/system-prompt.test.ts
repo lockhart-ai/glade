@@ -7,6 +7,7 @@ import {
   HANDOFF_HEADING,
   handoffSection,
   INSTRUCTION_UPDATES,
+  LINK_ARTIFACTS_LINE,
   systemPromptAppend,
   WATCHERS_LINE,
 } from './system-prompt'
@@ -47,6 +48,8 @@ describe('systemPromptAppend', () => {
           'path and a short title, so it shows in the Artifacts tab and stays with the task after it is done. Keep ' +
           "that list current: if its file moves or it needs a new title, call update_artifact; if it's no longer a " +
           'deliverable, call remove_artifact.',
+        'When you open or work on a pull request, or the task is about an issue or a ticket (GitHub, Jira), call ' +
+          'add_artifact with its url and a short title, so the user finds it in the Artifacts tab next to the files.',
         '',
         'When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the ' +
           "Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows " +
@@ -71,7 +74,7 @@ describe('systemPromptAppend', () => {
     expect(FINAL_REPLY_LINE).toContain('only your last message of each turn')
     expect(FINAL_REPLY_LINE).toContain('before that reply, not after it')
     // Sessions that started before it get it once, as an instruction added since (`./session-context`).
-    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE])
+    expect(INSTRUCTION_UPDATES).toEqual([FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE])
     for (const update of INSTRUCTION_UPDATES) expect(systemPromptAppend(task)).toContain(update)
   })
 

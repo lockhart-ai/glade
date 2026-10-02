@@ -60,10 +60,10 @@ test('links: open in the browser from a reply, the header, the tool log and todo
   await window.keyboard.press('Enter')
   await expect.poll(async () => (await opened(glade)).length).toBe(3)
 
-  // Its own menu, over the reply's: Open link and Copy link.
+  // Its own menu, over the reply's: Open link, Copy link and Add to artifacts (#407).
   const linkMenu = contextMenu(window, 'Link actions')
   await status.click({ button: 'right' })
-  await expect(linkMenu.items).toHaveText(['Open link', 'Copy link'])
+  await expect(linkMenu.items).toHaveText(['Open link', 'Copy link', 'Add to artifacts'])
   await expect(window.getByRole('menu', { name: 'Reply actions' })).toHaveCount(0)
   await linkMenu.item('Copy link').click()
   await expect.poll(async () => (await desktop(glade)).copied).toEqual(['https://example.com/status'])

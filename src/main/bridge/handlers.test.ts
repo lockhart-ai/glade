@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { TaskFilter } from '../../shared/attention'
 import {
   ArtifactDateGroup,
+  ArtifactFilter,
+  ArtifactKind,
   CommitFileStatus,
   Effort,
   FileContentKind,
@@ -24,7 +26,7 @@ import { EMPTY_MENU_STATE } from '../../shared/commands'
 import { SearchField } from '../../shared/search'
 import { FakeAgentBackend } from '../agent/fake-backend'
 import { createAgentRunner } from '../agent/runner'
-import { addArtifact } from '../db/repositories/artifacts'
+import { addArtifact, listArtifacts } from '../db/repositories/artifacts'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { getSettings } from '../db/repositories/settings'
 import { setSdkModels } from '../db/repositories/sdk-models'
@@ -522,6 +524,7 @@ describe('the files commands', () => {
     const history = await handlers[CommandName.TasksHistory]({ id: taskId })
     expect(history.artifacts).toEqual([
       {
+        kind: ArtifactKind.File,
         taskId,
         path: 'docs/rate-limits.md',
         title: 'Rate limits',
@@ -630,11 +633,59 @@ describe('artifacts.remove', () => {
     addArtifact(database.db, { taskId, path: 'docs/notes.md', title: 'Notes' }, 5)
     const email = addArtifact(database.db, { taskId, path: 'out/email.txt', title: 'Email' }, 6)
 
-    expect(handlers[CommandName.ArtifactsRemove]({ taskId, path: 'docs/notes.md' })).toBeNull()
+    expect(
+      handlers[CommandName.ArtifactsRemove]({ taskId, ref: { kind: ArtifactKind.File, path: 'docs/notes.md' } }),
+    ).toBeNull()
 
     expect(emit).toHaveBeenCalledExactlyOnceWith({ type: EventType.ArtifactsChanged, taskId, artifacts: [email] })
     expect((await handlers[CommandName.TasksHistory]({ id: taskId })).artifacts).toEqual([email])
-    expect(() => handlers[CommandName.ArtifactsRemove]({ taskId, path: 'docs/notes.md' })).toThrow(
+    expect(() =>
+      handlers[CommandName.ArtifactsRemove]({ taskId, ref: { kind: ArtifactKind.File, path: 'docs/notes.md' } }),
+    ).toThrow(expect.objectContaining({ code: BridgeErrorCode.NotFound }))
+  })
+})
+
+describe('link artifacts (#407)', () => {
+  const PR = 'https://github.com/acme/api/pull/412'
+
+  it('adds a link by hand, called what it says or its #N, which the history carries, and takes it off', async () => {
+    const taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+
+    expect(handlers[CommandName.ArtifactsAddLink]({ taskId, url: PR, text: PR })).toBeNull()
+    expect(
+      handlers[CommandName.ArtifactsAddLink]({ taskId, url: 'https://example.com/docs', text: 'The docs' }),
+    ).toBeNull()
+
+    const { artifacts } = await handlers[CommandName.TasksHistory]({ id: taskId })
+    expect(artifacts.map(({ kind, title }) => [kind, title])).toEqual([
+      [ArtifactKind.Link, '#412'],
+      [ArtifactKind.Link, 'The docs'],
+    ])
+    expect(emit).toHaveBeenCalledTimes(2)
+    expect(handlers[CommandName.ArtifactsRemove]({ taskId, ref: { kind: ArtifactKind.Link, url: PR } })).toBeNull()
+    expect(listArtifacts(database.db, taskId).map(({ title }) => title)).toEqual(['The docs'])
+  })
+
+  it('refuses a link that can’t be an artifact, and a task that’s gone', () => {
+    const taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+
+    expect(() =>
+      handlers[CommandName.ArtifactsAddLink]({ taskId, url: 'javascript:alert(1)', text: 'Click me' }),
+    ).toThrow(expect.objectContaining({ code: BridgeErrorCode.InvalidRequest }))
+    expect(() => handlers[CommandName.ArtifactsAddLink]({ taskId: 'gone', url: PR, text: PR })).toThrow(
+      expect.objectContaining({ code: BridgeErrorCode.NotFound }),
+    )
+    expect(emit).not.toHaveBeenCalled()
+  })
+
+  it('remembers the Artifacts tab’s filter for the task, which its history carries', async () => {
+    const taskId = sampleTask(database.db, sampleWorkspace(database.db, root).id).id
+    expect((await handlers[CommandName.TasksHistory]({ id: taskId })).artifactFilter).toBe(ArtifactFilter.All)
+
+    expect(handlers[CommandName.ArtifactsSetFilter]({ taskId, filter: ArtifactFilter.Links })).toBeNull()
+
+    expect((await handlers[CommandName.TasksHistory]({ id: taskId })).artifactFilter).toBe(ArtifactFilter.Links)
+    expect(() => handlers[CommandName.ArtifactsSetFilter]({ taskId: 'gone', filter: ArtifactFilter.Files })).toThrow(
       expect.objectContaining({ code: BridgeErrorCode.NotFound }),
     )
   })

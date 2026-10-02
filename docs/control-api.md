@@ -85,7 +85,7 @@ text. A failure is a tool error (`isError: true`) whose JSON (again as `structur
 
 | Code | When |
 |---|---|
-| `invalid_input` | The input fails its schema: the message names each field and why, e.g. `limit: Too big: expected number to be <=100` or `verbose: unknown field`. Every schema is strict: an unknown field fails it. A cursor that's expired or for another listing fails as `cursor: …`, and an artifact that isn't a file of the workspace as `artifacts.0.path: …`. |
+| `invalid_input` | The input fails its schema: the message names each field and why, e.g. `limit: Too big: expected number to be <=100` or `verbose: unknown field`. Every schema is strict: an unknown field fails it. A cursor that's expired or for another listing fails as `cursor: …`, an artifact that isn't a file of the workspace as `artifacts.0.path: …`, and a link that can't be one as `artifacts.0.url: …`. |
 | `not_found` | No such task, workspace or session. |
 | `invalid_transition` | E.g. marking a done task done, or reopening an active one. |
 | `forbidden` | A task stopping, deleting or messaging itself. |
@@ -234,7 +234,8 @@ interface TaskDetail extends TaskSummary {
   queuedMessages: number; turns: number
   createdAt: number; sessionId: string | null
   handoff: { body: string; addedAt: number } | null        // its handoff note, from a backfill (P13-04)
-  artifacts: { path: string; title: string; addedAt: number }[]   // the Artifacts tab, by absolute path
+  artifacts: ({ kind: 'file'; path: string; title: string; addedAt: number }    // the Artifacts tab: files by absolute path,
+             | { kind: 'link'; url: string; title: string; addedAt: number })[]   // links (PRs, issues, tickets) by URL (#407)
   externalId: string | null            // its externalId, as create_task gave it or update_task last changed it
   importedAt: number | null   // set on a task imported from Claude Code (added with the import tools, P13-02)
 }
@@ -309,7 +310,8 @@ first. A `fromTurn` past the last turn gives no turns.
   model?: string; effort?: Effort; permissionMode?: PermissionMode    // Settings' defaults when left out
   // Backfilling a past task (see "Backfilling past tasks"); dates as "Dates" says:
   handoff?: string                      // its handoff note, Markdown, at most 32 KB of UTF-8
-  artifacts?: { path: string; title?: string }[]   // files of the workspace, by absolute path; title: the file name
+  artifacts?: ({ path: string; title?: string }    // files of the workspace, by absolute path; title: the file name
+               | { url: string; title?: string })[]   // or links (#407); title: #412, API-123 or the address
   startedAt?: string                    // when it started (createdAt); now by default
   updatedAt?: string                    // when it was last updated: its place in the sidebar; see below
   statusUpdatedAt?: string              // when its status was set; needs status; updatedAt by default
@@ -361,12 +363,13 @@ places it.
   patch: { title?: string; objective?: string; status?: string; pinned?: boolean; unread?: boolean
            model?: string; effort?: Effort; permissionMode?: PermissionMode
            handoff?: string | null                          // a new handoff note; null clears it
-           artifacts?: { path: string; title?: string }[]   // more artifacts, by absolute path
+           artifacts?: ({ path: string; title?: string } | { url: string; title?: string })[]   // more artifacts
            externalId?: string                              // a new externalId for it
            updatedAt?: string                               // when it was last updated, given rather than now
            statusUpdatedAt?: string                         // when its status was set, given rather than now
-           updateArtifacts?: { path: string; title?: string; newPath?: string }[]   // rename or repoint (#385)
-           removeArtifacts?: string[] } }                   // take off, by absolute path; the files stay
+           updateArtifacts?: ({ path: string; title?: string; newPath?: string }   // rename or repoint (#385)
+                             | { url: string; title?: string; newUrl?: string })[]  // a link the same way (#407)
+           removeArtifacts?: string[] } }   // take off: files by absolute path (the files stay), links by URL
 → { task: TaskDetail }
 ```
 
@@ -437,6 +440,16 @@ takes artifacts off by absolute path, leaving their files. Anything it can't do 
 `patch.updateArtifacts.0.newPath: … is already one of the task's artifacts` or `patch.updateArtifacts.0: changes
 nothing`, and nothing changes, the task's other fields included. The windows get one `artifacts.changed` with the
 task's whole list.
+
+**Links (#407).** Each of the three takes links too, as the agent's tools do: `artifacts` an item with a `url` in
+place of a `path` (one or the other: both, or neither, is `give a path (a file) or a url (a link), not both`), its
+title `#412` for a GitHub PR or issue, `API-123` for a Jira ticket, or the address without its scheme when left out;
+`updateArtifacts` an item that names a link by its `url` and gives a new `title`, a `newUrl`, or both (a file takes a
+`newPath` and a link a `newUrl`, never the other way about); `removeArtifacts` a link's URL among the absolute paths.
+A URL must be a whole `http:` or `https:` one, with no user name or password and at most 2048 characters, or it's
+refused as `invalid_input`, e.g. `patch.artifacts.0.url: must be an http or https address`. Each is kept and matched
+as the URL parser writes it out (the scheme and host lower-cased), so the same page given twice is one artifact.
+`TaskDetail.artifacts` gives each artifact's `kind`, `file` or `link`.
 
 ### `send_message`
 
@@ -511,7 +524,7 @@ and makes one task from it with `create_task`, giving it:
 - its **artifacts** (`artifacts`): files of the workspace to show in its Artifacts tab, by absolute path. Each must be a
   file inside the task's workspace (a relative path, a missing file, a folder or a file outside the workspace is
   refused as `invalid_input`, naming it, e.g. `artifacts.1.path: There's no file at …`), and the whole call with it:
-  nothing is created.
+  nothing is created. The PRs, issues and tickets it was about can go in too, by `url` (#407, `update_task`).
 - its **status** (`status`): the one-line status, e.g. its outcome, which a done task keeps.
 - when it **started** (`startedAt`): its created time, which dates it ("started Mar 12"). A date alone is that day,
   local time ("Dates"); a time to come is refused.

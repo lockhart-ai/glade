@@ -12,10 +12,11 @@ items are in pink and sit last, bar the terminal tab's Close. ![Context menus](d
 | Tool call | Copy command · Copy output · Open file · — · Run again in terminal |
 | File tab / file | Close ⌘W · Close others · Close all · — · Open in editor ⌘⇧E · Reveal in Finder · Copy path · Copy relative path |
 | Artifact | Open ↵ · Open in editor ⌘⇧E · — · Copy contents · Copy path · Reveal in Finder · — · Remove from artifacts |
+| Link artifact | Open link ↵ · — · Copy link · — · Remove from artifacts |
 | Subagent | Expand log ↵ · Copy log · — · Stop subagent |
 | Terminal tab | Rename… · Duplicate · Clear ⌘K · — · Kill process ⌃C · Close ⌘W |
 | Todo | Copy · Ask agent about this |
-| Link | Open link · — · Copy link |
+| Link | Open link · — · Copy link · — · Add to artifacts |
 
 Some items show only when they apply: Pin to top reads Unpin on a pinned task; Show this turn's tool calls needs a
 turn with tool calls; a tool call's Copy command, Copy output, Open file and Run again in terminal need a command, an
@@ -29,6 +30,10 @@ doesn't register the `glade:` scheme with macOS (`src/shared/taskLink.ts`).
 
 **Links** have their own menu wherever they're shown (a reply, a todo, a tool's output): right-clicking one opens it,
 not the menu of what it's in. Open link opens it in your browser, as clicking it does; Copy link copies its address.
+Add to artifacts (#407) adds a web link to the open task's artifacts, called what the link says, or `#412` or `API-123`
+for a bare PR, issue or ticket link; it shows only for an `http:` or `https:` link that isn't one of them already.
+A **link artifact**'s row in the Artifacts tab has its own menu: Open link opens it in your browser, as clicking the
+row does, Copy link copies its address, and Remove from artifacts takes it off the list.
 
 **Todos** have no Mark done or Remove: the agent keeps the list with Claude Code's own todo tools, so changing it is
 the agent's job. Ask agent about this puts the todo in your message to it.

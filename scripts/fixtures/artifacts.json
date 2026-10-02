@@ -119,10 +119,23 @@
           "time": "15:02"
         },
         { "path": "screens/search-mobile.png", "title": "Search results on mobile", "daysAgo": 1, "time": "16:40" },
+        {
+          "url": "https://example.com/style/code-samples",
+          "title": "Code sample style guide",
+          "daysAgo": 1,
+          "time": "17:05"
+        },
         { "path": "docs/site/rate-limits.md", "title": "Rate limits reference", "minutesAgo": 125 },
+        { "url": "https://acme.atlassian.net/browse/API-123", "title": "Developer docs refresh", "minutesAgo": 120 },
+        {
+          "url": "https://github.com/acme/api/issues/398",
+          "title": "Search misses hyphenated terms",
+          "minutesAgo": 60
+        },
         { "path": "screens/landing-light.png", "title": "Landing page, light theme", "minutesAgo": 22 },
         { "path": "docs/site/changelog.md", "title": "Changelog page draft", "minutesAgo": 14 },
-        { "path": "screens/landing-dark.png", "title": "Landing page, dark theme", "minutesAgo": 8 }
+        { "path": "screens/landing-dark.png", "title": "Landing page, dark theme", "minutesAgo": 8 },
+        { "url": "https://github.com/acme/api/pull/412", "title": "Docs site navigation refresh", "minutesAgo": 6 }
       ]
     },
     {

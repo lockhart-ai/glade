@@ -3482,6 +3482,52 @@ const sharesLinks: AgentScript = {
   ],
 }
 
+/**
+ * The reply `tracks-links` ends on (#407): a bare issue link and a named page, neither of them an artifact yet, for
+ * Add to artifacts.
+ */
+export const TRACKS_LINKS_REPLY =
+  'PR #412 is open for the navigation, and it and the ticket are in Artifacts with the release notes. It fixes ' +
+  'https://github.com/acme/api/issues/398, and follows [the code sample style guide](https://example.com/style/code-samples).'
+
+/**
+ * A turn that opens a pull request and keeps the remote things the task is about as artifacts (#407): the release
+ * notes it wrote (a file, which a spec makes), then the PR and the Jira ticket, each by `add_artifact`'s `url`. Its
+ * reply links an issue and a page that aren't artifacts yet. Every address is made up.
+ */
+const tracksLinks: AgentScript = {
+  name: 'tracks-links',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask(
+        'Ship the docs navigation',
+        'Open a pull request for the new docs navigation, for ticket API-123.',
+        'Opening the pull request.',
+      ),
+      ...tool(
+        'open-pr',
+        'Bash',
+        { command: 'gh pr create --fill', description: 'Open the pull request' },
+        'https://github.com/acme/api/pull/412',
+      ),
+      gladeTool('add-notes', 'add_artifact', { path: 'docs/releases/2.4.md', title: 'Release notes 2.4' }),
+      gladeTool('add-ticket', 'add_artifact', {
+        url: 'https://acme.atlassian.net/browse/API-123',
+        title: 'Developer docs refresh',
+      }),
+      gladeTool('add-pr', 'add_artifact', {
+        url: 'https://github.com/acme/api/pull/412',
+        title: 'Docs site navigation refresh',
+      }),
+      gladeTool('status-done', 'set_status', { status: 'PR #412 is open for review.' }),
+      say(TRACKS_LINKS_REPLY),
+      result(),
+    ],
+  ],
+}
+
 /** The reply `shares-code` ends on: a table of DNS records in backticks, and a fenced code block (#352). */
 export const SHARES_CODE_REPLY =
   'Here is the mail setup:\n\n' +
@@ -3567,6 +3613,7 @@ export const AGENT_SCRIPT_NAMES = [
   'backfills-tasks',
   'subagent-background-work',
   'shares-links',
+  'tracks-links',
   'shares-code',
   'wakes-a-subagent',
   'wakes-an-interrupted-subagent',
@@ -3630,6 +3677,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'backfills-tasks': backfillsTasks,
   'subagent-background-work': subagentBackgroundWork,
   'shares-links': sharesLinks,
+  'tracks-links': tracksLinks,
   'shares-code': sharesCode,
   'wakes-a-subagent': wakesASubagent,
   'wakes-an-interrupted-subagent': wakesAnInterruptedSubagent,

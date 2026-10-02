@@ -15,8 +15,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { EventType } from '../../shared/bridge'
-import type { Task, Workspace } from '../../shared/domain'
-import { listArtifacts } from '../db/repositories/artifacts'
+import { ArtifactKind, type Task, type Workspace } from '../../shared/domain'
+import { listArtifacts, listFileArtifacts } from '../db/repositories/artifacts'
 import { getTask } from '../db/repositories/tasks'
 import { createWorkspace } from '../db/repositories/workspaces'
 import { checkArtifactUpdates } from './backfill'
@@ -90,7 +90,7 @@ function taskOf(reply: ToolReply): Readonly<Record<string, unknown>> & { readonl
 
 /** The task's artifacts, as `[path relative to the root, title]`, in their order. */
 function listed(): string[][] {
-  return listArtifacts(app.database.db, id).map(({ path, title }) => [path, title])
+  return listFileArtifacts(app.database.db, id).map(({ path, title }) => [path, title])
 }
 
 function patch(changes: Readonly<Record<string, unknown>>): Promise<ToolReply> {
@@ -115,18 +115,24 @@ describe('update_task: updateArtifacts and removeArtifacts', () => {
 
     expect(reply.isError).toBe(false)
     expect(taskOf(reply).artifacts).toEqual([
-      { path: join(root, 'notes', 'plan.md'), title: 'Plan, final', addedAt: expect.any(Number) as unknown },
       {
+        kind: ArtifactKind.File,
+        path: join(root, 'notes', 'plan.md'),
+        title: 'Plan, final',
+        addedAt: expect.any(Number) as unknown,
+      },
+      {
+        kind: ArtifactKind.File,
         path: join(root, 'screens', 'landing-dark.png'),
         title: 'Landing page',
         addedAt: expect.any(Number) as unknown,
       },
     ])
-    expect(listArtifacts(app.database.db, id)[1]).toMatchObject({ modifiedAt: moved.getTime(), missing: false })
+    expect(listFileArtifacts(app.database.db, id)[1]).toMatchObject({ modifiedAt: moved.getTime(), missing: false })
     // The draft's file stays.
     expect(realpathSync(join(root, 'notes', 'draft.md'))).toBe(join(root, 'notes', 'draft.md'))
     expect(app.events.slice(events)).toEqual([
-      { type: EventType.ArtifactsChanged, taskId: id, artifacts: listArtifacts(app.database.db, id) },
+      { type: EventType.ArtifactsChanged, taskId: id, artifacts: listFileArtifacts(app.database.db, id) },
     ])
     // Only artifacts changed: the task keeps its place in the sidebar.
     expect(current()).toEqual(before)
@@ -219,7 +225,7 @@ describe('update_task: updateArtifacts and removeArtifacts', () => {
       [{ updateArtifacts: [{ path: plan }] }, 'patch.updateArtifacts.0: changes nothing'],
       [{ updateArtifacts: [] }, 'patch.updateArtifacts: is empty'],
       [{ removeArtifacts: [] }, 'patch.removeArtifacts: is empty'],
-      [{ removeArtifacts: ['notes/plan.md'] }, 'patch.removeArtifacts.0: must be an absolute path'],
+      [{ removeArtifacts: ['notes/plan.md'] }, 'patch.removeArtifacts.0: must be an absolute path or a url'],
       [
         { updateArtifacts: [{ path: plan, newPath: 'notes/plan-v2.md' }] },
         'patch.updateArtifacts.0.newPath: must be an absolute path',
@@ -249,6 +255,119 @@ describe('update_task: updateArtifacts and removeArtifacts', () => {
       ['screens/landing.png', 'Landing page'],
       ['notes/draft.md', 'Draft'],
     ])
+    expect(app.events.length).toBe(events)
+  })
+})
+
+describe('link artifacts through the control API (#407)', () => {
+  const PR = 'https://github.com/acme/api/pull/412'
+  const TICKET = 'https://acme.atlassian.net/browse/API-123'
+
+  /** The task's artifacts as `get_task` gives them. */
+  async function detailArtifacts(): Promise<unknown> {
+    return taskOf(await client.call(ControlToolName.GetTask, { id })).artifacts
+  }
+
+  /** The task's artifacts, as `kind title`, in their order. */
+  function all(): string[] {
+    return listArtifacts(app.database.db, id).map(({ kind, title }) => `${kind} ${title}`)
+  }
+
+  it('adds links by url, titled by default, renames and repoints them, and takes them off, by url', async () => {
+    const events = app.events.length
+    const added = await patch({
+      artifacts: [{ url: 'HTTPS://github.com/acme/api/pull/412' }, { url: TICKET, title: 'Docs refresh epic' }],
+    })
+    expect(added.isError).toBe(false)
+    expect(all()).toEqual(['file Plan', 'file Landing page', 'file Draft', 'link #412', 'link Docs refresh epic'])
+    expect(await detailArtifacts()).toEqual(
+      expect.arrayContaining([
+        { kind: ArtifactKind.Link, url: PR, title: '#412', addedAt: expect.any(Number) as unknown },
+        { kind: ArtifactKind.Link, url: TICKET, title: 'Docs refresh epic', addedAt: expect.any(Number) as unknown },
+      ]),
+    )
+
+    await patch({
+      updateArtifacts: [
+        { url: PR, title: 'Navigation refresh', newUrl: 'https://github.com/acme/api/pull/413' },
+        { path: join(root, 'notes', 'plan.md'), title: 'Plan, final' },
+      ],
+      removeArtifacts: [TICKET, join(root, 'notes', 'draft.md')],
+    })
+
+    expect(all()).toEqual(['file Plan, final', 'file Landing page', 'link Navigation refresh'])
+    expect(listArtifacts(app.database.db, id).at(-1)).toMatchObject({ url: 'https://github.com/acme/api/pull/413' })
+    // One broadcast for each call.
+    expect(app.events.slice(events).filter(({ type }) => type === EventType.ArtifactsChanged)).toHaveLength(2)
+  })
+
+  it('creates a task with links among its files', async () => {
+    const created = await client.call(ControlToolName.CreateTask, {
+      workspaceId: workspace.id,
+      title: 'Ship the navigation',
+      artifacts: [{ path: file('notes/nav.md'), title: 'Nav notes' }, { url: PR }],
+    })
+
+    expect(taskOf(created).artifacts).toEqual([
+      {
+        kind: ArtifactKind.File,
+        path: join(root, 'notes', 'nav.md'),
+        title: 'Nav notes',
+        addedAt: expect.any(Number) as unknown,
+      },
+      { kind: ArtifactKind.Link, url: PR, title: '#412', addedAt: expect.any(Number) as unknown },
+    ])
+  })
+
+  it('refuses, changing nothing, a link it can’t add, change or take off, naming the field and why', async () => {
+    await patch({ artifacts: [{ url: PR }, { url: 'https://example.com/style' }] })
+    const plan = join(root, 'notes', 'plan.md')
+    const cases: [Readonly<Record<string, unknown>>, string][] = [
+      [{ artifacts: [{ url: 'javascript:alert(1)' }] }, 'patch.artifacts.0.url: must be an http or https address'],
+      [
+        { artifacts: [{ url: 'https://me:hunter2@example.com/' }] },
+        'patch.artifacts.0.url: has a user name or password in it',
+      ],
+      [{ artifacts: [{ path: plan, url: PR }] }, 'patch.artifacts.0: give a path (a file) or a url (a link), not both'],
+      [{ artifacts: [{ title: 'Nothing' }] }, 'patch.artifacts.0: give a path (a file) or a url (a link), not both'],
+      [
+        { updateArtifacts: [{ url: TICKET, title: 'Ticket' }] },
+        `patch.updateArtifacts.0.url: ${TICKET} isn't one of the task's artifacts`,
+      ],
+      [
+        { updateArtifacts: [{ url: PR, newUrl: 'HTTPS://example.com/style' }] },
+        "patch.updateArtifacts.0.newUrl: HTTPS://example.com/style is already one of the task's artifacts",
+      ],
+      [
+        { updateArtifacts: [{ url: PR, newPath: plan }] },
+        'patch.updateArtifacts.0: a file takes a newPath and a link a newUrl',
+      ],
+      [
+        { updateArtifacts: [{ path: plan, newUrl: PR }] },
+        'patch.updateArtifacts.0: a file takes a newPath and a link a newUrl',
+      ],
+      [{ updateArtifacts: [{ url: PR }] }, 'patch.updateArtifacts.0: changes nothing'],
+      [
+        { updateArtifacts: [{ url: PR, newUrl: 'https://example.com/ a' }] },
+        "patch.updateArtifacts.0.newUrl: https://example.com/ a isn't a whole web address (http or https)",
+      ],
+      [{ removeArtifacts: [TICKET] }, `patch.removeArtifacts.0: ${TICKET} isn't one of the task's artifacts`],
+      [{ removeArtifacts: ['ftp://example.com/'] }, 'patch.removeArtifacts.0: must be an absolute path or a url'],
+      [
+        { removeArtifacts: ['https://example.com/a\tb'] },
+        "patch.removeArtifacts.0: https://example.com/a\tb isn't a whole web address (http or https)",
+      ],
+    ]
+    const before = all()
+    const events = app.events.length
+
+    for (const [changes, message] of cases) {
+      const reply = await patch({ title: 'Renamed', ...changes })
+      expect(errorCode(reply), message).toBe(ControlErrorCode.InvalidInput)
+      expect(errorMessage(reply)).toBe(message)
+    }
+
+    expect(all()).toEqual(before)
     expect(app.events.length).toBe(events)
   })
 })

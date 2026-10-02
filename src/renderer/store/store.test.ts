@@ -8,10 +8,12 @@ import {
   type TasksHistoryResponse,
 } from '../../shared/bridge'
 import {
+  ArtifactDateGroup,
+  ArtifactFilter,
+  ArtifactKind,
   DividerKind,
   Effort,
   FileContentKind,
-  ArtifactDateGroup,
   FileThumbnailKind,
   MessageRole,
   QuestionReplyKind,
@@ -21,6 +23,7 @@ import {
   ToolEventKind,
   UiStateKey,
   WatcherState,
+  type Artifact,
   type UiStateEntry,
 } from '../../shared/domain'
 import { noOpenFiles } from '../../shared/files'
@@ -40,6 +43,9 @@ import {
   sampleWorkspace,
   type FakeMain,
 } from './test-bridge'
+
+/** A made-up pull request, for link artifacts (#407). */
+const PR = 'https://github.com/acme/api/pull/412'
 
 function main(uiState: FakeMain['uiState'] = []): FakeMain {
   return {
@@ -1028,6 +1034,7 @@ describe('context menu actions', () => {
       stoppedWatchers: [],
       artifacts: [
         {
+          kind: ArtifactKind.File,
           taskId: 't1',
           path: 'docs/notes.md',
           title: 'Notes',
@@ -1036,6 +1043,7 @@ describe('context menu actions', () => {
           modifiedAt: 1,
           missing: false,
         },
+        { kind: ArtifactKind.Link, taskId: 't1', url: PR, title: '#412', addedAt: 1, updatedAt: 1 },
       ],
     }
     const { store } = await hydrated(data)
@@ -1044,13 +1052,41 @@ describe('context menu actions', () => {
     await store.getState().stopSubagent('t1', 'toolu_02')
     expect(store.getState().watchers.t1?.map(({ state }) => state)).toEqual([WatcherState.Running])
     await store.getState().stopWatcher('t1', 'w1')
-    await store.getState().removeArtifact('t1', 'docs/notes.md')
+    await store.getState().removeArtifact('t1', { kind: ArtifactKind.File, path: 'docs/notes.md' })
+    await store.getState().removeArtifact('t1', { kind: ArtifactKind.Link, url: PR })
 
     expect(data.copied).toEqual(['glade://task/t1'])
     expect(data.stoppedSubagents).toEqual(['toolu_02'])
     expect(data.stoppedWatchers).toEqual(['w1'])
     expect(store.getState().watchers.t1?.map(({ state }) => state)).toEqual([WatcherState.Stopped])
     expect(store.getState().artifacts.t1).toEqual([])
+  })
+
+  it('adds a link to a task’s artifacts through main, called what it says, once (#407)', async () => {
+    const data: FakeMain = { ...main(), artifacts: [] }
+    const { store } = await hydrated(data)
+
+    await store.getState().addLinkArtifact('t1', PR, PR)
+    await store.getState().addLinkArtifact('t1', PR, 'Navigation refresh')
+    await store.getState().addLinkArtifact('t1', 'https://example.com/docs', 'The docs')
+
+    expect(store.getState().artifacts.t1?.map(({ title }) => title)).toEqual(['#412', 'The docs'])
+    await expect(store.getState().addLinkArtifact('t1', 'mailto:support@example.com', 'Support')).rejects.toMatchObject(
+      {
+        code: BridgeErrorCode.InvalidRequest,
+      },
+    )
+  })
+
+  it('shows a task’s artifact filter at once and remembers it through main (#407)', async () => {
+    const data: FakeMain = { ...main(), artifactFilters: {} }
+    const { store, invoke } = await hydrated(data)
+
+    await store.getState().setArtifactFilter('t1', ArtifactFilter.Links)
+
+    expect(store.getState().artifactFilters).toEqual({ t1: ArtifactFilter.Links })
+    expect(data.artifactFilters).toEqual({ t1: ArtifactFilter.Links })
+    expect(invoke).toHaveBeenCalledWith(CommandName.ArtifactsSetFilter, { taskId: 't1', filter: ArtifactFilter.Links })
   })
 
   it('asks the input bar to add text, as a new request each time, without calling main', async () => {
@@ -1214,7 +1250,8 @@ describe('artifact files', () => {
 
 describe("a task's artifacts", () => {
   it("doesn't let a history load that started before an artifact was removed bring it back (#391)", async () => {
-    const declared = {
+    const declared: Artifact = {
+      kind: ArtifactKind.File,
       taskId: 't1',
       path: 'docs/notes.md',
       title: 'Notes',
@@ -1237,7 +1274,7 @@ describe("a task's artifacts", () => {
     // The load starts while the artifact is still declared...
     const load = store.getState().loadHistory('t1')
     // ...but the Artifacts tab's own Remove (or the agent's `remove_artifact`) lands its `artifacts.changed` first.
-    await store.getState().removeArtifact('t1', 'docs/notes.md')
+    await store.getState().removeArtifact('t1', { kind: ArtifactKind.File, path: 'docs/notes.md' })
     expect(store.getState().artifacts.t1).toEqual([])
 
     // The load answers last, with the stale list it read before the removal.
@@ -1251,6 +1288,7 @@ describe("a task's artifacts", () => {
       todos: null,
       artifacts: [declared],
       artifactGroups: [],
+      artifactFilter: ArtifactFilter.All,
       handoff: null,
       watchers: [],
       commits: [],

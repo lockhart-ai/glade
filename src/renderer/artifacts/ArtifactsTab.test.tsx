@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
 import {
   ArtifactDateGroup,
+  ArtifactFilter,
+  ArtifactKind,
   FileContentKind,
   FileThumbnailKind,
   UiStateKey,
@@ -10,8 +12,10 @@ import {
   type Artifact,
   type ArtifactGroupFold,
   type EpochMs,
+  type FileArtifact,
   type FileContent,
   type FileThumbnail,
+  type LinkArtifact,
   type OpenFiles,
 } from '../../shared/domain'
 import { settleFloating } from '../components/settleFloating'
@@ -45,8 +49,17 @@ function artifact(
   title: string,
   modifiedAt: EpochMs | null,
   declaredAt: EpochMs = NOW - MINUTE,
-): Artifact {
-  return { taskId: 't1', path, title, addedAt: declaredAt, updatedAt: declaredAt, modifiedAt, missing: false }
+): FileArtifact {
+  return {
+    kind: ArtifactKind.File,
+    taskId: 't1',
+    path,
+    title,
+    addedAt: declaredAt,
+    updatedAt: declaredAt,
+    modifiedAt,
+    missing: false,
+  }
 }
 
 const LANDING = artifact('out/screens/landing-dark.png', 'Landing page, dark theme', NOW - 8 * MINUTE)
@@ -56,6 +69,17 @@ const SEARCH = artifact('out/screens/search-mobile.png', 'Search results on mobi
 const NAV = artifact('site/src/components/NavSidebar.tsx', 'Nav sidebar component', local(2026, 9, 25, 15, 2))
 const IA = artifact('docs/site/ia.md', 'Information architecture', local(2026, 9, 22, 10, 0))
 const OLD = artifact('docs/site/old-nav.md', 'Old navigation audit', local(2026, 8, 3, 9, 0))
+
+/** A link artifact (#407), declared at `declaredAt`, which dates it. */
+function link(url: string, title: string, declaredAt: EpochMs): LinkArtifact {
+  return { kind: ArtifactKind.Link, taskId: 't1', url, title, addedAt: declaredAt, updatedAt: declaredAt }
+}
+
+const PR = link('https://github.com/acme/api/pull/412', 'Docs site navigation refresh', NOW - 6 * MINUTE)
+const ISSUE = link('https://github.com/acme/api/issues/398', 'Search misses hyphenated terms', NOW - 60 * MINUTE)
+const TICKET = link('https://acme.atlassian.net/browse/API-123', 'Developer docs refresh', NOW - 110 * MINUTE)
+const STYLE = link('https://example.com/style/code-samples', 'Code sample style guide', local(2026, 9, 25, 17, 5))
+const LINKS = [PR, ISSUE, TICKET, STYLE]
 
 /** Declared in this order: the tab lists them by when each file last changed, not this. */
 const ARTIFACTS = [IA, NAV, LANDING, OLD, RATES, SEARCH, CHANGELOG]
@@ -86,6 +110,8 @@ interface Setup {
   readonly thumbnails?: Readonly<Record<string, FileThumbnail>>
   readonly files?: Readonly<Record<string, FileContent>>
   readonly artifactGroups?: Record<string, ArtifactGroupFold[]>
+  /** Each task's filter (#407), as main remembers it. */
+  readonly artifactFilters?: Record<string, ArtifactFilter>
   readonly openFiles?: OpenFiles[]
   readonly overrides?: Partial<FakeHandlers>
   /** The main side to render over, as a relaunch finds it. A new one when left out. */
@@ -96,7 +122,9 @@ type TabMain = FakeMain & {
   copied: string[]
   revealed: string[]
   artifactGroups: Record<string, ArtifactGroupFold[]>
+  artifactFilters: Record<string, ArtifactFilter>
   watchedArtifacts: string[]
+  opened: string[]
 }
 
 interface Rendered extends FakeBridge {
@@ -110,6 +138,7 @@ function tabMain({
   thumbnails = THUMBNAILS,
   files,
   artifactGroups = {},
+  artifactFilters = {},
   openFiles,
 }: Setup): TabMain {
   return {
@@ -124,10 +153,12 @@ function tabMain({
     thumbnails,
     ...(files === undefined ? {} : { files }),
     artifactGroups,
+    artifactFilters,
     ...(openFiles === undefined ? {} : { openFiles }),
     copied: [],
     revealed: [],
     watchedArtifacts: [],
+    opened: [],
   }
 }
 
@@ -885,5 +916,210 @@ describe('the image viewer', () => {
     const viewer = await openViewer('Landing page, dark theme')
 
     expect(within(viewer).getByRole('img', { name: 'Image not available' })).toBeInTheDocument()
+  })
+})
+
+describe('link artifacts (#407)', () => {
+  /** The filter's chips, as `name pressed`. */
+  function chips(): string[] {
+    const filter = screen.queryByRole('group', { name: 'Show' })
+    return filter === null
+      ? []
+      : within(filter)
+          .getAllByRole('button')
+          .map((chip) => `${chip.textContent} ${chip.getAttribute('aria-pressed') ?? ''}`)
+  }
+
+  function chip(name: string): HTMLElement {
+    return within(screen.getByRole('group', { name: 'Show' })).getByRole('button', { name: new RegExp(`^${name}`) })
+  }
+
+  async function choose(title: string, label: string): Promise<void> {
+    fireEvent.contextMenu(row(title))
+    await act(() => Promise.resolve())
+    fireEvent.click(screen.getByRole('menuitem', { name: new RegExp(`^${label}`) }))
+    await act(() => Promise.resolve())
+  }
+
+  it('lists links among the files by when each was declared, saying what each is, with its kind’s icon', async () => {
+    const { invoke } = await renderTab({ artifacts: [...ARTIFACTS, ...LINKS] })
+
+    expect(titles('Today')).toEqual([
+      'Docs site navigation refresh',
+      'Landing page, dark theme',
+      'Changelog page draft',
+      'Search misses hyphenated terms',
+      'Developer docs refresh',
+      'Rate limits reference',
+    ])
+    expect(titles('Yesterday')).toEqual([
+      'Code sample style guide',
+      'Search results on mobile',
+      'Nav sidebar component',
+    ])
+    expect(row('Docs site navigation refresh')).toHaveTextContent(/^Docs site navigation refresh#412 · acme\/api6m/)
+    expect(row('Search misses hyphenated terms')).toHaveTextContent(/#398 · acme\/api1h$/)
+    expect(row('Developer docs refresh')).toHaveTextContent(/API-1231h$/)
+    expect(row('Code sample style guide')).toHaveTextContent(/example\.com17:05$/)
+    const icon = (title: string): string | null | undefined =>
+      row(title).querySelector('svg')?.getAttribute('data-icon')
+    expect(LINKS.map(({ title }) => icon(title))).toEqual(['code-pull-request', 'circle-dot', 'ticket', 'link'])
+    expect(within(row('Docs site navigation refresh')).getByRole('button', { name: /^Docs site/ })).toHaveAttribute(
+      'title',
+      PR.url,
+    )
+    // A link has no file: main is never asked for a thumbnail of it.
+    await waitFor(() => {
+      expect(looks(invoke)).toBeGreaterThan(0)
+    })
+    for (const { url } of LINKS) expect(looks(invoke, url)).toBe(0)
+  })
+
+  it('opens a link in the browser through main, by a click or Open link, and copies it, never opening Files', async () => {
+    const { store, main } = await renderTab({ artifacts: [...ARTIFACTS, ...LINKS] })
+
+    expect(
+      within(row(PR.title))
+        .getAllByRole('button')
+        .map((each) => each.getAttribute('aria-label')),
+    ).toEqual([null, 'Open link', 'Copy link', 'More'])
+    fireEvent.click(within(row(PR.title)).getByRole('button', { name: /^Docs site/ }))
+    fireEvent.click(button(ISSUE.title, 'Open link'))
+    fireEvent.click(button(TICKET.title, 'Copy link'))
+
+    await waitFor(() => {
+      expect(main.opened).toEqual([PR.url, ISSUE.url])
+    })
+    expect(main.copied).toEqual([TICKET.url])
+    expect(store.getState().openFiles.t1?.paths ?? []).toEqual([])
+  })
+
+  it('has a link’s menu from a right-click or More: Open link, Copy link and Remove from artifacts', async () => {
+    const { main } = await renderTab({ artifacts: [...ARTIFACTS, ...LINKS] })
+
+    fireEvent.click(button(PR.title, 'More'))
+    await act(() => Promise.resolve())
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'Open link↵',
+      'Copy link',
+      'Remove from artifacts',
+    ])
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+
+    await choose(STYLE.title, 'Open link')
+    await choose(STYLE.title, 'Copy link')
+    await choose(PR.title, 'Remove from artifacts')
+
+    await waitFor(() => {
+      expect(screen.queryByRole('listitem', { name: PR.title })).toBeNull()
+    })
+    expect(main.opened).toEqual([STYLE.url])
+    expect(main.copied).toEqual([STYLE.url])
+  })
+
+  it('opens no menu for an artifact taken off while its menu was on its way', async () => {
+    const { emit } = await renderTab({ artifacts: [...ARTIFACTS, PR] })
+
+    fireEvent.contextMenu(row(PR.title))
+    act(() => {
+      emit({ type: EventType.ArtifactsChanged, taskId: 't1', artifacts: ARTIFACTS })
+    })
+    await act(() => Promise.resolve())
+
+    expect(screen.queryByRole('menuitem')).toBeNull()
+  })
+
+  it('shows the filter only while the task has both files and links', async () => {
+    const { emit } = await renderTab({ artifacts: ARTIFACTS })
+    expect(chips()).toEqual([])
+
+    act(() => {
+      emit({ type: EventType.ArtifactsChanged, taskId: 't1', artifacts: [...ARTIFACTS, PR, ISSUE] })
+    })
+    expect(chips()).toEqual(['All true', 'Files7 false', 'Links2 false'])
+
+    act(() => {
+      emit({ type: EventType.ArtifactsChanged, taskId: 't1', artifacts: [PR, ISSUE] })
+    })
+    expect(chips()).toEqual([])
+    expect(titles('Today')).toEqual([PR.title, ISSUE.title])
+  })
+
+  it('shows only the files or the links, recounting the groups, and has main remember the choice', async () => {
+    const { main, invoke } = await renderTab({ artifacts: [...ARTIFACTS, ...LINKS] })
+
+    fireEvent.click(chip('Links'))
+
+    expect(chips()).toEqual(['All false', 'Files7 false', 'Links4 true'])
+    expect(groups().map((element) => element.getAttribute('aria-label'))).toEqual(['Today', 'Yesterday'])
+    expect(titles('Today')).toEqual([PR.title, ISSUE.title, TICKET.title])
+    expect(header('Today')).toHaveTextContent('Today3')
+    expect(titles('Yesterday')).toEqual([STYLE.title])
+    await waitFor(() => {
+      expect(main.artifactFilters).toEqual({ t1: ArtifactFilter.Links })
+    })
+    expect(invoke).toHaveBeenCalledWith(CommandName.ArtifactsSetFilter, { taskId: 't1', filter: ArtifactFilter.Links })
+
+    fireEvent.click(chip('Files'))
+    expect(titles('Today')).toEqual(['Landing page, dark theme', 'Changelog page draft', 'Rate limits reference'])
+    expect(header('Today')).toHaveTextContent('Today3')
+
+    fireEvent.click(chip('All'))
+    expect(header('Today')).toHaveTextContent('Today6')
+    await waitFor(() => {
+      expect(main.artifactFilters).toEqual({ t1: ArtifactFilter.All })
+    })
+  })
+
+  it('shows the filter as it was left after a relaunch, and all of them again once the task has one kind', async () => {
+    const first = await renderTab({
+      artifacts: [...ARTIFACTS, ...LINKS],
+      artifactFilters: { t1: ArtifactFilter.Links },
+    })
+    expect(chips()).toEqual(['All false', 'Files7 false', 'Links4 true'])
+    expect(titles('Today')).toEqual([PR.title, ISSUE.title, TICKET.title])
+
+    // Its links taken off: the files all show, whatever was chosen.
+    act(() => {
+      first.emit({ type: EventType.ArtifactsChanged, taskId: 't1', artifacts: ARTIFACTS })
+    })
+    expect(chips()).toEqual([])
+    expect(titles('Today')).toEqual(['Landing page, dark theme', 'Changelog page draft', 'Rate limits reference'])
+    // A link back, and the choice is too.
+    act(() => {
+      first.emit({ type: EventType.ArtifactsChanged, taskId: 't1', artifacts: [...ARTIFACTS, PR] })
+    })
+    expect(titles('Today')).toEqual([PR.title])
+  })
+
+  it('still filters when main can’t remember the choice', async () => {
+    await renderTab({
+      artifacts: [...ARTIFACTS, ...LINKS],
+      overrides: {
+        [CommandName.ArtifactsSetFilter]: () => refuse(bridgeError(BridgeErrorCode.Internal, 'The database is locked')),
+      },
+    })
+
+    fireEvent.click(chip('Links'))
+
+    expect(titles('Today')).toEqual([PR.title, ISSUE.title, TICKET.title])
+    await act(() => Promise.resolve())
+  })
+
+  it('never steps the image viewer onto a link, and shows no images under Links', async () => {
+    await renderTab({ artifacts: [...ARTIFACTS, ...LINKS], files: IMAGE_FILES })
+
+    fireEvent.click(within(row('Landing page, dark theme')).getByRole('button', { name: /^Landing page/ }))
+    await settleFloating()
+    const viewer = screen.getByRole('dialog', { name: VIEWER_LABEL })
+    expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('1 of 2')
+    fireEvent.keyDown(viewer, { key: 'ArrowRight' })
+    expect(within(viewer).getByTestId('image-viewer-title')).toHaveTextContent('Search results on mobile')
+    fireEvent.keyDown(viewer, { key: 'Escape' })
+    await settleFloating()
+
+    fireEvent.click(chip('Links'))
+    expect(screen.queryByRole('dialog', { name: VIEWER_LABEL })).toBeNull()
+    for (const { title } of LINKS) expect(row(title)).toBeInTheDocument()
   })
 })

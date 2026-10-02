@@ -166,51 +166,92 @@ const handoff = z
       'and the chat shows it at the top.',
   )
 
-/** Files to register as a task's artifacts. */
-const artifacts = z
-  .array(
-    z.strictObject({
-      path: z
-        .string()
-        .refine(isAbsolute, 'must be an absolute path')
-        .describe("The file's absolute path. It must be a file inside the task's workspace."),
-      title: text('What to call it in the Artifacts tab; its file name by default.').optional(),
-    }),
-  )
-  .describe("Files of the task's workspace to show in its Artifacts tab, each by absolute path.")
+/** Whether a URL is meant for the web: http or https. The service checks it in full, and normalises it. */
+function isWebAddress(url: string): boolean {
+  return /^https?:\/\//i.test(url.trim())
+}
+
+/** An http or https address, for a link artifact (#407). */
+function webAddress(description: string) {
+  return z.string().refine(isWebAddress, 'must be an http or https address').describe(description)
+}
 
 /** An absolute path. */
 function absolutePath(description: string) {
   return z.string().refine(isAbsolute, 'must be an absolute path').describe(description)
 }
 
+/** Whether exactly one of an artifact's `path` and `url` is given. */
+function pathOrUrl({ path, url }: { readonly path?: string | undefined; readonly url?: string | undefined }): boolean {
+  return (path === undefined) !== (url === undefined)
+}
+
+/** What a refused artifact that names both a file and a link, or neither, is told. */
+const PATH_OR_URL = 'give a path (a file) or a url (a link), not both'
+
+/** Files and links to register as a task's artifacts. */
+const artifacts = z
+  .array(
+    z
+      .strictObject({
+        path: absolutePath("A file's absolute path. It must be a file inside the task's workspace.").optional(),
+        url: webAddress(
+          'A link instead of a file: the http or https address of a PR, an issue, a ticket or another page.',
+        ).optional(),
+        title: text(
+          "What to call it in the Artifacts tab; a file's name, or a link's #412, API-123 or address, by default.",
+        ).optional(),
+      })
+      .refine(pathOrUrl, PATH_OR_URL),
+  )
+  .describe("Files of the task's workspace, each by absolute path, and links, to show in its Artifacts tab.")
+
 /** An artifact's path, as it was registered: absolute, inside the workspace. */
 const artifactPath = absolutePath(
-  "The artifact's absolute path, as the task's artifacts list it. Its file needn't still be there.",
+  "A file artifact's absolute path, as the task's artifacts list it. Its file needn't still be there.",
 )
 
-/** Changes to a task's artifacts: a new title, a new file, or both. */
+/** Changes to a task's artifacts: a new title, a new file or page, or both. */
 const updateArtifacts = z
   .array(
     z
       .strictObject({
-        path: artifactPath,
+        path: artifactPath.optional(),
+        url: webAddress("A link artifact's url, as the task's artifacts list it.").optional(),
         title: text('A new title for it in the Artifacts tab.').optional(),
         newPath: absolutePath(
           "The file it's to point to instead, by absolute path, e.g. where its file moved. It must be a file inside " +
             "the task's workspace, and not another of its artifacts.",
         ).optional(),
+        newUrl: webAddress("For a link artifact, the page it's to point to instead.").optional(),
       })
-      .refine((update) => update.title !== undefined || update.newPath !== undefined, 'changes nothing'),
+      .refine(pathOrUrl, PATH_OR_URL)
+      .refine(
+        (update) => update.title !== undefined || update.newPath !== undefined || update.newUrl !== undefined,
+        'changes nothing',
+      )
+      .refine(
+        (update) =>
+          (update.newPath === undefined || update.path !== undefined) &&
+          (update.newUrl === undefined || update.url !== undefined),
+        'a file takes a newPath and a link a newUrl',
+      ),
   )
   .min(1, 'is empty')
-  .describe("Artifacts to rename or point at another file, each keeping its place in the task's Artifacts tab.")
+  .describe("Artifacts to rename or point at another file or page, each keeping its place in the task's Artifacts tab.")
 
 /** Artifacts to take off a task's list. */
 const removeArtifacts = z
-  .array(artifactPath)
+  .array(
+    z
+      .string()
+      .refine((given) => isAbsolute(given) || isWebAddress(given), 'must be an absolute path or a url')
+      .describe("A file artifact's absolute path, or a link artifact's url."),
+  )
   .min(1, 'is empty')
-  .describe("Artifacts to take off the task's Artifacts tab, by absolute path. Their files are left alone.")
+  .describe(
+    "Artifacts to take off the task's Artifacts tab: files by absolute path (the files are left alone), links by url.",
+  )
 
 /** How the API reads a date, for the descriptions of the fields that take one. */
 const DATES =

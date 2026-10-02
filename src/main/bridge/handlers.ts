@@ -4,7 +4,7 @@ import type { MenuState } from '../../shared/commands'
 import type { Workspace } from '../../shared/domain'
 import { SUBAGENT_TOOL_NAMES } from '../../shared/subagents'
 import type { AgentRunner } from '../agent/runner'
-import { listArtifacts } from '../db/repositories/artifacts'
+import { getArtifactFilter, listArtifacts, setArtifactFilter } from '../db/repositories/artifacts'
 import { setArtifactGroupOpen, listArtifactGroups } from '../db/repositories/artifact-groups'
 import { listLiveWatchers, listWatchers, publicWatcher } from '../db/repositories/watchers'
 import { listTaskCommits } from '../db/repositories/task-commits'
@@ -54,7 +54,7 @@ import {
   type WriteClipboard,
 } from '../files/files'
 import { todoListFor } from '../todos/todos'
-import { removeTaskArtifact } from '../artifacts/artifacts'
+import { addTaskLinkByHand, removeTaskArtifact } from '../artifacts/artifacts'
 import { attachFile, discardAttachedFile } from '../attachments/attachments'
 import { NO_THUMBNAILS, type Thumbnails } from '../artifacts/thumbnails'
 import type { ArtifactWatcher } from '../artifacts/artifact-watch'
@@ -225,6 +225,7 @@ export function createHandlers(context: HandlerContext): Handlers {
         todos: todoListFor(db, id),
         artifacts: listArtifacts(db, id),
         artifactGroups: listArtifactGroups(db, id),
+        artifactFilter: getArtifactFilter(db, id),
         handoff: getHandoff(db, id) ?? null,
         watchers: listWatchers(db, id).map(publicWatcher),
         commits: listTaskCommits(db, id),
@@ -320,8 +321,17 @@ export function createHandlers(context: HandlerContext): Handlers {
       await context.folderWatch?.watch(taskId, paths)
       return null
     },
-    [CommandName.ArtifactsRemove]: ({ taskId, path }) => {
-      removeTaskArtifact(context, taskId, path)
+    [CommandName.ArtifactsRemove]: ({ taskId, ref }) => {
+      removeTaskArtifact(context, taskId, ref)
+      return null
+    },
+    [CommandName.ArtifactsAddLink]: ({ taskId, url, text }) => {
+      addTaskLinkByHand(context, taskId, { url, text })
+      return null
+    },
+    [CommandName.ArtifactsSetFilter]: ({ taskId, filter }) => {
+      requireTask(db, taskId)
+      setArtifactFilter(db, taskId, filter)
       return null
     },
     [CommandName.ArtifactsSetGroupOpen]: ({ taskId, group, open }) => {
