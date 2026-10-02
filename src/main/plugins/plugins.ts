@@ -3,15 +3,25 @@ import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import type { Database } from 'better-sqlite3'
 import { BridgeErrorCode, EventType } from '../../shared/bridge'
-import { PluginStatus, withGrant, type InstalledPlugin, type PluginCapability } from '../../shared/plugins'
+import {
+  offersSetting,
+  PluginStatus,
+  settingValues,
+  withGrant,
+  withSetting,
+  type InstalledPlugin,
+  type PluginCapability,
+} from '../../shared/plugins'
 import { CommandFailure } from '../bridge/errors'
 import type { Emit } from '../bridge/events'
 import {
   getPluginGrants,
+  getPluginSettings,
   getPluginStates,
   notePluginsFound,
   setPluginEnabled,
   setPluginGrant,
+  setPluginSetting,
 } from '../db/repositories/plugins'
 import type { OpenPath } from '../files/files'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
@@ -56,6 +66,13 @@ export interface Plugins {
    * the last time it was read, and `invalid_request` for a capability its manifest doesn't ask for.
    */
   setCapability(id: string, capability: PluginCapability, granted: boolean): InstalledPlugin[]
+  /**
+   * Sets one of the settings a plugin declares to one of the values it offers, saves it, and answers with the list as
+   * it now is. Broadcasts `plugins.changed`; the plugin views (`onUpdate`) tell the plugin, if it's the one shown,
+   * without reloading it. Fails with `not_found` for a plugin the folder didn't have a valid one for the last time it
+   * was read, and `invalid_request` for a setting its manifest doesn't declare or a value that setting doesn't offer.
+   */
+  setSetting(id: string, key: string, value: string): InstalledPlugin[]
   /** Opens the plugins folder in Finder, creating it if it's missing. */
   openFolder(): Promise<void>
   /**
@@ -97,6 +114,7 @@ export function createPlugins({
   const withStates = (found: readonly FoundPlugin[]): InstalledPlugin[] => {
     const states = getPluginStates(db)
     const grants = getPluginGrants(db)
+    const settings = getPluginSettings(db)
     return found.map((plugin) => {
       if (plugin.status !== PluginStatus.Valid) return plugin
       const granted = grants.get(plugin.folder)
@@ -105,6 +123,8 @@ export function createPlugins({
         enabled: states.get(plugin.folder) ?? true,
         // Only what its manifest asks for now: a capability it dropped stays saved, but off, until it asks again.
         granted: plugin.manifest.capabilities.filter((capability) => granted?.has(capability) === true),
+        // Only what its manifest declares now, each at the saved value if it still offers it, else its default.
+        settings: settingValues(plugin.manifest.settings, settings.get(plugin.folder)),
       }
     })
   }
@@ -188,6 +208,19 @@ export function createPlugins({
       const plugins = (last ?? []).map((candidate) => (candidate.folder === id ? changed : candidate))
       update(plugins)
       if (before !== granted) onReload?.([id])
+      return plugins
+    },
+    setSetting(id, key, value) {
+      const plugin = last?.find((candidate) => candidate.folder === id)
+      if (plugin?.status !== PluginStatus.Valid) throw new CommandFailure(BridgeErrorCode.NotFound, `No plugin ${id}`)
+      if (!offersSetting(plugin, key, value)) {
+        throw new CommandFailure(BridgeErrorCode.InvalidRequest, `${id} has no setting ${key} that offers ${value}`)
+      }
+      setPluginSetting(db, id, key, value)
+      log.info('plugin setting changed', { id, key, value })
+      const changed = withSetting(plugin, key, value)
+      const plugins = (last ?? []).map((candidate) => (candidate.folder === id ? changed : candidate))
+      update(plugins)
       return plugins
     },
     async openFolder() {

@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { PluginCapability } from '../../../shared/plugins'
-import { getPluginGrants, getPluginStates, notePluginsFound, setPluginEnabled, setPluginGrant } from './plugins'
+import {
+  getPluginGrants,
+  getPluginSettings,
+  getPluginStates,
+  notePluginsFound,
+  setPluginEnabled,
+  setPluginGrant,
+  setPluginSetting,
+} from './plugins'
 import { openTestDatabase, type TestDatabase } from './test-database'
 
 let database: TestDatabase
@@ -61,6 +69,57 @@ it('keeps one row per plugin, with its latest state', () => {
 
   expect(getPluginStates(database.db).get('pomodoro')).toBe(false)
   expect(database.db.prepare('SELECT COUNT(*) FROM plugins').pluck().get()).toBe(1)
+})
+
+describe('settings', () => {
+  it('has none to begin with: every setting starts at its default', () => {
+    notePluginsFound(database.db, ['sketchpad'])
+
+    expect(getPluginSettings(database.db)).toEqual(new Map())
+  })
+
+  it('saves a value per plugin and key, replacing the one before, and keeps each plugin apart', () => {
+    notePluginsFound(database.db, ['sketchpad', 'pomodoro'])
+    setPluginSetting(database.db, 'sketchpad', 'style', 'chalk', 1_000)
+    setPluginSetting(database.db, 'sketchpad', 'style', 'ink', 2_000)
+    setPluginSetting(database.db, 'sketchpad', 'pace', 'slow', 3_000)
+    setPluginSetting(database.db, 'pomodoro', 'style', 'neon', 4_000)
+
+    expect(getPluginSettings(database.db)).toEqual(
+      new Map([
+        [
+          'sketchpad',
+          new Map([
+            ['style', 'ink'],
+            ['pace', 'slow'],
+          ]),
+        ],
+        ['pomodoro', new Map([['style', 'neon']])],
+      ]),
+    )
+    const rows = database.db.prepare(
+      "SELECT key, updated_at FROM plugin_settings WHERE plugin_id = 'sketchpad' ORDER BY key",
+    )
+    expect(rows.all()).toEqual([
+      { key: 'pace', updated_at: 3_000 },
+      { key: 'style', updated_at: 2_000 },
+    ])
+  })
+
+  it('needs the plugin to have been found', () => {
+    expect(() => {
+      setPluginSetting(database.db, 'nothing', 'style', 'ink')
+    }).toThrow(/FOREIGN KEY/)
+  })
+
+  it("keeps a plugin's values while it's off, and through being found again", () => {
+    notePluginsFound(database.db, ['sketchpad'])
+    setPluginSetting(database.db, 'sketchpad', 'style', 'chalk')
+    setPluginEnabled(database.db, 'sketchpad', false)
+    notePluginsFound(database.db, ['sketchpad'])
+
+    expect(getPluginSettings(database.db).get('sketchpad')).toEqual(new Map([['style', 'chalk']]))
+  })
 })
 
 describe('grants', () => {

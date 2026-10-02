@@ -48,7 +48,16 @@ export enum PluginEventType {
   PermissionClosed = 'permission.closed',
   /** Only to a plugin with the `machine` capability on. */
   MachineReading = 'machine.reading',
+  /** Only to a plugin whose manifest declares `settings`. */
+  SettingsChanged = 'settings.changed',
 }
+
+/**
+ * A plugin's own settings, as its manifest declares them: each setting's `key` to its value, with every declared
+ * setting present (what you chose in Settings › Plugins, or its default). Nothing of Glade's settings or another
+ * plugin's.
+ */
+export type PluginSettings = Readonly<Record<string, string>>
 
 /** How many readings a snapshot's `machine` holds at most: the latest, about two minutes of them. */
 export const MAX_PLUGIN_MACHINE_HISTORY = 60
@@ -235,6 +244,8 @@ export interface PluginSnapshotEvent {
    * `MAX_PLUGIN_MACHINE_HISTORY`. Empty until the first one is taken.
    */
   readonly machine?: readonly PluginMachineReading[]
+  /** Only for a plugin whose manifest declares `settings` (absent otherwise): each one's value, by key. */
+  readonly settings?: PluginSettings
 }
 
 export interface PluginTaskCreatedEvent {
@@ -307,6 +318,15 @@ export interface PluginMachineReadingEvent {
   readonly reading: PluginMachineReading
 }
 
+/**
+ * You changed one of the plugin's settings in Settings › Plugins while its page was running: all of them as they now
+ * are, not only the one that changed. Only to a plugin whose manifest declares `settings`.
+ */
+export interface PluginSettingsChangedEvent {
+  readonly type: PluginEventType.SettingsChanged
+  readonly settings: PluginSettings
+}
+
 /** What Glade tells a plugin, discriminated by `type`. */
 export type PluginEvent =
   | PluginHelloEvent
@@ -323,12 +343,16 @@ export type PluginEvent =
   | PluginPermissionOpenedEvent
   | PluginPermissionClosedEvent
   | PluginMachineReadingEvent
+  | PluginSettingsChangedEvent
 
 /**
- * The task and agent events that follow the snapshot, as things change: every event but `hello`, `snapshot` and the
- * machine's readings, which come from Glade itself rather than the tasks.
+ * The task and agent events that follow the snapshot, as things change: every event but `hello`, `snapshot`, the
+ * machine's readings and the plugin's settings, which come from Glade itself rather than the tasks.
  */
-export type PluginChangeEvent = Exclude<PluginEvent, PluginHelloEvent | PluginSnapshotEvent | PluginMachineReadingEvent>
+export type PluginChangeEvent = Exclude<
+  PluginEvent,
+  PluginHelloEvent | PluginSnapshotEvent | PluginMachineReadingEvent | PluginSettingsChangedEvent
+>
 
 /** The envelope every message from Glade to a plugin comes in. */
 export interface GladeMessage {

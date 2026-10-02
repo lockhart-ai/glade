@@ -143,10 +143,12 @@ function nekomata(): ValidPlugin {
       entry: 'app/index.html',
       icon: null,
       capabilities: [],
+      settings: [],
     },
     iconUrl: null,
     enabled: true,
     granted: [],
+    settings: {},
   }
 }
 

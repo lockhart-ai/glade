@@ -1,0 +1,31 @@
+{
+  "id": "sketchpad",
+  "name": "Sketchpad",
+  "version": "1.1.0",
+  "entry": "index.html",
+  "icon": "icon.svg",
+  "capabilities": ["machine"],
+  "settings": [
+    {
+      "key": "style",
+      "label": "Art style",
+      "type": "select",
+      "options": [
+        { "value": "ink", "label": "Ink" },
+        { "value": "chalk", "label": "Chalk" },
+        { "value": "watercolour", "label": "Watercolour" }
+      ],
+      "default": "ink"
+    },
+    {
+      "key": "paper",
+      "label": "Paper",
+      "type": "select",
+      "options": [
+        { "value": "plain", "label": "Plain" },
+        { "value": "grid", "label": "Grid" }
+      ],
+      "default": "grid"
+    }
+  ]
+}

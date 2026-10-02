@@ -58,6 +58,30 @@ export function setPluginGrant(
   }
 }
 
+/**
+ * The values you've chosen for each plugin's settings, by plugin id and then setting key: only plugins with at least
+ * one. As saved: a value its plugin no longer offers is still here, and reads as the default (`settingValues`).
+ */
+export function getPluginSettings(db: Database): ReadonlyMap<string, ReadonlyMap<string, string>> {
+  const settings = new Map<string, Map<string, string>>()
+  for (const raw of db.prepare('SELECT plugin_id, key, value FROM plugin_settings').all()) {
+    const row = new Row('plugin_settings', raw)
+    const id = row.text('plugin_id')
+    const chosen = settings.get(id) ?? new Map<string, string>()
+    chosen.set(row.text('key'), row.text('value'))
+    settings.set(id, chosen)
+  }
+  return settings
+}
+
+/** Saves the value chosen for one of a plugin's settings; the plugin must already have its row (`notePluginsFound`). */
+export function setPluginSetting(db: Database, id: string, key: string, value: string, now = Date.now()): void {
+  db.prepare(
+    `INSERT INTO plugin_settings (plugin_id, key, value, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT (plugin_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+  ).run(id, key, value, now)
+}
+
 /** Turns a plugin on or off. */
 export function setPluginEnabled(db: Database, id: string, enabled: boolean, now = Date.now()): void {
   db.prepare(

@@ -217,6 +217,121 @@ test("a plugin that asks to see the Mac's load gets it only once its switch is o
   expect(await inPlugin(relaunched, "'machine' in window.received[1].event")).toBe(false)
 })
 
+/** A made-up select setting for the fixture plugin's manifest. */
+const ART_STYLE = {
+  key: 'style',
+  label: 'Art style',
+  type: 'select',
+  options: [
+    { value: 'ink', label: 'Ink' },
+    { value: 'chalk', label: 'Chalk' },
+    { value: 'neon', label: 'Neon' },
+  ],
+  default: 'ink',
+}
+
+/** Rewrites the installed fixture plugin's manifest with `fields` over what it has. */
+function editFixtureManifest(userData: string, fields: Record<string, unknown>): void {
+  const manifest = join(pluginsFolder(userData), 'fixture-plugin', 'manifest.json')
+  writeFileSync(manifest, JSON.stringify({ ...JSON.parse(readFileSync(manifest, 'utf8')), ...fields }))
+}
+
+test('a plugin that declares a select setting shows it in Plugins, gets the value chosen without reloading, and keeps it across a relaunch and an update', async ({
+  launch,
+  userData,
+}) => {
+  installFixture(userData)
+  editFixtureManifest(userData, { settings: [ART_STYLE, { key: 'sound', label: 'Sound', type: 'toggle' }] })
+  const glade = await launch()
+  const { status } = pluginCard(glade)
+  await expect(status).toHaveText(/said hello$/)
+
+  // Its snapshot has every setting it declares that Glade knows, at its default.
+  await expect.poll(() => receivedTypes(glade)).toEqual(['hello', 'snapshot'])
+  expect(await inPlugin(glade, 'window.received[1].event.settings')).toEqual({ style: 'ink' })
+
+  // Settings › Plugins shows it under the plugin, with the default chosen and its options in order; a setting of a
+  // type Glade doesn't know isn't shown.
+  const modal = await openPlugins(glade)
+  const select = modal.pluginSetting('Fixture', 'Art style')
+  await expect(modal.plugin('Fixture')).toContainText('Art style')
+  await expect(modal.plugin('Fixture')).not.toContainText('Sound')
+  await expect(select).toHaveText('Ink')
+  await select.click()
+  const options = glade.window.getByRole('menu', { name: 'Art style' }).getByRole('menuitemradio')
+  await expect(options).toHaveText(['Ink', 'Chalk', 'Neon'])
+  await expect(options.nth(0)).toBeChecked()
+
+  // Choosing another reaches the page it already has, as an event with all its settings: no reload, no new snapshot.
+  await options.nth(1).click()
+  await expect(select).toHaveText('Chalk')
+  await expect.poll(() => receivedTypes(glade)).toEqual(['hello', 'snapshot', 'settings.changed'])
+  expect(await inPlugin(glade, 'window.received[2].event')).toEqual({
+    type: 'settings.changed',
+    settings: { style: 'chalk' },
+  })
+  expect(await inPlugin(glade, 'window.received[2].seq')).toBe(3)
+  expect(await pluginPages(glade)).toBe(1)
+  await modal.close.click()
+
+  // A relaunch keeps it: in Settings, and in the snapshot the page starts from.
+  await glade.close()
+  const relaunched = await launch()
+  await expect(pluginCard(relaunched).status).toHaveText(/said hello$/)
+  await expect.poll(() => receivedTypes(relaunched)).toEqual(['hello', 'snapshot'])
+  expect(await inPlugin(relaunched, 'window.received[1].event.settings')).toEqual({ style: 'chalk' })
+  const again = await openPlugins(relaunched)
+  await expect(again.pluginSetting('Fixture', 'Art style')).toHaveText('Chalk')
+  await again.close.click()
+
+  // An update that still offers it keeps it too (the new build reloads into it).
+  editFixtureManifest(userData, {
+    version: '1.1.0',
+    settings: [{ ...ART_STYLE, options: [...ART_STYLE.options, { value: 'oil', label: 'Oil' }] }],
+  })
+  const updated = await openPlugins(relaunched)
+  await expect(updated.plugin('Fixture')).toContainText('1.1.0')
+  await expect(updated.pluginSetting('Fixture', 'Art style')).toHaveText('Chalk')
+  await updated.close.click()
+  await expect.poll(() => pluginPages(relaunched)).toBe(1)
+  await expect.poll(() => receivedTypes(relaunched)).toEqual(['hello', 'snapshot'])
+  expect(await inPlugin(relaunched, 'window.received[1].event.settings')).toEqual({ style: 'chalk' })
+
+  // One that no longer offers it falls back to the new default.
+  editFixtureManifest(userData, {
+    version: '2.0.0',
+    settings: [{ ...ART_STYLE, options: [ART_STYLE.options[0], ART_STYLE.options[2]], default: 'neon' }],
+  })
+  const dropped = await openPlugins(relaunched)
+  await expect(dropped.plugin('Fixture')).toContainText('2.0.0')
+  await expect(dropped.pluginSetting('Fixture', 'Art style')).toHaveText('Neon')
+  await dropped.close.click()
+  await expect.poll(() => pluginPages(relaunched)).toBe(1)
+  await expect.poll(() => inPlugin(relaunched, 'window.received[1]?.event.settings')).toEqual({ style: 'neon' })
+})
+
+test('a plugin whose settings are malformed is listed as invalid with why, and one without settings has no select and no settings field', async ({
+  launch,
+  userData,
+}) => {
+  installFixture(userData)
+  install(userData, 'valid', 'pomodoro')
+  const pomodoro = join(pluginsFolder(userData), 'pomodoro', 'manifest.json')
+  writeFileSync(
+    pomodoro,
+    JSON.stringify({ ...JSON.parse(readFileSync(pomodoro, 'utf8')), settings: [{ ...ART_STYLE, default: 'oil' }] }),
+  )
+  const glade = await launch()
+  await expect(pluginCard(glade).status).toHaveText(/said hello$/)
+  const modal = await openPlugins(glade)
+
+  await expect(modal.plugin('pomodoro')).toContainText('settings.0.default: Expected one of the option values')
+  await expect(modal.plugin('Fixture')).toBeVisible()
+  await expect(modal.plugin('Fixture').getByRole('button')).toHaveCount(1)
+  await expect.poll(() => receivedTypes(glade)).toEqual(['hello', 'snapshot'])
+  expect(await inPlugin(glade, "'settings' in window.received[1].event")).toBe(false)
+})
+
 test("a plugin that doesn't ask to see the Mac's load has no switch for it", async ({ launch, userData }) => {
   installFixture(userData)
   const glade = await launch()

@@ -653,6 +653,12 @@ export function settings(page: Page) {
     /** The switch under a plugin in Plugins that lets it see the Mac's load (its `machine` capability), by its name. */
     machineSwitch: (name: string) =>
       dialog.getByRole('switch', { name: `${name}: Can see your Mac's CPU, GPU and Docker load`, exact: true }),
+    /**
+     * The select under a plugin in Plugins for one of the settings it declares, by the plugin's name and the setting's
+     * label, whatever is chosen: its name ends in the chosen option's label (`Fixture: Art style: Ink`).
+     */
+    pluginSetting: (name: string, label: string) =>
+      dialog.getByRole('button', { name: new RegExp(`^${name}: ${label}: `) }),
     openPluginsFolder: dialog.getByRole('button', { name: 'Open plugins folder' }),
     /** Control's endpoint URL, or "Not listening". */
     endpoint: dialog.getByLabel('Endpoint URL'),

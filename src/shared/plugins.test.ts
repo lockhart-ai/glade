@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import {
   isGranted,
+  isPluginSettingType,
+  offersSetting,
   PLUGIN_CAPABILITY_LABELS,
   PluginCapability,
+  PluginSettingType,
   PluginStatus,
+  settingValues,
   shownPlugin,
   withGrant,
+  withSetting,
   type InstalledPlugin,
+  type PluginSetting,
   type ValidPlugin,
 } from './plugins'
 
@@ -14,10 +20,19 @@ function valid(folder: string, enabled = true): ValidPlugin {
   return {
     status: PluginStatus.Valid,
     folder,
-    manifest: { id: folder, name: folder, version: '1.0.0', entry: 'index.html', icon: null, capabilities: [] },
+    manifest: {
+      id: folder,
+      name: folder,
+      version: '1.0.0',
+      entry: 'index.html',
+      icon: null,
+      capabilities: [],
+      settings: [],
+    },
     iconUrl: null,
     enabled,
     granted: [],
+    settings: {},
   }
 }
 
@@ -44,6 +59,84 @@ describe('shownPlugin', () => {
     shownPlugin(plugins)
 
     expect(plugins.map(({ folder }) => folder)).toEqual(['b', 'a'])
+  })
+})
+
+describe('settings', () => {
+  const STYLE: PluginSetting = {
+    type: PluginSettingType.Select,
+    key: 'style',
+    label: 'Art style',
+    options: [
+      { value: 'ink', label: 'Ink' },
+      { value: 'chalk', label: 'Chalk' },
+    ],
+    default: 'ink',
+  }
+  const PACE: PluginSetting = {
+    type: PluginSettingType.Select,
+    key: 'pace',
+    label: 'Pace',
+    options: [
+      { value: 'slow', label: 'Slow' },
+      { value: 'fast', label: 'Fast' },
+    ],
+    default: 'fast',
+  }
+  const sketchpad: ValidPlugin = {
+    ...valid('sketchpad'),
+    manifest: { ...valid('sketchpad').manifest, settings: [STYLE, PACE] },
+    settings: { style: 'ink', pace: 'fast' },
+  }
+
+  it('knows the select type, and no other', () => {
+    expect(isPluginSettingType('select')).toBe(true)
+    expect(isPluginSettingType('toggle')).toBe(false)
+    expect(isPluginSettingType('Select')).toBe(false)
+  })
+
+  it('settingValues gives every declared setting its default when nothing is saved', () => {
+    expect(settingValues([STYLE, PACE], undefined)).toEqual({ style: 'ink', pace: 'fast' })
+    expect(settingValues([STYLE, PACE], new Map())).toEqual({ style: 'ink', pace: 'fast' })
+    expect(settingValues([], new Map([['style', 'chalk']]))).toEqual({})
+  })
+
+  it('settingValues gives the saved value, and leaves out what the plugin does not declare', () => {
+    const saved = new Map([
+      ['style', 'chalk'],
+      ['volume', 'loud'],
+    ])
+    expect(settingValues([STYLE, PACE], saved)).toEqual({ style: 'chalk', pace: 'fast' })
+  })
+
+  it('settingValues falls back to the default for a saved value no longer among the options', () => {
+    const saved = new Map([
+      ['style', 'oil'],
+      ['pace', 'slow'],
+    ])
+    expect(settingValues([STYLE, PACE], saved)).toEqual({ style: 'ink', pace: 'slow' })
+    // A value another setting offers isn't one this setting does.
+    expect(settingValues([STYLE], new Map([['style', 'slow']]))).toEqual({ style: 'ink' })
+  })
+
+  it('offersSetting is true only for a setting the plugin declares and a value it offers', () => {
+    expect(offersSetting(sketchpad, 'style', 'chalk')).toBe(true)
+    expect(offersSetting(sketchpad, 'style', 'slow')).toBe(false)
+    expect(offersSetting(sketchpad, 'volume', 'chalk')).toBe(false)
+    expect(offersSetting(valid('pomodoro'), 'style', 'chalk')).toBe(false)
+  })
+
+  it('withSetting sets one setting and leaves the others, and the plugin it was given, alone', () => {
+    const chalk = withSetting(sketchpad, 'style', 'chalk')
+
+    expect(chalk.settings).toEqual({ style: 'chalk', pace: 'fast' })
+    expect(sketchpad.settings).toEqual({ style: 'ink', pace: 'fast' })
+  })
+
+  it("withSetting can't set a setting the plugin doesn't declare, or to a value it doesn't offer", () => {
+    expect(withSetting(sketchpad, 'style', 'oil')).toBe(sketchpad)
+    expect(withSetting(sketchpad, 'volume', 'loud')).toBe(sketchpad)
+    expect(withSetting(valid('pomodoro'), 'style', 'chalk').settings).toEqual({})
   })
 })
 

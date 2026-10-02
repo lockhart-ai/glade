@@ -390,6 +390,7 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.PluginsSetCapability]: ({ id, capability, granted }) => ({
       plugins: plugins.setCapability(id, capability, granted),
     }),
+    [CommandName.PluginsSetSetting]: ({ id, key, value }) => ({ plugins: plugins.setSetting(id, key, value) }),
     [CommandName.PluginsOpenFolder]: async () => {
       await plugins.openFolder()
       return null

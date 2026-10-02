@@ -153,6 +153,12 @@
     count, the GPU's utilisation, and each Docker container's name, CPU and memory), about every 2 s, sampled in main
     only while such a plugin is showing. Never a process's name, command or path, nor more about a container than its
     name. Docker is read only if it's running, never started.
+  - A plugin can declare settings of its own (#435): a manifest's `settings` lists up to 8, one kind so far, `select`
+    (a `key`, a `label`, up to 12 `options` and a `default`). Settings › Plugins shows each under the plugin's row,
+    beside its capability switches; the value chosen is saved per plugin in SQLite and survives restarts and plugin
+    updates, and one an update no longer offers reads as the default. Glade hands the page its own values, key to
+    value, in `snapshot`'s `settings`, and again in a `settings.changed` event when one changes while it runs (no
+    reload). Additive, so the API stays version 1; a plugin never sees Glade's settings or another plugin's.
   - Settings › Plugins lists the installed plugins, each with an enable/disable toggle, and has **Open plugins
     folder**. Whether each plugin is enabled lives in SQLite.
   - The bottom bar splits into terminal | plugin with a drag handle; the plugin's width is saved in SQLite. With no

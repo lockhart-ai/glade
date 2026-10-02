@@ -2,7 +2,13 @@ import { existsSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { BridgeErrorCode, EventType, type GladeEvent } from '../../shared/bridge'
-import { PluginCapability, PluginStatus, type InstalledPlugin, type PluginManifest } from '../../shared/plugins'
+import {
+  PluginCapability,
+  PluginStatus,
+  type InstalledPlugin,
+  type PluginManifest,
+  type PluginSettingValues,
+} from '../../shared/plugins'
 import { CommandFailure } from '../bridge/errors'
 import { getPluginGrants, getPluginStates } from '../db/repositories/plugins'
 import { openTestDatabase, type TestDatabase } from '../db/repositories/test-database'
@@ -271,7 +277,7 @@ describe('setCapability', () => {
 
     expect(listed).toMatchObject([
       { folder: 'gauge', manifest: { capabilities: [PluginCapability.Machine] }, granted: [] },
-      { folder: 'pomodoro', manifest: { capabilities: [] }, granted: [] },
+      { folder: 'pomodoro', manifest: { capabilities: [], settings: [] }, granted: [] },
     ])
   })
 
@@ -372,6 +378,211 @@ describe('setCapability', () => {
   })
 })
 
+describe('setSetting', () => {
+  const STYLE = {
+    key: 'style',
+    label: 'Art style',
+    type: 'select',
+    options: [
+      { value: 'ink', label: 'Ink' },
+      { value: 'chalk', label: 'Chalk' },
+      { value: 'neon', label: 'Neon' },
+    ],
+    default: 'ink',
+  }
+  const PACE = {
+    key: 'pace',
+    label: 'Pace',
+    type: 'select',
+    options: [
+      { value: 'slow', label: 'Slow' },
+      { value: 'fast', label: 'Fast' },
+    ],
+    default: 'fast',
+  }
+
+  /** A made-up plugin that declares settings. */
+  function writeSketchpad(settings: unknown = [STYLE, PACE], version = '1.0.0', id = 'sketchpad'): void {
+    writePlugin(folder, id, { ...sampleManifest(id), name: 'Sketchpad', version, settings })
+  }
+
+  /** Each valid plugin's settings as it's handed them, by folder. */
+  function values(list: readonly InstalledPlugin[]): [string, PluginSettingValues][] {
+    return list.flatMap((plugin) => (plugin.status === PluginStatus.Valid ? [[plugin.folder, plugin.settings]] : []))
+  }
+
+  /** What's saved, as rows. */
+  function saved(): unknown[] {
+    return database.db.prepare('SELECT plugin_id, key, value FROM plugin_settings ORDER BY plugin_id, key').all()
+  }
+
+  it('lists every declared setting at its default until one is chosen, and none for a plugin without any', async () => {
+    writeSketchpad()
+    writePlugin(folder, 'pomodoro')
+
+    const listed = await plugins().list()
+
+    expect(values(listed)).toEqual([
+      ['pomodoro', {}],
+      ['sketchpad', { style: 'ink', pace: 'fast' }],
+    ])
+    expect(saved()).toEqual([])
+  })
+
+  it('sets one, saving it and broadcasting the list, without reloading the plugin', async () => {
+    const onReload = vi.fn()
+    const onUpdate = vi.fn()
+    const service = plugins({ onReload, onUpdate })
+    writeSketchpad()
+    await service.list()
+
+    const chosen = service.setSetting('sketchpad', 'style', 'chalk')
+
+    expect(values(chosen)).toEqual([['sketchpad', { style: 'chalk', pace: 'fast' }]])
+    expect(emit).toHaveBeenLastCalledWith({ type: EventType.PluginsChanged, plugins: chosen })
+    expect(onUpdate).toHaveBeenLastCalledWith(chosen)
+    expect(saved()).toEqual([{ plugin_id: 'sketchpad', key: 'style', value: 'chalk' }])
+    expect(onReload).not.toHaveBeenCalled()
+  })
+
+  it('keeps one value per setting, the last chosen, and saves the default when it is chosen', async () => {
+    const service = plugins()
+    writeSketchpad()
+    await service.list()
+
+    service.setSetting('sketchpad', 'style', 'chalk')
+    service.setSetting('sketchpad', 'pace', 'slow')
+    const back = service.setSetting('sketchpad', 'style', 'ink')
+
+    expect(values(back)).toEqual([['sketchpad', { style: 'ink', pace: 'slow' }]])
+    expect(saved()).toEqual([
+      { plugin_id: 'sketchpad', key: 'pace', value: 'slow' },
+      { plugin_id: 'sketchpad', key: 'style', value: 'ink' },
+    ])
+  })
+
+  it('keeps it across a relaunch, and whether the plugin is on or off', async () => {
+    writeSketchpad()
+    const first = plugins()
+    await first.list()
+    first.setSetting('sketchpad', 'style', 'neon')
+    first.setEnabled('sketchpad', false)
+
+    expect(values(await plugins().list())).toEqual([['sketchpad', { style: 'neon', pace: 'fast' }]])
+  })
+
+  it('keeps it across an update of the plugin, and its folder being removed and put back', async () => {
+    const service = plugins()
+    writeSketchpad()
+    await service.list()
+    service.setSetting('sketchpad', 'style', 'chalk')
+
+    writeSketchpad([{ ...STYLE, label: 'Style', options: [...STYLE.options, { value: 'oil', label: 'Oil' }] }], '2.0.0')
+    expect(values(await service.list())).toEqual([['sketchpad', { style: 'chalk' }]])
+
+    rmSync(join(folder, 'sketchpad'), { recursive: true })
+    expect(await service.list()).toEqual([])
+    writeSketchpad()
+    expect(values(await service.list())).toEqual([['sketchpad', { style: 'chalk', pace: 'fast' }]])
+  })
+
+  it('falls back to the default for a saved value an update no longer offers, leaving what was saved alone', async () => {
+    const service = plugins()
+    writeSketchpad()
+    await service.list()
+    service.setSetting('sketchpad', 'style', 'neon')
+
+    const fewer = { ...STYLE, options: STYLE.options.slice(0, 2), default: 'chalk' }
+    writeSketchpad([fewer], '2.0.0')
+    expect(values(await service.list())).toEqual([['sketchpad', { style: 'chalk' }]])
+    expect(saved()).toEqual([{ plugin_id: 'sketchpad', key: 'style', value: 'neon' }])
+
+    // Offered again by a later build, it's the value chosen before.
+    writeSketchpad([STYLE], '3.0.0')
+    expect(values(await service.list())).toEqual([['sketchpad', { style: 'neon' }]])
+  })
+
+  it('hands a plugin nothing saved for a setting it stopped declaring, or of a type this Glade ignores', async () => {
+    const service = plugins()
+    writeSketchpad()
+    await service.list()
+    service.setSetting('sketchpad', 'style', 'chalk')
+
+    writeSketchpad([{ ...STYLE, type: 'palette' }, PACE], '2.0.0')
+
+    expect(values(await service.list())).toEqual([['sketchpad', { pace: 'fast' }]])
+  })
+
+  it("keeps each plugin's values apart, even under the same key", async () => {
+    const service = plugins()
+    writeSketchpad()
+    writeSketchpad([STYLE], '1.0.0', 'easel')
+    await service.list()
+
+    const chosen = service.setSetting('easel', 'style', 'neon')
+
+    expect(values(chosen)).toEqual([
+      ['easel', { style: 'neon' }],
+      ['sketchpad', { style: 'ink', pace: 'fast' }],
+    ])
+    expect(values(await plugins().list())).toEqual(values(chosen))
+  })
+
+  it.each([
+    ["a setting the plugin doesn't declare", 'sketchpad', 'volume', 'ink'],
+    ["a value the setting doesn't offer", 'sketchpad', 'style', 'oil'],
+    ["another setting's value", 'sketchpad', 'style', 'slow'],
+    ['a plugin with no settings', 'pomodoro', 'style', 'ink'],
+  ])('refuses %s, saving nothing', async (_name, id, key, value) => {
+    const service = plugins()
+    writeSketchpad()
+    writePlugin(folder, 'pomodoro')
+    await service.list()
+    emit.mockClear()
+
+    expect(() => service.setSetting(id, key, value)).toThrow(
+      expect.objectContaining({ code: BridgeErrorCode.InvalidRequest }),
+    )
+    expect(saved()).toEqual([])
+    expect(emit).not.toHaveBeenCalled()
+  })
+
+  it('refuses a plugin that is invalid, unknown, or not listed yet', async () => {
+    const service = plugins()
+    writeSketchpad()
+    writePlugin(folder, 'broken', null)
+    expect(() => service.setSetting('sketchpad', 'style', 'chalk')).toThrow('No plugin sketchpad')
+    await service.list()
+
+    for (const id of ['broken', 'nothing']) {
+      expect(() => service.setSetting(id, 'style', 'chalk')).toThrow(
+        expect.objectContaining({ code: BridgeErrorCode.NotFound }),
+      )
+    }
+  })
+
+  it('lists a plugin whose settings are malformed as invalid, with why', async () => {
+    writeSketchpad([STYLE, { ...STYLE, label: 'Again' }])
+
+    expect(await plugins().list()).toEqual([
+      { status: PluginStatus.Invalid, folder: 'sketchpad', reason: 'settings.1.key: Duplicate key style' },
+    ])
+  })
+
+  it('logs each change', async () => {
+    const memory = createMemoryLog()
+    writeSketchpad()
+    const service = plugins({ log: memory.logger })
+    await service.list()
+
+    service.setSetting('sketchpad', 'style', 'chalk')
+
+    expect(memory.records.slice(-1).map(({ message, fields }) => [message, fields])).toEqual([
+      ['plugin setting changed', { id: 'sketchpad', key: 'style', value: 'chalk' }],
+    ])
+  })
+})
+
 describe('pluginSignature', () => {
   it('answers null, not a rejection, for a plugin whose entry file is gone since discovery resolved it', async () => {
     writePlugin(folder, 'pomodoro')
@@ -382,6 +593,7 @@ describe('pluginSignature', () => {
       entry: 'index.html',
       icon: null,
       capabilities: [],
+      settings: [],
     }
     rmSync(join(folder, 'pomodoro', 'index.html'))
 

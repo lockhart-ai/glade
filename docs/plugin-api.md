@@ -12,7 +12,7 @@ which imports nothing, and their zod schemas in `src/shared/plugin-api-schema.ts
 
 A plugin is a folder in Glade's plugins folder, `~/Library/Application Support/glade/plugins/<id>/`. Installing is
 copying the folder there; removing is deleting it. Settings › Plugins lists what's there, turns each plugin on or off
-(and each capability it asks for, below), and opens the folder. Glade reads the folder when it starts and when you
+(and each capability it asks for, and sets each setting it declares, below), and opens the folder. Glade reads the folder when it starts and when you
 open Settings › Plugins.
 
 **Reinstalling.** Copying a new build over a plugin that's running (shown beside the terminal) doesn't need a
@@ -43,11 +43,75 @@ reason and never loads.
 | `entry` | string | The page to load: a path to an `.html` file inside the folder (no `..`, not absolute). |
 | `icon` | string, optional | A path to an `.svg` or `.png` inside the folder, shown in the panel header and Settings. |
 | `capabilities` | string[], optional | What the plugin asks to see beyond the task and agent events: `"machine"` (see "Capabilities"). Each is off until you turn it on. One this Glade doesn't know is ignored. |
+| `settings` | object[], optional | Settings of the plugin's own that you set in Settings › Plugins and Glade hands to the page (see "Settings"). Up to 8. One of a `type` this Glade doesn't know is ignored. |
 
 Unknown fields are ignored.
 
 ```json
 { "id": "nekomata", "name": "Nekomata", "version": "1.0.0", "entry": "index.html", "icon": "icon.svg", "capabilities": ["machine"] }
+```
+
+## Settings
+
+A plugin can declare settings of its own in its manifest's `settings`. Settings › Plugins shows each one under the
+plugin's row, beside its capability switches; what you choose is saved in SQLite, per plugin, and Glade hands the
+values to the page. There's one kind so far, `select`: a choice from a fixed list.
+
+```json
+{
+  "id": "sketchpad", "name": "Sketchpad", "version": "1.1.0", "entry": "index.html",
+  "settings": [
+    {
+      "key": "style",
+      "label": "Art style",
+      "type": "select",
+      "options": [
+        { "value": "8bit", "label": "8-bit" },
+        { "value": "16bit", "label": "16-bit" },
+        { "value": "32bit", "label": "32-bit" }
+      ],
+      "default": "8bit"
+    }
+  ]
+}
+```
+
+| Field | Type | Rule |
+|---|---|---|
+| `key` | string | The setting's name in the `settings` the page is handed. The characters an `id` has (lowercase letters, digits and `-`, starting with a letter or digit, up to 64), and unique within the plugin. |
+| `label` | string | What Settings › Plugins calls it. Not empty, up to 40 characters. |
+| `type` | string | `"select"`. A setting of a type this Glade doesn't know is ignored (not shown, and not sent), as an unknown capability is; it still needs a `key`, unique like the others, and counts towards the 8. |
+| `options` | object[] | For `select`: 1 to 12 choices, each `{ "value", "label" }`. `value` has the characters a `key` has, each once; `label` is not empty, up to 40 characters. |
+| `default` | string | For `select`: the value chosen until you choose another. One of the options' values. |
+
+Anything else is an invalid manifest, listed in Settings with the reason like any other: a duplicate `key`, a `default`
+that isn't one of the options, more than 8 settings or 12 options.
+
+**In Settings › Plugins,** each setting is a row under its plugin with the `label` and a select showing the chosen
+option's label, starting at the `default`. Choosing another saves at once. The choice survives restarts, turning the
+plugin off, and updating or reinstalling it. A saved value that an update no longer offers reads as the new `default`
+(what was saved is kept, so it's back if a later build offers it again).
+
+**What the page gets.** A `settings` object, each declared setting's `key` to its value, always with every declared
+setting present (the saved value, or the default):
+
+- on every `snapshot`: `settings: { "style": "16bit" }`;
+- and in a `settings.changed` event, with the whole object again, when you change one while the page is running. The
+  page is **not** reloaded and gets no new `snapshot`: it applies the change in place. (A capability switch, by
+  contrast, reloads the plugin.)
+
+A plugin whose manifest declares no `settings` (or only ones of types this Glade ignores) gets no `settings` field and
+no `settings.changed`: exactly what it got before. A Glade older than this sends neither, so read a missing `settings`
+as your defaults. A plugin gets only the settings it declared itself: nothing of Glade's own settings, and nothing of
+another plugin's.
+
+```js
+let style = '8bit'
+function handle(event) {
+  if (event.type === 'snapshot' || event.type === 'settings.changed') {
+    style = event.settings?.style ?? '8bit'
+  }
+}
 ```
 
 ## Capabilities
@@ -142,7 +206,7 @@ Events cover the tasks in every workspace, not only the one the window shows.
 | `type` | Fields | When |
 |---|---|---|
 | `hello` | `app: { name: 'Glade', version: string }` | First, after each `ready`. |
-| `snapshot` | `tasks: PluginTask[]`, `subagents: PluginSubagent[]`, `questions: PluginQuestion[]`, `permissions: PluginPermissionRequest[]`, and only with the `machine` capability on, `machine?: PluginMachineReading[]` | After `hello`: every active task in every workspace (not done ones, pinned or not), their running subagents, and their open questions and permission requests; and the latest machine readings, oldest first, up to 60 (empty before the first). |
+| `snapshot` | `tasks: PluginTask[]`, `subagents: PluginSubagent[]`, `questions: PluginQuestion[]`, `permissions: PluginPermissionRequest[]`, only with the `machine` capability on, `machine?: PluginMachineReading[]`, and only for a plugin that declares settings, `settings?: Record<string, string>` | After `hello`: every active task in every workspace (not done ones, pinned or not), their running subagents, and their open questions and permission requests; the latest machine readings, oldest first, up to 60 (empty before the first); and the plugin's own settings, key to value ("Settings"). |
 | `task.created` | `task: PluginTask` | A task is created. |
 | `task.updated` | `task: PluginTask` | Anything in `PluginTask` changes: title, status, state (active ⇄ done), activity, needs you, what it waits on, its workspace's name. `updatedAt` alone changing doesn't send one. A done task isn't in the snapshot, so one reopened (or a follow-up running in it) can arrive as a `task.updated` for a task the plugin doesn't know: treat it as new. |
 | `task.deleted` | `taskId: string` | A task is deleted. |
@@ -155,6 +219,7 @@ Events cover the tasks in every workspace, not only the one the window shows.
 | `permission.opened` | `request: PluginPermissionRequest` | A tool call waits on a permission card (P11). |
 | `permission.closed` | `taskId: string`, `requestId: string`, `outcome: 'allowed' \| 'denied' \| 'withdrawn'` | The card is answered or withdrawn. |
 | `machine.reading` | `reading: PluginMachineReading` | Only with the `machine` capability on: about every 2 s while the plugin is showing ("Capabilities"). |
+| `settings.changed` | `settings: Record<string, string>` | Only for a plugin that declares settings: you changed one in Settings › Plugins while its page was running. All of them, key to value, as they now are; the page isn't reloaded ("Settings"). |
 
 ```ts
 interface PluginTask {
@@ -268,7 +333,8 @@ and `docker`.
 
 **Not sent:** chat messages and final replies, the queue, file contents, tool inputs beyond the summary above and all
 tool results (a subagent's outcome included), a running subagent's progress summary, question options and answers,
-permission prompts and deny notes, todos, artifacts, the terminal, settings, and anything about the machine beyond
+permission prompts and deny notes, todos, artifacts, the terminal, Glade's settings and other plugins' (a plugin
+gets only the ones it declares itself), and anything about the machine beyond
 the `machine` capability's coarse readings, and those only with it on. A plugin sees what the task list, tool log and
 Subagents tab summarise, and no more.
 
@@ -300,7 +366,10 @@ transcripts, its `web/glade.js` builds the same session list from these events. 
 bubbles, and a task leaving the snapshot (done or deleted) is carried out. It posts its count as the header status
 ("5 cats · 4 kittens"). It asks for the `machine` capability: with it on, the readings drive the room as the
 dashboard's do (the window's sun follows `total` over `cpuCount`, the pastry case holds a cake per container, steaming
-while it's busy, and the espresso machine follows the GPU); with it off, the room stays quiet.
+while it's busy, and the espresso machine follows the GPU); with it off, the room stays quiet. Its art style is a
+`select` setting, `style`, in its Glade build's manifest: it draws the scene in whichever style `settings.style` names,
+restyles in place on `settings.changed`, and falls back to its default style when there's no `settings` (an older
+Glade).
 
 To install it, build the plugin folder in a clone of the nekomata repo and copy it into the plugins folder:
 

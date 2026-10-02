@@ -146,6 +146,7 @@ function handlers(overrides: Partial<Handlers> = {}): Handlers {
     [CommandName.PluginsList]: () => ({ plugins: [] }),
     [CommandName.PluginsSetEnabled]: () => ({ plugins: [] }),
     [CommandName.PluginsSetCapability]: () => ({ plugins: [] }),
+    [CommandName.PluginsSetSetting]: () => ({ plugins: [] }),
     [CommandName.PluginsOpenFolder]: () => null,
     [CommandName.PluginsPlaceView]: () => ({ status: '' }),
     [CommandName.PluginsReload]: () => null,

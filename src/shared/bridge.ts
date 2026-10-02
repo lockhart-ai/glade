@@ -138,6 +138,7 @@ export enum CommandName {
   PluginsList = 'plugins.list',
   PluginsSetEnabled = 'plugins.setEnabled',
   PluginsSetCapability = 'plugins.setCapability',
+  PluginsSetSetting = 'plugins.setSetting',
   PluginsOpenFolder = 'plugins.openFolder',
   PluginsPlaceView = 'plugins.placeView',
   PluginsReload = 'plugins.reload',
@@ -1013,6 +1014,21 @@ export interface PluginsSetCapabilityRequest {
 }
 
 /**
+ * Sets one of the settings a plugin declares in its manifest (the select under it in Settings › Plugins); the value is
+ * saved. Answers with the plugins as they now are, broadcasts `plugins.changed`, and tells the plugin if it's the one
+ * shown (`settings.changed`), without reloading it. Fails with `not_found` for a plugin that wasn't valid the last time
+ * the folder was read, and `invalid_request` for a setting its manifest doesn't declare or a value it doesn't offer.
+ */
+export interface PluginsSetSettingRequest {
+  /** The plugin's id (its folder's name). */
+  readonly id: string
+  /** The setting's `key` in the plugin's manifest. */
+  readonly key: string
+  /** One of the setting's option values. */
+  readonly value: string
+}
+
+/**
  * The control API's HTTP endpoint as Settings › Control shows it: whether the switch is on, the port chosen and the one
  * in use, the URL, the token and any error. `control.status` answers with it; `control.regenerateToken` replaces the
  * token (the old one is refused from the next request), answers with it and broadcasts `control.changed`.
@@ -1321,6 +1337,7 @@ export interface CommandMap {
   [CommandName.LoginCancel]: CommandSpec<EmptyRequest, LoginStatusResponse>
   [CommandName.PluginsSetEnabled]: CommandSpec<PluginsSetEnabledRequest, PluginsResponse>
   [CommandName.PluginsSetCapability]: CommandSpec<PluginsSetCapabilityRequest, PluginsResponse>
+  [CommandName.PluginsSetSetting]: CommandSpec<PluginsSetSettingRequest, PluginsResponse>
   [CommandName.PluginsOpenFolder]: CommandSpec<PluginsOpenFolderRequest, null>
   [CommandName.PluginsPlaceView]: CommandSpec<PluginsPlaceViewRequest, PluginsPlaceViewResponse>
   [CommandName.PluginsReload]: CommandSpec<PluginsReloadRequest, null>

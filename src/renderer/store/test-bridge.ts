@@ -73,7 +73,7 @@ import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import { controlUrl, type ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
 import { IDLE_LOGIN, LoginState, type LoginStatus } from '../../shared/login'
-import { PluginStatus, withGrant, type InstalledPlugin } from '../../shared/plugins'
+import { offersSetting, PluginStatus, withGrant, withSetting, type InstalledPlugin } from '../../shared/plugins'
 import { highlightParts, highlightPattern, SearchField, type SearchResult } from '../../shared/search'
 import type { TerminalTab } from '../../shared/terminal'
 import { addDoneCounts, doneCountsOf, isInDoneSection, NO_DONE_TASKS, pageOfDone } from '../../shared/doneList'
@@ -186,7 +186,7 @@ export interface FakeMain {
   /**
    * The plugins `plugins.list` answers with, in order; none when left out. `plugins.setEnabled` turns a valid one on or
    * off, broadcasting them, and refuses any other with `not_found`; `plugins.setCapability` turns one of its
-   * capabilities on or off the same way.
+   * capabilities on or off the same way, and `plugins.setSetting` sets one of its settings.
    */
   plugins?: InstalledPlugin[]
   /** How many times `plugins.openFolder` opened the plugins folder. */
@@ -736,6 +736,17 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
       main.plugins = plugins.map((candidate) =>
         candidate === plugin ? withGrant(plugin, capability, granted) : candidate,
       )
+      emit({ type: EventType.PluginsChanged, plugins: [...main.plugins] })
+      return { plugins: [...main.plugins] }
+    },
+    [CommandName.PluginsSetSetting]: ({ id, key, value }) => {
+      const plugins = main.plugins ?? []
+      const plugin = plugins.find((candidate) => candidate.folder === id)
+      if (plugin?.status !== PluginStatus.Valid) return refuse(bridgeError(BridgeErrorCode.NotFound, `No plugin ${id}`))
+      if (!offersSetting(plugin, key, value)) {
+        return refuse(bridgeError(BridgeErrorCode.InvalidRequest, `${id} has no setting ${key} that offers ${value}`))
+      }
+      main.plugins = plugins.map((candidate) => (candidate === plugin ? withSetting(plugin, key, value) : candidate))
       emit({ type: EventType.PluginsChanged, plugins: [...main.plugins] })
       return { plugins: [...main.plugins] }
     },

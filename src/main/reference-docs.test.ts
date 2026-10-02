@@ -39,7 +39,7 @@ import {
   ToolCallState,
 } from '../shared/domain'
 import { formatChord, RESERVED_CHORDS } from '../shared/keymap'
-import { PluginCapability } from '../shared/plugins'
+import { MAX_PLUGIN_SETTING_OPTIONS, MAX_PLUGIN_SETTINGS, PluginCapability, PluginSettingType } from '../shared/plugins'
 import { connectCommand, controlUrl, DEFAULT_CONTROL_PORT } from '../shared/control'
 import { APP_SECTIONS, SECTION_TITLES } from '../renderer/settings/sections'
 import { GladeTool } from './agent/glade-tools'
@@ -55,7 +55,7 @@ import { chatTurns, MAX_MESSAGE_LENGTH, taskDetail, workspaceSummary } from './c
 import { LogScope } from './logging/logger'
 import { PLUGIN_RATE_LIMIT } from './plugins/messages'
 import { PLUGIN_CSP } from './plugins/protocol'
-import { pluginManifestSchema } from './plugins/manifest'
+import { MAX_PLUGIN_NAME, pluginManifestSchema } from './plugins/manifest'
 
 const REPO = resolve(__dirname, '..', '..')
 
@@ -258,6 +258,12 @@ describe('docs/plugin-api.md', () => {
     expect(api).toContain(`version **${String(PLUGIN_API_VERSION)}**`)
     expect(api).toContain(`up to ${String(MAX_PLUGIN_MACHINE_HISTORY)}`)
     for (const capability of Object.values(PluginCapability)) expect(api).toContain(`**\`${capability}\`:`)
+    const settings = section(api, '## Settings')
+    expect(settings).toContain(`more than ${String(MAX_PLUGIN_SETTINGS)} settings`)
+    expect(settings).toContain(`1 to ${String(MAX_PLUGIN_SETTING_OPTIONS)} choices`)
+    expect(settings).toContain(`${String(MAX_PLUGIN_SETTING_OPTIONS)} options`)
+    expect(settings).toContain(`up to ${String(MAX_PLUGIN_NAME)} characters`)
+    for (const type of Object.values(PluginSettingType)) expect(settings).toContain(`\`"${type}"\``)
   })
 })
 

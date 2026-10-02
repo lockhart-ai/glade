@@ -13,7 +13,7 @@ for where to start can read [`llms.txt`](../llms.txt) at the repo root.
 - [Control API](control-api.md): the `glade-control` tools other agents and scripts drive Glade with, over MCP or
   plain JSON, and how to connect to them.
 - [Plugin API](plugin-api.md): the events a plugin's page gets, the messages it can post back, its manifest, the
-  capabilities it can ask for (the Mac's load) and its sandbox.
+  capabilities it can ask for (the Mac's load), the settings it can declare and its sandbox.
 - [Model surface](model-surface.md): the tools Glade gives each task's agent, and what it adds to the system prompt.
 - [Logs](logs.md): where the log is, what each line holds, and what each scope logs.
 - [Keymap](keymap.md): every keyboard shortcut, and how rebinding them works.

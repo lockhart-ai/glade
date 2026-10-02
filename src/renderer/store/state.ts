@@ -357,6 +357,8 @@ export interface GladeActions {
   setPluginEnabled: (id: string, enabled: boolean) => Promise<void>
   /** Turns one of a plugin's capabilities on or off (`plugins.setCapability`); the change saves at once. */
   setPluginCapability: (id: string, capability: PluginCapability, granted: boolean) => Promise<void>
+  /** Sets one of the settings a plugin declares to one of its options (`plugins.setSetting`); it saves at once. */
+  setPluginSetting: (id: string, key: string, value: string) => Promise<void>
   /** Opens the plugins folder in Finder (Open plugins folder). */
   openPluginsFolder: () => Promise<void>
   /**

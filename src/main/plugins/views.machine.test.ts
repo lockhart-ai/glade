@@ -29,10 +29,12 @@ function plugin(folder: string, { asks = true, granted = true, enabled = true } 
       entry: 'index.html',
       icon: null,
       capabilities: asks ? [PluginCapability.Machine] : [],
+      settings: [],
     },
     iconUrl: null,
     enabled,
     granted: asks && granted ? [PluginCapability.Machine] : [],
+    settings: {},
   }
 }
 

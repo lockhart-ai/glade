@@ -59,6 +59,7 @@ describe('findPlugins', () => {
           entry: 'index.html',
           icon: 'icon.svg',
           capabilities: [],
+          settings: [],
         },
         iconUrl: `data:image/svg+xml;base64,${Buffer.from(SAMPLE_SVG).toString('base64')}`,
       },
@@ -112,6 +113,7 @@ describe('findPlugins', () => {
       'entry',
       'icon',
       'capabilities',
+      'settings',
     ])
   })
 

@@ -19,6 +19,8 @@ import {
   PluginStatus,
   type InstalledPlugin,
   type PluginCapability,
+  type PluginSelectSetting,
+  type PluginSetting,
   type ValidPlugin,
 } from '../../shared/plugins'
 import type { Settings, SettingsPatch } from '../../shared/settings'
@@ -381,15 +383,95 @@ interface PluginRowProps {
   onToggle: (id: string, enabled: boolean) => void
   /** Turns one of the plugin's capabilities on or off (`plugins.setCapability`). */
   onCapability: (id: string, capability: PluginCapability, granted: boolean) => void
+  /** Sets one of the settings the plugin declares (`plugins.setSetting`). */
+  onSetting: (id: string, key: string, value: string) => void
   /** Reloads the plugin's view now, if it's the one shown (`plugins.reload`); a no-op otherwise. */
   onReload: (id: string) => void
 }
 
+interface PluginSelectProps {
+  /** The plugin's name, which the select's own name starts with. */
+  plugin: string
+  setting: PluginSelectSetting
+  /** The option chosen: one of the setting's values. */
+  value: string
+  onChoose: (value: string) => void
+}
+
+/**
+ * One of a plugin's `select` settings: a button naming the option chosen, which opens a menu of the options with it
+ * checked, as the model picker does.
+ */
+function PluginSelect({ plugin, setting, value, onChoose }: PluginSelectProps): React.JSX.Element {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  const chosen = setting.options.find((option) => option.value === value)?.label ?? value
+  const entries: MenuEntry[] = setting.options.map((option) => ({
+    kind: MenuEntryKind.Item,
+    label: option.label,
+    checked: option.value === value,
+    onSelect: () => {
+      onChoose(option.value)
+    },
+  }))
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={`${plugin}: ${setting.label}: ${chosen}`}
+        aria-haspopup="menu"
+        aria-expanded={anchor !== null}
+        className={classNames(styles.select, styles.pluginSelect)}
+        onClick={(event) => {
+          setAnchor(event.currentTarget)
+        }}
+      >
+        {chosen}
+        <Icon icon={faChevronDown} size={IconSize.Small} />
+      </button>
+      <Menu
+        label={setting.label}
+        entries={entries}
+        anchor={{ kind: MenuAnchorKind.Element, element: anchor, placement: Placement.BottomEnd }}
+        open={anchor !== null}
+        onClose={() => {
+          setAnchor(null)
+        }}
+      />
+    </>
+  )
+}
+
+interface PluginSettingRowProps {
+  plugin: ValidPlugin
+  setting: PluginSetting
+  onSetting: (id: string, key: string, value: string) => void
+}
+
+/**
+ * One of the settings a plugin declares, under its row: its label, and the control for its type. There's one type so
+ * far, a select; a second one fails the typecheck here (`PluginSelect` takes only a select) until it has its control.
+ */
+function PluginSettingRow({ plugin, setting, onSetting }: PluginSettingRowProps): React.JSX.Element {
+  return (
+    <div className={styles.pluginCapability}>
+      <span className={styles.pluginCapabilityText}>{setting.label}</span>
+      <PluginSelect
+        plugin={plugin.manifest.name}
+        setting={setting}
+        value={plugin.settings[setting.key] ?? setting.default}
+        onChoose={(value) => {
+          onSetting(plugin.folder, setting.key, value)
+        }}
+      />
+    </div>
+  )
+}
+
 /**
  * One plugin: its icon, name and version, Reload and its toggle, and under them a switch for each capability it asks
- * for, off until you turn it on; or, for an invalid one, its folder and why.
+ * for, off until you turn it on, and a select for each setting it declares; or, for an invalid one, its folder and why.
  */
-function PluginRow({ plugin, onToggle, onCapability, onReload }: PluginRowProps): React.JSX.Element {
+function PluginRow({ plugin, onToggle, onCapability, onSetting, onReload }: PluginRowProps): React.JSX.Element {
   switch (plugin.status) {
     case PluginStatus.Valid: {
       const { manifest } = plugin
@@ -407,6 +489,9 @@ function PluginRow({ plugin, onToggle, onCapability, onReload }: PluginRowProps)
                 }}
               />
             </div>
+          ))}
+          {manifest.settings.map((setting) => (
+            <PluginSettingRow key={setting.key} plugin={plugin} setting={setting} onSetting={onSetting} />
           ))}
         </div>
       )
@@ -470,8 +555,8 @@ function PluginSummary({ plugin, onToggle, onReload }: PluginSummaryProps): Reac
 
 /**
  * The plugins in the plugins folder (`docs/design/screens/21-settings-plugins.png`), which is read again each time
- * this opens: a row per plugin with its toggle (and a switch under it for each capability it asks for), an invalid
- * one with why, and Open plugins folder.
+ * this opens: a row per plugin with its toggle (and under it a switch for each capability it asks for and a select for
+ * each setting it declares), an invalid one with why, and Open plugins folder.
  */
 export function PluginsSection(): React.JSX.Element {
   const plugins = useGladeStore((state) => state.plugins)
@@ -480,6 +565,7 @@ export function PluginsSection(): React.JSX.Element {
   const openPluginsFolder = useGladeStore((state) => state.openPluginsFolder)
   const reloadPlugin = useGladeStore((state) => state.reloadPlugin)
   const setPluginCapability = useGladeStore((state) => state.setPluginCapability)
+  const setPluginSetting = useGladeStore((state) => state.setPluginSetting)
   // Whether the folder has been read since this opened: until then, the list may be out of date.
   const [read, setRead] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -529,6 +615,7 @@ export function PluginsSection(): React.JSX.Element {
             plugin={plugin}
             onToggle={(id, enabled) => void attempt(() => setPluginEnabled(id, enabled))}
             onCapability={(id, capability, granted) => void attempt(() => setPluginCapability(id, capability, granted))}
+            onSetting={(id, key, value) => void attempt(() => setPluginSetting(id, key, value))}
             onReload={(id) => void attempt(() => reloadPlugin(id))}
           />
         ))}

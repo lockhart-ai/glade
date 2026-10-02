@@ -302,6 +302,14 @@
   color: var(--color-muted);
 }
 
+/* One of a plugin's settings: the select trigger, sized to sit in a capability's row. */
+.pluginSelect {
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: var(--font-size-secondary-sm);
+}
+
 /* A plugin's icon, on a tile. */
 .pluginTile {
   display: flex;

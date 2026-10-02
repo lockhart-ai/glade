@@ -123,6 +123,7 @@ function lines(): string[] {
         case PluginEventType.QuestionOpened:
         case PluginEventType.QuestionClosed:
         case PluginEventType.MachineReading:
+        case PluginEventType.SettingsChanged:
           return event.type
       }
     })
