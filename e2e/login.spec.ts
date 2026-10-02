@@ -41,7 +41,7 @@ async function expectCarriedOn(window: Page): Promise<void> {
   await expect(errorCard).toHaveCount(0)
   // The same turn, carried on: your message wasn't sent into the chat again.
   await expect(userMessages).toHaveCount(1)
-  await expect(taskHeader(window).stateDot).toHaveAccessibleName('Active · waiting on you')
+  await expect(taskHeader(window).stateDot).toHaveAccessibleName('Active · idle')
 }
 
 test('a lost login stops the task with a Log in card, and logging in carries the task on', async ({

@@ -43,6 +43,7 @@
     {
       "title": "Migrate the billing webhooks",
       "status": "Waiting on you: which endpoint to keep",
+      "unread": true,
       "minutesAgo": 4,
       "workspace": { "name": "Billing", "rootPath": "/Users/sample/code/billing" },
       "notifications": [{ "body": "Which endpoint should the webhooks keep?", "minutesAgo": 4 }]

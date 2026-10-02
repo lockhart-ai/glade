@@ -11,7 +11,6 @@ import {
 } from './domain'
 import {
   EMPTY_MENU_BAR_SNAPSHOT,
-  isInFlight,
   menuBarIcon,
   menuBarSnapshot,
   NEEDS_YOU_REASON_LABELS,
@@ -27,7 +26,7 @@ import {
 const ACME: Workspace = { id: 'w1', name: 'Acme API', rootPath: '/code/acme-api', createdAt: 1, lastOpenedAt: 1 }
 const BILLING: Workspace = { id: 'w2', name: 'Billing', rootPath: '/code/billing', createdAt: 2, lastOpenedAt: 2 }
 
-/** A task that has run, in Acme API, waiting on you, unless `overrides` say otherwise. */
+/** A task that has run, in Acme API, with a reply you haven't read, unless `overrides` say otherwise. */
 function task(id: string, overrides: Partial<Task> = {}): Task {
   return {
     id,
@@ -39,7 +38,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     state: TaskState.Active,
     activity: TaskActivity.Waiting,
     pinned: false,
-    unread: false,
+    unread: true,
     model: 'claude-sample-1',
     effort: Effort.Medium,
     permissionMode: PermissionMode.AllowAll,
@@ -53,6 +52,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     retrying: null,
     asking: false,
     awaitingPermission: false,
+    backgroundWork: false,
     pause: null,
     importedAt: null,
     todos: null,
@@ -86,7 +86,20 @@ describe('needsYouReason', () => {
       NeedsYouReason.Asking,
     ],
     ['stopped by an error', task('t', { activity: TaskActivity.Error }), NeedsYouReason.Error],
-    ['replied, its turn over', task('t'), NeedsYouReason.Reply],
+    ['with a reply you have not read', task('t'), NeedsYouReason.Reply],
+    [
+      'stopped by an error you have seen',
+      task('t', { activity: TaskActivity.Error, unread: false }),
+      NeedsYouReason.Error,
+    ],
+    ['asking, the task read', task('t', { asking: true, unread: false }), NeedsYouReason.Asking],
+    ['with a reply you have read', task('t', { unread: false }), null],
+    ['with an unread reply, its subagents still running', task('t', { backgroundWork: true }), null],
+    [
+      'asking while its subagents run',
+      task('t', { backgroundWork: true, unread: false, asking: true }),
+      NeedsYouReason.Asking,
+    ],
     ['working', task('t', { activity: TaskActivity.Working }), null],
     ['paused', task('t', { activity: TaskActivity.Paused }), null],
     ['done', task('t', { state: TaskState.Done }), null],
@@ -96,27 +109,71 @@ describe('needsYouReason', () => {
     expect(needsYouReason(sample)).toBe(reason)
   })
 
-  it('has words for every reason', () => {
+  it('has words for every reason, and calls a reply what it is: unread', () => {
     for (const reason of Object.values(NeedsYouReason)) expect(NEEDS_YOU_REASON_LABELS[reason]).not.toBe('')
-  })
-})
-
-describe('isInFlight', () => {
-  it('is true while an active task works or is paused, and never for a done one', () => {
-    expect(isInFlight(task('t', { activity: TaskActivity.Working }))).toBe(true)
-    expect(isInFlight(task('t', { activity: TaskActivity.Paused }))).toBe(true)
-    expect(isInFlight(task('t'))).toBe(false)
-    expect(isInFlight(task('t', { activity: TaskActivity.Error }))).toBe(false)
-    expect(isInFlight(task('t', { state: TaskState.Done, activity: TaskActivity.Working }))).toBe(false)
+    expect(NEEDS_YOU_REASON_LABELS[NeedsYouReason.Reply]).toBe('Unread reply')
   })
 })
 
 describe('menuBarSnapshot', () => {
   it('is empty with nothing in flight: no tasks, or only done, new and idle ones', () => {
     expect(snapshotOf([])).toEqual(EMPTY_MENU_BAR_SNAPSHOT)
-    expect(snapshotOf([task('done', { state: TaskState.Done }), task('new', { sessionId: null })])).toEqual(
-      EMPTY_MENU_BAR_SNAPSHOT,
+    expect(
+      snapshotOf([
+        task('done', { state: TaskState.Done }),
+        task('new', { sessionId: null }),
+        task('read', { unread: false }),
+      ]),
+    ).toEqual(EMPTY_MENU_BAR_SNAPSHOT)
+  })
+
+  it('lists a task whose turn ended under Working while its background work runs, read or not, with no pause', () => {
+    const snapshot = snapshotOf(
+      [
+        task('read', { unread: false, backgroundWork: true, status: 'Waiting on two subagents', pause: PAUSE }),
+        task('unread', { backgroundWork: true }),
+      ],
+      { turnStartedAt: (taskId) => (taskId === 'read' ? 4_000 : null) },
     )
+    expect(snapshot.needsYou).toEqual([])
+    expect(snapshot.working).toEqual([
+      {
+        taskId: 'read',
+        title: 'Task read',
+        workspaceId: 'w1',
+        workspaceName: 'Acme API',
+        status: 'Waiting on two subagents',
+        todos: null,
+        pause: null,
+        startedAt: 4_000,
+      },
+      {
+        taskId: 'unread',
+        title: 'Task unread',
+        workspaceId: 'w1',
+        workspaceName: 'Acme API',
+        status: '',
+        todos: null,
+        pause: null,
+        startedAt: null,
+      },
+    ] satisfies WorkingItem[])
+  })
+
+  it('moves a task from Working to Needs you when its background work ends on an unread reply, a question or an error', () => {
+    const running = task('t', { backgroundWork: true })
+    expect(snapshotOf([running]).working.map(({ taskId }) => taskId)).toEqual(['t'])
+    expect(snapshotOf([{ ...running, backgroundWork: false }]).needsYou.map(({ reason }) => reason)).toEqual([
+      NeedsYouReason.Reply,
+    ])
+    expect(snapshotOf([{ ...running, asking: true }]).needsYou.map(({ reason }) => reason)).toEqual([
+      NeedsYouReason.Asking,
+    ])
+    expect(snapshotOf([{ ...running, activity: TaskActivity.Error }]).needsYou.map(({ reason }) => reason)).toEqual([
+      NeedsYouReason.Error,
+    ])
+    // Read, and nothing left running: in neither list.
+    expect(snapshotOf([{ ...running, backgroundWork: false, unread: false }])).toEqual(EMPTY_MENU_BAR_SNAPSHOT)
   })
 
   it('lists the tasks that need you with why and where, the one that changed last first', () => {
@@ -241,6 +298,11 @@ describe('menuBarIcon', () => {
   it('counts the tasks that need you, whatever else is working', () => {
     expect(menuBarIcon(waiting)).toEqual({ title: '2' })
     expect(menuBarIcon(both)).toEqual({ title: '1' })
+  })
+
+  it('leaves out replies you have read, and tasks still working in the background', () => {
+    const tasks = [task('read', { unread: false }), task('bg', { backgroundWork: true }), task('unread')]
+    expect(menuBarIcon(snapshotOf(tasks))).toEqual({ title: '1' })
   })
 
   it('counts as the tasks change: up, down, and to nothing', () => {

@@ -410,9 +410,13 @@ describe('a turn', () => {
       [EventType.ToolEventAppended, ToolEventKind.ToolCall, ToolCallState.Running],
       [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Done],
       [EventType.ToolEventAppended, ToolEventKind.ToolCall, ToolCallState.Running],
+      // A subagent started: the task is sent again, read with it running (`Task.backgroundWork`).
+      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED],
       [EventType.ToolEventAppended, ToolEventKind.ToolCall, ToolCallState.Running],
       [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Done],
       [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Done],
+      // And again once it ended.
+      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED],
       [
         EventType.MessageAppended,
         MessageRole.Agent,
@@ -2205,6 +2209,8 @@ describe('tasks.stop', () => {
     expect(drainEvents()).toEqual([
       [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Error],
       [EventType.ToolEventUpdated, ToolEventKind.ToolCall, ToolCallState.Error],
+      // The subagent it stopped no longer runs: the task is sent again, read without it (`Task.backgroundWork`).
+      [EventType.TaskUpdated, TaskActivity.Working, sdk.SESSION_ID, sdk.CONTEXT_USED],
       [EventType.ToolEventAppended, ToolEventKind.Narration, null],
       [EventType.TaskUpdated, TaskActivity.Waiting, sdk.SESSION_ID, sdk.CONTEXT_USED],
     ])

@@ -16,7 +16,7 @@ test('task header: fills in from the agent, pins the task, and marks it done', a
   // A new task's header shows stand-ins until the agent fills it in, and no Mark done yet.
   const header = taskHeader(window)
   await expect(header.title).toHaveText('New task')
-  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
+  await expect(header.stateDot).toHaveAccessibleName('Active · idle')
   await expect(header.age).toHaveText('· now')
   await expect(header.age).toHaveAttribute('title', /^Created [A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2} [AP]M$/)
   await expect(header.field('Goal')).toHaveText('Set by your first message.')
@@ -34,7 +34,7 @@ test('task header: fills in from the agent, pins the task, and marks it done', a
   await expect(header.field('Goal')).toHaveText('Make the date formatting test pass in every timezone.')
   await expect(header.field('Now')).toHaveText('Fixed the timezone bug; the tests pass.')
   await expect(header.statusAge).toHaveText('now')
-  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
+  await expect(header.stateDot).toHaveAccessibleName('Active · idle')
   await expect(header.age).toHaveText('· now')
   await expect(header.age).toHaveAttribute('title', /^Started /)
   // A short title leaves room for all of the title's line: nothing on it truncates.
@@ -66,7 +66,8 @@ interface StateCase {
 
 const STATES: readonly StateCase[] = [
   { title: 'Move image uploads to S3', indicator: 'working', label: 'Active · working' },
-  { title: 'Add rate limiting to public API', indicator: 'waiting', label: 'Active · waiting on you' },
+  { title: 'Add rate limiting to public API', indicator: 'idle', label: 'Active · idle' },
+  { title: 'Rotate the API keys', indicator: 'waiting', label: 'Active · waiting on you' },
   { title: 'Fix flaky login test', indicator: 'error', label: 'Active · stopped by an error' },
   { title: 'Sync the billing webhooks', indicator: 'working', label: 'Active · paused' },
   { title: 'Investigate slow dashboard query', indicator: 'done', label: /^Done · [A-Z][a-z]{2} \d{1,2}$/ },
@@ -123,7 +124,7 @@ test('task header: the state dot matches the sidebar row’s for every state, an
     expect(titleBox.x).toBeGreaterThan(dotBox.x + dotBox.width)
     expect(ageBox.x).toBeGreaterThan(titleBox.x + titleBox.width)
   }
-  // Working (and paused), waiting, error and done: four colours.
+  // Working (and paused), waiting on you, error, and slate for idle and done alike: four colours.
   expect(colours.size).toBe(4)
 })
 
@@ -372,7 +373,7 @@ test('task header: one compact line of dot, title and age, with the goal and sta
 
   // A large window: the long goal and status wrap to two lines at most.
   await resize(glade, 1920, 1200)
-  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
+  await expect(header.stateDot).toHaveAccessibleName('Active · idle')
   await expect(header.age).toHaveText('· 42m')
   await expect(header.statusAge).toHaveText('4m')
   await expectCompactLayout(window)
@@ -403,7 +404,7 @@ test('task header: one compact line of dot, title and age, with the goal and sta
   expect((await boxOf(header.title)).width).toBeGreaterThanOrEqual(MIN_TITLE_WIDTH)
   await expect(header.stateDot).toBeInViewport({ ratio: 1 })
   expect((await boxOf(header.stateDot)).width).toBe(10)
-  await expect(header.stateDot).toHaveAttribute('title', 'Active · waiting on you')
+  await expect(header.stateDot).toHaveAttribute('title', 'Active · idle')
   await expect(header.age).toHaveAttribute('title', /^Started [A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2} [AP]M$/)
   await expect(header.pin).toBeInViewport({ ratio: 1 })
   await expect(header.markDone).toBeInViewport({ ratio: 1 })

@@ -9,6 +9,7 @@ import {
   type Task,
   type ToolEvent,
 } from '../../shared/domain'
+import type { AttentionFields } from '../../shared/attention'
 import { TaskIndicator, taskIndicator } from '../../shared/taskIndicator'
 import { clockTime } from '../chat/chatModel'
 
@@ -101,21 +102,27 @@ export function reopening(toolEvents: readonly ToolEvent[]): Reopening | null {
 }
 
 /**
- * What the state dot says, as its tooltip and accessible name: `Active · working`, `Active · waiting on you`,
- * `Active · stopped by an error` (or `Active · declined by a safety check` for a safety refusal with no fallback to
- * retry on: not a crash), `Done · Sep 23`, `Active · reopened` while the agent works on the message that reopened the
- * task, and `Active · paused` while its turn is paused (docs/design/html/17-usage-limit.html).
+ * What the state dot says, as its tooltip and accessible name: `Active · working` (its agent's turn, or work it left
+ * running in the background), `Active · waiting on you` (a question, a permission card or a reply you haven't read),
+ * `Active · idle` (nothing running, nothing new for you: #430), `Active · stopped by an error` (or
+ * `Active · declined by a safety check` for a safety refusal with no fallback to retry on: not a crash),
+ * `Done · Sep 23`, `Active · reopened` while the agent works on the message that reopened the task, and
+ * `Active · paused` while its turn is paused (docs/design/html/17-usage-limit.html).
  */
 export function stateLabel(
-  task: Pick<Task, 'state' | 'activity' | 'doneAt' | 'updatedAt' | 'error'>,
+  task: AttentionFields & Pick<Task, 'doneAt' | 'updatedAt' | 'error'>,
   reopened: Reopening | null = null,
 ): string {
   switch (taskIndicator(task)) {
     case TaskIndicator.Working:
       if (task.activity === TaskActivity.Paused) return 'Active · paused'
-      return reopened?.latestTurn === true ? 'Active · reopened' : 'Active · working'
+      return reopened?.latestTurn === true && task.activity === TaskActivity.Working
+        ? 'Active · reopened'
+        : 'Active · working'
     case TaskIndicator.Waiting:
       return 'Active · waiting on you'
+    case TaskIndicator.Idle:
+      return 'Active · idle'
     case TaskIndicator.Error:
       return task.error?.kind === AgentErrorKind.SafetyRefusal
         ? 'Active · declined by a safety check'

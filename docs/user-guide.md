@@ -59,18 +59,22 @@ Upgrading is the same: drag the new version over the old one. Your workspaces an
   its objective (GOAL) and keeps a one-line status (NOW) up to date as it works.
 - **Active or Done:** a task is **Active** from its first message until you mark it **Done**. Its last status becomes
   its **outcome**. A done task stays open to chat: sending it a message reopens it, in the same session. Whether the
-  agent is working, waiting on you or stopped by an error isn't a separate state; the status dot shows it.
-- **Needs you:** an active task whose agent has finished its turn and is waiting on you, has asked you a question,
-  wants your OK for a tool call, or stopped on an error. Glade counts these, marks them and notifies you.
+  agent is working, waiting on you, idle or stopped by an error isn't a separate state; the status dot shows it.
+- **Needs you:** an active task that's blocked on you or has a reply you haven't read: its agent has asked you a
+  question, wants your OK for a tool call, stopped on an error, or finished its turn with a reply in a task you
+  haven't opened since. Glade counts these, marks them and notifies you. Once you've read the reply, the task no
+  longer needs you; ⌘⇧U (Mark as unread) makes it need you again.
+- **Working in the background:** a task whose agent has finished its turn but left subagents or watchers running
+  still counts as working, not as needing you, until they finish (or it asks, wants your OK, or hits an error).
 
 The **status dot** on each task says what it's doing:
 
 | Dot | Means |
 |---|---|
-| Blue | Working (or paused on a usage limit, and will resume by itself) |
-| Purple | Waiting on you |
+| Blue | Working: its agent's turn, or subagents and watchers it left running (or paused on a usage limit, and will resume by itself) |
+| Purple | Waiting on you: a question, a permission card, or a reply you haven't read |
 | Pink | Stopped by an error |
-| Slate | Done |
+| Slate | Idle (active, nothing running, nothing new for you), or done |
 
 Everything Glade knows lives in one SQLite database on your Mac, so if Glade quits or crashes mid-turn, the tasks pick
 up where they left off when you open it again. Glade never writes its own files into your workspace, except a starter
@@ -252,11 +256,11 @@ When the task list or right panel is hidden, the header has a button to show it 
 A task you aren't looking at can still need you. When its agent replies, asks a question or waits on a permission card:
 
 - the task is marked **unread** (bold, with a blue dot), and shows under **Needs you** in Glade's menu bar list while
-  it waits on you;
+  it waits on you (a reply from a task that still has subagents or watchers running waits until they finish);
 - you get a **macOS notification** with the task's name and the start of the message, even while Glade is in front.
   Click it (or **Open task**) to go to the task, or use its inline **Reply** to answer without opening Glade.
 
-Opening a task marks it read; ⌘⇧U marks it unread again. Notifications are silent by default; Settings ›
+Opening a task marks it read, so its reply no longer needs you; ⌘⇧U marks it unread, and needing you, again. Notifications are silent by default; Settings ›
 Notifications turns them off or their sound on. Focus and Do Not Disturb are up to macOS.
 
 ## Glade in the menu bar
@@ -268,9 +272,9 @@ many** shows beside it; once nothing's waiting, it's the mark alone.
 Click it for a list, in every workspace:
 
 - **Needs you:** each task waiting on you, its workspace, and why: asking a question, waiting for permission, stopped
-  on an error, declined by a safety check, or a reply waiting.
-- **Working:** each task whose agent is working, its status, its todo progress (`3/7` and a thin bar) and how long its
-  turn has run.
+  on an error, declined by a safety check, or an unread reply.
+- **Working:** each task whose agent is working, or has left subagents or watchers running, its status, its todo
+  progress (`3/7` and a thin bar) and how long its turn has run.
 - **Recent:** the last few notifications Glade sent, and how long ago. They're kept, so they're still there after a
   relaunch.
 

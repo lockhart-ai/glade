@@ -35,6 +35,7 @@ function task(id: string, updatedAt: number, change: Partial<Task> = {}): Task {
     retrying: null,
     asking: false,
     awaitingPermission: false,
+    backgroundWork: false,
     pause: null,
     importedAt: null,
     todos: null,

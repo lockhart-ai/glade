@@ -75,10 +75,11 @@ test('watchers: each thing the agent left running or scheduled, with its state, 
   await expect(docs).toContainText(`FailedCommand${WATCHES_THINGS.docsCommand}end${WATCHES_THINGS.docsFailed}`)
   await expect(docs.getByRole('button')).toHaveCount(0)
 
-  // The task list marks the task as still watching things while it waits on you.
+  // The task list marks the task as still watching things after its turn, and counts it as working while the ones
+  // whose process runs do (#430).
   const row = taskList(window).taskRow(WATCHES_THINGS.title)
   await expect(watchingMark(row)).toHaveAccessibleName('4 watchers running')
-  await expect(taskList(window).dot(row)).toHaveAttribute('data-state', 'waiting')
+  await expect(taskList(window).dot(row)).toHaveAttribute('data-state', 'working')
 
   // Marked done, it's still watching them: the Done row keeps the mark, and the tab its watchers.
   await taskHeader(window).markDone.click()

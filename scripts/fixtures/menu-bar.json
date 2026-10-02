@@ -32,6 +32,7 @@
     {
       "title": "Clean up the fixtures",
       "status": "Removed 14 unused fixtures",
+      "unread": true,
       "minutesAgo": 18,
       "notifications": [{ "body": "Removed 14 unused fixtures and updated the seeds.", "minutesAgo": 18 }]
     },

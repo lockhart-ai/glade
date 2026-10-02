@@ -5,15 +5,14 @@
  * (`src/renderer/menu-bar`), which shows it.
  *
  * - **Needs you:** every workspace's tasks that need you (the task list's rule, `needsYou`), with why.
- * - **Working:** every workspace's tasks whose agent is working (or paused, which resumes on its own), with their
- *   status line, todo progress and when their turn started.
+ * - **Working:** every workspace's tasks that are working (`isWorking`: their agent's turn is under way or paused, or
+ *   work it started still runs in the background), with their status line, todo progress and when their turn started.
  * - **Recent:** the latest notifications Glade sent, kept in the database so they're there after a relaunch.
  */
-import { needsYou, type AttentionFields } from './attention'
+import { isWorking, needsYou, type AttentionFields } from './attention'
 import {
   AgentErrorKind,
   TaskActivity,
-  TaskState,
   UNTITLED_TASK_TITLE,
   type EpochMs,
   type Task,
@@ -41,7 +40,7 @@ export enum NeedsYouReason {
   Error = 'error',
   /** A safety check declined its agent's request, with no fallback model to retry it on: not a crash. */
   DeclinedBySafety = 'declined_by_safety',
-  /** Its agent replied and its turn ended: it waits on your next message. */
+  /** Its agent replied, its turn ended, and you haven't read the reply. */
   Reply = 'reply',
 }
 
@@ -51,7 +50,7 @@ export const NEEDS_YOU_REASON_LABELS: Readonly<Record<NeedsYouReason, string>> =
   [NeedsYouReason.Permission]: 'Waiting for permission',
   [NeedsYouReason.Error]: 'Stopped on an error',
   [NeedsYouReason.DeclinedBySafety]: 'Declined by a safety check',
-  [NeedsYouReason.Reply]: 'Reply waiting',
+  [NeedsYouReason.Reply]: 'Unread reply',
 }
 
 /** What `needsYouReason` reads of a task. */
@@ -60,7 +59,7 @@ export type NeedsYouFields = AttentionFields & Pick<Task, 'error'>
 /**
  * Why a task needs you, or null when it doesn't (`needsYou`). Questions come first, then a permission card: both hold
  * the turn open whatever its activity says. Otherwise the turn has ended, on an error (a safety refusal with no
- * fallback reads apart from any other) or with a reply.
+ * fallback reads apart from any other) or with a reply you haven't read.
  */
 export function needsYouReason(task: NeedsYouFields): NeedsYouReason | null {
   if (!needsYou(task)) return null
@@ -68,19 +67,6 @@ export function needsYouReason(task: NeedsYouFields): NeedsYouReason | null {
   if (task.awaitingPermission) return NeedsYouReason.Permission
   if (task.activity !== TaskActivity.Error) return NeedsYouReason.Reply
   return task.error?.kind === AgentErrorKind.SafetyRefusal ? NeedsYouReason.DeclinedBySafety : NeedsYouReason.Error
-}
-
-/** Whether a task shows under Working: it's active and its agent's turn is under way, working or paused. */
-export function isInFlight(task: Pick<Task, 'state' | 'activity'>): boolean {
-  if (task.state !== TaskState.Active) return false
-  switch (task.activity) {
-    case TaskActivity.Working:
-    case TaskActivity.Paused:
-      return true
-    case TaskActivity.Waiting:
-    case TaskActivity.Error:
-      return false
-  }
 }
 
 /** The task a row stands for, and where it is. */
@@ -99,7 +85,7 @@ export interface NeedsYouItem extends MenuBarTaskRef {
   readonly since: EpochMs
 }
 
-/** A task whose agent is working, as its Working row shows it. */
+/** A task that's working, as its Working row shows it. */
 export interface WorkingItem extends MenuBarTaskRef {
   /** Its one-line status (`set_status`); empty until the agent sets one. */
   readonly status: string
@@ -126,7 +112,7 @@ export interface SentNotification {
 export interface MenuBarSnapshot {
   /** The tasks that need you, the one that changed last first. */
   readonly needsYou: readonly NeedsYouItem[]
-  /** The tasks whose agent is working, the one working longest first. */
+  /** The tasks that are working (their background work included), the one working longest first. */
   readonly working: readonly WorkingItem[]
   /** The latest notifications sent, newest first, at most `RECENT_NOTIFICATIONS_SHOWN`. */
   readonly recent: readonly SentNotification[]
@@ -167,7 +153,7 @@ export function menuBarSnapshot({ tasks, workspaces, turnStartedAt, recent }: Me
     const reason = needsYouReason(task)
     if (reason !== null) {
       needs.push({ ...ref, reason, since: task.updatedAt })
-    } else if (isInFlight(task)) {
+    } else if (isWorking(task)) {
       const startedAt = turnStartedAt(task.id)
       // Only a paused turn shows why it's paused: a pause left on a working task is stale.
       const pause = task.activity === TaskActivity.Paused ? task.pause : null

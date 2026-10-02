@@ -142,7 +142,7 @@ describe('SelectedTaskHeader', () => {
 
     expect(within(header()).getByRole('heading', { level: 1 })).toHaveTextContent('Add rate limiting to public API')
     expect(within(header()).getByRole('button', { name: 'Pin task' })).toHaveAttribute('aria-pressed', 'false')
-    expect(dot()).toHaveAccessibleName('Active · waiting on you')
+    expect(dot()).toHaveAccessibleName('Active · idle')
     expect(age()).toHaveTextContent(/^· 42m$/)
     expect(field('Goal')).toHaveTextContent(/^Add per-key rate limiting to the public API\.$/)
     expect(field('Now')).toHaveTextContent(/^Throttle applied; 14 new tests pass\.$/)
@@ -217,7 +217,31 @@ describe('SelectedTaskHeader', () => {
   it.each([
     ['working', { activity: TaskActivity.Working }, TaskIndicator.Working, 'Active · working'],
     ['paused', { activity: TaskActivity.Paused }, TaskIndicator.Working, 'Active · paused'],
-    ['waiting on you', { activity: TaskActivity.Waiting }, TaskIndicator.Waiting, 'Active · waiting on you'],
+    [
+      'waiting on you to read its reply',
+      { activity: TaskActivity.Waiting, sessionId: 's1', unread: true },
+      TaskIndicator.Waiting,
+      'Active · waiting on you',
+    ],
+    [
+      'waiting on your answers',
+      { activity: TaskActivity.Working, sessionId: 's1', asking: true },
+      TaskIndicator.Waiting,
+      'Active · waiting on you',
+    ],
+    ['idle, its reply read', { activity: TaskActivity.Waiting, sessionId: 's1' }, TaskIndicator.Idle, 'Active · idle'],
+    [
+      'working in the background, its reply read',
+      { activity: TaskActivity.Waiting, sessionId: 's1', backgroundWork: true },
+      TaskIndicator.Working,
+      'Active · working',
+    ],
+    [
+      'working in the background, its reply unread',
+      { activity: TaskActivity.Waiting, sessionId: 's1', backgroundWork: true, unread: true },
+      TaskIndicator.Working,
+      'Active · working',
+    ],
     ['stopped by an error', { activity: TaskActivity.Error }, TaskIndicator.Error, 'Active · stopped by an error'],
     [
       'done',
@@ -475,7 +499,7 @@ describe('SelectedTaskHeader', () => {
 
     expect(await within(header()).findByRole('button', { name: 'Mark done' })).toBeEnabled()
     expect(invoke).toHaveBeenCalledWith(CommandName.TasksReopen, { id: 't1' })
-    expect(dot()).toHaveAccessibleName('Active · waiting on you')
+    expect(dot()).toHaveAccessibleName('Active · idle')
     expect(within(header()).getByRole('heading', { level: 1 })).toHaveTextContent('Add rate limiting to public API')
     expect(within(header()).getByRole('button', { name: 'Unpin task' })).toBeInTheDocument()
     expect(field('Goal')).toHaveTextContent('Add per-key rate limiting to the public API.')
@@ -535,7 +559,7 @@ describe('SelectedTaskHeader', () => {
     fireEvent.click(within(header()).getByRole('button', { name: 'Mark done' }))
 
     expect(await screen.findByText('Already done')).toBeInTheDocument()
-    expect(dot()).toHaveAccessibleName('Active · waiting on you')
+    expect(dot()).toHaveAccessibleName('Active · idle')
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
   })
 

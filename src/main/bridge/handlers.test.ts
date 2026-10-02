@@ -268,6 +268,9 @@ describe('the menu bar commands', () => {
   it("answers what's in flight across every workspace", async () => {
     const task = sampleTask(database.db, sampleWorkspace(database.db).id)
     updateTask(database.db, task.id, { title: 'Add rate limiting', sessionId: 'session-1' })
+    // Its reply read, it's in neither list; unread, it needs you.
+    expect((await handlers[CommandName.MenuBarGet]({})).snapshot).toMatchObject({ needsYou: [], working: [] })
+    updateTask(database.db, task.id, { unread: true })
     const { snapshot } = await handlers[CommandName.MenuBarGet]({})
     expect(snapshot.needsYou.map(({ taskId }) => taskId)).toEqual([task.id])
     expect(snapshot.working).toEqual([])

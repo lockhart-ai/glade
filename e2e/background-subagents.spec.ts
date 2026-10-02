@@ -16,7 +16,7 @@ const REPORTED =
 const QUERIES = 'Profile the checkout queries'
 const QUERIES_SUMMARY = 'Timing the checkout queries against the staging copy'
 
-test('background subagents: they run until they really end, while the parent waits on you and takes messages', async ({
+test('background subagents: they run until they really end, while the parent takes messages and counts as working', async ({
   launch,
   tempFolder,
 }) => {
@@ -30,11 +30,12 @@ test('background subagents: they run until they really end, while the parent wai
   await bar.field.fill('Find why the checkout endpoint got slower since 2.3.')
   await bar.field.press('Enter')
 
-  // The turn that started them has ended: the parent waits on you, while all three subagents run.
+  // The turn that started them has ended, and the parent takes messages; while all three subagents run it still
+  // counts as working, not as needing you (#430).
   const { agentReplies, userMessages } = chat(window)
   await expect(agentReplies).toHaveCount(1)
   await expect(agentReplies.first()).toContainText(STARTED)
-  await expect(list.dot(list.taskRow(TITLE))).toHaveAttribute('data-state', 'waiting')
+  await expect(list.dot(list.taskRow(TITLE))).toHaveAttribute('data-state', 'working')
   const panel = taskPanel(window)
   const subagents = subagentsTab(window)
   await panel.tab(/^Subagents/).click()
@@ -81,7 +82,8 @@ test('background subagents: they run until they really end, while the parent wai
   await expect(agentReplies).toHaveCount(3)
   await expect(agentReplies.nth(2)).toContainText(REPORTED)
   await expect(queries).toHaveText(finished ?? '')
-  await expect(list.dot(list.taskRow(TITLE))).toHaveAttribute('data-state', 'waiting')
+  // Nothing is left running, and you've seen its report: the task is idle.
+  await expect(list.dot(list.taskRow(TITLE))).toHaveAttribute('data-state', 'idle')
 })
 
 test('background subagents: one still running when the app quits is interrupted on the next launch', async ({
@@ -116,7 +118,8 @@ test('background subagents: one still running when the app quits is interrupted 
   // What it was doing when the app quit goes with it.
   await expect(subagents.summary(QUERIES, QUERIES_SUMMARY)).toBeHidden()
   await expect(subagents.header(QUERIES)).not.toContainText(QUERIES_SUMMARY)
-  await expect(list.dot(list.taskRow(TITLE))).toHaveAttribute('data-state', 'waiting')
+  // They ended with the app, so the task no longer counts as working: its reply read, it's idle.
+  await expect(list.dot(list.taskRow(TITLE))).toHaveAttribute('data-state', 'idle')
 })
 
 test('background subagents: Stop on a turn leaves a background subagent and a watcher running, each stoppable from its tab', async ({

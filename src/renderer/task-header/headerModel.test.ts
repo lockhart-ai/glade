@@ -106,16 +106,36 @@ describe('offersMarkDone and canMarkDone', () => {
   })
 })
 
+/** What the attention rule reads: a task that has run, read, with nothing open or running. */
+const ATTENTION = {
+  sessionId: 'session-1',
+  asking: false,
+  awaitingPermission: false,
+  unread: false,
+  backgroundWork: false,
+}
+
 describe('stateLabel', () => {
-  const active = { state: TaskState.Active, doneAt: null, updatedAt: STARTED, error: null }
+  const active = { ...ATTENTION, state: TaskState.Active, doneAt: null, updatedAt: STARTED, error: null }
 
   it.each([
     [TaskActivity.Working, 'Active · working'],
-    [TaskActivity.Waiting, 'Active · waiting on you'],
+    [TaskActivity.Waiting, 'Active · idle'],
     [TaskActivity.Error, 'Active · stopped by an error'],
     [TaskActivity.Paused, 'Active · paused'],
   ])('labels an active task that is %s', (activity, expected) => {
     expect(stateLabel({ ...active, activity })).toBe(expected)
+  })
+
+  it('labels a task whose turn has ended by what it waits on: you, its background work, or nothing', () => {
+    const waiting = { ...active, activity: TaskActivity.Waiting }
+    expect(stateLabel({ ...waiting, unread: true })).toBe('Active · waiting on you')
+    expect(stateLabel({ ...waiting, asking: true })).toBe('Active · waiting on you')
+    expect(stateLabel({ ...waiting, awaitingPermission: true })).toBe('Active · waiting on you')
+    expect(stateLabel({ ...waiting, backgroundWork: true })).toBe('Active · working')
+    expect(stateLabel({ ...waiting, backgroundWork: true, unread: true })).toBe('Active · working')
+    expect(stateLabel(waiting)).toBe('Active · idle')
+    expect(stateLabel({ ...waiting, sessionId: null, unread: true })).toBe('Active · idle')
   })
 
   it('labels an active task a safety refusal with no fallback stopped apart from any other error', () => {
@@ -132,7 +152,13 @@ describe('stateLabel', () => {
   })
 
   it('labels a done task with the day it was done', () => {
-    const done = { state: TaskState.Done, activity: TaskActivity.Waiting, updatedAt: STARTED, error: null }
+    const done = {
+      ...ATTENTION,
+      state: TaskState.Done,
+      activity: TaskActivity.Waiting,
+      updatedAt: STARTED,
+      error: null,
+    }
     expect(stateLabel({ ...done, doneAt: DONE })).toBe('Done · Sep 23')
     expect(stateLabel({ ...done, doneAt: null })).toBe('Done · Sep 23')
   })
@@ -248,12 +274,19 @@ describe('a reopened task', () => {
   const task = { ...sampleTask('t1', 'w1', 'Fix it'), createdAt: STARTED }
 
   it('says it was reopened while the agent works on the reopening message, and its usual label otherwise', () => {
-    const active = { state: TaskState.Active, doneAt: null, updatedAt: STARTED, error: null }
+    const active = { ...ATTENTION, state: TaskState.Active, doneAt: null, updatedAt: STARTED, error: null }
     expect(stateLabel({ ...active, activity: TaskActivity.Working }, reopened)).toBe('Active · reopened')
     expect(stateLabel({ ...active, activity: TaskActivity.Working }, { ...reopened, latestTurn: false })).toBe(
       'Active · working',
     )
-    expect(stateLabel({ ...active, activity: TaskActivity.Waiting }, reopened)).toBe('Active · waiting on you')
+    expect(stateLabel({ ...active, activity: TaskActivity.Waiting }, reopened)).toBe('Active · idle')
+    expect(stateLabel({ ...active, activity: TaskActivity.Waiting, unread: true }, reopened)).toBe(
+      'Active · waiting on you',
+    )
+    // Its turn is over: the subagents it left running make it working, not reopened.
+    expect(stateLabel({ ...active, activity: TaskActivity.Waiting, backgroundWork: true }, reopened)).toBe(
+      'Active · working',
+    )
   })
 
   it('keeps its age, and its tooltip adds when it was first done and reopened', () => {

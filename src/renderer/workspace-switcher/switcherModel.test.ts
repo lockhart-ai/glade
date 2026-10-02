@@ -16,9 +16,9 @@ function working(id: string, workspaceId = 'w1'): Task {
   return { ...sampleTask(id, workspaceId), activity: TaskActivity.Working, sessionId: 's' }
 }
 
-/** A task in `workspaceId` whose agent has replied and is waiting on you. */
+/** A task in `workspaceId` whose agent has replied, which you haven't read. */
 function waiting(id: string, workspaceId = 'w1'): Task {
-  return { ...sampleTask(id, workspaceId), activity: TaskActivity.Waiting, sessionId: 's' }
+  return { ...sampleTask(id, workspaceId), activity: TaskActivity.Waiting, sessionId: 's', unread: true }
 }
 
 function done(id: string, workspaceId = 'w1'): Task {
@@ -48,6 +48,26 @@ describe('workspaceStatus', () => {
       kind: WorkspaceStatusKind.NeedsYou,
       count: 3,
     })
+  })
+
+  it('counts a reply you have read, and a task still working in the background, as active only (#430)', () => {
+    const read = { ...waiting('t1'), unread: false }
+    const background = { ...waiting('t2'), backgroundWork: true }
+    expect(workspaceStatus([read, background], 'w1')).toEqual({ kind: WorkspaceStatusKind.Active, count: 2 })
+
+    // The background work finishes on its unread reply; the read one is marked unread.
+    expect(workspaceStatus([read, { ...background, backgroundWork: false }], 'w1')).toEqual({
+      kind: WorkspaceStatusKind.NeedsYou,
+      count: 1,
+    })
+    expect(workspaceStatus([{ ...read, unread: true }, background], 'w1')).toEqual({
+      kind: WorkspaceStatusKind.NeedsYou,
+      count: 1,
+    })
+    // Asking or erroring needs you whatever runs in the background, and whether it's read.
+    const asking = { ...read, backgroundWork: true, asking: true }
+    const errored = { ...read, backgroundWork: true, activity: TaskActivity.Error }
+    expect(workspaceStatus([asking, errored], 'w1')).toEqual({ kind: WorkspaceStatusKind.NeedsYou, count: 2 })
   })
 })
 

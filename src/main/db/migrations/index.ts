@@ -49,6 +49,7 @@ import { pluginGrantsMigration } from './0048-plugin-grants'
 import { linkArtifactsMigration } from './0049-link-artifacts'
 import { browseFoldersMigration } from './0050-browse-folders'
 import { reportedContextWindowsMigration } from './0051-reported-context-windows'
+import { runningToolCallsIndexMigration } from './0052-running-tool-calls-index'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -102,6 +103,7 @@ export const MIGRATIONS: readonly Migration[] = [
   linkArtifactsMigration,
   browseFoldersMigration,
   reportedContextWindowsMigration,
+  runningToolCallsIndexMigration,
 ]
 
 /** The version a database is at once every migration has run: the last one's, which can skip versions still in flight. */

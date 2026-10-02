@@ -43,15 +43,15 @@ test('two tasks work at once, each with its own chat and tool log, and stopping 
   await expect(agentReplies).toHaveCount(1)
   await expect(agentReplies.first()).toContainText('The failing test was a timezone bug')
   await expect(header.title).toHaveText('Fix the flaky date test')
-  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
+  await expect(header.stateDot).toHaveAccessibleName('Active · idle')
   await expect(panel.tab(/^Tool calls/)).toHaveText('Tool calls 10')
   await expect(panel.log.getByRole('button', { name: /^Done/ })).toHaveCount(10)
   await expect(panel.call(/Bash\s*npm run test:e2e/)).toHaveCount(0)
 
-  // In the sidebar, A is still working while B, selected, waits on you.
+  // In the sidebar, A is still working while B, selected and its reply read, is idle.
   await expect(rowB).toHaveAttribute('aria-current', 'true')
   await expect(list.dot(rowA)).toHaveAttribute('data-state', 'working')
-  await expect(list.dot(rowB)).toHaveAttribute('data-state', 'waiting')
+  await expect(list.dot(rowB)).toHaveAttribute('data-state', 'idle')
   await expect(rowA).toContainText('Running the e2e suite.')
 
   // Back to A: its own chat and tool log, still working, with nothing of B's.
@@ -78,13 +78,13 @@ test('two tasks work at once, each with its own chat and tool log, and stopping 
   await rowA.click()
   await expect(header.title).toHaveText('Run the e2e suite')
   await bar.stop.click()
-  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
+  await expect(header.stateDot).toHaveAccessibleName('Active · idle')
   await expect(panel.call(/^Failed\s*Bash/)).toHaveAccessibleName(/You stopped the agent\.$/)
-  await expect(list.dot(rowA)).toHaveAttribute('data-state', 'waiting')
+  await expect(list.dot(rowA)).toHaveAttribute('data-state', 'idle')
 
   await rowB.click()
   await expect(header.title).toHaveText('Fix the flaky date test')
-  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
+  await expect(header.stateDot).toHaveAccessibleName('Active · idle')
   await expect(agentReplies).toHaveCount(1)
   await expect(panel.log.getByRole('button', { name: /^Done/ })).toHaveCount(10)
   await expect(panel.call(/^Failed/)).toHaveCount(0)
