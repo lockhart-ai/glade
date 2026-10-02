@@ -719,6 +719,23 @@ describe('the image viewer', () => {
     expect(trigger).toHaveFocus()
   })
 
+  it('takes the focus synchronously, so a ← pressed the instant it opens still steps it (#393)', async () => {
+    await renderTab({ files: IMAGE_FILES })
+    const trigger = within(row('Landing page, dark theme')).getByRole('button', {
+      name: /^Landing page, dark theme/,
+    })
+
+    // No `settleFloating`: the viewer's own focus must already be there, not a frame later.
+    fireEvent.click(trigger)
+    const viewer = screen.getByRole('dialog', { name: VIEWER_LABEL })
+    expect(document.activeElement).toBe(within(viewer).getByRole('button', { name: 'Close image' }))
+
+    fireEvent.keyDown(document.activeElement ?? viewer, { key: 'ArrowLeft' })
+
+    // Round from the first back to the last: Yesterday's Search results.
+    expect(viewerTitle(viewer)).toBe('Search results on mobile')
+  })
+
   it('steps only through the image artifacts the list shows, not those in a folded date group (#378)', async () => {
     // An older screenshot, declared too: its file last changed in August, so it sits under Older, folded as it starts.
     const august = artifact('out/screens/landing-light.png', 'Landing page, light theme', local(2026, 8, 3, 9, 0))
