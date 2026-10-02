@@ -647,12 +647,12 @@ describe('the Browse tab', () => {
       return [glyph?.getAttribute('data-glyph'), glyph?.getAttribute('data-family'), ...drawn].join(' | ')
     }
     expect(icon('throttles.py')).toBe('code | code | far file-code')
-    expect(icon('theme.css')).toBe('stylesheet | code | fas hashtag')
-    expect(icon('schema.sql')).toBe('database | data | fas database')
+    expect(icon('theme.css')).toBe('stylesheet | code | own stylesheet')
+    expect(icon('schema.sql')).toBe('database | data | own database')
     expect(icon('logo.png')).toBe('image | image | far image')
-    expect(icon('docker-compose.yml')).toBe('config | config | own braces')
-    expect(icon('pnpm-lock.yaml')).toBe('lock | config | fas lock')
-    expect(icon('Dockerfile')).toBe('docker | config | fas cube')
+    expect(icon('docker-compose.yml')).toBe('config | config | own config')
+    expect(icon('pnpm-lock.yaml')).toBe('lock | config | own lock')
+    expect(icon('Dockerfile')).toBe('docker | config | own docker')
     expect(icon('.gitignore')).toBe('dotfile | config | far file')
     expect(icon('README.md')).toBe('docs | docs | far file-lines')
     expect(icon('LICENSE')).toBe('docs | docs | far file-lines')
@@ -728,6 +728,14 @@ describe('the Browse tab', () => {
     expect(split('.gitignore')).toEqual(['.gitignore', '', undefined])
     expect(split('Dockerfile')).toEqual(['Dockerfile', '', undefined])
     expect(split('tests')).toEqual(['tests', '', undefined])
+    // The stylesheet is told how many characters stay, so the start is cut to a whole number of them.
+    const tailLength = (name: string): string | undefined =>
+      row(name)
+        .querySelector<HTMLElement>(`.${cls('name')}`)
+        ?.style.getPropertyValue('--tail-length')
+    expect(tailLength(LONG_NAME)).toBe('9')
+    expect(tailLength('throttles.py')).toBe('3')
+    expect(tailLength('Dockerfile')).toBe('0')
     // Whole, the name reads as it is, and the row is named by it.
     expect(row(LONG_NAME).querySelector(`.${cls('name')}`)).toHaveTextContent(LONG_NAME)
     expect(row(LONG_NAME)).toHaveAttribute('title', `api/tests/${LONG_NAME}`)

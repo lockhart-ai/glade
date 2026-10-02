@@ -134,8 +134,14 @@
   font-size: 12.5px;
 }
 
+/*
+ * The start is only ever a whole number of characters wide (the room the name has, less its end's, rounded down), so
+ * its ellipsis ends flush against the end that stays, with no gap between them. The quarter pixels keep a letter from
+ * being lost to rounding: the first when the name fits, the second when the ellipsis exactly does.
+ */
 .head {
   min-width: 0;
+  max-width: calc(round(down, calc(100% - var(--tail-length) * 1ch + 0.25px), 1ch) + 0.25px);
   overflow: hidden;
   text-overflow: ellipsis;
 }

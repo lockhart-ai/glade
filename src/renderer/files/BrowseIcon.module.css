@@ -17,12 +17,6 @@
   font-size: 15px;
 }
 
-.icon.solid svg {
-  width: 13px;
-  height: 13px;
-  font-size: 13px;
-}
-
 .code {
   color: var(--color-blue-text);
 }

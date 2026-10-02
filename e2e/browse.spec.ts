@@ -246,11 +246,17 @@ test('browse: each row’s icon and size, a long name cut in the middle, the hov
   const longSize = await boxOf(long.getByText('6.8', { exact: true }))
   const rowBox = await boxOf(long)
   expect(tail.width).toBeGreaterThan(extension.width)
+  // The start is cut to a whole number of characters, so its ellipsis ends against the end that stays: no gap.
+  const character = extension.width / '.py'.length
+  const cut = (await boxOf(head)).width / character
+  expect(Math.abs(cut - Math.round(cut))).toBeLessThan(0.05)
+  // And the name takes all the room it has: one more character wouldn't fit before the size (8px clear of it, past the row's 6px gap).
+  expect(longSize.x - (extension.x + extension.width)).toBeLessThan(character + 8 + 6 + 1)
   expect(extension.x + extension.width).toBeLessThanOrEqual(longSize.x)
   expect(longSize.x + longSize.width).toBeLessThan(rowBox.x + rowBox.width)
   // A short name isn't cut.
   const short = files.treeRow('throttles.py').getByText('throttles', { exact: true })
-  expect(await short.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(false)
+  expect(await short.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
 
   // Rows are 24px, flush; the pointer's row and the selected one each show a pill of their own shade.
   expect(rowBox.height).toBe(24)

@@ -314,7 +314,7 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   200 matches show, best first, each with its icon, folder and size, and how many more there are. With the keyboard: ↑↓ move, → and ← open and close a folder, ↩
   opens, Esc clears the search, and ⌘F (with the focus in Files) jumps to the search.
 
-  ![The Browse tab in Files: the workspace's tree, with three folders open (sample data)](images/guide/files-browse.png)
+  ![The Browse tab in Files: the workspace's tree with its folders open, each file with its icon and size (sample data)](images/guide/files-browse.png)
 - **Todos:** the agent's own checklist, as it keeps it, with how many are done. The items come in three groups: what
   the agent is working on now, then what it hasn't started, then what's done (the most recently finished first, each
   with when it was finished, like `4m ago`; hover it for the exact time). A done item has a filled teal check and

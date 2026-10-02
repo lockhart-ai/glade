@@ -1,5 +1,15 @@
 import { faChevronRight, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type RefObject,
+} from 'react'
 import { normalizeQuery, type FileSearchResult, type FolderEntry } from '../../shared/browse'
 import { Icon, IconSize, Input } from '../components'
 import { classNames } from '../components/classNames'
@@ -20,6 +30,7 @@ import {
   unloadedFolders,
   visibleRows,
   type BrowseTree,
+  type NameParts,
   type TreeRow,
 } from './browseModel'
 import styles from './BrowseTab.module.css'
@@ -50,6 +61,11 @@ function indentOf(depth: number): number {
 /** Where a level's indent guide stands in its row: under the chevron of the folder it belongs to. */
 function guideLeft(level: number): number {
   return indentOf(level) + 5.5
+}
+
+/** How many characters of a name stay in view, for the stylesheet: the start gets the room that's left, in whole ones. */
+function tailLength({ tail, extension }: NameParts): CSSProperties {
+  return { '--tail-length': Array.from(tail + extension).length } as CSSProperties
 }
 
 interface FileSizeProps {
@@ -324,7 +340,7 @@ export function BrowseTab({ taskId, changed, searchField }: BrowseTabProps): Rea
           {folder && <Icon icon={faChevronRight} size={IconSize.Small} />}
         </span>
         {folder ? <FolderIcon open={isOpen} /> : <FileIcon path={entry.path} />}
-        <span className={styles.name}>
+        <span className={styles.name} style={tailLength(name)}>
           <span className={styles.head}>{name.head}</span>
           <span className={styles.tail}>
             {name.tail}
