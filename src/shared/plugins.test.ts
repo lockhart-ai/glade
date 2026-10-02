@@ -1,13 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { PluginStatus, shownPlugin, type InstalledPlugin, type ValidPlugin } from './plugins'
+import {
+  isGranted,
+  PLUGIN_CAPABILITY_LABELS,
+  PluginCapability,
+  PluginStatus,
+  shownPlugin,
+  withGrant,
+  type InstalledPlugin,
+  type ValidPlugin,
+} from './plugins'
 
 function valid(folder: string, enabled = true): ValidPlugin {
   return {
     status: PluginStatus.Valid,
     folder,
-    manifest: { id: folder, name: folder, version: '1.0.0', entry: 'index.html', icon: null },
+    manifest: { id: folder, name: folder, version: '1.0.0', entry: 'index.html', icon: null, capabilities: [] },
     iconUrl: null,
     enabled,
+    granted: [],
   }
 }
 
@@ -34,5 +44,32 @@ describe('shownPlugin', () => {
     shownPlugin(plugins)
 
     expect(plugins.map(({ folder }) => folder)).toEqual(['b', 'a'])
+  })
+})
+
+describe('capabilities', () => {
+  const asks: ValidPlugin = {
+    ...valid('gauge'),
+    manifest: { ...valid('gauge').manifest, capabilities: [PluginCapability.Machine] },
+  }
+
+  it('says what each capability lets a plugin see, as Settings shows it', () => {
+    expect(PLUGIN_CAPABILITY_LABELS[PluginCapability.Machine]).toBe("Can see your Mac's CPU, GPU and Docker load")
+  })
+
+  it('withGrant turns a capability the plugin asks for on and off, and isGranted says so', () => {
+    expect(isGranted(asks, PluginCapability.Machine)).toBe(false)
+
+    const on = withGrant(asks, PluginCapability.Machine, true)
+    expect(on.granted).toEqual([PluginCapability.Machine])
+    expect(isGranted(on, PluginCapability.Machine)).toBe(true)
+    expect(withGrant(on, PluginCapability.Machine, true).granted).toEqual([PluginCapability.Machine])
+
+    expect(withGrant(on, PluginCapability.Machine, false).granted).toEqual([])
+    expect(asks.granted).toEqual([])
+  })
+
+  it("withGrant can't turn on a capability the plugin doesn't ask for", () => {
+    expect(withGrant(valid('pomodoro'), PluginCapability.Machine, true).granted).toEqual([])
   })
 })

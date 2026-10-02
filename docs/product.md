@@ -46,8 +46,8 @@ There are no follow-up tasks. One task can refer to another through its folder o
   the top of the chat, and the input bar floating over its bottom. The chat, a little narrower than both, scrolls under
   them and is cut off halfway under each, so it never shows past their outer edges. The input bar has model, effort
   and permissions pickers and a context
-  meter at the right. Each task keeps its unsent draft, text, pasted images and pasted text blocks, while you're on
-  another task and across a relaunch or a crash, until it's sent.
+  meter at the right. Each task keeps its unsent draft, text, pasted images, pasted text blocks and attached files,
+  while you're on another task and across a relaunch or a crash, until it's sent.
   A message's pasted images show as thumbnails above its text in the chat, and small in its row while it's queued.
   Clicking one (or ↵ or Space on it) opens the **image viewer** over the window: the image as large as fits, never
   scaled past its own size, on a dimmed backdrop. With several, ← and → step through the message's images, round from
@@ -68,6 +68,18 @@ There are no follow-up tasks. One task can refer to another through its folder o
   injection inside text you pasted), at its place among what you typed; the tags and the token never show in the UI.
   Kept everywhere a message is: queued, in the draft, across a relaunch, and the sidebar search matches text inside a
   pasted block too. ![Pasted content](design/screens/34-pasted-content.png)
+- **Attached files** (#396) — drop any file onto the input bar, or paste one copied in Finder (⌘V), and Glade copies
+  it, byte for byte, into the workspace at `.glade/attachments/<task id>/`, under its own name (`sales (2).csv` when
+  the name's taken). It shows as a chip beside the image thumbnails, with an icon by its type, its name, type and size,
+  and a ✕; clicking the chip reveals the copy in Finder. The agent gets a line with each file's path at the end of your
+  message, never the file's contents, so it reads the exact bytes with its own tools (an image the API takes goes as an
+  image too). In the chat, your message keeps the chips above its words; clicking one opens the file in the Files tab,
+  or reveals it in Finder when the Files tab can't show it (a PDF, say). A folder, or a file over 200 MB, is refused
+  with a toast, and a symlink is copied as the file it leads to. Glade keeps the folder out of git without touching a
+  file you commit: when the workspace is in a repository, it adds `/.glade/attachments/` to that repository's own
+  `.git/info/exclude`, which is never committed. Deleting the task deletes its attached files; a done task keeps them.
+  Attachments stay with the draft, the queue and a relaunch, as images do.
+  ![Attached files](design/screens/36-attached-files.png)
 - **Links** — a link in what the agent or you wrote opens in your browser (a `mailto:` link in your mail app), never in
   Glade: in replies and your messages, the question and permission cards, the tool log's notes and output, the goal
   and status, todos, watchers and queued messages. Markdown links and bare URLs and email addresses are links; URLs in
@@ -153,7 +165,9 @@ Settings (⌘,) opens on Agent. Changes save as you make them.
 - **Appearance:** nothing to set yet; Glade has one theme, dark.
 - **Keyboard:** every shortcut, rebindable (`keymap.md`).
 - **Plugins:** the plugins installed, each turned on or off, its own Reload button, and their folder (`plugin-api.md`).
-  Reading the folder again (opening this section) reloads a running plugin whose files changed on disk since.
+  Reading the folder again (opening this section) reloads a running plugin whose files changed on disk since. A
+  plugin that asks for a capability has a switch for it under its row, off until you turn it on: "Can see your Mac's
+  CPU, GPU and Docker load" (`machine`).
 - **Control:** whether other agents and scripts may drive Glade, and how to connect them (`control-api.md`).
 - **Workspace** (under its own heading, by the workspace's name): its name and root folder.
 

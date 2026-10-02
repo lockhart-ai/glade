@@ -43,7 +43,9 @@ import { usageReadingsMigration } from './0042-usage-readings'
 import { terminalWorkspacesMigration } from './0043-terminal-workspaces'
 import { refusalFallbackMigration } from './0044-refusal-fallback'
 import { pastedBlocksMigration } from './0045-pasted-blocks'
+import { attachedFilesMigration } from './0046-attached-files'
 import { subagentTaskIdsMigration } from './0047-subagent-task-ids'
+import { pluginGrantsMigration } from './0048-plugin-grants'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [
@@ -91,7 +93,9 @@ export const MIGRATIONS: readonly Migration[] = [
   terminalWorkspacesMigration,
   refusalFallbackMigration,
   pastedBlocksMigration,
+  attachedFilesMigration,
   subagentTaskIdsMigration,
+  pluginGrantsMigration,
 ]
 
 /** The version a database is at once every migration has run: the last one's, which can skip versions still in flight. */

@@ -68,7 +68,8 @@ export interface ImageViewerProps {
  * several, a pager under it says which ("2 of 3") and steps between them, as ← and → do, going round at the ends. A
  * workspace image with a header shows its title in the close chip, before its actions, all top right, so nothing sits
  * under the macOS traffic lights (top left, in every state). Esc, a click on the backdrop or the close button closes
- * it. It takes the focus while it's open and hands it back to `returnFocus`.
+ * it. It takes the focus synchronously as it's shown, so a ← or → pressed right away still steps it (#393), and hands
+ * the focus back to `returnFocus` once it closes.
  */
 export function ImageViewer({
   images,
@@ -101,6 +102,16 @@ export function ImageViewer({
     useDismiss(context, { outsidePress: false }),
     useRole(context, { role: 'dialog' }),
   ])
+  // `FloatingFocusManager` below also focuses `closeRef` as its `initialFocus`, but only on the next animation
+  // frame (it waits for the portal it renders into), which leaves a window right after opening where a key still
+  // goes to whatever had the focus before (#393). Focusing the close button the moment it mounts, from its own ref
+  // callback rather than a layout effect of this component (which would run before the portal's own mount and find
+  // nothing to focus yet), closes that window; the later call just re-confirms the same element.
+  const focusOnMount = useCallback((node: HTMLButtonElement | null) => {
+    closeRef.current = node
+    node?.focus({ preventScroll: true })
+  }, [])
+
   const multiple = images.length > 1
   const step = (by: number): void => {
     onIndexChange?.(steppedIndex(index, by, images.length))
@@ -152,7 +163,7 @@ export function ImageViewer({
                 />
               ))}
               <Button
-                ref={closeRef}
+                ref={focusOnMount}
                 variant={ButtonVariant.Icon}
                 icon={faXmark}
                 aria-label="Close image"

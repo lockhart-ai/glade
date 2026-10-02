@@ -6,11 +6,13 @@ import {
   useRef,
   useState,
   type ClipboardEvent,
+  type DragEvent,
   type KeyboardEvent,
   type ReactNode,
   type RefObject,
 } from 'react'
-import { BridgeErrorCode, isBridgeError } from '../../shared/bridge'
+import { BridgeErrorCode, CommandName, isBridgeError } from '../../shared/bridge'
+import type { AttachedFile } from '../../shared/attachedFiles'
 import {
   Effort,
   PermissionMode,
@@ -35,6 +37,7 @@ import {
 import { bindingHint, isCommandKey, useCommand, useKeymap } from '../commands/hooks'
 import { MESSAGE_FIELD_PROPS } from '../commands/registry'
 import { Icon, IconSize, Textarea, useToast } from '../components'
+import { classNames } from '../components/classNames'
 import { describeFailure } from '../store/hydrate'
 import { selectSelectedTask } from '../store/state'
 import { useGladeStore, useGladeStoreApi } from '../store/react'
@@ -67,16 +70,17 @@ export const DONE_PLACEHOLDER = 'Send a message to reopen this task…'
 export const ERROR_PLACEHOLDER = 'Reply, or press Retry…'
 export const QUEUE_PLACEHOLDER = 'Add a message. It will be queued until the agent finishes its current step.'
 /**
- * Why images or pasted text can't go while the agent's questions are open: a reply then answers them, and an answer
- * is words.
+ * Why images, files or pasted text can't go while the agent's questions are open: a reply then answers them, and an
+ * answer is words.
  */
 export const ASKING_ATTACHMENTS_REFUSAL =
-  'Images and pasted text can’t go with an answer to the agent’s questions. Answer in words, then send them after.'
+  'Images, files and pasted text can’t go with an answer to the agent’s questions. Answer in words, then send them after.'
 
 /** A task's queue when it has none. */
 const NO_QUEUE: readonly QueuedMessage[] = []
 const NO_ATTACHMENTS: readonly Attachment[] = []
 const NO_PASTED_BLOCKS: readonly PastedBlock[] = []
+const NO_FILES: readonly AttachedFile[] = []
 const NO_REFUSALS: readonly string[] = []
 
 /**
@@ -86,17 +90,22 @@ const NO_REFUSALS: readonly string[] = []
 export const DRAFT_SAVE_DELAY_MS = 400
 
 /**
- * The input bar's draft as it keeps it: the images as their attachments, and the pasted blocks whose tokens sit
- * inline in `text`; each array changes only when it does.
+ * The input bar's draft as it keeps it: the images as their attachments, the pasted blocks whose tokens sit inline in
+ * `text`, and the files attached; each array changes only when it does.
  */
 interface BarDraft {
   readonly text: string
   readonly attachments: readonly Attachment[]
   readonly pastedBlocks: readonly PastedBlock[]
+  readonly files: readonly AttachedFile[]
 }
 
+const EMPTY_DRAFT: BarDraft = { text: '', attachments: NO_ATTACHMENTS, pastedBlocks: NO_PASTED_BLOCKS, files: NO_FILES }
+
 function sameDraft(a: BarDraft, b: BarDraft): boolean {
-  return a.text === b.text && a.attachments === b.attachments && a.pastedBlocks === b.pastedBlocks
+  return (
+    a.text === b.text && a.attachments === b.attachments && a.pastedBlocks === b.pastedBlocks && a.files === b.files
+  )
 }
 
 function toImages(attachments: readonly Attachment[]): InputDraft['images'] {
@@ -142,6 +151,30 @@ function isBusy(error: unknown): boolean {
 /** What the toast says when a message couldn't be sent. */
 export function sendFailureMessage(error: unknown): string {
   return `Couldn’t send your message: ${describeFailure(error)}`
+}
+
+/** A file's name, from its path on disk. */
+function nameOf(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1)
+}
+
+/** What main puts before the words of a refusal from `attachments.add`, which the toast leaves out. */
+const ATTACH_PREFIX = `${CommandName.AttachmentsAdd}: `
+
+/**
+ * What the toast says when a file couldn't be attached: main's own words when it refused the file (a folder, too
+ * large: they name it and say why), else which file and what went wrong.
+ */
+export function attachFailureMessage(path: string, error: unknown): string {
+  if (isBridgeError(error) && error.code === BridgeErrorCode.InvalidRequest) {
+    return error.message.startsWith(ATTACH_PREFIX) ? error.message.slice(ATTACH_PREFIX.length) : error.message
+  }
+  return `Couldn’t attach ${nameOf(path)}: ${describeFailure(error)}`
+}
+
+/** Whether a drag carries files from outside the window, to drop and attach. */
+function carriesFiles(event: DragEvent): boolean {
+  return Array.from(event.dataTransfer.types).includes('Files')
 }
 
 /** What the toast says when a queued message couldn't be edited or removed: most likely, it has just been sent. */
@@ -212,8 +245,10 @@ interface TaskInputBarProps extends InputBarProps {
 /**
  * Where you talk to the task's agent: the model, effort and permissions settings above a message field. Send (↵) sends
  * and ⇧↵ adds a line. Pasting text inserts it at the caret, as plain text; pasting images attaches them to the message,
- * as thumbnails above the field, and they go with it, alone or with text. Anything else pasted is refused, saying why. While the agent works, sending queues the message instead and Stop shows beside Send; while its turn
- * is paused, sending queues it too, until the task resumes. The queue
+ * as thumbnails above the field, and they go with it, alone or with text. A file dropped onto the bar, or pasted from
+ * Finder, is copied into the workspace and attached as a chip beside them (#396); the agent gets its path. Anything else
+ * pasted is refused, saying why. While the agent works, sending queues the message instead and Stop shows beside Send;
+ * while its turn is paused, sending queues it too, until the task resumes. The queue
  * shows above the settings, where each message can be edited in place or removed; ↑ in the empty field edits the last.
  */
 function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInputBarProps): React.JSX.Element {
@@ -222,6 +257,10 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   const queueMessage = useGladeStore((state) => state.queueMessage)
   const editQueuedMessage = useGladeStore((state) => state.editQueuedMessage)
   const removeQueuedMessage = useGladeStore((state) => state.removeQueuedMessage)
+  const pathForFile = useGladeStore((state) => state.pathForFile)
+  const attachFile = useGladeStore((state) => state.attachFile)
+  const discardAttachedFile = useGladeStore((state) => state.discardAttachedFile)
+  const revealFile = useGladeStore((state) => state.revealFile)
   const queue = useGladeStore((state) => state.queuedMessages[task.id] ?? NO_QUEUE)
   const stopTask = useGladeStore((state) => state.stopTask)
   const models = useGladeStore((state) => state.models)
@@ -244,6 +283,9 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     () => kept?.images.map((image, index) => ({ key: index + 1, image })) ?? NO_ATTACHMENTS,
   )
   const [pastedBlocks, setPastedBlocks] = useState<readonly PastedBlock[]>(() => kept?.pastedBlocks ?? NO_PASTED_BLOCKS)
+  const [files, setFiles] = useState<readonly AttachedFile[]>(() => kept?.files ?? NO_FILES)
+  // Whether files are being dragged over the bar, which marks it as where they drop.
+  const [dropping, setDropping] = useState(false)
   const [expandedPasteId, setExpandedPasteId] = useState<string | null>(null)
   const [refusals, setRefusals] = useState(NO_REFUSALS)
   const attached = useRef(kept?.images.length ?? 0)
@@ -282,13 +324,13 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
 
   // The draft as it now is, and as main last stored it (or had it, as the bar mounted): a change is stored a pause
   // after it's made, and at once when the bar goes (another task selected) or the window does (quitting).
-  const latest = useRef<BarDraft>({ text: draft, attachments, pastedBlocks })
-  const stored = useRef<BarDraft>({ text: draft, attachments, pastedBlocks })
+  const latest = useRef<BarDraft>({ text: draft, attachments, pastedBlocks, files })
+  const stored = useRef<BarDraft>({ text: draft, attachments, pastedBlocks, files })
   const pendingSave = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   /**
-   * Stores the draft in main if it changed since it last was: its text, and its images or pasted blocks only when
-   * they changed.
+   * Stores the draft in main if it changed since it last was: its text, and its images, pasted blocks or files only
+   * when they changed.
    */
   const saveNow = useCallback(() => {
     if (pendingSave.current !== null) clearTimeout(pendingSave.current)
@@ -299,14 +341,15 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     stored.current = current
     const images = current.attachments === last.attachments ? {} : { images: toImages(current.attachments) }
     const pasted = current.pastedBlocks === last.pastedBlocks ? {} : { pastedBlocks: current.pastedBlocks }
-    void saveInputDraft({ taskId: task.id, text: current.text, ...images, ...pasted })
+    const attached = current.files === last.files ? {} : { files: current.files }
+    void saveInputDraft({ taskId: task.id, text: current.text, ...images, ...pasted, ...attached })
   }, [saveInputDraft, task.id])
 
   useEffect(() => {
-    latest.current = { text: draft, attachments, pastedBlocks }
+    latest.current = { text: draft, attachments, pastedBlocks, files }
     if (pendingSave.current !== null) clearTimeout(pendingSave.current)
     pendingSave.current = sameDraft(latest.current, stored.current) ? null : setTimeout(saveNow, DRAFT_SAVE_DELAY_MS)
-  }, [draft, attachments, pastedBlocks, saveNow])
+  }, [draft, attachments, pastedBlocks, files, saveNow])
 
   useEffect(() => {
     const flush = saveNow
@@ -314,8 +357,8 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     return () => {
       window.removeEventListener('beforeunload', flush)
       flush()
-      const { text, attachments: going, pastedBlocks: goingBlocks } = latest.current
-      keepInputDraft(task.id, { text, images: toImages(going), pastedBlocks: goingBlocks })
+      const { text, attachments: going, pastedBlocks: goingBlocks, files: goingFiles } = latest.current
+      keepInputDraft(task.id, { text, images: toImages(going), pastedBlocks: goingBlocks, files: goingFiles })
     }
   }, [keepInputDraft, saveNow, task.id])
 
@@ -331,7 +374,8 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
         loaded === null ||
         current.text !== '' ||
         current.attachments.length > 0 ||
-        current.pastedBlocks.length > 0
+        current.pastedBlocks.length > 0 ||
+        current.files.length > 0
       ) {
         return
       }
@@ -339,12 +383,14 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
         text: loaded.text,
         attachments: toAttachments(loaded, attached),
         pastedBlocks: loaded.pastedBlocks,
+        files: loaded.files,
       }
       stored.current = restored
       latest.current = restored
       setDraft(restored.text)
       setAttachments(restored.attachments)
       setPastedBlocks(restored.pastedBlocks)
+      setFiles(restored.files)
     })
     return () => {
       mounted = false
@@ -384,32 +430,33 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   const send = async (): Promise<void> => {
     const text = draft.trim()
     const images = attachments.map(({ image }) => image)
-    if (!canSend || (text === '' && images.length === 0)) return
-    if (task.asking && (images.length > 0 || pastedBlocks.length > 0)) {
+    if (!canSend || (text === '' && images.length === 0 && files.length === 0)) return
+    if (task.asking && (images.length > 0 || pastedBlocks.length > 0 || files.length > 0)) {
       setRefusals([ASKING_ATTACHMENTS_REFUSAL])
       return
     }
     setSending(true)
     try {
       // A message to an agent waiting on answers to its questions answers them, so it's sent, whatever else holds the task.
-      if ((working || paused) && !task.asking) await queueMessage(task.id, text, images, pastedBlocks)
+      if ((working || paused) && !task.asking) await queueMessage(task.id, text, images, pastedBlocks, files)
       else {
         // The agent may have started working since the bar last heard: then the message waits in the queue.
-        await sendMessage(task.id, text, images, pastedBlocks).catch((error: unknown) => {
+        await sendMessage(task.id, text, images, pastedBlocks, files).catch((error: unknown) => {
           if (!isBusy(error)) throw error
-          return queueMessage(task.id, text, images, pastedBlocks)
+          return queueMessage(task.id, text, images, pastedBlocks, files)
         })
       }
       setDraft('')
       setAttachments(NO_ATTACHMENTS)
       setPastedBlocks(NO_PASTED_BLOCKS)
+      setFiles(NO_FILES)
       setExpandedPasteId(null)
       setRefusals(NO_REFUSALS)
       // Sent, so the task has no draft now: stored at once, over any save of it on its way, and kept, should the bar
       // have gone (another task selected) while it was sending.
-      latest.current = { text: '', attachments: NO_ATTACHMENTS, pastedBlocks: NO_PASTED_BLOCKS }
+      latest.current = EMPTY_DRAFT
       saveNow()
-      keepInputDraft(task.id, { text: '', images: [], pastedBlocks: [] })
+      keepInputDraft(task.id, { text: '', images: [], pastedBlocks: [], files: [] })
     } catch (error) {
       toast.show({ message: sendFailureMessage(error) })
     } finally {
@@ -417,12 +464,53 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
     }
   }
 
+  /** Attaches images that aren't files on disk (copied from an app) as thumbnails, saying why anything else wasn't. */
+  const attachImages = (images: readonly File[]): void => {
+    void readPastedFiles(images).then(({ images: read, refusals: refused }) => {
+      const added = read.map((image) => {
+        attached.current += 1
+        return { key: attached.current, image }
+      })
+      setAttachments((current) => [...current, ...added])
+      setRefusals(refused)
+    })
+  }
+
   /**
+   * Attaches files dropped onto the bar or pasted (#396): each one on disk is copied into the workspace by main, in
+   * order, and attached as a chip; a toast says why one couldn't be (a folder, too large). Any that aren't on disk are
+   * images copied from an app, attached as they always were.
+   */
+  const attachDropped = async (dropped: readonly File[]): Promise<void> => {
+    const onDisk = dropped.map(pathForFile).filter((path) => path !== '')
+    const elsewhere = dropped.filter((file) => pathForFile(file) === '')
+    // Why the last things pasted weren't attached goes, as a new paste of images replaces it.
+    if (elsewhere.length > 0) attachImages(elsewhere)
+    else setRefusals(NO_REFUSALS)
+    for (const path of onDisk) {
+      try {
+        const file = await attachFile(task.id, path)
+        setFiles((current) => [...current, file])
+      } catch (error) {
+        toast.show({ message: attachFailureMessage(path, error) })
+      }
+    }
+  }
+
+  /**
+   * A paste of files copied in Finder attaches them (#396), even with the text Finder puts beside them (their names).
    * A big paste of text (more than one line, or ~80 characters or more) becomes a pasted block (#363): an inline
-   * token stands for it at the caret, and a chip shows above the field. A small paste, or one of files, is left as it
-   * always was: plain text at the caret, or images attached as thumbnails, saying why anything else wasn't.
+   * token stands for it at the caret, and a chip shows above the field. A small paste, or one of images copied from an
+   * app, is left as it always was: plain text at the caret, or images attached as thumbnails, saying why anything else
+   * wasn't.
    */
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>): void => {
+    const pasted = Array.from(event.clipboardData.files)
+    if (pasted.some((file) => pathForFile(file) !== '')) {
+      event.preventDefault()
+      void attachDropped(pasted)
+      return
+    }
     const text = event.clipboardData.getData('text/plain')
     if (text !== '') {
       if (!isPasteWorthMarking(text)) return
@@ -439,17 +527,48 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
       })
       return
     }
-    const files = pastedFiles(event.clipboardData)
-    if (files.length === 0) return
+    const images = pastedFiles(event.clipboardData)
+    if (images.length === 0) return
     event.preventDefault()
-    void readPastedFiles(files).then(({ images, refusals: refused }) => {
-      const added = images.map((image) => {
-        attached.current += 1
-        return { key: attached.current, image }
-      })
-      setAttachments((current) => [...current, ...added])
-      setRefusals(refused)
+    attachImages(images)
+  }
+
+  /** Files dragged over the bar can drop onto it: it says so, with its border. */
+  const onDragOver = (event: DragEvent<HTMLDivElement>): void => {
+    if (!carriesFiles(event)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+    setDropping(true)
+  }
+
+  /** Leaving the bar, not just moving from one part of it to another. */
+  const onDragLeave = (event: DragEvent<HTMLDivElement>): void => {
+    const to = event.relatedTarget
+    if (to instanceof Node && event.currentTarget.contains(to)) return
+    setDropping(false)
+  }
+
+  const onDrop = (event: DragEvent<HTMLDivElement>): void => {
+    setDropping(false)
+    if (!carriesFiles(event)) return
+    event.preventDefault()
+    void attachDropped(Array.from(event.dataTransfer.files))
+    field.current?.focus()
+  }
+
+  const revealAttachedFile = (file: AttachedFile): void => {
+    revealFile(task.id, file.path).catch((error: unknown) => {
+      toast.show({ message: `Couldn’t show ${file.name} in Finder: ${describeFailure(error)}` })
     })
+  }
+
+  /** Takes a file off the message; its copy goes too, as nothing has it yet. */
+  const removeAttachedFile = (file: AttachedFile): void => {
+    setFiles((current) => current.filter(({ path }) => path !== file.path))
+    setRefusals(NO_REFUSALS)
+    field.current?.focus()
+    // Left on disk if it can't go, with the task's other attached files: deleting the task takes them all.
+    discardAttachedFile(task.id, file.path).catch(() => undefined)
   }
 
   const removePastedBlockChip = (id: string): void => {
@@ -554,7 +673,14 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   }
 
   return (
-    <div className={styles.bar}>
+    <div
+      className={classNames(styles.bar, dropping && styles.dropping)}
+      data-dropping={dropping ? '' : undefined}
+      onDragEnter={onDragOver}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       <QueueList
         messages={queue}
         working={working}
@@ -608,7 +734,14 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
         onRemove={removePastedBlockChip}
         onSave={savePastedBlock}
       />
-      <Attachments attachments={attachments} refusals={refusals} onRemove={removeAttachment} />
+      <Attachments
+        attachments={attachments}
+        files={files}
+        refusals={refusals}
+        onRemove={removeAttachment}
+        onRevealFile={revealAttachedFile}
+        onRemoveFile={removeAttachedFile}
+      />
       <div className={styles.compose}>
         <div className={styles.fieldWrap}>
           <PasteHighlightOverlay ref={overlay} text={draft} />

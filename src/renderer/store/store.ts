@@ -1,7 +1,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { CloseKind, CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
 import type { Command } from '../../shared/commands'
-import { PluginStatus } from '../../shared/plugins'
+import { PluginStatus, withGrant } from '../../shared/plugins'
 import { UiStateKey, type OpenFiles, type Task, type UiStateEntry, type Workspace } from '../../shared/domain'
 import { DONE_PAGE_SIZE, inDoneList, isInDoneSection } from '../../shared/doneList'
 import { parseTaskFilter } from '../../shared/attention'
@@ -358,6 +358,26 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         }
       },
 
+      // Shown at once, then as main saved it.
+      async setPluginCapability(id, capability, granted) {
+        set((state) => ({
+          plugins:
+            state.plugins?.map((plugin) =>
+              plugin.folder === id && plugin.status === PluginStatus.Valid
+                ? withGrant(plugin, capability, granted)
+                : plugin,
+            ) ?? null,
+        }))
+        try {
+          const { plugins } = await bridge.invoke(CommandName.PluginsSetCapability, { id, capability, granted })
+          set({ plugins })
+        } catch (error) {
+          // Its folder was removed, or it no longer asks for it: show the plugins as they are now, then say why.
+          await get().loadPlugins()
+          throw error
+        }
+      },
+
       async openPluginsFolder() {
         await bridge.invoke(CommandName.PluginsOpenFolder, {})
       },
@@ -514,8 +534,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       async loadHistory(taskId) {
+        // Captured before the request goes out: if an `artifacts.changed` lands before this answers, the load is
+        // stale for artifacts and must not override it (see `newerArtifacts` in `./reducer`).
+        const artifactsVersionAtLoad = get().artifactsVersion[taskId] ?? 0
         const history = await bridge.invoke(CommandName.TasksHistory, { id: taskId })
-        set((state) => withHistory(state, taskId, history))
+        set((state) => withHistory(state, taskId, history, artifactsVersionAtLoad))
       },
 
       setUiState,
@@ -593,22 +616,37 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         if (selected) await get().selectTask(next)
       },
 
-      async sendMessage(taskId, text, images = [], pastedBlocks = []) {
+      async sendMessage(taskId, text, images = [], pastedBlocks = [], files = []) {
         await bridge.invoke(CommandName.TasksSend, {
           id: taskId,
           text,
           ...(images.length > 0 ? { images } : {}),
           ...(pastedBlocks.length > 0 ? { pastedBlocks } : {}),
+          ...(files.length > 0 ? { files } : {}),
         })
       },
 
-      async queueMessage(taskId, text, images = [], pastedBlocks = []) {
+      async queueMessage(taskId, text, images = [], pastedBlocks = [], files = []) {
         await bridge.invoke(CommandName.QueueAdd, {
           taskId,
           text,
           ...(images.length > 0 ? { images } : {}),
           ...(pastedBlocks.length > 0 ? { pastedBlocks } : {}),
+          ...(files.length > 0 ? { files } : {}),
         })
+      },
+
+      pathForFile(file) {
+        return bridge.pathForFile(file)
+      },
+
+      async attachFile(taskId, path) {
+        const { file } = await bridge.invoke(CommandName.AttachmentsAdd, { taskId, path })
+        return file
+      },
+
+      async discardAttachedFile(taskId, path) {
+        await bridge.invoke(CommandName.AttachmentsDiscard, { taskId, path })
       },
 
       loadImage(id) {
@@ -827,7 +865,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       keepInputDraft(taskId, draft) {
         set(({ inputDrafts }) => {
           const others = Object.fromEntries(Object.entries(inputDrafts).filter(([id]) => id !== taskId))
-          const empty = draft.text === '' && draft.images.length === 0 && draft.pastedBlocks.length === 0
+          const empty =
+            draft.text === '' &&
+            draft.images.length === 0 &&
+            draft.pastedBlocks.length === 0 &&
+            draft.files.length === 0
           return { inputDrafts: empty ? others : { ...others, [taskId]: draft } }
         })
       },

@@ -122,6 +122,7 @@ function lines(): string[] {
         case PluginEventType.TaskDeleted:
         case PluginEventType.QuestionOpened:
         case PluginEventType.QuestionClosed:
+        case PluginEventType.MachineReading:
           return event.type
       }
     })

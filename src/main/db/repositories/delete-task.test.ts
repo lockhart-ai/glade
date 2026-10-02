@@ -10,6 +10,7 @@ import {
   type Task,
   type Workspace,
 } from '../../../shared/domain'
+import { AttachedFileKind, type AttachedFile } from '../../../shared/attachedFiles'
 import { GIF, PNG } from '../../../shared/test-images'
 import { setArtifactGroupOpen } from './artifact-groups'
 import { addArtifact } from './artifacts'
@@ -60,6 +61,11 @@ function rowsOf(db: Database, table: string, taskId: string): number {
   return db.prepare(`SELECT COUNT(*) FROM ${table} WHERE task_id = ?`).pluck().get(taskId) as number
 }
 
+/** A file attached to one of a task's messages. */
+function attachedFile(taskId: string, name: string): AttachedFile {
+  return { name, path: `.glade/attachments/${taskId}/${name}`, size: 48, kind: AttachedFileKind.Text }
+}
+
 /** Gives a task a row in every table that belongs to one. */
 function fillTask(db: Database, task: Task): void {
   const taskId = task.id
@@ -70,6 +76,7 @@ function fillTask(db: Database, task: Task): void {
     turn: 1,
     images: [PNG],
     pastedBlocks: [{ id: 'k3f9', text: 'the pasted stack trace' }],
+    files: [attachedFile(taskId, 'sales.csv')],
   })
   appendNarration(db, { taskId, turn: 1, text: 'Looking at the views.' })
   appendToolCall(db, {
@@ -81,7 +88,12 @@ function fillTask(db: Database, task: Task): void {
     parentToolUseId: null,
   })
   appendDivider(db, { taskId, turn: 1, dividerKind: DividerKind.Turn })
-  appendQueuedMessage(db, { taskId, body: 'Also cover /search', images: [GIF] })
+  appendQueuedMessage(db, {
+    taskId,
+    body: 'Also cover /search',
+    images: [GIF],
+    files: [attachedFile(taskId, 'search.log')],
+  })
   setOpenFiles(db, { taskId, paths: ['api/views.py'], activePath: 'api/views.py' })
   addArtifact(db, { taskId, path: 'docs/rate-limits.md', title: 'Rate limits' })
   setArtifactGroupOpen(db, { taskId, group: ArtifactDateGroup.Today, open: false })
@@ -109,7 +121,7 @@ function fillTask(db: Database, task: Task): void {
   setHandoff(db, taskId, '## Where it got to')
   setExternalId(db, taskId, `notes/${taskId}`)
   setSessionContext(db, taskId, { instructions: true, instructionUpdates: 1, handoffAt: 1 })
-  setInputDraft(db, { taskId, text: 'And the admin views', images: [PNG] })
+  setInputDraft(db, { taskId, text: 'And the admin views', images: [PNG], files: [attachedFile(taskId, 'admin.pdf')] })
   recordNotification(db, { taskId, title: 'Add rate limiting', body: 'Which limit should /search use?' })
   addWatcher(db, {
     taskId,
@@ -148,6 +160,8 @@ const FILLED_TABLES = [
   // The Artifacts tab's date groups you opened or folded.
   'artifact_groups',
   'artifacts',
+  // The files attached to its messages, sent and queued, and to its input draft.
+  'attached_files',
   // The images pasted into its messages, sent and queued, and into its input draft.
   'images',
   // Its unsent input draft.

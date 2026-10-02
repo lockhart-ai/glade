@@ -120,7 +120,8 @@ The **input bar** under the chat sets how this task runs:
   Compact now compacts.
 
 Each task keeps its own settings; new tasks start from the defaults in Settings › Agent. Each task also keeps its
-unsent draft, pasted images and pasted text blocks included, while you're on another task and across a relaunch.
+unsent draft, pasted images, pasted text blocks and attached files included, while you're on another task and
+across a relaunch.
 
 You can run as many tasks at once as you like. Switching tasks never interrupts one that's working.
 
@@ -157,6 +158,14 @@ scroll: the chat passes under them.
   plain text. Glade marks it this way so the agent knows to be wary of instructions hidden inside it. In the chat,
   your message shows your own words with the block collapsed to its line count; click it to see the pasted text in
   place. Pasted blocks can't go with an answer to a question card either.
+- **Attached files:** drop any file onto the input bar, or copy it in Finder and paste it (⌘V), to hand it to the
+  agent without pasting its contents: a CSV, a PDF, a log. Glade copies it into the workspace, at
+  `.glade/attachments/<task id>/`, and shows a chip with its icon, name, type and size; click the chip to see the copy
+  in Finder, or ✕ to take it off. The agent gets the copy's path at the end of your message and reads it with its own
+  tools. In the chat, click a sent file's chip to open it in the Files tab (or in Finder, for a file the Files tab
+  can't show). Folders and files over 200 MB can't be attached; a toast says why. Glade keeps the copies out of git
+  (in the repository's own `.git/info/exclude`, never your `.gitignore`), and deletes them when you delete the task.
+  Files can't go with an answer to a question card either.
 - **Right-click a reply** to copy it (as text or Markdown), quote it in your reply, or show that turn's tool calls.
 - **Links open in your browser.** A link or a bare URL in a reply, your message, a card, the tool log, the header, a
   todo or anywhere else Glade shows what the agent or you wrote is clickable (⌘-click works too, and ↵ on a focused
@@ -293,7 +302,8 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   JPEG, GIF, WebP or SVG), or a tile with the file's type, then its title, its type and when the file last changed.
   They're listed newest first, by when each file last changed, under **Today**, **Yesterday**, **This week**, **Last
   week**, **This month** and **Older**; each header shows its count and folds with a click. Today and Yesterday start
-  open and the older groups folded, and each task remembers how you left them. An artifact that's edited moves back to
+  open, and so does the topmost group showing (last week's, say, for a task with nothing newer); the rest start
+  folded, and each task remembers how you left them. An artifact that's edited moves back to
   the top, whether the agent (or one of its subagents) edited it or you did, in the terminal or an editor, while the
   tab is open. Click a row (or press ↵ or Space on it) to open the file: an image opens full size in the image viewer,
   stepping ← → through the other image artifacts the list shows under a "2 of 7" (open a folded group to include its
@@ -399,7 +409,7 @@ A card left open when Glade quits is still there after the relaunch; answering i
 | Notifications | **Notifications** on or off, and **Sound**. |
 | Appearance | Nothing yet: Glade has one theme, dark. |
 | Keyboard | Every shortcut, and a way to change it (below). |
-| Plugins | The installed plugins, a switch for each, and **Open plugins folder** (see [Plugins](#plugins)). |
+| Plugins | The installed plugins, a switch for each (and for what each asks to see, such as your Mac's load), and **Open plugins folder** (see [Plugins](#plugins)). |
 | Control | **Let agents control Glade** (see [below](#let-agents-control-glade)). |
 | *(your workspace)* | Its **Name** and **Root folder**. |
 
@@ -446,6 +456,12 @@ own sandbox: no access to your files, no network beyond your own Mac, and it see
 states, one-line tool-call summaries, subagents, questions and permission requests), never your chat, tool output or
 files.
 
+**Your Mac's load.** A plugin can ask to see how busy your Mac is. If it does, Settings › Plugins shows **Can see your
+Mac's CPU, GPU and Docker load** under it, with its own switch, off until you turn it on. With it on, the plugin gets
+the CPU cores in use (all of them, and Claude Code's share), the GPU's utilisation, and each running Docker container's
+name, CPU and memory, about every 2 seconds while it's showing. It never sees which programs are running, their
+commands or their files, and Glade never starts Docker to read it. Turning the switch on or off restarts the plugin.
+
 **Installing** one is copying its folder into Glade's plugins folder: Settings › Plugins › **Open plugins folder**
 (`~/Library/Application Support/glade/plugins/`). Glade looks for plugins at launch and each time you open Settings ›
 Plugins, which lists them with a switch each; a broken one is listed with the reason. Delete the folder to remove it.
@@ -462,7 +478,9 @@ git checkout glade-plugin   # the Glade build, until it's merged into main
 cp -R dist/glade/nekomata ~/Library/Application\ Support/glade/plugins/
 ```
 
-Then open Settings › Plugins: Nekomata is listed, switched on, and appears beside the terminal.
+Then open Settings › Plugins: Nekomata is listed, switched on, and appears beside the terminal. Turn on **Can see your
+Mac's CPU, GPU and Docker load** under it to light up its room: the sun in the window follows your CPU, the pastry case
+fills with a cake per Docker container, and the espresso machine brews with the GPU.
 
 Writing your own? [The plugin API](plugin-api.md) has the manifest, the sandbox and every event.
 
