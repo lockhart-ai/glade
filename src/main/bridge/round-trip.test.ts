@@ -180,7 +180,7 @@ describe('the bridge', () => {
     await glade.invoke(CommandName.DraftsSet, { taskId: task.id, text: 'Half a thought', images: [PNG] })
     await glade.invoke(CommandName.DraftsSet, { taskId: task.id, text: 'Half a thought, and more' })
     await expect(glade.invoke(CommandName.DraftsGet, { taskId: task.id })).resolves.toEqual({
-      draft: { text: 'Half a thought, and more', images: [PNG], pastedBlocks: [] },
+      draft: { text: 'Half a thought, and more', images: [PNG], pastedBlocks: [], files: [] },
     })
 
     await glade.invoke(CommandName.TasksDelete, { id: task.id })

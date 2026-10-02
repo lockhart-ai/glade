@@ -210,7 +210,7 @@ describe('link artifacts (#407)', () => {
     // The agent's title stays: a second Add to artifacts changes nothing, and broadcasts nothing.
     addTaskLinkArtifact(context, taskId, PR, 'Navigation refresh')
     events = []
-    expect(addTaskLinkByHand(context, taskId, { url: `${PR}`, text: 'Something else' })).toMatchObject({
+    expect(addTaskLinkByHand(context, taskId, { url: PR, text: 'Something else' })).toMatchObject({
       title: 'Navigation refresh',
     })
     expect(events).toEqual([])
@@ -229,7 +229,10 @@ describe('link artifacts (#407)', () => {
     events = []
 
     const renamed = updateTaskLinkArtifact(context, taskId, { url: PR, title: 'Navigation refresh' })
-    expect(renamed).toEqual({ before, after: expect.objectContaining({ url: PR, title: 'Navigation refresh' }) })
+    expect(renamed).toEqual({
+      before,
+      after: expect.objectContaining({ url: PR, title: 'Navigation refresh' }) as unknown,
+    })
     const moved = updateTaskLinkArtifact(context, taskId, {
       url: 'https://GITHUB.com/acme/api/pull/412',
       newUrl: 'https://github.com/acme/api/pull/413',
@@ -274,10 +277,12 @@ describe('link artifacts (#407)', () => {
     expect(() => forgetTaskLinkArtifact(context, taskId, PR)).toThrow(`${PR} isn't one of this task's artifacts.`)
     // A file's path is never taken for a link's URL, or the other way about.
     expect(() => forgetTaskArtifact(context, taskId, PR)).toThrow()
-    expect(() => removeTaskArtifact(context, taskId, { kind: ArtifactKind.Link, url: 'docs/changelog.md' })).toThrow(
+    expect(() => {
+      removeTaskArtifact(context, taskId, { kind: ArtifactKind.Link, url: 'docs/changelog.md' })
+    }).toThrow(
       expect.objectContaining({
         code: BridgeErrorCode.NotFound,
-        message: expect.stringContaining('docs/changelog.md'),
+        message: expect.stringContaining('docs/changelog.md') as unknown,
       }),
     )
     removeTaskArtifact(context, taskId, { kind: ArtifactKind.File, path: 'docs/changelog.md' })

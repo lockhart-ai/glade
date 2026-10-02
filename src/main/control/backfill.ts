@@ -195,7 +195,10 @@ export function planArtifactChanges(
     const [key, newKey] = [artifactKey(ref), artifactKey(newRef)]
     const was = titles.get(key)
     if (was === undefined) {
-      throw refusal(`${at}.${ref.kind === ArtifactKind.File ? 'path' : 'url'}`, `${givenName(given, 'old')} isn't one of the task's artifacts`)
+      throw refusal(
+        `${at}.${ref.kind === ArtifactKind.File ? 'path' : 'url'}`,
+        `${givenName(given, 'old')} isn't one of the task's artifacts`,
+      )
     }
     if (newKey !== key && titles.has(newKey)) {
       throw refusal(

@@ -41,7 +41,10 @@ describe('checkArtifactUrl', () => {
 
   it('refuses what isn’t a whole URL, hides something in it, or carries a password', () => {
     for (const raw of ['', 'github.com/acme/api/pull/412', '/browse/API-123', '#412', 'java\tscript:alert(1)']) {
-      expect(checkArtifactUrl(raw), raw).toMatchObject({ ok: false, reason: expect.stringContaining('whole web') })
+      expect(checkArtifactUrl(raw), raw).toMatchObject({
+        ok: false,
+        reason: expect.stringContaining('whole web') as unknown,
+      })
     }
     expect(checkArtifactUrl('https://example.com/a b')).toMatchObject({ ok: false })
     expect(checkArtifactUrl('https://me:hunter2@example.com/')).toEqual({

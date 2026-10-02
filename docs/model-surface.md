@@ -26,6 +26,24 @@ A message's content (`src/main/agent/user-content.ts`'s `userContent`, called fr
 content block for each image pasted into it, in order, then its text — unless it's blank, which the API refuses as a
 text block, so an images-only message sends none.
 
+**Attached files** (#396, `shared/attachedFiles.ts`, `src/main/attachments/attachments.ts`): a file dropped onto the
+input bar, or pasted from Finder, is copied byte for byte into the workspace, at `.glade/attachments/<task id>/<name>`
+(a name already there gets the next free one, `sales (2).csv`), and the agent gets its path, never its contents: one
+line per file, in the order they were attached, at the end of the text, after a blank line (the lines alone when the
+message has no text):
+
+```
+Attached file: sales.csv (48 KB) at .glade/attachments/<task id>/sales.csv (absolute path: <root>/.glade/attachments/<task id>/sales.csv)
+```
+
+The path is relative to the workspace root, where the session runs; the absolute path is there too, for an agent that
+has changed folder since. An attached PNG, JPEG, GIF or WebP the API takes (up to 3.75 MB, its bytes its type) also goes
+as an image content block, read from its copy as the message is handed over, after any pasted images; any other image,
+or one whose copy is gone, gets its line alone. What's stored and shown is only what you typed: the lines are added as
+the message is handed over (sent, delivered from the queue, retried, or sent to a new session on launch), never to the
+chat, and `TaskDetail.messages` over the control API doesn't list the files. An answer in words to the agent's questions
+can't carry files, as it can't carry images.
+
 **Pasted text** (#363, `shared/pastedContent.ts`): a paste of more than one line, or ~80 characters or more, becomes
 its own block, kept apart from what was typed (below the API's threshold, it's left as plain typed text). What's
 stored and shown carries a short inline token standing for the block among the typed text (never the pasted text

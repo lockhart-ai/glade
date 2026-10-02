@@ -160,7 +160,9 @@ function refColumn(ref: ArtifactRef): { readonly column: 'path' | 'url'; readonl
 /** One of a task's artifacts, by its ref (a file's path or a link's URL); undefined when it isn't one. */
 export function getArtifact(db: Database, taskId: string, ref: ArtifactRef): Artifact | undefined {
   const { column, value } = refColumn(ref)
-  const raw: unknown = db.prepare(`SELECT ${COLUMNS} FROM artifacts WHERE task_id = ? AND ${column} = ?`).get(taskId, value)
+  const raw: unknown = db
+    .prepare(`SELECT ${COLUMNS} FROM artifacts WHERE task_id = ? AND ${column} = ?`)
+    .get(taskId, value)
   return raw === undefined ? undefined : parseArtifact(raw)
 }
 
@@ -192,7 +194,9 @@ export function changeLinkArtifact(
   now: EpochMs = Date.now(),
 ): LinkArtifact | undefined {
   const raw: unknown = db
-    .prepare(`UPDATE artifacts SET url = ?, title = ?, updated_at = ? WHERE task_id = ? AND url = ? RETURNING ${COLUMNS}`)
+    .prepare(
+      `UPDATE artifacts SET url = ?, title = ?, updated_at = ? WHERE task_id = ? AND url = ? RETURNING ${COLUMNS}`,
+    )
     .get(newUrl, title, now, taskId, url)
   return raw === undefined ? undefined : parseLinkArtifact(raw)
 }

@@ -9,7 +9,13 @@
 import { stat } from 'node:fs/promises'
 import { checkArtifactUrl, defaultLinkTitle } from '../../shared/artifactLinks'
 import { BridgeErrorCode, EventType } from '../../shared/bridge'
-import { ArtifactKind, type Artifact, type ArtifactRef, type FileArtifact, type LinkArtifact } from '../../shared/domain'
+import {
+  ArtifactKind,
+  type Artifact,
+  type ArtifactRef,
+  type FileArtifact,
+  type LinkArtifact,
+} from '../../shared/domain'
 import { workspaceRelativePath } from '../../shared/files'
 import {
   addArtifact,

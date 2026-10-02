@@ -514,8 +514,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       },
 
       async loadHistory(taskId) {
+        // Captured before the request goes out: if an `artifacts.changed` lands before this answers, the load is
+        // stale for artifacts and must not override it (see `newerArtifacts` in `./reducer`).
+        const artifactsVersionAtLoad = get().artifactsVersion[taskId] ?? 0
         const history = await bridge.invoke(CommandName.TasksHistory, { id: taskId })
-        set((state) => withHistory(state, taskId, history))
+        set((state) => withHistory(state, taskId, history, artifactsVersionAtLoad))
       },
 
       setUiState,
@@ -593,22 +596,37 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         if (selected) await get().selectTask(next)
       },
 
-      async sendMessage(taskId, text, images = [], pastedBlocks = []) {
+      async sendMessage(taskId, text, images = [], pastedBlocks = [], files = []) {
         await bridge.invoke(CommandName.TasksSend, {
           id: taskId,
           text,
           ...(images.length > 0 ? { images } : {}),
           ...(pastedBlocks.length > 0 ? { pastedBlocks } : {}),
+          ...(files.length > 0 ? { files } : {}),
         })
       },
 
-      async queueMessage(taskId, text, images = [], pastedBlocks = []) {
+      async queueMessage(taskId, text, images = [], pastedBlocks = [], files = []) {
         await bridge.invoke(CommandName.QueueAdd, {
           taskId,
           text,
           ...(images.length > 0 ? { images } : {}),
           ...(pastedBlocks.length > 0 ? { pastedBlocks } : {}),
+          ...(files.length > 0 ? { files } : {}),
         })
+      },
+
+      pathForFile(file) {
+        return bridge.pathForFile(file)
+      },
+
+      async attachFile(taskId, path) {
+        const { file } = await bridge.invoke(CommandName.AttachmentsAdd, { taskId, path })
+        return file
+      },
+
+      async discardAttachedFile(taskId, path) {
+        await bridge.invoke(CommandName.AttachmentsDiscard, { taskId, path })
       },
 
       loadImage(id) {
@@ -829,7 +847,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
       keepInputDraft(taskId, draft) {
         set(({ inputDrafts }) => {
           const others = Object.fromEntries(Object.entries(inputDrafts).filter(([id]) => id !== taskId))
-          const empty = draft.text === '' && draft.images.length === 0 && draft.pastedBlocks.length === 0
+          const empty =
+            draft.text === '' &&
+            draft.images.length === 0 &&
+            draft.pastedBlocks.length === 0 &&
+            draft.files.length === 0
           return { inputDrafts: empty ? others : { ...others, [taskId]: draft } }
         })
       },

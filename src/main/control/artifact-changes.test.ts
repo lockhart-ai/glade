@@ -309,8 +309,13 @@ describe('link artifacts through the control API (#407)', () => {
     })
 
     expect(taskOf(created).artifacts).toEqual([
-      { kind: ArtifactKind.File, path: join(root, 'notes', 'nav.md'), title: 'Nav notes', addedAt: expect.any(Number) },
-      { kind: ArtifactKind.Link, url: PR, title: '#412', addedAt: expect.any(Number) },
+      {
+        kind: ArtifactKind.File,
+        path: join(root, 'notes', 'nav.md'),
+        title: 'Nav notes',
+        addedAt: expect.any(Number) as unknown,
+      },
+      { kind: ArtifactKind.Link, url: PR, title: '#412', addedAt: expect.any(Number) as unknown },
     ])
   })
 

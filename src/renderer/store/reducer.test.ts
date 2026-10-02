@@ -187,12 +187,13 @@ describe('a deleted task', () => {
           },
         ],
       },
+      artifactsVersion: { t1: 1 },
       artifactGroups: { t1: [{ group: ArtifactDateGroup.Today, open: false }] },
       artifactFilters: { t1: ArtifactFilter.Links },
       handoffs: { t1: { taskId: 't1', body: '## Where it got to', addedAt: 1 } },
       watchers: { t1: [sampleWatcher('w1', 't1')] },
       commits: { t1: [sampleCommit('c1', 't1')] },
-      inputDrafts: { t1: { text: 'Half a thought', images: [], pastedBlocks: [] } },
+      inputDrafts: { t1: { text: 'Half a thought', images: [], pastedBlocks: [], files: [] } },
       toolLogFocus: { taskId: 't1', turn: 1, request: 1 },
       fileFocus: { taskId: 't1', path: 'README.md', line: null, request: 1 },
       renamingTaskId: 't1',
@@ -212,6 +213,7 @@ describe('a deleted task', () => {
       todos: {},
       openFiles: {},
       artifacts: {},
+      artifactsVersion: {},
       artifactGroups: {},
       artifactFilters: {},
       handoffs: {},
@@ -543,17 +545,41 @@ describe("a task's artifacts", () => {
     commits: [],
   })
 
-  it('takes the whole list from each change, and from a history load unless a change brought a newer one', () => {
+  it('takes the whole list from each change, and from a history load that started at or after the last one', () => {
     const changed = applyEvent(state, {
       type: EventType.ArtifactsChanged,
       taskId: 't1',
       artifacts: [artifact('a.md', 5), artifact('b.md', 9)],
     })
     expect(changed.artifacts.t1?.map(({ title }) => title)).toEqual(['a.md', 'b.md'])
+    expect(changed.artifactsVersion.t1).toBe(1)
 
-    expect(withHistory(changed, 't1', history([artifact('a.md', 5)])).artifacts.t1).toHaveLength(2)
-    expect(withHistory(changed, 't1', history([artifact('a.md', 12)])).artifacts.t1).toEqual([artifact('a.md', 12)])
+    // Started before the change (version 0 of 1): the load is stale, so the change wins.
+    expect(withHistory(changed, 't1', history([artifact('a.md', 5)]), 0).artifacts.t1).toHaveLength(2)
+    // Started at the change's version: nothing has happened since it started, so the load wins.
+    expect(withHistory(changed, 't1', history([artifact('a.md', 12)]), 1).artifacts.t1).toEqual([artifact('a.md', 12)])
     expect(withHistory(state, 't1', history([])).artifacts).toEqual({ t1: [] })
+  })
+
+  it("doesn't let a history load that started before an artifact was removed bring it back (#391)", () => {
+    const declared = applyEvent(state, {
+      type: EventType.ArtifactsChanged,
+      taskId: 't1',
+      artifacts: [artifact('a.md', 5), artifact('b.md', 5)],
+    })
+    const versionBeforeRemoval = declared.artifactsVersion.t1 ?? 0
+
+    // The removal's own `artifacts.changed` lands first, dropping a.md. It doesn't bump b.md's own timestamp, so a
+    // fix that compares the lists' content, rather than sequencing them, can't tell the removal happened at all.
+    const removed = applyEvent(declared, {
+      type: EventType.ArtifactsChanged,
+      taskId: 't1',
+      artifacts: [artifact('b.md', 5)],
+    })
+
+    // Only then does the history load that started before the removal answer, with the stale, longer list.
+    const stale = history([artifact('a.md', 5), artifact('b.md', 5)])
+    expect(withHistory(removed, 't1', stale, versionBeforeRemoval).artifacts.t1).toEqual([artifact('b.md', 5)])
   })
 
   it('counts a file seen to change as a newer list, whenever it was declared', () => {
@@ -563,36 +589,11 @@ describe("a task's artifacts", () => {
       artifacts: [artifact('a.png', 5, 40)],
     })
 
-    expect(withHistory(changed, 't1', history([artifact('a.png', 5, 30)])).artifacts.t1).toEqual([
+    expect(withHistory(changed, 't1', history([artifact('a.png', 5, 30)]), 0).artifacts.t1).toEqual([
       artifact('a.png', 5, 40),
     ])
-    expect(withHistory(changed, 't1', history([artifact('a.png', 5, 50)])).artifacts.t1).toEqual([
+    expect(withHistory(changed, 't1', history([artifact('a.png', 5, 50)]), 1).artifacts.t1).toEqual([
       artifact('a.png', 5, 50),
-    ])
-  })
-
-  it('counts a link declared or changed later as a newer list: a link has no file to see change (#407)', () => {
-    const link = (updatedAt: number): Artifact => ({
-      kind: ArtifactKind.Link,
-      taskId: 't1',
-      url: 'https://github.com/acme/api/pull/412',
-      title: '#412',
-      addedAt: 1,
-      updatedAt,
-    })
-    const changed = applyEvent(state, {
-      type: EventType.ArtifactsChanged,
-      taskId: 't1',
-      artifacts: [artifact('a.png', 5, 40), link(60)],
-    })
-
-    expect(withHistory(changed, 't1', history([artifact('a.png', 5, 40)])).artifacts.t1).toEqual([
-      artifact('a.png', 5, 40),
-      link(60),
-    ])
-    expect(withHistory(changed, 't1', history([artifact('a.png', 5, 40), link(70)])).artifacts.t1).toEqual([
-      artifact('a.png', 5, 40),
-      link(70),
     ])
   })
 
@@ -697,6 +698,26 @@ describe("every task's running subagents", () => {
       commits: [],
     })
     expect(loaded.toolEvents.t1).toEqual([divider, finished])
+  })
+
+  it('adds a subagent woken again to a task whose log has not loaded, for the task list to count, and only a running subagent (#395)', () => {
+    const woken = agent('a', 't1')
+    const updated = applyEvent(state, { type: EventType.ToolEventUpdated, toolEvent: woken })
+    expect(updated.toolEvents).toEqual({ t1: [woken] })
+    expect(updated.toolEvents.t1?.[0]).toMatchObject({ name: 'Agent', state: ToolCallState.Running })
+
+    // It ends again, and its row follows.
+    const ended = { ...woken, state: ToolCallState.Done, output: 'Fixed.' }
+    const after = applyEvent(updated, { type: EventType.ToolEventUpdated, toolEvent: ended })
+    expect(after.toolEvents).toEqual({ t1: [ended] })
+
+    // A finished subagent, or another running call, it hasn't seen is left to the next load.
+    expect(applyEvent(state, { type: EventType.ToolEventUpdated, toolEvent: ended }).toolEvents).toBe(state.toolEvents)
+    const read = { ...call, id: 'r', state: ToolCallState.Running }
+    expect(applyEvent(state, { type: EventType.ToolEventUpdated, toolEvent: read }).toolEvents).toBe(state.toolEvents)
+    expect(applyEvent(state, { type: EventType.ToolEventUpdated, toolEvent: divider }).toolEvents).toBe(
+      state.toolEvents,
+    )
   })
 })
 
