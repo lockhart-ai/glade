@@ -15,6 +15,8 @@ import {
   type FileRequest,
   type FilesWriteRequest,
   type WindowSetUnsavedEditsRequest,
+  type AttachmentsAddRequest,
+  type AttachmentsDiscardRequest,
   type DraftsGetRequest,
   type DraftsSetRequest,
   type ImagesGetRequest,
@@ -59,6 +61,7 @@ import {
   type WorkspacesRevealRequest,
 } from '../../shared/bridge'
 import { TaskFilter } from '../../shared/attention'
+import { AttachedFileKind, isAttachedFileName, isAttachedFileOf, type AttachedFile } from '../../shared/attachedFiles'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
 import { ArtifactDateGroup, Effort, PermissionMode, UiStateKey, type PastedBlock } from '../../shared/domain'
 import { isWorkspaceRelativePath, parseCommitFileKey } from '../../shared/files'
@@ -160,18 +163,42 @@ const pastedBlock = z.strictObject({
   text: z.string().min(1).max(MAX_PASTED_BLOCK_LENGTH),
 }) satisfies z.ZodType<PastedBlock>
 
-/** A message's text, images and pasted blocks: its text can be blank only when it has images. */
-function withContent<
-  T extends {
-    readonly text: string
-    readonly images?: readonly ImageData[] | undefined
-    readonly pastedBlocks?: readonly PastedBlock[] | undefined
-  },
->(schema: z.ZodType<T>): z.ZodType<T> {
-  return schema.refine(({ text, images = [] }) => text.trim() !== '' || images.length > 0, {
-    message: 'Expected a message that is not blank',
-    path: ['text'],
+/** A file attached to a message (#396), as `attachments.add` answered with its copy. */
+const attachedFile = z.strictObject({
+  name: z.string().refine(isAttachedFileName, 'Expected a file name'),
+  path: z.string().min(1),
+  size: z.number().int().nonnegative(),
+  kind: z.enum(AttachedFileKind),
+}) satisfies z.ZodType<AttachedFile>
+
+/** What a message, queued message or draft carries besides its text. */
+interface MessageContent {
+  readonly text: string
+  readonly images?: readonly ImageData[] | undefined
+  readonly pastedBlocks?: readonly PastedBlock[] | undefined
+  readonly files?: readonly AttachedFile[] | undefined
+}
+
+/** A request whose attached files are all the task's own copies, in its folder of them (`taskIdOf` names the task). */
+function withOwnFiles<T extends MessageContent>(schema: z.ZodType<T>, taskIdOf: (request: T) => string): z.ZodType<T> {
+  return schema.refine((request) => (request.files ?? []).every((file) => isAttachedFileOf(taskIdOf(request), file)), {
+    message: "Expected the task's own attached files",
+    path: ['files'],
   })
+}
+
+/**
+ * A message's text, images, pasted blocks and attached files: its text can be blank only when it has images or files,
+ * and its files are the task's own.
+ */
+function withContent<T extends MessageContent>(schema: z.ZodType<T>, taskIdOf: (request: T) => string): z.ZodType<T> {
+  return withOwnFiles(
+    schema.refine(({ text, images = [], files = [] }) => text.trim() !== '' || images.length > 0 || files.length > 0, {
+      message: 'Expected a message that is not blank',
+      path: ['text'],
+    }),
+    taskIdOf,
+  )
 }
 
 const tasksSendRequest = withContent(
@@ -180,7 +207,9 @@ const tasksSendRequest = withContent(
     text: z.string(),
     images: z.array(image).readonly().optional(),
     pastedBlocks: z.array(pastedBlock).readonly().optional(),
+    files: z.array(attachedFile).readonly().optional(),
   }),
+  ({ id }) => id,
 ) satisfies z.ZodType<TasksSendRequest>
 
 const tasksRetryRequest = z.strictObject({
@@ -204,7 +233,9 @@ const queueAddRequest = withContent(
     text: z.string(),
     images: z.array(image).readonly().optional(),
     pastedBlocks: z.array(pastedBlock).readonly().optional(),
+    files: z.array(attachedFile).readonly().optional(),
   }),
+  ({ taskId }) => taskId,
 ) satisfies z.ZodType<QueueAddRequest>
 
 const queueEditRequest = z.strictObject({ id: z.string(), text: messageText }) satisfies z.ZodType<QueueEditRequest>
@@ -213,15 +244,29 @@ const queueRemoveRequest = z.strictObject({ id: z.string() }) satisfies z.ZodTyp
 
 const imagesGetRequest = z.strictObject({ id: z.string() }) satisfies z.ZodType<ImagesGetRequest>
 
+const attachmentsAddRequest = z.strictObject({
+  taskId: z.string(),
+  path: absolutePath,
+}) satisfies z.ZodType<AttachmentsAddRequest>
+
+const attachmentsDiscardRequest = z.strictObject({
+  taskId: z.string(),
+  path: z.string().min(1),
+}) satisfies z.ZodType<AttachmentsDiscardRequest>
+
 const draftsGetRequest = z.strictObject({ taskId: z.string() }) satisfies z.ZodType<DraftsGetRequest>
 
-/** A draft can be anything typed, blank included: an empty one is removed. */
-const draftsSetRequest = z.strictObject({
-  taskId: z.string(),
-  text: z.string(),
-  images: z.array(image).readonly().optional(),
-  pastedBlocks: z.array(pastedBlock).readonly().optional(),
-}) satisfies z.ZodType<DraftsSetRequest>
+/** A draft can be anything typed, blank included: an empty one is removed. Its files are the task's own. */
+const draftsSetRequest = withOwnFiles(
+  z.strictObject({
+    taskId: z.string(),
+    text: z.string(),
+    images: z.array(image).readonly().optional(),
+    pastedBlocks: z.array(pastedBlock).readonly().optional(),
+    files: z.array(attachedFile).readonly().optional(),
+  }),
+  ({ taskId }) => taskId,
+) satisfies z.ZodType<DraftsSetRequest>
 
 const questionsAnswerRequest = z.strictObject({
   id: z.string(),
@@ -432,6 +477,8 @@ export const REQUEST_SCHEMAS = {
   [CommandName.QueueEdit]: queueEditRequest,
   [CommandName.QueueRemove]: queueRemoveRequest,
   [CommandName.ImagesGet]: imagesGetRequest,
+  [CommandName.AttachmentsAdd]: attachmentsAddRequest,
+  [CommandName.AttachmentsDiscard]: attachmentsDiscardRequest,
   [CommandName.DraftsGet]: draftsGetRequest,
   [CommandName.DraftsSet]: draftsSetRequest,
   [CommandName.QuestionsAnswer]: questionsAnswerRequest,

@@ -39,6 +39,7 @@ import type {
   Workspace,
 } from './domain'
 import type { Command, MenuState } from './commands'
+import type { AttachedFile } from './attachedFiles'
 import type { ImageData } from './images'
 import type { ModelChoice } from './models'
 import type { Settings, SettingsPatch } from './settings'
@@ -94,6 +95,8 @@ export enum CommandName {
   QueueEdit = 'queue.edit',
   QueueRemove = 'queue.remove',
   ImagesGet = 'images.get',
+  AttachmentsAdd = 'attachments.add',
+  AttachmentsDiscard = 'attachments.discard',
   DraftsGet = 'drafts.get',
   DraftsSet = 'drafts.set',
   QuestionsAnswer = 'questions.answer',
@@ -343,7 +346,9 @@ export interface TaskResponse {
  */
 export interface TasksSendRequest {
   readonly id: string
-  /** Markdown. Blank only when there are images. An inline token stands for each of `pastedBlocks`, in order. */
+  /**
+   * Markdown. Blank only when there are images or files. An inline token stands for each of `pastedBlocks`, in order.
+   */
   readonly text: string
   /**
    * The images pasted into the message, in order: each goes to the agent as an image content block, before the text.
@@ -355,6 +360,11 @@ export interface TasksSendRequest {
    * token's place among the text. None when left out.
    */
   readonly pastedBlocks?: readonly PastedBlock[]
+  /**
+   * The files attached to the message, already copied into the task's workspace (`attachments.add`), in order: the
+   * agent gets a line with each one's path at the end of the text. None when left out.
+   */
+  readonly files?: readonly AttachedFile[]
 }
 
 export interface TasksSendResponse {
@@ -522,12 +532,16 @@ export interface TasksHistoryResponse {
  */
 export interface QueueAddRequest {
   readonly taskId: string
-  /** Markdown. Blank only when there are images. An inline token stands for each of `pastedBlocks`, in order. */
+  /**
+   * Markdown. Blank only when there are images or files. An inline token stands for each of `pastedBlocks`, in order.
+   */
   readonly text: string
   /** The images pasted into the message, in order, which wait in the queue with it. None when left out. */
   readonly images?: readonly ImageData[]
   /** The text pasted into the message, kept apart from what was typed, which waits in the queue with it. */
   readonly pastedBlocks?: readonly PastedBlock[]
+  /** The files attached to the message, already copied into the workspace, which wait in the queue with it. */
+  readonly files?: readonly AttachedFile[]
 }
 
 /** Changes the text of a message still waiting in its queue. Broadcasts `queue.changed`. */
@@ -560,6 +574,36 @@ export interface ImagesGetResponse {
 }
 
 /**
+ * Attaches a file dropped onto the input bar, or pasted from Finder, to the message being written (#396): copies it,
+ * byte for byte, into the task's folder of attached files in its workspace (`.glade/attachments/<task id>/`), under its
+ * own name made unique there (`sales (2).csv`), and keeps that folder out of the workspace's repository (in its
+ * `.git/info/exclude`). A symlink is copied as the file it leads to. Fails with `not_found` when there's no such task,
+ * and `invalid_request`, saying why in words fit for a toast, for a folder, a file over 200 MB
+ * (`MAX_ATTACHED_FILE_BYTES`), or a path with no file at it.
+ */
+export interface AttachmentsAddRequest {
+  readonly taskId: string
+  /** The file's absolute path, as Electron names a file dropped or pasted (the preload's `pathForFile`). */
+  readonly path: string
+}
+
+export interface AttachmentsAddResponse {
+  /** The copy, to attach to the message. */
+  readonly file: AttachedFile
+}
+
+/**
+ * Deletes the copy of a file taken off the message being written before it was ever sent (its chip's ✕). A file a
+ * message has, sent or queued, is kept. Fails with `not_found` when there's no such task, and `invalid_request` for a
+ * path that isn't one of the task's attached files.
+ */
+export interface AttachmentsDiscardRequest {
+  readonly taskId: string
+  /** The copy's path, relative to the workspace root (`AttachedFile.path`). */
+  readonly path: string
+}
+
+/**
  * A task's input draft: what's in its input bar and not sent yet (`InputDraft`), with its images' bytes. Answers with
  * null when it has none. Fails with `not_found` when there's no such task.
  */
@@ -573,8 +617,8 @@ export interface DraftsGetResponse {
 
 /**
  * Stores a task's input draft as it now is, replacing the one it had, so it's there again after a relaunch or a crash.
- * One with no text and no images is none: it's removed. Does nothing when there's no such task, as a deleted task's
- * input bar can save as it closes.
+ * One with no text, images, pasted blocks or files is none: it's removed. Does nothing when there's no such task, as a
+ * deleted task's input bar can save as it closes.
  */
 export interface DraftsSetRequest {
   readonly taskId: string
@@ -584,6 +628,8 @@ export interface DraftsSetRequest {
   readonly images?: readonly ImageData[]
   /** Every pasted block in the draft, in order, in place of those it had. Left out, it keeps the ones it has. */
   readonly pastedBlocks?: readonly PastedBlock[]
+  /** Every attached file in the draft, in order, in place of those it had. Left out, it keeps the ones it has. */
+  readonly files?: readonly AttachedFile[]
 }
 
 /**
@@ -1077,6 +1123,8 @@ export interface CommandMap {
   [CommandName.QueueEdit]: CommandSpec<QueueEditRequest, QueuedMessageResponse>
   [CommandName.QueueRemove]: CommandSpec<QueueRemoveRequest, null>
   [CommandName.ImagesGet]: CommandSpec<ImagesGetRequest, ImagesGetResponse>
+  [CommandName.AttachmentsAdd]: CommandSpec<AttachmentsAddRequest, AttachmentsAddResponse>
+  [CommandName.AttachmentsDiscard]: CommandSpec<AttachmentsDiscardRequest, null>
   [CommandName.DraftsGet]: CommandSpec<DraftsGetRequest, DraftsGetResponse>
   [CommandName.DraftsSet]: CommandSpec<DraftsSetRequest, null>
   [CommandName.QuestionsAnswer]: CommandSpec<QuestionsAnswerRequest, QuestionSetResponse>
@@ -1569,4 +1617,9 @@ export interface GladeBridge {
   invoke<C extends CommandName>(command: C, request: CommandRequest<C>): Promise<CommandResponse<C>>
   /** Calls `listener` with every event main broadcasts, until unsubscribed. */
   subscribe(listener: EventListener): Unsubscribe
+  /**
+   * The path on disk of a file dropped or pasted into the window (Electron's `webUtils.getPathForFile`), to attach it
+   * with `attachments.add`; `''` for one that isn't a file on disk, such as an image copied from an app.
+   */
+  pathForFile(file: File): string
 }
