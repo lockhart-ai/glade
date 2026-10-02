@@ -57,13 +57,14 @@ test('several workspaces: switching restores each one’s task, and background t
   await expect(header.title).toHaveText(A_TITLE)
   await expect(bar.stop).toBeVisible()
 
-  // Switching to B (⌘2) while A keeps working: B's own task is back, and the switcher shows A still active.
+  // Switching to B (⌘2) while A keeps working: B's own task is back, and the switcher shows A still active. B's
+  // reply is read now that its task is open again, so B is only active too (#430).
   await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'acme-web')
   await expect(workspace).toContainText('acme-web')
   await expect(header.title).toHaveText(B_TITLE)
   await expect(chat(window).agentReplies.first()).toContainText('The client retries idempotent requests')
   await switcher.trigger.click()
-  await expect(switcher.rows).toHaveText([/^Aacme-api.*1 active$/, /^Aacme-web.*1 needs you$/])
+  await expect(switcher.rows).toHaveText([/^Aacme-api.*1 active$/, /^Aacme-web.*1 active$/])
   await expect(switcher.row('acme-web')).toHaveAttribute('aria-checked', 'true')
   await window.keyboard.press('Escape')
   await expect(switcher.menu).toHaveCount(0)
@@ -109,7 +110,8 @@ test('several workspaces: switching restores each one’s task, and background t
   await expect(regions(relaunched.window).workspace).toContainText('acme-api')
   await expect(taskHeader(relaunched.window).title).toHaveText(A_TITLE)
   await again.trigger.click()
-  await expect(again.rows).toHaveText([/^Aacme-api.*1 needs you$/, /^Aacme-web.*1 needs you$/])
+  // Both replies were read before the app quit, so neither task needs you.
+  await expect(again.rows).toHaveText([/^Aacme-api.*1 active$/, /^Aacme-web.*1 active$/])
   await again.row('acme-web').click()
   await expect(regions(relaunched.window).workspace).toContainText('acme-web')
   await expect(taskHeader(relaunched.window).title).toHaveText(B_TITLE)

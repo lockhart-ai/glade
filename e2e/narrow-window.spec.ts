@@ -72,7 +72,7 @@ test('narrow window: the header stays compact and the chat stays visible and scr
   for (const whole of [header.stateDot, header.pin, header.markDone, header.statusAge]) {
     await expect(whole).toBeInViewport({ ratio: 1 })
   }
-  await expect(header.stateDot).toHaveAttribute('title', 'Active · waiting on you')
+  await expect(header.stateDot).toHaveAttribute('title', 'Active · idle')
 
   // With the side panel at its default width (held down by the chat's minimum in this window)…
   await expectChatClearOfTheHeader(glade)

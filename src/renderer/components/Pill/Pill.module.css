@@ -23,6 +23,7 @@
   color: var(--color-purple);
 }
 
+.idle,
 .done {
   background: color-mix(in srgb, var(--color-slate) 30%, var(--color-bg));
   color: var(--color-muted);

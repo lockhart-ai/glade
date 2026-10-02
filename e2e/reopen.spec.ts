@@ -28,7 +28,7 @@ test('reopen by chatting: a message in a done task reopens it and the agent carr
   await bar.field.fill('The date test is flaky. Can you fix it?')
   await bar.field.press('Enter')
   await expect(conversation.agentReplies).toHaveCount(1)
-  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
+  await expect(header.stateDot).toHaveAccessibleName('Active · idle')
 
   // Mark it done: the row moves to Done, the Undo toast shows, and the input bar says a message reopens it. Marking
   // done adds no divider.
@@ -65,7 +65,7 @@ test('reopen by chatting: a message in a done task reopens it and the agent carr
   // The agent answers in the same conversation, and the task waits on you again.
   await expect(conversation.agentReplies).toHaveCount(2)
   await expect(conversation.agentReplies.nth(1)).toContainText('The report header already goes through')
-  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
+  await expect(header.stateDot).toHaveAccessibleName('Active · idle')
   await expect(header.field('Now')).toContainText('The report header uses the UTC date too.')
   expect(await chatOrder(conversation.log)).toEqual(['You', 'Agent', 'Marked done', 'You', 'Reopened', 'Agent'])
 

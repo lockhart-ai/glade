@@ -168,7 +168,12 @@ interface PluginTask {
   readonly state: 'active' | 'done'
   /** What the agent is doing (`TaskActivity`). */
   readonly activity: 'waiting' | 'working' | 'error' | 'paused'
-  /** Whether the task counts under Needs you. */
+  /**
+   * Whether the task counts under Needs you: it's asking a question, waiting on a permission card, stopped on an
+   * error, or its turn ended with a reply you haven't read. False once you've read the reply, and while the task
+   * still has subagents or watchers running after its turn (it counts as working then, though `activity` says
+   * `waiting`: `activity` is the agent's own turn).
+   */
   readonly needsYou: boolean
   /** What the agent's turn is blocked on, if anything. */
   readonly waitingOn: 'question' | 'permission' | null
