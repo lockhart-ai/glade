@@ -142,3 +142,8 @@
   font-size: var(--font-size-secondary);
   color: var(--color-faint);
 }
+
+/* A match's mark keeps its padding without pushing the letters around it apart: a file name has no spaces to spare. */
+.row mark {
+  margin: 0 -2px;
+}
