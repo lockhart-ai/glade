@@ -21,6 +21,7 @@ import {
 import { settleFloating } from '../components/settleFloating'
 import { ToastProvider } from '../components'
 import { VIEWER_LABEL } from '../images/ImageViewer'
+import { activePanelTab, PanelTab } from '../right-panel/panelModel'
 import { GladeStoreProvider } from '../store/react'
 import { createGladeStore, type GladeStore } from '../store/store'
 import {
@@ -466,7 +467,7 @@ describe('a row', () => {
 
     fireEvent.click(within(row('Changelog page draft')).getByRole('button', { name: /^Changelog page draft/ }))
     await waitFor(() => {
-      expect(store.getState().uiState[UiStateKey.RightPanelTab]).toBe('files')
+      expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Files)
     })
     expect(invoke).toHaveBeenCalledWith(CommandName.FilesOpen, { taskId: 't1', path: CHANGELOG.path })
     expect(store.getState().openFiles.t1?.activePath).toBe(CHANGELOG.path)
@@ -690,7 +691,7 @@ describe('an artifact’s context menu', () => {
 
     await choose('Changelog page draft', 'Open')
     await waitFor(() => {
-      expect(store.getState().uiState[UiStateKey.RightPanelTab]).toBe('files')
+      expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Files)
     })
     expect(store.getState().openFiles.t1?.activePath).toBe(CHANGELOG.path)
 
@@ -866,7 +867,7 @@ describe('the image viewer', () => {
     fireEvent.click(within(viewer).getByRole('button', { name: 'Open in Files' }))
 
     await waitFor(() => {
-      expect(store.getState().uiState[UiStateKey.RightPanelTab]).toBe('files')
+      expect(activePanelTab(store.getState().uiState, 'w1')).toBe(PanelTab.Files)
     })
     expect(store.getState().openFiles.t1?.activePath).toBe(LANDING.path)
     expect(invoke).toHaveBeenCalledWith(CommandName.FilesOpen, { taskId: 't1', path: LANDING.path })
