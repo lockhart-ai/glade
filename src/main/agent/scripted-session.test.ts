@@ -45,6 +45,7 @@ import {
   gladeTool,
   init,
   limitWarning,
+  messageSubagent,
   permission,
   bashSuggestions,
   progress,
@@ -1841,6 +1842,161 @@ describe('ScriptedSession', () => {
       await flush()
 
       expect(await played.ended).toBeInstanceOf(Error)
+    })
+  })
+
+  describe('a message to a subagent (#395)', () => {
+    const AGENT_INPUT = { description: 'Profile the queries', prompt: 'Time them.' }
+    const AGENT_ID = 'a7c2e91f'
+    const AGENT_CALL = 'toolu_a7c2e91f'
+
+    /** A turn that starts a pinned subagent in the background, which reads a file over `ms` and ends. */
+    function launch(ms: number): ScriptTurn {
+      return [
+        init(),
+        background(
+          'agent',
+          AGENT_INPUT,
+          [delay(ms), ...tool('read', 'Read', { file_path: 'queries.py' }, 'def load_cart(): …', 'agent')],
+          { agentId: AGENT_ID, summary: 'An N+1 in load_cart.' },
+        ),
+        result(),
+      ]
+    }
+
+    /** A turn that messages it, waking it for a run that edits a file over `ms` and ends as `outcome` says. */
+    function message(ms: number, run: Partial<Parameters<typeof messageSubagent>[4]> = {}): ScriptTurn {
+      return [
+        init(),
+        messageSubagent('fix', 'agent', AGENT_ID, 'Fix it.', {
+          steps: [
+            say('Fixing it.', 'agent'),
+            progress('agent', 'Batching the queries'),
+            toolUse('edit', 'Edit', { file_path: 'queries.py' }, 'agent'),
+            delay(ms),
+            toolResult('edit', 'Edited.'),
+          ],
+          summary: 'Fixed it.',
+          ...run,
+        }),
+        say('Asked it.'),
+        result(),
+      ]
+    }
+
+    it('pins the subagent ids, and wakes it as the SDK does: its task again, under the SendMessage call', async () => {
+      const played = play([launch(10), message(10, { turn: [init(), say('It fixed it.'), result()] })])
+      played.session.send('Profile checkout.', 'user-1')
+      await vi.advanceTimersByTimeAsync(10)
+      expect(played.raw.find((raw) => raw.subtype === 'task_started')).toMatchObject({
+        task_id: AGENT_ID,
+        tool_use_id: AGENT_CALL,
+      })
+      expect(played.raw.at(-1)).toMatchObject({ subtype: 'task_notification', tool_use_id: AGENT_CALL })
+
+      const before = played.raw.length
+      played.session.send('Ask it to fix it.', 'user-2')
+      await flush()
+      const sendMessage = 'toolu_id2_2_fix'
+      expect(played.raw.slice(before + 1, before + 4)).toEqual([
+        expect.objectContaining({
+          type: 'assistant',
+          message: expect.objectContaining({
+            content: [
+              {
+                type: 'tool_use',
+                id: sendMessage,
+                name: 'SendMessage',
+                input: { to: AGENT_ID, message: 'Fix it.', summary: 'Fix it.' },
+              },
+            ],
+          }) as unknown,
+        }),
+        expect.objectContaining({
+          subtype: 'task_started',
+          task_id: AGENT_ID,
+          tool_use_id: sendMessage,
+          description: 'Profile the queries',
+          is_backgrounded: true,
+          task_type: 'local_agent',
+          prompt: 'Fix it.',
+        }),
+        expect.objectContaining({
+          type: 'user',
+          tool_use_result: { success: true, message: `Resuming agent ${AGENT_ID}`, resumedAgentId: AGENT_ID },
+        }),
+      ])
+      // Its run's messages are under its own call; its progress and end under the SendMessage call.
+      expect(played.events).toContainEqual(
+        expect.objectContaining({ kind: AgentEventKind.Text, text: 'Fixing it.', parentToolUseId: AGENT_CALL }),
+      )
+      expect(played.events).toContainEqual({
+        kind: AgentEventKind.SubagentProgress,
+        toolUseId: sendMessage,
+        summary: 'Batching the queries',
+      })
+
+      await vi.advanceTimersByTimeAsync(10)
+      expect(
+        played.raw.filter((raw) => raw.subtype === 'task_notification' && raw.task_id === AGENT_ID).at(-1),
+      ).toMatchObject({ tool_use_id: sendMessage, status: 'completed', summary: 'Fixed it.' })
+      expect(played.raw.at(-1)).toMatchObject({ result: 'It fixed it.' })
+    })
+
+    it('wakes one a session before this one started, by its pinned ids, as after a relaunch', async () => {
+      const played = play([message(10)], { session: { ...SESSION, resumeSessionId: 'session-1' } })
+      played.session.send('Ask it to fix it.', 'user-1')
+      await flush()
+
+      expect(played.raw.find((raw) => raw.subtype === 'task_started')).toMatchObject({
+        task_id: AGENT_ID,
+        tool_use_id: 'toolu_id1_1_fix',
+        // This session never knew what it was called.
+        description: '',
+      })
+      expect(played.events).toContainEqual(
+        expect.objectContaining({ kind: AgentEventKind.ToolCallStarted, toolUseId: 'toolu_id1_1_edit' }),
+      )
+      expect(played.events).toContainEqual(
+        expect.objectContaining({ kind: AgentEventKind.Text, parentToolUseId: AGENT_CALL }),
+      )
+    })
+
+    it('only queues the message for one still running', async () => {
+      const played = play([launch(100), message(10)])
+      played.session.send('Profile checkout.', 'user-1')
+      await flush()
+      played.session.send('Ask it to fix it.', 'user-2')
+      await flush()
+
+      expect(played.raw.filter((raw) => raw.subtype === 'task_started' && raw.task_id === AGENT_ID)).toHaveLength(1)
+      expect(played.events).toContainEqual(
+        expect.objectContaining({
+          kind: AgentEventKind.ToolResult,
+          toolUseId: 'toolu_id2_2_fix',
+          output: `Message queued for delivery to ${AGENT_ID} at its next tool round.`,
+        }),
+      )
+    })
+
+    it('stops its new run by its task id, ending it under the SendMessage call', async () => {
+      const played = play([launch(0), message(1_000)])
+      played.session.send('Profile checkout.', 'user-1')
+      await flush()
+      played.session.send('Ask it to fix it.', 'user-2')
+      await flush()
+
+      await played.session.stopTask(AGENT_ID)
+      await flush()
+
+      expect(played.events).toContainEqual(
+        expect.objectContaining({
+          kind: AgentEventKind.TaskFinished,
+          sdkTaskId: AGENT_ID,
+          toolUseId: 'toolu_id2_2_fix',
+          outcome: TaskOutcome.Stopped,
+        }),
+      )
     })
   })
 })

@@ -641,6 +641,26 @@ describe("every task's running subagents", () => {
     })
     expect(loaded.toolEvents.t1).toEqual([divider, finished])
   })
+
+  it('adds a subagent woken again to a task whose log has not loaded, for the task list to count, and only a running subagent (#395)', () => {
+    const woken = agent('a', 't1')
+    const updated = applyEvent(state, { type: EventType.ToolEventUpdated, toolEvent: woken })
+    expect(updated.toolEvents).toEqual({ t1: [woken] })
+    expect(updated.toolEvents.t1?.[0]).toMatchObject({ name: 'Agent', state: ToolCallState.Running })
+
+    // It ends again, and its row follows.
+    const ended = { ...woken, state: ToolCallState.Done, output: 'Fixed.' }
+    const after = applyEvent(updated, { type: EventType.ToolEventUpdated, toolEvent: ended })
+    expect(after.toolEvents).toEqual({ t1: [ended] })
+
+    // A finished subagent, or another running call, it hasn't seen is left to the next load.
+    expect(applyEvent(state, { type: EventType.ToolEventUpdated, toolEvent: ended }).toolEvents).toBe(state.toolEvents)
+    const read = { ...call, id: 'r', state: ToolCallState.Running }
+    expect(applyEvent(state, { type: EventType.ToolEventUpdated, toolEvent: read }).toolEvents).toBe(state.toolEvents)
+    expect(applyEvent(state, { type: EventType.ToolEventUpdated, toolEvent: divider }).toolEvents).toBe(
+      state.toolEvents,
+    )
+  })
 })
 
 describe("a task's commits", () => {

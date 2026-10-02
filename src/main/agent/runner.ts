@@ -59,6 +59,14 @@
  * its own to report on it (above). A background subagent dies with its session: if the session fails, it fails with it,
  * and if the app quits, its calls end as interrupted on the next launch.
  *
+ * **Subagents woken again** (`docs/sdk-notes.md`, "Subagents woken again", #395). A subagent that has finished, failed
+ * or been interrupted (a relaunch included) runs again when the agent messages it with `SendMessage`, or when the SDK
+ * starts it again once work it left running ends: the SDK sends a new `task_started` under the subagent's task id,
+ * which its `Agent` call keeps in SQLite from its first start. Its row goes back to running, keeping its log, and it's
+ * followed as a background subagent from then on, until that run's task notification, which the SDK sends under the
+ * waking call's id, ends it as done or failed. A subagent started before Glade kept the ids is known by the run's first
+ * message instead, whose parent is its `Agent` call.
+ *
  * **Reopen by chatting.** A message to a done task reopens it: the task goes back to active and the message is the
  * next turn of the same session, the live one if it's still running, or the saved one resumed by its id. The tool log
  * gets a marked done divider, stamped with the `doneAt` that reopening clears (the chat and header show it), at the end
@@ -223,6 +231,7 @@ import type { ImageData } from '../../shared/images'
 import { permissionRuleString, taskPermissionRule } from '../../shared/permissions'
 import { agentText } from '../../shared/pastedContent'
 import { checkAnswers, tidyAnythingElse } from '../../shared/questions'
+import { isSubagentTool } from '../../shared/subagents'
 import { apiRowArgument, apiRowResult } from '../../shared/taskError'
 import { CommandFailure } from '../bridge/errors'
 import {
@@ -259,12 +268,16 @@ import {
   appendToolCall,
   deleteToolEvent,
   failRunningCompactions,
+  findSubagentCall,
+  getToolCall,
   interruptPausedToolCalls,
   interruptRunningToolCall,
   interruptRunningToolCalls,
   listTasksWithRunningToolCalls,
   listToolEvents,
+  reopenSubagentCall,
   setSubagentProgress,
+  setSubagentTaskId,
   updateCompaction,
   updateToolCall,
 } from '../db/repositories/tool-events'
@@ -308,6 +321,7 @@ import {
   type CompactedEvent,
   type ModelRefusalFallbackEvent,
   RateLimitStatus,
+  type SubagentStartedEvent,
   type TextEvent,
   type ToolCallStartedEvent,
   type ToolResultEvent,
@@ -541,6 +555,16 @@ interface LiveSession {
   /** The tool calls running inside a background subagent, nested subagents' included: the subagent's `Agent` call. */
   readonly backgroundCalls: Map<string, string>
   /**
+   * The subagents another call woke again (the agent's `SendMessage`), by that call's id: the `Agent` call of each. The
+   * SDK reports the new run's progress and end under the waking call (`docs/sdk-notes.md`, "Subagents woken again").
+   */
+  readonly woken: Map<string, string>
+  /**
+   * The subagents a `SendMessage` woke that Glade doesn't know by their SDK task id (started before it kept the ids): the
+   * waking call, by SDK task id, oldest first, until the run's first message names its `Agent` call.
+   */
+  readonly unknownWakes: Map<string, string>
+  /**
    * Every tool call the session has made that hasn't had its result, logged or not: the `Agent` call of the subagent
    * that made it, or null for the agent's own. Whose a background task is, when the SDK starts one for the call.
    */
@@ -557,11 +581,23 @@ interface LiveSession {
   compactSummary: string | null
 }
 
+/** What wakes a subagent again: the SDK's task id for it, and the call the SDK reports its run under. */
+interface SubagentWake {
+  readonly sdkTaskId: string
+  readonly toolUseId: string
+}
+
 /** How many of Glade's own prompts a session remembers for its prompt hook (a message folded into a turn may never pass it). */
 const MAX_HANDED = 20
 
 /** The tool whose calls may commit: the change tracker hears of each one's result. */
 const BASH_TOOL = 'Bash'
+
+/** The tool the agent messages a subagent with, which wakes one that has finished (`docs/sdk-notes.md`). */
+const SEND_MESSAGE_TOOL = 'SendMessage'
+
+/** The SDK's kind of task for a subagent (`task_started.task_type`). */
+const SUBAGENT_TASK = 'local_agent'
 
 /** What the tool log says when the user stopped a turn, and what its unfinished tool calls say. */
 export const STOPPED_NOTE = 'You stopped the agent.'
@@ -1519,6 +1555,63 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   }
 
   /**
+   * A subagent that had finished runs again (#395): its `Agent` call's row goes back to running, keeping its log, and
+   * it's followed as a background subagent until its run ends, as the SDK registers a woken subagent in the background.
+   * Its calls and notes are logged with the turn its `Agent` call was made in. `by` is the call the SDK reports the run
+   * under: the waking `SendMessage`, or the `Agent` call itself when the SDK starts it again on its own.
+   */
+  const wakeSubagent = (taskId: string, live: LiveSession, call: ToolCallEvent, by: SubagentWake): void => {
+    const { toolUseId } = call
+    taskLog(taskId).info('subagent woken', { toolUseId, by: by.toolUseId, sdkTaskId: by.sdkTaskId })
+    if (by.toolUseId !== toolUseId) live.woken.set(by.toolUseId, toolUseId)
+    live.subagents.set(toolUseId, by.sdkTaskId)
+    const reopened = reopenSubagentCall(db, taskId, toolUseId)
+    if (reopened !== undefined) emitToolEventUpdated(emit, reopened)
+    runInBackground(live, toolUseId, call.turn)
+  }
+
+  /**
+   * A subagent's task started (`task_started`, `local_agent`): its `Agent` call keeps the SDK's id for it, and one that
+   * had finished is woken again (`docs/sdk-notes.md`, "Subagents woken again"): by its own `Agent` call, started again
+   * by the SDK, or by the agent's `SendMessage`, found by its SDK task id. Answers whether that's what it was; a first
+   * start is handled like any task's.
+   */
+  const onSubagentTask = (taskId: string, live: LiveSession, event: SubagentStartedEvent): boolean => {
+    const { toolUseId, sdkTaskId } = event
+    const call = getToolCall(db, taskId, toolUseId)
+    if (call !== undefined && isSubagentTool(call.name)) {
+      setSubagentTaskId(db, { taskId, toolUseId, sdkTaskId })
+      if (call.state === ToolCallState.Running) return false
+      wakeSubagent(taskId, live, call, event)
+      return true
+    }
+    const subagent = findSubagentCall(db, taskId, sdkTaskId)
+    if (subagent !== undefined) {
+      wakeSubagent(taskId, live, subagent, event)
+      return true
+    }
+    if (call?.name !== SEND_MESSAGE_TOOL) return false
+    taskLog(taskId).info('subagent woken, not yet known', { by: toolUseId, sdkTaskId })
+    live.unknownWakes.set(sdkTaskId, toolUseId)
+    return true
+  }
+
+  /**
+   * A message from inside a subagent, while a `SendMessage` has woken one Glade doesn't know by its SDK task id: the
+   * message's `Agent` call, if it had finished, is the subagent that woke (the oldest such wake), and it's known from now.
+   */
+  const bindUnknownWake = (taskId: string, live: LiveSession, parentToolUseId: string | null): void => {
+    const [wake] = live.unknownWakes
+    if (wake === undefined || parentToolUseId === null || backgroundOwner(live, parentToolUseId) !== undefined) return
+    const call = getToolCall(db, taskId, parentToolUseId)
+    if (call === undefined || !isSubagentTool(call.name) || call.state === ToolCallState.Running) return
+    const [sdkTaskId, toolUseId] = wake
+    live.unknownWakes.delete(sdkTaskId)
+    setSubagentTaskId(db, { taskId, toolUseId: call.toolUseId, sdkTaskId })
+    wakeSubagent(taskId, live, call, { toolUseId, sdkTaskId })
+  }
+
+  /**
    * A subagent was stopped: the monitors and commands it leaves running end with it, and their tasks are stopped, in
    * case the SDK leaves them running.
    */
@@ -1561,6 +1654,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     if (event.kind === AgentEventKind.SubagentStarted) {
       const { toolUseId, sdkTaskId, taskType, isBackgrounded } = event
       taskLog(taskId).info('task started', { toolUseId, sdkTaskId, taskType, isBackgrounded })
+      if (taskType === SUBAGENT_TASK && onSubagentTask(taskId, live, event)) return
       live.subagents.set(event.toolUseId, event.sdkTaskId)
       watchers.taskStarted(taskId, event, live.callParents.get(toolUseId) ?? null)
       if (event.background) {
@@ -1579,7 +1673,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     }
     if (event.kind === AgentEventKind.SubagentProgress) {
       // Kept on its `Agent` call while it runs; one that arrives after its subagent finished changes nothing.
-      const { toolUseId, summary } = event
+      const { summary } = event
+      const toolUseId = live.woken.get(event.toolUseId) ?? event.toolUseId
       const call = setSubagentProgress(db, { taskId, toolUseId, summary })
       if (call === undefined) return
       taskLog(taskId).debug('subagent progress', { toolUseId, summary })
@@ -1587,10 +1682,18 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return
     }
     if (event.kind === AgentEventKind.TaskFinished) {
-      watchers.taskFinished(taskId, event)
-      if (event.outcome === TaskOutcome.Stopped) onSubagentStopped(taskId, live, event.toolUseId)
-      onTaskFinished(taskId, live, event)
+      // A woken subagent's run ends under the call that woke it: it's its `Agent` call's subagent that ended.
+      live.unknownWakes.delete(event.sdkTaskId)
+      const subagent = live.woken.get(event.toolUseId)
+      live.woken.delete(event.toolUseId)
+      const finished = subagent === undefined ? event : { ...event, toolUseId: subagent }
+      watchers.taskFinished(taskId, finished)
+      if (finished.outcome === TaskOutcome.Stopped) onSubagentStopped(taskId, live, finished.toolUseId)
+      onTaskFinished(taskId, live, finished)
       return
+    }
+    if (event.kind === AgentEventKind.Text || event.kind === AgentEventKind.ToolCallStarted) {
+      bindUnknownWake(taskId, live, event.parentToolUseId)
     }
     // A background subagent's work is logged whether or not a turn is running, and never opens one.
     if (onBackgroundEvent(taskId, live, event)) return
@@ -1818,6 +1921,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       subagents: new Map(),
       background: new Map(),
       backgroundCalls: new Map(),
+      woken: new Map(),
+      unknownWakes: new Map(),
       callParents: new Map(),
       handed: [],
       compactSummary: null,

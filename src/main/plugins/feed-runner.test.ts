@@ -242,6 +242,55 @@ describe('a turn', () => {
     expect(JSON.stringify(view().sent)).not.toMatch(/N\+1/)
   })
 
+  it('with a subagent that had finished woken again by a message, which starts again and is in the snapshot', async () => {
+    await send('Find why checkout is slow.')
+    backend.session.emit(
+      sdk.init(),
+      ...sdk.backgroundLaunch('toolu_q', 'aq1', 'Profile the checkout queries'),
+      sdk.result('I started it in the background.'),
+      ...sdk.subagentEnded('toolu_q', 'aq1', 'completed', 'An N+1 in load_cart.'),
+    )
+    await settle()
+    const finished = lines()
+
+    await send('Ask it to fix that.')
+    backend.session.emit(
+      sdk.init(),
+      ...sdk.subagentWoken('toolu_m', 'aq1', 'Profile the checkout queries', 'Now fix it.'),
+      sdk.result('I asked it to fix that.'),
+      sdk.toolUse('toolu_q2', 'Edit', { file_path: '/code/acme-api/cart.py' }, 'toolu_q', 'msg_s2'),
+    )
+    await settle()
+    const woken = lines().slice(finished.length)
+
+    expect(finished.slice(-2)).toEqual([
+      'call Agent Profile the checkout queries done',
+      'subagent.updated Profile the checkout queries done: null',
+    ])
+    expect(woken).toEqual([
+      'task.updated (untitled) working',
+      'call SendMessage  running',
+      'subagent.started Profile the checkout queries running: null',
+      'call SendMessage  done',
+      'task.updated (untitled) waiting needs you',
+      'subagent.updated Profile the checkout queries running: Edit cart.py',
+      'call Edit cart.py running in toolu_q',
+    ])
+
+    // A plugin that starts over sees it running.
+    await ready()
+    expect(received()[1]).toMatchObject({
+      subagents: [{ id: 'toolu_q', name: 'Profile the checkout queries', state: 'running', endedAt: null }],
+    })
+
+    backend.session.emit(...sdk.subagentEnded('toolu_m', 'aq1', 'completed', 'Fixed the N+1.'))
+    await settle()
+    expect(lines().slice(-2)).toEqual([
+      'call Agent Profile the checkout queries done',
+      'subagent.updated Profile the checkout queries done: Edit cart.py',
+    ])
+  })
+
   it('with a permission request from a subagent, allowed', async () => {
     await glade.invoke(CommandName.TasksUpdate, {
       id: task.id,

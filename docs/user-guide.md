@@ -314,8 +314,9 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   Click one to open its log; right-click a running one to stop it. A subagent's own tool calls live here, not in Tool
   calls, and so does what it left running in the background: an eye with a count on its row while any of it is live,
   and its rows, each with **Stop**, under its log. That work runs on after the subagent finishes, until it ends;
-  stopping the subagent ends it too ("Ended with its subagent."). The task's row in the sidebar counts the running
-  subagents on its third line.
+  stopping the subagent ends it too ("Ended with its subagent."). A subagent that's done, failed or interrupted (by
+  quitting Glade, say) runs again when the agent sends it a message: its row goes back to running, keeping its log,
+  until that run ends. The task's row in the sidebar counts the running subagents on its third line.
 - **Watchers:** what the task's own agent left running or scheduled to wake itself later: a watch on a command's output
   (a PR's CI, a deploy's log, whatever script it wrote), a command in the background, a check-back at a set time, or a
   recurring job. A command the agent waits on isn't one, however long it runs; it's a tool call. Nor is what a subagent
