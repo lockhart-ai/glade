@@ -60,7 +60,10 @@
   their workspaces, names, folders and each tab's last 100,000 characters of output live in SQLite, and the tab each
   workspace shows in `ui_state` (`terminal_selection`); every workspace's tabs keep their xterm.js screens in the page,
   hidden while another workspace shows; a relaunch shows that output above a
-  new shell under a dim "restored" divider, since processes don't survive a restart.
+  new shell under a dim "restored" divider, since processes don't survive a restart. The screens open only once Geist
+  Mono has loaded (`document.fonts.load`), since xterm.js measures its cell in whatever font has loaded, and they refit
+  whenever xterm.js measures its cell again (after a resize, or a change of pixel ratio), so their rows always fit the
+  card (#412).
 - **Icons:** Font Awesome (free regular + solid SVG icons via the official React packages), bundled locally; regular
   style preferred to match the designs' thin strokes.
 - **File editor (#351):** the Files tab edits workspace files in place with CodeMirror 6 (the official `@codemirror/*`
