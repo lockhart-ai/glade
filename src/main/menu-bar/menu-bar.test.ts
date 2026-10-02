@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
-import { TaskActivity, UiStateKey, type Task, type Workspace } from '../../shared/domain'
+import { TaskActivity, ToolCallState, UiStateKey, type Task, type Workspace } from '../../shared/domain'
+import { NeedsYouReason } from '../../shared/menuBar'
 import { DEFAULT_SETTINGS } from '../../shared/settings'
 import { recordNotification } from '../db/repositories/notifications'
 import { updateSettings } from '../db/repositories/settings'
 import { getTask, updateTask } from '../db/repositories/tasks'
+import { appendToolCall, updateToolCall } from '../db/repositories/tool-events'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { createMemoryLog } from '../logging/memory-sink'
 import {
@@ -129,7 +131,13 @@ function popover(): FakePopover {
 /** A task that has run, as `patch` has it. */
 function ranTask(patch: Parameters<typeof updateTask>[2] = {}): Task {
   const task = sampleTask(test.db, workspace.id)
-  return updateTask(test.db, task.id, { title: 'Add rate limiting', sessionId: `session-${task.id}`, ...patch })
+  return updateTask(test.db, task.id, {
+    title: 'Add rate limiting',
+    sessionId: `session-${task.id}`,
+    // Its reply is unread, so it needs you once its turn has ended.
+    unread: true,
+    ...patch,
+  })
 }
 
 /** Changes a task and tells the menu bar, as the bridge does. */
@@ -187,6 +195,40 @@ describe('the icon', () => {
     change(second, { activity: TaskActivity.Working })
     vi.advanceTimersByTime(REFRESH_DELAY_MS)
     expect(tray().title).toBe('')
+
+    // Their turns end with replies: unread ones count, and stop counting once they're read.
+    change(first, { activity: TaskActivity.Waiting })
+    change(second, { activity: TaskActivity.Waiting })
+    vi.advanceTimersByTime(REFRESH_DELAY_MS)
+    expect(tray().title).toBe('2')
+    change(first, { unread: false })
+    vi.advanceTimersByTime(REFRESH_DELAY_MS)
+    expect(tray().title).toBe('1')
+  })
+
+  it('counts a task whose subagent still runs as working, until the subagent ends', () => {
+    const task = ranTask()
+    appendToolCall(test.db, {
+      taskId: task.id,
+      turn: 1,
+      toolUseId: 'toolu_a',
+      name: 'Agent',
+      input: {},
+      parentToolUseId: null,
+    })
+    start()
+    expect(tray().title).toBe('')
+    menuBar.toggle()
+    expect(lastSent().working.map(({ taskId }) => taskId)).toEqual([task.id])
+    expect(lastSent().needsYou).toEqual([])
+
+    updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_a', state: ToolCallState.Done, output: 'Done.' })
+    // The bridge sends the task again when its background work changes (`createBackgroundWorkWatch`).
+    menuBar.observe({ type: EventType.TaskUpdated, task: getTask(test.db, task.id) ?? task })
+    vi.advanceTimersByTime(REFRESH_DELAY_MS)
+    expect(tray().title).toBe('1')
+    expect(lastSent().working).toEqual([])
+    expect(lastSent().needsYou.map(({ taskId, reason }) => [taskId, reason])).toEqual([[task.id, NeedsYouReason.Reply]])
   })
 
   it('never animates: working agents, and time passing, change nothing on it and leave no timer running', () => {

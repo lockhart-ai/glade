@@ -11,7 +11,7 @@ export interface DotProps {
   className?: string
 }
 
-/** An 8px dot in a task state's colour: working blue, waiting purple, done slate, error pink. */
+/** An 8px dot in a task state's colour: working blue, waiting on you purple, idle and done slate, error pink. */
 export function Dot({ state, label, title, className }: DotProps): React.JSX.Element {
   const accessibility = label === undefined ? { 'aria-hidden': true } : { role: 'img', 'aria-label': label }
 

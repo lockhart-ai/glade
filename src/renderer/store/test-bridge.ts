@@ -991,6 +991,7 @@ export function sampleTask(id: string, workspaceId: string, title = 'Add rate li
     retrying: null,
     asking: false,
     awaitingPermission: false,
+    backgroundWork: false,
     pause: null,
     importedAt: null,
     todos: null,

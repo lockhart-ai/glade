@@ -2035,7 +2035,8 @@ describe('startApp: Glade in the menu bar', () => {
     const { db } = openAppDatabase(electron.app.userData)
     try {
       const task = sampleTask(db, sampleWorkspace(db).id)
-      updateTask(db, task.id, { title: 'Add rate limiting', sessionId: 'session-1' })
+      // It has run, and its reply is unread: it needs you.
+      updateTask(db, task.id, { title: 'Add rate limiting', sessionId: 'session-1', unread: true })
       return task.id
     } finally {
       db.close()

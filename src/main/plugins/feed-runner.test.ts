@@ -22,7 +22,7 @@ import { fakeIpcPair } from '../bridge/fake-ipc'
 import { FakeAgentBackend, settle } from '../agent/fake-backend'
 import type { AgentRunner } from '../agent/runner'
 import * as sdk from '../agent/test-sdk-messages'
-import { createTask } from '../db/repositories/tasks'
+import { createTask, getTask } from '../db/repositories/tasks'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { setUiState } from '../db/repositories/ui-state'
 import { createWorkspace } from '../db/repositories/workspaces'
@@ -196,7 +196,7 @@ describe('a turn', () => {
       'call Bash npm test done in toolu_s',
       'call Agent Check the tests done',
       'subagent.updated Check the tests done: Bash npm test',
-      'task.updated (untitled) waiting needs you',
+      'task.updated (untitled) waiting',
     ])
     // Neither what was asked nor what the agent replied reached the plugin.
     expect(JSON.stringify(view().sent)).not.toMatch(/Fix the date bug|The bug is in formatDate|12 passed|Run them all/)
@@ -227,8 +227,8 @@ describe('a turn', () => {
       'task.updated (untitled) working',
       'call Agent Profile the checkout queries running',
       'subagent.started Profile the checkout queries running: null',
-      // Its turn ends, and the task waits on you, while it runs on.
-      'task.updated (untitled) waiting needs you',
+      // Its turn ends while it runs on: you're viewing the task, so its reply is read and it doesn't need you.
+      'task.updated (untitled) waiting',
       'subagent.updated Profile the checkout queries running: Bash python time_queries.py',
       'call Bash python time_queries.py running in toolu_q',
     ])
@@ -239,9 +239,45 @@ describe('a turn', () => {
       'subagent.updated Profile the checkout queries done: Bash python time_queries.py',
       // The turn the agent starts itself to report it: working, with no message from you, then waiting again.
       'task.updated (untitled) working',
-      'task.updated (untitled) waiting needs you',
+      'task.updated (untitled) waiting',
     ])
     expect(JSON.stringify(view().sent)).not.toMatch(/N\+1/)
+  })
+
+  it('with a background subagent in a task you are not viewing: it needs you once the subagent ends, not before (#430)', async () => {
+    setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: 'another-task' })
+    await send('Find why checkout is slow.')
+    backend.session.emit(
+      sdk.init(),
+      ...sdk.backgroundLaunch('toolu_q', 'aq1', 'Profile the checkout queries'),
+      sdk.text('I started it in the background.', null, 'msg_03'),
+      sdk.result('I started it in the background.'),
+    )
+    await settle()
+    const running = lines()
+    const unreadWhileRunning = getTask(database.db, task.id)
+
+    backend.session.emit(...sdk.subagentEnded('toolu_q', 'aq1', 'completed', 'An N+1 in load_cart.'))
+    await settle()
+
+    // The reply made it unread, but its subagent still runs: every update says it doesn't need you.
+    expect(unreadWhileRunning).toMatchObject({ unread: true, backgroundWork: true, activity: 'waiting' })
+    expect(running.filter((line) => line.startsWith('task.updated'))).toEqual([
+      'task.updated (untitled) working',
+      'task.updated (untitled) waiting',
+    ])
+    // The subagent ends, and nothing else changes the task: it's told again, now needing you.
+    expect(lines().slice(running.length)).toEqual([
+      'call Agent Profile the checkout queries done',
+      'subagent.updated Profile the checkout queries done: null',
+      'task.updated (untitled) waiting needs you',
+    ])
+    expect(getTask(database.db, task.id)).toMatchObject({ unread: true, backgroundWork: false })
+
+    // Opening the task reads it: it no longer needs you.
+    await glade.invoke(CommandName.UiStateSet, { key: UiStateKey.SelectedTaskId, value: task.id })
+    await settle()
+    expect(lines().at(-1)).toBe('task.updated (untitled) waiting')
   })
 
   it('with a subagent that had finished woken again by a message, which starts again and is in the snapshot', async () => {
@@ -274,7 +310,7 @@ describe('a turn', () => {
       'call SendMessage  running',
       'subagent.started Profile the checkout queries running: null',
       'call SendMessage  done',
-      'task.updated (untitled) waiting needs you',
+      'task.updated (untitled) waiting',
       'subagent.updated Profile the checkout queries running: Edit cart.py',
       'call Edit cart.py running in toolu_q',
     ])
@@ -331,7 +367,7 @@ describe('a turn', () => {
       // The turn waits on your OK, so the task needs you.
       'task.updated (untitled) waiting needs you on permission',
       'permission closed allowed',
-      'task.updated (untitled) waiting needs you',
+      'task.updated (untitled) waiting',
       'task.updated (untitled) working',
     ])
     expect(JSON.stringify(view().sent)).not.toContain('Claude wants to run')

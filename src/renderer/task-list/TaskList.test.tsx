@@ -280,9 +280,32 @@ describe('TaskList', () => {
 
     const dotOf = (title: string): string | null =>
       row(title).querySelector('[data-state]')?.getAttribute('data-state') ?? null
-    expect(dotOf('Add rate limiting')).toBe('waiting')
+    // A reply you've read is idle; an unread one needs you.
+    expect(dotOf('Add rate limiting')).toBe('idle')
+    expect(dotOf('Fix flaky login test')).toBe('waiting')
     expect(dotOf('Move image uploads')).toBe('working')
     expect(dotOf('Upgrade Django')).toBe('done')
+  })
+
+  it('shows a task whose turn ended as working while its background work runs, then by whether its reply is read', async () => {
+    const running = [
+      task('b1', 'Profile the checkout queries', 2, { backgroundWork: true }),
+      task('b2', 'Watch the deploy', 3, { backgroundWork: true, unread: true }),
+    ]
+    const { fake } = await renderList(running)
+    const dotOf = (title: string): string | null =>
+      row(title).querySelector('[data-state]')?.getAttribute('data-state') ?? null
+    expect(dotOf('Profile the checkout queries')).toBe('working')
+    expect(dotOf('Watch the deploy')).toBe('working')
+
+    // The background work finishes: main sends each task again, read without it.
+    act(() => {
+      for (const current of running) {
+        fake.emit({ type: EventType.TaskUpdated, task: { ...current, backgroundWork: false } })
+      }
+    })
+    expect(dotOf('Profile the checkout queries')).toBe('idle')
+    expect(dotOf('Watch the deploy')).toBe('waiting')
   })
 
   it('selects a task when its row is clicked', async () => {
@@ -358,12 +381,16 @@ describe('TaskList', () => {
   })
 
   it('jumps to the next task that needs you with ⌘⌥↓, going round from the top, even from a text field', async () => {
-    const { store } = await renderList(TASKS, [{ key: UiStateKey.SelectedTaskId, value: 'a2' }])
+    const tasks = TASKS.map((sample) => {
+      if (sample.id === 'p1') return { ...sample, asking: true }
+      return sample.id === 'a1' ? { ...sample, unread: true } : sample
+    })
+    const { store } = await renderList(tasks, [{ key: UiStateKey.SelectedTaskId, value: 'a2' }])
     const search = screen.getByRole('searchbox', { name: 'Search tasks' })
     const press = (target: Element | Window = window): boolean =>
       fireEvent.keyDown(target, { key: 'ArrowDown', altKey: true, metaKey: true })
 
-    // a2 is working; a1 and a3 are waiting on you, and so is the pinned p1.
+    // a2 is working; a1 and a3 have replies you haven't read, and the pinned p1 is asking.
     for (const [target, expected] of [
       [window, 'a1'],
       [search, 'a3'],
@@ -377,8 +404,13 @@ describe('TaskList', () => {
     }
   })
 
-  it('stays put on ⌘⌥↓ when no other task needs you', async () => {
-    const { store, fake } = await renderList(TASKS.slice(1, 3), [{ key: UiStateKey.SelectedTaskId, value: 'a1' }])
+  it('stays put on ⌘⌥↓ when no other task needs you: a read reply and background work don’t count', async () => {
+    // p1 and a1 have replies you've read, a2 is working, and b1's unread reply waits on its subagents.
+    const tasks = [
+      ...TASKS.slice(0, 3),
+      task('b1', 'Profile the checkout queries', 2, { backgroundWork: true, unread: true }),
+    ]
+    const { store, fake } = await renderList(tasks, [{ key: UiStateKey.SelectedTaskId, value: 'a1' }])
     fake.invoke.mockClear()
 
     expect(fireEvent.keyDown(window, { key: 'ArrowDown', altKey: true, metaKey: true })).toBe(false)

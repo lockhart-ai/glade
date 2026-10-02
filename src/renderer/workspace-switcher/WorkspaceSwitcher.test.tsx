@@ -39,7 +39,7 @@ async function renderSwitcher(overrides: Partial<FakeHandlers> = {}): Promise<Re
         working('t1', 'w1'),
         working('t2', 'w1'),
         working('t3', 'w1'),
-        { ...working('t4', 'w2'), activity: TaskActivity.Waiting },
+        { ...working('t4', 'w2'), activity: TaskActivity.Waiting, unread: true },
       ],
       uiState: [
         { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
@@ -120,11 +120,23 @@ describe('WorkspaceSwitcher', () => {
     const { emit } = await renderSwitcher()
     const menu = await openSwitcher()
 
-    act(() => {
-      emit({ type: EventType.TaskUpdated, task: { ...working('t5', 'w3'), activity: TaskActivity.Waiting } })
-    })
+    const dotfiles = within(menu).getByRole('menuitemradio', { name: 'Dotfiles' })
+    const replied = { ...working('t5', 'w3'), activity: TaskActivity.Waiting, unread: true }
+    const update = (task: Task): void => {
+      act(() => {
+        emit({ type: EventType.TaskUpdated, task })
+      })
+    }
 
-    expect(within(menu).getByRole('menuitemradio', { name: 'Dotfiles' })).toHaveTextContent('1 needs you')
+    // An unread reply needs you; while its subagents still run it's only active; read, it's only active too.
+    update(replied)
+    expect(dotfiles).toHaveTextContent('1 needs you')
+    update({ ...replied, backgroundWork: true })
+    expect(dotfiles).toHaveTextContent('1 active')
+    update(replied)
+    expect(dotfiles).toHaveTextContent('1 needs you')
+    update({ ...replied, unread: false })
+    expect(dotfiles).toHaveTextContent('1 active')
   })
 
   it('switches to a workspace, restoring its selection, and closes', async () => {

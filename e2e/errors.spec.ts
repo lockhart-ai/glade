@@ -37,7 +37,7 @@ async function expectRecovered(window: Page): Promise<void> {
   await expect(errorCard).toHaveCount(0)
   // The retry resumed the same turn: your message wasn't sent again into the chat.
   await expect(userMessages).toHaveCount(1)
-  await expect(taskHeader(window).stateDot).toHaveAccessibleName('Active · waiting on you')
+  await expect(taskHeader(window).stateDot).toHaveAccessibleName('Active · idle')
   await expect(taskList(window).taskRow('Fix flaky login test')).toContainText(
     'Fixed the race in the test; it passes 200 times on Postgres.',
   )

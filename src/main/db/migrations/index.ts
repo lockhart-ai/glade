@@ -49,6 +49,7 @@ import { pluginGrantsMigration } from './0048-plugin-grants'
 import { linkArtifactsMigration } from './0049-link-artifacts'
 import { browseFoldersMigration } from './0050-browse-folders'
 import { reportedContextWindowsMigration } from './0051-reported-context-windows'
+import { runningToolCallsIndexMigration } from './0052-running-tool-calls-index'
 import { pluginSettingsMigration } from './0053-plugin-settings'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
@@ -103,6 +104,7 @@ export const MIGRATIONS: readonly Migration[] = [
   linkArtifactsMigration,
   browseFoldersMigration,
   reportedContextWindowsMigration,
+  runningToolCallsIndexMigration,
   pluginSettingsMigration,
 ]
 

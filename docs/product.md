@@ -16,7 +16,8 @@ Remove from list… asks first, then forgets the workspace and deletes its tasks
 **Task.** One agent session with one objective. A task has exactly two states:
 
 - **Active** — created the moment you send the first message. Whether the agent is mid-turn, waiting on you, asking a
-  question or stopped by an error is shown in the conversation and by the status dot; it is not a separate state.
+  question, stopped by an error or idle is shown in the conversation and by the status dot; it is not a separate
+  state.
 - **Done** — you mark it done (no dialog; an Undo toast appears). The latest status becomes its **outcome**. A done task
   stays open to chat: sending a message reopens it.
 
@@ -127,7 +128,9 @@ back, within limits (the chat keeps its minimum width and height); collapsing a 
 back at the size you left it, and a relaunch keeps every size. The plugin panel beside the terminal has one too, in
 the gap between them: it takes room from the terminal, which keeps its minimum width.
 
-State dot colours: blue = working, purple = waiting on you, slate = done, pink = error.
+State dot colours: blue = working (the agent's turn, or subagents and watchers it left running), purple = waiting on
+you, pink = error, slate = done, and an active task that's idle: nothing running and nothing new for you (see
+Attention).
 
 ### Usage
 
@@ -158,6 +161,27 @@ Claude · log in?". Glade never sees the credential: Claude Code saves it, as it
 
 ## Attention
 
+**Needs you.** A task needs you when it's blocked on you or has a reply you haven't read (#430): it's **asking a
+question**, waiting on a **permission card**, stopped on an **error** (or declined by a safety check), or its turn
+ended with a **reply and the task is still unread**. Opening the task reads it, so a reply you've read no longer needs
+you; Mark as unread (⌘⇧U) makes it need you again. A brand-new task never does.
+
+**Background work counts as working.** A task whose own turn has ended but which still has subagents or watchers
+running (a `Monitor` watch or a background command whose process runs; not a wakeup or cron job that's only
+scheduled) shows as working, until that work finishes or the task asks a question, waits on permission or errors. A
+reply that arrives meanwhile still marks the task unread, but doesn't make it need you until the work has finished.
+
+A task with a read reply and nothing running is neither: it's **idle** (a slate dot, "Active · idle"), and counts only
+as active.
+
+One rule (`taskAttention` in `src/shared/attention.ts`) drives every place that shows this: the dot on the task's row
+and in its header (purple needs you, blue working, pink error, slate idle), the workspace switcher's "N needs you"
+(else "N active"), the menu bar's count and its Needs you and Working lists, Next task that needs you (⌘⌥↓), and the
+plugin feed's `needsYou`. It's worked out from what's stored (the unread flag, open questions and permission requests,
+the tool log's running subagents and the watchers), so it's right after a relaunch too: a relaunch ends the subagents
+and watchers that were running, so a task that was working in the background then needs you if its reply is unread,
+and is idle if not.
+
 A task you aren't looking at can still need you. When its agent sends a **final reply**, **asks a question** (`ask`)
 or waits on a **permission card**, in a task you're not viewing, Glade marks the task unread, shows it
 under "Needs you" in the menu bar's list while it waits on you, and sends a **native macOS notification** — even while
@@ -169,8 +193,8 @@ are left to the OS.
 **The menu bar.** Glade's icon in the macOS menu bar shows what's waiting on you in every workspace: a monochrome glyph
 that follows light and dark menu bars and never moves, with the count of tasks that need you beside it (blank when none
 do). Clicking it drops a popover under it: **Needs you** (the task, its workspace and why: asking, permission, error,
-declined by a safety check, or a reply waiting), **Working** (its status line, todo progress with a thin bar, and how
-long its turn has run) and
+declined by a safety check, or an unread reply), **Working** (its status line, todo progress with a thin bar, and how
+long its turn has run; a task working only in the background is listed here too) and
 **Recent** (the last notifications Glade sent, with their age; kept in the database, so they survive a relaunch), each
 hidden while empty, or "Nothing in flight". It updates live while open; a row opens Glade on its task, switching
 workspace if needed, and its footer has **Open Glade** and **Quit**. It hides on Esc or when it loses focus

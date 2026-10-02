@@ -98,7 +98,10 @@ export function taskList(page: Page) {
       section(name).getByRole('listitem').getByRole('button').filter({ hasText: title }),
     /** The field a row's title turns into while you rename the task (F2). */
     renameField: sidebar.getByRole('textbox', { name: 'Task title' }),
-    /** A row's state dot, whose `data-state` is the task's indicator (working, waiting, done or error). */
+    /**
+     * A row's state dot, whose `data-state` is the task's indicator: working, waiting (it needs you), idle, done or
+     * error.
+     */
     dot: (row: Locator) => row.locator('[data-state]'),
     /**
      * A row's todo progress (`3/7`), named `3 of 7 todos done · Now: …` (its tooltip too); `data-done` once every item is

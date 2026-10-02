@@ -109,7 +109,7 @@ describe('menuBarSections', () => {
           taskId: 'c',
           title: 'Task c',
           workspaceName: 'Acme API',
-          reason: 'Reply waiting',
+          reason: 'Unread reply',
           indicator: TaskIndicator.Waiting,
         },
         {

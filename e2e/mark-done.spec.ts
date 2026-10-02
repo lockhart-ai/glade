@@ -33,7 +33,7 @@ test('mark done: moves the task to Done with an Undo toast, and Undo puts it bac
   await bar.field.press('Enter')
   const header = taskHeader(window)
   await expect(chat(window).agentReplies).toHaveCount(1)
-  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
+  await expect(header.stateDot).toHaveAccessibleName('Active · idle')
   await expect(list.rows('Active')).toHaveCount(1)
   const before = await onlyTask(window)
   // Done starts collapsed.
@@ -65,7 +65,7 @@ test('mark done: moves the task to Done with an Undo toast, and Undo puts it bac
   // Undo puts the task back exactly as it was: only when it last changed moves on.
   await toast.undo.click()
   await expect(toast.region).toBeEmpty()
-  await expect(header.stateDot).toHaveAccessibleName('Active · waiting on you')
+  await expect(header.stateDot).toHaveAccessibleName('Active · idle')
   await expect(header.markDone).toBeEnabled()
   await expect(header.title).toHaveText('Fix the flaky date test')
   await expect(header.field('Goal')).toHaveText('Make the date formatting test pass in every timezone.')

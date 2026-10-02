@@ -19,6 +19,24 @@
       "selected": true
     },
     {
+      "title": "Rotate the API keys",
+      "objective": "Rotate the staging API keys and update the deploy secrets.",
+      "status": "Waiting on you: allow the rotation script.",
+      "activity": "working",
+      "permissionMode": "ask_before_edits",
+      "minutesAgo": 6,
+      "startedMinutesAgo": 15,
+      "permissionRequests": [
+        {
+          "toolName": "Bash",
+          "input": { "command": "./scripts/rotate-keys.sh staging", "description": "Rotate the staging keys" },
+          "toolUseId": "rotate",
+          "turn": 1,
+          "minutesAgo": 6
+        }
+      ]
+    },
+    {
       "title": "Fix flaky login test",
       "objective": "test_login_redirect fails about one run in ten on CI.",
       "status": "Was confirming on Postgres when the API became overloaded.",

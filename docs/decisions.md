@@ -39,6 +39,12 @@
   edited or removed. No "send now", no reordering.
 - **Notifications:** native OS notifications for any agent message in a task you're not viewing, even while Glade is
   focused. Task name + start of the message. Sound off. Focus/DND handled by the OS.
+- **Needs you (#430):** a task needs you when it's blocked on you or has a reply you haven't read: asking a question,
+  waiting on a permission card, stopped on an error (or declined by a safety check), or its turn ended with a reply
+  and the task is unread. A read reply with nothing running is neither needs-you nor working (idle). A task whose turn
+  has ended but which still has subagents or watchers running counts as working everywhere until they finish, or it
+  asks, waits on permission or errors; a reply meanwhile marks it unread without making it need you. Mark as unread
+  makes a read task need you again. One rule drives the dots, the switcher, the menu bar, ⌘⌥↓ and the plugin feed.
 - **Terminal** is per workspace, not per task (#347): each workspace has its own tabs, and the bottom bar shows the
   tabs of the workspace you're looking at, with the one you last picked there. Switching workspace never ends a shell;
   the others keep running, and their output is kept. Close workspace is a switch too: its shells keep running for

@@ -43,6 +43,7 @@ import { REQUEST_SCHEMAS } from './requests'
 import type { SpawnPty } from '../terminal/pty'
 import type { TerminalShell } from '../terminal/shell'
 import { createTerminals, type Terminals } from '../terminal/terminals'
+import { createBackgroundWorkWatch } from '../tasks/background-work'
 import { refreshStaleTodos } from '../todos/todos'
 
 /** The part of Electron's `ipcMain` the bridge uses, so tests can stand in a fake. */
@@ -234,12 +235,24 @@ export function registerBridge({
       },
     },
   })
+  // A subagent or a watcher starting or ending changes whether its task has background work, which the task is read
+  // with: the task is sent again when it does, after the event that changed it.
+  const backgroundWork = createBackgroundWorkWatch(
+    {
+      db,
+      emit: (event) => {
+        emit(event)
+      },
+    },
+    tasks,
+  )
   const emit: Emit = (event) => {
     logEvent(event)
     feed.observe(event)
     artifactWatch.observe(event)
     broadcast(event)
     observe?.(event)
+    backgroundWork.observe(event)
   }
   // One broker for the agent's questions: the Glade tools' `ask` waits on it, and the runner answers through it.
   const questions = createQuestionBroker({ db, emit }, notifyReply)
