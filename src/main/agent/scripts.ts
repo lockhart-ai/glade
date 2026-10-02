@@ -1381,6 +1381,35 @@ const offline: AgentScript = {
 }
 
 /**
+ * What Claude Code says, in an SDK session, when its login expired and it couldn't refresh it (the bundled binary's
+ * words, `docs/sdk-notes.md` §1, "Logged out").
+ */
+export const LOGIN_EXPIRED_ERROR = 'Failed to authenticate: OAuth session expired and could not be refreshed'
+
+/**
+ * Claude Code's login expires mid-turn, as it reports it: the next request fails before it's sent, with
+ * `authentication_failed` and no HTTP status, and Claude Code doesn't retry it.
+ */
+const loginExpired = (): ScriptStep[] => [
+  emit({
+    type: 'assistant',
+    parent_tool_use_id: null,
+    error: 'authentication_failed',
+    message: { id: 'msg_api_error', role: 'assistant', content: [{ type: 'text', text: LOGIN_EXPIRED_ERROR }] },
+  }),
+  result({ text: LOGIN_EXPIRED_ERROR, isError: true, terminalReason: 'api_error' }),
+]
+
+/**
+ * A copy whose login expires part way (#409): the task stops logged out; once you've logged in, its retry (the
+ * second turn, in a session Glade starts again) completes the copy.
+ */
+const loggedOut: AgentScript = {
+  name: 'logged-out',
+  turns: [copyUntil(loginExpired()), copyCompletes()],
+}
+
+/**
  * A long copy, for the message queue: its first turn keeps copying, with the command still running, until it's stopped
  * or the app quits, so messages sent meanwhile stay queued. Resumed after a quit, it copies the rest; a message still
  * queued is delivered when that command finishes, folded into the turn, and the agent answers it (its second turn)
@@ -3467,6 +3496,7 @@ export const AGENT_SCRIPT_NAMES = [
   'failing-turn',
   'fails-to-start',
   'flaky-api',
+  'logged-out',
   'safety-refusal-fallback',
   'safety-refusal-no-fallback',
   'copy-in-batches',
@@ -3528,6 +3558,7 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'failing-turn': failingTurn,
   'fails-to-start': failsToStart,
   'flaky-api': flakyApi,
+  'logged-out': loggedOut,
   'safety-refusal-fallback': safetyRefusalFallbackScript,
   'safety-refusal-no-fallback': safetyRefusalNoFallbackScript,
   'copy-in-batches': copyInBatches,

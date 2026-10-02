@@ -27,6 +27,9 @@ import {
   type E2eEditor,
   type E2eMenuBar,
   type E2eNetwork,
+  E2E_LOGIN_GLOBAL,
+  type E2eLogin,
+  type E2eLoginOutcome,
   type E2eSpec,
 } from '../src/main/e2e'
 import { testModeLogsFolder } from '../src/main/isolation'
@@ -506,6 +509,27 @@ export async function setOnline({ app }: Glade, online: boolean): Promise<void> 
     },
     { name: E2E_NETWORK_GLOBAL, value: online },
   )
+}
+
+/**
+ * Ends the login Log in started, as the browser would (`E2E_LOGIN_GLOBAL`): an e2e run never logs anyone in or out, so
+ * its login is a stand-in that waits for the spec.
+ */
+export async function finishLogin({ app }: Glade, outcome: E2eLoginOutcome): Promise<void> {
+  await app.evaluate(
+    (_, { name, value }) => {
+      ;(Reflect.get(globalThis, name) as E2eLogin).finish(value)
+    },
+    { name: E2E_LOGIN_GLOBAL, value: outcome },
+  )
+}
+
+/** How many logins Log in has started, and whether one is waiting now (`E2E_LOGIN_GLOBAL`). */
+export async function loginRuns({ app }: Glade): Promise<{ runs: number; waiting: boolean }> {
+  return app.evaluate((_, name) => {
+    const login = Reflect.get(globalThis, name) as E2eLogin
+    return { runs: login.runs, waiting: login.waiting }
+  }, E2E_LOGIN_GLOBAL)
 }
 
 /**

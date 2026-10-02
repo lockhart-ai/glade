@@ -45,6 +45,7 @@ import {
   type WindowSetTrafficLightsRequest,
   type TasksCreateRequest,
   type TasksRetryRequest,
+  type LoginStartRequest,
   type TasksSendRequest,
   type TasksUpdateRequest,
   type TasksListRequest,
@@ -218,6 +219,10 @@ const tasksRetryRequest = z.strictObject({
   id: z.string(),
   model: z.string().min(1).optional(),
 }) satisfies z.ZodType<TasksRetryRequest>
+
+const loginStartRequest = z.strictObject({
+  taskId: z.string().nullable(),
+}) satisfies z.ZodType<LoginStartRequest>
 
 const subagentsStopRequest = z.strictObject({
   taskId: z.string(),
@@ -472,6 +477,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.TasksSend]: tasksSendRequest,
   [CommandName.TasksStop]: taskIdRequest,
   [CommandName.TasksRetry]: tasksRetryRequest,
+  [CommandName.TasksRetryLoggedOut]: emptyRequest,
   [CommandName.TasksCompact]: taskIdRequest,
   [CommandName.SubagentsStop]: subagentsStopRequest,
   [CommandName.SubagentsListRunning]: emptyRequest,
@@ -515,6 +521,9 @@ export const REQUEST_SCHEMAS = {
   [CommandName.PluginsList]: emptyRequest,
   [CommandName.ControlStatus]: emptyRequest,
   [CommandName.AccountStatus]: emptyRequest,
+  [CommandName.LoginStatus]: emptyRequest,
+  [CommandName.LoginStart]: loginStartRequest,
+  [CommandName.LoginCancel]: emptyRequest,
   [CommandName.ControlRegenerateToken]: emptyRequest,
   [CommandName.PluginsSetEnabled]: pluginsSetEnabledRequest,
   [CommandName.PluginsSetCapability]: pluginsSetCapabilityRequest,

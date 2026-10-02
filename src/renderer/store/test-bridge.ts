@@ -18,6 +18,7 @@ import {
 import type { MenuState } from '../../shared/commands'
 import { AttachedFileKind, attachmentsFolderOf, type AttachedFile } from '../../shared/attachedFiles'
 import {
+  AgentErrorKind,
   Effort,
   PermissionMode,
   FileContentKind,
@@ -67,6 +68,7 @@ import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings } from '../../shared/settings'
 import { controlUrl, type ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
+import { IDLE_LOGIN, LoginState, type LoginStatus } from '../../shared/login'
 import { PluginStatus, withGrant, type InstalledPlugin } from '../../shared/plugins'
 import { highlightParts, highlightPattern, SearchField, type SearchResult } from '../../shared/search'
 import type { TerminalTab } from '../../shared/terminal'
@@ -152,6 +154,13 @@ export interface FakeMain {
   readonly models?: readonly ModelChoice[]
   /** What `account.status` answers with: no account read and no warning when left out. */
   readonly accountStatus?: AccountStatus
+  /**
+   * Where logging in stands, which `login.status` answers with; idle when left out. `login.start` sets it waiting (at
+   * 5,000, for the task it names alone) and `login.cancel` idle, each broadcasting it; neither runs anything.
+   */
+  login?: LoginStatus
+  /** The task each `login.start` named (null for none), oldest first. */
+  readonly loginStarts?: (string | null)[]
   /** The task last selected in each workspace, by workspace id, which `workspaces.open` selects; none when left out. */
   readonly workspaceSelections?: Readonly<Record<string, string>>
   /** The workspaces `workspaces.reveal` revealed, by id, oldest first. */
@@ -291,6 +300,11 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     emit({ type: EventType.TaskUpdated, task })
     return { task }
   }
+  const loginChanged = (status: LoginStatus): { status: LoginStatus } => {
+    main.login = status
+    emit({ type: EventType.LoginChanged, status })
+    return { status }
+  }
   const terminalTabs = main.terminalTabs ?? []
   const terminalCalls = main.terminalCalls ?? []
   let terminals = 0
@@ -399,6 +413,11 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
         ...(model === undefined ? {} : { model }),
       }),
     [CommandName.TasksCompact]: ({ id }) => writeTask(id, { activity: TaskActivity.Working }),
+    [CommandName.TasksRetryLoggedOut]: () => ({
+      tasks: main.tasks
+        .filter((task) => task.activity === TaskActivity.Error && task.error?.kind === AgentErrorKind.LoggedOut)
+        .map((task) => writeTask(task.id, { activity: TaskActivity.Working, error: null }).task),
+    }),
     [CommandName.TasksHistory]: ({ id }) => ({
       messages: (main.messages ?? []).filter((message) => message.taskId === id),
       toolEvents: (main.toolEvents ?? []).filter((event) => event.taskId === id),
@@ -619,6 +638,12 @@ export function fakeHandlers(main: FakeMain, emit: (event: GladeEvent) => void):
     },
     [CommandName.ControlStatus]: () => ({ status: controlStatus() }),
     [CommandName.AccountStatus]: () => ({ status: main.accountStatus ?? { account: null, usage: [] } }),
+    [CommandName.LoginStatus]: () => ({ status: main.login ?? IDLE_LOGIN }),
+    [CommandName.LoginStart]: ({ taskId }) => {
+      main.loginStarts?.push(taskId)
+      return loginChanged({ state: LoginState.Waiting, since: 5_000, taskIds: taskId === null ? [] : [taskId] })
+    },
+    [CommandName.LoginCancel]: () => loginChanged(IDLE_LOGIN),
     [CommandName.ControlRegenerateToken]: () => {
       tokens += 1
       const status = controlStatus()

@@ -21,7 +21,9 @@ import { CloseKind, EventType, type GladeEvent } from '../shared/bridge'
 import { UiStateKey } from '../shared/domain'
 import { PLUGINS_FOLDER_NAME } from '../shared/plugins'
 import type { AgentBackend } from './agent/backend'
-import { createSdkBackend, type SdkBackendOptions } from './agent/sdk-backend'
+import { claudeCodeBinary, createSdkBackend, type SdkBackendOptions } from './agent/sdk-backend'
+import { claudeLogin, type RunLogin, type SpawnLogin } from './account/login'
+import { createE2eLogin, WAITING_LOGIN } from './account/test-login'
 import { AGENT_SCRIPTS, type AgentScriptName } from './agent/scripts'
 import { createTestModeAgentBackend, type TestModeAgentBackend } from './agent/test-mode-backend'
 import { recordSdkModels } from './models/models'
@@ -309,6 +311,7 @@ async function runCapture(spec: CaptureSpec, context: CaptureContext): Promise<v
   }
   context.bridge.runner.close()
   context.bridge.account.close()
+  context.bridge.login.close()
   context.bridge.artifactWatch.close()
   context.bridge.machine?.close()
   await context.bridge.endpoint.close()
@@ -558,6 +561,11 @@ export interface AppOptions {
   readonly createAgentBackend?: (options: SdkBackendOptions) => AgentBackend
   /** Starts the terminal tabs' shells in pseudo-terminals: node-pty by default; unit tests pass a fake. */
   readonly spawnPty?: SpawnPty
+  /**
+   * Starts Claude Code's own login (`claude auth login`) for Log in: Node's `spawn` by default; unit tests pass a fake.
+   * Never used in a test mode, whose login is a stand-in (`./account/test-login`).
+   */
+  readonly spawnLogin?: SpawnLogin
   /** Makes where the log goes (`docs/logs.md`): the log file by default. */
   readonly createLogSink?: (options: FileLogSinkOptions) => LogSink
 }
@@ -581,6 +589,24 @@ function terminalOptions(testMode: TestMode, spawn: SpawnPty): TerminalOptions {
 }
 
 /**
+ * How Log in runs Claude Code's own login: the bundled binary's `claude auth login`, from your home folder, in the
+ * agents' environment, so it signs in where they look. A test mode never runs it: e2e mode's waits for the spec to end
+ * it (`E2E_LOGIN_GLOBAL`), and a capture's waits for good.
+ */
+function loginRunner(
+  testMode: TestMode,
+  env: Promise<Environment>,
+  spawn: SpawnLogin | undefined,
+  log: Logger,
+): RunLogin {
+  if (testMode === null) {
+    const executable = claudeCodeBinary()
+    return claudeLogin({ executable, env, cwd: app.getPath('home'), ...(spawn === undefined ? {} : { spawn }), log })
+  }
+  return testMode.kind === TestModeKind.E2e ? createE2eLogin() : WAITING_LOGIN
+}
+
+/**
  * Starts the app: once Electron is ready, checks the window security settings, opens and migrates the database (closed
  * again on quit), registers the bridge the renderer talks to main through (with the agent runner behind it), then opens the main window.
  *
@@ -591,6 +617,7 @@ function terminalOptions(testMode: TestMode, spawn: SpawnPty): TerminalOptions {
 export function startApp({
   createAgentBackend = createSdkBackend,
   spawnPty = spawnNodePty,
+  spawnLogin,
   createLogSink = createFileLogSink,
 }: AppOptions = {}): void {
   let testMode: TestMode
@@ -737,6 +764,7 @@ export function startApp({
       // Whether the network is up, for resuming a task paused offline. In e2e mode, the spec decides.
       isOnline: testMode?.kind === TestModeKind.E2e ? createE2eNetwork() : net.isOnline.bind(net),
       terminal: terminalOptions(testMode, spawnPty),
+      runLogin: loginRunner(testMode, env, spawnLogin, log.scoped(LogScope.Agent)),
       // In the data folder, so a test mode's is in its throwaway one.
       pluginsFolder: join(app.getPath('userData'), PLUGINS_FOLDER_NAME),
       // The shown plugin goes in Glade's window, over the plugin card; its DevTools never open in a packaged app.
@@ -824,6 +852,7 @@ export function startApp({
       stopLoggingCrashes()
       runner.close()
       bridge.account.close()
+      bridge.login.close()
       void bridge.endpoint.close()
       bridge.pluginViews.close()
       bridge.machine?.close()

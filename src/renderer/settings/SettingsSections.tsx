@@ -1,6 +1,8 @@
 import { faArrowsRotate, faChevronDown, faPuzzlePiece, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Effort, PermissionMode } from '../../shared/domain'
+import { LoginState } from '../../shared/login'
+import { isStoppedLoggedOut } from '../../shared/taskError'
 import {
   EFFORT_NAMES,
   effortFallbackNotice,
@@ -42,7 +44,7 @@ import { describeFailure } from '../store/hydrate'
 import { selectSelectedWorkspace } from '../store/state'
 import { useGladeStore } from '../store/react'
 import { useNow } from '../task-list/useNow'
-import { accountView } from './accountModel'
+import { accountView, loginRowDescription, offersLogin } from './accountModel'
 import styles from './SettingsDialog.module.css'
 
 export interface SettingRowProps {
@@ -170,13 +172,70 @@ function ModelPicker({ models, value, onChoose }: ModelPickerProps): React.JSX.E
 }
 
 /**
+ * Settings › General's Log in (#409), under the account while Claude Code isn't signed in or a lost login stops a
+ * task: the logged-out card's login, run for no task in particular, so it retries none. While it runs, Cancel stops
+ * it.
+ */
+function LoginRow(): React.JSX.Element {
+  const login = useGladeStore((state) => state.login)
+  const startLogin = useGladeStore((state) => state.startLogin)
+  const cancelLogin = useGladeStore((state) => state.cancelLogin)
+  const [error, setError] = useState<string | null>(null)
+
+  const attempt = (action: () => Promise<void>): void => {
+    setError(null)
+    action().catch((failure: unknown) => {
+      setError(describeFailure(failure))
+    })
+  }
+
+  return (
+    <>
+      <SettingRow name="Log in" description={loginRowDescription(login)}>
+        {login.state === LoginState.Waiting ? (
+          <span className={styles.buttons}>
+            <Button size={ButtonSize.Small} disabled>
+              Waiting for the browser…
+            </Button>
+            <Button
+              variant={ButtonVariant.Ghost}
+              size={ButtonSize.Small}
+              onClick={() => {
+                attempt(cancelLogin)
+              }}
+            >
+              Cancel
+            </Button>
+          </span>
+        ) : (
+          <Button
+            size={ButtonSize.Small}
+            onClick={() => {
+              attempt(() => startLogin(null))
+            }}
+          >
+            Log in
+          </Button>
+        )}
+      </SettingRow>
+      {error !== null && (
+        <p role="alert" className={styles.error}>
+          {error}
+        </p>
+      )}
+    </>
+  )
+}
+
+/**
  * Glade in the macOS menu bar (`docs/design/html/29-menu-bar.html`), then the account the tasks run on and bill to, as
- * Claude Code last reported it (`docs/design/html/21-settings.html`): nothing to change there, since Claude Code owns
- * the login.
+ * Claude Code last reported it (`docs/design/html/21-settings.html`). Claude Code owns the login; while it isn't signed
+ * in, or a lost login stops a task, Log in runs Claude Code's own (#409).
  */
 export function GeneralSection(): React.JSX.Element {
   const [settings, update] = useSettings()
   const account = useGladeStore((state) => state.accountStatus.account)
+  const loggedOut = useGladeStore((state) => Object.values(state.tasks).some(isStoppedLoggedOut))
   const now = useNow()
   const view = accountView(account, now)
   return (
@@ -206,6 +265,7 @@ export function GeneralSection(): React.JSX.Element {
             </span>
           </SettingRow>
         ))}
+        {offersLogin(account, loggedOut) && <LoginRow />}
         {view.readLine !== null && <p className={styles.note}>{view.readLine}</p>}
       </section>
     </>
