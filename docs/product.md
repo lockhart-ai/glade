@@ -48,6 +48,17 @@ There are no follow-up tasks. One task can refer to another through its folder o
   and permissions pickers and a context
   meter at the right. Each task keeps its unsent draft, text, pasted images, pasted text blocks and attached files,
   while you're on another task and across a relaunch or a crash, until it's sent.
+- **The queue and Stop** — a message sent while the agent works waits in a numbered **queue** above the input, where
+  it can be edited or removed (no "send now", no reordering). The queue goes to the agent when it finishes its current
+  step, folded into the running turn; what's still queued when the turn ends starts the next turn, all of it together,
+  in order. **Stop** (the square button beside Send, or ⌘.) ends the running turn, withdrawing an open question or
+  permission card first; it stops only the turn, so subagents and watchers left running in the background carry on.
+  Stop drops what the agent is doing, not what you said next (#441): with messages queued, the turn stops and the
+  queue is sent at once as the next turn, exactly as when a turn ends on its own, so the task goes straight back to
+  working. With nothing queued, the task waits on you. A queue stays where it is only while something else holds
+  it: an open question or permission card (it follows your answer), a pause (it follows the resume), or a turn that
+  failed on an error or a done task (it goes first with your next message). A task found waiting on you with messages
+  still queued and nothing to deliver them, as a Stop before this left it, sends them when Glade next launches.
   A message's pasted images show as thumbnails above its text in the chat, and small in its row while it's queued.
   Clicking one (or ↵ or Space on it) opens the **image viewer** over the window: the image as large as fits, never
   scaled past its own size, on a dimmed backdrop. With several, ← and → step through the message's images, round from

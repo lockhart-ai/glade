@@ -126,23 +126,16 @@ test('pasting: a message queued while the agent works keeps its images until the
   await expect(bar.queuedImages(1)).toHaveAttribute('src', /^data:image\/png;base64,/)
   await expect(bar.attachedImages).toHaveCount(0)
 
-  // Stopped, the turn leaves the queue alone; the next message takes it to the agent first, image and all.
+  // Stop ends the turn and sends the queue as the next one (#441): the message goes to the agent, image and all.
   await bar.stop.click()
-  await expect(bar.stop).toHaveCount(0)
-  await expect(bar.queuedImages(1)).toHaveCount(1)
-  await bar.field.fill('Only run the unit tests.')
-  await bar.field.press('Enter')
 
   const conversation = chat(glade.window)
-  await expect(conversation.userMessages).toHaveCount(3)
+  await expect(conversation.userMessages).toHaveCount(2)
   await expect(conversation.userMessages.nth(1)).toContainText('This is the test that fails.')
   await expect(conversation.userMessages.nth(1).getByRole('img', { name: 'Pasted image' })).toHaveCount(1)
   await expect(bar.queued).toHaveCount(0)
+  await expect(bar.stop).toHaveCount(0)
   await expect
     .poll(async () => (await agentReceived(glade)).map(blocks))
-    .toEqual([
-      'Run the e2e suite.',
-      [{ image: 'image/png', bytes: true }, { text: 'This is the test that fails.' }],
-      'Only run the unit tests.',
-    ])
+    .toEqual(['Run the e2e suite.', [{ image: 'image/png', bytes: true }, { text: 'This is the test that fails.' }]])
 })

@@ -1831,20 +1831,22 @@ describe('resuming on launch', () => {
     expect(backend.session.options.resumeSessionId).toBe('session-2')
   })
 
-  it('leaves tasks that were waiting, errored or done alone, with their queues', () => {
-    const others = [TaskActivity.Waiting, TaskActivity.Error].map((activity) =>
+  it('leaves tasks that were waiting, errored or done alone, the errored and done ones with their queues', () => {
+    const [waiting, errored] = [TaskActivity.Waiting, TaskActivity.Error].map((activity) =>
       updateTask(database.db, sampleTask(database.db, workspace.id).id, { activity, sessionId: `s-${activity}` }),
     )
     updateTask(database.db, task.id, { state: TaskState.Done, activity: TaskActivity.Working, sessionId: 's' })
-    // A failed turn leaves its queue for the next message you send.
-    for (const { id } of [task, ...others]) appendQueuedMessage(database.db, { taskId: id, body: 'And the docs.' })
+    // A failed turn leaves its queue for the next message you send. (A waiting task's queue is sent: see
+    // `runner-stop-queue.test.ts`.)
+    const holding = [task.id, errored?.id ?? '']
+    for (const id of holding) appendQueuedMessage(database.db, { taskId: id, body: 'And the docs.' })
 
     expect(runner.resumeInterrupted()).toEqual([])
 
     expect(backend.sessions).toHaveLength(0)
     expect(events).toEqual([])
-    for (const other of others) expect(getTask(database.db, other.id)).toEqual(other)
-    for (const { id } of [task, ...others]) expect(listQueuedMessages(database.db, id)).toHaveLength(1)
+    for (const other of [waiting, errored]) expect(getTask(database.db, other?.id ?? '')).toEqual(other)
+    for (const id of holding) expect(listQueuedMessages(database.db, id)).toHaveLength(1)
   })
 
   it('marks a task it cannot resume as errored, and says why', async () => {
@@ -2622,21 +2624,18 @@ describe('the message queue', () => {
     })
   })
 
-  it('leaves the queue alone when the turn is stopped, then sends it before the next message', async () => {
+  // What Stop does with the queue (it sends it, #441) is in `runner-stop-queue.test.ts`.
+
+  it('leaves the queue alone when the turn fails, then sends it before the next message', async () => {
     await startCopy()
+    backend.session.emit(sdk.toolResult('toolu_01', 'copied'))
+    await settle()
     await queue('Keep the original filenames.')
-    backend.session.onInterrupt = () => {
-      backend.session.emit(
-        sdk.toolResult('toolu_01', "The user doesn't want to proceed with this tool use.", true),
-        sdk.interruptMarker(true),
-        sdk.abortedResult('aborted_tools'),
-      )
-      return Promise.resolve()
-    }
 
-    await glade.invoke(CommandName.TasksStop, { id: task.id })
+    backend.session.emit(sdk.apiErrorResult())
+    await settle()
 
-    expect(current().activity).toBe(TaskActivity.Waiting)
+    expect(current().activity).toBe(TaskActivity.Error)
     expect(queued()).toEqual(['Keep the original filenames.'])
     expect(sent()).toEqual(['Copy the existing uploads to S3.'])
 
@@ -2652,20 +2651,6 @@ describe('the message queue', () => {
       'Keep the original filenames.',
       'Carry on with the copy.',
     ])
-  })
-
-  it('leaves the queue alone when the turn fails', async () => {
-    await startCopy()
-    backend.session.emit(sdk.toolResult('toolu_01', 'copied'))
-    await settle()
-    await queue('Keep the original filenames.')
-
-    backend.session.emit(sdk.apiErrorResult())
-    await settle()
-
-    expect(current().activity).toBe(TaskActivity.Error)
-    expect(queued()).toEqual(['Keep the original filenames.'])
-    expect(sent()).toEqual(['Copy the existing uploads to S3.'])
   })
 
   it('leaves the queue alone when the session fails', async () => {
@@ -4300,11 +4285,10 @@ describe('pasted images', () => {
     expect(database.db.prepare('SELECT COUNT(*) FROM images').pluck().get()).toBe(0)
   })
 
-  it('starts the next turn with queued images, before the message you send', async () => {
+  it('starts the next turn with queued images, before the message you send, after a turn that failed', async () => {
     await startCopy()
     await queueWith('', [GIF])
-    backend.session.emit(sdk.interruptMarker(true), sdk.abortedResult('aborted_tools'))
-    await glade.invoke(CommandName.TasksStop, { id: task.id })
+    backend.session.emit(sdk.apiErrorResult())
     await settle()
 
     await sendWith('And this one.', [PNG])

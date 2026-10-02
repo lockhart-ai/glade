@@ -148,6 +148,13 @@ describe('the tools over HTTP', () => {
       session.emit(sdk.abortedResult())
       return Promise.resolve()
     }
+    // Stop ends the turn, and the message queued meanwhile starts the next one (#441).
+    expect(await call(ControlToolName.StopTask, { id })).toMatchObject({
+      task: { activity: TaskActivity.Working, queuedMessages: 0, turns: 2 },
+    })
+    expect(session.sent.at(-1)?.text).toBe('And the README.')
+    session.emit(sdk.result('The README is tidy too.'))
+    await settle()
     expect(await call(ControlToolName.StopTask, { id })).toMatchObject({ task: { activity: TaskActivity.Waiting } })
     expect(await call(ControlToolName.UpdateTask, { id, patch: { title: 'Tidy the docs' } })).toMatchObject({
       task: { title: 'Tidy the docs' },

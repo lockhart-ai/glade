@@ -100,6 +100,14 @@ export function listQueuedMessages(db: Database, taskId: string): QueuedMessage[
     .map((row) => parseQueuedMessage(row, content))
 }
 
+/** The tasks with messages queued, the one whose queue has waited longest first. */
+export function listTasksWithQueuedMessages(db: Database): string[] {
+  return db
+    .prepare('SELECT task_id FROM queued_messages GROUP BY task_id ORDER BY MIN(created_at), task_id')
+    .all()
+    .map((row) => new Row('queued_messages', row).text('task_id'))
+}
+
 /** A queued message by id, or undefined when it isn't queued (any more). */
 export function getQueuedMessage(db: Database, id: string): QueuedMessage | undefined {
   const row: unknown = db.prepare(`SELECT ${COLUMNS} FROM queued_messages WHERE id = ?`).get(id)

@@ -146,7 +146,9 @@ scroll: the chat passes under them.
   empty input for the last one), or remove it. There's no "send now" and no reordering.
 - **Stop:** the square Stop button beside Send, or **⌘.**, ends the turn. It also withdraws an open question or
   permission card. It stops only the turn: subagents and watchers the agent left running in the background carry on,
-  and you stop each one from its row in the Subagents or Watchers tab.
+  and you stop each one from its row in the Subagents or Watchers tab. If messages are queued, Stop sends them: the
+  turn stops and the queue goes to the agent at once as the next turn, in order, so "stop, do this instead" is a
+  queued message and then Stop. Remove a queued message first if you don't want it sent.
 - **Questions:** when a choice is yours, the agent asks it on a **question card** in the chat, with options to pick,
   pills or a line of text, and its turn waits however long you take (Claude Code gives up on a card after about 24
   days; one Glade quits on waits for good, and your answer resumes the task). When it asks in reply to your message,

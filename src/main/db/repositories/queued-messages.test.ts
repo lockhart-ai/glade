@@ -9,6 +9,7 @@ import {
   deleteQueuedMessage,
   getQueuedMessage,
   listQueuedMessages,
+  listTasksWithQueuedMessages,
   takeQueuedMessages,
   updateQueuedMessage,
 } from './queued-messages'
@@ -72,6 +73,24 @@ describe('listQueuedMessages', () => {
     const third = queue('Three')
 
     expect(listQueuedMessages(test.db, task.id)).toEqual([first, third])
+  })
+})
+
+describe('listTasksWithQueuedMessages', () => {
+  it('lists each task with a queue once, the longest-waiting first, and none without', () => {
+    const later = sampleTask(test.db, task.workspaceId)
+    sampleTask(test.db, task.workspaceId)
+    expect(listTasksWithQueuedMessages(test.db)).toEqual([])
+
+    queue('Second', later.id, 4_000)
+    queue('First', task.id, 3_000)
+    const last = queue('Third', task.id, 5_000)
+
+    expect(listTasksWithQueuedMessages(test.db)).toEqual([task.id, later.id])
+
+    takeQueuedMessages(test.db, task.id, 1)
+    expect(listTasksWithQueuedMessages(test.db)).toEqual([later.id])
+    expect(getQueuedMessage(test.db, last.id)).toBeUndefined()
   })
 })
 
