@@ -32,14 +32,6 @@ import {
 } from '../../shared/domain'
 import { retryingLabel } from '../../shared/taskError'
 
-/** Which card an agent reply is on. Every reply is on a card, whatever its turn's shape. */
-export enum ReplyStyle {
-  /** The neutral reply card. */
-  Plain = 'plain',
-  /** The purple question card: the task's latest reply, and the agent is waiting on you. */
-  Question = 'question',
-}
-
 /** The variants of a chat entry. */
 export enum ChatEntryKind {
   User = 'user',
@@ -68,7 +60,6 @@ export interface UserEntry {
 export interface AgentEntry {
   readonly kind: ChatEntryKind.Agent
   readonly message: Message
-  readonly style: ReplyStyle
   /** The top-level tool calls made in the reply's turn. */
   readonly toolCalls: number
 }
@@ -164,13 +155,8 @@ export function toolCallsByTurn(toolEvents: readonly ToolEvent[]): ReadonlyMap<n
   return counts
 }
 
-/** Whether the agent is waiting on an answer to its latest reply: the task is active and not working or errored. */
-function isWaitingOnYou(task: Task): boolean {
-  return task.state === TaskState.Active && task.activity === TaskActivity.Waiting
-}
-
 /** The chat's entry for a message. */
-function messageEntry(task: Task, message: Message, last: Message | undefined, counts: ReadonlyMap<number, number>) {
+function messageEntry(message: Message, counts: ReadonlyMap<number, number>) {
   switch (message.role) {
     case MessageRole.User:
       return { kind: ChatEntryKind.User, message } satisfies UserEntry
@@ -178,7 +164,6 @@ function messageEntry(task: Task, message: Message, last: Message | undefined, c
       return {
         kind: ChatEntryKind.Agent,
         message,
-        style: message === last && isWaitingOnYou(task) ? ReplyStyle.Question : ReplyStyle.Plain,
         toolCalls: counts.get(message.turn) ?? 0,
       } satisfies AgentEntry
   }
@@ -300,15 +285,14 @@ function dividerTime(entry: DividerEntry): EpochMs {
 }
 
 /**
- * Whether two agent entries show the same: the same message, style and tool-call count. `chatEntries` makes each entry
- * anew, so a reply that hasn't changed is told by what it holds (#413).
+ * Whether two agent entries show the same: the same message and tool-call count. `chatEntries` makes each entry anew, so a reply that hasn't changed is told by what it holds (#413).
  */
 export function sameAgentEntry(a: AgentEntry, b: AgentEntry): boolean {
-  return a.message === b.message && a.style === b.style && a.toolCalls === b.toolCalls
+  return a.message === b.message && a.toolCalls === b.toolCalls
 }
 
 /**
- * The chat's entries for a task: each message in order, with each agent reply's style and tool-call count, and its
+ * The chat's entries for a task: each message in order, with each agent reply's tool-call count, and its
  * dividers in log order: a restart divider for each resumed turn and a reopened divider for each reopening message,
  * each after its turn's message and before its reply, and a marked done divider before each reopening message. Each
  * question set and permission request shows as a card where it was made: after the messages before it, and before the
@@ -322,7 +306,6 @@ export function chatEntries(
   permissionRequests: readonly PermissionRequest[] = [],
 ): ChatEntry[] {
   const counts = toolCallsByTurn(toolEvents)
-  const last = messages.at(-1)
   const turn = currentTurn(messages, toolEvents)
   const dividers = toolEvents.flatMap((event) => {
     const entry = toolEventEntry(task, event, turn)
@@ -358,7 +341,7 @@ export function chatEntries(
   }
   for (const message of messages) {
     addDividers(message)
-    entries.push(messageEntry(task, message, last, counts))
+    entries.push(messageEntry(message, counts))
   }
   addDividers()
   return entries

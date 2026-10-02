@@ -1,7 +1,7 @@
-import { matchesFilter, needsYou, parseTaskFilter, TaskFilter } from '../../shared/attention'
+import { needsYou } from '../../shared/attention'
 import { TaskState, UiStateKey, type Task, type UiStateEntry } from '../../shared/domain'
 import { compareRecency } from '../../shared/doneList'
-import { doneListKey, isLoaded } from '../store/doneLists'
+import { isLoaded } from '../store/doneLists'
 import type { GladeData, UiStateValues } from '../store/state'
 
 /** The task list's sections, in the order they appear. */
@@ -73,19 +73,17 @@ function sectionOf(task: Pick<Task, 'pinned' | 'state'>): SectionId {
 }
 
 /**
- * Splits a workspace's tasks that pass the filter into the Pinned, Active and Done sections, each most recently updated
- * first, ties by id. A pinned task appears only under Pinned, whatever its state. The Done section keeps only the tasks
+ * Splits a workspace's tasks into the Pinned, Active and Done sections, each most recently updated first, ties by id. A pinned task appears only under Pinned, whatever its state. The Done section keeps only the tasks
  * `listed` passes: the pages of it loaded so far (see `listSections`).
  */
 export function sectionTasks(
   tasks: Iterable<Task>,
   workspaceId: string,
-  filter: TaskFilter = TaskFilter.All,
   listed: (task: Task) => boolean = () => true,
 ): TaskSection[] {
   const grouped = new Map<SectionId, Task[]>(SECTION_ORDER.map((id) => [id, []]))
   for (const task of tasks) {
-    if (task.workspaceId !== workspaceId || !matchesFilter(task, filter)) continue
+    if (task.workspaceId !== workspaceId) continue
     const section = sectionOf(task)
     if (section !== SectionId.Done || listed(task)) grouped.get(section)?.push(task)
   }
@@ -93,17 +91,12 @@ export function sectionTasks(
 }
 
 /**
- * A workspace's sections as the task list shows them, narrowed to a filter chip (the one chosen, by default): the Done
- * section as far down as its pages have loaded, so a done task found some other way (a search, say) waits for its page
+ * A workspace's sections as the task list shows them: the Done section as far down as its pages have loaded, so a done task found some other way (a search, say) waits for its page
  * rather than showing out of place.
  */
-export function listSections(
-  state: Pick<GladeData, 'tasks' | 'doneLists' | 'uiState'>,
-  workspaceId: string,
-  filter: TaskFilter = parseTaskFilter(state.uiState[UiStateKey.TaskFilter]),
-): TaskSection[] {
-  const pages = state.doneLists[doneListKey(workspaceId, filter)]
-  return sectionTasks(Object.values(state.tasks), workspaceId, filter, (task) => isLoaded(task, pages))
+export function listSections(state: Pick<GladeData, 'tasks' | 'doneLists'>, workspaceId: string): TaskSection[] {
+  const pages = state.doneLists[workspaceId]
+  return sectionTasks(Object.values(state.tasks), workspaceId, (task) => isLoaded(task, pages))
 }
 
 /** The ids of the tasks in the sections that aren't collapsed, top to bottom: the order ⌥↑ and ⌥↓ move through. */
@@ -112,8 +105,8 @@ export function visibleTaskIds(sections: readonly TaskSection[], uiState: UiStat
 }
 
 /**
- * The ids of a workspace's tasks as the task list shows them, top to bottom: narrowed to its filter chip, in the
- * sections that aren't collapsed, the Done section as far as it has loaded.
+ * The ids of a workspace's tasks as the task list shows them, top to bottom: in the sections that aren't collapsed, the
+ * Done section as far as it has loaded.
  */
 export function listedTaskIds(
   state: Pick<GladeData, 'tasks' | 'doneLists' | 'uiState'>,

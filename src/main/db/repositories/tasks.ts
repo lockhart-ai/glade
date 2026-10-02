@@ -24,7 +24,6 @@ import { fitContextWindow } from '../../../shared/contextWindow'
 import { sameModel } from '../../../shared/models'
 import { guessModelWindow } from './context-windows'
 import { offeredModels } from './sdk-models'
-import { TaskFilter } from '../../../shared/attention'
 import type { DoneCounts, DonePage, DonePageRequest } from '../../../shared/doneList'
 import { Row, RowError } from './rows'
 
@@ -289,13 +288,11 @@ export function listActiveTasks(db: Database, workspaceId: string): Task[] {
 /** The Done section: a workspace's done tasks that aren't pinned (a pinned task shows under Pinned). */
 const DONE_SECTION = `workspace_id = @workspaceId AND state = '${TaskState.Done}' AND pinned = 0`
 
-/** How many tasks a workspace's Done section holds, and how many of them are unread. */
+/** How many tasks a workspace's Done section holds. */
 export function countDoneTasks(db: Database, workspaceId: string): DoneCounts {
-  const row: unknown = db
-    .prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(unread), 0) AS unread FROM tasks WHERE ${DONE_SECTION}`)
-    .get({ workspaceId })
+  const row: unknown = db.prepare(`SELECT COUNT(*) AS total FROM tasks WHERE ${DONE_SECTION}`).get({ workspaceId })
   const counts = new Row('tasks', row)
-  return { all: counts.integer('total'), unread: counts.integer('unread') }
+  return { all: counts.integer('total') }
 }
 
 /** How many active and done tasks a workspace has. */
@@ -334,30 +331,18 @@ export function listTaskIds(db: Database, workspaceId: string | null, state: Tas
   return ids.filter((id): id is string => typeof id === 'string')
 }
 
-/** What a filter chip adds to the Done section's query. Done tasks never need you. */
-function doneFilter(filter: TaskFilter): string {
-  switch (filter) {
-    case TaskFilter.All:
-      return ''
-    case TaskFilter.Unread:
-      return 'AND unread = 1'
-    case TaskFilter.NeedsYou:
-      return 'AND 0'
-  }
-}
-
 /**
- * A page of a workspace's Done section under a filter chip, most recently updated first and ties by id, starting just
+ * A page of a workspace's Done section, most recently updated first and ties by id, starting just
  * after `after` (keyset pagination on the `tasks_done_list` index). It reads one task more than the page holds to
  * tell whether more follow.
  */
 export function listDoneTasks(db: Database, request: DonePageRequest): DonePage {
-  const { workspaceId, filter, after, limit } = request
+  const { workspaceId, after, limit } = request
   // "After" in the list's order: older, or as old with a later id. The first half is a range the index can seek to.
   const keyset = after === null ? '' : 'AND updated_at <= @updatedAt AND (updated_at < @updatedAt OR id > @id)'
   const rows = db
     .prepare(
-      `SELECT ${SELECTED} FROM tasks WHERE ${DONE_SECTION} ${doneFilter(filter)} ${keyset}
+      `SELECT ${SELECTED} FROM tasks WHERE ${DONE_SECTION} ${keyset}
       ORDER BY updated_at DESC, id LIMIT @limit`,
     )
     .all({ workspaceId, limit: limit + 1, ...(after === null ? {} : { updatedAt: after.updatedAt, id: after.id }) })

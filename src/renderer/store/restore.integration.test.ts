@@ -11,13 +11,15 @@ import * as sdk from '../../main/agent/test-sdk-messages'
 import { registerBridge } from '../../main/bridge'
 import { fakeIpcPair } from '../../main/bridge/fake-ipc'
 import { openAppDatabase, type AppDatabase } from '../../main/db/database'
+import { updateTask } from '../../main/db/repositories/tasks'
 import { sampleTask, sampleWorkspace } from '../../main/db/repositories/test-database'
+import { setUiState } from '../../main/db/repositories/ui-state'
 import { createWorkspace, getWorkspace } from '../../main/db/repositories/workspaces'
 import { STARTER_CLAUDE_MD } from '../../main/workspaces/starter-claude-md'
 import { createBridge } from '../../preload/bridge'
 import { bridgeError, BridgeErrorCode, CommandName, type GladeBridge } from '../../shared/bridge'
-import { needsYou, parseTaskFilter, TaskFilter } from '../../shared/attention'
-import { DividerKind, ToolCallState, UiStateKey, type Task, type Workspace } from '../../shared/domain'
+import { needsYou } from '../../shared/attention'
+import { DividerKind, TaskState, ToolCallState, UiStateKey, type Task, type Workspace } from '../../shared/domain'
 import {
   appendDivider,
   appendNarration,
@@ -25,6 +27,7 @@ import {
   listToolEvents,
   updateToolCall,
 } from '../../main/db/repositories/tool-events'
+import { listedTaskIds } from '../task-list/sections'
 import { HydrationStatus } from './state'
 import { createGladeStore, type GladeStore } from './store'
 import { fakeTerminalOptions } from '../../main/terminal/fake-pty'
@@ -241,7 +244,7 @@ it('starts with no workspace when there are none: the first-run state', async ()
   expect(store.getState()).toMatchObject({ workspaces: [], selectedWorkspaceId: null })
 })
 
-it('keeps unread tasks, the Needs you tasks and the chosen filter across a restart', async () => {
+it('keeps unread tasks and the Needs you tasks across a restart', async () => {
   const first = await launch()
   const workspace = createWorkspace(first.database.db, { name: 'Acme API', rootPath: '/code/acme-api' }, 1_000)
   const asked = sampleTask(first.database.db, workspace.id)
@@ -256,17 +259,15 @@ it('keeps unread tasks, the Needs you tasks and the chosen filter across a resta
   await getState().selectTask(other.id)
   second.backend.session.emit(sdk.init(), sdk.text('It is a race.'), sdk.result('It is a race.'))
   await settle()
-  await getState().setUiState({ key: UiStateKey.TaskFilter, value: TaskFilter.Unread })
 
   const attention = (store: GladeStore): unknown => {
     const tasks = Object.values(store.getState().tasks)
     return {
       unread: tasks.filter(({ unread }) => unread).map(({ id }) => id),
       needsYou: tasks.filter(needsYou).map(({ id }) => id),
-      filter: parseTaskFilter(store.getState().uiState[UiStateKey.TaskFilter]),
     }
   }
-  const expected = { unread: [asked.id], needsYou: [asked.id], filter: TaskFilter.Unread }
+  const expected = { unread: [asked.id], needsYou: [asked.id] }
   expect(attention(second.store)).toEqual(expected)
   quit(second.database)
 
@@ -280,3 +281,38 @@ it('keeps unread tasks, the Needs you tasks and the chosen filter across a resta
   const fourth = await launch()
   expect(attention(fourth.store)).toEqual({ ...expected, unread: [] })
 })
+
+// The sidebar's All · Needs you · Unread chips are gone (#411). A database from before still has the filter they
+// stored, in the `ui_state` row `task_filter`: the row stays (no destructive migration) and nothing reads it.
+it.each(['unread', 'needs_you', 'all', 'starred', ''])(
+  'lists every task after an upgrade from a version that stored the task filter %j',
+  async (stored) => {
+    const first = await launch()
+    const { db } = first.database
+    const workspace = createWorkspace(db, { name: 'Acme API', rootPath: '/code/acme-api' }, 1_000)
+    const unread = updateTask(db, sampleTask(db, workspace.id).id, { unread: true })
+    const read = sampleTask(db, workspace.id)
+    const pinned = updateTask(db, sampleTask(db, workspace.id).id, { pinned: true })
+    const done = updateTask(db, sampleTask(db, workspace.id).id, { state: TaskState.Done })
+    const doneUnread = updateTask(db, sampleTask(db, workspace.id).id, { state: TaskState.Done, unread: true })
+    setUiState(db, { key: UiStateKey.ActiveWorkspaceId, value: workspace.id })
+    setUiState(db, { key: UiStateKey.DoneSectionCollapsed, value: 'false' })
+    db.prepare("INSERT INTO ui_state (key, value) VALUES ('task_filter', ?)").run(stored)
+    quit(first.database)
+
+    const second = await launch()
+    const state = second.store.getState()
+
+    expect(state.hydration).toEqual({ status: HydrationStatus.Ready })
+    expect(Object.keys(state.uiState)).not.toContain('task_filter')
+    expect([...listedTaskIds(state, workspace.id)].sort()).toEqual(
+      [unread.id, read.id, pinned.id, done.id, doneUnread.id].sort(),
+    )
+    expect(state.doneCounts[workspace.id]).toEqual({ all: 2 })
+    // The old row is left as it was, for a downgrade to find.
+    expect(second.database.db.prepare("SELECT value FROM ui_state WHERE key = 'task_filter'").pluck().get()).toBe(
+      stored,
+    )
+    quit(second.database)
+  },
+)

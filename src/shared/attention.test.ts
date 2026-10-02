@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hasRun, matchesFilter, needsYou, parseTaskFilter, TaskFilter } from './attention'
+import { hasRun, needsYou } from './attention'
 import { TaskActivity, TaskState, type Task } from './domain'
 
 type Attention = Pick<Task, 'state' | 'activity' | 'sessionId' | 'asking' | 'awaitingPermission' | 'unread'>
@@ -45,25 +45,5 @@ describe('needsYou', () => {
     ['done, with a permission request still open', { ...RAN, state: TaskState.Done, awaitingPermission: true }, false],
   ])('is %s → %s', (_, task, expected) => {
     expect(needsYou(task)).toBe(expected)
-  })
-})
-
-describe('matchesFilter', () => {
-  it('lets every task through All, and only the matching ones through Needs you and Unread', () => {
-    const working: Attention = { ...RAN, activity: TaskActivity.Working, unread: true }
-
-    expect([RAN, working].map((task) => matchesFilter(task, TaskFilter.All))).toEqual([true, true])
-    expect([RAN, working].map((task) => matchesFilter(task, TaskFilter.NeedsYou))).toEqual([true, false])
-    expect([RAN, working].map((task) => matchesFilter(task, TaskFilter.Unread))).toEqual([false, true])
-  })
-})
-
-describe('parseTaskFilter', () => {
-  it('reads a stored filter, and falls back to All', () => {
-    expect(parseTaskFilter('needs_you')).toBe(TaskFilter.NeedsYou)
-    expect(parseTaskFilter('unread')).toBe(TaskFilter.Unread)
-    expect(parseTaskFilter('all')).toBe(TaskFilter.All)
-    expect(parseTaskFilter(undefined)).toBe(TaskFilter.All)
-    expect(parseTaskFilter('starred')).toBe(TaskFilter.All)
   })
 })

@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName } from '../../shared/bridge'
-import { TaskFilter } from '../../shared/attention'
 import { DONE_PAGE_SIZE, NO_DONE_TASKS } from '../../shared/doneList'
 import { TaskState, ToolCallState, ToolEventKind, UiStateKey, type Task, type ToolCallEvent } from '../../shared/domain'
-import { doneListKey } from './doneLists'
 import { describeFailure, lastOpenedWorkspace, loadSnapshot, restoreSelection } from './hydrate'
 import { HydrationStatus, INITIAL_DATA } from './state'
 import { fakeBridge, refuse, sampleTask, sampleWorkspace, type FakeMain } from './test-bridge'
@@ -31,7 +29,7 @@ describe('loadSnapshot', () => {
       workspaces: [sampleWorkspace('w1'), sampleWorkspace('w2')],
       tasks: { t1: sampleTask('t1', 'w1'), t2: sampleTask('t2', 'w2'), t3: sampleTask('t3', 'w2') },
       doneCounts: { w1: NO_DONE_TASKS, w2: NO_DONE_TASKS },
-      doneLists: { [doneListKey('w2', TaskFilter.All)]: { end: null, hasMore: false } },
+      doneLists: { w2: { end: null, hasMore: false } },
       selectedWorkspaceId: 'w2',
       selectedTaskId: 't3',
       uiState: { [UiStateKey.ActiveWorkspaceId]: 'w2', [UiStateKey.SelectedTaskId]: 't3' },
@@ -59,19 +57,18 @@ describe('loadSnapshot', () => {
 
     const snapshot = await loadSnapshot(bridge)
 
-    expect(snapshot.doneCounts).toEqual({ w1: { all: DONE_PAGE_SIZE + 5, unread: 53 }, w2: { all: 1, unread: 0 } })
+    expect(snapshot.doneCounts).toEqual({ w1: { all: DONE_PAGE_SIZE + 5 }, w2: { all: 1 } })
     expect(Object.keys(snapshot.tasks)).toHaveLength(2 + DONE_PAGE_SIZE)
     expect(snapshot.tasks.pinned).toEqual(pinnedDone)
     expect(snapshot.tasks.elsewhere).toBeUndefined()
     expect(snapshot.doneLists).toEqual({
-      [doneListKey('w1', TaskFilter.All)]: {
+      w1: {
         end: { updatedAt: 10_000 - DONE_PAGE_SIZE + 1, id: `d${String(DONE_PAGE_SIZE - 1)}` },
         hasMore: true,
       },
     })
     expect(invoke).toHaveBeenCalledWith(CommandName.TasksListDone, {
       workspaceId: 'w1',
-      filter: TaskFilter.All,
       after: null,
       limit: DONE_PAGE_SIZE,
     })
@@ -105,21 +102,17 @@ describe('loadSnapshot', () => {
     expect(snapshot.toolEvents).toEqual({ t1: [running[0]], t3: [running[1]] })
   })
 
-  it('loads the first Done page under the filter chip chosen', async () => {
-    const { bridge, invoke } = fakeBridge(
-      main([
-        { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
-        { key: UiStateKey.TaskFilter, value: TaskFilter.Unread },
-      ]),
-    )
+  it('loads the first Done page of the shown workspace, whole: no filter narrows it (#411)', async () => {
+    const { bridge, invoke } = fakeBridge(main([{ key: UiStateKey.ActiveWorkspaceId, value: 'w1' }]))
 
     const snapshot = await loadSnapshot(bridge)
 
-    expect(Object.keys(snapshot.doneLists)).toEqual([doneListKey('w1', TaskFilter.Unread)])
-    expect(invoke).toHaveBeenCalledWith(
-      CommandName.TasksListDone,
-      expect.objectContaining({ filter: TaskFilter.Unread }),
-    )
+    expect(Object.keys(snapshot.doneLists)).toEqual(['w1'])
+    expect(invoke).toHaveBeenCalledWith(CommandName.TasksListDone, {
+      workspaceId: 'w1',
+      after: null,
+      limit: DONE_PAGE_SIZE,
+    })
   })
 
   it('loads a selected done task below the first Done page, so the selection survives', async () => {

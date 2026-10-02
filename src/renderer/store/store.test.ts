@@ -98,19 +98,19 @@ describe('hydrate', () => {
 
     it("reads its workspace's Done counts from main again, since only main knows if it was counted", async () => {
       const { store, emit, data, invoke } = await hydrated()
-      expect(store.getState().doneCounts.w2).toEqual({ all: 0, unread: 0 })
+      expect(store.getState().doneCounts.w2).toEqual({ all: 0 })
 
       data.tasks.push(imported)
       emit({ type: EventType.TaskUpdated, task: imported })
 
       await vi.waitFor(() => {
-        expect(store.getState().doneCounts.w2).toEqual({ all: 1, unread: 1 })
+        expect(store.getState().doneCounts.w2).toEqual({ all: 1 })
       })
       expect(store.getState().tasks.t9).toEqual(imported)
       // A later change to it, now seen, is counted as usual, with no need to ask.
       invoke.mockClear()
       emit({ type: EventType.TaskUpdated, task: { ...imported, unread: false } })
-      expect(store.getState().doneCounts.w2).toEqual({ all: 1, unread: 0 })
+      expect(store.getState().doneCounts.w2).toEqual({ all: 1 })
       expect(invoke).not.toHaveBeenCalled()
     })
 
@@ -128,7 +128,7 @@ describe('hydrate', () => {
         [CommandName.TasksListActive]: () =>
           failing
             ? refuse(bridgeError(BridgeErrorCode.Internal, 'The database is locked'))
-            : { tasks: [], done: { all: 0, unread: 0 } },
+            : { tasks: [], done: { all: 0 } },
       })
       const store = createGladeStore(fake.bridge)
       await store.getState().hydrate()
@@ -140,7 +140,7 @@ describe('hydrate', () => {
         expect(fake.invoke).toHaveBeenCalledWith(CommandName.TasksListActive, { workspaceId: 'w2' })
       })
       await Promise.resolve()
-      expect(store.getState().doneCounts.w2).toEqual({ all: 0, unread: 0 })
+      expect(store.getState().doneCounts.w2).toEqual({ all: 0 })
     })
   })
 

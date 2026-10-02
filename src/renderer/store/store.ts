@@ -4,7 +4,6 @@ import type { Command } from '../../shared/commands'
 import { PluginStatus, withGrant } from '../../shared/plugins'
 import { UiStateKey, type OpenFiles, type Task, type UiStateEntry, type Workspace } from '../../shared/domain'
 import { DONE_PAGE_SIZE, inDoneList, isInDoneSection } from '../../shared/doneList'
-import { parseTaskFilter } from '../../shared/attention'
 import { DEFAULT_SETTINGS_SECTION } from '../settings/sections'
 import { collapsedEntry, isCollapsed, Panel } from '../panels/panels'
 import { PanelTab, parsePanelTab } from '../right-panel/panelModel'
@@ -19,7 +18,7 @@ import {
 import type { ImageData } from '../../shared/images'
 import type { TerminalTab } from '../../shared/terminal'
 import { describeFailure, lastOpenedWorkspace, loadSnapshot } from './hydrate'
-import { doneListKey, isLoaded, withDoneCounts, withDonePage, withLoadedTasks } from './doneLists'
+import { isLoaded, withDoneCounts, withDonePage, withLoadedTasks } from './doneLists'
 import { applyEvent, withGroupFold, withHistory, withOpenedWorkspace } from './reducer'
 import { HydrationStatus, INITIAL_DATA, type GladeState, type TerminalEvent } from './state'
 import {
@@ -56,7 +55,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
     // The stored images fetched so far, by id: an image never changes, so each is fetched once.
     const images = new Map<string, Promise<ImageData>>()
 
-    // The page of each Done section loading now, by `doneListKey`: a second call waits for it rather than loading more.
+    // The page of each Done section loading now, by workspace id: a second call waits for it rather than loading more.
     const doneLoads = new Map<string, Promise<void>>()
 
     // Every task deleted since the window opened: an answer that was on its way when the task went mustn't bring it back.
@@ -503,40 +502,38 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         if (taskId !== null) await get().loadHistory(taskId)
       },
 
-      loadDonePage(workspaceId, filter) {
-        const key = doneListKey(workspaceId, filter)
-        const loading = doneLoads.get(key)
+      loadDonePage(workspaceId) {
+        const loading = doneLoads.get(workspaceId)
         if (loading !== undefined) return loading
-        const pages = get().doneLists[key]
+        const pages = get().doneLists[workspaceId]
         if (pages?.hasMore === false) return Promise.resolve()
         const after = pages?.end ?? null
         const load = bridge
-          .invoke(CommandName.TasksListDone, { workspaceId, filter, after, limit: DONE_PAGE_SIZE })
+          .invoke(CommandName.TasksListDone, { workspaceId, after, limit: DONE_PAGE_SIZE })
           .then((page) => {
             const tasks = page.tasks.filter(({ id }) => !deletedTaskIds.has(id))
-            set((state) => withDonePage(state, workspaceId, filter, { ...page, tasks }))
+            set((state) => withDonePage(state, workspaceId, { ...page, tasks }))
           })
           .finally(() => {
-            doneLoads.delete(key)
+            doneLoads.delete(workspaceId)
           })
-        doneLoads.set(key, load)
+        doneLoads.set(workspaceId, load)
         return load
       },
 
-      async loadDoneThrough(workspaceId, filter, taskId) {
-        const key = doneListKey(workspaceId, filter)
+      async loadDoneThrough(workspaceId, taskId) {
         if (taskId !== null) await loadTasks([taskId])
         for (;;) {
           const { doneLists, tasks } = get()
-          const pages = doneLists[key]
+          const pages = doneLists[workspaceId]
           if (pages?.hasMore === false) return
           const task = taskId === null ? undefined : tasks[taskId]
           if (pages !== undefined && taskId !== null) {
-            if (task === undefined || !inDoneList(task, workspaceId, filter) || isLoaded(task, pages)) return
+            if (task === undefined || !inDoneList(task, workspaceId) || isLoaded(task, pages)) return
           }
-          await get().loadDonePage(workspaceId, filter)
+          await get().loadDonePage(workspaceId)
           // A page that brought nothing new (the section changed under it) would load forever.
-          if (get().doneLists[key]?.end === pages?.end && pages !== undefined) return
+          if (get().doneLists[workspaceId]?.end === pages?.end && pages !== undefined) return
         }
       },
 
@@ -612,7 +609,7 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         const selected = task !== undefined && taskId === get().selectedTaskId
         // The last row of the Done pages loaded so far is followed by the next page's first: load it to select it.
         if (selected && listedTaskIds(get(), task.workspaceId).at(-1) === taskId) {
-          await get().loadDonePage(task.workspaceId, parseTaskFilter(get().uiState[UiStateKey.TaskFilter]))
+          await get().loadDonePage(task.workspaceId)
         }
         const next = selected ? selectionAfterDeleting(listedTaskIds(get(), task.workspaceId), taskId) : null
         if (get().deletingTaskId === taskId) set({ deletingTaskId: null })

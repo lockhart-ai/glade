@@ -64,7 +64,7 @@ test('ask: the task needs you while its questions are open, and the answers carr
     questions: RELEASE_NOTES_QUESTIONS,
   })
   expect(await onlyTask(window)).toMatchObject({ activity: TaskActivity.Waiting, asking: true })
-  await expect(taskList(window).filter('Needs you')).toHaveText('Needs you1')
+  await expect(taskList(window).dot(taskList(window).rows('Active').first())).toHaveAttribute('data-state', 'waiting')
   await expect(chat(window).agentReplies).toHaveCount(0)
 
   // Answers that don't fit are refused, and the questions stay open.
@@ -249,7 +249,7 @@ test("ask: questions in a task you aren't viewing notify with the agent's reply 
     title: 'Draft release notes for 2.4',
     body: 'I read the 41 PRs merged since v2.3.0. The new rate limits on /search change what API clients see…',
   })
-  await expect(list.filter('Needs you')).toHaveText('Needs you1')
+  await expect(list.dot(row)).toHaveAttribute('data-state', 'waiting')
 
   // Opening it shows its card, and makes it read.
   await row.click()

@@ -2,7 +2,6 @@
  * The store's side of the Done section's paging (see `src/shared/doneList.ts`): which of its tasks the store has
  * loaded, and how many it holds.
  */
-import { TaskFilter } from '../../shared/attention'
 import {
   addDoneCounts,
   compareRecency,
@@ -14,11 +13,6 @@ import {
 } from '../../shared/doneList'
 import type { Task } from '../../shared/domain'
 import type { DoneListPages, GladeData } from './state'
-
-/** The key of a workspace's Done section under a filter chip in `doneLists`. */
-export function doneListKey(workspaceId: string, filter: TaskFilter): string {
-  return `${workspaceId}:${filter}`
-}
 
 /**
  * Whether a task of the Done section is in the pages loaded so far: at or above the last one loaded, or anywhere once
@@ -46,13 +40,12 @@ export function withLoadedTasks(state: GladeData, tasks: readonly Task[]): Glade
 }
 
 /** Records a page of a Done section as loaded: its tasks, and where the loaded pages now end. */
-export function withDonePage(state: GladeData, workspaceId: string, filter: TaskFilter, page: DonePage): GladeData {
-  const key = doneListKey(workspaceId, filter)
+export function withDonePage(state: GladeData, workspaceId: string, page: DonePage): GladeData {
   const last = page.tasks.at(-1)
-  const end = last === undefined ? (state.doneLists[key]?.end ?? null) : cursorOf(last)
+  const end = last === undefined ? (state.doneLists[workspaceId]?.end ?? null) : cursorOf(last)
   return {
     ...withLoadedTasks(state, page.tasks),
-    doneLists: { ...state.doneLists, [key]: { end, hasMore: page.hasMore } },
+    doneLists: { ...state.doneLists, [workspaceId]: { end, hasMore: page.hasMore } },
   }
 }
 
@@ -64,7 +57,7 @@ export function withDonePage(state: GladeData, workspaceId: string, filter: Task
 export function withCountedChange(state: GladeData, previous: Task | undefined, next: Task | undefined): GladeData {
   if (previous === undefined) return state
   const change = addDoneCounts(next === undefined ? NO_DONE_TASKS : doneCountsOf(next), doneCountsOf(previous), -1)
-  if (change.all === 0 && change.unread === 0) return state
+  if (change.all === 0) return state
   const counts = addDoneCounts(doneCountsFor(state, previous.workspaceId), change)
   return { ...state, doneCounts: { ...state.doneCounts, [previous.workspaceId]: counts } }
 }
@@ -76,8 +69,7 @@ export function withDoneCounts(state: GladeData, workspaceId: string, counts: Do
 
 /** Forgets a removed workspace's Done counts and pages. */
 export function withoutDoneLists(state: GladeData, workspaceId: string): GladeData {
-  const keys = new Set(Object.values(TaskFilter).map((filter) => doneListKey(workspaceId, filter)))
   const doneCounts = Object.fromEntries(Object.entries(state.doneCounts).filter(([id]) => id !== workspaceId))
-  const doneLists = Object.fromEntries(Object.entries(state.doneLists).filter(([key]) => !keys.has(key)))
+  const doneLists = Object.fromEntries(Object.entries(state.doneLists).filter(([id]) => id !== workspaceId))
   return { ...state, doneCounts, doneLists }
 }

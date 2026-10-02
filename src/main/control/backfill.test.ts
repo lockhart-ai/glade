@@ -7,7 +7,6 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { CommandName, EventType } from '../../shared/bridge'
-import { TaskFilter } from '../../shared/attention'
 import { MAX_HANDOFF_BYTES, TaskActivity, TaskState, type Task, type Workspace } from '../../shared/domain'
 import { settle } from '../agent/fake-backend'
 import { HANDOFF_HEADING, handoffSection } from '../agent/system-prompt'
@@ -194,7 +193,6 @@ describe('create_task, backfilling a past task', () => {
 
     const page = await app.glade.invoke(CommandName.TasksListDone, {
       workspaceId: workspace.id,
-      filter: TaskFilter.All,
       after: null,
       limit: 10,
     })
@@ -480,7 +478,6 @@ describe('a backfill of 200 tasks', () => {
 
     const page = await app.glade.invoke(CommandName.TasksListDone, {
       workspaceId: workspace.id,
-      filter: TaskFilter.All,
       after: null,
       limit: 1_000,
     })

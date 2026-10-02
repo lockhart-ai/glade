@@ -36,9 +36,8 @@ There are no follow-up tasks. One task can refer to another through its folder o
 
 ## The window
 
-- **Left sidebar** — workspace switcher, search, New task (+), filter chips (All · Needs you · Unread), and the task
-  list in three collapsible sections: Pinned, Active, Done. Each row shows a state dot, title and relative time, then
-  a one-line status. Under them, only while there's something to show, a compact third line of what's going on in the
+- **Left sidebar** — workspace switcher, search, New task (+), and the task list in three collapsible sections:
+  Pinned, Active, Done. Each row shows a state dot, title and relative time, then a one-line status. Under them, only while there's something to show, a compact third line of what's going on in the
   task, in this order: its todo progress (a ring and `3/7`, a check once all are done, the item in progress as its
   tooltip), its running subagents and its live watchers, each an icon and a count with a tooltip. Unread rows are bold
   with a blue dot. At its foot, under a divider, the **usage meter** (see Usage). Resizable, collapsible.
@@ -160,9 +159,9 @@ Claude · log in?". Glade never sees the credential: Claude Code saves it, as it
 ## Attention
 
 A task you aren't looking at can still need you. When its agent sends a **final reply**, **asks a question** (`ask`)
-or waits on a **permission card**, in a task you're not viewing, Glade marks the task unread, counts it under "Needs
-you" while it waits on you, and sends a **native macOS notification** — even while Glade is focused. Working notes and
-tool calls never notify. The notification shows the task name and the start of the reply (the first question, or the
+or waits on a **permission card**, in a task you're not viewing, Glade marks the task unread, shows it
+under "Needs you" in the menu bar's list while it waits on you, and sends a **native macOS notification** — even while
+Glade is focused. Working notes and tool calls never notify. The notification shows the task name and the start of the reply (the first question, or the
 tool and what it acts on), with **Open task** and an inline **Reply** that sends your answer to the task without
 opening Glade. Settings › Notifications turns them off, or their sound on (off by default); Focus and Do Not Disturb
 are left to the OS.

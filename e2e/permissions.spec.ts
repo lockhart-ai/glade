@@ -115,7 +115,6 @@ test('in the ask mode, an edit and a command wait on cards: Allow once by mouse,
   await expect(edit).toContainText('Edit')
   await expect(edit).toContainText(ASKS_PERMISSION.edit.file_path)
   await expect(edit.getByLabel('Change')).toContainText('+ - Retries now back off exponentially.')
-  await expect(taskList(window).filter('Needs you')).toHaveText('Needs you1')
   await expect(taskHeader(window).stateDot).toHaveAccessibleName('Active · waiting on you')
   await expect(taskList(window).dot(taskList(window).taskRow('Note the retry change'))).toHaveAttribute(
     'data-state',
@@ -153,7 +152,6 @@ test('in the ask mode, an edit and a command wait on cards: Allow once by mouse,
   const bash = await toolCall(window, 'Bash')
   expect(bash?.output).toContain('Run only the retry tests')
   expect(await onlyTask(window)).toMatchObject({ activity: TaskActivity.Waiting, awaitingPermission: false })
-  await expect(taskList(window).filter('Needs you')).toHaveText('Needs you1')
   expect((await toolCall(window, 'Edit'))?.output).toBe('The file CHANGELOG.md has been updated.')
 })
 
@@ -255,7 +253,6 @@ test('a card open when Glade quits is still there after a relaunch, and Allow on
   // The card is still there, and the task still needs you; the call itself ended when Glade quit.
   const card = conversation.permissionCards.first()
   await expect(card.getByLabel('Command')).toHaveText(PERMISSION_AT_QUIT.command)
-  await expect(taskList(again).filter('Needs you')).toHaveText('Needs you1')
   await expect(taskHeader(again).stateDot).toHaveAccessibleName('Active · waiting on you')
   expect(await onlyTask(again)).toMatchObject({ activity: TaskActivity.Waiting, awaitingPermission: true })
   await expect(taskPanel(again).call(/^Interrupted\s*Bash/)).toBeVisible()

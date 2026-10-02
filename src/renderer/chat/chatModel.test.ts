@@ -29,7 +29,6 @@ import {
   markedDoneLabel,
   questionLead,
   REOPENED_LABEL,
-  ReplyStyle,
   restartLabel,
   summaryLine,
   type ChatEntry,
@@ -144,28 +143,22 @@ describe('chatEntries', () => {
       'follow-up',
       'reply-2',
     ])
-    expect(entries[1]).toMatchObject({ kind: ChatEntryKind.Agent, toolCalls: 2, style: ReplyStyle.Plain })
+    expect(entries[1]).toMatchObject({ kind: ChatEntryKind.Agent, toolCalls: 2 })
     expect(entries[3]).toMatchObject({ kind: ChatEntryKind.Agent, toolCalls: 0 })
     expect(entries[0]).toEqual({ kind: ChatEntryKind.User, message: messages[0] })
   })
 
-  it('styles the latest reply as a question only while the active task waits on you', () => {
-    const style = (activity: TaskActivity, state = TaskState.Active): unknown =>
+  // #410: an agent entry carries no card style of its own any more. Chat.tsx puts every one of them on the purple
+  // card, whatever the task's activity or state and however many later entries there are (Chat.test.tsx covers the
+  // rendered card, including across a newer message arriving).
+  it("doesn't vary a reply's shape with the task's activity or state", () => {
+    const shape = (activity: TaskActivity, state = TaskState.Active): unknown =>
       chatEntries({ ...task, activity, state }, messages, toolEvents).map((entry) =>
-        entry.kind === ChatEntryKind.Agent ? entry.style : null,
+        entry.kind === ChatEntryKind.Agent ? { toolCalls: entry.toolCalls } : null,
       )
 
-    expect(style(TaskActivity.Waiting)).toEqual([null, ReplyStyle.Plain, null, ReplyStyle.Question])
-    expect(style(TaskActivity.Error)).toEqual([null, ReplyStyle.Plain, null, ReplyStyle.Plain])
-    expect(style(TaskActivity.Waiting, TaskState.Done)).toEqual([null, ReplyStyle.Plain, null, ReplyStyle.Plain])
-  })
-
-  it('has no question once you have answered', () => {
-    const answered = [...messages, message('answer', MessageRole.User, 3)]
-    const entries = chatEntries(task, answered, toolEvents)
-    expect(entries.some((entry) => entry.kind === ChatEntryKind.Agent && entry.style === ReplyStyle.Question)).toBe(
-      false,
-    )
+    expect(shape(TaskActivity.Waiting)).toEqual(shape(TaskActivity.Error))
+    expect(shape(TaskActivity.Waiting)).toEqual(shape(TaskActivity.Waiting, TaskState.Done))
   })
 
   describe('after a restart', () => {

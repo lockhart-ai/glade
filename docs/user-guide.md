@@ -232,7 +232,6 @@ When the task list or right panel is hidden, the header has a button to show it 
 - **Search** (⌘F): type and the list gives way to results from this workspace's titles, objectives, statuses, outcomes
   and full chats, each with a snippet around its best match. Opening one marks the matches and scrolls the chat to the
   first. Esc, or clearing the field, brings the list back.
-- **Filter chips:** All, **Needs you** and **Unread**, each with its count.
 - **Sections:** Pinned, Active and Done, each collapsible. Done loads as you scroll, however long it gets.
 - **Each row** has the status dot, the title and how long ago it changed, then a one-line status. Unread rows are bold
   with a blue dot.
@@ -252,7 +251,8 @@ When the task list or right panel is hidden, the header has a button to show it 
 
 A task you aren't looking at can still need you. When its agent replies, asks a question or waits on a permission card:
 
-- the task is marked **unread** (bold, with a blue dot) and counts under **Needs you**;
+- the task is marked **unread** (bold, with a blue dot), and shows under **Needs you** in Glade's menu bar list while
+  it waits on you;
 - you get a **macOS notification** with the task's name and the start of the message, even while Glade is in front.
   Click it (or **Open task**) to go to the task, or use its inline **Reply** to answer without opening Glade.
 

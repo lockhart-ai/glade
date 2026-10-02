@@ -20,7 +20,6 @@ import {
   markedDoneLabel,
   refusalFallbackLabel,
   REOPENED_LABEL,
-  ReplyStyle,
   restartLabel,
   summaryLine,
   isStoppedByError,
@@ -100,17 +99,14 @@ const UserMessage = memo(function UserMessage({ message, highlight }: UserEntry 
 })
 
 /**
- * The card an agent's text sits on: every reply, and what the agent said before asking, is on one. The neutral card,
- * or the purple question card for the latest reply while the agent waits on you.
+ * The purple card every agent reply sits on, always: it never changes colour when a newer message arrives (#410). What
+ * the agent said just before asking a question, with no preamble, keeps the neutral card instead (`leadCard`): it
+ * leads the question card below it, which keeps its own style.
  */
-function replyCard(style: ReplyStyle): string {
-  switch (style) {
-    case ReplyStyle.Plain:
-      return classNames(styles.card)
-    case ReplyStyle.Question:
-      return classNames(styles.card, styles.question)
-  }
-}
+const replyCard = classNames(styles.card, styles.question)
+
+/** The neutral card for what the agent said just before asking a question with no preamble. */
+const leadCard = styles.card
 
 interface AgentReplyProps extends HighlightProps {
   readonly entry: AgentEntry
@@ -160,7 +156,7 @@ const AgentReply = memo(function AgentReply({
   onQuote,
   highlight,
 }: AgentReplyProps): React.JSX.Element {
-  const { message, style, toolCalls } = entry
+  const { message, toolCalls } = entry
   const summary = message.summary === null ? null : summaryLine(message.summary)
   const menu = useContextMenu<AgentEntry>()
   const { copy } = useMenuCommands()
@@ -187,7 +183,7 @@ const AgentReply = memo(function AgentReply({
         ref={rendered}
         source={message.body}
         highlight={highlight}
-        className={classNames(styles.reply, replyCard(style))}
+        className={classNames(styles.reply, replyCard)}
       />
       {(toolCalls > 0 || summary !== null) && (
         <div className={styles.turn}>
@@ -221,13 +217,7 @@ const AgentQuestions = memo(function AgentQuestions({
 }: QuestionEntry & HighlightProps): React.JSX.Element {
   return (
     <div className={styles.agent}>
-      {lead !== null && (
-        <Markdown
-          source={lead}
-          className={classNames(styles.reply, replyCard(ReplyStyle.Plain))}
-          highlight={highlight}
-        />
-      )}
+      {lead !== null && <Markdown source={lead} className={classNames(styles.reply, leadCard)} highlight={highlight} />}
       <QuestionCard questionSet={questionSet} highlight={highlight} />
       <span className={styles.meta}>agent · {clockTime(questionSet.createdAt)}</span>
     </div>

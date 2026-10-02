@@ -18,12 +18,11 @@ test('search: results replace the list as you type, with the matches marked; ope
   await window.keyboard.press('Meta+F')
   await expect(list.search).toBeFocused()
 
-  // Typing replaces the task list (and its filter chips) with the matching tasks, each with a snippet around its best
-  // match, the match marked.
+  // Typing replaces the task list with the matching tasks, each with a snippet around its best match, the match
+  // marked.
   await window.keyboard.type('Retry-After')
   await expect(search.count).toHaveText('Results3')
   await expect(list.section('Active')).toHaveCount(0)
-  await expect(window.getByRole('group', { name: 'Filter tasks' })).toHaveCount(0)
   await expect(search.rows).toHaveCount(3)
   for (const title of ['Add rate limiting to public API', 'Add webhook retries', 'Fix flaky login test']) {
     await expect(search.marks(search.row(title))).toHaveText(['Retry-After'])
@@ -61,7 +60,7 @@ test('search: results replace the list as you type, with the matches marked; ope
   await expect(list.search).toHaveValue('')
   await expect(search.results).toHaveCount(0)
   await expect(header.title).toHaveText('Add rate limiting to public API')
-  await expect(window.getByRole('group', { name: 'Filter tasks' })).toBeVisible()
+  await expect(list.section('Active')).toBeVisible()
   await expect(regions(window).task.locator('mark')).toHaveCount(0)
 
   // A search that matches nothing says so.

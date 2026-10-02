@@ -2,7 +2,6 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
-import { TaskFilter } from '../../shared/attention'
 import {
   ArtifactDateGroup,
   ArtifactFilter,
@@ -794,9 +793,9 @@ describe('the task list commands', () => {
 
     expect(await handlers[CommandName.TasksListActive]({ workspaceId: workspace.id })).toEqual({
       tasks: [active],
-      done: { all: 2, unread: 1 },
+      done: { all: 2 },
     })
-    const request = { workspaceId: workspace.id, filter: TaskFilter.All, after: null, limit: 1 }
+    const request = { workspaceId: workspace.id, after: null, limit: 1 }
     expect(await handlers[CommandName.TasksListDone](request)).toEqual({ tasks: [newer], hasMore: true })
     expect(
       await handlers[CommandName.TasksListDone]({ ...request, after: { updatedAt: newer.updatedAt, id: newer.id } }),

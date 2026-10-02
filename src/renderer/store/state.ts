@@ -53,7 +53,6 @@ import type {
 import type { ImageData } from '../../shared/images'
 import type { AttachedFile } from '../../shared/attachedFiles'
 import type { SearchResult } from '../../shared/search'
-import type { TaskFilter } from '../../shared/attention'
 import type { DoneCounts, TaskCursor } from '../../shared/doneList'
 import type { TerminalTab } from '../../shared/terminal'
 
@@ -138,7 +137,7 @@ export interface TerminalSize {
 }
 
 /**
- * How much of a workspace's Done section, under one filter chip, the store has loaded: every task in it from the top
+ * How much of a workspace's Done section the store has loaded: every task in it from the top
  * down to `end` (see `src/shared/doneList.ts`). Events keep it that way: a task that joins the section is newer than
  * any loaded, so it lands above `end`.
  */
@@ -161,7 +160,7 @@ export interface GladeData {
   readonly tasks: Readonly<Record<string, Task>>
   /** How many tasks each workspace's Done section holds, by workspace id: loaded with its tasks, kept current by events. */
   readonly doneCounts: Readonly<Record<string, DoneCounts>>
-  /** How much of each Done section has been loaded, by `doneListKey(workspaceId, filter)`. */
+  /** How much of each Done section has been loaded, by workspace id. */
   readonly doneLists: Readonly<Record<string, DoneListPages>>
   readonly selectedWorkspaceId: string | null
   readonly selectedTaskId: string | null
@@ -423,15 +422,15 @@ export interface GladeActions {
    */
   selectTask: (taskId: string | null) => Promise<void>
   /**
-   * Loads the next page of a workspace's Done section under a filter chip, or its first. Does nothing once it's all
+   * Loads the next page of a workspace's Done section, or its first. Does nothing once it's all
    * loaded; a call while a page loads waits for that page instead of loading another.
    */
-  loadDonePage: (workspaceId: string, filter: TaskFilter) => Promise<void>
+  loadDonePage: (workspaceId: string) => Promise<void>
   /**
-   * Loads pages of a workspace's Done section under a filter chip until one has `taskId` (as far as it goes, when it
+   * Loads pages of a workspace's Done section until one has `taskId` (as far as it goes, when it
    * isn't in the section), or all of it with `taskId` null.
    */
-  loadDoneThrough: (workspaceId: string, filter: TaskFilter, taskId: string | null) => Promise<void>
+  loadDoneThrough: (workspaceId: string, taskId: string | null) => Promise<void>
   /** Loads a task's chat log and tool log from main. */
   loadHistory: (taskId: string) => Promise<void>
   setUiState: (entry: UiStateEntry) => Promise<void>

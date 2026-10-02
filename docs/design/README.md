@@ -14,6 +14,11 @@ task list again, with no task open), and the header rises to the window's own ou
 the app-wide banner shows (17), it starts below the lights (deeper while the sidebar's collapsed) and the sidebar's own
 strip folds away. The workspace switcher's box has a 12px corner, concentric with the card's.
 
+The sidebar goes straight from the search field to the Pinned, Active and Done sections: it has no filter chips
+(#411), and what needs you or is unread shows on the rows' dots, the header's state dot and the menu bar. In the chat,
+every agent reply sits on the purple card (the question highlight in `tokens.md`), whether or not it's the latest
+(#410); errors, notices and dividers keep their own styles.
+
 | Screen | What it shows | |
 |---|---|---|
 | Task workspace | The main window: sidebar (with the usage meter at its foot), task card with header, chat and right panel, bottom bar (the workspace's own terminal tabs, and the plugin). Done section collapsed. | ![Task workspace](screens/task-workspace.png) |

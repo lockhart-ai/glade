@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { TaskFilter } from '../../shared/attention'
 import { TaskActivity, TaskState, UiStateKey, type Task } from '../../shared/domain'
-import { doneListKey } from '../store/doneLists'
 import { sampleTask } from '../store/test-bridge'
 import {
   collapsedValue,
@@ -57,19 +55,20 @@ describe('sectionTasks', () => {
     expect(ids(sections[1]?.tasks ?? [])).toEqual(['a', 'b'])
   })
 
-  it('keeps only the tasks that pass the filter, in every section', () => {
+  it('keeps every task of the workspace, whether or not it needs you or is unread (#411)', () => {
     const tasks = [
       task('waiting', 1, { sessionId: 'session-1' }),
       task('unread', 2, { activity: TaskActivity.Working, unread: true }),
       task('pinned-errored', 3, { pinned: true, activity: TaskActivity.Error }),
       task('done-unread', 4, { state: TaskState.Done, unread: true }),
+      task('done-read', 5, { state: TaskState.Done }),
     ]
-    const shown = (filter: TaskFilter): string[][] =>
-      sectionTasks(tasks, 'w1', filter).map(({ tasks: sectioned }) => ids(sectioned))
 
-    expect(shown(TaskFilter.NeedsYou)).toEqual([['pinned-errored'], ['waiting'], []])
-    expect(shown(TaskFilter.Unread)).toEqual([[], ['unread'], ['done-unread']])
-    expect(shown(TaskFilter.All)).toEqual(sectionTasks(tasks, 'w1').map(({ tasks: sectioned }) => ids(sectioned)))
+    expect(sectionTasks(tasks, 'w1').map(({ tasks: sectioned }) => ids(sectioned))).toEqual([
+      ['pinned-errored'],
+      ['unread', 'waiting'],
+      ['done-read', 'done-unread'],
+    ])
   })
 
   it('has every section even when empty', () => {
@@ -177,12 +176,9 @@ describe('listedTaskIds', () => {
     { ...task('elsewhere', 500, { unread: true }), workspaceId: 'w2' },
   ]
   const byId = Object.fromEntries(tasks.map((each) => [each.id, each]))
-  const allLoaded = {
-    [doneListKey('w1', TaskFilter.All)]: { end: null, hasMore: false },
-    [doneListKey('w1', TaskFilter.Unread)]: { end: null, hasMore: false },
-  }
+  const allLoaded = { w1: { end: null, hasMore: false } }
 
-  it("lists a workspace's tasks as the list shows them: filtered, in the expanded sections, top to bottom", () => {
+  it("lists a workspace's tasks as the list shows them: in the expanded sections, top to bottom", () => {
     expect(listedTaskIds({ tasks: byId, doneLists: allLoaded, uiState: {} }, 'w1')).toEqual([
       'pinned-unread',
       'active-read',
@@ -193,17 +189,17 @@ describe('listedTaskIds', () => {
         {
           tasks: byId,
           doneLists: allLoaded,
-          uiState: { [UiStateKey.TaskFilter]: TaskFilter.Unread, [UiStateKey.DoneSectionCollapsed]: 'false' },
+          uiState: { [UiStateKey.DoneSectionCollapsed]: 'false' },
         },
         'w1',
       ),
-    ).toEqual(['pinned-unread', 'active-unread', 'done-unread'])
+    ).toEqual(['pinned-unread', 'active-read', 'active-unread', 'done-unread', 'done-older'])
   })
 
-  it('lists the Done section only as far as its pages have loaded under the filter chip', () => {
+  it('lists the Done section only as far as its pages have loaded', () => {
     const uiState = { [UiStateKey.DoneSectionCollapsed]: 'false' }
     const firstPage = {
-      [doneListKey('w1', TaskFilter.All)]: { end: { updatedAt: 400, id: 'done-unread' }, hasMore: true },
+      w1: { end: { updatedAt: 400, id: 'done-unread' }, hasMore: true },
     }
 
     expect(listedTaskIds({ tasks: byId, doneLists: {}, uiState }, 'w1')).toEqual([

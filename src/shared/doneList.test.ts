@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { TaskFilter } from './attention'
 import {
   addDoneCounts,
   compareRecency,
   doneCountsOf,
-  doneTotal,
   inDoneList,
   isInDoneSection,
   NO_DONE_TASKS,
@@ -57,31 +55,22 @@ describe('compareRecency', () => {
 })
 
 describe('the Done section', () => {
-  it('holds done tasks that aren’t pinned, narrowed by the filter chip; none needs you', () => {
+  it('holds a workspace’s done tasks that aren’t pinned, read or unread', () => {
     expect(isInDoneSection(task('d', 1))).toBe(true)
     expect(isInDoneSection(task('p', 1, { pinned: true }))).toBe(false)
     expect(isInDoneSection(task('a', 1, { state: TaskState.Active }))).toBe(false)
-    expect(inDoneList(task('d', 1), 'w1', TaskFilter.All)).toBe(true)
-    expect(inDoneList(task('d', 1), 'w2', TaskFilter.All)).toBe(false)
-    expect(inDoneList(task('d', 1), 'w1', TaskFilter.Unread)).toBe(false)
-    expect(inDoneList(task('d', 1, { unread: true }), 'w1', TaskFilter.Unread)).toBe(true)
-    expect(inDoneList(task('d', 1, { sessionId: 's' }), 'w1', TaskFilter.NeedsYou)).toBe(false)
+    expect(inDoneList(task('d', 1), 'w1')).toBe(true)
+    expect(inDoneList(task('d', 1), 'w2')).toBe(false)
+    expect(inDoneList(task('d', 1, { unread: true }), 'w1')).toBe(true)
+    expect(inDoneList(task('p', 1, { pinned: true }), 'w1')).toBe(false)
   })
 
-  it('counts each task it holds, and its unread ones', () => {
-    expect(doneCountsOf(task('d', 1))).toEqual({ all: 1, unread: 0 })
-    expect(doneCountsOf(task('d', 1, { unread: true }))).toEqual({ all: 1, unread: 1 })
+  it('counts each task it holds', () => {
+    expect(doneCountsOf(task('d', 1))).toEqual({ all: 1 })
+    expect(doneCountsOf(task('d', 1, { unread: true }))).toEqual({ all: 1 })
     expect(doneCountsOf(task('p', 1, { pinned: true, unread: true }))).toEqual(NO_DONE_TASKS)
-    expect(addDoneCounts({ all: 5, unread: 2 }, { all: 1, unread: 1 })).toEqual({ all: 6, unread: 3 })
-    expect(addDoneCounts({ all: 5, unread: 2 }, { all: 1, unread: 1 }, -1)).toEqual({ all: 4, unread: 1 })
-  })
-
-  it('shows as many as the chip lets through', () => {
-    const counts = { all: 1_200, unread: 30 }
-
-    expect(doneTotal(counts, TaskFilter.All)).toBe(1_200)
-    expect(doneTotal(counts, TaskFilter.Unread)).toBe(30)
-    expect(doneTotal(counts, TaskFilter.NeedsYou)).toBe(0)
+    expect(addDoneCounts({ all: 5 }, { all: 1 })).toEqual({ all: 6 })
+    expect(addDoneCounts({ all: 5 }, { all: 1 }, -1)).toEqual({ all: 4 })
   })
 })
 
@@ -95,13 +84,13 @@ describe('pageOfDone', () => {
   ]
 
   it('answers a page of the Done section in order, after the cursor, saying whether more follow', () => {
-    const request = { workspaceId: 'w1', filter: TaskFilter.All, after: null, limit: 2 }
+    const request = { workspaceId: 'w1', after: null, limit: 2 }
 
     expect(pageOfDone(tasks, request)).toEqual({ tasks: [tasks[2], tasks[0]], hasMore: true })
     expect(pageOfDone(tasks, { ...request, after: { updatedAt: 300, id: 'c' } })).toEqual({
       tasks: [tasks[1]],
       hasMore: false,
     })
-    expect(pageOfDone(tasks, { ...request, filter: TaskFilter.Unread, limit: 5 }).tasks).toEqual([tasks[2], tasks[1]])
+    expect(pageOfDone(tasks, { ...request, limit: 5 }).tasks).toEqual([tasks[2], tasks[0], tasks[1]])
   })
 })

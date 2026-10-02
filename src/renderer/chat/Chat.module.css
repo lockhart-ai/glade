@@ -108,7 +108,9 @@
 
 /*
  * Every agent reply is on a card (#248), with the question card's shape (03-rich-question.html) and the permission
- * card's neutral fill and border (23-permission-card.html).
+ * card's neutral fill and border (23-permission-card.html). The shape only: its colour is `.question`, below, as every
+ * reply gets it (#410). Only what the agent said just before asking, with no preamble, keeps this neutral card on its
+ * own (Chat.tsx's `leadCard`): it leads the question card below it, which keeps its own style.
  */
 .card {
   padding: 14px 16px;
@@ -117,7 +119,10 @@
   border-radius: var(--radius-nested);
 }
 
-/* The agent's latest reply while it waits on you: the purple question card (task-workspace.html). */
+/*
+ * Every agent reply, always (task-workspace.html, #410): it never turns back to the neutral card once a newer message
+ * arrives. The "needs you" signal lives elsewhere (the sidebar dot, the header's state dot, the menu bar).
+ */
 .question {
   background: var(--color-question-bg);
   border-color: var(--color-question-border);

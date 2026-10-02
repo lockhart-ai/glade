@@ -65,7 +65,6 @@ test("a reply in a task you aren't viewing sends a notification you can reply to
   await expect(rowA).toHaveAttribute('aria-current', 'true')
   await expect(header.title).toHaveText(A_TITLE)
   await expect(rowA.getByRole('img', { name: 'Unread' })).toHaveCount(0)
-  await expect(list.filter('Unread')).toHaveText('Unread0')
   await expect(replies.first()).toContainText('The failing test was a timezone bug')
   await expect(chat(window).userMessages).toHaveCount(2)
   await expect(chat(window).userMessages.last()).toContainText(FOLLOW_UP)

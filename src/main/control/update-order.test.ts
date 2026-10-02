@@ -7,7 +7,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { CommandName } from '../../shared/bridge'
-import { TaskFilter } from '../../shared/attention'
 import { Effort, PermissionMode, TaskState, type Task, type Workspace } from '../../shared/domain'
 import { getTask, updateTask } from '../db/repositories/tasks'
 import { createWorkspace } from '../db/repositories/workspaces'
@@ -136,7 +135,6 @@ async function listed(): Promise<string[]> {
 async function doneSection(): Promise<string[]> {
   const page = await app.glade.invoke(CommandName.TasksListDone, {
     workspaceId: workspace.id,
-    filter: TaskFilter.All,
     after: null,
     limit: 10,
   })

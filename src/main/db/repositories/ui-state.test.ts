@@ -32,6 +32,8 @@ describe('UI state', () => {
     setUiState(test.db, { key: UiStateKey.SelectedTaskId, value: 'task-1' })
     setUiState(test.db, { key: UiStateKey.ActiveWorkspaceId, value: 'workspace-1' })
     test.db.prepare("INSERT INTO ui_state (key, value) VALUES ('from_the_future', 'x')").run()
+    // The sidebar filter an older version stored (the chips are gone, #411).
+    test.db.prepare("INSERT INTO ui_state (key, value) VALUES ('task_filter', 'unread')").run()
 
     expect(listUiState(test.db)).toEqual([
       { key: UiStateKey.ActiveWorkspaceId, value: 'workspace-1' },

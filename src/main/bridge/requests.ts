@@ -70,7 +70,6 @@ import {
   type WorkspacesUpdateRequest,
   type WorkspacesRevealRequest,
 } from '../../shared/bridge'
-import { TaskFilter } from '../../shared/attention'
 import { AttachedFileKind, isAttachedFileName, isAttachedFileOf, type AttachedFile } from '../../shared/attachedFiles'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
 import {
@@ -129,7 +128,6 @@ const tasksListRequest = z.strictObject({ workspaceId: z.string() }) satisfies z
 
 const tasksListDoneRequest = z.strictObject({
   workspaceId: z.string(),
-  filter: z.enum(TaskFilter),
   after: z.strictObject({ updatedAt: z.int().nonnegative(), id: z.string() }).nullable(),
   limit: z.int().min(1).max(MAX_DONE_PAGE_SIZE),
 }) satisfies z.ZodType<TasksListDoneRequest>

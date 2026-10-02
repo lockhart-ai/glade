@@ -12,7 +12,6 @@ import {
   type TaskPause,
   type Workspace,
 } from '../../../shared/domain'
-import { TaskFilter } from '../../../shared/attention'
 import {
   createTask,
   getTask,
@@ -529,7 +528,7 @@ describe('setTaskTodos', () => {
     const task = sampleTask(test.db, workspace.id)
     updateTask(test.db, task.id, { state: TaskState.Done }, 3_000)
     setTaskTodos(test.db, task.id, summary)
-    const page = listDoneTasks(test.db, { workspaceId: workspace.id, filter: TaskFilter.All, after: null, limit: 10 })
+    const page = listDoneTasks(test.db, { workspaceId: workspace.id, after: null, limit: 10 })
     expect(page.tasks.map(({ todos }) => todos)).toEqual([summary])
   })
 

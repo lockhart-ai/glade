@@ -7,9 +7,10 @@ import { chat, firstRun, inputBar, taskList } from './selectors'
 /** The title the finishes-in-background agent gives its task. */
 const TITLE = 'Build the docs site'
 
-/** The card colours (docs/design/tokens.md): the neutral reply card, and the purple question card. */
-const NEUTRAL = { background: 'rgb(34, 36, 48)', border: 'rgb(47, 51, 67)' }
+/** The purple card colour every agent reply is on (docs/design/tokens.md), always (#410). */
 const QUESTION = { background: 'rgb(30, 27, 51)', border: 'rgb(59, 51, 102)' }
+/** An agent reply's full card style, border and corners included. */
+const PURPLE_CARD = { ...QUESTION, borderWidth: '1px', radius: '12px' }
 
 /** How a reply's text is drawn: the fill, outline and corners of the element it's rendered on. */
 interface CardStyle {
@@ -35,7 +36,7 @@ function card(reply: Locator): Promise<CardStyle> {
     })
 }
 
-test('every agent reply is on a card: an earlier one, a turn the agent started itself, and after a relaunch', async ({
+test('every agent reply is on the purple card: an earlier one, a turn the agent started itself, after a relaunch, and once a newer reply arrives (#410)', async ({
   launch,
   tempFolder,
 }) => {
@@ -53,12 +54,10 @@ test('every agent reply is on a card: an earlier one, a turn the agent started i
   await expect(agentReplies).toHaveCount(2)
   await expect(workingLine).toHaveCount(0)
 
-  // The earlier reply is on the neutral card, the latest (the agent waits on you) on the purple one.
-  const expected = [
-    { ...NEUTRAL, borderWidth: '1px', radius: '12px' },
-    { ...QUESTION, borderWidth: '1px', radius: '12px' },
-  ]
-  await expect.poll(() => Promise.all([card(agentReplies.nth(0)), card(agentReplies.nth(1))])).toEqual(expected)
+  // Both replies are on the purple card: the earlier one just as much as the latest.
+  await expect
+    .poll(() => Promise.all([card(agentReplies.nth(0)), card(agentReplies.nth(1))]))
+    .toEqual([PURPLE_CARD, PURPLE_CARD])
   await first.close()
 
   // After a relaunch, they're still on their cards.
@@ -66,5 +65,15 @@ test('every agent reply is on a card: an earlier one, a turn the agent started i
   await taskList(window).taskRow(TITLE).click()
   const relaunched = chat(window).agentReplies
   await expect(relaunched).toHaveCount(2)
-  await expect.poll(() => Promise.all([card(relaunched.nth(0)), card(relaunched.nth(1))])).toEqual(expected)
+  await expect
+    .poll(() => Promise.all([card(relaunched.nth(0)), card(relaunched.nth(1))]))
+    .toEqual([PURPLE_CARD, PURPLE_CARD])
+
+  // A further message gets its own reply, and doesn't turn the earlier ones back to a neutral card (#410).
+  await inputBar(window).field.fill('Thanks — is it live yet?')
+  await inputBar(window).field.press('Enter')
+  await expect(relaunched).toHaveCount(3)
+  await expect
+    .poll(() => Promise.all([card(relaunched.nth(0)), card(relaunched.nth(1)), card(relaunched.nth(2))]))
+    .toEqual([PURPLE_CARD, PURPLE_CARD, PURPLE_CARD])
 })
