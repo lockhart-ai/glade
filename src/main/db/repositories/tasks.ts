@@ -401,7 +401,7 @@ export function listLoggedOutTasks(db: Database): Task[] {
         ORDER BY created_at, id`,
     )
     .all(TaskState.Active, TaskActivity.Error, AgentErrorKind.LoggedOut)
-    .map(parseTask)
+    .map((row) => parseTask(db, row))
 }
 
 function doneAtAfter(current: Task, state: TaskState, now: EpochMs): EpochMs | null {
