@@ -382,6 +382,17 @@ export function filesTab(page: Page) {
     image: (name: string) => panel.getByRole('img', { name }),
     /** The button over an image file's picture that opens it full size in the image viewer. */
     viewImage: (name: string) => panel.getByRole('button', { name: `View ${name} full size` }),
+    /** The fixed Browse tab before the open files' tabs; `pressed` while it shows (#398). */
+    browse: panel.getByRole('button', { name: 'Browse files' }),
+    /** The Browse tab's search field. */
+    search: panel.getByRole('combobox', { name: 'Search files' }),
+    /** The workspace's tree. */
+    tree: panel.getByRole('tree', { name: 'Workspace files' }),
+    /** A row of the tree, by its file or folder's name. */
+    treeRow: (name: string) =>
+      panel.getByRole('tree', { name: 'Workspace files' }).getByRole('treeitem', { name, exact: true }),
+    /** The search's matching files. */
+    results: panel.getByRole('listbox', { name: 'Matching files' }).getByRole('option'),
   }
 }
 

@@ -322,6 +322,11 @@ export function openTaskFile(context: TaskServiceContext, taskId: string, path: 
   return changeOpenFiles(context, taskId, (openFiles) => withOpenedFile(openFiles, path))
 }
 
+/** `files.browse`: shows the task's Browse tab, with no file tab showing. Broadcasts `openFiles.changed`. */
+export function browseTaskFiles(context: TaskServiceContext, taskId: string): OpenFiles {
+  return changeOpenFiles(context, taskId, (openFiles) => ({ ...openFiles, activePath: null }))
+}
+
 /** `files.close`: closes a file's tab in the task's Files tab. Broadcasts `openFiles.changed`. */
 export function closeTaskFile(context: TaskServiceContext, taskId: string, path: string): OpenFiles {
   return changeOpenFiles(context, taskId, (openFiles) => withClosedFile(openFiles, path))

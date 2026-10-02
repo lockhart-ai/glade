@@ -24,6 +24,7 @@
     "src/main/notifications/recording-notifier.ts",
     "src/shared/attention.ts",
     "src/shared/attachedFiles.ts",
+    "src/shared/browse.ts",
     "src/shared/bridge.ts",
     "src/shared/doneList.ts",
     "src/shared/commands.ts",

@@ -302,6 +302,15 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   Artifacts, below). A larger, or any other kind of binary, file shows a notice instead of its contents. **Open in
   editor** (⌘⇧E) opens the file in the app macOS uses for it, and ⌘W, with the focus in the panel, closes the tab. The
   agent can open a file here for you.
+
+  The folder icon before the tabs is **Browse**: the whole workspace as a tree, folders first. Click a folder to open
+  it, and a file to open it in a tab; the folders you leave open stay open for the task, even after a relaunch. What
+  git ignores (and the `.git` and `.glade` folders) doesn't show, and files the agent makes or deletes appear and go
+  as it works. Type in **Search files** at the top to find a file by name or path anywhere in the workspace; the first
+  200 matches show, best first, with how many more. With the keyboard: ↑↓ move, → and ← open and close a folder, ↩
+  opens, Esc clears the search, and ⌘F (with the focus in Files) jumps to the search.
+
+  ![The Browse tab in Files: the workspace's tree, with three folders open (sample data)](images/guide/files-browse.png)
 - **Todos:** the agent's own checklist, as it keeps it, with how many are done. The items come in three groups: what
   the agent is working on now, then what it hasn't started, then what's done (the most recently finished first, each
   with when it was finished, like `4m ago`; hover it for the exact time). A done item has a filled teal check and

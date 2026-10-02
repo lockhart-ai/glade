@@ -1,7 +1,7 @@
 import type { Locator } from '@playwright/test'
 import { expect, seedPath, test } from './fixtures'
 import { chooseMenuItem } from './menu'
-import { regions, taskHeader, taskPanel } from './selectors'
+import { filesTab, regions, taskHeader, taskPanel } from './selectors'
 
 /** A laid-out element's width, in CSS pixels. */
 async function widthOf(locator: Locator): Promise<number> {
@@ -29,7 +29,7 @@ test('right panel: ⌘⌥2 picks a tab; dragging the handle resizes it, kept on 
   // ⌘⌥2 picks Files, wherever the focus is.
   await window.keyboard.press('Meta+Alt+Digit2')
   await expect(panel.tab('Files')).toHaveAttribute('aria-selected', 'true')
-  await expect(panel.tabPanel).toContainText('No file open.')
+  await expect(filesTab(window).browse).toHaveAttribute('aria-pressed', 'true')
 
   // Dragging the handle left widens the panel by as much, and the chat gives up the room.
   await expect.poll(() => widthOf(panel.panel)).toBe(440)

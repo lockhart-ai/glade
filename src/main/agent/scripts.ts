@@ -3177,6 +3177,33 @@ const drivesGlade: AgentScript = {
   ],
 }
 
+/** What the `tidies-docs` script's agent does and says. */
+export const TIDIES_DOCS = {
+  /** Its first turn's reply, before it touches a file. */
+  firstReply: 'The rate limit notes are loose in the root. Say when, and I will move them into docs.',
+  /** What its second turn runs: the notes move into `docs/` under a new name, and the old file goes. */
+  command: "mkdir -p docs && printf '# Rate limits\\n' > docs/limits.md && rm -f notes.txt",
+  reply: 'Moved the rate limit notes into docs/limits.md.',
+} as const
+
+/**
+ * Two turns: the first only replies; the second makes a file and removes another with a shell command, as an agent
+ * tidying the workspace does (the Files tab's Browse tab shows both at once, #398).
+ */
+const tidiesDocs: AgentScript = {
+  name: 'tidies-docs',
+  turns: [
+    [
+      ...turnStart(),
+      delay(BEAT_MS),
+      ...describeTask('Tidy the docs', 'Move the loose rate limit notes into docs.', 'Waiting to move the notes.'),
+      say(TIDIES_DOCS.firstReply),
+      result(),
+    ],
+    [...turnStart(), shell('tidy', TIDIES_DOCS.command, 'Move the notes into docs'), say(TIDIES_DOCS.reply), result()],
+  ],
+}
+
 /** What the `replies-briefly` script's agent says. */
 export const REPLIES_BRIEFLY = { reply: 'Here is a first draft of the release notes.' } as const
 
@@ -3543,6 +3570,7 @@ export const AGENT_SCRIPT_NAMES = [
   'shares-code',
   'wakes-a-subagent',
   'wakes-an-interrupted-subagent',
+  'tidies-docs',
 ] as const
 
 export type AgentScriptName = (typeof AGENT_SCRIPT_NAMES)[number]
@@ -3605,4 +3633,5 @@ export const AGENT_SCRIPTS: Readonly<Record<AgentScriptName, AgentScript>> = {
   'shares-code': sharesCode,
   'wakes-a-subagent': wakesASubagent,
   'wakes-an-interrupted-subagent': wakesAnInterruptedSubagent,
+  'tidies-docs': tidiesDocs,
 }

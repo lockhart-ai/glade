@@ -1,6 +1,8 @@
 // The real samplers, run once on this Mac (#403): ps, ioreg and docker as Glade runs them, and a reading the monitor
-// makes from them that passes the plugin API's schema. Only on macOS, where CI runs; whatever the Mac's load, Docker
-// (installed, running or neither) and GPU, the shape holds.
+// makes from them that passes the plugin API's schema. The `ps`/`ioreg`/`docker` block is darwin-only (ps's flags,
+// ioreg and Docker Desktop's usual presence are all assumed); CI runs it in a macOS job so coverage of those real
+// commands isn't lost on Linux (#418). `runCommand` itself has nothing OS-specific, so its own test runs everywhere,
+// spawning the current Node binary rather than a platform path.
 import { describe, expect, it } from 'vitest'
 import { pluginMachineReadingSchema } from '../../shared/plugin-api-schema'
 import { definedEnv } from '../login-env'
@@ -9,7 +11,21 @@ import { createMachineSamplers, runCommand } from './machine-samplers'
 
 const env = (): Promise<Record<string, string>> => Promise.resolve(definedEnv(process.env))
 
-describe.runIf(process.platform === 'darwin')('the real samplers', () => {
+it("runCommand answers null for a command that isn't there, or that fails, on any OS", async () => {
+  expect(await runCommand({ file: '/nonexistent/glade-sampler', args: [] }, { timeoutMs: 1_000, env: {} })).toBeNull()
+  expect(
+    await runCommand({ file: process.execPath, args: ['-e', 'process.exit(1)'] }, { timeoutMs: 1_000, env: {} }),
+  ).toBeNull()
+  expect(
+    await runCommand(
+      { file: process.execPath, args: ['-e', 'process.stdout.write("ok\\n")'] },
+      { timeoutMs: 1_000, env: {} },
+    ),
+  ).toBe('ok\n')
+})
+
+// This file runs on CI darwin runners; `process.platform !== 'darwin'` here only guards local Linux/Windows runs.
+describe.skipIf(process.platform !== 'darwin')('the real samplers (macOS only, #418)', () => {
   it('read the CPU with ps: every process, and a Claude share no bigger than it', async () => {
     const samplers = createMachineSamplers({ env })
     const cpu = await samplers.cpu()
@@ -43,11 +59,5 @@ describe.runIf(process.platform === 'darwin')('the real samplers', () => {
 
     expect(pluginMachineReadingSchema.parse(reading)).toEqual(reading)
     monitor.close()
-  })
-
-  it("answers null for a command that isn't there, or that fails", async () => {
-    expect(await runCommand({ file: '/nonexistent/glade-sampler', args: [] }, { timeoutMs: 1_000, env: {} })).toBe(null)
-    expect(await runCommand({ file: '/usr/bin/false', args: [] }, { timeoutMs: 1_000, env: {} })).toBeNull()
-    expect(await runCommand({ file: '/bin/echo', args: ['ok'] }, { timeoutMs: 1_000, env: {} })).toBe('ok\n')
   })
 })
