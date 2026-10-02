@@ -2,7 +2,7 @@
  * How the app words what stopped a task's agent (`TaskError`): the chat's error card, the task list's "Error: …" status
  * line, and the tool log's failed API row (`docs/design/html/16-error.html`).
  */
-import { AgentErrorKind, TaskErrorSource, type TaskError } from './domain'
+import { AgentErrorKind, TaskActivity, TaskErrorSource, TaskState, type Task, type TaskError } from './domain'
 import { startupFailureMessage } from './startupFailure'
 
 /** The SDK's name for an error, in words: `server_error` → `server error`. Null for none, or `unknown`. */
@@ -25,6 +25,8 @@ export function errorHeadline(error: TaskError | null): string {
       return 'can’t reach the API'
     case AgentErrorKind.UsageLimit:
       return 'usage limit reached'
+    case AgentErrorKind.LoggedOut:
+      return 'logged out of Claude'
     case AgentErrorKind.Transient:
     case AgentErrorKind.Permanent:
     case AgentErrorKind.SafetyRefusal:
@@ -48,10 +50,29 @@ export function errorHeadline(error: TaskError | null): string {
   }
 }
 
-/** The task list's status line for a task stopped by an error: `Error: API overloaded · retry?`. */
+/**
+ * The task list's status line for a task stopped by an error: `Error: API overloaded · retry?`, or, logged out of
+ * Claude, `Error: logged out of Claude · log in?`.
+ */
 export function errorStatusLine(error: TaskError | null): string {
-  return `Error: ${errorHeadline(error)} · retry?`
+  const next = error?.kind === AgentErrorKind.LoggedOut ? 'log in' : 'retry'
+  return `Error: ${errorHeadline(error)} · ${next}?`
 }
+
+/**
+ * Whether a lost login stops the task now (#409): it's active, stopped on an error, and that error is a lost login.
+ * The tasks Retry all retries.
+ */
+export function isStoppedLoggedOut(task: Task | undefined): boolean {
+  return (
+    task?.state === TaskState.Active &&
+    task.activity === TaskActivity.Error &&
+    task.error?.kind === AgentErrorKind.LoggedOut
+  )
+}
+
+/** The title of the card a lost login stopped a task with (`docs/design/html/36-logged-out.html`). */
+export const LOGGED_OUT_TITLE = 'You’re logged out of Claude'
 
 /**
  * How the error card opens: `lead`, then, when there is one, `label` in monospace and a full stop, as in "The API
@@ -66,6 +87,9 @@ export interface ErrorOpening {
 export function errorOpening(error: TaskError | null): ErrorOpening {
   if (error === null) return { lead: 'The agent stopped on an error.', label: null }
   if (error.kind === AgentErrorKind.Offline) return { lead: 'Glade couldn’t reach the API.', label: null }
+  if (error.kind === AgentErrorKind.LoggedOut) {
+    return { lead: 'Claude Code’s login expired or isn’t there, so the agent couldn’t carry on.', label: null }
+  }
   switch (error.source) {
     case TaskErrorSource.Session:
       return { lead: 'The agent’s process stopped unexpectedly.', label: null }

@@ -251,6 +251,13 @@
   white-space: nowrap;
 }
 
+/* Settings › General's Log in, while it waits: the waiting button and Cancel side by side. */
+.buttons {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
 .error {
   margin: 12px 0 0;
   font-size: var(--font-size-secondary-sm);

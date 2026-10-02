@@ -155,6 +155,12 @@ export interface ScriptedSessionOptions {
   /** What the session says about the account when asked (`accountInfo`): `SCRIPTED_ACCOUNT` by default. */
   readonly account?: unknown
   /**
+   * How many of the script's turns the conversation it resumes has played already, in this run of the app: a session
+   * Glade closed and started again mid-conversation (a retry after logging in, #409) carries on from the next one, as
+   * the real conversation would. None by default.
+   */
+  readonly turnsRun?: number
+  /**
    * The SDK options the session would start with, which decide how it behaves where the SDK's behaviour depends on
    * them: the real backend's (`sdkOptions`) by default.
    */
@@ -422,6 +428,7 @@ export class ScriptedSession implements AgentSession {
     const newId = options.newId ?? randomUUID
     this.sessionId = options.session.resumeSessionId ?? newId()
     this.idPrefix = newId().replaceAll('-', '').slice(0, 8)
+    this.turnsRun = options.turnsRun ?? 0
     this.tools = createMcpToolCaller(options.session.mcpServers)
     this.interruptStopsSubagents = interruptStopsSubagents((options.sdkOptions ?? gladeSdkOptions)(options.session))
   }
@@ -543,6 +550,16 @@ export class ScriptedSession implements AgentSession {
       rate_limits: Object.fromEntries(windows) as unknown,
       behaviors: null,
     })
+  }
+
+  /** The SDK session id: the one it resumes, or its own. */
+  get id(): string {
+    return this.sessionId
+  }
+
+  /** How many of the script's turns the conversation has played (`ScriptedSessionOptions.turnsRun`). */
+  get turnsPlayed(): number {
+    return this.turnsRun
   }
 
   close(): void {

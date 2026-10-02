@@ -35,8 +35,8 @@ export function restoreSelection(state: GladeData): GladeData {
 
 /**
  * Loads main's state: every workspace, each one's tasks outside the Done section and how many are in it, the terminal
- * tabs, every task's live watchers and running subagents, the UI state, the settings, the models the pickers offer
- * and the account, with the selection restored. The selected task is loaded wherever it is, and the
+ * tabs, every task's live watchers and running subagents, the UI state, the settings, the models the pickers offer,
+ * the account and where logging in stands, with the selection restored. The selected task is loaded wherever it is, and the
  * shown workspace's Done section has its first page loaded under the filter chip chosen, so the task list is whole
  * from the first frame.
  */
@@ -50,6 +50,7 @@ export async function loadSnapshot(bridge: GladeBridge): Promise<GladeData> {
     { calls },
     { models },
     { status: accountStatus },
+    { status: login },
   ] = await Promise.all([
     bridge.invoke(CommandName.WorkspacesList, {}),
     bridge.invoke(CommandName.UiStateGetAll, {}),
@@ -59,6 +60,7 @@ export async function loadSnapshot(bridge: GladeBridge): Promise<GladeData> {
     bridge.invoke(CommandName.SubagentsListRunning, {}),
     bridge.invoke(CommandName.ModelsList, {}),
     bridge.invoke(CommandName.AccountStatus, {}),
+    bridge.invoke(CommandName.LoginStatus, {}),
   ])
   const lists = await Promise.all(
     workspaces.map((workspace) => bridge.invoke(CommandName.TasksListActive, { workspaceId: workspace.id })),
@@ -84,6 +86,7 @@ export async function loadSnapshot(bridge: GladeBridge): Promise<GladeData> {
           settings,
           models,
           accountStatus,
+          login,
         } satisfies GladeData,
         watchers,
       ),

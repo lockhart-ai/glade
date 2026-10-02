@@ -36,6 +36,7 @@
     "src/shared/plugin-api-schema.ts",
     "src/shared/plugins.ts",
     "src/shared/keymap.ts",
+    "src/shared/login.ts",
     "src/shared/menuBar.ts",
     "src/shared/settings.ts",
     "src/shared/ready.ts",

@@ -47,6 +47,7 @@ import {
   ASKS_PERMISSION,
   DELETE_LOCAL_COPIES_QUESTION,
   FOLLOW_UPS,
+  LOGIN_EXPIRED_ERROR,
   MANY_CHOICES_QUESTIONS,
   PARALLEL_SUBAGENTS,
   PERMISSION_AT_QUIT,
@@ -683,6 +684,34 @@ describe('AGENT_SCRIPTS', () => {
     expect(reply()).toBe('The test passes 200 times in a row against Postgres, so the race is fixed.')
     expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, error: null, retrying: null })
     expect(listMessages(database.db, task.id).map((message) => message.turn)).toEqual([1, 1])
+  })
+
+  it('logged-out: stops logged out, not paused, then completes when retried in a session started again', async () => {
+    const agent = start('logged-out')
+    const starts = vi.spyOn(backend, 'start')
+    await send(agent, 'Move the uploads to S3.')
+    expect(getTask(database.db, task.id)).toMatchObject({
+      activity: TaskActivity.Error,
+      pause: null,
+      error: {
+        kind: AgentErrorKind.LoggedOut,
+        code: 'authentication_failed',
+        status: null,
+        details: LOGIN_EXPIRED_ERROR,
+      },
+    })
+    const sessionId = getTask(database.db, task.id)?.sessionId
+
+    agent.retry(task.id)
+    const idle = backend.whenIdle()
+    await vi.runAllTimersAsync()
+    await idle
+
+    // The retry started Claude Code again on the same conversation, which carried on from its second turn.
+    expect(starts).toHaveBeenCalledTimes(2)
+    expect(starts.mock.calls[1]?.[0]).toMatchObject({ resumeSessionId: sessionId })
+    expect(reply()).toBe('The copy finished: all 3,900 files are in the bucket.')
+    expect(getTask(database.db, task.id)).toMatchObject({ activity: TaskActivity.Waiting, error: null })
   })
 
   it('asks-a-question: asks its questions and waits, however long, then drafts the notes from the answers', async () => {

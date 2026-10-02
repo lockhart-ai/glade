@@ -25,6 +25,7 @@ import {
   type ToolEvent,
 } from '../../shared/domain'
 import { imageDataUrl, type ImageData } from '../../shared/images'
+import { LoginState, type LoginStatus } from '../../shared/login'
 import { pasteToken } from '../../shared/pastedContent'
 import { GIF, PNG } from '../../shared/test-images'
 import type { ModelChoice } from '../../shared/models'
@@ -114,6 +115,12 @@ interface Setup {
   readonly handoff?: TaskHandoff
   /** The models the pickers offer; the built-in ones when left out. */
   readonly models?: readonly ModelChoice[]
+  /** The workspace's other tasks, after `t1`, as `t2`, `t3`…; none when left out. */
+  readonly others?: Partial<Task>[]
+  /** Where logging in stands; idle when left out. */
+  readonly login?: LoginStatus
+  /** Where the fake main records the task each `login.start` named. */
+  readonly loginStarts?: (string | null)[]
 }
 
 async function renderChat({
@@ -127,10 +134,16 @@ async function renderChat({
   images = {},
   handoff,
   models,
+  others = [],
+  login,
+  loginStarts,
 }: Setup = {}): Promise<FakeBridge & { store: GladeStore }> {
   const fake = fakeBridge({
     workspaces: [sampleWorkspace('w1')],
-    tasks: [{ ...sampleTask('t1', 'w1'), ...task }],
+    tasks: [
+      { ...sampleTask('t1', 'w1'), ...task },
+      ...others.map((other, index) => ({ ...sampleTask(`t${String(index + 2)}`, 'w1'), ...other })),
+    ],
     uiState: [
       { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
       { key: UiStateKey.SelectedTaskId, value: selected ? 't1' : '' },
@@ -143,6 +156,8 @@ async function renderChat({
     ...(copied === undefined ? {} : { copied }),
     ...(handoff === undefined ? {} : { handoffs: { t1: handoff } }),
     ...(models === undefined ? {} : { models }),
+    ...(login === undefined ? {} : { login }),
+    ...(loginStarts === undefined ? {} : { loginStarts }),
   })
   const store = createGladeStore(fake.bridge)
   render(
@@ -807,6 +822,147 @@ describe('Chat', () => {
       fireEvent.click(within(card()).getByRole('button', { name: 'Retry' }))
 
       expect(await screen.findByText('Couldn’t retry: The agent is working')).toBeInTheDocument()
+    })
+  })
+
+  describe('the logged-out card', () => {
+    const LOGGED_OUT: TaskError = {
+      kind: AgentErrorKind.LoggedOut,
+      source: TaskErrorSource.Api,
+      status: null,
+      code: 'authentication_failed',
+      details: 'Failed to authenticate: OAuth session expired and could not be refreshed',
+      retries: 0,
+      retryingMs: 0,
+    }
+    const loggedOut = { activity: TaskActivity.Error, error: LOGGED_OUT }
+    const LEAD = 'Claude Code’s login expired or isn’t there, so the agent couldn’t carry on.'
+
+    function card(): HTMLElement {
+      return screen.getByRole('alert')
+    }
+
+    function buttons(): string[] {
+      return within(card())
+        .getAllByRole('button')
+        .map((button) => `${button.textContent}${button.hasAttribute('disabled') ? ' (disabled)' : ''}`)
+    }
+
+    it('says you’re logged out, offering Log in before Retry, in place of the error card', async () => {
+      await renderChat({ task: loggedOut, messages: [ASK] })
+
+      expect(within(card()).getByText('You’re logged out of Claude')).toBeInTheDocument()
+      expect(card()).toHaveTextContent(
+        `${LEAD} Log in, and Claude Code’s sign-in page opens in your browser. ` +
+          'Nothing is lost: the chat, tool log and files are as they were.',
+      )
+      expect(buttons()).toEqual(['Log in', 'Retry', 'Show details'])
+      expect(screen.queryByText('The agent stopped')).toBeNull()
+    })
+
+    it('logs in for this task, then waits on the browser, with Cancel', async () => {
+      const loginStarts: (string | null)[] = []
+      const { invoke } = await renderChat({ task: loggedOut, messages: [ASK], loginStarts })
+
+      fireEvent.click(within(card()).getByRole('button', { name: 'Log in' }))
+
+      expect(invoke).toHaveBeenLastCalledWith(CommandName.LoginStart, { taskId: 't1' })
+      expect(loginStarts).toEqual(['t1'])
+      expect(
+        await within(card()).findByText(/Finish logging in in your browser: this task carries on/),
+      ).toBeInTheDocument()
+      expect(buttons()).toEqual(['Waiting for the browser… (disabled)', 'Cancel', 'Show details'])
+
+      fireEvent.click(within(card()).getByRole('button', { name: 'Cancel' }))
+      expect(invoke).toHaveBeenLastCalledWith(CommandName.LoginCancel, {})
+      expect(await within(card()).findByRole('button', { name: 'Log in' })).toBeInTheDocument()
+    })
+
+    it('asks for a retry once logged in, when another task’s Log in started the login', async () => {
+      const waiting: LoginStatus = { state: LoginState.Waiting, since: 1, taskIds: ['t2'] }
+      const { emit } = await renderChat({ task: loggedOut, messages: [ASK], login: waiting })
+
+      expect(card()).toHaveTextContent('Finish logging in in your browser, then retry this task.')
+
+      act(() => {
+        emit({ type: EventType.LoginChanged, status: { state: LoginState.LoggedIn, at: 2 } })
+      })
+      expect(card()).toHaveTextContent(`${LEAD} You’re logged in again: retry to carry on.`)
+      expect(buttons()).toEqual(['Retry', 'Show details'])
+    })
+
+    it('says why logging in didn’t finish, and offers Log in again', async () => {
+      await renderChat({
+        task: loggedOut,
+        messages: [ASK],
+        login: { state: LoginState.Failed, message: 'Login failed: the sign-in page timed out' },
+      })
+
+      expect(card()).toHaveTextContent('Logging in didn’t finish: Login failed: the sign-in page timed out.')
+      expect(buttons()).toEqual(['Log in', 'Retry', 'Show details'])
+    })
+
+    it('retries the turn', async () => {
+      const { invoke } = await renderChat({ task: loggedOut, messages: [ASK] })
+
+      fireEvent.click(within(card()).getByRole('button', { name: 'Retry' }))
+
+      expect(invoke).toHaveBeenLastCalledWith(CommandName.TasksRetry, { id: 't1' })
+      expect(await screen.findByRole('status')).toHaveTextContent('Working')
+    })
+
+    it('retries every task a lost login stops, with Retry all, when there’s more than this one', async () => {
+      const { invoke } = await renderChat({
+        task: loggedOut,
+        messages: [ASK],
+        others: [
+          loggedOut,
+          loggedOut,
+          { activity: TaskActivity.Error, error: { ...LOGGED_OUT, kind: AgentErrorKind.Transient } },
+        ],
+        login: { state: LoginState.LoggedIn, at: 2 },
+      })
+
+      expect(buttons()).toEqual(['Retry', 'Retry all 3 tasks', 'Show details'])
+      fireEvent.click(within(card()).getByRole('button', { name: 'Retry all 3 tasks' }))
+
+      expect(invoke).toHaveBeenLastCalledWith(CommandName.TasksRetryLoggedOut, {})
+      expect(await screen.findByRole('status')).toHaveTextContent('Working')
+    })
+
+    it('shows and hides the raw error', async () => {
+      await renderChat({ task: loggedOut, messages: [ASK] })
+
+      fireEvent.click(within(card()).getByRole('button', { name: 'Show details' }))
+      expect(screen.getByLabelText('Error details')).toHaveTextContent(LOGGED_OUT.details)
+
+      fireEvent.click(within(card()).getByRole('button', { name: 'Hide details' }))
+      expect(screen.queryByLabelText('Error details')).toBeNull()
+    })
+
+    it('says so when logging in, a cancel, a retry or Retry all could not start', async () => {
+      const { invoke } = await renderChat({ task: loggedOut, messages: [ASK], others: [loggedOut] })
+      const refuse = (message: string): void => {
+        invoke.mockRejectedValueOnce(bridgeError(BridgeErrorCode.Internal, message))
+      }
+
+      refuse('No browser')
+      fireEvent.click(within(card()).getByRole('button', { name: 'Log in' }))
+      expect(await screen.findByText('Couldn’t log in: No browser')).toBeInTheDocument()
+
+      refuse('The agent is working')
+      fireEvent.click(within(card()).getByRole('button', { name: 'Retry all 2 tasks' }))
+      expect(await screen.findByText('Couldn’t retry: The agent is working')).toBeInTheDocument()
+
+      refuse('Busy')
+      fireEvent.click(within(card()).getByRole('button', { name: 'Retry' }))
+      expect(await screen.findByText('Couldn’t retry: Busy')).toBeInTheDocument()
+
+      fireEvent.click(within(card()).getByRole('button', { name: 'Log in' }))
+      await within(card()).findByRole('button', { name: 'Cancel' })
+      refuse('Gone')
+      fireEvent.click(within(card()).getByRole('button', { name: 'Cancel' }))
+      expect(await screen.findByText('Couldn’t log in: Gone')).toBeInTheDocument()
     })
   })
 

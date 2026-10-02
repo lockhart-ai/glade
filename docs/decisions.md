@@ -9,8 +9,10 @@
   custom tools in-process, resumes sessions and reads CLAUDE.md files. (Recommended over driving the Claude Code CLI.)
 - **Auth:** login-based. Glade runs on the user's own Claude Code login. Glade never handles credentials itself: no
   claude.ai login screen, no reading or storing OAuth tokens. It runs the SDK's unmodified bundled Claude Code binary,
-  which still uses `ANTHROPIC_API_KEY` if one happens to be set. Policy risk: Anthropic's docs don't clearly permit
-  subscription use by a third-party app (see `sdk-notes.md` §1 and Open risks).
+  which still uses `ANTHROPIC_API_KEY` if one happens to be set. When that login expires or goes, **Log in** (#409) runs
+  the same binary's own `claude auth login`, which opens Anthropic's sign-in page in the browser and saves the login
+  itself: Glade sees only whether it worked. Policy risk: Anthropic's docs don't clearly permit subscription use by a
+  third-party app (see `sdk-notes.md` §1 and Open risks).
 - **State:** everything in SQLite — workspaces, tasks, chat, tool log, todos, artifacts, queue, UI state. Reopening
   after a crash resumes from the database.
 - **Agent sessions run in the workspace root** (the SDK session's `cwd`), so the workspace's own `CLAUDE.md` (the

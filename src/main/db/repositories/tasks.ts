@@ -358,6 +358,20 @@ export function listWorkingTasks(db: Database): Task[] {
     .map(parseTask)
 }
 
+/**
+ * Every workspace's active tasks a lost login stopped (an error of kind `AgentErrorKind.LoggedOut`), oldest first: the
+ * ones Retry all retries once you've logged in again (#409).
+ */
+export function listLoggedOutTasks(db: Database): Task[] {
+  return db
+    .prepare(
+      `SELECT ${SELECTED} FROM tasks WHERE state = ? AND activity = ? AND json_extract(error, '$.kind') = ?
+        ORDER BY created_at, id`,
+    )
+    .all(TaskState.Active, TaskActivity.Error, AgentErrorKind.LoggedOut)
+    .map(parseTask)
+}
+
 function doneAtAfter(current: Task, state: TaskState, now: EpochMs): EpochMs | null {
   if (state === current.state) return current.doneAt
   switch (state) {

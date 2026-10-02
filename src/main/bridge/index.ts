@@ -10,6 +10,13 @@ import { CONTROL_SERVER } from '../control/names'
 import { createRateLimiter, type RateLimits } from '../control/rate-limit'
 import { createAgentRunner, type AgentRunner } from '../agent/runner'
 import { createAccountTracker, type AccountTracker } from '../account/account'
+import {
+  createLoginService,
+  retryIfLoggedOut,
+  UNAVAILABLE_LOGIN,
+  type LoginService,
+  type RunLogin,
+} from '../account/login'
 import type { OpenPath, RevealPath, WriteClipboard } from '../files/files'
 import type { OpenExternal } from '../links/links'
 import type { Thumbnails } from '../artifacts/thumbnails'
@@ -103,6 +110,11 @@ export interface BridgeOptions {
   readonly controlLimits?: RateLimits
   /** What the menu bar popover's page asks of main (`menuBar.*`). Nothing by default. */
   readonly menuBar?: MenuBarCommands
+  /**
+   * Runs Claude Code's own login (`../account/login`): the bundled binary's in the app, a fake in the test modes. By
+   * default every run fails at once, so a test never logs anyone in or out.
+   */
+  readonly runLogin?: RunLogin
   /** Hears every event on its way to the windows, such as the menu bar keeping what's in flight. Nothing by default. */
   readonly observe?: (event: GladeEvent) => void
   readonly log?: Logger
@@ -137,6 +149,8 @@ export interface RegisteredBridge {
   readonly endpoint: ControlEndpoint
   /** The account the tasks run on and its usage warning, whose timer ends when the app quits. */
   readonly account: AccountTracker
+  /** Logging in to Claude, whose running login, if any, stops when the app quits. */
+  readonly login: LoginService
   /** What watches the artifacts' files, which stops when the app quits. */
   readonly artifactWatch: ArtifactWatcher
 }
@@ -176,6 +190,7 @@ export function registerBridge({
   controlLimits,
   menuBar,
   observe,
+  runLogin = UNAVAILABLE_LOGIN,
   log = SILENT_LOGGER,
   claudeProjectsDir,
 }: BridgeOptions): RegisteredBridge {
@@ -220,6 +235,9 @@ export function registerBridge({
     permissions,
     isOnline,
     account,
+    onLoggedOut: (taskId) => {
+      login.loggedOut(taskId)
+    },
     log: log.scoped(LogScope.Runner),
     // Each session gets its own Glade tools, built for its task, with the upkeep Settings has on as it starts, and,
     // while agents may control Glade, the control tools, calling as its task.
@@ -232,6 +250,16 @@ export function registerBridge({
     },
     // While the endpoint listens, the agent's scripts can call it too: its URL and token are in their environment.
     sessionEnv: () => controlEnv(endpoint.status()),
+  })
+  // Claude Code's own login, run for the logged-out card and Settings › General: once you're in, it retries the tasks
+  // whose Log in was clicked.
+  const login = createLoginService({
+    run: runLogin,
+    emit,
+    retry: (taskId) => {
+      retryIfLoggedOut({ db, runner, log: log.scoped(LogScope.Runner) }, taskId)
+    },
+    log: log.scoped(LogScope.Runner),
   })
   // The control API, over the same runner and events as the window's commands, and its HTTP endpoint, which counts
   // against the same rate limits as one caller.
@@ -290,6 +318,7 @@ export function registerBridge({
       pluginViews,
       endpoint,
       account,
+      login,
       ...(menuBar === undefined ? {} : { menuBar }),
       log,
     }),
@@ -303,5 +332,5 @@ export function registerBridge({
     }
     return dispatch(command, request)
   })
-  return { runner, emit, terminals, plugins, pluginViews, control, endpoint, account, artifactWatch }
+  return { runner, emit, terminals, plugins, pluginViews, control, endpoint, account, login, artifactWatch }
 }

@@ -229,7 +229,7 @@ interface TaskDetail extends TaskSummary {
   model: string; effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   permissionMode: 'allow_all' | 'ask_before_edits'
   contextUsedTokens: number; contextWindowTokens: number
-  error: { kind: 'transient' | 'permanent' | 'usage_limit' | 'offline' | 'safety_refusal'; details: string } | null
+  error: { kind: 'transient' | 'permanent' | 'logged_out' | 'usage_limit' | 'offline' | 'safety_refusal'; details: string } | null
   pause: { reason: 'usage_limit' | 'offline'; resumesAt: number } | null
   queuedMessages: number; turns: number
   createdAt: number; sessionId: string | null

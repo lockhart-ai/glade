@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AgentErrorKind, TaskErrorSource, type TaskError } from './domain'
+import { AgentErrorKind, TaskActivity, TaskErrorSource, TaskState, type Task, type TaskError } from './domain'
 import { StartupFailureReason } from './startupFailure'
 import {
   apiErrorLabel,
@@ -8,6 +8,7 @@ import {
   errorHeadline,
   errorOpening,
   errorStatusLine,
+  isStoppedLoggedOut,
   retriesSentence,
   retryingLabel,
   spanLabel,
@@ -24,6 +25,15 @@ const overloaded: TaskError = {
 }
 
 const error = (overrides: Partial<TaskError>): TaskError => ({ ...overloaded, ...overrides })
+
+const loggedOut = error({
+  kind: AgentErrorKind.LoggedOut,
+  status: 401,
+  code: 'authentication_failed',
+  details: 'Failed to authenticate: OAuth session expired and could not be refreshed',
+  retries: 0,
+  retryingMs: 0,
+})
 
 describe('apiErrorLabel', () => {
   it('names an API error by its status and its name, or whichever it has', () => {
@@ -44,6 +54,7 @@ describe('errorHeadline and errorStatusLine', () => {
     [error({ code: null, status: null, kind: AgentErrorKind.Permanent }), 'API error'],
     [error({ kind: AgentErrorKind.Offline, status: null, code: null }), 'can’t reach the API'],
     [error({ kind: AgentErrorKind.UsageLimit }), 'usage limit reached'],
+    [loggedOut, 'logged out of Claude'],
     [error({ source: TaskErrorSource.Session, kind: AgentErrorKind.Permanent }), 'the agent process stopped'],
     [error({ source: TaskErrorSource.Turn, kind: AgentErrorKind.Permanent }), 'the turn failed'],
     [
@@ -61,6 +72,25 @@ describe('errorHeadline and errorStatusLine', () => {
 
   it('makes the task list’s status line of it', () => {
     expect(errorStatusLine(overloaded)).toBe('Error: API overloaded · retry?')
+    expect(errorStatusLine(null)).toBe('Error: the agent stopped · retry?')
+  })
+
+  it('asks you to log in, not retry, when the login is gone', () => {
+    expect(errorStatusLine(loggedOut)).toBe('Error: logged out of Claude · log in?')
+  })
+})
+
+describe('isStoppedLoggedOut', () => {
+  const task = (overrides: Partial<Task>): Task =>
+    ({ state: TaskState.Active, activity: TaskActivity.Error, error: loggedOut, ...overrides }) as Task
+
+  it('is a task a lost login stops now, and no other', () => {
+    expect(isStoppedLoggedOut(task({}))).toBe(true)
+    expect(isStoppedLoggedOut(task({ error: overloaded }))).toBe(false)
+    expect(isStoppedLoggedOut(task({ error: null }))).toBe(false)
+    expect(isStoppedLoggedOut(task({ activity: TaskActivity.Working }))).toBe(false)
+    expect(isStoppedLoggedOut(task({ state: TaskState.Done }))).toBe(false)
+    expect(isStoppedLoggedOut(undefined)).toBe(false)
   })
 })
 
@@ -69,6 +99,7 @@ describe('errorOpening', () => {
     [overloaded, { lead: 'The API returned ', label: '529 overloaded' }],
     [error({ status: null, code: null }), { lead: 'An API request failed.', label: null }],
     [error({ kind: AgentErrorKind.Offline }), { lead: 'Glade couldn’t reach the API.', label: null }],
+    [loggedOut, { lead: 'Claude Code’s login expired or isn’t there, so the agent couldn’t carry on.', label: null }],
     [error({ source: TaskErrorSource.Session }), { lead: 'The agent’s process stopped unexpectedly.', label: null }],
     [error({ source: TaskErrorSource.Turn }), { lead: 'The turn ended on an error.', label: null }],
     [
