@@ -51,6 +51,7 @@ import type { TerminalTab } from './terminal'
 import type { InstalledPlugin, PluginCapability } from './plugins'
 import type { ControlStatus } from './control'
 import type { AccountStatus } from './account'
+import type { LoginStatus } from './login'
 import type { MenuBarSnapshot } from './menuBar'
 
 /** The name the bridge is exposed under on `window`. */
@@ -84,6 +85,7 @@ export enum CommandName {
   TasksSend = 'tasks.send',
   TasksStop = 'tasks.stop',
   TasksRetry = 'tasks.retry',
+  TasksRetryLoggedOut = 'tasks.retryLoggedOut',
   TasksCompact = 'tasks.compact',
   SubagentsStop = 'subagents.stop',
   SubagentsListRunning = 'subagents.listRunning',
@@ -135,6 +137,9 @@ export enum CommandName {
   ControlStatus = 'control.status',
   ControlRegenerateToken = 'control.regenerateToken',
   AccountStatus = 'account.status',
+  LoginStatus = 'login.status',
+  LoginStart = 'login.start',
+  LoginCancel = 'login.cancel',
   TerminalList = 'terminal.list',
   TerminalCreate = 'terminal.create',
   TerminalDuplicate = 'terminal.duplicate',
@@ -401,6 +406,15 @@ export interface TasksRetryRequest {
   readonly id: string
   /** The model to retry on, as the SDK names it; the task's own when left out. */
   readonly model?: string
+}
+
+/**
+ * Retries every task a lost login stopped (Retry all, on the logged-out card, #409): each one's turn runs again, as
+ * `tasks.retry` runs it. Answers with the tasks retried, working; none when there are none. A task that can't be
+ * retried (its agent is busy again) is left as it is.
+ */
+export interface TasksRetryLoggedOutResponse {
+  readonly tasks: readonly Task[]
 }
 
 /**
@@ -937,6 +951,25 @@ export interface AccountStatusResponse {
   readonly status: AccountStatus
 }
 
+/**
+ * Where logging in to Claude stands (`./login`): `login.status` answers with it, and `login.start` and `login.cancel`
+ * with it as they leave it; `login.changed` broadcasts it as it changes.
+ */
+export interface LoginStatusResponse {
+  readonly status: LoginStatus
+}
+
+/**
+ * Runs Claude Code's own login (`claude auth login`, #409), which opens Anthropic's sign-in page in the browser, and
+ * answers at once, waiting. Once you've signed in, the task named, if it's still stopped logged out, is retried by
+ * itself; the others wait for their own Retry (or Retry all). Asked again while a login is running, it doesn't start
+ * another: it adds the task to the ones that retry when it's done.
+ */
+export interface LoginStartRequest {
+  /** The task whose Log in was clicked, to retry once you're logged in; null from Settings › General. */
+  readonly taskId: string | null
+}
+
 /** Opens the plugins folder in Finder (Open plugins folder), creating it if it's missing. */
 export type PluginsOpenFolderRequest = EmptyRequest
 
@@ -1152,6 +1185,7 @@ export interface CommandMap {
   [CommandName.TasksSend]: CommandSpec<TasksSendRequest, TasksSendResponse>
   [CommandName.TasksStop]: CommandSpec<TasksStopRequest, TaskResponse>
   [CommandName.TasksRetry]: CommandSpec<TasksRetryRequest, TaskResponse>
+  [CommandName.TasksRetryLoggedOut]: CommandSpec<EmptyRequest, TasksRetryLoggedOutResponse>
   [CommandName.TasksCompact]: CommandSpec<TasksCompactRequest, TaskResponse>
   [CommandName.SubagentsStop]: CommandSpec<SubagentsStopRequest, null>
   [CommandName.SubagentsListRunning]: CommandSpec<EmptyRequest, SubagentsListRunningResponse>
@@ -1198,6 +1232,9 @@ export interface CommandMap {
   [CommandName.ControlStatus]: CommandSpec<EmptyRequest, ControlStatusResponse>
   [CommandName.ControlRegenerateToken]: CommandSpec<EmptyRequest, ControlStatusResponse>
   [CommandName.AccountStatus]: CommandSpec<EmptyRequest, AccountStatusResponse>
+  [CommandName.LoginStatus]: CommandSpec<EmptyRequest, LoginStatusResponse>
+  [CommandName.LoginStart]: CommandSpec<LoginStartRequest, LoginStatusResponse>
+  [CommandName.LoginCancel]: CommandSpec<EmptyRequest, LoginStatusResponse>
   [CommandName.PluginsSetEnabled]: CommandSpec<PluginsSetEnabledRequest, PluginsResponse>
   [CommandName.PluginsSetCapability]: CommandSpec<PluginsSetCapabilityRequest, PluginsResponse>
   [CommandName.PluginsOpenFolder]: CommandSpec<PluginsOpenFolderRequest, null>
@@ -1277,6 +1314,7 @@ export enum EventType {
   PluginStatusChanged = 'plugin.statusChanged',
   ControlChanged = 'control.changed',
   AccountChanged = 'account.changed',
+  LoginChanged = 'login.changed',
   MenuBarChanged = 'menuBar.changed',
 }
 
@@ -1554,6 +1592,12 @@ export interface AccountChangedEvent {
   readonly status: AccountStatus
 }
 
+/** Logging in to Claude started, finished, failed or was cancelled, or a task stopped logged out again since. */
+export interface LoginChangedEvent {
+  readonly type: EventType.LoginChanged
+  readonly status: LoginStatus
+}
+
 /**
  * What's in flight changed: a task started or stopped working or needing you, or a notification was sent. Sent to the
  * menu bar popover only, while it's open or hidden, with the whole snapshot as it now is.
@@ -1599,6 +1643,7 @@ export type GladeEvent =
   | PluginStatusChangedEvent
   | ControlChangedEvent
   | AccountChangedEvent
+  | LoginChangedEvent
   | MenuBarChangedEvent
   | CloseBlockedEvent
 

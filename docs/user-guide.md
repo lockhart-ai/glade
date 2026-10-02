@@ -189,6 +189,10 @@ scroll: the chat passes under them.
 - An API error that Claude Code's own retries can't get past stops the task with a card saying what happened, with
   **Retry**, **Retry with another model** and **Show details**. So does Claude Code failing to start, with the reason it
   gave, such as a missing workspace folder.
+- If Claude Code's login has expired (or you're not logged in at all), the task stops on a **You're logged out of
+  Claude** card instead. **Log in** opens Claude's sign-in page in your browser, through Claude Code's own login; sign
+  in there, and the task carries on by itself. Other tasks stopped the same way show the same card: **Retry** each, or
+  **Retry all** at once. **Cancel** stops a login you started by mistake.
 - Opus 5.5 and Sonnet 5 run safety classifiers on some requests (biology, cybersecurity, reasoning extraction). A
   declined request that's retried on a fallback model gets a quiet notice in the chat ("Answered by `<model>`: the
   request was declined by a safety check") in place of the declined attempt, and, if it switched the whole session,
@@ -428,12 +432,14 @@ A card left open when Glade quits is still there after the relaunch; answering i
 
 ### Your account
 
-Glade runs on Claude Code's own login and never asks for one. Settings › General shows what Claude Code says it's
+Glade runs on Claude Code's own login and never holds your password or token. Settings › General shows what Claude Code says it's
 using, read each time a task starts: the **account** (your email, or "API key"), its **organization**, the **plan**
 whose usage limits every task shares (or "Pay as you go" for an API key), and what it's **signed in with** (Claude
-Code's login, the `ANTHROPIC_API_KEY` variable, an `apiKeyHelper` script, …). If it says **Not signed in**, run
-`claude` in a terminal and sign in with `/login`, then start a task. To use another account, sign in again in Claude
-Code; the next task that starts picks it up.
+Code's login, the `ANTHROPIC_API_KEY` variable, an `apiKeyHelper` script, …). If it says **Not signed in**, or a task
+stopped because your login expired, press **Log in** there: it runs Claude Code's own login, which opens the sign-in
+page in your browser. Glade never sees your password or token; Claude Code keeps the login, as it does in a terminal.
+To use another account, sign in again in Claude Code (`claude auth login` in a terminal); the next task that starts
+picks it up.
 
 ![Settings › General, showing the account (sample data)](images/guide/settings-general.png)
 
@@ -650,6 +656,9 @@ When Claude Code can't start at all, the error card says why when Claude Code do
 there's no shell to run commands with, your organization's settings or gateway refused it, and so on. **Show details**
 shows what it printed. Fix that (for a missing folder, put it back or open the right one as a workspace), then
 **Retry**.
+
+If the card says **You're logged out of Claude**, press **Log in** (see above). If logging in from Glade doesn't finish
+(the card says why), run `claude auth login` in a terminal instead, then press **Retry**.
 
 Otherwise, check that Claude Code works on its own: run `claude` in a terminal and make sure you're logged in. Settings ›
 General shows the account the last task started on, or **Not signed in**. Then look in the log for the `agent` and

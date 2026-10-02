@@ -134,6 +134,17 @@ the rate limit events that come as each turn starts; when the call fails, the ev
 keeps the latest reading of each limit, so a relaunch shows them again, and drops each when its window resets. An API
 key or a cloud provider has no plan limits, so the meter is hidden for them.
 
+### Logged out
+
+When Claude Code's login expires, is revoked or isn't there (#409), the task stops on a card of its own in the error
+card's style, not a generic API error (`design/screens/38-logged-out.png`): "You're logged out of Claude", what happened,
+and that nothing is lost. **Log in** runs Claude Code's own login (`claude auth login`, from the binary Glade ships),
+which opens Anthropic's sign-in page in your browser; the card waits ("Waiting for the browser…", with **Cancel**), and
+once you're in, that task carries on by itself. Every other task the same lost login stopped shows the same card, now
+saying you're logged in again: each has **Retry**, and **Retry all N tasks** retries them together; none is retried
+without you asking. A login that fails says why, and Log in tries again. The task list's row reads "Error: logged out of
+Claude · log in?". Glade never sees the credential: Claude Code saves it, as it would in a terminal.
+
 ## Attention
 
 A task you aren't looking at can still need you. When its agent sends a **final reply**, **asks a question** (`ask`)
@@ -160,8 +171,9 @@ Settings (⌘,) opens on Agent. Changes save as you make them.
 
 - **General:** **Show Glade in the menu bar** (on by default): its icon, and the list under it (see Attention). Then
   the account the tasks run on and bill to, as Claude Code reports it when a task starts: the email (or "API key", a
-  cloud provider, or "Not signed in"), organization, plan, and what it's signed in with. Nothing to change: Claude Code
-  owns the login. How much of its usage limits is used shows in the usage meter at the foot of the sidebar (see
+  cloud provider, or "Not signed in"), organization, plan, and what it's signed in with. Claude Code owns the login;
+  while it isn't signed in, or a lost login stops a task, a **Log in** row runs its login, as the logged-out card's
+  does (see Logged out). How much of its usage limits is used shows in the usage meter at the foot of the sidebar (see
   Usage).
 - **Agent:** the defaults for new tasks (model, effort and permissions: Ask first or Allow all; **Allow edits** is shown
   but disabled, as it isn't a mode yet), and two switches for what the agent keeps current: **Status summary**

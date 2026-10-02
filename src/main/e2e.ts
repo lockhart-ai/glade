@@ -190,6 +190,26 @@ export function createE2eNetwork(): () => boolean {
 }
 
 /**
+ * Where e2e mode puts its stand-in for Claude Code's login on the main process's global object: an `E2eLogin`
+ * (`./account/e2e-login`), since an e2e run never logs anyone in or out. Log in starts a run of it that waits until a
+ * spec ends it, through Playwright's `app.evaluate`.
+ */
+export const E2E_LOGIN_GLOBAL = '__gladeE2eLogin'
+
+/** How a spec ends e2e mode's login: logged in, or failed with a message. */
+export type E2eLoginOutcome = { readonly loggedIn: true } | { readonly loggedIn: false; readonly message: string }
+
+/** E2e mode's stand-in for Claude Code's login (`E2E_LOGIN_GLOBAL`). */
+export interface E2eLogin {
+  /** How many times a login was started. */
+  readonly runs: number
+  /** Whether one is running now, waiting for the spec to end it. */
+  readonly waiting: boolean
+  /** Ends the login running now as the spec says; does nothing with none running. */
+  finish(outcome: E2eLoginOutcome): void
+}
+
+/**
  * Where e2e mode puts the menu bar icon on the main process's global object: an `E2eMenuBar`, since an e2e run never
  * puts a real icon in the menu bar (`./menu-bar/recording`). A spec reads and clicks it through Playwright's
  * `app.evaluate`; clicking it opens the popover's window, hidden, for the spec to drive.
