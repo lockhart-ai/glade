@@ -1,23 +1,36 @@
-import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
-import { faFileCode, faFileImage, faFileLines, faFolder, faFolderOpen } from '@fortawesome/free-regular-svg-icons'
-import { faChevronDown, faChevronRight, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
+import { faChevronRight, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type RefObject,
+} from 'react'
 import { normalizeQuery, type FileSearchResult, type FolderEntry } from '../../shared/browse'
-import { fileTileKind, FileTileKind } from '../artifacts/artifactsModel'
 import { Icon, IconSize, Input } from '../components'
 import { classNames } from '../components/classNames'
 import { Marked } from '../search/Highlight'
 import { useGladeStoreApi } from '../store/react'
+import { FileIcon, FolderIcon } from './BrowseIcon'
 import {
+  formatSize,
   isFolder,
+  isOnSelectedPath,
   isTreeKey,
+  nameParts,
   resultParts,
+  rowGuides,
   shownFolders,
   treeKeyAction,
   TreeActionKind,
   unloadedFolders,
   visibleRows,
   type BrowseTree,
+  type NameParts,
   type TreeRow,
 } from './browseModel'
 import styles from './BrowseTab.module.css'
@@ -40,31 +53,40 @@ interface Results extends FileSearchResult {
   readonly query: string
 }
 
-function fileIcon(path: string): IconDefinition {
-  switch (fileTileKind(path)) {
-    case FileTileKind.Image:
-      return faFileImage
-    case FileTileKind.Code:
-      return faFileCode
-    case FileTileKind.Text:
-      return faFileLines
-  }
-}
-
-function entryIcon(entry: FolderEntry, expanded: boolean): IconDefinition {
-  if (!isFolder(entry)) return fileIcon(entry.path)
-  return expanded ? faFolderOpen : faFolder
-}
-
 /** The design's indent: 8px in from the panel, and 16px more for each folder down. */
 function indentOf(depth: number): number {
   return 8 + depth * 16
 }
 
+/** Where a level's indent guide stands in its row: under the chevron of the folder it belongs to. */
+function guideLeft(level: number): number {
+  return indentOf(level) + 5.5
+}
+
+/** How many characters of a name stay in view, for the stylesheet: the start gets the room that's left, in whole ones. */
+function tailLength({ tail, extension }: NameParts): CSSProperties {
+  return { '--tail-length': Array.from(tail + extension).length } as CSSProperties
+}
+
+interface FileSizeProps {
+  readonly bytes: number
+}
+
+/** A file's size at the far edge of its row: the number right-aligned, and the unit in a slot of its own. */
+function FileSize({ bytes }: FileSizeProps): React.JSX.Element {
+  const { value, unit } = formatSize(bytes)
+  return (
+    <span className={styles.size}>
+      <span>{value}</span> <span className={styles.unit}>{unit}</span>
+    </span>
+  )
+}
+
 /**
  * The Files tab's Browse tab (`docs/design/html/37-browse-files.html`): the workspace's tree, folders first, loaded a
  * folder at a time as you open them, with the folders you leave open kept for the task; and a search that finds
- * files by name or path anywhere in the workspace. Clicking a file, or ↩ on it, opens it in a tab. The folders it
+ * files by name or path anywhere in the workspace. Each file's row has its kind's icon and its size, and a long name
+ * gives way in the middle (#431). Clicking a file, or ↩ on it, opens it in a tab. The folders it
  * shows are watched, so what the agent makes or deletes shows at once.
  */
 export function BrowseTab({ taskId, changed, searchField }: BrowseTabProps): React.JSX.Element {
@@ -179,7 +201,7 @@ export function BrowseTab({ taskId, changed, searchField }: BrowseTabProps): Rea
             setActive(0)
           },
           () => {
-            if (current) setResults({ paths: [], more: 0, query: searching })
+            if (current) setResults({ paths: [], more: 0, sizes: {}, query: searching })
           },
         )
     }, SEARCH_WAIT_MS)
@@ -274,6 +296,8 @@ export function BrowseTab({ taskId, changed, searchField }: BrowseTabProps): Rea
 
   const treeRow = ({ entry, depth, expanded: isOpen }: TreeRow): React.JSX.Element => {
     const folder = isFolder(entry)
+    const onPath = folder && isOnSelectedPath(entry.path, focused)
+    const name = nameParts(entry.name, entry.kind)
     return (
       <div
         key={entry.path}
@@ -288,7 +312,12 @@ export function BrowseTab({ taskId, changed, searchField }: BrowseTabProps): Rea
         aria-selected={entry.path === focused}
         tabIndex={entry.path === tabStop ? 0 : -1}
         title={entry.path}
-        className={classNames(styles.row, entry.path === focused && styles.focused)}
+        className={classNames(
+          styles.row,
+          folder && styles.folderRow,
+          onPath && styles.onPath,
+          entry.path === focused && styles.focused,
+        )}
         style={{ paddingLeft: indentOf(depth) }}
         onFocus={() => {
           setFocused(entry.path)
@@ -299,22 +328,36 @@ export function BrowseTab({ taskId, changed, searchField }: BrowseTabProps): Rea
           else open(entry.path)
         }}
       >
-        <span className={styles.chevron}>
-          {folder && <Icon icon={isOpen ? faChevronDown : faChevronRight} size={IconSize.Small} />}
+        {rowGuides(entry.path, focused).map((lit, level) => (
+          <span
+            key={level}
+            className={classNames(styles.guide, lit && styles.lit)}
+            style={{ left: guideLeft(level) }}
+            data-guide={lit ? 'lit' : 'dim'}
+          />
+        ))}
+        <span className={classNames(styles.chevron, isOpen && styles.open)}>
+          {folder && <Icon icon={faChevronRight} size={IconSize.Small} />}
         </span>
-        <span className={classNames(styles.icon, folder && styles.folderIcon)}>
-          <Icon icon={entryIcon(entry, isOpen)} size={IconSize.Small} />
+        {folder ? <FolderIcon open={isOpen} /> : <FileIcon path={entry.path} />}
+        <span className={styles.name} style={tailLength(name)}>
+          <span className={styles.head}>{name.head}</span>
+          <span className={styles.tail}>
+            {name.tail}
+            {name.extension !== '' && <span className={styles.extension}>{name.extension}</span>}
+          </span>
         </span>
-        <span className={styles.name}>{entry.name}</span>
         {!folder && changed.has(entry.path) && (
           <span className={styles.changed} role="img" aria-label="Changed by the agent" />
         )}
+        {entry.size !== undefined && <FileSize bytes={entry.size} />}
       </div>
     )
   }
 
   const resultRow = (path: string, index: number): React.JSX.Element => {
     const parts = resultParts(path, searching)
+    const size = shownResults?.sizes[path]
     return (
       <div
         key={path}
@@ -332,10 +375,8 @@ export function BrowseTab({ taskId, changed, searchField }: BrowseTabProps): Rea
           open(path)
         }}
       >
-        <span className={styles.icon}>
-          <Icon icon={fileIcon(path)} size={IconSize.Small} />
-        </span>
-        <span className={styles.name}>
+        <FileIcon path={path} />
+        <span className={styles.resultName}>
           <Marked parts={parts.name} />
         </span>
         {parts.folder.length > 0 && (
@@ -343,6 +384,7 @@ export function BrowseTab({ taskId, changed, searchField }: BrowseTabProps): Rea
             <Marked parts={parts.folder} />
           </span>
         )}
+        {size !== undefined && <FileSize bytes={size} />}
       </div>
     )
   }

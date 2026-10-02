@@ -85,20 +85,34 @@ async function realFolder(rootPath: string, path: string): Promise<string | null
   return (await stat(real)).isDirectory() ? real : null
 }
 
+/** What an entry of a folder is to the tree: a folder, or a file and its size in bytes (none when it couldn't be read). */
+type ListedKind =
+  { readonly kind: FolderEntryKind.Folder } | { readonly kind: FolderEntryKind.File; readonly size?: number }
+
+/** A file's size in bytes, or nothing when it went between the folder's listing and this look at it. */
+async function fileSize(file: string): Promise<{ size?: number }> {
+  try {
+    return { size: (await stat(file)).size }
+  } catch {
+    return {}
+  }
+}
+
 /**
- * What an entry of a folder is to the tree: a folder or a file, following a symlink only to something inside the root;
- * null for anything else (a symlink out of the root or to nothing, a socket, a pipe).
+ * What an entry of the folder at `real` is to the tree: a folder or a file (with its size, or its target's), following
+ * a symlink only to something inside the root; null for anything else (a symlink out of the root or to nothing, a
+ * socket, a pipe).
  */
-async function entryKind(rootPath: string, path: string, entry: Dirent): Promise<FolderEntryKind | null> {
-  if (entry.isDirectory()) return FolderEntryKind.Folder
-  if (entry.isFile()) return FolderEntryKind.File
+async function entryKind(rootPath: string, real: string, path: string, entry: Dirent): Promise<ListedKind | null> {
+  if (entry.isDirectory()) return { kind: FolderEntryKind.Folder }
+  if (entry.isFile()) return { kind: FolderEntryKind.File, ...(await fileSize(join(real, entry.name))) }
   if (!entry.isSymbolicLink()) return null
   try {
-    const real = await resolveWorkspaceFile(rootPath, path)
-    if (real === null) return null
-    const info = await stat(real)
-    if (info.isDirectory()) return FolderEntryKind.Folder
-    return info.isFile() ? FolderEntryKind.File : null
+    const target = await resolveWorkspaceFile(rootPath, path)
+    if (target === null) return null
+    const info = await stat(target)
+    if (info.isDirectory()) return { kind: FolderEntryKind.Folder }
+    return info.isFile() ? { kind: FolderEntryKind.File, size: info.size } : null
   } catch {
     // It leads outside the root (not followed), or went as it was looked at.
     return null
@@ -107,8 +121,9 @@ async function entryKind(rootPath: string, path: string, entry: Dirent): Promise
 
 /**
  * The entries of a folder of the workspace (`''` for the root), as the tree shows them: folders first, then files,
- * each by name, without what's hidden. Null when there's no folder there (any more). Throws a `CommandFailure`
- * (`outside_workspace`) for a path that a symlink takes outside the root.
+ * each by name, without what's hidden, each file with its size (one stat a file; a file that goes meanwhile is listed
+ * without one, and the folder's watcher lists it again). Null when there's no folder there (any more). Throws a
+ * `CommandFailure` (`outside_workspace`) for a path that a symlink takes outside the root.
  */
 export async function listWorkspaceFolder(
   rootPath: string,
@@ -126,14 +141,16 @@ export async function listWorkspaceFolder(
           real,
           found.map(({ name }) => name),
         )
-  const listed: FolderEntry[] = []
-  for (const entry of found) {
-    if (ignored.has(entry.name)) continue
-    const entryPath = childPath(path, entry.name)
-    const kind = await entryKind(rootPath, entryPath, entry)
-    if (kind !== null) listed.push({ name: entry.name, path: entryPath, kind })
-  }
-  return sortEntries(listed)
+  const listed = await Promise.all(
+    found
+      .filter(({ name }) => !ignored.has(name))
+      .map(async (entry): Promise<FolderEntry | null> => {
+        const entryPath = childPath(path, entry.name)
+        const kind = await entryKind(rootPath, real, entryPath, entry)
+        return kind === null ? null : { name: entry.name, path: entryPath, ...kind }
+      }),
+  )
+  return sortEntries(listed.filter((entry) => entry !== null))
 }
 
 /**
@@ -164,24 +181,27 @@ async function walkFiles(root: string, limit: number): Promise<string[]> {
 }
 
 /**
- * Whether a path a listing found is a file the viewer can open: a file, or a symlink to one inside the root. Not a
- * folder (an untracked repository inside the workspace, a submodule), nor a file git still tracks but that's gone.
+ * The size in bytes of a path a listing found, when it's a file the viewer can open: a file, or a symlink to one
+ * inside the root (its target's size). Null for a folder (an untracked repository inside the workspace, a submodule),
+ * or a file git still tracks but that's gone.
  */
-async function isOpenableFile(rootPath: string, root: string, path: string): Promise<boolean> {
+async function openableFileSize(rootPath: string, root: string, path: string): Promise<number | null> {
   try {
     const info = await lstat(join(root, path))
-    if (info.isFile()) return true
-    if (!info.isSymbolicLink()) return false
+    if (info.isFile()) return info.size
+    if (!info.isSymbolicLink()) return null
     const real = await resolveWorkspaceFile(rootPath, path)
-    return real !== null && (await stat(real)).isFile()
+    if (real === null) return null
+    const target = await stat(real)
+    return target.isFile() ? target.size : null
   } catch {
-    return false
+    return null
   }
 }
 
 /**
  * The workspace's files whose name or path holds `query`, without regard to case, best first (`rankMatches`): the
- * first `MAX_SEARCH_RESULTS`, and how many more. Hides what the tree hides. Outside a git repository it looks through
+ * first `MAX_SEARCH_RESULTS` with their sizes, and how many more. Hides what the tree hides. Outside a git repository it looks through
  * at most `walkLimit` files. Throws a `CommandFailure` (`not_found`) when the workspace's folder isn't there.
  */
 export async function searchWorkspaceFiles(
@@ -193,17 +213,21 @@ export async function searchWorkspaceFiles(
   const root = await realFolder(rootPath, '')
   if (root === null) throw new CommandFailure(BridgeErrorCode.NotFound, `The workspace's folder isn't there`)
   const wanted = normalizeQuery(query)
-  if (wanted === '') return { paths: [], more: 0 }
+  if (wanted === '') return { paths: [], more: 0, sizes: {} }
   // A repository's untracked folder (another repository in it) comes back with a trailing `/`; a file listed twice
   // (in a merge, once for each side) counts once.
   const listed = (await git.files(root))?.filter((path) => !path.endsWith('/')) ?? (await walkFiles(root, walkLimit))
   const matches = rankMatches(new Set(listed.filter((path) => !isHiddenPath(path))), wanted)
   const paths: string[] = []
+  const sizes: Record<string, number> = {}
   let looked = 0
   for (const path of matches) {
     if (paths.length === MAX_SEARCH_RESULTS) break
     looked++
-    if (await isOpenableFile(rootPath, root, path)) paths.push(path)
+    const size = await openableFileSize(rootPath, root, path)
+    if (size === null) continue
+    paths.push(path)
+    sizes[path] = size
   }
-  return { paths, more: matches.length - looked }
+  return { paths, more: matches.length - looked, sizes }
 }

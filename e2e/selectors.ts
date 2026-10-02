@@ -394,6 +394,12 @@ export function filesTab(page: Page) {
     /** A row of the tree, by its file or folder's name. */
     treeRow: (name: string) =>
       panel.getByRole('tree', { name: 'Workspace files' }).getByRole('treeitem', { name, exact: true }),
+    /** The icon on a file's row of the tree, by the file's name (#431): its `data-glyph` and `data-family` say which. */
+    treeIcon: (name: string) =>
+      panel
+        .getByRole('tree', { name: 'Workspace files' })
+        .getByRole('treeitem', { name, exact: true })
+        .locator('[data-glyph]'),
     /** The search's matching files. */
     results: panel.getByRole('listbox', { name: 'Matching files' }).getByRole('option'),
   }

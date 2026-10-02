@@ -148,3 +148,90 @@ export function resultParts(path: string, query: string): ResultParts {
     folder: slash === -1 ? [] : markedParts(path.slice(0, slash), 0, range),
   }
 }
+
+/** The units a file's size shows in: each 1,000 of the one before, as Finder counts. */
+export enum SizeUnit {
+  Bytes = 'B',
+  Kilobytes = 'KB',
+  Megabytes = 'MB',
+  Gigabytes = 'GB',
+}
+
+/** A file's size as its row shows it: the number, then its unit in a slot of its own, so the digits line up. */
+export interface FormattedSize {
+  readonly value: string
+  readonly unit: SizeUnit
+}
+
+const LARGER_UNITS: readonly SizeUnit[] = [SizeUnit.Kilobytes, SizeUnit.Megabytes, SizeUnit.Gigabytes]
+
+/**
+ * A size in bytes as a row shows it: whole bytes under 1,000, then KB, MB and GB (1,000 of the one before), with one
+ * decimal under 100 and none from there. A size that rounds up to 1,000 of a unit moves to the next (`1.0 MB`, never
+ * `1000 KB`); past GB it stays in GB.
+ */
+export function formatSize(bytes: number): FormattedSize {
+  if (bytes < 1000) return { value: String(bytes), unit: SizeUnit.Bytes }
+  let amount = bytes
+  let value = ''
+  let unit = SizeUnit.Bytes
+  for (const larger of LARGER_UNITS) {
+    amount /= 1000
+    unit = larger
+    const tenths = Math.round(amount * 10)
+    value = tenths < 1000 ? (tenths / 10).toFixed(1) : String(Math.round(amount))
+    if (Math.round(amount) < 1000) break
+  }
+  return { value, unit }
+}
+
+/** How many characters of a long name's end stay in view, before its extension. */
+export const NAME_TAIL_LENGTH = 6
+
+/** The longest ending that counts as an extension, with its dot: past it, a name has none. */
+export const MAX_EXTENSION_LENGTH = 12
+
+/**
+ * A name in the three parts its row shows: the start, which gives way with an ellipsis when the row is too narrow;
+ * the end of it, which stays; and a file's extension, dimmed, which stays too. Together they're the name.
+ */
+export interface NameParts {
+  readonly head: string
+  /** The last `NAME_TAIL_LENGTH` characters before the extension; empty for a name too short to need them. */
+  readonly tail: string
+  /** With its dot; empty for a folder, a dotfile (`.gitignore`) and a name without one. */
+  readonly extension: string
+}
+
+/**
+ * Splits a name so it truncates in the middle (#431): `test_burst_window…lients.py` rather than `test_burst_wind…`.
+ * A file's extension is what follows its last dot, unless that dot starts or ends the name or what follows is longer
+ * than `MAX_EXTENSION_LENGTH`; a folder has none. Split by character, so an emoji is never cut in two.
+ */
+export function nameParts(name: string, kind: FolderEntryKind): NameParts {
+  const dot = name.lastIndexOf('.')
+  const hasExtension =
+    kind === FolderEntryKind.File && dot > 0 && dot < name.length - 1 && name.length - dot <= MAX_EXTENSION_LENGTH
+  const extension = hasExtension ? name.slice(dot) : ''
+  const stem = Array.from(name.slice(0, name.length - extension.length))
+  const tailLength = stem.length > NAME_TAIL_LENGTH * 2 ? NAME_TAIL_LENGTH : 0
+  return {
+    head: stem.slice(0, stem.length - tailLength).join(''),
+    tail: stem.slice(stem.length - tailLength).join(''),
+    extension,
+  }
+}
+
+/** Whether a folder is on the way down to the selected row: one of the folders it's in. */
+export function isOnSelectedPath(folder: string, selected: string | null): boolean {
+  return selected?.startsWith(`${folder}/`) ?? false
+}
+
+/**
+ * A row's indent guides, one for each folder it's in, outermost first: whether each is lit, as the guide of a folder
+ * on the way down to the selected row is.
+ */
+export function rowGuides(path: string, selected: string | null): boolean[] {
+  const parts = path.split('/')
+  return parts.slice(0, -1).map((_, index) => isOnSelectedPath(parts.slice(0, index + 1).join('/'), selected))
+}

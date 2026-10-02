@@ -28,6 +28,8 @@ export interface FolderEntry {
   /** Relative to the workspace root: the folder's path and the name. */
   readonly path: string
   readonly kind: FolderEntryKind
+  /** A file's size in bytes, as it was when the folder was listed. A folder has none, nor a file that went meanwhile. */
+  readonly size?: number
 }
 
 /** What a search of the workspace's files found. */
@@ -36,6 +38,8 @@ export interface FileSearchResult {
   readonly paths: readonly string[]
   /** How many more files match past them. */
   readonly more: number
+  /** The size of each of `paths` in bytes, by path. */
+  readonly sizes: Readonly<Record<string, number>>
 }
 
 /** Where a search matches a path: the characters `start` up to `end`. */

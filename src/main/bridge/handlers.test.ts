@@ -591,13 +591,14 @@ describe('the Browse tab’s commands', () => {
       entries: [
         { name: 'api', path: 'api', kind: FolderEntryKind.Folder },
         { name: 'docs', path: 'docs', kind: FolderEntryKind.Folder },
-        { name: 'README.md', path: 'README.md', kind: FolderEntryKind.File },
+        { name: 'README.md', path: 'README.md', kind: FolderEntryKind.File, size: 11 },
       ],
     })
     await expect(browse[CommandName.FilesListFolder]({ taskId, path: 'missing' })).resolves.toEqual({ entries: null })
     await expect(browse[CommandName.FilesSearch]({ taskId, query: 'rate' })).resolves.toEqual({
       paths: ['docs/rate-limits.md'],
       more: 0,
+      sizes: { 'docs/rate-limits.md': 14 },
     })
     await expect(browse[CommandName.FilesSearch]({ taskId: 'gone', query: 'rate' })).rejects.toMatchObject({
       code: BridgeErrorCode.NotFound,

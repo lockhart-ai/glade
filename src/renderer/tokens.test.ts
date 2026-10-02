@@ -180,6 +180,7 @@ const surfaceFloors: readonly ContrastFloor[] = [
   { foreground: '--color-panel', background: '--color-bg', minimum: 1.12 },
   { foreground: '--color-raised', background: '--color-panel', minimum: 1.15 },
   { foreground: '--color-inner', background: '--color-panel', minimum: 1.13 },
+  { foreground: '--color-inner-hover', background: '--color-inner', minimum: 1.09 },
   { foreground: '--color-inner-2', background: '--color-inner', minimum: 1.21 },
   { foreground: '--color-menu', background: '--color-panel', minimum: 1.2 },
   { foreground: '--color-border', background: '--color-bg', minimum: 1.56 },
@@ -233,6 +234,7 @@ describe('text contrast', () => {
     '--color-panel',
     '--color-raised',
     '--color-inner',
+    '--color-inner-hover',
     '--color-inner-2',
     '--color-menu',
   ]

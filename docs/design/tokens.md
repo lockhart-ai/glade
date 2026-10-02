@@ -11,6 +11,7 @@ can nest one level (header and right panel float inside the task card).
 | `panel` | `#181921` | Top-level cards (sidebar, task card, terminal, plugin) |
 | `raised` | `#232531` | Selected rows, input bar, dark buttons |
 | `inner` | `#222430` | Nested cards (header, right panel, the agent's reply cards) |
+| `inner-hover` | `#282B39` | The row under the pointer inside a nested card: halfway from `inner` to `inner-2` (the Browse tree, #431) |
 | `inner-2` | `#2E3243` | Active tab, highlighted rows inside nested cards |
 | `border` | `#2F3343` | Top-level card borders |
 | `inner-border` | `#373C4F` | Nested card borders and dividers |
@@ -38,6 +39,7 @@ quietly slip back:
 | `panel` on `bg` | 1.12 |
 | `raised` on `panel` | 1.15 |
 | `inner` on `panel` | 1.13 |
+| `inner-hover` on `inner` | 1.09 |
 | `inner-2` on `inner` | 1.21 |
 | `menu` on `panel` | 1.20 |
 | `border` on `bg` | 1.56 |
@@ -48,8 +50,8 @@ quietly slip back:
 | `strong` on `raised` | 1.54 |
 | `strong` on `inner` | 1.56 |
 
-`text`, `muted` and `faint` each meet 4.5:1 on every surface: `bg`, `panel`, `raised`, `inner`, `inner-2` and `menu`
-(the lowest is `faint` on `inner-2`, 4.72:1).
+`text`, `muted` and `faint` each meet 4.5:1 on every surface: `bg`, `panel`, `raised`, `inner`, `inner-hover`,
+`inner-2` and `menu` (the lowest is `faint` on `inner-2`, 4.72:1).
 
 ## Type
 
