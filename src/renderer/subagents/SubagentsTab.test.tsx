@@ -11,6 +11,7 @@ import {
   type ToolCallEvent,
   type Watcher,
 } from '../../shared/domain'
+import { activePanelTab, PanelTab } from '../right-panel/panelModel'
 import { refuse, sampleWatcher, sampleWorkspace } from '../store/test-bridge'
 import { storeWrapper } from '../store/test-wrapper'
 import { ELAPSED_REFRESH_MS, SubagentsTab } from './SubagentsTab'
@@ -347,7 +348,7 @@ describe('a subagent’s context menu', () => {
 
     await choose(/^Done\s*Read/, 'Open file')
     expect(wrapper.store.getState().openFiles.t1?.activePath).toBe('api/throttles.py')
-    expect(wrapper.store.getState().uiState[UiStateKey.RightPanelTab]).toBe('files')
+    expect(activePanelTab(wrapper.store.getState().uiState, 'w1')).toBe(PanelTab.Files)
 
     await choose(/^Done\s*Bash/, 'Run again in terminal')
     expect(wrapper.store.getState().terminalPaste).toMatchObject({ text: 'gh pr list --label api' })

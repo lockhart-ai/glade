@@ -37,6 +37,7 @@ import {
 } from '../store/test-bridge'
 import { FOCUS_HIGHLIGHT_MS, HIGHLIGHT_CLASS } from '../tool-log/ToolLog'
 import { MIN_CHAT_WIDTH, MIN_PANEL_WIDTH, RESIZE_STEP } from '../panels'
+import { parsePanelTabSelection } from './panelModel'
 import { TaskPanel } from './TaskPanel'
 
 const AT = new Date(2026, 8, 23, 10, 44).getTime()
@@ -172,8 +173,9 @@ describe('TaskPanel', () => {
 
     fireEvent.click(tab('Todos'))
     expect(tab('Todos')).toHaveAttribute('aria-selected', 'true')
-    expect(store.getState().uiState[UiStateKey.RightPanelTab]).toBe('todos')
-    expect(invoke).toHaveBeenCalledWith(CommandName.UiStateSet, { key: UiStateKey.RightPanelTab, value: 'todos' })
+    expect(parsePanelTabSelection(store.getState().uiState[UiStateKey.RightPanelTabs])).toEqual({ w1: 'todos' })
+    const entry = { key: UiStateKey.RightPanelTabs, value: JSON.stringify({ w1: 'todos' }) }
+    expect(invoke).toHaveBeenCalledWith(CommandName.UiStateSet, entry)
 
     // Picking the tab that's already selected writes nothing.
     invoke.mockClear()
@@ -780,9 +782,9 @@ describe('TaskPanel', () => {
       act(() => {
         store.getState().focusTurn('t1', 2)
       })
-      expect(store.getState().uiState).toMatchObject({
-        [UiStateKey.RightPanelCollapsed]: 'false',
-        [UiStateKey.RightPanelTab]: 'tool-calls',
+      expect(store.getState().uiState).toMatchObject({ [UiStateKey.RightPanelCollapsed]: 'false' })
+      expect(parsePanelTabSelection(store.getState().uiState[UiStateKey.RightPanelTabs])).toEqual({
+        w1: 'tool-calls',
       })
       expect(tab(/^Tool calls/)).toHaveAttribute('aria-selected', 'true')
       expect(scrollIntoView.mock.contexts[0]).toBe(within(log()).getByRole('separator', { name: 'turn 2 · 11:20' }))
