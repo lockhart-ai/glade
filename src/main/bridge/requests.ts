@@ -5,7 +5,9 @@ import {
   CommandName,
   MAX_RENDERER_ERROR_TEXT,
   RendererErrorKind,
+  type ArtifactsAddLinkRequest,
   type ArtifactsRemoveRequest,
+  type ArtifactsSetFilterRequest,
   type ArtifactsSetGroupOpenRequest,
   type ArtifactsWatchRequest,
   type ClipboardWriteTextRequest,
@@ -70,7 +72,15 @@ import {
 } from '../../shared/bridge'
 import { AttachedFileKind, isAttachedFileName, isAttachedFileOf, type AttachedFile } from '../../shared/attachedFiles'
 import { MAX_DONE_PAGE_SIZE } from '../../shared/doneList'
-import { ArtifactDateGroup, Effort, PermissionMode, UiStateKey, type PastedBlock } from '../../shared/domain'
+import {
+  ArtifactDateGroup,
+  ArtifactFilter,
+  ArtifactKind,
+  Effort,
+  PermissionMode,
+  UiStateKey,
+  type PastedBlock,
+} from '../../shared/domain'
 import { isWorkspaceRelativePath, parseCommitFileKey } from '../../shared/files'
 import { MAX_SEARCH_QUERY, MAX_WATCHED_FOLDERS } from '../../shared/browse'
 import { MAX_MENU_BAR_HEIGHT } from '../../shared/menuBar'
@@ -371,8 +381,22 @@ const settingsUpdateRequest = z.strictObject({
 }) satisfies z.ZodType<SettingsUpdateRequest>
 const artifactsRemoveRequest = z.strictObject({
   taskId: z.string(),
-  path: z.string(),
+  ref: z.discriminatedUnion('kind', [
+    z.strictObject({ kind: z.literal(ArtifactKind.File), path: z.string() }),
+    z.strictObject({ kind: z.literal(ArtifactKind.Link), url: z.string() }),
+  ]),
 }) satisfies z.ZodType<ArtifactsRemoveRequest>
+
+const artifactsAddLinkRequest = z.strictObject({
+  taskId: z.string(),
+  url: z.string(),
+  text: z.string(),
+}) satisfies z.ZodType<ArtifactsAddLinkRequest>
+
+const artifactsSetFilterRequest = z.strictObject({
+  taskId: z.string(),
+  filter: z.enum(ArtifactFilter),
+}) satisfies z.ZodType<ArtifactsSetFilterRequest>
 
 const artifactsSetGroupOpenRequest = z.strictObject({
   taskId: z.string(),
@@ -550,6 +574,8 @@ export const REQUEST_SCHEMAS = {
   [CommandName.FilesSetFolderExpanded]: filesSetFolderExpandedRequest,
   [CommandName.FilesWatchFolders]: filesWatchFoldersRequest,
   [CommandName.ArtifactsRemove]: artifactsRemoveRequest,
+  [CommandName.ArtifactsAddLink]: artifactsAddLinkRequest,
+  [CommandName.ArtifactsSetFilter]: artifactsSetFilterRequest,
   [CommandName.ArtifactsSetGroupOpen]: artifactsSetGroupOpenRequest,
   [CommandName.ArtifactsWatch]: artifactsWatchRequest,
   [CommandName.ArtifactsUnwatch]: artifactsWatchRequest,

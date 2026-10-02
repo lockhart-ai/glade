@@ -37,11 +37,20 @@ export const FINAL_REPLY_LINE =
   'before that reply, not after it.'
 
 /**
+ * What the prompt says of link artifacts (#407): the PRs the agent opens or works on, and the issues or tickets the task
+ * is about, go in the Artifacts tab too, by URL, so they aren't scattered through the chat and the tool log.
+ */
+export const LINK_ARTIFACTS_LINE =
+  `When you open or work on a pull request, or the task is about an issue or a ticket (GitHub, Jira), call ` +
+  `${GladeTool.AddArtifact} with its url and a short title, so the user finds it in the Artifacts tab next to the ` +
+  'files.'
+
+/**
  * The instructions added to the prompt after sessions had started with it, oldest first. Claude Code keeps a session's
  * prompt when it resumes it, so a session that started before one was added is sent it once, ahead of its next message
  * (`./session-context`). Only ever append: a session's place in this list is saved as a count.
  */
-export const INSTRUCTION_UPDATES: readonly string[] = [FINAL_REPLY_LINE]
+export const INSTRUCTION_UPDATES: readonly string[] = [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE]
 
 /** The heading the handoff note goes under in the prompt. */
 export const HANDOFF_HEADING = 'Handoff for this task (backfilled from earlier notes)'
@@ -111,6 +120,7 @@ export function systemPromptAppend(
       'with its path and a short title, so it shows in the Artifacts tab and stays with the task after it is done. ' +
       `Keep that list current: if its file moves or it needs a new title, call ${GladeTool.UpdateArtifact}; if it's no ` +
       `longer a deliverable, call ${GladeTool.RemoveArtifact}.`,
+    LINK_ARTIFACTS_LINE,
     '',
     WATCHERS_LINE,
   )

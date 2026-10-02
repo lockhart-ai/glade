@@ -84,8 +84,8 @@ There are no follow-up tasks. One task can refer to another through its folder o
   Glade: in replies and your messages, the question and permission cards, the tool log's notes and output, the goal
   and status, todos, watchers and queued messages. Markdown links and bare URLs and email addresses are links; URLs in
   code aren't. A link underlines on hover, shows its address as a tooltip when its text says something else, takes the
-  focus with Tab and opens with ↵; ⌘-click opens it too. Right-click it for Open link and Copy link. Only web and mail
-  links open: any other kind shows as its text.
+  focus with Tab and opens with ↵; ⌘-click opens it too. Right-click it for Open link, Copy link and Add to artifacts
+  (a web link only, #407). Only web and mail links open: any other kind shows as its text.
 - **Click code to copy** (#352) — a code span clicks to copy its exact text, with a small "Copied" tooltip for about a
   second; dragging a selection in it, or a click that ends with one, is left as ordinary text selection instead. It's
   focusable, and Enter copies it. A fenced code block, and a permission card's command or change, get a copy icon in
@@ -93,7 +93,13 @@ There are no follow-up tasks. One task can refer to another through its folder o
   Markdown code (replies, question cards and their preamble, backfilled notes, the tool log's notes and permission
   cards), but not the Files viewer's preview or the terminal.
 - **Right panel** (inside the task card) — tabs: Tool calls, Files, Todos, Artifacts, Subagents, Watchers, Changes (the
-  commits the task made; Glade watches git and never drives it). Resizable, collapsible. Files is a plain-text editor:
+  commits the task made; Glade watches git and never drives it). Resizable, collapsible. Artifacts holds the task's
+  deliverable files and, as links (#407), the remote things it depends on: the PRs the agent opens or works on and the
+  issues and tickets the task is about, added by the agent (`add_artifact`'s `url`) or by you (Add to artifacts on any
+  web link). A link shows what it is from its address alone (a PR or issue's `#412 · owner/repo`, a Jira ticket's
+  `API-123`, or the site's domain), opens in the browser, and is dated by when it was added; its live status isn't
+  fetched. With both files and links, an All · Files · Links filter shows above the date groups, remembered per task.
+  ![Artifacts](design/screens/10-artifacts.png) Files is a plain-text editor:
   a workspace file edits in place and saves with ⌘S, its tab showing a dot while it has unsaved edits, and closing it,
   switching task or quitting asks to Save, Discard or Cancel. When the agent changes a file you're editing, it reloads
   quietly, or, with unsaved edits, a bar offers Reload or Keep mine. Files from a commit, binary files and files too

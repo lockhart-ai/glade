@@ -317,9 +317,14 @@ export function artifactsTab(page: Page) {
     groupRows: (name: string) => group(name).getByRole('listitem'),
     /** The main part of a row, which opens its file. */
     open: (title: string) => row(title).getByRole('button', { name: new RegExp(`^${escapeRegExp(title)}`) }),
-    /** One of a row's buttons, shown while it's hovered: Open, Reveal in folder or More. */
-    action: (title: string, name: 'Open' | 'Reveal in folder' | 'More') =>
+    /** One of a row's buttons, shown while it's hovered: Open, Reveal in folder or More; a link's Open link, Copy link. */
+    action: (title: string, name: 'Open' | 'Reveal in folder' | 'More' | 'Open link' | 'Copy link') =>
       row(title).getByRole('button', { name, exact: true }),
+    /** The All · Files · Links filter (#407), which shows while the task has both files and links. */
+    filter: panel.getByRole('group', { name: 'Show', exact: true }),
+    /** One of the filter's chips: its name, then its count; `aria-pressed` while it's the one chosen. */
+    chip: (name: 'All' | 'Files' | 'Links') =>
+      panel.getByRole('group', { name: 'Show', exact: true }).getByRole('button', { name: new RegExp(`^${name}`) }),
     /** A row's thumbnail, once there is one. */
     thumbnail: (title: string) => row(title).locator('img'),
   }

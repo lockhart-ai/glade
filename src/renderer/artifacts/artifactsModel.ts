@@ -1,5 +1,17 @@
-/** What an artifact's row says about it (#307, `docs/design/html/10-artifacts.html`): its file's type, and its age. */
-import { ArtifactDateGroup, type Artifact, type EpochMs } from '../../shared/domain'
+/**
+ * What an artifact's row says about it (#307, `docs/design/html/10-artifacts.html`): its file's type, or what its link
+ * is (#407), and its age; and which of a task's artifacts the tab shows.
+ */
+import { linkDetail, recogniseLink } from '../../shared/artifactLinks'
+import { artifactKey } from '../../shared/artifacts'
+import {
+  ArtifactDateGroup,
+  ArtifactFilter,
+  ArtifactKind,
+  type Artifact,
+  type EpochMs,
+  type FileArtifact,
+} from '../../shared/domain'
 import { clockTime } from '../chat/chatModel'
 import { formatDay } from '../task-header/headerModel'
 import { formatRelativeTime } from '../task-list/relativeTime'
@@ -95,9 +107,22 @@ export function fileTileKind(path: string): FileTileKind {
   return FileTileKind.Text
 }
 
-/** Whether an artifact's file is one the image viewer can open (PNG, JPEG, GIF, WebP or SVG), by its path. */
-export function isImageArtifact(artifact: Pick<Artifact, 'path'>): boolean {
-  return fileTileKind(artifact.path) === FileTileKind.Image
+/** Whether an artifact is a file the image viewer can open (PNG, JPEG, GIF, WebP or SVG), by its path. A link never is. */
+export function isImageArtifact(artifact: Artifact): artifact is FileArtifact {
+  return artifact.kind === ArtifactKind.File && fileTileKind(artifact.path) === FileTileKind.Image
+}
+
+/**
+ * What an artifact's row says of it after its title: a file's type (`Markdown`, `PNG`), or what a link is (`#412 ·
+ * acme/api`, `API-123`, `example.com`).
+ */
+export function artifactTypeName(artifact: Artifact): string {
+  switch (artifact.kind) {
+    case ArtifactKind.File:
+      return fileTypeName(artifact.path)
+    case ArtifactKind.Link:
+      return linkDetail(recogniseLink(artifact.url))
+  }
 }
 
 /**
@@ -121,10 +146,16 @@ export function formatArtifactAge(at: EpochMs, now: EpochMs): string {
 
 /**
  * When an artifact last changed, as the tab orders and dates it: when its file last changed, as main last saw it (a
- * file that's gone keeps its last known time), or when it was declared, until main has looked.
+ * file that's gone keeps its last known time), or when it was declared, until main has looked. A link has no file:
+ * when it was last declared or changed.
  */
-export function artifactTime(artifact: Pick<Artifact, 'modifiedAt' | 'updatedAt'>): EpochMs {
-  return artifact.modifiedAt ?? artifact.updatedAt
+export function artifactTime(artifact: Artifact): EpochMs {
+  switch (artifact.kind) {
+    case ArtifactKind.File:
+      return artifact.modifiedAt ?? artifact.updatedAt
+    case ArtifactKind.Link:
+      return artifact.updatedAt
+  }
 }
 
 /**
@@ -136,11 +167,42 @@ function newestFirst(a: Artifact, b: Artifact): number {
     artifactTime(b) - artifactTime(a) ||
     b.updatedAt - a.updatedAt ||
     b.addedAt - a.addedAt ||
-    a.path.localeCompare(b.path)
+    artifactKey(a).localeCompare(artifactKey(b))
   )
 }
 
 /** A task's artifacts in their date groups, newest first, by when each one's file last changed. */
 export function groupArtifacts(artifacts: readonly Artifact[], now: EpochMs): DateGrouped<Artifact>[] {
   return groupByDate([...artifacts].sort(newestFirst), artifactTime, now)
+}
+
+/** How many of a task's artifacts are files, and how many links. */
+export interface ArtifactCounts {
+  readonly files: number
+  readonly links: number
+}
+
+export function countArtifacts(artifacts: readonly Artifact[]): ArtifactCounts {
+  const links = artifacts.filter((artifact) => artifact.kind === ArtifactKind.Link).length
+  return { files: artifacts.length - links, links }
+}
+
+/**
+ * Which artifacts the tab shows, under `chosen` (#407): the filter only shows while the task has both files and links,
+ * so with only one kind it shows all of them, whatever was chosen; the choice stays for when it has both again.
+ */
+export function shownFilter(counts: ArtifactCounts, chosen: ArtifactFilter): ArtifactFilter {
+  return counts.files > 0 && counts.links > 0 ? chosen : ArtifactFilter.All
+}
+
+/** The artifacts a filter shows. */
+export function filterArtifacts(artifacts: readonly Artifact[], filter: ArtifactFilter): readonly Artifact[] {
+  switch (filter) {
+    case ArtifactFilter.All:
+      return artifacts
+    case ArtifactFilter.Files:
+      return artifacts.filter((artifact) => artifact.kind === ArtifactKind.File)
+    case ArtifactFilter.Links:
+      return artifacts.filter((artifact) => artifact.kind === ArtifactKind.Link)
+  }
 }

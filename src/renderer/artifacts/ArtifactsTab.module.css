@@ -9,6 +9,47 @@
   gap: var(--space-md);
 }
 
+/* The All · Files · Links filter (#407), as the task list's filter chips have theirs. */
+.chips {
+  flex-shrink: 0;
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  height: var(--touch-target-dense);
+  padding: 0 var(--space-item);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  font: inherit;
+  font-size: var(--font-size-secondary-sm);
+  font-weight: 500;
+  color: var(--color-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--color-blue-text);
+  outline-offset: 2px;
+}
+
+.chipOn {
+  background: var(--color-inner-2);
+  border-color: var(--color-inner-border);
+  color: var(--color-text);
+}
+
+.count {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
 .empty {
   margin: auto 0;
   padding: 10px 8px;

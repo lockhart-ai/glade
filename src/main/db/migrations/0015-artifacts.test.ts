@@ -23,7 +23,7 @@ it('starts every existing task with no artifacts, keeps one per path, and drops 
 
   expect(listArtifacts(db, 't')).toEqual([])
   const insert = db.prepare(
-    "INSERT INTO artifacts (task_id, path, title, added_at, updated_at) VALUES ('t', 'docs/notes.md', 'Notes', 1, 1)",
+    "INSERT INTO artifacts (task_id, kind, path, title, added_at, updated_at) VALUES ('t', 'file', 'docs/notes.md', 'Notes', 1, 1)",
   )
   insert.run()
   expect(() => insert.run()).toThrow(/UNIQUE/)

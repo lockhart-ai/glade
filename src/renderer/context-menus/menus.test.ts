@@ -6,6 +6,7 @@ import {
   agentReplyMenu,
   artifactMenu,
   fileTabMenu,
+  linkArtifactMenu,
   linkMenu,
   pinLabel,
   queuedMessageMenu,
@@ -123,6 +124,11 @@ const CASES: readonly Case[] = [
     leftOut: [],
   },
   {
+    target: 'Link artifact',
+    entries: linkArtifactMenu(spies('open', 'copy', 'remove'), SHORTCUT_HINTS),
+    leftOut: [],
+  },
+  {
     target: 'Subagent',
     entries: subagentMenu({ expanded: false }, { ...spies('toggleLog', 'copyLog'), stop: vi.fn() }),
     leftOut: [],
@@ -139,9 +145,16 @@ const CASES: readonly Case[] = [
   },
   {
     target: 'Link',
-    entries: linkMenu(spies('open', 'copy')),
+    entries: linkMenu(spies('open', 'copy', 'addToArtifacts')),
     leftOut: [],
   },
+  // With no task open, or a link that can't be one (`mailto:`) or already is one of the task's artifacts (#407).
+  {
+    target: 'Link',
+    entries: linkMenu({ ...spies('open', 'copy'), addToArtifacts: null }),
+    leftOut: ['Add to artifacts'],
+  },
+  { target: 'Link', entries: linkMenu(spies('open', 'copy')), leftOut: ['Add to artifacts'] },
 ]
 
 describe('the context menus', () => {
@@ -168,6 +181,7 @@ describe('the context menus', () => {
       'Delete task…',
       'Delete task…',
       'Remove',
+      'Remove from artifacts',
       'Remove from artifacts',
       'Stop subagent',
       'Kill process',

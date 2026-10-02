@@ -8,6 +8,7 @@ import { CloseKind, EventType, type GladeEvent } from '../../shared/bridge'
 import { appCommand, AppCommandId } from '../../shared/commands'
 import {
   AgentErrorKind,
+  ArtifactKind,
   CompactionTrigger,
   DividerKind,
   Effort,
@@ -434,6 +435,7 @@ it('sends a plugin nothing it may not see, from the snapshot or from any event m
         taskId: created.id,
         artifacts: [
           {
+            kind: ArtifactKind.File,
             taskId: created.id,
             path: secret('artifact_path'),
             title: secret('artifact'),

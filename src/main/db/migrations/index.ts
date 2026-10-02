@@ -46,6 +46,7 @@ import { pastedBlocksMigration } from './0045-pasted-blocks'
 import { attachedFilesMigration } from './0046-attached-files'
 import { subagentTaskIdsMigration } from './0047-subagent-task-ids'
 import { pluginGrantsMigration } from './0048-plugin-grants'
+import { linkArtifactsMigration } from './0049-link-artifacts'
 import { browseFoldersMigration } from './0050-browse-folders'
 import { reportedContextWindowsMigration } from './0051-reported-context-windows'
 
@@ -98,6 +99,7 @@ export const MIGRATIONS: readonly Migration[] = [
   attachedFilesMigration,
   subagentTaskIdsMigration,
   pluginGrantsMigration,
+  linkArtifactsMigration,
   browseFoldersMigration,
   reportedContextWindowsMigration,
 ]

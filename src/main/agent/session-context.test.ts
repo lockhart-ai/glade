@@ -11,7 +11,7 @@ import {
   type ContextCheck,
   type MissingContext,
 } from './session-context'
-import { FINAL_REPLY_LINE, handoffSection, INSTRUCTION_UPDATES } from './system-prompt'
+import { FINAL_REPLY_LINE, handoffSection, INSTRUCTION_UPDATES, LINK_ARTIFACTS_LINE } from './system-prompt'
 
 const HANDOFF: TaskHandoff = { taskId: 't1', body: '## Next\n\nShip it.', addedAt: 5_000 }
 const PROMPT = 'You are running inside Glade.'
@@ -41,7 +41,7 @@ describe('what a session is missing', () => {
   })
 
   it('is the instructions added since, for a session that started before them', () => {
-    const updates = { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE] }
+    const updates = { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE] }
 
     expect(missingContext(check({ recorded: has(0) }))).toEqual([updates])
     // One Glade started before anything was recorded had its prompt, but none of the instructions added since.
@@ -53,11 +53,15 @@ describe('what a session is missing', () => {
 
   it('is the instructions added since, then the handoff note, when it is missing both', () => {
     expect(missingContext(check({ handoff: HANDOFF }))).toEqual([
-      { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE] },
+      { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE] },
       { kind: MissingContextKind.Handoff, handoff: HANDOFF },
     ])
     expect(missingContext(check({ recorded: has(0, 5_000), handoff: HANDOFF }))).toEqual([
-      { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE] },
+      { kind: MissingContextKind.Updates, updates: [FINAL_REPLY_LINE, LINK_ARTIFACTS_LINE] },
+    ])
+    // A session that had the first gets only the one added since (#407).
+    expect(missingContext(check({ recorded: has(1) }))).toEqual([
+      { kind: MissingContextKind.Updates, updates: [LINK_ARTIFACTS_LINE] },
     ])
   })
 

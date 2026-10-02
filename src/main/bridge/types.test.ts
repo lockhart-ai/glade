@@ -15,26 +15,27 @@ import {
 import { EMPTY_MENU_BAR_SNAPSHOT, type MenuBarSnapshot } from '../../shared/menuBar'
 import type { Command } from '../../shared/commands'
 import {
+  ArtifactFilter,
   Effort,
   FileContentKind,
   FileThumbnailKind,
   PermissionDecisionKind,
   TaskState,
   UiStateKey,
-  type Message,
   type Artifact,
   type ArtifactGroupFold,
-  type TaskHandoff,
-  type Watcher,
-  type TaskCommit,
+  type Message,
   type OpenFiles,
   type PermissionRequest,
   type QuestionSet,
-  type TodoList,
   type QueuedMessage,
   type Task,
+  type TaskCommit,
+  type TaskHandoff,
+  type TodoList,
   type ToolEvent,
   type UiStateEntry,
+  type Watcher,
   type Workspace,
 } from '../../shared/domain'
 import { AttachedFileKind } from '../../shared/attachedFiles'
@@ -91,6 +92,7 @@ const TASK_HANDLERS = {
     todos: null,
     artifacts: [],
     artifactGroups: [],
+    artifactFilter: ArtifactFilter.All,
     handoff: null,
     watchers: [],
     commits: [],
@@ -135,6 +137,8 @@ const TASK_HANDLERS = {
   [CommandName.ModelsList]: () => ({ models: BUILT_IN_MODELS }),
   [CommandName.SettingsUpdate]: () => ({ settings: DEFAULT_SETTINGS }),
   [CommandName.ArtifactsRemove]: () => null,
+  [CommandName.ArtifactsAddLink]: () => null,
+  [CommandName.ArtifactsSetFilter]: () => null,
   [CommandName.ArtifactsSetGroupOpen]: () => null,
   [CommandName.ArtifactsWatch]: () => null,
   [CommandName.ArtifactsUnwatch]: () => null,
@@ -222,6 +226,8 @@ const TASK_SCHEMAS = {
   [CommandName.SettingsGet]: REQUEST_SCHEMAS[CommandName.SettingsGet],
   [CommandName.SettingsUpdate]: REQUEST_SCHEMAS[CommandName.SettingsUpdate],
   [CommandName.ArtifactsRemove]: REQUEST_SCHEMAS[CommandName.ArtifactsRemove],
+  [CommandName.ArtifactsAddLink]: REQUEST_SCHEMAS[CommandName.ArtifactsAddLink],
+  [CommandName.ArtifactsSetFilter]: REQUEST_SCHEMAS[CommandName.ArtifactsSetFilter],
   [CommandName.ArtifactsSetGroupOpen]: REQUEST_SCHEMAS[CommandName.ArtifactsSetGroupOpen],
   [CommandName.ArtifactsWatch]: REQUEST_SCHEMAS[CommandName.ArtifactsWatch],
   [CommandName.ArtifactsUnwatch]: REQUEST_SCHEMAS[CommandName.ArtifactsUnwatch],
@@ -288,6 +294,7 @@ describe('the command map', () => {
       readonly todos: TodoList | null
       readonly artifacts: readonly Artifact[]
       readonly artifactGroups: readonly ArtifactGroupFold[]
+      readonly artifactFilter: ArtifactFilter
       readonly handoff: TaskHandoff | null
       readonly watchers: readonly Watcher[]
       readonly commits: readonly TaskCommit[]
