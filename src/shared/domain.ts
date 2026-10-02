@@ -52,8 +52,13 @@ export enum TaskActivity {
 export enum AgentErrorKind {
   /** Worth another try later: the API is overloaded or had a server error, or it rate limited the request. */
   Transient = 'transient',
-  /** Won't go away by trying again as is: e.g. a model that doesn't exist, or a failed sign-in. */
+  /** Won't go away by trying again as is: e.g. a model that doesn't exist, or an invalid external API key. */
   Permanent = 'permanent',
+  /**
+   * Claude Code's login expired, was revoked or isn't there: logging in again (Claude Code's own `claude auth login`,
+   * `docs/sdk-notes.md` §1) and retrying gets past it (#409).
+   */
+  LoggedOut = 'logged_out',
   /** The account's usage limit or credits ran out. */
   UsageLimit = 'usage_limit',
   /** The API couldn't be reached at all. */

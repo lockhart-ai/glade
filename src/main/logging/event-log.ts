@@ -309,6 +309,9 @@ export function createEventLog(log: Logger, tasks: readonly Task[]): (event: Gla
       case EventType.AccountChanged:
         // The account logs its reads and warnings itself, and never the email or organization.
         return
+      case EventType.LoginChanged:
+        // The login logs its start and end itself, and never what it prints (the sign-in page's one-time link).
+        return
       case EventType.MenuBarChanged:
         // Sent to the menu bar popover alone, never through here: what's in it is logged as the tasks change.
         return

@@ -20,6 +20,11 @@ describe('pauseReason', () => {
     expect(pauseReason({ kind: AgentErrorKind.Offline })).toBe(PauseReason.Offline)
     expect(pauseReason({ kind: AgentErrorKind.Transient })).toBeNull()
     expect(pauseReason({ kind: AgentErrorKind.Permanent })).toBeNull()
+    expect(pauseReason({ kind: AgentErrorKind.SafetyRefusal })).toBeNull()
+  })
+
+  it('stops on a lost login: nothing to wait out, you log in and retry', () => {
+    expect(pauseReason({ kind: AgentErrorKind.LoggedOut })).toBeNull()
   })
 })
 
