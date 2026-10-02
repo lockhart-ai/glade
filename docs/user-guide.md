@@ -445,7 +445,7 @@ A card left open when Glade quits is still there after the relaunch; answering i
 | Notifications | **Notifications** on or off, and **Sound**. |
 | Appearance | Nothing yet: Glade has one theme, dark. |
 | Keyboard | Every shortcut, and a way to change it (below). |
-| Plugins | The installed plugins, a switch for each (and for what each asks to see, such as your Mac's load), and **Open plugins folder** (see [Plugins](#plugins)). |
+| Plugins | The installed plugins, a switch for each (and for what each asks to see, such as your Mac's load), each plugin's own settings, and **Open plugins folder** (see [Plugins](#plugins)). |
 | Control | **Let agents control Glade** (see [below](#let-agents-control-glade)). |
 | *(your workspace)* | Its **Name** and **Root folder**. |
 
@@ -499,6 +499,12 @@ Mac's CPU, GPU and Docker load** under it, with its own switch, off until you tu
 the CPU cores in use (all of them, and Claude Code's share), the GPU's utilisation, and each running Docker container's
 name, CPU and memory, about every 2 seconds while it's showing. It never sees which programs are running, their
 commands or their files, and Glade never starts Docker to read it. Turning the switch on or off restarts the plugin.
+
+**A plugin's own settings.** A plugin can come with settings of its own, such as an art style. Each one shows under
+the plugin in Settings › Plugins as a label and a menu of its options, starting at the plugin's default. Pick another
+and it's saved at once: the plugin changes where it stands, without restarting, and your choice is still there after
+you restart Glade or update the plugin. If an update drops the option you chose, the setting goes back to the plugin's
+default. A plugin only ever sees its own settings, never Glade's or another plugin's.
 
 **Installing** one is copying its folder into Glade's plugins folder: Settings › Plugins › **Open plugins folder**
 (`~/Library/Application Support/glade/plugins/`). Glade looks for plugins at launch and each time you open Settings ›

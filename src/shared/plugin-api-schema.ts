@@ -27,6 +27,7 @@ import {
   type PluginMessage,
   type PluginPermissionRequest,
   type PluginQuestion,
+  type PluginSettings,
   type PluginSubagent,
   type PluginTask,
   type PluginToolCall,
@@ -108,6 +109,9 @@ export const pluginMachineReadingSchema = z.strictObject({
   containers: z.array(pluginContainerSchema).readonly(),
 }) satisfies z.ZodType<PluginMachineReading>
 
+/** A plugin's own settings: each declared setting's key to its value. */
+export const pluginSettingsSchema = z.record(z.string(), z.string()).readonly() satisfies z.ZodType<PluginSettings>
+
 export const pluginEventSchema = z.discriminatedUnion('type', [
   z.strictObject({
     type: z.literal(PluginEventType.Hello),
@@ -120,6 +124,7 @@ export const pluginEventSchema = z.discriminatedUnion('type', [
     questions: z.array(pluginQuestionSchema).readonly(),
     permissions: z.array(pluginPermissionRequestSchema).readonly(),
     machine: z.array(pluginMachineReadingSchema).max(MAX_PLUGIN_MACHINE_HISTORY).readonly().optional(),
+    settings: pluginSettingsSchema.optional(),
   }),
   z.strictObject({ type: z.literal(PluginEventType.TaskCreated), task: pluginTaskSchema }),
   z.strictObject({ type: z.literal(PluginEventType.TaskUpdated), task: pluginTaskSchema }),
@@ -149,6 +154,7 @@ export const pluginEventSchema = z.discriminatedUnion('type', [
     outcome: z.enum(PluginPermissionOutcome),
   }),
   z.strictObject({ type: z.literal(PluginEventType.MachineReading), reading: pluginMachineReadingSchema }),
+  z.strictObject({ type: z.literal(PluginEventType.SettingsChanged), settings: pluginSettingsSchema }),
 ]) satisfies z.ZodType<PluginEvent>
 
 export const gladeMessageSchema = z.strictObject({

@@ -89,6 +89,8 @@ describe('REQUEST_SCHEMAS', () => {
     expect(REQUEST_SCHEMAS[CommandName.PluginsReload].parse({ id: 'pomodoro' })).toEqual({ id: 'pomodoro' })
     const grant = { id: 'gauge', capability: 'machine', granted: true }
     expect(REQUEST_SCHEMAS[CommandName.PluginsSetCapability].parse(grant)).toEqual(grant)
+    const choice = { id: 'sketchpad', key: 'style', value: 'chalk' }
+    expect(REQUEST_SCHEMAS[CommandName.PluginsSetSetting].parse(choice)).toEqual(choice)
     const link = { url: 'https://example.com/docs' }
     expect(REQUEST_SCHEMAS[CommandName.LinksOpen].parse(link)).toEqual(link)
   })
@@ -231,6 +233,18 @@ describe('REQUEST_SCHEMAS', () => {
       CommandName.PluginsSetCapability,
       { id: 'gauge', capability: 'camera', granted: true },
       'capability: Invalid input: expected "machine"',
+    ],
+    [
+      'a plugin setting with no value',
+      CommandName.PluginsSetSetting,
+      { id: 'sketchpad', key: 'style' },
+      'value: Invalid input: expected string, received undefined',
+    ],
+    [
+      'a plugin setting whose value is not a string',
+      CommandName.PluginsSetSetting,
+      { id: 'sketchpad', key: 'style', value: true },
+      'value: Invalid input: expected string, received boolean',
     ],
     [
       'a missing workspace id',

@@ -4,8 +4,10 @@
  * is rate-limited and checked here; `ready` is answered with `hello` and the feed's snapshot and changes (`./feed`), and
  * `status` sets the card's header. A plugin that's turned off (or gone) stops being fed with its view. A plugin with
  * the `machine` capability on also gets the machine's readings (`./machine`), while it's showing and has said `ready`.
+ * A plugin that declares settings gets its own in its snapshot, and again (`settings.changed`) when one changes.
  */
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { BridgeErrorCode, EventType, type PluginViewBounds } from '../../shared/bridge'
 import {
   MAX_PLUGIN_MACHINE_HISTORY,
@@ -14,6 +16,7 @@ import {
   PluginMessageType,
   type GladeMessage,
   type PluginEvent,
+  type PluginSettings,
   type PluginSnapshotEvent,
 } from '../../shared/plugin-api'
 import { isGranted, PluginCapability, PluginStatus, type InstalledPlugin, type ValidPlugin } from '../../shared/plugins'
@@ -157,11 +160,29 @@ export function createPluginViews({
     }
   }
 
-  /** The snapshot as `current` is sent it: with the latest readings when it has the `machine` capability on. */
-  const withReadings = (current: Shown, snapshot: PluginSnapshotEvent): PluginSnapshotEvent =>
-    machine !== undefined && readsMachine(current.id)
-      ? { ...snapshot, machine: machine.history().slice(-MAX_PLUGIN_MACHINE_HISTORY) }
-      : snapshot
+  /**
+   * A plugin's own settings as it's handed them: every setting its manifest declares, by key. Null for a plugin that
+   * declares none (or is off), which is handed nothing.
+   */
+  const settingsOf = (id: string): PluginSettings | null => {
+    const plugin = enabled(id)
+    return plugin === undefined || plugin.manifest.settings.length === 0 ? null : plugin.settings
+  }
+
+  /**
+   * The snapshot as `current` is sent it: with the latest readings when it has the `machine` capability on, and its
+   * own settings when it declares any.
+   */
+  const withOwn = (current: Shown, snapshot: PluginSnapshotEvent): PluginSnapshotEvent => {
+    const settings = settingsOf(current.id)
+    return {
+      ...snapshot,
+      ...(machine !== undefined && readsMachine(current.id)
+        ? { machine: machine.history().slice(-MAX_PLUGIN_MACHINE_HISTORY) }
+        : {}),
+      ...(settings === null ? {} : { settings }),
+    }
+  }
 
   const setStatus = (current: Shown, text: string): void => {
     if (current.status === text) return
@@ -202,7 +223,7 @@ export function createPluginViews({
         current.seq = 0
         send(current, { type: PluginEventType.Hello, app: { name: 'Glade', version: appVersion } })
         current.unsubscribe = feed.subscribe((event) => {
-          send(current, event.type === PluginEventType.Snapshot ? withReadings(current, event) : event)
+          send(current, event.type === PluginEventType.Snapshot ? withOwn(current, event) : event)
         })
         syncReadings(current)
         return
@@ -263,9 +284,18 @@ export function createPluginViews({
       return { status: shown?.status ?? '' }
     },
     update(next) {
+      const before = shown === null ? null : settingsOf(shown.id)
       plugins = next
       if (shown !== null && enabled(shown.id) === undefined) destroy(shown, 'the plugin is off')
-      if (shown !== null) syncReadings(shown)
+      if (shown === null) return
+      syncReadings(shown)
+      // One of its settings changed while its page is running: it's told, all of them, rather than reloaded, so it
+      // keeps its place. Before `ready` there's nothing to tell: its snapshot will have them.
+      const settings = settingsOf(shown.id)
+      if (settings !== null && shown.unsubscribe !== null && !isDeepStrictEqual(before, settings)) {
+        send(shown, { type: PluginEventType.SettingsChanged, settings })
+        log.info('plugin settings sent', { id: shown.id })
+      }
     },
     reload(ids) {
       if (shown === null || !ids.includes(shown.id)) return

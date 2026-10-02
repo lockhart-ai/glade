@@ -230,7 +230,9 @@ Settings (⌘,) opens on Agent. Changes save as you make them.
 - **Plugins:** the plugins installed, each turned on or off, its own Reload button, and their folder (`plugin-api.md`).
   Reading the folder again (opening this section) reloads a running plugin whose files changed on disk since. A
   plugin that asks for a capability has a switch for it under its row, off until you turn it on: "Can see your Mac's
-  CPU, GPU and Docker load" (`machine`).
+  CPU, GPU and Docker load" (`machine`). A plugin that declares settings of its own in its manifest has a row for
+  each there too: its label and a select of its options, starting at the plugin's default. The choice is saved per
+  plugin (SQLite), survives restarts and plugin updates, and reaches the running plugin at once, without reloading it.
 - **Control:** whether other agents and scripts may drive Glade, and how to connect them (`control-api.md`).
 - **Workspace** (under its own heading, by the workspace's name): its name and root folder.
 

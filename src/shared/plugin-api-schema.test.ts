@@ -19,6 +19,7 @@ import {
   pluginEventSchema,
   pluginMachineReadingSchema,
   pluginMessageSchema,
+  pluginSettingsSchema,
   pluginTaskSchema,
 } from './plugin-api-schema'
 
@@ -122,6 +123,40 @@ describe('the machine readings', () => {
     const full = { ...SNAPSHOT, machine: Array.from({ length: 60 }, (_, i) => ({ ...READING, t: i })) }
     expect(pluginEventSchema.safeParse(full).success).toBe(true)
     expect(pluginEventSchema.safeParse({ ...full, machine: [...full.machine, READING] }).success).toBe(false)
+  })
+})
+
+describe("a plugin's settings", () => {
+  const SNAPSHOT = { type: PluginEventType.Snapshot, tasks: [TASK], subagents: [], questions: [], permissions: [] }
+
+  it('takes a snapshot with settings, key to value, with none declared, or without the field at all', () => {
+    const withSettings = { ...SNAPSHOT, settings: { style: '16bit', pace: 'slow' } }
+    expect(pluginEventSchema.parse(withSettings)).toEqual(withSettings)
+    expect(pluginEventSchema.parse({ ...SNAPSHOT, settings: {} })).toEqual({ ...SNAPSHOT, settings: {} })
+    expect(pluginEventSchema.parse(SNAPSHOT)).not.toHaveProperty('settings')
+  })
+
+  it('takes settings.changed with the whole settings object', () => {
+    const event = { type: PluginEventType.SettingsChanged, settings: { style: '32bit' } }
+    expect(pluginEventSchema.parse(event)).toEqual(event)
+    expect(gladeMessageSchema.parse({ source: 'glade', apiVersion: 1, seq: 3, event })).toMatchObject({ event })
+  })
+
+  it.each([
+    ['a value that is not a string', { style: 16 }],
+    ['a nested value', { style: { value: '16bit' } }],
+    ['a list', ['16bit']],
+    ['null', null],
+  ])('refuses settings that are %s', (_name, settings) => {
+    expect(pluginSettingsSchema.safeParse(settings).success).toBe(false)
+    expect(pluginEventSchema.safeParse({ ...SNAPSHOT, settings }).success).toBe(false)
+    expect(pluginEventSchema.safeParse({ type: PluginEventType.SettingsChanged, settings }).success).toBe(false)
+  })
+
+  it('refuses settings.changed without settings, or with anything more', () => {
+    expect(pluginEventSchema.safeParse({ type: PluginEventType.SettingsChanged }).success).toBe(false)
+    const more = { type: PluginEventType.SettingsChanged, settings: {}, plugin: 'easel' }
+    expect(pluginEventSchema.safeParse(more).success).toBe(false)
   })
 })
 

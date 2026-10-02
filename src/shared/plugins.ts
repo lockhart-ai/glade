@@ -24,6 +24,52 @@ export const PLUGIN_CAPABILITY_LABELS: Readonly<Record<PluginCapability, string>
   [PluginCapability.Machine]: "Can see your Mac's CPU, GPU and Docker load",
 }
 
+/** The kinds of setting a plugin can declare in its manifest's `settings` (`docs/plugin-api.md`, "Settings"). */
+export enum PluginSettingType {
+  /** A choice from a fixed list. */
+  Select = 'select',
+}
+
+const SETTING_TYPES: ReadonlySet<string> = new Set(Object.values(PluginSettingType))
+
+/** Whether a setting's `type` (from a manifest) is one this Glade knows. */
+export function isPluginSettingType(type: string): type is PluginSettingType {
+  return SETTING_TYPES.has(type)
+}
+
+/** The most settings a plugin can declare. */
+export const MAX_PLUGIN_SETTINGS = 8
+
+/** The most options a `select` setting can offer. */
+export const MAX_PLUGIN_SETTING_OPTIONS = 12
+
+/** One of a `select` setting's choices. */
+export interface PluginSettingOption {
+  /** What the plugin is handed when it's chosen: the same characters as a plugin's id. */
+  readonly value: string
+  /** What Settings › Plugins shows for it. */
+  readonly label: string
+}
+
+/** A setting that is a choice from a fixed list. */
+export interface PluginSelectSetting {
+  readonly type: PluginSettingType.Select
+  /** Its name in the `settings` the plugin is handed: the same characters as a plugin's id, unique in the plugin. */
+  readonly key: string
+  /** What Settings › Plugins calls it. */
+  readonly label: string
+  /** Its choices, in the order shown: at least one, each value once. */
+  readonly options: readonly PluginSettingOption[]
+  /** The value chosen until you choose another: one of the options'. */
+  readonly default: string
+}
+
+/** A setting a plugin declares, discriminated by `type`. One kind so far. */
+export type PluginSetting = PluginSelectSetting
+
+/** A plugin's settings as it's handed them: each declared setting's key to its value. */
+export type PluginSettingValues = Readonly<Record<string, string>>
+
 /** A plugin's `manifest.json`, validated. Unknown fields are dropped. */
 export interface PluginManifest {
   /** Lowercase letters, digits and `-`; equal to the plugin's folder name. */
@@ -38,6 +84,8 @@ export interface PluginManifest {
   readonly icon: string | null
   /** The capabilities it asks for, each once, in the order it lists them. Ones this Glade doesn't know are dropped. */
   readonly capabilities: readonly PluginCapability[]
+  /** The settings it declares, in the order it lists them. Ones of a type this Glade doesn't know are dropped. */
+  readonly settings: readonly PluginSetting[]
 }
 
 export enum PluginStatus {
@@ -59,6 +107,11 @@ export interface ValidPlugin {
   readonly enabled: boolean
   /** The capabilities it asks for that you've turned on in Settings › Plugins, in its manifest's order. None at first. */
   readonly granted: readonly PluginCapability[]
+  /**
+   * The value of each setting it declares, by key: what you chose in Settings › Plugins, or its default. Empty for a
+   * plugin that declares none.
+   */
+  readonly settings: PluginSettingValues
 }
 
 /** A folder in the plugins folder that isn't a plugin Glade can load, and why. */
@@ -96,6 +149,35 @@ export function withGrant(plugin: ValidPlugin, capability: PluginCapability, gra
   if (granted) next.add(capability)
   else next.delete(capability)
   return { ...plugin, granted: plugin.manifest.capabilities.filter((known) => next.has(known)) }
+}
+
+/**
+ * The value of each declared setting, by key, in the order declared: the saved one while it's still among the
+ * setting's options, and the default otherwise (never saved, or the plugin was updated and no longer offers it).
+ */
+export function settingValues(
+  settings: readonly PluginSetting[],
+  saved: ReadonlyMap<string, string> | undefined,
+): PluginSettingValues {
+  return Object.fromEntries(
+    settings.map((setting) => {
+      const value = saved?.get(setting.key)
+      const offered = value !== undefined && setting.options.some((option) => option.value === value)
+      return [setting.key, offered ? value : setting.default]
+    }),
+  )
+}
+
+/** Whether a plugin declares a setting `key` that offers `value`. */
+export function offersSetting(plugin: ValidPlugin, key: string, value: string): boolean {
+  const setting = plugin.manifest.settings.find((candidate) => candidate.key === key)
+  return setting?.options.some((option) => option.value === value) === true
+}
+
+/** The plugin with one of its settings set: only ever one it declares, to a value it offers; else as it was. */
+export function withSetting(plugin: ValidPlugin, key: string, value: string): ValidPlugin {
+  if (!offersSetting(plugin, key, value)) return plugin
+  return { ...plugin, settings: { ...plugin.settings, [key]: value } }
 }
 
 /**

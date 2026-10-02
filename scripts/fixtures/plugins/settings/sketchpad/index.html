@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Sketchpad</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 12px 16px;
+        font:
+          13px system-ui,
+          sans-serif;
+        color: #e6e8f0;
+        background: #14151c;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- A sample plugin that declares two select settings and shows the values Glade hands it. -->
+    <p id="settings">No settings yet.</p>
+    <script>
+      const line = document.getElementById('settings')
+      // A Glade from before plugin settings sends none: fall back to the defaults.
+      const show = (settings = {}) => {
+        const style = settings.style ?? 'ink'
+        const paper = settings.paper ?? 'grid'
+        line.textContent = `Drawing in ${style} on ${paper} paper.`
+        window.glade.post({ type: 'status', text: `${style} · ${paper}` })
+      }
+      window.addEventListener('message', (event) => {
+        const message = event.data
+        if (message?.source !== 'glade' || message.apiVersion !== 1) return
+        const glade = message.event
+        if (glade.type === 'snapshot' || glade.type === 'settings.changed') show(glade.settings)
+      })
+      window.glade.post({ type: 'ready' })
+    </script>
+  </body>
+</html>

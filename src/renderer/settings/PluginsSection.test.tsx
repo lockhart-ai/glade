@@ -1,7 +1,14 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { bridgeError, BridgeErrorCode, CommandName, EventType } from '../../shared/bridge'
-import { PluginCapability, PluginStatus, type InstalledPlugin, type ValidPlugin } from '../../shared/plugins'
+import {
+  PluginCapability,
+  PluginSettingType,
+  PluginStatus,
+  type InstalledPlugin,
+  type PluginSetting,
+  type ValidPlugin,
+} from '../../shared/plugins'
 import { ToastProvider } from '../components'
 import { settleFloating } from '../components/settleFloating'
 import { GladeStoreProvider } from '../store/react'
@@ -16,10 +23,11 @@ function validPlugin(id: string, name: string, overrides: Partial<ValidPlugin> =
   return {
     status: PluginStatus.Valid,
     folder: id,
-    manifest: { id, name, version: '1.0.0', entry: 'index.html', icon: 'icon.svg', capabilities: [] },
+    manifest: { id, name, version: '1.0.0', entry: 'index.html', icon: 'icon.svg', capabilities: [], settings: [] },
     iconUrl: ICON,
     enabled: true,
     granted: [],
+    settings: {},
     ...overrides,
   }
 }
@@ -278,6 +286,154 @@ describe('Settings › Plugins', () => {
   })
 })
 
+describe('Settings › Plugins: settings', () => {
+  const STYLE: PluginSetting = {
+    type: PluginSettingType.Select,
+    key: 'style',
+    label: 'Art style',
+    options: [
+      { value: 'ink', label: 'Ink' },
+      { value: 'chalk', label: 'Chalk' },
+      { value: 'neon', label: 'Neon' },
+    ],
+    default: 'ink',
+  }
+  const PACE: PluginSetting = {
+    type: PluginSettingType.Select,
+    key: 'pace',
+    label: 'Pace',
+    options: [
+      { value: 'slow', label: 'Slow' },
+      { value: 'fast', label: 'Fast' },
+    ],
+    default: 'fast',
+  }
+  const SKETCHPAD = validPlugin('sketchpad', 'Sketchpad', {
+    manifest: {
+      ...validPlugin('sketchpad', 'Sketchpad').manifest,
+      capabilities: [PluginCapability.Machine],
+      settings: [STYLE, PACE],
+    },
+    settings: { style: 'ink', pace: 'fast' },
+  })
+
+  function sketchpad(): HTMLElement {
+    return within(list()).getByRole('listitem', { name: 'Sketchpad' })
+  }
+
+  /** Opens a setting's select and picks an option from its menu. */
+  async function choose(select: RegExp, option: string): Promise<void> {
+    fireEvent.click(within(sketchpad()).getByRole('button', { name: select }))
+    await settleFloating()
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitemradio', { name: option }))
+    await settleFloating()
+  }
+
+  it('shows a select for each setting a plugin declares, under its capability switch, at the value chosen', async () => {
+    await renderPlugins([POMODORO, { ...SKETCHPAD, settings: { style: 'ink', pace: 'slow' } }])
+    await read()
+
+    const row = sketchpad()
+    expect(row).toHaveTextContent('Art style')
+    expect(within(row).getByRole('button', { name: 'Sketchpad: Art style: Ink' })).toHaveTextContent('Ink')
+    expect(within(row).getByRole('button', { name: 'Sketchpad: Pace: Slow' })).toHaveTextContent('Slow')
+    // Capabilities first, then the settings in the order declared.
+    expect(row.textContent).toMatch(/Can see your Mac's CPU, GPU and Docker load.*Art style.*Pace/)
+    const pomodoro = within(list()).getByRole('listitem', { name: 'Pomodoro' })
+    expect(within(pomodoro).queryByRole('button', { name: /: / })).not.toBeInTheDocument()
+  })
+
+  it('lists the options in the order declared, with the one chosen checked', async () => {
+    await renderPlugins([{ ...SKETCHPAD, settings: { style: 'chalk', pace: 'fast' } }])
+    await read()
+
+    fireEvent.click(within(sketchpad()).getByRole('button', { name: /^Sketchpad: Art style/ }))
+    await settleFloating()
+
+    const options = within(screen.getByRole('menu', { name: 'Art style' })).getAllByRole('menuitemradio')
+    expect(options.map((option) => option.textContent)).toEqual(['Ink', 'Chalk', 'Neon'])
+    expect(options.map((option) => option.getAttribute('aria-checked'))).toEqual(['false', 'true', 'false'])
+  })
+
+  it('chooses another option, saving it at once, whether the plugin is on or off, and leaves the others alone', async () => {
+    const off = { ...SKETCHPAD, enabled: false }
+    const { invoke, main } = await renderPlugins([off])
+    await read()
+
+    await choose(/^Sketchpad: Art style/, 'Neon')
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(CommandName.PluginsSetSetting, {
+        id: 'sketchpad',
+        key: 'style',
+        value: 'neon',
+      })
+    })
+    expect(within(sketchpad()).getByRole('button', { name: 'Sketchpad: Art style: Neon' })).toBeInTheDocument()
+    expect(within(sketchpad()).getByRole('button', { name: 'Sketchpad: Pace: Fast' })).toBeInTheDocument()
+    expect(main.plugins).toEqual([{ ...off, settings: { style: 'neon', pace: 'fast' } }])
+  })
+
+  it('shows the value at once, before main has answered', async () => {
+    let answer: (response: { plugins: InstalledPlugin[] }) => void = () => undefined
+    await renderPlugins([SKETCHPAD], {
+      [CommandName.PluginsSetSetting]: () =>
+        new Promise((resolve) => {
+          answer = resolve
+        }),
+    })
+    await read()
+
+    await choose(/^Sketchpad: Pace/, 'Slow')
+
+    expect(within(sketchpad()).getByRole('button', { name: 'Sketchpad: Pace: Slow' })).toBeInTheDocument()
+    await act(async () => {
+      answer({ plugins: [{ ...SKETCHPAD, settings: { style: 'ink', pace: 'slow' } }] })
+      await Promise.resolve()
+    })
+    expect(within(sketchpad()).getByRole('button', { name: 'Sketchpad: Pace: Slow' })).toBeInTheDocument()
+  })
+
+  it('shows why a choice failed, and the plugins as they are now', async () => {
+    const { main } = await renderPlugins([SKETCHPAD])
+    await read()
+    // Updated since Settings › Plugins read it: it no longer offers Neon.
+    const fewer = { ...STYLE, options: STYLE.options.slice(0, 2) }
+    main.plugins = [{ ...SKETCHPAD, manifest: { ...SKETCHPAD.manifest, settings: [fewer, PACE] } }]
+
+    await choose(/^Sketchpad: Art style/, 'Neon')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('sketchpad has no setting style that offers neon')
+    await waitFor(() => {
+      expect(within(sketchpad()).getByRole('button', { name: 'Sketchpad: Art style: Ink' })).toBeInTheDocument()
+    })
+  })
+
+  it('refuses a plugin that has gone since the list was read', async () => {
+    const { main } = await renderPlugins([SKETCHPAD])
+    await read()
+    main.plugins = []
+
+    await choose(/^Sketchpad: Art style/, 'Chalk')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('No plugin sketchpad')
+    await waitFor(() => {
+      expect(within(list()).queryByRole('listitem')).not.toBeInTheDocument()
+    })
+  })
+
+  it('shows the value main broadcasts', async () => {
+    const { emit } = await renderPlugins([SKETCHPAD])
+    await read()
+
+    act(() => {
+      emit({ type: EventType.PluginsChanged, plugins: [{ ...SKETCHPAD, settings: { style: 'chalk', pace: 'fast' } }] })
+    })
+
+    expect(within(sketchpad()).getByRole('button', { name: 'Sketchpad: Art style: Chalk' })).toBeInTheDocument()
+  })
+})
+
 describe('Settings › Plugins: capabilities', () => {
   const LABEL = "Can see your Mac's CPU, GPU and Docker load"
   const GAUGE = validPlugin('gauge', 'Load Gauge', {
@@ -326,7 +482,7 @@ describe('Settings › Plugins: capabilities', () => {
     const { main } = await renderPlugins([GAUGE])
     await read()
     // Reinstalled since Settings › Plugins read it, without asking for the machine's readings any more.
-    main.plugins = [{ ...GAUGE, manifest: { ...GAUGE.manifest, capabilities: [] } }]
+    main.plugins = [{ ...GAUGE, manifest: { ...GAUGE.manifest, capabilities: [], settings: [] } }]
 
     fireEvent.click(within(list()).getByRole('switch', { name: `Load Gauge: ${LABEL}` }))
 

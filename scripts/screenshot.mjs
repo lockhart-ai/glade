@@ -13,8 +13,9 @@
 // --click '[role="menu"] button:nth-of-type(4)' --click 'nav[aria-label="Settings sections"] button:nth-of-type(6)'`.
 //
 // With --plugins, the app starts with each folder's sample plugins (scripts/fixtures/plugins/valid and invalid, and
-// machine, whose Load Gauge asks for the Mac's load) copied into its plugins folder. The first enabled one shows beside
-// the terminal, its view pasted into the capture: e2e/plugins has the fixture plugin, which lists Glade's messages.
+// machine, whose Load Gauge asks for the Mac's load, and settings, whose Sketchpad declares two select settings) copied
+// into its plugins folder. The first enabled one shows beside the terminal, its view pasted into the capture:
+// e2e/plugins has the fixture plugin, which lists Glade's messages.
 //
 // With --classic-scrollbars, the app draws macOS's legacy scroll bars, which always show and take room, as it does with
 // System Settings' "Show scroll bars: Always" or a mouse attached, rather than the overlay ones a trackpad gets. It

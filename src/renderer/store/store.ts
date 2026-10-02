@@ -1,7 +1,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { CloseKind, CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
 import type { Command } from '../../shared/commands'
-import { PluginStatus, withGrant } from '../../shared/plugins'
+import { PluginStatus, withGrant, withSetting } from '../../shared/plugins'
 import { UiStateKey, type OpenFiles, type Task, type UiStateEntry, type Workspace } from '../../shared/domain'
 import { DONE_PAGE_SIZE, inDoneList, isInDoneSection } from '../../shared/doneList'
 import { DEFAULT_SETTINGS_SECTION } from '../settings/sections'
@@ -381,6 +381,24 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
           set({ plugins })
         } catch (error) {
           // Its folder was removed, or it no longer asks for it: show the plugins as they are now, then say why.
+          await get().loadPlugins()
+          throw error
+        }
+      },
+
+      // Shown at once, then as main saved it.
+      async setPluginSetting(id, key, value) {
+        set((state) => ({
+          plugins:
+            state.plugins?.map((plugin) =>
+              plugin.folder === id && plugin.status === PluginStatus.Valid ? withSetting(plugin, key, value) : plugin,
+            ) ?? null,
+        }))
+        try {
+          const { plugins } = await bridge.invoke(CommandName.PluginsSetSetting, { id, key, value })
+          set({ plugins })
+        } catch (error) {
+          // Its folder was removed, or it no longer offers that: show the plugins as they are now, then say why.
           await get().loadPlugins()
           throw error
         }

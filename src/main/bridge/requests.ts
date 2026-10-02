@@ -65,6 +65,7 @@ import {
   type SettingsUpdateRequest,
   type PluginsSetEnabledRequest,
   type PluginsSetCapabilityRequest,
+  type PluginsSetSettingRequest,
   type PluginsPlaceViewRequest,
   type PluginsReloadRequest,
   type WorkspacesUpdateRequest,
@@ -417,6 +418,12 @@ const pluginsSetCapabilityRequest = z.strictObject({
   granted: z.boolean(),
 }) satisfies z.ZodType<PluginsSetCapabilityRequest>
 
+const pluginsSetSettingRequest = z.strictObject({
+  id: z.string(),
+  key: z.string(),
+  value: z.string(),
+}) satisfies z.ZodType<PluginsSetSettingRequest>
+
 const windowSetTrafficLightsRequest = z.strictObject({
   collapsed: z.boolean(),
 }) satisfies z.ZodType<WindowSetTrafficLightsRequest>
@@ -595,6 +602,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.ControlRegenerateToken]: emptyRequest,
   [CommandName.PluginsSetEnabled]: pluginsSetEnabledRequest,
   [CommandName.PluginsSetCapability]: pluginsSetCapabilityRequest,
+  [CommandName.PluginsSetSetting]: pluginsSetSettingRequest,
   [CommandName.PluginsOpenFolder]: emptyRequest,
   [CommandName.PluginsPlaceView]: pluginsPlaceViewRequest,
   [CommandName.PluginsReload]: pluginsReloadRequest,
