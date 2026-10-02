@@ -141,6 +141,13 @@
     that only relays messages, a CSP that blocks all network except localhost, no navigation and no new windows.
   - Glade sends it typed task and agent events with `postMessage`, in a versioned schema (`plugin-api.md`). The plugin
     sends back only `ready` and a short header status. It can't command Glade.
+  - Nothing about the machine, unless the plugin asks for it and you allow it (#403, replacing P12's "nothing about
+    the machine"): a manifest's `capabilities` can ask for `machine`, which Settings › Plugins shows as "Can see your
+    Mac's CPU, GPU and Docker load" with a switch per plugin, off until you turn it on (saved in SQLite). With it on,
+    the plugin gets the coarse readings Nekomata's dashboard draws (CPU cores in use, all and Claude Code's, the core
+    count, the GPU's utilisation, and each Docker container's name, CPU and memory), about every 2 s, sampled in main
+    only while such a plugin is showing. Never a process's name, command or path, nor more about a container than its
+    name. Docker is read only if it's running, never started.
   - Settings › Plugins lists the installed plugins, each with an enable/disable toggle, and has **Open plugins
     folder**. Whether each plugin is enabled lives in SQLite.
   - The bottom bar splits into terminal | plugin with a drag handle; the plugin's width is saved in SQLite. With no

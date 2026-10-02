@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Load Gauge</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 12px 16px;
+        font:
+          13px system-ui,
+          sans-serif;
+        color: #e6e8f0;
+        background: #14151c;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- A sample plugin that asks for the machine capability and shows the latest reading it's sent. -->
+    <p id="load">No readings yet.</p>
+    <script>
+      const load = document.getElementById('load')
+      const show = (reading) => {
+        const gpu = reading.gpu === null ? 'no GPU reading' : `GPU ${reading.gpu}%`
+        load.textContent =
+          `${reading.total.toFixed(1)} of ${reading.cpuCount} cores busy · Claude ${reading.claude.toFixed(1)} · ` +
+          `Docker ${reading.docker.toFixed(1)} (${reading.containers.length} containers) · ${gpu}`
+        window.glade.post({ type: 'status', text: `${reading.total.toFixed(1)} cores busy` })
+      }
+      window.addEventListener('message', (event) => {
+        const message = event.data
+        if (message?.source !== 'glade' || message.apiVersion !== 1) return
+        const glade = message.event
+        if (glade.type === 'snapshot' && glade.machine?.length) show(glade.machine[glade.machine.length - 1])
+        if (glade.type === 'machine.reading') show(glade.reading)
+      })
+      window.glade.post({ type: 'ready' })
+    </script>
+  </body>
+</html>

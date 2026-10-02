@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { isInsidePath, parsePluginManifest, PLUGIN_ID } from './manifest'
+import { PluginCapability } from '../../shared/plugins'
+import { isInsidePath, knownCapabilities, parsePluginManifest, PLUGIN_ID } from './manifest'
 
 const VALID = { id: 'pomodoro', name: 'Pomodoro', version: '0.4.2', entry: 'index.html', icon: 'icon.svg' }
+/** What `VALID` parses to: it asks for no capabilities. */
+const PARSED = { ...VALID, capabilities: [] }
 
 /** The reason a manifest with `fields` over the valid one is refused, or null when it's valid. */
 function reasonFor(fields: Record<string, unknown>): string | null {
@@ -11,23 +14,23 @@ function reasonFor(fields: Record<string, unknown>): string | null {
 
 describe('parsePluginManifest', () => {
   it('parses a valid manifest, with its icon', () => {
-    expect(parsePluginManifest(JSON.stringify(VALID))).toEqual({ ok: true, manifest: VALID })
+    expect(parsePluginManifest(JSON.stringify(VALID))).toEqual({ ok: true, manifest: PARSED })
   })
 
   it('reads a manifest without an icon as having none', () => {
     const withoutIcon = { id: VALID.id, name: VALID.name, version: VALID.version, entry: VALID.entry }
-    expect(parsePluginManifest(JSON.stringify(withoutIcon))).toEqual({ ok: true, manifest: { ...VALID, icon: null } })
+    expect(parsePluginManifest(JSON.stringify(withoutIcon))).toEqual({ ok: true, manifest: { ...PARSED, icon: null } })
   })
 
   it('ignores unknown fields, and drops them', () => {
     const parsed = parsePluginManifest(JSON.stringify({ ...VALID, author: 'Acme', permissions: ['network'] }))
-    expect(parsed).toEqual({ ok: true, manifest: VALID })
+    expect(parsed).toEqual({ ok: true, manifest: PARSED })
   })
 
   it('trims the name', () => {
     expect(parsePluginManifest(JSON.stringify({ ...VALID, name: '  Pomodoro ' }))).toEqual({
       ok: true,
-      manifest: VALID,
+      manifest: PARSED,
     })
   })
 
@@ -123,6 +126,41 @@ describe('parsePluginManifest', () => {
     expect(reasonFor({ id: 'Bad', entry: '../x.html' })).toBe(
       "id: Expected lowercase letters, digits and -, up to 64 characters; entry: Expected a path inside the plugin's folder",
     )
+  })
+})
+
+describe('capabilities', () => {
+  it('reads the machine capability a manifest asks for', () => {
+    expect(parsePluginManifest(JSON.stringify({ ...VALID, capabilities: ['machine'] }))).toEqual({
+      ok: true,
+      manifest: { ...PARSED, capabilities: [PluginCapability.Machine] },
+    })
+  })
+
+  it("reads none from an empty list, or from a manifest that doesn't list any", () => {
+    expect(parsePluginManifest(JSON.stringify({ ...VALID, capabilities: [] }))).toEqual({ ok: true, manifest: PARSED })
+    expect(parsePluginManifest(JSON.stringify(VALID))).toEqual({ ok: true, manifest: PARSED })
+  })
+
+  it("drops capabilities this Glade doesn't know, and repeats, rather than refusing the plugin", () => {
+    const parsed = parsePluginManifest(
+      JSON.stringify({ ...VALID, capabilities: ['camera', 'machine', 'Machine', 'machine', 'network'] }),
+    )
+    expect(parsed).toEqual({ ok: true, manifest: { ...PARSED, capabilities: [PluginCapability.Machine] } })
+  })
+
+  it.each([
+    ['a string', 'machine'],
+    ['an object', { machine: true }],
+    ['a list with a number in it', ['machine', 3]],
+    ['null', null],
+  ])('refuses capabilities that are %s, saying what it expected', (_name, capabilities) => {
+    expect(reasonFor({ capabilities })).toMatch(/^capabilities(\.\d+)?: /)
+  })
+
+  it('knownCapabilities keeps the known ones once each, in the order listed', () => {
+    expect(knownCapabilities([])).toEqual([])
+    expect(knownCapabilities(['x', 'machine', 'machine'])).toEqual([PluginCapability.Machine])
   })
 })
 

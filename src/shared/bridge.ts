@@ -46,7 +46,7 @@ import type { Settings, SettingsPatch } from './settings'
 import type { SearchResult } from './search'
 import type { DoneCounts, DonePage, DonePageRequest } from './doneList'
 import type { TerminalTab } from './terminal'
-import type { InstalledPlugin } from './plugins'
+import type { InstalledPlugin, PluginCapability } from './plugins'
 import type { ControlStatus } from './control'
 import type { AccountStatus } from './account'
 import type { MenuBarSnapshot } from './menuBar'
@@ -124,6 +124,7 @@ export enum CommandName {
   SearchQuery = 'search.query',
   PluginsList = 'plugins.list',
   PluginsSetEnabled = 'plugins.setEnabled',
+  PluginsSetCapability = 'plugins.setCapability',
   PluginsOpenFolder = 'plugins.openFolder',
   PluginsPlaceView = 'plugins.placeView',
   PluginsReload = 'plugins.reload',
@@ -876,6 +877,19 @@ export interface PluginsSetEnabledRequest {
 }
 
 /**
+ * Turns one of a plugin's capabilities on or off (the switch under it in Settings › Plugins); the state is saved, and
+ * every capability starts off. Answers with the plugins as they now are, broadcasts `plugins.changed`, and reloads the
+ * plugin if it's the one shown, so it starts over with what it may now see. Fails with `not_found` for a plugin that
+ * wasn't valid the last time the folder was read, and `invalid_request` for a capability its manifest doesn't ask for.
+ */
+export interface PluginsSetCapabilityRequest {
+  /** The plugin's id (its folder's name). */
+  readonly id: string
+  readonly capability: PluginCapability
+  readonly granted: boolean
+}
+
+/**
  * The control API's HTTP endpoint as Settings › Control shows it: whether the switch is on, the port chosen and the one
  * in use, the URL, the token and any error. `control.status` answers with it; `control.regenerateToken` replaces the
  * token (the old one is refused from the next request), answers with it and broadcasts `control.changed`.
@@ -1152,6 +1166,7 @@ export interface CommandMap {
   [CommandName.ControlRegenerateToken]: CommandSpec<EmptyRequest, ControlStatusResponse>
   [CommandName.AccountStatus]: CommandSpec<EmptyRequest, AccountStatusResponse>
   [CommandName.PluginsSetEnabled]: CommandSpec<PluginsSetEnabledRequest, PluginsResponse>
+  [CommandName.PluginsSetCapability]: CommandSpec<PluginsSetCapabilityRequest, PluginsResponse>
   [CommandName.PluginsOpenFolder]: CommandSpec<PluginsOpenFolderRequest, null>
   [CommandName.PluginsPlaceView]: CommandSpec<PluginsPlaceViewRequest, PluginsPlaceViewResponse>
   [CommandName.PluginsReload]: CommandSpec<PluginsReloadRequest, null>

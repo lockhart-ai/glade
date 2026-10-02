@@ -1,4 +1,5 @@
 import type { Database } from 'better-sqlite3'
+import { isPluginCapability, type PluginCapability } from '../../../shared/plugins'
 import { Row } from './rows'
 
 /**
@@ -20,6 +21,41 @@ export function notePluginsFound(db: Database, ids: readonly string[], now = Dat
   db.transaction(() => {
     for (const id of ids) insert.run(id, now)
   })()
+}
+
+/**
+ * The capabilities you've turned on for each plugin, by id: only plugins with at least one. A capability this Glade
+ * doesn't know (a newer one's, before a downgrade) is left out.
+ */
+export function getPluginGrants(db: Database): ReadonlyMap<string, ReadonlySet<PluginCapability>> {
+  const grants = new Map<string, Set<PluginCapability>>()
+  for (const raw of db.prepare('SELECT plugin_id, capability FROM plugin_grants').all()) {
+    const row = new Row('plugin_grants', raw)
+    const capability = row.text('capability')
+    if (!isPluginCapability(capability)) continue
+    const id = row.text('plugin_id')
+    const granted = grants.get(id) ?? new Set<PluginCapability>()
+    granted.add(capability)
+    grants.set(id, granted)
+  }
+  return grants
+}
+
+/** Turns a capability on or off for a plugin, which must already have its row (`notePluginsFound`). */
+export function setPluginGrant(
+  db: Database,
+  id: string,
+  capability: PluginCapability,
+  granted: boolean,
+  now = Date.now(),
+): void {
+  if (granted) {
+    db.prepare(
+      'INSERT INTO plugin_grants (plugin_id, capability, granted_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING',
+    ).run(id, capability, now)
+  } else {
+    db.prepare('DELETE FROM plugin_grants WHERE plugin_id = ? AND capability = ?').run(id, capability)
+  }
 }
 
 /** Turns a plugin on or off. */

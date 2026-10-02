@@ -77,6 +77,8 @@ describe('REQUEST_SCHEMAS', () => {
     const toggle = { id: 'pomodoro', enabled: false }
     expect(REQUEST_SCHEMAS[CommandName.PluginsSetEnabled].parse(toggle)).toEqual(toggle)
     expect(REQUEST_SCHEMAS[CommandName.PluginsReload].parse({ id: 'pomodoro' })).toEqual({ id: 'pomodoro' })
+    const grant = { id: 'gauge', capability: 'machine', granted: true }
+    expect(REQUEST_SCHEMAS[CommandName.PluginsSetCapability].parse(grant)).toEqual(grant)
     const link = { url: 'https://example.com/docs' }
     expect(REQUEST_SCHEMAS[CommandName.LinksOpen].parse(link)).toEqual(link)
   })
@@ -188,6 +190,12 @@ describe('REQUEST_SCHEMAS', () => {
       CommandName.PluginsSetEnabled,
       { id: 'pomodoro' },
       'enabled: Invalid input: expected boolean, received undefined',
+    ],
+    [
+      'a capability Glade does not know',
+      CommandName.PluginsSetCapability,
+      { id: 'gauge', capability: 'camera', granted: true },
+      'capability: Invalid input: expected "machine"',
     ],
     [
       'a missing workspace id',

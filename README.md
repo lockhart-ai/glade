@@ -125,7 +125,7 @@ Press ⌘, for Settings, including every shortcut, which you can rebind.
 | **Permissions** | Allow all, or ask before edits and commands, with per-task rules for what you've allowed. |
 | **Right panel** | Tool calls, the files a task touched (with a read-only viewer), its todo list, the artifacts it delivered, and its subagents. |
 | **Terminal** | Tabs of your login shell in the bottom bar, kept with their scrollback across launches. Right-click a Bash call in the tool log to run it again there. |
-| **Plugins** | Small sandboxed web pages beside the terminal that get task and agent events, never your chat or files. See [docs/plugin-api.md](docs/plugin-api.md). |
+| **Plugins** | Small sandboxed web pages beside the terminal that get task and agent events, never your chat or files, and, only if you allow it, your Mac's CPU, GPU and Docker load. See [docs/plugin-api.md](docs/plugin-api.md). |
 | **Control API and backfill** | An MCP server and a plain JSON endpoint, on this Mac only and behind a token, to create, update and finish tasks from other agents and scripts, import Claude Code sessions, and backfill past tasks with a handoff note the agent always has. See [docs/control-api.md](docs/control-api.md). |
 
 ## 📚 Documentation

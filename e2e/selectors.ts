@@ -630,6 +630,9 @@ export function settings(page: Page) {
       dialog.getByRole('list', { name: 'Plugins' }).getByRole('listitem', { name, exact: true }),
     /** A plugin's Reload button in Plugins, by its name. */
     reloadPlugin: (name: string) => dialog.getByRole('button', { name: `Reload ${name}`, exact: true }),
+    /** The switch under a plugin in Plugins that lets it see the Mac's load (its `machine` capability), by its name. */
+    machineSwitch: (name: string) =>
+      dialog.getByRole('switch', { name: `${name}: Can see your Mac's CPU, GPU and Docker load`, exact: true }),
     openPluginsFolder: dialog.getByRole('button', { name: 'Open plugins folder' }),
     /** Control's endpoint URL, or "Not listening". */
     endpoint: dialog.getByLabel('Endpoint URL'),

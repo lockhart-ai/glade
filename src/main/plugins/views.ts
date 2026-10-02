@@ -2,22 +2,26 @@
  * The shown plugin's view (`docs/plugin-api.md`, "The sandbox" and "Talking to Glade"): one at a time, over the plugin
  * card's body, created when the window first places it and destroyed when the plugin is turned off. What the page posts
  * is rate-limited and checked here; `ready` is answered with `hello` and the feed's snapshot and changes (`./feed`), and
- * `status` sets the card's header. A plugin that's turned off (or gone) stops being fed with its view.
+ * `status` sets the card's header. A plugin that's turned off (or gone) stops being fed with its view. A plugin with
+ * the `machine` capability on also gets the machine's readings (`./machine`), while it's showing and has said `ready`.
  */
 import { join } from 'node:path'
 import { BridgeErrorCode, EventType, type PluginViewBounds } from '../../shared/bridge'
 import {
+  MAX_PLUGIN_MACHINE_HISTORY,
   PLUGIN_API_VERSION,
   PluginEventType,
   PluginMessageType,
   type GladeMessage,
   type PluginEvent,
+  type PluginSnapshotEvent,
 } from '../../shared/plugin-api'
-import { PluginStatus, type InstalledPlugin, type ValidPlugin } from '../../shared/plugins'
+import { isGranted, PluginCapability, PluginStatus, type InstalledPlugin, type ValidPlugin } from '../../shared/plugins'
 import { CommandFailure } from '../bridge/errors'
 import type { Emit } from '../bridge/events'
 import { SILENT_LOGGER, type Logger } from '../logging/logger'
 import type { PluginFeed, Unsubscribe } from './feed'
+import type { MachineMonitor } from './machine'
 import { createRateLimiter, cutStatus, parsePluginMessage, PLUGIN_RATE_LIMIT, type RateLimit } from './messages'
 
 /** A plugin's view in the window, as the host drives it (`./electron-view` makes the real one). */
@@ -56,6 +60,11 @@ export interface PluginViewsOptions {
   readonly appVersion: string
   /** Makes the views; none by default, where placing does nothing but check the plugin. */
   readonly createView?: CreatePluginView
+  /**
+   * The Mac's load, for a plugin with the `machine` capability on (`./machine`): subscribed to while such a plugin is
+   * showing and has said `ready`. None by default, where such a plugin gets no readings.
+   */
+  readonly machine?: Pick<MachineMonitor, 'subscribe' | 'history'>
   /** How many messages a plugin may post. */
   readonly rateLimit?: RateLimit
   readonly now?: () => number
@@ -89,6 +98,8 @@ interface Shown {
   seq: number
   /** Stops the feed's events, once `ready` has started them. */
   unsubscribe: Unsubscribe | null
+  /** Stops the machine's readings, while they're being sent. */
+  stopReadings: Unsubscribe | null
   status: string
   /** Whether messages are being dropped for coming too fast, so the log says so once, not per message. */
   flooding: boolean
@@ -102,6 +113,7 @@ export function createPluginViews({
   folder,
   appVersion,
   createView,
+  machine,
   rateLimit = PLUGIN_RATE_LIMIT,
   now = Date.now,
   log = SILENT_LOGGER,
@@ -119,6 +131,38 @@ export function createPluginViews({
     current.view.send({ source: 'glade', apiVersion: PLUGIN_API_VERSION, seq: current.seq, event })
   }
 
+  /** Whether a plugin may have the machine's readings: it's on, and so is its `machine` capability. */
+  const readsMachine = (id: string): boolean => {
+    const plugin = enabled(id)
+    return plugin !== undefined && isGranted(plugin, PluginCapability.Machine)
+  }
+
+  /**
+   * Sends the machine's readings to the shown view while it's showing (placed, not hidden), has said `ready` and has
+   * the capability on, and stops them the moment any of that stops being so: the monitor samples only while some view
+   * is listening.
+   */
+  const syncReadings = (current: Shown): void => {
+    const wanted =
+      shown === current && current.bounds !== null && current.unsubscribe !== null && readsMachine(current.id)
+    if (wanted && machine !== undefined && current.stopReadings === null) {
+      current.stopReadings = machine.subscribe((reading) => {
+        send(current, { type: PluginEventType.MachineReading, reading })
+      })
+      log.info('plugin machine readings started', { id: current.id })
+    } else if (!wanted && current.stopReadings !== null) {
+      current.stopReadings()
+      current.stopReadings = null
+      log.info('plugin machine readings stopped', { id: current.id })
+    }
+  }
+
+  /** The snapshot as `current` is sent it: with the latest readings when it has the `machine` capability on. */
+  const withReadings = (current: Shown, snapshot: PluginSnapshotEvent): PluginSnapshotEvent =>
+    machine !== undefined && readsMachine(current.id)
+      ? { ...snapshot, machine: machine.history().slice(-MAX_PLUGIN_MACHINE_HISTORY) }
+      : snapshot
+
   const setStatus = (current: Shown, text: string): void => {
     if (current.status === text) return
     current.status = text
@@ -130,6 +174,7 @@ export function createPluginViews({
     if (shown === current) shown = null
     current.unsubscribe?.()
     current.unsubscribe = null
+    syncReadings(current)
     current.view.destroy()
     log.info('plugin view destroyed', { id: current.id, reason })
     setStatus(current, '')
@@ -157,8 +202,9 @@ export function createPluginViews({
         current.seq = 0
         send(current, { type: PluginEventType.Hello, app: { name: 'Glade', version: appVersion } })
         current.unsubscribe = feed.subscribe((event) => {
-          send(current, event)
+          send(current, event.type === PluginEventType.Snapshot ? withReadings(current, event) : event)
         })
+        syncReadings(current)
         return
       case PluginMessageType.Status:
         setStatus(current, cutStatus(message.text))
@@ -181,7 +227,16 @@ export function createPluginViews({
       },
     })
     if (view === null) return null
-    current = { id: plugin.folder, view, seq: 0, unsubscribe: null, status: '', flooding: false, bounds: null }
+    current = {
+      id: plugin.folder,
+      view,
+      seq: 0,
+      unsubscribe: null,
+      stopReadings: null,
+      status: '',
+      flooding: false,
+      bounds: null,
+    }
     log.info('plugin view created', { id: plugin.folder })
     return current
   }
@@ -193,17 +248,24 @@ export function createPluginViews({
       if (shown !== null && shown.id !== id) destroy(shown, 'another plugin is shown')
       if (bounds === null) {
         shown?.view.hide()
-        if (shown !== null) shown.bounds = null
+        if (shown !== null) {
+          shown.bounds = null
+          syncReadings(shown)
+        }
         return { status: shown?.status ?? '' }
       }
       shown ??= open(plugin)
-      if (shown !== null) shown.bounds = bounds
-      shown?.view.place(bounds)
+      if (shown !== null) {
+        shown.bounds = bounds
+        shown.view.place(bounds)
+        syncReadings(shown)
+      }
       return { status: shown?.status ?? '' }
     },
     update(next) {
       plugins = next
       if (shown !== null && enabled(shown.id) === undefined) destroy(shown, 'the plugin is off')
+      if (shown !== null) syncReadings(shown)
     },
     reload(ids) {
       if (shown === null || !ids.includes(shown.id)) return
