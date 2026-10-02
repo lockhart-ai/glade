@@ -24,6 +24,7 @@ import { createEventLog } from '../logging/event-log'
 import { SILENT_LOGGER, LogScope, type Logger } from '../logging/logger'
 import { createPermissionBroker } from '../permissions/permissions'
 import { createPluginFeed } from '../plugins/feed'
+import { createMachineMonitor, type MachineMonitor, type MachineSamplers } from '../plugins/machine'
 import { databaseFeedSource } from '../plugins/feed-source'
 import { createPlugins, type Plugins } from '../plugins/plugins'
 import { createPluginViews, type CreatePluginView, type PluginViews } from '../plugins/views'
@@ -87,6 +88,11 @@ export interface BridgeOptions {
   /** Glade's version, which plugins are told in `hello`. */
   readonly appVersion?: string
   /**
+   * What reads the Mac's load for plugins with the `machine` capability on (`../plugins/machine-samplers` in the app,
+   * a fake machine in the test modes). None by default: such a plugin gets no readings.
+   */
+  readonly machineSamplers?: MachineSamplers
+  /**
    * Whether a command came from Glade's own window, given the IPC event: a plugin's page, or anything else, can't send
    * one. Every sender is by default.
    */
@@ -129,6 +135,8 @@ export interface RegisteredBridge {
   readonly plugins: Plugins
   /** The shown plugin's view, which ends when the app quits. */
   readonly pluginViews: PluginViews
+  /** What samples the Mac's load for plugins, which stops when the app quits; null without `machineSamplers`. */
+  readonly machine: MachineMonitor | null
   /** The control API (`glade-control`), which other agents drive Glade with. */
   readonly control: Control
   /**
@@ -170,6 +178,7 @@ export function registerBridge({
   pluginsFolder,
   createPluginView,
   appVersion = '0.0.0',
+  machineSamplers,
   isTrustedSender = () => true,
   updateMenu,
   closeWindow,
@@ -259,12 +268,18 @@ export function registerBridge({
   })
   const endpoint = createControlEndpoint({ db, emit, limiter, control, log: controlLog })
   const terminals = createTerminals({ db, emit, ...terminal, log: log.scoped(LogScope.Terminal) })
+  // Sampled only while a plugin with the `machine` capability on is showing: its view subscribes for that long.
+  const machine =
+    machineSamplers === undefined
+      ? null
+      : createMachineMonitor({ samplers: machineSamplers, log: log.scoped(LogScope.Plugins) })
   const pluginViews = createPluginViews({
     emit,
     feed,
     folder: pluginsFolder,
     appVersion,
     createView: createPluginView,
+    ...(machine === null ? {} : { machine }),
     log: log.scoped(LogScope.Plugins),
   })
   const plugins = createPlugins({
@@ -316,5 +331,17 @@ export function registerBridge({
     }
     return dispatch(command, request)
   })
-  return { runner, emit, terminals, plugins, pluginViews, control, endpoint, account, artifactWatch, folderWatch }
+  return {
+    runner,
+    emit,
+    terminals,
+    plugins,
+    pluginViews,
+    machine,
+    control,
+    endpoint,
+    account,
+    artifactWatch,
+    folderWatch,
+  }
 }

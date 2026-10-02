@@ -176,7 +176,9 @@ Settings (⌘,) opens on Agent. Changes save as you make them.
 - **Appearance:** nothing to set yet; Glade has one theme, dark.
 - **Keyboard:** every shortcut, rebindable (`keymap.md`).
 - **Plugins:** the plugins installed, each turned on or off, its own Reload button, and their folder (`plugin-api.md`).
-  Reading the folder again (opening this section) reloads a running plugin whose files changed on disk since.
+  Reading the folder again (opening this section) reloads a running plugin whose files changed on disk since. A
+  plugin that asks for a capability has a switch for it under its row, off until you turn it on: "Can see your Mac's
+  CPU, GPU and Docker load" (`machine`).
 - **Control:** whether other agents and scripts may drive Glade, and how to connect them (`control-api.md`).
 - **Workspace** (under its own heading, by the workspace's name): its name and root folder.
 

@@ -10,10 +10,17 @@ import {
   PluginTaskState,
   type GladeMessage,
   type PluginEvent,
+  type PluginMachineReading,
   type PluginMessage,
   type PluginTask,
 } from './plugin-api'
-import { gladeMessageSchema, pluginEventSchema, pluginMessageSchema, pluginTaskSchema } from './plugin-api-schema'
+import {
+  gladeMessageSchema,
+  pluginEventSchema,
+  pluginMachineReadingSchema,
+  pluginMessageSchema,
+  pluginTaskSchema,
+} from './plugin-api-schema'
 
 describe('the types', () => {
   it('match the schemas both ways', () => {
@@ -70,6 +77,51 @@ describe('gladeMessageSchema', () => {
     expect(gladeMessageSchema.safeParse({ source: 'glade', apiVersion: 2, seq: 1, event: hello }).success).toBe(false)
     expect(gladeMessageSchema.safeParse({ source: 'glade', apiVersion: 1, seq: 0, event: hello }).success).toBe(false)
     expect(pluginEventSchema.safeParse({ type: 'chat.message', body: 'hi' }).success).toBe(false)
+  })
+})
+
+describe('the machine readings', () => {
+  const READING: PluginMachineReading = {
+    t: 1_700_000_000_000,
+    cpuCount: 10,
+    total: 7.3,
+    claude: 4.6,
+    docker: 1.24,
+    gpu: 88,
+    containers: [
+      { name: 'acme-api-db-1', cpu: 78, memory: 440_401_920 },
+      { name: 'acme-api-web-1', cpu: 46, memory: 188_743_680 },
+    ],
+  }
+  const SNAPSHOT = { type: PluginEventType.Snapshot, tasks: [TASK], subagents: [], questions: [], permissions: [] }
+
+  it('takes a reading, with a GPU or without one, and with no containers', () => {
+    const event = { type: PluginEventType.MachineReading, reading: READING }
+    expect(pluginEventSchema.parse(event)).toEqual(event)
+    expect(pluginMachineReadingSchema.parse({ ...READING, gpu: null, containers: [] })).toMatchObject({ gpu: null })
+  })
+
+  it.each([
+    ['a process name or command', { ...READING, processes: ['claude --print'] }],
+    ['a container with its image', { ...READING, containers: [{ name: 'db', cpu: 1, memory: 1, image: 'pg:16' }] }],
+    ['a negative load', { ...READING, total: -1 }],
+    ['a GPU over 100%', { ...READING, gpu: 101 }],
+    ['no cores', { ...READING, cpuCount: 0 }],
+    ['fractional bytes', { ...READING, containers: [{ name: 'db', cpu: 1, memory: 1.5 }] }],
+    [
+      'a container name longer than 200 characters',
+      { ...READING, containers: [{ name: 'x'.repeat(201), cpu: 1, memory: 1 }] },
+    ],
+  ])('refuses a reading with %s', (_name, reading) => {
+    expect(pluginMachineReadingSchema.safeParse(reading).success).toBe(false)
+  })
+
+  it('takes a snapshot with the latest readings, up to 60, or without any machine at all', () => {
+    expect(pluginEventSchema.parse(SNAPSHOT)).toEqual(SNAPSHOT)
+    expect(pluginEventSchema.parse({ ...SNAPSHOT, machine: [] })).toEqual({ ...SNAPSHOT, machine: [] })
+    const full = { ...SNAPSHOT, machine: Array.from({ length: 60 }, (_, i) => ({ ...READING, t: i })) }
+    expect(pluginEventSchema.safeParse(full).success).toBe(true)
+    expect(pluginEventSchema.safeParse({ ...full, machine: [...full.machine, READING] }).success).toBe(false)
   })
 })
 

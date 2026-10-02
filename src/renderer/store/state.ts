@@ -14,7 +14,7 @@ import type {
 } from '../../shared/bridge'
 import { BUILT_IN_MODELS, type ModelChoice } from '../../shared/models'
 import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../shared/settings'
-import type { InstalledPlugin } from '../../shared/plugins'
+import type { InstalledPlugin, PluginCapability } from '../../shared/plugins'
 import type { ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
 import type { FileSearchResult, FolderEntry } from '../../shared/browse'
@@ -337,6 +337,8 @@ export interface GladeActions {
   loadPlugins: () => Promise<void>
   /** Turns a plugin on or off (`plugins.setEnabled`); the change saves at once. */
   setPluginEnabled: (id: string, enabled: boolean) => Promise<void>
+  /** Turns one of a plugin's capabilities on or off (`plugins.setCapability`); the change saves at once. */
+  setPluginCapability: (id: string, capability: PluginCapability, granted: boolean) => Promise<void>
   /** Opens the plugins folder in Finder (Open plugins folder). */
   openPluginsFolder: () => Promise<void>
   /**
