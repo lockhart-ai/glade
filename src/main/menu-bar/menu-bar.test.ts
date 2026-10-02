@@ -456,6 +456,57 @@ describe('the popover', () => {
     expect(popover().heights).toEqual([320])
   })
 
+  // #439: quitting closes every window before the menu bar is closed (`will-quit`). A change on its way then went to
+  // the popover's closed window, which threw from a timer: Electron's error dialog for it blocked the quit for good.
+  it('lets go of its window once that has closed, so a change on its way is not sent to it', () => {
+    const task = ranTask()
+    start()
+    menuBar.toggle()
+    const closed = popover()
+    closed.send = () => {
+      throw new TypeError('Object has been destroyed')
+    }
+    change(task, { activity: TaskActivity.Working })
+    closed.handlers.onClosed()
+    expect(menuBar.open).toBe(false)
+    expect(() => {
+      vi.advanceTimersByTime(REFRESH_DELAY_MS)
+    }).not.toThrow()
+    // The icon still catches up, and asks nothing more of the closed window, as the app quits or carries on.
+    expect(tray().title).toBe('')
+    menuBar.fit(320)
+    menuBar.hide()
+    menuBar.close()
+    expect(closed).toMatchObject({ heights: [], hides: 0, destroyed: false })
+  })
+
+  it('makes a new window on the next click once its window has closed', () => {
+    const task = ranTask()
+    start()
+    menuBar.toggle()
+    popover().handlers.onClosed()
+    menuBar.toggle()
+    expect(popovers).toHaveLength(2)
+    expect(menuBar.open).toBe(true)
+    expect(popover().shown).toEqual([TRAY_BOUNDS])
+    expect(lastSent().needsYou.map(({ taskId }) => taskId)).toEqual([task.id])
+  })
+
+  it('keeps its new window when one it already replaced says it closed', () => {
+    start()
+    menuBar.toggle()
+    const [first] = popovers
+    updateSettings(test.db, { showInMenuBar: false })
+    menuBar.observe({ type: EventType.SettingsChanged, settings: { ...DEFAULT_SETTINGS, showInMenuBar: false } })
+    updateSettings(test.db, { showInMenuBar: true })
+    menuBar.observe({ type: EventType.SettingsChanged, settings: DEFAULT_SETTINGS })
+    menuBar.toggle()
+    first?.handlers.onClosed()
+    expect(menuBar.open).toBe(true)
+    menuBar.fit(320)
+    expect(popover().heights).toEqual([320])
+  })
+
   it('goes with the icon when the app quits, and quitting twice is harmless', () => {
     ranTask({ activity: TaskActivity.Working })
     start()

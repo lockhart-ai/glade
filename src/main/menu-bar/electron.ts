@@ -89,6 +89,11 @@ export interface ElectronPopoverOptions {
  * (full-screen ones too) and on every Space, hidden until the icon is clicked. As a panel it takes the focus without
  * bringing Glade's other windows forward. It hides when it loses the focus. The first time it shows, it waits for its
  * page to say how tall it is (up to `FIRST_FIT_TIMEOUT_MS`).
+ *
+ * Its window can close without `destroy` being called: quitting closes every window before `will-quit`, where the menu
+ * bar is closed. Asking anything of a closed window throws ("Object has been destroyed"), which from a timer is an
+ * uncaught exception, and Electron's error dialog for one blocks the quit (#439). So it says when its window closed
+ * (`onClosed`), and from then on does nothing.
  */
 export function createElectronPopover({
   BrowserWindow: WindowClass,
@@ -98,7 +103,7 @@ export function createElectronPopover({
   hidden,
   track,
 }: ElectronPopoverOptions): CreatePopover {
-  return ({ onHidden }) => {
+  return ({ onHidden, onClosed }) => {
     const window = new WindowClass({
       width: MENU_BAR_POPOVER_WIDTH,
       height: MIN_POPOVER_HEIGHT,
@@ -133,6 +138,15 @@ export function createElectronPopover({
       window.hide()
       onHidden()
     })
+    // Whether the window is gone: closed by a quit (or anything else), or destroyed here.
+    let closed = false
+    window.on('closed', () => {
+      if (closed) return
+      closed = true
+      stopWaiting()
+      track(window, false)
+      onClosed()
+    })
     load(window)
     let anchor: Bounds | null = null
     let height = MIN_POPOVER_HEIGHT
@@ -156,6 +170,7 @@ export function createElectronPopover({
     }
     return {
       show: (bounds) => {
+        if (closed) return
         anchor = bounds
         place()
         if (fitted) reveal()
@@ -163,18 +178,23 @@ export function createElectronPopover({
       },
       hide: () => {
         stopWaiting()
+        if (closed) return
         window.hide()
       },
       send: (event) => {
+        if (closed) return
         window.webContents.send(EVENT_CHANNEL, event)
       },
       fit: (to) => {
+        if (closed) return
         height = to
         fitted = true
         place()
         if (waiting !== null) reveal()
       },
       destroy: () => {
+        if (closed) return
+        closed = true
         stopWaiting()
         track(window, false)
         window.destroy()

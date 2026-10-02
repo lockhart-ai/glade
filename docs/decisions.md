@@ -95,6 +95,10 @@
   [electron/electron#24956](https://github.com/electron/electron/pull/24956)), which drops Glade out of ⌘Tab and the
   Dock (the same as `LSUIElement`) for as long as the popover window exists
   ([electron/electron#26350](https://github.com/electron/electron/issues/26350) is the same regression upstream).
+  The window can close without the menu bar destroying it: quitting closes every window before `will-quit`, where
+  the menu bar is closed. Anything asked of a closed window throws ("Object has been destroyed"), and from the menu
+  bar's catch-up timer that was an uncaught exception, whose dialog blocked the quit (#439). So the popover says when
+  its window has closed, and the menu bar lets go of it: nothing more is sent to it, and the next click makes a new one.
 - **Long lists:** the Done section loads from SQLite a page at a time (keyset pagination on the list's own order, over
   an index), and renders only the rows in view with TanStack Virtual (`@tanstack/react-virtual`); everything outside it
   is loaded whole. No archiving (L-02, #67).

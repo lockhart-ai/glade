@@ -69,6 +69,39 @@ test("Glade's icon in the menu bar counts what needs you, and its popover opens 
   expect(visible).toEqual([false, false])
 })
 
+// #439: quitting closes every window before the menu bar is closed, and a change on its way then went to the popover's
+// closed window. That threw from a timer, and Electron's dialog for an uncaught exception blocked main, and the quit,
+// for good. Here the window closes while the app carries on, which took the same path.
+test("the popover's window closing by itself leaves the menu bar working: a change after it isn't sent to it, and a click makes a new one", async ({
+  launch,
+}) => {
+  const glade = await launch({ seed: seedPath('menu-bar.json') })
+  const { window } = glade
+  const page = await clickMenuBarIcon(glade)
+  await expect(menuBarPopover(page).rows('Needs you')).toHaveCount(1)
+
+  const closed = page.waitForEvent('close')
+  await glade.app.evaluate(({ BrowserWindow }, route) => {
+    for (const each of BrowserWindow.getAllWindows()) if (each.webContents.getURL().endsWith(route)) each.close()
+  }, '#menu-bar')
+  await closed
+  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ shown: true, open: false })
+
+  // A change: opening the task that needs you reads its reply. The icon catches up, and main still answers.
+  await chooseMenuItem(glade, 'Workspace', 'Switch workspace', 'Billing')
+  await taskList(window).taskRow(NEEDS_YOU).click()
+  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ title: '' })
+  await chooseMenuItem(glade, 'Task', 'Mark as unread')
+  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ title: '1' })
+
+  // The next click makes a new window, showing what's in flight now.
+  const reopened = await clickMenuBarIcon(glade)
+  expect(reopened).not.toBe(page)
+  await expect.poll(() => menuBarIcon(glade)).toMatchObject({ open: true })
+  await expect(menuBarPopover(reopened).row('Needs you', NEEDS_YOU)).toBeVisible()
+  await expect(menuBarPopover(reopened).rows('Working')).toHaveCount(1)
+})
+
 test('the popover says when nothing is in flight', async ({ launch }) => {
   const glade = await launch()
   await expect.poll(() => menuBarIcon(glade)).toMatchObject({ shown: true, title: '' })
