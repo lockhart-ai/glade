@@ -8,13 +8,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventType, type GladeEvent } from '../../shared/bridge'
-import { addArtifact, listFileArtifacts } from '../db/repositories/artifacts'
+import { addArtifact, listArtifacts, listFileArtifacts } from '../db/repositories/artifacts'
 import { openTestDatabase, sampleTask, sampleWorkspace, type TestDatabase } from '../db/repositories/test-database'
 import { createQuestionBroker } from '../questions/questions'
 import {
   createGladeMcpServer,
   createGladeToolHandlers,
   GLADE_SERVER,
+  NEW_TARGET_OF_ANOTHER_KIND,
+  PATH_OR_URL,
   UPDATE_CHANGES_NOTHING,
   type GladeToolContext,
 } from './glade-tools'
@@ -269,6 +271,110 @@ describe('remove_artifact', () => {
     for (const input of [{}, { path: '  ' }]) expect((await remove(input)).isError).toBe(true)
 
     expect(listed()).toEqual([['out/screens/landing.png', 'Landing page']])
+    expect(events).toEqual([])
+  })
+})
+
+describe('link artifacts (#407)', () => {
+  const PR = 'https://github.com/acme/api/pull/412'
+  const TICKET = 'https://acme.atlassian.net/browse/API-123'
+
+  function add(input: Record<string, unknown>): Promise<McpToolOutcome> {
+    return tools.call('mcp__glade__add_artifact', input)
+  }
+
+  /** The task's artifacts, as `kind title`, in their order. */
+  function all(): string[] {
+    return listArtifacts(database.db, taskId).map(({ kind, title }) => `${kind} ${title}`)
+  }
+
+  it('adds a link by its url, after the files, and renames it when it’s added again', async () => {
+    await expect(add({ url: 'HTTPS://github.com/acme/api/pull/412', title: 'Navigation refresh' })).resolves.toEqual({
+      output: `Added ${PR} to the artifacts as "Navigation refresh".`,
+      isError: false,
+    })
+    vi.setSystemTime(3_000)
+    await expect(add({ url: PR, title: '#412' })).resolves.toEqual({
+      output: `Renamed the artifact ${PR} to "#412".`,
+      isError: false,
+    })
+
+    expect(all()).toEqual(['file Release notes', 'file Landing page', 'link #412'])
+    expect(events.filter(({ type }) => type === EventType.ArtifactsChanged)).toHaveLength(2)
+  })
+
+  it('renames a link, points it at another page, and takes it off, by its url', async () => {
+    await add({ url: PR, title: 'PR' })
+
+    await expect(update({ url: PR, title: 'Navigation refresh' })).resolves.toEqual({
+      output: `Renamed the artifact ${PR} to "Navigation refresh".`,
+      isError: false,
+    })
+    await expect(update({ url: PR, newUrl: TICKET })).resolves.toEqual({
+      output: `Moved the artifact "Navigation refresh" from ${PR} to ${TICKET}.`,
+      isError: false,
+    })
+    await expect(update({ url: TICKET, newUrl: PR, title: 'PR again' })).resolves.toEqual({
+      output: `Moved the artifact ${TICKET} to ${PR}, now called "PR again".`,
+      isError: false,
+    })
+    await expect(update({ url: PR, title: 'PR again' })).resolves.toEqual({
+      output: `The artifact ${PR} is already called "PR again"; nothing changed.`,
+      isError: false,
+    })
+    await expect(remove({ url: PR })).resolves.toEqual({
+      output: `Removed ${PR} ("PR again") from the artifacts.`,
+      isError: false,
+    })
+
+    expect(all()).toEqual(['file Release notes', 'file Landing page'])
+  })
+
+  it('answers with a tool error, changing nothing, for a url that can’t be one or isn’t one', async () => {
+    await add({ url: PR, title: 'PR' })
+    events.length = 0
+
+    for (const url of ['javascript:alert(1)', 'file:///etc/hosts', 'mailto:me@example.com', 'example.com/docs']) {
+      const outcome = await add({ url, title: 'Bad' })
+      expect(outcome.isError, url).toBe(true)
+      expect(outcome.output, url).toMatch(/^The url /)
+    }
+    await expect(update({ url: TICKET, title: 'X' })).resolves.toEqual({
+      output: `${TICKET} isn't one of this task's artifacts.`,
+      isError: true,
+    })
+    await expect(update({ url: PR, newUrl: 'data:text/plain,hi' })).resolves.toMatchObject({ isError: true })
+    await expect(remove({ url: TICKET })).resolves.toMatchObject({ isError: true })
+
+    expect(all()).toEqual(['file Release notes', 'file Landing page', 'link PR'])
+    expect(events).toEqual([])
+  })
+
+  it('needs one of path and url, not both, and a file a newPath and a link a newUrl', async () => {
+    await add({ url: PR, title: 'PR' })
+    events.length = 0
+
+    for (const outcome of [
+      await add({ title: 'Nothing' }),
+      await add({ path: 'docs/releases/2.4.md', url: PR, title: 'Both' }),
+      await update({ title: 'Nothing' }),
+      await update({ path: 'docs/releases/2.4.md', url: PR, title: 'Both' }),
+      await remove({}),
+      await remove({ path: 'docs/releases/2.4.md', url: PR }),
+    ]) {
+      expect(outcome).toEqual({ output: PATH_OR_URL, isError: true })
+    }
+    await expect(update({ url: PR })).resolves.toEqual({ output: UPDATE_CHANGES_NOTHING, isError: true })
+    await expect(update({ url: PR, newPath: 'docs/releases/2.4.md' })).resolves.toEqual({
+      output: NEW_TARGET_OF_ANOTHER_KIND,
+      isError: true,
+    })
+    await expect(update({ path: 'docs/releases/2.4.md', newUrl: PR })).resolves.toEqual({
+      output: NEW_TARGET_OF_ANOTHER_KIND,
+      isError: true,
+    })
+
+    expect(all()).toEqual(['file Release notes', 'file Landing page', 'link PR'])
     expect(events).toEqual([])
   })
 })

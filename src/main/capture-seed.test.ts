@@ -4,6 +4,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   AgentErrorKind,
+  ArtifactFilter,
+  ArtifactKind,
   AutoCompactKind,
   CompactionTrigger,
   DividerKind,
@@ -25,7 +27,7 @@ import {
   type EpochMs,
 } from '../shared/domain'
 import { applySeed, readSeed, seedArtifactAt, type CaptureSeed } from './capture-seed'
-import { listFileArtifacts } from './db/repositories/artifacts'
+import { getArtifactFilter, listArtifacts, listFileArtifacts } from './db/repositories/artifacts'
 import { getHandoff } from './db/repositories/backfills'
 import { listMessages } from './db/repositories/messages'
 import { listRecentNotifications } from './db/repositories/notifications'
@@ -243,6 +245,17 @@ describe('readSeed', () => {
     expect(seed.settings).toEqual({ controlEnabled: true })
     expect(seed.workspace.id).toBe(DRIVES_GLADE.workspaceId)
     expect(seed.tasks[0]?.id).toBe(DRIVES_GLADE.target.id)
+  })
+
+  it('refuses a sample link artifact that isn’t a URL, or a filter it doesn’t know (#407)', () => {
+    const task = (extra: Readonly<Record<string, unknown>>) => ({
+      ...SEED,
+      tasks: [{ title: 'T', minutesAgo: 0, ...extra }],
+    })
+    expect(() =>
+      readSeed(write(JSON.stringify(task({ artifacts: [{ url: 'not a url', title: 'X', minutesAgo: 1 }] })))),
+    ).toThrow(/is invalid: /)
+    expect(() => readSeed(write(JSON.stringify(task({ artifactFilter: 'images' }))))).toThrow(/is invalid: /)
   })
 
   it('refuses settings it does not know, or of the wrong kind', () => {
@@ -574,6 +587,48 @@ describe('applySeed', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  it('declares links among a task’s artifacts, at their times, and the Artifacts tab’s filter (#407)', () => {
+    const { db } = database
+    const now = new Date(2026, 8, 26, 14, 20).getTime()
+
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          {
+            title: 'Ship the navigation',
+            minutesAgo: 0,
+            artifacts: [
+              { path: 'docs/notes.md', title: 'Notes', minutesAgo: 30 },
+              { url: 'https://github.com/acme/api/pull/412', title: 'Navigation refresh', minutesAgo: 6 },
+              { url: 'https://acme.atlassian.net/browse/API-123', title: 'Epic', daysAgo: 1, time: '17:05' },
+            ],
+            artifactFilter: ArtifactFilter.Links,
+          },
+          { title: 'Another', minutesAgo: 0 },
+        ],
+      },
+      now,
+    )
+
+    const tasks = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    const idOf = (title: string): string => tasks.find((task) => task.title === title)?.id ?? ''
+    expect(
+      listArtifacts(db, idOf('Ship the navigation')).map((artifact) => [
+        artifact.kind,
+        artifact.title,
+        artifact.addedAt,
+      ]),
+    ).toEqual([
+      [ArtifactKind.Link, 'Epic', new Date(2026, 8, 25, 17, 5).getTime()],
+      [ArtifactKind.File, 'Notes', now - 30 * 60_000],
+      [ArtifactKind.Link, 'Navigation refresh', now - 6 * 60_000],
+    ])
+    expect(getArtifactFilter(db, idOf('Ship the navigation'))).toBe(ArtifactFilter.Links)
+    expect(getArtifactFilter(db, idOf('Another'))).toBe(ArtifactFilter.All)
   })
 
   it('declares an artifact at a time of day some days back, in the local time zone, and never after now', () => {

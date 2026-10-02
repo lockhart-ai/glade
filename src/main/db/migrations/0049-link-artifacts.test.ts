@@ -4,17 +4,17 @@ import { openDatabase } from '../database'
 import { migrate } from '../migrate'
 import { addLinkArtifact, getArtifactFilter, listArtifacts } from '../repositories/artifacts'
 import { MIGRATIONS } from '.'
-import { linkArtifactsMigration } from './0048-link-artifacts'
+import { linkArtifactsMigration } from './0049-link-artifacts'
 
-it('is migration 48', () => {
-  expect(MIGRATIONS.find((migration) => migration.version === 48)).toBe(linkArtifactsMigration)
+it('is migration 49', () => {
+  expect(MIGRATIONS.find((migration) => migration.version === 49)).toBe(linkArtifactsMigration)
 })
 
 it('keeps every artifact as a file, in its order and with what was seen of it, and adds links and the filter', () => {
   const db = openDatabase(':memory:')
   migrate(
     db,
-    MIGRATIONS.filter((migration) => migration.version < 48),
+    MIGRATIONS.filter((migration) => migration.version < 49),
   )
   db.prepare("INSERT INTO workspaces VALUES ('w', 'Acme API', '/code/acme-api', 1, 1)").run()
   db.prepare(

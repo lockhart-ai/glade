@@ -43,7 +43,7 @@ import { usageReadingsMigration } from './0042-usage-readings'
 import { terminalWorkspacesMigration } from './0043-terminal-workspaces'
 import { refusalFallbackMigration } from './0044-refusal-fallback'
 import { pastedBlocksMigration } from './0045-pasted-blocks'
-import { linkArtifactsMigration } from './0048-link-artifacts'
+import { linkArtifactsMigration } from './0049-link-artifacts'
 
 /** Every migration, in version order. Append new ones; never edit or reorder shipped ones. */
 export const MIGRATIONS: readonly Migration[] = [

@@ -161,8 +161,9 @@ scroll: the chat passes under them.
 - **Links open in your browser.** A link or a bare URL in a reply, your message, a card, the tool log, the header, a
   todo or anywhere else Glade shows what the agent or you wrote is clickable (⌘-click works too, and ↵ on a focused
   link); an email address opens your mail app. URLs in code stay plain. When a link's text isn't its address, hover it
-  to see where it goes. Right-click a link to open it or copy its address. Glade only opens web and mail links, and
-  never inside its own window.
+  to see where it goes. Right-click a link to open it, copy its address, or **Add to artifacts**, which keeps a web
+  link in the task's Artifacts tab (called what the link says, or `#412` or `API-123` for a bare PR, issue or ticket
+  link). Glade only opens web and mail links, and never inside its own window.
 - **Click code to copy it.** Click a code span (`like this`) to copy its exact text, with a small **Copied** shown for
   a moment; dragging to select part of it, instead, works as ordinary text selection. It's focusable, and ↵ copies it
   too. A fenced code block, and a permission card's command or change, get a copy icon in their corner, shown on hover
@@ -304,7 +305,16 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   keeps the list current too: it can rename an artifact, point it at its file where it moved, or take it off the list
   (the file stays), and the tab follows at once. Artifacts stay after the task is done.
 
-  ![The Artifacts tab: screenshots with thumbnails and drafts under Today and Yesterday, older groups folded](images/guide/artifacts.png)
+  **Links** are artifacts too: the PRs the agent opens or works on, and the issues and tickets the task is about, so
+  this tab is the one place to get back to them. The agent adds them as it goes, and you can add any web link from
+  its right-click menu (**Add to artifacts**). Each shows what it is from its address alone: a pull request icon and
+  `#412 · acme/api`, an issue icon and `#398 · acme/api`, a ticket icon and `API-123` for Jira, or a link icon and the
+  site's domain for anything else. A link is dated by when it was added. Clicking one opens it in your browser; hover
+  it for **Open link**, **Copy link** and **More** (Open link, Copy link, Remove from artifacts). While a task has
+  both files and links, an **All · Files · Links** filter shows above the groups, with each kind's count; the task
+  remembers your choice. Glade doesn't look up whether a PR is open or merged.
+
+  ![The Artifacts tab: a PR, an issue and a ticket among screenshots and drafts under Today and Yesterday, with the All · Files · Links filter above them](images/guide/artifacts.png)
 - **Subagents:** one row per subagent, running ones first, with how long it's run and its tool calls. A running one
   shows a one-line summary of what it's doing now under its name (refreshed about every 30 seconds; hover it for the
   whole line), then its latest tool call or the last thing it said; a finished one shows what it came to.

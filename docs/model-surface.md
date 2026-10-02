@@ -171,15 +171,44 @@ nothing.
 `add_artifact` still renames an artifact declared again, as before, so older habits keep working; `update_artifact`
 is the way to change one on purpose, and the only way to repoint it.
 
+## Implemented: link artifacts (#407, names unconfirmed)
+
+An artifact can be a link instead of a file: a PR the agent opens or works on, or the issue or ticket the task is
+about, so the Artifacts tab is the one place to get back to them. The three tools take a `url` in place of a `path`,
+one or the other: both, or neither, is a tool error (`Give the artifact's path (a file) or its url (a link): one of
+them, not both.`).
+
+- **`add_artifact`** takes `{ url: string, title: string }` too. The URL must be a whole `http:` or `https:` one
+  (`checkArtifactUrl` in `src/shared/artifactLinks.ts`): no `javascript:`, `file:`, `data:`, `mailto:` or custom
+  scheme, no whitespace or control characters, no user name or password, at most 2048 characters; anything else is a
+  tool error (`The url javascript: links can't be artifacts: only http and https.`) and adds nothing. It's kept, and
+  keyed, as the URL parser writes it out (the scheme and host lower-cased, a default port dropped), so the same page
+  given twice is one artifact, renamed the second time. The handler is `addTaskLinkArtifact` in
+  `src/main/artifacts/artifacts.ts`; the reply is `Added <url> to the artifacts as "<title>".` or
+  `Renamed the artifact <url> to "<title>".`
+- **`update_artifact`** takes `{ url: string, title?: string, newUrl?: string }` for a link (`updateTaskLinkArtifact`),
+  with the same replies as for a file, the URLs in place of the paths. A file takes a `newPath` and a link a `newUrl`:
+  the other way about is a tool error, since an artifact can't change its kind (remove it and add the other).
+- **`remove_artifact`** takes `{ url: string }` for a link (`forgetTaskLinkArtifact`); the reply is
+  `Removed <url> ("<title>") from the artifacts.`
+
+The Artifacts tab tells what a link is from its URL alone, with no network call (`recogniseLink`): a GitHub pull
+request (`github.com/<owner>/<repo>/pull/<n>`, and the pages under it) shows a PR icon and `#412 · acme/api`, an issue
+(`…/issues/<n>`) an issue icon and `#398 · acme/api`, a Jira ticket (a path ending in `/browse/<KEY>-<n>`, on
+`*.atlassian.net` or a Jira of your own) a ticket icon and `API-123`, and anything else (a GitHub Enterprise host
+included: it can't be told from any other site) a link icon and its domain. A link is dated by when it was declared
+or last changed, as it has no file. Clicking one opens it in the browser through `links.open`, never in Glade. Its
+status (open, merged, closed) isn't fetched.
+
 | Tool | Input (draft) | Effect |
 |---|---|---|
 | `set_title` | `{ title: string }` | Names the task. Called once from the first message; the user can rename later. |
 | `set_objective` | `{ objective: string }` | Distils the objective from the first message. Set once. |
 | `set_status` | `{ status: string }` | Rewrites the status summary shown in the header and the task list. Becomes the outcome on Done. |
 | `ask` | `{ preamble?: string, questions: Question[] }` | Shows a rich question card in the chat, led by the agent's reply to your message, and blocks until answered. See below. |
-| `add_artifact` | `{ path: string, title: string }` | Declares a file as a deliverable of the task (Artifacts tab). |
-| `update_artifact` | `{ path: string, title?: string, newPath?: string }` | Renames an artifact and/or points it at another file, keeping its place. |
-| `remove_artifact` | `{ path: string }` | Takes a file off the task's artifacts; the file stays. |
+| `add_artifact` | `{ path: string, title: string }` or `{ url: string, title: string }` | Declares a file as a deliverable of the task, or a link (a PR, an issue, a ticket) it's about (Artifacts tab). |
+| `update_artifact` | `{ path: string, title?: string, newPath?: string }` or `{ url: string, title?: string, newUrl?: string }` | Renames an artifact and/or points it at another file or page, keeping its place. |
+| `remove_artifact` | `{ path: string }` or `{ url: string }` | Takes a file or a link off the task's artifacts; a file stays. |
 | `show_file` | `{ path: string, line?: number }` | Opens a file in the Files tab for the user. |
 
 `Question` (draft):
@@ -259,6 +288,7 @@ The user sees the task through its title, objective and status. Keep them curren
 When you need the user to decide something before you can go on, call ask instead of asking in your reply: it shows your questions on a card and waits for the answers. Ask everything you need at once, with choices or pills when the likely answers are known. When you ask in response to a message, first respond to it in preamble, then ask.
 
 When you make a deliverable the user asked for (a report, a document, a draft), call add_artifact with its path and a short title, so it shows in the Artifacts tab and stays with the task after it is done. Keep that list current: if its file moves or it needs a new title, call update_artifact; if it's no longer a deliverable, call remove_artifact.
+When you open or work on a pull request, or the task is about an issue or a ticket (GitHub, Jira), call add_artifact with its url and a short title, so the user finds it in the Artifacts tab next to the files.
 
 When you leave a script running to watch something (a PR, CI, a deploy, a remote job), start it with the Monitor tool or with Bash's run_in_background, not by backgrounding it yourself (nohup, &), so it shows in the task's Watchers tab.
 ```
@@ -267,6 +297,10 @@ The line about the last message is for the chat (#301): it shows only the agent'
 ([`product.md`](product.md), the chat log), and everything before a later tool call goes to the tool log. An agent
 that answers and then carries on (files an issue, updates its notes) would otherwise end on a line about that, and
 the answer would be buried. Narration between tool calls stays in the tool log.
+
+The line about pull requests, issues and tickets is for link artifacts (#407): tasks depend on remote things that
+would otherwise be scattered through the chat, the todos and the tool log, and the Artifacts tab is the one place to
+get back to them.
 
 The last line is for the Watchers tab (#250, [`sdk-notes.md`](sdk-notes.md) §13): Glade follows what the agent starts
 with the SDK's own tools (`Monitor`, background `Bash`, `ScheduleWakeup`, `CronCreate`), whatever script it runs, but
@@ -288,7 +322,7 @@ Two more parts are added after that, each after a blank line, when they apply:
 **Resumed sessions.** Claude Code keeps a session's system prompt when it resumes it
 ([`sdk-notes.md` §8](sdk-notes.md#8-resume-verified)), so a line added to the prompt reaches only sessions started
 after it. The lines added since sessions first had Glade's prompt are listed, oldest first, in `INSTRUCTION_UPDATES`
-(so far only the last-message line, #301). A session that started before one was added is sent the ones it hasn't
+(so far the last-message line, #301, and the link artifacts line, #407). A session that started before one was added is sent the ones it hasn't
 had once, as a `[Glade: new instructions for this session] … [end]` block ahead of the next message Glade sends it;
 the chat shows only your message. How many each session has had is kept in SQLite
 (`session_context.instruction_updates`), so a relaunch neither loses nor repeats the block. An imported session gets

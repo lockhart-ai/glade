@@ -14,7 +14,7 @@ import type { Migration } from '../migrate'
  *   chose one for; without one it shows all. They go with their task.
  */
 export const linkArtifactsMigration: Migration = {
-  version: 48,
+  version: 49,
   name: 'Add link artifacts, and the Artifacts tab’s filter',
   up(db) {
     db.exec(`

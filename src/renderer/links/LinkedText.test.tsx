@@ -1,7 +1,9 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { ArtifactKind, UiStateKey, type Artifact } from '../../shared/domain'
 import { highlightPattern } from '../../shared/search'
 import { storeWrapper } from '../store/test-wrapper'
+import { Link } from './Link'
 import { LinkedText } from './LinkedText'
 
 function renderText(text: string, pattern: RegExp | null = null, main: { opened?: string[]; copied?: string[] } = {}) {
@@ -68,6 +70,84 @@ describe('LinkedText', () => {
     await waitFor(() => {
       expect(opened).toEqual(['https://example.com/app'])
       expect(copied).toEqual(['https://example.com/app'])
+    })
+  })
+
+  describe('Add to artifacts (#407)', () => {
+    const PR = 'https://github.com/acme/api/pull/412'
+
+    /** A task `t1`, open, with these artifacts, hydrated. */
+    async function openTask(artifacts: readonly Artifact[] = []) {
+      const wrapper = storeWrapper({
+        uiState: [
+          { key: UiStateKey.ActiveWorkspaceId, value: 'w1' },
+          { key: UiStateKey.SelectedTaskId, value: 't1' },
+        ],
+        artifacts,
+      })
+      await act(() => wrapper.store.getState().hydrate())
+      await act(() => wrapper.store.getState().loadHistory('t1'))
+      return wrapper
+    }
+
+    /** The items of a link's menu, opened by a right-click. */
+    function menuOf(link: HTMLElement): string[] {
+      fireEvent.contextMenu(link)
+      const menu = screen.getByRole('menu', { name: 'Link actions' })
+      return within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent)
+    }
+
+    it('adds a web link to the open task’s artifacts, called its #N, and then no longer offers to', async () => {
+      const wrapper = await openTask()
+      render(<LinkedText text={`Opened ${PR} for review.`} />, { wrapper: wrapper.wrapper })
+      const link = screen.getByRole('link', { name: PR })
+
+      expect(menuOf(link)).toEqual(['Open link', 'Copy link', 'Add to artifacts'])
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Add to artifacts' }))
+
+      await waitFor(() => {
+        expect(wrapper.store.getState().artifacts.t1).toEqual([
+          expect.objectContaining({ kind: ArtifactKind.Link, url: PR, title: '#412' }),
+        ])
+      })
+      expect(menuOf(link)).toEqual(['Open link', 'Copy link'])
+    })
+
+    it('is called what a Markdown-style link says', async () => {
+      const wrapper = await openTask()
+      render(
+        <Link href="https://example.com/style" text="Code sample style guide">
+          Code sample style guide
+        </Link>,
+        {
+          wrapper: wrapper.wrapper,
+        },
+      )
+
+      fireEvent.contextMenu(screen.getByRole('link', { name: 'Code sample style guide' }))
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Add to artifacts' }))
+
+      await waitFor(() => {
+        expect(wrapper.store.getState().artifacts.t1?.map(({ title }) => title)).toEqual(['Code sample style guide'])
+      })
+    })
+
+    it('isn’t offered for a mail link, or one already among the task’s artifacts', async () => {
+      const added: Artifact = { kind: ArtifactKind.Link, taskId: 't1', url: PR, title: 'PR', addedAt: 1, updatedAt: 1 }
+      const wrapper = await openTask([added])
+      render(<LinkedText text={`${PR} and support@example.com`} />, { wrapper: wrapper.wrapper })
+
+      expect(menuOf(screen.getByRole('link', { name: PR }))).toEqual(['Open link', 'Copy link'])
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+      expect(menuOf(screen.getByRole('link', { name: 'support@example.com' }))).toEqual(['Open link', 'Copy link'])
+    })
+
+    it('isn’t offered with no task open', () => {
+      renderText('See https://example.com/docs')
+
+      expect(menuOf(screen.getByRole('link', { name: 'https://example.com/docs' }))).toEqual(['Open link', 'Copy link'])
     })
   })
 })
