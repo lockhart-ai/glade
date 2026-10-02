@@ -244,7 +244,7 @@ describe('noteSelection', () => {
   it('ignores other keys, a missing task, and no selection with no workspace shown', () => {
     const acme = sampleWorkspace(database.db)
 
-    noteSelection(database.db, { key: UiStateKey.TaskFilter, value: 'unread' })
+    noteSelection(database.db, { key: UiStateKey.RightPanelTab, value: 'files' })
     noteSelection(database.db, { key: UiStateKey.SelectedTaskId, value: 'gone' })
     noteSelection(database.db, { key: UiStateKey.SelectedTaskId, value: '' })
 

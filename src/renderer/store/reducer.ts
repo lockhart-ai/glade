@@ -37,7 +37,6 @@ export function withUiState(state: GladeData, entry: UiStateEntry): GladeData {
     case UiStateKey.PinnedSectionCollapsed:
     case UiStateKey.ActiveSectionCollapsed:
     case UiStateKey.DoneSectionCollapsed:
-    case UiStateKey.TaskFilter:
     case UiStateKey.RelaunchNotice:
     case UiStateKey.RightPanelTab:
     case UiStateKey.RightPanelWidth:

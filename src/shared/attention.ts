@@ -38,27 +38,3 @@ export function needsYou(task: AttentionFields): boolean {
       return false
   }
 }
-
-/** The task list's filter chips. */
-export enum TaskFilter {
-  All = 'all',
-  NeedsYou = 'needs_you',
-  Unread = 'unread',
-}
-
-/** The filter a stored value names, or All for anything else (it's unset until you first pick one). */
-export function parseTaskFilter(value: string | undefined): TaskFilter {
-  return Object.values(TaskFilter).find((filter) => filter === value) ?? TaskFilter.All
-}
-
-/** Whether a task shows in the task list under a filter. */
-export function matchesFilter(task: AttentionFields & Pick<Task, 'unread'>, filter: TaskFilter): boolean {
-  switch (filter) {
-    case TaskFilter.All:
-      return true
-    case TaskFilter.NeedsYou:
-      return needsYou(task)
-    case TaskFilter.Unread:
-      return task.unread
-  }
-}

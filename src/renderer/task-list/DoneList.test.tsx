@@ -3,7 +3,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandName, EventType } from '../../shared/bridge'
-import { TaskFilter } from '../../shared/attention'
 import { DONE_PAGE_SIZE } from '../../shared/doneList'
 import { TaskState, UiStateKey, type Task, type UiStateEntry } from '../../shared/domain'
 import { ToastProvider } from '../components'
@@ -118,7 +117,7 @@ async function scrollToBottom(store: GladeStore): Promise<number> {
     await act(async () => {
       await Promise.resolve()
     })
-    const pages = store.getState().doneLists['w1:all']
+    const pages = store.getState().doneLists.w1
     if (pages?.hasMore === false && doneTitles().includes(`Done ${String(DONE_TASKS - 1)}`)) return scrolls
     if (scrolls > 50) throw new Error('never reached the bottom')
   }
@@ -369,7 +368,7 @@ describe('the Done section with more than a thousand tasks', () => {
   it('takes a reopened task out of Done while scrolled down, and counts it out', async () => {
     const tasks = manyDone()
     const { store, fake } = await renderList(tasks)
-    await act(() => store.getState().loadDoneThrough('w1', TaskFilter.All, null))
+    await act(() => store.getState().loadDoneThrough('w1', null))
     scrollTo(300 * (STUB_ROW_HEIGHT + 2))
     await act(async () => {
       await Promise.resolve()
@@ -465,7 +464,7 @@ describe('the Done section with more than a thousand tasks', () => {
     const last = doneId(DONE_TASKS - 1)
     const { store, fake } = await renderList(manyDone(), [EXPANDED, { key: UiStateKey.SelectedTaskId, value: last }])
     await vi.waitFor(() => {
-      expect(store.getState().doneLists['w1:all']?.hasMore).toBe(false)
+      expect(store.getState().doneLists.w1?.hasMore).toBe(false)
     })
     const loads = pageLoads(fake)
 
@@ -485,26 +484,18 @@ describe('the Done section with more than a thousand tasks', () => {
     await vi.waitFor(() => {
       expect(section('Done').querySelector('[aria-current="true"]')).toHaveTextContent('Done 640')
     })
-    expect(store.getState().doneLists['w1:all']?.end?.id).toBe(doneId(699))
+    expect(store.getState().doneLists.w1?.end?.id).toBe(doneId(699))
     expect(scrolledTo).toHaveBeenCalledWith(expect.objectContaining({ top: expect.any(Number) as unknown }))
   })
 
-  it('counts and pages the unread done tasks under the Unread chip, from their own first page', async () => {
+  it('pages the Done section whole, read and unread tasks together, asking main for no filter (#411)', async () => {
     const { fake } = await renderList([ACTIVE, ...manyDone()])
-    const unreadChip = within(screen.getByRole('group', { name: 'Filter tasks' })).getByRole('button', {
-      name: /^Unread/,
-    })
-    expect(unreadChip).toHaveTextContent(`Unread${String(DONE_TASKS / 8)}`)
 
-    fireEvent.click(unreadChip)
-    await vi.waitFor(() => {
-      expect(doneTitles().slice(0, 2)).toEqual(['Done 0', 'Done 8'])
-    })
-
-    expect(header('Done')).toHaveTextContent(`Done${String(DONE_TASKS / 8)}`)
+    expect(screen.queryByRole('group', { name: 'Filter tasks' })).toBeNull()
+    expect(header('Done')).toHaveTextContent(`Done${String(DONE_TASKS)}`)
+    expect(doneTitles().slice(0, 3)).toEqual(['Done 0', 'Done 1', 'Done 2'])
     expect(fake.invoke).toHaveBeenCalledWith(CommandName.TasksListDone, {
       workspaceId: 'w1',
-      filter: TaskFilter.Unread,
       after: null,
       limit: DONE_PAGE_SIZE,
     })
@@ -524,7 +515,7 @@ describe('the Done section with more than a thousand tasks', () => {
     scrollTo(90 * STUB_ROW_HEIGHT)
 
     expect(await screen.findByText('disk full')).toBeInTheDocument()
-    expect(store.getState().doneLists['w1:all']?.hasMore).toBe(true)
+    expect(store.getState().doneLists.w1?.hasMore).toBe(true)
   })
 
   it('opens the Done section on 2,000 done tasks quickly, rendering a screenful of rows', async () => {

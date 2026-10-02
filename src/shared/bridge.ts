@@ -274,7 +274,7 @@ export interface TasksListActiveResponse {
   readonly done: DoneCounts
 }
 
-/** A page of a workspace's Done section under a filter chip, starting just after the page before's last task. */
+/** A page of a workspace's Done section, starting just after the page before's last task. */
 export type TasksListDoneRequest = DonePageRequest
 
 export type TasksListDoneResponse = DonePage

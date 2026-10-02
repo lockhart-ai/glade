@@ -1,6 +1,5 @@
 import { CommandName, isBridgeError, type GladeBridge } from '../../shared/bridge'
 import { UiStateKey, type Task, type Workspace } from '../../shared/domain'
-import { parseTaskFilter } from '../../shared/attention'
 import { DONE_PAGE_SIZE, type DoneCounts } from '../../shared/doneList'
 import { withDonePage, withLoadedTasks } from './doneLists'
 import { withLiveWatchers, withRunningSubagents, withUiState } from './reducer'
@@ -37,7 +36,7 @@ export function restoreSelection(state: GladeData): GladeData {
  * Loads main's state: every workspace, each one's tasks outside the Done section and how many are in it, the terminal
  * tabs, every task's live watchers and running subagents, the UI state, the settings, the models the pickers offer,
  * the account and where logging in stands, with the selection restored. The selected task is loaded wherever it is, and the
- * shown workspace's Done section has its first page loaded under the filter chip chosen, so the task list is whole
+ * shown workspace's Done section has its first page loaded, so the task list is whole
  * from the first frame.
  */
 export async function loadSnapshot(bridge: GladeBridge): Promise<GladeData> {
@@ -101,14 +100,12 @@ export async function loadSnapshot(bridge: GladeBridge): Promise<GladeData> {
   const restored = restoreSelection(found)
   const workspaceId = restored.selectedWorkspaceId
   if (workspaceId === null) return restored
-  const filter = parseTaskFilter(restored.uiState[UiStateKey.TaskFilter])
   const page = await bridge.invoke(CommandName.TasksListDone, {
     workspaceId,
-    filter,
     after: null,
     limit: DONE_PAGE_SIZE,
   })
-  return withDonePage(restored, workspaceId, filter, page)
+  return withDonePage(restored, workspaceId, page)
 }
 
 /** A readable reason for a failed load: a `BridgeError`'s or `Error`'s message, or the value itself. */

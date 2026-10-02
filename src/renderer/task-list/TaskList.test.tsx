@@ -29,7 +29,6 @@ import {
   type FakeHandlers,
   type FakeMain,
 } from '../store/test-bridge'
-import { TaskFilter } from '../../shared/attention'
 import { WindowCommandId } from '../../shared/commands'
 import { InputBar } from '../input-bar'
 import { TaskList, TaskListToolbar } from '.'
@@ -99,12 +98,6 @@ function rowTitles(name: string): string[] {
 function row(title: string): HTMLElement {
   // Anchored and followed by the time, so it doesn't match the New task button.
   return screen.getByRole('button', { name: new RegExp(`^${title}.+`) })
-}
-
-function chip(name: string): HTMLElement {
-  return within(screen.getByRole('group', { name: 'Filter tasks' })).getByRole('button', {
-    name: new RegExp(`^${name}`),
-  })
 }
 
 function pressAlt(key: 'ArrowUp' | 'ArrowDown', target: Element | Window = window): void {
@@ -482,123 +475,38 @@ describe('TaskList', () => {
 })
 
 describe('TaskListToolbar', () => {
-  it('shows the search field and the filter chips, with All on', async () => {
+  it('shows the search field and New task, and no filter chips (#411)', async () => {
     await renderList()
 
     expect(screen.getByRole('searchbox', { name: 'Search tasks' })).toHaveAttribute('placeholder', 'Search')
-    const chips = within(screen.getByRole('group', { name: 'Filter tasks' })).getAllByRole('button')
-    expect(chips.map((chip) => [chip.textContent, chip.getAttribute('aria-pressed')])).toEqual([
-      ['All', 'true'],
-      // The active tasks in w1 whose agent is waiting on you.
-      ['Needs you3', 'false'],
-      ['Unread1', 'false'],
-    ])
+    expect(screen.getByRole('button', { name: 'New task' })).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Filter tasks' })).toBeNull()
+    for (const name of [/^All/, /^Needs you/, /^Unread/]) expect(screen.queryByRole('button', { name })).toBeNull()
   })
 
-  it('counts the tasks that need you: active, turn over (waiting or errored), and run at least once', async () => {
-    await renderList([
-      task('w', 'Waiting', 1),
-      task('e', 'Errored', 2, { activity: TaskActivity.Error }),
-      task('e0', 'Failed before its session started', 3, { activity: TaskActivity.Error, sessionId: null }),
-      task('k', 'Working', 4, { activity: TaskActivity.Working }),
-      task('n', 'Brand new', 5, { sessionId: null }),
-      task('d', 'Done', 6, { state: TaskState.Done, unread: true }),
-      task('p', 'Pinned', 7, { pinned: true, unread: true }),
-    ])
-
-    expect(chip('Needs you')).toHaveTextContent('Needs you4')
-    expect(chip('Unread')).toHaveTextContent('Unread2')
-  })
-
-  it('filters the list to the tasks that need you, or the unread ones, and remembers the choice', async () => {
+  it('lists every task, whether or not it needs you or is unread, and keeps listing them as they change', async () => {
     const { fake } = await renderList(TASKS, [{ key: UiStateKey.DoneSectionCollapsed, value: 'false' }])
+    const everything = {
+      Pinned: ['Draft release notes for 2.425m'],
+      Active: ['Move image uploads to S3now', 'Add rate limiting to public API4m', 'Fix flaky login test9m'],
+      Done: ['Upgrade Django3d'],
+    }
+    const listed = (): Record<string, string[]> =>
+      Object.fromEntries(['Pinned', 'Active', 'Done'].map((name) => [name, rowTitles(name)]))
+    expect(listed()).toEqual(everything)
 
-    fireEvent.click(chip('Needs you'))
-
-    await vi.waitFor(() => {
-      expect(chip('Needs you')).toHaveAttribute('aria-pressed', 'true')
+    // Read, and working again: neither takes a row off the list.
+    act(() => {
+      fake.emit({ type: EventType.TaskUpdated, task: task('a3', 'Fix flaky login test', 9, { unread: false }) })
+      fake.emit({
+        type: EventType.TaskUpdated,
+        task: task('a1', 'Add rate limiting to public API', 4, { activity: TaskActivity.Working }),
+      })
     })
-    expect(chip('All')).toHaveAttribute('aria-pressed', 'false')
-    expect(fake.invoke).toHaveBeenCalledWith(CommandName.UiStateSet, {
-      key: UiStateKey.TaskFilter,
-      value: TaskFilter.NeedsYou,
-    })
-    expect(rowTitles('Pinned')).toEqual(['Draft release notes for 2.425m'])
-    expect(rowTitles('Active')).toEqual(['Add rate limiting to public API4m', 'Fix flaky login test9m'])
-    expect(rowTitles('Done')).toEqual([])
-    // Each section counts what it shows; the chips count the whole workspace.
-    expect(section('Active')).toHaveTextContent(/^Active2/)
-    expect(section('Done')).toHaveTextContent(/^Done0$/)
-    expect(chip('Unread')).toHaveTextContent('Unread1')
 
-    fireEvent.click(chip('Unread'))
-    await vi.waitFor(() => {
-      expect(rowTitles('Active')).toEqual(['Fix flaky login test9m'])
-    })
-    expect(rowTitles('Pinned')).toEqual([])
-
-    fireEvent.click(chip('All'))
-    await vi.waitFor(() => {
-      expect(rowTitles('Active')).toHaveLength(3)
-    })
-    expect(fake.invoke).toHaveBeenLastCalledWith(CommandName.UiStateSet, {
-      key: UiStateKey.TaskFilter,
-      value: TaskFilter.All,
-    })
-  })
-
-  it('does nothing when the chosen chip is clicked again', async () => {
-    const { fake } = await renderList()
-
-    fireEvent.click(chip('All'))
-
+    expect(listed()).toEqual(everything)
+    expect(section('Active')).toHaveTextContent(/^Active3/)
     expect(fake.invoke).not.toHaveBeenCalledWith(CommandName.UiStateSet, expect.anything())
-  })
-
-  it('restores the chosen filter, and moves ⌥↓ through the rows it shows', async () => {
-    const { store } = await renderList(TASKS, [
-      { key: UiStateKey.TaskFilter, value: TaskFilter.NeedsYou },
-      { key: UiStateKey.SelectedTaskId, value: 'p1' },
-    ])
-
-    expect(chip('Needs you')).toHaveAttribute('aria-pressed', 'true')
-    expect(rowTitles('Active')).toEqual(['Add rate limiting to public API4m', 'Fix flaky login test9m'])
-
-    pressAlt('ArrowDown')
-    await vi.waitFor(() => {
-      expect(store.getState().selectedTaskId).toBe('a1')
-    })
-  })
-
-  it('shows All for a stored filter it does not know', async () => {
-    await renderList(TASKS, [{ key: UiStateKey.TaskFilter, value: 'starred' }])
-
-    expect(chip('All')).toHaveAttribute('aria-pressed', 'true')
-    expect(rowTitles('Active')).toHaveLength(3)
-  })
-
-  it('keeps the counts and the filtered rows live as tasks change', async () => {
-    const { fake } = await renderList(TASKS, [{ key: UiStateKey.TaskFilter, value: TaskFilter.Unread }])
-
-    act(() => {
-      fake.emit({
-        type: EventType.TaskUpdated,
-        task: task('a1', 'Add rate limiting to public API', 4, { unread: true }),
-      })
-    })
-    expect(chip('Unread')).toHaveTextContent('Unread2')
-    expect(rowTitles('Active')).toEqual(['Add rate limiting to public API4m', 'Fix flaky login test9m'])
-
-    act(() => {
-      fake.emit({ type: EventType.TaskUpdated, task: task('a3', 'Fix flaky login test', 9) })
-      fake.emit({
-        type: EventType.TaskUpdated,
-        task: task('a2', 'Move image uploads to S3', 0, { activity: TaskActivity.Waiting }),
-      })
-    })
-    expect(chip('Unread')).toHaveTextContent('Unread1')
-    expect(chip('Needs you')).toHaveTextContent('Needs you4')
-    expect(rowTitles('Active')).toEqual(['Add rate limiting to public API4m'])
   })
 
   it('creates a task in the workspace with +, and selects it', async () => {

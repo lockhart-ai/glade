@@ -4,7 +4,6 @@
 // (#382). Each checks the rows, the events the windows get and the task's place in the window's lists.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { CommandName, EventType } from '../../shared/bridge'
-import { TaskFilter } from '../../shared/attention'
 import { TaskState, type Task, type Workspace } from '../../shared/domain'
 import { getExternalId } from '../db/repositories/backfills'
 import { getTask, listTasks } from '../db/repositories/tasks'
@@ -89,7 +88,6 @@ async function update(id: string, patch: Readonly<Record<string, unknown>>): Pro
 async function doneSection(): Promise<string[]> {
   const page = await app.glade.invoke(CommandName.TasksListDone, {
     workspaceId: workspace.id,
-    filter: TaskFilter.All,
     after: null,
     limit: 100,
   })

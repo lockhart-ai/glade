@@ -1,14 +1,13 @@
 import { faChevronDown, faChevronRight, faThumbtack } from '@fortawesome/free-solid-svg-icons'
 import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { parseTaskFilter, TaskFilter } from '../../shared/attention'
-import { UiStateKey, type Task } from '../../shared/domain'
-import { doneTotal, inDoneList } from '../../shared/doneList'
+import type { Task } from '../../shared/domain'
+import { inDoneList } from '../../shared/doneList'
 import { WindowCommandId } from '../../shared/commands'
 import { useCommands } from '../commands/hooks'
 import { Collapse, Icon, IconSize, useToast } from '../components'
 import { ContextMenu, useContextMenu } from '../context-menus'
-import { doneCountsFor, doneListKey, isLoaded } from '../store/doneLists'
+import { doneCountsFor, isLoaded } from '../store/doneLists'
 import { describeFailure } from '../store/hydrate'
 import { useGladeStore, useGladeStoreApi } from '../store/react'
 import {
@@ -57,8 +56,7 @@ function inView(row: Element, list: Element): boolean {
 }
 
 /**
- * A workspace's tasks in the Pinned, Active and Done sections, kept live from the store, narrowed to the filter chosen
- * with the chips above (`TaskListToolbar`); each section counts the tasks it shows. Each section collapses, and
+ * A workspace's tasks in the Pinned, Active and Done sections, kept live from the store; each section counts its tasks. Each section collapses, and
  * remembers it. Clicking a row selects its task; ⌥↑ / ⌥↓ move the selection through the expanded sections, and ⌘⌥↓
  * jumps to the next task that needs you. The selected task scrolls into view. The task being renamed (F2) shows a text
  * field for its title in its row. Right-clicking a row, or ⇧F10 on it, opens the task's context menu.
@@ -87,12 +85,8 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
   // The scroller, as state rather than a ref: the Done section's rows can only lay out once it's mounted.
   const [list, setList] = useState<HTMLDivElement | null>(null)
 
-  const filter = parseTaskFilter(uiState[UiStateKey.TaskFilter])
-  const sections = useMemo(
-    () => listSections({ tasks, doneLists, uiState }, workspaceId, filter),
-    [tasks, doneLists, uiState, workspaceId, filter],
-  )
-  const donePages = doneLists[doneListKey(workspaceId, filter)]
+  const sections = useMemo(() => listSections({ tasks, doneLists }, workspaceId), [tasks, doneLists, workspaceId])
+  const donePages = doneLists[workspaceId]
 
   const fail = useCallback(
     (error: unknown): void => {
@@ -101,19 +95,19 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
     [toast],
   )
 
-  // The Done section's first page, for a workspace or filter chip it hasn't loaded under yet.
+  // The Done section's first page, for a workspace it hasn't loaded yet.
   const doneUnloaded = donePages === undefined
   useEffect(() => {
-    if (doneUnloaded) loadDonePage(workspaceId, filter).catch(fail)
-  }, [doneUnloaded, workspaceId, filter, loadDonePage, fail])
+    if (doneUnloaded) loadDonePage(workspaceId).catch(fail)
+  }, [doneUnloaded, workspaceId, loadDonePage, fail])
 
   // A selected done task below the pages loaded (restored, or opened from a link) loads down to its row.
   const selectedTask = selectedTaskId === null ? undefined : tasks[selectedTaskId]
   const selectedBelow =
-    selectedTask !== undefined && inDoneList(selectedTask, workspaceId, filter) && !isLoaded(selectedTask, donePages)
+    selectedTask !== undefined && inDoneList(selectedTask, workspaceId) && !isLoaded(selectedTask, donePages)
   useEffect(() => {
-    if (selectedBelow && selectedTaskId !== null) loadDoneThrough(workspaceId, filter, selectedTaskId).catch(fail)
-  }, [selectedBelow, selectedTaskId, workspaceId, filter, loadDoneThrough, fail])
+    if (selectedBelow && selectedTaskId !== null) loadDoneThrough(workspaceId, selectedTaskId).catch(fail)
+  }, [selectedBelow, selectedTaskId, workspaceId, loadDoneThrough, fail])
 
   // The selected task's row scrolls into view, if it's off screen. (The Done section's rows do this themselves.)
   useEffect(() => {
@@ -128,14 +122,13 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
   // including the message field itself.
   const step = async (direction: Step): Promise<void> => {
     const state = store.getState()
-    const shown = parseTaskFilter(state.uiState[UiStateKey.TaskFilter])
     const order = listedTaskIds(state, workspaceId)
     const index = state.selectedTaskId === null ? -1 : order.indexOf(state.selectedTaskId)
     if (!isCollapsed(state.uiState, SectionId.Done)) {
       if (direction === Step.Next && index !== -1 && index === order.length - 1) {
-        await loadDonePage(workspaceId, shown)
+        await loadDonePage(workspaceId)
       } else if (direction === Step.Previous && index === -1) {
-        await loadDoneThrough(workspaceId, shown, null)
+        await loadDoneThrough(workspaceId, null)
       }
     }
     const after = store.getState()
@@ -151,7 +144,7 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
       step(Step.Previous).catch(fail)
     },
     [WindowCommandId.NextTaskNeedingYou]: () => {
-      const next = nextNeedingYou(sectionTasks(Object.values(tasks), workspaceId, TaskFilter.All), selectedTaskId)
+      const next = nextNeedingYou(sectionTasks(Object.values(tasks), workspaceId), selectedTaskId)
       if (next !== null) void selectTask(next)
     },
   })
@@ -174,8 +167,8 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
     />
   )
   const loadMore = useCallback(() => {
-    loadDonePage(workspaceId, filter).catch(fail)
-  }, [loadDonePage, workspaceId, filter, fail])
+    loadDonePage(workspaceId).catch(fail)
+  }, [loadDonePage, workspaceId, fail])
 
   return (
     <div className={styles.list} ref={setList}>
@@ -183,7 +176,7 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
         <Section
           key={section.id}
           section={section}
-          count={section.id === SectionId.Done ? doneTotal(doneCounts, filter) : section.tasks.length}
+          count={section.id === SectionId.Done ? doneCounts.all : section.tasks.length}
           collapsed={isCollapsed(uiState, section.id)}
           onToggle={(collapsed) => {
             void setUiState({ key: collapseKey(section.id), value: collapsedValue(collapsed) })

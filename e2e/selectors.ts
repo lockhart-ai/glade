@@ -73,12 +73,8 @@ export function firstRun(page: Page) {
 /** A task list section's name. */
 export type TaskSectionName = 'Pinned' | 'Active' | 'Done'
 
-/** A task list filter chip's name. */
-export type TaskFilterName = 'All' | 'Needs you' | 'Unread'
-
 /**
- * The sidebar's task list: the search field, the New task button, the filter chips and the Pinned, Active and Done
- * sections.
+ * The sidebar's task list: the search field, the New task button and the Pinned, Active and Done sections.
  */
 export function taskList(page: Page) {
   const sidebar = regions(page).sidebar
@@ -86,9 +82,8 @@ export function taskList(page: Page) {
   return {
     newTask: sidebar.getByRole('button', { name: 'New task', exact: true }),
     search: sidebar.getByRole('searchbox', { name: 'Search tasks' }),
-    /** A filter chip, whose name is its label then its count (e.g. `Needs you1`); `aria-pressed` while it's chosen. */
-    filter: (name: TaskFilterName) =>
-      sidebar.getByRole('group', { name: 'Filter tasks' }).getByRole('button', { name: new RegExp(`^${name}`) }),
+    /** The filter chips the sidebar had until #411 (All · Needs you · Unread): none now. */
+    filterChips: sidebar.getByRole('button', { name: /^(All|Needs you|Unread)\d*$/ }),
     /** A task's row, in whichever section it is, by its title. */
     taskRow: (title: string) => sidebar.getByRole('listitem').getByRole('button', { name: new RegExp(`^${title}`) }),
     /** The list item of the task you're viewing (its row is `aria-current`), whose `data-task-id` is the task's id. */

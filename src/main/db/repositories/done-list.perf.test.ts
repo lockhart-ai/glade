@@ -1,7 +1,6 @@
 // The Done section has to stay quick however long it grows: each page is a short range of an index, so the last page of
 // thousands of done tasks costs what the first does.
 import { afterAll, beforeAll, expect, it } from 'vitest'
-import { TaskFilter } from '../../../shared/attention'
 import { cursorOf, DONE_PAGE_SIZE, type TaskCursor } from '../../../shared/doneList'
 import { Effort, TaskState } from '../../../shared/domain'
 import { countDoneTasks, createTask, listActiveTasks, listDoneTasks, updateTask } from './tasks'
@@ -72,7 +71,7 @@ it(`loads every page of ${String(DONE_TASKS)} done tasks within ${String(BUDGET_
   let loaded = 0
   const times: number[] = []
   for (;;) {
-    const request = { workspaceId, filter: TaskFilter.All, after, limit: DONE_PAGE_SIZE }
+    const request = { workspaceId, after, limit: DONE_PAGE_SIZE }
     times.push(timed(() => listDoneTasks(database.db, request)))
     const page = listDoneTasks(database.db, request)
     loaded += page.tasks.length

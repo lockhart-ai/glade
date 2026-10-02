@@ -10,7 +10,7 @@ import { collapsedValue, collapseKey, isCollapsed, listSections, type SectionId 
 
 /**
  * The task list section whose row shows a task, where it can be renamed; undefined when there's none: the task is
- * gone, the filter chip hides it, or the sidebar lists search results instead.
+ * gone, or the sidebar lists search results instead.
  */
 export function renameSection(
   state: Pick<GladeData, 'tasks' | 'doneLists' | 'searchText' | 'uiState'>,

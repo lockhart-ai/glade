@@ -106,15 +106,14 @@ async function searchFor(text: string, count: number): Promise<void> {
 }
 
 describe('searching', () => {
-  it('replaces the task list and chips with the results as you type, each with its matches marked', async () => {
+  it('replaces the task list with the results as you type, each with its matches marked', async () => {
     const { invoke } = await renderApp()
-    expect(screen.getByRole('group', { name: 'Filter tasks' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Active' })).toBeInTheDocument()
 
     await searchFor('Retry-After', 3)
 
     expect(invoke).toHaveBeenCalledWith(CommandName.SearchQuery, { workspaceId: 'w1', text: 'Retry-After' })
     expect(screen.queryByRole('region', { name: 'Active' })).toBeNull()
-    expect(screen.queryByRole('group', { name: 'Filter tasks' })).toBeNull()
     expect(resultRows()).toEqual([
       expect.stringMatching(
         /^Add rate limiting to public API.*Over the limit, return 429 with a \[Retry-After\] header\.$/,
@@ -214,7 +213,6 @@ describe('searching', () => {
     expect(searchField()).toHaveValue('')
     expect(screen.queryByRole('region', { name: 'Search results' })).toBeNull()
     expect(screen.getByRole('region', { name: 'Active' })).toBeInTheDocument()
-    expect(screen.getByRole('group', { name: 'Filter tasks' })).toBeInTheDocument()
 
     await searchFor('flaky', 1)
     type('')

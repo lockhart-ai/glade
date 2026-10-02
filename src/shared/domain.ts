@@ -545,8 +545,6 @@ export enum UiStateKey {
   ActiveSectionCollapsed = 'active_section_collapsed',
   /** Whether the task list's Done section is collapsed: `'true'` or `'false'`. Unset means collapsed. */
   DoneSectionCollapsed = 'done_section_collapsed',
-  /** The task list's filter chip: a `TaskFilter` (`./attention`). Unset means All. */
-  TaskFilter = 'task_filter',
   /**
    * The relaunch notice after Glade quit unexpectedly, until you dismiss it: a `RelaunchNotice` (`./relaunchNotice`) as
    * JSON. Unset or empty means no notice.

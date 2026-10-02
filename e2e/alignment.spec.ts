@@ -116,12 +116,11 @@ for (const size of [{ width: 1920, height: 1200 }, MIN_WINDOW]) {
     const call = await boxOf(taskPanel(window).log.getByRole('button').first())
     expectNear(call.x, await contentLeft(taskPanel(window).tab(/^Tool calls/)), 'tool call and tab label')
 
-    // The sidebar: the search field, the filter chips, the section headers and the task rows share one left edge, the
+    // The sidebar: the search field, the section headers and the task rows share one left edge, the
     // panel inset in from the card, and one inner padding, so their content lines up too.
     const sidebar = await boxOf(areas.sidebar)
     const items: Record<string, Locator> = {
       'search field': list.search.locator('xpath=..'),
-      'first filter chip': list.filter('All'),
       'Pinned header': list.sectionHeader('Pinned'),
       'Active header': list.sectionHeader('Active'),
       'Done header': list.sectionHeader('Done'),
@@ -157,12 +156,12 @@ for (const size of [{ width: 1920, height: 1200 }, MIN_WINDOW]) {
     expectNear((await boxOf(list.search.locator('xpath=..').locator('svg'))).x, content, 'search icon')
 
     // The sidebar header's visible content sits on those same edges (#253): the workspace's badge starts where the
-    // search field and the chips do, and the collapse button's icon, as drawn, ends where New task does. The buttons
+    // search field does, and the collapse button's icon, as drawn, ends where New task does. The buttons
     // around them draw nothing until hovered, so it's the badge and the glyph that have to line up, not the boxes.
     const switcher = workspaceSwitcher(window).trigger
     const badge = await boxOf(switcher.locator('[data-tone]'))
     expectNear(badge.x, left, 'workspace badge, left edge')
-    expectNear(badge.x, (await boxOf(list.filter('All'))).x, 'workspace badge and first filter chip, left edge')
+    expectNear(badge.x, (await boxOf(list.sectionHeader('Pinned'))).x, 'workspace badge and Pinned header, left edge')
     const collapse = panelToggles(window).collapseTaskList
     const glyph = await glyphBox(collapse.locator('svg'))
     expectNear(glyph.x + glyph.width, right, 'collapse icon, right edge')
