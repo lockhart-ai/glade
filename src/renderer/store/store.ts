@@ -658,8 +658,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         return loading
       },
 
-      async answerQuestions(id, answers) {
-        await bridge.invoke(CommandName.QuestionsAnswer, { id, answers })
+      async answerQuestions(id, answers, anythingElse) {
+        await bridge.invoke(
+          CommandName.QuestionsAnswer,
+          anythingElse === undefined ? { id, answers } : { id, answers, anythingElse },
+        )
       },
 
       async answerPermission(id, decision) {
@@ -680,6 +683,20 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
 
       async retryTask(taskId, model) {
         await bridge.invoke(CommandName.TasksRetry, model === undefined ? { id: taskId } : { id: taskId, model })
+      },
+
+      async retryLoggedOut() {
+        await bridge.invoke(CommandName.TasksRetryLoggedOut, {})
+      },
+
+      async startLogin(taskId) {
+        const { status } = await bridge.invoke(CommandName.LoginStart, { taskId })
+        set({ login: status })
+      },
+
+      async cancelLogin() {
+        const { status } = await bridge.invoke(CommandName.LoginCancel, {})
+        set({ login: status })
       },
 
       async compactTask(taskId) {

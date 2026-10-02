@@ -23,6 +23,7 @@ import {
   type QuestionReply,
   type QuestionSet,
 } from '../../shared/domain'
+import { answersResult } from '../../shared/questions'
 import { CommandFailure } from '../bridge/errors'
 import { emitQuestionSet, emitTaskUpdated } from '../bridge/events'
 import { lastTurn } from '../db/repositories/messages'
@@ -67,11 +68,14 @@ export interface QuestionBroker {
   close(): void
 }
 
-/** What the `ask` tool gives the model for a reply: the answers keyed by question index, or `{ freeText }`. */
+/**
+ * What the `ask` tool gives the model for a reply: the answers keyed by question index, with `anythingElse` when the
+ * card's "Anything else?" box has text, or `{ freeText }`.
+ */
 export function toolResultFor(reply: QuestionReply): string {
   switch (reply.kind) {
     case QuestionReplyKind.Answers:
-      return JSON.stringify(reply.answers)
+      return JSON.stringify(answersResult(reply))
     case QuestionReplyKind.FreeText:
       return JSON.stringify({ freeText: reply.text })
   }

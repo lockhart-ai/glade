@@ -17,6 +17,7 @@ import {
   createTask,
   getTask,
   listDoneTasks,
+  listLoggedOutTasks,
   listPausedTasks,
   listStaleTodoTaskIds,
   listTasks,
@@ -188,6 +189,38 @@ describe('listWorkingTasks', () => {
     updateTask(test.db, working(workspace.id, 1_000).id, { state: TaskState.Done })
 
     expect(listWorkingTasks(test.db)).toEqual([older, newer])
+  })
+})
+
+describe('listLoggedOutTasks', () => {
+  const error = (kind: AgentErrorKind): TaskError => ({
+    kind,
+    source: TaskErrorSource.Api,
+    status: 401,
+    code: 'authentication_failed',
+    details: 'Not logged in · Please run /login',
+    retries: 0,
+    retryingMs: 0,
+  })
+
+  it("lists every workspace's active tasks a lost login stopped, oldest first, and no others", () => {
+    const other = sampleWorkspace(test.db, '/code/billing')
+    const stopped = (workspaceId: string, now: number, kind = AgentErrorKind.LoggedOut) =>
+      updateTask(
+        test.db,
+        sampleTask(test.db, workspaceId, now).id,
+        { activity: TaskActivity.Error, error: error(kind) },
+        now,
+      )
+    const newer = stopped(workspace.id, 3_000)
+    const older = stopped(other.id, 2_000)
+    stopped(workspace.id, 1_000, AgentErrorKind.Permanent)
+    sampleTask(test.db, workspace.id)
+    updateTask(test.db, stopped(workspace.id, 500).id, { state: TaskState.Done })
+    // Working again, its old error not yet cleared, isn't stopped.
+    updateTask(test.db, stopped(other.id, 600).id, { activity: TaskActivity.Working })
+
+    expect(listLoggedOutTasks(test.db).map((task) => task.id)).toEqual([older.id, newer.id])
   })
 })
 

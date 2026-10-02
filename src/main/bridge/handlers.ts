@@ -63,6 +63,7 @@ import { CommandFailure } from './errors'
 import type { Emit } from './events'
 import type { ControlEndpoint } from '../control/endpoint'
 import type { AccountTracker } from '../account/account'
+import { retryLoggedOutTasks, type LoginService } from '../account/login'
 import type { MenuBarCommands } from '../menu-bar/menu-bar'
 import { readMenuBarSnapshot } from '../menu-bar/snapshot'
 
@@ -108,6 +109,8 @@ export interface HandlerContext {
   readonly endpoint: ControlEndpoint
   /** The account the tasks run on and its usage warning. */
   readonly account: AccountTracker
+  /** Logging in to Claude (`login.*`). */
+  readonly login: LoginService
   /** What the menu bar popover's page asks of main (`menuBar.*`). Nothing by default: no popover, nothing to do. */
   readonly menuBar?: MenuBarCommands
   /** Where errors in the window are logged (`log.rendererError`). Nothing by default. */
@@ -129,7 +132,8 @@ function terminalWorkspace(db: Database, workspaceId: string | null): Workspace 
 }
 
 export function createHandlers(context: HandlerContext): Handlers {
-  const { db, emit, chooseFolder, runner, writeClipboard, terminals, plugins, pluginViews, endpoint, account } = context
+  const { db, emit, chooseFolder, runner, writeClipboard, terminals, plugins, pluginViews, endpoint, account, login } =
+    context
   const renderer = (context.log ?? SILENT_LOGGER).scoped(LogScope.Renderer)
   const ipcLog = (context.log ?? SILENT_LOGGER).scoped(LogScope.Ipc)
   const changes = { db, emit, git: context.git ?? createGit() }
@@ -187,6 +191,7 @@ export function createHandlers(context: HandlerContext): Handlers {
     }),
     [CommandName.TasksStop]: async ({ id }) => ({ task: await runner.stop(id) }),
     [CommandName.TasksRetry]: ({ id, model }) => ({ task: runner.retry(id, model) }),
+    [CommandName.TasksRetryLoggedOut]: () => ({ tasks: retryLoggedOutTasks({ db, runner, log: ipcLog }) }),
     [CommandName.TasksCompact]: ({ id }) => ({ task: runner.compact(id) }),
     [CommandName.SubagentsStop]: async ({ taskId, toolUseId }) => {
       await runner.stopSubagent(taskId, toolUseId)
@@ -250,7 +255,9 @@ export function createHandlers(context: HandlerContext): Handlers {
       setInputDraft(db, change)
       return null
     },
-    [CommandName.QuestionsAnswer]: ({ id, answers }) => ({ questionSet: runner.answer(id, answers) }),
+    [CommandName.QuestionsAnswer]: ({ id, answers, anythingElse }) => ({
+      questionSet: runner.answer(id, answers, anythingElse),
+    }),
     [CommandName.PermissionsAnswer]: ({ id, decision }) => ({
       permissionRequest: runner.answerPermission(id, decision),
     }),
@@ -334,6 +341,9 @@ export function createHandlers(context: HandlerContext): Handlers {
     },
     [CommandName.ControlStatus]: () => ({ status: endpoint.status() }),
     [CommandName.AccountStatus]: () => ({ status: account.status() }),
+    [CommandName.LoginStatus]: () => ({ status: login.status() }),
+    [CommandName.LoginStart]: ({ taskId }) => ({ status: login.start(taskId) }),
+    [CommandName.LoginCancel]: () => ({ status: login.cancel() }),
     [CommandName.ControlRegenerateToken]: () => ({ status: endpoint.regenerateToken() }),
     [CommandName.SearchQuery]: ({ workspaceId, text }) => ({ results: searchTasks(db, workspaceId, text) }),
     [CommandName.PluginsList]: async () => ({ plugins: await plugins.list() }),

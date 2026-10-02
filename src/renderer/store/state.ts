@@ -17,6 +17,7 @@ import { DEFAULT_SETTINGS, type Settings, type SettingsPatch } from '../../share
 import type { InstalledPlugin, PluginCapability } from '../../shared/plugins'
 import type { ControlStatus } from '../../shared/control'
 import type { AccountStatus } from '../../shared/account'
+import { IDLE_LOGIN, type LoginStatus } from '../../shared/login'
 import type { SettingsSection } from '../settings/sections'
 import type { FileEdits, OpenEditSession, TaskFile, UnsavedChoice, UnsavedPrompt } from '../files/unsaved'
 import type { Command, MenuState } from '../../shared/commands'
@@ -262,6 +263,11 @@ export interface GladeData {
    * answered at launch (`account.status`) or last broadcast them.
    */
   readonly accountStatus: AccountStatus
+  /**
+   * Where logging in to Claude stands (`../../shared/login`): the logged-out card and Settings › General show it, as
+   * main answered at launch (`login.status`) or last broadcast it.
+   */
+  readonly login: LoginStatus
   /** The latest request to add text to a task's message field; null until one is made. A one-off UI intent. */
   readonly inputInsertion: InputInsertion | null
   /**
@@ -492,10 +498,11 @@ export interface GladeActions {
    */
   loadImage: (id: string) => Promise<ImageData>
   /**
-   * Answers an open question set with the card's answers, keyed by question index (`questions.answer`). Resolves once
-   * main has them; the answered set arrives as an event. Rejects with `invalid_request` for answers that don't fit.
+   * Answers an open question set with the card's answers, keyed by question index, and its "Anything else?" text, if
+   * any (`questions.answer`). Resolves once main has them; the answered set arrives as an event. Rejects with
+   * `invalid_request` for answers that don't fit.
    */
-  answerQuestions: (id: string, answers: QuestionAnswers) => Promise<void>
+  answerQuestions: (id: string, answers: QuestionAnswers, anythingElse?: string) => Promise<void>
   /**
    * Answers an open permission request: Allow once, or Deny with an optional note (`permissions.answer`). Resolves once
    * main has it; the answered request arrives as an event. Rejects with `invalid_transition` once it's closed.
@@ -512,6 +519,15 @@ export interface GladeActions {
   stopTask: (taskId: string) => Promise<void>
   /** Retries the turn an error stopped, on `model` if given (`tasks.retry`). */
   retryTask: (taskId: string, model?: string) => Promise<void>
+  /** Retries every task a lost login stopped (Retry all, `tasks.retryLoggedOut`). */
+  retryLoggedOut: () => Promise<void>
+  /**
+   * Starts Claude Code's own login (`login.start`), which opens the browser; `taskId`'s turn is retried once you're
+   * logged in. Resolves once it has started; how it goes arrives as events.
+   */
+  startLogin: (taskId: string | null) => Promise<void>
+  /** Stops the login running (`login.cancel`). */
+  cancelLogin: () => Promise<void>
   /**
    * Compacts the task's context now (Compact now, ⌘⇧K). Resolves once compaction has started; the task, working while
    * it compacts, and the Compact row arrive as events. Rejects with `busy` while the agent is working.
@@ -695,6 +711,7 @@ export const INITIAL_DATA: GladeData = {
   pluginStatuses: {},
   controlStatus: null,
   accountStatus: { account: null, usage: [] },
+  login: IDLE_LOGIN,
   inputInsertion: null,
   inputDrafts: {},
   searchText: '',

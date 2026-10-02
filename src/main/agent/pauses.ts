@@ -38,7 +38,9 @@ export function pauseReason(error: Pick<TaskError, 'kind'>): PauseReason | null 
     case AgentErrorKind.Transient:
     case AgentErrorKind.Permanent:
     case AgentErrorKind.SafetyRefusal:
-      // A safety refusal stops the task on its own card (Retry tries again): nothing to wait out.
+    case AgentErrorKind.LoggedOut:
+      // A safety refusal stops the task on its own card (Retry tries again), and so does a lost login (Log in, then
+      // Retry): nothing to wait out.
       return null
   }
 }

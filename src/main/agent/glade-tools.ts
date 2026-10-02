@@ -279,10 +279,12 @@ const DESCRIPTIONS: Readonly<Record<GladeTool, string>> = {
     "the user's message, first respond to it in `preamble` (shown at the top of the card), then ask. Each question " +
     'is a choice (option cards, each with an id, a label and optionally a detail line and a sketch: a few short ' +
     'lines of plain text shown monospaced, with # lines as headings), pills (short options) or text (a text box). ' +
-    'Choices and pills take one pick unless `multiple` is set. Returns the answers as JSON keyed by ' +
-    'question index from 0: a choice gives the option id, pills the pill text, text the text typed (an optional one ' +
-    'left empty has no key), and `multiple` gives an array. The user can reply in their own words instead; then it ' +
-    'returns {"freeText": "…"}.',
+    'Choices and pills take one pick unless `multiple` is set. Every question is optional, and the card always ends ' +
+    'with an "Anything else?" box. Returns JSON with the answers keyed by question index from 0: a choice gives the ' +
+    'option id, pills the pill text, text the text typed, and `multiple` gives an array. A question the user skipped ' +
+    'has no key, and any of them may be skipped, all of them included. What they typed in "Anything else?" comes ' +
+    'under "anythingElse": read it first, since it may be their real answer (why no option fits, say). The user can ' +
+    'reply in their own words instead; then it returns {"freeText": "…"}.',
   [GladeTool.ShowFile]:
     "Open a file in the user's Files tab, next to the chat, to point them at it: a change to review, say. Give a line " +
     'to scroll to and mark it. The file must be in the workspace.',

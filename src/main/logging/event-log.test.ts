@@ -564,6 +564,13 @@ describe('questions', () => {
     })
     logEvent({
       type: EventType.QuestionAnswered,
+      questionSet: {
+        ...answered,
+        reply: { kind: QuestionReplyKind.Answers, answers: {}, anythingElse: 'Ask me after lunch.' },
+      },
+    })
+    logEvent({
+      type: EventType.QuestionAnswered,
       questionSet: { ...answered, reply: { kind: QuestionReplyKind.FreeText, text: 'Use main.' } },
     })
     logEvent({
@@ -574,6 +581,8 @@ describe('questions', () => {
     expect(logged().map(({ message, fields }) => [message, fields.reply ?? fields.state])).toEqual([
       ['questions answered', QuestionSetState.Answered],
       ['question reply', '{"0":"main"}'],
+      ['questions answered', QuestionSetState.Answered],
+      ['question reply', '{"anythingElse":"Ask me after lunch."}'],
       ['questions answered', QuestionSetState.Answered],
       ['question reply', 'Use main.'],
       ['questions withdrawn', QuestionSetState.Withdrawn],

@@ -120,6 +120,71 @@ credential. Values below are invented:
   plan and a key both present, Claude Code uses the plan and calls the key "not in use". Glade's `accountKind` follows
   that order.
 
+### Logged out [docs]
+
+What the SDK and the bundled Claude Code (0.3.283 / 2.1.283) say when the login expires or goes (#409), from `sdk.d.ts`
+and the binary's own strings. Not probed live: that would mean logging Jared's machine out.
+
+- **There's no auth status or login in the SDK's API.** `Query` has `accountInfo()` (§1) and nothing to log in or out
+  with, and no control request for it. `SDKStartupFailureReason` names no lost login either (its
+  sign-in reasons, `org_*` and `gateway_*`, are an organization's pin and a Cloud gateway's, which `claude auth login`
+  doesn't fix). `SDKAuthStatusMessage` (`type: 'auth_status'`, `isAuthenticating`, `output`, `error`) only reports a
+  cloud provider's credential refresh command (`awsAuthRefresh`, `gcpAuthRefresh`) running, and only with an internal
+  `enableAuthStatus` option that isn't in `Options`. `session_stale_relogin` and `untrusted_device` are in the alpha
+  Remote Control bridge's `CredentialsFailure` (`bridge.d.ts`), a 403 when minting remote session credentials: not
+  something `query()` sees.
+- **The error arrives as an API error.** The turn's last `assistant` message has `error: "authentication_failed"`
+  (`SDKAssistantMessageError`) and its text is the error; the `result` is `is_error: true`, `terminal_reason:
+  "api_error"`, with `api_error_status` 401 when the API itself refused it, and none when Claude Code failed the
+  request before sending it. Claude Code doesn't retry it. An SDK session (non-interactive) words it as:
+  - "Not logged in · Please run /login": no credential at all.
+  - "Failed to authenticate: OAuth session expired and could not be refreshed": an expired login whose refresh token
+    failed too. (An interactive session says "Login expired · Please run /login".)
+  - "Failed to authenticate. API Error: 401 {…"type":"authentication_error"…}": any other 401 on Anthropic's API.
+  - "Your account does not have access to Claude. Please login again or contact your administrator." (interactive:
+    "OAuth token revoked · Please run /login").
+  - With `/login managed key` the organization turned off: "… · Sign in again with your claude.ai account".
+- **`authentication_failed` that logging in doesn't fix:** an external key ("Invalid API key · Fix external API key"),
+  a cloud provider's credentials ("AWS credentials expired or invalid · …", Google Cloud, Foundry, each with
+  `apiError: "provider_credentials"`, which the SDK message doesn't carry), a gateway that refused it ("… signing in
+  again won't change this …"), and "Authentication error · This may be a temporary network issue" (remote sessions
+  only). Another Claude Code process refreshing the login at the same moment is a `server_error` ("… another Claude Code
+  process is refreshing it …"), which goes away.
+- **A running Claude Code mostly picks a new login up itself.** On a 401 it re-reads the stored credential and carries
+  on with a newer one if there is one (`tengu_oauth_401_recovered_from_keychain`, `…_from_disk`). That needs a 401 to
+  happen, though: one that started with no credential at all fails before it sends anything.
+
+**Decided (#409):** Glade parses these at the boundary into their own kind, `AgentErrorKind.LoggedOut`
+(`src/main/agent/error-classification.ts`): `authentication_failed`, a 401, or the words above, unless the message names
+something logging in doesn't fix (an external key, a key to unset, a cloud provider, a gateway, a passing network
+error, another process refreshing). The task stops on it (it never pauses) with the logged-out card.
+
+### Logging in [docs]
+
+`claude auth login` (the bundled binary's subcommand; `claude auth` also has `logout` and `status [--json|--text]`)
+logs in without a terminal [docs, from `--help` and the binary; not run]:
+
+- `--claudeai` (the default), `--console` (API billing), `--sso`, `--email <email>`. Under managed settings that pin a
+  Cloud gateway it refuses ("run interactive /login"), and exits 1.
+- It starts a listener on a localhost port, opens the browser (`open`) at the sign-in page, whose redirect comes back to
+  that port, and prints "Opening browser to sign in…", "If the browser didn't open, visit: <url>" (a second, manual
+  link) and "Paste code here if prompted > ". It reads stdin for a pasted `code#state` from the manual link, but doesn't
+  need it: the browser's redirect completes it by itself.
+- Once signed in it saves the login where Claude Code keeps it (the Keychain), prints "Login successful." and exits 0;
+  a failure prints "Login failed: …" (or "OAuth login failed: …") to stderr and exits 1.
+- `CLAUDE_CODE_OAUTH_REFRESH_TOKEN` with `CLAUDE_CODE_OAUTH_SCOPES` logs in from a refresh token instead, with no
+  browser. Glade never sets them.
+
+**Decided (#409):** Log in (the logged-out card's, and Settings › General's) runs the bundled binary's `auth login`
+from main, with no terminal (`src/main/account/login.ts`): in the agents' environment, from your home folder, its
+stdin a pipe nothing is written to, its output never logged (the manual link is a one-time one). Exit 0 is logged in;
+anything else fails with the last line it printed on stderr. One runs at a time; Cancel kills it. Glade sees only
+whether it worked, never the credential: sign-in completes through Anthropic's own flow, in the unmodified binary, as
+§1 and `decisions.md` require. Once you're in, the task whose Log in was clicked is retried by itself; the others wait
+for their Retry or Retry all. Retrying a turn a lost login stopped first closes the task's Claude Code process (unless
+background work is running in it) and starts it again on the same conversation, so it reads the new login even when
+it started with none. The terminal tab the issue offered as a fallback isn't needed.
+
 ## 2. Event shapes
 
 `query()` returns an async iterator of `SDKMessage`. The union has about 40 members. These are the ones Glade needs.
@@ -607,7 +672,8 @@ receives `compact_summary`. See §5.
   `api_error_status: 404`.
   - Treat `result.is_error` as the error flag, not `subtype`.
   - Other `error` values: `authentication_failed`, `billing_error`, `rate_limit`, `overloaded`, `server_error`,
-    `max_output_tokens`, and more (`SDKAssistantMessageError`).
+    `max_output_tokens`, and more (`SDKAssistantMessageError`). A lost login (`authentication_failed` and its words)
+    is its own kind: see §1, "Logged out".
 - **[docs] Retries:** `{type:"system", subtype:"api_retry", attempt, max_retries, retry_delay_ms, error_status, error}`
   is emitted before each automatic retry. We didn't trigger this one.
   - The bundled Claude Code retries failed API requests itself (overloaded, 5xx, 429, connection errors), with backoff,
@@ -1568,6 +1634,8 @@ bundled binary. What did change:
 
 - **Subscription auth policy.** Glade is login-based by decision, but the docs don't clearly permit this for a
   third-party app, and Anthropic can enforce "without prior notice". If that happens, Glade would need an API-key path.
+  Log in (#409) runs the unmodified binary's own `claude auth login`, so sign-in completes in Anthropic's own flow and
+  Glade never holds a credential, but it is a button in a third-party app that starts a claude.ai login.
 - **Auto-compact threshold.** Glade uses the SDK default (about 83% on 200k). A custom threshold is deferred; the SDK
   caps it at about `window − 13k`.
 - **One CLI subprocess per live task.** Each `query()` spawns the ~220 MB native binary as a separate process. With many

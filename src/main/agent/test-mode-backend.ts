@@ -114,6 +114,9 @@ export function createTestModeAgentBackend(
 ): TestModeAgentBackend {
   let busy = 0
   let waiters: (() => void)[] = []
+  // How many turns each conversation a closed session was in has played, by its SDK session id: a session started
+  // again on it carries on from there.
+  const played = new Map<string, number>()
   const settle = (): void => {
     busy -= 1
     if (busy > 0) return
@@ -143,9 +146,11 @@ export function createTestModeAgentBackend(
       const resumedFirst = resumeSessionId === null ? undefined : scripts.firstMessageOf?.(resumeSessionId)
       const script: ScriptChooser = resumedFirst === undefined ? choose : () => choose(resumedFirst)
       // A turn the agent starts on its own keeps the session busy, like a message sent.
+      const turnsRun = resumeSessionId === null ? undefined : played.get(resumeSessionId)
       const session = new ScriptedSession({
         script,
         session: options,
+        ...(turnsRun === undefined ? {} : { turnsRun }),
         onIdle: settle,
         onWake: () => {
           busy += 1
@@ -167,6 +172,7 @@ export function createTestModeAgentBackend(
         accountInfo: () => session.accountInfo(),
         usage: () => session.usage(),
         close: () => {
+          played.set(session.id, session.turnsPlayed)
           session.close()
         },
       }
