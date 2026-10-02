@@ -4,7 +4,10 @@ import { afterEach } from 'vitest'
 import { STUB_ROW_HEIGHT, STUB_VIEWPORT_HEIGHT } from './test-layout'
 
 // jsdom doesn't load fonts; stand in a `document.fonts` whose fonts have all loaded.
-Object.defineProperty(document, 'fonts', { configurable: true, value: { ready: Promise.resolve() } })
+Object.defineProperty(document, 'fonts', {
+  configurable: true,
+  value: { ready: Promise.resolve(), load: () => Promise.resolve([]) },
+})
 
 // jsdom doesn't lay out, so nothing ever resizes: stand in a ResizeObserver that never calls back. Tests that need one
 // to fire stub their own.
