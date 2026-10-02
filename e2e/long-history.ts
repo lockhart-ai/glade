@@ -119,8 +119,7 @@ function historyTask(title: string, scale: HistoryScale, selected: boolean): See
   const toolEvents: SeedToolEvent[] = []
   // Each turn has a divider (after the first), a note and its todo and subagent calls; ordinary calls fill the rest.
   const subagentCalls = 3
-  const fixed =
-    turns - 1 + turns + scale.todos + scale.subagents * (1 + subagentCalls) + Math.floor(scale.todos / 2)
+  const fixed = turns - 1 + turns + scale.todos + scale.subagents * (1 + subagentCalls) + Math.floor(scale.todos / 2)
   const plain = Math.max(0, scale.toolEvents - fixed)
   let subagent = 0
   let todo = 0
