@@ -322,15 +322,52 @@ describe('ArtifactsTab', () => {
     expect(screen.queryByRole('group', { name: 'Artifacts' })).toBeNull()
   })
 
-  it('makes a single group of artifacts all from one day', async () => {
+  it('makes a single group of artifacts all from one day, open as the only (so topmost) group showing', async () => {
     await renderTab({ artifacts: [IA, artifact('docs/site/search.md', 'Search plan', local(2026, 9, 22, 9, 0))] })
 
     expect(groups().map((element) => element.getAttribute('aria-label'))).toEqual(['This week'])
-    fireEvent.click(header('This week'))
-    await waitFor(() => {
-      expect(titles('This week')).toEqual(['Information architecture', 'Search plan'])
-    })
+    expect(header('This week')).toHaveAttribute('aria-expanded', 'true')
+    expect(titles('This week')).toEqual(['Information architecture', 'Search plan'])
     expect(row('Search plan')).toHaveTextContent('Sep 22')
+  })
+
+  it('opens the topmost group showing to begin with, whatever it is, when the newest artifacts are from last week (#399)', async () => {
+    const lastWeek = artifact('docs/site/pricing.md', 'Pricing page draft', local(2026, 9, 18, 11, 0))
+    const older = artifact('docs/site/old-nav.md', 'Old navigation audit', local(2026, 8, 3, 9, 0))
+    await renderTab({ artifacts: [lastWeek, older] })
+
+    expect(groups().map((element) => element.getAttribute('aria-label'))).toEqual(['Last week', 'Older'])
+    // Last week is topmost, so it opens though it normally wouldn't; Older keeps its usual closed default.
+    expect(header('Last week')).toHaveAttribute('aria-expanded', 'true')
+    expect(titles('Last week')).toEqual(['Pricing page draft'])
+    expect(header('Older')).toHaveAttribute('aria-expanded', 'false')
+    expect(titles('Older')).toEqual([])
+  })
+
+  it('moves which group opens by default as the topmost one changes, but leaves your own choices alone (#399)', async () => {
+    const lastWeek = artifact('docs/site/pricing.md', 'Pricing page draft', local(2026, 9, 18, 11, 0))
+    const older = artifact('docs/site/old-nav.md', 'Old navigation audit', local(2026, 8, 3, 9, 0))
+    const { emit } = await renderTab({ artifacts: [lastWeek, older] })
+    expect(header('Last week')).toHaveAttribute('aria-expanded', 'true')
+
+    // You close the topmost group yourself.
+    fireEvent.click(header('Last week'))
+    await waitFor(() => {
+      expect(header('Last week')).toHaveAttribute('aria-expanded', 'false')
+    })
+
+    // A new artifact today makes Today the topmost group; Today opens on its own anyway, and your closed choice
+    // for Last week, no longer topmost, is kept rather than reopened.
+    act(() => {
+      emit({
+        type: EventType.ArtifactsChanged,
+        taskId: 't1',
+        artifacts: [lastWeek, older, artifact('docs/site/today.md', 'Today’s notes', NOW - MINUTE)],
+      })
+    })
+
+    expect(header('Today')).toHaveAttribute('aria-expanded', 'true')
+    expect(header('Last week')).toHaveAttribute('aria-expanded', 'false')
   })
 })
 

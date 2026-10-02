@@ -293,7 +293,8 @@ Seven tabs, each with a count: **Tool calls · Files · Todos · Artifacts · Su
   JPEG, GIF, WebP or SVG), or a tile with the file's type, then its title, its type and when the file last changed.
   They're listed newest first, by when each file last changed, under **Today**, **Yesterday**, **This week**, **Last
   week**, **This month** and **Older**; each header shows its count and folds with a click. Today and Yesterday start
-  open and the older groups folded, and each task remembers how you left them. An artifact that's edited moves back to
+  open, and so does the topmost group showing (last week's, say, for a task with nothing newer); the rest start
+  folded, and each task remembers how you left them. An artifact that's edited moves back to
   the top, whether the agent (or one of its subagents) edited it or you did, in the terminal or an editor, while the
   tab is open. Click a row (or press ↵ or Space on it) to open the file: an image opens full size in the image viewer,
   stepping ← → through the other image artifacts the list shows under a "2 of 7" (open a folded group to include its
