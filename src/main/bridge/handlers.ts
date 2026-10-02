@@ -250,7 +250,9 @@ export function createHandlers(context: HandlerContext): Handlers {
       setInputDraft(db, change)
       return null
     },
-    [CommandName.QuestionsAnswer]: ({ id, answers }) => ({ questionSet: runner.answer(id, answers) }),
+    [CommandName.QuestionsAnswer]: ({ id, answers, anythingElse }) => ({
+      questionSet: runner.answer(id, answers, anythingElse),
+    }),
     [CommandName.PermissionsAnswer]: ({ id, decision }) => ({
       permissionRequest: runner.answerPermission(id, decision),
     }),

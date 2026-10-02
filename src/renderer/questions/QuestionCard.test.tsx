@@ -103,8 +103,24 @@ function card(): HTMLElement {
   return screen.getByRole('form', { name: 'Questions from the agent' })
 }
 
+/** The card's send button: Send answers, or Skip questions while nothing is answered or typed. */
 function sendButton(): HTMLElement {
-  return within(card()).getByRole('button', { name: 'Send answers' })
+  return within(card()).getByRole('button', { name: /^(Send answers|Skip questions)$/ })
+}
+
+/** The "Anything else?" box at the foot of the open card. */
+function anythingElseBox(): HTMLTextAreaElement {
+  const box = within(card()).getByRole('textbox', { name: 'Anything else?' })
+  if (!(box instanceof HTMLTextAreaElement)) throw new Error('Expected a text area')
+  return box
+}
+
+/** Sends the card with a click, and lets the answer go out. */
+async function clickSend(): Promise<void> {
+  await act(async () => {
+    fireEvent.click(sendButton())
+    await Promise.resolve()
+  })
 }
 
 function focused(): Element | null {
@@ -136,9 +152,12 @@ describe('QuestionCard', () => {
     ).toEqual(['Features', 'Internal changes', 'Leave it out'])
     const note = within(card()).getByRole('textbox', { name: 'Anything to call out?' })
     expect(note).toHaveAttribute('placeholder', 'e.g. the 429s')
-    expect(card()).toHaveTextContent('optional')
+    // Every question is optional now, so none is marked as such.
+    expect(card()).not.toHaveTextContent('optional')
     expect(card()).toHaveTextContent('0 of 3 answered')
-    expect(sendButton()).toHaveAttribute('aria-disabled', 'true')
+    // Nothing answered yet: Send offers to skip the questions, and works.
+    expect(sendButton()).toHaveTextContent('Skip questions')
+    expect(sendButton()).toHaveAttribute('aria-disabled', 'false')
   })
 
   it('picks one option of a question that takes one, and counts it answered', async () => {
@@ -174,7 +193,8 @@ describe('QuestionCard', () => {
     expect(within(areas).getByRole('checkbox', { name: 'Admin' })).toBeChecked()
     expect(within(tags).getByRole('checkbox', { name: 'ui' })).not.toBeChecked()
     expect(card()).toHaveTextContent('1 of 2 answered')
-    expect(sendButton()).toHaveAttribute('aria-disabled', 'true')
+    expect(sendButton()).toHaveTextContent('Send answers')
+    expect(sendButton()).toHaveAttribute('aria-disabled', 'false')
   })
 
   it('sends the answers, and then shows them on the closed card', async () => {
@@ -201,7 +221,7 @@ describe('QuestionCard', () => {
       within(closed)
         .getAllByRole('definition')
         .map((answer) => answer.textContent),
-    ).toEqual(['By area', 'API, Admin', 'Leave it out', 'No answer'])
+    ).toEqual(['By area', 'API, Admin', 'Leave it out', 'Skipped'])
     expect(
       within(closed)
         .getAllByRole('term')
@@ -214,17 +234,231 @@ describe('QuestionCard', () => {
     ])
   })
 
-  it('sends nothing while the answers are incomplete', async () => {
-    const { invoke } = await renderCard([questionSet([LAYOUT, REASON])])
+  it('sends a partial answer, leaving out the questions skipped, and shows them as skipped', async () => {
+    const { invoke } = await renderCard([questionSet([LAYOUT, AREAS, REASON, DJANGO])])
     fireEvent.click(within(card()).getByRole('radio', { name: 'By type' }))
-    const reason = within(card()).getByRole('textbox', { name: 'Why?' })
-    fireEvent.change(reason, { target: { value: '   ' } })
+    // A required-looking text question left blank, and a checkbox picked then unpicked, are skipped too.
+    fireEvent.change(within(card()).getByRole('textbox', { name: 'Why?' }), { target: { value: '   ' } })
+    fireEvent.click(within(card()).getByRole('checkbox', { name: 'API' }))
+    fireEvent.click(within(card()).getByRole('checkbox', { name: 'API' }))
+    expect(card()).toHaveTextContent('1 of 4 answered')
+    expect(sendButton()).toHaveTextContent('Send answers')
 
-    fireEvent.click(sendButton())
-    fireEvent.keyDown(reason, { key: 'Enter' })
+    await clickSend()
 
-    expect(invoke).not.toHaveBeenCalledWith(CommandName.QuestionsAnswer, expect.anything())
-    expect(card()).toHaveTextContent('1 of 2 answered')
+    expect(invoke).toHaveBeenCalledWith(CommandName.QuestionsAnswer, { id: 'q1', answers: { 0: 'by-type' } })
+    const closed = screen.getByRole('region', { name: 'Questions from the agent' })
+    expect(closed).toHaveTextContent('4 questions · answered')
+    const shown = within(closed).getAllByRole('definition')
+    expect(shown.map((answer) => answer.textContent)).toEqual(['By type', 'Skipped', 'Skipped', 'Skipped'])
+    // A skipped question reads quieter than an answer.
+    expect(shown[0]).not.toHaveClass(moduleClass(styles, 'skipped'))
+    expect(shown[1]).toHaveClass(moduleClass(styles, 'skipped'))
+    expect(within(closed).queryByText('Anything else?')).not.toBeInTheDocument()
+  })
+
+  it('skips every question with nothing answered or typed, and says the card was skipped', async () => {
+    const { invoke } = await renderCard([questionSet([LAYOUT, DJANGO])])
+    expect(sendButton()).toHaveTextContent('Skip questions')
+    // Blank text in the box counts as nothing.
+    fireEvent.change(anythingElseBox(), { target: { value: ' \n ' } })
+    expect(sendButton()).toHaveTextContent('Skip questions')
+
+    await clickSend()
+
+    expect(invoke).toHaveBeenCalledWith(CommandName.QuestionsAnswer, { id: 'q1', answers: {} })
+    const closed = screen.getByRole('region', { name: 'Questions from the agent' })
+    expect(closed).toHaveTextContent('2 questions · skipped')
+    expect(
+      within(closed)
+        .getAllByRole('definition')
+        .map((answer) => answer.textContent),
+    ).toEqual(['Skipped', 'Skipped'])
+  })
+
+  describe('Anything else?', () => {
+    it('ends every card, below the last question and above Send, empty', async () => {
+      await renderCard([questionSet([DJANGO])])
+
+      const box = anythingElseBox()
+      expect(box.tagName).toBe('TEXTAREA')
+      expect(box).toHaveValue('')
+      expect(box).toHaveAttribute('placeholder', 'Add a note, or say why none of the options fit')
+      // In the Tab order after the last question, before Send.
+      const stops = [...card().querySelectorAll('[tabindex="0"], input, textarea, button[data-send]')]
+      expect(stops.slice(-2)).toEqual([box, sendButton()])
+      expect(card()).toHaveTextContent(/Leave it outAnything else\?Skip questions/)
+      // It isn't a question: the count leaves it out.
+      fireEvent.change(box, { target: { value: 'None of these.' } })
+      expect(card()).toHaveTextContent('0 of 1 answered')
+      expect(sendButton()).toHaveTextContent('Send answers')
+    })
+
+    it('sends its text alone, trimmed, with every question skipped', async () => {
+      const { invoke } = await renderCard([questionSet([LAYOUT, DJANGO])])
+      fireEvent.change(anythingElseBox(), {
+        target: { value: '  Neither layout: group them by customer.\nAnd hold the email.  ' },
+      })
+
+      await clickSend()
+
+      expect(invoke).toHaveBeenCalledWith(CommandName.QuestionsAnswer, {
+        id: 'q1',
+        answers: {},
+        anythingElse: 'Neither layout: group them by customer.\nAnd hold the email.',
+      })
+      const closed = screen.getByRole('region', { name: 'Questions from the agent' })
+      // With a note it's answered, not skipped: the note may be the answer.
+      expect(closed).toHaveTextContent('2 questions · answered')
+      const shown = within(closed).getAllByRole('definition')
+      expect(shown.map((answer) => answer.textContent)).toEqual([
+        'Skipped',
+        'Skipped',
+        'Neither layout: group them by customer.\nAnd hold the email.',
+      ])
+      expect(shown[2]).toHaveClass(moduleClass(styles, 'note'))
+      expect(
+        within(closed)
+          .getAllByRole('term')
+          .map((term) => term.textContent),
+      ).toEqual(['1How should the notes be laid out?', '2Where does the Django 5.2 upgrade go?', 'Anything else?'])
+    })
+
+    it('sends its text with the answers', async () => {
+      const { invoke } = await renderCard([questionSet([LAYOUT, DJANGO])])
+      fireEvent.click(within(card()).getByRole('radio', { name: 'Features' }))
+      fireEvent.change(anythingElseBox(), { target: { value: 'Credit https://example.com/sam too.' } })
+
+      await clickSend()
+
+      expect(invoke).toHaveBeenCalledWith(CommandName.QuestionsAnswer, {
+        id: 'q1',
+        answers: { 1: 'Features' },
+        anythingElse: 'Credit https://example.com/sam too.',
+      })
+      const closed = screen.getByRole('region', { name: 'Questions from the agent' })
+      expect(within(closed).getByRole('link')).toHaveAttribute('href', 'https://example.com/sam')
+    })
+
+    it('starts a new line with Enter, and sends with ⌘↵ or ⌃↵', async () => {
+      const { invoke } = await renderCard([questionSet([DJANGO])])
+      const box = anythingElseBox()
+      fireEvent.change(box, { target: { value: 'First line' } })
+
+      const enter = fireEvent.keyDown(box, { key: 'Enter' })
+      fireEvent.keyDown(box, { key: 'Enter', shiftKey: true })
+      // Mid-composition (an IME), ⌘↵ is the input method's.
+      fireEvent.keyDown(box, { key: 'Enter', metaKey: true, isComposing: true })
+      expect(enter).toBe(true)
+      expect(invoke).not.toHaveBeenCalledWith(CommandName.QuestionsAnswer, expect.anything())
+
+      await act(async () => {
+        fireEvent.keyDown(box, { key: 'Enter', metaKey: true })
+        await Promise.resolve()
+      })
+      expect(invoke).toHaveBeenCalledWith(CommandName.QuestionsAnswer, {
+        id: 'q1',
+        answers: {},
+        anythingElse: 'First line',
+      })
+    })
+
+    it('sends with ⌃↵ too', async () => {
+      const { invoke } = await renderCard([questionSet([DJANGO])])
+      fireEvent.change(anythingElseBox(), { target: { value: 'Later.' } })
+
+      await act(async () => {
+        fireEvent.keyDown(anythingElseBox(), { key: 'Enter', ctrlKey: true })
+        await Promise.resolve()
+      })
+
+      expect(invoke).toHaveBeenCalledWith(CommandName.QuestionsAnswer, {
+        id: 'q1',
+        answers: {},
+        anythingElse: 'Later.',
+      })
+    })
+
+    it('moves to the last question with ↑ at its start, and on to Send with ↓ at its end', async () => {
+      await renderCard([questionSet([LAYOUT, DJANGO])])
+      const box = anythingElseBox()
+      const features = within(card()).getByRole('radio', { name: 'Features' })
+
+      // ↓ from the last question comes to the box.
+      features.focus()
+      fireEvent.keyDown(features, { key: 'ArrowDown' })
+      expect(focused()).toBe(box)
+
+      fireEvent.change(box, { target: { value: 'Two\nlines' } })
+      // Mid-text, and with a selection, the arrows are the caret's.
+      box.setSelectionRange(4, 4)
+      expect(fireEvent.keyDown(box, { key: 'ArrowUp' })).toBe(true)
+      expect(fireEvent.keyDown(box, { key: 'ArrowDown' })).toBe(true)
+      box.setSelectionRange(0, 3)
+      expect(fireEvent.keyDown(box, { key: 'ArrowUp' })).toBe(true)
+      box.setSelectionRange(0, 0)
+      expect(fireEvent.keyDown(box, { key: 'ArrowUp', shiftKey: true })).toBe(true)
+      expect(fireEvent.keyDown(box, { key: 'a' })).toBe(true)
+      expect(focused()).toBe(box)
+
+      fireEvent.keyDown(box, { key: 'ArrowUp' })
+      expect(focused()).toBe(features)
+
+      box.focus()
+      box.setSelectionRange(box.value.length, box.value.length)
+      fireEvent.keyDown(box, { key: 'ArrowDown' })
+      expect(focused()).toBe(sendButton())
+      // ↑ from Send comes back to the box.
+      fireEvent.keyDown(sendButton(), { key: 'ArrowUp' })
+      expect(focused()).toBe(box)
+    })
+
+    it('keeps its text when sending fails, to send again', async () => {
+      await renderCard([questionSet([DJANGO])], {
+        [CommandName.QuestionsAnswer]: () =>
+          refuse(bridgeError(BridgeErrorCode.InvalidTransition, 'The questions are not open any more')),
+      })
+      fireEvent.change(anythingElseBox(), { target: { value: 'Ask me later.' } })
+
+      await clickSend()
+
+      expect(await screen.findByText(/Couldn’t send your answers/)).toBeVisible()
+      expect(anythingElseBox()).toHaveValue('Ask me later.')
+      expect(sendButton()).toHaveAttribute('aria-disabled', 'false')
+    })
+
+    it('shows the text of a set answered before a relaunch, kept with its reply', async () => {
+      const answered = questionSet([LAYOUT], {
+        state: QuestionSetState.Answered,
+        reply: { kind: QuestionReplyKind.Answers, answers: { 0: 'by-type' }, anythingElse: 'Thanks!' },
+        closedAt: 6_000,
+      })
+      await renderCard([answered])
+
+      const closed = screen.getByRole('region', { name: 'Questions from the agent' })
+      expect(closed).toHaveTextContent('1 question · answered')
+      expect(
+        within(closed)
+          .getAllByRole('definition')
+          .map((answer) => answer.textContent),
+      ).toEqual(['By type', 'Thanks!'])
+    })
+
+    it('is not on a card answered in words, or withdrawn', async () => {
+      await renderCard([
+        questionSet([LAYOUT], {
+          state: QuestionSetState.Answered,
+          reply: { kind: QuestionReplyKind.FreeText, text: 'By type.' },
+          closedAt: 6_000,
+        }),
+        questionSet([DJANGO], { id: 'q2', state: QuestionSetState.Withdrawn, closedAt: 7_000 }),
+      ])
+
+      for (const closed of screen.getAllByRole('region', { name: 'Questions from the agent' })) {
+        expect(closed).not.toHaveTextContent('Anything else?')
+        expect(within(closed).queryByRole('textbox')).not.toBeInTheDocument()
+      }
+    })
   })
 
   it('says so in a toast when the answers could not be sent, and lets you send again', async () => {
@@ -291,22 +525,27 @@ describe('QuestionCard', () => {
     fireEvent.keyDown(byArea, { key: 'ArrowUp' })
     expect(focused()).toBe(byArea)
 
-    // ↓ ↓ to the text field, where digits are typed and ↓ goes on to Send, and ↑ from Send comes back.
+    // ↓ ↓ to the text field, where digits are typed and ↓ goes on to the "Anything else?" box, then Send, and ↑ from
+    // Send comes back.
     fireEvent.keyDown(byArea, { key: 'ArrowDown' })
     fireEvent.keyDown(present(focused()), { key: 'ArrowDown' })
     expect(focused()).toBe(note)
     fireEvent.change(note, { target: { value: 'Call out 429s' } })
     fireEvent.keyDown(note, { key: 'a' })
     fireEvent.keyDown(note, { key: 'ArrowDown' })
+    expect(focused()).toBe(anythingElseBox())
+    fireEvent.keyDown(anythingElseBox(), { key: 'ArrowDown' })
     expect(focused()).toBe(sendButton())
     fireEvent.keyDown(sendButton(), { key: 'a' })
     fireEvent.keyDown(sendButton(), { key: 'ArrowUp' })
+    expect(focused()).toBe(anythingElseBox())
+    fireEvent.keyDown(anythingElseBox(), { key: 'ArrowUp' })
     expect(focused()).toBe(note)
     // Back to the option you were last on.
     fireEvent.keyDown(note, { key: 'ArrowUp' })
     expect(focused()).toBe(ui)
 
-    // ↵ on an option sends, now the answers are complete.
+    // ↵ on an option sends.
     await act(async () => {
       fireEvent.keyDown(present(ui), { key: 'Enter' })
       await Promise.resolve()
@@ -317,7 +556,7 @@ describe('QuestionCard', () => {
     })
   })
 
-  it('sends with Enter in a text field once complete', async () => {
+  it('sends with Enter in a text field', async () => {
     const { invoke } = await renderCard([questionSet([REASON])])
     const reason = within(card()).getByRole('textbox', { name: 'Why?' })
     fireEvent.change(reason, { target: { value: 'Because.' } })

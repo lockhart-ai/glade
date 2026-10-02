@@ -492,10 +492,11 @@ export interface GladeActions {
    */
   loadImage: (id: string) => Promise<ImageData>
   /**
-   * Answers an open question set with the card's answers, keyed by question index (`questions.answer`). Resolves once
-   * main has them; the answered set arrives as an event. Rejects with `invalid_request` for answers that don't fit.
+   * Answers an open question set with the card's answers, keyed by question index, and its "Anything else?" text, if
+   * any (`questions.answer`). Resolves once main has them; the answered set arrives as an event. Rejects with
+   * `invalid_request` for answers that don't fit.
    */
-  answerQuestions: (id: string, answers: QuestionAnswers) => Promise<void>
+  answerQuestions: (id: string, answers: QuestionAnswers, anythingElse?: string) => Promise<void>
   /**
    * Answers an open permission request: Allow once, or Deny with an optional note (`permissions.answer`). Resolves once
    * main has it; the answered request arrives as an event. Rejects with `invalid_transition` once it's closed.

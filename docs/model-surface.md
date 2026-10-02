@@ -87,7 +87,8 @@ session starts.
 (`QuestionKind` and the question interfaces in `src/shared/domain.ts`; the zod schema in
 `src/main/questions/schema.ts`). Beyond the draft: every text is trimmed and must not be empty, there is at least one
 question, a choice or pills question has at least two options, and a choice's option ids and a question's pills are
-each unique.
+each unique. **Every question is optional** (#397): you can send the card with any of them answered, or none. A text
+question's `optional` flag is still taken, so older calls and stored sets parse, but it's ignored.
 
 **Preamble** (#298): the chat shows only the agent's final reply each turn, so what it says before calling `ask` goes
 to the tool log, and a card that answers your message straight away can read as jumping to conclusions. `preamble` is
@@ -114,12 +115,17 @@ it's shown in the accent blue; every other line is shown muted. Nothing else is 
 
 **The card** (P4-02, `src/renderer/questions/QuestionCard.tsx`): each question with its option cards (radios, or
 checkboxes with `multiple`; at least 160px wide and at most three to a row, wrapping onto more rows), pills (the same,
-wrapping onto more rows) or text field, "N of M answered" and Send answers, which is enabled once every question but an
-optional text one has an answer. A word too long for its line breaks inside its option or pill. Keyboard: Tab moves between the questions (one stop each) and
-Send, ← → between a question's options, ↑ ↓ between questions, 1–9 pick the focused question's options, Space the
-focused one, and ↵ sends. Once closed, the card shows each answer, or that it was answered in your words, or that it
-was withdrawn. A set opened in a task you aren't viewing marks it unread and sends a notification, as a final reply
-does, with the first line of its preamble as the body, or with none, its first question.
+wrapping onto more rows) or text field; then, below the last question, an **"Anything else?"** box (#397), always
+there and optional, for a note in your own words: why none of the options fit, say. Then "N of M answered" and the send
+button, always enabled: it reads Send answers, or Skip questions while nothing is answered or typed. A word too long
+for its line breaks inside its option or pill. Keyboard: Tab moves between the questions (one stop each), the box and
+Send, ← → between a question's options, ↑ ↓ between questions, the box and Send (in the box, only from its start or
+end), 1–9 pick the focused question's options, Space the focused one, and ↵ sends; in the box ↵ starts a new line and
+⌘↵ sends. Once closed, the card shows each answer, or "Skipped" for a question you left, and your "Anything else"
+text if you typed any; its title says "answered", or "skipped" when you sent it with nothing at all. Or it says that it
+was answered in your words, or that it was withdrawn. A set opened in a task you aren't viewing marks it unread and
+sends a notification, as a final reply does, with the first line of its preamble as the body, or with none, its first
+question.
 
 - **It blocks.** The handler saves an open question set (`QuestionSet`, table `question_sets`) and waits until it's
   answered, however long that takes (`src/main/questions/questions.ts`). It has no timer of its own, but Claude Code
@@ -129,17 +135,23 @@ does, with the first line of its preamble as the body, or with none, its first q
   `docs/sdk-notes.md` §3). Meanwhile the task waits on you: its activity is waiting, `task.asking` is true, and it
   counts under Needs you (`needsYou`). The windows hear `question.opened`, then `question.answered` or
   `question.withdrawn`.
-- **Answering with the card:** `questions.answer { id, answers }`, with answers keyed by question index from 0. A
-  choice takes an option id, pills a pill's text, text the text typed; `multiple` takes an array of at least one, each
-  once. Every question needs an answer except an optional text one, which is dropped when empty
-  (`src/shared/questions.ts`). The tool returns the answers as JSON, e.g. `{"0":"by-type","1":"Internal changes"}`.
+- **Answering with the card:** `questions.answer { id, answers, anythingElse? }`, with answers keyed by question index
+  from 0. A choice takes an option id, pills a pill's text, text the text typed; `multiple` takes an array, each value
+  once. Any question may be left out, all of them included; an empty array or blank text counts as left out and is
+  dropped (`src/shared/questions.ts`). `anythingElse` is the "Anything else?" box's text, trimmed, and dropped when
+  blank; it's saved with the reply (`question_sets.reply`), so it's still there after a relaunch. The tool returns the
+  answers as JSON, with the box's text under the reserved key `anythingElse` when there is any, e.g.
+  `{"0":"by-type","1":"Internal changes"}`, `{"1":"Internal changes","anythingElse":"Hold the email until 2.4.1."}`,
+  or `{}` for a card skipped outright. The tool's description tells the model that any question may come back
+  unanswered, and to read `anythingElse` first, since it may hold the real answer.
 - **Answering in words:** a message sent (`tasks.send`) while a question is open answers it. It's saved to the chat as
   your reply, in the turn that asked; it isn't queued and starts no turn. The tool returns `{"freeText":"…"}`.
 - **Stopped or failed:** a turn that ends while its question is open withdraws it; Stop withdraws it first. The tool
   returns an error saying the questions were withdrawn.
 - **Relaunch:** a question the app quit on stays open, and its task waits on you; its `ask` call ends as an error. When
   you answer it, the task's session is resumed and the answer goes to the agent as a message (the runner's
-  `answeredAfterRestart`), carrying on the same turn. No call waits on it any more, so nothing times it out: it waits
+  `answeredAfterRestart`, with the same JSON the tool would have returned, `anythingElse` included), carrying on the
+  same turn. No call waits on it any more, so nothing times it out: it waits
   however long you take.
 - Claude Code's own `AskUserQuestion` tool is disallowed, so questions always come through `ask`.
 
@@ -206,11 +218,12 @@ is the way to change one on purpose, and the only way to repoint it.
 type Question =
   | { kind: "choice"; prompt: string; options: { id: string; label: string; detail?: string; sketch?: string }[]; multiple?: boolean }
   | { kind: "pills"; prompt: string; options: string[]; multiple?: boolean }
-  | { kind: "text"; prompt: string; placeholder?: string; optional?: boolean };
+  | { kind: "text"; prompt: string; placeholder?: string; optional?: boolean }; // optional: ignored (#397)
 ```
 
-Answers return as JSON keyed by question index. The user can ignore the card and reply in words instead; that answers
-it too.
+Answers return as JSON keyed by question index, for the questions answered (any may be skipped), plus `anythingElse`
+when the user typed in the card's "Anything else?" box. The user can ignore the card and reply in words instead; that
+answers it too.
 
 ## Todos: Claude Code's own tools, not a Glade tool (P5-03)
 

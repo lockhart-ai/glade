@@ -20,6 +20,7 @@ import {
   type ToolEvent,
 } from '../../shared/domain'
 import { permissionRuleString } from '../../shared/permissions'
+import { answersResult } from '../../shared/questions'
 import { excerpt } from './format'
 import { LogScope, type LogFields, type Logger } from './logger'
 
@@ -72,7 +73,7 @@ function replyText(reply: QuestionReply | null): string {
   if (reply === null) return ''
   switch (reply.kind) {
     case QuestionReplyKind.Answers:
-      return jsonExcerpt(reply.answers)
+      return jsonExcerpt(answersResult(reply))
     case QuestionReplyKind.FreeText:
       return excerpt(reply.text)
   }
