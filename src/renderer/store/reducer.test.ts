@@ -180,7 +180,7 @@ describe('a deleted task', () => {
       handoffs: { t1: { taskId: 't1', body: '## Where it got to', addedAt: 1 } },
       watchers: { t1: [sampleWatcher('w1', 't1')] },
       commits: { t1: [sampleCommit('c1', 't1')] },
-      inputDrafts: { t1: { text: 'Half a thought', images: [], pastedBlocks: [] } },
+      inputDrafts: { t1: { text: 'Half a thought', images: [], pastedBlocks: [], files: [] } },
       toolLogFocus: { taskId: 't1', turn: 1, request: 1 },
       fileFocus: { taskId: 't1', path: 'README.md', line: null, request: 1 },
       renamingTaskId: 't1',

@@ -1042,34 +1042,38 @@ describe('context menu actions', () => {
     const calls = invoke.mock.calls.length
     const keep = store.getState().keepInputDraft
 
-    keep('t1', { text: 'Half a thought', images: [], pastedBlocks: [] })
-    keep('t2', { text: '', images: [PNG], pastedBlocks: [] })
-    keep('t1', { text: 'A whole thought', images: [], pastedBlocks: [] })
+    keep('t1', { text: 'Half a thought', images: [], pastedBlocks: [], files: [] })
+    keep('t2', { text: '', images: [PNG], pastedBlocks: [], files: [] })
+    keep('t1', { text: 'A whole thought', images: [], pastedBlocks: [], files: [] })
     expect(store.getState().inputDrafts).toEqual({
-      t1: { text: 'A whole thought', images: [], pastedBlocks: [] },
-      t2: { text: '', images: [PNG], pastedBlocks: [] },
+      t1: { text: 'A whole thought', images: [], pastedBlocks: [], files: [] },
+      t2: { text: '', images: [PNG], pastedBlocks: [], files: [] },
     })
-    keep('t1', { text: '', images: [], pastedBlocks: [] })
-    expect(store.getState().inputDrafts).toEqual({ t2: { text: '', images: [PNG], pastedBlocks: [] } })
+    keep('t1', { text: '', images: [], pastedBlocks: [], files: [] })
+    expect(store.getState().inputDrafts).toEqual({ t2: { text: '', images: [PNG], pastedBlocks: [], files: [] } })
     expect(invoke.mock.calls).toHaveLength(calls)
   })
 
   it('loads a task’s stored draft from main, keeping it, when it has none kept', async () => {
-    const data = { ...main(), drafts: { t1: { text: 'From before the relaunch', images: [PNG], pastedBlocks: [] } } }
+    const data = {
+      ...main(),
+      drafts: { t1: { text: 'From before the relaunch', images: [PNG], pastedBlocks: [], files: [] } },
+    }
     const { store, invoke } = await hydrated(data)
 
     await expect(store.getState().loadInputDraft('t1')).resolves.toEqual({
       text: 'From before the relaunch',
       images: [PNG],
       pastedBlocks: [],
+      files: [],
     })
     expect(invoke).toHaveBeenCalledWith(CommandName.DraftsGet, { taskId: 't1' })
     expect(store.getState().inputDrafts).toEqual({
-      t1: { text: 'From before the relaunch', images: [PNG], pastedBlocks: [] },
+      t1: { text: 'From before the relaunch', images: [PNG], pastedBlocks: [], files: [] },
     })
     await expect(store.getState().loadInputDraft('t2')).resolves.toBeNull()
     expect(store.getState().inputDrafts).toEqual({
-      t1: { text: 'From before the relaunch', images: [PNG], pastedBlocks: [] },
+      t1: { text: 'From before the relaunch', images: [PNG], pastedBlocks: [], files: [] },
     })
   })
 
@@ -1085,16 +1089,17 @@ describe('context menu actions', () => {
     await store.getState().hydrate()
 
     const loading = store.getState().loadInputDraft('t1')
-    store.getState().keepInputDraft('t1', { text: 'Newer', images: [], pastedBlocks: [] })
-    answer({ draft: { text: 'Older', images: [], pastedBlocks: [] } })
-    await expect(loading).resolves.toEqual({ text: 'Older', images: [], pastedBlocks: [] })
-    expect(store.getState().inputDrafts).toEqual({ t1: { text: 'Newer', images: [], pastedBlocks: [] } })
+    store.getState().keepInputDraft('t1', { text: 'Newer', images: [], pastedBlocks: [], files: [] })
+    answer({ draft: { text: 'Older', images: [], pastedBlocks: [], files: [] } })
+    await expect(loading).resolves.toEqual({ text: 'Older', images: [], pastedBlocks: [], files: [] })
+    expect(store.getState().inputDrafts).toEqual({ t1: { text: 'Newer', images: [], pastedBlocks: [], files: [] } })
 
     const calls = fake.invoke.mock.calls.length
     await expect(store.getState().loadInputDraft('t1')).resolves.toEqual({
       text: 'Newer',
       images: [],
       pastedBlocks: [],
+      files: [],
     })
     expect(fake.invoke.mock.calls).toHaveLength(calls)
   })
@@ -1114,7 +1119,7 @@ describe('context menu actions', () => {
     const { store, invoke } = await hydrated({ ...main(), drafts })
     await store.getState().saveInputDraft({ taskId: 't1', text: 'Keep this', images: [GIF] })
     expect(invoke).toHaveBeenCalledWith(CommandName.DraftsSet, { taskId: 't1', text: 'Keep this', images: [GIF] })
-    expect(drafts).toEqual({ t1: { text: 'Keep this', images: [GIF], pastedBlocks: [] } })
+    expect(drafts).toEqual({ t1: { text: 'Keep this', images: [GIF], pastedBlocks: [], files: [] } })
 
     const failing = fakeBridge(main(), {
       [CommandName.DraftsSet]: () => refuse(bridgeError(BridgeErrorCode.Internal, 'database is locked')),
