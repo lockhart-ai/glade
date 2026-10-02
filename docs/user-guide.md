@@ -144,9 +144,12 @@ scroll: the chat passes under them.
   days; one Glade quits on waits for good, and your answer resumes the task). When it asks in reply to your message,
   the card opens with its answer to what you said, above the questions; that reply stays on the card once you've
   answered, and its first line is what a notification for the card says. Options and pills that don't fit on one row wrap
-  onto more rows, up to three options to a row. Click through the card, or use the keyboard (the digits 1 – 9 pick an
-  option, ← → move between options, ↵ sends). Or just type a reply in the input bar: it answers the questions in your
-  own words.
+  onto more rows, up to three options to a row. Every question is optional: answer the ones you want and leave the
+  rest, and use the **Anything else?** box at the foot of the card to say more, or why none of the options fit. Send
+  answers sends whatever you've given (with nothing at all it reads Skip questions); the answered card shows each answer,
+  "Skipped" for the questions you left, and your note. Click through the card, or use the keyboard (the digits 1 – 9
+  pick an option, ← → move between options, ↵ sends, and ⌘↵ in the Anything else box, where ↵ starts a new line). Or
+  just type a reply in the input bar: it answers the questions in your own words.
 - **Pasted images:** paste a screenshot or image (PNG, JPEG, GIF or WebP, up to 3.75 MB each) into the input bar. It
   shows as a thumbnail you can remove, and goes to the agent with your message. Images can't go with an answer to a
   question card; send them after. Once sent (or queued), click a thumbnail, or press ↵ or Space on it, to see the image

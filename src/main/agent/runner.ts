@@ -222,7 +222,7 @@ import {
 import type { ImageData } from '../../shared/images'
 import { permissionRuleString, taskPermissionRule } from '../../shared/permissions'
 import { agentText } from '../../shared/pastedContent'
-import { checkAnswers } from '../../shared/questions'
+import { checkAnswers, tidyAnythingElse } from '../../shared/questions'
 import { apiRowArgument, apiRowResult } from '../../shared/taskError'
 import { CommandFailure } from '../bridge/errors'
 import {
@@ -388,11 +388,12 @@ export interface AgentRunner {
   send(taskId: string, text: string, images?: readonly ImageData[], pastedBlocks?: readonly PastedBlock[]): Message
   /**
    * Answers the task's open question set with the card's answers (see the module comment), once they're checked against
-   * its questions. Answers with the set, answered. Throws a `CommandFailure`: `not_found` for no such set,
-   * `invalid_transition` for one that isn't open, `invalid_request` for answers that don't fit, and `busy` for a set
-   * the app quit on while its task's agent is working on something else.
+   * its questions, and what you typed in its "Anything else?" box, trimmed (left out when blank). Answers with the set,
+   * answered. Throws a `CommandFailure`: `not_found` for no such set, `invalid_transition` for one that isn't open,
+   * `invalid_request` for answers that don't fit, and `busy` for a set the app quit on while its task's agent is
+   * working on something else.
    */
-  answer(id: string, answers: QuestionAnswers): QuestionSet
+  answer(id: string, answers: QuestionAnswers, anythingElse?: string): QuestionSet
   /**
    * Answers an open permission request (see the module comment): the call waiting on it runs, or is denied with your
    * note. Answers with the request, closed. Throws a `CommandFailure`: `not_found` for no such request, and
@@ -2209,7 +2210,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       return message
     },
 
-    answer(id, answers) {
+    answer(id, answers, anythingElse) {
       const set = getQuestionSet(db, id)
       if (set === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No question set ${id}`)
       if (set.state !== QuestionSetState.Open) {
@@ -2217,7 +2218,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       }
       const checked = checkAnswers(set.questions, answers)
       if (!checked.ok) throw new CommandFailure(BridgeErrorCode.InvalidRequest, checked.problems.join('; '))
-      return replyTo(answerable(set), set, { kind: QuestionReplyKind.Answers, answers: checked.answers })
+      const other = tidyAnythingElse(anythingElse)
+      return replyTo(answerable(set), set, {
+        kind: QuestionReplyKind.Answers,
+        answers: checked.answers,
+        ...(other === undefined ? {} : { anythingElse: other }),
+      })
     },
 
     answerPermission(id, decision) {

@@ -56,9 +56,10 @@ subagents, and the Subagents tab follows each one.
 
 **Questions instead of guesses.** When a choice is yours, the agent asks on a card in the chat, opening with its reply to
 what you said: options with a short sketch, pills, or a line of text. Its turn waits, however long you take. Answer with
-the mouse or the keyboard, or just reply in your own words.
+the mouse or the keyboard, skip any question you like and add a note under "Anything else?", or just reply in your own
+words.
 
-![A question card that opens with the agent's reply, then four questions about how to lay out release notes](docs/images/question.png)
+![A question card that opens with the agent's reply, then four questions about how to lay out release notes and an "Anything else?" box](docs/images/question.png)
 
 **Permission when you want it.** Leave a task on Allow all, or switch it to ask before edits and commands. Each call
 then waits on a card showing the command or the change: Allow once, Allow it for the rest of the task, or Deny with a

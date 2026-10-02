@@ -226,6 +226,7 @@ const draftsSetRequest = z.strictObject({
 const questionsAnswerRequest = z.strictObject({
   id: z.string(),
   answers: questionAnswersSchema,
+  anythingElse: z.string().optional(),
 }) satisfies z.ZodType<QuestionsAnswerRequest>
 
 const permissionsAnswerRequest = z.strictObject({
