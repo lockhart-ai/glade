@@ -286,6 +286,39 @@ describe('ask', () => {
     expect(drainQuestionEvents()).toEqual([[EventType.QuestionAnswered, QuestionSetState.Answered]])
   })
 
+  it('returns only the questions answered, with anythingElse beside them when the user typed it', async () => {
+    const { outcome, open } = await ask({ questions: QUESTIONS })
+
+    context.questions.answer(open.id, {
+      kind: QuestionReplyKind.Answers,
+      answers: { 1: 'No credits' },
+      anythingElse: 'Neither layout: group them by customer impact.',
+    })
+
+    const result = await outcome
+    expect(result).toEqual({
+      output: '{"1":"No credits","anythingElse":"Neither layout: group them by customer impact."}',
+      isError: false,
+    })
+    expect(JSON.parse(result.output)).not.toHaveProperty('0')
+  })
+
+  it('returns an empty object for a card sent with every question skipped and nothing else typed', async () => {
+    const { outcome, open } = await ask({ questions: QUESTIONS })
+
+    context.questions.answer(open.id, { kind: QuestionReplyKind.Answers, answers: {} })
+
+    await expect(outcome).resolves.toEqual({ output: '{}', isError: false })
+  })
+
+  it('returns anythingElse alone when every question was skipped', async () => {
+    const { outcome, open } = await ask({ questions: QUESTIONS })
+
+    context.questions.answer(open.id, { kind: QuestionReplyKind.Answers, answers: {}, anythingElse: 'Ask me later.' })
+
+    await expect(outcome).resolves.toEqual({ output: '{"anythingElse":"Ask me later."}', isError: false })
+  })
+
   it('returns an answer in words as free text', async () => {
     const { outcome, open } = await ask({ questions: QUESTIONS })
 
@@ -524,6 +557,10 @@ describe('ask', () => {
       expect(Object.keys(listed?.inputSchema.properties ?? {})).toEqual(['preamble', 'questions'])
       expect(listed?.inputSchema.required).toEqual(['questions'])
       expect(listed?.description).toContain('first respond to it in `preamble`')
+      // Any question may come back unanswered, and anythingElse may hold the real answer, so it's read first.
+      expect(listed?.description).toContain('Every question is optional')
+      expect(listed?.description).toContain('"anythingElse": read it first')
+      expect(listed?.description).not.toContain('an optional one')
       await client.close()
     })
   })

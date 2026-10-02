@@ -48,7 +48,7 @@ import type { Settings, SettingsPatch } from './settings'
 import type { SearchResult } from './search'
 import type { DoneCounts, DonePage, DonePageRequest } from './doneList'
 import type { TerminalTab } from './terminal'
-import type { InstalledPlugin } from './plugins'
+import type { InstalledPlugin, PluginCapability } from './plugins'
 import type { ControlStatus } from './control'
 import type { AccountStatus } from './account'
 import type { MenuBarSnapshot } from './menuBar'
@@ -128,6 +128,7 @@ export enum CommandName {
   SearchQuery = 'search.query',
   PluginsList = 'plugins.list',
   PluginsSetEnabled = 'plugins.setEnabled',
+  PluginsSetCapability = 'plugins.setCapability',
   PluginsOpenFolder = 'plugins.openFolder',
   PluginsPlaceView = 'plugins.placeView',
   PluginsReload = 'plugins.reload',
@@ -639,9 +640,10 @@ export interface DraftsSetRequest {
 }
 
 /**
- * Answers the open question set the agent asked (`ask`) with the card: an answer for each question, keyed by its index
- * from 0 (see `checkAnswers` in `./questions` for what each kind of question takes). The agent's turn carries on with
- * the answers as the tool's result, and the task is working again. Broadcasts `question.answered` and `task.updated`.
+ * Answers the open question set the agent asked (`ask`) with the card: an answer for any of its questions (every one is
+ * optional, so none at all is fine), keyed by its index from 0 (see `checkAnswers` in `./questions` for what each kind
+ * of question takes), and what you typed in the card's "Anything else?" box. The agent's turn carries on with the
+ * answers as the tool's result, and the task is working again. Broadcasts `question.answered` and `task.updated`.
  *
  * If the app quit while the question was open, the agent's call is gone: its session is resumed, and the answers go to
  * it as a message, with a resumed divider in the tool log (see the runner).
@@ -655,10 +657,12 @@ export interface QuestionsAnswerRequest {
   /** The question set's id. */
   readonly id: string
   readonly answers: QuestionAnswers
+  /** The card's "Anything else?" text. Trimmed; blank or left out, the reply has none. */
+  readonly anythingElse?: string
 }
 
 export interface QuestionSetResponse {
-  /** The question set as it now is: answered, with its answers tidied (text trimmed, empty optional text dropped). */
+  /** The question set as it now is: answered, with its answers tidied (text trimmed, the unanswered dropped). */
   readonly questionSet: QuestionSet
 }
 
@@ -901,6 +905,19 @@ export interface PluginsSetEnabledRequest {
   /** The plugin's id (its folder's name). */
   readonly id: string
   readonly enabled: boolean
+}
+
+/**
+ * Turns one of a plugin's capabilities on or off (the switch under it in Settings › Plugins); the state is saved, and
+ * every capability starts off. Answers with the plugins as they now are, broadcasts `plugins.changed`, and reloads the
+ * plugin if it's the one shown, so it starts over with what it may now see. Fails with `not_found` for a plugin that
+ * wasn't valid the last time the folder was read, and `invalid_request` for a capability its manifest doesn't ask for.
+ */
+export interface PluginsSetCapabilityRequest {
+  /** The plugin's id (its folder's name). */
+  readonly id: string
+  readonly capability: PluginCapability
+  readonly granted: boolean
 }
 
 /**
@@ -1182,6 +1199,7 @@ export interface CommandMap {
   [CommandName.ControlRegenerateToken]: CommandSpec<EmptyRequest, ControlStatusResponse>
   [CommandName.AccountStatus]: CommandSpec<EmptyRequest, AccountStatusResponse>
   [CommandName.PluginsSetEnabled]: CommandSpec<PluginsSetEnabledRequest, PluginsResponse>
+  [CommandName.PluginsSetCapability]: CommandSpec<PluginsSetCapabilityRequest, PluginsResponse>
   [CommandName.PluginsOpenFolder]: CommandSpec<PluginsOpenFolderRequest, null>
   [CommandName.PluginsPlaceView]: CommandSpec<PluginsPlaceViewRequest, PluginsPlaceViewResponse>
   [CommandName.PluginsReload]: CommandSpec<PluginsReloadRequest, null>

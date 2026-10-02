@@ -20,7 +20,7 @@ strip folds away. The workspace switcher's box has a 12px corner, concentric wit
 | Task lifecycle | Active ⇄ Done and the task record. | ![Task lifecycle](screens/lifecycle.png) |
 | 1 · New task | An empty task; the first message sets the title and objective. | ![1 · New task](screens/01-new-task.png) |
 | 2 · Agent working | Live working line, Stop, message queue above the input, pasted images above the text, context meter. | ![2 · Agent working](screens/02-agent-working.png) |
-| 3 · Rich question | The `ask` card: the agent's reply to your message, then option cards with sketches, pills, Send answers. | ![3 · Rich question](screens/03-rich-question.png) |
+| 3 · Rich question | The `ask` card: the agent's reply to your message, then option cards with sketches, pills, the "Anything else?" box and Send answers. Every question is optional. | ![3 · Rich question](screens/03-rich-question.png) |
 | 4 · Needs you | Unread row in the sidebar and a native notification from another task. | ![4 · Needs you](screens/04-needs-you.png) |
 | 5 · Mark done | No dialog; Undo toast; the task moves to Done with its outcome. | ![5 · Mark done](screens/05-mark-done.png) |
 | 6 · Reopen by chatting | A message in a done task reopens it, with dividers in chat and log. | ![6 · Reopen by chatting](screens/06-reopen.png) |
@@ -41,7 +41,7 @@ strip folds away. The workspace switcher's box has a 12px corner, concentric wit
 | 20 · First run | No workspace yet: Open folder / Create a new folder. | ![20 · First run](screens/20-first-run.png) |
 | 21 · Settings | Modal; General section shown: Show Glade in the menu bar, then the account tasks run on and bill to (account, organization, plan, what it's signed in with), as Claude Code reports it. | ![21 · Settings](screens/21-settings.png) |
 | 21 · Settings › Agent | Agent section. Model lists the models the SDK offers; Effort offers the default model's own levels (Extra high among them), and hides for a model with none. | ![21 · Settings › Agent](screens/21-settings-agent.png) |
-| 21 · Settings › Plugins | Plugins section: the plugins folder, one row per plugin with its Reload button and toggle, an invalid one with its reason. | ![21 · Settings › Plugins](screens/21-settings-plugins.png) |
+| 21 · Settings › Plugins | Plugins section: the plugins folder, one row per plugin with its Reload button and toggle, and under one that asks for a capability its own switch (Nekomata's "Can see your Mac's CPU, GPU and Docker load"), an invalid one with its reason. | ![21 · Settings › Plugins](screens/21-settings-plugins.png) |
 | 21 · Settings › Control | Control section: Let agents control Glade on, the endpoint, the `claude mcp add` command with Copy, Regenerate token, the port with its fallback notice, and the note on Glade's own tasks. | ![21 · Settings › Control](screens/21-settings-control.png) |
 | 22 · Keymap | Every shortcut. Also in `../keymap.md`. | ![22 · Keymap](screens/22-keymap.png) |
 | 23 · Permission card | Ask before edits and commands: a Bash call waiting on you with Allow once, Allow for this task (its command prefix) and Deny, and a subagent's Edit with Deny's note field open; cards collapsed to one line once allowed once or denied (with the note). Built from the question card; no original design. | ![23 · Permission card](screens/23-permission-card.png) |

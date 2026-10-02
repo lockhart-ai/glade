@@ -11,13 +11,16 @@ import {
   type QuestionSet,
   type TextQuestion,
 } from '../../shared/domain'
+import { tidyAnythingElse } from '../../shared/questions'
 import { Markdown } from '../chat/Markdown'
-import { Button, ButtonVariant, Icon, IconSize, Input, useToast } from '../components'
+import { Button, ButtonVariant, Icon, IconSize, Input, Textarea, useToast } from '../components'
 import { classNames } from '../components/classNames'
 import { LinkedText } from '../links'
 import { describeFailure } from '../store/hydrate'
 import { useGladeStore } from '../store/react'
 import {
+  ANYTHING_ELSE_PLACEHOLDER,
+  ANYTHING_ELSE_PROMPT,
   answeredLabel,
   answersToSend,
   answerText,
@@ -28,6 +31,7 @@ import {
   optionValues,
   pick,
   picked,
+  sendLabel,
   sketchLines,
   takesMany,
   typed,
@@ -56,8 +60,8 @@ function Preamble({ questionSet, highlight }: QuestionCardProps) {
   return <Markdown source={questionSet.preamble} highlight={highlight ?? null} className={styles.preamble} />
 }
 
-/** Where a key moves the focus within the card. */
-type Move = { readonly question: number } | 'send'
+/** Where a key moves the focus within the card: a question, the "Anything else?" box, or Send. */
+type Move = { readonly question: number } | 'anythingElse' | 'send'
 
 interface OptionKeys {
   /** The question's index in the set. */
@@ -211,7 +215,7 @@ function TextBody({ question, index, draft, onType, onKeyDown }: TextBodyProps):
   )
 }
 
-/** A question's number and prompt, and "optional" for a text question you can leave empty. */
+/** A question's number and prompt. Every question is optional, so none is marked as such. */
 function Prompt({ question, index, id }: { readonly question: Question; readonly index: number; readonly id: string }) {
   return (
     <div className={styles.prompt}>
@@ -219,9 +223,37 @@ function Prompt({ question, index, id }: { readonly question: Question; readonly
       <span id={id} className={styles.promptText}>
         <LinkedText text={question.prompt} />
       </span>
-      {question.kind === QuestionKind.Text && question.optional === true && (
-        <span className={styles.optional}>optional</span>
-      )}
+    </div>
+  )
+}
+
+interface AnythingElseProps {
+  readonly text: string
+  readonly onType: (text: string) => void
+  readonly onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void
+}
+
+/**
+ * The "Anything else?" box at the foot of every open card, below the last question: a note in your own words, sent
+ * with the answers, or alone.
+ */
+function AnythingElse({ text, onType, onKeyDown }: AnythingElseProps): React.JSX.Element {
+  return (
+    <div className={styles.question}>
+      <div className={styles.prompt}>
+        <span className={styles.promptText}>{ANYTHING_ELSE_PROMPT}</span>
+      </div>
+      <Textarea
+        label={ANYTHING_ELSE_PROMPT}
+        placeholder={ANYTHING_ELSE_PLACEHOLDER}
+        value={text}
+        data-anything-else
+        className={styles.anythingElse}
+        onChange={(event) => {
+          onType(event.target.value)
+        }}
+        onKeyDown={onKeyDown}
+      />
     </div>
   )
 }
@@ -271,10 +303,11 @@ function tabStop(question: Question, draft: AnswerDraft, index: number, focused:
 }
 
 /**
- * The open card: each question with its options or text field, "N of M answered" and Send answers. The keyboard answers
- * it on its own: Tab moves between the questions (one stop each) and Send, ← → between a question's options, ↑ ↓
- * between the questions, 1–9 pick the focused question's options, Space picks the focused one, and ↵ sends once the
- * answers are complete.
+ * The open card: each question with its options or text field, the "Anything else?" box, "N of M answered" and Send
+ * answers (Skip questions, with nothing answered or typed). Every question is optional, so it sends whatever you've
+ * answered, none included. The keyboard answers it on its own: Tab moves between the questions (one stop each), the box
+ * and Send, ← → between a question's options, ↑ ↓ between the questions, the box and Send, 1–9 pick the focused
+ * question's options, Space picks the focused one, and ↵ sends (⌘↵ in the box, where ↵ starts a new line).
  */
 interface OpenCardProps extends QuestionCardProps {
   readonly appear: boolean
@@ -285,6 +318,7 @@ function OpenCard({ questionSet, appear, highlight }: OpenCardProps) {
   const answerQuestions = useGladeStore((state) => state.answerQuestions)
   const toast = useToast()
   const [draft, setDraft] = useState<AnswerDraft>({})
+  const [anythingElse, setAnythingElse] = useState('')
   const [focused, setFocused] = useState<Readonly<Record<number, number>>>({})
   const [sending, setSending] = useState(false)
   const card = useRef<HTMLFormElement>(null)
@@ -294,7 +328,7 @@ function OpenCard({ questionSet, appear, highlight }: OpenCardProps) {
   const send = (): void => {
     if (!ready) return
     setSending(true)
-    answerQuestions(questionSet.id, answers).catch((error: unknown) => {
+    answerQuestions(questionSet.id, answers, tidyAnythingElse(anythingElse)).catch((error: unknown) => {
       setSending(false)
       toast.show({ message: `Couldn’t send your answers: ${describeFailure(error)}` })
     })
@@ -306,21 +340,37 @@ function OpenCard({ questionSet, appear, highlight }: OpenCardProps) {
     const target =
       move === 'send'
         ? root.querySelector<HTMLElement>('[data-send]')
-        : root.querySelector<HTMLElement>(
-            `[data-question="${String(move.question)}"] [tabindex="0"], [data-question="${String(move.question)}"] input`,
-          )
+        : move === 'anythingElse'
+          ? root.querySelector<HTMLElement>('[data-anything-else]')
+          : root.querySelector<HTMLElement>(
+              `[data-question="${String(move.question)}"] [tabindex="0"], [data-question="${String(move.question)}"] input`,
+            )
     target?.focus()
   }
 
-  /** ↑ ↓ to the question before or after, or from the last question down to Send. */
+  /** ↑ ↓ to the question before or after, or from the last question down to the "Anything else?" box. */
   const moveBetweenQuestions = (event: KeyboardEvent<HTMLElement>, question: number): boolean => {
     if (event.key === 'ArrowUp') {
       if (question > 0) focus({ question: question - 1 })
       return true
     }
     if (event.key !== 'ArrowDown') return false
-    focus(question < questions.length - 1 ? { question: question + 1 } : 'send')
+    focus(question < questions.length - 1 ? { question: question + 1 } : 'anythingElse')
     return true
+  }
+
+  /**
+   * In the "Anything else?" box, ↵ starts a new line and ⌘↵ (or ⌃↵) sends. ↑ on its first line's start goes back to
+   * the last question, and ↓ at its end on to Send; elsewhere the arrows move the caret.
+   */
+  const onAnythingElseKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    const box = event.currentTarget
+    const caretAt = box.selectionStart === box.selectionEnd ? box.selectionStart : null
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) send()
+    else if (event.key === 'ArrowUp' && !event.shiftKey && caretAt === 0) focus({ question: questions.length - 1 })
+    else if (event.key === 'ArrowDown' && !event.shiftKey && caretAt === box.value.length) focus('send')
+    else return
+    event.preventDefault()
   }
 
   const pickOption = (index: number, option: number): void => {
@@ -401,6 +451,7 @@ function OpenCard({ questionSet, appear, highlight }: OpenCardProps) {
           }}
         />
       ))}
+      <AnythingElse text={anythingElse} onType={setAnythingElse} onKeyDown={onAnythingElseKeyDown} />
       <div className={styles.footer}>
         <Button
           type="submit"
@@ -412,10 +463,10 @@ function OpenCard({ questionSet, appear, highlight }: OpenCardProps) {
           onKeyDown={(event) => {
             if (event.key !== 'ArrowUp') return
             event.preventDefault()
-            focus({ question: questions.length - 1 })
+            focus('anythingElse')
           }}
         >
-          Send answers
+          {sendLabel(questions, draft, anythingElse)}
         </Button>
         <span aria-live="polite" className={styles.count}>
           {answeredLabel(questions, draft)}
@@ -425,7 +476,10 @@ function OpenCard({ questionSet, appear, highlight }: OpenCardProps) {
   )
 }
 
-/** A closed card: what was asked, and each answer, or that it was answered in words or withdrawn. */
+/**
+ * A closed card: what was asked, and each answer or that it was skipped, with anything else you typed; or that it was
+ * answered in words, or withdrawn.
+ */
 interface ClosedCardProps extends QuestionCardProps {
   readonly closed: ClosedAs
   /** Whether it has just closed, in view: it then fades in over the open card it replaces. */
@@ -435,6 +489,8 @@ interface ClosedCardProps extends QuestionCardProps {
 function ClosedCard({ questionSet, closed, fadeIn, highlight }: ClosedCardProps) {
   const { questions, reply } = questionSet
   const answers = reply?.kind === QuestionReplyKind.Answers ? reply.answers : {}
+  const anythingElse = reply?.kind === QuestionReplyKind.Answers ? reply.anythingElse : undefined
+  const showsAnswers = closed === ClosedAs.Answers || closed === ClosedAs.Skipped
   return (
     <section
       aria-label={QUESTION_CARD_NAME}
@@ -458,13 +514,23 @@ function ClosedCard({ questionSet, closed, fadeIn, highlight }: ClosedCardProps)
                 <LinkedText text={question.prompt} />
               </span>
             </dt>
-            {closed === ClosedAs.Answers && (
-              <dd className={styles.answerText}>
+            {showsAnswers && (
+              <dd className={classNames(styles.answerText, answers[String(index)] === undefined && styles.skipped)}>
                 <LinkedText text={answerText(question, answers[String(index)])} />
               </dd>
             )}
           </div>
         ))}
+        {anythingElse !== undefined && (
+          <div className={styles.answer}>
+            <dt className={styles.prompt}>
+              <span className={styles.promptText}>{ANYTHING_ELSE_PROMPT}</span>
+            </dt>
+            <dd className={classNames(styles.answerText, styles.note)}>
+              <LinkedText text={anythingElse} />
+            </dd>
+          </div>
+        )}
       </dl>
     </section>
   )

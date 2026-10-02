@@ -66,7 +66,8 @@ const textQuestion = z.object({
   kind: z.literal(QuestionKind.Text),
   prompt: text('question'),
   placeholder: text('placeholder').optional().describe('Optional: example text shown in the empty box.'),
-  optional: z.boolean().optional().describe('Whether the user can leave it empty. Required by default.'),
+  // Ignored since every question became optional (#397), but still taken, so older calls and stored sets parse.
+  optional: z.boolean().optional().describe('Ignored: the user can leave any question unanswered.'),
 }) satisfies z.ZodType<TextQuestion>
 
 /** One question, as the model asks it and as it's stored. */
@@ -97,6 +98,8 @@ export const questionAnswersSchema = z.record(
 const answersReply = z.strictObject({
   kind: z.literal(QuestionReplyKind.Answers),
   answers: questionAnswersSchema,
+  // Left out of replies stored before the "Anything else?" box (#397), and of those with nothing typed in it.
+  anythingElse: z.string().optional(),
 }) satisfies z.ZodType<AnswersReply>
 
 const freeTextReply = z.strictObject({

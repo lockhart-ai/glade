@@ -38,9 +38,10 @@ function validPlugin(id: string, name: string, overrides: Partial<ValidPlugin> =
   return {
     status: PluginStatus.Valid,
     folder: id,
-    manifest: { id, name, version: '1.0.0', entry: 'index.html', icon: 'icon.svg' },
+    manifest: { id, name, version: '1.0.0', entry: 'index.html', icon: 'icon.svg', capabilities: [] },
     iconUrl: ICON,
     enabled: true,
+    granted: [],
     ...overrides,
   }
 }

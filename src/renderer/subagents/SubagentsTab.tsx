@@ -1,6 +1,6 @@
 import { faEye } from '@fortawesome/free-regular-svg-icons'
 import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons'
-import { useMemo, useState } from 'react'
+import { memo, useCallback, useMemo, useState } from 'react'
 import type { EpochMs, ToolEvent, Watcher } from '../../shared/domain'
 import { classNames } from '../components/classNames'
 import { Collapse, Dot, Icon, IconSize } from '../components'
@@ -20,6 +20,7 @@ import {
   deriveSubagents,
   LatestLineKind,
   metaLine,
+  sameSubagent,
   statusIndicator,
   statusLabel,
   subagentLogText,
@@ -67,11 +68,34 @@ interface RowProps {
   readonly now: EpochMs
   readonly rootPath: string | undefined
   readonly expanded: boolean
-  readonly onToggle: () => void
+  /** Opens or closes a subagent's log, by its call's id. */
+  readonly onToggle: (id: string) => void
   /** Stops one of its watchers. */
   readonly onStopWatcher: (id: string) => void
-  /** What opens its context menu from its header. */
-  readonly menuTarget: ContextMenuTargetProps
+  /** What opens the context menu for a subagent, by its call's id, from its header. */
+  readonly menuTarget: (id: string) => ContextMenuTargetProps
+}
+
+function sameItems<T>(a: readonly T[], b: readonly T[]): boolean {
+  return a.length === b.length && a.every((item, index) => item === b[index])
+}
+
+/**
+ * Whether a subagent's row would render the same. The tab's rows are memoised (#413): it renders again with every
+ * event and every tick of the clock, and a long task has scores of subagents, so only the rows whose own data changed
+ * render. The clock only matters to a row that shows it: in its elapsed time while it runs, and in its background work.
+ */
+function sameRow(a: RowProps, b: RowProps): boolean {
+  return (
+    sameSubagent(a.subagent, b.subagent) &&
+    sameItems(a.watchers, b.watchers) &&
+    (a.watchers.length === 0 ? metaLine(a.subagent, a.now) === metaLine(b.subagent, b.now) : a.now === b.now) &&
+    a.rootPath === b.rootPath &&
+    a.expanded === b.expanded &&
+    a.onToggle === b.onToggle &&
+    a.onStopWatcher === b.onStopWatcher &&
+    a.menuTarget === b.menuTarget
+  )
 }
 
 /**
@@ -80,7 +104,7 @@ interface RowProps {
  * one line (the whole of it in its tooltip). Click it to open its log below it (in place of the latest line, which the
  * log ends with), and under that its background work, as the Watchers tab shows the task's own; click again to close it.
  */
-function SubagentRow({
+const SubagentRow = memo(function SubagentRow({
   subagent,
   watchers,
   now,
@@ -90,7 +114,7 @@ function SubagentRow({
   onStopWatcher,
   menuTarget,
 }: RowProps): React.JSX.Element {
-  const { name, status, summary, latest, log } = subagent
+  const { call, name, status, summary, latest, log } = subagent
   const watching = watchers.filter(isLive).length
   return (
     <div
@@ -99,7 +123,15 @@ function SubagentRow({
       className={classNames(styles.row, styles[status], expanded && styles.expanded)}
       data-status={status}
     >
-      <button type="button" className={styles.header} aria-expanded={expanded} onClick={onToggle} {...menuTarget}>
+      <button
+        type="button"
+        className={styles.header}
+        aria-expanded={expanded}
+        onClick={() => {
+          onToggle(call.id)
+        }}
+        {...menuTarget(call.id)}
+      >
         <span className={styles.titleLine}>
           <Dot state={statusIndicator(status)} />
           <span className={styles.name}>{name}</span>
@@ -157,7 +189,7 @@ function SubagentRow({
       </Collapse>
     </div>
   )
-}
+}, sameRow)
 
 export interface SubagentsTabProps {
   readonly taskId: string
@@ -189,16 +221,21 @@ export function SubagentsTab({
   const { run, copy } = useMenuCommands()
   const stopSubagent = useGladeStore((state) => state.stopSubagent)
   const stopWatcher = useGladeStore((state) => state.stopWatcher)
-
-  if (subagents.length === 0) return <p className={styles.empty}>No subagents yet.</p>
-
-  const toggle = (id: string): void => {
+  const toggle = useCallback((id: string): void => {
     setExpanded((open) => {
       const next = new Set(open)
       if (!next.delete(id)) next.add(id)
       return next
     })
-  }
+  }, [])
+  const stopWatcherOf = useCallback(
+    (id: string): void => {
+      run(() => stopWatcher(taskId, id))
+    },
+    [run, stopWatcher, taskId],
+  )
+
+  if (subagents.length === 0) return <p className={styles.empty}>No subagents yet.</p>
 
   const entries = (id: string) => {
     const subagent = subagents.find(({ call }) => call.id === id)
@@ -241,13 +278,9 @@ export function SubagentsTab({
             now={now}
             rootPath={rootPath}
             expanded={expanded.has(subagent.call.id)}
-            onToggle={() => {
-              toggle(subagent.call.id)
-            }}
-            onStopWatcher={(id) => {
-              run(() => stopWatcher(taskId, id))
-            }}
-            menuTarget={menu.targetProps(subagent.call.id)}
+            onToggle={toggle}
+            onStopWatcher={stopWatcherOf}
+            menuTarget={menu.targetProps}
           />
         ))}
         <ContextMenu label="Subagent actions" state={menu} entries={entries} />

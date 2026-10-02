@@ -1,7 +1,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { CloseKind, CommandName, EventType, type GladeBridge, type GladeEvent } from '../../shared/bridge'
 import type { Command } from '../../shared/commands'
-import { PluginStatus } from '../../shared/plugins'
+import { PluginStatus, withGrant } from '../../shared/plugins'
 import { UiStateKey, type OpenFiles, type Task, type UiStateEntry, type Workspace } from '../../shared/domain'
 import { DONE_PAGE_SIZE, inDoneList, isInDoneSection } from '../../shared/doneList'
 import { parseTaskFilter } from '../../shared/attention'
@@ -358,6 +358,26 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         }
       },
 
+      // Shown at once, then as main saved it.
+      async setPluginCapability(id, capability, granted) {
+        set((state) => ({
+          plugins:
+            state.plugins?.map((plugin) =>
+              plugin.folder === id && plugin.status === PluginStatus.Valid
+                ? withGrant(plugin, capability, granted)
+                : plugin,
+            ) ?? null,
+        }))
+        try {
+          const { plugins } = await bridge.invoke(CommandName.PluginsSetCapability, { id, capability, granted })
+          set({ plugins })
+        } catch (error) {
+          // Its folder was removed, or it no longer asks for it: show the plugins as they are now, then say why.
+          await get().loadPlugins()
+          throw error
+        }
+      },
+
       async openPluginsFolder() {
         await bridge.invoke(CommandName.PluginsOpenFolder, {})
       },
@@ -638,8 +658,11 @@ export function createGladeStore(bridge: GladeBridge): GladeStore {
         return loading
       },
 
-      async answerQuestions(id, answers) {
-        await bridge.invoke(CommandName.QuestionsAnswer, { id, answers })
+      async answerQuestions(id, answers, anythingElse) {
+        await bridge.invoke(
+          CommandName.QuestionsAnswer,
+          anythingElse === undefined ? { id, answers } : { id, answers, anythingElse },
+        )
       },
 
       async answerPermission(id, decision) {

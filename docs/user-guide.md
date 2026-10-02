@@ -145,9 +145,12 @@ scroll: the chat passes under them.
   days; one Glade quits on waits for good, and your answer resumes the task). When it asks in reply to your message,
   the card opens with its answer to what you said, above the questions; that reply stays on the card once you've
   answered, and its first line is what a notification for the card says. Options and pills that don't fit on one row wrap
-  onto more rows, up to three options to a row. Click through the card, or use the keyboard (the digits 1 – 9 pick an
-  option, ← → move between options, ↵ sends). Or just type a reply in the input bar: it answers the questions in your
-  own words.
+  onto more rows, up to three options to a row. Every question is optional: answer the ones you want and leave the
+  rest, and use the **Anything else?** box at the foot of the card to say more, or why none of the options fit. Send
+  answers sends whatever you've given (with nothing at all it reads Skip questions); the answered card shows each answer,
+  "Skipped" for the questions you left, and your note. Click through the card, or use the keyboard (the digits 1 – 9
+  pick an option, ← → move between options, ↵ sends, and ⌘↵ in the Anything else box, where ↵ starts a new line). Or
+  just type a reply in the input bar: it answers the questions in your own words.
 - **Pasted images:** paste a screenshot or image (PNG, JPEG, GIF or WebP, up to 3.75 MB each) into the input bar. It
   shows as a thumbnail you can remove, and goes to the agent with your message. Images can't go with an answer to a
   question card; send them after. Once sent (or queued), click a thumbnail, or press ↵ or Space on it, to see the image
@@ -419,7 +422,7 @@ A card left open when Glade quits is still there after the relaunch; answering i
 | Notifications | **Notifications** on or off, and **Sound**. |
 | Appearance | Nothing yet: Glade has one theme, dark. |
 | Keyboard | Every shortcut, and a way to change it (below). |
-| Plugins | The installed plugins, a switch for each, and **Open plugins folder** (see [Plugins](#plugins)). |
+| Plugins | The installed plugins, a switch for each (and for what each asks to see, such as your Mac's load), and **Open plugins folder** (see [Plugins](#plugins)). |
 | Control | **Let agents control Glade** (see [below](#let-agents-control-glade)). |
 | *(your workspace)* | Its **Name** and **Root folder**. |
 
@@ -466,6 +469,12 @@ own sandbox: no access to your files, no network beyond your own Mac, and it see
 states, one-line tool-call summaries, subagents, questions and permission requests), never your chat, tool output or
 files.
 
+**Your Mac's load.** A plugin can ask to see how busy your Mac is. If it does, Settings › Plugins shows **Can see your
+Mac's CPU, GPU and Docker load** under it, with its own switch, off until you turn it on. With it on, the plugin gets
+the CPU cores in use (all of them, and Claude Code's share), the GPU's utilisation, and each running Docker container's
+name, CPU and memory, about every 2 seconds while it's showing. It never sees which programs are running, their
+commands or their files, and Glade never starts Docker to read it. Turning the switch on or off restarts the plugin.
+
 **Installing** one is copying its folder into Glade's plugins folder: Settings › Plugins › **Open plugins folder**
 (`~/Library/Application Support/glade/plugins/`). Glade looks for plugins at launch and each time you open Settings ›
 Plugins, which lists them with a switch each; a broken one is listed with the reason. Delete the folder to remove it.
@@ -482,7 +491,9 @@ git checkout glade-plugin   # the Glade build, until it's merged into main
 cp -R dist/glade/nekomata ~/Library/Application\ Support/glade/plugins/
 ```
 
-Then open Settings › Plugins: Nekomata is listed, switched on, and appears beside the terminal.
+Then open Settings › Plugins: Nekomata is listed, switched on, and appears beside the terminal. Turn on **Can see your
+Mac's CPU, GPU and Docker load** under it to light up its room: the sun in the window follows your CPU, the pastry case
+fills with a cake per Docker container, and the espresso machine brews with the GPU.
 
 Writing your own? [The plugin API](plugin-api.md) has the manifest, the sandbox and every event.
 

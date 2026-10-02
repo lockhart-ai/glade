@@ -57,6 +57,7 @@ import {
   type WorkspacesRemoveRequest,
   type SettingsUpdateRequest,
   type PluginsSetEnabledRequest,
+  type PluginsSetCapabilityRequest,
   type PluginsPlaceViewRequest,
   type PluginsReloadRequest,
   type WorkspacesUpdateRequest,
@@ -78,6 +79,7 @@ import { isWorkspaceRelativePath, parseCommitFileKey } from '../../shared/files'
 import { MAX_MENU_BAR_HEIGHT } from '../../shared/menuBar'
 import { hasImageSignature, ImageMediaType, MAX_IMAGE_BASE64_LENGTH, type ImageData } from '../../shared/images'
 import { MAX_PASTED_BLOCK_LENGTH, PASTE_ID_PATTERN } from '../../shared/pastedContent'
+import { PluginCapability } from '../../shared/plugins'
 import { MAX_TERMINAL_NAME, MAX_TERMINAL_SIZE, MAX_TERMINAL_WRITE } from '../../shared/terminal'
 import { SETTING_SCHEMAS } from '../db/repositories/settings'
 import { permissionDecisionSchema } from '../permissions/schema'
@@ -281,6 +283,7 @@ const draftsSetRequest = withOwnFiles(
 const questionsAnswerRequest = z.strictObject({
   id: z.string(),
   answers: questionAnswersSchema,
+  anythingElse: z.string().optional(),
 }) satisfies z.ZodType<QuestionsAnswerRequest>
 
 const permissionsAnswerRequest = z.strictObject({
@@ -366,6 +369,12 @@ const pluginsSetEnabledRequest = z.strictObject({
   id: z.string(),
   enabled: z.boolean(),
 }) satisfies z.ZodType<PluginsSetEnabledRequest>
+
+const pluginsSetCapabilityRequest = z.strictObject({
+  id: z.string(),
+  capability: z.enum(PluginCapability),
+  granted: z.boolean(),
+}) satisfies z.ZodType<PluginsSetCapabilityRequest>
 
 const windowSetTrafficLightsRequest = z.strictObject({
   collapsed: z.boolean(),
@@ -534,6 +543,7 @@ export const REQUEST_SCHEMAS = {
   [CommandName.AccountStatus]: emptyRequest,
   [CommandName.ControlRegenerateToken]: emptyRequest,
   [CommandName.PluginsSetEnabled]: pluginsSetEnabledRequest,
+  [CommandName.PluginsSetCapability]: pluginsSetCapabilityRequest,
   [CommandName.PluginsOpenFolder]: emptyRequest,
   [CommandName.PluginsPlaceView]: pluginsPlaceViewRequest,
   [CommandName.PluginsReload]: pluginsReloadRequest,

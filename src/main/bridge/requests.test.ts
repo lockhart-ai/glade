@@ -51,6 +51,9 @@ describe('REQUEST_SCHEMAS', () => {
     expect(REQUEST_SCHEMAS[CommandName.TasksHistory].parse({ id: 't' })).toEqual({ id: 't' })
     const answer = { id: 's', answers: { 0: 'by-type', 1: ['Features', 'Fixes'], 2: '' } }
     expect(REQUEST_SCHEMAS[CommandName.QuestionsAnswer].parse(answer)).toEqual(answer)
+    // Every question skipped, with only the card's "Anything else?" text (#397).
+    const skipped = { id: 's', answers: {}, anythingElse: 'None of these fit.' }
+    expect(REQUEST_SCHEMAS[CommandName.QuestionsAnswer].parse(skipped)).toEqual(skipped)
     for (const decision of [
       { kind: PermissionDecisionKind.AllowOnce },
       { kind: PermissionDecisionKind.AllowForTask },
@@ -84,6 +87,8 @@ describe('REQUEST_SCHEMAS', () => {
     const toggle = { id: 'pomodoro', enabled: false }
     expect(REQUEST_SCHEMAS[CommandName.PluginsSetEnabled].parse(toggle)).toEqual(toggle)
     expect(REQUEST_SCHEMAS[CommandName.PluginsReload].parse({ id: 'pomodoro' })).toEqual({ id: 'pomodoro' })
+    const grant = { id: 'gauge', capability: 'machine', granted: true }
+    expect(REQUEST_SCHEMAS[CommandName.PluginsSetCapability].parse(grant)).toEqual(grant)
     const link = { url: 'https://example.com/docs' }
     expect(REQUEST_SCHEMAS[CommandName.LinksOpen].parse(link)).toEqual(link)
   })
@@ -220,6 +225,12 @@ describe('REQUEST_SCHEMAS', () => {
       CommandName.PluginsSetEnabled,
       { id: 'pomodoro' },
       'enabled: Invalid input: expected boolean, received undefined',
+    ],
+    [
+      'a capability Glade does not know',
+      CommandName.PluginsSetCapability,
+      { id: 'gauge', capability: 'camera', granted: true },
+      'capability: Invalid input: expected "machine"',
     ],
     [
       'a missing workspace id',
@@ -381,6 +392,12 @@ describe('REQUEST_SCHEMAS', () => {
       CommandName.QuestionsAnswer,
       { id: 's', answers: { 0: 1 } },
       'answers.0: Invalid input',
+    ],
+    [
+      '"Anything else?" text that isn’t text',
+      CommandName.QuestionsAnswer,
+      { id: 's', answers: {}, anythingElse: ['None of these fit.'] },
+      'anythingElse: Invalid input: expected string, received array',
     ],
     [
       'answers as a list',

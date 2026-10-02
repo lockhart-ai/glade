@@ -2690,8 +2690,9 @@ describe('questions', () => {
     return { open, returned }
   }
 
-  async function answer(id: string, answers: QuestionAnswers): Promise<QuestionSet> {
-    return (await glade.invoke(CommandName.QuestionsAnswer, { id, answers })).questionSet
+  async function answer(id: string, answers: QuestionAnswers, anythingElse?: string): Promise<QuestionSet> {
+    const request = anythingElse === undefined ? { id, answers } : { id, answers, anythingElse }
+    return (await glade.invoke(CommandName.QuestionsAnswer, request)).questionSet
   }
 
   /** The ask call's row in the tool log. */
@@ -2732,6 +2733,41 @@ describe('questions', () => {
       { role: MessageRole.Agent, body: 'The notes are drafted, grouped by type.', turn: 1 },
     ])
     expect(current().activity).toBe(TaskActivity.Waiting)
+    const history = await glade.invoke(CommandName.TasksHistory, { id: task.id })
+    expect(history.questionSets).toEqual([answered])
+  })
+
+  it('takes the card with every question skipped, and gives the agent an empty object', async () => {
+    const { open, returned } = await ask()
+
+    const answered = await answer(open.id, {}, '   ')
+    await returned
+    await settle()
+
+    // Blank "Anything else?" text is left out, as if nothing was typed.
+    expect(answered.reply).toEqual({ kind: QuestionReplyKind.Answers, answers: {} })
+    expect(askRow()).toMatchObject({ state: ToolCallState.Done, output: '{}' })
+    expect(current()).toMatchObject({ activity: TaskActivity.Working, asking: false })
+  })
+
+  it('keeps what you typed in "Anything else?", trimmed, and gives it to the agent beside the answers', async () => {
+    const { open, returned } = await ask()
+
+    const answered = await answer(open.id, { 1: 'Leave it out' }, '\n  Neither layout: group them by customer.  \n')
+    await returned
+    await settle()
+
+    expect(answered.reply).toEqual({
+      kind: QuestionReplyKind.Answers,
+      answers: { 1: 'Leave it out' },
+      anythingElse: 'Neither layout: group them by customer.',
+    })
+    expect(askRow()).toMatchObject({
+      state: ToolCallState.Done,
+      output: '{"1":"Leave it out","anythingElse":"Neither layout: group them by customer."}',
+    })
+    // It's stored with the set, so it's there after a relaunch.
+    relaunch()
     const history = await glade.invoke(CommandName.TasksHistory, { id: task.id })
     expect(history.questionSets).toEqual([answered])
   })
@@ -2897,6 +2933,23 @@ describe('questions', () => {
         turn: 1,
       })
       expect(current().activity).toBe(TaskActivity.Waiting)
+    })
+
+    it('hands a partial answer and its "Anything else?" text to the resumed session', async () => {
+      const open = await askThenRelaunch()
+
+      await answer(open.id, { 0: 'by-area' }, 'Skip the Django question: it shipped in 2.3.')
+
+      expect(backend.session.sent.map(({ text }) => text)).toEqual([
+        answeredAfterRestart({
+          kind: QuestionReplyKind.Answers,
+          answers: { 0: 'by-area' },
+          anythingElse: 'Skip the Django question: it shipped in 2.3.',
+        }),
+      ])
+      expect(backend.session.sent[0]?.text).toContain(
+        '{"0":"by-area","anythingElse":"Skip the Django question: it shipped in 2.3."}',
+      )
     })
 
     it('hands an answer in words to the resumed session too, and keeps it in the chat', async () => {

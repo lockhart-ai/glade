@@ -249,6 +249,24 @@ export function toolLogRows(events: readonly ToolEvent[]): ToolLogRow[] {
 }
 
 /**
+ * Whether two of a subagent's rows (or two tool calls) show the same: the same event, and for a call, the same rows
+ * under it. `toolLogRows` makes each row anew, so a row that hasn't changed is told by what it holds (#413).
+ */
+export function sameSubagentRow(a: SubagentRow, b: SubagentRow): boolean {
+  switch (a.kind) {
+    case ToolEventKind.Narration:
+      return b.kind === ToolEventKind.Narration && a.narration === b.narration
+    case ToolEventKind.ToolCall:
+      return b.kind === ToolEventKind.ToolCall && a.call === b.call && sameSubagentRows(a.children, b.children)
+  }
+}
+
+/** Whether two lists of a subagent's rows show the same, row by row (`sameSubagentRow`). */
+export function sameSubagentRows(a: readonly SubagentRow[], b: readonly SubagentRow[]): boolean {
+  return a === b || (a.length === b.length && a.every((row, index) => sameSubagentRow(row, b[index] ?? row)))
+}
+
+/**
  * Whether the task's own agent logged an event, not one of its subagents: a subagent's calls and notes name the `Agent`
  * call they belong to (`parentToolUseId`); the parent's, and every divider and compaction, don't.
  */

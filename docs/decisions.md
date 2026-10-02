@@ -60,7 +60,10 @@
   their workspaces, names, folders and each tab's last 100,000 characters of output live in SQLite, and the tab each
   workspace shows in `ui_state` (`terminal_selection`); every workspace's tabs keep their xterm.js screens in the page,
   hidden while another workspace shows; a relaunch shows that output above a
-  new shell under a dim "restored" divider, since processes don't survive a restart.
+  new shell under a dim "restored" divider, since processes don't survive a restart. The screens open only once Geist
+  Mono has loaded (`document.fonts.load`), since xterm.js measures its cell in whatever font has loaded, and they refit
+  whenever xterm.js measures its cell again (after a resize, or a change of pixel ratio), so their rows always fit the
+  card (#412).
 - **Icons:** Font Awesome (free regular + solid SVG icons via the official React packages), bundled locally; regular
   style preferred to match the designs' thin strokes.
 - **File editor (#351):** the Files tab edits workspace files in place with CodeMirror 6 (the official `@codemirror/*`
@@ -141,6 +144,13 @@
     that only relays messages, a CSP that blocks all network except localhost, no navigation and no new windows.
   - Glade sends it typed task and agent events with `postMessage`, in a versioned schema (`plugin-api.md`). The plugin
     sends back only `ready` and a short header status. It can't command Glade.
+  - Nothing about the machine, unless the plugin asks for it and you allow it (#403, replacing P12's "nothing about
+    the machine"): a manifest's `capabilities` can ask for `machine`, which Settings › Plugins shows as "Can see your
+    Mac's CPU, GPU and Docker load" with a switch per plugin, off until you turn it on (saved in SQLite). With it on,
+    the plugin gets the coarse readings Nekomata's dashboard draws (CPU cores in use, all and Claude Code's, the core
+    count, the GPU's utilisation, and each Docker container's name, CPU and memory), about every 2 s, sampled in main
+    only while such a plugin is showing. Never a process's name, command or path, nor more about a container than its
+    name. Docker is read only if it's running, never started.
   - Settings › Plugins lists the installed plugins, each with an enable/disable toggle, and has **Open plugins
     folder**. Whether each plugin is enabled lives in SQLite.
   - The bottom bar splits into terminal | plugin with a drag handle; the plugin's width is saved in SQLite. With no

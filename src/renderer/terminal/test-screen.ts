@@ -78,3 +78,10 @@ export function createTerminalScreen(isAppKey: (event: KeyboardEvent) => boolean
   screens.push(screen)
   return screen
 }
+
+/** The terminal's font loading: tests that hold it back put a promise of their own here, and empty it after. */
+export const terminalFont: { loading: Promise<void> } = { loading: Promise.resolve() }
+
+export function loadTerminalFont(): Promise<void> {
+  return terminalFont.loading
+}

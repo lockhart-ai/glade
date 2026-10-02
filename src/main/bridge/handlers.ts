@@ -251,7 +251,9 @@ export function createHandlers(context: HandlerContext): Handlers {
       setInputDraft(db, change)
       return null
     },
-    [CommandName.QuestionsAnswer]: ({ id, answers }) => ({ questionSet: runner.answer(id, answers) }),
+    [CommandName.QuestionsAnswer]: ({ id, answers, anythingElse }) => ({
+      questionSet: runner.answer(id, answers, anythingElse),
+    }),
     [CommandName.PermissionsAnswer]: ({ id, decision }) => ({
       permissionRequest: runner.answerPermission(id, decision),
     }),
@@ -348,6 +350,9 @@ export function createHandlers(context: HandlerContext): Handlers {
     [CommandName.SearchQuery]: ({ workspaceId, text }) => ({ results: searchTasks(db, workspaceId, text) }),
     [CommandName.PluginsList]: async () => ({ plugins: await plugins.list() }),
     [CommandName.PluginsSetEnabled]: ({ id, enabled }) => ({ plugins: plugins.setEnabled(id, enabled) }),
+    [CommandName.PluginsSetCapability]: ({ id, capability, granted }) => ({
+      plugins: plugins.setCapability(id, capability, granted),
+    }),
     [CommandName.PluginsOpenFolder]: async () => {
       await plugins.openFolder()
       return null
