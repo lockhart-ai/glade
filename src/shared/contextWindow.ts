@@ -53,13 +53,16 @@ export interface ReportedWindow {
 /**
  * Which of a result's `modelUsage` windows is the session's (`docs/sdk-notes.md`, "Usage and context size"): the one
  * keyed by the first of `names` that has one (the model `system/init` named, then the model Glade asked for and the
- * full id it stands for), else the one whose key is one of those spelled another way (case, a date), else the only
- * one, whatever its key. Undefined when there are several and none matches: they're other models (a subagent's, or the
- * one before a model change), and none of them is sure to be the session's.
+ * full id it stands for), else the one whose key is one of those spelled another way (case, a date), else, with
+ * `onlyModel`, the only one, whatever its key. `onlyModel` says the session has run on one model throughout: after a
+ * model change a lone entry may be the model before it (a turn that ended before the new model answered), so it isn't
+ * taken. Undefined when none matches: they're other models (a subagent's, or the one before a model change), and none
+ * of them is sure to be the session's.
  */
 export function matchReportedWindow(
   windows: Readonly<Record<string, number>>,
   names: readonly string[],
+  onlyModel: boolean,
 ): ReportedWindow | undefined {
   for (const name of names) {
     const window = windows[name]
@@ -68,7 +71,8 @@ export function matchReportedWindow(
   const entries = Object.entries(windows)
   const wanted = new Set(names.map(normalized))
   const found =
-    entries.find(([model]) => wanted.has(normalized(model))) ?? (entries.length === 1 ? entries[0] : undefined)
+    entries.find(([model]) => wanted.has(normalized(model))) ??
+    (onlyModel && entries.length === 1 ? entries[0] : undefined)
   return found === undefined ? undefined : { model: found[0], window: found[1] }
 }
 

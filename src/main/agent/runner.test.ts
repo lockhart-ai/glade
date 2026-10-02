@@ -726,6 +726,33 @@ describe('the context usage', () => {
       expect(next.contextWindowTokens).toBe(1_000_000)
     })
 
+    it("doesn't take a lone entry for the new model's once the session has changed model", async () => {
+      await send('Hi')
+      backend.session.emit(sdk.init(), sdk.text('Hello.'), sdk.result('Hello.', usage))
+      await settle()
+      expect(current().contextWindowTokens).toBe(1_000_000)
+
+      // The picker moves the task to a 200k model. Its next turn ends before that model has answered, so the result
+      // still reports the one model, the old one: it isn't the new model's window.
+      await glade.invoke(CommandName.TasksUpdate, { id: task.id, patch: { model: 'claude-sample-2' } })
+      expect(current().contextWindowTokens).toBe(200_000)
+      await send('Again')
+      backend.session.emit(sdk.result('Hello again.', usage))
+      await settle()
+
+      expect(current()).toMatchObject({ model: 'claude-sample-2', contextWindowTokens: 200_000 })
+      expect(getReportedWindows(database.db).get('claude-sample-2')).toBeUndefined()
+      expect(log.withMessage("the result reports no window for the session's model")).toHaveLength(1)
+
+      // Once the new model has run, the result names it, and its window is taken by name.
+      await send('Once more')
+      const both = { ...usage.modelUsage, 'claude-sample-2': { contextWindow: 180_000 } }
+      backend.session.emit(sdk.text('Hello.', null, 'msg_03'), sdk.result('Hello once more.', { modelUsage: both }))
+      await settle()
+      expect(current().contextWindowTokens).toBe(180_000)
+      expect(getReportedWindows(database.db).get('opus')).toBe(1_000_000)
+    })
+
     it("doesn't give a task the window of the model it has since left", async () => {
       await send('Hi')
       backend.session.emit(sdk.init(), sdk.text('Hello.'))

@@ -34,45 +34,56 @@ describe('matchReportedWindow', () => {
   const opus = { 'claude-opus-5-5': 1_000_000, 'claude-haiku-4-5-20251001': 200_000 }
 
   it('takes the entry keyed by the first name that has one', () => {
-    expect(matchReportedWindow(opus, ['claude-opus-5-5', 'opus'])).toEqual({
+    expect(matchReportedWindow(opus, ['claude-opus-5-5', 'opus'], true)).toEqual({
       model: 'claude-opus-5-5',
       window: 1_000_000,
     })
     // The init's model has none, the task's full id does.
-    expect(matchReportedWindow(opus, ['claude-opus-5-5[1m]', 'opus', 'claude-opus-5-5'])).toEqual({
+    expect(matchReportedWindow(opus, ['claude-opus-5-5[1m]', 'opus', 'claude-opus-5-5'], true)).toEqual({
       model: 'claude-opus-5-5',
       window: 1_000_000,
     })
-    expect(matchReportedWindow(opus, ['claude-haiku-4-5-20251001'])?.window).toBe(200_000)
+    expect(matchReportedWindow(opus, ['claude-haiku-4-5-20251001'], true)?.window).toBe(200_000)
   })
 
   it('else the entry that is one of the names spelled another way: the case, or a date', () => {
-    expect(matchReportedWindow(opus, ['claude-haiku-4-5'])).toEqual({
+    expect(matchReportedWindow(opus, ['claude-haiku-4-5'], true)).toEqual({
       model: 'claude-haiku-4-5-20251001',
       window: 200_000,
     })
-    expect(matchReportedWindow({ 'claude-haiku-4-5': 200_000, other: 1 }, ['claude-haiku-4-5-20251001'])?.window).toBe(
-      200_000,
-    )
-    expect(matchReportedWindow({ 'Claude-Opus-5-5[1M]': 1_000_000, other: 1 }, ['claude-opus-5-5[1m]'])?.window).toBe(
-      1_000_000,
-    )
     expect(
-      matchReportedWindow({ 'claude-opus-5-5-20260901[1m]': 1_000_000, other: 1 }, ['claude-opus-5-5[1m]']),
+      matchReportedWindow({ 'claude-haiku-4-5': 200_000, other: 1 }, ['claude-haiku-4-5-20251001'], true)?.window,
+    ).toBe(200_000)
+    expect(
+      matchReportedWindow({ 'Claude-Opus-5-5[1M]': 1_000_000, other: 1 }, ['claude-opus-5-5[1m]'], true)?.window,
+    ).toBe(1_000_000)
+    expect(
+      matchReportedWindow({ 'claude-opus-5-5-20260901[1m]': 1_000_000, other: 1 }, ['claude-opus-5-5[1m]'], true),
     ).toEqual({ model: 'claude-opus-5-5-20260901[1m]', window: 1_000_000 })
   })
 
   it('else the only entry, whatever its key, and none among several', () => {
     // #416: the task's model is an alias the list doesn't resolve, and the result is keyed by the full id.
-    expect(matchReportedWindow({ 'claude-opus-5-5': 1_000_000 }, ['opus'])).toEqual({
+    expect(matchReportedWindow({ 'claude-opus-5-5': 1_000_000 }, ['opus'], true)).toEqual({
       model: 'claude-opus-5-5',
       window: 1_000_000,
     })
-    expect(matchReportedWindow({ 'claude-opus-5-5': 1_000_000 }, [])?.window).toBe(1_000_000)
-    expect(matchReportedWindow(opus, ['opus'])).toBeUndefined()
+    expect(matchReportedWindow({ 'claude-opus-5-5': 1_000_000 }, [], true)?.window).toBe(1_000_000)
+    expect(matchReportedWindow(opus, ['opus'], true)).toBeUndefined()
     // The base model's entry isn't the 1M variant's.
-    expect(matchReportedWindow(opus, ['claude-opus-5-5[1m]'])).toBeUndefined()
-    expect(matchReportedWindow({}, ['opus'])).toBeUndefined()
+    expect(matchReportedWindow(opus, ['claude-opus-5-5[1m]'], true)).toBeUndefined()
+    expect(matchReportedWindow({}, ['opus'], true)).toBeUndefined()
+  })
+
+  it('doesn’t take the only entry once the session has changed model: it may be the model before', () => {
+    expect(matchReportedWindow({ 'claude-opus-5-5': 1_000_000 }, ['sonnet', 'claude-sonnet-5'], false)).toBeUndefined()
+    // By name, it's still found.
+    expect(matchReportedWindow({ 'claude-sonnet-5': 200_000 }, ['sonnet', 'claude-sonnet-5'], false)?.window).toBe(
+      200_000,
+    )
+    expect(matchReportedWindow({ 'claude-sonnet-5-20260801': 200_000 }, ['claude-sonnet-5'], false)?.window).toBe(
+      200_000,
+    )
   })
 })
 

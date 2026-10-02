@@ -559,6 +559,11 @@ interface LiveSession {
    * find its context window. Null until the first init.
    */
   sdkModel: string | null
+  /**
+   * Whether the session's model has changed since it started (the picker, a retry on another model, or a refusal's
+   * fallback): a lone `modelUsage` entry may then be the model before, so it's matched by name only.
+   */
+  modelChanged: boolean
   /** What the SDK last said about the account's usage limit; null until it says (it never does for an API key). */
   limit: UsageLimit | null
   /** Closed by the runner: whatever it still emits is ignored, and a turn cut short stays working, for the next launch to resume. */
@@ -1268,6 +1273,9 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       // it supports the task's own.
       const switched = updateTaskFromUser(context, taskId, { model: event.fallbackModel })
       live.settings = { ...live.settings, model: switched.model, effort: switched.effort }
+      // The init that named the session's model was the refused one's: the next init names the fallback.
+      live.sdkModel = null
+      live.modelChanged = true
     }
   }
 
@@ -1434,7 +1442,8 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
 
   /**
    * Keeps the context window the result reports for the session's model (`matchReportedWindow`: by the model its init
-   * named, the model Glade runs it on or the full id that stands for, else the only one reported), and remembers it for
+   * named, the model Glade runs it on or the full id that stands for, else the only one reported, while the session
+   * has run on one model), and remembers it for
    * that model under each of those ids, so the next task or model change on it starts from the real size. The task
    * takes it only while it's still on the model the session ran: one the picker changed meanwhile gets its own on its
    * next turn.
@@ -1443,7 +1452,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const sessionModel = live.settings.model
     const fullId = findModel(offeredModels(db), sessionModel)?.resolvedModel ?? null
     const names = [live.sdkModel, sessionModel, fullId].filter((name) => name !== null)
-    const reported = matchReportedWindow(event.contextWindows, names)
+    const reported = matchReportedWindow(event.contextWindows, names, !live.modelChanged)
     if (reported === undefined) {
       const models = Object.keys(event.contextWindows)
       if (models.length > 0)
@@ -1981,6 +1990,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       control,
       requests: new Map(),
       sdkModel: null,
+      modelChanged: false,
       limit: null,
       closed: false,
       subagents: new Map(),
@@ -2108,6 +2118,11 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const { settings } = live
     if (settings.model !== model || settings.effort !== effort || settings.permissionMode !== permissionMode) {
       agentLog(task.id).info('session settings changed', { model, effort, permissionMode })
+      if (settings.model !== model) {
+        // The next turn's init names the new model.
+        live.sdkModel = null
+        live.modelChanged = true
+      }
       live.settings = { model, effort, permissionMode }
       live.session.configure(live.settings)
     }

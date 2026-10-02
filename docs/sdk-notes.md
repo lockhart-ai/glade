@@ -278,8 +278,11 @@ A task on "Opus 5.5" read **905k / 200k**: its session ran at 1M, and Glade divi
 - **The source is `modelUsage[…].contextWindow` on each turn's `result`**, matched by `matchReportedWindow`
   (`src/shared/contextWindow.ts`): the entry keyed by `init.model`, else by the task's model id, else by the full id
   the model list gives that id (`resolvedModel`); else an entry that is one of those spelled another way (case, a date
-  after it); else **the only entry**, whatever its key. With several entries and no match (they're other models'),
-  it keeps the window it has and logs a warning with the names and the keys.
+  after it); else **the only entry**, whatever its key, but only while the session has run on one model. After a
+  model change (the picker, Retry with another model, a refusal's fallback) a lone entry may be the model before, from
+  a turn that ended before the new model answered, so it's matched by name only; a mid-turn fallback also forgets
+  `init.model` until the next init. With no match (the entries are other models'), it keeps the window it has and logs
+  a warning with the names and the keys.
 - **It's stored with the task** (`tasks.context_window_tokens`), so a relaunch, or switching tasks, shows it with no
   session running, and nothing overwrites it with a guess while the task stays on that model. A model change keeps it
   when the new id is the same model (two rows with one `resolvedModel`) or guesses the same size, and otherwise takes
