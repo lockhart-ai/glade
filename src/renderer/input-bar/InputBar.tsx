@@ -400,7 +400,11 @@ function TaskInputBar({ task, contextMeter, focusRequest, answeredRef }: TaskInp
   useEffect(() => {
     if (focusRequest === answeredRef.current) return
     answeredRef.current = focusRequest
-    field.current?.focus()
+    // In a microtask, since the request often follows a modal closing (#415), which returns the focus to where it
+    // was in one as it closes: the field must take it after that, the same way a text insertion's request does below.
+    queueMicrotask(() => {
+      field.current?.focus()
+    })
   }, [focusRequest, answeredRef])
 
   /** Keeps the paste-highlight overlay's scroll position in step with the field's (#363), which it sits behind. */

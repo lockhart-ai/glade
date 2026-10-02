@@ -736,6 +736,7 @@ describe('InputBar', () => {
     expect(field()).not.toHaveFocus()
 
     expect(fireEvent.keyDown(window, { key: 'l', metaKey: true })).toBe(false)
+    await act(() => Promise.resolve())
     expect(field()).toHaveFocus()
   })
 
@@ -746,8 +747,9 @@ describe('InputBar', () => {
     })
     expect(field()).not.toHaveFocus()
 
-    act(() => {
+    await act(async () => {
       fake.store.getState().focusInput()
+      await Promise.resolve()
     })
     expect(field()).toHaveFocus()
   })
@@ -783,15 +785,18 @@ describe('InputBar', () => {
     })
 
     await act(() => fake.store.getState().selectTask('t2'))
+    await act(() => Promise.resolve())
     expect(field()).not.toHaveFocus()
 
     act(() => {
       fake.store.getState().modalClosed()
     })
+    await act(() => Promise.resolve())
     expect(field()).not.toHaveFocus()
 
-    act(() => {
+    await act(async () => {
       fake.store.getState().modalClosed()
+      await Promise.resolve()
     })
     expect(field()).toHaveFocus()
   })
