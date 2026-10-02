@@ -77,6 +77,8 @@ import { CloseGuard } from './close-guard'
 import { testModeLogsFolder } from './isolation'
 import { checkSecurity, describeViolations } from './security'
 import { createElectronPluginViews, PLUGIN_VIEW_RADIUS, registerPluginScheme } from './plugins/electron-view'
+import { createFakeMachineSamplers } from './plugins/machine-fake'
+import { createMachineSamplers } from './plugins/machine-samplers'
 import { captureViewOf, type CaptureView } from './capture-views'
 import { seedConversation } from './capture-conversation'
 import type { TerminalOptions } from './bridge'
@@ -311,6 +313,7 @@ async function runCapture(spec: CaptureSpec, context: CaptureContext): Promise<v
   context.bridge.account.close()
   context.bridge.login.close()
   context.bridge.artifactWatch.close()
+  context.bridge.machine?.close()
   await context.bridge.endpoint.close()
   context.bridge.terminals.shutdown()
   context.database.db.close()
@@ -772,6 +775,8 @@ export function startApp({
         log: log.scoped(LogScope.Plugins),
       }),
       appVersion: app.getVersion(),
+      // The Mac's load, for plugins with the `machine` capability on; a test mode's machine is always busy the same way.
+      machineSamplers: testMode === null ? createMachineSamplers({ env: () => env }) : createFakeMachineSamplers(),
       isTrustedSender: isFromWindow,
       updateMenu: (state) => {
         appMenu.update(state)
@@ -850,6 +855,7 @@ export function startApp({
       bridge.login.close()
       void bridge.endpoint.close()
       bridge.pluginViews.close()
+      bridge.machine?.close()
       bridge.artifactWatch.close()
       menuBar?.close()
       // The shells end with the app; their tabs and recent output stay, for the next launch to show.
