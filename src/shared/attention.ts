@@ -35,17 +35,17 @@ export enum TaskAttention {
 }
 
 /**
- * Where a task stands with you (#430).
+ * Where a task stands with you (#430, corrected by #461).
  *
  * It **needs you** when it's blocked on you or has a reply you haven't read: its agent waits on your answers to
  * questions it asked or on your OK for a tool call (whatever its activity says), an error stopped it (a safety check
- * declining it included), or its turn ended and the task is unread. Opening the task reads it, so it no longer needs
- * you; Mark as unread makes it need you again. A brand-new task that has never run never does: it has nothing to show
- * you yet.
+ * declining it included), or its turn ended and the task is unread. Background work it left running masks none of
+ * these: an unread reply needs you whether or not subagents or watchers still run. Opening the task reads it, so it
+ * no longer needs you; Mark as unread makes it need you again. A brand-new task that has never run never does: it
+ * has nothing to show you yet.
  *
- * It's **working** while its agent's turn is under way (a paused turn resumes on its own), and after its turn has ended
- * for as long as background work still runs (`Task.backgroundWork`): a reply that arrives meanwhile marks it unread
- * but doesn't make it need you until that work finishes.
+ * It's **working** while its agent's turn is under way (a paused turn resumes on its own), and after its turn has
+ * ended for as long as background work still runs (`Task.backgroundWork`) and its reply has already been read.
  */
 export function taskAttention(task: AttentionFields): TaskAttention {
   if (task.state !== TaskState.Active) return TaskAttention.Idle
@@ -58,8 +58,8 @@ export function taskAttention(task: AttentionFields): TaskAttention {
     case TaskActivity.Paused:
       return TaskAttention.Working
     case TaskActivity.Waiting:
-      if (task.backgroundWork) return TaskAttention.Working
-      return task.unread && hasRun(task) ? TaskAttention.NeedsYou : TaskAttention.Idle
+      if (task.unread && hasRun(task)) return TaskAttention.NeedsYou
+      return task.backgroundWork ? TaskAttention.Working : TaskAttention.Idle
   }
 }
 

@@ -62,10 +62,12 @@ Upgrading is the same: drag the new version over the old one. Your workspaces an
   agent is working, waiting on you, idle or stopped by an error isn't a separate state; the status dot shows it.
 - **Needs you:** an active task that's blocked on you or has a reply you haven't read: its agent has asked you a
   question, wants your OK for a tool call, stopped on an error, or finished its turn with a reply in a task you
-  haven't opened since. Glade counts these, marks them and notifies you. Once you've read the reply, the task no
-  longer needs you; ⌘⇧U (Mark as unread) makes it need you again.
-- **Working in the background:** a task whose agent has finished its turn but left subagents or watchers running
-  still counts as working, not as needing you, until they finish (or it asks, wants your OK, or hits an error).
+  haven't opened since. Glade counts these, marks them and notifies you, whether or not the agent left subagents or
+  watchers running in the background. Once you've read the reply, the task no longer needs you; ⌘⇧U (Mark as unread)
+  makes it need you again.
+- **Working in the background:** a task whose agent has finished its turn, whose reply you've read, but which still
+  has subagents or watchers running counts as working, not as needing you, until they finish (or it asks, wants your
+  OK, or hits an error).
 
 The **status dot** on each task says what it's doing:
 
@@ -260,7 +262,7 @@ When the task list or right panel is hidden, the header has a button to show it 
 A task you aren't looking at can still need you. When its agent replies, asks a question or waits on a permission card:
 
 - the task is marked **unread** (bold, with a blue dot), and shows under **Needs you** in Glade's menu bar list while
-  it waits on you (a reply from a task that still has subagents or watchers running waits until they finish);
+  it waits on you, whether or not it left subagents or watchers running in the background;
 - you get a **macOS notification** with the task's name and the start of the message, even while Glade is in front.
   Click it (or **Open task**) to go to the task, or use its inline **Reply** to answer without opening Glade.
 

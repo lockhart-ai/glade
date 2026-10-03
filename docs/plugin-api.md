@@ -235,9 +235,11 @@ interface PluginTask {
   readonly activity: 'waiting' | 'working' | 'error' | 'paused'
   /**
    * Whether the task counts under Needs you: it's asking a question, waiting on a permission card, stopped on an
-   * error, or its turn ended with a reply you haven't read. False once you've read the reply, and while the task
-   * still has subagents or watchers running after its turn (it counts as working then, though `activity` says
-   * `waiting`: `activity` is the agent's own turn).
+   * error, or its turn ended with a reply you haven't read. Background work it left running doesn't change this
+   * (#461): an unread reply counts whether or not the task still has subagents or watchers running after its turn
+   * (`activity` says `waiting` either way: `activity` is the agent's own turn, not what it left running). Once
+   * you've read the reply it is false; a task that still has background work running then counts as working rather
+   * than idle.
    */
   readonly needsYou: boolean
   /** What the agent's turn is blocked on, if anything. */

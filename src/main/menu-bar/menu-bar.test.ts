@@ -206,7 +206,7 @@ describe('the icon', () => {
     expect(tray().title).toBe('1')
   })
 
-  it('counts a task whose subagent still runs as working, until the subagent ends', () => {
+  it('counts a task with an unread reply as needing you while its subagent still runs (#461)', () => {
     const task = ranTask()
     appendToolCall(test.db, {
       taskId: task.id,
@@ -217,18 +217,27 @@ describe('the icon', () => {
       parentToolUseId: null,
     })
     start()
-    expect(tray().title).toBe('')
+    // The subagent still runs, but the reply is unread: it needs you, not working.
+    expect(tray().title).toBe('1')
     menuBar.toggle()
-    expect(lastSent().working.map(({ taskId }) => taskId)).toEqual([task.id])
+    expect(lastSent().working).toEqual([])
+    expect(lastSent().needsYou.map(({ taskId, reason }) => [taskId, reason])).toEqual([[task.id, NeedsYouReason.Reply]])
+
+    // Once you've read it, it counts as working for as long as the subagent runs.
+    change(task, { unread: false })
+    vi.advanceTimersByTime(REFRESH_DELAY_MS)
+    expect(tray().title).toBe('')
     expect(lastSent().needsYou).toEqual([])
+    expect(lastSent().working.map(({ taskId }) => taskId)).toEqual([task.id])
 
     updateToolCall(test.db, { taskId: task.id, toolUseId: 'toolu_a', state: ToolCallState.Done, output: 'Done.' })
     // The bridge sends the task again when its background work changes (`createBackgroundWorkWatch`).
     menuBar.observe({ type: EventType.TaskUpdated, task: getTask(test.db, task.id) ?? task })
     vi.advanceTimersByTime(REFRESH_DELAY_MS)
-    expect(tray().title).toBe('1')
+    // Read, and nothing left running: idle, in neither list.
+    expect(tray().title).toBe('')
     expect(lastSent().working).toEqual([])
-    expect(lastSent().needsYou.map(({ taskId, reason }) => [taskId, reason])).toEqual([[task.id, NeedsYouReason.Reply]])
+    expect(lastSent().needsYou).toEqual([])
   })
 
   it('never animates: working agents, and time passing, change nothing on it and leave no timer running', () => {
