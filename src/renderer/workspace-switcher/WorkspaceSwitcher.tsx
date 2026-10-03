@@ -11,7 +11,15 @@ import { shortenHomePath } from '../paths'
 import { useGladeStore } from '../store/react'
 import { SettingsSection } from '../settings/sections'
 import { selectSelectedWorkspace } from '../store/state'
-import { badgeTone, describeStatus, workspaceStatus, WorkspaceStatusKind } from './switcherModel'
+import {
+  badgeTone,
+  describeStatus,
+  otherWorkspacesNeedsYouCount,
+  switcherTitle,
+  workspaceStatus,
+  WorkspaceStatusKind,
+} from './switcherModel'
+import { SwitcherAttentionPill } from './SwitcherAttentionPill'
 import { useWorkspaceActions } from './useWorkspaceActions'
 import { WorkspaceBadge } from './WorkspaceBadge'
 import styles from './WorkspaceSwitcher.module.css'
@@ -121,11 +129,13 @@ export function WorkspaceSwitcher({ collapseButton }: WorkspaceSwitcherProps): R
         workspace={workspace}
         tone={workspace === undefined ? undefined : badgeTone(workspaces, workspace.id)}
         collapseButton={collapseButton}
+        pill={<SwitcherAttentionPill />}
         switcher={{
           expanded: open,
           onToggle: (trigger) => {
             setAnchor(open ? null : trigger)
           },
+          title: switcherTitle(otherWorkspacesNeedsYouCount(Object.values(tasks), workspace?.id ?? null)),
         }}
       />
       <Menu
