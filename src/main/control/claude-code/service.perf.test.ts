@@ -26,12 +26,14 @@
 //
 // A count of references still depends on the processor and on what runs alongside, so there are two sets of budgets,
 // each measured where it applies (#442): a Mac's, as `npm test` runs this file among the others, and those of GitHub's
-// Linux runners, where CI runs it, as `npm run test:perf` runs the perf tests with nothing alongside. A reference is
-// native code (JSON.parse, SQLite) and the work is mostly the app's own, slowed by coverage, and x64 runs the second
-// slower against the first than Apple silicon does: the read that takes 4 references on a Mac takes 5.3 on the runners.
-// And on a runner's four processors the other test files swing it: among them the same read took 4.4 to 8.1 references
-// and twice the work 7.9 to 13.6, so no budget passed the one and failed the other. On its own it took 4.9 to 6.4,
-// and twice the work 9.6 to 12.4.
+// Linux runners, where CI runs it, as `npm run test:perf` runs the perf tests: one file at a time, nothing alongside.
+// A reference is native code (JSON.parse, SQLite) and the work is mostly the app's own, slowed by coverage, and the
+// runners' x64 processors run the second slower against the first than Apple silicon does: the read that takes 4
+// references on a Mac takes 5 to 6 there, and the import that takes 8 takes 10 to 13. Held to the Mac's budgets among
+// the other test files, the runners failed about one run in ten. And no budget works there among the other test files,
+// which swing it on a runner's four processors: the same read took 4.4 to 8.1 references among them and twice the work
+// 7.9 to 13.6, so nothing passed the one and failed the other. On its own it took 4.6 to 7.0, and twice the work 9.6
+// to 13.4.
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -65,14 +67,14 @@ interface Budgets {
 }
 
 /**
- * The budgets on a Mac (Apple silicon), as `npm test` measures them (with coverage, the other test files alongside):
- * each is about 1.75 times what it takes on an idle Mac, so twice the work fails, and about 1.4 times the most it took
- * on a busy one held to its efficiency cores.
+ * The budgets on a Mac (Apple silicon; set on an M1 Max), as `npm test` measures them (with coverage, the other test
+ * files alongside): each is about 1.75 times what it takes on an idle Mac, so twice the work fails, and about 1.4 times
+ * the most it took on a busy one held to its efficiency cores.
  */
 const MAC_BUDGET: Budgets = {
-  /** About 4, and at most 5.3. */
+  /** About 4, and at most 5.3. Twice the work takes about 9. */
   read: 7,
-  /** About 4, and at most 4.9. */
+  /** About 4, and at most 4.9. Twice the work takes about 9. */
   list: 7,
   /**
    * About 8, and at most 13.4. Twice the work takes about 17, so this one sits between the two rather than at 1.75
@@ -85,23 +87,31 @@ const MAC_BUDGET: Budgets = {
 
 /**
  * The budgets on GitHub's Linux runners (`ubuntu-latest`: x64, four processors), as `npm run test:perf` measures them
- * (with coverage, one perf file at a time and nothing alongside), over 30 runs on ten runners of four models of
- * processor (AMD EPYC 7763, 9V74 and 9V45, Intel Xeon 8573C), and ten more with the work doubled. Each sits between the
- * most it took and the least twice the work took, about a quarter above the one and a fifth below the other; the
- * models differ by more than a Mac does from one run to the next, which leaves no room for 1.75 times.
+ * (with coverage, one perf file at a time, nothing alongside): over 51 runs on 21 runners, of five models of processor
+ * (AMD EPYC 7763, 9V74 and 9V45, Intel Xeon 8573C and 6973P-C), and 20 more with the work doubled. Each sits between
+ * the most it took and the least twice the work took: at least a fifth over the one, with the other at least an eighth
+ * over it. That is less room than the Mac's 1.75 times: the models differ from each other by more than a Mac does from
+ * one run to the next, so the most one takes and the least another takes for twice the work are closer.
  */
 const LINUX_BUDGET: Budgets = {
-  /** 4.9 to 6.4, about 5.3. Twice the work took 9.6 to 12.4. */
-  read: 8,
-  /** 4.8 to 6.8, about 5.3. Twice the work took 10.2 to 12.5. */
+  /**
+   * 4.6 to 7.0: about 6 on the EPYC 7763, about 5 on most others, and anywhere from 5.2 to 7.0 on the EPYC 9V45. Twice
+   * the work took 9.6 to 13.4.
+   */
+  read: 8.5,
+  /** 4.8 to 6.8. Twice the work took 10.2 to 14.3. */
   list: 8.5,
-  /** 9.9 to 13.6, about 12.9. Twice the work took 20.1 to 26.6. */
+  /** 9.9 to 13.6: about 13, and about 10 on the EPYC 9V45. Twice the work took 20.1 to 26.6. */
   import: 17,
-  /** 0.22 to 0.28. Reading the sessions again took 2.9 to 3.4. */
+  /** 0.21 to 0.29. Reading the sessions again took 2.9 to 3.6. */
   page: 1,
 }
 
-/** This machine's budgets. CI only runs this on Linux; anything else is someone's own machine, held to the Mac's. */
+/**
+ * This machine's budgets. CI runs this on Linux only; anywhere else it's someone's own machine, held to the Mac's.
+ * (GitHub's macOS runners, virtual M1s, pass the Mac's too, with less room: over 42 runs on 14 of them the read took
+ * 3.5 to 5.7 and the import 7.4 to 13.7, and twice the work 7.3 to 9.5 and 18.3 to 22.3.)
+ */
 const BUDGET = process.platform === 'linux' ? LINUX_BUDGET : MAC_BUDGET
 
 /** How much longer reading the transcript once may take than reading a tenth of it ten times: it takes about as long. */
