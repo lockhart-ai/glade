@@ -522,6 +522,14 @@ export async function agentSessions({ app }: Glade): Promise<E2eAgent['sessions'
 }
 
 /**
+ * Each change to a running session's sandbox so far, oldest first, across every session: the sandbox and permission
+ * rules the session was handed with `applyFlagSettings`, its grants among them (`E2E_AGENT_GLOBAL`).
+ */
+export async function agentFlagSettings({ app }: Glade): Promise<E2eAgent['flagSettings']> {
+  return app.evaluate((_, name) => [...(Reflect.get(globalThis, name) as E2eAgent).flagSettings], E2E_AGENT_GLOBAL)
+}
+
+/**
  * Takes the app offline, or brings it back online, as far as its check for the network is concerned
  * (`E2E_NETWORK_GLOBAL`): an e2e run can't unplug the machine. The app starts online.
  */

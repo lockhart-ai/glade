@@ -151,8 +151,22 @@
     and tells the agent the decision in a message, as a question answered after a restart does. See
     `sdk-notes.md` §9.
   - The agent sandbox (P15, #445) is **off by default while P15 is being built** (the `sandboxEnabled` setting,
-    which has no switch yet): main is released from, and without the sandbox's permission cards and settings a
-    sandboxed task would have no way to be granted anything. The default flips to on in P15's last PR (#452).
+    Settings › Agent › Sandbox's switch): main is released from, and without the sandbox's permission cards a
+    sandboxed task would have no way to be granted anything from the chat. The default flips to on in P15's last PR
+    (#452).
+  - **The sandbox in Settings (P15-06, #451).** The switch is app-wide, in Settings › Agent, and a session reads it
+    as it starts: a running session keeps what it started with. Under it are the Glade-wide Folders and Domains,
+    which start empty and are filled only there; a workspace's are in Settings › Workspace, its root first, tagged,
+    read-write and fixed. A task's grants are listed nowhere. Each granted folder's access is a select on its row
+    (Read-only or Read-write), and every add, change and removal goes through the grants' store, so the running
+    tasks it covers have it at once, without a restart. While the switch is off both pairs of lists dim and can't be
+    changed; the grants are kept. Main owns the lists: Settings reads a scope's as it opens and follows a
+    `sandbox.grantsChanged` broadcast, sent whenever the Glade-wide grants or a workspace's change (from Settings,
+    or Allow for this workspace on a card), and shows a change only once it's saved. **Add… refuses**, with the
+    reason under the list: what the sandbox can't take (a pattern, the whole disk, anything but a bare host or a
+    leading `*.` over two labels or more), a folder or domain the list already has (a read-only folder added again
+    read-write is upgraded instead), and, for a workspace, its own root or a folder inside it, which its agents can
+    already use (the Glade-wide list takes one: it's for other workspaces' agents).
   - With the sandbox on, Allow all runs as Claude Code's `acceptEdits`, never bypassing, and crossing the sandbox's
     bounds asks in either mode: a read outside the workspace root and the granted folders under the home folder,
     `/Users` or `/Volumes` (reads elsewhere, like `/etc` or `/usr`, don't ask), a write outside the root and the
