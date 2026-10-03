@@ -238,7 +238,9 @@ When the task list or right panel is hidden, the header has a button to show it 
 - **Search** (⌘F): type and the list gives way to results from this workspace's titles, objectives, statuses, outcomes
   and full chats, each with a snippet around its best match. Opening one marks the matches and scrolls the chat to the
   first. Esc, or clearing the field, brings the list back.
-- **Sections:** Pinned, Active and Done, each collapsible. Done loads as you scroll, however long it gets.
+- **Sections:** Pinned, Active and Done, each collapsible. Pinned shows only once something is pinned, and goes away
+  again once nothing is; Active and Done always show, even at zero. A folded section stays folded across the times
+  Pinned comes and goes. Done loads as you scroll, however long it gets.
 - **Each row** has the status dot, the title and how long ago it changed, then a one-line status. Unread rows are bold
   with a blue dot.
 - **A third line** shows under the status while the task has something going on, and only then: its todo progress

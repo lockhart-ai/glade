@@ -10,6 +10,7 @@ import {
   SectionId,
   sectionTasks,
   selectionAfterDeleting,
+  shownSections,
   Step,
   stepSelection,
   visibleTaskIds,
@@ -122,6 +123,24 @@ describe('revealDone', () => {
   it('does nothing when Done is already open or the task stays under Pinned', () => {
     expect(revealDone(task, { [UiStateKey.DoneSectionCollapsed]: 'false' })).toBeNull()
     expect(revealDone({ ...task, pinned: true }, {})).toBeNull()
+  })
+})
+
+describe('shownSections', () => {
+  it('leaves out Pinned while it holds no tasks, keeping Active and Done at zero (#456)', () => {
+    const sections = sectionTasks([task('a1', 1), task('d1', 1, { state: TaskState.Done })], 'w1')
+
+    expect(shownSections(sections).map(({ id }) => id)).toEqual([SectionId.Active, SectionId.Done])
+  })
+
+  it('keeps every section once something is pinned', () => {
+    const sections = sectionTasks([task('p1', 1, { pinned: true }), task('a1', 1)], 'w1')
+
+    expect(shownSections(sections).map(({ id }) => id)).toEqual([SectionId.Pinned, SectionId.Active, SectionId.Done])
+  })
+
+  it('keeps an empty workspace down to Active and Done', () => {
+    expect(shownSections(sectionTasks([], 'w1')).map(({ id }) => id)).toEqual([SectionId.Active, SectionId.Done])
   })
 })
 
