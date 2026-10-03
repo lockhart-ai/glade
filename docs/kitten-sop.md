@@ -40,7 +40,8 @@ instead (step 6, below), never through Glade's own tools.
    Don't arm auto-merge, queue the PR or poll it for merging: the supervisor approves, queues and merges it.
 5. **Check it.** Before reporting back, run `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test`
    (100% line coverage), `npm run build` and `npm run test:e2e` locally, and wait for the required `ci` check to go
-   green on the PR (`node scripts/gh-team.mjs pr checks <N> --watch`). If it goes red, fix it with new commits.
+   green on the PR (`node scripts/gh-team.mjs pr checks <N> --watch`). If it goes red, fix it with new commits. If the
+   change touches a hot path, follow CLAUDE.md's Performance section and run its two tests.
    CI itself (`.github/workflows/ci.yml`) splits that work into parallel jobs, balanced to land around the same
    wall-clock time: `static` (typecheck, lint, format, build) and `unit` (`npm test`) on `ubuntu-latest`, and
    `check-design` and `e2e` (three `playwright test --shard` jobs, each building its own `out/testing`) on
