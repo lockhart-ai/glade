@@ -1,0 +1,105 @@
+{
+  "collapsed": {
+    "sidebar": true
+  },
+  "workspace": {
+    "name": "Acme API",
+    "rootPath": "/Users/sample/code/api"
+  },
+  "tasks": [
+    {
+      "title": "Draft release notes for 2.4",
+      "objective": "Draft release notes for 2.4 from the PRs merged since the 2.3 tag, grouped into features, fixes and internal changes.",
+      "status": "Waiting on layout, credit and upgrade guide questions.",
+      "minutesAgo": 0,
+      "startedMinutesAgo": 1,
+      "selected": true,
+      "contextUsedTokens": 23000,
+      "contextWindowTokens": 1000000,
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "mcp__glade__set_title",
+          "input": { "title": "Draft release notes for 2.4" },
+          "output": "Title set to \"Draft release notes for 2.4\".",
+          "turn": 1,
+          "minutesAgo": 0.8
+        },
+        {
+          "kind": "tool_call",
+          "name": "mcp__glade__set_objective",
+          "input": {
+            "objective": "Draft release notes for 2.4 from the PRs merged since the 2.3 tag, grouped into features, fixes and internal changes."
+          },
+          "output": "Objective set.",
+          "turn": 1,
+          "minutesAgo": 0.7
+        },
+        {
+          "kind": "tool_call",
+          "name": "mcp__glade__set_status",
+          "input": { "status": "Waiting on layout, credit and upgrade guide questions." },
+          "output": "Status updated.",
+          "turn": 1,
+          "minutesAgo": 0.6
+        },
+        {
+          "kind": "narration",
+          "text": "41 PRs since v2.3.0: 9 features, 17 fixes and 15 internal changes.",
+          "turn": 1,
+          "minutesAgo": 0.5
+        },
+        {
+          "kind": "tool_call",
+          "name": "mcp__glade__ask",
+          "input": {
+            "preamble": "I read the 41 PRs merged since `v2.3.0`. The new rate limits on `/search` change what API clients see, so the notes get a short **upgrade guide** too.\n\nA few choices are yours before I draft them."
+          },
+          "turn": 1,
+          "minutesAgo": 0
+        }
+      ],
+      "questionSet": {
+        "preamble": "I read the 41 PRs merged since `v2.3.0`. The new rate limits on `/search` change what API clients see, so the notes get a short **upgrade guide** too.\n\nA few choices are yours before I draft them.",
+        "turn": 1,
+        "minutesAgo": 0,
+        "questions": [
+          {
+            "kind": "choice",
+            "prompt": "How should the notes be laid out?",
+            "options": [
+              {
+                "id": "by-type",
+                "label": "By type",
+                "detail": "Features, fixes, internal. Matches the 2.3 notes.",
+                "sketch": "# Features\n- Rate limits on /search\n# Fixes\n- Login redirect loop"
+              },
+              {
+                "id": "by-area",
+                "label": "By area",
+                "detail": "API, dashboard, admin. Easier for integrators to scan.",
+                "sketch": "# API\n- Rate limits on /search\n# Dashboard\n- Login redirect loop"
+              }
+            ]
+          },
+          {
+            "kind": "pills",
+            "prompt": "Where does the Django 5.2 upgrade go?",
+            "options": ["Features", "Internal changes", "Leave it out"]
+          },
+          {
+            "kind": "pills",
+            "prompt": "Credit contributors?",
+            "options": ["GitHub handles", "Full names", "No credits"]
+          },
+          {
+            "kind": "text",
+            "prompt": "Anything to call out in the upgrade guide?",
+            "placeholder": "e.g. the new 429s on /search",
+            "optional": true
+          }
+        ]
+      }
+    }
+  ]
+}

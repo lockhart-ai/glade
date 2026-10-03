@@ -16,6 +16,8 @@ import {
   PermissionRequestState,
   PermissionRuleBehavior,
   PermissionUpdateType,
+  QuestionKind,
+  QuestionSetState,
   TaskActivity,
   TaskErrorSource,
   TaskState,
@@ -25,6 +27,7 @@ import {
   WatcherKind,
   WatcherState,
   type EpochMs,
+  type Question,
 } from '../shared/domain'
 import { applySeed, readSeed, seedArtifactAt, type CaptureSeed } from './capture-seed'
 import { getArtifactFilter, listArtifacts, listFileArtifacts } from './db/repositories/artifacts'
@@ -32,6 +35,7 @@ import { getHandoff } from './db/repositories/backfills'
 import { listMessages } from './db/repositories/messages'
 import { listRecentNotifications } from './db/repositories/notifications'
 import { listPermissionRequests } from './db/repositories/permission-requests'
+import { listQuestionSets } from './db/repositories/question-sets'
 import { getOpenFiles } from './db/repositories/open-files'
 import { listBrowseFolders } from './db/repositories/browse-folders'
 import { listQueuedMessages } from './db/repositories/queued-messages'
@@ -1055,6 +1059,46 @@ describe('applySeed', () => {
         NOW,
       )
     }).toThrow(/can't be allowed for the task/)
+  })
+
+  it('opens a task’s question set (the question card), so it shows as asking', () => {
+    const { db } = database
+    const questions: Question[] = [
+      {
+        kind: QuestionKind.Choice,
+        prompt: 'How should the notes be laid out?',
+        options: [
+          { id: 'a', label: 'By type' },
+          { id: 'b', label: 'By area' },
+        ],
+      },
+      { kind: QuestionKind.Pills, prompt: 'Credit contributors?', options: ['GitHub handles', 'No credits'] },
+    ]
+
+    applySeed(
+      db,
+      {
+        ...SEED,
+        tasks: [
+          {
+            title: 'Draft release notes',
+            minutesAgo: 1,
+            questionSet: { preamble: 'A few choices are yours before I finish.', questions, turn: 1, minutesAgo: 1 },
+          },
+        ],
+      },
+      NOW,
+    )
+
+    const [task] = listTasks(db, listWorkspaces(db)[0]?.id ?? '')
+    expect(task).toMatchObject({ asking: true })
+    const [set] = listQuestionSets(db, task?.id ?? '')
+    expect(set).toMatchObject({
+      preamble: 'A few choices are yours before I finish.',
+      questions,
+      state: QuestionSetState.Open,
+      createdAt: NOW - MINUTE,
+    })
   })
 
   it('writes what stopped a task’s agent', () => {
