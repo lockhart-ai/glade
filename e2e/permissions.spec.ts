@@ -357,7 +357,7 @@ test("a subagent's card says which subagent, opens on Deny when a stray key must
   await expect(subagents.permissionLines(SUBAGENT_PERMISSION.subagent)).toHaveText(['Allowed once'])
 })
 
-test('Stop withdraws an open card: it leaves the chat, and its row says Withdrawn, across a relaunch', async ({
+test('stopping the task withdraws an open card: it leaves the chat, and its row says Withdrawn, across a relaunch', async ({
   launch,
   tempFolder,
 }) => {
@@ -371,7 +371,8 @@ test('Stop withdraws an open card: it leaves the chat, and its row says Withdraw
   await expect(chat(window).permissionCards.first()).toContainText(ASKS_PERMISSION.edit.file_path)
   await expect(taskPanel(window).permissionLines).toHaveText(['Waiting on you'])
 
-  await inputBar(window).stop.click()
+  // The input bar's Stop shows only while the agent works, and here it waits on you: stopped as `stop_task` stops it.
+  await invoke(window, CommandName.TasksStop, { id: (await onlyTask(window))?.id ?? '' })
 
   await expect(chat(window).permissionRequests).toHaveCount(0)
   await expect(taskPanel(window).permissionLines).toHaveText(['Withdrawn'])

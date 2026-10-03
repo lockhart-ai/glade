@@ -450,7 +450,7 @@ you decided is on the call's row in the **Tool calls** tab, on a line that start
 | Teal: **Allowed once** | You allowed this call. |
 | Teal: **Allowed for this task: npm test commands** | You allowed it for the rest of the task; the line names what that covers. |
 | Pink: **Denied**, or **Denied: “your note”** | You denied it, with the note the agent read. |
-| Grey: **Withdrawn** | The request went away before you answered, for example because you stopped the agent. |
+| Grey: **Withdrawn** | The request went away before you answered, for example because the turn was stopped or failed. |
 
 A call that was denied or withdrawn never ran, so its row has no result. A subagent's call shows its line on its row
 in the **Subagents** tab, in that subagent's log.

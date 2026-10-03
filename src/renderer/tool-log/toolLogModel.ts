@@ -171,8 +171,8 @@ export function awaitsPermission({ call, permission }: Pick<CallRow, 'call' | 'p
 }
 
 /**
- * Whether a call never ran because its permission request was withdrawn (you stopped the turn, say): the SDK ends it
- * as an error, but it didn't fail, so its row shows the slate dot, not a failed call's pink
+ * Whether a call never ran because its permission request was withdrawn (the turn was stopped, say): the call ends as
+ * an error, but it didn't fail, so its row shows the slate dot, not a failed call's pink
  * (`docs/design/html/24-permissions-picker.html`).
  */
 export function withdrawnUnrun({ call, permission }: Pick<CallRow, 'call' | 'permission'>): boolean {
