@@ -56,8 +56,6 @@ function timed(run: () => void): number {
     times.push(cpuMs() - start)
   }
   times.sort((a, b) => a - b)
-  // TEMPORARY (#442 measurement).
-  console.log(`PERF442MS ${JSON.stringify({ test: 'done', platform: process.platform, ms: times[3], max: times[6] })}`)
   return times[3] ?? Infinity
 }
 

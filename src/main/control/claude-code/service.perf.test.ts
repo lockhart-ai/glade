@@ -152,14 +152,6 @@ afterEach(() => {
   }
 })
 
-/** TEMPORARY (#442 measurement): prints what a test measured, for the CI logs. Removed before this merges. */
-function report(test: string, measured: Record<string, unknown>): void {
-  const sabotage = process.env.GLADE_PERF_SABOTAGE ?? 'none'
-  console.log(
-    `PERF442 ${JSON.stringify({ test, platform: process.platform, arch: process.arch, sabotage, ...measured })}`,
-  )
-}
-
 /** The CPU time this process has used, in milliseconds. */
 function cpuMs(): number {
   const { user, system } = process.cpuUsage()
@@ -284,12 +276,10 @@ it(
     let listRefs = Infinity
     let fullMs = Infinity
     let baselineMs = Infinity
-    const samples: number[][] = []
     for (let run = 0; run < RUNS; run += 1) {
       const reference = await readReferenceMs(full)
       const readMs = await cpuTime(() => read(full))
       const listMs = await cpuTime(() => listAfresh(full))
-      samples.push([reference, readMs / reference, listMs / reference])
       readRefs = Math.min(readRefs, readMs / reference)
       listRefs = Math.min(listRefs, listMs / reference)
       fullMs = Math.min(fullMs, readMs)
@@ -301,7 +291,6 @@ it(
       )
     }
 
-    report('read', { readRefs, listRefs, scaling: fullMs / baselineMs, fullMs, baselineMs, samples })
     expect(readRefs).toBeLessThan(BUDGET.read)
     expect(listRefs).toBeLessThan(BUDGET.list)
     // Ten times the lines, once, take about as long as a tenth of them ten times.
@@ -318,7 +307,6 @@ it(
     await sessions.import({ session: { sessionId: SESSION_ID }, state: TaskState.Done, createWorkspace: false })
 
     let importRefs = Infinity
-    const samples: number[][] = []
     for (let run = 0; run < IMPORT_RUNS; run += 1) {
       // Each import needs a database that doesn't have the session yet.
       const session = writeLongSession(LINES)
@@ -337,9 +325,7 @@ it(
       expect(listMessages(database.db, taskId)).toHaveLength(session.turns * 2)
       expect(listToolEvents(database.db, taskId)).toHaveLength(session.turns * 4)
       importRefs = Math.min(importRefs, importMs / reference)
-      samples.push([reference, importMs / reference])
     }
-    report('import', { importRefs, samples })
 
     expect(importRefs).toBeLessThan(BUDGET.import)
   },
@@ -367,7 +353,6 @@ it(
     const cursor = first.nextCursor === null ? {} : { cursor: first.nextCursor }
 
     let pageRefs = Infinity
-    const samples: number[][] = []
     for (let run = 0; run < RUNS; run += 1) {
       const reference = await readReferenceMs(long)
       const pageMs = await cpuTime(async () => {
@@ -376,9 +361,7 @@ it(
         expect(second.nextCursor).toBeNull()
       })
       pageRefs = Math.min(pageRefs, pageMs / reference)
-      samples.push([reference, pageMs / reference])
     }
-    report('page', { pageRefs, samples })
     expect(pageRefs).toBeLessThan(BUDGET.page)
   },
   TIMEOUT_MS,
