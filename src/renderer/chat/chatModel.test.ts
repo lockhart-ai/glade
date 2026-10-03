@@ -62,6 +62,7 @@ function message(id: string, role: MessageRole, turn: number): Message {
     images: [],
     pastedBlocks: [],
     files: [],
+    broadcast: false,
   }
 }
 

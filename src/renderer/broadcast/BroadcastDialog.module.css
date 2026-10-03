@@ -1,0 +1,168 @@
+/* The Broadcast modal, docs/design/html/45-broadcast.html: the Settings modal's backdrop and card, sized for a message. */
+.backdrop {
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 6, 10, 0.66);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 560px;
+  max-width: calc(100vw - 48px);
+  /* Centred, it keeps clear of the traffic lights, as the Settings modal does. */
+  max-height: calc(100vh - 2 * var(--lights-clear-y));
+  box-sizing: border-box;
+  padding: 20px 22px 18px;
+  background: var(--color-inner);
+  border: 1px solid var(--color-strong);
+  border-radius: var(--radius-card);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  color: var(--color-text);
+}
+
+.dialog:focus {
+  outline: none;
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+/* The message: a few lines to start, growing with what you type, then scrolling. */
+.dialog .field {
+  flex-shrink: 0;
+  min-height: 96px;
+  max-height: 240px;
+  field-sizing: content;
+}
+
+.reach {
+  margin: 0;
+  font-size: var(--font-size-secondary-sm);
+  line-height: 1.5;
+  color: var(--color-faint);
+}
+
+.reached {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+/*
+ * Who gets it: the modal grows with the list up to about twelve rows, then the list scrolls. The scroll bar's room is
+ * kept whether or not it shows, so the rows never shift as tasks come and go.
+ */
+.recipients {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  max-height: 270px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 4px 2px 4px 4px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  border: 1px solid var(--color-inner-border);
+  border-radius: var(--radius-menu);
+  list-style: none;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.workspace {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px;
+}
+
+.workspaceName {
+  flex-grow: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-size-secondary);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-label);
+  color: var(--color-faint);
+}
+
+.tasks {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Indented under the workspace's name: its dot sits where the name starts. */
+.task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 8px 0 36px;
+}
+
+.taskTitle {
+  flex-grow: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-size-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attention {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-faint);
+}
+
+/* A task that needs you says so in purple, as everywhere; an idle one is as quiet as its dot. */
+.task[data-attention='needs_you'] .attention {
+  color: var(--color-purple);
+}
+
+.task[data-attention='idle'] .taskTitle {
+  color: var(--color-muted);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.hint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--color-faint);
+}
+
+.send {
+  flex-shrink: 0;
+}

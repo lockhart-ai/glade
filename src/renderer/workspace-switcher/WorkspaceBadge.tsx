@@ -3,6 +3,8 @@ import { BadgeTone, workspaceInitial } from './switcherModel'
 import styles from './WorkspaceBadge.module.css'
 
 export enum BadgeSize {
+  /** In a list of workspaces' tasks (the Broadcast modal's recipients). */
+  Small = 'small',
   /** In the switcher's rows. */
   Medium = 'medium',
   /** In the sidebar header. */
@@ -29,7 +31,12 @@ export function WorkspaceBadge({ name, tone, size = BadgeSize.Medium }: Workspac
     <span
       aria-hidden="true"
       data-tone={tone}
-      className={classNames(styles.badge, TONE_CLASSES[tone], size === BadgeSize.Large && styles.large)}
+      className={classNames(
+        styles.badge,
+        TONE_CLASSES[tone],
+        size === BadgeSize.Large && styles.large,
+        size === BadgeSize.Small && styles.small,
+      )}
     >
       {name === undefined ? '?' : workspaceInitial(name)}
     </span>

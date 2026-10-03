@@ -19,7 +19,7 @@ beforeEach(() => {
   db.prepare(
     "INSERT INTO messages (id, task_id, seq, role, body, turn, created_at) VALUES ('m', 't', 1, 'user', 'hi', 1, 2)",
   ).run()
-  db.prepare("INSERT INTO queued_messages VALUES ('q', 't', 1, '', 3)").run()
+  db.prepare("INSERT INTO queued_messages (id, task_id, seq, body, created_at) VALUES ('q', 't', 1, '', 3)").run()
   db.prepare("INSERT INTO input_drafts (task_id, text, updated_at) VALUES ('t', '', 4)").run()
 })
 

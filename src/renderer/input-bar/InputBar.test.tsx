@@ -289,6 +289,7 @@ describe('InputBar', () => {
                     images: [],
                     pastedBlocks: [],
                     files: [],
+                    broadcast: false,
                   },
                 })
               }

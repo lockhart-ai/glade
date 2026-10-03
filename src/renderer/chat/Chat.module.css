@@ -54,6 +54,13 @@
   gap: 4px;
 }
 
+/* Under your message: "you" and its time, after its tag if it was a broadcast (docs/design/html/46-broadcast-message.html). */
+.userMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* The images pasted into your message, above its text. */
 .images {
   display: flex;

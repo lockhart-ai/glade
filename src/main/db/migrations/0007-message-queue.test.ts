@@ -35,7 +35,7 @@ it('starts every existing task with an empty queue, dropped with its task', () =
   migrate(db, MIGRATIONS)
 
   expect(listQueuedMessages(db, 't')).toEqual([])
-  db.prepare("INSERT INTO queued_messages VALUES ('q', 't', 1, 'Keep the filenames.', 2)").run()
+  db.prepare("INSERT INTO queued_messages (id, task_id, seq, body, created_at) VALUES ('q', 't', 1, 'Keep the filenames.', 2)").run()
   db.prepare("DELETE FROM tasks WHERE id = 't'").run()
   expect(db.prepare('SELECT COUNT(*) FROM queued_messages').pluck().get()).toBe(0)
   db.close()

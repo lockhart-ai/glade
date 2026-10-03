@@ -62,6 +62,7 @@ const ASK: Message = {
   images: [],
   pastedBlocks: [],
   files: [],
+  broadcast: false,
 }
 const REPLY: Message = {
   id: 'm2',
@@ -74,6 +75,7 @@ const REPLY: Message = {
   images: [],
   pastedBlocks: [],
   files: [],
+  broadcast: false,
 }
 
 const PREAMBLE = 'Looking at how the API views are set up.'
