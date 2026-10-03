@@ -1875,6 +1875,19 @@ await q.applyFlagSettings({
 })
 ```
 
+How Glade applies it (P15-04, `src/main/sandbox/grants.ts`):
+
+- **The grants come from `sandbox_grants`:** the Glade-wide, workspace and task grants that cover the task, each folder
+  once with the widest access any scope gives it. The runner applies the overlay as the session starts or resumes,
+  before anything else is asked of it, and every later call (a grant added, changed or removed, the permission mode
+  switched) sends the whole overlay again, rebuilt from the database.
+- **Ordered with the session's messages:** the SDK backend runs each `applyFlagSettings` in turn with the session's
+  `send`s and settings changes, so the start's overlay is in force before the first message, and when a grant changes
+  while an earlier overlay is still being applied (a grant removed as the session starts, say), the later overlay is
+  the one left in force.
+- **A refused overlay doesn't stop the session:** the runner logs it to the task's agent log and the message still goes.
+  The grant stays saved, and the next start applies it.
+
 ### When the sandbox can't start [verified]
 
 macOS has no sandbox dependency to miss (the CLI's dependency check only fails an unsupported platform), so the probe

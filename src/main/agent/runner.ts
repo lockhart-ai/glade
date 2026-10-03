@@ -238,6 +238,8 @@ import {
 } from '../../shared/domain'
 import type { ImageData } from '../../shared/images'
 import { permissionRuleString, taskPermissionRule } from '../../shared/permissions'
+import { grantCovers, type SandboxGrantTarget } from '../../shared/sandbox'
+import type { SandboxOverlayBuilder } from '../sandbox/grants'
 import { agentText } from '../../shared/pastedContent'
 import { withAttachedFiles, type AttachedFile } from '../../shared/attachedFiles'
 import { attachedImagesOf } from '../attachments/attachments'
@@ -268,6 +270,7 @@ import {
 } from '../db/repositories/permission-requests'
 import { getOpenQuestionSet, getQuestionSet, listOpenQuestionSets } from '../db/repositories/question-sets'
 import { listTaskPermissionRules } from '../db/repositories/task-permission-rules'
+import { listGrantsCovering } from '../db/repositories/sandbox-grants'
 import { listQueuedMessages, listTasksWithQueuedMessages, takeQueuedMessages } from '../db/repositories/queued-messages'
 import { getSettings } from '../db/repositories/settings'
 import { getTask, listPausedTasks, listWorkingTasks } from '../db/repositories/tasks'
@@ -318,6 +321,7 @@ import {
   type AgentSession,
   type AgentSessionSettings,
   type CompactSummary,
+  type SandboxFlagSettings,
   type SessionJob,
   type ToolPermissionAnswer,
   type ToolPermissionCall,
@@ -405,6 +409,12 @@ export interface AgentRunnerOptions {
    * no longer reads as having fixed it (`../account/login`). Nothing by default.
    */
   readonly onLoggedOut?: (taskId: string) => void
+  /**
+   * Builds a task's sandbox overlay from its workspace root, permission mode and grants (`../sandbox/grants`): applied
+   * to its session with `applyFlagSettings` straight after the session starts or resumes, before its first message,
+   * and again whenever its grants or permission mode change. Null while the sandbox is off; always null by default.
+   */
+  readonly sandboxOverlay?: SandboxOverlayBuilder
 }
 
 /**
@@ -449,6 +459,13 @@ export interface AgentRunner {
    * call, mid-turn too. A request already open stays open. Throws a `CommandFailure` `not_found` for no such task.
    */
   applyPermissionMode(taskId: string): void
+  /**
+   * Applies the sandbox grants to the running sessions a change to `target`'s grants covers (one task, a workspace's
+   * tasks, or every task): each gets its task's whole overlay rebuilt from the database, with `applyFlagSettings`,
+   * without restarting. Resolves once every one has it; a session that refuses it is logged, and gets its grants on
+   * its next start. Tasks with no running session get theirs when it starts.
+   */
+  applySandboxGrants(target: SandboxGrantTarget): Promise<void>
   /**
    * Adds the user's message to the task's queue, for the agent to get after its current step (see the module comment).
    * When no turn is running, the queue is delivered at once, starting one, unless the task is paused: then it waits for
@@ -560,6 +577,8 @@ interface Turn {
 
 interface LiveSession {
   readonly session: AgentSession
+  /** The workspace root the session runs in, which its sandbox overlay always grants. */
+  readonly root: string
   turn: Turn | null
   /** The model, effort and permission mode the session runs with now. */
   settings: AgentSessionSettings
@@ -871,6 +890,39 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
   const timers = createPauseTimers((taskId) => {
     onPauseDue(taskId)
   })
+  const sandboxOverlay = options.sandboxOverlay ?? (() => null)
+
+  /** A task's sandbox overlay now, from its grants in the database (`AgentRunnerOptions.sandboxOverlay`). */
+  const overlayFor = (task: Task, root: string): SandboxFlagSettings | null =>
+    sandboxOverlay({ root, permissionMode: task.permissionMode, grants: listGrantsCovering(db, task) })
+
+  /**
+   * Applies a task's sandbox overlay to its session, in order with what was asked of the session before it. A session
+   * that refuses it is logged, not thrown: the grants stay saved, and its next start applies them.
+   */
+  const applySandbox = (
+    taskId: string,
+    session: AgentSession,
+    overlay: SandboxFlagSettings,
+    reason: string,
+  ): Promise<void> =>
+    session.applyFlagSettings(overlay).then(
+      () => {
+        agentLog(taskId).info('sandbox grants applied', { reason })
+      },
+      (error: unknown) => {
+        agentLog(taskId).warn("couldn't apply the sandbox grants: the session's next start applies them", {
+          reason,
+          error: describeError(error),
+        })
+      },
+    )
+
+  /** Rebuilds a running task's sandbox overlay and applies it; resolves at once while the sandbox is off. */
+  const reapplySandbox = (task: Task, live: LiveSession, reason: string): Promise<void> => {
+    const overlay = overlayFor(task, live.root)
+    return overlay === null ? Promise.resolve() : applySandbox(task.id, live.session, overlay, reason)
+  }
 
   const setActivity = (taskId: string, activity: TaskActivity): void => {
     if (getTask(db, taskId)?.activity !== activity) updateTaskFromRunner(context, taskId, { activity })
@@ -1998,11 +2050,13 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     const workspace = getWorkspace(db, task.workspaceId)
     if (workspace === undefined) throw new CommandFailure(BridgeErrorCode.NotFound, `No workspace ${task.workspaceId}`)
     const allowedRules = listTaskPermissionRules(db, task.id).map(({ rule }) => rule)
+    const overlay = overlayFor(task, workspace.rootPath)
     agentLog(task.id).info(task.sessionId === null ? 'session starting' : 'session resuming', {
       model: task.model,
       effort: task.effort,
       permissionMode: task.permissionMode,
       allowedRules: allowedRules.length,
+      sandboxed: overlay !== null,
       cwd: workspace.rootPath,
       resumeSessionId: task.sessionId,
     })
@@ -2040,8 +2094,12 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
         },
       },
     })
+    // The grants, which the start options never carry (`../sandbox/grants`): applied before the session's first message,
+    // which only ever comes after it.
+    if (overlay !== null) void applySandbox(task.id, session, overlay, 'session started')
     const live: LiveSession = {
       session,
+      root: workspace.rootPath,
       turn: null,
       settings: { model: task.model, effort: task.effort, permissionMode: task.permissionMode },
       gladeServers: gladeOwnServers(servers),
@@ -2497,6 +2555,19 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       })
       live.settings = { ...live.settings, permissionMode: task.permissionMode }
       live.session.configure(live.settings)
+      // The overlay follows the mode: whether a sandboxed command runs without asking.
+      void reapplySandbox(task, live, 'permission mode changed')
+    },
+
+    async applySandboxGrants(target) {
+      const applying: Promise<void>[] = []
+      for (const [taskId, live] of sessions) {
+        const task = getTask(db, taskId)
+        if (task !== undefined && !live.closed && grantCovers(target, task)) {
+          applying.push(reapplySandbox(task, live, 'grants changed'))
+        }
+      }
+      await Promise.all(applying)
     },
 
     queue(taskId, text, images = [], pastedBlocks = [], files = []) {
