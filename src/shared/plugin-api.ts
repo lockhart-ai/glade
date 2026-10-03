@@ -129,6 +129,10 @@ export interface PluginTask {
   /** The one-line status summary; the outcome once done. Empty until the agent sets one. */
   readonly status: string
   readonly state: PluginTaskState
+  /**
+   * What the agent is doing: its own turn, not what it left running. `waiting` is a turn that's over, whether the
+   * task is idle or still waits on something it started: `watchers`, with the subagent events, says which.
+   */
   readonly activity: PluginTaskActivity
   /**
    * Whether the task counts under Needs you: it's asking a question, waiting on a permission card, stopped on an
@@ -141,6 +145,21 @@ export interface PluginTask {
   readonly needsYou: boolean
   /** What the agent's turn is blocked on, if anything. */
   readonly waitingOn: PluginWaitingOn | null
+  /**
+   * How many watchers the task has running: the `Monitor` watches and background commands (a `Bash` call with
+   * `run_in_background`, or one that ran past its timeout and was moved to the background) whose process is still
+   * running, started by the task's agent or by one of its subagents. 0 when none. One counts from when it starts,
+   * during the agent's turn or after it, until it finishes, fails, is stopped, or dies with its session (Glade
+   * quitting, or the session failing).
+   *
+   * Not counted: a wakeup or cron job, which the Watchers tab lists too but which runs nothing until it fires, and
+   * subagents, which have their own events. Only the count: nothing of a watcher's command, name or output.
+   *
+   * With the running subagents, it's everything Glade itself counts as the task's background work: a task whose turn
+   * is over (`activity` is `waiting`) is waiting on something exactly when `watchers` is over 0 or one of its
+   * subagents is running, and idle otherwise.
+   */
+  readonly watchers: number
   readonly createdAt: number
   readonly updatedAt: number
   readonly doneAt: number | null
