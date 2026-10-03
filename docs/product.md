@@ -38,7 +38,9 @@ There are no follow-up tasks. One task can refer to another through its folder o
 ## The window
 
 - **Left sidebar** — workspace switcher, search, New task (+), and the task list in three collapsible sections:
-  Pinned, Active, Done. Each row shows a state dot, title and relative time, then a one-line status. Under them, only while there's something to show, a compact third line of what's going on in the
+  Pinned, Active, Done. Pinned is left out entirely while nothing is pinned, so it doesn't take a row for an empty
+  header; Active and Done keep showing, even at zero. Each row shows a state dot, title and relative time, then a
+  one-line status. Under them, only while there's something to show, a compact third line of what's going on in the
   task, in this order: its todo progress (a ring and `3/7`, a check once all are done, the item in progress as its
   tooltip), its running subagents and its live watchers, each an icon and a count with a tooltip. Unread rows are bold
   with a blue dot. At its foot, under a divider, the **usage meter** (see Usage). Resizable, collapsible.

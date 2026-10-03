@@ -19,6 +19,7 @@ import {
   nextNeedingYou,
   SectionId,
   sectionTasks,
+  shownSections,
   Step,
   stepSelection,
   type TaskSection,
@@ -172,7 +173,7 @@ export function TaskList({ workspaceId }: TaskListProps): React.JSX.Element {
 
   return (
     <div className={styles.list} ref={setList}>
-      {sections.map((section) => (
+      {shownSections(sections).map((section) => (
         <Section
           key={section.id}
           section={section}
