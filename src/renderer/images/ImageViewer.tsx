@@ -10,7 +10,7 @@ import {
 } from '@floating-ui/react'
 import { faImage } from '@fortawesome/free-regular-svg-icons'
 import { faChevronLeft, faChevronRight, faXmark } from '@fortawesome/free-solid-svg-icons'
-import { useCallback, useLayoutEffect, useRef, type KeyboardEvent, type MouseEvent } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { Button, ButtonVariant, Icon, IconSize, useModalPresence, useOverlayRef } from '../components'
 import { ImageSourceKind, imageSourceKey, type ImageViewerSource } from './imageSources'
 import { IMAGE_LABEL, MISSING_IMAGE_LABEL, StoredImageStatus, useStoredImage, useWorkspaceImage } from './StoredImage'
@@ -79,9 +79,10 @@ export interface ImageViewerProps {
  * to the viewer, so the keys keep stepping. A workspace image with a header shows its title just above the image's
  * own left edge, over the backdrop rather than the image's pixels, truncating rather than crowding its actions, which
  * keep their place in the close chip, top right, so nothing sits under the macOS traffic lights (top left, in every
- * state) (#460). Esc, a click on the backdrop or the close button closes it. It takes the focus synchronously as it's
- * shown, so a ← or → pressed right away still steps it (#393), and hands the focus back to `returnFocus` once it
- * closes — or, for a message's pasted images, to the task's input instead (`focusesTaskInput`, #415).
+ * state) (#460); it appears with the image, once that has loaded and has its size, never before it (#478). Esc, a
+ * click on the backdrop or the close button closes it. It takes the focus synchronously as it's shown, image loaded or
+ * not, so a ← or → pressed right away still steps it (#393), and hands the focus back to `returnFocus` once it closes
+ * — or, for a message's pasted images, to the task's input instead (`focusesTaskInput`, #415).
  */
 export function ImageViewer({
   images,
@@ -177,16 +178,13 @@ export function ImageViewer({
             {images.map((source, at) => {
               const isShown = at === index
               // Only the shown image's title renders (the rest are hidden anyway): `chrome` is already just its.
-              const title = isShown ? chrome?.title : undefined
               return (
-                <div key={imageSourceKey(source)} className={styles.frame} hidden={!isShown}>
-                  {title !== undefined && (
-                    <span className={styles.title} title={title} data-testid="image-viewer-title">
-                      {title}
-                    </span>
-                  )}
-                  <ViewedImage source={source} />
-                </div>
+                <ViewerFrame
+                  key={imageSourceKey(source)}
+                  source={source}
+                  shown={isShown}
+                  title={isShown ? chrome?.title : undefined}
+                />
               )
             })}
             <div className={styles.close}>
@@ -243,62 +241,125 @@ export function ImageViewer({
   )
 }
 
-interface ViewedImageProps {
+interface ViewerFrameProps {
   readonly source: ImageViewerSource
+  /** Whether it's the one showing: the others stay mounted, hidden, so each stays loaded and stepping to it is instant. */
+  readonly shown: boolean
+  /** The title to put above it (the shown image's, when it has one); undefined for none. */
+  readonly title: string | undefined
 }
 
 /**
- * An image at its own size or as large as fits; in its place, a card that says it can't be loaded. Its `.frame`
- * wrapper (above) carries `hidden` while another of the images is showing, so each stays loaded and stepping back to
- * it is instant.
+ * One of the viewer's images in its frame, with its title above it. An image has no size until the browser has loaded
+ * it: until then its element is an empty box 2px wide (its border), in the middle of the window, and before that,
+ * while its file is being read, there's no element at all. A title placed against either would be a sliver somewhere
+ * the image won't be. So the frame isn't painted, and its title isn't in the document, until what it holds has its
+ * size (`sized`); that one state shows both, in the same commit, so the title is never a frame ahead of the image or
+ * behind it, and never anywhere but on its edge (#478).
  */
-function ViewedImage({ source }: ViewedImageProps): React.JSX.Element | null {
+function ViewerFrame({ source, shown, title }: ViewerFrameProps): React.JSX.Element {
+  const [sized, setSized] = useState(false)
+  const onSized = useCallback(() => {
+    setSized(true)
+  }, [])
+  return (
+    <div className={styles.frame} hidden={!shown} data-pending={sized ? undefined : ''}>
+      {sized && title !== undefined && (
+        <span className={styles.title} title={title} data-testid="image-viewer-title">
+          {title}
+        </span>
+      )}
+      <ViewedImage source={source} onSized={onSized} />
+    </div>
+  )
+}
+
+interface ViewedImageProps {
+  readonly source: ImageViewerSource
+  /** Called once what stands for the image has its size: the image, loaded, or the card that says it can't be. */
+  readonly onSized: () => void
+}
+
+/** An image at its own size or as large as fits; in its place, a card that says it can't be loaded. */
+function ViewedImage({ source, onSized }: ViewedImageProps): React.JSX.Element | null {
   switch (source.kind) {
     case ImageSourceKind.Pasted:
-      return <PastedViewedImage source={source} />
+      return <PastedViewedImage source={source} onSized={onSized} />
     case ImageSourceKind.Workspace:
-      return <WorkspaceViewedImage source={source} />
+      return <WorkspaceViewedImage source={source} onSized={onSized} />
   }
 }
 
-/** In place of an image that can't be loaded: a card that says so. */
-function MissingImage(): React.JSX.Element {
+/** In place of an image that can't be loaded: a card that says so. It has its size as it mounts. */
+function MissingImage({ onSized }: { readonly onSized: () => void }): React.JSX.Element {
+  const whenMounted = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node !== null) onSized()
+    },
+    [onSized],
+  )
   return (
-    <div role="img" aria-label={MISSING_IMAGE_LABEL} className={styles.missing}>
+    <div ref={whenMounted} role="img" aria-label={MISSING_IMAGE_LABEL} className={styles.missing}>
       <Icon icon={faImage} size={IconSize.Large} />
       {MISSING_IMAGE_LABEL}
     </div>
   )
 }
 
+interface LoadedImageProps {
+  /** Its data URL. */
+  readonly url: string
+  readonly alt: string
+  readonly onSized: () => void
+}
+
+/**
+ * An image's own element. It has its size once the browser has loaded its data URL: as it mounts for one the browser
+ * still holds (shown before, or as a thumbnail), so it's sized in the commit that mounts it; on its `load` for any
+ * other, a moment later. An `error` counts too: what the browser shows in its place has its size by then.
+ */
+function LoadedImage({ url, alt, onSized }: LoadedImageProps): React.JSX.Element {
+  const whenMounted = useCallback(
+    (node: HTMLImageElement | null) => {
+      if (node?.complete === true) onSized()
+    },
+    [onSized],
+  )
+  return <img ref={whenMounted} src={url} alt={alt} className={styles.image} onLoad={onSized} onError={onSized} />
+}
+
 function PastedViewedImage({
   source,
+  onSized,
 }: {
   readonly source: Extract<ImageViewerSource, { kind: ImageSourceKind.Pasted }>
+  readonly onSized: () => void
 }): React.JSX.Element | null {
   const state = useStoredImage(source.ref)
   switch (state.status) {
     case StoredImageStatus.Loading:
       return null
     case StoredImageStatus.Missing:
-      return <MissingImage />
+      return <MissingImage onSized={onSized} />
     case StoredImageStatus.Loaded:
-      return <img src={state.url} alt={IMAGE_LABEL} className={styles.image} />
+      return <LoadedImage url={state.url} alt={IMAGE_LABEL} onSized={onSized} />
   }
 }
 
 function WorkspaceViewedImage({
   source,
+  onSized,
 }: {
   readonly source: Extract<ImageViewerSource, { kind: ImageSourceKind.Workspace }>
+  readonly onSized: () => void
 }): React.JSX.Element | null {
   const state = useWorkspaceImage(source.taskId, source.path)
   switch (state.status) {
     case StoredImageStatus.Loading:
       return null
     case StoredImageStatus.Missing:
-      return <MissingImage />
+      return <MissingImage onSized={onSized} />
     case StoredImageStatus.Loaded:
-      return <img src={state.url} alt={source.title} className={styles.image} />
+      return <LoadedImage url={state.url} alt={source.title} onSized={onSized} />
   }
 }

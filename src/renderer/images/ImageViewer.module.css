@@ -35,6 +35,14 @@
 }
 
 /*
+ * Until what it holds has its size (#478): an image the browser hasn't loaded yet is an empty box 2px wide, which
+ * would paint as a dot and its shadow in the middle of the window. Not painted until then, though it still loads.
+ */
+.frame[data-pending] {
+  visibility: hidden;
+}
+
+/*
  * Just above the frame's left edge, over the backdrop rather than the image's own pixels, so it always reads; a long
  * title truncates rather than widening the frame or crowding the actions (#460 review: moved out of the close chip,
  * where it sat under the macOS traffic lights' corner, far from the image it named, #372).

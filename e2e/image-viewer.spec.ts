@@ -4,6 +4,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from './fixtures'
+import { expectImageLoaded } from './images'
 import { paste, screenshot } from './paste'
 import { chat, firstRun, imageViewer, inputBar, taskList } from './selectors'
 
@@ -62,13 +63,15 @@ test('image viewer: open a chat thumbnail full size, step through the message’
     if (found === null) throw new Error('The image has no box')
     return found
   }
-  // Its box is the image and a 1px border.
+  // Its box is the image and a 1px border: read once it has loaded, and so has its size (#478).
+  await expectImageLoaded(viewer.image)
   expect(await box()).toMatchObject({ width: 322, height: 202 })
 
   // → steps to the large one, fitted to the window with its shape kept.
   await window.keyboard.press('ArrowRight')
   await expect(viewer.pager).toHaveText('2 of 3')
   const size = await window.evaluate(() => ({ width: innerWidth, height: innerHeight }))
+  await expectImageLoaded(viewer.image)
   await expect.poll(async () => Math.round((await box()).height)).toBe(size.height - ROOM.height)
   const large = await box()
   expect(large.width).toBeLessThanOrEqual(size.width - ROOM.width)
