@@ -575,6 +575,13 @@ interface Turn {
   readonly end: () => void
 }
 
+/** Why the runner applied a task's sandbox overlay to its session, as its log says. */
+enum SandboxApplyReason {
+  SessionStarted = 'session started',
+  GrantsChanged = 'grants changed',
+  PermissionModeChanged = 'permission mode changed',
+}
+
 interface LiveSession {
   readonly session: AgentSession
   /** The workspace root the session runs in, which its sandbox overlay always grants. */
@@ -904,7 +911,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     taskId: string,
     session: AgentSession,
     overlay: SandboxFlagSettings,
-    reason: string,
+    reason: SandboxApplyReason,
   ): Promise<void> =>
     session.applyFlagSettings(overlay).then(
       () => {
@@ -919,7 +926,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     )
 
   /** Rebuilds a running task's sandbox overlay and applies it; resolves at once while the sandbox is off. */
-  const reapplySandbox = (task: Task, live: LiveSession, reason: string): Promise<void> => {
+  const reapplySandbox = (task: Task, live: LiveSession, reason: SandboxApplyReason): Promise<void> => {
     const overlay = overlayFor(task, live.root)
     return overlay === null ? Promise.resolve() : applySandbox(task.id, live.session, overlay, reason)
   }
@@ -2096,7 +2103,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
     })
     // The grants, which the start options never carry (`../sandbox/grants`): applied before the session's first message,
     // which only ever comes after it.
-    if (overlay !== null) void applySandbox(task.id, session, overlay, 'session started')
+    if (overlay !== null) void applySandbox(task.id, session, overlay, SandboxApplyReason.SessionStarted)
     const live: LiveSession = {
       session,
       root: workspace.rootPath,
@@ -2556,7 +2563,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       live.settings = { ...live.settings, permissionMode: task.permissionMode }
       live.session.configure(live.settings)
       // The overlay follows the mode: whether a sandboxed command runs without asking.
-      void reapplySandbox(task, live, 'permission mode changed')
+      void reapplySandbox(task, live, SandboxApplyReason.PermissionModeChanged)
     },
 
     async applySandboxGrants(target) {
@@ -2564,7 +2571,7 @@ export function createAgentRunner(options: AgentRunnerOptions): AgentRunner {
       for (const [taskId, live] of sessions) {
         const task = getTask(db, taskId)
         if (task !== undefined && !live.closed && grantCovers(target, task)) {
-          applying.push(reapplySandbox(task, live, 'grants changed'))
+          applying.push(reapplySandbox(task, live, SandboxApplyReason.GrantsChanged))
         }
       }
       await Promise.all(applying)
