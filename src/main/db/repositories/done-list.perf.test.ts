@@ -8,7 +8,11 @@ import { openTestDatabase, sampleWorkspace, type TestDatabase } from './test-dat
 
 const DONE_TASKS = 2_000
 const ACTIVE_TASKS = 20
-/** What loading one page, or the counts, may take: far less than a frame. */
+/**
+ * What loading one page, or the counts, may take: far less than a frame. It's a time, not a count of references, so one
+ * budget holds everywhere this runs (measured for #442): the slowest takes about 0.4ms on a Mac (an M1 Max) and at
+ * most 2.4ms on CI's Linux runners, over 31 runs on 11 of them (`npm run test:perf`).
+ */
 const BUDGET_MS = 20
 
 let database: TestDatabase
