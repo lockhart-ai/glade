@@ -772,15 +772,19 @@ describe('the image viewer', () => {
       landingImage.dataUrl,
     )
     expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('1 of 2')
+    expect(within(viewer).getByRole('button', { name: 'Previous image' })).toBeDisabled()
+    expect(within(viewer).getByRole('button', { name: 'Next image' })).toBeEnabled()
 
     // → steps to the task's other image artifact (Yesterday's Search results), skipping every non-image one between.
     fireEvent.keyDown(viewer, { key: 'ArrowRight' })
     expect(viewerTitle(viewer)).toBe('Search results on mobile')
     expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('2 of 2')
+    expect(within(viewer).getByRole('button', { name: 'Next image' })).toBeDisabled()
 
-    // Round from the last back to the first.
+    // → again does nothing: it's the last (#463).
     fireEvent.keyDown(viewer, { key: 'ArrowRight' })
-    expect(viewerTitle(viewer)).toBe('Landing page, dark theme')
+    expect(viewerTitle(viewer)).toBe('Search results on mobile')
+    expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('2 of 2')
 
     fireEvent.keyDown(viewer, { key: 'Escape' })
     await settleFloating()
@@ -788,7 +792,7 @@ describe('the image viewer', () => {
     expect(trigger).toHaveFocus()
   })
 
-  it('takes the focus synchronously, so a ← pressed the instant it opens still steps it (#393)', async () => {
+  it('takes the focus synchronously, so a → pressed the instant it opens still steps it (#393)', async () => {
     await renderTab({ files: IMAGE_FILES })
     const trigger = within(row('Landing page, dark theme')).getByRole('button', {
       name: /^Landing page, dark theme/,
@@ -799,9 +803,9 @@ describe('the image viewer', () => {
     const viewer = screen.getByRole('dialog', { name: VIEWER_LABEL })
     expect(document.activeElement).toBe(within(viewer).getByRole('button', { name: 'Close image' }))
 
-    fireEvent.keyDown(document.activeElement ?? viewer, { key: 'ArrowLeft' })
+    fireEvent.keyDown(document.activeElement ?? viewer, { key: 'ArrowRight' })
 
-    // Round from the first back to the last: Yesterday's Search results.
+    // Steps on to Yesterday's Search results.
     expect(viewerTitle(viewer)).toBe('Search results on mobile')
   })
 
@@ -817,9 +821,10 @@ describe('the image viewer', () => {
     fireEvent.keyDown(viewer, { key: 'ArrowRight' })
     expect(viewerTitle(viewer)).toBe('Search results on mobile')
     expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('2 of 2')
-    // Round to the first, never to the folded one.
+    // → again does nothing: it's the last, and the folded one was never reachable (#463).
     fireEvent.keyDown(viewer, { key: 'ArrowRight' })
-    expect(viewerTitle(viewer)).toBe('Landing page, dark theme')
+    expect(viewerTitle(viewer)).toBe('Search results on mobile')
+    expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('2 of 2')
     fireEvent.keyDown(viewer, { key: 'Escape' })
     await settleFloating()
 
@@ -829,7 +834,9 @@ describe('the image viewer', () => {
     })
     viewer = await openViewer('Landing page, dark theme')
     expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('1 of 3')
-    fireEvent.keyDown(viewer, { key: 'ArrowLeft' })
+    fireEvent.keyDown(viewer, { key: 'ArrowRight' })
+    expect(viewerTitle(viewer)).toBe('Search results on mobile')
+    fireEvent.keyDown(viewer, { key: 'ArrowRight' })
     expect(viewerTitle(viewer)).toBe('Landing page, light theme')
     expect(within(viewer).getByRole('group', { name: 'Images' })).toHaveTextContent('3 of 3')
   })

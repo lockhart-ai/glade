@@ -447,19 +447,23 @@ test('artifacts: the image viewer steps only through the image artifacts the lis
   await expect(artifacts.header('Older')).toHaveAttribute('aria-expanded', 'false')
   await expect.poll(() => labels(artifacts.rows)).toEqual(['Landing page, dark theme', 'Search results on mobile'])
 
-  // The viewer steps through the two images listed, round and round: never the folded one, nor the folder's others.
+  // The viewer steps through the two images listed, stopping at each end (#463): never the folded one, nor the
+  // folder's others.
   const viewer = imageViewer(window)
   await artifacts.open('Landing page, dark theme').click()
   // The viewer takes the focus a moment after it opens: until then ←, → and Esc go to the row.
   await expect(viewer.close).toBeFocused()
   await expect(viewer.title).toHaveText('Landing page, dark theme')
   await expect(viewer.pager).toHaveText('1 of 2')
+  await expect(viewer.previous).toBeDisabled()
   await window.keyboard.press('ArrowRight')
   await expect(viewer.title).toHaveText('Search results on mobile')
   await expect(viewer.pager).toHaveText('2 of 2')
+  await expect(viewer.next).toBeDisabled()
+  // → again does nothing: it's the last.
   await window.keyboard.press('ArrowRight')
-  await expect(viewer.title).toHaveText('Landing page, dark theme')
-  await expect(viewer.pager).toHaveText('1 of 2')
+  await expect(viewer.title).toHaveText('Search results on mobile')
+  await expect(viewer.pager).toHaveText('2 of 2')
   await window.keyboard.press('Escape')
   await expect(viewer.viewer).toHaveCount(0)
 
@@ -470,9 +474,92 @@ test('artifacts: the image viewer steps only through the image artifacts the lis
   // The viewer takes the focus a moment after it opens: until then ←, → and Esc go to the row.
   await expect(viewer.close).toBeFocused()
   await expect(viewer.pager).toHaveText('1 of 3')
+  await expect(viewer.previous).toBeDisabled()
+  // ← does nothing: it's already the first.
   await window.keyboard.press('ArrowLeft')
+  await expect(viewer.title).toHaveText('Landing page, dark theme')
+  await expect(viewer.pager).toHaveText('1 of 3')
+  await window.keyboard.press('ArrowRight')
+  await window.keyboard.press('ArrowRight')
   await expect(viewer.title).toHaveText('Landing page, light theme')
   await expect(viewer.pager).toHaveText('3 of 3')
+})
+
+test('artifacts: a titled image’s title sits above its own left edge for small, wide and tall images, truncating when it’s long (#460)', async ({
+  launch,
+  tempFolder,
+}) => {
+  const folder = tempFolder()
+  const root = join(folder, 'acme-gallery')
+  mkdirSync(join(root, 'screens'), { recursive: true })
+  write(root, 'screens/small.png', solidPng(160, 100))
+  write(root, 'screens/wide.png', solidPng(2200, 300))
+  write(root, 'screens/tall.png', solidPng(300, 1400))
+  const longTitle =
+    'This title is far longer than the small image is wide, so it must truncate with an ellipsis rather than ' +
+    'spill past the image’s own edge or crowd the actions'
+  const seed = join(folder, 'artifacts.json')
+  writeFileSync(
+    seed,
+    JSON.stringify({
+      workspace: { name: 'Acme Gallery', rootPath: realpathSync(root) },
+      panelTab: 'artifacts',
+      tasks: [
+        {
+          title: 'Review the new crops',
+          objective: 'Check the small, wide and tall crops read well together.',
+          status: 'All three are in Artifacts.',
+          minutesAgo: 4,
+          selected: true,
+          messages: [{ role: 'user', body: 'Share the crops.', turn: 1, minutesAgo: 10 }],
+          artifacts: [
+            { path: 'screens/tall.png', title: 'Tall portrait', minutesAgo: 6 },
+            { path: 'screens/wide.png', title: 'Wide banner', minutesAgo: 7 },
+            { path: 'screens/small.png', title: longTitle, minutesAgo: 8 },
+          ],
+        },
+      ],
+    }),
+  )
+  const glade = await launch({ seed, env: MIDDAY })
+  const { window } = glade
+  const artifacts = artifactsTab(window)
+  const viewer = imageViewer(window)
+
+  /** The title sits just above the named image, sharing its left edge, and is never wider than it (#460). */
+  const assertTitleAboveImage = async (name: string): Promise<void> => {
+    const titleBox = await viewer.title.boundingBox()
+    const imageBox = await viewer.shown(name).boundingBox()
+    if (titleBox === null || imageBox === null) throw new Error('No box')
+    expect(Math.abs(titleBox.x - imageBox.x)).toBeLessThanOrEqual(1)
+    expect(titleBox.y + titleBox.height).toBeLessThanOrEqual(imageBox.y)
+    expect(titleBox.width).toBeLessThanOrEqual(imageBox.width + 1)
+  }
+
+  // Small, with a long title: it truncates with an ellipsis rather than spilling past the image's own edge.
+  await artifacts.open(longTitle).click()
+  await expect(viewer.viewer).toBeVisible()
+  await expect(viewer.pager).toHaveText('3 of 3')
+  await expect(viewer.title).toHaveText(longTitle)
+  await assertTitleAboveImage(longTitle)
+  expect(await viewer.title.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+  // Never crowds the actions, over on the window's other side.
+  const titleBox = await viewer.title.boundingBox()
+  const actionsBox = await viewer.openInFiles.boundingBox()
+  if (titleBox === null || actionsBox === null) throw new Error('No box')
+  expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(actionsBox.x)
+
+  // Wide: the title still shares its left edge and sits above it, at its own (width-capped) size.
+  await window.keyboard.press('ArrowLeft')
+  await expect(viewer.pager).toHaveText('2 of 3')
+  await expect(viewer.title).toHaveText('Wide banner')
+  await assertTitleAboveImage('Wide banner')
+
+  // Tall: same, at its own (height-capped) size.
+  await window.keyboard.press('ArrowLeft')
+  await expect(viewer.pager).toHaveText('1 of 3')
+  await expect(viewer.title).toHaveText('Tall portrait')
+  await assertTitleAboveImage('Tall portrait')
 })
 
 test('artifacts: links the agent adds and you add by hand, opened in the browser, and the Files · Links filter (#407)', async ({

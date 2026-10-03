@@ -316,7 +316,11 @@ describe('Chat', () => {
     const viewer = screen.getByRole('dialog', { name: VIEWER_LABEL })
     expect(within(viewer).getByRole('img', { name: IMAGE_LABEL })).toHaveAttribute('src', imageDataUrl(GIF))
     expect(viewer).toHaveTextContent('2 of 2')
+    // → does nothing: it's already the last (#463).
     fireEvent.keyDown(viewer, { key: 'ArrowRight' })
+    expect(within(viewer).getByRole('img', { name: IMAGE_LABEL })).toHaveAttribute('src', imageDataUrl(GIF))
+    expect(viewer).toHaveTextContent('2 of 2')
+    fireEvent.keyDown(viewer, { key: 'ArrowLeft' })
     expect(within(viewer).getByRole('img', { name: IMAGE_LABEL })).toHaveAttribute('src', imageDataUrl(PNG))
     expect(viewer).toHaveTextContent('1 of 2')
 
