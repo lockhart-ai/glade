@@ -128,12 +128,14 @@ describe('WorkspaceSwitcher', () => {
       })
     }
 
-    // An unread reply needs you; while its subagents still run it's only active; read, it's only active too.
+    // An unread reply needs you, whether or not its subagents still run (#461); read, it's only active.
     update(replied)
     expect(dotfiles).toHaveTextContent('1 needs you')
     update({ ...replied, backgroundWork: true })
+    expect(dotfiles).toHaveTextContent('1 needs you')
+    update({ ...replied, backgroundWork: true, unread: false })
     expect(dotfiles).toHaveTextContent('1 active')
-    update(replied)
+    update({ ...replied, backgroundWork: false })
     expect(dotfiles).toHaveTextContent('1 needs you')
     update({ ...replied, unread: false })
     expect(dotfiles).toHaveTextContent('1 active')

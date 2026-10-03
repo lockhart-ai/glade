@@ -182,15 +182,18 @@ Claude · log in?". Glade never sees the credential: Claude Code saves it, as it
 
 ## Attention
 
-**Needs you.** A task needs you when it's blocked on you or has a reply you haven't read (#430): it's **asking a
-question**, waiting on a **permission card**, stopped on an **error** (or declined by a safety check), or its turn
-ended with a **reply and the task is still unread**. Opening the task reads it, so a reply you've read no longer needs
-you; Mark as unread (⌘⇧U) makes it need you again. A brand-new task never does.
+**Needs you.** A task needs you when it's blocked on you or has a reply you haven't read (#430, corrected by #461):
+it's **asking a question**, waiting on a **permission card**, stopped on an **error** (or declined by a safety
+check), or its turn ended with a **reply and the task is still unread**. Background work it left running (see below)
+masks none of these: an unread reply needs you whether or not subagents or watchers still run. Opening the task reads
+it, so a reply you've read no longer needs you; Mark as unread (⌘⇧U) makes it need you again. A brand-new task never
+does.
 
-**Background work counts as working.** A task whose own turn has ended but which still has subagents or watchers
-running (a `Monitor` watch or a background command whose process runs; not a wakeup or cron job that's only
-scheduled) shows as working, until that work finishes or the task asks a question, waits on permission or errors. A
-reply that arrives meanwhile still marks the task unread, but doesn't make it need you until the work has finished.
+**Background work counts as working, once its reply is read.** A task whose own turn has ended, whose reply you've
+read, but which still has subagents or watchers running (a `Monitor` watch or a background command whose process
+runs; not a wakeup or cron job that's only scheduled) shows as working, until that work finishes or the task asks a
+question, waits on permission or errors. A reply that arrives while it's working in the background marks the task
+unread and needing you straight away, background work or not.
 
 A task with a read reply and nothing running is neither: it's **idle** (a slate dot, "Active · idle"), and counts only
 as active.
@@ -200,8 +203,8 @@ and in its header (purple needs you, blue working, pink error, slate idle), the 
 (else "N active"), the menu bar's count and its Needs you and Working lists, Next task that needs you (⌘⌥↓), and the
 plugin feed's `needsYou`. It's worked out from what's stored (the unread flag, open questions and permission requests,
 the tool log's running subagents and the watchers), so it's right after a relaunch too: a relaunch ends the subagents
-and watchers that were running, so a task that was working in the background then needs you if its reply is unread,
-and is idle if not.
+and watchers that were running, which changes nothing for a task whose reply was already unread (it still needs you),
+and leaves a task whose reply was read idle.
 
 A task you aren't looking at can still need you. When its agent sends a **final reply**, **asks a question** (`ask`)
 or waits on a **permission card**, in a task you're not viewing, Glade marks the task unread, shows it

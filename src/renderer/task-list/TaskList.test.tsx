@@ -287,7 +287,7 @@ describe('TaskList', () => {
     expect(dotOf('Upgrade Django')).toBe('done')
   })
 
-  it('shows a task whose turn ended as working while its background work runs, then by whether its reply is read', async () => {
+  it('shows a task whose turn ended as working while its background work runs if its reply is read, and needing you straight away if not (#461)', async () => {
     const running = [
       task('b1', 'Profile the checkout queries', 2, { backgroundWork: true }),
       task('b2', 'Watch the deploy', 3, { backgroundWork: true, unread: true }),
@@ -296,9 +296,11 @@ describe('TaskList', () => {
     const dotOf = (title: string): string | null =>
       row(title).querySelector('[data-state]')?.getAttribute('data-state') ?? null
     expect(dotOf('Profile the checkout queries')).toBe('working')
-    expect(dotOf('Watch the deploy')).toBe('working')
+    // Its reply is unread: it needs you though its background work runs (#461).
+    expect(dotOf('Watch the deploy')).toBe('waiting')
 
-    // The background work finishes: main sends each task again, read without it.
+    // The background work finishes: main sends each task again, read without it. Nothing changes for the unread
+    // one: it already needed you.
     act(() => {
       for (const current of running) {
         fake.emit({ type: EventType.TaskUpdated, task: { ...current, backgroundWork: false } })

@@ -50,19 +50,26 @@ describe('workspaceStatus', () => {
     })
   })
 
-  it('counts a reply you have read, and a task still working in the background, as active only (#430)', () => {
+  it('counts a read reply still working in the background as active only, and an unread one as needing you whether or not background work runs (#461)', () => {
     const read = { ...waiting('t1'), unread: false }
-    const background = { ...waiting('t2'), backgroundWork: true }
-    expect(workspaceStatus([read, background], 'w1')).toEqual({ kind: WorkspaceStatusKind.Active, count: 2 })
-
-    // The background work finishes on its unread reply; the read one is marked unread.
-    expect(workspaceStatus([read, { ...background, backgroundWork: false }], 'w1')).toEqual({
+    const readBackground = { ...read, backgroundWork: true }
+    const unreadBackground = { ...waiting('t2'), backgroundWork: true }
+    expect(workspaceStatus([read, readBackground], 'w1')).toEqual({ kind: WorkspaceStatusKind.Active, count: 2 })
+    // The unread one needs you though its background work runs (#461).
+    expect(workspaceStatus([readBackground, unreadBackground], 'w1')).toEqual({
       kind: WorkspaceStatusKind.NeedsYou,
       count: 1,
     })
-    expect(workspaceStatus([{ ...read, unread: true }, background], 'w1')).toEqual({
+
+    // Its background work finishes while it's still unread: it already needed you, so nothing changes.
+    expect(workspaceStatus([readBackground, { ...unreadBackground, backgroundWork: false }], 'w1')).toEqual({
       kind: WorkspaceStatusKind.NeedsYou,
       count: 1,
+    })
+    // The read one is marked unread too: now both need you.
+    expect(workspaceStatus([{ ...readBackground, unread: true }, unreadBackground], 'w1')).toEqual({
+      kind: WorkspaceStatusKind.NeedsYou,
+      count: 2,
     })
     // Asking or erroring needs you whatever runs in the background, and whether it's read.
     const asking = { ...read, backgroundWork: true, asking: true }
