@@ -94,6 +94,16 @@ jobs:
       - run: npm ci
       # test:e2e's global setup builds the app into out/testing itself (it's per-shard: nothing is shared between jobs).
       - run: npm run test:e2e -- --shard=${{ matrix.shard }}/3
+      # A test that failed keeps its evidence in out/e2e-results (#483, e2e/evidence.ts): the app's log and the tasks
+      # as main had them, beside Playwright's snapshot of the page. A shard that passes has nothing there to keep.
+      - name: Keep the failed tests' evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-results-${{ matrix.shard }}
+          path: out/e2e-results
+          if-no-files-found: ignore
+          retention-days: 14
 
   ci:
     name: ci

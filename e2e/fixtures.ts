@@ -40,6 +40,7 @@ import { COMMAND_CHANNEL, CommandName } from '../src/shared/bridge'
 import { UiStateKey } from '../src/shared/domain'
 import { PLUGINS_FOLDER_NAME } from '../src/shared/plugins'
 import { READY_ATTRIBUTE } from '../src/shared/ready'
+import { attachEvidence, readTasksEvidence } from './evidence'
 import { chat, firstRun, inputBar, taskList } from './selectors'
 import { invoke } from './task-view'
 
@@ -283,6 +284,10 @@ export const test = base.extend<Fixtures>({
       return glade
     })
 
+    // A test that didn't pass keeps its evidence (`./evidence`, #483): the tasks as main has them, read while an app
+    // still runs to ask, and the app's log, read once every app has quit and before the data folder goes.
+    const failed = testInfo.status !== testInfo.expectedStatus
+    const tasks = failed ? await readTasksEvidence(launched.findLast(({ window }) => !window.isClosed())?.window) : null
     for (const glade of launched) await glade.close()
     // An uncaught exception in main ends a test mode's app at once (`logCrashes`), where a real run's would put up
     // Electron's error dialog. One on the way out, as the app quits, would otherwise pass unseen (#439).
@@ -292,6 +297,11 @@ export const test = base.extend<Fixtures>({
           .split('\n')
           .filter((line) => line.includes(UNCAUGHT_EXCEPTION_LOG))
       : []
+    if (failed || uncaught.length > 0) {
+      // A test that passed until its app quit has no app left to ask.
+      const evidence = { logFile, tasks: tasks ?? (await readTasksEvidence(undefined)), stagingFolder: userData }
+      await attachEvidence(testInfo, evidence)
+    }
     if (uncaught.length > 0)
       throw new Error(`The app's main process had an uncaught exception:\n${uncaught.join('\n')}`)
   },

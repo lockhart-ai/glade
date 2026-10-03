@@ -7,6 +7,9 @@ import { defineConfig } from '@playwright/test'
  */
 export default defineConfig({
   testDir: 'e2e',
+  // The stress specs (e2e/stress/) hunt for a rare failure over hundreds of runs on a loaded machine: they're no part
+  // of the suite or of CI, and run only when asked for (each says how, at its top).
+  testIgnore: process.env.GLADE_E2E_STRESS === undefined ? ['**/e2e/stress/**'] : [],
   globalSetup: './scripts/e2e-setup.mjs',
   outputDir: 'out/e2e-results',
   // Each test launches its own app, with its own data; one at a time keeps a CI runner calm and recordings smooth.
