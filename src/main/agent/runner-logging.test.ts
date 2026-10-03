@@ -74,6 +74,7 @@ describe('a turn', () => {
       effort: task.effort,
       permissionMode: task.permissionMode,
       allowedRules: 0,
+      sandboxed: false,
       cwd: '/code/acme-api',
       resumeSessionId: null,
     })

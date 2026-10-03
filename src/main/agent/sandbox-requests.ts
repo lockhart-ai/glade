@@ -24,6 +24,7 @@ import {
   type PermissionSuggestion,
   type ToolInput,
 } from '../../shared/domain'
+import { SANDBOX_INIT_FAILURE_PREFIX } from '../../shared/sandboxFailure'
 import type { ToolPermissionCall } from './backend'
 
 /** The tool a sandboxed command's connection asks about: not one the model calls. */
@@ -207,7 +208,7 @@ export function networkDenial(host: string, port: number = HTTPS_PORT): string {
 
 /** What every command fails with when the sandbox couldn't start and must (`failIfUnavailable`). */
 export function sandboxInitFailure(reason: string): string {
-  return `Sandbox is required but failed to initialize: ${reason}. Restart to retry.`
+  return `${SANDBOX_INIT_FAILURE_PREFIX}${reason}. Restart to retry.`
 }
 
 /** One file denial by Seatbelt during a command. */

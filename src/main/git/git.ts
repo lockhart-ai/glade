@@ -114,9 +114,20 @@ export class GitError extends Error {
 
 /**
  * What every command starts with: no pager, paths as they are (not quoted and escaped), and no colour or signatures in
- * what's parsed, whatever the user's config says.
+ * what's parsed, whatever the user's config says. And no file system monitor: `core.fsmonitor` names a command git
+ * runs, and Glade's git runs on the host, outside the agent sandbox, in a repository the agent can write (#448).
  */
-const BASE_ARGS = ['--no-pager', '-c', 'core.quotepath=off', '-c', 'color.ui=false', '-c', 'log.showSignature=false']
+export const BASE_ARGS = [
+  '--no-pager',
+  '-c',
+  'core.quotepath=off',
+  '-c',
+  'color.ui=false',
+  '-c',
+  'log.showSignature=false',
+  '-c',
+  'core.fsmonitor=false',
+]
 
 /** A commit's diff, as the Changes tab counts it: renames found, and a merge's against its first parent. */
 const DIFF_ARGS = ['-M', '--diff-merges=first-parent', '--no-ext-diff', '--no-textconv']
