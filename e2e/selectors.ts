@@ -280,14 +280,17 @@ export type WorkspaceActionName =
  */
 export function workspaceSwitcher(page: Page) {
   const menu = page.getByRole('menu', { name: 'Workspaces' })
+  // While the menu is open it's modal, hiding the rest of the window from assistive technology.
+  const trigger = regions(page).workspace.getByRole('button', { name: 'Switch workspace', includeHidden: true })
   return {
-    // While the menu is open it's modal, hiding the rest of the window from assistive technology.
-    trigger: regions(page).workspace.getByRole('button', { name: 'Switch workspace', includeHidden: true }),
+    trigger,
     menu,
     rows: menu.getByRole('menuitemradio'),
     /** A workspace's row, by its name. */
     row: (name: string) => menu.getByRole('menuitemradio', { name, exact: true }),
     action: (name: WorkspaceActionName) => menu.getByRole('menuitem', { name: new RegExp(`^${name}`) }),
+    /** The closed switcher's own count pill (#472): how many tasks need you across every other workspace. */
+    pill: trigger.getByTestId('switcher-pill'),
   }
 }
 

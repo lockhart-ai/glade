@@ -58,6 +58,34 @@ export function describeStatus(status: WorkspaceStatus): string {
   }
 }
 
+/**
+ * How many tasks need you (`needsYou`, the same rule everywhere) across every workspace other than
+ * `currentWorkspaceId`: the closed switcher's own count pill (#472), so you find out without opening it.
+ */
+export function otherWorkspacesNeedsYouCount(tasks: Iterable<Task>, currentWorkspaceId: string | null): number {
+  let count = 0
+  for (const task of tasks) {
+    if (task.workspaceId === currentWorkspaceId) continue
+    if (needsYou(task)) count += 1
+  }
+  return count
+}
+
+/** The pill's own text: the count, or `9+` past 9 (it's hidden at 0; the caller checks). */
+export function pillText(count: number): string {
+  return count > 9 ? '9+' : String(count)
+}
+
+/**
+ * The switcher's tooltip: what it does, plus how many tasks in other workspaces need you, if any (the exact count,
+ * not the pill's capped `9+`).
+ */
+export function switcherTitle(count: number): string {
+  if (count === 0) return 'Switch workspace'
+  const plural = count !== 1
+  return `Switch workspace — ${String(count)} task${plural ? 's' : ''} in other workspaces need${plural ? '' : 's'} you`
+}
+
 /** The colours a workspace's badge comes in, from the design, given out in turn by workspace. */
 export enum BadgeTone {
   Blue = 'blue',

@@ -205,6 +205,11 @@ the tool log's running subagents and the watchers), so it's right after a relaun
 and watchers that were running, so a task that was working in the background then needs you if its reply is unread,
 and is idle if not.
 
+The switcher's closed button shows the same thing before you even open it: a small purple pill, just left of the
+chevron, totalling how many tasks across every workspace *other* than the open one need you (never the open
+workspace's own), "9+" past nine, hidden at zero. Its tooltip spells it out ("Switch workspace — 3 tasks in other
+workspaces need you").
+
 A task you aren't looking at can still need you. When its agent sends a **final reply**, **asks a question** (`ask`)
 or waits on a **permission card**, in a task you're not viewing, Glade marks the task unread, shows it
 under "Needs you" in the menu bar's list while it waits on you, and sends a **native macOS notification** — even while

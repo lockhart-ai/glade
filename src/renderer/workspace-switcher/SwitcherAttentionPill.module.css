@@ -1,0 +1,18 @@
+/* From docs/design/html/14-workspace-switcher.html (option B, #472): the closed switcher's count of tasks that need
+   you in every workspace other than the open one, just left of the chevron. */
+.pill {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  box-sizing: border-box;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--color-purple-bg);
+  color: var(--color-purple);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}

@@ -25,7 +25,7 @@
 }
 
 .purple {
-  background: #2e2748;
+  background: var(--color-purple-bg);
   color: var(--color-purple);
 }
 
