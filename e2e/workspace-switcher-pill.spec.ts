@@ -75,12 +75,15 @@ test('the pill totals every task that needs you, the shown workspace’s own inc
   const taskA1 = tasksA.find((task) => task.title === SUITE_TITLE)?.id ?? ''
   const taskB1 = tasksB[0]?.id ?? ''
 
-  // A1 replies while A2 is the one shown (needs you in the CURRENT workspace, A); B1 replies too (needs you in B,
-  // elsewhere). Neither is the task you're viewing, so both need you; both light the pill up live, named in the
-  // tooltip, without a reload.
+  // A1 replies while A2 is the one shown (needs you in the CURRENT workspace, A): the pill lights up live, named in
+  // the tooltip, without a reload. Waiting for it here (rather than firing both replies and waiting once at the
+  // end) settles A1's turn fully before B1's is touched, so the two scripted sessions don't race each other.
   await makeItNeedYou(window, taskA1)
-  await makeItNeedYou(window, taskB1)
+  await expect(switcher.pill).toHaveText('1')
+  await expect(switcher.trigger).toHaveAttribute('title', 'Switch workspace — 1 task needs you')
 
+  // B1 replies too (needs you in B, elsewhere): the pill adds its own.
+  await makeItNeedYou(window, taskB1)
   await expect(switcher.pill).toHaveText('2')
   await expect(switcher.trigger).toHaveAttribute('title', 'Switch workspace — 2 tasks need you')
 
