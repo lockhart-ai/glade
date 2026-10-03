@@ -50,13 +50,13 @@
   flex-shrink: 0;
   height: 6px;
   border-radius: 3px;
-  background: var(--color-bg);
+  background: var(--color-inner-2);
   overflow: hidden;
   display: flex;
 }
 
 .barDone {
-  background: var(--color-slate);
+  background: var(--color-teal);
 }
 
 .barDoing {
