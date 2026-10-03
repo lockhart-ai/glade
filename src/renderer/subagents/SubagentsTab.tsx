@@ -1,6 +1,6 @@
 import { faEye } from '@fortawesome/free-regular-svg-icons'
 import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons'
-import { memo, useCallback, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { EpochMs, ToolEvent, Watcher } from '../../shared/domain'
 import { classNames } from '../components/classNames'
 import { Collapse, Dot, Icon, IconSize } from '../components'
@@ -122,6 +122,7 @@ const SubagentRow = memo(function SubagentRow({
       aria-label={name}
       className={classNames(styles.row, styles[status], expanded && styles.expanded)}
       data-status={status}
+      data-subagent={call.toolUseId}
     >
       <button
         type="button"
@@ -191,6 +192,14 @@ const SubagentRow = memo(function SubagentRow({
   )
 }, sameRow)
 
+/** A request to show one subagent, as picking it does: its log opens and it scrolls into view. */
+export interface SubagentShown {
+  /** Its `Agent` call's tool_use id. */
+  readonly subagentId: string
+  /** Goes up by one with every request, so asking for the same subagent again is still a new request. */
+  readonly request: number
+}
+
 export interface SubagentsTabProps {
   readonly taskId: string
   readonly events: readonly ToolEvent[]
@@ -198,6 +207,10 @@ export interface SubagentsTabProps {
   readonly watchers?: readonly Watcher[] | undefined
   /** The workspace root, so file arguments show relative to it. */
   readonly rootPath?: string | undefined
+  /** A subagent to show: its log opens, as clicking it does, and it scrolls into view. */
+  readonly focus?: SubagentShown | null | undefined
+  /** Called once the tab has shown `focus`, so its owner can clear it. */
+  readonly onFocusShown?: (() => void) | undefined
 }
 
 /**
@@ -205,13 +218,16 @@ export interface SubagentsTabProps {
  * each, running ones first. A running subagent's elapsed time ticks. Rows open and close one at a time or several at
  * once; which are open is kept for as long as the tab shows the task. A row's context menu opens its log or copies it,
  * and stops it while it runs; the tool calls in an open log have their own. What a subagent left running in the
- * background is under its log, with Stop while it's live.
+ * background is under its log, with Stop while it's live. Asked to show a subagent (a plugin opening it), it opens its
+ * log and scrolls it into view, once it's in the tab.
  */
 export function SubagentsTab({
   taskId,
   events,
   rootPath,
   watchers = NO_WATCHERS,
+  focus,
+  onFocusShown,
 }: SubagentsTabProps): React.JSX.Element {
   const subagents = useMemo(() => deriveSubagents(events, rootPath), [events, rootPath])
   const ordered = useMemo(() => orderWatchers(watchers), [watchers])
@@ -228,6 +244,27 @@ export function SubagentsTab({
       return next
     })
   }, [])
+  const scroller = useRef<HTMLDivElement>(null)
+  const focused =
+    focus === null || focus === undefined
+      ? undefined
+      : subagents.find(({ call }) => call.toolUseId === focus.subagentId)
+  const [handledFocus, setHandledFocus] = useState<number | null>(null)
+  // A new request to show a subagent that's here: open its log, as clicking it does. Done while rendering (React's
+  // pattern for adjusting state when a prop changes), so it's open in the same commit it scrolls in.
+  if (focus !== null && focus !== undefined && focused !== undefined && focus.request !== handledFocus) {
+    setHandledFocus(focus.request)
+    if (!expanded.has(focused.call.id)) setExpanded(new Set(expanded).add(focused.call.id))
+  }
+  // Then scroll it into view, and say it's shown. Until it's here (its task's log still loading), the request waits.
+  useEffect(() => {
+    if (focused === undefined) return
+    const row = [...(scroller.current?.querySelectorAll<HTMLElement>('[data-subagent]') ?? [])].find(
+      (element) => element.dataset.subagent === focused.call.toolUseId,
+    )
+    row?.scrollIntoView({ block: 'nearest' })
+    onFocusShown?.()
+  }, [focused, onFocusShown])
   const stopWatcherOf = useCallback(
     (id: string): void => {
       run(() => stopWatcher(taskId, id))
@@ -261,7 +298,7 @@ export function SubagentsTab({
 
   return (
     <ToolCallMenu taskId={taskId} rootPath={rootPath}>
-      <div className={styles.scroller}>
+      <div ref={scroller} className={styles.scroller}>
         <div role="group" className={styles.tally} aria-label="Subagents by status">
           {tally(subagents).map(({ status, label }) => (
             <span key={status} className={styles.tallyPart} data-status={status}>

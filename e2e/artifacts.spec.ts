@@ -12,6 +12,7 @@ import { dirname, join, resolve } from 'node:path'
 import { crc32, deflateSync } from 'node:zlib'
 import type { Locator } from '@playwright/test'
 import { desktop, expect, test, timeZoneAtHour } from './fixtures'
+import { expectImageLoaded } from './images'
 import {
   artifactsTab,
   chat,
@@ -63,6 +64,21 @@ function write(root: string, path: string, content: string | Buffer, minutesAgo?
     const at = new Date(Date.now() - minutesAgo * MINUTE)
     utimesSync(file, at, at)
   }
+}
+
+/** An element's box, as `getBoundingClientRect` gives it. */
+interface Box {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
+/** What a titled image's viewer is measured by: its title, the image showing, and its actions (Open in Files). */
+interface ViewerBoxes {
+  readonly title: Box
+  readonly image: Box
+  readonly actions: Box
 }
 
 /** A PNG of one colour, `width` × `height`: a large image that takes little room on disk. */
@@ -447,19 +463,23 @@ test('artifacts: the image viewer steps only through the image artifacts the lis
   await expect(artifacts.header('Older')).toHaveAttribute('aria-expanded', 'false')
   await expect.poll(() => labels(artifacts.rows)).toEqual(['Landing page, dark theme', 'Search results on mobile'])
 
-  // The viewer steps through the two images listed, round and round: never the folded one, nor the folder's others.
+  // The viewer steps through the two images listed, stopping at each end (#463): never the folded one, nor the
+  // folder's others.
   const viewer = imageViewer(window)
   await artifacts.open('Landing page, dark theme').click()
   // The viewer takes the focus a moment after it opens: until then ←, → and Esc go to the row.
   await expect(viewer.close).toBeFocused()
   await expect(viewer.title).toHaveText('Landing page, dark theme')
   await expect(viewer.pager).toHaveText('1 of 2')
+  await expect(viewer.previous).toBeDisabled()
   await window.keyboard.press('ArrowRight')
   await expect(viewer.title).toHaveText('Search results on mobile')
   await expect(viewer.pager).toHaveText('2 of 2')
+  await expect(viewer.next).toBeDisabled()
+  // → again does nothing: it's the last.
   await window.keyboard.press('ArrowRight')
-  await expect(viewer.title).toHaveText('Landing page, dark theme')
-  await expect(viewer.pager).toHaveText('1 of 2')
+  await expect(viewer.title).toHaveText('Search results on mobile')
+  await expect(viewer.pager).toHaveText('2 of 2')
   await window.keyboard.press('Escape')
   await expect(viewer.viewer).toHaveCount(0)
 
@@ -470,9 +490,142 @@ test('artifacts: the image viewer steps only through the image artifacts the lis
   // The viewer takes the focus a moment after it opens: until then ←, → and Esc go to the row.
   await expect(viewer.close).toBeFocused()
   await expect(viewer.pager).toHaveText('1 of 3')
+  await expect(viewer.previous).toBeDisabled()
+  // ← does nothing: it's already the first.
   await window.keyboard.press('ArrowLeft')
+  await expect(viewer.title).toHaveText('Landing page, dark theme')
+  await expect(viewer.pager).toHaveText('1 of 3')
+  await window.keyboard.press('ArrowRight')
+  await window.keyboard.press('ArrowRight')
   await expect(viewer.title).toHaveText('Landing page, light theme')
   await expect(viewer.pager).toHaveText('3 of 3')
+})
+
+test('artifacts: a titled image’s title sits above its own left edge for small, wide and tall images, truncating when it’s long (#460)', async ({
+  launch,
+  tempFolder,
+}) => {
+  const folder = tempFolder()
+  const root = join(folder, 'acme-gallery')
+  mkdirSync(join(root, 'screens'), { recursive: true })
+  write(root, 'screens/small.png', solidPng(160, 100))
+  write(root, 'screens/wide.png', solidPng(2200, 300))
+  write(root, 'screens/tall.png', solidPng(300, 1400))
+  const longTitle =
+    'This title is far longer than the small image is wide, so it must truncate with an ellipsis rather than ' +
+    'spill past the image’s own edge or crowd the actions'
+  const seed = join(folder, 'artifacts.json')
+  writeFileSync(
+    seed,
+    JSON.stringify({
+      workspace: { name: 'Acme Gallery', rootPath: realpathSync(root) },
+      panelTab: 'artifacts',
+      tasks: [
+        {
+          title: 'Review the new crops',
+          objective: 'Check the small, wide and tall crops read well together.',
+          status: 'All three are in Artifacts.',
+          minutesAgo: 4,
+          selected: true,
+          messages: [{ role: 'user', body: 'Share the crops.', turn: 1, minutesAgo: 10 }],
+          artifacts: [
+            { path: 'screens/tall.png', title: 'Tall portrait', minutesAgo: 6 },
+            { path: 'screens/wide.png', title: 'Wide banner', minutesAgo: 7 },
+            { path: 'screens/small.png', title: longTitle, minutesAgo: 8 },
+          ],
+        },
+      ],
+    }),
+  )
+  const glade = await launch({ seed, env: MIDDAY })
+  const { window } = glade
+  const artifacts = artifactsTab(window)
+  const viewer = imageViewer(window)
+
+  // From here on, each time the page changes (#478): a title in the document is on a loaded image, at its left edge,
+  // and an image that shows has its title. While an image loads there is nothing to place a title against, so there
+  // must be no title either (not one waiting in the middle of the window for the image to arrive), and the two then
+  // appear together, neither a frame ahead of the other.
+  const misplaced = await window.evaluateHandle(() => {
+    const found: string[] = []
+    const check = (): void => {
+      const title = document.querySelector('[data-testid="image-viewer-title"]')
+      const named = title === null ? '' : `"${title.textContent.slice(0, 24)}"`
+      const under = title?.parentElement?.querySelector('img') ?? null
+      if (title !== null && under === null) {
+        found.push(`${named} is in the document with no image`)
+      } else if (title !== null && under !== null && (!under.complete || under.naturalWidth === 0)) {
+        found.push(`${named} is in the document before its image has loaded`)
+      } else if (title !== null && under !== null) {
+        const offset = title.getBoundingClientRect().left - under.getBoundingClientRect().left
+        if (Math.abs(offset) > 1) found.push(`${named} is ${String(offset)}px from its image's left edge`)
+      }
+      for (const image of document.querySelectorAll<HTMLImageElement>('[role="dialog"] img')) {
+        const frame = image.parentElement
+        // Not the one showing, or not shown yet.
+        if (frame === null || frame.hidden || getComputedStyle(frame).visibility === 'hidden') continue
+        if (frame.querySelector('[data-testid="image-viewer-title"]') === null) {
+          found.push(`"${image.alt.slice(0, 24)}" is showing without its title`)
+        }
+      }
+    }
+    new MutationObserver(check).observe(document.body, { subtree: true, childList: true, attributes: true })
+    return found
+  })
+
+  /**
+   * The title sits just above the named image, sharing its left edge, and is never wider than it (#460). Gives back
+   * what it measured: the title's box, the image's and the actions' (Open in Files, their left end).
+   */
+  const assertTitleAboveImage = async (name: string): Promise<ViewerBoxes> => {
+    // Loaded and at its size (#478): only then is there an image to measure the title against.
+    await expectImageLoaded(viewer.shown(name))
+    await expect(viewer.title).toHaveText(name)
+    // All three from the one layout, rather than read one by one with the page free to change in between.
+    const measured = await viewer.viewer.evaluate((dialog, alt): ViewerBoxes => {
+      const box = (element: Element | null | undefined): Box => {
+        if (element === null || element === undefined) throw new Error('No box')
+        const { x, y, width, height } = element.getBoundingClientRect()
+        return { x, y, width, height }
+      }
+      const title = dialog.querySelector('[data-testid="image-viewer-title"]')
+      return {
+        title: box(title),
+        image: box(Array.from(title?.parentElement?.querySelectorAll('img') ?? []).find((each) => each.alt === alt)),
+        actions: box(dialog.querySelector('button[aria-label="Open in Files"]')),
+      }
+    }, name)
+    const { title, image } = measured
+    expect(Math.abs(title.x - image.x)).toBeLessThanOrEqual(1)
+    expect(title.y + title.height).toBeLessThanOrEqual(image.y)
+    expect(title.width).toBeLessThanOrEqual(image.width + 1)
+    return measured
+  }
+
+  // Small, with a long title: it truncates with an ellipsis rather than spilling past the image's own edge.
+  await artifacts.open(longTitle).click()
+  await expect(viewer.viewer).toBeVisible()
+  await expect(viewer.pager).toHaveText('3 of 3')
+  const small = await assertTitleAboveImage(longTitle)
+  // The image at its own size, with its border, and the title exactly as wide.
+  expect(small.image).toMatchObject({ width: 162, height: 102 })
+  expect(small.title.width).toBe(162)
+  expect(await viewer.title.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+  // Never crowds the actions, over on the window's other side.
+  expect(small.title.x + small.title.width).toBeLessThanOrEqual(small.actions.x)
+
+  // Wide: the title still shares its left edge and sits above it, at its own (width-capped) size.
+  await window.keyboard.press('ArrowLeft')
+  await expect(viewer.pager).toHaveText('2 of 3')
+  await assertTitleAboveImage('Wide banner')
+
+  // Tall: same, at its own (height-capped) size.
+  await window.keyboard.press('ArrowLeft')
+  await expect(viewer.pager).toHaveText('1 of 3')
+  await assertTitleAboveImage('Tall portrait')
+
+  // At no point on the way was a title in the document off its image.
+  expect(await misplaced.jsonValue()).toEqual([])
 })
 
 test('artifacts: links the agent adds and you add by hand, opened in the browser, and the Files · Links filter (#407)', async ({

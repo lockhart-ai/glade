@@ -244,7 +244,7 @@ describe('a turn', () => {
     expect(JSON.stringify(view().sent)).not.toMatch(/N\+1/)
   })
 
-  it('with a background subagent in a task you are not viewing: it needs you once the subagent ends, not before (#430)', async () => {
+  it('with a background subagent in a task you are not viewing: the reply needs you straight away, subagent or not (#461)', async () => {
     setUiState(database.db, { key: UiStateKey.SelectedTaskId, value: 'another-task' })
     await send('Find why checkout is slow.')
     backend.session.emit(
@@ -260,17 +260,16 @@ describe('a turn', () => {
     backend.session.emit(...sdk.subagentEnded('toolu_q', 'aq1', 'completed', 'An N+1 in load_cart.'))
     await settle()
 
-    // The reply made it unread, but its subagent still runs: every update says it doesn't need you.
+    // The reply made it unread, and its subagent still runs, but that doesn't mask it needing you (#461).
     expect(unreadWhileRunning).toMatchObject({ unread: true, backgroundWork: true, activity: 'waiting' })
     expect(running.filter((line) => line.startsWith('task.updated'))).toEqual([
       'task.updated (untitled) working',
-      'task.updated (untitled) waiting',
+      'task.updated (untitled) waiting needs you',
     ])
-    // The subagent ends, and nothing else changes the task: it's told again, now needing you.
+    // The subagent ends: it already needed you, so the task isn't told again, only the subagent itself.
     expect(lines().slice(running.length)).toEqual([
       'call Agent Profile the checkout queries done',
       'subagent.updated Profile the checkout queries done: null',
-      'task.updated (untitled) waiting needs you',
     ])
     expect(getTask(database.db, task.id)).toMatchObject({ unread: true, backgroundWork: false })
 

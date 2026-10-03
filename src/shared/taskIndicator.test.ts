@@ -23,7 +23,7 @@ it.each<[string, Partial<AttentionFields>, TaskIndicator]>([
   // A paused turn is still under way (docs/design/html/17-usage-limit.html).
   ['paused', { activity: TaskActivity.Paused }, TaskIndicator.Working],
   ['with a read reply and background work', { backgroundWork: true }, TaskIndicator.Working],
-  ['with an unread reply and background work', { unread: true, backgroundWork: true }, TaskIndicator.Working],
+  ['with an unread reply and background work', { unread: true, backgroundWork: true }, TaskIndicator.Waiting],
   ['stopped by an error', { activity: TaskActivity.Error }, TaskIndicator.Error],
   ['stopped by an error, with a question open', { activity: TaskActivity.Error, asking: true }, TaskIndicator.Error],
   ['never run', { sessionId: null }, TaskIndicator.Idle],

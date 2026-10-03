@@ -94,7 +94,8 @@ describe('needsYouReason', () => {
     ],
     ['asking, the task read', task('t', { asking: true, unread: false }), NeedsYouReason.Asking],
     ['with a reply you have read', task('t', { unread: false }), null],
-    ['with an unread reply, its subagents still running', task('t', { backgroundWork: true }), null],
+    ['with an unread reply, its subagents still running', task('t', { backgroundWork: true }), NeedsYouReason.Reply],
+    ['with a read reply, its subagents still running', task('t', { backgroundWork: true, unread: false }), null],
     [
       'asking while its subagents run',
       task('t', { backgroundWork: true, unread: false, asking: true }),
@@ -127,7 +128,7 @@ describe('menuBarSnapshot', () => {
     ).toEqual(EMPTY_MENU_BAR_SNAPSHOT)
   })
 
-  it('lists a task whose turn ended under Working while its background work runs, read or not, with no pause', () => {
+  it('lists a task whose turn ended under Working while its background work runs, only once its reply is read', () => {
     const snapshot = snapshotOf(
       [
         task('read', { unread: false, backgroundWork: true, status: 'Waiting on two subagents', pause: PAUSE }),
@@ -135,7 +136,8 @@ describe('menuBarSnapshot', () => {
       ],
       { turnStartedAt: (taskId) => (taskId === 'read' ? 4_000 : null) },
     )
-    expect(snapshot.needsYou).toEqual([])
+    // The unread one needs you though its subagents still run (#461); only the read one is working.
+    expect(snapshot.needsYou.map(({ taskId, reason }) => [taskId, reason])).toEqual([['unread', NeedsYouReason.Reply]])
     expect(snapshot.working).toEqual([
       {
         taskId: 'read',
@@ -147,31 +149,21 @@ describe('menuBarSnapshot', () => {
         pause: null,
         startedAt: 4_000,
       },
-      {
-        taskId: 'unread',
-        title: 'Task unread',
-        workspaceId: 'w1',
-        workspaceName: 'Acme API',
-        status: '',
-        todos: null,
-        pause: null,
-        startedAt: null,
-      },
     ] satisfies WorkingItem[])
   })
 
-  it('moves a task from Working to Needs you when its background work ends on an unread reply, a question or an error', () => {
+  it('needs you for an unread reply, a question or an error while background work runs, and once it ends on a read reply', () => {
     const running = task('t', { backgroundWork: true })
-    expect(snapshotOf([running]).working.map(({ taskId }) => taskId)).toEqual(['t'])
-    expect(snapshotOf([{ ...running, backgroundWork: false }]).needsYou.map(({ reason }) => reason)).toEqual([
-      NeedsYouReason.Reply,
-    ])
+    // Unread with background work still running already needs you (#461).
+    expect(snapshotOf([running]).needsYou.map(({ reason }) => reason)).toEqual([NeedsYouReason.Reply])
     expect(snapshotOf([{ ...running, asking: true }]).needsYou.map(({ reason }) => reason)).toEqual([
       NeedsYouReason.Asking,
     ])
     expect(snapshotOf([{ ...running, activity: TaskActivity.Error }]).needsYou.map(({ reason }) => reason)).toEqual([
       NeedsYouReason.Error,
     ])
+    // Read, with background work still running: working, not needing you.
+    expect(snapshotOf([{ ...running, unread: false }]).working.map(({ taskId }) => taskId)).toEqual(['t'])
     // Read, and nothing left running: in neither list.
     expect(snapshotOf([{ ...running, backgroundWork: false, unread: false }])).toEqual(EMPTY_MENU_BAR_SNAPSHOT)
   })
@@ -300,9 +292,14 @@ describe('menuBarIcon', () => {
     expect(menuBarIcon(both)).toEqual({ title: '1' })
   })
 
-  it('leaves out replies you have read, and tasks still working in the background', () => {
-    const tasks = [task('read', { unread: false }), task('bg', { backgroundWork: true }), task('unread')]
-    expect(menuBarIcon(snapshotOf(tasks))).toEqual({ title: '1' })
+  it('leaves out replies you have read, and a read reply still working in the background, but counts an unread one working in the background too', () => {
+    const tasks = [
+      task('read', { unread: false }),
+      task('read-bg', { unread: false, backgroundWork: true }),
+      task('bg', { backgroundWork: true }),
+      task('unread'),
+    ]
+    expect(menuBarIcon(snapshotOf(tasks))).toEqual({ title: '2' })
   })
 
   it('counts as the tasks change: up, down, and to nothing', () => {

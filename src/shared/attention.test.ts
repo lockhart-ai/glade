@@ -51,7 +51,7 @@ describe('taskAttention', () => {
     ['paused, since it resumes on its own', { ...READ, activity: TaskActivity.Paused }, Working],
     // Background work, once its own turn has ended.
     ['with a read reply and background work running', BACKGROUND, Working],
-    ['with an unread reply and background work running', { ...BACKGROUND, unread: true }, Working],
+    ['with an unread reply and background work running', { ...BACKGROUND, unread: true }, NeedsYou],
     ['asking while background work runs', { ...BACKGROUND, asking: true }, NeedsYou],
     ['waiting on your OK while background work runs', { ...BACKGROUND, awaitingPermission: true }, NeedsYou],
     ['stopped by an error while background work runs', { ...BACKGROUND, activity: TaskActivity.Error }, NeedsYou],
@@ -72,16 +72,21 @@ describe('taskAttention', () => {
   })
 
   it('follows a reply through being read, marked unread, and background work finishing', () => {
-    // A reply lands while subagents still run: unread, but working.
+    // A reply lands while subagents still run: unread needs you, background work or not (#461).
     const replied: AttentionFields = { ...BACKGROUND, unread: true }
-    expect(taskAttention(replied)).toBe(Working)
-    // They finish: the unread reply needs you.
+    expect(taskAttention(replied)).toBe(NeedsYou)
+    // Background work ending while it's still unread changes nothing: it already needed you.
     const finished: AttentionFields = { ...replied, backgroundWork: false }
     expect(taskAttention(finished)).toBe(NeedsYou)
-    // You open the task: read, so it no longer does.
+    // You open the task: read, and background work has ended, so it's idle.
     const opened: AttentionFields = { ...finished, unread: false }
     expect(taskAttention(opened)).toBe(Idle)
     // Mark as unread: it needs you again.
     expect(taskAttention({ ...opened, unread: true })).toBe(NeedsYou)
+    // A read reply with background work running counts as working, not idle or needing you.
+    const stillRunning: AttentionFields = { ...opened, backgroundWork: true }
+    expect(taskAttention(stillRunning)).toBe(Working)
+    // A reply arriving while it's working in the background needs you straight away.
+    expect(taskAttention({ ...stillRunning, unread: true })).toBe(NeedsYou)
   })
 })

@@ -40,7 +40,7 @@ current binding. The menu bar answers the keys of its items; the window listens 
 | | Kill process | ⌃C |
 | Menus and dialogs | Move / choose / close | ↑↓ / ↵ / Esc |
 | | Select an answer in a question card | 1 – 9 |
-| | Previous / next image in the image viewer | ←→ |
+| | Previous / next image in the image viewer, stopping at the first and last | ←→ |
 
 ## The Files tab's Browse tab
 

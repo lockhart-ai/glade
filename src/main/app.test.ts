@@ -1006,6 +1006,7 @@ describe('startApp', () => {
     expect(window.webContents.send).not.toHaveBeenCalledWith(EVENT_CHANNEL, {
       type: EventType.TaskOpenRequested,
       taskId: replied,
+      subagentId: null,
     })
   })
 
@@ -1017,6 +1018,7 @@ describe('startApp', () => {
     expect(onlyWindow().webContents.send).toHaveBeenLastCalledWith(EVENT_CHANNEL, {
       type: EventType.TaskOpenRequested,
       taskId: replied,
+      subagentId: null,
     })
   })
 
@@ -1033,6 +1035,7 @@ describe('startApp', () => {
     expect(window.webContents.send).toHaveBeenLastCalledWith(EVENT_CHANNEL, {
       type: EventType.TaskOpenRequested,
       taskId: replied,
+      subagentId: null,
     })
   })
 
@@ -1982,6 +1985,7 @@ describe('startApp in e2e mode', () => {
     expect(window.webContents.send).toHaveBeenLastCalledWith(EVENT_CHANNEL, {
       type: EventType.TaskOpenRequested,
       taskId: replied,
+      subagentId: null,
     })
   })
 
@@ -2198,7 +2202,11 @@ describe('startApp: Glade in the menu bar', () => {
     expect(main.show).toHaveBeenCalledOnce()
     expect(main.focus).toHaveBeenCalledOnce()
     expect(electron.app.focus).toHaveBeenCalledWith({ steal: true })
-    expect(main.webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, { type: EventType.TaskOpenRequested, taskId })
+    expect(main.webContents.send).toHaveBeenCalledWith(EVENT_CHANNEL, {
+      type: EventType.TaskOpenRequested,
+      taskId,
+      subagentId: null,
+    })
     expect(popover.webContents.send).not.toHaveBeenCalledWith(
       EVENT_CHANNEL,
       expect.objectContaining({ type: EventType.TaskOpenRequested }),

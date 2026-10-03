@@ -1,0 +1,46 @@
+{
+  "workspace": { "name": "Acme API", "rootPath": "/Users/sample/code/api" },
+  "tasks": [
+    {
+      "title": "Fix the flaky date test",
+      "status": "Running the timezone tests",
+      "minutesAgo": 1,
+      "selected": true
+    },
+    {
+      "title": "Migrate the billing webhooks",
+      "status": "Checking the retry rules",
+      "activity": "working",
+      "minutesAgo": 0,
+      "startedMinutesAgo": 6,
+      "workspace": { "name": "Billing", "rootPath": "/Users/sample/code/billing" },
+      "messages": [
+        { "role": "user", "body": "Move the billing webhooks to the new endpoint.", "turn": 1, "minutesAgo": 6 }
+      ],
+      "toolEvents": [
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": { "description": "Check the webhook retries", "prompt": "Check how failed webhooks retry." },
+          "turn": 1,
+          "minutesAgo": 5,
+          "toolUseId": "kitten-retries"
+        },
+        {
+          "kind": "tool_call",
+          "name": "Agent",
+          "input": { "description": "List the endpoints", "prompt": "List every webhook endpoint." },
+          "turn": 1,
+          "minutesAgo": 4,
+          "toolUseId": "kitten-endpoints"
+        }
+      ]
+    },
+    {
+      "title": "Draft the release notes",
+      "status": "Drafted the 2.4 notes",
+      "state": "done",
+      "minutesAgo": 30
+    }
+  ]
+}
