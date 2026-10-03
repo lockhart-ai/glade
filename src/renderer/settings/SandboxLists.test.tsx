@@ -728,7 +728,8 @@ describe('Settings › Agent › Sandbox', () => {
       expect(requests(invoke, CommandName.SandboxSetFolderAccess)).toEqual([
         { target: GLADE, path: '/Users/sam/tools/tool-149', access: FolderAccess.ReadWrite },
       ])
-    })
+      // Three hundred rows take jsdom a second or two, and several times that on a loaded machine.
+    }, 30_000)
   })
 
   it('follows main’s broadcasts of the Glade-wide grants, and leaves a workspace’s out', async () => {

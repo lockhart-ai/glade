@@ -61,15 +61,18 @@ export function SettingSelect<Value extends string>({
         {chosen}
         <Icon icon={faChevronDown} size={IconSize.Small} />
       </button>
-      <Menu
-        label={menuLabel}
-        entries={entries}
-        anchor={{ kind: MenuAnchorKind.Element, element: anchor, placement: Placement.BottomEnd }}
-        open={anchor !== null}
-        onClose={() => {
-          setAnchor(null)
-        }}
-      />
+      {/* Mounted only while it's open: a list of hundreds of folders has a select on every row. */}
+      {anchor !== null && (
+        <Menu
+          label={menuLabel}
+          entries={entries}
+          anchor={{ kind: MenuAnchorKind.Element, element: anchor, placement: Placement.BottomEnd }}
+          open
+          onClose={() => {
+            setAnchor(null)
+          }}
+        />
+      )}
     </>
   )
 }
